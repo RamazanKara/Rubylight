@@ -299,6 +299,17 @@ jobs:
             if dpkg -s libva2 >/dev/null 2>&1; then echo "the window check would not use the fallback libva"; exit 1; fi
             bash /check-start.sh "/dist/$appimage"
             echo "ubuntu 22.04: AppImage passed"'
+      # The Flatpak bundle (Steam Deck and other handhelds; packaging/linux/flatpak) from the same
+      # tar.gz on the freedesktop 24.08 runtime from Flathub, installed, started and removed in a
+      # clean Fedora (privileged: bubblewrap needs its namespaces there).
+      - name: Build the Flatpak bundle
+        run: |
+          sudo apt-get install -y -qq --no-install-recommends flatpak flatpak-builder >/dev/null
+          bash protocol/desktop/packaging/linux/flatpak/build-bundle.sh "dist/nightjar-desktop-$VERSION-linux-x86_64.tar.gz"
+      - name: Install and start the Flatpak bundle
+        run: |
+          docker run --rm --privileged -e VERSION -v "$PWD/dist:/dist:ro" -v "$PWD/protocol/desktop/packaging/linux:/linux:ro" "$FEDORA_IMAGE" \
+            bash /linux/flatpak/check-bundle.sh "/dist/nightjar-desktop-$VERSION-x86_64.flatpak" "$VERSION" /linux/check-start.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: desktop-linux
@@ -307,6 +318,7 @@ jobs:
             dist/*.deb
             dist/*.rpm
             dist/*.AppImage
+            dist/*.flatpak
           if-no-files-found: error
 
   desktop-windows:
@@ -598,7 +610,7 @@ jobs:
           merge-multiple: true
       - name: Check the desktop packages
         run: |
-          for file in "desktop/nightjar-desktop-$VERSION-linux-x86_64".{tar.gz,deb,rpm} "desktop/nightjar-desktop-$VERSION-x86_64.AppImage" \
+          for file in "desktop/nightjar-desktop-$VERSION-linux-x86_64".{tar.gz,deb,rpm} "desktop/nightjar-desktop-$VERSION-x86_64.AppImage" "desktop/nightjar-desktop-$VERSION-x86_64.flatpak" \
               "desktop/nightjar-desktop-$VERSION-windows-x86_64.zip" "desktop/nightjar-desktop-$VERSION-windows-x86_64-setup.exe"; do
             test -s "$file" || { echo "::error::$file is missing from the desktop artifacts"; exit 1; }
           done

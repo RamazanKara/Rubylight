@@ -3,6 +3,8 @@ package com.limelight.preferences;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -212,6 +214,61 @@ public class TvSettingsFocusTest {
         assertEquals(selected, keyAt(list, list.getCheckedItemPosition()));
     }
 
+    /**
+     * nightjar#7: Presets or Profiles had the ring while the section on the right stayed amber, which read as two
+     * selections. They have no page to show, so while one has focus it is the only highlight; the mark is back as soon as
+     * focus is on a section or in the right pane.
+     */
+    @Test
+    public void aRowWithoutAPageIsTheOnlyHighlightWhileItHasFocus() {
+        StreamSettings screen = open();
+        ListView list = sections(screen);
+        View bar = screen.findViewById(R.id.settings_rail_bar);
+        android.app.Fragment pane = screen.getFragmentManager().findFragmentById(R.id.stream_settings);
+        int input = StreamSettings.RootFragment.positionOf(list, "input");
+        assertEquals("the section it opens on is marked", input, list.getCheckedItemPosition());
+        assertEquals(View.VISIBLE, bar.getVisibility());
+
+        for (String key : new String[] {"stream_presets", "stream_profiles"}) {
+            goToRow(screen, key);
+            assertEquals(key + ": no row is marked", ListView.INVALID_POSITION, list.getCheckedItemPosition());
+            assertEquals(key + ": no bar", View.INVISIBLE, bar.getVisibility());
+            for (int i = 0; i < list.getChildCount(); i++) assertFalse(key + ": row " + i, list.getChildAt(i).isActivated());
+            assertSame(key + ": the pane stays", pane, screen.getFragmentManager().findFragmentById(R.id.stream_settings));
+        }
+
+        // Focus on the pane's section again: at once, as nothing has to load.
+        goToRow(screen, "input");
+        assertEquals(input, list.getCheckedItemPosition());
+        assertEquals(View.VISIBLE, bar.getVisibility());
+        assertSame(pane, screen.getFragmentManager().findFragmentById(R.id.stream_settings));
+
+        // Right from a row without a page: focus is in the pane, whose section is marked again.
+        goToRow(screen, "stream_profiles");
+        assertEquals(ListView.INVALID_POSITION, list.getCheckedItemPosition());
+        press(screen, KeyEvent.KEYCODE_DPAD_RIGHT);
+        assertFalse(list.hasFocus());
+        assertEquals(input, list.getCheckedItemPosition());
+        assertEquals(View.VISIBLE, bar.getVisibility());
+    }
+
+    /** Passing a section on the way to Presets must not load it under the Presets row: its preview is dropped. */
+    @Test
+    public void reachingARowWithoutAPageDropsThePreviewOnItsWay() {
+        StreamSettings screen = open();
+        android.app.Fragment pane = screen.getFragmentManager().findFragmentById(R.id.stream_settings);
+        screen.sectionRowSelected("video");
+        screen.sectionRowSelected("stream_profiles");
+        ShadowLooper.idleMainLooper(1, TimeUnit.SECONDS);
+        settle(screen);
+        assertSame(pane, screen.getFragmentManager().findFragmentById(R.id.stream_settings));
+        // Without the row in between, the same preview does load: the pause above is long enough to tell.
+        screen.sectionRowSelected("video");
+        ShadowLooper.idleMainLooper(1, TimeUnit.SECONDS);
+        settle(screen);
+        assertNotSame(pane, screen.getFragmentManager().findFragmentById(R.id.stream_settings));
+    }
+
     @Test
     public void thePresetsRowIsAsCompactAsASectionAndSelectOpensTheList() {
         StreamSettings screen = open();
@@ -339,6 +396,10 @@ public class TvSettingsFocusTest {
         assertTrue("the rail's focused row is filled", android.graphics.Color.alpha(rail.getPixel(w / 2, h / 2)) > 0);
         assertEquals("with the right pane's fill", row.getPixel(w / 2, h / 2), rail.getPixel(w / 2, h / 2));
 
+        // Focus in the right pane: the rail shows only the mark of the section it opened.
+        goToRow(screen, "input");
+        press(screen, KeyEvent.KEYCODE_DPAD_RIGHT);
+        assertFalse(list.hasFocus());
         int input = StreamSettings.RootFragment.positionOf(list, "input");
         assertEquals(input, list.getCheckedItemPosition());
         View shown = list.getChildAt(input - list.getFirstVisiblePosition());

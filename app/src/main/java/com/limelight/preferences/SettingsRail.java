@@ -84,11 +84,15 @@ final class SettingsRail implements ViewTreeObserver.OnPreDrawListener {
         this.list = list;
     }
 
-    /** The current section is now at {@code position} in the rail's list; the bar slides there unless this is its first place. */
+    /**
+     * The current section is now at {@code position} in the rail's list; the bar slides there unless this is its first place.
+     * At -1 no row is marked: the bar goes at once, and comes back on its next row without sliding.
+     */
     void mark(int position) {
         if (position == this.position) return;
         glide = this.position >= 0 && bar.getVisibility() == View.VISIBLE && !Motion.reduced(activity);
         this.position = position;
+        if (position < 0 && slide != null) slide.cancel();
         rail.invalidate();
     }
 

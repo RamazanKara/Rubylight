@@ -176,6 +176,7 @@ public class StreamSettings extends NightjarActivity {
     /** The row named by searchResultKey takes focus once selected: a deep link, or a search result picked in the content pane. */
     private boolean focusRow;
     private String previewSection;
+    private boolean firstFocusPlaced;
     private boolean swallowReturnKeyUp;
     private boolean swallowEnterKeyUp;
     /** The row each section's pane had selected when focus last left it, so entering it again returns there. */
@@ -323,7 +324,8 @@ public class StreamSettings extends NightjarActivity {
 
     /** Marks the section the right pane shows in the list of sections. */
     private void markSection() {
-        String row = markedRow();
+        placeFirstFocus();
+        String row = onRowWithoutPage() ? null : markedRow();
         android.app.Fragment fragment = getFragmentManager().findFragmentById(R.id.settings_sections);
         if (twoPane && fragment instanceof RootFragment) ((RootFragment) fragment).mark(row);
         if (rail != null) {
@@ -331,6 +333,29 @@ public class StreamSettings extends NightjarActivity {
             rail.setList(list);
             rail.mark(list == null ? -1 : RootFragment.positionOf(list, row));
         }
+    }
+
+    /** With the D-pad, the list of sections starts on the section shown, not on its first row: one row is highlighted from the start. */
+    private void placeFirstFocus() {
+        ListView list = twoPane && !firstFocusPlaced ? listOf(R.id.settings_sections) : null;
+        if (list == null || list.getAdapter() == null) return;
+        int position = RootFragment.positionOf(list, markedRow());
+        if (position < 0) return;
+        firstFocusPlaced = true;
+        if (!list.isInTouchMode()) list.setSelection(position);
+    }
+
+    /**
+     * Focus is on a row of the list of sections with no page to show on the right (Presets, Profiles, Search): that row
+     * is then the one highlight, so no section is marked beside it (nightjar#7: Presets ringed and Video amber read as two
+     * selections). The mark comes back as soon as focus is on a section or leaves the list.
+     */
+    private boolean onRowWithoutPage() {
+        ListView list = twoPane ? listOf(R.id.settings_sections) : null;
+        // In touch mode no row shows a ring, whatever the list has selected.
+        if (list == null || list.isInTouchMode() || !list.hasFocus() || !(list.getSelectedItem() instanceof Preference)) return false;
+        String key = ((Preference) list.getSelectedItem()).getKey();
+        return !SECTIONS.containsKey(key) && !key.equals(markedRow());
     }
 
     /**
@@ -376,6 +401,20 @@ public class StreamSettings extends NightjarActivity {
         // Back on the section already shown: nothing is pending any more.
         previewSection = key.equals(section) ? null : key;
         if (previewSection != null) navigationHandler.postDelayed(sectionPreview, 100);
+    }
+
+    /**
+     * The D-pad moved to a row of the list of sections. A row without a page drops a preview still on its way, or the pane
+     * would change under it. While a preview is on its way the mark waits for it, and moves with the pane.
+     */
+    void sectionRowSelected(String key) {
+        if (SECTIONS.containsKey(key)) {
+            previewSection(key);
+        } else {
+            navigationHandler.removeCallbacks(sectionPreview);
+            previewSection = null;
+        }
+        if (previewSection == null) markSection();
     }
 
     /** Opens a section from its row; {@code enter} moves focus into it, which is what Center does after the D-pad. */
@@ -1150,14 +1189,15 @@ public class StreamSettings extends NightjarActivity {
                     @Override
                     public void onItemSelected(android.widget.AdapterView<?> parent, View row, int position, long id) {
                         Object item = parent.getItemAtPosition(position);
-                        if (list.hasFocus() && item instanceof Preference && SECTIONS.containsKey(((Preference) item).getKey())) {
-                            activity.previewSection(((Preference) item).getKey());
+                        if (list.hasFocus() && item instanceof Preference) {
+                            activity.sectionRowSelected(((Preference) item).getKey());
                         }
                     }
 
                     @Override
                     public void onNothingSelected(android.widget.AdapterView<?> parent) { }
                 });
+                list.setOnFocusChangeListener((focused, hasFocus) -> activity.markSection());
             }
             return view;
         }
@@ -1189,12 +1229,14 @@ public class StreamSettings extends NightjarActivity {
             return -1;
         }
 
-        /** Highlights the row of the section shown in the other pane. */
+        /** Highlights the row of the section shown in the other pane; a null section highlights none. */
         void mark(String section) {
             ListView list = getView() == null ? null : (ListView) getView().findViewById(android.R.id.list);
             if (list == null || list.getAdapter() == null) return;
             int position = positionOf(list, section);
-            if (position >= 0) list.setItemChecked(position, true);
+            int checked = list.getCheckedItemPosition();
+            if (position >= 0 && position != checked) list.setItemChecked(position, true);
+            else if (section == null && checked >= 0) list.setItemChecked(checked, false);
         }
 
         @Override

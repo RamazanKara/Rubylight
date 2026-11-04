@@ -182,6 +182,19 @@ pub fn direct_input(dlls: &[String]) -> bool {
     dlls.iter().any(|dll| DIRECT_INPUT.contains(&dll.as_str()))
 }
 
+/// Which of `dlls` ([`imported_dlls`]) read a pad. GameInput, unlike XInput,
+/// goes quiet by itself for a program not in front, so a game reading only
+/// that stays without its pad there whatever its hooks say. A game may also
+/// load them as it runs, which its tables don't show.
+pub fn pad_dlls(dlls: &[String]) -> Vec<&str> {
+    dlls.iter()
+        .map(String::as_str)
+        .filter(|dll| {
+            dll.starts_with("xinput") || dll.starts_with("gameinput") || DIRECT_INPUT.contains(dll)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,6 +279,20 @@ mod tests {
         let delayed = dlls(program(&["KERNEL32.dll"], &["DINPUT.dll"])).unwrap();
         assert!(direct_input(&delayed));
         assert_eq!(dlls(program(&[], &[])).unwrap(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_dlls_a_program_reads_a_pad_through_are_told_apart() {
+        let imports = dlls(program(
+            &["KERNEL32.dll", "XINPUT1_4.dll", "USER32.dll"],
+            &["GameInput.dll", "DINPUT8.dll"],
+        ))
+        .unwrap();
+        assert_eq!(
+            pad_dlls(&imports),
+            ["xinput1_4.dll", "gameinput.dll", "dinput8.dll"]
+        );
+        assert!(pad_dlls(&["kernel32.dll".to_string()]).is_empty());
     }
 
     #[test]

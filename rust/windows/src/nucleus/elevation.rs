@@ -96,6 +96,11 @@ pub fn reads_direct_input(exe: &Path, token: Option<&OwnedHandle>) -> Result<boo
         let file = std::fs::File::open(exe)?;
         let dlls =
             butterpollo_core::nucleus::imports::imported_dlls(&mut std::io::BufReader::new(file))?;
+        tracing::info!(
+            exe = %exe.display(),
+            pads = ?butterpollo_core::nucleus::imports::pad_dlls(&dlls),
+            "Nucleus Co-op: the DLLs the game imports to read a pad"
+        );
         Ok(butterpollo_core::nucleus::imports::direct_input(&dlls))
     })
     .with_context(|| format!("reading the DLLs {} imports", exe.display()))

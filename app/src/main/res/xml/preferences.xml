@@ -508,7 +508,6 @@
             android:text="%" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_vibrate_osc"
-            android:dependency="checkbox_show_onscreen_controls"
             android:title="@string/title_checkbox_vibrate_osc"
             android:defaultValue="true" />
         <com.limelight.preferences.MaterialSwitchPreference

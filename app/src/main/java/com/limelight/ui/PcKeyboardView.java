@@ -36,7 +36,7 @@ public final class PcKeyboardView extends View {
     private final Runnable ticker = this::tick;
     private final float gap;
     private float unitX, unitY;
-    private boolean ticking;
+    private boolean ticking, haptics = true;
     private int heightLimit = Integer.MAX_VALUE;
 
     public PcKeyboardView(Context context, PcKeyboardController controller) {
@@ -49,6 +49,11 @@ public final class PcKeyboardView extends View {
         text.setTypeface(Typeface.DEFAULT_BOLD);
         setFocusable(false);
         setContentDescription(context.getString(R.string.pc_keyboard_title));
+    }
+
+    /** Whether a key going down vibrates: the stream's Vibrate on press. */
+    public void setHaptics(boolean haptics) {
+        this.haptics = haptics;
     }
 
     /** Redraw, and keep the repeat and navigation timer running while something needs it. */
@@ -193,7 +198,7 @@ public final class PcKeyboardView extends View {
                 PcKey key = keyAt(event.getX(index), event.getY(index));
                 if (key != null) {
                     controller.touchDown(key, event.getPointerId(index), event.getEventTime());
-                    Haptics.perform(this, Haptics.Kind.KEY);
+                    if (haptics) Haptics.perform(this, Haptics.Kind.KEY);
                     changed();
                 }
                 return true;

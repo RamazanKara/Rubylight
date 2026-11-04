@@ -36,7 +36,7 @@ public final class DesktopTrackpad extends View {
     private final float slop;
     private final boolean[] pulsed = new boolean[6];
     private final Runnable[] releases = new Runnable[6];
-    private boolean active, ignored, moved, wasTwoFinger;
+    private boolean active, ignored, moved, wasTwoFinger, haptics = true;
     private float lastX, lastY, distance;
     private long downTime;
 
@@ -64,6 +64,11 @@ public final class DesktopTrackpad extends View {
                 }
             };
         }
+    }
+
+    /** Whether a tap's click vibrates: the stream's Vibrate on press. */
+    public void setHaptics(boolean haptics) {
+        this.haptics = haptics;
     }
 
     @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
@@ -202,6 +207,7 @@ public final class DesktopTrackpad extends View {
         releases[button].run();
         pulsed[button] = true;
         sink.mouseButton(button, true);
+        if (haptics) Haptics.perform(this, Haptics.Kind.CLICK);
         handler.postDelayed(releases[button], 100);
     }
 

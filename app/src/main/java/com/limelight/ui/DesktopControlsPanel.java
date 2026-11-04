@@ -60,7 +60,7 @@ public class DesktopControlsPanel extends LinearLayout {
     private String bank;
     private LinearLayout header;
     private HeaderPicker headerPicker = HeaderPicker.NONE;
-    private boolean wide;
+    private boolean wide, haptics = true;
     private DesktopTrackpad trackpad;
     private final Set<Integer> selectedModifiers = new LinkedHashSet<>();
     private final List<MaterialButton> modifierButtons = new ArrayList<>();
@@ -533,6 +533,7 @@ public class DesktopControlsPanel extends LinearLayout {
             @Override public void scroll(float vertical, float horizontal) { sink.scroll(vertical, horizontal); }
             @Override public void mouseButton(int button, boolean down) { mouse(button, down, true); }
         });
+        trackpad.setHaptics(haptics);
         pad.addView(trackpad, new LayoutParams(LayoutParams.MATCH_PARENT, 0, 1));
         if (config.mouseButtons) {
             LinearLayout buttons = new LinearLayout(getContext());
@@ -565,6 +566,7 @@ public class DesktopControlsPanel extends LinearLayout {
                     pointer[0] = event.getPointerId(0);
                     view.setPressed(true);
                     mouse(code, true, false);
+                    if (haptics) Haptics.perform(view, Haptics.Kind.CLICK);
                     return true;
                 case MotionEvent.ACTION_UP:
                     mouse(code, false, false);
@@ -596,6 +598,12 @@ public class DesktopControlsPanel extends LinearLayout {
         (fromPad ? padHeld : buttonHeld)[button] = down;
         boolean after = buttonHeld[button] || padHeld[button];
         if (before != after) sink.mouseButton(button, after);
+    }
+
+    /** Whether the trackpad's taps and the mouse buttons vibrate: the stream's Vibrate on press. */
+    public void setHaptics(boolean haptics) {
+        this.haptics = haptics;
+        if (trackpad != null) trackpad.setHaptics(haptics);
     }
 
     public void releaseInputs() {

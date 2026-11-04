@@ -456,6 +456,40 @@ public class GameKeyboardOverlayTest {
         assertTrue(downs >= 3);
     }
 
+    /** nightjar#61: the modern controller's WASD stick sends keys the way the PC keyboard does, and none stays held. */
+    @Test
+    public void theWasdStickSendsItsKeysLikeThePcKeyboardAndTheyGoUpWithTheRest() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = pcKeyboardGame(connection);
+        game.prefConfig.oscStyle = PreferenceConfiguration.OSC_STYLE_MODERN;
+        ReflectionHelpers.setField(game, "app", new com.limelight.nvstream.http.NvApp("Game", 7, false));
+        game.showOnscreenController();
+        assertNotNull(game.modernController);
+        // The controller's key sink, as its WASD stick uses it: W, then D for the diagonal.
+        Object keys = ReflectionHelpers.getField(game.modernController, "keys");
+        ReflectionHelpers.callInstanceMethod(keys, "key", ReflectionHelpers.ClassParameter.from(int.class, 0x57),
+                ReflectionHelpers.ClassParameter.from(boolean.class, true));
+        ReflectionHelpers.callInstanceMethod(keys, "key", ReflectionHelpers.ClassParameter.from(int.class, 0x44),
+                ReflectionHelpers.ClassParameter.from(boolean.class, true));
+        assertEquals(2, connection.keys.size());
+        assertEquals("The PC keyboard's virtual-key form", 0x8057, connection.keys.get(0)[0]);
+        assertEquals(KeyboardPacket.KEY_DOWN, connection.keys.get(0)[1]);
+        assertEquals(0x8044, connection.keys.get(1)[0]);
+        ReflectionHelpers.callInstanceMethod(keys, "key", ReflectionHelpers.ClassParameter.from(int.class, 0x44),
+                ReflectionHelpers.ClassParameter.from(boolean.class, false));
+        assertEquals(0x8044, connection.keys.get(2)[0]);
+        assertEquals(KeyboardPacket.KEY_UP, connection.keys.get(2)[1]);
+
+        // Losing input lets go of W too, even before the stick itself hears of it.
+        game.keyboardInput.releaseKeyboardInput();
+        int[] last = connection.keys.get(connection.keys.size() - 1);
+        assertEquals(0x8057, last[0]);
+        assertEquals(KeyboardPacket.KEY_UP, last[1]);
+        Map<Short, Byte> pressed = ReflectionHelpers.getField(game.keyboardInput, "pressedKeys");
+        assertTrue(pressed.isEmpty());
+        game.modernController.destroy();
+    }
+
     @Test
     public void controllerKeysSteerTheKeyboardWhileOpenAndReachTheGameAfterwards() {
         RecordingConnection connection = new RecordingConnection();

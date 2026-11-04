@@ -13,6 +13,7 @@ import android.graphics.Typeface;
 import androidx.core.content.ContextCompat;
 
 import com.limelight.R;
+import com.limelight.binding.input.LayoutStick;
 import com.limelight.binding.input.StickMath;
 import com.limelight.nvstream.input.ControllerPacket;
 
@@ -24,7 +25,10 @@ import com.limelight.nvstream.input.ControllerPacket;
 final class PadPainter {
     /** What one control shows besides its shape. */
     static final class State {
-        /** Gamepad flags held by this control (face buttons, D-pad directions, a button or a stick click). */
+        /**
+         * Gamepad flags held by this control (face buttons, D-pad directions, a button or a stick click); for the
+         * WASD stick its held keys as {@link LayoutStick} direction bits.
+         */
         int flags;
         /** A trigger or button held. */
         boolean pressed;
@@ -124,12 +128,16 @@ final class PadPainter {
     }
 
     private void drawStick(Canvas canvas, PadLayout.Control control, float left, float top, float width, float height, State state) {
-        drawStickBase(canvas, left, top, width, height, state);
+        drawStickBase(canvas, control, left, top, width, height, state);
         drawStickKnob(canvas, control, left, top, width, height, state);
     }
 
-    /** A stick's base: the glass disc, its rim and, while pushed, the amber arc pointing where. */
-    void drawStickBase(Canvas canvas, float left, float top, float width, float height, State state) {
+    /**
+     * A stick's base: the glass disc, its rim and, while pushed, the amber arc pointing where. The WASD stick
+     * also shows its four keys, a held one in amber.
+     */
+    void drawStickBase(Canvas canvas, PadLayout.Control control, float left, float top, float width, float height,
+                       State state) {
         stickGeometry(Math.min(width, height));
         float base = stickBase;
         float cx = left + width / 2, cy = top + height / 2;
@@ -149,6 +157,19 @@ final class PadPainter {
             canvas.drawArc(rect, angle - sweep / 2, sweep, false, stroke);
             stroke.setStrokeWidth(1.5f * density);
         }
+        if (control == PadLayout.Control.WASD) {
+            float reach = base * .7f, size = base * .26f;
+            wasdLabel(canvas, "W", cx, cy - reach, size, (state.flags & LayoutStick.UP) != 0);
+            wasdLabel(canvas, "A", cx - reach, cy, size, (state.flags & LayoutStick.LEFT) != 0);
+            wasdLabel(canvas, "S", cx, cy + reach, size, (state.flags & LayoutStick.DOWN) != 0);
+            wasdLabel(canvas, "D", cx + reach, cy, size, (state.flags & LayoutStick.RIGHT) != 0);
+        }
+    }
+
+    private void wasdLabel(Canvas canvas, String key, float cx, float cy, float size, boolean held) {
+        text.setTextSize(size);
+        text.setColor(held ? accent : LABEL);
+        canvas.drawText(key, cx, cy - (text.descent() + text.ascent()) / 2, text);
     }
 
     /**

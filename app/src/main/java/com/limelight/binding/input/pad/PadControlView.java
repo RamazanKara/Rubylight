@@ -10,6 +10,7 @@ import android.view.View;
 import com.limelight.binding.input.LayoutGamepad;
 import com.limelight.binding.input.LayoutStick;
 import com.limelight.binding.input.TouchLayout;
+import com.limelight.ui.Haptics;
 
 /**
  * One control of the modern on-screen controller. Each control is its own view so a finger that
@@ -36,9 +37,11 @@ final class PadControlView extends View {
     private float restingAlpha = 1;
     /** A stick's knob, drawn in a larger view of its own; null for every other control. */
     private final KnobLayer knobLayer;
+    /** The keys the WASD stick holds; null for every other control. */
+    private final WasdKeys wasd;
 
     PadControlView(Context context, PadLayout.Control control, PadPainter painter, LayoutGamepad gamepad,
-                   Runnable changed) {
+                   Runnable changed, WasdKeys.Keys keys) {
         super(context);
         this.control = control;
         this.painter = painter;
@@ -49,6 +52,7 @@ final class PadControlView extends View {
         java.util.Arrays.fill(pointerIds, -1);
         configureStick(true, .08f);
         knobLayer = control.shape == PadLayout.Shape.STICK ? new KnobLayer(context, this) : null;
+        wasd = control == PadLayout.Control.WASD ? new WasdKeys(keys) : null;
     }
 
     /**
@@ -137,7 +141,7 @@ final class PadControlView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         if (knobLayer != null) {
-            painter.drawStickBase(canvas, 0, 0, getWidth(), getHeight(), state);
+            painter.drawStickBase(canvas, control, 0, 0, getWidth(), getHeight(), state);
         } else {
             painter.draw(canvas, control, 0, 0, getWidth(), getHeight(), state);
         }
@@ -183,7 +187,8 @@ final class PadControlView extends View {
                 state.stickActive = true;
                 state.centerX = stick.centerX();
                 state.centerY = stick.centerY();
-                feedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                // The WASD stick answers when a key goes down, in updateStick, not on touch.
+                if (wasd == null) feedback(HapticFeedbackConstants.KEYBOARD_TAP);
                 updateStick();
                 break;
             case FACE:
@@ -278,12 +283,18 @@ final class PadControlView extends View {
         stick.release();
         boolean was = state.flags != 0 || state.pressed || state.stickActive;
         state.clear();
-        gamepad.setButtons(slot(), 0);
-        if (control.shape == PadLayout.Shape.STICK) {
+        if (wasd == null) gamepad.setButtons(slot(), 0);
+        if (control.shape == PadLayout.Shape.STICK && wasd == null) {
             gamepad.setStick(slot(), control == PadLayout.Control.LEFT_STICK ? TouchLayout.LEFT : TouchLayout.RIGHT, 0, 0);
         }
         if (PadInput.isTrigger(control)) {
             gamepad.setTrigger(slot(), control == PadLayout.Control.LT ? TouchLayout.LEFT : TouchLayout.RIGHT, 0);
+        }
+        if (wasd != null) {
+            wasd.release();
+            applyAlpha();
+            redraw();
+            return;
         }
         if (was) changed();
         else redraw();
@@ -302,6 +313,16 @@ final class PadControlView extends View {
     private void updateStick() {
         state.stickX = stick.x;
         state.stickY = stick.y;
+        if (wasd != null) {
+            WasdKeys.Feedback entered = wasd.update(stick.x, stick.y);
+            if (haptics && entered != WasdKeys.Feedback.NONE) {
+                Haptics.perform(this, entered == WasdKeys.Feedback.DIAGONAL ? Haptics.Kind.DIAGONAL : Haptics.Kind.DIRECTION);
+            }
+            state.flags = wasd.directions();
+            applyAlpha();
+            redraw();
+            return;
+        }
         stickPush = Math.max(stickPush, (float) Math.hypot(stick.x, stick.y));
         int side = control == PadLayout.Control.LEFT_STICK ? TouchLayout.LEFT : TouchLayout.RIGHT;
         gamepad.setStick(slot(), side, stick.x, stick.y);
@@ -337,6 +358,11 @@ final class PadControlView extends View {
 
     private void feedback(int constant) {
         if (haptics) performHapticFeedback(constant);
+    }
+
+    /** The WASD stick's keys; null for every other control. */
+    WasdKeys wasd() {
+        return wasd;
     }
 
     PadPainter.State state() {

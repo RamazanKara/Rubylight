@@ -30,4 +30,5 @@
     <string name="pad_menu">Menu</string>
     <string name="pad_home">Home</string>
     <string name="pad_touchpad">触控板</string>
+    <string name="pad_wasd">WASD 摇杆</string>
 </resources>

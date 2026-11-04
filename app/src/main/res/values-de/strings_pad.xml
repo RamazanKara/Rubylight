@@ -30,4 +30,5 @@
     <string name="pad_menu">Menü</string>
     <string name="pad_home">Home</string>
     <string name="pad_touchpad">Touchpad</string>
+    <string name="pad_wasd">WASD-Stick</string>
 </resources>

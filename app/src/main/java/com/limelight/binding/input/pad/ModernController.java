@@ -19,9 +19,10 @@ import java.util.Map;
 
 /**
  * The modern on-screen controller: analog sticks that float or stay put, a D-pad, the face cluster,
- * shoulders, triggers, stick clicks and View, Menu and Home. Controls are separate views in the
- * stream's frame so touches between them reach the stream. Its input is the on-screen gamepad, the
- * same report the classic controller sends, and its layout is kept for all games or for one game.
+ * shoulders, triggers, stick clicks and View, Menu and Home, and a WASD stick the layout editor can add. Controls
+ * are separate views in the stream's frame so touches between them reach the stream. Its input is the on-screen
+ * gamepad, the same report the classic controller sends (the WASD stick sends keys), and its layout is kept for
+ * all games or for one game.
  */
 public final class ModernController {
     static final String PREFS = "osc_modern";
@@ -35,6 +36,8 @@ public final class ModernController {
     private final String gameKey;
     private final SharedPreferences store;
     private final LayoutGamepad gamepad;
+    /** The WASD stick's keys, Windows virtual-key codes through the sink's {@code key}. */
+    private final WasdKeys.Keys keys;
     private final PadPainter painter;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Map<PadLayout.Control, PadControlView> views = new EnumMap<>(PadLayout.Control.class);
@@ -57,6 +60,7 @@ public final class ModernController {
         this.gameKey = gameKey == null || gameKey.isEmpty() ? null : GLOBAL_KEY + ":" + gameKey;
         this.store = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         this.gamepad = new LayoutGamepad(sink);
+        this.keys = sink::key;
         this.painter = new PadPainter(context);
         resend = gamepad::resend;
         resize = (v, l, t, r, b, ol, ot, or, ob) -> {
@@ -89,7 +93,7 @@ public final class ModernController {
         load();
         for (PadLayout.Control control : PadLayout.Control.values()) {
             if (forcedHidden(control)) continue;
-            PadControlView view = new PadControlView(context, control, painter, gamepad, this::changed);
+            PadControlView view = new PadControlView(context, control, painter, gamepad, this::changed, keys);
             view.configureStick(prefs.oscFloatingSticks, prefs.oscStickDeadzone / 100f);
             view.setHaptics(prefs.vibrateOsc);
             views.put(control, view);

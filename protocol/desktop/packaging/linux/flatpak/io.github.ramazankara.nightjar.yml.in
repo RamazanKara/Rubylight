@@ -1,6 +1,7 @@
-# Nightjar for Linux from the release tar.gz, as a Flatpak. Not published anywhere:
-# packaging/linux/build-packages.sh fills in the version and the archive's SHA-256 and writes the
-# result beside the packages. Build it with
+# Nightjar for Linux from the release tar.gz, as a Flatpak. packaging/linux/build-packages.sh fills
+# in the version and the archive's SHA-256 and writes the result beside the packages;
+# build-bundle.sh builds nightjar-desktop-<version>-x86_64.flatpak from it, which every release
+# carries. Build and install it by hand with
 #   flatpak-builder --user --install --install-deps-from=flathub build io.github.ramazankara.nightjar.yml
 # The settings live in ~/.var/app/io.github.ramazankara.nightjar/config/nightjar, apart from a
 # native install's ~/.config/nightjar.
@@ -9,6 +10,9 @@ runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
 command: nightjar
+# The 24.08 SDK has appstreamcli, not the appstream-compose that flatpak-builder 1.2 (Ubuntu
+# 22.04, the release runner) runs; the metainfo file still ships in /app/share/metainfo.
+appstream-compose: false
 finish-args:
   # Hosts, mDNS discovery and Wake-on-LAN.
   - --share=network
@@ -20,9 +24,17 @@ finish-args:
   - --device=all
   # SDL3 keeps the screen on during a stream.
   - --talk-name=org.freedesktop.ScreenSaver
+  # Vulkan layer extensions (org.freedesktop.Platform.VulkanLayer.gamescope, whose WSI layer
+  # offers gamescope's HDR swapchains in Steam's Game Mode) mount in /usr/lib/extensions/vulkan;
+  # the Vulkan loader finds their manifests through XDG_DATA_DIRS.
+  - --env=XDG_DATA_DIRS=/app/share:/usr/lib/extensions/vulkan/share:/usr/share:/usr/share/runtime/share:/run/host/user-share:/run/host/share
 modules:
   - name: nightjar
     buildsystem: simple
+    # The archive's release binaries go in as they are: no stripping, no debug extension.
+    build-options:
+      strip: false
+      no-debuginfo: true
     build-commands:
       - mkdir -p /app/lib/nightjar /app/bin /app/share
       - cp -a . /app/lib/nightjar/

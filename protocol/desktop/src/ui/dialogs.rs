@@ -1347,12 +1347,14 @@ impl Launcher {
         }
     }
 
-    /// The PC's host update: started, back on the new version, or why not.
+    /// The PC's host update: started, waiting for another device's stream, back on the new
+    /// version, or why not.
     pub fn update_answered(&mut self, host: u64, name: &str, result: Result<UpdateStep, String>) {
         let (title, body) = match result {
             Ok(UpdateStep::Started(version)) => {
                 (trf("Updating {}", &[&name]), trf("The host installs version {} and comes back on its own.", &[&version]))
             }
+            Ok(UpdateStep::Waiting(reason)) => (trf("Updating {}", &[&name]), trf("{} The update starts once that stream ends.", &[&reason])),
             Ok(UpdateStep::Back(version)) => (trf("{} is back", &[&name]), trf("The host now runs version {}.", &[&version])),
             Err(e) => (trf("Could not update {}", &[&name]), e),
         };

@@ -185,8 +185,8 @@ const SHUTDOWN_EXE_WAIT: std::time::Duration = std::time::Duration::from_secs(15
 /// Restart or shut down this PC (Restart and shut down PC). Returns once
 /// Windows took the request; its refusal (a shutdown already under way, no
 /// shutdown right) is the error. A SYSTEM host asks from the signed-in
-/// user's session: from session 0, Windows refuses while another user is
-/// signed in (`ERROR_SHUTDOWN_USERS_LOGGED_ON`) unless forced, and it never
+/// user's session: Windows refuses a SYSTEM caller while a user is signed
+/// in (`ERROR_SHUTDOWN_USERS_LOGGED_ON`) unless forced, and it never
 /// forces. With nobody signed in, or as a portable host running as the
 /// user, it asks itself.
 pub fn power_off(restart: bool) -> Result<()> {
@@ -214,22 +214,40 @@ fn power_off_as_user(restart: bool) -> Result<()> {
         Ok(code) => code,
         Err(error) => {
             let _ = child.process.terminate();
-            bail!("Windows did not answer the request to {what} the PC: {error:#}");
+            bail!("{}: {error:#}", unanswered(what));
         }
     };
     if code != 0 {
         // It has exited, so its pipes end.
-        let mut said = String::new();
+        let mut said = Vec::new();
         for pipe in [child.stderr.take(), child.stdout.take()]
             .into_iter()
             .flatten()
         {
-            let _ = { pipe }.read_to_string(&mut said);
+            let _ = { pipe }.read_to_end(&mut said);
         }
-        let said = said.split_whitespace().collect::<Vec<_>>().join(" ");
-        bail!("Windows refused to {what} the PC: {said} (exit code {code})");
+        bail!("{}", refusal(what, code, &said));
     }
     Ok(())
+}
+/// `shutdown.exe`'s timeout: Windows may have taken the request anyway.
+fn unanswered(what: &str) -> String {
+    format!("Windows did not confirm the request in time; the PC may still {what}")
+}
+/// `shutdown.exe`'s refusal. Its exit code is the Win32 error, whose text
+/// comes in the UI language; its output is in the OEM code page, so it is
+/// only the lossy fallback for a code without a text.
+fn refusal(what: &str, code: u32, output: &[u8]) -> String {
+    let mut said = windows::core::Error::from_hresult(HRESULT::from_win32(code)).message();
+    if said.trim().is_empty() {
+        said = String::from_utf8_lossy(output).into_owned();
+    }
+    let said = said.split_whitespace().collect::<Vec<_>>().join(" ");
+    if said.is_empty() {
+        format!("Windows refused to {what} the PC (exit code {code})")
+    } else {
+        format!("Windows refused to {what} the PC: {said} (exit code {code})")
+    }
 }
 
 fn initiate_shutdown(restart: bool) -> Result<()> {
@@ -325,6 +343,44 @@ mod tests {
                     .iter()
                     .any(|a| a == "/f" || a == "/hybrid" || a == "/p")
             );
+        }
+    }
+
+    #[test]
+    fn a_refusal_says_why_whatever_the_code_page() {
+        // German output in code page 850: not UTF-8.
+        let oem: &[u8] = b"Zugriff verweigert \x84\x81\x94\r\n";
+        assert!(std::str::from_utf8(std::hint::black_box(oem)).is_err());
+        let said = refusal("restart", 1191, oem);
+        let reason = said
+            .strip_prefix("Windows refused to restart the PC: ")
+            .and_then(|s| s.strip_suffix(" (exit code 1191)"))
+            .unwrap_or_else(|| panic!("{said}"));
+        let text = windows::core::Error::from_hresult(HRESULT::from_win32(1191)).message();
+        assert!(!text.trim().is_empty());
+        assert_eq!(
+            reason,
+            text.split_whitespace().collect::<Vec<_>>().join(" ")
+        );
+        // A code without a text falls back to the output, decoded lossily.
+        let said = refusal("shut down", 0xFFF0, oem);
+        assert!(
+            said.starts_with("Windows refused to shut down the PC: Zugriff verweigert "),
+            "{said}"
+        );
+        assert!(said.ends_with(" (exit code 65520)"), "{said}");
+        assert_eq!(
+            refusal("shut down", 0xFFF0, b""),
+            "Windows refused to shut down the PC (exit code 65520)"
+        );
+    }
+
+    #[test]
+    fn a_timeout_is_not_a_refusal() {
+        for what in ["restart", "shut down"] {
+            let said = unanswered(what);
+            assert!(said.ends_with(&format!("may still {what}")), "{said}");
+            assert!(!said.contains("refused"), "{said}");
         }
     }
 }

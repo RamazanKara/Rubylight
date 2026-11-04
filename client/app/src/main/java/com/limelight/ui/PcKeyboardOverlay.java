@@ -91,6 +91,11 @@ public final class PcKeyboardOverlay extends LinearLayout {
         return controller;
     }
 
+    /** Whether keys vibrate as they go down: the stream's Vibrate on press. */
+    public void setHaptics(boolean haptics) {
+        keys.setHaptics(haptics);
+    }
+
     /** Everything this panel pressed on the host is let go; call when it closes or the stream loses input. */
     public void releaseInputs() {
         controller.release();

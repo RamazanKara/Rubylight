@@ -47,6 +47,76 @@ public class HapticsTest {
     }
 
     @Test
+    public void theWasdStickHasADirectionAndAClearlyDifferentDiagonal() {
+        assertEquals(HapticFeedbackConstants.CLOCK_TICK, Haptics.constant(Haptics.Kind.DIRECTION, 21));
+        assertEquals(HapticFeedbackConstants.CONTEXT_CLICK, Haptics.constant(Haptics.Kind.DIRECTION, 23));
+        assertEquals(HapticFeedbackConstants.CONTEXT_CLICK, Haptics.constant(Haptics.Kind.DIRECTION, 36));
+        assertEquals(HapticFeedbackConstants.VIRTUAL_KEY, Haptics.constant(Haptics.Kind.DIAGONAL, 29));
+        assertEquals(HapticFeedbackConstants.CONFIRM, Haptics.constant(Haptics.Kind.DIAGONAL, 30));
+        for (int sdk = 21; sdk <= 36; sdk++) {
+            assertNotEquals("API " + sdk, Haptics.constant(Haptics.Kind.DIRECTION, sdk), Haptics.constant(Haptics.Kind.DIAGONAL, sdk));
+        }
+        assertEquals(HapticFeedbackConstants.VIRTUAL_KEY, Haptics.constant(Haptics.Kind.CLICK, 21));
+        assertEquals(HapticFeedbackConstants.VIRTUAL_KEY, Haptics.constant(Haptics.Kind.CLICK, 36));
+    }
+
+    @Test
+    public void thePcKeyboardFollowsVibrateOnPress() {
+        Context context = new ContextThemeWrapper(RuntimeEnvironment.getApplication(), R.style.AppTheme);
+        PcKeyboardController controller = new PcKeyboardController(PcKeyboardLayout.byId(PcKeyboardLayout.US),
+                (vk, down, modifiers) -> { },
+                new PcKeyboardController.Host() {
+                    @Override public void close() { }
+                    @Override public void changed() { }
+                });
+        PcKeyboardView keys = new PcKeyboardView(context, controller);
+        keys.setHaptics(false);
+        keys.measure(View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY));
+        keys.layout(0, 0, 1000, 400);
+        long now = SystemClock.uptimeMillis();
+        MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, 500, 200, 0);
+        keys.onTouchEvent(down);
+        down.recycle();
+        assertNotEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(keys).lastHapticFeedbackPerformed());
+    }
+
+    @Test
+    public void aTrackpadTapClicksAndFollowsVibrateOnPress() {
+        Context context = new ContextThemeWrapper(RuntimeEnvironment.getApplication(), R.style.AppTheme);
+        java.util.List<String> sent = new java.util.ArrayList<>();
+        for (boolean haptics : new boolean[] {true, false}) {
+            com.limelight.binding.input.DesktopControlsConfig config = com.limelight.binding.input.DesktopControlsConfig.load(context);
+            config.tapToClick = true;
+            DesktopTrackpad pad = new DesktopTrackpad(context, config, new DesktopTrackpad.Sink() {
+                @Override public void move(float dx, float dy) { }
+                @Override public void scroll(float vertical, float horizontal) { }
+                @Override public void mouseButton(int button, boolean down) { sent.add(button + (down ? "+" : "-")); }
+            });
+            pad.setHaptics(haptics);
+            pad.measure(View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(300, View.MeasureSpec.EXACTLY));
+            pad.layout(0, 0, 600, 300);
+            // Moving the pointer alone is quiet.
+            long now = SystemClock.uptimeMillis();
+            MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, 300, 150, 0);
+            pad.onTouchEvent(down);
+            down.recycle();
+            assertNotEquals(HapticFeedbackConstants.VIRTUAL_KEY, shadowOf(pad).lastHapticFeedbackPerformed());
+            MotionEvent up = MotionEvent.obtain(now, now + 80, MotionEvent.ACTION_UP, 300, 150, 0);
+            pad.onTouchEvent(up);
+            up.recycle();
+            assertEquals("A tap clicks", "1+", sent.get(sent.size() - 1));
+            if (haptics) {
+                assertEquals(HapticFeedbackConstants.VIRTUAL_KEY, shadowOf(pad).lastHapticFeedbackPerformed());
+            } else {
+                assertNotEquals(HapticFeedbackConstants.VIRTUAL_KEY, shadowOf(pad).lastHapticFeedbackPerformed());
+            }
+            pad.releaseInputs();
+        }
+    }
+
+    @Test
     public void aKeyOfThePcKeyboardTapsWhenItGoesDown() {
         Context context = new ContextThemeWrapper(RuntimeEnvironment.getApplication(), R.style.AppTheme);
         PcKeyboardController controller = new PcKeyboardController(PcKeyboardLayout.byId(PcKeyboardLayout.US),

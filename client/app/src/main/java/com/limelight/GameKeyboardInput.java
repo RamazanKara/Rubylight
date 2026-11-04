@@ -729,6 +729,7 @@ final class GameKeyboardInput {
         if (game.pcKeyboard == null) {
             game.pcKeyboard = new PcKeyboardOverlay(game, game.prefConfig.pcKeyboardLayout, game.prefConfig.pcKeyboardSize,
                     game.prefConfig.pcKeyboardOpacity, this::sendPcKeyboardKey, this::hidePcKeyboard);
+            game.pcKeyboard.setHaptics(game.prefConfig.vibrateOsc);
             ViewCompat.setOnApplyWindowInsetsListener(game.pcKeyboard, (view, windowInsets) -> {
                 androidx.core.graphics.Insets safe = windowInsets.getInsets(
                         WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
@@ -952,6 +953,7 @@ final class GameKeyboardInput {
                 hideKeyboardOverlay();
                 game.toggleKeyboard();
             }, this::hideKeyboardOverlay);
+            game.keyboardOverlay.setHaptics(game.prefConfig.vibrateOsc);
             ViewCompat.setOnApplyWindowInsetsListener(game.keyboardOverlay, (view, windowInsets) -> {
                 androidx.core.graphics.Insets safe = windowInsets.getInsets(
                         WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());

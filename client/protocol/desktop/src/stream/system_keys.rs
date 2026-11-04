@@ -333,12 +333,20 @@ pub fn tab_guard(action: Option<crate::shortcuts::Action>, focused: bool, grab: 
     focused && !grab && !mic_only && action.is_some_and(|action| !menu_visible || matches!(action, Action::StreamControls | Action::StreamShortcuts))
 }
 
-/// Whether Windows itself holds exactly the chord's modifiers (`held`, by virtual key). A kept
-/// modifier does not count: Windows never saw it, so it would open no task switcher with this Tab,
-/// and its release may be lost (Ctrl+Alt+Del leaves Ctrl and Alt kept, and Shift+Tab is not the chord).
+/// Whether exactly the chord's modifiers are held (`held`, by left and right virtual key). `altgr`:
+/// AltGr's added Ctrl is down, so a left Ctrl in Windows' state is no Ctrl of the user's.
 #[cfg_attr(not(windows), allow(dead_code))]
-pub fn tab_chord_held(held: impl Fn(u32) -> bool) -> bool {
-    [0x10, 0x11, 0x12].into_iter().all(&held) && ![0x5B, 0x5C].into_iter().any(&held)
+pub fn tab_chord_held(held: impl Fn(u32) -> bool, altgr: bool) -> bool {
+    (held(0xA0) || held(0xA1)) && ((held(0xA2) && !altgr) || held(0xA3)) && (held(0xA4) || held(0xA5)) && !held(0x5B) && !held(0x5C)
+}
+
+/// Whether the chord counts a modifier as held: Windows holds it, or the grab kept it, as with the
+/// modifiers still down from the chord that opened the menu. A kept one quiet for longer than
+/// [`settle`] allows does not count: its release may be lost (Ctrl+Alt+Del leaves Ctrl and Alt kept,
+/// and Shift+Tab is not the chord).
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn tab_chord_modifier(windows: bool, key: Key, idle_ms: u64) -> bool {
+    windows || (key == Key::Kept && idle_ms <= REPEAT_MS)
 }
 
 /// Whether an event goes straight on, with no look at the foreground or Windows' key state: nothing
@@ -369,6 +377,13 @@ pub fn guard_step(on: bool, ever_grabbed: bool) -> GuardStep {
     }
 }
 
+/// Whether the hook can go now that nothing guards the chord. Not with its Tab kept: a hotkey that
+/// took the focus leaves the chord held, and the Tab's next repeat would reach Windows.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn unhooks_now(tab: Key) -> bool {
+    tab != Key::Kept
+}
+
 /// Whether the keyboard is grabbed: input is captured (keys go to the PC, the stream menu is
 /// closed, the window is the PC's input) and "Send system keys" is on. Windowed or fullscreen,
 /// relative or desktop pointer alike; out of focus, the hook and SDL let the keys be.
@@ -381,6 +396,9 @@ static GRAB: AtomicBool = AtomicBool::new(false);
 /// The hook keeps the chord's Tab without the grab ([`tab_guard`]).
 #[cfg(windows)]
 static GUARD: AtomicBool = AtomicBool::new(false);
+/// The hook goes at the Tab's release ([`unhooks_now`]).
+#[cfg(windows)]
+static UNHOOK_AT_RELEASE: AtomicBool = AtomicBool::new(false);
 /// The stream window's HWND: the hook takes keys only while it is in front.
 #[cfg(windows)]
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
@@ -527,10 +545,11 @@ unsafe extern "system" fn hook(code: i32, wparam: windows::Win32::Foundation::WP
             }
             let guarded = !grabbed && down && info.vkCode == TAB && GUARD.load(Ordering::Acquire) && tab_chord_held(|vk| {
                 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+                let vk = vk as usize;
                 // SAFETY: any virtual key.
                 let state = unsafe { GetAsyncKeyState(vk as i32) };
-                state < 0
-            });
+                tab_chord_modifier(state < 0, Key::from_u8(KEYS[vk].load(Ordering::Relaxed)), u64::from(info.time.wrapping_sub(LAST[vk].load(Ordering::Relaxed))))
+            }, Key::from_u8(ALTGR_CTRL_KEY.load(Ordering::Relaxed)) != Key::Up);
             // SAFETY: no arguments.
             let grab = (grabbed || guarded)
                 && unsafe { GetForegroundWindow() }.0 as isize == WINDOW.load(Ordering::Acquire)
@@ -554,6 +573,13 @@ unsafe extern "system" fn hook(code: i32, wparam: windows::Win32::Foundation::WP
             if let Some((scancode, repeat)) = routed.hand_over {
                 let raw = scan as u16 | if extended { 0xE000 } else { 0 };
                 hand_over(scancode, raw, down, repeat, if guarded { tab_chord_mods() } else { SDL_Keymod(0) });
+            }
+            if info.vkCode == TAB && routed.next == Some(Key::Up) && UNHOOK_AT_RELEASE.swap(false, Ordering::Relaxed) {
+                use windows::Win32::Foundation::{LPARAM, WPARAM};
+                // SAFETY: no arguments, then this thread's own queue, which it reads after this event.
+                if let Err(error) = unsafe { PostThreadMessageW(windows::Win32::System::Threading::GetCurrentThreadId(), UNHOOK, WPARAM(0), LPARAM(0)) } {
+                    eprintln!("nightjar: the keyboard hook stays as it was: {error}");
+                }
             }
             if routed.swallow {
                 return LRESULT(1);
@@ -594,6 +620,7 @@ impl ShellKeyHook {
             let _ = unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL) };
             GRAB.store(false, Ordering::Release);
             GUARD.store(false, Ordering::Release);
+            UNHOOK_AT_RELEASE.store(false, Ordering::Relaxed);
             seed(true);
             let mut hook = match install() {
                 Ok(hook) => Some(hook),
@@ -610,6 +637,11 @@ impl ShellKeyHook {
                 if !matches!(message.message, REHOOK | UNHOOK) {
                     continue;
                 }
+                UNHOOK_AT_RELEASE.store(false, Ordering::Relaxed);
+                if message.message == UNHOOK && !unhooks_now(Key::from_u8(KEYS[TAB as usize].load(Ordering::Relaxed))) {
+                    UNHOOK_AT_RELEASE.store(true, Ordering::Relaxed);
+                    continue;
+                }
                 // Windows may have removed the hook without a word: a new one each time the grab
                 // or the guard turns on.
                 if let Some(old) = hook.take() {
@@ -617,8 +649,6 @@ impl ShellKeyHook {
                     let _ = unsafe { UnhookWindowsHookEx(old) };
                 }
                 if message.message == UNHOOK {
-                    // Only the guard's Tab can be kept here, and its release goes unseen now.
-                    KEYS[TAB as usize].store(Key::Up as u8, Ordering::Relaxed);
                     continue;
                 }
                 seed(false);
@@ -705,6 +735,8 @@ mod tests {
     const LALT: u32 = 0xA4;
     const LCTRL: u32 = 0xA2;
     const LSHIFT: u32 = 0xA0;
+    const RSHIFT: u32 = 0xA1;
+    const RCTRL: u32 = 0xA3;
     const D: u32 = 0x44;
     const E: u32 = 0x45;
     const DELETE: u32 = 0x2E;
@@ -1070,18 +1102,38 @@ mod tests {
     }
 
     #[test]
-    fn only_tab_with_exactly_the_chords_modifiers_in_windows_is_guarded() {
-        const SHIFT: u32 = 0x10;
-        const CTRL: u32 = 0x11;
-        const ALT: u32 = 0x12;
-        assert!(tab_chord_held(|vk| matches!(vk, CTRL | ALT | SHIFT)));
+    fn only_tab_with_exactly_the_chords_modifiers_is_guarded() {
+        assert!(tab_chord_held(|vk| matches!(vk, LCTRL | LALT | LSHIFT), false));
+        assert!(tab_chord_held(|vk| matches!(vk, RCTRL | RALT | RSHIFT), false), "either side");
         // Windows' Alt+Tab, Ctrl+Tab and the rest are not the chord, nor is it with Windows held.
-        for held in [&[][..], &[ALT], &[ALT, SHIFT], &[CTRL, ALT], &[CTRL], &[CTRL, SHIFT], &[SHIFT]] {
-            assert!(!tab_chord_held(|vk| held.contains(&vk)), "{held:x?}");
+        for held in [&[][..], &[LALT], &[LALT, LSHIFT], &[LCTRL, LALT], &[LCTRL], &[LCTRL, LSHIFT], &[LSHIFT]] {
+            assert!(!tab_chord_held(|vk| held.contains(&vk), false), "{held:x?}");
         }
         for win in [LWIN, RWIN] {
-            assert!(!tab_chord_held(|vk| matches!(vk, CTRL | ALT | SHIFT) || vk == win), "{win:x}");
+            assert!(!tab_chord_held(|vk| matches!(vk, LCTRL | LALT | LSHIFT) || vk == win, false), "{win:x}");
         }
+    }
+
+    #[test]
+    fn altgrs_added_ctrl_is_no_ctrl_of_the_chord() {
+        // AltGr+Shift+Tab: Windows holds the left Ctrl AltGr adds and the right Alt.
+        let altgr_shift = |vk| matches!(vk, LCTRL | RALT | LSHIFT);
+        assert!(!tab_chord_held(altgr_shift, true));
+        assert!(tab_chord_held(altgr_shift, false), "a real left Ctrl with the right Alt");
+        assert!(tab_chord_held(|vk| matches!(vk, RCTRL | RALT | LSHIFT), true), "a real right Ctrl with AltGr, as Windows reads it too");
+    }
+
+    #[test]
+    fn the_modifiers_the_grab_kept_still_make_the_chord_that_closes_the_menu() {
+        // Ctrl+Alt+Shift held, Tab opened the menu and ended the grab: Windows never saw them.
+        let mut board = Board::new();
+        board.play(true, &[(LCTRL, 0x1D, false, true), (LALT, 0x38, false, true), (LSHIFT, 0x2A, false, true)]);
+        assert!(tab_chord_held(|vk| tab_chord_modifier(false, board.keys[vk as usize], 300), false));
+        // Shift let go and pressed again in the open menu: that one is Windows'.
+        board.play(false, &[(LSHIFT, 0x2A, false, false), (LSHIFT, 0x2A, false, true)]);
+        assert_eq!(board.keys[LSHIFT as usize], Key::Passed);
+        assert!(!tab_chord_held(|vk| tab_chord_modifier(false, board.keys[vk as usize], 300), false));
+        assert!(tab_chord_held(|vk| tab_chord_modifier(vk == LSHIFT, board.keys[vk as usize], 300), false));
     }
 
     #[test]
@@ -1091,7 +1143,10 @@ mod tests {
         let mut board = Board::new();
         board.play(true, &[(LCTRL, 0x1D, false, true), (LALT, 0x38, false, true)]);
         assert_eq!((board.keys[LCTRL as usize], board.keys[LALT as usize]), (Key::Kept, Key::Kept));
-        assert!(!tab_chord_held(|vk| vk == 0x10), "Shift+Tab in the menu stays the menu's Tab");
+        let quiet = REPEAT_MS + 1;
+        assert!(!tab_chord_held(|vk| tab_chord_modifier(vk == LSHIFT, board.keys[vk as usize], quiet), false), "Shift+Tab in the menu stays the menu's Tab");
+        assert!(!tab_chord_modifier(false, Key::Up, 0), "never pressed");
+        assert!(!tab_chord_modifier(false, Key::Passed, 0), "Windows let it go");
     }
 
     #[test]
@@ -1107,8 +1162,8 @@ mod tests {
         for fine in [&["CTRL", "TAB"][..], &["CTRL", "SHIFT", "TAB"]] {
             assert!(keys(fine).is_ok(), "{fine:?}");
         }
-        assert!(!tab_chord_held(|vk| vk == 0x11), "Ctrl+Tab");
-        assert!(!tab_chord_held(|vk| matches!(vk, 0x10 | 0x11)), "Ctrl+Shift+Tab");
+        assert!(!tab_chord_held(|vk| vk == LCTRL, false), "Ctrl+Tab");
+        assert!(!tab_chord_held(|vk| matches!(vk, LSHIFT | LCTRL), false), "Ctrl+Shift+Tab");
     }
 
     #[test]
@@ -1130,6 +1185,13 @@ mod tests {
         assert_eq!(guard_step(true, true), GuardStep::Reinstall);
         assert_eq!(guard_step(false, false), GuardStep::Remove, "no cost per key in other apps");
         assert_eq!(guard_step(false, true), GuardStep::Keep, "the grab's hook stays, for the kept keys' releases");
+    }
+
+    #[test]
+    fn the_hook_stays_until_a_kept_tab_is_released() {
+        assert!(!unhooks_now(Key::Kept), "the chord still held: the next repeat would open the task switcher");
+        assert!(unhooks_now(Key::Up));
+        assert!(unhooks_now(Key::Passed), "Windows has that Tab already");
     }
 
     #[test]
@@ -1255,7 +1317,47 @@ mod tests {
         }
         pump(700, &mut got);
         let chord_stayed = in_front();
-        let tabs: Vec<_> = got.iter().copied().filter(|&(code, _, _)| code == SDL_SCANCODE_TAB.0).collect();
+        let tabs_of = |got: &[(i32, bool, u16)]| got.iter().copied().filter(|&(code, _, _)| code == SDL_SCANCODE_TAB.0).collect::<Vec<_>>();
+        let tabs = tabs_of(&got);
+        // The menu opened with the modifiers still down: they stay kept, and the next Tab is the
+        // chord's again.
+        hook.guard(false, hwnd.0 as isize, id);
+        hook.set(true, hwnd.0 as isize, id);
+        pump(100, &mut got);
+        got.clear();
+        for &vk in &[LCTRL, LALT, LSHIFT, TAB] {
+            key(vk, true, &mut got);
+        }
+        key(TAB, false, &mut got);
+        hook.set(false, hwnd.0 as isize, id);
+        hook.guard(true, hwnd.0 as isize, id);
+        pump(100, &mut got);
+        key(TAB, true, &mut got);
+        key(TAB, false, &mut got);
+        for &vk in &[LSHIFT, LALT, LCTRL] {
+            key(vk, false, &mut got);
+        }
+        pump(700, &mut got);
+        let held_stayed = in_front();
+        let held_tabs = tabs_of(&got);
+        drop(hook);
+        // The hotkey took the focus with the chord still held: the guard is off, the Tab repeats.
+        let mut hook = ShellKeyHook::start().unwrap();
+        hook.guard(true, hwnd.0 as isize, id);
+        pump(100, &mut got);
+        for &vk in &[LCTRL, LALT, LSHIFT, TAB] {
+            key(vk, true, &mut got);
+        }
+        hook.guard(false, hwnd.0 as isize, id);
+        pump(100, &mut got);
+        key(TAB, true, &mut got);
+        pump(700, &mut got);
+        let repeat_stayed = in_front();
+        key(TAB, false, &mut got);
+        for &vk in &[LSHIFT, LALT, LCTRL] {
+            key(vk, false, &mut got);
+        }
+        pump(100, &mut got);
         drop(hook);
         // SAFETY: this test's window and SDL.
         unsafe {
@@ -1277,6 +1379,9 @@ mod tests {
         assert_eq!(stream[3], [(d, true, 0), (d, false, 0)]);
         assert!(chord_stayed, "Ctrl+Alt+Shift+Tab left the window without the grab");
         assert_eq!(tabs, [(tab, true, all), (tab, false, all)]);
+        assert!(held_stayed, "the second Tab with the chord held left the window");
+        assert_eq!(held_tabs, [(tab, true, all), (tab, false, all), (tab, true, all), (tab, false, all)]);
+        assert!(repeat_stayed, "a Tab's repeat reached Windows after the guard went off");
     }
 
     /// What the guard's hook costs a key that is not the chord's, against no hook, in rounds: the

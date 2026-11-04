@@ -279,11 +279,44 @@ public class StreamMenuModelContractTest {
                     break;
                 }
                 default:
+                    if (name.startsWith("check_hotkey_typing_")) {
+                        // More typing chords, read from the case: AltGr+Shift, Shift with an arrow or punctuation, redo.
+                        JSONObject request = fixture.getJSONObject("request");
+                        assertEquals(name, "hotkey_typing", refused(() -> StreamMenuModel.checkHotkey(request.getString("id"),
+                                RustStreamMenuModel.strings(request.getJSONArray("keys")), new HashMap<>())).code);
+                        break;
+                    }
                     throw new AssertionError("a contract case this test does not send: " + name);
             }
             run.add(name);
         }
         assertEquals(cases.length(), run.size());
+    }
+
+    /**
+     * The JVM tests' {@link RustStreamMenuModel} refuses and accepts each contract chord as the Rust model does, so
+     * its copy of {@code shortcuts::refused_chord} cannot drift from the policy unseen.
+     */
+    @Test
+    public void theTestModelChecksEachContractChordAsRustDoes() throws Exception {
+        JSONArray cases = cases();
+        RustStreamMenuModel model = new RustStreamMenuModel();
+        int checked = 0;
+        for (int i = 0; i < cases.length(); i++) {
+            JSONObject fixture = cases.getJSONObject(i);
+            if (!fixture.getJSONObject("request").getString("op").equals("check_hotkey")) continue;
+            String name = fixture.getString("name");
+            JSONObject expected = fixture.getJSONObject("response");
+            JSONObject answer = new JSONObject(model.call(fixture.getJSONObject("request").toString()));
+            if (expected.has("ok")) {
+                assertTrue(name + ": " + answer, same(expected.get("ok"), answer.opt("ok")));
+            } else {
+                assertEquals(name, expected.getString("error"), answer.optString("error", null));
+                if (!expected.isNull("detail")) assertEquals(name, expected.getString("detail"), answer.optString("detail"));
+            }
+            checked++;
+        }
+        assertTrue(checked >= 10);
     }
 
     // JSON equality: the same keys and values, whatever the key order.

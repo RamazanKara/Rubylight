@@ -1165,7 +1165,8 @@ impl Launcher {
     /// A key pressed while the stream hotkey dialog records, straight from SDL: before the
     /// window's own F11 and F12, and for every key, where egui has no event for F3 to F9, Shift
     /// with a digit, most punctuation or the numpad. Escape alone cancels, a modifier alone waits,
-    /// a key alone gets Ctrl+Alt+Shift; anything else is saved or its refusal shown. Returns the
+    /// an arrow or Enter alone moves in the dialog ([`moves_in_hotkey_dialog`]), another key alone
+    /// gets Ctrl+Alt+Shift; anything else is saved or its refusal shown. Returns the
     /// command to save the change.
     pub fn hotkey_key_down(&mut self, scancode: sdl3_sys::everything::SDL_Scancode, mods: sdl3_sys::everything::SDL_Keymod, repeat: bool) -> Option<Command> {
         use sdl3_sys::everything::*;
@@ -1176,6 +1177,9 @@ impl Launcher {
         let held = SDL_KMOD_CTRL.0 | SDL_KMOD_ALT.0 | SDL_KMOD_SHIFT.0 | SDL_KMOD_GUI.0;
         if scancode == SDL_SCANCODE_ESCAPE && mods.0 & held == 0 {
             self.close_dialog();
+            return None;
+        }
+        if moves_in_hotkey_dialog(scancode, mods) {
             return None;
         }
         let keys = match crate::shortcuts::recorded_keys(scancode, mods) {
@@ -1470,6 +1474,16 @@ impl Launcher {
                 });
             });
     }
+}
+
+/// Whether a key pressed in the stream hotkey dialog moves in it or confirms instead of being
+/// recorded: an arrow or Enter with no modifier held, as Android's `movesInDialog`. With a
+/// modifier they are recorded. Tab alone is recorded on both (the stream menu's own key).
+pub fn moves_in_hotkey_dialog(scancode: sdl3_sys::everything::SDL_Scancode, mods: sdl3_sys::everything::SDL_Keymod) -> bool {
+    use sdl3_sys::everything::*;
+    let held = SDL_KMOD_CTRL.0 | SDL_KMOD_ALT.0 | SDL_KMOD_SHIFT.0 | SDL_KMOD_GUI.0;
+    mods.0 & held == 0
+        && matches!(scancode, SDL_SCANCODE_UP | SDL_SCANCODE_DOWN | SDL_SCANCODE_LEFT | SDL_SCANCODE_RIGHT | SDL_SCANCODE_RETURN | SDL_SCANCODE_KP_ENTER)
 }
 
 /// A game's menu: its title and what it offers, the action selecting it does first. None when the

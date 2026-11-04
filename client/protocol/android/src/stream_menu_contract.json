@@ -20,6 +20,10 @@
 {"name": "check_hotkey_lone_key", "request": {"bindings": {}, "id": "cursor", "keys": ["F2"], "op": "check_hotkey"}, "response": {"ok": ["CTRL", "ALT", "SHIFT", "F2"]}},
 {"name": "check_hotkey_typing", "request": {"bindings": {}, "id": "cursor", "keys": ["ALT", "Q"], "op": "check_hotkey"}, "response": {"detail": null, "error": "hotkey_typing"}},
 {"name": "check_hotkey_shell", "request": {"bindings": {}, "id": "cursor", "keys": ["ALT", "TAB"], "op": "check_hotkey"}, "response": {"detail": null, "error": "reserved"}},
+{"name": "check_hotkey_typing_shift_arrow", "request": {"bindings": {}, "id": "cursor", "keys": ["SHIFT", "DPAD_LEFT"], "op": "check_hotkey"}, "response": {"detail": null, "error": "hotkey_typing"}},
+{"name": "check_hotkey_typing_ctrl_shift_z", "request": {"bindings": {}, "id": "cursor", "keys": ["CTRL", "SHIFT", "Z"], "op": "check_hotkey"}, "response": {"detail": null, "error": "hotkey_typing"}},
+{"name": "check_hotkey_typing_shift_minus", "request": {"bindings": {}, "id": "cursor", "keys": ["SHIFT", "MINUS"], "op": "check_hotkey"}, "response": {"detail": null, "error": "hotkey_typing"}},
+{"name": "check_hotkey_typing_altgr_shift", "request": {"bindings": {}, "id": "cursor", "keys": ["ALT", "SHIFT", "Q"], "op": "check_hotkey"}, "response": {"detail": null, "error": "hotkey_typing"}},
 {"name": "check_reset", "request": {"bindings": {"cursor": "CTRL+F2"}, "id": "cursor", "op": "check_reset"}, "response": {"ok": null}},
 {"name": "check_reset_taken", "request": {"bindings": {"quit": "CTRL+ALT+SHIFT+TAB", "stream_menu": "off"}, "id": "stream_menu", "op": "check_reset"}, "response": {"detail": "quit", "error": "taken"}}
 ]

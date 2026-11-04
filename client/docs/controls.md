@@ -359,7 +359,7 @@ In Settings, Right opens the selected switch's help (Left in RTL). TV settings p
 
 ### Stream hotkeys
 
-Both clients take the same stream hotkeys, as Moonlight's desktop client does. **Settings → Controls → Stream hotkeys** changes each one (**Change** records the next 2 to 4 keys: Ctrl, Alt or Shift and one other key), turns it **Off** or **Reset**s it. A combination another hotkey has is refused, naming that hotkey, and Ctrl+Alt+Del stays with Windows. A hotkey's keys never reach the PC.
+Both clients take the same stream hotkeys, as Moonlight's desktop client does. **Settings → Controls → Stream hotkeys** changes each one (**Change** records the next 2 to 4 keys: Ctrl, Alt or Shift and one other key; an arrow or Enter alone moves in the dialog and Esc cancels), turns it **Off** or **Reset**s it. A combination another hotkey has is refused, naming that hotkey, and Ctrl+Alt+Del stays with Windows. A hotkey's keys never reach the PC.
 
 | Default | Action | Clients |
 | --- | --- | --- |

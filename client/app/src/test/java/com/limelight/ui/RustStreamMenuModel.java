@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -243,22 +244,56 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
         return answer;
     }
 
-    private static final Set<String> EDITING = new HashSet<>(Arrays.asList("HOME", "END", "LEFT", "RIGHT", "UP", "DOWN",
-            "PAGE_UP", "PAGE_DOWN", "DELETE", "BACKSPACE", "ENTER", "TAB", "INSERT"));
+    /** shortcuts::try_key_name's table, read from the policy: the named keys' Windows virtual-key codes. */
+    private static final Map<String, Integer> VKS = new HashMap<>();
+    /** The codes shortcuts::printable and shortcuts::editing match, read from the policy. */
+    private static final Set<Integer> PRINTABLE = new HashSet<>(), EDITING = new HashSet<>();
 
-    /** shortcuts::refused_chord, for the keys the tests press: the shell's chords, then the ones used for typing. */
+    static {
+        String shortcuts = read("shortcuts.rs");
+        String table = shortcuts.substring(shortcuts.indexOf("pub fn try_key_name"), shortcuts.indexOf("pub fn key_code"));
+        Matcher named = Pattern.compile("0x([0-9A-F]{2}) => \"(\\w+)\"").matcher(table);
+        while (named.find()) VKS.put(named.group(2), Integer.parseInt(named.group(1), 16));
+        codes(shortcuts, "fn printable", PRINTABLE);
+        codes(shortcuts, "fn editing", EDITING);
+        if (VKS.size() < 40 || PRINTABLE.size() < 60 || EDITING.size() < 10) throw new AssertionError("the policy sources changed shape");
+    }
+
+    // matches!(code, 0x20 | 0x30..=0x39 | …) after `function`: each code and range it lists.
+    private static void codes(String source, String function, Set<Integer> into) {
+        int start = source.indexOf("matches!(code, ", source.indexOf(function)) + "matches!(code, ".length();
+        for (String part : source.substring(start, source.indexOf(')', start)).split("\\|")) {
+            String[] range = part.trim().split("\\.\\.=");
+            int from = Integer.decode(range[0]), to = Integer.decode(range[range.length - 1]);
+            for (int code = from; code <= to; code++) into.add(code);
+        }
+    }
+
+    /** shortcuts::key_code for the saved names: letters, digits, F1-F24, NUMPAD_0-9 and the policy's table. */
+    static int vk(String key) {
+        if (key.matches("[A-Z0-9]")) return key.charAt(0);
+        if (key.matches("F\\d+")) return 0x6F + Integer.parseInt(key.substring(1));
+        if (key.matches("NUMPAD_\\d")) return 0x60 + Integer.parseInt(key.substring(7));
+        Integer code = VKS.get(key);
+        if (code == null) throw new AssertionError("the fake knows no VK for " + key);
+        return code;
+    }
+
+    /** shortcuts::refused_chord: the shell's chords, then the ones used for typing. */
     private static String refused(List<String> modifiers, String key) {
         boolean ctrl = modifiers.contains("CTRL"), alt = modifiers.contains("ALT"), shift = modifiers.contains("SHIFT");
-        boolean printable = key.length() == 1 || key.equals("SPACE");
-        if ((ctrl && alt && key.equals("DELETE")) || (alt && !ctrl && (key.equals("TAB") || key.equals("ESC")))
-                || (ctrl && alt && !shift && key.equals("TAB")) || (ctrl && !alt && key.equals("ESC"))) {
+        int code = vk(key);
+        boolean printable = PRINTABLE.contains(code), editing = EDITING.contains(code);
+        int tab = 0x09, esc = 0x1B;
+        if ((ctrl && alt && code == 0x2E) || (alt && !shift && code == tab) || (!ctrl && alt && shift && code == tab)
+                || (!ctrl && alt && code == esc) || (ctrl && !alt && code == esc)) {
             return "reserved";
         }
-        if (shift && !ctrl && !alt && (printable || EDITING.contains(key))) return "hotkey_typing";
-        if (alt && !shift && printable) return "hotkey_typing";
-        if (ctrl && !alt && !shift && ("ACVXYZ".contains(key) && key.length() == 1 || (EDITING.contains(key) && !key.equals("TAB")))) {
-            return "hotkey_typing";
-        }
+        if (!ctrl && !alt && shift && (printable || editing)) return "hotkey_typing";
+        // AltGr: Ctrl+Alt on Windows, Alt and Alt+Shift on Android.
+        if (alt && !shift && printable || !ctrl && alt && shift && printable) return "hotkey_typing";
+        if (ctrl && !alt && !shift && ("ACVXYZ".indexOf(code) >= 0 || (editing && code != tab))) return "hotkey_typing";
+        if (ctrl && !alt && shift && (code == 'Z' || (code >= 0x21 && code <= 0x28))) return "hotkey_typing";
         return null;
     }
 
@@ -297,13 +332,13 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
         return ok(new JSONArray(keys));
     }
 
-    private static String[] strings(JSONArray array) throws JSONException {
+    static String[] strings(JSONArray array) throws JSONException {
         String[] values = new String[array.length()];
         for (int i = 0; i < values.length; i++) values[i] = array.getString(i);
         return values;
     }
 
-    /** {keys, label, modifiers, vk} as the PC sees the chord: letters, digits, Tab and F1-F24 are enough for the tests. */
+    /** {keys, label, modifiers, vk} as the PC sees the chord. */
     private static JSONObject chord(String[] keys) throws JSONException {
         int modifiers = 0, vk = 0;
         List<String> labels = new ArrayList<>();
@@ -313,12 +348,7 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
                 case "SHIFT": modifiers |= 1; break;
                 case "CTRL": modifiers |= 2; break;
                 case "ALT": modifiers |= 4; break;
-                case "TAB": vk = 0x09; break;
-                case "DELETE": vk = 0x2E; break;
-                default:
-                    if (key.length() == 1) vk = key.charAt(0);
-                    else if (key.matches("F\\d+")) vk = 0x6F + Integer.parseInt(key.substring(1));
-                    else throw new AssertionError("the fake knows no VK for " + key);
+                default: vk = vk(key);
             }
         }
         return new JSONObject().put("keys", new JSONArray(Arrays.asList(keys))).put("label", String.join(" + ", labels))

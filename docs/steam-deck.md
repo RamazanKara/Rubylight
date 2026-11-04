@@ -22,7 +22,13 @@ Every Nightjar release carries `nightjar-desktop-X-x86_64.flatpak` (X is the ver
    flatpak install --user flathub org.freedesktop.Platform.VulkanLayer.gamescope//24.08
    ```
 
-To update, install the next release's `.flatpak` the same way; settings and paired PCs stay. They live in `~/.var/app/io.github.ramazankara.nightjar/config/nightjar`.
+To update, install the next release's `.flatpak` over the old one with `--reinstall` (without it Flatpak stops at "already installed"):
+
+```sh
+flatpak install --user --reinstall nightjar-desktop-X-x86_64.flatpak
+```
+
+Settings and paired PCs stay. They live in `~/.var/app/io.github.ramazankara.nightjar/config/nightjar`.
 
 Nightjar is not on Flathub: Flathub builds every app whose source is public from that source on its own servers, and this bundle repackages the release archive instead.
 

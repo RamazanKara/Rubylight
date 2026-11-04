@@ -118,6 +118,8 @@ public class SettingsRailTest {
         assertEquals(View.VISIBLE, bar.getVisibility());
         assertEquals("a TV opens on Input", middleOf(screen, "input"), barMiddle(screen), 1f);
         assertFalse(rail(screen).sliding());
+        // nightjar#7: the first focus is on that row too, not on Search above it.
+        assertEquals(StreamSettings.RootFragment.positionOf(sections(screen), "input"), sections(screen).getSelectedItemPosition());
         android.graphics.drawable.Drawable canvas = screen.getWindow().getDecorView().getBackground();
         assertTrue("the window is the still radial light", canvas instanceof android.graphics.drawable.GradientDrawable
                 && ((android.graphics.drawable.GradientDrawable) canvas).getGradientType()

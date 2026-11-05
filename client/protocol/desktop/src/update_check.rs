@@ -14,7 +14,7 @@
 //! as Android's UpdateChecker notes) and go to the log. Failures after Update now show in the notice.
 
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::sync::Arc;
@@ -192,38 +192,62 @@ impl Updates {
         }
     }
 
-    /// Takes in what the threads finished, once per pass of the main loop. True when Nightjar should
-    /// exit now for the update: the installer is running or the new AppImage has started.
-    pub fn step(&mut self) -> bool {
+    /// Takes in what the threads finished, once per pass of the main loop. A verified download that
+    /// nothing stands in the way of comes back: the caller saves what the next Nightjar reads, then
+    /// gives it to [`Self::hand_over`].
+    pub fn step(&mut self) -> Option<PathBuf> {
         if let Some(release) = self.pending.as_ref().and_then(|r| r.try_recv().ok()) {
             self.pending = None;
             self.found = Some(release);
         }
-        let Some(job) = &self.job else { return false };
+        let job = self.job.as_ref()?;
         let result = match job.done.try_recv() {
             Ok(result) => result,
-            Err(TryRecvError::Empty) => return false,
+            Err(TryRecvError::Empty) => return None,
             Err(TryRecvError::Disconnected) => Err(Failure::Network("the download stopped".into())),
         };
         self.job = None;
-        match result.and_then(|part| self.hand_over(&part)) {
-            Ok(()) => true,
-            Err(Failure::Cancelled) => false,
+        let ready = result.and_then(|part| self.refusal(&part).map(|()| part));
+        self.settle(ready)
+    }
+
+    /// True when Nightjar should exit now for the update: the installer is running or the new
+    /// AppImage has started.
+    pub fn hand_over(&mut self, part: &Path) -> bool {
+        let result = self.apply(part);
+        self.settle(result).is_some()
+    }
+
+    fn settle<T>(&mut self, result: Result<T, Failure>) -> Option<T> {
+        match result {
+            Ok(value) => Some(value),
+            Err(Failure::Cancelled) => None,
             Err(failure) => {
                 eprintln!("nightjar: update: {failure:?}");
                 self.failure = Some(failure);
-                false
+                None
             }
         }
     }
 
-    fn hand_over(&self, part: &Path) -> Result<(), Failure> {
+    /// What stops the update now that the download is here. The file goes with it.
+    fn refusal(&self, part: &Path) -> Result<(), Failure> {
+        let Some(steps) = &self.steps else { return Err(Failure::Cancelled) };
+        let refused = if (steps.stream_elsewhere)() {
+            Failure::StreamElsewhere
+        } else if (steps.setup_running)() {
+            // A second setup would stop at once and start Nightjar, on files the first is replacing.
+            Failure::Apply("another Nightjar is installing an update".into())
+        } else {
+            return Ok(());
+        };
+        if let Err(e) = std::fs::remove_file(part) { eprintln!("nightjar: update: leftover {}: {e}", part.display()); }
+        Err(refused)
+    }
+
+    fn apply(&self, part: &Path) -> Result<(), Failure> {
         let (Some(steps), Some(release)) = (&self.steps, &self.found) else { return Err(Failure::Cancelled) };
         let Ok(asset) = &release.asset else { return Err(Failure::NoInstaller) };
-        if (steps.stream_elsewhere)() {
-            if let Err(e) = std::fs::remove_file(part) { eprintln!("nightjar: update: leftover {}: {e}", part.display()); }
-            return Err(Failure::StreamElsewhere);
-        }
         let marker = steps.marker.as_deref();
         if let Some(marker) = marker {
             let attempt = Attempt { version: release.version.clone(), url: release.url.clone() };
@@ -574,6 +598,7 @@ mod tests {
                 own_dir: true,
                 marker: Some(self.marker()),
                 stream_elsewhere: || false,
+                setup_running: || false,
                 apply: Box::new(move |part, _| {
                     ran.lock().unwrap().push(std::fs::read(part).unwrap());
                     std::fs::remove_file(part).unwrap();
@@ -617,7 +642,7 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(30);
         while updates.job.is_some() {
             assert!(Instant::now() < deadline, "the download never ended");
-            if updates.step() { return true; }
+            if let Some(part) = updates.step() { return updates.hand_over(&part); }
             std::thread::sleep(Duration::from_millis(2));
         }
         false
@@ -723,7 +748,7 @@ mod tests {
         let mut updates = notice(Err(Failure::NoDigest), Some(installer.steps(count.clone(), local)));
         updates.update_now();
         assert_eq!(updates.failure, Some(Failure::NoDigest));
-        assert!(updates.job.is_none() && !updates.step() && installer.ran().is_empty());
+        assert!(updates.job.is_none() && updates.step().is_none() && installer.ran().is_empty());
         assert_eq!(count.gets.load(Ordering::Relaxed), 0, "nothing is fetched");
         assert!(updates.found.is_some(), "the release link stays");
         assert!(Failure::NoDigest.is_final(), "and Update now goes");
@@ -775,7 +800,7 @@ mod tests {
         let _ = release.send(());
         wait_until("the file stays", || installer.parts() == 0);
         for _ in 0..50 {
-            assert!(!updates.step());
+            assert!(updates.step().is_none());
             std::thread::sleep(Duration::from_millis(2));
         }
         assert!(installer.ran().is_empty());
@@ -799,7 +824,7 @@ mod tests {
         assert!(updates.job.is_none(), "no download next to a stream");
         let _ = release.send(());
         wait_until("the file stays", || installer.parts() == 0);
-        assert!(!updates.step());
+        assert!(updates.step().is_none());
         assert!(installer.ran().is_empty());
     }
 
@@ -833,7 +858,7 @@ mod tests {
         let progress = updates.job.as_ref().unwrap().progress.clone();
         wait_until("the download never ended", || Arc::strong_count(&progress) == 2);
         updates.hold(true);
-        assert!(!updates.step());
+        assert!(updates.step().is_none());
         wait_until("the file stays", || installer.parts() == 0);
         assert!(installer.ran().is_empty());
     }
@@ -858,10 +883,68 @@ mod tests {
         let progress = updates.job.as_ref().unwrap().progress.clone();
         wait_until("the download never ended", || Arc::strong_count(&progress) == 2);
         STREAMING.store(true, Ordering::SeqCst);
-        assert!(!updates.step(), "Nightjar stays open");
+        assert!(updates.step().is_none(), "Nightjar stays open");
         assert_eq!(updates.failure, Some(Failure::StreamElsewhere));
         assert!(installer.ran().is_empty() && !installer.marker().exists());
         assert_eq!(installer.parts(), 0);
+    }
+
+    #[test]
+    fn a_setup_already_running_stops_the_hand_over() {
+        let bytes = body();
+        let served = bytes.clone();
+        let fixture = Fixture::start(move |_, _| Reply::Body(served.clone()));
+        let installer = Installer::new("second-setup");
+        let mut steps = installer.steps(native(), local);
+        steps.setup_running = || true;
+        let mut updates = notice(Ok(asset_at(fixture.url("/setup"), &bytes)), Some(steps));
+        updates.update_now();
+        assert!(!finish(&mut updates), "Nightjar stays open");
+        assert!(matches!(updates.failure, Some(Failure::Apply(_))), "it says why: {:?}", updates.failure);
+        assert!(!updates.failure.as_ref().unwrap().is_final(), "Update now stays for afterwards");
+        assert!(installer.ran().is_empty() && !installer.marker().exists(), "no second setup, no false alarm");
+        assert_eq!(installer.parts(), 0);
+    }
+
+    /// The next Nightjar can read its files as soon as it starts, while this one is still leaving.
+    #[test]
+    fn nothing_runs_before_the_caller_has_saved() {
+        let bytes = body();
+        let served = bytes.clone();
+        let fixture = Fixture::start(move |_, _| Reply::Body(served.clone()));
+        let installer = Installer::new("saves-first");
+        let mut updates = notice(Ok(asset_at(fixture.url("/setup"), &bytes)), Some(installer.steps(native(), local)));
+        updates.update_now();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let part = loop {
+            assert!(Instant::now() < deadline, "the download never ended");
+            if let Some(part) = updates.step() { break part; }
+            std::thread::sleep(Duration::from_millis(2));
+        };
+        assert!(installer.ran().is_empty() && !installer.marker().exists(), "the caller's turn to save");
+        assert_eq!(std::fs::read(&part).unwrap(), bytes);
+        assert!(updates.hand_over(&part));
+        assert_eq!(installer.ran(), [bytes]);
+        assert!(installer.marker().exists());
+
+        let main = include_str!("main.rs");
+        let frame = main.split("self.updates.step()").nth(1).expect("the main loop steps the update");
+        let (saved, handed) = (frame.find("self.save_for_next_run()").unwrap(), frame.find("self.updates.hand_over(").unwrap());
+        assert!(saved < handed, "the main loop saves first");
+    }
+
+    #[test]
+    fn a_hand_over_that_fails_after_the_save_stays_open_and_says_why() {
+        let bytes = body();
+        let served = bytes.clone();
+        let fixture = Fixture::start(move |_, _| Reply::Body(served.clone()));
+        let installer = Installer::new("late-failure");
+        let mut steps = installer.steps(native(), local);
+        steps.apply = Box::new(|_, _| Err(Failure::Restart("no".into())));
+        let mut updates = notice(Ok(asset_at(fixture.url("/setup"), &bytes)), Some(steps));
+        updates.update_now();
+        assert!(!finish(&mut updates));
+        assert_eq!(updates.failure, Some(Failure::Restart("no".into())));
     }
 
     #[cfg(windows)]
@@ -910,7 +993,7 @@ mod tests {
         frame(&mut updates, &ctx);
         frame(&mut updates, &ctx);
         assert!(installer.ran().is_empty(), "nothing happens while drawing");
-        assert!(updates.step(), "the main loop gets the answer");
+        assert!(updates.step().is_some(), "the main loop gets the answer");
     }
 
     fn checked(copy: CopyKind, steps: impl FnOnce(Arc<dyn Transport>) -> Option<Steps>) -> (Updates, Arc<Counting>) {
@@ -931,7 +1014,7 @@ mod tests {
         let (mut updates, count) = checked(CopyKind::Installed, |net| Some(installer.steps(net, local)));
         for _ in 0..20 {
             frame(&mut updates, &ctx);
-            assert!(!updates.step());
+            assert!(updates.step().is_none());
         }
         assert!(updates.job.is_none());
         assert!(updates.found.as_ref().unwrap().asset.is_ok());
@@ -947,7 +1030,7 @@ mod tests {
         updates.update_now();
         for _ in 0..5 {
             frame(&mut updates, &ctx);
-            assert!(!updates.step());
+            assert!(updates.step().is_none());
         }
         assert!(updates.job.is_none() && updates.failure.is_none());
         assert_eq!(count.gets.load(Ordering::Relaxed), 1);
@@ -996,6 +1079,7 @@ mod tests {
             own_dir: false,
             marker: None,
             stream_elsewhere: || false,
+            setup_running: || false,
             apply: Box::new(move |part, _| {
                 self_update::replace_file(part, &copy).map_err(Failure::Apply)?;
                 flag.store(true, Ordering::Relaxed);

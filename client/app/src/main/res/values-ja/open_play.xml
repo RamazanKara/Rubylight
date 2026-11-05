@@ -12,6 +12,8 @@
     <string name="open_play_no_list">%1$s からゲーム一覧を受け取れませんでした</string>
     <string name="open_play_other_device">%1$s のゲームが別のデバイスでプレイ中のため、Nightjar は通常どおり開きました。</string>
     <string name="open_play_no_network">ネットワークがないため、Nightjar は通常どおり開きました。</string>
+    <string name="open_play_waiting_network">ネットワークを待っています…</string>
+    <string name="open_play_no_answer">%1$sから時間内に応答がありませんでした。</string>
     <string-array name="open_on_start_names">
         <item>PCの一覧を表示</item>
         <item>前回のゲームを続ける</item>

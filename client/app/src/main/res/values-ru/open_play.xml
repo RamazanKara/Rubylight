@@ -12,6 +12,8 @@
     <string name="open_play_no_list">%1$s не передал список игр</string>
     <string name="open_play_other_device">Игра на %1$s запущена на другом устройстве, поэтому Nightjar открылся как обычно.</string>
     <string name="open_play_no_network">Нет сети, поэтому Nightjar открылся как обычно.</string>
+    <string name="open_play_waiting_network">Ожидание сети…</string>
+    <string name="open_play_no_answer">%1$s не ответил вовремя.</string>
     <string-array name="open_on_start_names">
         <item>Показать мои ПК</item>
         <item>Продолжить последнюю игру</item>

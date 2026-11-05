@@ -926,7 +926,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
                 return true;
 
             case OPEN_ON_START_ID:
-                com.limelight.console.OpenPlay.toggle(this, computer.uuid, computer.displayName(), app.app.getAppId(), app.app.getAppName());
+                com.limelight.console.OpenPlay.toggle(this, computer.uuid, computer.displayName(), app.app.getAppId(), app.app.getAppUuid(), app.app.getAppName());
                 return true;
 
             case CREATE_SHORTCUT_ID:

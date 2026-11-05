@@ -151,10 +151,15 @@ public final class ConsoleRepository {
 
     /** Whether the host's classic app list, as last saved, has this id (blocks): a native library may leave a tile out. */
     public boolean classicListHas(ComputerDetails computer, int appId) {
+        return classicListHas(computer, appId, "");
+    }
+
+    /** The same for a game saved with its stable id, when there is one: the id may belong to another game by now. */
+    public boolean classicListHas(ComputerDetails computer, int appId, String stableId) {
         List<NvApp> apps = classic.apps(computer);
         if (apps != null) {
             for (NvApp app : apps) {
-                if (app.getAppId() == appId) return true;
+                if (app.getAppId() == appId && (stableId.isEmpty() || stableId.equalsIgnoreCase(app.getAppUuid()))) return true;
             }
         }
         return false;

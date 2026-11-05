@@ -18,7 +18,7 @@ pub fn validate_device_name(name: &str) -> Result<()> {
         || !name.chars().all(device_name_character)
     {
         bail!(
-            "device name must be 1–128 characters without control characters or any of < > \" ` % $ \\ | ; ^"
+            "device name must be 1–128 characters without control or text direction characters or any of < > \" ` % $ \\ | ; ^"
         );
     }
     Ok(())
@@ -26,10 +26,25 @@ pub fn validate_device_name(name: &str) -> Result<()> {
 fn device_name_character(c: char) -> bool {
     !c.is_control()
         && !is_noncharacter(c)
+        && !is_direction_control(c)
         && !matches!(
             c,
             '<' | '>' | '"' | '`' | '%' | '$' | '\\' | '|' | ';' | '^'
         )
+}
+/// Marks, embeddings, overrides and isolates turn the text around them, so a
+/// name could pass for an address beside it; a line separator starts a line of
+/// its own. A zero-width joiner is none of these: emoji are made with it.
+fn is_direction_control(c: char) -> bool {
+    matches!(
+        c,
+        '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+    )
+}
+/// `name` without those characters. A device paired before they were refused
+/// may still carry them, and keeps its name; a notice shows it without them.
+pub fn without_direction_controls(name: &str) -> String {
+    name.chars().filter(|c| !is_direction_control(*c)).collect()
 }
 fn is_noncharacter(c: char) -> bool {
     let c = c as u32;
@@ -222,6 +237,29 @@ mod tests {
             assert!(validate_device_name(name).is_err(), "{name}");
         }
         assert!(validate_device_name(&"a".repeat(129)).is_err());
+    }
+    #[test]
+    fn a_name_cannot_turn_the_text_beside_it() {
+        for control in [
+            '\u{61c}', '\u{200e}', '\u{200f}', '\u{2028}', '\u{2029}', '\u{202a}', '\u{202b}',
+            '\u{202c}', '\u{202d}', '\u{202e}', '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}',
+        ] {
+            let name = format!("TV{control}611.4.861.291");
+            assert!(validate_device_name(&name).is_err(), "{control:?}");
+            assert_eq!(without_direction_controls(&name), "TV611.4.861.291");
+        }
+        // Moonlight's own names, right-to-left names and emoji still pair.
+        for name in [
+            "roth",
+            "Moonlight Client",
+            "טלוויזיה",
+            "التلفزيون",
+            "👩\u{200d}💻 TV",
+            "می\u{200c}خواهم",
+        ] {
+            assert!(validate_device_name(name).is_ok(), "{name}");
+            assert_eq!(without_direction_controls(name), name);
+        }
     }
     #[test]
     fn pair_with_real_rsa_certificates_and_existing_wire_format() {

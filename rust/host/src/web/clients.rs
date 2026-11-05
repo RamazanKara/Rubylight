@@ -128,7 +128,11 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             let previous_folders = folder_grants(c);
             let previous_layout = c.extra.get("virtual_display_layout").cloned();
             if let Some(n) = data.get("name").and_then(Value::as_str) {
-                butterpollo_core::pairing::validate_device_name(n)?;
+                // The editor sends the name back with any change: a device paired
+                // before a character was refused can still have its access changed.
+                if n != c.name {
+                    butterpollo_core::pairing::validate_device_name(n)?;
+                }
                 c.name = n.into();
             }
             if let Some(n) = data.get("perm").and_then(Value::as_u64) {
@@ -494,6 +498,29 @@ mod tests {
         )
         .unwrap();
         assert!(!f.host.radeon.holds(&client.uuid));
+    }
+
+    #[test]
+    fn a_name_from_before_direction_characters_were_refused_can_stay_but_not_arrive() {
+        let f = Fixture::new();
+        let client = f.client(PERM);
+        let old = "TV\u{202e}1";
+        f.host.paired.write().unwrap().clients[0].name = old.into();
+        let update = |name: &str, perm: u32| {
+            handle(
+                &f.host,
+                "POST",
+                "/api/clients/update",
+                &json!({"uuid": client.uuid, "name": name, "perm": perm}),
+            )
+        };
+        update(old, butterpollo_core::state::LATER_DEVICE_PERMISSION).unwrap();
+        let state = f.host.paired.read().unwrap();
+        assert_eq!(state.clients[0].perm, butterpollo_core::state::LATER_DEVICE_PERMISSION);
+        assert_eq!(state.clients[0].name, old);
+        drop(state);
+        assert!(update("TV\u{202e}2", butterpollo_core::state::LATER_DEVICE_PERMISSION).is_err());
+        update("TV", butterpollo_core::state::LATER_DEVICE_PERMISSION).unwrap();
     }
 
     #[test]

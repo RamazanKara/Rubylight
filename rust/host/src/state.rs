@@ -253,6 +253,7 @@ pub fn pairing_notice(name: &str, address: std::net::IpAddr) -> (String, String)
     )
 }
 fn notice_name(name: &str) -> String {
+    let name = butterpollo_core::pairing::without_direction_controls(name);
     let mut shown: String = name.chars().take(NOTICE_NAME_CHARS).collect();
     if shown.len() < name.len() {
         shown.push('…');

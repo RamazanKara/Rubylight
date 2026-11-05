@@ -1,5 +1,7 @@
 package com.limelight.computers;
 
+import android.text.BidiFormatter;
+
 import androidx.annotation.VisibleForTesting;
 
 import com.limelight.LimeLog;
@@ -21,6 +23,8 @@ import java.util.function.Predicate;
 public final class PairingWatch {
     /** The most often a screen's host updates ask. */
     private static final long INTERVAL_MS = 4000;
+    /** Marks, embeddings, overrides, isolates and line separators. A zero-width joiner stays: emoji need it. */
+    private static final String BIDI_CONTROLS = "[\\u061C\\u200E\\u200F\\u2028-\\u202E\\u2066-\\u2069]";
 
     public interface Reader {
         List<NativePairing.Request> read(ComputerDetails host) throws NativeApiException;
@@ -38,6 +42,14 @@ public final class PairingWatch {
         public Waiting(ComputerDetails host, NativePairing.Request request) {
             this.host = host;
             this.request = request;
+        }
+
+        /**
+         * The name, safe beside other text. Its direction controls go first: an override left open reverses the
+         * address after it, and unicodeWrap only closes what it opens. An older host still passes them on.
+         */
+        public String shownName() {
+            return BidiFormatter.getInstance().unicodeWrap(request.name.replaceAll(BIDI_CONTROLS, ""));
         }
     }
 

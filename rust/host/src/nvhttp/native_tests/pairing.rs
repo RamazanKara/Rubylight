@@ -658,6 +658,9 @@ fn the_notices_name_both_devices_and_cut_long_names() {
     let long = "x".repeat(100);
     let (_, text) = crate::state::pairing_approved_notice(&long, "TV");
     assert!(text.len() < 100, "{text}");
+    // A name from before they were refused can't turn the notice around.
+    let (_, text) = crate::state::pairing_approved_notice("Phone\u{202e}", "\u{2067}TV");
+    assert!(text.contains("Phone approved TV."), "{text}");
     let (_, text) = crate::state::pairing_ended_notice("192.168.4.9".parse().unwrap());
     assert!(text.contains("Three wrong PINs from 192.168.4.9"), "{text}");
 }

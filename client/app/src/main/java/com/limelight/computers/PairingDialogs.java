@@ -98,7 +98,7 @@ final class PairingDialogs {
         CharSequence[] rows = new CharSequence[waiting.size()];
         for (int i = 0; i < rows.length; i++) {
             NativePairing.Request request = waiting.get(i).request;
-            rows[i] = activity.getString(R.string.pairing_request_row, request.name, request.address,
+            rows[i] = activity.getString(R.string.pairing_request_row, waiting.get(i).shownName(), request.address,
                     waiting.get(i).host.displayName());
         }
         new NavigationDialogBuilder(activity).setTitle(R.string.host_menu_pair_another)
@@ -121,7 +121,7 @@ final class PairingDialogs {
         final StringBuilder pin = new StringBuilder();
 
         final AlertDialog dialog = new NavigationDialogBuilder(activity)
-                .setTitle(activity.getString(R.string.pairing_wants_to_pair, request.name))
+                .setTitle(activity.getString(R.string.pairing_wants_to_pair, waiting.shownName()))
                 .setView(content)
                 .setNegativeButton(R.string.pairing_deny, null)
                 .setPositiveButton(R.string.pairing_approve, null)
@@ -238,7 +238,7 @@ final class PairingDialogs {
 
     private void approve(AlertDialog dialog, ViewGroup pad, PairingWatch.Waiting waiting, SleepFlow.Client client,
                          String pin, TextView value) {
-        final String name = waiting.request.name;
+        final String name = waiting.shownName();
         setBusy(dialog, pad);
         value.setText(activity.getString(R.string.pairing_waiting_for, name));
         worker.execute(() -> {
@@ -277,7 +277,7 @@ final class PairingDialogs {
             main.execute(() -> {
                 finish(dialog);
                 if (failed != null) {
-                    errors.show(activity.getString(R.string.pairing_wants_to_pair, waiting.request.name),
+                    errors.show(activity.getString(R.string.pairing_wants_to_pair, waiting.shownName()),
                             failed.getMessage());
                 }
                 changed.run();

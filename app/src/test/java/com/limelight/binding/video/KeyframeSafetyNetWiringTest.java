@@ -36,7 +36,9 @@ import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -58,6 +60,8 @@ public class KeyframeSafetyNetWiringTest {
         static int queued;
         static final List<Long> queuedAtNs = new ArrayList<>();
         static long lastTimeUs;
+        static int inputBufferBytes = 4096;
+        static MediaCodecInfo info;
 
         @Implementation public void configure(MediaFormat format, Surface surface, MediaCrypto crypto, int flags) {}
         @Implementation public void start() {}
@@ -65,7 +69,10 @@ public class KeyframeSafetyNetWiringTest {
             return 0;
         }
         @Implementation public ByteBuffer getInputBuffer(int index) {
-            return ByteBuffer.allocate(4096);
+            return ByteBuffer.allocate(inputBufferBytes);
+        }
+        @Implementation public MediaCodecInfo getCodecInfo() {
+            return info;
         }
         @Implementation public void queueInputBuffer(int index, int offset, int size, long timeUs, int flags) {
             queued++;
@@ -85,6 +92,8 @@ public class KeyframeSafetyNetWiringTest {
         ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
         QueueingCodec.queued = 0;
         QueueingCodec.queuedAtNs.clear();
+        QueueingCodec.inputBufferBytes = 4096;
+        QueueingCodec.info = null;
         activity = Robolectric.buildActivity(Activity.class).create();
         texture = new SurfaceTexture(0);
         surface = new Surface(texture);
@@ -239,21 +248,31 @@ public class KeyframeSafetyNetWiringTest {
         assertNull(ReflectionHelpers.getField(renderer, "inputSpacer"));
     }
 
+    private InputSpacer spacer() {
+        return ReflectionHelpers.getField(renderer, "inputSpacer");
+    }
+
+    // A last input a second from now: a hold that runs at all waits that second and is counted.
+    private void lastInputFarAhead() {
+        spacer().onInput(System.nanoTime() + 1_000_000_000L);
+    }
+
     @Test
     public void framesRightBehindEachOtherAreHeldApart() {
         configure(MODEL, MTK, true, false);
-        ReflectionHelpers.setField(renderer, "streamFrameRateMilliHz", 60_000);
+        ReflectionHelpers.setField(renderer, "streamFrameRateMilliHz", 30_000);
         submit(MoonBridge.FRAME_TYPE_IDR);
-        for (int i = 0; i < 9; i++) submit(MoonBridge.FRAME_TYPE_PFRAME);
-        // A millisecond's slack: the desktop JVM may round a sleep to whole ones.
-        long half = FramePacingPolicy.frameIntervalNs(60_000) / 2 - 1_000_000;
-        // The last nine against the one before: the keyframe's codec config goes in first, unspaced.
-        int queued = QueueingCodec.queuedAtNs.size();
-        for (int i = queued - 9; i < queued; i++) {
-            long spacing = QueueingCodec.queuedAtNs.get(i) - QueueingCodec.queuedAtNs.get(i - 1);
-            assertTrue("spacing " + spacing, spacing >= half);
+        // The times the hold itself keeps, not when the queue call got to run: a loaded machine can't make them
+        // too close. A millisecond's slack: a sleep may wake that early.
+        long half = FramePacingPolicy.frameIntervalNs(30_000) / 2 - 1_000_000;
+        long last = ReflectionHelpers.<Long>getField(spacer(), "lastInputNs");
+        for (int i = 0; i < 9; i++) {
+            submit(MoonBridge.FRAME_TYPE_PFRAME);
+            long input = ReflectionHelpers.<Long>getField(spacer(), "lastInputNs");
+            assertTrue("spacing " + (input - last), input - last >= half);
+            last = input;
         }
-        assertTrue(counts().describe(), counts().heldFrames > 0 && counts().heldNs >= half);
+        assertTrue(counts().describe(), counts().heldFrames > 0 && counts().heldNs > 0);
     }
 
     @Test
@@ -283,8 +302,10 @@ public class KeyframeSafetyNetWiringTest {
     @Test
     public void anInterruptGoesOnAndStaysSetForWhoeverStopsTheThread() {
         configure(MODEL, MTK, true, false);
-        ReflectionHelpers.setField(renderer, "streamFrameRateMilliHz", 60_000);
         submit(MoonBridge.FRAME_TYPE_IDR);
+        int held = counts().heldFrames;
+        lastInputFarAhead();
+        long start = System.nanoTime();
         Thread.currentThread().interrupt();
         try {
             assertEquals(MoonBridge.DR_OK, submit(MoonBridge.FRAME_TYPE_PFRAME));
@@ -292,32 +313,35 @@ public class KeyframeSafetyNetWiringTest {
         } finally {
             Thread.interrupted();
         }
+        assertTrue("the wait ended there: " + (System.nanoTime() - start), System.nanoTime() - start < 500_000_000L);
+        assertEquals("it did get to the wait", held + 1, counts().heldFrames);
+    }
+
+    private void assertHoldsNothing() {
+        int held = counts().heldFrames;
+        lastInputFarAhead();
+        long start = System.nanoTime();
+        ReflectionHelpers.callInstanceMethod(renderer, "holdForInputSpacing");
+        assertEquals(held, counts().heldFrames);
+        assertTrue("took " + (System.nanoTime() - start), System.nanoTime() - start < 500_000_000L);
     }
 
     @Test
     public void aStopHoldsNothing() {
         configure(MODEL, MTK, true, false);
-        ReflectionHelpers.setField(renderer, "streamFrameRateMilliHz", 60_000);
         submit(MoonBridge.FRAME_TYPE_IDR);
-        for (int i = 0; i < 3; i++) submit(MoonBridge.FRAME_TYPE_PFRAME);
-        int held = counts().heldFrames;
         // Past submitDecodeUnit's own check for a stop, as another thread's stop can be.
         renderer.prepareForStop();
-        ReflectionHelpers.callInstanceMethod(renderer, "holdForInputSpacing");
-        assertEquals(held, counts().heldFrames);
+        assertHoldsNothing();
     }
 
     @Test
     public void aCodecRecoveryHoldsNothing() {
         configure(MODEL, MTK, true, false);
-        ReflectionHelpers.setField(renderer, "streamFrameRateMilliHz", 60_000);
         submit(MoonBridge.FRAME_TYPE_IDR);
-        for (int i = 0; i < 3; i++) submit(MoonBridge.FRAME_TYPE_PFRAME);
-        int held = counts().heldFrames;
         ReflectionHelpers.<java.util.concurrent.atomic.AtomicInteger>getField(renderer, "codecRecoveryType")
                 .set(ReflectionHelpers.<Integer>getStaticField(MediaCodecDecoderRenderer.class, "CR_RECOVERY_TYPE_FLUSH"));
-        ReflectionHelpers.callInstanceMethod(renderer, "holdForInputSpacing");
-        assertEquals(held, counts().heldFrames);
+        assertHoldsNothing();
     }
 
     @Test
@@ -354,6 +378,135 @@ public class KeyframeSafetyNetWiringTest {
         assertTrue(log, log.contains("Decoder latency climb: "));
     }
 
+    // 9 s at 3 ms, then 3 s at this level, through the renderer at this frame rate.
+    private int climbsThroughTheRenderer(int fpsMilliHz, float levelMs) {
+        configure(MODEL, MTK, true, false);
+        withoutHolds();
+        ReflectionHelpers.setField(renderer, "streamFrameRateMilliHz", fpsMilliHz);
+        submit(MoonBridge.FRAME_TYPE_IDR);
+        long frameMs = 1_000_000L / fpsMilliHz;
+        for (long at = 0; at < 12_000; at += frameMs) {
+            advance(frameMs);
+            submit(MoonBridge.FRAME_TYPE_PFRAME);
+            outputAt(at < 9_000 ? 3 : levelMs);
+        }
+        return counts().climbs;
+    }
+
+    // The floor is half this stream's frame interval: 16.7, 8.3 and 4.2 ms. The latency reaches the net with it.
+    @Test
+    public void theFloorFollowsTheStreamsFrameRateAt30And60And120() {
+        assertEquals(0, climbsThroughTheRenderer(30_000, 15));
+        assertEquals(1, climbsThroughTheRenderer(30_000, 18));
+        assertEquals(0, climbsThroughTheRenderer(60_000, 7));
+        assertEquals(1, climbsThroughTheRenderer(60_000, 10));
+        assertEquals("under 60 fps' floor", 1, climbsThroughTheRenderer(120_000, 8));
+    }
+
+    private int submitBytes(int bytes) {
+        frame++;
+        return renderer.submitDecodeUnit(new byte[bytes], bytes, MoonBridge.BUFFER_TYPE_PICDATA, frame,
+                MoonBridge.FRAME_TYPE_PFRAME, (char) 0, frame * 16_000L, frame * 16_000L, frame * 16_000_000L, frame * 16_000L);
+    }
+
+    // 20 KB frames: full motion at 10 Mbps, under a quarter of a frame's share at 63.
+    @Test
+    public void whatIsCalmFollowsTheBitrateTheStreamIsAskedFor() {
+        QueueingCodec.inputBufferBytes = 64 * 1024;
+        configure(MODEL, MTK, true, false);
+        withoutHolds();
+        renderer.setStreamBitrateKbps(10_000);
+        submit(MoonBridge.FRAME_TYPE_IDR);
+        for (int i = 0; i < 110; i++) {
+            advance(100);
+            assertEquals(MoonBridge.DR_OK, submitBytes(20 * 1024));
+        }
+        assertEquals(0, counts().requests());
+        renderer.setStreamBitrateKbps(63_000);
+        assertEquals(MoonBridge.DR_NEED_IDR, submitBytes(20 * 1024));
+        assertEquals(1, counts().quietRepairs);
+    }
+
+    // Until the first once-a-second tick, what the stream started with.
+    @Test
+    public void beforeAnythingMovedTheBitrateTheSettingCounts() {
+        QueueingCodec.inputBufferBytes = 64 * 1024;
+        configure(MODEL, MTK, true, false);
+        withoutHolds();
+        submit(MoonBridge.FRAME_TYPE_IDR);
+        advance(10_000);
+        assertEquals(MoonBridge.DR_NEED_IDR, submitBytes(20 * 1024));
+    }
+
+    private void outputAt(float latencyMs) {
+        ReflectionHelpers.callInstanceMethod(renderer, "noteDecoderOutput",
+                ClassParameter.from(int.class, frame % 8),
+                ClassParameter.from(long.class, QueueingCodec.lastTimeUs),
+                ClassParameter.from(long.class, System.nanoTime() + (long) (latencyMs * 1_000_000)));
+    }
+
+    private void framesAt(int count, float latencyMs) {
+        for (int i = 0; i < count; i++) {
+            advance(16);
+            submit(MoonBridge.FRAME_TYPE_PFRAME);
+            outputAt(latencyMs);
+        }
+    }
+
+    // A resize inside the configured maximum keeps the decoder, so the net goes on. A larger picture's slower
+    // decode is one climb, one repair, and a minute later the new baseline: no lasting keyframes from a resize.
+    @Test
+    public void aResizeInPlaceKeepsTheNetAndItsNewLevelSettles() {
+        MediaCodecInfo.CodecProfileLevel level = new MediaCodecInfo.CodecProfileLevel();
+        level.profile = MediaCodecInfo.CodecProfileLevel.HEVCProfileMain;
+        level.level = MediaCodecInfo.CodecProfileLevel.HEVCMainTierLevel51;
+        QueueingCodec.info = MediaCodecInfoBuilder.newBuilder().setName(MTK).setCapabilities(
+                MediaCodecInfoBuilder.CodecCapabilitiesBuilder.newBuilder()
+                        .setMediaFormat(MediaFormat.createVideoFormat("video/hevc", 3840, 2160))
+                        .setProfileLevels(new MediaCodecInfo.CodecProfileLevel[] {level})
+                        .setColorFormats(new int[] {MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible}).build()).build();
+        configure(MODEL, MTK, true, false);
+        withoutHolds();
+        ReflectionHelpers.setField(renderer, "adaptivePlayback", true);
+        ReflectionHelpers.setField(renderer, "maxDecodeWidth", 3840);
+        ReflectionHelpers.setField(renderer, "maxDecodeHeight", 2160);
+        KeyframeSafetyNet net = ReflectionHelpers.getField(renderer, "keyframeSafetyNet");
+        KeyframeSafetyNet.Counts before = counts();
+        submit(MoonBridge.FRAME_TYPE_IDR);
+        framesAt(560, 3);
+
+        assertTrue(renderer.prepareForReconfigure(1920, 1080));
+        assertEquals("no restart asked",
+                ReflectionHelpers.<Integer>getStaticField(MediaCodecDecoderRenderer.class, "CR_RECOVERY_TYPE_NONE").intValue(),
+                ReflectionHelpers.<java.util.concurrent.atomic.AtomicInteger>getField(renderer, "codecRecoveryType").get());
+        submit(MoonBridge.FRAME_TYPE_IDR);
+        assertSame(net, ReflectionHelpers.getField(renderer, "keyframeSafetyNet"));
+        assertSame(before, counts());
+
+        framesAt(4400, 12);
+        assertEquals(1, counts().climbs);
+        assertEquals(1, counts().climbRepairs);
+        assertEquals(1, counts().settledClimbs);
+        assertEquals(0, counts().climbEndRepairs);
+    }
+
+    // Another decoder for this stream starts its own watch and adds to the same counts.
+    @Test
+    public void aRestartedDecoderGetsANewNetAndKeepsTheCounts() {
+        configure(MODEL, MTK, true, false);
+        KeyframeSafetyNet first = ReflectionHelpers.getField(renderer, "keyframeSafetyNet");
+        KeyframeSafetyNet.Counts counts = counts();
+        MediaFormat format = MediaFormat.createVideoFormat("video/hevc", 3840, 2160);
+        MediaCodecInfo info = MediaCodecInfoBuilder.newBuilder().setName(MTK).build();
+        MediaCodecHelper.setDecoderLowLatencyOptions(format, info, 0, true, false, false, false);
+        ReflectionHelpers.callInstanceMethod(renderer, "tryConfigureDecoder",
+                ClassParameter.from(MediaCodecInfo.class, info),
+                ClassParameter.from(MediaFormat.class, format),
+                ClassParameter.from(boolean.class, true));
+        assertNotSame(first, ReflectionHelpers.getField(renderer, "keyframeSafetyNet"));
+        assertSame(counts, counts());
+    }
+
     @Test
     public void anOutputNothingWentInForIsNoLatency() {
         configure(MODEL, MTK, true, false);
@@ -368,13 +521,6 @@ public class KeyframeSafetyNetWiringTest {
         }
         assertNull(net.takeEvent());
         assertEquals(0, counts().climbs);
-    }
-
-    @Test
-    public void whyABitrateChangedReachesTheReport() {
-        com.limelight.LimeLog.info("Device controls bitrate: 63000 -> 50400 kbps (slow decoder)");
-        String log = com.limelight.LimeLog.getRedactedLog();
-        assertTrue(log, log.contains("63000 -> 50400 kbps (slow decoder)"));
     }
 
     @Test

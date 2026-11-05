@@ -22,6 +22,7 @@ import com.limelight.nvstream.http.FecChoice;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.binding.video.DisplayFrameRatePolicy;
+import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.PerformanceOverlay;
 import com.limelight.binding.video.UpscalingPolicy;
 import com.limelight.binding.video.VideoRendererChoice;
@@ -1168,6 +1169,28 @@ public class PreferenceConfiguration {
         return wasOff;
     }
 
+    // Set once Android's low-latency mode was switched off on the decoders of erratum 23, so a later On is kept.
+    static final String CODEC_LOW_LATENCY_CORRUPTION_OFF_PREF_STRING = "codec_low_latency_corruption_off";
+
+    /**
+     * Android's low-latency mode starts off where it can corrupt the picture
+     * ({@link MediaCodecHelper#corruptsInLowLatency}). A stored "on" is switched off once because
+     * it cannot be told apart from the default; the vendor keys stay as they are, and turning it
+     * on afterwards is kept. Other devices store nothing.
+     *
+     * @return whether it was on and is now off
+     */
+    static boolean migrateCodecLowLatencyCorruption(SharedPreferences prefs) {
+        if (prefs.getBoolean(CODEC_LOW_LATENCY_CORRUPTION_OFF_PREF_STRING, false) ||
+                !MediaCodecHelper.hasLowLatencyCorruptingDecoder()) {
+            return false;
+        }
+        boolean wasOn = prefs.getBoolean(CODEC_LOW_LATENCY_PREF_STRING, true);
+        prefs.edit().putBoolean(CODEC_LOW_LATENCY_CORRUPTION_OFF_PREF_STRING, true)
+                .putBoolean(CODEC_LOW_LATENCY_PREF_STRING, false).apply();
+        return wasOn;
+    }
+
     // For the overlay and the log: where this stream's resolution comes from.
     public String resolutionSource() {
         return resolutionFollowsScreen ? (fromPcProfile ? "native, PC profile" : "native") :
@@ -1252,6 +1275,9 @@ public class PreferenceConfiguration {
         }
         if (migrateRustEngineDefault(prefs)) {
             com.limelight.LimeLog.info("New streaming engine switched to its new default: on");
+        }
+        if (migrateCodecLowLatencyCorruption(prefs)) {
+            com.limelight.LimeLog.info("Android low latency switched off once: this TV's decoder can corrupt the picture with it");
         }
         if (prefs.contains(LEGACY_ENABLE_51_SURROUND_PREF_STRING)) {
             if (prefs.getBoolean(LEGACY_ENABLE_51_SURROUND_PREF_STRING, false)) {

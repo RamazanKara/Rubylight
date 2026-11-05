@@ -310,6 +310,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private ThermalMonitor thermalMonitor;
     private volatile int thermalLevel = ThermalMonitor.NORMAL;
     private volatile boolean heatChangesStream;
+    // MoonBridge.getVideoReceiveBufferInfo's answer, for the report; -1 unknown.
+    private volatile long videoReceiveBuffer = -1;
 
     private final FrameLatencyStats frameLatencyStats;
     // Releases MediaCodec frames at the host's frame times when that setting is on.
@@ -373,6 +375,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             bitrateWindowStartNs = nowNs;
             bitrateWindowStartBytes = bytes;
             wireWindowStartBytes = wireBytes;
+            noteVideoReceiveBuffer(MoonBridge.getVideoReceiveBufferInfo());
             thermalLevel = thermalMonitor.level();
             hottestThermalLevel = Math.max(hottestThermalLevel, thermalLevel);
             // Forced max clocks on a hot phone only bring on harder throttling (with Thermal protection on).
@@ -641,6 +644,20 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     /** The bitrate the stream is asked to carry now; it moves with automatic bitrate. */
     public void setStreamBitrateKbps(int kbps) {
         streamBitrateKbps = kbps;
+    }
+
+    // Once for the report, when first known; a session ending says -1 and leaves what it said before.
+    private void noteVideoReceiveBuffer(long info) {
+        if (info == -1 || info == videoReceiveBuffer) return;
+        videoReceiveBuffer = info;
+        LimeLog.info("Video receive buffer: the system granted " + (info & 0xffffffffL) / 1024 +
+                " KiB of the " + (info >>> 32) / 1024 + " KiB asked");
+    }
+
+    private String receiveBufferStats() {
+        long info = videoReceiveBuffer;
+        return info == -1 ? "receive buffer unknown" :
+                "receive buffer granted " + (info & 0xffffffffL) / 1024 + " of " + (info >>> 32) / 1024 + " KiB";
     }
 
     private String thermalStats() {
@@ -4038,7 +4055,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 " | keyframes " + keyframesReceived + ", largest " + largestKeyframeBytes + " B" +
                 (repairs != null ? " | " + repairs.describe() : "") +
                 " | input waits " + inputStalls.total() + ", worst " + inputStalls.totalMaxMs() + " ms" +
-                ", input buffer " + inputBufferBytes + " B" +
+                ", input buffer " + inputBufferBytes + " B, " + receiveBufferStats() +
                 " | output " + (output == null ? "none" : outputDescription(output)) +
                 " | hottest " + thermalName(hottestThermalLevel) + ", thermal protection " + onOff(prefs.thermalProtection));
         repairCounts = null;

@@ -56,7 +56,8 @@ public final class RedactedLog {
             "Stream request", "Connection terminated", "Selected ", "Decoder", "Reconfigure", "Stream now",
             "Display luminance", "Display modes changed", "Display refresh policy:", "Microphone", "PC stream profiles", "Present mode",
             "PyroWave", "Phase lock", "Low latency", "Automatic codec", "Streaming engine", "Device controls bitrate",
-            "DualSense USB ", "USB controller announcement ", "Audio output:", "Audio track configuration:"};
+            "DualSense USB ", "USB controller announcement ", "Audio output:", "Audio track configuration:",
+            "Video receive buffer"};
 
     public RedactedLog() {
         this(null);

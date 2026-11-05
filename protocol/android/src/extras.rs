@@ -7,7 +7,7 @@ use std::time::Duration;
 use nightjar_core::control::{ClientMessage, CursorShape, HdrMetadata};
 use nightjar_core::input::queue::InputError;
 use nightjar_core::sdp::AudioConfiguration;
-use nightjar_core::session::{Location, RoamingConfig};
+use nightjar_core::session::{Location, ReceiveBuffer, RoamingConfig};
 use rubylight_protocol::control::DisplayCaps;
 use rubylight_protocol::keyboard_layout::{KeyboardLayout, LayoutSource};
 use rubylight_protocol::phase_lock::{self, SlackWindow};
@@ -143,6 +143,17 @@ pub fn rtt_info(rtt: Option<(Duration, Duration)>) -> i64 {
         Some((rtt, variance)) => {
             let ms = |d: Duration| (d.as_millis().min(u128::from(u32::MAX))) as u64;
             ((ms(rtt) << 32) | ms(variance)) as i64
+        }
+        None => -1,
+    }
+}
+
+/// `getVideoReceiveBufferInfo`: bytes asked in the top 32 bits, bytes granted in the bottom, -1 without.
+pub fn receive_buffer_info(buffer: Option<ReceiveBuffer>) -> i64 {
+    match buffer {
+        Some(buffer) => {
+            let bytes = |size: usize| size.min(i32::MAX as usize) as i64;
+            (bytes(buffer.asked) << 32) | bytes(buffer.granted)
         }
         None => -1,
     }
@@ -540,6 +551,22 @@ mod tests {
         assert_eq!(rtt_info(None), -1);
         let packed = rtt_info(Some((Duration::from_millis(12), Duration::from_millis(3))));
         assert_eq!(packed, (12 << 32) | 3);
+    }
+
+    #[test]
+    fn receive_buffer_info_packs_asked_over_granted() {
+        assert_eq!(receive_buffer_info(None), -1);
+        let packed = receive_buffer_info(Some(ReceiveBuffer {
+            asked: 16 << 20,
+            granted: 212_992,
+        }));
+        assert_eq!(packed >> 32, 16 << 20);
+        assert_eq!(packed & 0xffff_ffff, 212_992);
+        let huge = receive_buffer_info(Some(ReceiveBuffer {
+            asked: usize::MAX,
+            granted: usize::MAX,
+        }));
+        assert!(huge > 0, "never the -1 of no session");
     }
 
     #[test]

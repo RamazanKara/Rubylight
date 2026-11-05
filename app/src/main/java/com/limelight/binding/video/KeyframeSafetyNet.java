@@ -13,7 +13,8 @@ import java.util.Locale;
  * waits, and a request that goes unanswered is not repeated on every frame.
  *
  * Should that theory be wrong these keyframes only cost, so a climb has to reach well into the frame
- * interval, repeated climbs' repairs back off, and a level that stays up becomes the new baseline.
+ * interval, repeated climbs' repairs back off to their ends alone, and a level that stays up becomes the
+ * new baseline.
  *
  * Decode latency comes from the thread that takes frames out of the decoder, the rest from the thread
  * that submits decode units, and the report reads {@link Counts} from a third.
@@ -30,8 +31,10 @@ final class KeyframeSafetyNet {
     // keyframe seen (4.5 MB) this often is 7 Mbps, about a tenth of the 63 Mbps those streams ran at.
     static final long MIN_GAP_MS = 5_000;
     // Calm is well under a stream's motion: a quarter of what a frame may take at its bitrate and frame rate,
-    // so 32 KB at 63 Mbps and 60 fps, where motion is about 130 KB.
+    // so 32 KB at 63 Mbps and 60 fps, where motion is about 130 KB. A share of a high bitrate would call
+    // moderate motion calm (83 KB at 160 Mbps, 156 KB at 300), so never more than this.
     private static final int QUIET_FRAME_SHARE = 4;
+    private static final int MAX_QUIET_FRAME_BYTES = 64 * 1024;
     // The average frame size follows about the last second at 60 fps.
     private static final float FRAME_AVERAGE_WEIGHT = 1 / 32f;
 
@@ -46,12 +49,16 @@ final class KeyframeSafetyNet {
     private static final long CLIMB_END_HOLD_MS = 1_000;
     // Well above the baseline means twice it and at least 4 ms over, and past half a frame interval: until
     // there a decode has time to spare, whatever its baseline. From the reports' average of 3 ms at 60 fps
-    // that is 8.3 ms, which their 3-5-7-8-9 ramp passes on its way to about 20.
+    // that is 8.3 ms, which their 3-5-7-8-9 ramp passes on its way to about 20. A high baseline, as one that
+    // settled, needs less: past the whole frame interval is an overrun, if that is 4 ms over the baseline.
     private static final float CLIMB_MIN_MARGIN_MS = 4;
     private static final float CLIMB_FLOOR_FRAME_SHARE = 0.5f;
     // After each climb repair the next one waits this long, the last gap repeating, so a latency that keeps
     // moving can't turn into a keyframe every MIN_GAP_MS for good.
     private static final long[] CLIMB_REPAIR_GAPS_MS = {5_000, 10_000, 20_000, 30_000};
+    // From this many repairs in a row a climb's start asks for nothing, so its repair can't use up the gap
+    // its end needs: each cycle ends on a clean picture, at no more keyframes.
+    private static final int CLIMB_START_REPAIRS = 2;
     // This long without a climb or a climb repair starts those gaps over. More than the longest of them, so
     // a latency that keeps moving never gets there.
     private static final long CLIMB_CALM_MS = 60_000;
@@ -207,7 +214,7 @@ final class KeyframeSafetyNet {
     /** The size under which a frame is calm at this bitrate and frame rate; 0, so none is, when either is unknown. */
     static long quietFrameBytes(int bitrateKbps, int fpsMilliHz) {
         if (bitrateKbps <= 0 || fpsMilliHz < 1000) return 0;
-        return bitrateKbps * 125_000L / fpsMilliHz / QUIET_FRAME_SHARE;
+        return Math.min(bitrateKbps * 125_000L / fpsMilliHz / QUIET_FRAME_SHARE, MAX_QUIET_FRAME_BYTES);
     }
 
     /** One frame's time from decoder input to output. Unknown times (0 or less) don't count. */
@@ -235,9 +242,12 @@ final class KeyframeSafetyNet {
     }
 
     // An unknown frame rate has no budget to measure against, so nothing climbs.
-    private static float climbFloorMs(int fpsMilliHz) {
-        return fpsMilliHz < 1000 ? Float.MAX_VALUE :
-                FramePacingPolicy.frameIntervalNs(fpsMilliHz) / 1_000_000f * CLIMB_FLOOR_FRAME_SHARE;
+    private static float climbLevelMs(float baseline, int fpsMilliHz) {
+        if (fpsMilliHz < 1000) return Float.MAX_VALUE;
+        float intervalMs = FramePacingPolicy.frameIntervalNs(fpsMilliHz) / 1_000_000f;
+        float overBaseline = baseline + Math.max(CLIMB_MIN_MARGIN_MS, baseline);
+        return Math.max(intervalMs * CLIMB_FLOOR_FRAME_SHARE,
+                Math.min(overBaseline, Math.max(intervalMs, baseline + CLIMB_MIN_MARGIN_MS)));
     }
 
     private void judge(float median, long nowMs, int fpsMilliHz) {
@@ -247,7 +257,7 @@ final class KeyframeSafetyNet {
             return;
         }
         float baseline = baseline();
-        if (median < Math.max(baseline + Math.max(CLIMB_MIN_MARGIN_MS, baseline), climbFloorMs(fpsMilliHz))) {
+        if (median < climbLevelMs(baseline, fpsMilliHz)) {
             aboveSinceMs = -1;
             addToBaseline(median, nowMs);
             return;
@@ -270,15 +280,17 @@ final class KeyframeSafetyNet {
         climbing = true;
         climbStartMs = nowMs;
         climbBaseline = baseline;
-        climbPeak = median;
-        Arrays.fill(climbRecent, median);
+        // The bucket that ended the hold may be a spike, which is no more of a peak here than later.
+        float start = Math.min(aboveFirst, median);
+        climbPeak = start;
+        Arrays.fill(climbRecent, start);
         belowSinceMs = -1;
         aboveSinceMs = -1;
         if (nowMs - lastClimbActivityMs >= CLIMB_CALM_MS) climbRepairsInARow = 0;
         lastClimbActivityMs = nowMs;
         counts.climbs++;
-        pending = Reason.CLIMB;
-        event = String.format(Locale.ROOT, "Decoder latency climb: %.1f ms over a %.1f ms baseline", median, baseline);
+        if (climbRepairsInARow < CLIMB_START_REPAIRS) pending = Reason.CLIMB;
+        event = String.format(Locale.ROOT, "Decoder latency climb: %.1f ms over a %.1f ms baseline", start, baseline);
     }
 
     private void whileClimbing(float median, long nowMs) {

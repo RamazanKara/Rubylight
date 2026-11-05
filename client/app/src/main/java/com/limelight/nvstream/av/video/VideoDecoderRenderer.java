@@ -70,6 +70,11 @@ public abstract class VideoDecoderRenderer {
         return getCapabilities();
     }
 
+    // The same with the HDR format picked for the launch, which can put the stream on another decoder.
+    public int getCapabilities(int negotiatedFormat, int hdrFormat) {
+        return getCapabilities(negotiatedFormat);
+    }
+
     public abstract void setHdrMode(boolean enabled, byte[] hdrMetadata);
 
     // A host timing report (control message 0x5536). Called on the native control thread, only

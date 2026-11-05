@@ -41,6 +41,8 @@ public class NvConnectionHostNoticeTest {
     // The HDR format the renderer picks, and the formats its capabilities were asked for.
     private static int pickedHdrFormat;
     private static final List<Integer> capabilityFormats = Collections.synchronizedList(new ArrayList<>());
+    private static final List<Integer> capabilityHdrFormats = Collections.synchronizedList(new ArrayList<>());
+    private static final int RFI_FROM_THE_FAKE = MoonBridge.CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC;
 
     private static int negotiatedFormats() {
         ConnectionContext context = ReflectionHelpers.getField(lastConnection, "context");
@@ -79,6 +81,7 @@ public class NvConnectionHostNoticeTest {
         lastConnection = connection;
         hostPackedModesSeen = null;
         capabilityFormats.clear();
+        capabilityHdrFormats.clear();
         connection.start(null, new VideoDecoderRenderer() {
             @Override public void setHostPacked444Modes(int modes) { hostPackedModesSeen = modes; }
             @Override public int pickHdrFormat(int hostHdrFormats, int videoFormats, boolean packed444) {
@@ -90,6 +93,10 @@ public class NvConnectionHostNoticeTest {
             @Override public int getCapabilities(int negotiatedFormat) {
                 capabilityFormats.add(negotiatedFormat);
                 return 0;
+            }
+            @Override public int getCapabilities(int negotiatedFormat, int hdrFormat) {
+                capabilityHdrFormats.add(hdrFormat);
+                return getCapabilities(negotiatedFormat) | RFI_FROM_THE_FAKE;
             }
             @Override public int setup(int format, int width, int height, int rate) { return -1; }
             @Override public void start() {}
@@ -293,8 +300,24 @@ public class NvConnectionHostNoticeTest {
             stream(SUNSHINE, false, offered, false);
             assertEquals(0, negotiatedFormats() & MoonBridge.VIDEO_FORMAT_MASK_AV1);
             assertNotEquals(0, negotiatedFormats() & MoonBridge.VIDEO_FORMAT_H265_MAIN10);
-            assertEquals(Integer.valueOf(negotiatedFormats()), capabilityFormats.get(capabilityFormats.size() - 1));
-            assertEquals(2, capabilityFormats.size());
+            assertEquals(Collections.singletonList(negotiatedFormats()), capabilityFormats);
+        } finally {
+            pickedHdrFormat = 0;
+        }
+    }
+
+    // A Dolby Vision decoder can give up RFI for its own stream only if the capabilities know what was picked.
+    @Test
+    public void theCapabilitiesAreAskedOnceTheHdrFormatIsPicked() throws Exception {
+        int offered = MoonBridge.VIDEO_FORMAT_H265 | MoonBridge.VIDEO_FORMAT_H265_MAIN10;
+        try {
+            stream(SUNSHINE, false, offered, false);
+            assertEquals(Collections.singletonList(0), capabilityHdrFormats);
+            pickedHdrFormat = com.limelight.binding.video.HdrFormatPolicy.DV_81;
+            stream(SUNSHINE, false, offered, false);
+            assertEquals(Collections.singletonList(pickedHdrFormat), capabilityHdrFormats);
+            ConnectionContext context = ReflectionHelpers.getField(lastConnection, "context");
+            assertEquals("what was asked is what the launch declares", RFI_FROM_THE_FAKE, context.videoCapabilities);
         } finally {
             pickedHdrFormat = 0;
         }

@@ -928,8 +928,6 @@ public class NvConnection {
                     context.negotiatedHeight, context.streamConfig.getRefreshRate());
             context.negotiatedVideoFormats = negotiateVideoFormats(preparedFormats, context.serverCodecModeSupport);
             context.negotiated10Bit = (context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
-            // The decoder for the negotiated format sets the reference-frame and slice capabilities.
-            context.videoCapabilities = renderer.getCapabilities(context.negotiatedVideoFormats);
             // 10-bit SDR offers 10-bit formats without asking for HDR in the launch.
             context.negotiatedHdr = context.negotiated10Bit && !context.streamConfig.isSdr10Bit();
             context.hdrFormat = context.negotiatedHdr ? renderer.pickHdrFormat(details.caps.hdrFormats(),
@@ -937,10 +935,11 @@ public class NvConnection {
             int hdrFormatVideoFormats = renderer.videoFormatsForHdrFormat(context.hdrFormat, context.negotiatedVideoFormats);
             if (hdrFormatVideoFormats != context.negotiatedVideoFormats) {
                 // Dolby Vision on the automatic codec: the codec that carries it (HEVC for profile 8, AV1 for
-                // profile 10), whose decoder sets the capabilities.
+                // profile 10).
                 context.negotiatedVideoFormats = hdrFormatVideoFormats;
-                context.videoCapabilities = renderer.getCapabilities(context.negotiatedVideoFormats);
             }
+            // The decoder for the negotiated format and HDR format sets the reference-frame and slice capabilities.
+            context.videoCapabilities = renderer.getCapabilities(context.negotiatedVideoFormats, context.hdrFormat);
             if (pyroWaveHdrLost(commonFormats, context.negotiatedVideoFormats)) {
                 // The host and this device both offer PyroWave HDR, but its output could not be
                 // created here; AV1 or HEVC HDR carries the stream instead. Say so once per PC.

@@ -154,23 +154,58 @@ public class DecoderLowLatencyCorruptionTest {
                 MoonBridge.CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1) != 0);
     }
 
+    private static final int HEVC_RFI = MoonBridge.CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC;
+    private static final int AV1_RFI = MoonBridge.CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1;
+
+    private static boolean rfi(MediaCodecDecoderRenderer renderer, int format, int hdrFormat, int capability) {
+        return (renderer.getCapabilities(format, hdrFormat) & capability) != 0;
+    }
+
     @Test
-    public void aDolbyVisionDecoderOfTheModelTakesItsBaseCodecsRfiToo() {
+    public void aDolbyVisionDecoderOfTheModelTakesRfiFromItsOwnStreamOnly() {
         ShadowBuild.setModel(MODEL);
         decoders("acme");
-        String dolbyVision = "c2.mtk.dolby-vision.decoder";
-        MediaCodecDecoderRenderer renderer = rendererWithDolbyVision(dolbyVision);
-        assertFalse("runs on its own decoder", ReflectionHelpers.<Boolean>getField(renderer, "refFrameInvalidationHevc"));
-        assertFalse(ReflectionHelpers.<Boolean>getField(renderer, "refFrameInvalidationAv1"));
+        MediaCodecDecoderRenderer renderer = rendererWithDolbyVision("c2.mtk.dolby-vision.decoder", false);
+        assertFalse("runs on its own decoder",
+                rfi(renderer, MoonBridge.VIDEO_FORMAT_H265_MAIN10, HdrFormatPolicy.DV_81, HEVC_RFI));
+        assertFalse(rfi(renderer, MoonBridge.VIDEO_FORMAT_H265_MAIN10, HdrFormatPolicy.DV_84, HEVC_RFI));
+        assertFalse(rfi(renderer, MoonBridge.VIDEO_FORMAT_AV1_MAIN10, HdrFormatPolicy.DV_101, AV1_RFI));
+        // The plain decoders of this test aren't the model's, so their streams keep RFI.
+        assertTrue(rfi(renderer, MoonBridge.VIDEO_FORMAT_H265_MAIN10, HdrFormatPolicy.PQ, HEVC_RFI));
+        assertTrue(rfi(renderer, MoonBridge.VIDEO_FORMAT_AV1_MAIN10, HdrFormatPolicy.PQ, AV1_RFI));
+    }
+
+    // Neither the picked format nor erratum 23 is why here: the override keeps HEVC from RFI's extra buffering
+    // by itself (MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc), so on this TV plain HEVC has none.
+    @Test
+    public void theHevcOverrideOffHasNoHevcRfiOfItsOwn() {
+        ShadowBuild.setModel(MODEL);
+        decoders("mtk");
+        MediaCodecDecoderRenderer renderer = rendererWithDolbyVision("c2.mtk.dolby-vision.decoder", true);
+        assertFalse(rfi(renderer, MoonBridge.VIDEO_FORMAT_H265, 0, HEVC_RFI));
+        assertFalse(rfi(renderer, MoonBridge.VIDEO_FORMAT_H265_MAIN10, HdrFormatPolicy.PQ, HEVC_RFI));
+        assertFalse(rfi(renderer, MoonBridge.VIDEO_FORMAT_H265_MAIN10, HdrFormatPolicy.DV_81, HEVC_RFI));
+    }
+
+    // The launch has told the host, so the report says so on whichever decoder the stream ends up.
+    @Test
+    public void whatTheLaunchGaveUpIsWhatTheStreamReports() {
+        ShadowBuild.setModel(MODEL);
+        decoders("mtk");
+        MediaCodecDecoderRenderer renderer = rendererWithDolbyVision("c2.mtk.dolby-vision.decoder", true);
+        renderer.getCapabilities(MoonBridge.VIDEO_FORMAT_H265_MAIN10, HdrFormatPolicy.DV_81);
+        assertTrue(ReflectionHelpers.<Boolean>getField(renderer, "dolbyVisionTookRfi"));
+        renderer.getCapabilities(MoonBridge.VIDEO_FORMAT_H265_MAIN10, HdrFormatPolicy.PQ);
+        assertFalse(ReflectionHelpers.<Boolean>getField(renderer, "dolbyVisionTookRfi"));
     }
 
     @Test
     public void aDolbyVisionDecoderOfAnotherModelTakesNothing() {
         ShadowBuild.setModel("AFTMM");
         decoders("acme");
-        MediaCodecDecoderRenderer renderer = rendererWithDolbyVision("c2.mtk.dolby-vision.decoder");
-        assertTrue(ReflectionHelpers.<Boolean>getField(renderer, "refFrameInvalidationHevc"));
-        assertTrue(ReflectionHelpers.<Boolean>getField(renderer, "refFrameInvalidationAv1"));
+        MediaCodecDecoderRenderer renderer = rendererWithDolbyVision("c2.mtk.dolby-vision.decoder", false);
+        assertTrue(rfi(renderer, MoonBridge.VIDEO_FORMAT_H265_MAIN10, HdrFormatPolicy.DV_81, HEVC_RFI));
+        assertTrue(rfi(renderer, MoonBridge.VIDEO_FORMAT_AV1_MAIN10, HdrFormatPolicy.DV_101, AV1_RFI));
     }
 
     @Test
@@ -183,7 +218,7 @@ public class DecoderLowLatencyCorruptionTest {
         assertTrue(MediaCodecHelper.asksForAndroidLowLatency(format));
     }
 
-    private MediaCodecDecoderRenderer rendererWithDolbyVision(String decoderName) {
+    private MediaCodecDecoderRenderer rendererWithDolbyVision(String decoderName, boolean hevcOverrideOff) {
         ShadowMediaCodecList.addCodec(decoder(decoderName, HdrFormatPolicy.MIME_DOLBY_VISION,
                 CodecProfileLevel.DolbyVisionProfileDvheSt, CodecProfileLevel.DolbyVisionProfileDvav110));
         PreferenceConfiguration prefs = new PreferenceConfiguration();
@@ -192,6 +227,7 @@ public class DecoderLowLatencyCorruptionTest {
         prefs.height = 2160;
         prefs.codecLowLatency = true;
         prefs.vendorLowLatency = true;
+        prefs.disableHevcLowLatency = hevcOverrideOff;
         return new MediaCodecDecoderRenderer(activity.get(), prefs, null, 0, false, /* requestedHdr */ true, "", null);
     }
 

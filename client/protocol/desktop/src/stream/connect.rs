@@ -227,18 +227,18 @@ pub(super) struct ConnectError {
 }
 
 /// The device a recovery's stream moved to, read before it launches: two devices must not fight
-/// over the stream. A PC that does not offer the move is not asked. One that cannot answer is
-/// not ruled out: the recovery's next attempt asks again, and the launch would stop at the
-/// running-game check, since the PC gave the game to the other device.
-fn resume_moved_to(paired: bool, running: bool, offered: bool, read: impl FnOnce() -> Result<nightjar_core::http::StreamMove, nightjar_core::http::Error>) -> Option<String> {
+/// over the stream. A PC that does not offer the move is not asked. One that cannot answer is not
+/// ruled out, and the game it no longer reports may only have moved, so that is no verdict: the
+/// attempt fails retryably and the recovery's next attempt asks again.
+fn resume_moved_to(paired: bool, running: bool, offered: bool, read: impl FnOnce() -> Result<nightjar_core::http::StreamMove, nightjar_core::http::Error>) -> Result<Option<String>, ConnectError> {
     if !paired || running || !offered {
-        return None;
+        return Ok(None);
     }
     match read() {
-        Ok(read) => read.moved_to.map(|moved| moved.device),
+        Ok(read) => Ok(read.moved_to.map(|moved| moved.device)),
         Err(error) => {
             eprintln!("nightjar: recovery: could not ask the PC whether the stream moved: {error}");
-            None
+            Err(ConnectError { message: format!("Checking the running app failed: {error}"), retryable: true, asks_replace: false, moved_to: None })
         }
     }
 }
@@ -765,7 +765,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         crate::hosts::merge_native(&mut plan.info, plan.native.as_ref());
         let running = plan.app.matches_running_app(plan.info.current_game, plan.info.current_game_uuid.as_deref());
         let offered = plan.info.capabilities.availability(Feature::ContinueHere) == Availability::Supported;
-        if let Some(device) = resume_moved_to(plan.info.paired, running, offered, || client.stream_move()) {
+        if let Some(device) = resume_moved_to(plan.info.paired, running, offered, || client.stream_move())? {
             return Err(ConnectError { message: String::new(), retryable: false, asks_replace: false, moved_to: Some(device) });
         }
         if !plan.info.paired || !running {
@@ -1319,14 +1319,19 @@ mod replace_tests {
     fn a_stream_that_moved_stops_its_recovery_and_says_where_it_went() {
         use nightjar_core::http::{Error, StreamMove};
         let moved: StreamMove = serde_json::from_str(r#"{"moved_to":{"device":"TV","since_unix_ms":1}}"#).unwrap();
-        assert_eq!(resume_moved_to(true, false, true, || Ok(moved.clone())).as_deref(), Some("TV"));
-        assert_eq!(resume_moved_to(true, false, true, || Ok(StreamMove::default())), None);
-        // An old PC is not even asked; one that cannot answer is asked by the next attempt.
-        assert_eq!(resume_moved_to(true, false, false, || panic!("not asked")), None);
-        assert_eq!(resume_moved_to(true, false, true, || Err(Error::Cancelled)), None);
+        let device = |asked: Result<Option<String>, ConnectError>| asked.ok().expect("an answer");
+        assert_eq!(device(resume_moved_to(true, false, true, || Ok(moved.clone()))).as_deref(), Some("TV"));
+        assert_eq!(device(resume_moved_to(true, false, true, || Ok(StreamMove::default()))), None);
+        // An old PC is not even asked.
+        assert_eq!(device(resume_moved_to(true, false, false, || panic!("not asked"))), None);
+        // One that cannot answer is asked by the next attempt: its game may only have moved, so
+        // this is not "the original app is no longer running".
+        let unanswered = resume_moved_to(true, false, true, || Err(Error::Cancelled)).err().expect("no verdict");
+        assert!(unanswered.retryable && !unanswered.asks_replace && unanswered.moved_to.is_none());
+        assert!(!unanswered.message.contains("no longer running"), "{}", unanswered.message);
         // A resume that goes on costs no extra request: the PC reports the game to its owner only.
-        assert_eq!(resume_moved_to(true, true, true, || panic!("not asked")), None);
-        assert_eq!(resume_moved_to(false, false, true, || panic!("not asked")), None);
+        assert_eq!(device(resume_moved_to(true, true, true, || panic!("not asked"))), None);
+        assert_eq!(device(resume_moved_to(false, false, true, || panic!("not asked"))), None);
 
         // The refusal is final: not retried, and it wins over the end of the recovery window.
         let refusal = ConnectError { message: String::new(), retryable: false, asks_replace: false, moved_to: Some("TV".into()) };

@@ -1393,4 +1393,11 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("Keyboard, mouse and controllers control the PC.", "キーボード、マウス、コントローラーでPCを操作します。"),
     ("Input captured.", "入力をキャプチャしました。"),
     ("Input captured. {} releases it.", "入力をキャプチャしました。{}で解放します。"),
+    ("Collection", "コレクション"),
+    ("No collection", "コレクションなし"),
+    ("Hide game", "ゲームを非表示"),
+    ("Show game", "ゲームを表示"),
+    ("Hidden", "非表示"),
+    ("Show hidden games", "非表示のゲームを表示"),
+    ("Hide hidden games", "非表示のゲームを隠す"),
 ];

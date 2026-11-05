@@ -1393,4 +1393,11 @@ sudo sysctl -w net.core.rmem_max={}", "Búfer de recepción: el sistema concedi�
     ("Keyboard, mouse and controllers control the PC.", "El teclado, el ratón y los mandos controlan el PC."),
     ("Input captured.", "Entrada capturada."),
     ("Input captured. {} releases it.", "Entrada capturada. {} la libera."),
+    ("Collection", "Colección"),
+    ("No collection", "Sin colección"),
+    ("Hide game", "Ocultar juego"),
+    ("Show game", "Mostrar juego"),
+    ("Hidden", "Ocultos"),
+    ("Show hidden games", "Mostrar juegos ocultos"),
+    ("Hide hidden games", "Ocultar juegos ocultos"),
 ];

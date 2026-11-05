@@ -1393,4 +1393,11 @@ sudo sysctl -w net.core.rmem_max={}", "Буфер приёма: система �
     ("Keyboard, mouse and controllers control the PC.", "Клавиатура, мышь и контроллеры управляют ПК."),
     ("Input captured.", "Ввод захвачен."),
     ("Input captured. {} releases it.", "Ввод захвачен. {} освобождает его."),
+    ("Collection", "Коллекция"),
+    ("No collection", "Без коллекции"),
+    ("Hide game", "Скрыть игру"),
+    ("Show game", "Показать игру"),
+    ("Hidden", "Скрытые"),
+    ("Show hidden games", "Показать скрытые игры"),
+    ("Hide hidden games", "Не показывать скрытые игры"),
 ];

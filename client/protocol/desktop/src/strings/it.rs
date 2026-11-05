@@ -1393,4 +1393,11 @@ sudo sysctl -w net.core.rmem_max={}", "Buffer di ricezione: il sistema ha conces
     ("Keyboard, mouse and controllers control the PC.", "Tastiera, mouse e controller comandano il PC."),
     ("Input captured.", "Input catturato."),
     ("Input captured. {} releases it.", "Input catturato. {} lo rilascia."),
+    ("Collection", "Raccolta"),
+    ("No collection", "Nessuna raccolta"),
+    ("Hide game", "Nascondi gioco"),
+    ("Show game", "Mostra gioco"),
+    ("Hidden", "Nascosti"),
+    ("Show hidden games", "Mostra giochi nascosti"),
+    ("Hide hidden games", "Nascondi giochi nascosti"),
 ];

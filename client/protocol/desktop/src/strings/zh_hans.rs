@@ -1393,4 +1393,11 @@ sudo sysctl -w net.core.rmem_max={}", "接收缓冲区：系统只分配了所�
     ("Keyboard, mouse and controllers control the PC.", "键盘、鼠标和手柄控制电脑。"),
     ("Input captured.", "已捕获输入。"),
     ("Input captured. {} releases it.", "已捕获输入。{} 释放。"),
+    ("Collection", "收藏夹"),
+    ("No collection", "未分类"),
+    ("Hide game", "隐藏游戏"),
+    ("Show game", "显示游戏"),
+    ("Hidden", "已隐藏"),
+    ("Show hidden games", "显示隐藏的游戏"),
+    ("Hide hidden games", "不显示隐藏的游戏"),
 ];

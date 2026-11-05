@@ -133,6 +133,8 @@ pub enum Command {
     CancelConnect,
     /// Star the game, or take its star off.
     ToggleFavourite(crate::config::Favourite),
+    /// Hides these games on this device, or shows them again.
+    SetHidden { games: Vec<crate::config::Favourite>, hidden: bool },
     /// Open a PC's Files page.
     OpenFiles(u64),
     /// Show the system's file dialog for files to send from the open Files page.
@@ -326,6 +328,10 @@ pub struct Launcher {
     pub open_game: Option<crate::config::OpenGame>,
     /// Whether Nightjar starts at sign-in; None hides the row (no way to set it here).
     pub sign_in: Option<bool>,
+    /// The games hidden on this device (hidden-games.json).
+    pub hidden_games: Vec<crate::config::Favourite>,
+    /// A PC's library page lists its hidden games too.
+    show_hidden_apps: bool,
     logo: Option<TextureHandle>,
     focus_screen: bool,
     focus_dialog: bool,
@@ -419,6 +425,8 @@ impl Launcher {
             favourites: Vec::new(),
             open_game: None,
             sign_in: None,
+            hidden_games: Vec::new(),
+            show_hidden_apps: false,
             logo: None,
             focus_screen: true,
             focus_dialog: false,

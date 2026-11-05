@@ -7,6 +7,7 @@ use nightjar_core::http::native_api::session::{ActionId, Session, State};
 
 use crate::strings::{en, tr, trf};
 use crate::config::{Favourite, HomeGroup, Recent};
+use nightjar_policy::collections;
 use crate::hosts::{Host, Reach};
 
 /// One PC as the console sees it.
@@ -20,6 +21,8 @@ pub struct Source<'a> {
     pub library: Option<&'a Library>,
     /// When the library's games were last played, by install id (`Native::last_played`).
     pub last_played: Option<&'a std::collections::BTreeMap<String, u64>>,
+    /// The collections the library's games are in, by install id (`Native::collections`).
+    pub collections: Option<&'a std::collections::BTreeMap<String, Vec<String>>>,
     /// The session, only while the PC is reachable (an old one is not shown for a PC that is away).
     pub session: Option<&'a Session>,
     /// This device may end games on the PC.
@@ -37,6 +40,7 @@ impl<'a> Source<'a> {
             paired: host.paired(),
             library: host.native.library.as_ref().filter(|_| host.paired()),
             last_played: host.paired().then_some(&host.native.last_played),
+            collections: host.paired().then_some(&host.native.collections),
             session: host.native.session.as_ref().filter(|_| online),
             host_control: host.native.host_control(),
         }
@@ -74,6 +78,8 @@ pub struct Copy {
     /// When the PC says the game was last played (seconds since the epoch, `0` for never), None
     /// when it says nothing.
     pub last_played: Option<u64>,
+    /// The collections its PC keeps it in, by name.
+    pub collections: Vec<String>,
 }
 
 /// A game in the merged library: the same game on several PCs is one entry.
@@ -103,6 +109,20 @@ impl Entry {
     /// The store of the copy that is opened first: the entry's row and filter.
     pub fn store(&self) -> Option<&str> {
         self.best().store.as_deref()
+    }
+
+    /// The collections any of its PCs keeps it in, as they name them.
+    pub fn collections(&self) -> Vec<String> {
+        self.copies.iter().flat_map(|c| c.collections.iter().cloned()).collect()
+    }
+
+    fn in_collection(&self, name: &str) -> bool {
+        let name = name.trim().to_lowercase();
+        self.copies.iter().flat_map(|c| &c.collections).any(|c| c.trim().to_lowercase() == name)
+    }
+
+    fn in_no_collection(&self) -> bool {
+        self.copies.iter().flat_map(|c| &c.collections).all(|c| c.trim().is_empty())
     }
 
     /// The copy whose cover to draw.
@@ -152,6 +172,12 @@ pub enum LibraryFilter {
     Games,
     /// The apps of no store; offered only beside stores.
     Other,
+    /// One collection's games, by its name.
+    Collection(String),
+    /// The games in no collection; offered only beside collections.
+    NoCollection,
+    /// The games hidden on this device; offered only when there are any.
+    Hidden,
 }
 
 impl LibraryFilter {
@@ -163,6 +189,9 @@ impl LibraryFilter {
             Self::Store(key) => entry.store() == Some(key.as_str()),
             Self::Games => entry.store().is_some(),
             Self::Other => entry.store().is_none(),
+            Self::Collection(name) => entry.in_collection(name),
+            Self::NoCollection => entry.in_no_collection(),
+            Self::Hidden => true,
         }
     }
 
@@ -174,11 +203,15 @@ impl LibraryFilter {
             Self::Store(key) => format!("filter:store:{key}"),
             Self::Games => "filter:games".into(),
             Self::Other => "filter:other".into(),
+            Self::Collection(name) => format!("filter:collection:{}", name.trim().to_lowercase()),
+            Self::NoCollection => "filter:no-collection".into(),
+            Self::Hidden => "filter:hidden".into(),
         }
     }
 }
 
-/// One chip: the filter, the store's name for a store chip, and how many games it shows.
+/// One chip: the filter, the store's or collection's name for such a chip, and how many games it
+/// shows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FilterChip {
     pub filter: LibraryFilter,
@@ -202,7 +235,7 @@ fn stores_by_size(entries: &[Entry]) -> Vec<(String, String, usize)> {
 
 /// The chips above All games for what the library has: All, Installed (only when something is
 /// not), Games, each store largest first, Other apps (Games and Other apps only when the library
-/// has both). None for an empty library.
+/// has both), each collection by name, then the games in none. None for an empty library.
 pub fn library_filters(entries: &[Entry]) -> Vec<FilterChip> {
     if entries.is_empty() {
         return Vec::new();
@@ -224,7 +257,34 @@ pub fn library_filters(entries: &[Entry]) -> Vec<FilterChip> {
     if other > 0 && any_store {
         chips.push(FilterChip { filter: LibraryFilter::Other, store_name: None, count: other });
     }
+    for group in collection_groups(entries) {
+        let count = group.games.len();
+        chips.push(match group.name {
+            Some(name) => FilterChip { filter: LibraryFilter::Collection(name.clone()), store_name: Some(name), count },
+            None => FilterChip { filter: LibraryFilter::NoCollection, store_name: None, count },
+        });
+    }
     chips
+}
+
+fn collection_groups(entries: &[Entry]) -> Vec<collections::Group> {
+    let names: Vec<Vec<String>> = entries.iter().map(Entry::collections).collect();
+    collections::groups(&names)
+}
+
+/// The grouping Home shows under the chosen one: by collection only while its PCs name any. The
+/// choice itself stays, for when they do again.
+pub fn shown_group(group: HomeGroup, entries: &[Entry]) -> HomeGroup {
+    if group == HomeGroup::Collection && entries.iter().all(Entry::in_no_collection) {
+        HomeGroup::Store
+    } else {
+        group
+    }
+}
+
+/// The groupings the View menu steps through: Collection only while the PCs name any.
+pub fn offered_groups(entries: &[Entry]) -> Vec<HomeGroup> {
+    HomeGroup::ALL.into_iter().filter(|group| shown_group(*group, entries) == *group).collect()
 }
 
 /// The games a filter shows, in the order All games lists them (by title).
@@ -242,6 +302,10 @@ pub enum RowKind {
     Other,
     /// A library with no stores at all (a classic host): one plain row.
     Library,
+    /// One collection's games (Home grouped by collection).
+    Collection { name: String },
+    /// The games in no collection, after the collections.
+    NoCollection,
 }
 
 /// A library row on Home: its games, installed first, and the All games filter its "All N"
@@ -261,6 +325,8 @@ impl LibraryRow<'_> {
             RowKind::Games => "row:games".into(),
             RowKind::Other => "row:other".into(),
             RowKind::Library => "row:library".into(),
+            RowKind::Collection { name } => format!("row:collection:{}", name.to_lowercase()),
+            RowKind::NoCollection => "row:no-collection".into(),
         }
     }
 
@@ -305,10 +371,25 @@ pub fn library_rows(entries: &[Entry]) -> Vec<LibraryRow<'_>> {
 /// whole library as one Library row that opens All games. Installed first, each part by title;
 /// every entry, installed or not, as by store (Android's ungrouped grid alone keeps to installed
 /// games). A title is a game when its PC says which store it is from: PCs send nothing else that
-/// tells games from apps. A library with no stores at all is one Library row by type too.
+/// tells games from apps. A library with no stores at all is one Library row by type too. By
+/// collection, a row per collection by name, a game in several in each, then the games in none;
+/// by store while no game is in one ([`shown_group`]).
 pub fn home_rows(entries: &[Entry], group: HomeGroup) -> Vec<LibraryRow<'_>> {
+    let group = shown_group(group, entries);
     if group == HomeGroup::Store {
         return library_rows(entries);
+    }
+    if group == HomeGroup::Collection {
+        return collection_groups(entries)
+            .into_iter()
+            .map(|part| {
+                let games = installed_first(part.games.iter().map(|at| &entries[*at]).collect());
+                match part.name {
+                    Some(name) => LibraryRow { filter: LibraryFilter::Collection(name.clone()), kind: RowKind::Collection { name }, games },
+                    None => LibraryRow { kind: RowKind::NoCollection, filter: LibraryFilter::NoCollection, games },
+                }
+            })
+            .collect();
     }
     if entries.is_empty() {
         return Vec::new();
@@ -385,6 +466,7 @@ pub fn merge_library(sources: &[Source<'_>]) -> Vec<Entry> {
                 cover_version: game.artwork.version.clone(),
                 has_cover: game.artwork.cover.is_some(),
                 last_played: source.last_played.and_then(|played| played.get(&game.install_id).copied()),
+                collections: source.collections.and_then(|names| names.get(&game.install_id).cloned()).unwrap_or_default(),
             };
             match index.get(&key) {
                 Some(&at) => entries[at].copies.push(copy),
@@ -538,6 +620,56 @@ pub fn list_line(entry: &Entry, played: Option<u64>, now: u64) -> String {
         (Some(store), None) => store.clone(),
         (None, when) => when.unwrap_or_default(),
     }
+}
+
+/// What keeps game `app_id` hidden on the PC `source` when `install_id` is its install id: the
+/// same keys as a star, with no title to show.
+fn hide_key(source: &Source<'_>, install_id: &str, app_id: u32) -> Option<Favourite> {
+    (!source.unique_id.is_empty()).then(|| Favourite { host: source.unique_id.to_owned(), install_id: install_id.to_owned(), app_id, title: String::new() })
+}
+
+/// Whether the game is hidden on this device. A PC that has not told its unique id hides nothing.
+pub fn is_hidden(source: &Source<'_>, install_id: &str, app_id: u32, hidden: &[Favourite]) -> bool {
+    hide_key(source, install_id, app_id).is_some_and(|key| hidden.iter().any(|h| h.same_hidden(&key)))
+}
+
+/// The library apart: what Home and All games show, and what this device hides. A title hidden
+/// on one PC still shows for its copies on the others.
+pub fn split_hidden(entries: Vec<Entry>, sources: &[Source<'_>], hidden: &[Favourite]) -> (Vec<Entry>, Vec<Entry>) {
+    if hidden.is_empty() {
+        return (entries, Vec::new());
+    }
+    let (mut shown, mut away) = (Vec::new(), Vec::new());
+    for entry in entries {
+        let (gone, kept): (Vec<Copy>, Vec<Copy>) = entry.copies.into_iter().partition(|copy| {
+            sources.iter().find(|s| s.id == copy.host).is_some_and(|s| is_hidden(s, &copy.install_id, copy.app_id, hidden))
+        });
+        if !kept.is_empty() {
+            shown.push(Entry { key: entry.key.clone(), title: entry.title.clone(), copies: kept });
+        }
+        if !gone.is_empty() {
+            away.push(Entry { key: entry.key, title: entry.title, copies: gone });
+        }
+    }
+    (shown, away)
+}
+
+/// What hiding the game `app_id` of PC `host` stores: every copy of its title, so the card it is
+/// on goes from Home whichever PCs have it. Empty when the game is not listed.
+pub fn hide_keys(sources: &[Source<'_>], host: u64, app_id: u32) -> Vec<Favourite> {
+    let entries = merge_library(sources);
+    let Some(entry) = entries.iter().find(|e| e.copies.iter().any(|c| c.host == host && c.app_id == app_id)) else {
+        return Vec::new();
+    };
+    entry
+        .copies
+        .iter()
+        .filter_map(|copy| {
+            let source = sources.iter().find(|s| s.id == copy.host)?;
+            let key = hide_key(source, &copy.install_id, copy.app_id)?;
+            Some(Favourite { title: entry.title.clone(), ..key })
+        })
+        .collect()
 }
 
 /// A starred game as Home shows it.
@@ -802,11 +934,82 @@ mod tests {
     }
 
     fn source<'a>(id: u64, name: &'a str, online: bool, library: Option<&'a Library>, session: Option<&'a Session>) -> Source<'a> {
-        Source { id, unique_id: "", name, online, paired: true, library, last_played: None, session, host_control: false }
+        Source { id, unique_id: "", name, online, paired: true, library, last_played: None, collections: None, session, host_control: false }
     }
 
     const DOTA: u32 = 1093052211;
     const DESKTOP: u32 = 881448767;
+
+    fn named(pairs: &[(&str, &[&str])]) -> std::collections::BTreeMap<String, Vec<String>> {
+        pairs.iter().map(|(id, names)| ((*id).to_owned(), names.iter().map(|n| (*n).to_owned()).collect())).collect()
+    }
+
+    /// The fixture's first game in the collections, the others in none.
+    fn in_collections(lib: &Library) -> std::collections::BTreeMap<String, Vec<String>> {
+        named(&[(lib.games[0].install_id.as_str(), &["VR", "Couch"])])
+    }
+
+    #[test]
+    fn home_groups_by_collection_with_a_game_in_each_and_the_rest_last() {
+        let lib = library();
+        let names = in_collections(&lib);
+        let sources = [Source { collections: Some(&names), ..source(1, "A", true, Some(&lib), None) }];
+        let entries = merge_library(&sources);
+        let rows = home_rows(&entries, HomeGroup::Collection);
+        let kinds: Vec<&RowKind> = rows.iter().map(|r| &r.kind).collect();
+        assert_eq!(kinds, [&RowKind::Collection { name: "Couch".into() }, &RowKind::Collection { name: "VR".into() }, &RowKind::NoCollection]);
+        assert_eq!(rows[0].games[0].title, lib.games[0].title);
+        assert_eq!(rows[1].games[0].title, lib.games[0].title, "in each of its collections");
+        assert_eq!(rows[2].games.len(), entries.len() - 1, "every other game once, last");
+        assert_eq!(rows[0].filter, LibraryFilter::Collection("Couch".into()));
+        assert_eq!(filtered(&entries, &rows[0].filter).len(), 1);
+        assert_eq!(filtered(&entries, &LibraryFilter::NoCollection).len(), entries.len() - 1);
+        let chips = library_filters(&entries);
+        assert!(chips.iter().any(|c| c.filter == LibraryFilter::Collection("VR".into()) && c.count == 1), "{chips:?}");
+        assert!(chips.iter().any(|c| c.filter == LibraryFilter::NoCollection), "{chips:?}");
+        assert!(offered_groups(&entries).contains(&HomeGroup::Collection));
+    }
+
+    #[test]
+    fn with_no_collections_the_grouping_is_not_offered_and_a_saved_choice_shows_stores() {
+        let lib = library();
+        let sources = [source(1, "A", true, Some(&lib), None)];
+        let entries = merge_library(&sources);
+        assert!(!offered_groups(&entries).contains(&HomeGroup::Collection));
+        assert_eq!(shown_group(HomeGroup::Collection, &entries), HomeGroup::Store);
+        let chosen: Vec<RowKind> = home_rows(&entries, HomeGroup::Collection).into_iter().map(|r| r.kind).collect();
+        let by_store: Vec<RowKind> = home_rows(&entries, HomeGroup::Store).into_iter().map(|r| r.kind).collect();
+        assert_eq!(chosen, by_store);
+        assert!(!library_filters(&entries).iter().any(|c| matches!(c.filter, LibraryFilter::Collection(_) | LibraryFilter::NoCollection)));
+    }
+
+    #[test]
+    fn hiding_takes_every_copy_of_the_title_and_a_pc_with_no_id_hides_nothing() {
+        let lib = library();
+        let game = &lib.games[0];
+        let (one, two) = (Source { unique_id: "one", ..source(1, "A", true, Some(&lib), None) }, Source { unique_id: "two", ..source(2, "B", true, Some(&lib), None) });
+        let sources = [one, two];
+        let keys = hide_keys(&sources, 1, game.app_id);
+        assert_eq!(keys.iter().map(|k| k.host.as_str()).collect::<Vec<_>>(), ["one", "two"], "{keys:?}");
+        assert!(hide_keys(&sources, 1, 12345).is_empty(), "not listed");
+
+        let (shown, away) = split_hidden(merge_library(&sources), &sources, &keys);
+        assert!(!shown.iter().any(|e| e.title == game.title));
+        assert_eq!(away.len(), 1);
+        assert_eq!(away[0].copies.len(), 2);
+
+        // Hidden on one PC, its copy on the other still shows.
+        let (shown, away) = split_hidden(merge_library(&sources), &sources, &keys[..1]);
+        assert_eq!(shown.iter().find(|e| e.title == game.title).map(|e| e.copies[0].host), Some(2));
+        assert_eq!(away[0].copies[0].host, 1);
+
+        // The PC's list knows the same game by its classic UUID.
+        assert!(is_hidden(&sources[0], "uuid-of-the-pcs-list", game.app_id, &keys));
+
+        let nameless = [source(1, "A", true, Some(&lib), None)];
+        assert!(hide_keys(&nameless, 1, game.app_id).is_empty());
+        assert!(!is_hidden(&nameless[0], &game.install_id, game.app_id, &keys));
+    }
 
     #[test]
     fn an_empty_install_id_matches_nothing() {

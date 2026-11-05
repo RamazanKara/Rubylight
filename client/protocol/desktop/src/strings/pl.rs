@@ -1393,4 +1393,11 @@ sudo sysctl -w net.core.rmem_max={}", "Bufor odbioru: system przydzielił {0} Ki
     ("Keyboard, mouse and controllers control the PC.", "Klawiatura, mysz i kontrolery sterują komputerem."),
     ("Input captured.", "Wejście przechwycone."),
     ("Input captured. {} releases it.", "Wejście przechwycone. {} je zwalnia."),
+    ("Collection", "Kolekcja"),
+    ("No collection", "Bez kolekcji"),
+    ("Hide game", "Ukryj grę"),
+    ("Show game", "Pokaż grę"),
+    ("Hidden", "Ukryte"),
+    ("Show hidden games", "Pokaż ukryte gry"),
+    ("Hide hidden games", "Ukryj ukryte gry"),
 ];

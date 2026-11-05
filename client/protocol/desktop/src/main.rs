@@ -531,6 +531,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     launcher.recents = store.recents();
     launcher.pin = Some(pin_ui::PinLock::open(store.dir()));
     launcher.favourites = store.favourites();
+    launcher.hidden_games = store.hidden_games();
     launcher.system_languages = sdl::preferred_languages();
     #[cfg(windows)]
     {
@@ -1300,6 +1301,13 @@ impl App {
                 config::toggle_favourite(&mut self.launcher.favourites, entry);
                 if let Err(e) = self.store.save_favourites(&self.launcher.favourites) {
                     eprintln!("nightjar: could not save favourites: {e}");
+                }
+            }
+            Command::SetHidden { games, hidden } => {
+                if config::set_hidden(&mut self.launcher.hidden_games, games, hidden) {
+                    if let Err(e) = self.store.save_hidden_games(&self.launcher.hidden_games) {
+                        eprintln!("nightjar: could not save hidden games: {e}");
+                    }
                 }
             }
             Command::QuitApp(host) => self.hosts.quit_app(host),

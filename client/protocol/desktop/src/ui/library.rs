@@ -116,7 +116,12 @@ impl Launcher {
                 scroll(ui, "apps", |ui| {
                     ui.add_space(LIFT);
                     let (columns, width) = grid(ui.available_width());
-                    for (row, chunk) in apps.chunks(columns).enumerate() {
+                    // Hidden games stay out of the PC's list as off Home, unless asked for.
+                    let source = Source::of(host);
+                    let hides = |app: &nightjar_core::http::App| console::is_hidden(&source, &app.uuid, app.id as u32, &self.hidden_games);
+                    let any_hidden = apps.iter().any(hides);
+                    let shown: Vec<&nightjar_core::http::App> = apps.iter().filter(|app| self.show_hidden_apps || !hides(app)).collect();
+                    for (row, chunk) in shown.chunks(columns).enumerate() {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = POSTER_GAP;
                             for (i, app) in chunk.iter().enumerate() {
@@ -144,6 +149,13 @@ impl Launcher {
                     if self.focus_screen && running.is_some() {
                         self.focus_screen = false;
                     }
+                    if any_hidden {
+                        let r = quiet_button(ui, if self.show_hidden_apps { tr("Hide hidden games") } else { tr("Show hidden games") });
+                        self.focus_item(&r, "show-hidden", shown.is_empty());
+                        if r.clicked() {
+                            self.show_hidden_apps = !self.show_hidden_apps;
+                        }
+                    }
                 });
             }
         }
@@ -168,11 +180,18 @@ impl Launcher {
             return;
         }
         let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
-        let entries = console::merge_library(&sources);
-        let rows = console::home_rows(&entries, self.settings.home_group);
+        let (entries, _) = console::split_hidden(console::merge_library(&sources), &sources, &self.hidden_games);
+        let group = console::shown_group(self.settings.home_group, &entries);
+        let rows = console::home_rows(&entries, group);
         let playing = console::continue_playing(&sources);
-        let recent = console::recently_played(&sources, &self.recents, &playing, 6);
-        let starred = console::favourite_games(&sources, &self.favourites);
+        // A running game stays under Continue playing: hiding must not lose the way back to it.
+        let listed = |host: u64, app: u32| {
+            let source = sources.iter().find(|s| s.id == host);
+            let game = source.and_then(|s| s.library).and_then(|l| l.games.iter().find(|g| g.app_id == app));
+            source.zip(game).is_none_or(|(s, g)| !console::is_hidden(s, &g.install_id, app, &self.hidden_games))
+        };
+        let recent: Vec<_> = console::recently_played(&sources, &self.recents, &playing, 6).into_iter().filter(|r| listed(r.host, r.app_id)).collect();
+        let starred: Vec<_> = console::favourite_games(&sources, &self.favourites).into_iter().filter(|s| listed(s.host, s.app_id)).collect();
         let loading = library_loading(view);
         scroll(ui, "home", |ui| {
             // A failed read stays on screen beside the last good data.
@@ -260,13 +279,15 @@ impl Launcher {
             }
             // One row per store (or one for the library), as many covers as fit and an All tile for
             // the rest. The Grid view shows each row whole, as does a library of one kind by store.
-            let whole = self.settings.home_layout == HomeLayout::Grid || (rows.len() == 1 && self.settings.home_group == HomeGroup::Store);
+            let whole = self.settings.home_layout == HomeLayout::Grid || (rows.len() == 1 && group == HomeGroup::Store);
             for row in &rows {
                 let name = match &row.kind {
                     console::RowKind::Store { name, .. } => name.as_str(),
                     console::RowKind::Games => tr("Games"),
                     console::RowKind::Other => tr("Other apps"),
                     console::RowKind::Library => tr("Library"),
+                    console::RowKind::Collection { name } => name.as_str(),
+                    console::RowKind::NoCollection => tr("No collection"),
                 };
                 shelf(ui, name, Some(row.games.len()));
                 // The List layout: every game of the row as a line, under each other.
@@ -282,9 +303,9 @@ impl Launcher {
                 let (shown, more) = if whole { (row.games.len(), false) } else { row.fit(columns) };
                 // What a screen reader says for the tile: whose games it opens, and how many.
                 let said = match &row.kind {
-                    console::RowKind::Store { name, .. } => trf("All {} games, {}", &[name, &row.games.len()]),
+                    console::RowKind::Store { name, .. } | console::RowKind::Collection { name } => trf("All {} games, {}", &[name, &row.games.len()]),
                     console::RowKind::Other => trf("All other apps, {}", &[&row.games.len()]),
-                    console::RowKind::Games | console::RowKind::Library => trf("All games, {}", &[&row.games.len()]),
+                    console::RowKind::Games | console::RowKind::Library | console::RowKind::NoCollection => trf("All games, {}", &[&row.games.len()]),
                 };
                 let games = &row.games[..shown];
                 // At one column no cover fits beside the tile: the tile is the row.
@@ -331,11 +352,14 @@ impl Launcher {
     /// Every game of every PC under its filter chips: All, Installed, each store, Other apps.
     pub(super) fn all_games(&mut self, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>) {
         let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
-        let entries = console::merge_library(&sources);
-        let chips = console::library_filters(&entries);
-        // A filter whose games went away falls back to all of them.
+        let (entries, hidden) = console::split_hidden(console::merge_library(&sources), &sources, &self.hidden_games);
+        let mut chips = console::library_filters(&entries);
+        if !hidden.is_empty() {
+            chips.push(console::FilterChip { filter: console::LibraryFilter::Hidden, store_name: None, count: hidden.len() });
+        }
+        // A filter whose games went away falls back to all of them (with only hidden ones left, to those).
         if !chips.iter().any(|c| c.filter == self.library_filter) {
-            self.library_filter = console::LibraryFilter::All;
+            self.library_filter = chips.first().map_or(console::LibraryFilter::All, |c| c.filter.clone());
         }
         // A chip exists only for games it shows: with none, the library itself is empty, or not
         // read yet.
@@ -356,6 +380,9 @@ impl Launcher {
                     console::LibraryFilter::Store(key) => chip.store_name.clone().unwrap_or_else(|| console::store_name(key, "")),
                     console::LibraryFilter::Games => tr("Games").to_owned(),
                     console::LibraryFilter::Other => tr("Other apps").to_owned(),
+                    console::LibraryFilter::Collection(name) => chip.store_name.clone().unwrap_or_else(|| name.clone()),
+                    console::LibraryFilter::NoCollection => tr("No collection").to_owned(),
+                    console::LibraryFilter::Hidden => tr("Hidden").to_owned(),
                 };
                 let selected = chip.filter == self.library_filter;
                 // Known by the filter, not its place: the Installed chip coming or going moves the
@@ -372,7 +399,8 @@ impl Launcher {
         });
         // The room a raised cover's ring needs at the top of the scroll comes out of the gap.
         ui.add_space(space::L - LIFT);
-        let shown = console::filtered(&entries, &self.library_filter);
+        let pool = if self.library_filter == console::LibraryFilter::Hidden { &hidden } else { &entries };
+        let shown = console::filtered(pool, &self.library_filter);
         // Installed is offered while anything is not, so with nothing installed it holds no game.
         if shown.is_empty() {
             ui.add_space(LIFT);

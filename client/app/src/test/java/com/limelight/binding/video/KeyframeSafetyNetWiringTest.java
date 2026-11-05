@@ -427,6 +427,23 @@ public class KeyframeSafetyNetWiringTest {
         assertEquals(1, counts().quietRepairs);
     }
 
+    // 40 KB frames at 63 Mbps: over a quarter of a frame's share at 60 fps, under it at 30.
+    @Test
+    public void whatIsCalmFollowsTheStreamsFrameRate() {
+        for (int fpsMilliHz : new int[] {60_000, 30_000}) {
+            QueueingCodec.inputBufferBytes = 64 * 1024;
+            configure(MODEL, MTK, true, false);
+            withoutHolds();
+            ReflectionHelpers.setField(renderer, "streamFrameRateMilliHz", fpsMilliHz);
+            submit(MoonBridge.FRAME_TYPE_IDR);
+            for (int i = 0; i < 110; i++) {
+                advance(100);
+                submitBytes(40 * 1024);
+            }
+            assertEquals("at " + fpsMilliHz, fpsMilliHz == 30_000 ? 1 : 0, counts().quietRepairs);
+        }
+    }
+
     // Until the first once-a-second tick, what the stream started with.
     @Test
     public void beforeAnythingMovedTheBitrateTheSettingCounts() {

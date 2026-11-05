@@ -488,8 +488,9 @@ public class KeyframeSafetyNetTest {
         sim.buckets(4, 10);
         sim.buckets(1, 60);
         assertEquals(1, sim.counts.climbs);
-        // With 60 ms as the peak the way back down would be 31.5 ms, so 10 ms would read as the climb's end.
-        sim.buckets(12, 10);
+        // With 60 ms as the peak the way back down would be 31.5 ms, so 10 ms would read as the climb's end,
+        // whose repair then asks once the 5 s since the start's have passed.
+        sim.buckets(30, 10);
         assertEquals(0, sim.counts.climbEndRepairs);
         sim.buckets(8, 3);
         assertEquals(1, sim.counts.climbEndRepairs);

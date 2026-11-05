@@ -287,6 +287,8 @@
             android:label="@string/qr_scan_title" />
         <activity
             android:name=".preferences.AddComputerManually"
+            android:exported="true"
+            android:launchMode="singleTask"
             android:theme="@style/AppTheme"
             android:resizeableActivity="true"
             android:windowSoftInputMode="stateVisible|adjustResize"
@@ -295,6 +297,16 @@
             android:label="@string/title_add_pc">
             <meta-data android:name="WindowManagerPreference:FreeformWindowSize" android:value="system-default" />
             <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation" android:value="landscape" />
+
+            <!-- A pairing link from a browser or a QR reader; the screen asks before it pairs. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="rubylight" android:host="pair" />
+            </intent-filter>
         </activity>
         <activity
             android:name=".Game"

@@ -24,8 +24,10 @@ import com.limelight.utils.Dialog;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.SpinnerDialog;
 import com.limelight.utils.UiHelper;
+import com.limelight.ui.NavigationDialogBuilder;
 import com.limelight.ui.TopAppBar;
 
+import com.limelight.PcView;
 import com.limelight.ui.NightjarActivity;
 import android.Manifest;
 import android.app.Activity;
@@ -48,6 +50,7 @@ import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.ContextCompat;
 
 public class AddComputerManually extends NightjarActivity {
@@ -59,6 +62,12 @@ public class AddComputerManually extends NightjarActivity {
     private Thread addThread;
     private boolean managerServiceBound;
     private boolean foreground;
+    // A link the system opened with this screen: asked about once, and the screen leaves to the PC list.
+    private boolean openedFromLink;
+    private boolean linkAnswered;
+    private AlertDialog linkDialog;
+    // A link that arrived while another request is on its way.
+    private PairingLink waitingLink;
     // Pairs a PC added from a QR pairing link (Experimental); a typed address only adds it.
     private final HostActions hostActions = new HostActions(this, new HostActions.Callbacks() {
         @Override public ComputerManagerService.ComputerManagerBinder binder() { return managerBinder; }
@@ -351,6 +360,9 @@ public class AddComputerManually extends NightjarActivity {
     protected void onDestroy() {
         super.onDestroy();
 
+        if (linkDialog != null) {
+            linkDialog.dismiss();
+        }
         hostActions.destroy();
         joinAddThread();
         if (managerServiceBound) {
@@ -421,12 +433,88 @@ public class AddComputerManually extends NightjarActivity {
         // Bind to the ComputerManager service
         managerServiceBound = bindService(new Intent(AddComputerManually.this,
                     ComputerManagerService.class), serviceConnection, Service.BIND_AUTO_CREATE);
+
+        linkAnswered = savedInstanceState != null && savedInstanceState.getBoolean("linkAnswered");
+        openLink(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        linkAnswered = false;
+        openLink(intent);
+    }
+
+    /**
+     * A rubylight://pair link from a browser, a QR reader or any other app. Any web page can open one, so nothing is
+     * added or paired until the user says so; the scanner and the address field go straight to {@link #submit}.
+     */
+    private void openLink(Intent intent) {
+        if (linkAnswered || !Intent.ACTION_VIEW.equals(intent.getAction()) || intent.getData() == null
+                || (intent.getFlags() & Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) {
+            return;
+        }
+        openedFromLink = true;
+        PairingLink link = PairingLink.parse(intent.getDataString());
+        if (link == null) {
+            linkAnswered = true;
+            Dialog.displayDialog(this, getString(R.string.conn_error_title), getString(R.string.addpc_qr_invalid), false);
+        } else if (submitting) {
+            waitingLink = link;
+        } else {
+            confirmLink(link);
+        }
+    }
+
+    private void confirmLink(PairingLink link) {
+        if (linkDialog != null) {
+            linkDialog.dismiss();
+        }
+        String name = link.shownName();
+        String address = link.shownAddress();
+        AlertDialog dialog = new NavigationDialogBuilder(this)
+                .setTitle(R.string.pair_pairing_title)
+                .setMessage(name.isEmpty() ? address : name + "\n" + address)
+                .setNegativeButton(android.R.string.cancel, (ignored, which) -> {
+                    linkAnswered = true;
+                    finish();
+                })
+                .setPositiveButton(R.string.pcview_menu_pair_pc, (ignored, which) -> {
+                    linkAnswered = true;
+                    submit(link.text);
+                })
+                .setOnCancelListener(ignored -> {
+                    linkAnswered = true;
+                    finish();
+                })
+                .create();
+        // Cancel has focus: a key or button already held down must not pair. An overlay cannot tap Pair for the user.
+        dialog.setOnShowListener(ignored -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setFilterTouchesWhenObscured(true);
+            View cancel = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
+            cancel.setFocusable(true);
+            cancel.setFocusableInTouchMode(true);
+            cancel.requestFocus();
+        });
+        linkDialog = dialog;
+        dialog.show();
+    }
+
+    /** A screen the system opened for a link has nothing under it when the app was closed: the PC list comes next. */
+    @Override
+    public void finish() {
+        if (openedFromLink && isTaskRoot()) {
+            startActivity(new Intent(this, PcView.class));
+        }
+        super.finish();
     }
 
     @Override
     protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
         state.putString("address", hostText.getText().toString());
+        state.putBoolean("linkAnswered", linkAnswered);
     }
 
     // Returns true if the event should be eaten
@@ -481,5 +569,10 @@ public class AddComputerManually extends NightjarActivity {
         TextView button = findViewById(R.id.addPcButton);
         button.setEnabled(!submitting);
         button.setText(submitting ? R.string.add_pc_connecting : R.string.addpc_button);
+        if (!submitting && waitingLink != null) {
+            PairingLink link = waitingLink;
+            waitingLink = null;
+            confirmLink(link);
+        }
     }
 }

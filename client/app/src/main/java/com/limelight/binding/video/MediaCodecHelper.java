@@ -662,6 +662,31 @@ public class MediaCodecHelper {
         return !isFireTv && decoderName.toLowerCase(Locale.ROOT).startsWith("c2.amlogic");
     }
 
+    // The one Fire TV of erratum 23: its MediaTek decoders can corrupt the picture in Android's
+    // low-latency mode. Only this exact model; other Fire TVs with these decoders show no such thing.
+    private static final String LOW_LATENCY_CORRUPTION_MODEL = "AFTNE4E43F";
+
+    /**
+     * Whether this decoder is one of those of erratum 23. Other models return false without looking
+     * at the name. Needs no {@link #initialize}: preferences ask before the first stream.
+     */
+    public static boolean corruptsInLowLatency(String decoderName) {
+        if (!LOW_LATENCY_CORRUPTION_MODEL.equals(Build.MODEL)) return false;
+        for (String prefix : mediaTekDecoderPrefixes) {
+            if (decoderName.regionMatches(true, 0, prefix, 0, prefix.length())) return true;
+        }
+        return false;
+    }
+
+    /** Whether this device has a decoder of {@link #corruptsInLowLatency}. Other models list no codecs. */
+    public static boolean hasLowLatencyCorruptingDecoder() {
+        if (!LOW_LATENCY_CORRUPTION_MODEL.equals(Build.MODEL)) return false;
+        for (MediaCodecInfo codec : getMediaCodecList()) {
+            if (!codec.isEncoder() && corruptsInLowLatency(codec.getName())) return true;
+        }
+        return false;
+    }
+
     public static boolean setDecoderLowLatencyOptions(MediaFormat videoFormat, MediaCodecInfo decoderInfo, int tryNumber,
                                                       boolean lowLatency, boolean vendorLowLatency, boolean performanceHints,
                                                       int hevcLowLatencyMode, boolean chipsetTuning) {

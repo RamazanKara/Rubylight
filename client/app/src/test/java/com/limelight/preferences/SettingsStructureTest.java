@@ -380,6 +380,27 @@ public class SettingsStructureTest {
     }
 
     @Test
+    public void lowLatencyDecodingSaysPartlyOffOnTheTvWhereAndroidsModeStartsOff() {
+        CodecLowLatencyCorruptionTest.device("AFTNE4E43F", "c2.mtk.hevc.decoder");
+        com.limelight.binding.video.MediaCodecHelper.forgetCodecList();
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings screen = controller.get();
+            SwitchPreference master = (SwitchPreference) open(screen, "advanced").findPreference(StreamSettings.LOW_LATENCY_DECODING_KEY);
+            // The vendor keys and hints are still on: neither a plain Off nor On would be true.
+            assertFalse(master.isChecked());
+            assertEquals(screen.getString(R.string.settings_low_latency_partial), master.getSummary().toString());
+
+            // The master switch is how the user forces it back on, and that holds.
+            assertTrue(master.getOnPreferenceChangeListener().onPreferenceChange(master, true));
+            assertTrue(master.isChecked());
+            assertNull(master.getSummary());
+            assertTrue(PreferenceConfiguration.readPreferences(screen).codecLowLatency);
+        } finally {
+            com.limelight.binding.video.MediaCodecHelper.forgetCodecList();
+        }
+    }
+
+    @Test
     public void hevcOverrideShowsPartialLatencyWithoutBeingClearedByTheMasterSwitch() {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             StreamSettings screen = controller.get();

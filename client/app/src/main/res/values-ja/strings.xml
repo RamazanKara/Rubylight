@@ -452,4 +452,5 @@
     <string name="continue_here_now_playing_elsewhere">別のデバイスでプレイ中</string>
     <string name="continue_here_failed">ここで続けられませんでした</string>
     <string name="continue_here_came_back">ゲームはこのデバイスに戻りました</string>
+    <string name="continue_here_did_not_move">ゲームは別のデバイスに移動しませんでした</string>
 </resources>

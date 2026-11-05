@@ -514,6 +514,7 @@ async fn session(State(h): State<Shared>, Extension(c): Extension<Connection>) -
     view.microphone_busy = crate::mic::busy_for(&h, &client.uuid);
     view.moved_to = native::moved_view(h.moved_note(&client.uuid), &client);
     view.owns_game = h.owns_game(&client.uuid);
+    view.press_failed = h.press_failed(&client.uuid);
     Ok(json(StatusCode::OK, &view))
 }
 

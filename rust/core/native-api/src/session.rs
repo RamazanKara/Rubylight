@@ -150,6 +150,11 @@ pub struct Session {
     /// the host lists `session.continue_here` in its features.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub owns_game: bool,
+    /// The press that took the caller's stream or kept display failed, and the game went back to
+    /// another device: its `moved_to` is gone because nothing moved, not because it ran out. Only
+    /// when the host lists `session.continue_here` in its features.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub press_failed: bool,
     pub actions: Vec<Action>,
 }
 

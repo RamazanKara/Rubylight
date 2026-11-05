@@ -794,6 +794,58 @@ async fn a_late_stream_leaves_a_first_device_that_came_back_its_game_and_tells_o
 }
 
 #[tokio::test]
+async fn a_device_a_failed_press_displaced_without_owning_the_game_hears_that_nothing_moved() {
+    // The phone owns the game, the laptop streams beside it, the TV presses and never comes.
+    let failed = || async {
+        let s = Setup::new();
+        let phone = s.streaming();
+        let (laptop, laptop_connection) = device(&s, "laptop", "Laptop", ALL);
+        let beside = s.stream_as(laptop);
+        let (tv, tv_connection) = device(&s, "tv", "TV", ALL);
+        press(&s, &tv_connection).await.session();
+        let read = session_of(&s, &laptop_connection).await;
+        assert!(
+            read.moved_to.is_some() && !read.press_failed,
+            "while the press is live"
+        );
+        for stream in [phone, beside] {
+            s.host()
+                .sessions
+                .lock()
+                .unwrap()
+                .active
+                .remove(&stream.launch.id);
+        }
+        s.host().moves.expire_claim();
+        s.host().settle_move();
+        (s, laptop_connection, tv)
+    };
+    let (s, laptop_connection, _) = failed().await;
+    let read = session_of(&s, &laptop_connection).await;
+    assert!(read.moved_to.is_none() && !read.owns_game && read.press_failed);
+    let first = s.get("/session").await.session();
+    assert!(
+        first.owns_game && !first.press_failed,
+        "the owner hears it came back"
+    );
+    // It answered: the prompt that asked is long gone.
+    s.host().moves.forget("laptop");
+    assert!(!session_of(&s, &laptop_connection).await.press_failed);
+
+    // The stream came after all, so the move happened.
+    let (s, laptop_connection, tv) = failed().await;
+    let stream = s.stream_as(tv);
+    s.host().settle_move();
+    assert!(!session_of(&s, &laptop_connection).await.press_failed);
+    drop(stream);
+
+    // The game ended.
+    let (s, laptop_connection, _) = failed().await;
+    *s.host().current_app.lock().unwrap() = None;
+    assert!(!session_of(&s, &laptop_connection).await.press_failed);
+}
+
+#[tokio::test]
 async fn a_stream_that_arrives_after_the_press_expired_takes_the_game() {
     let expired = |s: &Setup, phone: Arc<Session>| {
         s.host()

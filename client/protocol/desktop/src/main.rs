@@ -1193,6 +1193,9 @@ impl App {
                                 if nightjar_policy::continue_here::came_back(false, read.owns_game) {
                                     eprintln!("nightjar: the move failed; the game is this device's again");
                                     self.launcher.game_came_back(id, app);
+                                } else if read.press_failed {
+                                    eprintln!("nightjar: the move failed; the game stayed with another device");
+                                    self.launcher.move_failed(id, app);
                                 }
                             }
                             Err(e) => eprintln!("nightjar: could not ask the PC whether the move failed: {e}"),

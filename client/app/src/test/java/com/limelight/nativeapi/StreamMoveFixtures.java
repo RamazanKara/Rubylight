@@ -6,6 +6,6 @@ public final class StreamMoveFixtures {
     }
 
     public static StreamMove playing(String device, int appId) {
-        return new StreamMove(device, appId, "", "Game", null, false);
+        return new StreamMove(device, appId, "", "Game", null, false, false);
     }
 }

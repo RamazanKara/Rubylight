@@ -269,6 +269,22 @@ impl Host {
             .as_ref()
             .is_some_and(|app| !app.background && app.owner == device)
     }
+    /// Whether a failed press took `device`'s stream or display and the game is someone else's: it
+    /// was told the game moved, and it did not. Over when the press's stream comes after all, or
+    /// the device starts a stream of its own.
+    pub fn press_failed(&self, device: &str) -> bool {
+        if self.owns_game(device) {
+            return false;
+        }
+        let generation = locked(&self.current_app)
+            .as_ref()
+            .map(|app| app.generation.clone());
+        locked(&self.moves.0).late.as_ref().is_some_and(|late| {
+            Some(&late.generation) == generation.as_ref()
+                && late.at.elapsed() < MOVED_KEPT
+                && late.displaced.contains(device)
+        })
+    }
     /// The press waiting for its stream. One whose game is gone is over: nothing moved.
     fn live_claim(&self) -> Option<Claim> {
         let generation = locked(&self.current_app)

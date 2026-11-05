@@ -537,6 +537,7 @@ pub fn session_view(snapshot: &SessionSnapshot, caller: &Client) -> Session {
         // The host's record of moved streams knows this, not the snapshot; it sets it.
         moved_to: None,
         owns_game: false,
+        press_failed: false,
         actions,
     }
 }

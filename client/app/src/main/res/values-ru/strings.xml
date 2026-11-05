@@ -452,4 +452,5 @@
     <string name="continue_here_now_playing_elsewhere">Теперь играет другое устройство</string>
     <string name="continue_here_failed">Не удалось продолжить здесь</string>
     <string name="continue_here_came_back">Игра вернулась на это устройство</string>
+    <string name="continue_here_did_not_move">Игра не перешла на другое устройство</string>
 </resources>

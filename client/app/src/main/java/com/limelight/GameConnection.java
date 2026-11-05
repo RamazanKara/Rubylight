@@ -1381,6 +1381,10 @@ final class GameConnection {
                         LimeLog.info("The move failed; the game is this device's again");
                         prompt.dismiss();
                         showCameBackPrompt(client);
+                    } else if (answer.pressFailed) {
+                        LimeLog.info("The move failed; the game stayed with another device");
+                        prompt.dismiss();
+                        showMoveFailedPrompt();
                     }
                     // Otherwise the note ran out with the game elsewhere, or the game ended: what it said stands.
                 });
@@ -1394,6 +1398,16 @@ final class GameConnection {
                 .setTitle(R.string.continue_here_came_back)
                 .setCancelable(false)
                 .setPositiveButton(R.string.applist_menu_resume, (dialog, which) -> askWhoPlaysThenResume(client))
+                .setNegativeButton(android.R.string.ok, (dialog, which) -> game.finish())
+                .create());
+    }
+
+    /** The move failed, and the game is another device's: this device streamed beside it, and may again. */
+    private void showMoveFailedPrompt() {
+        game.menuActions.showStreamDialog(new NavigationDialogBuilder(game)
+                .setTitle(R.string.continue_here_did_not_move)
+                .setCancelable(false)
+                .setPositiveButton(R.string.continue_here_stream_too, (dialog, which) -> resumeTheGame())
                 .setNegativeButton(android.R.string.ok, (dialog, which) -> game.finish())
                 .create());
     }

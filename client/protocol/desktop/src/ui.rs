@@ -230,6 +230,8 @@ pub enum Dialog {
     NowPlaying { host: u64, app: i32, device: String },
     /// The move failed while "Now playing on ..." was open: the game is this device's again.
     GameCameBack { host: u64, app: i32 },
+    /// The move failed while "Now playing on ..." was open, and the game is another device's.
+    MoveFailed { host: u64, app: i32 },
     ConfirmClose { host: u64, name: String },
     ProfileName { id: Option<u64>, name: String, settings: Overrides, error: Option<String> },
     DeleteProfile { id: u64, name: String },
@@ -710,12 +712,22 @@ impl Launcher {
 
     /// The PC gave the game back: what said it moved now says that, and offers to resume it.
     pub fn game_came_back(&mut self, host: u64, app: i32) {
+        self.correct_moved(host, app, || Dialog::GameCameBack { host, app });
+    }
+
+    /// The press failed and the game is another device's: what said it moved now says that, and
+    /// offers to stream beside it.
+    pub fn move_failed(&mut self, host: u64, app: i32) {
+        self.correct_moved(host, app, || Dialog::MoveFailed { host, app });
+    }
+
+    fn correct_moved(&mut self, host: u64, app: i32, correction: impl Fn() -> Dialog) {
         let said = |dialog: &Dialog| matches!(dialog, Dialog::NowPlaying { host: h, app: a, .. } if (*h, *a) == (host, app));
         if said(&self.dialog) {
-            self.ask(Dialog::GameCameBack { host, app });
+            self.ask(correction());
         }
         for dialog in self.queued.iter_mut().filter(|dialog| said(dialog)) {
-            *dialog = Dialog::GameCameBack { host, app };
+            *dialog = correction();
         }
     }
 

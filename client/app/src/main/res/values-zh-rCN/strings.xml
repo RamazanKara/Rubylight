@@ -452,4 +452,5 @@
     <string name="continue_here_now_playing_elsewhere">正在另一台设备上游玩</string>
     <string name="continue_here_failed">无法在此继续</string>
     <string name="continue_here_came_back">游戏已回到此设备</string>
+    <string name="continue_here_did_not_move">游戏没有转移到另一台设备</string>
 </resources>

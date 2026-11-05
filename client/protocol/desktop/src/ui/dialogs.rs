@@ -1111,6 +1111,28 @@ impl Launcher {
                         });
                     });
             }
+            Dialog::MoveFailed { host, app } => {
+                let (host, app) = (*host, *app);
+                egui::Modal::new(Id::unique("move-failed"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new(tr("The game did not move to the other device")).font(semibold(text::SECTION)));
+                        dialog_buttons(ui, |ui| {
+                            let too = primary_button(ui, "Stream here too");
+                            if focus_first {
+                                too.request_focus();
+                                focused = true;
+                            }
+                            if too.clicked() {
+                                commands.push(Command::StreamHereToo { host, app, resume: true });
+                                close = true;
+                            }
+                            if quiet_button(ui, "OK").clicked() { close = true; }
+                        });
+                    });
+            }
             Dialog::ConfirmAction { host, app, name } => {
                 egui::Modal::new(Id::unique("host-action"))
                     .frame(frame)

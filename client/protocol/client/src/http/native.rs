@@ -56,6 +56,9 @@ pub struct StreamMove {
     /// The running game is this device's.
     #[serde(default)]
     pub owns_game: bool,
+    /// The press that took this device's stream failed, and the game is another device's.
+    #[serde(default)]
+    pub press_failed: bool,
 }
 use std::time::Duration;
 

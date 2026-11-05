@@ -214,6 +214,7 @@ fn session_without_details_serialises_null_app_and_no_times() {
         playing_on: None,
         moved_to: None,
         owns_game: false,
+        press_failed: false,
         actions: vec![],
     };
     let value = serde_json::to_value(&session).unwrap();

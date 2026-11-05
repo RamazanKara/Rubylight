@@ -13,15 +13,18 @@ public final class StreamMove {
     public final String movedTo;
     /** Whether the running game is this device's. */
     public final boolean ownedHere;
+    /** Whether the press that took this device's stream failed, with the game another device's. */
+    public final boolean pressFailed;
 
     StreamMove(String playingOn, int playingAppId, String playingAppUuid, String playingTitle, String movedTo,
-               boolean ownedHere) {
+               boolean ownedHere, boolean pressFailed) {
         this.playingOn = playingOn;
         this.playingAppId = playingAppId;
         this.playingAppUuid = playingAppUuid;
         this.playingTitle = playingTitle;
         this.movedTo = movedTo;
         this.ownedHere = ownedHere;
+        this.pressFailed = pressFailed;
     }
 
     static StreamMove parse(JSONObject json) {
@@ -33,6 +36,7 @@ public final class StreamMove {
                 app == null ? null : app.optString("install_id", null),
                 app == null ? null : app.optString("title", null),
                 moved == null ? null : moved.optString("device", null),
-                json.optBoolean("owns_game"));
+                json.optBoolean("owns_game"),
+                json.optBoolean("press_failed"));
     }
 }

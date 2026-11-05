@@ -452,4 +452,5 @@
     <string name="continue_here_now_playing_elsewhere">Maintenant sur un autre appareil</string>
     <string name="continue_here_failed">Impossible de continuer ici</string>
     <string name="continue_here_came_back">Le jeu est revenu sur cet appareil</string>
+    <string name="continue_here_did_not_move">Le jeu n\'est pas passé sur l\'autre appareil</string>
 </resources>

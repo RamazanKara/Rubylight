@@ -88,19 +88,20 @@ pub struct Updates {
 }
 
 impl Updates {
-    /// Starts the check on its own thread; `wake` redraws the launcher when it has an answer.
+    /// Starts the check on its own thread; `wake` redraws the launcher when it has an answer. With
+    /// the setting off the thread only clears what an earlier update left.
     pub fn start(enabled: bool, wake: crate::hosts::Waker) -> Self {
         let copy = self_update::current();
-        if !enabled || !copy.checks() { return Self::default(); }
+        if !copy.checks() { return Self::default(); }
         let agent = format!("Nightjar/{} ({})", crate::VERSION, if cfg!(windows) { "Windows" } else { "Linux" });
         let net: Arc<dyn Transport> = Arc::new(Native::new(agent));
         let steps = Steps::for_copy(copy, net.clone());
-        Self::begin(copy.clone(), net, steps, crate::VERSION, online, wake)
+        Self::begin(enabled, copy.clone(), net, steps, crate::VERSION, online, wake)
     }
 
-    fn begin(copy: CopyKind, net: Arc<dyn Transport>, steps: Option<Steps>, current: &'static str, online: fn() -> bool, wake: crate::hosts::Waker) -> Self {
+    fn begin(enabled: bool, copy: CopyKind, net: Arc<dyn Transport>, steps: Option<Steps>, current: &'static str, online: fn() -> bool, wake: crate::hosts::Waker) -> Self {
         let (mut found, mut failure) = (None, None);
-        if let Some(attempt) = steps.as_ref().and_then(|s| s.marker.as_deref()).and_then(|marker| failed_attempt(marker, current)) {
+        if let Some(attempt) = steps.as_ref().filter(|_| enabled).and_then(|s| s.marker.as_deref()).and_then(|marker| failed_attempt(marker, current)) {
             eprintln!("nightjar: update: Nightjar {} did not install", attempt.version);
             found = Some(Release { version: attempt.version, url: attempt.url, asset: Err(Failure::NotInstalled) });
             failure = Some(Failure::NotInstalled);
@@ -110,6 +111,7 @@ impl Updates {
         let waker = wake.clone();
         let spawned = std::thread::Builder::new().name("update-check".into()).spawn(move || {
             if let Some((dir, own_dir)) = leftovers { self_update::remove_stale(&dir, own_dir); }
+            if !enabled { return; }
             match check(&*net, &copy, current, online) {
                 Ok(Some(release)) => {
                     eprintln!("nightjar: update check: Nightjar {} is available", release.version);
@@ -122,6 +124,7 @@ impl Updates {
             }
         });
         if let Err(e) = spawned { eprintln!("nightjar: update check: no thread: {e}"); }
+        if !enabled { return Self::default(); }
         Self { pending: Some(receive), found, steps, wake: Some(wake), failure, ..Self::default() }
     }
 
@@ -442,6 +445,21 @@ mod tests {
     fn off_is_off_and_no_request_is_made() {
         let updates = Updates::start(false, Arc::new(|| {}));
         assert!(updates.pending.is_none() && updates.found.is_none());
+    }
+
+    #[test]
+    fn with_the_check_off_leftovers_still_go_and_nothing_is_asked() {
+        let installer = Installer::new("off-leftovers");
+        let part = installer.dir.join(".nightjar-update-1-2.part");
+        std::fs::write(&part, b"x").unwrap();
+        std::fs::File::options().write(true).open(&part).unwrap().set_modified(std::time::SystemTime::now() - Duration::from_secs(7200)).unwrap();
+        let count = Arc::new(Counting::default());
+        let net: Arc<dyn Transport> = count.clone();
+        let updates = Updates::begin(false, CopyKind::Installed, net.clone(), Some(installer.steps(net, local)), "4.0.0", || true, Arc::new(|| {}));
+        wait_until("the leftover stays", || !part.exists());
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(count.gets.load(Ordering::Relaxed), 0, "no request");
+        assert!(updates.pending.is_none() && updates.found.is_none() && updates.steps.is_none());
     }
 
     // A local server stands in for GitHub; the real WinHTTP or ureq talks to it.
@@ -894,7 +912,7 @@ mod tests {
         *count.answer.lock().unwrap() = answer("v4.1.0", false, false, &setup_asset(&github_url(), &digest));
         let net: Arc<dyn Transport> = count.clone();
         let steps = steps(net.clone());
-        let mut updates = Updates::begin(copy, net, steps, "4.0.0", || true, Arc::new(|| {}));
+        let mut updates = Updates::begin(true, copy, net, steps, "4.0.0", || true, Arc::new(|| {}));
         wait_until("no answer", || { updates.step(); updates.found.is_some() });
         (updates, count)
     }
@@ -934,7 +952,7 @@ mod tests {
         let attempt = Attempt { version: "4.1.0".into(), url: "https://github.com/RamazanKara/nightjar/releases/tag/v4.1.0".into() };
         self_update::write_attempt(&installer.marker(), &attempt).unwrap();
         let count: Arc<dyn Transport> = Arc::new(Counting::default());
-        let mut updates = Updates::begin(CopyKind::Installed, count.clone(), Some(installer.steps(count, local)), "4.0.0", || false, Arc::new(|| {}));
+        let mut updates = Updates::begin(true, CopyKind::Installed, count.clone(), Some(installer.steps(count, local)), "4.0.0", || false, Arc::new(|| {}));
         assert_eq!(updates.failure, Some(Failure::NotInstalled));
         assert_eq!(updates.found.as_ref().unwrap().url, attempt.url, "the link is there");
         assert!(!installer.marker().exists(), "it says so once");

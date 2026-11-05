@@ -92,8 +92,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     /** The automatic start has acted on a live page. */
     private boolean autoActed;
     private final Runnable countdownTick = this::tickCountdown;
-    private final Runnable autoLoadLimit = () ->
-            autoFailed(WakeFeedback.failed(this, hostNameExtra, R.string.error_pc_offline, null));
+    private final Runnable autoLoadLimit = this::autoLoadFailed;
 
     private View loading;
     private ImageView cover;
@@ -279,14 +278,36 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     private void actOnAuto() {
         autoActed = true;
         handler.removeCallbacks(autoLoadLimit);
-        GameDetailModel m = model;
-        if (wakeable(m)) {
+        if (wakeable(model)) {
             wakeAndPlay();
-        } else if (m.canStart()) {
-            onPlay();
         } else {
-            autoFailed(WakeFeedback.failed(this, m.hostName, m.canWake() ? R.string.wol_no_mac : R.string.error_pc_offline, null));
+            startAuto(model);
         }
+    }
+
+    /** The PC answers, or cannot be woken: the game starts, or the player learns why not. */
+    private void startAuto(GameDetailModel m) {
+        if (!m.canStart()) {
+            autoFailed(WakeFeedback.said(this, m.hostName, whyNot(m)));
+        } else if (m.source == null && m.libraryRead && !classicListCache) {
+            // Its id is stale; the PC would be asked for a game it no longer has.
+            autoFailed(WakeFeedback.said(this, m.hostName, getString(R.string.open_play_not_listed, m.hostName)));
+        } else {
+            onPlay();
+        }
+    }
+
+    /** Why Play cannot start the game on this page. */
+    private String whyNot(GameDetailModel m) {
+        if (m.blockedNote() != 0) return getString(m.blockedNote(), m.hostName);
+        return getString(m.canWake() ? R.string.wol_no_mac : R.string.error_pc_offline);
+    }
+
+    /** The page never loaded in time: either the PC is away, or it answers without telling what it has. */
+    private void autoLoadFailed() {
+        ComputerDetails computer = currentHost();
+        autoFailed(WakeFeedback.said(this, hostNameExtra, computer != null && computer.state == ComputerDetails.State.ONLINE
+                ? getString(R.string.open_play_no_list, hostNameExtra) : getString(R.string.error_pc_offline)));
     }
 
     /** The automatic part is over; what follows is the page's usual behaviour. */
@@ -433,6 +454,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                     NativeCapabilities capabilities = online ? repo.capabilities(computer) : null;
                     control = capabilities != null && capabilities.hostControl;
                     controlCache = control;
+                    classicListCache = repo.classicListHas(computer, appId);
                 } else {
                     control = controlCache;
                 }
@@ -454,6 +476,9 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
 
     /** Host control as last read; a host that did not answer counts as without. */
     private volatile boolean controlCache;
+
+    /** The PC's classic list, as last saved, has this id: a tile its native library does not list. */
+    private volatile boolean classicListCache;
 
     /** The host's stable id of this game in the library, or empty. */
     private String keyIn(ConsoleSnapshot snapshot) {
@@ -489,10 +514,12 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                 } else if (playWhenReady && (waker == null || !waker.isWaiting()) && (auto != Auto.GOING || live)) {
                     // The PC woke and the page is fresh from it: the Play that started the wait carries on, once.
                     playWhenReady = false;
-                    if (next.canStart()) {
+                    if (auto == Auto.GOING) {
+                        startAuto(next);
+                    } else if (next.canStart()) {
                         onPlay();
                     } else {
-                        wakeFailed(R.string.error_pc_offline, null);
+                        WakeFeedback.said(this, next.hostName, whyNot(next));
                     }
                 }
             }
@@ -799,6 +826,11 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                         computer.runningGameId, computer.runningGameUuid)
                 : PlayPlan.of(model, confirms, launch, nativeHost, controlCache);
         if (plan.kind == PlayPlan.Kind.START) {
+            if (auto == Auto.GOING && model.source == null && !classicListCache) {
+                // Nothing says this id is still good: the PC's list could not be read, and none is saved.
+                autoFailed(WakeFeedback.said(this, model.hostName, getString(R.string.open_play_no_list, model.hostName)));
+                return;
+            }
             play(app, computer);
             return;
         }

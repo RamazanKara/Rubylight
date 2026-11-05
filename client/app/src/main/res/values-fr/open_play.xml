@@ -8,6 +8,8 @@
     <string name="open_play_skipped">%1$s n’a pas démarré la dernière fois, Nightjar s’est donc ouvert normalement.</string>
     <string name="open_play_chosen">%1$s s’ouvre au lancement de Nightjar</string>
     <string name="open_play_continue">Reprendre %1$s</string>
+    <string name="open_play_not_listed">%1$s ne propose plus ce jeu</string>
+    <string name="open_play_no_list">%1$s n\'a pas envoyé sa liste de jeux</string>
     <string-array name="open_on_start_names">
         <item>Afficher mes PC</item>
         <item>Reprendre mon dernier jeu</item>

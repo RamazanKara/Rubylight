@@ -23,6 +23,11 @@ final class WakeFeedback {
         return show(activity, hostName, activity.getString(message), retry);
     }
 
+    /** A failure in words of its own, without a way to try again. The dialog shown, null when the page is closing. */
+    static AlertDialog said(Activity activity, String hostName, String message) {
+        return show(activity, hostName, message, null);
+    }
+
     private static AlertDialog show(Activity activity, String title, String message, Runnable retry) {
         if (activity.isFinishing() || activity.isDestroyed()) {
             return null;

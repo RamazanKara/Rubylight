@@ -37,10 +37,12 @@ public final class GameDetailModel {
     public final int otherRunningAppId;
     /** How the host lists that game; null when its library does not. */
     public final ConsoleSnapshot.Source otherRunningSource;
+    /** The host's list was read just now, so a game it leaves out ({@link #source} null) is really not on it. */
+    public final boolean libraryRead;
 
     private GameDetailModel(String hostUuid, String hostName, String title, int appId, ConsoleSnapshot.Source source,
                             State state, boolean hostOnline, EndAction endAction, String otherRunningTitle,
-                            int otherRunningAppId, ConsoleSnapshot.Source otherRunningSource) {
+                            int otherRunningAppId, ConsoleSnapshot.Source otherRunningSource, boolean libraryRead) {
         this.hostUuid = hostUuid;
         this.hostName = hostName;
         this.title = title;
@@ -52,6 +54,7 @@ public final class GameDetailModel {
         this.otherRunningTitle = otherRunningTitle;
         this.otherRunningAppId = otherRunningAppId;
         this.otherRunningSource = otherRunningSource;
+        this.libraryRead = libraryRead;
     }
 
     /** Resume when the game runs or is suspended on this host, Play otherwise. */
@@ -151,6 +154,7 @@ public final class GameDetailModel {
                 : nativeHost && hostControl ? EndAction.CLOSE_GAME : EndAction.QUIT;
         return new GameDetailModel(hostUuid, host != null ? host.name : fallbackHostName,
                 source != null ? source.title : fallbackTitle, appId, source, state, hostOnline, end, otherRunning,
-                otherRunning == null ? 0 : otherRunningId, otherRunning == null ? null : otherRunningSource);
+                otherRunning == null ? 0 : otherRunningId, otherRunning == null ? null : otherRunningSource,
+                host != null && (host.status == ConsoleSnapshot.Status.LIVE || host.status == ConsoleSnapshot.Status.CLASSIC));
     }
 }

@@ -121,6 +121,45 @@ public class PairingLinkTest {
         assertTrue(link.matches(host));
     }
 
+    @Test
+    public void aLongLinkIsRefusedAtAnySize() {
+        String fits = GOOD + "&x=" + "a".repeat(PairingLink.MAX_LENGTH - GOOD.length() - 3);
+        assertEquals(PairingLink.MAX_LENGTH, fits.length());
+        assertNotNull(PairingLink.parse(fits));
+        assertNull(PairingLink.parse(fits + "a"));
+        // The limit is in bytes, as the protocol crate counts it.
+        assertNull(PairingLink.parse(GOOD + "&x=" + "ä".repeat(PairingLink.MAX_LENGTH / 2)));
+        assertNull(PairingLink.parse(GOOD + "&x=" + "a".repeat(32 * 1024 * 1024)));
+        assertNull(PairingLink.parse(GOOD + "&k=v".repeat(1024 * 1024)));
+        assertNull(PairingLink.parse(PairingLink.PREFIX + "%41".repeat(1024 * 1024)));
+    }
+
+    @Test
+    public void aHostIsOnlyAnAddress() {
+        String base = "rubylight://pair?v=1&port=47989&otp=1234&fp=" + FP + "&host=";
+        for (String host : new String[] {"192.168.4.2", "pc.local", "my_pc-1", "%5B::1%5D", "::1", "%5Bfe80::1%25eth0%5D"}) {
+            assertNotNull(host, PairingLink.parse(base + host));
+        }
+        for (String host : new String[] {"a%2Fb", "a%20b", "a%0Ab", "a%40b", "a%3Fb", "a%23b", "a%5Cb",
+                "bank.example%E2%80%AEcod", "pc%D0%B0", "a".repeat(256)}) {
+            assertNull(host, PairingLink.parse(base + host));
+        }
+    }
+
+    @Test
+    public void whatAConfirmationShowsIsPlain() {
+        String base = "rubylight://pair?v=1&host=192.168.4.2&port=47989&otp=1234&fp=" + FP + "&name=";
+        assertEquals("Wohnzimmer-PC ä", PairingLink.parse(GOOD).shownName());
+        assertEquals("Deskcod", PairingLink.parse(base + "%20Desk%E2%80%AEcod%0A%E2%80%8B%EF%BB%BF%20").shownName());
+        assertEquals("", PairingLink.parse(base + "%E2%80%AE%E2%80%8B").shownName());
+        assertEquals("", PairingLink.parse(base).shownName());
+        assertEquals("ä".repeat(64), PairingLink.parse(base + "%C3%A4".repeat(65)).shownName());
+        assertEquals("192.168.4.2:47989", PairingLink.parse(GOOD).shownAddress());
+        String v6 = "rubylight://pair?v=1&port=47989&otp=1234&fp=" + FP + "&host=";
+        assertEquals("[fe80::1]:47989", PairingLink.parse(v6 + "fe80::1").shownAddress());
+        assertEquals("[fe80::1]:47989", PairingLink.parse(v6 + "%5Bfe80::1%5D").shownAddress());
+    }
+
     static X509Certificate certificate(KeyPair keys, long serial) throws Exception {
         X500Name name = new X500Name("CN=Pairing link test");
         return new JcaX509CertificateConverter().getCertificate(new JcaX509v3CertificateBuilder(

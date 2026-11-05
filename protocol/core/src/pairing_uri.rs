@@ -5,18 +5,27 @@
 //! hashed with), where to reach the host, and the SHA-256 of the host certificate's DER. A
 //! client must refuse to pair when the certificate the host presents does not hash to
 //! [`PairingUri::cert_sha256`]. Values are percent-encoded UTF-8.
+//!
+//! A link can come from any web page, so whatever opens one from outside the app asks first,
+//! showing [`PairingUri::shown_name`] and [`PairingUri::shown_address`].
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::fmt::Write;
+use core::fmt::{self, Write};
 
 /// Scheme and path of every pairing link.
 pub const PREFIX: &str = "rubylight://pair?";
 /// The link version this module reads and writes.
 pub const VERSION: u32 = 1;
+/// The longest link read, in bytes; a real one stays far below it.
+pub const MAX_LEN: usize = 4096;
+/// The longest address a link may name, as DNS allows.
+const MAX_HOST_LEN: usize = 255;
+/// How many characters of a link's name are shown.
+const MAX_SHOWN_NAME: usize = 64;
 
 /// A host's pairing invitation.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct PairingUri {
     /// Address the client connects to.
     pub host: String,
@@ -31,6 +40,17 @@ pub struct PairingUri {
     pub cert_sha256: [u8; 32],
     /// The host's name, for display.
     pub name: String,
+}
+
+/// Leaves out the PIN and the passphrase, so no log can carry them.
+impl fmt::Debug for PairingUri {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PairingUri")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
 }
 
 impl PairingUri {
@@ -53,11 +73,15 @@ impl PairingUri {
         out
     }
 
-    /// Parses a link. Another scheme, a version other than 1, a missing or empty host, otp or
-    /// fp, a port that is 0 or not a number, a fingerprint that is not 64 hex digits, a bad
-    /// percent escape, text that is not UTF-8 and a repeated key reject it. Unknown keys are
-    /// ignored; `pass`, `id` and `name` may be absent.
+    /// Parses a link. Another scheme, more than [`MAX_LEN`] bytes, a version other than 1, a
+    /// missing or empty host, otp or fp, a host with anything but an address's characters, a port
+    /// that is 0 or not a number, a fingerprint that is not 64 hex digits, a bad percent escape,
+    /// text that is not UTF-8 and a repeated key reject it. Unknown keys are ignored; `pass`, `id`
+    /// and `name` may be absent.
     pub fn parse(uri: &str) -> Option<Self> {
+        if uri.len() > MAX_LEN {
+            return None;
+        }
         let query = uri.strip_prefix(PREFIX)?;
         let mut pairs: Vec<(&str, String)> = Vec::new();
         for part in query.split('&') {
@@ -83,7 +107,7 @@ impl PairingUri {
         }
         let port = port.parse::<u16>().ok().filter(|&port| port != 0)?;
         Some(Self {
-            host: required("host")?,
+            host: required("host").filter(|host| address_like(host))?,
             port,
             otp: required("otp")?,
             passphrase: take("pass").unwrap_or_default(),
@@ -92,6 +116,45 @@ impl PairingUri {
             name: take("name").unwrap_or_default(),
         })
     }
+
+    /// The link's name for a confirmation: without control characters and the invisible ones that
+    /// can reorder or hide text, and cut to a length a dialog can show. Empty when none is left.
+    pub fn shown_name(&self) -> String {
+        self.name
+            .chars()
+            .filter(|&c| !hidden_char(c))
+            .take(MAX_SHOWN_NAME)
+            .collect::<String>()
+            .trim()
+            .into()
+    }
+
+    /// Where the link pairs, for a confirmation: `host:port`, `[v6-address]:port`.
+    pub fn shown_address(&self) -> String {
+        let mut out = String::new();
+        if self.host.contains(':') && !self.host.starts_with('[') {
+            let _ = write!(out, "[{}]:{}", self.host, self.port);
+        } else {
+            let _ = write!(out, "{}:{}", self.host, self.port);
+        }
+        out
+    }
+}
+
+/// Letters, digits and what names and IP addresses use (`[fe80::1%eth0]`): nothing that can end
+/// the authority of a URL, or make the address read as something else.
+fn address_like(host: &str) -> bool {
+    host.len() <= MAX_HOST_LEN
+        && host.bytes().all(|b| {
+            b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b':' | b'%' | b'[' | b']')
+        })
+}
+
+fn hidden_char(c: char) -> bool {
+    c.is_control()
+        || matches!(c,
+            '\u{ad}' | '\u{61c}' | '\u{180e}' | '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}'
+            | '\u{2060}'..='\u{206f}' | '\u{feff}' | '\u{fff9}'..='\u{fffb}')
 }
 
 /// Percent-encodes everything but RFC 3986's unreserved characters.
@@ -240,5 +303,97 @@ mod tests {
         ))
         .is_some());
         assert_eq!(PairingUri::parse("rubylight://pair?v=1&host"), None);
+    }
+
+    #[test]
+    fn a_long_link_is_refused_at_any_size() {
+        let good = invitation().to_uri();
+        let fits = format!("{good}&x={}", "a".repeat(MAX_LEN - good.len() - 3));
+        assert_eq!(fits.len(), MAX_LEN);
+        assert!(PairingUri::parse(&fits).is_some());
+        assert_eq!(PairingUri::parse(&format!("{fits}a")), None);
+        // Each of these would cost time if it were read at all.
+        for hostile in [
+            format!("{good}&x={}", "a".repeat(32 * 1024 * 1024)),
+            format!("{good}{}", "&k=v".repeat(1024 * 1024)),
+            format!("rubylight://pair?{}", "%41".repeat(1024 * 1024)),
+        ] {
+            assert_eq!(PairingUri::parse(&hostile), None);
+        }
+    }
+
+    #[test]
+    fn a_host_is_only_an_address() {
+        for host in [
+            "192.168.4.2",
+            "pc.local",
+            "my_pc-1",
+            "[::1]",
+            "::1",
+            "[fe80::1%eth0]",
+        ] {
+            let link = PairingUri {
+                host: host.into(),
+                ..invitation()
+            };
+            assert_eq!(PairingUri::parse(&link.to_uri()), Some(link), "{host}");
+        }
+        let long = "a".repeat(MAX_HOST_LEN + 1);
+        for host in [
+            "a/b",
+            "a b",
+            "a\nb",
+            "a@b",
+            "a?b",
+            "a#b",
+            "a\\b",
+            "bank.example\u{202e}cod",
+            "pc\u{430}",
+            long.as_str(),
+        ] {
+            let link = PairingUri {
+                host: host.into(),
+                ..invitation()
+            };
+            assert_eq!(PairingUri::parse(&link.to_uri()), None, "{host}");
+        }
+    }
+
+    #[test]
+    fn what_a_confirmation_shows_is_plain() {
+        let named = |name: &str| {
+            PairingUri {
+                name: name.into(),
+                ..invitation()
+            }
+            .shown_name()
+        };
+        assert_eq!(named("Wohnzimmer-PC ä"), "Wohnzimmer-PC ä");
+        assert_eq!(named("  Desk\u{202e}cod\n\u{200b}\u{feff} "), "Deskcod");
+        assert_eq!(named("\u{202e}\u{200b}"), "");
+        assert_eq!(
+            named(&"ä".repeat(MAX_SHOWN_NAME + 1)),
+            "ä".repeat(MAX_SHOWN_NAME)
+        );
+        let address = |host: &str| {
+            PairingUri {
+                host: host.into(),
+                ..invitation()
+            }
+            .shown_address()
+        };
+        assert_eq!(address("192.168.4.2"), "192.168.4.2:47989");
+        assert_eq!(address("fe80::1"), "[fe80::1]:47989");
+        assert_eq!(address("[fe80::1]"), "[fe80::1]:47989");
+    }
+
+    #[test]
+    fn debug_never_shows_the_pin_or_the_passphrase() {
+        let text = format!("{:?}", invitation());
+        assert!(text.contains("192.168.4.2"), "{text}");
+        assert!(
+            !text.contains("4821") && !text.contains("a&b=c d"),
+            "{text}"
+        );
     }
 }

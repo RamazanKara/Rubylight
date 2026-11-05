@@ -154,12 +154,16 @@ public final class ConsoleRepository {
         return classicListHas(computer, appId, "");
     }
 
-    /** The same for a game saved with its stable id, when there is one: the id may belong to another game by now. */
+    /**
+     * The same for a game saved with its stable id, when there is one: the id may belong to another game by now.
+     * An entry with no UUID has nothing to compare, and goes by the app id.
+     */
     public boolean classicListHas(ComputerDetails computer, int appId, String stableId) {
         List<NvApp> apps = classic.apps(computer);
         if (apps != null) {
             for (NvApp app : apps) {
-                if (app.getAppId() == appId && (stableId.isEmpty() || stableId.equalsIgnoreCase(app.getAppUuid()))) return true;
+                if (app.getAppId() == appId && (stableId.isEmpty() || app.getAppUuid().isEmpty()
+                        || stableId.equalsIgnoreCase(app.getAppUuid()))) return true;
             }
         }
         return false;

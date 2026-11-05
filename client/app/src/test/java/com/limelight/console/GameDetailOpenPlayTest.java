@@ -665,6 +665,80 @@ public class GameDetailOpenPlayTest {
     }
 
     @Test
+    public void aGameStartedFromALibraryIsRememberedByTheLibrarysIdWhichTheHostIsNotSent() throws Exception {
+        open(true, null, null);
+        ComputerDetails tower = nativeHost("tower", "Tower", true);
+        com.limelight.nvstream.http.NvApp app = CoverLoaders.appOf("Portal", 11,
+                rig.repository.cached(Collections.singletonList(tower)).host("tower").sources.get(0));
+        assertEquals("", app.getAppUuid());
+        assertEquals("t-portal", com.limelight.nativeapi.RecentsStore.Recent.of(tower, app, 1).stableId);
+        assertEquals("t-portal", com.limelight.pin.PinLockActivity.forStream(context, new Intent(), tower, app)
+                .getStringExtra("pin_recent_stable_id"));
+    }
+
+    @Test
+    public void aClassicEntryWithNoUuidGoesByItsAppIdAndAnotherUuidIsAnotherGame() throws Exception {
+        open(true, null, null);
+        ComputerDetails tower = nativeHost("tower", "Tower", true);
+        com.limelight.nvstream.http.NvApp entry = new com.limelight.nvstream.http.NvApp("Portal", 11, false);
+        rig.classicApps.put("tower", Collections.singletonList(entry));
+        assertTrue(rig.repository.classicListHas(tower, 11, "t-portal"));
+        assertFalse(rig.repository.classicListHas(tower, 12, "t-portal"));
+        entry.setAppUuid("t-zelda");
+        assertFalse(rig.repository.classicListHas(tower, 11, "t-portal"));
+    }
+
+    @Test
+    public void aPcThatWokeStillHasALimitWhenItsReadNeverComesBack() throws Exception {
+        open(false, "00:11:22:33:44:55", null);
+        Dialog countdown = shown();
+        pass(3100);
+        await(() -> !GameDetailWakeTest.Detail.woken.isEmpty());
+        // Every read from here on queues behind this one.
+        java.util.concurrent.CountDownLatch hold = new java.util.concurrent.CountDownLatch(1);
+        ReflectionHelpers.<java.util.concurrent.ExecutorService>getField(screen, "worker").execute(() -> {
+            try {
+                hold.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        feed.update(nativeHost("tower", "Tower", true));
+        HostWaker waker = ReflectionHelpers.getField(screen, "waker");
+        await(() -> {
+            pass(1000);
+            return !waker.isWaiting();
+        });
+        pass(30_000);
+        assertTrue("within the limit", ShadowDialog.getLatestDialog() == countdown);
+        pass(16_000);
+        hold.countDown();
+        assertEquals(context.getString(R.string.open_play_no_list, "Tower"),
+                ((TextView) shown().findViewById(android.R.id.message)).getText().toString());
+        assertTrue(OpenPlay.armed(context));
+    }
+
+    /** Called directly: the page's own callers ask {@code wakeable} first, which says no for a PC that is online. */
+    @Test
+    public void theOnlineBranchOfTheWakeHasALimitOfItsOwn() throws Exception {
+        sessionThere = SESSION_FAILS;
+        open(true, null, null);
+        Dialog countdown = shown();
+        pass(3100);
+        // Nothing is read from here on: the service is gone, so the reload stops at its first line.
+        ReflectionHelpers.setField(feed, "binder", null);
+        Thread.sleep(300);
+        pass(100);
+        ReflectionHelpers.callInstanceMethod(screen, "stopAutoLimit");
+        ReflectionHelpers.callInstanceMethod(screen, "wakeAndPlay");
+        pass(44_000);
+        assertTrue("within the limit", ShadowDialog.getLatestDialog() == countdown);
+        pass(1_200);
+        assertTrue("the limit ended it", ShadowDialog.getLatestDialog() != countdown);
+        assertTrue(OpenPlay.armed(context));
+    }
+
+    @Test
     public void aRecreatedPageDoesNothingByItself() throws Exception {
         open(true, null, new Bundle());
         assertNull(ShadowDialog.getLatestDialog());

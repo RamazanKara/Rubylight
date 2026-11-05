@@ -30,7 +30,7 @@ public interface RecentsStore {
         }
 
         public static Recent of(ComputerDetails computer, NvApp app, long playedAtMs) {
-            return new Recent(computer.uuid, computer.name, app.getAppId(), app.getAppName(), playedAtMs, app.getAppUuid());
+            return new Recent(computer.uuid, computer.name, app.getAppId(), app.getAppName(), playedAtMs, app.getStableId());
         }
     }
 

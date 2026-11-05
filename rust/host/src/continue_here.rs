@@ -71,6 +71,8 @@ struct Claim {
     to: String,
     name: String,
     previous_owner: String,
+    /// It started a stream of its own since the press: see [`Late::owner_returned`].
+    owner_returned: bool,
     generation: String,
     until: Instant,
     displaced: BTreeSet<String>,
@@ -135,6 +137,29 @@ impl Moves {
         if let Some(late) = &mut inner.late {
             late.displaced.remove(device);
             late.owner_returned |= late.previous_owner == device;
+        }
+        if let Some(claim) = &mut inner.claim {
+            claim.displaced.remove(device);
+            claim.owner_returned |= claim.previous_owner == device;
+        }
+    }
+    /// `device`'s launch was refused and it has no stream or launch: it did not come back after
+    /// all, so a press's stream that comes still takes the game.
+    fn owner_stayed_away(&self, device: &str) {
+        let mut inner = locked(&self.0);
+        if let Some(late) = inner
+            .late
+            .as_mut()
+            .filter(|late| late.previous_owner == device)
+        {
+            late.owner_returned = false;
+        }
+        if let Some(claim) = inner
+            .claim
+            .as_mut()
+            .filter(|claim| claim.previous_owner == device)
+        {
+            claim.owner_returned = false;
         }
     }
     fn begin(&self, claim: Claim) {
@@ -203,6 +228,12 @@ impl Moves {
     pub fn expire_notes(&self) {
         for note in locked(&self.0).notes.values_mut() {
             note.at = Instant::now() - MOVED_KEPT;
+        }
+    }
+    #[cfg(test)]
+    pub fn expire_late(&self) {
+        if let Some(late) = &mut locked(&self.0).late {
+            late.at = Instant::now() - MOVED_KEPT;
         }
     }
 }
@@ -434,6 +465,7 @@ impl Host {
             to: device.to_owned(),
             name: caller.name.clone(),
             previous_owner,
+            owner_returned: false,
             generation,
             until: Instant::now() + CLAIM_KEPT,
             displaced,
@@ -474,14 +506,17 @@ impl Host {
     /// The device that pressed had its launch refused: nothing will come of the press. Runs under
     /// the launch lock.
     pub(crate) fn launch_failed(&self, device: &str) {
-        let Some(claim) = self.live_claim().filter(|claim| claim.to == device) else {
-            return;
-        };
         // An earlier launch of its own can still connect, or already did.
         let on_its_way = {
             let sessions = locked(&self.sessions);
             sessions.plain_streams().contains_key(device)
                 || sessions.plain_launches().contains_key(device)
+        };
+        if !on_its_way {
+            self.moves.owner_stayed_away(device);
+        }
+        let Some(claim) = self.live_claim().filter(|claim| claim.to == device) else {
+            return;
         };
         if !on_its_way {
             tracing::warn!(to = %claim.name, "the launch of the device that asked for the game failed");
@@ -520,7 +555,7 @@ impl Host {
             to: claim.to,
             name: claim.name,
             previous_owner: claim.previous_owner,
-            owner_returned: false,
+            owner_returned: claim.owner_returned,
             generation: claim.generation,
             displaced: claim.displaced,
             at: now,
@@ -560,7 +595,9 @@ impl Host {
         }
         locked(&self.moves.0).late = None;
         self.release_displaced(&late.displaced);
-        if late.owner_returned || late.previous_owner == late.to {
+        // The device that pressed was the previous owner too: its arrival counted above, so it
+        // gets no note to itself.
+        if late.owner_returned {
             return;
         }
         if let Some(app) = locked(&self.current_app)

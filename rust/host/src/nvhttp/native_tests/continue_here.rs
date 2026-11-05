@@ -988,3 +988,195 @@ async fn an_ordinary_webrtc_stream_moves_but_one_guests_watch_is_refused() {
     press(&s, &tv_connection).await.session();
     assert!(console.stopping());
 }
+
+/// A kept display that would otherwise stay for hours; the phone's stream ended with the press.
+async fn pressed_with_kept_display() -> (Setup, Client) {
+    let s = Setup::new();
+    let phone = s.streaming();
+    s.host()
+        .config
+        .write()
+        .unwrap()
+        .values
+        .insert("dd_config_revert_on_disconnect".into(), "false".into());
+    let (tv, tv_connection) = device(&s, "tv", "TV", ALL);
+    press(&s, &tv_connection).await.session();
+    s.host()
+        .sessions
+        .lock()
+        .unwrap()
+        .active
+        .remove(&phone.launch.id);
+    drop(phone);
+    (s, tv)
+}
+
+#[tokio::test]
+async fn an_owner_that_returns_during_a_live_press_keeps_its_display_and_its_game() {
+    // The press's stream comes on time: the display the phone came back to stays.
+    let (s, tv) = pressed_with_kept_display().await;
+    s.host().moves.forget(&s.client.uuid);
+    assert!(!s.host().moves.displays_held().contains(&s.client.uuid));
+    let stream = s.stream_as(tv);
+    s.host().settle_move();
+    s.host().reap_paused_display();
+    assert_eq!(s.displays(), 1, "on time");
+    drop(stream);
+
+    // It comes late: the same, and the game stays the phone's.
+    let (s, tv) = pressed_with_kept_display().await;
+    s.host().moves.forget(&s.client.uuid);
+    s.host().moves.expire_claim();
+    s.host().settle_move();
+    assert_eq!(game_owner(&s), s.client.uuid);
+    let stream = s.stream_as(tv);
+    s.host().settle_move();
+    s.host().reap_paused_display();
+    assert_eq!(s.displays(), 1, "late");
+    assert_eq!(game_owner(&s), s.client.uuid);
+    assert!(s.get("/session").await.session().moved_to.is_none());
+    drop(stream);
+}
+
+#[tokio::test]
+async fn an_owner_whose_resume_was_refused_has_not_returned() {
+    // After the press ended: the late stream takes the game, so its own recovery finds it.
+    let (s, tv) = pressed_with_kept_display().await;
+    s.host().moves.expire_claim();
+    s.host().settle_move();
+    s.host().moves.forget(&s.client.uuid);
+    drop(crate::continue_here::Attempt::new(
+        s.host(),
+        &s.client.uuid,
+        true,
+    ));
+    let stream = s.stream_as(tv.clone());
+    s.host().settle_move();
+    assert_eq!(game_owner(&s), tv.uuid);
+    assert_eq!(
+        s.get("/session")
+            .await
+            .session()
+            .moved_to
+            .expect("told")
+            .device,
+        "TV"
+    );
+    drop(stream);
+
+    // During the press: the same.
+    let (s, tv) = pressed_with_kept_display().await;
+    s.host().moves.forget(&s.client.uuid);
+    drop(crate::continue_here::Attempt::new(
+        s.host(),
+        &s.client.uuid,
+        true,
+    ));
+    s.host().moves.expire_claim();
+    s.host().settle_move();
+    let stream = s.stream_as(tv.clone());
+    s.host().settle_move();
+    assert_eq!(game_owner(&s), tv.uuid);
+    drop(stream);
+
+    // A launch that would not have been its stream says nothing, nor does one that was refused
+    // beside a stream it still has.
+    let (s, tv) = pressed_with_kept_display().await;
+    s.host().moves.expire_claim();
+    s.host().settle_move();
+    s.host().moves.forget(&s.client.uuid);
+    drop(crate::continue_here::Attempt::new(
+        s.host(),
+        &s.client.uuid,
+        false,
+    ));
+    let stream = s.stream_as(tv);
+    s.host().settle_move();
+    assert_eq!(game_owner(&s), s.client.uuid, "no stream launch");
+    drop(stream);
+    let (s, tv) = pressed_with_kept_display().await;
+    s.host().moves.expire_claim();
+    s.host().settle_move();
+    let back = s.stream_as(s.client.clone());
+    s.host().moves.forget(&s.client.uuid);
+    drop(crate::continue_here::Attempt::new(
+        s.host(),
+        &s.client.uuid,
+        true,
+    ));
+    s.host()
+        .sessions
+        .lock()
+        .unwrap()
+        .active
+        .remove(&back.launch.id);
+    let stream = s.stream_as(tv);
+    s.host().settle_move();
+    assert_eq!(game_owner(&s), s.client.uuid, "it still streamed");
+    drop((back, stream));
+}
+
+#[tokio::test]
+async fn what_a_failed_press_says_to_a_device_beside_it_ends() {
+    let failed = || async {
+        let s = Setup::new();
+        let phone = s.streaming();
+        let (laptop, laptop_connection) = device(&s, "laptop", "Laptop", ALL);
+        let beside = s.stream_as(laptop);
+        let (_, tv_connection) = device(&s, "tv", "TV", ALL);
+        press(&s, &tv_connection).await.session();
+        for stream in [phone, beside] {
+            s.host()
+                .sessions
+                .lock()
+                .unwrap()
+                .active
+                .remove(&stream.launch.id);
+        }
+        s.host().moves.expire_claim();
+        s.host().settle_move();
+        assert!(session_of(&s, &laptop_connection).await.press_failed);
+        (s, laptop_connection)
+    };
+    // After its two minutes, with nothing settling the press since.
+    let (s, laptop_connection) = failed().await;
+    s.host().moves.expire_late();
+    assert!(!session_of(&s, &laptop_connection).await.press_failed);
+
+    // Another game runs now, not no game.
+    let (s, laptop_connection) = failed().await;
+    s.host()
+        .current_app
+        .lock()
+        .unwrap()
+        .as_mut()
+        .unwrap()
+        .generation = "another game".into();
+    assert!(!session_of(&s, &laptop_connection).await.press_failed);
+}
+
+#[tokio::test]
+async fn an_owner_that_presses_fails_and_then_arrives_gets_no_note_to_itself() {
+    let s = Setup::new();
+    let phone = s.streaming();
+    let (laptop, _) = device(&s, "laptop", "Laptop", ALL);
+    let beside = s.stream_as(laptop);
+    s.host()
+        .sessions
+        .lock()
+        .unwrap()
+        .active
+        .remove(&phone.launch.id);
+    drop(phone);
+    press(&s, &s.f.connection(true)).await.session();
+    assert!(s.host().claim_live());
+    assert!(beside.stopping());
+    s.host().moves.expire_claim();
+    s.host().settle_move();
+    assert!(!s.host().claim_live());
+    let stream = s.stream_as(s.client.clone());
+    s.host().settle_move();
+    assert_eq!(game_owner(&s), s.client.uuid);
+    assert!(s.get("/session").await.session().moved_to.is_none());
+    drop((stream, beside));
+}

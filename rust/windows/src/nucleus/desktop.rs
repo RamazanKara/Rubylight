@@ -387,6 +387,15 @@ pub(crate) fn click_point(width: i32, height: i32) -> (i32, i32) {
     (4.min(width / 2), height / 2)
 }
 
+/// Whether a press of `button` reaches it: Nucleus keeps Play on its form hidden until a
+/// profile is ready to play (`Generic_Functions.EnablePlay`), and a press of a hidden or
+/// disabled button does nothing, yet is only ever made once.
+fn pressable(button: HWND) -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
+    // SAFETY: plain queries of a window handle; one that closed meanwhile answers false.
+    unsafe { IsWindowVisible(button).as_bool() && IsWindowEnabled(button).as_bool() }
+}
+
 impl Desktop for Win32 {
     fn processes(&mut self) -> Result<Vec<Process>> {
         crate::process::processes()
@@ -560,7 +569,7 @@ impl Desktop for Win32 {
                 let button = class_of(child).is_some_and(|class| {
                     class.starts_with(FORM_CLASS) && class.contains(".BUTTON.")
                 });
-                if button && control_name(child).as_deref() == Some(name) {
+                if button && pressable(child) && control_name(child).as_deref() == Some(name) {
                     return Ok(Some(child.0 as usize as u64));
                 }
             }
@@ -773,6 +782,44 @@ fn forced_aslr(pid: u32) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A hidden or disabled Play is not there to press yet: its one press would be lost.
+    #[test]
+    fn only_a_shown_enabled_button_is_pressable() {
+        use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
+        // SAFETY: The class and title are static NUL-terminated literals; no other pointers.
+        let window = unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                windows::core::w!("STATIC"),
+                windows::core::w!("Rubylight button test"),
+                WS_POPUP,
+                0,
+                0,
+                64,
+                64,
+                None,
+                None,
+                None,
+                None,
+            )
+        }
+        .unwrap();
+        assert!(!pressable(window), "hidden");
+        // SAFETY: The window was created on this thread above.
+        unsafe {
+            let _ = ShowWindow(window, SW_SHOWNOACTIVATE);
+        }
+        assert!(pressable(window));
+        // SAFETY: as above.
+        unsafe {
+            let _ = EnableWindow(window, false);
+        }
+        assert!(!pressable(window), "disabled");
+        // SAFETY: as above.
+        unsafe { DestroyWindow(window).unwrap() };
+        assert!(!pressable(window), "closed");
+    }
 
     #[test]
     fn a_label_is_clicked_where_its_text_starts() {

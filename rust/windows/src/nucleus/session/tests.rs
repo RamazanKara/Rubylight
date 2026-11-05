@@ -651,6 +651,44 @@ fn play_covered_is_pressed_later_and_a_press_that_starts_nothing_says_so() {
         panic!("no failure");
     };
     assert!(why.contains("pressed Play"), "{why}");
+    // Covered until the start times out: that is why, not a press that started nothing.
+    let (screen, probe) = (self::screen(), Probe::default());
+    let mut runner = self::runner(1, &screen, &probe, t0);
+    runner.plays_itself = false;
+    label(&screen);
+    assert_eq!(runner.step(t0), None);
+    {
+        let mut desktop = screen.0.lock().unwrap();
+        desktop.buttons.push((NUCLEUS, PLAY.into(), 9));
+        desktop.covered = true;
+    }
+    assert_eq!(runner.step(t0 + PERIOD), None);
+    assert_eq!(
+        runner.step(t0 + START_TIMEOUT),
+        Some(End::Failed(
+            "Nucleus Co-op did not start Game: covered".into()
+        ))
+    );
+    assert!(!runner.played);
+}
+
+/// With no Play to press yet, the setup screen is named by what comes next there.
+#[test]
+fn a_profile_waiting_for_play_says_so() {
+    let t0 = Instant::now();
+    let (screen, probe) = (screen(), Probe::default());
+    let mut runner = runner(1, &screen, &probe, t0);
+    runner.plays_itself = false;
+    label(&screen);
+    assert_eq!(runner.step(t0), None);
+    assert_eq!(runner.step(t0 + RECLICK), None);
+    let End::Failed(why) = runner.step(t0 + START_TIMEOUT).unwrap() else {
+        panic!("no failure");
+    };
+    assert!(
+        why.contains("which shows Play once every player has a controller there"),
+        "{why}"
+    );
 }
 
 /// #56: Nucleus 2.4.2 can't load a profile clicked before its setup screen

@@ -783,8 +783,13 @@ impl Runner {
                 self.title
             )
         } else if !self.hid {
+            let then = if self.plays_itself {
+                "which starts the game"
+            } else {
+                "which shows Play"
+            };
             format!(
-                "Nucleus Co-op did not start {}: it still shows its setup screen with the profile {TITLE}, which starts the game once every player has a controller there",
+                "Nucleus Co-op did not start {}: it still shows its setup screen with the profile {TITLE}, {then} once every player has a controller there",
                 self.title
             )
         } else {
@@ -842,6 +847,10 @@ impl Runner {
             (_, _, 0) if !self.showing.is_empty() => self.unshown(),
             (Some(why), false, 0) => format!("Nucleus Co-op did not start {}: {why}", self.title),
             (None, false, 0) => self.unshown(),
+            // The last press, of Play or the profile's entry, failed: what stopped it is why.
+            (Some(why), true, 0) if !self.plays_itself && !self.played => {
+                format!("Nucleus Co-op did not start {}: {why}", self.title)
+            }
             (_, _, 0) => self.unstarted(),
             _ if roots < self.players => self.quoting_crashlog(format!(
                 "Nucleus Co-op started {roots} of {} instances of {}",

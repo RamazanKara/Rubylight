@@ -2,6 +2,7 @@
 // keyboard and mouse on the `input` channel. Ported from rust/tests/webrtc_client/client.js;
 // surround, HDR and gamepads come later (docs/webrtc.md, "Stream in the console").
 import { Held, INPUT_LABEL, INPUT_OPTIONS, type InputMessage } from './input';
+import { consoleFailure, offeredAddress, watchConnection } from './reach';
 import { Signalling, SignallingError, signalUrl, type Message } from './signalling';
 
 /** Stereo sound; surround comes later. */
@@ -279,19 +280,22 @@ export class ConsoleStream {
       noPlayoutDelay(event.receiver);
       media.addTrack(event.track);
     };
-    const connected = new Promise<void>((resolve, reject) => {
-      pc.onconnectionstatechange = () => {
-        if (pc.connectionState === 'connected') resolve();
-        else if (pc.connectionState === 'failed') {
-          reject(new SignallingError('The peer connection failed. Streaming works on the local network and Tailscale only.'));
-          this.end('The connection to the host failed.', true);
-        }
-      };
-    });
     status('Connecting…');
     await pc.setRemoteDescription({ type: 'offer', sdp: browserOffer(String(offer.sdp)) });
     const answer = await pc.createAnswer();
     await pc.setLocalDescription({ type: 'answer', sdp: stereoAnswer(answer.sdp ?? '') });
+    const offered = offeredAddress(String(offer.sdp));
+    const connected = new Promise<void>((resolve) => {
+      watchConnection(pc, resolve, (why) => {
+        const message = consoleFailure(why, offered);
+        // The host's log says only that the page stopped the stream; this says why.
+        if (!this.sig.closed) {
+          this.sig.send('client-log', { lines: [`connection failed: ${why}, offered ${offered?.address}:${offered?.port}, ${navigator.userAgent}`] });
+        }
+        fail(new SignallingError(message));
+        this.end(message, true);
+      });
+    });
     this.sig.send('answer', { sessionId, sdp: pc.localDescription?.sdp });
     await Promise.race([connected, failed, timeout(CONNECT_TIMEOUT_MS, 'The peer connection')]);
     const input = pc.createDataChannel(INPUT_LABEL, INPUT_OPTIONS);

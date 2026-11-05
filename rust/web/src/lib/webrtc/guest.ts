@@ -6,6 +6,7 @@
 import { Pads, rumble, type PadMessage, type PadSnapshot } from './gamepad';
 import { browserOffer, stereoAnswer } from './client';
 import { Held, INPUT_LABEL, INPUT_OPTIONS, type InputMessage } from './input';
+import { guestFailure, offeredAddress, watchConnection } from './reach';
 
 export const GUEST_PROTOCOL = 'rubylight.guest.v1';
 
@@ -159,13 +160,12 @@ export class GuestStream {
         event.channel.onmessage = (message) => rumble(String(message.data));
       } else if (event.channel.label === 'gamepad') this.pad = event.channel;
     };
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed') this.end({ code: 'connection-lost', message: 'The stream’s connection to the host failed.', wait: false, final: false });
-    };
     await pc.setRemoteDescription({ type: 'offer', sdp: browserOffer(String(offer.sdp)) });
     const answer = await pc.createAnswer();
     await pc.setLocalDescription({ type: 'answer', sdp: stereoAnswer(answer.sdp ?? '') });
     if (this.over) return;
+    const offered = offeredAddress(String(offer.sdp));
+    watchConnection(pc, () => {}, (why) => this.end({ code: 'connection-lost', message: guestFailure(why, offered), wait: false, final: false }));
     this.ws.send(JSON.stringify({ type: 'answer', sdp: pc.localDescription?.sdp }));
   }
 

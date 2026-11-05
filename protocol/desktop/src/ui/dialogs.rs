@@ -775,12 +775,12 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(380.0);
-                        ui.label(RichText::new(trf("{} wants to pair", &[&name])).font(semibold(text::SECTION)));
-                        // The one part of the request the device can't choose.
-                        ui.label(RichText::new(trf("From {0}, for {1}", &[&address, &pc])).font(semibold(text::BODY)));
+                        two_rows(ui, trf("{} wants to pair", &[&name]), semibold(text::SECTION));
+                        // The one part of the request the device can't choose, first in every language.
+                        two_rows(ui, trf("From {0}, for {1}", &[&address, &pc]), semibold(text::BODY));
                         ui.add_space(space::S);
                         let shown = if *busy { trf("Waiting for {}…", &[&name]) } else { pin.clone() };
-                        ui.label(RichText::new(shown).font(semibold(text::SECTION)));
+                        ui.add(egui::Label::new(RichText::new(shown).font(semibold(text::SECTION))).truncate());
                         let mut filled = false;
                         ui.add_enabled_ui(!*busy, |ui| {
                             filled = pin_pad(ui, pin, focus_first, &mut focused);
@@ -1938,6 +1938,13 @@ pub(super) fn approve_dialog(host: &Host, request: &PairingRequest) -> Dialog {
 pub(super) fn short_device_name(name: &str) -> String {
     const MOST: usize = 32;
     if name.chars().count() <= MOST { name.to_owned() } else { name.chars().take(MOST).chain(['…']).collect() }
+}
+
+/// Text with a name in it that can be any length: two rows at most, so what follows stays in the window.
+fn two_rows(ui: &mut Ui, shown: String, font_id: egui::FontId) -> Response {
+    let mut job = egui::text::LayoutJob::single_section(shown, egui::TextFormat { font_id, color: ui.visuals().text_color(), ..Default::default() });
+    job.wrap = egui::text::TextWrapping { max_width: ui.available_width(), max_rows: 2, break_anywhere: false, overflow_character: Some('…') };
+    ui.label(job)
 }
 
 /// The digit pad of a PIN, for a controller or the mouse; the keyboard's digits work beside it.

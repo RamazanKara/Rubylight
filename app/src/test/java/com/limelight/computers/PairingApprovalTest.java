@@ -359,6 +359,25 @@ public class PairingApprovalTest {
     }
 
     @Test
+    public void aLongDeviceNameKeepsToTwoLinesInThePinDialog() {
+        try (ActivityController<ToolbarIconTintTest.Screen> controller =
+                     Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+            Transcript transcript = new Transcript();
+            AlertDialog dialog = dialogs(controller.get(), transcript)
+                    .showPin(named("A long name ".repeat(11).substring(0, 128)), client(transcript, ""));
+            idle();
+            TextView title = dialog.findViewById(androidx.appcompat.R.id.alertTitle);
+            TextView value = dialog.findViewById(R.id.pairing_pin_value);
+            // AppCompat's DialogTitle: one line, two in smaller text when that one is cut off.
+            assertEquals("the title", 1, title.getMaxLines());
+            assertEquals(android.text.TextUtils.TruncateAt.END, title.getEllipsize());
+            assertEquals("the waiting line", 2, value.getMaxLines());
+            assertEquals(android.text.TextUtils.TruncateAt.END, value.getEllipsize());
+            dialog.dismiss();
+        }
+    }
+
+    @Test
     public void everyPadKeyTakesTheFocusSoAGamepadCanReachIt() {
         try (ActivityController<ToolbarIconTintTest.Screen> controller =
                      Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {

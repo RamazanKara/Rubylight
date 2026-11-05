@@ -39,6 +39,7 @@ import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.LegacyKeyboardInsets;
 import com.limelight.ui.NavigationDialogBuilder;
 import com.limelight.ui.StreamView;
+import com.limelight.utils.ContinueHereGate;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.NetworkGrace;
 import com.limelight.utils.LaunchSource;
@@ -1379,7 +1380,7 @@ final class GameConnection {
                     } else if (ContinueHerePolicy.cameBack(false, answer.ownedHere)) {
                         LimeLog.info("The move failed; the game is this device's again");
                         prompt.dismiss();
-                        showCameBackPrompt();
+                        showCameBackPrompt(client);
                     }
                     // Otherwise the note ran out with the game elsewhere, or the game ended: what it said stands.
                 });
@@ -1388,14 +1389,48 @@ final class GameConnection {
     }
 
     /** The move failed: the game is this device's again, for a minute before close-on-disconnect applies. Resuming asks for the PIN where the lock covers this PC. */
-    private void showCameBackPrompt() {
+    private void showCameBackPrompt(NativeApiClient client) {
         game.menuActions.showStreamDialog(new NavigationDialogBuilder(game)
                 .setTitle(R.string.continue_here_came_back)
                 .setCancelable(false)
-                .setPositiveButton(R.string.applist_menu_resume, (dialog, which) -> game.streamRecovery.reconnectStream(
-                        PinGate.needsPinForStream(game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID))))
+                .setPositiveButton(R.string.applist_menu_resume, (dialog, which) -> askWhoPlaysThenResume(client))
                 .setNegativeButton(android.R.string.ok, (dialog, which) -> game.finish())
                 .create());
+    }
+
+    /** The answer may be old by now, so this asks who plays as selecting the game does; a PC that does not say gets the resume, which fails if the game is gone. */
+    private void askWhoPlaysThenResume(NativeApiClient client) {
+        new Thread(() -> {
+            StreamMove read = ContinueHereGate.readWithin(client::streamMove, ContinueHereGate.SELECT_READ_WAIT_MS);
+            game.runOnUiThread(() -> {
+                if (game.isFinishing() || game.isDestroyed()) return;
+                if (read != null && read.playingOn != null && game.app != null && ContinueHerePolicy.asksOnSelect(true, true,
+                        game.app.matchesRunningApp(read.playingAppId, read.playingAppUuid))) {
+                    showWhoPlaysPrompt(read, client);
+                } else {
+                    resumeTheGame();
+                }
+            });
+        }, "Came back read").start();
+    }
+
+    /** "X is playing on Y". Under the PIN lock no Continue here, as in {@link #showMovedPrompt}: that goes through the library. */
+    private void showWhoPlaysPrompt(StreamMove move, NativeApiClient client) {
+        NavigationDialogBuilder builder = new NavigationDialogBuilder(game);
+        builder.setMessage(game.getString(R.string.continue_here_playing_on, move.playingTitle, move.playingOn))
+                .setCancelable(false)
+                .setNeutralButton(R.string.continue_here_stream_too, (dialog, which) -> resumeTheGame())
+                .setNegativeButton(android.R.string.cancel, (dialog, which) -> game.finish());
+        if (!PinGate.streamLocked(game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID))) {
+            builder.setPositiveButton(R.string.continue_here_action, (dialog, which) -> takeStreamBack(client));
+        }
+        game.menuActions.showStreamDialog(builder.create());
+    }
+
+    /** Joins the running game, behind the PIN where the lock covers this PC. A game that ended meanwhile is not started again. */
+    private void resumeTheGame() {
+        game.streamRecovery.reconnectStream(
+                PinGate.needsPinForStream(game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID)), true);
     }
 
     /** Continue here on the displaced device: moves the stream back, then resumes. A failure says so; the game keeps running. */

@@ -33,9 +33,9 @@ import java.util.function.Consumer;
  * Selecting a game another device plays: "X is playing on Y", with Continue here focused, Stream here too and
  * Cancel. A PC that does not offer the move, or that cannot say who plays, starts the stream as it always did.
  */
-final class ContinueHereGate {
+public final class ContinueHereGate {
     /** How long selecting a game waits to learn who plays it, before it starts the stream as it always did. */
-    private static final long SELECT_READ_WAIT_MS = 1500;
+    public static final long SELECT_READ_WAIT_MS = 1500;
 
     /** The press itself. */
     @VisibleForTesting
@@ -44,8 +44,7 @@ final class ContinueHereGate {
     }
 
     /** One read of the PC. */
-    @VisibleForTesting
-    interface MoveRead {
+    public interface MoveRead {
         StreamMove read() throws NativeApiException, InterruptedException;
     }
 
@@ -53,8 +52,7 @@ final class ContinueHereGate {
     }
 
     /** The answer of {@code read}, or null when it failed or took longer than {@code waitMs}. It then ends on its own. */
-    @VisibleForTesting
-    static StreamMove readWithin(MoveRead read, long waitMs) {
+    public static StreamMove readWithin(MoveRead read, long waitMs) {
         AtomicReference<StreamMove> answer = new AtomicReference<>();
         Thread reading = new Thread(() -> {
             try {

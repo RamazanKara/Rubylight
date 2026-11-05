@@ -288,7 +288,14 @@ impl Steps {
         let marker = marker_path();
         let stream_elsewhere = || mutex_exists(STREAM_MUTEX);
         match copy {
-            CopyKind::Installed => Some(Self { net, allow: download_host, dir: std::env::temp_dir().join("nightjar-update"), own_dir: true, marker, stream_elsewhere, apply: Box::new(run_setup) }),
+            CopyKind::Installed => {
+                let local = directories::BaseDirs::new().map(|dirs| dirs.data_local_dir().to_path_buf());
+                let Some(dir) = update_dir(std::env::var_os("NIGHTJAR_CONFIG_DIR").map(PathBuf::from), local) else {
+                    eprintln!("nightjar: update: no folder for the download");
+                    return None;
+                };
+                Some(Self { net, allow: download_host, dir, own_dir: true, marker, stream_elsewhere, apply: Box::new(run_setup) })
+            }
             CopyKind::AppImage(path) => {
                 let target = path.clone();
                 let apply = move |part: &Path, _: &Asset| {
@@ -306,6 +313,15 @@ impl Steps {
     pub fn part(&self) -> PathBuf {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         self.dir.join(format!("{PART_PREFIX}{}-{}.part", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)))
+    }
+}
+
+/// Where a setup waits to run: the user's own folder, as TEMP can be a shared one where someone else
+/// could put a file in its place. Under NIGHTJAR_CONFIG_DIR when that is set (tests, the harness).
+fn update_dir(config_override: Option<PathBuf>, local_data: Option<PathBuf>) -> Option<PathBuf> {
+    match config_override {
+        Some(config) => Some(config.join("update")),
+        None => local_data.map(|local| local.join("Nightjar").join("update")),
     }
 }
 
@@ -660,6 +676,16 @@ mod tests {
         assert_eq!(split_after_setup(args(&[AFTER_SETUP])), (args(&[]), true));
         assert_eq!(split_after_setup(args(&[AFTER_SETUP, "--host", "x"])), (args(&["--host", "x"]), true));
         assert!(!install_running(true), "the setup's own start always goes on");
+    }
+
+    #[test]
+    fn the_setup_waits_in_the_users_own_folder() {
+        let (config, local) = (PathBuf::from("config"), PathBuf::from("local"));
+        assert_eq!(update_dir(None, Some(local.clone())), Some(local.join("Nightjar").join("update")));
+        assert_eq!(update_dir(Some(config.clone()), Some(local)), Some(config.join("update")), "a sandboxed run stays in its sandbox");
+        assert_eq!(update_dir(None, None), None);
+        let iss = include_str!("../packaging/windows/nightjar.iss");
+        assert!(iss.contains(r#"Name: "{localappdata}\Nightjar\update""#), "and it goes with the uninstall");
     }
 
     #[test]

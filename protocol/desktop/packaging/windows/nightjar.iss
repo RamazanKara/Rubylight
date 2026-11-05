@@ -135,6 +135,11 @@ Name: "{autodesktop}\Nightjar"; Filename: "{app}\nightjar.exe"; IconFilename: "{
 [Run]
 Filename: "{app}\nightjar.exe"; Parameters: "--after-setup"; Description: "{cm:LaunchProgram,Nightjar}"; Flags: nowait postinstall skipifsilent
 
+[UninstallDelete]
+; Where Update now keeps a setup while it runs (update_dir in self_update.rs).
+Type: filesandordirs; Name: "{localappdata}\Nightjar\update"
+Type: dirifempty; Name: "{localappdata}\Nightjar"
+
 [Code]
 const
   // The entry Setup writes for the AppId above (per user, so under HKCU).

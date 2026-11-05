@@ -1319,19 +1319,24 @@ impl Prepared {
         };
         // Stream here too: the game is on its owner's display. A display of its
         // own would show this device an empty desktop.
-        let joined = (virtual_mode && mode == "per_client" && shared_id == launch.client.uuid)
-            .then(|| {
-                let running = h.current_app.lock().unwrap();
-                joined_display(
-                    &launch.client.uuid,
-                    launch.role,
-                    app.as_ref().map(|a| a.id()),
-                    running
-                        .as_ref()
-                        .map(|r| (r.owner.as_str(), r.id, r.background)),
-                )
-            })
-            .flatten();
+        // During a press the owner has no display yet and the game is on the
+        // previous owner's, so this stream keeps a display of its own.
+        let joined = (virtual_mode
+            && mode == "per_client"
+            && shared_id == launch.client.uuid
+            && !h.claim_live())
+        .then(|| {
+            let running = h.current_app.lock().unwrap();
+            joined_display(
+                &launch.client.uuid,
+                launch.role,
+                app.as_ref().map(|a| a.id()),
+                running
+                    .as_ref()
+                    .map(|r| (r.owner.as_str(), r.id, r.background)),
+            )
+        })
+        .flatten();
         let shares = mode == "shared" || joined.is_some();
         let shared_id = joined.unwrap_or(shared_id);
         let stable_id = &shared_id;

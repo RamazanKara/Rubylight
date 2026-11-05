@@ -1,0 +1,3 @@
+# Pairing from the couch
+- **Approve a new device from a paired one.** A device with Host control sees who waits to pair and enters the PIN the new device shows, so a TV or console no longer means a walk to the PC. The new device gets Play, never more than the approver holds. Three wrong PINs end the requests for five minutes, and every approval raises a toast, a log line and the `pairing.paired` webhook, naming both devices.
+- The pairing toast now opens the Devices page with the PIN field focused, also after signing in, and the tray has a new **Pair a device** item that opens the page at the QR code.

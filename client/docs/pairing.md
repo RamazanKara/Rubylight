@@ -9,6 +9,7 @@ Each Nightjar installation pairs with a PC's host once. Pairing exchanges certif
 | [PIN](#pin-flow) | Every Moonlight-compatible host | Nightjar shows a PIN; you enter it on the host |
 | [One-time PIN](#host-generated-one-time-pin) | Hosts with one-time PINs, such as Apollo, Vibepollo and Rubylight | The host shows a PIN and passphrase; you enter them in Nightjar |
 | [QR code or pairing link](#pair-with-a-qr-code) | Hosts with QR pairing (Rubylight 3.0) | You scan the host's code, or open or paste its link |
+| [From a paired device](#approve-from-a-paired-device) | Rubylight with `pairing.approve` | The new device shows a PIN; you enter it on a paired device with Host control |
 
 ## Find the PC
 
@@ -25,6 +26,18 @@ Discovery does not cross guest networks, VLANs or VPNs. Add the PC by its addres
 5. If the host grants permissions per device, enable this device and set its permissions there.
 
 Cancel a pairing attempt before starting another. If the host rejects a PIN, finish or cancel any pending request in the host's web UI and try again with a new PIN. A host that refuses pairing while a game is streaming must end that session first.
+
+## Approve from a paired device
+
+A TV or console can pair without a walk to the PC. Select the PC on the new device so it shows its PIN, then on a device that is already paired:
+
+1. Home shows **"Living room TV" wants to pair**, or open the PC's options and choose **Pair another device**. The list says what to do on the new device when nothing waits.
+2. Select the request, compare the address with the new device, and enter its PIN. A controller works: every digit is a button, and the digit keys of a keyboard work too.
+3. Choose **Approve**, or **Deny** to end the request. Backing out leaves it waiting.
+
+The new device gets what a PIN entered on the PC gives by default, Play, and never more than the approving device holds. Host control and shared folders are not passed on. Three wrong PINs end the requests from that device for five minutes; the PC's own Devices page can still pair it. The PC shows a toast for every approval, and logs and sends a webhook naming both devices.
+
+This needs **Host control** on the approving device. No device holds it until it is turned on in the host's web UI (**Devices** → device → **Other**), the first paired one included; without it, Home shows no requests and the options don't list the entry.
 
 ## Host-generated one-time PIN
 

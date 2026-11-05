@@ -22,6 +22,7 @@ Which Nightjar features each client provides: Android (phones, handhelds, tablet
 | Start Nightjar when I sign in | No | Yes | Yes | Run value on Windows; XDG autostart on Linux (a removed package leaves the per-user entry, which `TryExec` makes the desktop skip), the Background portal in a Flatpak. A start at sign-in waits up to a minute for the network. Android has no sign-in start. |
 | "Continue" with the last game on the app icon's long press | Yes | No | No | An Android launcher feature. |
 | PIN and one-time PIN pairing | Yes | Yes | Yes | |
+| Approve a new device from a paired one | Yes | Yes | Yes | On a Rubylight host, for a device with Host control. Home shows who waits; Pair another device is in the PC's options. |
 | QR pairing | Yes | Yes | Yes | Android scans the code; the desktop pastes the host's pairing link. |
 | Open a pairing link from a browser, a QR reader or the host console | Yes | Yes | Yes | Asks with the PC and its address first. On the desktop a link goes to the open window; the Windows installer and the Linux packages register the `rubylight:` scheme. |
 | Home, library, artwork and game pages | Yes | Yes | Yes | Needs a host with the native library (Rubylight 3.0). |

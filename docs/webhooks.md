@@ -16,7 +16,7 @@ Scripts can manage hooks through the same API (`GET`/`POST /api/webhooks`, `POST
 
 | Event | When | `data` |
 | --- | --- | --- |
-| `pairing.paired` | A device finished pairing (Moonlight PIN or one-time PIN, or a WebRTC browser approved) | `device`, `transport` (`moonlight` or `webrtc`) |
+| `pairing.paired` | A device finished pairing (Moonlight PIN or one-time PIN, or a WebRTC browser approved) | `device`, `transport` (`moonlight` or `webrtc`), and `approved_by` (the device that approved it) when approved from a paired device, not the console |
 | `pairing.unpaired` | A device was removed, or a WebRTC browser past the limit was dropped | `device`, and `reason: "limit"` for the latter |
 | `app.started` | An app started (from a device, the console, or after a deferred sign-in) | `app` (`id`, `name`), `device` (null for the console) |
 | `app.stopped` | The running app ended or was closed | `app`, `device`, `reason`, `by` (the device that closed it, or null) |

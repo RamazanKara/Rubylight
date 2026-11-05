@@ -77,6 +77,9 @@ All paths start with `/api/native/v1`. "Owner" means the caller owns the current
 | POST | `/power/restart`, `/power/shutdown` `{"token": "..."}` | **Restart and shut down PC**, nothing running | 202 `{"action"}`, then the host asks Windows. 403 `permission_required`, 409 `host_in_use` or `token_expired` |
 | GET | `/update` | paired | Update: `current_version`, `latest_version`, `phase`, `install_supported`, `error`, `waiting_for`, `install_now` (feature `update`) |
 | POST | `/update/install` | **host control**, no other device streaming | 202 Update. 409 `host_in_use` or `update_unavailable` |
+| GET | `/pairing/requests` | **host control** | PairingRequests: the devices waiting to pair, never a certificate (feature `pairing.approve`, listed while pairing is on) |
+| POST | `/pairing/approve` `{"id", "pin"}` | **host control** | PairingApproved `{"name"}` once the device has paired. 404 `not_found`, 409 `pairing_ended` or `pairing_unconfirmed`, 422 `wrong_pin` or `invalid_value` |
+| POST | `/pairing/deny` `{"id"}` | **host control** | PairingRequests: those still waiting. 404 `not_found` |
 | POST | `/coop/join` `{"session": N}` | Launch; **Can join co-op games** to take another device's free slot | Joined `{"session", "slot", "app_id"}`: the slot is held until this device launches `app_id`. 403 `permission_required`, 409 `no_session` or `coop_refused` |
 
 Permission bits are the existing ones: List `1 << 24`, View `1 << 25`, Launch `1 << 26`, Upload files `1 << 18`, Download files `1 << 19`. Host control is a separate per-device flag (see below).
@@ -504,6 +507,27 @@ Restart and Shut down work as Sleep PC does on `/power-actions/v1` (Vibepollo's 
   "wake_from_off": true, "last_refusal": null, "last_refusal_unconfirmed": false }
 ```
 
+## Approve a device (`pairing.approve`)
+
+A device with Host control approves a new one from the couch: it reads the waiting devices and types the PIN the new device shows. The Moonlight key comes from the PIN, so the host needs it and one click cannot do; the protocol and `PROTOCOL_VERSION` stay as they are.
+
+```json
+{ "requests": [ { "id": "a1f3", "name": "Living room TV", "address": "192.168.4.116", "age_seconds": 12 } ] }
+```
+
+- `id` names the request, for the calls below. `name` is the device's own choice, so a client shows `address` beside it. A request lasts 300 s.
+- `POST /pairing/approve` waits up to 10 s for the handshake and answers how it ended. The host cannot check a PIN when it receives it, only see the handshake fail, and a Moonlight client that finds a wrong PIN starts over with a new one:
+  - 200 `{"name"}`: the device has paired.
+  - 422 `wrong_pin`: the handshake failed, or the device gave up on it. Its next try is a new request with a new PIN.
+  - 409 `pairing_unconfirmed`: nothing came back in 10 s. It counts as a wrong PIN unless the device still finishes.
+  - 409 `pairing_ended`: three wrong PINs from this address and name within 5 minutes. The device leaves the list, and only the console can pair it for those 5 minutes. A right PIN clears the count.
+  - 404 `not_found`: the request expired, was denied or was already answered.
+  - 422 `invalid_value`: not four digits.
+- A browser (WebRTC) request is in the same list. Its PIN is compared at once, so one wrong PIN ends the request. It keeps a browser's default of view only, and an approver without List and View gets 403 `permission_required`.
+- **What the new device gets:** what a PIN typed in the console defaults to, Play (list, view, launch and all input), never more than the approver holds: the host caps `Play & approver's perm` when the handshake ends, and turns **Can join co-op games** off if the approver lacks it. Host control and shared folders are never passed on. The first device paired to a PC can't come this way, since an approver is already paired.
+- **Who approves:** only Host control, checked on every request and again when the handshake ends. If the approver lost it meanwhile, the new device doesn't pair. Host control is off for every device until the console grants it, the first paired device included, so a PC where nobody granted it shows no request to any device.
+- Every approval raises a toast on the PC, a log line and the `pairing.paired` webhook, each naming the approver and the new device.
+
 ## USB forwarding
 
 Feature `usb` is listed while the host's USB forwarding setting (`usb_forwarding`, off by default) is on and its USB/IP driver (usbip-win2) is installed. The device needs the `usb` permission.
@@ -560,6 +584,8 @@ Every non-2xx answer has the same body:
 | 413 | `too_large` | An upload over `max_file_bytes` |
 | 507 | `insufficient_storage` | The PC has no room for the upload |
 | 409 | `no_console_user` / `transfer_busy` | Files: nobody is signed in to Windows / the device already has an upload or two downloads running, the PC eight downloads, or another program holds the file |
+| 409 | `pairing_ended` / `pairing_unconfirmed` | Approving a device: three wrong PINs ended it / the device did not answer the handshake |
+| 422 | `wrong_pin` | Approving a device: the handshake failed, and the device starts over with a new PIN |
 | 409 | `host_in_use` / `token_expired` / `update_unavailable` | Power and update: the PC is in use, and `message` names the device or what runs / the power token expired or was used, so confirm again / no update to install, `message` says why |
 | 503 | `temporarily_unavailable` | ADLX is busy or reinitialising, with `retry_after_ms` |
 | 500 | `internal` | A bug. The message is logged on the host too |

@@ -44,7 +44,7 @@ public final class RedactedLog {
             java.util.regex.Pattern.compile("[A-Za-z0-9+/=_-]{32,}"),
             java.util.regex.Pattern.compile("(?:/storage|/sdcard|/data/user|/data/data|content:)\\S*"),
     };
-    private static final java.util.regex.Pattern PIN = java.util.regex.Pattern.compile("(?i)\\b(pin|password|passphrase|passcode|secret|token|key)\\b(\\W{0,3})\\S+");
+    private static final java.util.regex.Pattern PIN = java.util.regex.Pattern.compile("(?i)\\b(pin|otp|pass|password|passphrase|passcode|secret|token|key)\\b(\\W{0,3})\\S+");
     private static final java.util.regex.Pattern SHORT_NUMBER = java.util.regex.Pattern.compile("\\b\\d{4,8}\\b");
     // Informational lines worth keeping; the rest is too frequent and would push out a session.
     private static final String[] INFO_PREFIXES = {

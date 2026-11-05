@@ -87,14 +87,14 @@ public class RedactedLogTest {
         RedactedLog log = new RedactedLog();
         String[] secrets = {"192.168.1.12", "fe80::1234%wlan0", "::ffff:192.168.1.2",
                 "AA:BB:CC:DD:EE:FF", "desktop.local", "my-private-host", "https://user:secret@host/pair?pin=0123",
-                "PIN 1234", "passphrase hunter2", "Stream connected\nPIN=0000", "Pairing succeeded 0123",
+                "otp=9876", "pass=swordfish", "PIN 1234", "passphrase hunter2", "Stream connected\nPIN=0000", "Pairing succeeded 0123",
                 "3fa85f64-5717-4562-b3fc-2c963f66afa6", "/storage/emulated/0/Download/report.txt"};
         for (String secret : secrets) {
             log.add("SEVERE", "Connection to " + secret + " failed");
         }
         String snapshot = log.snapshot();
         for (String part : new String[] {"192.168", "fe80", "ffff", "AA:BB", "desktop.local", "my-private-host",
-                "user:secret", "0123", "1234", "hunter2", "0000", "3fa85f64", "/storage", "report.txt"}) {
+                "user:secret", "0123", "9876", "swordfish", "1234", "hunter2", "0000", "3fa85f64", "/storage", "report.txt"}) {
             assertFalse(part, snapshot.contains(part));
         }
         assertTrue(snapshot.contains("ERROR Connection to [PC] failed"));

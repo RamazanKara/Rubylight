@@ -9,6 +9,17 @@ use std::sync::Arc;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 const APP_ID: &str = "io.github.ramazankara.nightjar";
 
+/// On the command the system starts at sign-in: the network may still be on its way.
+const SIGN_IN_ARG: &str = "--autostart";
+
+/// Takes the sign-in start's word out of the command line, and says whether it was there.
+pub fn split_sign_in(mut args: Vec<std::ffi::OsString>) -> (Vec<std::ffi::OsString>, bool) {
+    let before = args.len();
+    args.retain(|arg| arg != SIGN_IN_ARG);
+    let found = args.len() != before;
+    (args, found)
+}
+
 /// Where this system keeps the sign-in start.
 pub trait Writer: Send + Sync {
     fn is_on(&self) -> Result<bool, String>;
@@ -42,7 +53,7 @@ pub fn system(_config_dir: &Path) -> Option<Arc<dyn Writer>> {
 /// The Run value's command line: the path quoted, as Windows wants one with spaces.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn run_command(exe: &Path) -> String {
-    format!("\"{}\"", exe.display())
+    format!("\"{}\" {SIGN_IN_ARG}", exe.display())
 }
 
 /// The writer for a Linux session: the portal in a Flatpak, else a file in the autostart folder.
@@ -61,7 +72,7 @@ fn linux_writer(
     let config = xdg_config_home.filter(|p| p.is_absolute()).or_else(|| home.map(|h| h.join(".config")))?;
     Some(Arc::new(XdgFile {
         path: config.join("autostart").join(format!("{APP_ID}.desktop")),
-        exec: exec_field(&exe?),
+        exec: format!("{} {SIGN_IN_ARG}", exec_field(&exe?)),
     }))
 }
 
@@ -214,7 +225,7 @@ mod portal {
         options.insert("handle_token", Value::from(token.as_str()));
         options.insert("reason", Value::from("Start Nightjar when you sign in"));
         options.insert("autostart", Value::from(on));
-        options.insert("commandline", Value::from(vec!["nightjar"]));
+        options.insert("commandline", Value::from(vec!["nightjar", super::SIGN_IN_ARG]));
         let _: OwnedObjectPath = background.call("RequestBackground", &("", options)).map_err(failed)?;
         let answer = answers.next().ok_or("the desktop portal closed without an answer")?;
         let (code, _results): (u32, HashMap<String, OwnedValue>) = answer.body().deserialize().map_err(failed)?;
@@ -237,8 +248,16 @@ mod tests {
     }
 
     #[test]
-    fn the_run_value_quotes_a_path_with_spaces() {
-        assert_eq!(run_command(Path::new(r"C:\Program Files\Nightjar\nightjar.exe")), r#""C:\Program Files\Nightjar\nightjar.exe""#);
+    fn the_run_value_quotes_a_path_with_spaces_and_marks_the_sign_in() {
+        assert_eq!(run_command(Path::new(r"C:\Program Files\Nightjar\nightjar.exe")), r#""C:\Program Files\Nightjar\nightjar.exe" --autostart"#);
+    }
+
+    #[test]
+    fn the_sign_in_word_leaves_the_command_line() {
+        let args = |list: &[&str]| list.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
+        assert_eq!(split_sign_in(args(&[])), (args(&[]), false));
+        assert_eq!(split_sign_in(args(&["--autostart"])), (args(&[]), true));
+        assert_eq!(split_sign_in(args(&["--host", "x"])), (args(&["--host", "x"]), false));
     }
 
     #[test]
@@ -255,7 +274,7 @@ mod tests {
         writer.set(true).unwrap();
         assert!(writer.is_on().unwrap());
         let text = std::fs::read_to_string(config.join("autostart").join("io.github.ramazankara.nightjar.desktop")).unwrap();
-        assert!(text.starts_with("[Desktop Entry]\n") && text.contains("Exec=\"/usr/bin/nightjar\"\n"), "{text}");
+        assert!(text.starts_with("[Desktop Entry]\n") && text.contains("Exec=\"/usr/bin/nightjar\" --autostart\n"), "{text}");
         writer.set(false).unwrap();
         assert!(!writer.is_on().unwrap());
         writer.set(false).expect("taking back what is gone is fine");

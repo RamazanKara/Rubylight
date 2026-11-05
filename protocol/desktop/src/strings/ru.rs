@@ -18,6 +18,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Starting on {} in {}", "Запуск на {0} через {1}"),
     ("Starting on {}", "Запуск на {}"),
     ("A game on {} is playing on another device, so Nightjar opened as usual.", "Игра на {} запущена на другом устройстве, поэтому Nightjar открылся как обычно."),
+    ("No network, so Nightjar opened as usual.", "Нет сети, поэтому Nightjar открылся как обычно."),
     ("Automatic start skipped", "Автозапуск пропущен"),
     ("{} didn't start last time, so Nightjar opened as usual.", "{} не запустилась в прошлый раз, поэтому Nightjar открылся как обычно."),
     ("Could not change the start at sign-in", "Не удалось изменить запуск при входе"),

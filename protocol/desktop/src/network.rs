@@ -79,6 +79,22 @@ pub fn toward(host: &str) -> Result<Toward, Fallback> {
     route(host).toward
 }
 
+/// Whether the system could send to `address`, a PC's saved address. Sends nothing and looks nothing
+/// up, so it is cheap on the UI thread: a name is checked against the default route.
+pub fn has_route(address: &str) -> bool {
+    let bare = address.trim_start_matches('[').trim_end_matches(']');
+    let ip = bare.parse::<IpAddr>().unwrap_or(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)));
+    let local: IpAddr = if ip.is_ipv4() { Ipv4Addr::UNSPECIFIED.into() } else { Ipv6Addr::UNSPECIFIED.into() };
+    match UdpSocket::bind((local, 0)) {
+        Ok(socket) => socket.connect((ip, 9)).is_ok(),
+        Err(e) => {
+            // Says nothing about the network: the PC's own answer decides then.
+            eprintln!("nightjar: checking for a network failed: {e}");
+            true
+        }
+    }
+}
+
 /// The route to one host, from one lookup: [`toward`]'s answer, and whether its interface is a
 /// VPN ([`vpn_of_if_row`], [`vpn_of_sysfs`]). False when the route could not be read.
 pub struct Route {
@@ -511,6 +527,11 @@ fn read() -> Result<Network, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_pc_on_this_machine_always_has_a_route() {
+        assert!(super::has_route("127.0.0.1"));
+    }
+
     use super::*;
 
     #[test]

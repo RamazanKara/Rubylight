@@ -18,6 +18,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Starting on {} in {}", "{0}で{1}秒後に開始"),
     ("Starting on {}", "{} で開始しています"),
     ("A game on {} is playing on another device, so Nightjar opened as usual.", "{} のゲームが別のデバイスでプレイ中のため、Nightjar は通常どおり開きました。"),
+    ("No network, so Nightjar opened as usual.", "ネットワークがないため、Nightjar は通常どおり開きました。"),
     ("Automatic start skipped", "自動開始をスキップしました"),
     ("{} didn't start last time, so Nightjar opened as usual.", "{}は前回開始できなかったため、Nightjarを通常どおり開きました。"),
     ("Could not change the start at sign-in", "サインイン時の起動を変更できませんでした"),

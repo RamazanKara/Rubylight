@@ -19,6 +19,12 @@ use crate::ui::{Command, Dialog, Launcher};
 /// How long the PC gets to answer and its app list to load, outside a wake's own wait.
 const START_LIMIT: Duration = Duration::from_secs(45);
 
+/// How long a sign-in start waits for the network before it opens as usual.
+const NETWORK_LIMIT: Duration = Duration::from_secs(60);
+
+/// After the network came back: longer than a poll, so the countdown never names a PC not yet heard from.
+const NETWORK_SETTLE: Duration = Duration::from_secs(6);
+
 /// The game an automatic start goes to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Target {
@@ -90,6 +96,8 @@ pub struct Seen {
     pub identity: bool,
     pub host: Option<HostSeen>,
     pub waking: bool,
+    /// Only looked at before the countdown.
+    pub network: bool,
     /// A launch, connection, PIN or prompt is under way.
     pub busy: bool,
     pub streaming: bool,
@@ -99,6 +107,8 @@ pub struct Seen {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Step {
     Wait,
+    /// The network is back: ask the PC now rather than at the next poll.
+    Repoll,
     /// Show the countdown with this many seconds left; 0 once it ran out and the start is under way.
     Count(u64),
     /// The countdown ran out: the guard is armed from here.
@@ -118,11 +128,15 @@ pub enum Step {
 pub struct Run {
     pub target: Target,
     phase: Phase,
+    /// Started by the system at sign-in, which may be ahead of the network and of the PC.
+    at_sign_in: bool,
+    network_down_since: Option<Instant>,
+    settled_at: Option<Instant>,
 }
 
 impl Run {
     pub fn new(target: Target) -> Self {
-        Self { target, phase: Phase::Hold }
+        Self { target, phase: Phase::Hold, at_sign_in: false, network_down_since: None, settled_at: None }
     }
 
     /// Whether the guard is armed for this run: past the countdown.
@@ -130,10 +144,33 @@ impl Run {
         !matches!(self.phase, Phase::Hold | Phase::Counting { .. })
     }
 
+    /// Before the countdown, while the network still counts.
+    fn holding(&self) -> bool {
+        self.phase == Phase::Hold
+    }
+
     pub fn next(&mut self, seen: &Seen, now: Instant) -> Step {
         match self.phase {
             Phase::Hold => {
+                // The player got there first, and nothing is armed yet.
+                if seen.busy || seen.streaming {
+                    return Step::Over { disarm: false };
+                }
                 if seen.pin_screen || !seen.no_dialog {
+                    return Step::Wait;
+                }
+                if !seen.network {
+                    let down_since = *self.network_down_since.get_or_insert(now);
+                    if self.at_sign_in && now.saturating_duration_since(down_since) < NETWORK_LIMIT {
+                        return Step::Wait;
+                    }
+                    return Step::Stopped(tr("No network, so Nightjar opened as usual.").to_owned());
+                }
+                if self.network_down_since.take().is_some() {
+                    self.settled_at = Some(now + NETWORK_SETTLE);
+                    return Step::Repoll;
+                }
+                if self.settled_at.is_some_and(|at| now < at) {
                     return Step::Wait;
                 }
                 self.phase = Phase::Counting { until: now + Duration::from_millis(policy::COUNTDOWN_MS) };
@@ -214,6 +251,8 @@ impl Run {
                 self.phase = Phase::Starting { wake_asked: true, apps_asked, since: now, shown: false };
                 Step::Wake
             }
+            // Right after sign-in the PC may simply not have been reached yet.
+            Reach::Offline if self.at_sign_in => in_time(Step::Wait),
             Reach::Offline => Step::Failed(Some(trf("{} is offline and has no address to wake it at.", &[&pc]))),
             Reach::Online if !host.paired => Step::Failed(Some(trf("{} is not paired.", &[&pc]))),
             Reach::Online if host.session == SessionSeen::Elsewhere => {
@@ -281,11 +320,12 @@ pub fn at_start(store: &Store, settings: &Settings, recents: &[Recent], launcher
 }
 
 /// Sets up a start of Nightjar: decides the run and gives the settings page and game menu their state.
-pub fn at_launch(store: &Store, launcher: &mut Launcher, hosts: &Hosts, launcher_start: bool) -> OpenPlay {
+pub fn at_launch(store: &Store, launcher: &mut Launcher, hosts: &Hosts, launcher_start: bool, at_sign_in: bool) -> OpenPlay {
     let host_of = |unique: &str| {
         (!unique.is_empty()).then(|| hosts.list.iter().find(|h| h.record.unique_id == unique)).flatten().map(|h| (h.id, h.display_name().to_owned()))
     };
     let (run, notice) = at_start(store, &launcher.settings, &launcher.recents, launcher_start, host_of);
+    let run = run.map(|run| Run { at_sign_in, ..run });
     let sign_in = autostart::system(store.dir());
     let open_play = OpenPlay::new(run, notice, sign_in);
     launcher.open_game = store.open_play().game;
@@ -383,6 +423,7 @@ impl crate::App {
     fn open_play_seen(&self, host: u64) -> Seen {
         let host = self.hosts.get(host);
         let dialog = &self.launcher.dialog;
+        let holding = self.open_play.run.as_ref().is_some_and(Run::holding);
         Seen {
             pin_screen: self.launcher.pin.as_ref().is_some_and(crate::pin_ui::PinLock::app_locked),
             no_dialog: matches!(dialog, Dialog::None),
@@ -405,6 +446,7 @@ impl crate::App {
                     }
                 },
             }),
+            network: !holding || host.is_none_or(|h| crate::network::has_route(&h.record.address)),
             waking: self.waking.host().is_some(),
             busy: self.connecting.is_some() || self.network_launch.is_some() || self.pin_pending.is_some() || self.pending_replace.is_some() || self.pending_launch.is_some(),
             streaming: self.streaming.is_some(),
@@ -434,6 +476,7 @@ impl crate::App {
         let Some(run) = self.open_play.run.as_mut() else { return };
         match run.next(&seen, Instant::now()) {
             Step::Wait => {}
+            Step::Repoll => self.hosts.poll_one(host),
             Step::Count(left) => {
                 let (game, pc) = (run.target.game.title.clone(), run.target.pc.clone());
                 if let Dialog::OpenPlay { left: shown, .. } = &mut self.launcher.dialog {
@@ -511,7 +554,7 @@ mod tests {
     }
 
     fn ready() -> Seen {
-        Seen { no_dialog: true, identity: true, host: online(AppsSeen::Loaded(Some(7))), ..Seen::default() }
+        Seen { no_dialog: true, identity: true, network: true, host: online(AppsSeen::Loaded(Some(7))), ..Seen::default() }
     }
 
     /// The dialog stands in front while the start is under way.
@@ -542,6 +585,64 @@ mod tests {
         assert_eq!(run.next(&Seen { no_dialog: false, ..ready() }, now), Step::Wait);
         assert!(!run.armed());
         assert_eq!(run.next(&ready(), now), Step::Count(3), "the full countdown after them");
+    }
+
+    #[test]
+    fn a_start_with_no_network_opens_as_usual_and_never_arms() {
+        let now = Instant::now();
+        let mut run = Run::new(target());
+        let step = run.next(&Seen { network: false, ..ready() }, now);
+        assert_eq!(step, Step::Stopped("No network, so Nightjar opened as usual.".into()));
+        assert!(!run.armed());
+    }
+
+    #[test]
+    fn a_sign_in_start_waits_for_the_network_and_then_hears_from_the_pc_first() {
+        let now = Instant::now();
+        let mut run = Run { at_sign_in: true, ..Run::new(target()) };
+        let down = Seen { network: false, ..ready() };
+        assert_eq!(run.next(&down, now), Step::Wait);
+        assert_eq!(run.next(&down, now + Duration::from_secs(59)), Step::Wait);
+        assert!(!run.armed());
+        let back = now + Duration::from_secs(59);
+        assert_eq!(run.next(&ready(), back), Step::Repoll);
+        assert_eq!(run.next(&ready(), back + Duration::from_secs(5)), Step::Wait, "a poll's time to answer");
+        assert_eq!(run.next(&ready(), back + NETWORK_SETTLE), Step::Count(3));
+    }
+
+    #[test]
+    fn a_sign_in_start_gives_up_on_the_network_in_the_end() {
+        let now = Instant::now();
+        let mut run = Run { at_sign_in: true, ..Run::new(target()) };
+        let down = Seen { network: false, ..ready() };
+        assert_eq!(run.next(&down, now), Step::Wait);
+        assert!(matches!(run.next(&down, now + NETWORK_LIMIT), Step::Stopped(_)));
+        assert!(!run.armed());
+    }
+
+    #[test]
+    fn a_network_there_from_the_start_needs_no_settling() {
+        let now = Instant::now();
+        let mut run = Run { at_sign_in: true, ..Run::new(target()) };
+        assert_eq!(run.next(&ready(), now), Step::Count(3));
+    }
+
+    #[test]
+    fn a_pc_not_reached_yet_gets_its_time_at_sign_in_only() {
+        let now = Instant::now();
+        let mut run = Run { at_sign_in: true, ..begun(now) };
+        let away = Seen { host: offline(false), ..going() };
+        assert_eq!(run.next(&away, now), Step::Wait);
+        assert_eq!(run.next(&going(), now), Step::Start(7), "it answered");
+        let mut run = Run { at_sign_in: true, ..begun(now) };
+        assert!(matches!(run.next(&away, now + Duration::from_secs(3) + START_LIMIT + Duration::from_secs(1)), Step::Failed(Some(_))));
+    }
+
+    #[test]
+    fn a_game_started_before_the_countdown_ends_the_run_without_touching_the_guard() {
+        let now = Instant::now();
+        let mut run = Run { at_sign_in: true, ..Run::new(target()) };
+        assert_eq!(run.next(&Seen { busy: true, network: false, ..ready() }, now), Step::Over { disarm: false });
     }
 
     #[test]

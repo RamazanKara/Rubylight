@@ -83,6 +83,26 @@ public class FrontendSyncTest {
         }
     }
 
+    /** An export comes right after the list changes, before Home has followed the new ids. */
+    @org.junit.Test
+    public void aHiddenGameTheHostRenumberedStaysOutOfTheExport() throws Exception {
+        new com.limelight.nativeapi.HiddenStore.Preferences(context).set(computer.uuid, 1, "alpha", true);
+        String xml = "<root status_code=\"200\">"
+                + "<App><AppTitle>Alpha</AppTitle><ID>7</ID><UUID>alpha</UUID></App>"
+                + "<App><AppTitle>Beta</AppTitle><ID>1</ID><UUID>beta</UUID></App></root>";
+        try (OutputStream out = CacheHelper.openCacheFileForOutput(context.getCacheDir(), "applist", computer.uuid)) {
+            out.write(xml.getBytes(StandardCharsets.UTF_8));
+        }
+
+        java.util.List<NvApp> apps = new FrontendExporter(context, computer).loadApps();
+
+        org.junit.Assert.assertEquals(1, apps.size());
+        org.junit.Assert.assertEquals("Beta", apps.get(0).getAppName());
+        org.junit.Assert.assertEquals(java.util.Collections.singleton("7"),
+                context.getSharedPreferences(com.limelight.AppView.HIDDEN_APPS_PREF_FILENAME, 0)
+                        .getStringSet(computer.uuid, java.util.Collections.emptySet()));
+    }
+
     private void cover(int appId, byte value) throws Exception {
         File cover = CacheHelper.openPath(true, context.getCacheDir(), "boxart", computer.uuid, appId + ".png");
         Files.write(cover.toPath(), new byte[] {value});

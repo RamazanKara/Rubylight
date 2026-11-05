@@ -128,6 +128,80 @@ public class HiddenStoreTest {
     }
 
     @Test
+    public void showingFromAMenuOlderThanTheRenumberStillShowsIt() {
+        store.set("host", 1, "alpha", true);
+        store.following("host", games("alpha", 7));
+        store.set("host", 1, "alpha", false);
+        assertEquals(ids(), store.of("host"));
+        assertTrue(store.ids("host").isEmpty());
+    }
+
+    @Test
+    public void showingFromAStaleMenuLeavesTheGameThatHasItsOldIdNow() {
+        store.set("host", 1, "alpha", true);
+        store.set("host", 2, "beta", true);
+        store.following("host", games("alpha", 7, "beta", 1));
+        store.set("host", 1, "alpha", false);
+        assertEquals(ids(1), store.of("host"));
+        assertEquals(games("beta", 1), store.ids("host"));
+    }
+
+    @Test
+    public void showingAGameTheGridMovedFirstTakesTheMenusIdToo() {
+        store.set("host", 1, "alpha", true);
+        prefs.edit().putStringSet("host", Collections.singleton("7")).commit();
+        store.set("host", 7, "alpha", false);
+        assertEquals(ids(), store.of("host"));
+    }
+
+    @Test
+    public void anIdListedTwiceFollowsNeitherApp() {
+        store.set("host", 1, "alpha", true);
+        HiddenStore.Listing listed = new HiddenStore.Listing();
+        listed.add("alpha", 5);
+        listed.add("alpha", 6);
+        listed.add("alpha", 7);
+        listed.add("", 8);
+        listed.add(null, 9);
+        listed.add("beta", 2);
+        assertEquals(games("beta", 2), listed.games());
+        assertEquals(ids(1), store.following("host", listed.games()));
+    }
+
+    @Test
+    public void theGridsChangeGoesOnTheListAsItIsNow() {
+        HiddenStore.Preferences grid = new HiddenStore.Preferences(RuntimeEnvironment.getApplication());
+        store.set("host", 1, "alpha", true);
+        store.following("host", games("alpha", 7));
+        assertEquals(ids(7, 3), grid.changed("host", ids(9), ids(3)));
+        assertEquals(new HashSet<>(Arrays.asList("7", "3")), gridList());
+        assertEquals("its stable ids stay", games("alpha", 7), store.ids("host"));
+    }
+
+    /** Each screen has its own store: without one lock for all, one's write loses another's. */
+    @Test
+    public void storesOfDifferentScreensLoseNoWrite() throws Exception {
+        int writers = 8;
+        int each = 50;
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(writers);
+        try {
+            java.util.List<java.util.concurrent.Future<?>> done = new java.util.ArrayList<>();
+            for (int writer = 0; writer < writers; writer++) {
+                int base = writer * each;
+                done.add(pool.submit(() -> {
+                    HiddenStore own = new HiddenStore.Preferences(RuntimeEnvironment.getApplication());
+                    for (int id = base; id < base + each; id++) own.set("host", id, "game" + id, true);
+                }));
+            }
+            for (java.util.concurrent.Future<?> one : done) one.get();
+        } finally {
+            pool.shutdownNow();
+        }
+        assertEquals(writers * each, store.of("host").size());
+        assertEquals(writers * each, store.ids("host").size());
+    }
+
+    @Test
     public void anUnreadableEntryIsSkippedNotThrown() {
         prefs.edit().putStringSet("host", new HashSet<>(Arrays.asList("x", "3")))
                 .putStringSet(HiddenStore.Preferences.idsKey("host"), new HashSet<>(Arrays.asList("nocolon", "z:a", "3:alpha"))).commit();

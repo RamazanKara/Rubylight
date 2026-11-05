@@ -7,12 +7,12 @@ import android.net.Uri;
 import android.provider.DocumentsContract;
 import android.provider.DocumentsContract.Document;
 
-import com.limelight.AppView;
 import com.limelight.BuildConfig;
 import com.limelight.LimeLog;
 import com.limelight.grid.assets.CachedAppAssetLoader;
 import com.limelight.grid.assets.DiskAssetLoader;
 import com.limelight.grid.assets.NetworkAssetLoader;
+import com.limelight.nativeapi.HiddenStore;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
@@ -73,10 +73,15 @@ public final class FrontendExporter {
             if (raw.isEmpty()) {
                 return apps;
             }
-            Set<String> hidden = context.getSharedPreferences(AppView.HIDDEN_APPS_PREF_FILENAME, Context.MODE_PRIVATE)
-                    .getStringSet(computer.uuid, new HashSet<String>());
-            for (NvApp app : NvHTTP.getAppListByReader(new StringReader(raw), computer.caps)) {
-                if (!hidden.contains(Integer.toString(app.getAppId()))) {
+            List<NvApp> listed = NvHTTP.getAppListByReader(new StringReader(raw), computer.caps);
+            // An export follows a changed list, maybe before anything else saw a hidden game's new app id.
+            HiddenStore.Listing games = new HiddenStore.Listing();
+            for (NvApp app : listed) {
+                games.add(app.getAppUuid(), app.getAppId());
+            }
+            Set<Integer> hidden = new HiddenStore.Preferences(context).following(computer.uuid, games.games());
+            for (NvApp app : listed) {
+                if (!hidden.contains(app.getAppId())) {
                     apps.add(app);
                 }
             }

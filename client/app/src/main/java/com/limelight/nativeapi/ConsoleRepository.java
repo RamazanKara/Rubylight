@@ -17,7 +17,6 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -269,11 +268,9 @@ public final class ConsoleRepository {
             return new ConsoleSnapshot.Host(computer.uuid, computer.displayName(), ConsoleSnapshot.Status.UNAVAILABLE, 0,
                     null, null, Collections.emptyList());
         }
-        Map<String, Integer> listed = new HashMap<>();
-        for (NvApp app : apps) {
-            if (app.getAppUuid() != null && !app.getAppUuid().isEmpty()) listed.put(app.getAppUuid(), app.getAppId());
-        }
-        Set<Integer> away = hidden.following(computer.uuid, listed);
+        HiddenStore.Listing listed = new HiddenStore.Listing();
+        for (NvApp app : apps) listed.add(app.getAppUuid(), app.getAppId());
+        Set<Integer> away = hidden.following(computer.uuid, listed.games());
         List<ConsoleSnapshot.Source> sources = new ArrayList<>();
         for (NvApp app : apps) {
             sources.add(new ConsoleSnapshot.Source(computer.uuid, computer.displayName(), app.getAppId(), null,
@@ -356,11 +353,11 @@ public final class ConsoleRepository {
     }
 
     private List<ConsoleSnapshot.Source> sourcesOf(ComputerDetails computer, NativeLibrary library) {
-        Map<String, Integer> listed = new HashMap<>();
+        HiddenStore.Listing listed = new HiddenStore.Listing();
         for (NativeLibrary.Game game : library.games) {
-            if (game.added && game.installId != null && !game.installId.isEmpty()) listed.put(game.installId, game.appId);
+            if (game.added) listed.add(game.installId, game.appId);
         }
-        Set<Integer> away = hidden.following(computer.uuid, listed);
+        Set<Integer> away = hidden.following(computer.uuid, listed.games());
         List<ConsoleSnapshot.Source> sources = new ArrayList<>();
         for (NativeLibrary.Game game : library.games) {
             sources.add(new ConsoleSnapshot.Source(computer.uuid, computer.displayName(), game.appId,

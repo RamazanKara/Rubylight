@@ -168,7 +168,7 @@ mod os {
     use super::*;
     use std::time::Duration;
     use windows::core::{PCWSTR, PWSTR};
-    use windows::Win32::Foundation::{CloseHandle, LocalFree, ERROR_IO_PENDING, ERROR_PIPE_BUSY, ERROR_PIPE_CONNECTED, GENERIC_READ, GENERIC_WRITE, HANDLE, HLOCAL, WAIT_OBJECT_0};
+    use windows::Win32::Foundation::{CloseHandle, LocalFree, ERROR_IO_PENDING, ERROR_NO_DATA, ERROR_PIPE_BUSY, ERROR_PIPE_CONNECTED, GENERIC_READ, GENERIC_WRITE, HANDLE, HLOCAL, WAIT_OBJECT_0};
     use windows::Win32::Security::Authorization::{ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, GetSecurityInfo, SDDL_REVISION_1, SE_KERNEL_OBJECT};
     use windows::Win32::Security::{EqualSid, GetTokenInformation, TokenUser, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER};
     use windows::Win32::Storage::FileSystem::{CreateFileW, ReadFile, WriteFile, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_NONE, OPEN_EXISTING, PIPE_ACCESS_DUPLEX, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT};
@@ -399,12 +399,16 @@ mod os {
     fn run(pipe: Owned, inbox: Arc<Inbox>, wake: Waker) -> Result<(), String> {
         let mut conn = Conn::new(pipe).map_err(|e| e.to_string())?;
         thread(move || loop {
-            if let Err(e) = conn.accept() {
-                eprintln!("nightjar: pairing links cannot reach this window: {e}");
-                std::thread::sleep(Duration::from_secs(1));
-                continue;
+            match conn.accept() {
+                Ok(()) => serve(&mut conn, &inbox, &wake),
+                // A start that came and went between two links: the disconnect below ends it,
+                // and only that readies the pipe again.
+                Err(e) if e.raw_os_error() == Some(ERROR_NO_DATA.0 as i32) => {}
+                Err(e) => {
+                    eprintln!("nightjar: pairing links cannot reach this window: {e}");
+                    std::thread::sleep(Duration::from_secs(1));
+                }
             }
-            serve(&mut conn, &inbox, &wake);
             // SAFETY: the pipe is this loop's own.
             let _ = unsafe { DisconnectNamedPipe(conn.pipe.0) };
         })
@@ -453,6 +457,25 @@ mod os {
             let began = Instant::now();
             assert!(!send_to(&name, "rubylight://pair?v=1"), "this start opens its own window");
             assert!(began.elapsed() < PATIENCE * 3, "{:?}", began.elapsed());
+        }
+
+        #[test]
+        fn a_start_that_came_and_went_between_two_links_does_not_end_the_channel() {
+            let name = address("gone");
+            let pipe = create(&name).unwrap();
+            // The pipe waits, as it does right after a disconnect: open and closed before the
+            // window asks for the next start, which then gets error 232 until a disconnect.
+            drop(open(&wide(&name)).unwrap());
+            let inbox = Arc::new(Inbox::default());
+            let wake: Waker = Arc::new(|| {});
+            run(pipe, inbox.clone(), wake).unwrap();
+            let began = Instant::now();
+            let mut sent = false;
+            while !sent && began.elapsed() < PATIENCE {
+                sent = send_to(&name, "rubylight://pair?v=1");
+            }
+            assert!(sent);
+            assert_eq!(inbox.take().as_deref(), Some("rubylight://pair?v=1"));
         }
 
         #[test]

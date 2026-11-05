@@ -105,11 +105,11 @@ impl Updates {
             found = Some(Release { version: attempt.version, url: attempt.url, asset: Err(Failure::NotInstalled) });
             failure = Some(Failure::NotInstalled);
         }
-        let leftovers = steps.as_ref().map(|s| s.dir.clone());
+        let leftovers = steps.as_ref().map(|s| (s.dir.clone(), s.own_dir));
         let (send, receive) = channel();
         let waker = wake.clone();
         let spawned = std::thread::Builder::new().name("update-check".into()).spawn(move || {
-            if let Some(dir) = leftovers { self_update::remove_stale(&dir); }
+            if let Some((dir, own_dir)) = leftovers { self_update::remove_stale(&dir, own_dir); }
             match check(&*net, &copy, current, online) {
                 Ok(Some(release)) => {
                     eprintln!("nightjar: update check: Nightjar {} is available", release.version);
@@ -546,6 +546,7 @@ mod tests {
                 net,
                 allow,
                 dir: self.dir.clone(),
+                own_dir: true,
                 marker: Some(self.marker()),
                 stream_elsewhere: || false,
                 apply: Box::new(move |part, _| {
@@ -951,6 +952,7 @@ mod tests {
             net: native(),
             allow: local,
             dir: dir.clone(),
+            own_dir: false,
             marker: None,
             stream_elsewhere: || false,
             apply: Box::new(move |part, _| {

@@ -264,6 +264,8 @@ pub struct Steps {
     pub allow: fn(&Url) -> bool,
     /// Where the download goes while it runs.
     pub dir: PathBuf,
+    /// Only Nightjar's updates live in `dir`, not, say, the user's folder beside an AppImage.
+    pub own_dir: bool,
     /// Says on the next launch that this attempt didn't work.
     pub marker: Option<PathBuf>,
     /// Whether another Nightjar process is streaming.
@@ -280,7 +282,7 @@ impl Steps {
         let marker = crate::config::config_dir().ok().map(|dir| dir.join("update-pending.json"));
         let stream_elsewhere = || mutex_exists(STREAM_MUTEX);
         match copy {
-            CopyKind::Installed => Some(Self { net, allow: download_host, dir: std::env::temp_dir().join("nightjar-update"), marker, stream_elsewhere, apply: Box::new(run_setup) }),
+            CopyKind::Installed => Some(Self { net, allow: download_host, dir: std::env::temp_dir().join("nightjar-update"), own_dir: true, marker, stream_elsewhere, apply: Box::new(run_setup) }),
             CopyKind::AppImage(path) => {
                 let target = path.clone();
                 let apply = move |part: &Path, _: &Asset| {
@@ -288,7 +290,7 @@ impl Steps {
                     start_detached(&target, &[]).map_err(Failure::Restart)
                 };
                 // The same folder as the AppImage: a rename across file systems isn't atomic.
-                Some(Self { net, allow: download_host, dir: path.parent()?.to_path_buf(), marker, stream_elsewhere, apply: Box::new(apply) })
+                Some(Self { net, allow: download_host, dir: path.parent()?.to_path_buf(), own_dir: false, marker, stream_elsewhere, apply: Box::new(apply) })
             }
             CopyKind::Portable | CopyKind::Managed => None,
         }
@@ -411,13 +413,14 @@ fn make_runnable_like(_: &Path, target: &Path) -> std::io::Result<()> {
 }
 
 /// Removes what an earlier attempt left in `dir`: an unfinished download, or a setup and its log,
-/// which are still in use while Nightjar comes back.
-pub fn remove_stale(dir: &Path) {
+/// which are still in use while Nightjar comes back. In a folder that isn't Nightjar's own
+/// (`own_dir`) a setup with that name is the user's, and only the unfinished downloads count.
+pub fn remove_stale(dir: &Path, own_dir: bool) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        let ours = name.starts_with(PART_PREFIX) || (name.starts_with("nightjar-desktop-") && (name.ends_with("-setup.exe") || name.ends_with("-setup.log")));
+        let ours = name.starts_with(PART_PREFIX) || (own_dir && name.starts_with("nightjar-desktop-") && (name.ends_with("-setup.exe") || name.ends_with("-setup.log")));
         let old = entry.metadata().and_then(|m| m.modified()).is_ok_and(|at| at.elapsed().is_ok_and(|age| age > STALE_AFTER));
         if ours && old {
             if let Err(e) = std::fs::remove_file(entry.path()) { eprintln!("nightjar: update: leftover {name}: {e}"); }
@@ -597,20 +600,37 @@ mod tests {
 
     #[test]
     fn only_old_leftovers_of_ours_are_cleared() {
-        let dir = folder("stale");
+        let dir = old_files("stale");
+        remove_stale(&dir, true);
+        assert_eq!(left_in(&dir), ["mine.txt", "nightjar-desktop-4.8.0-x86_64.AppImage"]);
+    }
+
+    #[test]
+    fn beside_an_appimage_the_users_setup_stays() {
+        let dir = old_files("beside-appimage");
+        remove_stale(&dir, false);
+        assert_eq!(left_in(&dir), ["mine.txt", "nightjar-desktop-4.8.0-windows-x86_64-setup.exe", "nightjar-desktop-4.8.0-x86_64.AppImage"]);
+    }
+
+    /// One young set of files proves nothing goes early; then all of it is two hours old.
+    fn old_files(name: &str) -> PathBuf {
+        let dir = folder(name);
         for name in [".nightjar-update-1-2.part", "nightjar-desktop-4.8.0-windows-x86_64-setup.exe", "nightjar-desktop-4.8.0-x86_64.AppImage", "mine.txt"] {
             std::fs::write(dir.join(name), b"x").unwrap();
         }
-        remove_stale(&dir);
+        remove_stale(&dir, true);
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 4, "young ones may be another Nightjar's");
         let long_ago = std::time::SystemTime::now() - Duration::from_secs(7200);
         for entry in std::fs::read_dir(&dir).unwrap().flatten() {
             File::options().write(true).open(entry.path()).unwrap().set_modified(long_ago).unwrap();
         }
-        remove_stale(&dir);
-        let mut left: Vec<String> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        dir
+    }
+
+    fn left_in(dir: &Path) -> Vec<String> {
+        let mut left: Vec<String> = std::fs::read_dir(dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         left.sort();
-        assert_eq!(left, ["mine.txt", "nightjar-desktop-4.8.0-x86_64.AppImage"]);
+        left
     }
 
     #[test]

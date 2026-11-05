@@ -29,7 +29,7 @@ use crate::theme::*;
 use cards::*;
 use dialogs::*;
 pub use dialogs::moves_in_hotkey_dialog;
-pub use library::{join_target, playing_elsewhere, policy_role, running_name};
+pub use library::{asked_start, join_target, playing_elsewhere, policy_role, running_name};
 use library::*;
 pub(crate) use widgets::{focus_ring, name_for_readers, primary_button, quiet_button, toggle};
 use widgets::*;

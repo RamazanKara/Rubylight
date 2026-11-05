@@ -1175,16 +1175,18 @@ impl App {
                     }
                     let playing = read.as_ref().and_then(|read| self.hosts.get(id).and_then(|h| ui::playing_elsewhere(h, app, read)));
                     let press_failed = read.as_ref().is_some_and(|read| read.press_failed);
+                    let known = self.hosts.get(id).and_then(|h| match &h.apps {
+                        hosts::Apps::Loaded(apps) => apps.iter().find(|known| known.id == app),
+                        _ => None,
+                    });
+                    let playing_on = read.as_ref().and_then(|read| read.playing_on.as_ref());
+                    let target = ui::join_target(known, app, playing_on);
+                    let (asked, asked_resume) = ui::asked_start(known, app, resume, playing_on);
                     match select_step(resume, too, playing, press_failed) {
-                        SelectStep::Ask(name, device) => self.launcher.ask_after(Dialog::ContinueHere { host: id, app, resume, name, device }),
-                        SelectStep::Join => {
-                            let known = self.hosts.get(id).and_then(|h| match &h.apps {
-                                hosts::Apps::Loaded(apps) => apps.iter().find(|known| known.id == app),
-                                _ => None,
-                            });
-                            let target = ui::join_target(known, app, read.as_ref().and_then(|read| read.playing_on.as_ref()));
-                            self.launch(id, target, true, LaunchKind::JoinRunning, LaunchFrom::Launcher);
+                        SelectStep::Ask(name, device) => {
+                            self.launcher.ask_after(Dialog::ContinueHere { host: id, app: asked, resume: asked_resume, name, device })
                         }
+                        SelectStep::Join => self.launch(id, target, true, LaunchKind::JoinRunning, LaunchFrom::Launcher),
                         SelectStep::Start => self.launch(id, app, resume, LaunchKind::Stream, LaunchFrom::Launcher),
                     }
                 }

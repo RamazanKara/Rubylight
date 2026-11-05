@@ -93,6 +93,17 @@ fn a_join_from_a_tile_starts_the_game_the_pc_runs() {
 }
 
 #[test]
+fn the_prompt_on_a_tile_starts_the_game_itself() {
+    let playing: nightjar_core::http::PlayingOn = serde_json::from_str(
+        r#"{"device":"Phone","app":{"install_id":"game-a","app_id":7,"title":"Game"}}"#,
+    ).unwrap();
+    let tile = nightjar_core::http::App { control: nightjar_core::http::AppControl::RunningGame, ..game(9) };
+    assert_eq!(super::asked_start(Some(&tile), 9, false, Some(&playing)), (7, true), "a resume of the tile's id is refused");
+    assert_eq!(super::asked_start(Some(&game(7)), 7, true, Some(&playing)), (7, true));
+    assert_eq!(super::asked_start(Some(&game(7)), 7, false, Some(&playing)), (7, false));
+}
+
+#[test]
 fn the_game_another_device_plays_is_matched_by_id_and_install_id() {
     let playing: nightjar_core::http::PlayingOn = serde_json::from_str(
         r#"{"device":"Phone","app":{"install_id":"game-a","app_id":7,"title":"Game"}}"#,

@@ -31,6 +31,19 @@ pub fn came_back(moved: bool, owns: bool) -> bool {
     !moved && owns
 }
 
+/// Whether a resume joins the game the PC runs, once the PC answered who plays: `/resume` joins it
+/// whoever owns it, so only an answer that says it is another device's may. `too`: the user already
+/// chose to stream beside it ("did not move", Stream here too). Otherwise another device's same game
+/// asks first, and only a press that failed with nobody to ask about joins. A PC that gave no answer
+/// is no reason to join: the caller stays with the resume that fails if the game is not its own.
+pub fn joins_after_read(too: bool, same_game: bool, press_failed: bool) -> bool {
+    if too {
+        same_game || press_failed
+    } else {
+        !same_game && press_failed
+    }
+}
+
 pub(crate) fn traced(args: &Value) -> Result<Box<dyn Subject>, String> {
     if !args.is_null() {
         return Err("static policy: new must be null".into());
@@ -59,6 +72,10 @@ impl Subject for Traced {
                 let a = Args::new(args, 2)?;
                 Ok(came_back(a.flag(0)?, a.flag(1)?).into())
             }
+            "joins_after_read" => {
+                let a = Args::new(args, 3)?;
+                Ok(joins_after_read(a.flag(0)?, a.flag(1)?, a.flag(2)?).into())
+            }
             other => Err(format!("unknown method {other}")),
         }
     }
@@ -82,6 +99,16 @@ mod tests {
         assert!(!came_back(true, true));
         assert!(!came_back(false, false));
         assert!(!came_back(true, false));
+    }
+
+    #[test]
+    fn only_an_answer_that_the_game_is_another_devices_joins() {
+        assert!(joins_after_read(true, true, false));
+        assert!(joins_after_read(true, false, true));
+        assert!(!joins_after_read(true, false, false));
+        assert!(joins_after_read(false, false, true));
+        assert!(!joins_after_read(false, true, true), "it asks first");
+        assert!(!joins_after_read(false, false, false));
     }
 
     #[test]

@@ -8,6 +8,7 @@ import android.media.MediaCodecInfo.CodecProfileLevel;
 import android.media.MediaFormat;
 import android.preference.PreferenceManager;
 
+import com.limelight.LimeLog;
 import com.limelight.binding.video.MediaCodecHelper;
 
 import org.junit.After;
@@ -125,6 +126,69 @@ public class CodecLowLatencyCorruptionTest {
         prefs().edit().putBoolean(KEY, false).commit();
         assertFalse(PreferenceConfiguration.readPreferences(app()).codecLowLatency);
         assertFalse(prefs().contains(FLAG));
+    }
+
+    @Test public void resetAllSettingsStartsItOffAgain() {
+        device(MODEL, MTK);
+        PreferenceConfiguration.readPreferences(app());
+        // The person's On from before the reset.
+        prefs().edit().putBoolean(KEY, true).commit();
+        StreamSettings.resetAllSettings(app());
+        assertFalse("off at once, for the settings page", prefs().getBoolean(KEY, true));
+        assertTrue(prefs().getBoolean(FLAG, false));
+        assertFalse(PreferenceConfiguration.readPreferences(app()).codecLowLatency);
+
+        // And an On after the reset is a choice again.
+        prefs().edit().putBoolean(KEY, true).commit();
+        assertTrue(PreferenceConfiguration.readPreferences(app()).codecLowLatency);
+    }
+
+    @Test public void resetAllSettingsLeavesOtherDevicesOn() {
+        device("AFTMM", MTK);
+        StreamSettings.resetAllSettings(app());
+        assertTrue(prefs().getBoolean(KEY, false));
+        assertFalse(prefs().contains(FLAG));
+        assertTrue(PreferenceConfiguration.readPreferences(app()).codecLowLatency);
+    }
+
+    @Test public void theNativePresetLeavesItAloneOnTheModel() {
+        device(MODEL, MTK);
+        PreferenceConfiguration.readPreferences(app());
+        StreamPreset.NATIVE.apply(prefs(), "3840x2160", 60);
+        assertFalse("off stays off", prefs().getBoolean(KEY, true));
+        assertTrue("the rest are set", prefs().getBoolean("checkbox_vendor_low_latency", false));
+        assertTrue("and the preset still shows as chosen", StreamPreset.NATIVE.matches(prefs(), "3840x2160", 60));
+
+        prefs().edit().putBoolean(KEY, true).commit();
+        StreamPreset.NATIVE.apply(prefs(), "3840x2160", 60);
+        assertTrue("on stays on", prefs().getBoolean(KEY, false));
+        assertTrue(StreamPreset.NATIVE.matches(prefs(), "3840x2160", 60));
+    }
+
+    @Test public void theNativePresetStillSetsItOnAnotherModel() {
+        device("AFTMM", MTK);
+        PreferenceConfiguration.readPreferences(app());
+        prefs().edit().putBoolean(KEY, false).commit();
+        assertFalse(StreamPreset.NATIVE.matches(prefs(), "3840x2160", 60));
+        StreamPreset.NATIVE.apply(prefs(), "3840x2160", 60);
+        assertTrue(prefs().getBoolean(KEY, false));
+        assertTrue(StreamPreset.NATIVE.matches(prefs(), "3840x2160", 60));
+    }
+
+    @Test public void theMoveToNativeDefaultsLeavesItAloneOnTheModel() {
+        device(MODEL, MTK);
+        PreferenceConfiguration.readPreferences(app());
+        prefs().edit().remove(PreferenceConfiguration.PREFS_VERSION_PREF_STRING).commit();
+        PreferenceConfiguration.migrateToNativeDefaults(app());
+        assertFalse(prefs().getBoolean(KEY, true));
+    }
+
+    @Test public void theMigrationLineReachesTheReport() {
+        device(MODEL, MTK);
+        prefs().edit().putBoolean(KEY, true).commit();
+        PreferenceConfiguration.readPreferences(app());
+        String log = LimeLog.getRedactedLog();
+        assertTrue(log, log.contains("Low latency: Android's mode switched off once"));
     }
 
     @Test public void theGateIsTheExactModelPlusAMediaTekName() {

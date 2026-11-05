@@ -679,9 +679,12 @@ public class StreamSettings extends NightjarActivity {
                 .remove(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING)
                 .remove(PreferenceConfiguration.BITRATE_PREF_OLD_STRING)
                 .remove(PreferenceConfiguration.PREFS_VERSION_PREF_STRING)
+                .remove(PreferenceConfiguration.CODEC_LOW_LATENCY_CORRUPTION_OFF_PREF_STRING)
                 .commit();
         PreferenceManager.setDefaultValues(context, R.xml.preferences, true);
         PreferenceConfiguration.migrateToNativeDefaults(context);
+        // The XML default just came back: where Android's low-latency mode can corrupt the picture it starts off again.
+        PreferenceConfiguration.migrateCodecLowLatencyCorruption(prefs);
     }
 
     @Override

@@ -1052,7 +1052,7 @@ public class PreferenceConfiguration {
                     .putString(FRAME_PACING_PREF_STRING, DEFAULT_FRAME_PACING)
                     .putString(UPSCALING_PREF_STRING, "off");
             for (String key : StreamPreset.LATENCY_SWITCHES) {
-                editor.putBoolean(key, true);
+                if (StreamPreset.setsLatencySwitch(key)) editor.putBoolean(key, true);
             }
         }
         // A size saved on another panel (a foldable's cover screen, say) no longer sticks: streams
@@ -1277,7 +1277,7 @@ public class PreferenceConfiguration {
             com.limelight.LimeLog.info("New streaming engine switched to its new default: on");
         }
         if (migrateCodecLowLatencyCorruption(prefs)) {
-            com.limelight.LimeLog.info("Android low latency switched off once: this TV's decoder can corrupt the picture with it");
+            com.limelight.LimeLog.info("Low latency: Android's mode switched off once, this TV's decoder can corrupt the picture with it");
         }
         if (prefs.contains(LEGACY_ENABLE_51_SURROUND_PREF_STRING)) {
             if (prefs.getBoolean(LEGACY_ENABLE_51_SURROUND_PREF_STRING, false)) {

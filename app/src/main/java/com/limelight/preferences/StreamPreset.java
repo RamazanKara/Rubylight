@@ -1,8 +1,10 @@
 package com.limelight.preferences;
 
 import android.content.SharedPreferences;
+import android.os.Build;
 
 import com.limelight.binding.video.DisplayFrameRatePolicy;
+import com.limelight.binding.video.MediaCodecHelper;
 
 public enum StreamPreset {
     // The phone's own resolution at the panel's top refresh rate, with every latency switch on.
@@ -20,6 +22,15 @@ public enum StreamPreset {
             "checkbox_unbatched_input",
             "checkbox_network_priority",
     };
+
+    // Where Android's low-latency mode can corrupt the picture, it starts off and only the person's own
+    // switch turns it on: no preset sets it or asks for it.
+    static boolean setsLatencySwitch(String key) {
+        return !"checkbox_codec_low_latency".equals(key) ||
+                // The model first: everything else never starts MediaCodecHelper for this.
+                !MediaCodecHelper.LOW_LATENCY_CORRUPTION_MODEL.equals(Build.MODEL) ||
+                !MediaCodecHelper.hasLowLatencyCorruptingDecoder();
+    }
 
     int fps(float panelMaxHz) {
         return this == BATTERY_SAVER ? 30 : DisplayFrameRatePolicy.streamFrameRate(panelMaxHz);
@@ -49,7 +60,7 @@ public enum StreamPreset {
                     PreferenceConfiguration.DEFAULT_GPU_MAX_CLOCKS);
         }
         for (String key : LATENCY_SWITCHES) {
-            if (!preferences.getBoolean(key, true)) {
+            if (setsLatencySwitch(key) && !preferences.getBoolean(key, true)) {
                 return false;
             }
         }
@@ -75,7 +86,7 @@ public enum StreamPreset {
             editor.putBoolean(PreferenceConfiguration.GPU_MAX_CLOCKS_PREF_STRING, false);
         } else {
             for (String key : LATENCY_SWITCHES) {
-                editor.putBoolean(key, true);
+                if (setsLatencySwitch(key)) editor.putBoolean(key, true);
             }
         }
         editor.apply();

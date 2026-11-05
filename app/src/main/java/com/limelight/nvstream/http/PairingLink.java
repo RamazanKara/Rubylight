@@ -140,11 +140,17 @@ public final class PairingLink {
     }
 
     /**
-     * Letters, digits and what names and IP addresses use ({@code [fe80::1%eth0]}): nothing that can
-     * end the authority of a URL, or make the address read as something else.
+     * A name or an IP address ({@code pc.local}, {@code 192.168.4.2}, {@code ::1},
+     * {@code [fe80::1%eth0]}): nothing that can end the authority of a URL, or make the address read
+     * as something else. A {@code %} only starts an IPv6 literal's zone, because a URL parser may
+     * decode one anywhere else ({@code 192.168.4.2%2Eevil.example}), and then connect elsewhere than
+     * the dialog says.
      */
     private static boolean addressLike(String host) {
-        return host.length() <= MAX_HOST_LENGTH && host.matches("[A-Za-z0-9._:%\\[\\]-]+");
+        return host.length() <= MAX_HOST_LENGTH && host.matches(
+                "[A-Za-z0-9._-]+"
+                        + "|\\[[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*(%[A-Za-z0-9._-]+)?\\]"
+                        + "|[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*(%[A-Za-z0-9._-]+)?");
     }
 
     private static boolean hiddenChar(int c) {

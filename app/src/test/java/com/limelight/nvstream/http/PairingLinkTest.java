@@ -141,7 +141,11 @@ public class PairingLinkTest {
             assertNotNull(host, PairingLink.parse(base + host));
         }
         for (String host : new String[] {"a%2Fb", "a%20b", "a%0Ab", "a%40b", "a%3Fb", "a%23b", "a%5Cb",
-                "bank.example%E2%80%AEcod", "pc%D0%B0", "a".repeat(256)}) {
+                "bank.example%E2%80%AEcod", "pc%D0%B0", "a".repeat(256),
+                // Decoded by a URL parser, these name somewhere else than the dialog shows.
+                "192.168.4.2%252Eevil.example", "192.168.4.2%252eevil.example", "pc%2540evil.example", "pc.local%25",
+                "%5Bpc.local%252Eevil.example%5D", "pc.local:80%252Eevil.example", "%5Bfe80::1%25%5D",
+                "%5Bfe80::1%2525%252Eevil.example%5D", "%5B%5D", "%5Bpc%5D", "%5B::1", "::1%5D", "pc.local:47989"}) {
             assertNull(host, PairingLink.parse(base + host));
         }
     }

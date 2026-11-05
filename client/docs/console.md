@@ -15,6 +15,10 @@ Nightjar opens on Home when a paired PC supports the native API. Home has four p
 
 To start on the PC list instead, turn off **Open on Home**. The bar under the top bar switches between **Home**, **PCs** and **Settings** at any time; Home appears in it as soon as a PC has a library. A PC paired from the PC list that supports the native API opens on Home; other PCs open their app grid.
 
+**Collections.** When a PC names collections (Steam collections, Playnite categories), **View**, **Group by** offers **Collection**: a row per collection by name, a game in several in each, then **No collection**. All games has a chip for each. Nothing needs setting up on the PC, and with no collections the option does not appear.
+
+**Hiding a game.** Long-press a game card (on Windows and Linux, right-click it or press **F2**) and choose **Hide game**. It leaves Home, All games and the PC's list on this device only; the PC and your other devices keep it. A running game stays under Continue playing. All games has a **Hidden** chip once a game is hidden, where the same menu has **Show game**.
+
 ## A game's page
 
 Select a game to see the PC it runs on and the settings the stream will use (resolution, frame rate, bitrate, and the profile layer that set each), then choose **Play** or **Resume**. If another game is running on that PC, the page says that playing this game will close it. **Close game** appears when the PC grants this device **Host control**; otherwise the page offers **Quit game**.

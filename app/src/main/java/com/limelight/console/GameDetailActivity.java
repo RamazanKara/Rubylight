@@ -87,8 +87,9 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     private Auto auto = Auto.OFF;
     private AlertDialog countdown;
     private long countdownEnd;
-    /** The page has loaded once, and the automatic start has acted on it. */
-    private boolean loaded;
+    /** {@link #model} comes from a finished read of the PC, not from what was saved or a poll's redraw of it. */
+    private boolean modelLive;
+    /** The automatic start has acted on a live page. */
     private boolean autoActed;
     private final Runnable countdownTick = this::tickCountdown;
     private final Runnable autoLoadLimit = () ->
@@ -250,10 +251,11 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         auto = Auto.GOING;
         // Armed before anything can go wrong: only a good ending clears it.
         OpenPlay.arm(this);
-        if (loaded) {
+        if (modelLive) {
             actOnAuto();
         } else {
             handler.postDelayed(autoLoadLimit, AUTO_LOAD_LIMIT_MS);
+            scheduleReload();
         }
     }
 
@@ -408,7 +410,8 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         final ConsoleRepository repo = repository;
         final ComputerDetails computer = new ComputerDetails(current);
         final String signature = ConsoleHomeActivity.signature(Collections.singletonList(computer));
-        final boolean refresh = !signature.equals(loadedSignature);
+        // An automatic start acts only on a live page: a redraw of what the page has will not do.
+        final boolean refresh = !signature.equals(loadedSignature) || (auto == Auto.GOING && !modelLive);
         loadedSignature = signature;
         final int mine = ++generation;
         final int starVersion = favouriteVersion;
@@ -425,7 +428,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                 Boolean starred = repo.isFavourite(hostUuid, keyIn(snapshot), appId);
                 boolean control = false;
                 if (refresh) {
-                    show(mine, computer, online, nativeHost, snapshot, false, false, starVersion, starred);
+                    show(mine, computer, online, nativeHost, snapshot, false, false, false, starVersion, starred);
                     snapshot = repo.refresh(Collections.singletonList(computer));
                     NativeCapabilities capabilities = online ? repo.capabilities(computer) : null;
                     control = capabilities != null && capabilities.hostControl;
@@ -433,12 +436,12 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                 } else {
                     control = controlCache;
                 }
-                show(mine, computer, online, nativeHost, snapshot, control, true, starVersion, starred);
+                show(mine, computer, online, nativeHost, snapshot, control, true, refresh, starVersion, starred);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             } catch (RuntimeException e) {
                 com.limelight.LimeLog.warning("Game detail could not load: " + e);
-                show(mine, computer, online, nativeHost, ConsoleSnapshot.empty(), false, true, starVersion, null);
+                show(mine, computer, online, nativeHost, ConsoleSnapshot.empty(), false, true, false, starVersion, null);
             }
         });
     }
@@ -466,7 +469,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     }
 
     private void show(int mine, ComputerDetails computer, boolean online, boolean nativeHost, ConsoleSnapshot snapshot,
-                      boolean control, boolean done, int starVersion, Boolean starred) {
+                      boolean control, boolean done, boolean live, int starVersion, Boolean starred) {
         GameDetailModel next = GameDetailModel.of(snapshot, hostUuid, appId, titleExtra, hostNameExtra, online,
                 nativeHost, control);
         runOnUiThread(() -> {
@@ -474,16 +477,16 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                 return;
             }
             model = next;
+            modelLive = live;
             if (starred != null && starVersion == favouriteVersion) {
                 favouriteCache = starred;
             }
             render(next, computer);
             if (done) {
                 loading.setVisibility(View.GONE);
-                loaded = true;
                 if (auto == Auto.GOING && !autoActed) {
-                    actOnAuto();
-                } else if (playWhenReady && (waker == null || !waker.isWaiting())) {
+                    if (live) actOnAuto();
+                } else if (playWhenReady && (waker == null || !waker.isWaiting()) && (auto != Auto.GOING || live)) {
                     // The PC woke and the page is fresh from it: the Play that started the wait carries on, once.
                     playWhenReady = false;
                     if (next.canStart()) {
@@ -691,6 +694,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             // It woke by itself since the page was drawn: refresh, then the second press plays.
             // An automatic start has no second press: it plays once the page is fresh.
             playWhenReady = auto == Auto.GOING;
+            modelLive = false;
             loadedSignature = null;
             scheduleReload();
             return;
@@ -712,6 +716,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                         return;
                     }
                     // Reload at once: the page needs the PC's library and its running game before it plays.
+                    modelLive = false;
                     loadedSignature = null;
                     handler.removeCallbacks(reload);
                     reloadNow();
@@ -785,9 +790,14 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             return;
         }
         NvApp app = app();
-        PlayPlan plan = PlayPlan.of(model, computer.caps.has(HostCapabilities.Feature.HOST_CONFIRMS_REPLACEMENT),
-                computer.hasPermission(ComputerDetails.PERMISSION_LAUNCH),
-                computer.caps.has(HostCapabilities.Feature.NATIVE_API), controlCache);
+        boolean confirms = computer.caps.has(HostCapabilities.Feature.HOST_CONFIRMS_REPLACEMENT);
+        boolean launch = computer.hasPermission(ComputerDetails.PERMISSION_LAUNCH);
+        boolean nativeHost = computer.caps.has(HostCapabilities.Feature.NATIVE_API);
+        PlayPlan plan = auto == Auto.GOING
+                ? PlayPlan.automatic(model, confirms, launch, nativeHost, controlCache,
+                        computer.hasRunningGame() && !app.matchesRunningApp(computer.runningGameId, computer.runningGameUuid),
+                        computer.runningGameId, computer.runningGameUuid)
+                : PlayPlan.of(model, confirms, launch, nativeHost, controlCache);
         if (plan.kind == PlayPlan.Kind.START) {
             play(app, computer);
             return;

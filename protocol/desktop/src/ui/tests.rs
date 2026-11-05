@@ -2106,6 +2106,19 @@ fn the_replace_prompt_starts_on_resume_else_cancel_never_on_the_button_that_quit
     }
 }
 
+/// What an automatic start goes through (`open_play`): the PC's own report asks, whatever else is known.
+#[test]
+fn starting_over_a_game_the_pc_reports_asks_first() {
+    let xml = r#"<?xml version="1.0" encoding="utf-8"?><root status_code="200"><hostname>PC</hostname><uniqueid>uid</uniqueid><HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort><PairStatus>1</PairStatus><currentgame>7</currentgame><state>SUNSHINE_SERVER_BUSY</state><Permission>1</Permission></root>"#;
+    let info = nightjar_core::http::ServerInfo::parse(xml, 47989).expect("the answer parses");
+    let mut f = Frames::with(record("Paired", true, false), Reach::Online, Some(info), vec![game(9)]);
+    assert!(f.hosts.list[0].native.session.is_none(), "no session was read");
+    let mut commands = Vec::new();
+    let asked = f.l.start_app(&f.hosts.list[0], &game(9), &mut commands);
+    assert!(matches!(asked, Some(Dialog::ConfirmQuit { .. })), "the running game is not in the list either");
+    assert!(commands.is_empty());
+}
+
 #[test]
 fn a_pc_that_confirms_replacement_starts_without_the_client_prompt() {
     let info = |extension: &str| {

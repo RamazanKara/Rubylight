@@ -7,6 +7,7 @@ import static com.limelight.nativeapi.NativeApiFixtures.ok;
 import static com.limelight.nativeapi.NativeApiFixtures.session;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
@@ -93,6 +94,27 @@ public class PlayPlanTest {
         GameDetailModel model = zeldaWhilePortalRuns();
         assertEquals(PlayPlan.Kind.START, PlayPlan.of(model, true, true, true, true).kind);
         assertEquals(PlayPlan.Kind.START, PlayPlan.of(model, false, false, true, true).kind);
+    }
+
+    @Test
+    public void anAutomaticStartTakesThePcsOwnWordForAGameTheModelMissed() throws Exception {
+        GameDetailModel idle = GameDetailModel.of(ConsoleSnapshot.empty(), "tower", 11, "Portal", "Tower", true, true, true);
+        assertEquals("a tap goes by the model", PlayPlan.Kind.START, PlayPlan.of(idle, false, true, true, true).kind);
+
+        PlayPlan plan = PlayPlan.automatic(idle, false, true, true, true, true, 99, "uuid-other");
+        assertEquals(PlayPlan.Kind.ASK, plan.kind);
+        assertTrue("through the native API, as the model's own would", plan.closeNatively);
+        assertNull(plan.runningTitle);
+        assertFalse(plan.canResume);
+        assertEquals("the check before closing it passes", PlayPlan.Check.SAME,
+                PlayPlan.recheck(plan.runningApp(), 99, "uuid-other"));
+
+        assertEquals("nothing else runs", PlayPlan.Kind.START,
+                PlayPlan.automatic(idle, false, true, true, true, false, 0, null).kind);
+        assertEquals("the host asks itself", PlayPlan.Kind.START,
+                PlayPlan.automatic(idle, true, true, true, true, true, 99, null).kind);
+        assertEquals("nothing can be closed", PlayPlan.Kind.START,
+                PlayPlan.automatic(idle, false, false, true, true, true, 99, null).kind);
     }
 
     @Test

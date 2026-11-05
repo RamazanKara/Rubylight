@@ -18,12 +18,14 @@ final class PlayPlan {
     final Kind kind;
     /** Replacing closes the running game through the native API first (native host with host control). */
     final boolean closeNatively;
-    /** The running game the prompt names; null for START. */
+    /** The running game the prompt names; null for START, and for a game only the PC's own report knows. */
     final String runningTitle;
     final int runningAppId;
     final ConsoleSnapshot.Source runningSource;
     /** False when the running game cannot be told apart to resume it: the prompt then offers only Cancel. */
     final boolean canResume;
+    /** The UUID the PC reports for a running game the model does not know (see {@link #automatic}); else null. */
+    private String reportedUuid;
 
     private PlayPlan(Kind kind, boolean closeNatively, String runningTitle, int runningAppId,
                      ConsoleSnapshot.Source runningSource, boolean canResume) {
@@ -47,9 +49,30 @@ final class PlayPlan {
                 model.otherRunningSource, identified);
     }
 
+    /**
+     * Play in an automatic start, where nobody pressed anything: what the PC itself reports running counts as well, so a
+     * game the model missed (its session could not be read, or the page only redrew from what it had) is never replaced
+     * without asking. Such a game may have no name here: {@link #runningTitle} stays null and it cannot be resumed.
+     */
+    static PlayPlan automatic(GameDetailModel model, boolean hostConfirmsReplacement, boolean launchPermission,
+                              boolean nativeHost, boolean hostControl, boolean otherGameReported, int reportedId,
+                              String reportedUuid) {
+        PlayPlan plan = of(model, hostConfirmsReplacement, launchPermission, nativeHost, hostControl);
+        if (plan.kind == Kind.ASK || !otherGameReported || hostConfirmsReplacement || !launchPermission) {
+            return plan;
+        }
+        PlayPlan unnamed = new PlayPlan(Kind.ASK, nativeHost && hostControl, null, reportedId, null, false);
+        unnamed.reportedUuid = reportedUuid;
+        return unnamed;
+    }
+
     /** The running game as the stream needs it. */
     NvApp runningApp() {
-        return CoverLoaders.appOf(runningTitle, runningAppId, runningSource);
+        NvApp app = CoverLoaders.appOf(runningTitle == null ? "" : runningTitle, runningAppId, runningSource);
+        if (reportedUuid != null) {
+            app.setAppUuid(reportedUuid);
+        }
+        return app;
     }
 
     /** Whether {@code expected} still is what the host runs: it may have ended or been replaced meanwhile. */

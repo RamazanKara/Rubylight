@@ -408,7 +408,10 @@ impl crate::App {
                     None => None,
                 };
                 if let Some(dialog) = dialog {
+                    // Another game runs there: the player decides now, so this is no longer an automatic start.
                     self.launcher.ask(dialog);
+                    self.open_play.run = None;
+                    self.open_play_armed(false);
                 }
                 for command in commands {
                     self.command(command);

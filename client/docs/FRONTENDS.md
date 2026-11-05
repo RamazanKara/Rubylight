@@ -81,6 +81,10 @@ launch: am start -n com.butterpollo.client/com.limelight.ShortcutTrampoline -a a
 
 `{file.uri}` is supplied by the frontend, not entered as a literal address.
 
+## Open at boot
+
+A launcher or a device that starts an app at boot needs no entry for one game: set "When Nightjar opens" to your last game or to a game chosen from its menu, and starting Nightjar counts down into it. On Windows and Linux, "Start Nightjar when I sign in" starts it too. Shortcuts, links and the intents below never trigger this. [Settings](settings.md)
+
 ## Entry format and direct intents
 
 A game entry is plain UTF-8 text. This example uses synthetic identifiers:

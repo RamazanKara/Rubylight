@@ -95,7 +95,7 @@ Everything below works on Windows and Linux unless a platform is named.
 **Diagnostics and interface**
 
 - Performance overlay in Compact, Statistics and Debug modes, with the host's CPU and GPU readings where offered; the stream health report (**Why did my stream stutter?**) with the reversible bitrate trial; statistics export.
-- English and German; UI zoom, high contrast, reduced motion, and screen readers through UI Automation on Windows and AT-SPI on Linux. PIN lock. On Windows, an update check once per launch.
+- English and German; UI zoom, high contrast, reduced motion, and screen readers through UI Automation on Windows and AT-SPI on Linux. PIN lock. On Windows and in the AppImage, an update check once per launch and a one-click update (a portable Windows copy links to the release page).
 - Beam racing and early decode for PyroWave on wired links, off by default (see [beam racing](../../docs/beam-racing.md) and [early decode](../../docs/early-decode.md)).
 
 ### Differences from the Android app
@@ -239,7 +239,9 @@ All are off unless set.
 | `src/hosts.rs`, `src/wol.rs` | Host list, mDNS discovery, serverinfo polling, pairing, app lists, cover art, the native library and session; Wake-on-LAN |
 | `src/config.rs` | Settings, identity, paired hosts and saved libraries on disk |
 | `src/pin_lock.rs` | The PIN lock, with the Android app's modes, grace time, backoff and hash format |
-| `src/update_check.rs` | The Windows update check |
+| `src/update_check.rs` | The update check and its notice (Windows, AppImage) |
+| `src/self_update.rs` | Update now: which kind of copy this is, the checked download, the setup or AppImage hand-over |
+| `src/update_net.rs` | The GET under both: WinHTTP on Windows, ureq elsewhere, redirects judged by `self_update.rs` |
 | `src/crash_dump.rs` | Windows minidumps for unhandled crashes |
 | `src/stream/mod.rs` | The running stream: its state, menu actions, clipboard and the end of the stream |
 | `src/stream/render.rs`, `src/stream/notices.rs` | The picture loop (pump, pacing, present, beam race); notices and control events |

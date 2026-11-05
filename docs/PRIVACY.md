@@ -154,9 +154,11 @@ Stream content, input, clipboard text, files, shared-folder transfers, USB
 traffic and the microphone go only between this computer and the PC you
 stream from, as on Android. Apart from your PCs, the desktop client contacts:
 
-- `api.github.com` on Windows, once per launch, to check for a newer Nightjar
-  release when **Check for updates** is on. Nothing is downloaded or
-  installed.
+- `api.github.com` on Windows and in the AppImage, once per launch, to check
+  for a newer Nightjar release when **Check for updates** is on. Nothing is
+  downloaded until you choose **Update now**, which fetches the release from
+  `github.com` and GitHub's asset storage (`release-assets.githubusercontent.com`,
+  `objects.githubusercontent.com`).
 - `stun.moonlight-stream.org` to learn this network's public IPv4 address, so
   a PC on your home network can be reached from outside it.
 

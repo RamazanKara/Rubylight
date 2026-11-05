@@ -528,7 +528,7 @@ The Controllers group can be changed while **Controllers** is on. On-screen cont
 | High contrast | Off | On, Off | Black surfaces, white text, thicker outlines and focus rings. |
 | Reduce motion | Follow system | Follow system, Reduce, Full motion | Follow system uses the Windows animation setting; on Linux motion stays on. |
 | *Fine-tuning:* Input-only on any PC | Off | On, Off | Adds Input-only to a game's menu on hosts without an Input-only mode; the PC still sends video and audio at the smallest size, under 1 Mbit/s. |
-| Check for updates | On | On, Off | Windows only. Once per launch, asks GitHub whether a newer release is out; nothing is downloaded or installed. |
+| Check for updates | On | On, Off | Windows and AppImage only. Once per launch, asks GitHub whether a newer release is out; nothing is downloaded until you choose Update now. A portable Windows copy only links to the release page. |
 | Logs | | Open logs folder | Attach `nightjar.log`, and `nightjar.prev.log` for a problem before a restart, to a bug report. |
 | Reset all settings | | Reset all… | Asks first. Every row of the main settings goes back to its default; the language stays. |
 

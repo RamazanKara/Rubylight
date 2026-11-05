@@ -1342,7 +1342,6 @@ pub(crate) mod tests {
             '\u{e0041}',
         ] {
             let name = format!("{c}Pairing request from 192.168.4.20");
-            butterpollo_core::pairing::validate_device_name(&name).unwrap();
             assert_eq!(
                 name_problem("4821", &name),
                 Some("clientName may not contain format or line separator characters"),

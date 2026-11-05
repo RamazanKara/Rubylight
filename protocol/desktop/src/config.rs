@@ -542,7 +542,7 @@ impl HomeLayout {
     }
 }
 
-/// Whether Home splits its library by store or by type (Android's `home_view_group`).
+/// Whether Home splits its library by store, by type or by collection (Android's `home_view_group`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HomeGroup {
@@ -551,6 +551,9 @@ pub enum HomeGroup {
     /// The games of every store in one row, the apps of no store (launchers, the desktop) in
     /// their own.
     Type,
+    /// A row per Steam collection or Playnite category the PCs name, a game in several in each,
+    /// then the games in none. Offered while they name any.
+    Collection,
     /// A row per store, then the apps of no store. Also what an unknown value reads as; keep it
     /// last: serde wants the catch-all there.
     #[default]
@@ -559,12 +562,13 @@ pub enum HomeGroup {
 }
 
 impl HomeGroup {
-    pub const ALL: [Self; 3] = [Self::Store, Self::Type, Self::None];
+    pub const ALL: [Self; 4] = [Self::Store, Self::Type, Self::Collection, Self::None];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Store => en("Store"),
             Self::Type => en("Type"),
+            Self::Collection => en("Collection"),
             Self::None => en("None"),
         }
     }
@@ -1195,6 +1199,28 @@ impl Favourite {
     }
 }
 
+impl Favourite {
+    /// A hidden game by either id: the PC's list knows it by its classic UUID and Home by its
+    /// install id, and the app id is the same in both.
+    pub fn same_hidden(&self, other: &Favourite) -> bool {
+        self.same_game(other) || (self.host == other.host && self.app_id == other.app_id)
+    }
+}
+
+/// Hides the `games` or shows them again, by the keys a favourite has. Returns whether the list
+/// changed.
+pub fn set_hidden(list: &mut Vec<Favourite>, games: Vec<Favourite>, hidden: bool) -> bool {
+    let before = list.len();
+    list.retain(|h| !games.iter().any(|game| game.same_hidden(h)));
+    let dropped = before - list.len();
+    if !hidden {
+        return dropped > 0;
+    }
+    let added = games.len();
+    list.extend(games);
+    added != dropped
+}
+
 /// Stars `entry` (first in the list; a game already starred moves up and takes the new title)
 /// or, when it is starred already, removes it. Returns whether the game is starred now.
 pub fn toggle_favourite(list: &mut Vec<Favourite>, entry: Favourite) -> bool {
@@ -1489,6 +1515,24 @@ impl Store {
         write_json(&self.dir.join("favourites.json"), &favourites)
     }
 
+    /// The games hidden on this device, like the favourites' file; no other device reads it.
+    pub fn hidden_games(&self) -> Vec<Favourite> {
+        let path = self.dir.join("hidden-games.json");
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return Vec::new();
+        };
+        let (list, damaged) = parse_favourites(&text);
+        if damaged {
+            eprintln!("nightjar: hidden-games.json has entries that could not be read; kept as hidden-games.json.bak");
+            let _ = std::fs::copy(&path, path.with_extension("json.bak"));
+        }
+        list
+    }
+
+    pub fn save_hidden_games(&self, games: &[Favourite]) -> std::io::Result<()> {
+        write_json(&self.dir.join("hidden-games.json"), &games)
+    }
+
     /// Box art cache: `art/<host>/<app>.img`, or `<app>-<version>.img` for a cover the host
     /// versions (the native API), so a changed cover is fetched again.
     pub fn art_path(&self, host: &str, app_id: i32, version: &str) -> PathBuf {
@@ -1710,6 +1754,28 @@ mod tests {
         assert!(toggle_favourite(&mut list, star("pc", "", 5)));
         assert!(!toggle_favourite(&mut list, star("pc", "", 5)));
         assert_eq!(list.len(), 2);
+    }
+
+    #[test]
+    fn hidden_games_survive_a_restart_and_show_again() {
+        let dir = std::env::temp_dir().join(format!("nightjar-hidden-{}", std::process::id()));
+        let store = Store::at(dir.clone()).unwrap();
+        assert!(store.hidden_games().is_empty());
+        let mut list = Vec::new();
+        assert!(set_hidden(&mut list, vec![star("pc", "a", 1), star("pc2", "a", 1)], true));
+        assert!(!set_hidden(&mut list, vec![star("pc", "a", 1)], true), "hidden already");
+        assert_eq!(list.len(), 2);
+        store.save_hidden_games(&list).unwrap();
+        assert_eq!(Store::at(dir.clone()).unwrap().hidden_games(), list);
+        assert!(set_hidden(&mut list, vec![star("pc", "A", 9)], false), "by install id, in any case");
+        assert!(!set_hidden(&mut list, vec![star("pc", "other", 9)], false));
+        assert!(set_hidden(&mut list, vec![star("pc", "a", 1)], true));
+        assert!(set_hidden(&mut list, vec![star("pc", "uuid-of-the-pcs-list", 1)], false), "by app id, from the PC's list");
+        assert_eq!(list, [star("pc2", "a", 1)]);
+        std::fs::write(dir.join("hidden-games.json"), "{ not json").unwrap();
+        assert!(store.hidden_games().is_empty());
+        assert_eq!(std::fs::read_to_string(dir.join("hidden-games.json.bak")).unwrap(), "{ not json");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -2369,6 +2435,8 @@ mod tests {
         );
         assert_eq!(serde_json::from_value::<Settings>(json).unwrap(), set);
         // By type is Android's "type" too.
+        let by_collection: Settings = serde_json::from_str(r#"{"home_group":"collection"}"#).unwrap();
+        assert_eq!(by_collection.home_group, HomeGroup::Collection);
         let by_type: Settings = serde_json::from_str(r#"{"home_group":"type"}"#).unwrap();
         assert_eq!(by_type.home_group, HomeGroup::Type);
         assert_eq!(serde_json::to_value(by_type).unwrap()["home_group"], serde_json::json!("type"));

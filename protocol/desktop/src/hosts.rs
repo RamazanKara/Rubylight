@@ -66,6 +66,8 @@ pub struct Native {
     pub library: Option<Library>,
     /// When the library's games were last played, by install id (`NativeLibrary::last_played`).
     pub last_played: BTreeMap<String, u64>,
+    /// The collections the library's games are in, by install id (`NativeLibrary::collections`).
+    pub collections: BTreeMap<String, Vec<String>>,
     /// The library was read from the PC in this run (not loaded from disk).
     pub library_live: bool,
     pub session: Option<Session>,
@@ -1486,6 +1488,7 @@ impl Hosts {
             if host.record.server_certificate.is_some() && !host.record.unique_id.is_empty() {
                 let saved = store.library(&host.record.unique_id);
                 host.native.last_played = saved.as_ref().map(|l| l.last_played.clone()).unwrap_or_default();
+                host.native.collections = saved.as_ref().map(|l| l.collections.clone()).unwrap_or_default();
                 host.native.library = saved.map(|l| l.library);
             }
         }
@@ -1499,7 +1502,7 @@ impl Hosts {
                 let host = self.get(id)?;
                 // A PC unpaired while its read was in flight must not get its library back.
                 host.record.server_certificate.as_ref()?;
-                let library = NativeLibrary { library: host.native.library.clone()?, last_played: host.native.last_played.clone() };
+                let library = NativeLibrary { library: host.native.library.clone()?, last_played: host.native.last_played.clone(), collections: host.native.collections.clone() };
                 Some((host.record.unique_id.clone(), library))
             })
             .filter(|(unique_id, _)| !unique_id.is_empty())
@@ -1716,13 +1719,16 @@ impl Hosts {
                                         changed = true;
                                     }
                                 }
-                                if let Some(NativeLibrary { library, last_played }) = read.library {
+                                if let Some(NativeLibrary { library, last_played, collections }) = read.library {
                                     // The classic list a launch goes through follows the library.
                                     reload_apps = !host.native.library_live
                                         || host.native.library.as_ref().is_none_or(|old| old.revision != library.revision);
-                                    save = host.native.library.as_ref() != Some(&library) || host.native.last_played != last_played;
+                                    save = host.native.library.as_ref() != Some(&library)
+                                        || host.native.last_played != last_played
+                                        || host.native.collections != collections;
                                     host.native.library = Some(library);
                                     host.native.last_played = last_played;
+                                    host.native.collections = collections;
                                     host.native.library_live = true;
                                 }
                                 match read.session {

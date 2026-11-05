@@ -1,0 +1,12 @@
+[
+  {
+    "name": "several, one in two groups, the rest last",
+    "request": {"games": [["VR", "Couch"], [], ["couch"]]},
+    "response": {"ok": {"groups": [{"name": "Couch", "games": [0, 2]}, {"name": "VR", "games": [0]}, {"name": null, "games": [1]}]}}
+  },
+  {
+    "name": "no collections at all",
+    "request": {"games": [[], []]},
+    "response": {"ok": {"groups": []}}
+  }
+]

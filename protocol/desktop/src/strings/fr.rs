@@ -1393,4 +1393,11 @@ sudo sysctl -w net.core.rmem_max={}", "Tampon de réception : le système a acco
     ("Keyboard, mouse and controllers control the PC.", "Le clavier, la souris et les manettes contrôlent le PC."),
     ("Input captured.", "Entrées capturées."),
     ("Input captured. {} releases it.", "Entrées capturées. {} les libère."),
+    ("Collection", "Collection"),
+    ("No collection", "Sans collection"),
+    ("Hide game", "Masquer le jeu"),
+    ("Show game", "Afficher le jeu"),
+    ("Hidden", "Masqués"),
+    ("Show hidden games", "Afficher les jeux masqués"),
+    ("Hide hidden games", "Masquer les jeux masqués"),
 ];

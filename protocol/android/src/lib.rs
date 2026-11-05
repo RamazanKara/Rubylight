@@ -9,6 +9,7 @@
 //! contributors).
 
 mod bridge;
+pub mod collections;
 pub mod echo;
 mod engine;
 pub mod extras;

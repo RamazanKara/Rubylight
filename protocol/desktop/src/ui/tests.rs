@@ -3579,6 +3579,85 @@ fn store_mix() -> Frames {
     home_with_stores(&borrowed)
 }
 
+fn in_collections(f: &mut Frames, games: &[(&str, &[&str])]) {
+    f.hosts.list[0].native.collections = games.iter().map(|(id, names)| ((*id).to_owned(), names.iter().map(|n| (*n).to_owned()).collect())).collect();
+    f.settle();
+}
+
+/// Collection joins Group by only while the PCs name collections; its rows are the collections by
+/// name, a game in several in each, then the games in none.
+#[test]
+fn home_groups_by_collection_only_when_the_pc_names_any() {
+    let mut f = store_mix();
+    f.size = vec2(1280.0, 2400.0);
+    in_collections(&mut f, &[("install-0", &["VR", "Couch"]), ("install-12", &["Couch"])]);
+    let view = f.placed.iter().find(|(t, r, _)| t == "View" && r.center().y < 80.0).map(|p| p.1).expect("View in the top row");
+    f.click_at(view.center(), egui::PointerButton::Primary);
+    let row = |f: &Frames, label: &str| f.placed.iter().find(|(t, ..)| t == label).map(|p| p.1).expect(label);
+    for (next, says) in [(HomeGroup::Type, "Type"), (HomeGroup::Collection, "Collection")] {
+        let at = row(&f, "Group by");
+        f.click_at(at.center(), egui::PointerButton::Primary);
+        assert_eq!(f.l.settings.home_group, next);
+        assert!(shows(&f, says), "{says}: {:?}", f.drawn);
+    }
+    let shelf = |f: &Frames, name: &str| f.placed.iter().find(|(t, r, _)| t == name && r.center().y > 80.0).map(|p| p.1.top()).expect(name);
+    assert!(shelf(&f, "Couch") < shelf(&f, "VR") && shelf(&f, "VR") < shelf(&f, "No collection"), "{:?}", f.drawn);
+    let copies = f.drawn.iter().filter(|t| *t == "Steam 00").count();
+    assert!(copies >= 2, "in both of its collections: {:?}", f.drawn);
+
+    // The PC stops naming any: the rows go back to stores, and the choice stays for when it does again.
+    in_collections(&mut f, &[]);
+    assert_eq!(f.l.settings.home_group, HomeGroup::Collection);
+    assert!(shows(&f, "Steam") && !shows(&f, "No collection"), "{:?}", f.drawn);
+    assert!(shows(&f, "Store"), "the menu says what shows: {:?}", f.drawn);
+    let at = row(&f, "Group by");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_group, HomeGroup::Type);
+    let at = row(&f, "Group by");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_group, HomeGroup::None, "no Collection to step through");
+}
+
+/// Hide on a card's menu takes the game off Home on this device; All games has it under Hidden,
+/// where the same menu brings it back.
+#[test]
+fn a_game_hides_from_home_and_shows_again_from_all_games() {
+    let mut f = home_with_stores(&[("Alpha", "steam", true), ("Beta", "steam", true)]);
+    let card = f.placed.iter().find(|(t, r, _)| t == "Alpha" && r.center().y > 80.0).map(|p| p.1).expect("Alpha's card");
+    f.click_at(card.center(), egui::PointerButton::Secondary);
+    let hide = f.placed.iter().find(|(t, ..)| t == "Hide game").map(|p| p.1).expect("Hide game in the menu");
+    let commands = f.click_at(hide.center(), egui::PointerButton::Primary);
+    let Some(Command::SetHidden { games, hidden: true }) = commands.into_iter().find(|c| matches!(c, Command::SetHidden { .. })) else {
+        panic!("no SetHidden");
+    };
+    assert_eq!(games.len(), 1);
+    assert_eq!((games[0].host.as_str(), games[0].install_id.as_str()), ("Desk", "install-0"));
+    assert!(crate::config::set_hidden(&mut f.l.hidden_games, games, true));
+    f.settle();
+    assert!(f.no_dialog());
+    assert!(!shows(&f, "Alpha") && shows(&f, "Beta"), "{:?}", f.drawn);
+
+    f.l.go(Screen::AllGames);
+    f.settle();
+    assert!(shows(&f, "Hidden 1") || shows(&f, "Hidden"), "{:?}", f.drawn);
+    assert!(!shows(&f, "Alpha"), "only under Hidden: {:?}", f.drawn);
+    f.l.library_filter = crate::console::LibraryFilter::Hidden;
+    f.settle();
+    assert!(shows(&f, "Alpha") && !shows(&f, "Beta"), "{:?}", f.drawn);
+    let card = f.placed.iter().find(|(t, r, _)| t == "Alpha" && r.center().y > 80.0).map(|p| p.1).expect("Alpha's card");
+    f.click_at(card.center(), egui::PointerButton::Secondary);
+    let show = f.placed.iter().find(|(t, ..)| t == "Show game").map(|p| p.1).expect("Show game in the menu");
+    let commands = f.click_at(show.center(), egui::PointerButton::Primary);
+    let Some(Command::SetHidden { games, hidden: false }) = commands.into_iter().find(|c| matches!(c, Command::SetHidden { .. })) else {
+        panic!("no SetHidden");
+    };
+    assert!(crate::config::set_hidden(&mut f.l.hidden_games, games, false));
+    f.settle();
+    assert!(f.l.hidden_games.is_empty());
+    assert_eq!(f.l.library_filter, crate::console::LibraryFilter::All, "the empty Hidden chip gives way");
+    assert!(shows(&f, "Alpha"), "{:?}", f.drawn);
+}
+
 /// Home has a row per store, largest first, each as wide as the window and ending in an All tile
 /// when more games follow; the apps of no store come last as Other apps.
 #[test]

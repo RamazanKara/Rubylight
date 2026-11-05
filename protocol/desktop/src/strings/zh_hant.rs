@@ -1393,4 +1393,11 @@ sudo sysctl -w net.core.rmem_max={}", "接收緩衝區：系統只分配了所�
     ("Keyboard, mouse and controllers control the PC.", "鍵盤、滑鼠和控制器控制電腦。"),
     ("Input captured.", "已擷取輸入。"),
     ("Input captured. {} releases it.", "已擷取輸入。{} 釋放。"),
+    ("Collection", "收藏集"),
+    ("No collection", "未分類"),
+    ("Hide game", "隱藏遊戲"),
+    ("Show game", "顯示遊戲"),
+    ("Hidden", "已隱藏"),
+    ("Show hidden games", "顯示隱藏的遊戲"),
+    ("Hide hidden games", "不顯示隱藏的遊戲"),
 ];

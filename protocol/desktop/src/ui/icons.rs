@@ -26,6 +26,8 @@ pub enum Icon {
     Trash,
     Star,
     StarOff,
+    Eye,
+    EyeOff,
     Home,
     Monitor,
     Gear,
@@ -142,6 +144,15 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
         Icon::StarOff => {
             closed(star(&p));
             line(vec![p(3.5, 3.5), p(20.5, 20.5)]);
+        }
+        Icon::Eye | Icon::EyeOff => {
+            let lid = |flip: f32| (0..=12).map(|n| n as f32 / 12.0).map(|t| p(2.5 + 19.0 * t, 12.0 + flip * 7.0 * (PI * t).sin())).collect::<Vec<_>>();
+            line(lid(-1.0));
+            line(lid(1.0));
+            line(arc(12.0, 12.0, 2.8, 0.0, TAU));
+            if icon == Icon::EyeOff {
+                line(vec![p(3.5, 3.5), p(20.5, 20.5)]);
+            }
         }
         Icon::Home => {
             line(vec![p(3.5, 11.5), p(12.0, 4.0), p(20.5, 11.5)]);

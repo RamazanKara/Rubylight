@@ -140,11 +140,14 @@ pub struct NativeLibrary {
     /// host says never played. A game the host says nothing about (an older host, a manual app)
     /// is not in it.
     pub last_played: BTreeMap<String, u64>,
+    /// The collections each game is in, by install id, as the host names them. A game in none (and
+    /// every game of an older host) is not in it.
+    pub collections: BTreeMap<String, Vec<String>>,
 }
 
 impl From<Library> for NativeLibrary {
     fn from(library: Library) -> Self {
-        Self { library, last_played: BTreeMap::new() }
+        Self { library, last_played: BTreeMap::new(), collections: BTreeMap::new() }
     }
 }
 
@@ -152,15 +155,24 @@ impl<'de> Deserialize<'de> for NativeLibrary {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = serde_json::Value::deserialize(deserializer)?;
         let mut last_played = BTreeMap::new();
+        let mut collections = BTreeMap::new();
         for game in value["games"].as_array().into_iter().flatten() {
+            let Some(id) = game["install_id"].as_str() else { continue };
             // Anything but a whole number of seconds reads as unknown.
-            if let (Some(id), Some(at)) = (game["install_id"].as_str(), game["last_played"].as_u64()) {
+            if let Some(at) = game["last_played"].as_u64() {
                 last_played.insert(id.to_owned(), at);
+            }
+            // Anything but names reads as none.
+            let names: Vec<String> =
+                game["collections"].as_array().into_iter().flatten().filter_map(|name| name.as_str().map(str::to_owned)).collect();
+            if !names.is_empty() {
+                collections.insert(id.to_owned(), names);
             }
         }
         Ok(Self {
             library: Library::deserialize(value).map_err(D::Error::custom)?,
             last_played,
+            collections,
         })
     }
 }
@@ -172,8 +184,13 @@ impl Serialize for NativeLibrary {
         if let Some(games) = value["games"].as_array_mut() {
             for game in games {
                 let at = game["install_id"].as_str().and_then(|id| self.last_played.get(id)).copied();
-                if let (Some(at), Some(fields)) = (at, game.as_object_mut()) {
+                let names = game["install_id"].as_str().and_then(|id| self.collections.get(id)).cloned();
+                let Some(fields) = game.as_object_mut() else { continue };
+                if let Some(at) = at {
                     fields.insert("last_played".into(), at.into());
+                }
+                if let Some(names) = names {
+                    fields.insert("collections".into(), names.into());
                 }
             }
         }
@@ -371,6 +388,20 @@ mod tests {
             content_type: Some("application/json; charset=utf-8".into()),
             body: body.as_bytes().to_vec(),
         }
+    }
+
+    #[test]
+    fn a_library_keeps_collections_through_a_write_back() {
+        let text = r#"{"revision":"r","games":[
+            {"install_id":"a","app_id":1,"title":"A","game_id":"steam:1","store":null,"installed":true,"running":false,"artwork":{"version":"1"},"collections":["VR","Couch"]},
+            {"install_id":"b","app_id":2,"title":"B","game_id":null,"store":null,"installed":null,"running":false,"artwork":{"version":"2"}},
+            {"install_id":"c","app_id":3,"title":"C","game_id":null,"store":null,"installed":null,"running":false,"artwork":{"version":"3"},"collections":"VR"}]}"#;
+        let library: NativeLibrary = serde_json::from_str(text).unwrap();
+        assert_eq!(library.collections.len(), 1, "an older host's game and a changed field read as none");
+        assert_eq!(library.collections["a"], ["VR", "Couch"]);
+        let written = serde_json::to_value(&library).unwrap();
+        assert_eq!(written["games"][0]["collections"], serde_json::json!(["VR", "Couch"]));
+        assert!(written["games"][1].get("collections").is_none());
     }
 
     #[test]

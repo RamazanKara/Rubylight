@@ -184,6 +184,9 @@ pub enum GameAction {
     Resume,
     Star,
     Unstar,
+    /// Off Home and All games on this device.
+    Hide,
+    Unhide,
     Settings,
     /// The PC's own library page.
     Library,
@@ -201,6 +204,8 @@ impl GameAction {
             Self::Resume => (Icon::Play, en("Resume")),
             Self::Star => (Icon::Star, en("Add to favourites")),
             Self::Unstar => (Icon::StarOff, en("Remove from favourites")),
+            Self::Hide => (Icon::EyeOff, en("Hide game")),
+            Self::Unhide => (Icon::Eye, en("Show game")),
             Self::Settings => (Icon::Sliders, en("Game settings")),
             Self::Library => (Icon::Grid, en("Open library")),
             Self::OpenOnStart => (Icon::Play, en("Open this when Nightjar starts")),
@@ -277,7 +282,7 @@ impl Launcher {
             }
             Dialog::GameMenu { host, game } => {
                 let (id, game) = (*host, *game);
-                match view.hosts.get(id).and_then(|host| game_menu(host, view, game, &self.favourites).map(|menu| (host, menu))) {
+                match view.hosts.get(id).and_then(|host| game_menu(host, view, game, &self.favourites, &self.hidden_games).map(|menu| (host, menu))) {
                     Some((host, (title, mut actions))) => {
                         actions.extend(open_on_start_action(host, game, &self.favourites, self.open_game.as_ref()));
                         let rows: Vec<MenuRow> = actions
@@ -292,6 +297,14 @@ impl Launcher {
                             MenuOutcome::Chosen(n) => {
                                 next = self.choose_game_action(host, game, actions[n], commands);
                                 close = next.is_none();
+                                if matches!(actions[n], GameAction::Hide | GameAction::Unhide) {
+                                    let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
+                                    let games = hide_keys_of(host, game, &sources);
+                                    commands.push(Command::SetHidden { games, hidden: actions[n] == GameAction::Hide });
+                                    // Its card goes from where it is: the focus goes to the screen.
+                                    self.focused_key = None;
+                                    self.focus_screen = true;
+                                }
                                 // The Favourites card goes with its star: the focus goes back to
                                 // its neighbour instead, as Delete on the card does.
                                 if let (GameAction::Unstar, GameTarget::Library { app, favourite: true }) = (actions[n], game) {
@@ -313,9 +326,13 @@ impl Launcher {
                 // A row steps through its choices and Home changes behind the menu at once, so
                 // the menu stays open to try the next.
                 let s = &self.settings;
+                let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
+                let (entries, _) = console::split_hidden(console::merge_library(&sources), &sources, &self.hidden_games);
+                let groups = console::offered_groups(&entries);
+                let group = console::shown_group(s.home_group, &entries);
                 let mut rows = vec![
                     MenuRow { icon: Icon::Grid, label: en("Layout"), hint: Some(s.home_layout.label()), destructive: false, blocked: None },
-                    MenuRow { icon: Icon::Folder, label: en("Group by"), hint: Some(s.home_group.label()), destructive: false, blocked: None },
+                    MenuRow { icon: Icon::Folder, label: en("Group by"), hint: Some(group.label()), destructive: false, blocked: None },
                 ];
                 // A list's lines have one size, so Card size shows only for the covers' layouts.
                 if s.home_layout != HomeLayout::List {
@@ -328,7 +345,7 @@ impl Launcher {
                         let s = &mut self.settings;
                         match n {
                             0 => s.home_layout = next_of(&HomeLayout::ALL, s.home_layout),
-                            1 => s.home_group = next_of(&HomeGroup::ALL, s.home_group),
+                            1 => s.home_group = next_of(&groups, group),
                             _ => s.home_card_size = next_of(&CardSize::ALL, s.home_card_size),
                         }
                         commands.push(Command::SaveSettings);
@@ -1379,6 +1396,8 @@ impl Launcher {
                 }
             }
             (GameAction::Open | GameAction::Star | GameAction::Unstar, GameTarget::Classic { .. }) => {}
+            // The caller has every PC's library, which a title's copies take.
+            (GameAction::Hide | GameAction::Unhide, _) => {}
         }
         None
     }
@@ -1558,7 +1577,7 @@ pub fn moves_in_hotkey_dialog(scancode: sdl3_sys::everything::SDL_Scancode, mods
 /// A game's menu: its title and what it offers, the action selecting it does first. None when the
 /// game is gone from the PC. A favourite whose PC's library is not known (away with nothing saved,
 /// not read yet, or the game gone) still has its menu, from the stored star: its card is on Home.
-pub(super) fn game_menu(host: &Host, view: &View<'_>, game: GameTarget, favourites: &[crate::config::Favourite]) -> Option<(String, Vec<GameAction>)> {
+pub(super) fn game_menu(host: &Host, view: &View<'_>, game: GameTarget, favourites: &[crate::config::Favourite], hidden: &[crate::config::Favourite]) -> Option<(String, Vec<GameAction>)> {
     let _ = view;
     match game {
         GameTarget::Library { app, favourite } => {
@@ -1576,6 +1595,10 @@ pub(super) fn game_menu(host: &Host, view: &View<'_>, game: GameTarget, favourit
             if let Some(starred) = starred {
                 actions.push(if starred { GameAction::Unstar } else { GameAction::Star });
             }
+            if let Some(entry) = listed.filter(|_| !host.record.unique_id.is_empty()) {
+                let hides = console::is_hidden(&Source::of(host), &entry.install_id, app, hidden);
+                actions.push(if hides { GameAction::Unhide } else { GameAction::Hide });
+            }
             if classic_of(host, game, favourites).is_some() {
                 actions.push(GameAction::Settings);
             }
@@ -1591,6 +1614,10 @@ pub(super) fn game_menu(host: &Host, view: &View<'_>, game: GameTarget, favourit
             let mut actions = vec![if running { GameAction::Resume } else { GameAction::Play }];
             if !entry.is_control_action() {
                 actions.push(GameAction::Settings);
+                if !host.record.unique_id.is_empty() {
+                    let hides = console::is_hidden(&Source::of(host), &entry.uuid, entry.id as u32, hidden);
+                    actions.push(if hides { GameAction::Unhide } else { GameAction::Hide });
+                }
             }
             Some((entry.name.clone(), actions))
         }
@@ -1622,6 +1649,21 @@ pub(super) fn open_game_of(host: &Host, game: GameTarget, favourites: &[crate::c
 pub(super) fn open_on_start_action(host: &Host, game: GameTarget, favourites: &[crate::config::Favourite], chosen: Option<&crate::config::OpenGame>) -> Option<GameAction> {
     let this = open_game_of(host, game, favourites)?;
     Some(if chosen.is_some_and(|c| c.same_game(&this)) { GameAction::StopOpenOnStart } else { GameAction::OpenOnStart })
+}
+
+/// What hiding a game menu's game stores: every copy of a library title, or the one classic entry.
+fn hide_keys_of(host: &Host, game: GameTarget, sources: &[Source<'_>]) -> Vec<crate::config::Favourite> {
+    match game {
+        GameTarget::Library { app, .. } => console::hide_keys(sources, host.id, app),
+        GameTarget::Classic { app } => {
+            let Apps::Loaded(apps) = &host.apps else { return Vec::new() };
+            apps.iter()
+                .find(|a| a.id == app)
+                .map(|a| crate::config::Favourite { host: host.record.unique_id.clone(), install_id: a.uuid.clone(), app_id: a.id as u32, title: a.name.clone() })
+                .into_iter()
+                .collect()
+        }
+    }
 }
 
 /// The classic app entry a game menu's game starts through, once the PC's app list is loaded. A

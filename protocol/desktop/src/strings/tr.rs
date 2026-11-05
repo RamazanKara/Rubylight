@@ -1393,4 +1393,11 @@ sudo sysctl -w net.core.rmem_max={}", "Alma arabelleği: sistem istenen {1} KiB'
     ("Keyboard, mouse and controllers control the PC.", "Klavye, fare ve kumandalar bilgisayarı denetler."),
     ("Input captured.", "Giriş yakalandı."),
     ("Input captured. {} releases it.", "Giriş yakalandı. {} bırakır."),
+    ("Collection", "Koleksiyon"),
+    ("No collection", "Koleksiyonsuz"),
+    ("Hide game", "Oyunu gizle"),
+    ("Show game", "Oyunu göster"),
+    ("Hidden", "Gizli"),
+    ("Show hidden games", "Gizli oyunları göster"),
+    ("Hide hidden games", "Gizli oyunları gizle"),
 ];

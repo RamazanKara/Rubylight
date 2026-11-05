@@ -1393,4 +1393,11 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("Keyboard, mouse and controllers control the PC.", "키보드, 마우스, 컨트롤러로 PC를 조작합니다."),
     ("Input captured.", "입력을 캡처했습니다."),
     ("Input captured. {} releases it.", "입력을 캡처했습니다. {}로 해제합니다."),
+    ("Collection", "컬렉션"),
+    ("No collection", "컬렉션 없음"),
+    ("Hide game", "게임 숨기기"),
+    ("Show game", "게임 표시"),
+    ("Hidden", "숨김"),
+    ("Show hidden games", "숨긴 게임 표시"),
+    ("Hide hidden games", "숨긴 게임 숨기기"),
 ];

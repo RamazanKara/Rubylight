@@ -1393,4 +1393,11 @@ sudo sysctl -w net.core.rmem_max={}", "Bộ đệm nhận: hệ thống chỉ c�
     ("Keyboard, mouse and controllers control the PC.", "Bàn phím, chuột và tay cầm điều khiển PC."),
     ("Input captured.", "Đã chiếm đầu vào."),
     ("Input captured. {} releases it.", "Đã chiếm đầu vào. {} để nhả."),
+    ("Collection", "Bộ sưu tập"),
+    ("No collection", "Không có bộ sưu tập"),
+    ("Hide game", "Ẩn trò chơi"),
+    ("Show game", "Hiện trò chơi"),
+    ("Hidden", "Đã ẩn"),
+    ("Show hidden games", "Hiện trò chơi đã ẩn"),
+    ("Hide hidden games", "Ẩn trò chơi đã ẩn"),
 ];

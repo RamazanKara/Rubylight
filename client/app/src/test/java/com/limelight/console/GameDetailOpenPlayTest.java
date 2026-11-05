@@ -396,6 +396,21 @@ public class GameDetailOpenPlayTest {
     }
 
     @Test
+    public void noNetworkOpensAsUsualWithoutACountdownOrTheGuard() throws Exception {
+        android.net.ConnectivityManager connectivity = (android.net.ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        shadowOf(connectivity).setActiveNetworkInfo(null);
+        open(true, null, null);
+        assertEquals(context.getString(R.string.open_play_no_network),
+                ((TextView) shown().findViewById(android.R.id.message)).getText().toString());
+        pass(5000);
+        assertFalse(OpenPlay.armed(context));
+        assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
+        shown().dismiss();
+        pass(100);
+        assertTrue(screen.isFinishing());
+    }
+
+    @Test
     public void aRecreatedPageDoesNothingByItself() throws Exception {
         open(true, null, new Bundle());
         assertNull(ShadowDialog.getLatestDialog());

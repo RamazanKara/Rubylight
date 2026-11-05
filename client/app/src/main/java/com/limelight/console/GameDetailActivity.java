@@ -2,6 +2,7 @@ package com.limelight.console;
 
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import android.net.ConnectivityManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -219,6 +220,11 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         if (state == null && getIntent().getBooleanExtra(EXTRA_OPEN_PLAY, false)) auto = Auto.WAITING;
     }
 
+    private boolean hasNetwork() {
+        ConnectivityManager connectivity = (ConnectivityManager) getApplicationContext().getSystemService(CONNECTIVITY_SERVICE);
+        return connectivity == null || connectivity.getActiveNetworkInfo() != null;
+    }
+
     /** The 3 seconds in which the player can still say no, naming the game and the PC. */
     private void startCountdown() {
         auto = Auto.COUNTING;
@@ -368,7 +374,15 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         // The game may have started or ended while the stream was in front.
         loadedSignature = null;
         scheduleReload();
-        if (auto == Auto.WAITING && !PinGate.needsPinForApp(this)) startCountdown();
+        if (auto == Auto.WAITING && !PinGate.needsPinForApp(this)) {
+            if (hasNetwork()) {
+                startCountdown();
+            } else {
+                // No countdown and no guard for a start that cannot happen.
+                auto = Auto.GOING;
+                autoFailed(WakeFeedback.said(this, hostNameExtra, getString(R.string.open_play_no_network)));
+            }
+        }
     }
 
     @Override

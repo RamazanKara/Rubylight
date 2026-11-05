@@ -18,6 +18,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Starting on {} in {}", "{1} 秒后在 {0} 上启动"),
     ("Starting on {}", "正在 {} 上启动"),
     ("A game on {} is playing on another device, so Nightjar opened as usual.", "{} 上的游戏正在另一台设备上游玩,因此 Nightjar 照常打开。"),
+    ("No network, so Nightjar opened as usual.", "没有网络,因此 Nightjar 照常打开。"),
     ("Automatic start skipped", "已跳过自动启动"),
     ("{} didn't start last time, so Nightjar opened as usual.", "{} 上次未能启动，因此 Nightjar 照常打开。"),
     ("Could not change the start at sign-in", "无法更改登录时启动"),

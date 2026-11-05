@@ -17,11 +17,16 @@ final class ReplaceRunningPrompt {
     private ReplaceRunningPrompt() {
     }
 
-    /** {@code resume} is null when the running game cannot be resumed from here; the button is left out. */
+    /**
+     * {@code resume} is null when the running game cannot be resumed from here; the button is left out.
+     * {@code running} is null when the PC does not say which game runs; the prompt then does without its name.
+     */
     static AlertDialog build(Context context, String running, String starting, Runnable resume, Runnable replace) {
         MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(context)
-                .setMessage(context.getString(R.string.library_replace_message_running, running, starting))
-                .setPositiveButton(context.getString(R.string.library_replace_close_start, running, starting),
+                .setMessage(running == null ? context.getString(R.string.library_replace_message, starting)
+                        : context.getString(R.string.library_replace_message_running, running, starting))
+                .setPositiveButton(running == null ? context.getString(R.string.library_replace_confirm)
+                                : context.getString(R.string.library_replace_close_start, running, starting),
                         (dialog, which) -> replace.run())
                 .setNegativeButton(android.R.string.cancel, null);
         if (resume != null) {

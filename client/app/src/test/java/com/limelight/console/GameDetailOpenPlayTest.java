@@ -23,6 +23,7 @@ import android.widget.TextView;
 import androidx.appcompat.app.AlertDialog;
 
 import com.limelight.PcViewLifecycleTest;
+import com.limelight.R;
 import com.limelight.computers.ComputerManagerListener;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.nativeapi.NativeApiFixtures;
@@ -180,6 +181,88 @@ public class GameDetailOpenPlayTest {
         assertEquals("Portal", GameDetailWakeTest.Detail.played.get(0));
         assertEquals("once", 1, GameDetailWakeTest.Detail.played.size());
         assertTrue(OpenPlay.armed(context));
+    }
+
+    /** The countdown over with this game reported running on Tower and nothing but that report to go on. */
+    private AlertDialog promptOverRunningGame(int runningId, String runningUuid) throws Exception {
+        open(true, null, null);
+        rig.transport.replies.clear();
+        rig.transport.unreachable("tower");
+        ComputerDetails tower = nativeHost("tower", "Tower", true);
+        tower.runningGameId = runningId;
+        tower.runningGameUuid = runningUuid;
+        feed.update(tower);
+        Dialog countdown = shown();
+        pass(3100);
+        assertTrue(OpenPlay.armed(context));
+        await(() -> ShadowDialog.getLatestDialog() != countdown && ShadowDialog.getLatestDialog().isShowing());
+        return shown();
+    }
+
+    @Test
+    public void anAutomaticStartNeverReplacesAGameTheModelMissed() throws Exception {
+        AlertDialog prompt = promptOverRunningGame(99, null);
+        assertEquals(context.getString(R.string.library_replace_message, "Portal"),
+                ((TextView) prompt.findViewById(android.R.id.message)).getText().toString());
+        pass(5000);
+        Thread.sleep(200);
+        pass(1000);
+        assertTrue("nothing starts without the player", GameDetailWakeTest.Detail.played.isEmpty());
+        assertFalse("the player decides now", OpenPlay.armed(context));
+        assertFalse(screen.isFinishing());
+    }
+
+    @Test
+    public void thePlayersYesInThatPromptStartsTheGame() throws Exception {
+        promptOverRunningGame(99, null).getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        await(() -> !GameDetailWakeTest.Detail.played.isEmpty());
+        assertEquals("Portal", GameDetailWakeTest.Detail.played.get(0));
+    }
+
+    @Test
+    public void aGameOnlyItsUuidTellsApartIsAskedAboutToo() throws Exception {
+        promptOverRunningGame(0, "uuid-of-another-game").getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        await(() -> !GameDetailWakeTest.Detail.played.isEmpty());
+        assertEquals("the game named is still what runs, so the start goes on", "Portal", GameDetailWakeTest.Detail.played.get(0));
+    }
+
+    @Test
+    public void thisGameRunningThereIsNoReplacementSoItStartsWithoutAPrompt() throws Exception {
+        open(true, null, null);
+        ComputerDetails tower = nativeHost("tower", "Tower", true);
+        tower.runningGameId = 11;
+        feed.update(tower);
+        pass(3100);
+        await(() -> !GameDetailWakeTest.Detail.played.isEmpty());
+    }
+
+    @Test
+    public void aPromptOfTheModelsOwnNamesTheGame() throws Exception {
+        open(true, null, null);
+        rig.transport.reply("tower", "library", ok(library("r2", game("t-portal", 11, "Portal", "steam:400", false),
+                game("t-zelda", 22, "Zelda", "steam:500", true))));
+        ComputerDetails tower = nativeHost("tower", "Tower", true);
+        tower.runningGameId = 22;
+        feed.update(tower);
+        Dialog countdown = shown();
+        pass(3100);
+        await(() -> ShadowDialog.getLatestDialog() != countdown && ShadowDialog.getLatestDialog().isShowing());
+        assertEquals(context.getString(R.string.library_replace_message_running, "Zelda", "Portal"),
+                ((TextView) shown().findViewById(android.R.id.message)).getText().toString());
+        assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
+    }
+
+    @Test
+    public void aPollsRedrawOfWhatThePageHasIsNotEnoughToAct() throws Exception {
+        open(true, null, null);
+        await(() -> ReflectionHelpers.<Boolean>getField(screen, "modelLive"));
+        // What a poll's reload does: the saved page again, without a read of the PC.
+        ReflectionHelpers.setField(screen, "modelLive", false);
+        int reads = rig.transport.calls.size();
+        pass(3100);
+        assertTrue("the countdown's end", OpenPlay.armed(context));
+        assertTrue("no start on it", GameDetailWakeTest.Detail.played.isEmpty());
+        await(() -> rig.transport.calls.size() > reads && !GameDetailWakeTest.Detail.played.isEmpty());
     }
 
     @Test

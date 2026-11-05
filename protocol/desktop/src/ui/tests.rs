@@ -946,7 +946,7 @@ fn a_dialog_whose_button_is_wholly_below_the_window_does_not_fit() {
         let mut button = Rect::NOTHING;
         for _ in 0..4 {
             let mut output = ctx.run_ui(raw.clone(), |ui| {
-                egui::Modal::new(egui::Id::new("dialog")).show(ui.ctx(), |ui| {
+                egui::Modal::new(egui::Id::unique("dialog")).show(ui.ctx(), |ui| {
                     for row in 0..rows {
                         ui.label(format!("Row {row}"));
                         ui.add_space(100.0);

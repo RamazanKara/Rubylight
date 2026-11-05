@@ -30,7 +30,8 @@ export function consoleFailure(why: Failure, offered: Offered | null): string {
   switch (why) {
     case 'no-try':
       if (offered && isLoopback(offered.address)) {
-        return `This browser does not stream from this PC’s loopback address, ${offered.address}. Open the console at this PC’s network address instead, or use Chrome or Edge.`;
+        // The host offers its network address when it has one, so it is bound to loopback or the PC has no network.
+        return `This browser does not stream from this PC’s loopback address, ${offered.address}, the only address the host can offer. Use Chrome or Edge instead.`;
       }
       return `This browser did not try to reach the PC at ${where}. A browser setting or extension that limits WebRTC, or a VPN, usually causes this: turn it off for this page and try again.`;
     case 'no-answer':

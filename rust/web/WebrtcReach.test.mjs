@@ -134,7 +134,7 @@ test('a connection the page closed says nothing', async () => {
 test('the words name the cause, the port and the fix', () => {
   const lan = { address: '192.168.4.69', port: 8001 };
   const loop = { address: '127.0.0.1', port: 8001 };
-  assert.match(reach.consoleFailure('no-try', loop), /loopback address, 127\.0\.0\.1.*network address.*Chrome or Edge/);
+  assert.match(reach.consoleFailure('no-try', loop), /loopback address, 127\.0\.0\.1.*only address.*Chrome or Edge/);
   assert.match(reach.consoleFailure('no-try', { address: '::1', port: 8001 }), /loopback/);
   assert.match(reach.consoleFailure('no-try', lan), /192\.168\.4\.69, UDP port 8001.*extension.*VPN/);
   assert.match(reach.consoleFailure('no-answer', lan), /did not answer at 192\.168\.4\.69, UDP port 8001.*firewall on the PC/);

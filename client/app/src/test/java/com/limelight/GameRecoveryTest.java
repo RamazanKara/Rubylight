@@ -487,11 +487,251 @@ public class GameRecoveryTest {
     /** A connection on a PC that says the stream moved to {@code device}, and notes whether a recovery was to follow. */
     private static MuteConnection movedTo(String device, java.util.List<Boolean> asked) {
         return new MuteConnection() {
+            @Override public boolean offersContinueHere() { return true; }
             @Override public String streamMovedTo(boolean recoveryFollows) {
                 asked.add(recoveryFollows);
                 return recoveryFollows ? null : device;
             }
         };
+    }
+
+    /** Runs the UI thread until {@code done}: what runs off it answers on its own time. */
+    private static void awaitOnUi(java.util.function.BooleanSupplier done) throws InterruptedException {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(HANG_GUARD_MS);
+        while (!done.getAsBoolean() && System.nanoTime() < deadline) {
+            Thread.sleep(5);
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+        }
+        assertTrue(done.getAsBoolean());
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aRecoveryThatWasExpectedButRefusedStillShowsTheMove() throws Exception {
+        Game game = establishedGame();
+        java.util.List<Boolean> asked = new java.util.ArrayList<>();
+        ReflectionHelpers.setField(game, "conn", movedTo("TV", asked));
+        long now = SystemClock.elapsedRealtime();
+        ReflectionHelpers.setField(game, "recoveryPolicy", new StreamRecoveryPolicy(StreamRecoveryPolicy.MAX_ATTEMPTS, now));
+        ReflectionHelpers.setField(game.streamRecovery, "connectedAt", now);
+        try {
+            game.connectionTerminated(-1);
+            assertNull("the UI thread does not wait for the read", ReflectionHelpers.getField(game, "streamMenu"));
+            awaitOnUi(() -> ReflectionHelpers.getField(game, "streamMenu") != null);
+            assertEquals("told first that a recovery follows, then asked", java.util.List.of(true, false), asked);
+            assertMovedPrompt(game, game.getString(R.string.continue_here_now_playing, "TV"));
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aRecoveryThatWasExpectedButRefusedWithoutAMoveShowsTheError() throws Exception {
+        Game game = establishedGame();
+        ReflectionHelpers.setField(game, "conn", new MuteConnection() {
+            @Override public boolean offersContinueHere() { return true; }
+            @Override public String streamMovedTo(boolean recoveryFollows) { return null; }
+            @Override public boolean hasEndedSession() { return false; }
+        });
+        long now = SystemClock.elapsedRealtime();
+        ReflectionHelpers.setField(game, "recoveryPolicy", new StreamRecoveryPolicy(StreamRecoveryPolicy.MAX_ATTEMPTS, now));
+        ReflectionHelpers.setField(game.streamRecovery, "connectedAt", now);
+        try {
+            game.connectionTerminated(-1);
+            awaitOnUi(() -> ReflectionHelpers.getField(game, "streamMenu") != null);
+            assertFalse(game.isFinishing());
+            assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    private static final String STILL_MOVED = "{\"moved_to\":{\"device\":\"TV\",\"since_unix_ms\":5}}";
+    private static final String GAME_BACK = "{\"owns_game\":true}";
+
+    /** A PC that gives these answers to its reads, the last one for good; null is no answer at all. */
+    private static com.limelight.nativeapi.NativeApiClient pcAnswering(java.util.concurrent.atomic.AtomicInteger reads, String... answers) {
+        return new com.limelight.nativeapi.NativeApiClient((host, op, argument) -> {
+            String answer = answers[Math.min(reads.getAndIncrement(), answers.length - 1)];
+            if (answer == null) {
+                throw new com.limelight.nativeapi.NativeApiException(
+                        com.limelight.nativeapi.NativeApiException.Kind.NETWORK, "refused");
+            }
+            return "{\"ok\":" + answer + "}";
+        }, new com.limelight.nativeapi.HostEndpoint("pc", "192.0.2.1", 47989, 47984, "pem", "device", new byte[0], new byte[0]));
+    }
+
+    /** A stream that ended on the move to the TV, with its prompt open and watching {@code pc}. */
+    private Game movedAwayFrom(com.limelight.nativeapi.NativeApiClient pc) {
+        Game game = establishedGame();
+        PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+        prefs.autoReconnect = false;
+        ReflectionHelpers.setField(game, "conn", new MuteConnection() {
+            @Override public String streamMovedTo(boolean recoveryFollows) { return "TV"; }
+            @Override public com.limelight.nativeapi.NativeApiClient nativeApiClient() { return pc; }
+        });
+        game.connectionTerminated(-1);
+        return game;
+    }
+
+    private static void passWatchInterval() {
+        org.robolectric.shadows.ShadowLooper.idleMainLooper(3, java.util.concurrent.TimeUnit.SECONDS);
+    }
+
+    /** The watch's interval passes until the PC was read {@code count} times and the UI thread heard the last answer. */
+    private static void awaitReads(java.util.concurrent.atomic.AtomicInteger reads, int count) throws InterruptedException {
+        awaitOnUi(() -> {
+            passWatchInterval();
+            return reads.get() >= count;
+        });
+        // The answer is on its way to the UI thread.
+        for (int i = 0; i < 20; i++) {
+            Thread.sleep(5);
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+        }
+    }
+
+    private static String promptTitle(Game game) {
+        android.app.Dialog prompt = ReflectionHelpers.getField(game, "streamMenu");
+        assertNotNull(prompt);
+        android.widget.TextView text = prompt.findViewById(androidx.appcompat.R.id.alertTitle);
+        return text.getText().toString();
+    }
+
+    private static android.widget.Button promptButton(Game game, int which) {
+        androidx.appcompat.app.AlertDialog prompt = ReflectionHelpers.getField(game, "streamMenu");
+        return prompt.getButton(which);
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aMoveThatFailsTurnsThePromptIntoAnOfferToResume() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        Game game = movedAwayFrom(pcAnswering(reads, STILL_MOVED, null, GAME_BACK));
+        try {
+            assertMovedPrompt(game, game.getString(R.string.continue_here_now_playing, "TV"));
+            assertEquals("nothing is read on the UI thread, nor at once", 0, reads.get());
+            awaitReads(reads, 3);
+            assertEquals(game.getString(R.string.continue_here_came_back), promptTitle(game));
+            int after = reads.get();
+            passWatchInterval();
+            assertEquals("nothing left to watch", after, reads.get());
+
+            promptButton(game, android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+            awaitOnUi(() -> game.isFinishing());
+            Intent started = org.robolectric.Shadows.shadowOf(game).getNextStartedActivity();
+            assertEquals(Game.class.getName(), started.getComponent().getClassName());
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aReadThatFailsOrStillSaysMovedChangesNothing() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        Game game = movedAwayFrom(pcAnswering(reads, STILL_MOVED, null));
+        try {
+            awaitReads(reads, 3);
+            assertMovedPrompt(game, game.getString(R.string.continue_here_now_playing, "TV"));
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void okOnTheOfferJustLeaves() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        Game game = movedAwayFrom(pcAnswering(reads, GAME_BACK));
+        try {
+            awaitReads(reads, 1);
+            assertEquals(game.getString(R.string.continue_here_came_back), promptTitle(game));
+            promptButton(game, android.content.DialogInterface.BUTTON_NEGATIVE).performClick();
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertTrue(game.isFinishing());
+            assertNull("nothing reconnects", org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void underThePinLockTheOfferResumesBehindThePinScreen() throws Exception {
+        com.limelight.pin.PinGate.resetForTests();
+        Application application = org.robolectric.RuntimeEnvironment.getApplication();
+        com.limelight.pin.PinStore store = new com.limelight.pin.PinStore(application);
+        store.setPin("2468".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        store.setMode(com.limelight.pin.PinStore.Mode.STREAMS);
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        Game game = movedAwayFrom(pcAnswering(reads, GAME_BACK));
+        try {
+            assertNull("the moved prompt itself has only OK",
+                    promptButton(game, android.content.DialogInterface.BUTTON_NEGATIVE).getVisibility() == android.view.View.VISIBLE ? "shown" : null);
+            awaitReads(reads, 1);
+            assertEquals(game.getString(R.string.continue_here_came_back), promptTitle(game));
+            promptButton(game, android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+            awaitOnUi(() -> game.isFinishing());
+            Intent started = org.robolectric.Shadows.shadowOf(game).getNextStartedActivity();
+            assertEquals(com.limelight.pin.PinLockActivity.class.getName(), started.getComponent().getClassName());
+            Intent next = started.getParcelableExtra(com.limelight.pin.PinLockActivity.EXTRA_NEXT);
+            assertEquals("the PIN screen starts the stream", Game.class.getName(), next.getComponent().getClassName());
+        } finally {
+            cleanupRecovery(game);
+            store.setMode(com.limelight.pin.PinStore.Mode.OFF);
+            com.limelight.pin.PinGate.resetForTests();
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aNoteThatRanOutWithTheGameElsewhereOffersNothingAndEndsTheWatch() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        Game game = movedAwayFrom(pcAnswering(reads, "{\"owner\":\"other_device\"}"));
+        try {
+            awaitReads(reads, 1);
+            assertMovedPrompt(game, game.getString(R.string.continue_here_now_playing, "TV"));
+            passWatchInterval();
+            assertEquals(1, reads.get());
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aClosedPromptEndsTheWatch() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        Game game = movedAwayFrom(pcAnswering(reads, STILL_MOVED));
+        try {
+            awaitReads(reads, 1);
+            int before = reads.get();
+            android.app.Dialog prompt = ReflectionHelpers.getField(game, "streamMenu");
+            prompt.dismiss();
+            for (int i = 0; i < 3; i++) passWatchInterval();
+            Thread.sleep(50);
+            assertEquals(before, reads.get());
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aPcThatNeverAnswersIsNotAskedForever() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        Game game = movedAwayFrom(pcAnswering(reads, (String) null));
+        try {
+            awaitReads(reads, GameConnection.MOVE_WATCH_READS);
+            passWatchInterval();
+            Thread.sleep(50);
+            assertEquals(GameConnection.MOVE_WATCH_READS, reads.get());
+            assertMovedPrompt(game, game.getString(R.string.continue_here_now_playing, "TV"));
+        } finally {
+            cleanupRecovery(game);
+        }
     }
 
     private static void assertMovedPrompt(Game game, String title) {

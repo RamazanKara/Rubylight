@@ -122,6 +122,51 @@ public class NvConnectionRecoveryTest {
         }
     }
 
+    /** A PC that offers Continue here, whose native API answers with {@code transport}. */
+    private static NvConnection offering(com.limelight.nativeapi.NativeApiTransport transport) {
+        NvApp app = new NvApp("Game", 73, false);
+        app.setAppUuid("game-a");
+        NvConnection connection = new NvConnection(RuntimeEnvironment.getApplication(),
+                new ComputerDetails.AddressTuple("192.0.2.1", 47989), 47984, "device",
+                new StreamConfiguration.Builder().setApp(app).setResumeOnly(true).setAllowIdleSessionEnd(true)
+                        .setResolution(1280, 720).setRefreshRate(60)
+                        .setSupportedVideoFormats(MoonBridge.VIDEO_FORMAT_H264).build(), crypto(), null) {
+            @Override public boolean offersContinueHere() { return true; }
+            @Override public com.limelight.nativeapi.HostEndpoint hostEndpoint() {
+                return new com.limelight.nativeapi.HostEndpoint("test-host", "192.0.2.1", 47989, 47984,
+                        "pem", "device", new byte[0], new byte[0]);
+            }
+        };
+        connection.setNativeApiTransport(transport);
+        return connection;
+    }
+
+    @Test public void aResumeThatCannotAskWhetherTheStreamMovedFailsAsATransportFailureARecoveryRetries() throws Exception {
+        FakeHost.initial = serverInfo("SUNSHINE_SERVER_BUSY", 99, "game-b", true, -1);
+        NvConnection connection = offering((host, op, argument) -> {
+            throw new com.limelight.nativeapi.NativeApiException(
+                    com.limelight.nativeapi.NativeApiException.Kind.NETWORK, "refused");
+        });
+        Result result = start(connection);
+        assertEquals(List.of(0), result.failures);
+        assertEquals(List.of(MoonBridge.ML_PORT_FLAG_TCP_47984 | MoonBridge.ML_PORT_FLAG_TCP_47989), result.failurePorts);
+        assertEquals("the stream's end still reads as no answer", null, connection.streamMovedTo(false));
+    }
+
+    @Test public void aResumeThatAsksAndHearsNothingMovedKeepsItsVerdict() throws Exception {
+        FakeHost.initial = serverInfo("SUNSHINE_SERVER_BUSY", 99, "game-b", true, -1);
+        Result result = start(offering((host, op, argument) -> "{\"ok\":{}}"));
+        assertEquals(List.of(0), result.failures);
+        assertEquals("not a transport failure: nothing retries", List.of(0), result.failurePorts);
+    }
+
+    @Test public void aResumeThatHearsTheStreamMovedSaysSo() throws Exception {
+        FakeHost.initial = serverInfo("SUNSHINE_SERVER_BUSY", 99, "game-b", true, -1);
+        Result result = start(offering(
+                (host, op, argument) -> "{\"ok\":{\"moved_to\":{\"device\":\"TV\",\"since_unix_ms\":5}}}"));
+        assertEquals(List.of("TV"), result.movedTo);
+    }
+
     @Test public void firstLaunchStillLaunchesAndIts503RemainsAnError() throws Exception {
         FakeHost.initial = FakeHost.probed;
         FakeHost.resumeFailure = new HostHttpResponseException(503, "Encoder failure");
@@ -206,12 +251,18 @@ public class NvConnectionRecoveryTest {
     }
 
     private static Result start(boolean recovery, boolean allowIdleSessionEnd) throws Exception {
-        NvConnection connection = connection(recovery, allowIdleSessionEnd);
+        return start(connection(recovery, allowIdleSessionEnd));
+    }
+
+    private static Result start(NvConnection connection) throws Exception {
         Result result = new Result();
         NvConnectionListener listener = (NvConnectionListener) Proxy.newProxyInstance(
                 NvConnectionListener.class.getClassLoader(), new Class<?>[] {NvConnectionListener.class},
                 (proxy, method, args) -> {
-                    if (method.getName().equals("stageFailed")) result.failures.add((Integer) args[2]);
+                    if (method.getName().equals("stageFailed")) {
+                        result.failurePorts.add((Integer) args[1]);
+                        result.failures.add((Integer) args[2]);
+                    } else if (method.getName().equals("streamMoved")) result.movedTo.add((String) args[0]);
                     else if (method.getName().equals("connectionTerminated")) result.terminations.add((Integer) args[0]);
                     return null;
                 });
@@ -247,6 +298,8 @@ public class NvConnectionRecoveryTest {
 
     private static class Result {
         final List<Integer> failures = new ArrayList<>();
+        final List<Integer> failurePorts = new ArrayList<>();
+        final List<String> movedTo = new ArrayList<>();
         final List<Integer> terminations = new ArrayList<>();
         int cleanups;
     }

@@ -1,3 +1,3 @@
 ## en
 - Continue here moves a running game between devices in one press. Select the game another device is playing and Nightjar says where it is playing, with Continue here, Stream here too and Cancel. The other device's stream ends, the game keeps running and the picture comes to you.
-- A device whose stream moved stays put and shows "Now playing on" the new device, with Continue here to take it back. It never reconnects by itself.
+- A device whose stream moved stays put and shows "Now playing on" the new device, with Continue here to take it back. It never reconnects by itself. If the move fails, the prompt says the game came back and offers to resume it.

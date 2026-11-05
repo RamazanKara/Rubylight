@@ -100,6 +100,11 @@ public class PinLockActivity extends NightjarActivity {
         return intent;
     }
 
+    /** Asks before {@code next}, a resume of the stream that the stream screen itself started and then left for this. */
+    public static Intent forResume(Context context, Intent next, String pcName) {
+        return base(context, Purpose.STREAM).putExtra(EXTRA_NEXT, next).putExtra(EXTRA_PC_NAME, pcName);
+    }
+
     private void recordRecent() {
         Intent in = getIntent();
         if (!in.hasExtra(EXTRA_RECENT_HOST)) return;

@@ -22,6 +22,7 @@ import com.limelight.computers.HostCapabilityCache;
 import com.limelight.computers.HostNotices;
 import com.limelight.nativeapi.NativeApiClient;
 import com.limelight.nativeapi.NativeApiException;
+import com.limelight.nativeapi.StreamMove;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.av.audio.AudioRenderer;
@@ -972,124 +973,146 @@ final class GameConnection {
                 game.recoveryBudgetExhausted = false;
                 if (transientFailure && game.streamRecovery.tryAutomaticRecovery()) return;
                 final boolean recoveryExhausted = transientFailure && game.recoveryBudgetExhausted;
-                if (!game.foreground && transientFailure) game.streamRecovery.rememberStreamForResume(false);
-                // Let the display go to sleep now
-                game.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-
-                // Stop processing controller input
-                if (game.controllerHandler != null) game.controllerHandler.stop();
-
-                // Ungrab input
-                game.touchInput.setInputGrabState(false);
-
-                if (!game.displayedFailureDialog) {
-                    game.displayedFailureDialog = true;
-                    stopConnection();
-
-                    if (movedTo != null) {
-                        showMovedPrompt(movedTo, moveClient);
-                        return;
-                    }
-
-                    // Display the error dialog if it was an unexpected termination.
-                    // Otherwise, just finish the activity immediately.
-                    if (errorCode != MoonBridge.ML_ERROR_GRACEFUL_TERMINATION) {
-                        String message;
-
-                        if (portTestResult != MoonBridge.ML_TEST_RESULT_INCONCLUSIVE && portTestResult != 0) {
-                            // If we got a blocked result, that supersedes any other error message
-                            message = game.getResources().getString(R.string.nettest_text_blocked);
-                        }
-                        else {
-                            switch (errorCode) {
-                                case MoonBridge.ML_ERROR_NO_VIDEO_TRAFFIC:
-                                    message = game.getResources().getString(R.string.no_video_received_error);
-                                    break;
-
-                                case MoonBridge.ML_ERROR_NO_VIDEO_FRAME:
-                                    MediaCodecDecoderRenderer frames = game.decoderRenderer;
-                                    message = game.getResources().getString(frames != null && frames.isPyroWaveHlgLost() ?
-                                            R.string.stream_hdr_pyrowave_hlg_lost : R.string.no_frame_received_error);
-                                    break;
-
-                                case MoonBridge.ML_ERROR_UNEXPECTED_EARLY_TERMINATION:
-                                    // The PC closed the stream before its first picture: often the
-                                    // game simply exited, not protected content.
-                                    message = game.getResources().getString(R.string.early_stop_error);
-                                    break;
-
-                                case MoonBridge.ML_ERROR_PROTECTED_CONTENT:
-                                    message = game.getResources().getString(R.string.early_termination_error);
-                                    break;
-
-                                case MoonBridge.ML_ERROR_FRAME_CONVERSION:
-                                    message = game.getResources().getString(R.string.frame_conversion_error);
-                                    break;
-
-                                case MoonBridge.CLIENT_ERROR_VULKAN_RENDERER:
-                                    MediaCodecDecoderRenderer renderer = game.decoderRenderer;
-                                    String failure = renderer != null ? renderer.getVulkanFailure() : null;
-                                    message = game.getResources().getString(R.string.vulkan_renderer_failed,
-                                            failure != null ? failure : game.getResources().getString(R.string.vulkan_failure_unknown));
-                                    break;
-
-                                case MoonBridge.CLIENT_ERROR_DECODER:
-                                    MediaCodecDecoderRenderer decoder = game.decoderRenderer;
-                                    String reason = decoder != null ? decoder.getDecoderFailure() : null;
-                                    message = game.getResources().getString(StreamExitPolicy.decoderFailureMessage(
-                                                    decoder != null && decoder.decoderFailedWithVulkan()),
-                                            reason != null ? reason : game.getResources().getString(R.string.vulkan_failure_unknown));
-                                    break;
-
-                                default:
-                                    message = game.getResources().getString(R.string.conn_terminated_msg) + "\n\n" +
-                                            game.getResources().getString(R.string.error_code_prefix) + " " + Game.errorCodeText(errorCode);
-                                    if (game.prefConfig != null &&
-                                            NetworkGrace.mayHaveGivenUp(game.prefConfig.networkGraceSeconds, errorCode)) {
-                                        message = game.getResources().getString(R.string.network_grace_gave_up,
-                                                game.prefConfig.networkGraceSeconds) + "\n\n" + message;
-                                    }
-                                    break;
-                            }
-                        }
-
-                        if (hostFailure != null) {
-                            message += "\n\n" + game.getResources().getString(R.string.host_failure_reason, hostFailure);
-                        }
-
-                        if (portFlags != 0) {
-                            message += "\n\n" + game.getResources().getString(R.string.check_ports_msg) + "\n" +
-                                    MoonBridge.stringifyPortFlags(portFlags, "\n");
-                        }
-
-                        boolean portTestBlocked = portTestResult != MoonBridge.ML_TEST_RESULT_INCONCLUSIVE &&
-                                portTestResult != 0;
-                        boolean graceGaveUp = game.prefConfig != null &&
-                                NetworkGrace.mayHaveGivenUp(game.prefConfig.networkGraceSeconds, errorCode);
-                        // The PC's reason is worth reading: it often says what to change.
-                        if (game.foreground && (game.stoppedStreamResumeIntent != null || hostFailure != null ||
-                                StreamExitPolicy.terminationNeedsAction(errorCode, portTestBlocked,
-                                        graceGaveUp, recoveryExhausted))) {
-                            game.streamRecovery.showReconnectDialog(R.string.conn_terminated_title, message);
-                        } else if (game.foreground) {
-                            // The host went away or the connection was lost: nothing to act on, so
-                            // go back to the list and say why where it outlives this screen. Android
-                            // 12+ shows two lines of a text toast, so it is the title and the code.
-                            Toast.makeText(game.getApplicationContext(),
-                                    game.getString(R.string.conn_terminated_title) + "\n" +
-                                            game.getString(R.string.error_code_prefix) + " " + Game.errorCodeText(errorCode),
-                                    Toast.LENGTH_LONG).show();
-                            game.finish();
-                        } else if (game.stoppedStreamResumeIntent == null) {
-                            game.finish();
-                        }
-                    }
-                    else {
-                        game.finish();
-                    }
+                // The recovery this end counted on when it skipped the read did not come: ask now, off this thread.
+                final NvConnection connection = game.conn;
+                if (recoveryFollows && mayHaveMoved && connection != null && connection.offersContinueHere()
+                        && !game.displayedFailureDialog) {
+                    new Thread(() -> {
+                        final String late = connection.streamMovedTo(false);
+                        final NativeApiClient lateClient = late != null ? connection.nativeApiClient() : null;
+                        if (late != null) LimeLog.info("Connection terminated: the stream moved to " + late);
+                        game.runOnUiThread(() -> {
+                            if (game.isFinishing() || game.isDestroyed()) return;
+                            endTerminatedStream(errorCode, late, lateClient, ContinueHerePolicy.recovers(transientFailure, late != null),
+                                    recoveryExhausted && late == null, hostFailure, portFlags, portTestResult);
+                        });
+                    }, "Stream move").start();
+                    return;
                 }
+                endTerminatedStream(errorCode, movedTo, moveClient, transientFailure, recoveryExhausted, hostFailure, portFlags, portTestResult);
             }
         });
+    }
+
+    /** What is left of a stream that ended and does not reconnect: says why, or just goes back. On the UI thread. */
+    private void endTerminatedStream(int errorCode, String movedTo, NativeApiClient moveClient, boolean transientFailure,
+                                     boolean recoveryExhausted, String hostFailure, int portFlags, int portTestResult) {
+        if (!game.foreground && transientFailure) game.streamRecovery.rememberStreamForResume(false);
+        // Let the display go to sleep now
+        game.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+        // Stop processing controller input
+        if (game.controllerHandler != null) game.controllerHandler.stop();
+
+        // Ungrab input
+        game.touchInput.setInputGrabState(false);
+
+        if (!game.displayedFailureDialog) {
+            game.displayedFailureDialog = true;
+            stopConnection();
+
+            if (movedTo != null) {
+                showMovedPrompt(movedTo, moveClient);
+                return;
+            }
+
+            // Display the error dialog if it was an unexpected termination.
+            // Otherwise, just finish the activity immediately.
+            if (errorCode != MoonBridge.ML_ERROR_GRACEFUL_TERMINATION) {
+                String message;
+
+                if (portTestResult != MoonBridge.ML_TEST_RESULT_INCONCLUSIVE && portTestResult != 0) {
+                    // If we got a blocked result, that supersedes any other error message
+                    message = game.getResources().getString(R.string.nettest_text_blocked);
+                }
+                else {
+                    switch (errorCode) {
+                        case MoonBridge.ML_ERROR_NO_VIDEO_TRAFFIC:
+                            message = game.getResources().getString(R.string.no_video_received_error);
+                            break;
+
+                        case MoonBridge.ML_ERROR_NO_VIDEO_FRAME:
+                            MediaCodecDecoderRenderer frames = game.decoderRenderer;
+                            message = game.getResources().getString(frames != null && frames.isPyroWaveHlgLost() ?
+                                    R.string.stream_hdr_pyrowave_hlg_lost : R.string.no_frame_received_error);
+                            break;
+
+                        case MoonBridge.ML_ERROR_UNEXPECTED_EARLY_TERMINATION:
+                            // The PC closed the stream before its first picture: often the
+                            // game simply exited, not protected content.
+                            message = game.getResources().getString(R.string.early_stop_error);
+                            break;
+
+                        case MoonBridge.ML_ERROR_PROTECTED_CONTENT:
+                            message = game.getResources().getString(R.string.early_termination_error);
+                            break;
+
+                        case MoonBridge.ML_ERROR_FRAME_CONVERSION:
+                            message = game.getResources().getString(R.string.frame_conversion_error);
+                            break;
+
+                        case MoonBridge.CLIENT_ERROR_VULKAN_RENDERER:
+                            MediaCodecDecoderRenderer renderer = game.decoderRenderer;
+                            String failure = renderer != null ? renderer.getVulkanFailure() : null;
+                            message = game.getResources().getString(R.string.vulkan_renderer_failed,
+                                    failure != null ? failure : game.getResources().getString(R.string.vulkan_failure_unknown));
+                            break;
+
+                        case MoonBridge.CLIENT_ERROR_DECODER:
+                            MediaCodecDecoderRenderer decoder = game.decoderRenderer;
+                            String reason = decoder != null ? decoder.getDecoderFailure() : null;
+                            message = game.getResources().getString(StreamExitPolicy.decoderFailureMessage(
+                                            decoder != null && decoder.decoderFailedWithVulkan()),
+                                    reason != null ? reason : game.getResources().getString(R.string.vulkan_failure_unknown));
+                            break;
+
+                        default:
+                            message = game.getResources().getString(R.string.conn_terminated_msg) + "\n\n" +
+                                    game.getResources().getString(R.string.error_code_prefix) + " " + Game.errorCodeText(errorCode);
+                            if (game.prefConfig != null &&
+                                    NetworkGrace.mayHaveGivenUp(game.prefConfig.networkGraceSeconds, errorCode)) {
+                                message = game.getResources().getString(R.string.network_grace_gave_up,
+                                        game.prefConfig.networkGraceSeconds) + "\n\n" + message;
+                            }
+                            break;
+                    }
+                }
+
+                if (hostFailure != null) {
+                    message += "\n\n" + game.getResources().getString(R.string.host_failure_reason, hostFailure);
+                }
+
+                if (portFlags != 0) {
+                    message += "\n\n" + game.getResources().getString(R.string.check_ports_msg) + "\n" +
+                            MoonBridge.stringifyPortFlags(portFlags, "\n");
+                }
+
+                boolean portTestBlocked = portTestResult != MoonBridge.ML_TEST_RESULT_INCONCLUSIVE &&
+                        portTestResult != 0;
+                boolean graceGaveUp = game.prefConfig != null &&
+                        NetworkGrace.mayHaveGivenUp(game.prefConfig.networkGraceSeconds, errorCode);
+                // The PC's reason is worth reading: it often says what to change.
+                if (game.foreground && (game.stoppedStreamResumeIntent != null || hostFailure != null ||
+                        StreamExitPolicy.terminationNeedsAction(errorCode, portTestBlocked,
+                                graceGaveUp, recoveryExhausted))) {
+                    game.streamRecovery.showReconnectDialog(R.string.conn_terminated_title, message);
+                } else if (game.foreground) {
+                    // The host went away or the connection was lost: nothing to act on, so
+                    // go back to the list and say why where it outlives this screen. Android
+                    // 12+ shows two lines of a text toast, so it is the title and the code.
+                    Toast.makeText(game.getApplicationContext(),
+                            game.getString(R.string.conn_terminated_title) + "\n" +
+                                    game.getString(R.string.error_code_prefix) + " " + Game.errorCodeText(errorCode),
+                            Toast.LENGTH_LONG).show();
+                    game.finish();
+                } else if (game.stoppedStreamResumeIntent == null) {
+                    game.finish();
+                }
+            }
+            else {
+                game.finish();
+            }
+        }
     }
 
     void connectionStatusUpdate(final int connectionStatus) {
@@ -1312,9 +1335,16 @@ final class GameConnection {
         });
     }
 
+    /** How often an open "Now playing on X" asks the PC whether the move failed. */
+    private static final long MOVE_WATCH_MS = 3000;
+    /** How many times it asks: past the two minutes the PC keeps its note, even one that never answers. */
+    @androidx.annotation.VisibleForTesting
+    static final int MOVE_WATCH_READS = 50;
+
     /**
      * "Now playing on X" with OK and, on a PC this device may ask, Continue here. Under the PIN lock only OK: the stream
-     * screen has no way back from the PIN screen, so taking the stream back goes through the library, which asks.
+     * screen has no way back from the PIN screen, so taking the stream back goes through the library, which asks. Either
+     * way it watches the PC while it is open, since a move that fails gives the game back.
      */
     private void showMovedPrompt(String device, NativeApiClient client) {
         NavigationDialogBuilder builder = new NavigationDialogBuilder(game);
@@ -1324,7 +1354,48 @@ final class GameConnection {
         if (client != null && !PinGate.streamLocked(game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID))) {
             builder.setNegativeButton(R.string.continue_here_action, (dialog, which) -> takeStreamBack(client));
         }
-        game.menuActions.showStreamDialog(builder.create());
+        android.app.Dialog prompt = builder.create();
+        game.menuActions.showStreamDialog(prompt);
+        if (client != null) watchMovedPrompt(prompt, client, MOVE_WATCH_READS);
+    }
+
+    /** One read of the PC, off the UI thread, while {@code prompt} is open; a closed prompt ends this. */
+    private void watchMovedPrompt(android.app.Dialog prompt, NativeApiClient client, int readsLeft) {
+        if (readsLeft <= 0) return;
+        game.bitrateHandler.postDelayed(() -> {
+            if (!prompt.isShowing() || game.isFinishing() || game.isDestroyed()) return;
+            new Thread(() -> {
+                StreamMove read = null;
+                try {
+                    read = client.streamMove();
+                } catch (NativeApiException e) {
+                    LimeLog.info("Could not ask the PC whether the move failed: " + e.getMessage());
+                }
+                final StreamMove answer = read;
+                game.runOnUiThread(() -> {
+                    if (!prompt.isShowing() || game.isFinishing() || game.isDestroyed()) return;
+                    if (answer == null || answer.movedTo != null) {
+                        watchMovedPrompt(prompt, client, readsLeft - 1);
+                    } else if (ContinueHerePolicy.cameBack(false, answer.ownedHere)) {
+                        LimeLog.info("The move failed; the game is this device's again");
+                        prompt.dismiss();
+                        showCameBackPrompt();
+                    }
+                    // Otherwise the note ran out with the game elsewhere, or the game ended: what it said stands.
+                });
+            }, "Moved prompt").start();
+        }, MOVE_WATCH_MS);
+    }
+
+    /** The move failed: the game is this device's again, for a minute before close-on-disconnect applies. Resuming asks for the PIN where the lock covers this PC. */
+    private void showCameBackPrompt() {
+        game.menuActions.showStreamDialog(new NavigationDialogBuilder(game)
+                .setTitle(R.string.continue_here_came_back)
+                .setCancelable(false)
+                .setPositiveButton(R.string.applist_menu_resume, (dialog, which) -> game.streamRecovery.reconnectStream(
+                        PinGate.needsPinForStream(game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID))))
+                .setNegativeButton(android.R.string.ok, (dialog, which) -> game.finish())
+                .create());
     }
 
     /** Continue here on the displaced device: moves the stream back, then resumes. A failure says so; the game keeps running. */

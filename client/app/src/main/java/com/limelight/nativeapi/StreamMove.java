@@ -11,13 +11,17 @@ public final class StreamMove {
     public final String playingTitle;
     /** The device this device's stream moved to, within the last two minutes; otherwise null. */
     public final String movedTo;
+    /** Whether the running game is this device's. */
+    public final boolean ownedHere;
 
-    StreamMove(String playingOn, int playingAppId, String playingAppUuid, String playingTitle, String movedTo) {
+    StreamMove(String playingOn, int playingAppId, String playingAppUuid, String playingTitle, String movedTo,
+               boolean ownedHere) {
         this.playingOn = playingOn;
         this.playingAppId = playingAppId;
         this.playingAppUuid = playingAppUuid;
         this.playingTitle = playingTitle;
         this.movedTo = movedTo;
+        this.ownedHere = ownedHere;
     }
 
     static StreamMove parse(JSONObject json) {
@@ -28,6 +32,7 @@ public final class StreamMove {
                 app == null ? 0 : (int) app.optLong("app_id"),
                 app == null ? null : app.optString("install_id", null),
                 app == null ? null : app.optString("title", null),
-                moved == null ? null : moved.optString("device", null));
+                moved == null ? null : moved.optString("device", null),
+                json.optBoolean("owns_game"));
     }
 }

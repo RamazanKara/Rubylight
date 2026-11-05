@@ -30,6 +30,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
@@ -792,7 +793,8 @@ public class NvConnection {
         if (context.streamConfig.isResumeOnly() &&
                 (app.getControl() != NvApp.Control.NONE ||
                         !app.matchesRunningApp(details.runningGameId, details.runningGameUuid))) {
-            String movedTo = streamMovedTo();
+            // No answer is no verdict: this fails as a transport failure, which a recovery retries.
+            String movedTo = readStreamMovedTo(false);
             if (movedTo != null) {
                 context.connListener.displayMessage(movedMessage(appContext, movedTo));
                 context.connListener.streamMoved(movedTo);
@@ -1871,9 +1873,9 @@ public class NvConnection {
                 : context.getString(R.string.continue_here_now_playing, device);
     }
 
-    /** {@link #streamMovedTo(boolean)} when no recovery follows. */
-    public String streamMovedTo() {
-        return streamMovedTo(false);
+    /** Whether this PC can say a stream moved. */
+    public boolean offersContinueHere() {
+        return NativeCapabilities.offersContinueHere(KnownCapabilities.of(hostDetails.uuid));
     }
 
     /**
@@ -1882,8 +1884,17 @@ public class NvConnection {
      * check, since the PC reports the game to its owner only, and asks there.
      */
     public String streamMovedTo(boolean recoveryFollows) {
-        if (!ContinueHerePolicy.readsMoveAfterEnd(
-                NativeCapabilities.offersContinueHere(KnownCapabilities.of(hostDetails.uuid)), false, recoveryFollows)) {
+        try {
+            return readStreamMovedTo(recoveryFollows);
+        } catch (IOException e) {
+            LimeLog.info(e.getMessage());
+            return null;
+        }
+    }
+
+    /** {@link #streamMovedTo(boolean)}, with a PC that was asked and did not answer in time as a failure. */
+    String readStreamMovedTo(boolean recoveryFollows) throws IOException {
+        if (!ContinueHerePolicy.readsMoveAfterEnd(offersContinueHere(), false, recoveryFollows)) {
             return null;
         }
         NativeApiClient client = nativeClient();
@@ -1891,9 +1902,11 @@ public class NvConnection {
             return null;
         }
         AtomicReference<String> movedTo = new AtomicReference<>();
+        AtomicBoolean answered = new AtomicBoolean();
         Thread read = new Thread(() -> {
             try {
                 movedTo.set(client.streamMove().movedTo);
+                answered.set(true);
             } catch (NativeApiException e) {
                 LimeLog.info("Could not ask the PC whether the stream moved: " + e.getMessage());
             }
@@ -1903,6 +1916,9 @@ public class NvConnection {
             read.join(STREAM_MOVE_WAIT_MS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        }
+        if (!answered.get()) {
+            throw new IOException("The PC did not say whether the stream moved");
         }
         return movedTo.get();
     }

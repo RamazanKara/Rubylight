@@ -451,4 +451,5 @@
     <string name="continue_here_now_playing">%1$s でプレイ中</string>
     <string name="continue_here_now_playing_elsewhere">別のデバイスでプレイ中</string>
     <string name="continue_here_failed">ここで続けられませんでした</string>
+    <string name="continue_here_came_back">ゲームはこのデバイスに戻りました</string>
 </resources>

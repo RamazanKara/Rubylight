@@ -56,5 +56,7 @@ public class NativeStreamMoveTest {
         // Host ids are unsigned; NvApp keeps them in an int.
         assertEquals((int) 4000000000L, move.playingAppId);
         assertEquals("TV", move.movedTo);
+        assertFalse(move.ownedHere);
+        assertTrue(StreamMove.parse(new JSONObject("{\"owns_game\":true}")).ownedHere);
     }
 }

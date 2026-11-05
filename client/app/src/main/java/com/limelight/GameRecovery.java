@@ -95,6 +95,14 @@ final class GameRecovery {
     }
 
     void reconnectStream() {
+        reconnectStream(false);
+    }
+
+    /**
+     * {@code behindPin}: the new stream waits behind the PIN screen. This screen is gone by then, since it cannot start
+     * anything once that screen has stopped it, and leaving the PIN screen without the PIN goes back to the library.
+     */
+    void reconnectStream(boolean behindPin) {
         if (game.recoveryHandoffInProgress || game.isFinishing() || game.isDestroyed()) return;
         game.stoppedStreamResumeIntent = null;
         final Intent retry = createReconnectIntent();
@@ -127,7 +135,7 @@ final class GameRecovery {
                         !game.isFinishing() && !game.isDestroyed()) {
                     game.recoveryHandoffInProgress = false;
                     game.finishNow();
-                    game.startActivity(retry);
+                    game.startActivity(behindPin ? com.limelight.pin.PinLockActivity.forResume(game, retry, game.pcName) : retry);
                 }
             });
         }, "Stream reconnect").start();

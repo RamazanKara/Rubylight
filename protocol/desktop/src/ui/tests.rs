@@ -3670,6 +3670,50 @@ fn hiding_a_game_from_its_menu_focuses_the_next_card() {
     assert_eq!(library::card_neighbour(&shown, "gone"), None);
 }
 
+/// A favourite's card is the same game as its library card, which goes with it when it is hidden:
+/// the focus moves past that one too, or the next D-pad press finds nothing and starts at the top.
+#[test]
+fn hiding_a_favourite_focuses_the_next_game_not_its_own_library_card() {
+    let mut f = home_with_stores(&[("Alpha", "steam", true), ("Beta", "steam", true)]);
+    let id = f.hosts.list[0].id;
+    f.l.favourites = vec![crate::config::Favourite { host: "Desk".into(), install_id: "install-0".into(), app_id: 1000, title: "Alpha".into() }];
+    f.l.restore_key = Some(format!("favourite:{id}:1000"));
+    f.settle();
+    f.press(Key::F2);
+    assert!(shows(&f, "Hide game"), "{:?}", f.drawn);
+    f.press(Key::ArrowDown);
+    f.press(Key::ArrowDown);
+    let commands = f.frame(crate::gui::tap(Key::Enter).to_vec());
+    let Some(Command::SetHidden { games, hidden: true }) = commands.into_iter().find(|c| matches!(c, Command::SetHidden { .. })) else {
+        panic!("no SetHidden");
+    };
+    assert!(crate::config::set_hidden(&mut f.l.hidden_games, games, true));
+    f.settle();
+    assert_eq!(f.l.focused_key.as_deref(), Some("row:store:steam:game:game:steam:1"), "Beta, not Alpha's own card");
+    assert!(f.ctx.memory(|m| m.focused()).is_some(), "something holds the focus");
+}
+
+/// A PC's page showing hidden games keeps the card through Hide and Show: the focus stays on it.
+/// With them not shown the card goes, and the focus with it.
+#[test]
+fn hiding_on_a_pcs_page_moves_the_focus_only_when_the_card_goes() {
+    let mut f = home_with_games(3);
+    let id = f.hosts.list[0].id;
+    f.hosts.list[0].apps = Apps::Loaded(vec![game(7), game(9)]);
+    f.l.go(Screen::Apps(id));
+    for (shows_hidden, focus) in [(true, "app:7"), (false, "app:9")] {
+        f.l.show_hidden_apps = shows_hidden;
+        f.l.restore_key = Some("app:7".to_owned());
+        f.settle();
+        assert_eq!(f.l.focused_key.as_deref(), Some("app:7"));
+        f.press(Key::F2);
+        let hide = f.placed.iter().find(|(t, ..)| t == "Hide game").map(|p| p.1).expect("Hide game in the menu");
+        let commands = f.click_at(hide.center(), egui::PointerButton::Primary);
+        assert!(commands.iter().any(|c| matches!(c, Command::SetHidden { hidden: true, .. })));
+        assert_eq!(f.l.focused_key.as_deref(), Some(focus));
+    }
+}
+
 /// A running game stays under Continue playing when hidden, off the library's rows, and its card's
 /// menu shows it again: hiding must not lose the way back to it.
 #[test]

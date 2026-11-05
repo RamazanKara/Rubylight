@@ -439,6 +439,11 @@ fn running_here(source: &Source<'_>, game: &Game) -> bool {
         })
 }
 
+/// The key of the entry a PC's copy of a game is in.
+pub fn entry_key_of(entries: &[Entry], host: u64, app_id: u32) -> Option<&String> {
+    entries.iter().find(|entry| entry.copies.iter().any(|copy| copy.host == host && copy.app_id == app_id)).map(|entry| &entry.key)
+}
+
 /// Every PC's games, one entry per game (by the store's game id, else per PC and app), sorted by
 /// title. A game no PC has installed is in it too, marked so (Android's library rows and All
 /// games show it, and the Installed chip leaves it out).

@@ -4,6 +4,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 /// The app id, as the Flatpak and the `.desktop` file name it.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -56,6 +57,16 @@ pub fn system(_config_dir: &Path) -> Option<Arc<dyn Writer>> {
 #[cfg_attr(not(windows), allow(dead_code))]
 fn run_command(exe: &Path) -> String {
     format!("\"{}\" {SIGN_IN_ARG}", exe.display())
+}
+
+/// `work`'s answer, or None if it takes longer than `limit`; it then ends on its own, unheard.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn within<T: Send + 'static>(limit: Duration, work: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    let (sender, answer) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(work());
+    });
+    answer.recv_timeout(limit).ok()
 }
 
 /// What the saved entry is to this copy.
@@ -303,14 +314,22 @@ mod run_key {
 #[cfg(target_os = "linux")]
 mod portal {
     use std::collections::HashMap;
+    use std::time::Duration;
     use zbus::blocking::{Connection, Proxy};
     use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 
     const DESTINATION: &str = "org.freedesktop.portal.Desktop";
 
+    /// Long enough for a person to answer the desktop's question.
+    const ANSWER_LIMIT: Duration = Duration::from_secs(120);
+
     /// `org.freedesktop.portal.Background`: asks for (or takes back) the start at sign-in. The
-    /// desktop may ask the user first, so this waits for its answer; call it off the UI thread.
+    /// desktop may ask the user first, so this waits for its answer, within reason; call it off the UI thread.
     pub fn request_background(on: bool) -> Result<(), String> {
+        super::within(ANSWER_LIMIT, move || request_once(on)).unwrap_or_else(|| Err("The desktop portal did not answer.".into()))
+    }
+
+    fn request_once(on: bool) -> Result<(), String> {
         let failed = |e: zbus::Error| format!("The desktop portal did not answer: {e}");
         let connection = Connection::session().map_err(failed)?;
         let sender = connection.unique_name().ok_or("no D-Bus name")?.trim_start_matches(':').replace('.', "_");
@@ -420,6 +439,13 @@ mod tests {
         writer.set(true).unwrap();
         assert!(writer.is_on().unwrap());
         let _ = std::fs::remove_dir_all(&config);
+    }
+
+    #[test]
+    fn an_answer_that_never_comes_does_not_hold_up_the_caller() {
+        let (_keep, never) = std::sync::mpsc::channel::<()>();
+        assert_eq!(within(Duration::from_millis(50), move || never.recv().is_ok()), None);
+        assert_eq!(within(Duration::from_secs(30), || 7), Some(7));
     }
 
     #[test]

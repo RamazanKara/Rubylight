@@ -126,43 +126,55 @@ fn reopen_on(
         ReopenOn::Wait
     }
 }
-/// How long a stream waits for its capture to start: a game window's try that
-/// used up its whole WGC helper start can be followed by another (#59).
+/// How long a stream waits for its capture to start: past
+/// [`SAME_WINDOW_WAIT`] only for the try of a window the game opened after a
+/// whole helper start went by on the one it replaced (#59).
 const CAPTURE_START_WAIT: Duration = Duration::from_secs(12);
+/// What a window the game still shows gets, tries included: one that sends no
+/// frame in a whole helper start fails with its own error, before a client
+/// gives up on seeing video and for the next player's capture to go ahead.
+const SAME_WINDOW_WAIT: Duration = Duration::from_secs(10);
 /// What a try of a game window's capture takes beyond its WGC helper's start.
 const WINDOW_OPEN_MARGIN: Duration = Duration::from_secs(1);
 /// Whether a game window's first capture, whose stream began waiting for it
 /// at `started`, is tried again at `now`: not once the stream stops, and only
 /// while the wait before the try and the try itself, with a WGC helper's
 /// start of up to [`butterpollo_windows::capture::WGC_START_TIMEOUT`], end
-/// before the stream stops waiting. A try that ran past it would end the
-/// stream with a timeout instead of the capture's own error.
-fn window_open_again(started: Instant, stop: &AtomicBool, now: Instant) -> bool {
+/// before the stream stops waiting, which is [`CAPTURE_START_WAIT`] when the
+/// game has `replaced` the window just tried and [`SAME_WINDOW_WAIT`] when it
+/// has not. A try that ran past it would end the stream with a timeout
+/// instead of the capture's own error.
+fn window_open_again(started: Instant, stop: &AtomicBool, now: Instant, replaced: bool) -> bool {
+    let wait = if replaced {
+        CAPTURE_START_WAIT
+    } else {
+        SAME_WINDOW_WAIT
+    };
     !stop.load(Ordering::Acquire)
         && now
             + RECOVERY_RETRY
             + butterpollo_windows::capture::WGC_START_TIMEOUT
             + WINDOW_OPEN_MARGIN
-            <= started + CAPTURE_START_WAIT
+            <= started + wait
 }
 /// [`window_open_again`] now, after the wait between tries when it is.
-fn wait_to_open_again(started: Instant, stop: &AtomicBool) -> bool {
-    if !window_open_again(started, stop, Instant::now()) {
+fn wait_to_open_again(started: Instant, stop: &AtomicBool, replaced: bool) -> bool {
+    if !window_open_again(started, stop, Instant::now(), replaced) {
         return false;
     }
     thread::sleep(RECOVERY_RETRY);
     true
 }
 /// Opens a stream's first capture, on the target `target` names when each
-/// try starts. A game window's is tried again while `again` (which waits
-/// between tries) allows: at its start a game replaces its splash window,
-/// or resizes its window as the capture opens, and that open fails while
-/// the next one works (#56: three of five Nucleus Co-op streams ended at
-/// once). A display's first failure is the stream's.
+/// try starts. A game window's is tried again while `again` (told the target
+/// that failed, it waits between tries) allows: at its start a game replaces
+/// its splash window, or resizes its window as the capture opens, and that
+/// open fails while the next one works (#56: three of five Nucleus Co-op
+/// streams ended at once). A display's first failure is the stream's.
 fn open_first<T>(
     mut target: impl FnMut() -> (String, u64),
     mut open: impl FnMut(&(String, u64)) -> Result<T>,
-    mut again: impl FnMut() -> bool,
+    mut again: impl FnMut(&(String, u64)) -> bool,
 ) -> Result<(T, (String, u64))> {
     loop {
         let next = target();
@@ -172,7 +184,7 @@ fn open_first<T>(
         };
         let window = butterpollo_windows::capture::WindowTarget::parse(&next.0)
             .is_ok_and(|window| window.is_some());
-        if !window || !again() {
+        if !window || !again(&next) {
             return Err(error);
         }
         tracing::warn!(target = %next.0, error = %format!("{error:#}"), "the game window's capture did not open; trying again");
@@ -610,7 +622,10 @@ impl Media {
                     let opened = open_first(
                         || prepared.capture_target(),
                         |target| Capture::open_for_stream_reported(&target.0, &kind, hdr, &capture_config, capture_warnings.clone()),
-                        || wait_to_open_again(started, &worker_stop),
+                        |tried| {
+                            let replaced = prepared.capture_target() != *tried;
+                            wait_to_open_again(started, &worker_stop, replaced)
+                        },
                     );
                     let (mut capture, mut target) = match opened {
                         Ok(opened) => opened,

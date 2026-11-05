@@ -776,7 +776,7 @@ fn a_game_windows_first_capture_is_tried_again_on_its_current_window() {
     // resized as its capture starts; the next try works.
     let targets = std::cell::RefCell::new(vec![splash.clone(), game.clone(), game.clone()]);
     let mut tried = Vec::new();
-    let mut waits = 0;
+    let mut waited = Vec::new();
     let (opened, target) = open_first(
         || targets.borrow_mut().remove(0),
         |target| {
@@ -787,22 +787,23 @@ fn a_game_windows_first_capture_is_tried_again_on_its_current_window() {
                 _ => Ok("capture"),
             }
         },
-        || {
-            waits += 1;
+        |failed| {
+            waited.push(failed.clone());
             true
         },
     )
     .unwrap();
     assert_eq!((opened, &target), ("capture", &game));
     assert_eq!(tried, [splash.clone(), game.clone(), game.clone()]);
-    assert_eq!(waits, 2);
+    // Each wait is told the target that failed.
+    assert_eq!(waited, [splash.clone(), game.clone()]);
     // Until the tries run out: then the last error is the stream's.
     let error = open_first(
         || splash.clone(),
         |_| -> Result<()> { anyhow::bail!("The handle is invalid. (0x80070006)") },
         {
             let mut left = 3;
-            move || {
+            move |_| {
                 left -= 1;
                 left > 0
             }
@@ -818,7 +819,7 @@ fn a_game_windows_first_capture_is_tried_again_on_its_current_window() {
             opens += 1;
             anyhow::bail!("no display")
         },
-        || panic!("a display is not tried again"),
+        |_| panic!("a display is not tried again"),
     )
     .unwrap_err();
     assert_eq!((opens, error.to_string()), (1, "no display".to_string()));
@@ -831,45 +832,51 @@ fn a_game_windows_capture_is_tried_again_only_within_the_streams_wait() {
     let started = Instant::now();
     let stop = AtomicBool::new(false);
     let at = |millis: u64| started + Duration::from_millis(millis);
-    let last = CAPTURE_START_WAIT
-        - RECOVERY_RETRY
-        - butterpollo_windows::capture::WGC_START_TIMEOUT
-        - WINDOW_OPEN_MARGIN;
+    let helper = butterpollo_windows::capture::WGC_START_TIMEOUT;
+    let last = CAPTURE_START_WAIT - RECOVERY_RETRY - helper - WINDOW_OPEN_MARGIN;
     assert_eq!(last, Duration::from_millis(5850));
+    let same = SAME_WINDOW_WAIT - RECOVERY_RETRY - helper - WINDOW_OPEN_MARGIN;
+    assert_eq!(same, Duration::from_millis(3850));
     // A try that waited out its whole helper start on a window the game replaced meanwhile
-    // still gets another, on the new window (#59).
-    assert!(
-        butterpollo_windows::capture::WGC_START_TIMEOUT
-            + Duration::from_millis(500)
-            + RECOVERY_RETRY
-            < last
-    );
-    assert!(window_open_again(started, &stop, at(0)));
-    assert!(window_open_again(started, &stop, started + last));
+    // gets another, on the new window (#59).
+    let whole_try = helper + Duration::from_millis(500);
+    assert!(whole_try + RECOVERY_RETRY < last);
+    assert!(window_open_again(started, &stop, started + whole_try, true));
+    // On a window the game still shows it fails with its own error, as a hung game's does:
+    // that stream ends before its client gives up, and the next player's capture goes ahead.
+    assert!(!window_open_again(started, &stop, started + helper, false));
+    assert!(window_open_again(started, &stop, at(0), false));
+    assert!(window_open_again(started, &stop, started + same, false));
     assert!(!window_open_again(
         started,
         &stop,
-        started + last + Duration::from_millis(1)
+        started + same + Duration::from_millis(1),
+        false
+    ));
+    assert!(window_open_again(started, &stop, at(0), true));
+    assert!(window_open_again(started, &stop, started + last, true));
+    assert!(!window_open_again(
+        started,
+        &stop,
+        started + last + Duration::from_millis(1),
+        true
     ));
     // Every try that starts, helper start and all, ends within the wait.
-    assert!(
-        last + RECOVERY_RETRY + butterpollo_windows::capture::WGC_START_TIMEOUT
-            < CAPTURE_START_WAIT
-    );
+    assert!(last + RECOVERY_RETRY + helper < CAPTURE_START_WAIT);
     // A stopped stream's capture is not tried again.
     stop.store(true, Ordering::Release);
-    assert!(!window_open_again(started, &stop, at(0)));
+    assert!(!window_open_again(started, &stop, at(0), true));
     // The capture thread's own wait: once between tries, never past the wait.
     stop.store(false, Ordering::Release);
     let before = Instant::now();
-    assert!(wait_to_open_again(started, &stop));
+    assert!(wait_to_open_again(started, &stop, false));
     assert!(before.elapsed() >= RECOVERY_RETRY);
     let late = Instant::now() - last - Duration::from_millis(10);
     let before = Instant::now();
-    assert!(!wait_to_open_again(late, &stop));
+    assert!(!wait_to_open_again(late, &stop, true));
     assert!(before.elapsed() < RECOVERY_RETRY);
     stop.store(true, Ordering::Release);
-    assert!(!wait_to_open_again(Instant::now(), &stop));
+    assert!(!wait_to_open_again(Instant::now(), &stop, true));
 }
 #[test]
 fn background_capture_never_recovers_onto_the_primary_display() {

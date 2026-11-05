@@ -6,6 +6,7 @@ use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use nightjar_core::http::native_api::session::{Owner, Session};
 use nightjar_policy::open_play::{self as policy, Action, Entry, Facts, Game};
 
 use crate::autostart;
@@ -47,12 +48,36 @@ pub enum AppsSeen {
     Loaded(Option<i32>),
 }
 
+/// Whose game the PC is streaming, as far as a start cares.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionSeen {
+    /// Its first read after answering is still to come.
+    Waiting,
+    /// Nothing of another device's, or a PC that cannot tell (a host refuses a start it may not make).
+    Free,
+    /// Another device is playing there: an automatic start never moves that.
+    Elsewhere,
+}
+
+impl SessionSeen {
+    fn of(native_api: bool, session: Option<&Session>, read_failed: bool) -> Self {
+        match session {
+            _ if !native_api => Self::Free,
+            Some(s) if s.owner == Owner::OtherDevice && console::active(s) => Self::Elsewhere,
+            Some(_) => Self::Free,
+            None if read_failed => Self::Free,
+            None => Self::Waiting,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HostSeen {
     pub reach: Reach,
     pub can_wake: bool,
     pub paired: bool,
     pub apps: AppsSeen,
+    pub session: SessionSeen,
 }
 
 /// What the launcher shows now.
@@ -81,6 +106,8 @@ pub enum Step {
     Wake,
     LoadApps,
     Start(i32),
+    /// Nothing failed, the start just must not happen: one line says why, and the guard is off.
+    Stopped(String),
     /// The start failed; a message says why unless one is up already. The guard stays armed.
     Failed(Option<String>),
     /// It is over; `disarm` says it ended well or was the player's doing.
@@ -189,11 +216,15 @@ impl Run {
             }
             Reach::Offline => Step::Failed(Some(trf("{} is offline and has no address to wake it at.", &[&pc]))),
             Reach::Online if !host.paired => Step::Failed(Some(trf("{} is not paired.", &[&pc]))),
+            Reach::Online if host.session == SessionSeen::Elsewhere => {
+                Step::Stopped(trf("A game on {} is playing on another device, so Nightjar opened as usual.", &[&pc]))
+            }
             Reach::Online if !shown => {
                 // Back from the wake: Cancel again for the rest of the way.
                 self.phase = Phase::Starting { wake_asked, apps_asked, since, shown: true };
                 Step::Count(0)
             }
+            Reach::Online if host.session == SessionSeen::Waiting => in_time(Step::Wait),
             Reach::Online => match &host.apps {
                 AppsSeen::NotLoaded if !apps_asked => {
                     self.phase = Phase::Starting { wake_asked, apps_asked: true, since, shown };
@@ -362,6 +393,7 @@ impl crate::App {
                 reach: h.reach,
                 can_wake: h.record.mac.is_some(),
                 paired: h.paired(),
+                session: SessionSeen::of(h.native_api(), h.native.session.as_ref(), h.native.error.is_some()),
                 apps: match &h.apps {
                     Apps::NotLoaded => AppsSeen::NotLoaded,
                     Apps::Loading => AppsSeen::Loading,
@@ -443,6 +475,12 @@ impl crate::App {
                     self.command(command);
                 }
             }
+            Step::Stopped(why) => {
+                self.close_countdown();
+                self.open_play.run = None;
+                self.open_play_armed(false);
+                self.launcher.message(tr("Automatic start skipped"), why);
+            }
             Step::Failed(why) => {
                 self.open_play.run = None;
                 if let Some(why) = why {
@@ -469,7 +507,7 @@ mod tests {
     }
 
     fn online(apps: AppsSeen) -> Option<HostSeen> {
-        Some(HostSeen { reach: Reach::Online, can_wake: true, paired: true, apps })
+        Some(HostSeen { reach: Reach::Online, can_wake: true, paired: true, apps, session: SessionSeen::Free })
     }
 
     fn ready() -> Seen {
@@ -482,7 +520,7 @@ mod tests {
     }
 
     fn offline(can_wake: bool) -> Option<HostSeen> {
-        Some(HostSeen { reach: Reach::Offline, can_wake, paired: true, apps: AppsSeen::NotLoaded })
+        Some(HostSeen { reach: Reach::Offline, can_wake, paired: true, apps: AppsSeen::NotLoaded, session: SessionSeen::Waiting })
     }
 
     /// A run past its countdown.
@@ -605,16 +643,54 @@ mod tests {
     }
 
     #[test]
+    fn a_game_playing_on_another_device_stops_the_start_and_is_never_moved() {
+        let now = Instant::now();
+        let mut there = online(AppsSeen::Loaded(Some(7))).unwrap();
+        there.session = SessionSeen::Elsewhere;
+        let mut run = begun(now);
+        let step = run.next(&Seen { host: Some(there), ..going() }, now);
+        assert!(matches!(&step, Step::Stopped(why) if why.contains("Desk")), "{step:?}");
+    }
+
+    #[test]
+    fn the_start_waits_for_the_first_read_of_the_session() {
+        let now = Instant::now();
+        let mut there = online(AppsSeen::Loaded(Some(7))).unwrap();
+        there.session = SessionSeen::Waiting;
+        let waiting = Seen { host: Some(there), ..going() };
+        let mut run = begun(now);
+        assert_eq!(run.next(&waiting, now), Step::Wait);
+        assert!(matches!(run.next(&waiting, now + Duration::from_secs(3) + START_LIMIT + Duration::from_secs(1)), Step::Failed(Some(_))), "a read that never comes");
+        let mut run = begun(now);
+        assert_eq!(run.next(&waiting, now), Step::Wait);
+        assert_eq!(run.next(&going(), now), Step::Start(7), "the read says it is free");
+    }
+
+    #[test]
+    fn only_a_live_session_of_another_device_counts_as_elsewhere() {
+        let session = |state: &str, owner: &str| -> Session {
+            serde_json::from_str(&include_str!("../../client/tests/fixtures/native-api/session.json").replace("\"suspended\"", &format!("\"{state}\"")).replace("\"you\"", &format!("\"{owner}\""))).unwrap()
+        };
+        assert_eq!(SessionSeen::of(true, Some(&session("streaming", "other_device")), false), SessionSeen::Elsewhere);
+        assert_eq!(SessionSeen::of(true, Some(&session("suspended", "other_device")), false), SessionSeen::Elsewhere);
+        assert_eq!(SessionSeen::of(true, Some(&session("streaming", "you")), false), SessionSeen::Free);
+        assert_eq!(SessionSeen::of(true, Some(&session("idle", "other_device")), false), SessionSeen::Free);
+        assert_eq!(SessionSeen::of(true, None, false), SessionSeen::Waiting);
+        assert_eq!(SessionSeen::of(true, None, true), SessionSeen::Free, "the host refuses what it may not do");
+        assert_eq!(SessionSeen::of(false, None, false), SessionSeen::Free, "no native API, no owner to wait for");
+    }
+
+    #[test]
     fn what_cannot_start_says_why() {
         let now = Instant::now();
         let failed = |seen: Seen| matches!(begun(now).next(&seen, now), Step::Failed(Some(_)));
         assert!(failed(Seen { host: None, ..going() }), "the PC was removed");
         assert!(failed(Seen { host: offline(false), ..going() }), "no address");
-        assert!(failed(Seen { host: Some(HostSeen { reach: Reach::Online, can_wake: true, paired: false, apps: AppsSeen::NotLoaded }), ..going() }), "not paired");
+        assert!(failed(Seen { host: Some(HostSeen { reach: Reach::Online, can_wake: true, paired: false, apps: AppsSeen::NotLoaded, session: SessionSeen::Waiting }), ..going() }), "not paired");
         assert!(failed(Seen { host: online(AppsSeen::Loaded(None)), ..going() }), "not in the list");
         assert!(failed(Seen { host: online(AppsSeen::Failed("x".into())), ..going() }), "no list");
         let mut run = begun(now);
-        let unknown = Seen { host: Some(HostSeen { reach: Reach::Unknown, can_wake: true, paired: true, apps: AppsSeen::NotLoaded }), ..going() };
+        let unknown = Seen { host: Some(HostSeen { reach: Reach::Unknown, can_wake: true, paired: true, apps: AppsSeen::NotLoaded, session: SessionSeen::Waiting }), ..going() };
         assert_eq!(run.next(&unknown, now), Step::Wait);
         assert!(matches!(run.next(&unknown, now + START_LIMIT + Duration::from_secs(10)), Step::Failed(Some(_))), "a PC that never answers");
     }

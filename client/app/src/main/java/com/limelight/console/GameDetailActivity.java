@@ -289,6 +289,10 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     private void startAuto(GameDetailModel m) {
         if (!m.canStart()) {
             autoFailed(WakeFeedback.said(this, m.hostName, whyNot(m)));
+        } else if (m.playingElsewhere) {
+            // Nothing went wrong, so the next start is not skipped for it. Never moved automatically.
+            OpenPlay.disarm(this);
+            autoFailed(WakeFeedback.said(this, m.hostName, getString(R.string.open_play_other_device, m.hostName)));
         } else if (m.source == null && m.libraryRead && !classicListCache) {
             // Its id is stale; the PC would be asked for a game it no longer has.
             autoFailed(WakeFeedback.said(this, m.hostName, getString(R.string.open_play_not_listed, m.hostName)));

@@ -57,6 +57,10 @@ public class GameDetailOpenPlayTest {
 
     private Context context;
     private ConsoleRig rig;
+    private static final String PORTAL_APP = "{\"install_id\":\"t-portal\",\"app_id\":11,\"title\":\"Portal\"}";
+    private static final String ZELDA_APP = "{\"install_id\":\"t-zelda\",\"app_id\":22,\"title\":\"Zelda\"}";
+
+    private String sessionThere = NativeApiFixtures.IDLE;
     private ActivityController<GameDetailWakeTest.Detail> controller;
     private GameDetailWakeTest.Detail screen;
     private HostFeed feed;
@@ -81,7 +85,7 @@ public class GameDetailOpenPlayTest {
     private void open(boolean online, String mac, Bundle state) throws Exception {
         rig = new ConsoleRig(temporary.newFolder());
         rig.transport.reply("tower", "library", ok(library("r", game("t-portal", 11, "Portal", "steam:400", false))));
-        rig.transport.reply("tower", "session", ok(NativeApiFixtures.IDLE));
+        rig.transport.reply("tower", "session", ok(sessionThere));
         rig.repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", true)));
         GameDetailWakeTest.Detail.repository = rig.repository;
         Intent intent = new Intent(context, GameDetailWakeTest.Detail.class)
@@ -355,6 +359,40 @@ public class GameDetailOpenPlayTest {
         assertEquals(context.getString(R.string.open_play_no_list, "Tower"),
                 ((TextView) shown().findViewById(android.R.id.message)).getText().toString());
         assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
+    }
+
+    /** The countdown over with this session on Tower: the one line the page lands on. */
+    private String startWithSession(String sessionJson) throws Exception {
+        sessionThere = sessionJson;
+        open(true, null, null);
+        Dialog countdown = shown();
+        pass(3100);
+        await(() -> !GameDetailWakeTest.Detail.played.isEmpty()
+                || (ShadowDialog.getLatestDialog() != countdown && ShadowDialog.getLatestDialog().isShowing()));
+        return GameDetailWakeTest.Detail.played.isEmpty()
+                ? ((TextView) shown().findViewById(android.R.id.message)).getText().toString() : null;
+    }
+
+    @Test
+    public void aGamePlayingOnAnotherDeviceStopsTheStartAndLandsOnHome() throws Exception {
+        for (String app : new String[] {PORTAL_APP, ZELDA_APP}) {
+            ShadowDialog.reset();
+            assertEquals(app, context.getString(R.string.open_play_other_device, "Tower"),
+                    startWithSession(NativeApiFixtures.session("streaming", "other_device", app, "[]")));
+            assertTrue("never moved", GameDetailWakeTest.Detail.played.isEmpty());
+            assertFalse("nothing failed, so the next start is not skipped", OpenPlay.armed(context));
+            shown().dismiss();
+            pass(100);
+            assertTrue(app, screen.isFinishing());
+        }
+    }
+
+    @Test
+    public void aSessionThatEndedOrIsThisDevicesDoesNotStopTheStart() throws Exception {
+        assertEquals(null, startWithSession(NativeApiFixtures.session("streaming", "you", PORTAL_APP, "[]")));
+        GameDetailWakeTest.Detail.played.clear();
+        ShadowDialog.reset();
+        assertEquals(null, startWithSession(NativeApiFixtures.session("stopped", "other_device", PORTAL_APP, "[]")));
     }
 
     @Test

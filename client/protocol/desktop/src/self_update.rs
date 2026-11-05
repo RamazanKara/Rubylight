@@ -29,6 +29,9 @@ const MAX_REDIRECTS: usize = 5;
 const PART_PREFIX: &str = ".nightjar-update-";
 /// A leftover younger than this may belong to another running Nightjar.
 const STALE_AFTER: Duration = Duration::from_secs(3600);
+/// Exists while any Nightjar streams. The setup's AppMutex names it too (nightjar.iss): Setup stops
+/// before it deletes anything, instead of closing that stream with Restart Manager.
+pub const STREAM_MUTEX: &str = "Local\\NightjarStream";
 /// The entry the setup writes for its AppId (nightjar.iss): per user, so under HKCU.
 #[cfg(windows)]
 const UNINSTALL_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{6A3C8F12-5E7B-4D2A-9C41-7B0E8D3F2A65}_is1";
@@ -49,6 +52,8 @@ pub enum Failure {
     Restart(String),
     /// Nightjar came back on its old version: the last run's setup failed.
     NotInstalled,
+    /// Another Nightjar process is streaming; the setup would close it.
+    StreamElsewhere,
     Cancelled,
 }
 
@@ -261,6 +266,8 @@ pub struct Steps {
     pub dir: PathBuf,
     /// Says on the next launch that this attempt didn't work.
     pub marker: Option<PathBuf>,
+    /// Whether another Nightjar process is streaming.
+    pub stream_elsewhere: fn() -> bool,
     /// Takes the verified download. Ok means Nightjar should exit now.
     pub apply: Apply,
 }
@@ -271,8 +278,9 @@ impl Steps {
     /// The real steps for a copy that can update itself.
     pub fn for_copy(copy: &CopyKind, net: Arc<dyn Transport>) -> Option<Self> {
         let marker = crate::config::config_dir().ok().map(|dir| dir.join("update-pending.json"));
+        let stream_elsewhere = || mutex_exists(STREAM_MUTEX);
         match copy {
-            CopyKind::Installed => Some(Self { net, allow: download_host, dir: std::env::temp_dir().join("nightjar-update"), marker, apply: Box::new(run_setup) }),
+            CopyKind::Installed => Some(Self { net, allow: download_host, dir: std::env::temp_dir().join("nightjar-update"), marker, stream_elsewhere, apply: Box::new(run_setup) }),
             CopyKind::AppImage(path) => {
                 let target = path.clone();
                 let apply = move |part: &Path, _: &Asset| {
@@ -280,7 +288,7 @@ impl Steps {
                     start_detached(&target, &[]).map_err(Failure::Restart)
                 };
                 // The same folder as the AppImage: a rename across file systems isn't atomic.
-                Some(Self { net, allow: download_host, dir: path.parent()?.to_path_buf(), marker, apply: Box::new(apply) })
+                Some(Self { net, allow: download_host, dir: path.parent()?.to_path_buf(), marker, stream_elsewhere, apply: Box::new(apply) })
             }
             CopyKind::Portable | CopyKind::Managed => None,
         }
@@ -291,6 +299,58 @@ impl Steps {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         self.dir.join(format!("{PART_PREFIX}{}-{}.part", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)))
     }
+}
+
+/// A named mutex that exists as long as this does. Nobody owns it: what counts is that it exists, as
+/// for Inno's AppMutex, and several Nightjars can stream at once.
+pub struct Mark {
+    #[cfg(windows)]
+    handle: windows::Win32::Foundation::HANDLE,
+}
+
+impl Mark {
+    #[cfg(windows)]
+    pub fn new(name: &str) -> Result<Self, String> {
+        // SAFETY: the name outlives the call; the handle is closed once, in Drop.
+        unsafe { windows::Win32::System::Threading::CreateMutexW(None, false, &windows::core::HSTRING::from(name)) }
+            .map(|handle| Self { handle })
+            .map_err(|e| format!("{name}: {e}"))
+    }
+
+    /// Only Windows setups close running programs.
+    #[cfg(not(windows))]
+    pub fn new(_: &str) -> Result<Self, String> {
+        Ok(Self {})
+    }
+}
+
+#[cfg(windows)]
+impl Drop for Mark {
+    fn drop(&mut self) {
+        // SAFETY: the handle CreateMutexW returned, closed once.
+        unsafe { let _ = windows::Win32::Foundation::CloseHandle(self.handle); }
+    }
+}
+
+/// Whether some process holds a [`Mark`] of this name.
+#[cfg(windows)]
+pub fn mutex_exists(name: &str) -> bool {
+    use windows::Win32::Foundation::{CloseHandle, ERROR_FILE_NOT_FOUND};
+    use windows::Win32::System::Threading::{OpenMutexW, SYNCHRONIZATION_SYNCHRONIZE};
+    // SAFETY: the name outlives the call; the handle is closed at once.
+    match unsafe { OpenMutexW(SYNCHRONIZATION_SYNCHRONIZE, false, &windows::core::HSTRING::from(name)) } {
+        Ok(handle) => {
+            unsafe { let _ = CloseHandle(handle); }
+            true
+        }
+        // Any other answer (denied, for an elevated Nightjar) still means it exists.
+        Err(e) => e.code() != ERROR_FILE_NOT_FOUND.to_hresult(),
+    }
+}
+
+#[cfg(not(windows))]
+pub fn mutex_exists(_: &str) -> bool {
+    false
 }
 
 /// The setup's command line. /RELAUNCH is ours: nightjar.iss starts Nightjar again when it ends.
@@ -473,6 +533,7 @@ mod tests {
         assert!(iss.contains("AppId={{6A3C8F12-5E7B-4D2A-9C41-7B0E8D3F2A65}"), "the same install is upgraded");
         assert!(iss.contains("DisableDirPage=yes") && !iss.contains("UsePreviousAppDir=no"), "the same folder");
         assert!(iss.contains("procedure DeinitializeSetup") && iss.contains("'/RELAUNCH'"), "Nightjar comes back");
+        assert!(iss.contains(&format!("AppMutex={STREAM_MUTEX}\n")), "the setup stops for a stream");
         let data = iss.split("\n[InstallDelete]\n").nth(1).unwrap().split("\n[Files]\n").next().unwrap();
         assert!(!data.contains("userappdata") && !data.contains("config"), "an upgrade deletes nothing of the user's");
         assert!(!data.lines().any(|line| line.starts_with("Type:") && line.contains(".dll")), "no library goes before [Files]: an abort wouldn't bring it back");
@@ -482,6 +543,19 @@ mod tests {
         assert!(last.contains(r"\nightjar.exe"), "the program is replaced last: {last}");
         #[cfg(windows)]
         assert!(UNINSTALL_KEY.contains("{6A3C8F12-5E7B-4D2A-9C41-7B0E8D3F2A65}_is1") && iss.contains(UNINSTALL_KEY));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_mark_is_seen_from_outside_until_it_goes() {
+        let name = format!("Local\\NightjarTest-{}", std::process::id());
+        assert!(!mutex_exists(&name));
+        let (first, second) = (Mark::new(&name).unwrap(), Mark::new(&name).unwrap());
+        assert!(mutex_exists(&name));
+        drop(first);
+        assert!(mutex_exists(&name), "two streams: the other one still counts");
+        drop(second);
+        assert!(!mutex_exists(&name));
     }
 
     #[test]

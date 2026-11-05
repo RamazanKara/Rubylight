@@ -80,6 +80,9 @@ UninstallDisplayIcon={app}\nightjar.ico
 UninstallDisplayName=Nightjar
 ; A running Nightjar is closed (Restart Manager) before its files are replaced.
 CloseApplications=yes
+; But never a stream, in any Nightjar process: Setup stops before it deletes anything. The same
+; name as STREAM_MUTEX in self_update.rs.
+AppMutex=Local\NightjarStream
 RestartApplications=no
 Compression=lzma2/max
 SolidCompression=yes

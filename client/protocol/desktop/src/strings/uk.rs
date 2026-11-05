@@ -763,6 +763,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("The download failed: {}", "Помилка завантаження: {}"),
     ("The update could not start: {}", "Не вдалося запустити оновлення: {}"),
     ("The new version is installed, but could not start: {}", "Нову версію встановлено, але її не вдалося запустити: {}"),
+    ("Another Nightjar window is streaming, so nothing was installed.", "Інше вікно Nightjar веде трансляцію, тому нічого не встановлено."),
     ("Check for updates", "Перевіряти оновлення"),
     ("Once per launch, asks GitHub whether a newer Nightjar release is out and says so here. Nothing is downloaded until you choose Update now.", "Раз за запуск питає GitHub, чи вийшла новіша версія Nightjar, і повідомляє про це тут. Нічого не завантажується, доки ви не виберете «Оновити зараз»."),
     ("Controller mouse enabled. {}/{} click; D-pad scrolls.", "Мишу з контролера увімкнено. {0}/{1} — клацання; хрестовина прокручує."),

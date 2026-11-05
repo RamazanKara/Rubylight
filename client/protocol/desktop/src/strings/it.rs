@@ -763,6 +763,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("The download failed: {}", "Download non riuscito: {}"),
     ("The update could not start: {}", "Impossibile avviare l’aggiornamento: {}"),
     ("The new version is installed, but could not start: {}", "La nuova versione è installata, ma non è stato possibile avviarla: {}"),
+    ("Another Nightjar window is streaming, so nothing was installed.", "Un’altra finestra di Nightjar è in streaming, quindi non è stato installato nulla."),
     ("Check for updates", "Controlla aggiornamenti"),
     ("Once per launch, asks GitHub whether a newer Nightjar release is out and says so here. Nothing is downloaded until you choose Update now.", "Una volta per avvio, chiede a GitHub se è uscita una versione più recente di Nightjar e lo indica qui. Non viene scaricato nulla finché non scegli Aggiorna ora."),
     ("Controller mouse enabled. {}/{} click; D-pad scrolls.", "Mouse con controller attivato. {0}/{1} fanno clic; la croce scorre."),

@@ -1387,7 +1387,7 @@ impl Prepared {
             tracing::info!(output = %self.output, "another stream's display left; laying this stream's displays out again");
             let monitors = self.remote_monitors();
             lay_out_after_departure(&mut self.layout_watch, monitors, now, |retained| {
-                arrangement.reapply(&self.output, retained)
+                arrangement.reapply_after_departure(&self.output, retained)
             })?;
             if let Some(display) = &self.display {
                 display.apply_virtual_mode("after a display left");

@@ -467,8 +467,12 @@ impl Arrangement {
         self.preserve_primary(&mut current, before)?;
         self.compose_all(&current, targets, retained)
     }
+    /// Whether the primary stays the one from before the stream.
+    pub const fn keeps_primary(self) -> bool {
+        matches!(self, Self::Extended | Self::Isolated)
+    }
     fn preserve_primary(self, nodes: &mut [Node], before: &[Node]) -> Result<()> {
-        if !matches!(self, Self::Extended | Self::Isolated) {
+        if !self.keeps_primary() {
             return Ok(());
         }
         let primary = before
@@ -685,6 +689,68 @@ pub fn switched_back_on(before: &[Node], applied: &[Node], active: &[String]) ->
         })
         .map(|n| n.device_id.clone())
         .collect()
+}
+
+/// Whether Windows recalled a saved layout over the displays a stream leaves on,
+/// as it can when a virtual display arrives or leaves: the database entry for those
+/// displays can have one of them off, at another mode, or (`keeps_primary`) no
+/// longer primary. `before`: the layout as it should be; `active`: the displays on
+/// now; `streams`: the streams' own displays, which are laid out anyway and whose
+/// mode the stream sets. A display no longer connected is not counted.
+pub fn recalled_over(
+    before: &[Node],
+    active: &[Node],
+    connected: &[String],
+    streams: &[String],
+    keeps_primary: bool,
+) -> bool {
+    before
+        .iter()
+        .filter(|b| b.active && connected.contains(&b.device_id) && !streams.contains(&b.device_id))
+        .any(|b| {
+            let Some(now) = active
+                .iter()
+                .find(|n| n.active && n.device_id == b.device_id)
+            else {
+                return true;
+            };
+            (now.mode.width, now.mode.height) != (b.mode.width, b.mode.height)
+                || (now.mode.refresh_hz - b.mode.refresh_hz).abs() >= 0.5
+                || (keeps_primary && b.primary && !now.primary)
+        })
+}
+
+/// The layout to save for a virtual display's entry in the Windows display
+/// database: the user's displays as they have them, the primary and each mode
+/// included, with `target` on to their right. Saving what Windows lays out when it
+/// switches them on instead would make the virtual display primary and give each
+/// display Windows' choice of timing, and every later stream would be handed that.
+pub fn beside_the_users(before: &[Node], target: &Node) -> Vec<Node> {
+    let mut nodes: Vec<Node> = before
+        .iter()
+        .filter(|n| n.device_id != target.device_id)
+        .cloned()
+        .collect();
+    let edge = nodes
+        .iter()
+        .filter(|n| n.active)
+        .map(|n| {
+            (
+                n.desired_position
+                    .x
+                    .saturating_add(i32::try_from(n.mode.width).unwrap_or(i32::MAX)),
+                n.desired_position.y,
+            )
+        })
+        .max_by_key(|(right, _)| *right);
+    nodes.push(Node {
+        active: true,
+        // A headless PC has only this display, so it is the primary.
+        primary: edge.is_none(),
+        desired_position: edge.map_or(Position { x: 0, y: 0 }, |(x, y)| Position { x, y }),
+        ..target.clone()
+    });
+    nodes
 }
 
 /// The layout the user left a stream's virtual display in, when it differs from

@@ -1,0 +1,3 @@
+# Extended keeps your monitor as it is
+
+- **An extended stream no longer changes your monitor after an exclusive one.** The end of an exclusive stream saved a Windows layout for that device with its virtual display as main and your monitor at the refresh Windows picks (60 Hz on a 120 Hz monitor). Every later extended stream from that device was handed it: the monitor ran slower for the whole stream, a game losing focus could put windows on the virtual display, and the layout could be learned as the device's own. Now the entry keeps your displays as you have them, and a stale one is put back when it shows up, also for a second stream's display and when another stream's display leaves.

@@ -528,6 +528,114 @@ fn node(id: &str, x: i32) -> Node {
     }
 }
 #[test]
+fn a_recalled_layout_is_seen_in_a_display_off_at_another_mode_or_no_longer_primary() {
+    let names = |ids: &[&str]| ids.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let connected = names(&["monitor", "vdd"]);
+    let before = [node("monitor", 0)];
+    let beside = node("vdd", 1920);
+    let recalled = |now: Node, keeps_primary| {
+        recalled_over(
+            &before,
+            &[now, beside.clone()],
+            &connected,
+            &[],
+            keeps_primary,
+        )
+    };
+    assert!(!recalled(node("monitor", 0), true));
+    // A rate within rounding of the same timing is the same mode.
+    let mut close = node("monitor", 0);
+    close.mode.refresh_hz = 59.94;
+    assert!(!recalled(close, true));
+    // The refresh Windows picked, or another size.
+    let mut slower = node("monitor", 0);
+    slower.mode.refresh_hz = 30.;
+    assert!(recalled(slower, true));
+    let mut smaller = node("monitor", 0);
+    smaller.mode.width = 1280;
+    assert!(recalled(smaller, true));
+    let mut shorter = node("monitor", 0);
+    shorter.mode.height = 720;
+    assert!(recalled(shorter, true));
+    // The primary moved: that counts only for a layout that keeps it.
+    assert!(recalled(node("monitor", 1280), true));
+    assert!(!recalled(node("monitor", 1280), false));
+    // Off, or listed as off.
+    assert!(recalled_over(
+        &before,
+        std::slice::from_ref(&beside),
+        &connected,
+        &[],
+        false
+    ));
+    let mut off = node("monitor", 0);
+    off.active = false;
+    assert!(recalled(off, false));
+    // Off and no longer connected is the wall switch, not Windows.
+    assert!(!recalled_over(
+        &before,
+        std::slice::from_ref(&beside),
+        &names(&["vdd"]),
+        &[],
+        true
+    ));
+    // Off before the stream stays the user's.
+    let mut was_off = node("tv", 1920);
+    was_off.active = false;
+    assert!(!recalled_over(
+        &[node("monitor", 0), was_off],
+        &[node("monitor", 0)],
+        &names(&["monitor", "tv"]),
+        &[],
+        true
+    ));
+    // A stream's own display is the stream's to lay out and to give a mode.
+    let mut stream = node("a", 1920);
+    stream.mode.refresh_hz = 1000.;
+    assert!(!recalled_over(
+        &[node("monitor", 0), stream],
+        &[node("monitor", 0), node("a", 1920)],
+        &names(&["monitor", "a"]),
+        &names(&["a"]),
+        true
+    ));
+}
+#[test]
+fn a_virtual_displays_entry_keeps_the_users_displays_and_puts_it_to_their_right() {
+    let mut monitor = node("monitor", 0);
+    monitor.mode.refresh_hz = 120.;
+    let mut other = node("other", 1920);
+    other.desired_position.y = 200;
+    other.mode.width = 2560;
+    let mut off = node("left off", 9000);
+    off.active = false;
+    off.mode.width = 7000;
+    // The stream's own display, not on in the user's layout: its old node goes.
+    let mut old = node("vdd", 5000);
+    old.active = false;
+    let mut vdd = node("vdd", 0);
+    vdd.mode.width = 1280;
+    let nodes = beside_the_users(&[monitor, other, off, old], &vdd);
+    assert_eq!(nodes.len(), 4);
+    let (users, entry) = (&nodes[..3], &nodes[3]);
+    // The user's displays come through as they are, the one off stays off.
+    assert_eq!(users[0].device_id, "monitor");
+    assert_eq!(users[0].mode.refresh_hz, 120.);
+    assert!(users[0].primary);
+    assert_eq!(users[1].device_id, "other");
+    assert_eq!(users[1].desired_position, Position { x: 1920, y: 200 });
+    assert!(!users[2].active);
+    assert_eq!(entry.device_id, "vdd");
+    assert_eq!(entry.mode.width, 1280);
+    assert!(entry.active && !entry.primary);
+    // Against the right edge of the rightmost display on, level with it.
+    assert_eq!(entry.desired_position, Position { x: 4480, y: 200 });
+    // Headless: this display is all there is.
+    let alone = beside_the_users(&[], &vdd);
+    assert!(alone[0].active && alone[0].primary);
+    assert_eq!(alone[0].desired_position, Position { x: 0, y: 0 });
+}
+#[test]
 fn extended_hotplug_keeps_the_original_primary_when_windows_remembers_the_virtual_one() {
     let before = [node("physical", 0), node("other", 1920)];
     // Windows recalls the virtual screen at the origin and moves the

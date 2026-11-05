@@ -408,25 +408,121 @@ fn a_remote_monitor_switched_on_mid_stream_keeps_the_streams_layout() {
 fn a_saved_layout_left_behind_by_a_crash_is_noticed_when_the_virtual_display_arrives() {
     let before = vec![node("phys", true, true), node("tv", false, false)];
     let connected = ["phys", "tv", "vdd"].map(String::from);
+    let extended_stream = |current: &[Node], connected: &[String]| {
+        recall_to_undo(
+            persist(Arrangement::Extended, true),
+            Arrangement::Extended,
+            &before,
+            current,
+            connected,
+        )
+    };
     // Windows recalled a stream's saved layout as the display arrived.
-    assert!(switched_off(
-        &before,
-        &[node("vdd", true, true)],
-        &connected
-    ));
+    assert!(extended_stream(&[node("vdd", true, true)], &connected));
     // As Windows lays out a new display: everything stays on.
     let extended = [node("phys", true, true), node("vdd", true, false)];
-    assert!(!switched_off(&before, &extended, &connected));
+    assert!(!extended_stream(&extended, &connected));
     // A display unplugged since, or off before the stream, is no sign.
     let unplugged = ["tv", "vdd"].map(String::from);
-    assert!(!switched_off(
-        &before,
-        &[node("vdd", true, true)],
-        &unplugged
-    ));
+    assert!(!extended_stream(&[node("vdd", true, true)], &unplugged));
     assert!(persist(Arrangement::Exclusive, true));
     assert!(!persist(Arrangement::Exclusive, false));
     assert!(!persist(Arrangement::Extended, true));
+}
+#[test]
+fn a_saved_layout_is_undone_for_a_layout_that_keeps_the_monitor_and_not_for_one_that_saves_its_own()
+{
+    let before = [node("phys", true, true)];
+    let connected = ["phys", "vdd"].map(String::from);
+    // What an exclusive stream's end used to save: the virtual display primary and
+    // the monitor at the timing Windows picked. Measured: 2560x1440 at 60, not 120.
+    let mut slow = node("phys", true, false);
+    slow.mode.refresh_hz = 30.;
+    let recalled = [slow, node("vdd", true, true)];
+    let undo =
+        |saves, arrangement| recall_to_undo(saves, arrangement, &before, &recalled, &connected);
+    for arrangement in [
+        Arrangement::Extended,
+        Arrangement::Primary,
+        Arrangement::Isolated,
+        Arrangement::PrimaryIsolated,
+    ] {
+        assert!(
+            undo(persist(arrangement, true), arrangement),
+            "{arrangement:?}"
+        );
+    }
+    assert!(
+        !undo(
+            persist(Arrangement::Exclusive, true),
+            Arrangement::Exclusive
+        ),
+        "an exclusive stream switches the monitor off anyway"
+    );
+    // A second stream on a layout that saves its own: `display_arrived` settled it.
+    assert!(!undo(true, Arrangement::Exclusive));
+}
+#[test]
+fn the_entry_a_stream_puts_back_has_the_users_displays_as_they_had_them() {
+    let mut monitor = node("monitor", true, true);
+    monitor.mode.width = 2560;
+    monitor.mode.refresh_hz = 120.;
+    let before = snapshot(vec![monitor.clone(), node("vdd", false, false)]);
+    // The exclusive layout, with the monitor just switched on by Windows.
+    let mut retimed = monitor.clone();
+    retimed.mode.refresh_hz = 60.;
+    retimed.primary = false;
+    retimed.desired_position = Position { x: 1280, y: 0 };
+    let mut vdd = node("vdd", true, true);
+    vdd.mode.width = 1280;
+    let current = [vdd, retimed];
+    let layout = entry_layout(&before, &current, "vdd").unwrap();
+    let find = |id: &str| layout.nodes.iter().find(|n| n.device_id == id).unwrap();
+    let monitor_now = find("monitor");
+    assert_eq!(monitor_now.mode.refresh_hz, 120.);
+    assert_eq!(monitor_now.desired_position, Position { x: 0, y: 0 });
+    assert!(monitor_now.active && monitor_now.primary);
+    let vdd_now = find("vdd");
+    assert!(vdd_now.active && !vdd_now.primary);
+    assert_eq!(vdd_now.desired_position, Position { x: 2560, y: 0 });
+    assert_eq!(vdd_now.mode.width, 1280);
+    assert_eq!(layout.nodes.len(), 2);
+    // The user's HDR and scale go with them.
+    assert_eq!(layout.hdr, before.hdr);
+    assert_eq!(layout.scale, before.scale);
+    // Nothing to save for a display that is off.
+    assert!(entry_layout(&before, &[node("vdd", false, false)], "vdd").is_err());
+}
+#[test]
+fn what_windows_recalled_after_a_display_left_goes_back_to_the_layout_it_left() {
+    let mut monitor = node("monitor", true, true);
+    monitor.mode.refresh_hz = 120.;
+    let mut left = node("a", false, false);
+    left.desired_position = Position { x: 1920, y: 0 };
+    let mut stays = node("b", true, false);
+    stays.desired_position = Position { x: 3840, y: 0 };
+    let applied = vec![monitor.clone(), left, stays];
+    let mut before = snapshot(vec![monitor]);
+    before.clone_groups = vec![vec!["monitor".to_owned(), "twin".to_owned()]];
+    let layout = after_departure(&applied, Some(&before));
+    let on = |nodes: &[Node]| -> Vec<(String, bool, i32, f64)> {
+        nodes
+            .iter()
+            .map(|n| {
+                (
+                    n.device_id.clone(),
+                    n.active,
+                    n.desired_position.x,
+                    n.mode.refresh_hz,
+                )
+            })
+            .collect()
+    };
+    assert_eq!(on(&layout.nodes), on(&applied));
+    assert_eq!(layout.clone_groups, before.clone_groups);
+    // The user's other settings may have changed since: none of them is touched.
+    assert!(layout.hdr.is_empty() && layout.scale.is_empty() && layout.rotation.is_empty());
+    assert!(after_departure(&applied, None).clone_groups.is_empty());
 }
 #[test]
 fn the_original_layout_leaves_out_the_streams_virtual_display() {

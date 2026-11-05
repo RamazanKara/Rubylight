@@ -155,16 +155,6 @@ fn retain_in(state: &mut State, current: &[Node], id: &str, on: bool) -> bool {
     }
     true
 }
-/// Whether a display on in `before` is connected but not on in `current`
-/// (a snapshot lists only the displays that are on).
-fn switched_off(before: &[Node], current: &[Node], connected: &[String]) -> bool {
-    before.iter().filter(|b| b.active).any(|b| {
-        connected.contains(&b.device_id)
-            && !current
-                .iter()
-                .any(|c| c.device_id == b.device_id && c.active)
-    })
-}
 fn connected() -> Result<Vec<String>> {
     Ok(Topology::query_all()?
         .monitors()
@@ -406,10 +396,13 @@ fn arrived_layout(owners: &[(String, usize)], retained: &[String], device_id: &s
 fn persist(arrangement: Arrangement, virtual_target: bool) -> bool {
     virtual_target && arrangement == Arrangement::Exclusive
 }
-/// Put back the database entry a stream saved: the user's displays on with
-/// the virtual display beside them, as Windows lays out a new display.
+/// Put back the database entry a stream saved: the user's displays as they have
+/// them with the virtual display beside them, as Windows lays out a new display.
 /// Called before the user's layout is restored, while the virtual display is
-/// still connected.
+/// still connected. Switching them on is not enough: the virtual display would
+/// stay primary and a monitor Windows switches on gets Windows' choice of timing
+/// (60 Hz on a 120 Hz monitor), and every later stream that keeps it on is handed
+/// that entry.
 fn forget_saved_layout(before: &Snapshot, target: &str) -> Result<()> {
     let mut ids: Vec<_> = before
         .nodes
@@ -419,6 +412,101 @@ fn forget_saved_layout(before: &Snapshot, target: &str) -> Result<()> {
         .collect();
     ids.push(target.to_owned());
     Topology::set_active(&ids)?;
+    let laid_out = Snapshot::capture()
+        .and_then(|current| entry_layout(before, &current.nodes, target))
+        .and_then(|layout| layout.restore());
+    // A layout that only partly went back still beats the entry with them off.
+    Topology::save_current()?;
+    laid_out
+}
+/// `before` with the virtual display `target`, as it is in `current`, beside it.
+fn entry_layout(before: &Snapshot, current: &[Node], target: &str) -> Result<Snapshot> {
+    let target = current
+        .iter()
+        .find(|n| n.device_id == target && n.active)
+        .ok_or_else(|| anyhow::anyhow!("the stream's display is off"))?;
+    let mut layout = before.clone();
+    layout.nodes = butterpollo_core::display_policy::beside_the_users(&before.nodes, target);
+    Ok(layout)
+}
+/// Whether a virtual display's arrival handed a layout that keeps the other
+/// displays on an entry from the Windows display database that does not: it can
+/// come from an exclusive stream (a crash left its own in place, a second stream's
+/// entry has nothing to put it back) or from a version that saved it wrong. One
+/// that `saves` its own has no use for the entry.
+fn recall_to_undo(
+    saves: bool,
+    arrangement: Arrangement,
+    before: &[Node],
+    current: &[Node],
+    connected: &[String],
+) -> bool {
+    !saves
+        && butterpollo_core::display_policy::recalled_over(
+            before,
+            current,
+            connected,
+            &[],
+            arrangement.keeps_primary(),
+        )
+}
+/// A remote monitor's display `output` has arrived, `before` being the layout from
+/// just before it. On a layout that leaves the others alone it holds no lease to
+/// look after them, so what Windows recalled for it is undone here. A layout that
+/// does move the primary or switches them off applies that afterwards.
+pub fn undo_recall_for_remote_monitor(before: &Snapshot, output: &str) -> Result<()> {
+    if !recall_to_undo(
+        false,
+        Arrangement::Extended,
+        &before.nodes,
+        &Snapshot::capture()?.nodes,
+        &connected()?,
+    ) {
+        return Ok(());
+    }
+    let target = crate::display::monitors()?
+        .into_iter()
+        .find(|m| m.matches(output))
+        .ok_or_else(|| anyhow::anyhow!("the remote monitor's display is gone"))?
+        .device_id;
+    tracing::info!(
+        "Windows recalled a saved layout over the other displays for a remote monitor's display; putting it back"
+    );
+    forget_saved_layout(before, &target)
+}
+/// The layout that puts back what Windows recalled once another stream's display
+/// has gone: `applied`, the layout from when it left, with what else is on as it is.
+fn after_departure(applied: &[Node], before: Option<&Snapshot>) -> Snapshot {
+    Snapshot {
+        version: 1,
+        nodes: applied.to_vec(),
+        hdr: Default::default(),
+        clone_groups: before.map_or_else(Vec::new, |before| before.clone_groups.clone()),
+        scale: Default::default(),
+        rotation: Default::default(),
+    }
+}
+/// Another stream's display has gone and Windows has recalled its entry for the
+/// displays that remain. On a layout that keeps the others on, that entry can have
+/// one of them off or at another mode: put it back, and save it so that it stays.
+fn undo_recall_after_departure(state: &State, arrangement: Arrangement) -> Result<()> {
+    if state.persisted {
+        return Ok(());
+    }
+    let targets: Vec<_> = state.owners.iter().map(|(t, _)| t.clone()).collect();
+    if !butterpollo_core::display_policy::recalled_over(
+        &state.applied,
+        &Snapshot::capture()?.nodes,
+        &connected()?,
+        &targets,
+        arrangement.keeps_primary(),
+    ) {
+        return Ok(());
+    }
+    tracing::info!(
+        "Windows recalled a saved layout over the other displays when a stream's display left; putting it back"
+    );
+    after_departure(&state.applied, state.before.as_ref()).restore()?;
     Topology::save_current()
 }
 /// Retry while Windows is still applying another change, such as a virtual
@@ -534,6 +622,25 @@ impl Lease {
                     target: Mutex::new(target_id),
                 });
             }
+            // The displays that are on now can hold an entry a stream on another
+            // layout left: the monitor off, or at another mode.
+            if virtual_target
+                && let Some(original) = &original
+                && recall_to_undo(
+                    state.persisted,
+                    owned,
+                    &original.nodes,
+                    &Snapshot::capture()?.nodes,
+                    &connected()?,
+                )
+            {
+                tracing::info!(
+                    "Windows recalled a saved layout over the other displays for a second stream's display; putting it back"
+                );
+                if let Err(error) = forget_saved_layout(original, &target_id) {
+                    tracing::warn!(error = %format!("{error:#}"), "putting back the saved display layout failed");
+                }
+            }
             add_owner(&mut state, &target_id, virtual_target);
             let added: Vec<_> = retained
                 .into_iter()
@@ -560,15 +667,21 @@ impl Lease {
             current.clone()
         };
         // A host that stopped without putting back the layout it saved for
-        // Windows to recall (a crash, a power cut) left the user's displays
-        // off whenever this virtual display arrives. Put it back, unless this
-        // stream saves its own.
+        // Windows to recall (a crash, a power cut), or a version that put it back
+        // wrong, left the user's displays off, at another mode or no longer primary
+        // whenever this virtual display arrives. Put it back, unless this stream
+        // saves its own.
         if virtual_target
-            && !persist(arrangement, virtual_target)
-            && switched_off(&before.nodes, &current.nodes, &connected()?)
+            && recall_to_undo(
+                persist(arrangement, virtual_target),
+                arrangement,
+                &before.nodes,
+                &current.nodes,
+                &connected()?,
+            )
         {
             tracing::info!(
-                "the saved layout for the virtual display left the user's displays off; putting it back"
+                "Windows recalled a saved layout over the user's displays for the virtual display; putting it back"
             );
             match forget_saved_layout(&before, &target_id).and_then(|()| Snapshot::capture()) {
                 Ok(recaptured) => current = recaptured,
@@ -668,6 +781,20 @@ impl Lease {
         }
         let arrangement = state.arrangement.unwrap_or(self.arrangement);
         apply(&mut state, arrangement, None)
+    }
+    /// [`Self::reapply`] once another stream's display has left and Windows has
+    /// settled ([`departures`]). What it recalled for the displays that remain is
+    /// undone first: nobody else can have changed them, as a layout the user changed
+    /// counts no departure.
+    pub fn reapply_after_departure(&self, output: &str, retained: &[String]) -> Result<()> {
+        {
+            let state = state().lock().unwrap();
+            let arrangement = state.arrangement.unwrap_or(self.arrangement);
+            if let Err(error) = undo_recall_after_departure(&state, arrangement) {
+                tracing::warn!(error = %format!("{error:#}"), "putting back the displays another stream's display left failed");
+            }
+        }
+        self.reapply(output, retained)
     }
 }
 impl Drop for Lease {

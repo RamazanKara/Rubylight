@@ -137,6 +137,13 @@ pub fn activate(h: &Shared, client: &str, config: &Negotiated) -> Result<Arc<Ret
         render_adapter: display::configured_render_adapter(&h.config.read().unwrap()),
         joins: false,
     };
+    // Read while the display is not there yet: Windows can recall a saved layout
+    // over the others when it arrives.
+    let before = display::Snapshot::capture()
+        .inspect_err(|error| {
+            tracing::warn!(error = %format!("{error:#}"), "display layout before the remote monitor could not be read")
+        })
+        .ok();
     let host = Arc::downgrade(h);
     let lease = Arc::new(Retained::create_options(
         client,
@@ -155,6 +162,12 @@ pub fn activate(h: &Shared, client: &str, config: &Negotiated) -> Result<Arc<Ret
     )?);
     monitors.insert(client.into(), lease.clone());
     drop(monitors);
+    if let Some(before) = &before
+        && let Err(error) =
+            display_arrangement::undo_recall_for_remote_monitor(before, &lease.current_output())
+    {
+        tracing::warn!(error = %format!("{error:#}"), "putting back the displays a remote monitor's arrival changed failed");
+    }
     let result = (|| -> Result<()> { display::apply_layout(&layout(h)?.compose(&nodes(h)?)?) })();
     if let Err(error) = result {
         disconnect(h, Some(client));

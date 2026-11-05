@@ -1203,7 +1203,7 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
                 p.finish(secret)?;
                 let mut state = h.paired.write().unwrap();
                 let perm = state.paired_device_permission(p.permission);
-                let extra = state.paired_device_extra(perm);
+                let extra = state.paired_device_extra(perm, p.permission);
                 let crate::native_api::pairing::Granted {
                     perm,
                     extra,

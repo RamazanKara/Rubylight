@@ -378,7 +378,7 @@ fn pairing_access_applies_to_later_devices_and_never_to_the_first() {
         (LATER_DEVICE_PERMISSION, false),
     ] {
         let mut client = client_with(perm, json!({}));
-        client.extra = later.paired_device_extra(perm);
+        client.extra = later.paired_device_extra(perm, None);
         assert_eq!(client.allows_coop_join(), joins, "{perm:#x}");
     }
     let d = tempfile::tempdir().unwrap();
@@ -775,7 +775,7 @@ fn approve_new_devices_is_only_a_json_true_and_grants_nothing_else() {
 fn only_the_first_device_gets_approve_new_devices() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = PairedState::load(&dir.path().join("state.json")).unwrap();
-    let extra = state.paired_device_extra(FIRST_DEVICE_PERMISSION);
+    let extra = state.paired_device_extra(FIRST_DEVICE_PERMISSION, None);
     assert_eq!(extra.get(PAIRING_APPROVE_KEY), Some(&json!(true)));
     // The next one does not, not even with everything chosen in the console.
     state
@@ -788,10 +788,55 @@ fn only_the_first_device_gets_approve_new_devices() {
     ] {
         assert!(
             !state
-                .paired_device_extra(perm)
+                .paired_device_extra(perm, None)
                 .contains_key(PAIRING_APPROVE_KEY)
         );
     }
+    // Once every device is removed the next one is first again.
+    state.clients.clear();
+    assert!(
+        state
+            .paired_device_extra(FIRST_DEVICE_PERMISSION, None)
+            .contains_key(PAIRING_APPROVE_KEY)
+    );
+}
+
+#[test]
+fn a_browser_paired_first_leaves_approving_to_the_first_device_that_can() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = PairedState::load(&dir.path().join("state.json")).unwrap();
+    let mut browser = phone("Browser");
+    browser.cert = String::new();
+    state.clients.push(browser);
+    // The browser took the first device's permissions, not the grant.
+    let perm = state.paired_device_permission(None);
+    assert_eq!(perm, LATER_DEVICE_PERMISSION);
+    assert_eq!(
+        state
+            .paired_device_extra(perm, None)
+            .get(PAIRING_APPROVE_KEY),
+        Some(&json!(true))
+    );
+    let play = Some(PLAY_DEVICE_PERMISSION);
+    assert!(
+        state
+            .paired_device_extra(PLAY_DEVICE_PERMISSION, play)
+            .contains_key(PAIRING_APPROVE_KEY)
+    );
+    // Watch only, chosen by the owner, stays watch only.
+    let view = Some(LATER_DEVICE_PERMISSION);
+    assert!(
+        !state
+            .paired_device_extra(LATER_DEVICE_PERMISSION, view)
+            .contains_key(PAIRING_APPROVE_KEY)
+    );
+    // Only the first with a certificate gets it, whatever it was given.
+    state.clients.push(phone("Phone"));
+    assert!(
+        !state
+            .paired_device_extra(FIRST_DEVICE_PERMISSION, None)
+            .contains_key(PAIRING_APPROVE_KEY)
+    );
 }
 
 #[test]
@@ -809,7 +854,7 @@ fn an_upgrade_leaves_devices_paired_before_it_without_the_grant() {
     assert!(!loaded.clients[0].may_approve_pairing());
     assert!(
         !loaded
-            .paired_device_extra(FIRST_DEVICE_PERMISSION)
+            .paired_device_extra(FIRST_DEVICE_PERMISSION, None)
             .contains_key(PAIRING_APPROVE_KEY)
     );
 }

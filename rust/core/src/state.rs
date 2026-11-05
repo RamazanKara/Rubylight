@@ -121,8 +121,9 @@ impl Client {
     }
     /// Whether this device holds "Approve new devices" (`pairing_approve`): the
     /// three `/pairing` routes and nothing else. Only a JSON `true` counts. The
-    /// first device paired on a host gets it ([`PairedState::paired_device_extra`]),
-    /// any other only from the console; Host control never reads it.
+    /// first device with a certificate on a host gets it
+    /// ([`PairedState::paired_device_extra`]), any other only from the console;
+    /// Host control never reads it.
     pub fn allows_pairing_approve(&self) -> bool {
         self.enabled && self.extra.get(PAIRING_APPROVE_KEY) == Some(&Value::Bool(true))
     }
@@ -522,16 +523,20 @@ impl PairedState {
     /// The grants a device paired now with `perm` gets besides its permission
     /// bits: one that may launch apps may also join co-op sessions
     /// (`coop_join`), which the owner can take away on the device's page. The
-    /// first device on this host may also approve new devices, decided by being
-    /// first and not by `perm`: a later device the console gives everything does
-    /// not get it. Devices already paired are never touched, so one from before
-    /// this grant existed reads as off.
-    pub fn paired_device_extra(&self, perm: u32) -> BTreeMap<String, Value> {
+    /// first device with a certificate may also approve new devices, decided by
+    /// being first and not by `perm`: a later device the console gives everything
+    /// does not get it. A browser has no certificate and can't approve, so one
+    /// paired earlier leaves the grant for the first device that can use it,
+    /// unless `chosen` ([`pairing_access`]) says view only. Devices already paired
+    /// are never touched, so one from before this grant existed reads as off.
+    pub fn paired_device_extra(&self, perm: u32, chosen: Option<u32>) -> BTreeMap<String, Value> {
         let mut extra = BTreeMap::new();
         if perm & LAUNCH_APPS != 0 {
             extra.insert(crate::nucleus::coop::DEVICE_KEY.into(), Value::Bool(true));
         }
-        if self.new_device_permission() == FIRST_DEVICE_PERMISSION {
+        if self.clients.iter().all(|c| c.cert.trim().is_empty())
+            && chosen != Some(LATER_DEVICE_PERMISSION)
+        {
             extra.insert(PAIRING_APPROVE_KEY.into(), Value::Bool(true));
         }
         extra

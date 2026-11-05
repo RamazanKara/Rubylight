@@ -133,7 +133,7 @@ Each default below is what a fresh 3.0.0 install uses, checked against the host 
 | Shared folders — `shared_folders` | none | Nothing is shared until you add a folder and give it to a device. |
 | Copy images — `clipboard_image` | `true` | Devices you allow to use the clipboard get images as well as text. |
 | Host control, Sleep PC, USB devices, files and clipboard, per device | off | Granted per device under **Devices**; pairing never grants them. |
-| Approve new devices, per device | first device paired on | Pairs other devices from this one and nothing else. Later devices get it only under **Devices**; an upgrade changes no device. |
+| Approve new devices, per device | first device with a certificate paired on, unless paired as **Watch only** | Pairs other devices from this one and nothing else. A browser can't use it, so one paired earlier doesn't count. Later devices get it only under **Devices**; an upgrade changes no device. |
 | Can join co-op games, per device — `coop_join` | follows **Launch apps** | Joining a co-op game launches it, so a device that may launch apps may join until you take it away. |
 | WebRTC server — `webrtc_server` | `false` | Only TVs and browsers that speak the Moonlight WebRTC protocol need it. |
 | **Games, power and updates** | | |

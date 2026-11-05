@@ -106,7 +106,10 @@
       <p><strong>This code expired.</strong> Codes last three minutes and work once.</p>
     {:else}
       <p class="muted" aria-live="off">Works once, for <span class="num">{countdown}</span>.</p>
-      <div><CopyButton value={code.uri} label="Copy pairing link" what="the pairing link" showLabel /></div>
+      <div class="actions">
+        <CopyButton value={code.uri} label="Copy pairing link" what="the pairing link" showLabel />
+        <Button size="sm" href={code.uri}>Open in Nightjar</Button>
+      </div>
     {/if}
     {#if codes.length > 1}
       <label for="{uid}-address">Address your device reaches</label>
@@ -159,6 +162,12 @@
     gap: var(--space-2);
     flex: 1 1 180px;
     font-size: var(--text-sm);
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: center;
   }
   .error {
     color: var(--danger);

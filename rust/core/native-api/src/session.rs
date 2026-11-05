@@ -134,7 +134,32 @@ pub struct Session {
     /// `session.mic_only` in its features.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub microphone_busy: bool,
+    /// The running game and the device playing it, when that is another device; for callers
+    /// with List or View permission. Only when the host lists `session.continue_here` in its
+    /// features.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub playing_on: Option<PlayingOn>,
+    /// The caller's stream moved to another device, within the last two minutes. Only when the
+    /// host lists `session.continue_here` in its features.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved_to: Option<MovedTo>,
     pub actions: Vec<Action>,
+}
+
+/// The game another device plays, as [`Session::playing_on`] names it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlayingOn {
+    /// The device's name, as it was paired.
+    pub device: String,
+    pub app: SessionApp,
+}
+
+/// Where the caller's stream went, as [`Session::moved_to`] says it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MovedTo {
+    /// The device's name, as it was paired.
+    pub device: String,
+    pub since_unix_ms: u64,
 }
 
 /// `POST /session/couch-menu`: open or close the menu the host draws into the caller's
@@ -154,7 +179,7 @@ pub struct CouchMenu {
 
 #[cfg(test)]
 mod tests {
-    use super::{CouchMenu, CouchMenuRequest};
+    use super::{CouchMenu, CouchMenuRequest, Session};
     use crate::capabilities::Capabilities;
     use crate::feature;
 
@@ -184,6 +209,24 @@ mod tests {
         assert_eq!(text, r#"{"open":true}"#);
         let newer: CouchMenu = serde_json::from_str(r#"{"open":true,"page":"main"}"#).unwrap();
         assert!(newer.open);
+    }
+
+    #[test]
+    fn a_session_says_where_a_stream_moved_only_when_it_did() {
+        let old = r#"{"revision":1,"state":"idle","owner":"none","app":null,
+            "game_running":false,"actions":[]}"#;
+        let session: Session = serde_json::from_str(old).unwrap();
+        assert!(session.playing_on.is_none() && session.moved_to.is_none());
+        let text = serde_json::to_string(&session).unwrap();
+        assert!(!text.contains("playing_on") && !text.contains("moved_to"));
+        let moved = r#"{"revision":1,"state":"idle","owner":"none","app":null,
+            "game_running":true,"actions":[],
+            "playing_on":{"device":"Phone","app":{"install_id":"a","app_id":1,"title":"Game"}},
+            "moved_to":{"device":"TV","since_unix_ms":5}}"#;
+        let session: Session = serde_json::from_str(moved).unwrap();
+        assert_eq!(session.playing_on.unwrap().device, "Phone");
+        assert_eq!(session.moved_to.unwrap().device, "TV");
+        assert_eq!(feature::CONTINUE_HERE, "session.continue_here");
     }
 
     #[test]

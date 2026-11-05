@@ -436,6 +436,32 @@ impl Guests {
         self.inner.lock().unwrap().joined.remove(&id);
     }
 
+    /// A guest in a seat, without its media.
+    #[cfg(test)]
+    pub fn seat_for_test(&self) -> u64 {
+        let mut inner = self.inner.lock().unwrap();
+        inner.next_guest += 1;
+        let id = inner.next_guest;
+        let link = InviteInfo {
+            id: "test".into(),
+            permission: Permission::View,
+            created: 0,
+            expires: u64::MAX,
+        };
+        inner.joined.insert(
+            id,
+            Joined {
+                slot: 0,
+                name: "Guest".into(),
+                permission: Permission::View,
+                link,
+                since: 0,
+                leave: unbounded_channel().0,
+            },
+        );
+        id
+    }
+
     /// Ask the owner's encoder (`session`, the owner's) for a keyframe for a guest that lost its
     /// picture, unless a guest had one less than [`KEYFRAME_INTERVAL`] ago. False when it was
     /// not asked. Takes no lock: the owner's frame thread calls it.

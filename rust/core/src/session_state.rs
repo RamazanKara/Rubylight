@@ -324,6 +324,7 @@ impl Machine {
                 .flatten(),
             launcher: None,
             radeon_profile: None,
+            holder: None,
         }
     }
 

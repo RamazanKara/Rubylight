@@ -14,7 +14,7 @@ use super::native_api::capabilities::Capabilities;
 use super::native_api::error::{ApiError, ErrorBody};
 use super::native_api::library::Library;
 use super::native_api::radeon::{Radeon, SettingsWrite};
-use super::native_api::session::{ActionId, CouchMenu, CouchMenuRequest, Session};
+use super::native_api::session::{ActionId, CouchMenu, CouchMenuRequest, Session, SessionApp};
 use super::native_api::wake::Wake;
 use super::native_api::PREFIX;
 use super::transport::{self, Body, Request, Timeouts};
@@ -28,6 +28,30 @@ use std::collections::BTreeMap;
 struct MicrophoneBusy {
     #[serde(default)]
     microphone_busy: bool,
+}
+
+/// The game another device plays, from `GET /session` (`playing_on`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlayingOn {
+    pub device: String,
+    pub app: SessionApp,
+}
+
+/// Where this device's stream went, from `GET /session` (`moved_to`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MovedTo {
+    pub device: String,
+    pub since_unix_ms: u64,
+}
+
+/// The part of `GET /session` Continue here reads. Both are absent where the host does not say
+/// them.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StreamMove {
+    #[serde(default)]
+    pub playing_on: Option<PlayingOn>,
+    #[serde(default)]
+    pub moved_to: Option<MovedTo>,
 }
 use std::time::Duration;
 
@@ -251,6 +275,35 @@ impl HostClient {
     pub fn microphone_busy(&self) -> Result<bool, Error> {
         let session: MicrophoneBusy = self.native("session", None, MAX_JSON_BYTES, READ_TIMEOUT)?;
         Ok(session.microphone_busy)
+    }
+
+    /// Who plays the running game and where this device's stream went. Only when the
+    /// capabilities list `session.continue_here`.
+    pub fn stream_move(&self) -> Result<StreamMove, Error> {
+        self.native("session", None, MAX_JSON_BYTES, READ_TIMEOUT)
+    }
+
+    /// The session and [`HostClient::stream_move`] from one read.
+    pub fn session_and_move(&self) -> Result<(Session, StreamMove), Error> {
+        let session: serde_json::Value =
+            self.native("session", None, MAX_JSON_BYTES, READ_TIMEOUT)?;
+        // What an old host does not say is absent, never an error.
+        let moved = serde_json::from_value(session.clone()).unwrap_or_default();
+        let session = serde_json::from_value(session)
+            .map_err(|e| Error::InvalidArgument(format!("session: {e}")))?;
+        Ok((session, moved))
+    }
+
+    /// Continue here: the other devices' streams of the running game end and the game stays. The
+    /// caller then starts its stream with the normal resume. Only when the capabilities list
+    /// `session.continue_here`.
+    pub fn continue_here(&self) -> Result<Session, Error> {
+        self.native(
+            "session/continue-here",
+            Some(EMPTY_BODY),
+            MAX_JSON_BYTES,
+            ACTION_READ_TIMEOUT,
+        )
     }
 
     /// Runs `Disconnect`, `End` or `CloseGame` and returns the session afterwards. `Resume`

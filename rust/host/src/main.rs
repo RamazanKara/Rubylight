@@ -1,5 +1,6 @@
 mod child_session;
 mod console;
+mod continue_here;
 mod controller_sessions;
 mod couch_menu;
 mod display_session;

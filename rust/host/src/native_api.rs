@@ -80,6 +80,17 @@ impl Failure {
         self
     }
 }
+impl From<crate::continue_here::Refused> for Failure {
+    fn from(refused: crate::continue_here::Refused) -> Self {
+        match refused {
+            crate::continue_here::Refused::Session(refusal) => refusal.into(),
+            crate::continue_here::Refused::GuestsWatching => Self::new(
+                ErrorCode::HostInUse,
+                "Guests are watching the other device's stream.",
+            ),
+        }
+    }
+}
 impl From<Refusal> for Failure {
     fn from(refusal: Refusal) -> Self {
         match refusal {
@@ -154,6 +165,10 @@ pub fn router() -> Router<Shared> {
             post(disconnect).fallback(unknown),
         )
         .route(&path("/session/end"), post(end).fallback(unknown))
+        .route(
+            &path("/session/continue-here"),
+            post(continue_here).fallback(unknown),
+        )
         .route(
             &path("/session/close-game"),
             post(close_game).fallback(unknown),
@@ -364,6 +379,8 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
                 feature::AUDIO_HEADPHONE_SURROUND,
                 // Microphone-only sessions; launching one needs Launch apps.
                 feature::MIC_ONLY,
+                // Taking over the game's stream; pressing it needs View and Launch apps.
+                feature::CONTINUE_HERE,
                 // Each device needs its own Restart and shut down PC grant.
                 feature::POWER_RESTART,
                 feature::POWER_SHUTDOWN,
@@ -475,7 +492,32 @@ async fn session(State(h): State<Shared>, Extension(c): Extension<Connection>) -
     let snapshot = h.session_snapshot();
     let mut view = native::session_view(&snapshot, &client);
     view.microphone_busy = crate::mic::busy_for(&h, &client.uuid);
+    view.moved_to = h.moves.note_for(&client.uuid);
     Ok(json(StatusCode::OK, &view))
+}
+
+/// Continue here: the other devices' plain streams of the running game end, the game stays and
+/// the caller starts its own stream of it with the normal resume.
+async fn continue_here(
+    State(h): State<Shared>,
+    Extension(c): Extension<Connection>,
+    request: Request,
+) -> Reply {
+    caller(&h, &c)?;
+    expect_empty_body(request).await?;
+    tokio::task::spawn_blocking(move || {
+        // The permission checks use the device as the console has it now.
+        let client = caller(&h, &c)?;
+        require(&client, VIEW, "View apps")?;
+        require(&client, LAUNCH, "Launch applications")?;
+        h.continue_here(&client)?;
+        Ok(json(
+            StatusCode::OK,
+            &native::session_view(&h.session_snapshot(), &client),
+        ))
+    })
+    .await
+    .map_err(|error| Failure::internal("continue the game here", error))?
 }
 
 #[derive(Clone, Copy, Debug)]

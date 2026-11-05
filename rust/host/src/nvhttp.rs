@@ -1525,8 +1525,10 @@ fn launch_back_half(
     }
     // The state machine follows stream launches; a failure before the
     // reply returns it to what it was.
-    let mut session = (role == Role::Stream && !in_nucleus)
-        .then(|| h.session_begin(&launch.client.uuid, app.as_ref()));
+    let mut session = (role == Role::Stream && !in_nucleus).then(|| {
+        h.moves.forget(&launch.client.uuid);
+        h.session_begin(&launch.client.uuid, app.as_ref())
+    });
     let game = match (&coop, launch.background == Some(true)) {
         (Some(coop), _) => Some(crate::nucleus::Game::Coop(coop)),
         // A background stream runs only in Nucleus Co-op: an app it can't

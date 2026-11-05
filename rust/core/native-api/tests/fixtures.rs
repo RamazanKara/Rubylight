@@ -191,6 +191,8 @@ fn session_without_details_serialises_null_app_and_no_times() {
         launcher: None,
         radeon_profile: None,
         microphone_busy: false,
+        playing_on: None,
+        moved_to: None,
         actions: vec![],
     };
     let value = serde_json::to_value(&session).unwrap();

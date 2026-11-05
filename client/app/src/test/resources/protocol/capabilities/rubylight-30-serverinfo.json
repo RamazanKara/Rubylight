@@ -53,6 +53,7 @@
     "shared_folders": "supported",
     "coop": "supported",
     "mic_only": "supported",
+    "continue_here": {"only": "rust", "availability": "unsupported", "comment": "Android reads the native list itself: NativeCapabilities.offersContinueHere"},
     "pc_restart": {"only": "java", "availability": "unsupported", "comment": "Desktop reads power.restart, power.shutdown and update from the native capabilities itself"},
     "pc_shutdown": {"only": "java", "availability": "unsupported", "comment": "Desktop reads power.restart, power.shutdown and update from the native capabilities itself"},
     "host_update": {"only": "java", "availability": "unsupported", "comment": "Desktop reads power.restart, power.shutdown and update from the native capabilities itself"}

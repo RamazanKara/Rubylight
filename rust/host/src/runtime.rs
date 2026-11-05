@@ -39,7 +39,8 @@ fn application_finished_with(
     processes: impl FnOnce() -> anyhow::Result<Vec<butterpollo_core::steam::Process>>,
     image_path: impl Fn(u32) -> Option<String>,
 ) -> bool {
-    let connected = streaming(h);
+    // Between a press of Continue here and its stream, a device is on its way to the game.
+    let connected = streaming(h) || h.moves.claim_live();
     let scan_for = {
         let mut current = h.current_app.lock().unwrap();
         let Some(app) = current.as_mut() else {
@@ -570,6 +571,44 @@ mod tests {
         // The new app still gets its own first look.
         let current = fixture.host.current_app.lock().unwrap();
         assert!(current.as_ref().unwrap().wants_processes());
+    }
+
+    #[test]
+    fn close_on_disconnect_waits_for_the_device_continuing_the_game() {
+        let fixture = Fixture::new();
+        fixture
+            .host
+            .config
+            .write()
+            .unwrap()
+            .values
+            .insert("terminate_on_pause".into(), "true".into());
+        let app = serde_json::from_value(serde_json::json!({"name":"Desktop"})).unwrap();
+        *fixture.host.current_app.lock().unwrap() =
+            Some(crate::process::launch(&fixture.host, &app, &Default::default()).unwrap());
+        let phone = fixture.client(u32::MAX);
+        let stream = fixture.session(phone.clone(), Role::Stream);
+        assert!(!application_finished(&fixture.host));
+        let mut tv = phone;
+        tv.uuid = "tv".into();
+        tv.name = "TV".into();
+        fixture.host.continue_here(&tv).unwrap();
+        assert!(stream.stopping());
+        fixture
+            .host
+            .sessions
+            .lock()
+            .unwrap()
+            .active
+            .remove(&stream.launch.id);
+        assert!(
+            !application_finished(&fixture.host),
+            "the game outlives the gap between the two streams"
+        );
+        // The TV never came: now the last device has left.
+        fixture.host.moves.expire_claim();
+        fixture.host.reap_paused_display();
+        assert!(application_finished(&fixture.host));
     }
 
     #[test]

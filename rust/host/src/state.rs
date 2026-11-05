@@ -381,6 +381,7 @@ pub struct Host {
     pub game_files: crate::game_files::GameFiles,
     /// The Radeon profile applied for the owner's game and a launcher prompt, for the session.
     pub notes: crate::session_notes::SessionNotes,
+    pub moves: crate::continue_here::Moves,
     /// Wake-on-LAN readiness, the console's fix and sleep after idle.
     pub wake: crate::wake::Wake,
     /// The `webhooks` setting's deliveries and each hook's last status.
@@ -564,6 +565,7 @@ impl Host {
         }
     }
     pub fn reap_paused_display(&self) {
+        self.settle_move();
         let audio = {
             let mut audio = self.app_audio.lock().unwrap();
             if audio
@@ -580,15 +582,20 @@ impl Host {
             return;
         }
         let config = self.config.read().unwrap().clone();
+        // A stream that moved to another device, which runs now, gives its display up at once.
+        let moved = self.moves.displays_to_release();
         let expired: Vec<String> = {
             let mut displays = self.app_display.lock().unwrap();
             let mut expired = vec![];
             for (owner, (lease, paused)) in displays.iter_mut() {
                 if Arc::strong_count(lease) > 1 {
                     *paused = None;
-                } else if config
-                    .display_disconnect_delay(lease.exclusive_layout())
-                    .is_some_and(|delay| paused.get_or_insert_with(Instant::now).elapsed() >= delay)
+                } else if moved.contains(owner)
+                    || config
+                        .display_disconnect_delay(lease.exclusive_layout())
+                        .is_some_and(|delay| {
+                            paused.get_or_insert_with(Instant::now).elapsed() >= delay
+                        })
                 {
                     expired.push(owner.clone());
                 }
@@ -598,6 +605,7 @@ impl Host {
         if expired.is_empty() {
             return;
         }
+        self.moves.released(&expired);
         // The grace period ran out: the session ends as End session does,
         // while the display is still held so the state shows the suspension.
         let teardown = self.session_teardown(crate::session_control::Scope::Displays(&expired));
@@ -807,6 +815,7 @@ impl Host {
             radeon: crate::radeon_session::Radeon::default(),
             game_files: crate::game_files::GameFiles::default(),
             notes: crate::session_notes::SessionNotes::default(),
+            moves: crate::continue_here::Moves::default(),
             wake: Default::default(),
             webhooks: crate::webhooks::Webhooks::new(crate::webhooks::Policy::DEFAULT)?,
             nucleus: crate::nucleus::Registry::on_pc(),

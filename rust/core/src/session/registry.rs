@@ -221,6 +221,45 @@ impl<P, A> Sessions<P, A> {
                 .values()
                 .any(|s| !s.stopping() && other(&s.launch))
     }
+    /// The devices with a running plain stream, by name: `Role::Stream` and not Nucleus Co-op's
+    /// or a background one. These are the streams Continue here moves.
+    pub fn plain_streams(&self) -> BTreeMap<String, String> {
+        self.active
+            .values()
+            .filter(|s| !s.stopping() && s.launch.plain_stream())
+            .map(|s| (s.launch.client.uuid.clone(), s.launch.client.name.clone()))
+            .collect()
+    }
+    /// The devices whose plain stream is about to start, by name.
+    pub fn plain_launches(&self) -> BTreeMap<String, String> {
+        self.pending
+            .values()
+            .filter(|p| p.live() && p.plain_stream())
+            .map(|p| (p.client.uuid.clone(), p.client.name.clone()))
+            .collect()
+    }
+    /// Whether another device's plain WebRTC stream runs: the one guests watch.
+    pub fn plain_webrtc_of_other(&self, client: &str) -> bool {
+        self.active.values().any(|s| {
+            !s.stopping()
+                && s.launch.plain_stream()
+                && s.launch.transport == Transport::WebRtc
+                && s.launch.client.uuid != client
+        })
+    }
+    /// Continue here: stop every other device's plain stream and launch. A Nucleus Co-op or
+    /// background stream, an Input-only or Remote Monitor session and the caller's own stay.
+    #[must_use = "drop canceled launches after releasing the sessions lock"]
+    pub fn stop_plain_streams_of_others(&mut self, client: &str) -> Vec<Launch<P, A>> {
+        let other = |l: &Launch<P, A>| l.plain_stream() && l.client.uuid != client;
+        let canceled = self.remove_pending(other);
+        for s in self.active.values() {
+            if other(&s.launch) {
+                s.stop();
+            }
+        }
+        canceled
+    }
     #[must_use = "drop canceled launches after releasing the sessions lock"]
     pub fn stop_role(&mut self, role: Role, client: Option<&str>) -> Vec<Launch<P, A>> {
         let canceled =

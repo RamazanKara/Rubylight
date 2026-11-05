@@ -57,7 +57,7 @@ fn teardown_wait() -> Duration {
 /// A lock that a panic elsewhere poisoned still guards the same data, and the
 /// teardown and launch guards run while a panic may unwind: they must not
 /// panic again, which would abort the host.
-fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
@@ -252,7 +252,7 @@ impl Host {
     }
     /// Run `f` on the machine after bringing it up to date with the facts,
     /// and keep the journal current.
-    fn with_session<R>(&self, f: impl FnOnce(&mut Machine, &Facts, u64) -> R) -> R {
+    pub(crate) fn with_session<R>(&self, f: impl FnOnce(&mut Machine, &Facts, u64) -> R) -> R {
         let mut control = locked(&self.session);
         let facts = self.session_facts();
         let now = now_ms();
@@ -319,6 +319,7 @@ impl Host {
         });
         self.notes
             .fill(&mut snapshot, |device| self.radeon.holds(device));
+        snapshot.holder = self.session_holder(&snapshot);
         snapshot
     }
     /// The session state without waiting for an action that holds the

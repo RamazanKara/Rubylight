@@ -11,7 +11,7 @@ use crate::library::Source;
 use crate::native_api::error::ErrorCode;
 use crate::native_api::library::{Artwork, Game, Library, Store};
 use crate::native_api::session::{
-    Action, ActionId, LauncherNotice, Owner, RadeonProfile, Session, SessionApp, State,
+    Action, ActionId, LauncherNotice, Owner, PlayingOn, RadeonProfile, Session, SessionApp, State,
 };
 use crate::remote;
 use crate::state::{App, Client};
@@ -362,6 +362,15 @@ pub struct SessionSnapshot {
     pub launcher: Option<LauncherNotice>,
     /// The Radeon profile of the running app, as applied. The host adds it too.
     pub radeon_profile: Option<RadeonProfile>,
+    /// The device playing the game, the one another device can continue from. The host adds it.
+    pub holder: Option<Holder>,
+}
+/// The device playing the running game on a plain stream, or suspended from one. Nucleus Co-op
+/// and background streams never count.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Holder {
+    pub uuid: String,
+    pub device: String,
 }
 impl Default for SessionSnapshot {
     fn default() -> Self {
@@ -375,6 +384,7 @@ impl Default for SessionSnapshot {
             suspended_until_unix_ms: None,
             launcher: None,
             radeon_profile: None,
+            holder: None,
         }
     }
 }
@@ -499,6 +509,18 @@ pub fn session_view(snapshot: &SessionSnapshot, caller: &Client) -> Session {
         radeon_profile: snapshot.radeon_profile.clone().filter(|_| details),
         // The host's microphone receiver knows this, not the snapshot; it sets it.
         microphone_busy: false,
+        playing_on: snapshot
+            .holder
+            .as_ref()
+            .filter(|holder| holder.uuid != caller.uuid)
+            .filter(|_| caller.allows(LIST) || caller.allows(VIEW))
+            .zip(snapshot.app.clone())
+            .map(|(holder, app)| PlayingOn {
+                device: holder.device.clone(),
+                app,
+            }),
+        // The host's record of moved streams knows this, not the snapshot; it sets it.
+        moved_to: None,
         actions,
     }
 }

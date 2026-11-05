@@ -42,6 +42,9 @@ pub mod feature {
     /// `POST /session/couch-menu` opens and closes the menu the host draws into
     /// the stream (since 1.1.0).
     pub const COUCH_MENU: &str = "session.couch_menu";
+    /// `POST /session/continue-here` moves the running game's stream to the caller, and the
+    /// session carries `playing_on` and `moved_to`.
+    pub const CONTINUE_HERE: &str = "session.continue_here";
     /// `GET /wake` lists the PC's wake targets.
     pub const WAKE: &str = "wake";
     /// `GET /audio` and its writes carry `audio.night_mode`, and launches take

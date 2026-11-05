@@ -26,6 +26,7 @@ use tower::ServiceExt;
 
 mod audio;
 mod compat;
+mod continue_here;
 mod coop;
 mod couch_menu;
 mod files;
@@ -235,6 +236,7 @@ async fn an_unpaired_request_gets_403_not_paired_on_every_endpoint() {
         ("GET", "/session"),
         ("POST", "/session/disconnect"),
         ("POST", "/session/end"),
+        ("POST", "/session/continue-here"),
         ("POST", "/session/close-game"),
         ("POST", "/session/couch-menu"),
         ("GET", "/radeon"),
@@ -398,6 +400,7 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
             "audio.night_mode",
             "audio.headphone_surround",
             "session.mic_only",
+            "session.continue_here",
             "power.restart",
             "power.shutdown",
             "session.couch_menu",
@@ -427,6 +430,7 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
             "audio.night_mode",
             "audio.headphone_surround",
             "session.mic_only",
+            "session.continue_here",
             "power.restart",
             "power.shutdown",
             "session.couch_menu",

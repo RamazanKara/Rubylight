@@ -1016,6 +1016,8 @@ fn expected(feature: Feature) -> Availability {
         Feature::ImageClipboard => Supported,
         // Always listed; the device has every permission, Launch apps among them.
         Feature::MicOnly => Supported,
+        // Always listed; the device has every permission, View and Launch among them.
+        Feature::ContinueHere => Supported,
     }
 }
 

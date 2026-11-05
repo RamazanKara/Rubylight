@@ -36,7 +36,32 @@ fn snapshot(state: State, owner: &str) -> SessionSnapshot {
         suspended_until_unix_ms: Some(20),
         launcher: None,
         radeon_profile: None,
+        holder: None,
     }
+}
+#[test]
+fn another_devices_name_is_shown_only_to_a_caller_with_list_or_view() {
+    let mut held = snapshot(State::Streaming, "phone");
+    held.holder = Some(Holder {
+        uuid: "phone".into(),
+        device: "Fold".into(),
+    });
+    for perm in [LIST, VIEW, LIST | LAUNCH, LAUNCH | VIEW] {
+        let session = session_view(&held, &client(perm, json!({})));
+        let playing = session.playing_on.expect("a caller that may list or view");
+        assert_eq!(playing.device, "Fold");
+        assert_eq!(playing.app.title, "Dota 2");
+    }
+    for perm in [0, LAUNCH] {
+        let session = session_view(&held, &client(perm, json!({})));
+        assert!(session.playing_on.is_none(), "{perm}");
+    }
+    held.holder.as_mut().unwrap().uuid = "me".into();
+    let own = session_view(&held, &client(LIST | VIEW, json!({})));
+    assert!(own.playing_on.is_none(), "the device itself plays it");
+    held.holder = None;
+    let nobody = session_view(&held, &client(LIST | VIEW, json!({})));
+    assert!(nobody.playing_on.is_none());
 }
 fn suspended(owner: &str) -> SessionSnapshot {
     snapshot(State::Suspended, owner)

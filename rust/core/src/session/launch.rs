@@ -176,6 +176,11 @@ pub const RTSP_LEASE: Duration = Duration::from_secs(10);
 /// The longest a claimed launch waits for PLAY, counted from its reply.
 pub const CLAIM_LIMIT: Duration = Duration::from_secs(60);
 impl<P, A> Launch<P, A> {
+    /// A stream of the host's session: not Nucleus Co-op's or a background one, which stream a
+    /// game window of their own, and not an Input-only or Remote Monitor session.
+    pub fn plain_stream(&self) -> bool {
+        self.role == Role::Stream && self.nucleus.is_none() && self.background != Some(true)
+    }
     /// The lease an RTSP request at `now` gives this launch.
     pub(super) fn lease(&self, now: Instant) -> Instant {
         (now + RTSP_LEASE).min(self.created + CLAIM_LIMIT)

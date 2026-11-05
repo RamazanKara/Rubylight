@@ -342,6 +342,12 @@ pub struct Started {
     pub after_setup: bool,
 }
 
+/// Whether this start is the player opening Nightjar. A frontend's stream has its own game, and a
+/// pairing link is about pairing: neither starts the game chosen for opening.
+pub fn opened_by_player(frontend: bool, autostream: bool, link: bool) -> bool {
+    !frontend && !autostream && !link
+}
+
 /// Whether this start of Nightjar may start a game by itself. An update's restart and a second copy
 /// are not the player opening Nightjar, and a second copy must not touch what the first one runs.
 fn may_start_a_game(launcher_start: bool, after_setup: bool, stream_elsewhere: bool, window_elsewhere: bool) -> bool {
@@ -642,6 +648,14 @@ impl crate::App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pairing_link_or_a_frontend_is_not_the_player_opening_nightjar() {
+        assert!(opened_by_player(false, false, false));
+        assert!(!opened_by_player(true, false, false));
+        assert!(!opened_by_player(false, true, false));
+        assert!(!opened_by_player(false, false, true));
+    }
 
     fn target() -> Target {
         Target { host: 1, pc: "Desk".into(), game: OpenGame { host: "uid".into(), install_id: "x".into(), app_id: 7, title: "Dota 2".into() } }

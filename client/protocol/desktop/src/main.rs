@@ -552,6 +552,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         launcher.tearing_supported
     );
 
+    let opened_by_link = link.is_some();
     let links = Arc::new(link_channel::Inbox::default());
     if let Some(link) = link {
         links.put(link);
@@ -608,7 +609,13 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         settings.check_updates && cli.is_none() && std::env::var_os("NIGHTJAR_AUTOSTREAM").is_none(),
         waker.clone(),
     );
-    let open_play = open_play::at_launch(&store, &mut launcher, &hosts, cli.is_none() && std::env::var_os("NIGHTJAR_AUTOSTREAM").is_none(), started);
+    let open_play = open_play::at_launch(
+        &store,
+        &mut launcher,
+        &hosts,
+        open_play::opened_by_player(cli.is_some(), std::env::var_os("NIGHTJAR_AUTOSTREAM").is_some(), opened_by_link),
+        started,
+    );
     let mut app = App {
         window,
         renderer,

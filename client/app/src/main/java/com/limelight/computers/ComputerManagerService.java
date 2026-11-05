@@ -29,6 +29,7 @@ import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
+import com.limelight.nvstream.http.PairingLink;
 import com.limelight.nvstream.http.PairingManager;
 import com.limelight.nvstream.mdns.MdnsComputer;
 import com.limelight.nvstream.mdns.MdnsDiscoveryListener;
@@ -335,6 +336,10 @@ public class ComputerManagerService extends Service {
             return ComputerManagerService.this.addComputerBlocking(fakeDetails);
         }
 
+        public LinkAdd addComputerForLink(ComputerDetails fakeDetails, PairingLink link) throws InterruptedException {
+            return ComputerManagerService.this.addComputerForLink(fakeDetails, link);
+        }
+
         public void removeComputer(ComputerDetails computer) {
             ComputerManagerService.this.removeComputer(computer);
         }
@@ -593,7 +598,39 @@ public class ComputerManagerService extends Service {
 
         // We cannot use runPoll() here because it will attempt to persist the state of the machine
         // in the database, which would be bad because we don't have our pinned cert loaded yet.
-        if (pollComputer(fakeDetails)) {
+        return finishAdding(fakeDetails, pollComputer(fakeDetails));
+    }
+
+    /** What became of the PC a pairing link names. */
+    public enum LinkAdd { ADDED, UNREACHABLE, CERTIFICATE_MISMATCH }
+
+    /**
+     * Adds the PC at a pairing link's address, unless what answers there says it is a PC known here with another
+     * certificate than the link names. Any web page can make that address the one tried, and adding it would rewrite
+     * the known PC's address before anything has proved who answered.
+     */
+    public LinkAdd addComputerForLink(ComputerDetails fakeDetails, PairingLink link) throws InterruptedException {
+        boolean polled = pollComputer(fakeDetails);
+        if (polled && pinsAnotherCertificate(fakeDetails.uuid, link)) {
+            LimeLog.warning("A pairing link's address claims a known PC with another certificate");
+            return LinkAdd.CERTIFICATE_MISMATCH;
+        }
+        return finishAdding(fakeDetails, polled) ? LinkAdd.ADDED : LinkAdd.UNREACHABLE;
+    }
+
+    private boolean pinsAnotherCertificate(String uuid, PairingLink link) {
+        synchronized (pollingTuples) {
+            for (PollingTuple tuple : pollingTuples) {
+                if (tuple.computer.uuid.equals(uuid)) {
+                    return tuple.computer.serverCert != null && !link.matches(tuple.computer.serverCert);
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean finishAdding(ComputerDetails fakeDetails, boolean polled) throws InterruptedException {
+        if (polled) {
             // See if we have record of this PC to pull its pinned cert
             synchronized (pollingTuples) {
                 for (PollingTuple tuple : pollingTuples) {

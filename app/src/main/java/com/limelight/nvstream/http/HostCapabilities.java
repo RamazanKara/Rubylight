@@ -118,7 +118,9 @@ public final class HostCapabilities {
         PC_RESTART(0),
         PC_SHUTDOWN(0),
         /** Install the host's pending update (native "update"). Known only after {@link #withNativeCapabilities}, and only for a device with Host control. */
-        HOST_UPDATE(0);
+        HOST_UPDATE(0),
+        /** Devices waiting to pair, approved from here (native "pairing.approve"). Known only after {@link #withNativeCapabilities}, and only for a device with Host control. */
+        PAIRING_APPROVE(0);
 
         @StringRes public final int label;
 
@@ -378,6 +380,7 @@ public final class HostCapabilities {
         boolean restart = false;
         boolean shutdown = false;
         boolean update = false;
+        boolean pairing = false;
         for (int i = 0; i < features.length(); i++) {
             Object feature = features.get(i);
             if (!(feature instanceof String)) {
@@ -393,6 +396,7 @@ public final class HostCapabilities {
             restart |= "power.restart".equals(feature);
             shutdown |= "power.shutdown".equals(feature);
             update |= "update".equals(feature);
+            pairing |= "pairing.approve".equals(feature);
         }
         boolean uploadPermission = permission(permissions, "file_upload");
         boolean downloadPermission = permission(permissions, "file_download");
@@ -422,6 +426,8 @@ public final class HostCapabilities {
         native_.restartShutdownPermission = granted(permissions, "restart_shutdown");
         // Installing takes Host control, so it is offered only with that.
         native_.updateOffered = update && typed(permissions, "host_control", Boolean.class);
+        // Approving a device too.
+        native_.pairingOffered = pairing && typed(permissions, "host_control", Boolean.class);
         return new HostCapabilities(native_);
     }
 
@@ -622,6 +628,8 @@ public final class HostCapabilities {
         boolean restartShutdownPermission;
         /** update in the native features, with Host control. */
         boolean updateOffered;
+        /** pairing.approve in the native features, with Host control. */
+        boolean pairingOffered;
 
         static Evidence parse(String serverInfo) throws XmlPullParserException, IOException {
             Evidence evidence = new Evidence();
@@ -981,6 +989,8 @@ public final class HostCapabilities {
                             restartShutdownPermission ? null : Reason.RESTART_SHUTDOWN_PERMISSION);
                 case HOST_UPDATE:
                     return nativeFeature(updateOffered, null);
+                case PAIRING_APPROVE:
+                    return nativeFeature(pairingOffered, null);
                 default:
                     throw new IllegalArgumentException(feature.name());
             }

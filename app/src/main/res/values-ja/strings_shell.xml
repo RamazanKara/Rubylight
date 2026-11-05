@@ -25,6 +25,17 @@
     <string name="host_menu_restart">PC を再起動</string>
     <string name="host_menu_shutdown">PC をシャットダウン</string>
     <string name="host_menu_update">PC のホストを更新</string>
+    <string name="host_menu_pair_another">別のデバイスをペアリング</string>
+    <string name="pairing_wants_to_pair">%1$s がペアリングを求めています</string>
+    <string name="pairing_many_want_to_pair">%1$d 台のデバイスがペアリングを求めています</string>
+    <string name="pairing_approve">承認</string>
+    <string name="pairing_deny">拒否</string>
+    <string name="pairing_pin_from">%1$s から、%2$s へ</string>
+    <string name="pairing_request_row">%1$s · %2$s · %3$s</string>
+    <string name="pairing_pin_erase">数字を削除</string>
+    <string name="pairing_waiting_for">%1$s を待っています…</string>
+    <string name="pairing_approved">%1$s をペアリングしました</string>
+    <string name="pairing_none_waiting">新しいデバイスの Nightjar または Moonlight で %1$s を選択します。</string>
     <string name="host_restart_title">%1$s を再起動しますか？</string>
     <string name="host_shutdown_title">%1$s をシャットダウンしますか？</string>
     <string name="host_power_message">PC で未保存の作業があるアプリが、これを止めることがあります。</string>

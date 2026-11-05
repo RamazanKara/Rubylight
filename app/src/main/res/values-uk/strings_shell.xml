@@ -25,6 +25,17 @@
     <string name="host_menu_restart">Перезавантажити ПК</string>
     <string name="host_menu_shutdown">Вимкнути ПК</string>
     <string name="host_menu_update">Оновити хост ПК</string>
+    <string name="host_menu_pair_another">Під’єднати інший пристрій</string>
+    <string name="pairing_wants_to_pair">%1$s запитує сполучення</string>
+    <string name="pairing_many_want_to_pair">Запитують сполучення: %1$d</string>
+    <string name="pairing_approve">Дозволити</string>
+    <string name="pairing_deny">Відхилити</string>
+    <string name="pairing_pin_from">З %1$s, для %2$s</string>
+    <string name="pairing_request_row">%1$s · %2$s · %3$s</string>
+    <string name="pairing_pin_erase">Видалити цифру</string>
+    <string name="pairing_waiting_for">Очікування %1$s…</string>
+    <string name="pairing_approved">%1$s сполучено</string>
+    <string name="pairing_none_waiting">На новому пристрої виберіть %1$s у Nightjar або Moonlight.</string>
     <string name="host_restart_title">Перезавантажити %1$s?</string>
     <string name="host_shutdown_title">Вимкнути %1$s?</string>
     <string name="host_power_message">Застосунки з незбереженою роботою на ПК можуть цьому завадити.</string>

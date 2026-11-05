@@ -25,6 +25,17 @@
     <string name="host_menu_restart">PC 다시 시작</string>
     <string name="host_menu_shutdown">PC 종료</string>
     <string name="host_menu_update">PC 호스트 업데이트</string>
+    <string name="host_menu_pair_another">다른 기기 페어링</string>
+    <string name="pairing_wants_to_pair">%1$s에서 페어링을 요청합니다</string>
+    <string name="pairing_many_want_to_pair">기기 %1$d대가 페어링을 요청합니다</string>
+    <string name="pairing_approve">승인</string>
+    <string name="pairing_deny">거부</string>
+    <string name="pairing_pin_from">%1$s에서 %2$s(으)로</string>
+    <string name="pairing_request_row">%1$s · %2$s · %3$s</string>
+    <string name="pairing_pin_erase">숫자 지우기</string>
+    <string name="pairing_waiting_for">%1$s 기다리는 중…</string>
+    <string name="pairing_approved">%1$s 페어링됨</string>
+    <string name="pairing_none_waiting">새 기기의 Nightjar 또는 Moonlight에서 %1$s을(를) 선택하세요.</string>
     <string name="host_restart_title">%1$s을(를) 다시 시작할까요?</string>
     <string name="host_shutdown_title">%1$s을(를) 종료할까요?</string>
     <string name="host_power_message">PC에 저장하지 않은 작업이 있는 앱이 이를 막을 수 있습니다.</string>

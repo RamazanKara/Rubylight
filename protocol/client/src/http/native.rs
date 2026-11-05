@@ -8,6 +8,7 @@
 //! host has no native API at all (an older Rubylight, Sunshine, Apollo).
 
 use super::coop::{Coop, CoopJoined, JoinRequest};
+use super::device_approval::{PairingApprove, PairingApproved, PairingDeny, PairingRequests, FEATURE_PAIRING_APPROVE};
 use super::pc_power::{HostUpdate, PcPower, PcPowerOffer, PowerRequest};
 use super::native_api::audio::{Audio, AudioWrite};
 use super::native_api::capabilities::Capabilities;
@@ -140,6 +141,14 @@ fn bool_or_false<'de, D: Deserializer<'de>>(deserializer: D) -> Result<bool, D::
 pub struct NativeCapabilities {
     pub capabilities: Capabilities,
     pub files: FilePermissions,
+}
+
+impl NativeCapabilities {
+    /// Whether this device may list and approve devices waiting to pair on this PC.
+    pub fn may_approve_pairing(&self) -> bool {
+        self.capabilities.features.iter().any(|f| f == FEATURE_PAIRING_APPROVE)
+            && self.capabilities.permissions.host_control
+    }
 }
 
 impl<'de> Deserialize<'de> for NativeCapabilities {
@@ -355,6 +364,27 @@ impl HostClient {
     /// capabilities list `update`.
     pub fn host_update(&self) -> Result<HostUpdate, Error> {
         self.native("update", None, MAX_JSON_BYTES, READ_TIMEOUT)
+    }
+
+    /// The devices waiting to pair. Only where [`NativeCapabilities::may_approve_pairing`] says so.
+    pub fn pairing_requests(&self) -> Result<PairingRequests, Error> {
+        self.native("pairing/requests", None, MAX_JSON_BYTES, READ_TIMEOUT)
+    }
+
+    /// Sends the PIN a waiting device shows. Answers once that device has paired;
+    /// a refusal's message says why, in the host's words.
+    pub fn approve_pairing(&self, id: &str, pin: &str) -> Result<PairingApproved, Error> {
+        let request = PairingApprove { id: id.to_owned(), pin: pin.to_owned() };
+        let body = serde_json::to_vec(&request)
+            .map_err(|e| Error::InvalidArgument(format!("pairing approval: {e}")))?;
+        self.native("pairing/approve", Some(&body), MAX_JSON_BYTES, ACTION_READ_TIMEOUT)
+    }
+
+    /// Ends a waiting device's request, and answers the devices still waiting.
+    pub fn deny_pairing(&self, id: &str) -> Result<PairingRequests, Error> {
+        let body = serde_json::to_vec(&PairingDeny { id: id.to_owned() })
+            .map_err(|e| Error::InvalidArgument(format!("pairing denial: {e}")))?;
+        self.native("pairing/deny", Some(&body), MAX_JSON_BYTES, ACTION_READ_TIMEOUT)
     }
 
     /// Installs the host's pending update, ending this device's own stream. Needs Host control;

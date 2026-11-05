@@ -13,7 +13,7 @@ use nightjar_core::http::native_api::feature;
 use nightjar_core::http::native_api::library::Library;
 use nightjar_core::http::native_api::session::{ActionId, Session};
 use nightjar_core::http::{
-    App, AppControl, Availability, ClientIdentity, Feature, HostClient, HostUpdate, LateRefusal, NativeCapabilities, NativeLibrary, PairResult,
+    App, AppControl, Availability, ClientIdentity, Feature, HostClient, HostUpdate, LateRefusal, NativeCapabilities, NativeLibrary, PairResult, PairingRequest,
     StreamMove,
     PcPower, PcPowerOffer, PowerError, PowerReply, Reason, ServerInfo, DEFAULT_HTTP_PORT,
 };
@@ -76,6 +76,8 @@ pub struct Native {
     pub error: Option<String>,
     /// The PC's host update, where it lists `update`.
     pub update: Option<HostUpdate>,
+    /// Devices waiting to pair, as last read, where this device may approve them.
+    pub pairing_requests: Vec<PairingRequest>,
     /// A session action (Close game) is running.
     pub acting: bool,
     loading: bool,
@@ -117,6 +119,8 @@ pub struct NativeRead {
     wake: Option<(Vec<String>, Vec<String>)>,
     /// `GET /update` where the PC lists `update`; None when it does not, or the read failed.
     update: Option<HostUpdate>,
+    /// `GET /pairing/requests` where this device may approve; empty otherwise, or when the read failed.
+    pairing_requests: Vec<PairingRequest>,
 }
 
 pub struct Host {
@@ -277,6 +281,18 @@ impl Host {
         Some(if native.files.restart_shutdown { Ok(()) } else { Err(PC_POWER_NOT_ALLOWED) })
     }
 
+    /// Whether this device may approve devices waiting to pair on this PC, as last read.
+    pub fn may_approve_pairing(&self) -> bool {
+        self.reach == Reach::Online
+            && self.paired()
+            && self.native.capabilities.as_ref().is_some_and(NativeCapabilities::may_approve_pairing)
+    }
+
+    /// The devices waiting on this PC that this device may approve.
+    pub fn waiting_to_pair(&self) -> &[PairingRequest] {
+        if self.may_approve_pairing() { &self.native.pairing_requests } else { &[] }
+    }
+
     /// The version "Update the PC's host" installs: only where the PC lists `update`, has one
     /// to install, and lets this device control it. Not while it installs or is queued as an
     /// Install now already; an automatic update waiting for an idle PC still takes one.
@@ -433,6 +449,14 @@ pub enum Event {
         action: PcPower,
         confirmed: bool,
         result: Result<PcPowerStep, String>,
+    },
+    /// The PC answered an approval or a denial of a device waiting to pair.
+    PairingAnswer {
+        id: u64,
+        request: String,
+        name: String,
+        denied: bool,
+        result: Result<(), String>,
     },
     /// The PC's host update: `Started` once the PC took the request, then `Back` once it
     /// answers with the new version, or why either failed.
@@ -1380,6 +1404,38 @@ impl Hosts {
         });
     }
 
+    /// Sends the PIN a waiting device shows. The answer takes as long as that device's handshake.
+    pub fn approve_pairing(&self, id: u64, request: String, name: String, pin: String) {
+        self.answer_pairing(id, request, name, false, move |client, request| {
+            client.approve_pairing(request, &pin).map(|_| ())
+        });
+    }
+
+    /// Ends a waiting device's request.
+    pub fn deny_pairing(&self, id: u64, request: String, name: String) {
+        self.answer_pairing(id, request, name, true, |client, request| client.deny_pairing(request).map(|_| ()));
+    }
+
+    fn answer_pairing(
+        &self,
+        id: u64,
+        request: String,
+        name: String,
+        denied: bool,
+        call: impl FnOnce(&HostClient, &str) -> Result<(), nightjar_core::http::Error> + Send + 'static,
+    ) {
+        let Some(host) = self.get(id) else { return };
+        let record = host.connect_record();
+        let identity = self.identity.clone();
+        self.spawn("approve-device", move || {
+            let result = identity
+                .ok_or_else(|| en("Nightjar has no client identity yet. Restart Nightjar and try again.").to_owned())
+                .and_then(|identity| client_for(&identity, &record, &record.address))
+                .and_then(|client| call(&client, &request).map_err(|e| native_error(&e)));
+            Some(Event::PairingAnswer { id, request, name, denied, result })
+        });
+    }
+
     /// Asks the PC to forget this device. The local certificate stays until the PC has
     /// answered (see `drain`), so a failed or unreachable request leaves the PC paired here.
     pub fn unpair(&mut self, id: u64) -> Result<(), String> {
@@ -1458,6 +1514,7 @@ impl Hosts {
         if full {
             host.native.full_at = Some(Instant::now());
         }
+        let approves = host.native.capabilities.as_ref().is_some_and(NativeCapabilities::may_approve_pairing);
         host.native_seq += 1;
         let (epoch, seq) = (host.native_epoch, host.native_seq);
         let record = host.connect_record();
@@ -1489,12 +1546,20 @@ impl Hosts {
                     }
                     client.host_update().map_err(|e| eprintln!("nightjar: host update not read: {}", describe(&e))).ok()
                 });
+                let pairing_requests = if capabilities.as_ref().map_or(approves, NativeCapabilities::may_approve_pairing) {
+                    client.pairing_requests().map(|r| r.requests).unwrap_or_else(|e| {
+                        eprintln!("nightjar: devices waiting to pair not read: {}", describe(&e));
+                        Vec::new()
+                    })
+                } else {
+                    Vec::new()
+                };
                 let session = client.session().map_err(|e| describe(&e));
                 // Without a library in this read, a failed session is the whole failure; with
                 // one, Home still has the games and shows the session error beside them.
                 match (&session, full) {
                     (Err(e), false) => Err(e.clone()),
-                    _ => Ok(Box::new(NativeRead { capabilities, library, session, wake, update })),
+                    _ => Ok(Box::new(NativeRead { capabilities, library, session, wake, update, pairing_requests })),
                 }
             });
             Some(Event::Native { id, epoch, seq, result })
@@ -1831,6 +1896,7 @@ impl Hosts {
                             Ok(read) => {
                                 let read = *read;
                                 host.native.error = None;
+                                host.native.pairing_requests = read.pairing_requests;
                                 if let Some(capabilities) = read.capabilities {
                                     host.native.update = read.update;
                                     if let Some(info) = host.info.as_mut() {
@@ -1864,7 +1930,10 @@ impl Hosts {
                                     Err(e) => host.native.error = Some(trf("The session could not be read. {}", &[&e])),
                                 }
                             }
-                            Err(e) => host.native.error = Some(e),
+                            Err(e) => {
+                                host.native.pairing_requests.clear();
+                                host.native.error = Some(e);
+                            }
                         }
                     }
                     if save && !self.library_saves.contains(&id) {
@@ -1896,6 +1965,14 @@ impl Hosts {
                 }
                 event @ Event::Sleep { .. } => out.push(event),
                 event @ Event::PcPower { .. } => out.push(event),
+                Event::PairingAnswer { id, request, name, denied, result } => {
+                    // Whatever the answer, that request is over; the device asks again with a new PIN.
+                    if let Some(host) = self.get_mut(id) {
+                        host.native.pairing_requests.retain(|r| r.id != request);
+                    }
+                    self.refresh_native(id, false);
+                    out.push(Event::PairingAnswer { id, request, name, denied, result });
+                }
                 event @ Event::SelectRead { .. } => out.push(event),
                 event @ Event::StreamMoved { .. } => out.push(event),
                 event @ Event::MoveWatched { .. } => out.push(event),
@@ -2267,7 +2344,7 @@ pub(crate) mod tests {
     /// A full native read of `id` with these capabilities lands, as the worker would send it.
     pub(crate) fn native_lands(hosts: &mut Hosts, id: u64, capabilities: NativeCapabilities) {
         let epoch = hosts.get(id).unwrap().native_epoch;
-        let read = NativeRead { capabilities: Some(capabilities), library: Some(library().into()), session: Ok(session("idle")), wake: None, update: None };
+        let read = NativeRead { pairing_requests: Vec::new(), capabilities: Some(capabilities), library: Some(library().into()), session: Ok(session("idle")), wake: None, update: None };
         send(hosts, Event::Native { id, epoch, seq: 1, result: Ok(Box::new(read)) });
     }
 
@@ -2313,7 +2390,7 @@ pub(crate) mod tests {
             assert_eq!(gated(&hosts), [false; 4], "{why}: no old grant opens a row or a gate");
             assert!(hosts.list[0].native.capabilities.is_none() && hosts.list[0].native.library.is_none(), "{why}");
             // A read that started before lands now: dropped.
-            let read = NativeRead { capabilities: Some(granted.clone()), library: Some(library().into()), session: Ok(session("idle")), wake: None, update: None };
+            let read = NativeRead { pairing_requests: Vec::new(), capabilities: Some(granted.clone()), library: Some(library().into()), session: Ok(session("idle")), wake: None, update: None };
             hosts.list[0].record.server_certificate = Some("pem".into());
             send(&mut hosts, Event::Native { id, epoch: in_flight, seq: 9, result: Ok(Box::new(read)) });
             assert!(hosts.list[0].native.capabilities.is_none(), "{why}: the old read is not taken in");
@@ -2518,7 +2595,7 @@ pub(crate) mod tests {
     }
 
     fn full_read(session: Session) -> Box<NativeRead> {
-        Box::new(NativeRead { capabilities: None, library: Some(library().into()), session: Ok(session), wake: None, update: None })
+        Box::new(NativeRead { pairing_requests: Vec::new(), capabilities: None, library: Some(library().into()), session: Ok(session), wake: None, update: None })
     }
 
     #[test]

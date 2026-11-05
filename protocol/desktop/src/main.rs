@@ -1143,6 +1143,9 @@ impl App {
                     self.launcher.pc_power_answered(id, ask, &name, action, confirmed, result)
                 }
                 HostEvent::HostUpdate { id, name, result } => self.launcher.update_answered(id, &name, result),
+                HostEvent::PairingAnswer { id, request, name, denied, result } => {
+                    self.launcher.pairing_answered(id, &request, &name, denied, result);
+                }
                 HostEvent::Unpaired { id, result } => {
                     if crate::hosts::now_unpaired(&result) {
                         self.forget_library(id);
@@ -1445,6 +1448,8 @@ impl App {
                 self.launcher.dialog = Dialog::Pairing { host, pin: String::new() };
                 self.hosts.pair(host, pin, Some(passphrase));
             }
+            Command::ApprovePairing { host, request, name, pin } => self.hosts.approve_pairing(host, request, name, pin),
+            Command::DenyPairing { host, request, name } => self.hosts.deny_pairing(host, request, name),
             Command::Wake(host) => {
                 if self.waking.start(host, Instant::now()) {
                     self.wake_step();

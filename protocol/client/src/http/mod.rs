@@ -22,6 +22,7 @@ mod luminance;
 mod native;
 mod network_path;
 mod pairing;
+mod device_approval;
 mod pc_power;
 pub mod pace;
 mod power;
@@ -66,6 +67,10 @@ pub use launch::{
 };
 pub use luminance::DisplayLuminance;
 pub use native::{FilePermissions, MovedTo, NativeCapabilities, NativeLibrary, PlayingOn, StreamMove};
+pub use device_approval::{
+    valid_pairing_pin, PairingApprove, PairingApproved, PairingDeny, PairingRequest, PairingRequests,
+    FEATURE_PAIRING_APPROVE,
+};
 pub use network_path::{NetworkPath, MAX_NETWORK_PATH_BYTES};
 pub use pairing::{PairFailure, PairResult, PairStep};
 pub use pc_power::{

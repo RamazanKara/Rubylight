@@ -672,6 +672,10 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
                 hostActions.updateHost(computer.details);
                 return true;
 
+            case HostMenu.PAIR_ANOTHER:
+                hostActions.pairAnother(computer.details);
+                return true;
+
             case COOP_ID:
                 hostActions.joinCoop(computer.details);
                 return true;

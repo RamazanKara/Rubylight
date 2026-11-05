@@ -25,6 +25,17 @@
     <string name="host_menu_restart">Riavvia PC</string>
     <string name="host_menu_shutdown">Spegni PC</string>
     <string name="host_menu_update">Aggiorna l’host del PC</string>
+    <string name="host_menu_pair_another">Associa un altro dispositivo</string>
+    <string name="pairing_wants_to_pair">%1$s vuole associarsi</string>
+    <string name="pairing_many_want_to_pair">%1$d dispositivi vogliono associarsi</string>
+    <string name="pairing_approve">Approva</string>
+    <string name="pairing_deny">Rifiuta</string>
+    <string name="pairing_pin_from">Da %1$s, per %2$s</string>
+    <string name="pairing_request_row">%1$s · %2$s · %3$s</string>
+    <string name="pairing_pin_erase">Cancella cifra</string>
+    <string name="pairing_waiting_for">In attesa di %1$s…</string>
+    <string name="pairing_approved">%1$s è associato</string>
+    <string name="pairing_none_waiting">Sul nuovo dispositivo, seleziona %1$s in Nightjar o Moonlight.</string>
     <string name="host_restart_title">Riavviare %1$s?</string>
     <string name="host_shutdown_title">Spegnere %1$s?</string>
     <string name="host_power_message">Le app con lavoro non salvato sul PC possono impedirlo.</string>

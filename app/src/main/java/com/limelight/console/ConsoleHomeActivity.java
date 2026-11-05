@@ -20,6 +20,7 @@ import com.limelight.FolderBrowserActivity;
 import com.limelight.R;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.computers.HostActions;
+import com.limelight.computers.PairingWatch;
 import com.limelight.computers.HostMenu;
 import com.limelight.files.FileTransferActivity;
 import com.limelight.grid.PcGridAdapter;
@@ -72,6 +73,9 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         return thread;
     });
     private HostFeed feed;
+    private PairingWatch pairingWatch;
+    private android.widget.Button pairingBanner;
+    private List<PairingWatch.Waiting> waitingToPair = java.util.Collections.emptyList();
     /** The phone's Home: one grid of headers and cards. Null on TV. */
     private ConsoleHomeListAdapter adapter;
     private GridLayoutManager grid;
@@ -107,6 +111,10 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         @Override public void onWakeSent(ComputerDetails computer) { }
         @Override public void pausePolling() { feed.pause(); }
         @Override public void resumePolling() { if (shown) feed.resume(); }
+        @Override public void pairingChanged() {
+            pairingWatch.refreshSoon();
+            if (shown) pairingWatch.poll(feed.hosts());
+        }
     });
     private final HomeWake wake = new HomeWake(this, handler, uuid -> feed == null ? null : feed.host(uuid),
             this::sendWake, () -> {
@@ -149,6 +157,10 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
 
         list = findViewById(R.id.console_list);
         feed = new HostFeed(this, this);
+        pairingBanner = findViewById(R.id.home_pairing_banner);
+        pairingBanner.setOnClickListener(v -> hostActions.approvePairing(waitingToPair));
+        pairingWatch = new PairingWatch(hostActions.pairingReader(), HostMenu::mayApprovePairing,
+                task -> new Thread(task, "Devices waiting to pair").start(), handler::post, this::showWaitingToPair);
         ConsoleHomeAdapter.Listener listener = new ConsoleHomeAdapter.Listener() {
             @Override
             public void onGame(HomeModel.GameCard card) {
@@ -453,6 +465,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     @Override
     protected void onPause() {
         shown = false;
+        pairingWatch.pause();
         wake.cancel();
         feed.pause();
         handler.removeCallbacks(reload);
@@ -487,6 +500,20 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     @Override
     public void onHostsChanged() {
         scheduleReload();
+        if (shown) {
+            pairingWatch.poll(feed.hosts());
+        }
+    }
+
+    /** "TV wants to pair" while something waits. */
+    private void showWaitingToPair(List<PairingWatch.Waiting> waiting) {
+        waitingToPair = waiting;
+        pairingBanner.setVisibility(waiting.isEmpty() ? View.GONE : View.VISIBLE);
+        if (waiting.size() == 1) {
+            pairingBanner.setText(getString(R.string.pairing_wants_to_pair, waiting.get(0).request.name));
+        } else if (!waiting.isEmpty()) {
+            pairingBanner.setText(getString(R.string.pairing_many_want_to_pair, waiting.size()));
+        }
     }
 
     private void scheduleReload() {
@@ -956,6 +983,9 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                 break;
             case HostMenu.UPDATE_HOST:
                 hostActions.updateHost(details);
+                break;
+            case HostMenu.PAIR_ANOTHER:
+                hostActions.pairAnother(details);
                 break;
             case HostMenu.COOP:
                 hostActions.joinCoop(details);

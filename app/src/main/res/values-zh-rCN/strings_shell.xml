@@ -25,6 +25,17 @@
     <string name="host_menu_restart">重启电脑</string>
     <string name="host_menu_shutdown">关闭电脑</string>
     <string name="host_menu_update">更新电脑的主机</string>
+    <string name="host_menu_pair_another">配对其他设备</string>
+    <string name="pairing_wants_to_pair">%1$s 请求配对</string>
+    <string name="pairing_many_want_to_pair">%1$d 台设备请求配对</string>
+    <string name="pairing_approve">批准</string>
+    <string name="pairing_deny">拒绝</string>
+    <string name="pairing_pin_from">来自 %1$s,配对到 %2$s</string>
+    <string name="pairing_request_row">%1$s · %2$s · %3$s</string>
+    <string name="pairing_pin_erase">删除数字</string>
+    <string name="pairing_waiting_for">正在等待 %1$s…</string>
+    <string name="pairing_approved">%1$s 已配对</string>
+    <string name="pairing_none_waiting">在新设备上,在 Nightjar 或 Moonlight 中选择 %1$s。</string>
     <string name="host_restart_title">重启 %1$s？</string>
     <string name="host_shutdown_title">关闭 %1$s？</string>
     <string name="host_power_message">电脑上有未保存工作的应用可能会阻止此操作。</string>

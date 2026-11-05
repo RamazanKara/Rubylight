@@ -487,7 +487,7 @@ fn every_state() -> Vec<State> {
 fn power_native(allowed: bool, host_control: bool) -> (nightjar_core::http::NativeCapabilities, Option<nightjar_core::http::HostUpdate>) {
     let capabilities = serde_json::from_str(&format!(
         "{{\"api_version\":1,\"host\":{{\"name\":\"PC\",\"version\":\"3.3.0\",\"unique_id\":\"uid\"}},\
-         \"features\":[\"power.restart\",\"power.shutdown\",\"update\"],\
+         \"features\":[\"power.restart\",\"power.shutdown\",\"update\",\"pairing.approve\"],\
          \"permissions\":{{\"list\":true,\"view\":true,\"launch\":true,\"host_control\":{host_control},\"restart_shutdown\":{allowed}}}}}"
     ))
     .expect("the answer parses");
@@ -948,6 +948,16 @@ fn at_150_percent_in_german_a_1280x720_window_clips_no_button() {
                 offer: Some(("t".into(), Handed::now(), false)),
             },
             Dialog::ConfirmUpdate { host: id, name: "A long name for a gaming PC".into(), version: "3.4.0".into() },
+            Dialog::PairRequests { only: Some(id) },
+            Dialog::ApprovePairing {
+                host: id,
+                request: "a1".into(),
+                name: "A long name for a television set".into(),
+                address: "192.168.100.116".into(),
+                pc: "A long name for a gaming PC".into(),
+                pin: "12".into(),
+                busy: false,
+            },
         ];
         for dialog in dialogs {
             let name = format!("{:?}", std::mem::discriminant(&dialog));
@@ -1472,6 +1482,7 @@ fn every_option_is_reachable_with_the_keyboard() {
                         && matches!(f.l.dialog, Dialog::ConfirmPcPower { action: PcPower::ShutDown, offer: None, .. })
                 }
                 HostOption::UpdateHost => matches!(&f.l.dialog, Dialog::ConfirmUpdate { version, .. } if version == "3.4.0"),
+                HostOption::PairAnother => matches!(&f.l.dialog, Dialog::PairRequests { only: Some(_) }),
                 HostOption::Files => said(|c| matches!(c, Command::OpenFiles(_))) && f.no_dialog(),
                 HostOption::Settings => said(|c| matches!(c, Command::HostSettings(_))),
                 HostOption::Details => matches!(f.l.screen, Screen::HostDetails(_)) && f.no_dialog(),
@@ -1488,7 +1499,7 @@ fn every_option_is_reachable_with_the_keyboard() {
     }
     use HostOption::*;
     for option in [
-        OpenLibrary, Resume, QuitApp, Pair, PairOtp, Wake, Sleep, RestartPc, ShutDownPc, UpdateHost, Files, Settings, Details, Rename, Unpair,
+        OpenLibrary, Resume, QuitApp, Pair, PairOtp, Wake, Sleep, RestartPc, ShutDownPc, UpdateHost, PairAnother, Files, Settings, Details, Rename, Unpair,
         PairingHelp, CheckAgain, Remove, MicOnly,
     ] {
         assert!(seen.contains(&option), "no state reaches {}", option.label());
@@ -1995,6 +2006,130 @@ fn restart_and_shut_down_wait_for_the_offer_keep_cancel_focused_and_warn_before_
     assert_eq!(late(PcPower::Restart, Ok(PcPowerStep::Unconfirmed(unanswered.into()))), ("PC may still restart".into(), unanswered.into()));
     assert_eq!(late(PcPower::ShutDown, Ok(PcPowerStep::Unconfirmed(unanswered.into()))).0, "PC may still shut down");
     assert_eq!(late(PcPower::Restart, Err("Windows refused to restart the PC: no (exit code 1191)".into())).0, "Could not restart PC");
+}
+
+/// A PC whose capabilities list pairing.approve, for a device that holds Host control or not.
+fn approving_frames(host_control: bool) -> Frames {
+    let mut f = every_state().into_iter().find(|s| s.name == "power").unwrap().frames();
+    let capabilities = f.hosts.list[0].native.capabilities.as_mut().unwrap();
+    capabilities.capabilities.permissions.host_control = host_control;
+    f
+}
+
+fn tv_request(id: &str) -> nightjar_core::http::PairingRequest {
+    nightjar_core::http::PairingRequest {
+        id: id.into(),
+        name: "TV".into(),
+        address: "192.168.4.116".into(),
+        age_seconds: 3,
+    }
+}
+
+#[test]
+fn pair_another_device_needs_the_capability_and_host_control() {
+    let f = every_state().into_iter().find(|s| s.name == "paired").unwrap().frames();
+    assert!(!host_options(&f.hosts.list[0]).contains(&HostOption::PairAnother), "an older host");
+    let f = approving_frames(false);
+    assert!(!host_options(&f.hosts.list[0]).contains(&HostOption::PairAnother), "no Host control");
+    let mut f = approving_frames(true);
+    assert!(host_options(&f.hosts.list[0]).contains(&HostOption::PairAnother));
+    // Requests read before Host control went away are not offered.
+    f.hosts.list[0].native.pairing_requests = vec![tv_request("a1")];
+    assert_eq!(f.hosts.list[0].waiting_to_pair().len(), 1);
+    f.hosts.list[0].native.capabilities.as_mut().unwrap().capabilities.permissions.host_control = false;
+    assert!(f.hosts.list[0].waiting_to_pair().is_empty());
+}
+
+#[test]
+fn an_empty_request_list_says_what_to_do_on_the_new_device() {
+    let mut f = approving_frames(true);
+    let id = f.hosts.list[0].id;
+    f.l.dialog = Dialog::PairRequests { only: Some(id) };
+    f.l.focus_dialog = true;
+    f.settle();
+    assert!(f.placed.iter().any(|(t, ..)| t.contains("Nightjar or Moonlight")), "{:?}", f.placed.iter().map(|p| &p.0).collect::<Vec<_>>());
+}
+
+#[test]
+fn the_pin_dialog_works_with_a_controller_and_with_the_keyboard() {
+    let mut f = approving_frames(true);
+    let id = f.hosts.list[0].id;
+    f.hosts.list[0].native.pairing_requests = vec![tv_request("a1")];
+    f.l.dialog = dialogs::approve_dialog(&f.hosts.list[0], &f.hosts.list[0].native.pairing_requests[0].clone());
+    f.l.focus_dialog = true;
+    f.settle();
+    // The pad opens focused on 1, and Enter (a controller's A) presses it; 2 is one step right.
+    f.press(Key::Enter);
+    f.press(Key::ArrowRight);
+    f.press(Key::Enter);
+    let pin = |f: &Frames| match &f.l.dialog {
+        Dialog::ApprovePairing { pin, .. } => pin.clone(),
+        other => panic!("{:?}", std::mem::discriminant(other)),
+    };
+    assert_eq!(pin(&f), "12");
+    // Approve stays off until the PIN is whole: Backspace keeps it so.
+    f.press(Key::Backspace);
+    assert_eq!(pin(&f), "1");
+    if let Dialog::ApprovePairing { pin, .. } = &mut f.l.dialog {
+        "123".clone_into(pin);
+    }
+    f.settle();
+    // The last digit moves the focus to Approve, so Enter sends it.
+    let four = f.placed.iter().find(|(t, ..)| t == "4").map(|p| p.1).expect("4");
+    f.click_at(four.center(), egui::PointerButton::Primary);
+    assert_eq!(pin(&f), "1234");
+    f.settle();
+    let commands = f.press(Key::Enter);
+    assert!(commands.iter().any(|c| matches!(c, Command::ApprovePairing { host, request, pin, .. } if *host == id && request == "a1" && pin == "1234")), "Enter on Approve");
+    assert!(matches!(&f.l.dialog, Dialog::ApprovePairing { busy: true, .. }));
+    // While the PC answers, nothing more goes out.
+    let commands = f.press(Key::Enter);
+    assert!(!commands.iter().any(|c| matches!(c, Command::ApprovePairing { .. } | Command::DenyPairing { .. })));
+}
+
+#[test]
+fn approve_needs_all_four_digits_and_deny_needs_none() {
+    let mut f = approving_frames(true);
+    let id = f.hosts.list[0].id;
+    f.hosts.list[0].native.pairing_requests = vec![tv_request("a1")];
+    f.l.dialog = dialogs::approve_dialog(&f.hosts.list[0], &f.hosts.list[0].native.pairing_requests[0].clone());
+    f.settle();
+    let approve = f.placed.iter().find(|(t, ..)| t == "Approve").map(|p| p.1).expect("Approve");
+    let commands = f.click_at(approve.center(), egui::PointerButton::Primary);
+    assert!(!commands.iter().any(|c| matches!(c, Command::ApprovePairing { .. })), "no PIN yet");
+    let deny = f.placed.iter().find(|(t, ..)| t == "Deny").map(|p| p.1).expect("Deny");
+    let commands = f.click_at(deny.center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::DenyPairing { host, request, .. } if *host == id && request == "a1")));
+}
+
+#[test]
+fn a_refusal_shows_the_hosts_words_and_a_success_a_toast() {
+    let mut f = approving_frames(true);
+    let id = f.hosts.list[0].id;
+    f.hosts.list[0].native.pairing_requests = vec![tv_request("a1")];
+    f.l.dialog = dialogs::approve_dialog(&f.hosts.list[0], &f.hosts.list[0].native.pairing_requests[0].clone());
+    f.l.pairing_answered(id, "a1", "TV", false, Err("That is not the PIN TV shows.".into()));
+    assert!(matches!(&f.l.dialog, Dialog::Message { body, .. } if body == "That is not the PIN TV shows."));
+    f.l.dialog = dialogs::approve_dialog(&f.hosts.list[0], &f.hosts.list[0].native.pairing_requests[0].clone());
+    f.l.pairing_answered(id, "a1", "TV", true, Ok(()));
+    assert!(f.no_dialog(), "a denial says nothing more");
+}
+
+#[test]
+fn home_shows_who_waits_and_opens_their_pin() {
+    let mut f = approving_frames(true);
+    f.l.screen = Screen::Home;
+    f.hosts.list[0].native.pairing_requests = vec![tv_request("a1")];
+    f.settle();
+    let banner = f.placed.iter().find(|(t, ..)| t == "TV wants to pair").map(|p| p.1).expect("the banner");
+    f.click_at(banner.center(), egui::PointerButton::Primary);
+    assert!(matches!(&f.l.dialog, Dialog::ApprovePairing { request, .. } if request == "a1"));
+    f.l.dialog = Dialog::None;
+    f.hosts.list[0].native.pairing_requests.push(tv_request("a2"));
+    f.settle();
+    let banner = f.placed.iter().find(|(t, ..)| t == "2 devices want to pair").map(|p| p.1).expect("the count");
+    f.click_at(banner.center(), egui::PointerButton::Primary);
+    assert!(matches!(&f.l.dialog, Dialog::PairRequests { only: None }));
 }
 
 #[test]

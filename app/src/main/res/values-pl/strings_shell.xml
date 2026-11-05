@@ -25,6 +25,17 @@
     <string name="host_menu_restart">Uruchom ponownie PC</string>
     <string name="host_menu_shutdown">Wyłącz PC</string>
     <string name="host_menu_update">Zaktualizuj hosta PC</string>
+    <string name="host_menu_pair_another">Sparuj inne urządzenie</string>
+    <string name="pairing_wants_to_pair">%1$s chce się sparować</string>
+    <string name="pairing_many_want_to_pair">Urządzenia chcące się sparować: %1$d</string>
+    <string name="pairing_approve">Zatwierdź</string>
+    <string name="pairing_deny">Odmów</string>
+    <string name="pairing_pin_from">Z %1$s, dla %2$s</string>
+    <string name="pairing_request_row">%1$s · %2$s · %3$s</string>
+    <string name="pairing_pin_erase">Usuń cyfrę</string>
+    <string name="pairing_waiting_for">Oczekiwanie na %1$s…</string>
+    <string name="pairing_approved">Sparowano %1$s</string>
+    <string name="pairing_none_waiting">Na nowym urządzeniu wybierz %1$s w Nightjar lub Moonlight.</string>
     <string name="host_restart_title">Uruchomić ponownie %1$s?</string>
     <string name="host_shutdown_title">Wyłączyć %1$s?</string>
     <string name="host_power_message">Aplikacje z niezapisaną pracą na PC mogą to zablokować.</string>

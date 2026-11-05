@@ -25,6 +25,17 @@
     <string name="host_menu_restart">Reiniciar PC</string>
     <string name="host_menu_shutdown">Desligar PC</string>
     <string name="host_menu_update">Atualizar o host do PC</string>
+    <string name="host_menu_pair_another">Parear outro dispositivo</string>
+    <string name="pairing_wants_to_pair">%1$s quer parear</string>
+    <string name="pairing_many_want_to_pair">%1$d dispositivos querem parear</string>
+    <string name="pairing_approve">Aprovar</string>
+    <string name="pairing_deny">Negar</string>
+    <string name="pairing_pin_from">De %1$s, para %2$s</string>
+    <string name="pairing_request_row">%1$s · %2$s · %3$s</string>
+    <string name="pairing_pin_erase">Apagar dígito</string>
+    <string name="pairing_waiting_for">Aguardando %1$s…</string>
+    <string name="pairing_approved">%1$s está pareado</string>
+    <string name="pairing_none_waiting">No novo dispositivo, selecione %1$s no Nightjar ou Moonlight.</string>
     <string name="host_restart_title">Reiniciar %1$s?</string>
     <string name="host_shutdown_title">Desligar %1$s?</string>
     <string name="host_power_message">Apps com trabalho não salvo no PC podem impedir isso.</string>

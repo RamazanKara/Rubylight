@@ -53,6 +53,7 @@ public final class HostMenu {
     public static final int RESTART = 22;
     public static final int SHUT_DOWN = 23;
     public static final int UPDATE_HOST = 24;
+    public static final int PAIR_ANOTHER = 25;
 
     private HostMenu() {
     }
@@ -144,6 +145,9 @@ public final class HostMenu {
         if (updateOffer(details, state) != null) {
             add(sheet, onAction, UPDATE_HOST, R.drawable.ic_download, activity.getString(R.string.host_menu_update));
         }
+        if (known(details, state).has(HostCapabilities.Feature.PAIRING_APPROVE)) {
+            add(sheet, onAction, PAIR_ANOTHER, R.drawable.ic_add, activity.getString(R.string.host_menu_pair_another));
+        }
         if (offersFiles(details, state)) {
             add(sheet, onAction, FILES, R.drawable.ic_files, activity.getString(R.string.files_menu));
         }
@@ -205,6 +209,12 @@ public final class HostMenu {
     static String updateOffer(ComputerDetails details, PcGridAdapter.RowState state) {
         return known(details, state).has(HostCapabilities.Feature.HOST_UPDATE) ? KnownUpdates.offered(details.uuid)
                 : null;
+    }
+
+    /** Whether Home asks this online PC which devices wait to pair, as last read: its capability, with Host control. */
+    public static boolean mayApprovePairing(ComputerDetails details) {
+        return details.state == ComputerDetails.State.ONLINE && details.activeAddress != null
+                && known(details, PcGridAdapter.RowState.READY).has(HostCapabilities.Feature.PAIRING_APPROVE);
     }
 
     /** {@code details}' capabilities with the native ones last read in this process, on a ready PC; else as they are. */

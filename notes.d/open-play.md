@@ -1,0 +1,5 @@
+## en
+- Nightjar can open straight into a game, for a mini PC under the TV, a TV launcher that starts an app at boot, or a handheld. "When Nightjar opens" in Settings shows your PCs (the default), continues your last game, or starts a game you chose from its menu ("Open this when Nightjar starts"). A 3-second countdown names the game and the PC, with Cancel focused; B, Back and Esc cancel it, and an offline PC is woken first.
+- The automatic start runs only on a cold start from the launcher or at sign-in. If the last one failed, or its stream died within 10 seconds, Nightjar skips the next one and says so once.
+- Windows and Linux: "Start Nightjar when I sign in", also in a Flatpak.
+- Android: long-pressing the app icon offers "Continue" with your last game first.

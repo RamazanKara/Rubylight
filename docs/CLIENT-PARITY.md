@@ -18,6 +18,9 @@ Which Nightjar features each client provides: Android (phones, handhelds, tablet
 | Feature | Android | Windows | Linux | Notes |
 | --- | --- | --- | --- | --- |
 | Discovery, manual addresses, IPv6, Wake-on-LAN | Yes | Yes | Yes | |
+| When Nightjar opens: PCs, last game or a chosen game, with countdown and guard | Yes | Yes | Yes | The decision is shared (`nightjar-policy`'s `open_play`). |
+| Start Nightjar when I sign in | No | Yes | Yes | Run value on Windows; XDG autostart on Linux, the Background portal in a Flatpak. Android has no sign-in start. |
+| "Continue" with the last game on the app icon's long press | Yes | No | No | An Android launcher feature. |
 | PIN and one-time PIN pairing | Yes | Yes | Yes | |
 | QR pairing | Yes | Yes | Yes | Android scans the code; the desktop pastes the host's pairing link. |
 | Home, library, artwork and game pages | Yes | Yes | Yes | Needs a host with the native library (Rubylight 3.0). |

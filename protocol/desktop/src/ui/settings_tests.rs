@@ -312,7 +312,8 @@ fn the_section_key_table_is_what_the_page_draws() {
         ..Settings::default()
     });
     let only_here = |key: &str| match key {
-        "native_touchpad" | "check_updates" => cfg!(windows),
+        "native_touchpad" => cfg!(windows),
+        "check_updates" => crate::self_update::current().checks(),
         "network_priority" => cfg!(target_os = "linux"),
         _ => true,
     };

@@ -404,7 +404,7 @@ pub struct Settings {
     pub high_contrast: bool,
     pub reduce_motion: ReduceMotion,
     pub language: Language,
-    /// Windows: look for a newer stable release once per launch (update_check.rs).
+    /// Windows and AppImage: look for a newer stable release once per launch (update_check.rs).
     pub check_updates: bool,
 }
 

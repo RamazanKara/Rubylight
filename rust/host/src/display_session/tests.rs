@@ -1307,6 +1307,60 @@ fn windows_moved_the_primary() -> Vec<(String, bool)> {
         (r"\\.\DISPLAY1".into(), true),
     ]
 }
+#[test]
+fn a_browser_on_this_pc_teaches_its_device_no_layout() {
+    // The plan and the owner come as the display setup makes them, and the stream ends with
+    // Windows' primary moved, which the device learns as "extended" from any real
+    // extended_primary plan.
+    let stream = |config: &str, this_pc: bool| {
+        let fixture = crate::state::test_support::Fixture::new();
+        let client = fixture.client(u32::MAX);
+        let config = Config::parse(config).unwrap();
+        *fixture.host.config.write().unwrap() = config.clone();
+        let mut launch = fixture.launch(client.clone(), Role::Stream);
+        launch.transport = butterpollo_core::session::Transport::WebRtc;
+        if this_pc {
+            launch.options.insert(BROWSER_ON_THIS_PC.into(), "1".into());
+        }
+        let configured = virtual_display_layout(&config, &client, None, None).to_owned();
+        let planned = launch_display_layout(&config, &launch, None, None).to_owned();
+        let monitors_kept = browser_keeps_monitors(&launch, &configured, true);
+        let mut prepared = test_prepared(&fixture.host);
+        prepared.output = r"\\.\DISPLAY9".into();
+        prepared.virtual_layout = Some(planned.clone());
+        prepared.inherited_layout = Some(configured);
+        prepared.layout_owner = layout_owner(&launch, true, monitors_kept);
+        prepared.layout_snapshot = Some(windows_moved_the_primary());
+        let limiter =
+            limiter::Lease::acquire(&fixture.host.directory, &config, &prepared.framegen).unwrap();
+        drop(Ready::prepare((prepared, limiter)).unwrap());
+        let paired = fixture.host.paired.read().unwrap();
+        let extra = &paired.clients[0].extra;
+        (
+            planned,
+            extra.get("virtual_display_layout").cloned(),
+            extra.get(LEARNED_OVER).cloned(),
+        )
+    };
+    assert_eq!(
+        stream("dd_config_revert_delay=0", true),
+        ("extended_primary".to_owned(), None, None)
+    );
+    // The same plan set by the user, from the same browser, and from elsewhere: it is learned.
+    for this_pc in [true, false] {
+        assert_eq!(
+            stream(
+                "dd_config_revert_delay=0\nvirtual_display_layout=extended_primary",
+                this_pc
+            ),
+            (
+                "extended_primary".to_owned(),
+                Some(serde_json::json!("extended")),
+                Some(serde_json::json!("extended_primary")),
+            )
+        );
+    }
+}
 fn set_device_layout(fixture: &crate::state::test_support::Fixture, layout: &str) {
     let mut paired = fixture.host.paired.write().unwrap();
     paired.clients[0]

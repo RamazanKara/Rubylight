@@ -142,6 +142,15 @@ pub(crate) fn browser_keeps_monitors(launch: &Launch, layout: &str, virtual_layo
         && turns_off_other_monitors(layout, virtual_layout)
 }
 
+/// The device that keeps the layout this stream ends with, if any. `learnable` is false for a
+/// stream that planned no layout of the device's own: a client's choice, a background stream's
+/// fixed layout, or one Windows did not take. A layout [`browser_keeps_monitors`] ran in place of
+/// the setting says nothing about what the device wants, so nothing is learned from it either: it
+/// would keep the monitors on for later streams from elsewhere, which the user never chose.
+fn layout_owner(launch: &Launch, learnable: bool, monitors_kept: bool) -> Option<String> {
+    (launch.role == Role::Stream && learnable && !monitors_kept).then(|| launch.client.uuid.clone())
+}
+
 /// The virtual display layout of this launch.
 pub(crate) fn launch_display_layout<'a>(
     config: &'a Config,
@@ -1616,13 +1625,11 @@ impl Prepared {
                 _vulkan: vulkan,
                 _golden: golden,
                 mode: stream_mode(stream),
-                // A background stream's fixed layout is not the device's choice.
-                layout_owner: (launch.role == Role::Stream
-                    && virtual_mode
-                    && !background
-                    && client_display.is_none()
-                    && layout_took)
-                    .then(|| launch.client.uuid.clone()),
+                layout_owner: layout_owner(
+                    launch,
+                    virtual_mode && !background && client_display.is_none() && layout_took,
+                    monitors_kept,
+                ),
                 client_display,
                 virtual_layout: virtual_layout.then(|| selection.to_owned()),
                 inherited_layout: virtual_layout

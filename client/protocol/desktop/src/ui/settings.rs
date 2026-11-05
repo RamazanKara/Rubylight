@@ -38,7 +38,7 @@ pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
     &[&["audio"], &["play_audio_on_host"], &["microphone"], &["mic_echo_cancel"], &["mute_audio"], &["audio_passthrough"]],
     &[&["overlay", "overlay_mode"], &["overlay_position"], &["auto_reconnect"],
         &["client_roaming"], &["roaming_metered"], &["network_grace_ms"], &["usb_forwarding"]],
-    &[&["console_home"], &["quick_resume"], &["language"], &["ui_zoom"], &["high_contrast"], &["reduce_motion"],
+    &[&["console_home"], &["quick_resume"], &["language"], &["open_on_start"], &["ui_zoom"], &["high_contrast"], &["reduce_motion"],
         &["input_only_any_host"], &["check_updates"]],
     &[&["experimental_packed_444"], &["link_probe"]],
     &[&["error_correction"], &["client_hint_bitrate"], &["tell_host_wireless"], &["tell_host_link_speed"],
@@ -1026,6 +1026,32 @@ impl Launcher {
                         })
                         .response
                 });
+                rows.group(ui, "Starting up", "");
+                let open_game = self.open_game.as_ref().map(|g| g.title.clone());
+                let open_name = |choice: crate::config::OpenOnStart| match (choice, &open_game) {
+                    (crate::config::OpenOnStart::Chosen, Some(title)) => title.clone(),
+                    _ => tr(choice.label()).to_owned(),
+                };
+                setting_row(ui, s, &mut rows, &["open_on_start"], "When Nightjar opens", "Your PCs, or a 3-second countdown into a game.", |ui, s| {
+                    egui::ComboBox::from_id_salt("open-on-start")
+                        .selected_text(open_name(s.open_on_start))
+                        .show_ui(ui, |ui| {
+                            for choice in crate::config::OpenOnStart::ALL {
+                                ui.selectable_value(&mut s.open_on_start, choice, open_name(choice));
+                            }
+                        })
+                        .response
+                });
+                if let Some(on) = self.sign_in {
+                    setting_row(ui, s, &mut rows, &[], "Start Nightjar when I sign in", "Nightjar opens by itself after you sign in to this computer.", |ui, _| {
+                        let mut wanted = on;
+                        let response = toggle(ui, &mut wanted);
+                        if wanted != on {
+                            commands.push(Command::SetSignIn(wanted));
+                        }
+                        response
+                    });
+                }
                 rows.group(ui, "Accessibility", "");
                 setting_row(ui, s, &mut rows, &["ui_zoom"], "Text and button size", "Makes everything in Nightjar bigger or smaller. Ctrl+= and Ctrl+- change it, Ctrl+0 resets it.", |ui, s| {
                     egui::ComboBox::from_id_salt("ui-zoom")
@@ -1331,6 +1357,7 @@ fn reduce_motion_name(mode: ReduceMotion) -> &'static str {
 /// value a PC's or game's own setting stands in for.
 pub(super) fn value_text(key: &str, s: &Settings, display: &Display, style: crate::glyphs::Style) -> String {
     match key {
+        "open_on_start" => tr(s.open_on_start.label()).to_owned(),
         "width" | "height" if s.width == 0 => trf("Native ({}x{})", &[&display.width, &display.height]),
         "width" | "height" => format!("{}x{}", s.width, s.height),
         "fps" if s.fps == 0 => trf("Display ({} Hz)", &[&(display.refresh_hz.round() as u32)]),
@@ -1392,7 +1419,8 @@ pub(super) const MAIN_KEYS: [(&str, &[&str]); 8] = [
 
 /// Desktop rows and the Android preference each one matches. A row is main when its match is.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(super) const ANDROID_KEYS: [(&str, &str); 38] = [
+pub(super) const ANDROID_KEYS: [(&str, &str); 39] = [
+    ("open_on_start", "list_open_on_start"),
     ("width", "list_resolution"), ("fps", "list_fps"), ("bitrate_kbps", "seekbar_bitrate_kbps"),
     ("adaptive_bitrate", "checkbox_auto_bitrate"), ("codec", "video_format"), ("hdr", "checkbox_enable_hdr"),
     ("video_scaling", "checkbox_stretch_video"), ("controllers", "checkbox_multi_controller"),

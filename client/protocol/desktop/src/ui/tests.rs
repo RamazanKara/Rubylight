@@ -1236,6 +1236,25 @@ fn waking_shows_the_pc_and_cancel_stops_it() {
 }
 
 #[test]
+fn the_open_play_countdown_names_the_game_and_the_pc_and_stops_at_cancel_or_back() {
+    let mut f = Frames::new(record("Den", true, true), Reach::Online);
+    let countdown = || Dialog::OpenPlay { game: "Hades".into(), pc: "Den".into(), left: 3 };
+    f.l.ask(countdown());
+    f.settle();
+    assert!(f.drawn.iter().any(|t| t == "Hades") && f.drawn.iter().any(|t| t == "Starting on Den in 3"), "{:?}", f.drawn);
+    assert!(f.press(Key::Enter).is_empty());
+    assert!(f.no_dialog(), "Cancel has focus");
+    f.l.ask(countdown());
+    f.settle();
+    f.press(Key::Escape);
+    assert!(f.no_dialog(), "Escape, as B and Back are");
+    f.l.settings.language = Language::German;
+    f.l.ask(countdown());
+    f.settle();
+    assert!(f.drawn.iter().any(|t| t == "Startet auf Den in 3"), "{:?}", f.drawn);
+}
+
+#[test]
 fn wake_is_offered_until_the_pc_answers_and_resume_while_it_runs_a_game() {
     let states = every_state();
     let by = |name: &str| states.iter().find(|s| s.name == name).unwrap().frames().hosts.list.remove(0);
@@ -3963,7 +3982,7 @@ fn a_cover_menu_opens_by_the_cover_and_gives_focus_back() {
     let rect = f.ctx.read_response(cover).unwrap().rect;
     f.press(Key::F2);
     assert!(matches!(f.l.dialog, Dialog::GameMenu { game: GameTarget::Library { .. }, .. }), "F2 opens the game's menu");
-    for row in ["Game details", "Add to favourites", "Open library"] {
+    for row in ["Game details", "Add to favourites", "Open this when Nightjar starts", "Open library"] {
         assert!(shows(&f, row), "{row}: {:?}", f.drawn);
     }
     assert!(shows(&f, "Enter"), "the row selecting does says Enter");
@@ -4082,7 +4101,7 @@ fn the_library_page_opens_a_games_menu_with_play_and_its_settings() {
     assert_ne!(f.ctx.memory(|m| m.focused()), Some(first), "Right moves to the other game");
     f.press(Key::F2);
     assert!(matches!(f.l.dialog, Dialog::GameMenu { game: GameTarget::Classic { app: 9 }, .. }), "the other game's menu");
-    assert!(shows(&f, "Play") && shows(&f, "Game settings"), "{:?}", f.drawn);
+    assert!(shows(&f, "Play") && shows(&f, "Game settings") && shows(&f, "Open this when Nightjar starts"), "{:?}", f.drawn);
 }
 
 /// Remove from favourites in a Favourites card's menu moves the focus to the next favourite, as

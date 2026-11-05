@@ -384,6 +384,8 @@ pub struct Settings {
     pub full_range: bool,
     pub upscaling: Upscaling,
     pub upscale_sharpness: u32,
+    /// What a cold start opens (Android's `list_open_on_start`). Not a per-PC or per-game override.
+    pub open_on_start: OpenOnStart,
     /// Open on Home (Continue playing, the library across PCs) when a paired PC has the
     /// Rubylight native API. Off starts on the list of PCs. Not a per-PC or per-game override.
     pub console_home: bool,
@@ -482,6 +484,37 @@ impl OverlayCorner {
 }
 
 /// How Home lays out its library rows (Android's `home_view_layout`).
+/// "When Nightjar opens": the setting behind `nightjar_policy::open_play::Opens`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenOnStart {
+    #[default]
+    Pcs,
+    Last,
+    Chosen,
+}
+
+impl OpenOnStart {
+    pub const ALL: [Self; 3] = [Self::Pcs, Self::Last, Self::Chosen];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Pcs => en("Show my PCs"),
+            Self::Last => en("Continue my last game"),
+            Self::Chosen => en("A chosen game"),
+        }
+    }
+
+    pub fn opens(self) -> nightjar_policy::open_play::Opens {
+        use nightjar_policy::open_play::Opens;
+        match self {
+            Self::Pcs => Opens::Pcs,
+            Self::Last => Opens::Last,
+            Self::Chosen => Opens::Chosen,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HomeLayout {
@@ -768,6 +801,7 @@ impl Default for Settings {
             full_range: false,
             upscaling: Upscaling::Bilinear,
             upscale_sharpness: 50,
+            open_on_start: OpenOnStart::Pcs,
             console_home: true,
             quick_resume: false,
             input_only_any_host: false,
@@ -1087,6 +1121,36 @@ pub struct Recent {
     pub at: u64,
 }
 
+/// The game a start of Nightjar goes on to, named like a [`Recent`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenGame {
+    pub host: String,
+    pub install_id: String,
+    pub app_id: u32,
+    pub title: String,
+}
+
+impl OpenGame {
+    pub fn same_game(&self, other: &OpenGame) -> bool {
+        self.host == other.host
+            && if !self.install_id.is_empty() && !other.install_id.is_empty() {
+                self.install_id.eq_ignore_ascii_case(&other.install_id)
+            } else {
+                self.app_id == other.app_id
+            }
+    }
+}
+
+/// What the automatic start keeps between runs (`open_play.json`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OpenPlayState {
+    /// The game chosen in its menu.
+    pub game: Option<OpenGame>,
+    /// An automatic start began and has not ended well yet (`nightjar_policy::open_play`).
+    pub armed: bool,
+}
+
 /// How many recent games are kept.
 pub const RECENT_LIMIT: usize = 12;
 
@@ -1399,6 +1463,14 @@ impl Store {
         write_json(&self.dir.join("recent.json"), &recents)
     }
 
+    pub fn open_play(&self) -> OpenPlayState {
+        read_json(&self.dir.join("open_play.json")).unwrap_or_default()
+    }
+
+    pub fn save_open_play(&self, state: &OpenPlayState) -> std::io::Result<()> {
+        write_json(&self.dir.join("open_play.json"), state)
+    }
+
     pub fn favourites(&self) -> Vec<Favourite> {
         let path = self.dir.join("favourites.json");
         let Ok(text) = std::fs::read_to_string(&path) else {
@@ -1447,6 +1519,13 @@ impl Store {
     pub fn forget_host(&self, host: &str, recents: &[Recent], favourites: &[Favourite]) -> (Vec<Recent>, Vec<Favourite>) {
         self.forget_library(host);
         let _ = std::fs::remove_dir_all(self.dir.join("art").join(sanitize(host)));
+        let mut open_play = self.open_play();
+        if open_play.game.as_ref().is_some_and(|g| g.host == host) {
+            open_play.game = None;
+            if let Err(e) = self.save_open_play(&open_play) {
+                eprintln!("nightjar: saving the game to open failed: {e}");
+            }
+        }
         let kept: Vec<Recent> = recents.iter().filter(|r| r.host != host).cloned().collect();
         if kept.len() != recents.len() {
             if let Err(e) = self.save_recents(&kept) {
@@ -1551,6 +1630,24 @@ mod tests {
         }
         assert_eq!(list.len(), RECENT_LIMIT);
         assert_eq!(list[0].install_id, "G29");
+    }
+
+    #[test]
+    fn the_automatic_start_defaults_to_the_pcs_and_keeps_its_state_over_a_restart() {
+        let old: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.open_on_start, OpenOnStart::Pcs, "a settings file from before it starts nothing");
+        let dir = std::env::temp_dir().join(format!("nightjar-open-play-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = Store::at(dir.clone()).unwrap();
+        assert_eq!(store.open_play(), OpenPlayState::default());
+        let game = OpenGame { host: "uid".into(), install_id: "x".into(), app_id: 7, title: "Game".into() };
+        store.save_open_play(&OpenPlayState { game: Some(game.clone()), armed: true }).unwrap();
+        assert_eq!(Store::at(dir.clone()).unwrap().open_play(), OpenPlayState { game: Some(game), armed: true });
+        store.forget_host("other", &[], &[]);
+        assert!(store.open_play().game.is_some(), "another PC's removal leaves it");
+        store.forget_host("uid", &[], &[]);
+        assert_eq!(store.open_play(), OpenPlayState { game: None, armed: true }, "its PC's removal takes it");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -187,6 +187,10 @@ pub enum GameAction {
     Settings,
     /// The PC's own library page.
     Library,
+    /// Make this game the one "When Nightjar opens" starts.
+    OpenOnStart,
+    /// It is that game: back to the PCs.
+    StopOpenOnStart,
 }
 
 impl GameAction {
@@ -199,6 +203,8 @@ impl GameAction {
             Self::Unstar => (Icon::StarOff, en("Remove from favourites")),
             Self::Settings => (Icon::Sliders, en("Game settings")),
             Self::Library => (Icon::Grid, en("Open library")),
+            Self::OpenOnStart => (Icon::Play, en("Open this when Nightjar starts")),
+            Self::StopOpenOnStart => (Icon::Stop, en("Stop opening this when Nightjar starts")),
         };
         let hint = if enter {
             Some(en("Enter"))
@@ -272,7 +278,8 @@ impl Launcher {
             Dialog::GameMenu { host, game } => {
                 let (id, game) = (*host, *game);
                 match view.hosts.get(id).and_then(|host| game_menu(host, view, game, &self.favourites).map(|menu| (host, menu))) {
-                    Some((host, (title, actions))) => {
+                    Some((host, (title, mut actions))) => {
+                        actions.extend(open_on_start_action(host, game, &self.favourites, self.open_game.as_ref()));
                         let rows: Vec<MenuRow> = actions
                             .iter()
                             .enumerate()
@@ -446,6 +453,27 @@ impl Launcher {
                                 focused = true;
                             }
                             if stay.clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+            }
+            Dialog::OpenPlay { game, pc, left } => {
+                egui::Modal::new(Id::unique("open-play"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new(game.as_str()).font(semibold(text::SECTION)));
+                        ui.label(RichText::new(trf("Starting on {} in {}", &[&pc, &left])).color(ON_SURFACE_VARIANT));
+                        dialog_buttons(ui, |ui| {
+                            // The start is the default: a press of A or Enter here stops it.
+                            let cancel = quiet_button(ui, "Cancel");
+                            if focus_first {
+                                cancel.request_focus();
+                                focused = true;
+                            }
+                            if cancel.clicked() {
                                 close = true;
                             }
                         });
@@ -1299,6 +1327,12 @@ impl Launcher {
                 }
             }
             (GameAction::Library, _) => commands.push(Command::OpenApps(id)),
+            (GameAction::OpenOnStart, _) => {
+                if let Some(chosen) = open_game_of(host, game, &self.favourites) {
+                    commands.push(Command::OpenOnStart(Some(chosen)));
+                }
+            }
+            (GameAction::StopOpenOnStart, _) => commands.push(Command::OpenOnStart(None)),
             (GameAction::Settings, _) => {
                 if let Some(app) = classic_of(host, game, &self.favourites) {
                     commands.push(Command::AppSettings { host: id, app: app.clone() });
@@ -1526,6 +1560,33 @@ pub(super) fn game_menu(host: &Host, view: &View<'_>, game: GameTarget, favourit
             Some((entry.name.clone(), actions))
         }
     }
+}
+
+/// The game a menu is about, as "When Nightjar opens" keeps it; None for what is not a game (a
+/// control action) or a PC without a unique id to find it by again.
+pub(super) fn open_game_of(host: &Host, game: GameTarget, favourites: &[crate::config::Favourite]) -> Option<crate::config::OpenGame> {
+    let (install_id, app_id, title) = match game {
+        GameTarget::Library { app, .. } => match host.native.library.as_ref().and_then(|l| l.games.iter().find(|g| g.app_id == app)) {
+            Some(entry) => (entry.install_id.clone(), app, entry.title.clone()),
+            None => {
+                let star = stored_favourite(host, app, favourites)?;
+                (star.install_id.clone(), app, star.title.clone())
+            }
+        },
+        GameTarget::Classic { app } => {
+            let Apps::Loaded(apps) = &host.apps else { return None };
+            let entry = apps.iter().find(|a| a.id == app).filter(|a| !a.is_control_action())?;
+            (entry.uuid.clone(), entry.id as u32, entry.name.clone())
+        }
+    };
+    let unique_id = host.record.unique_id.clone();
+    (!unique_id.is_empty()).then_some(crate::config::OpenGame { host: unique_id, install_id, app_id, title })
+}
+
+/// The game menu's row for "When Nightjar opens": take it back on the chosen game, else choose it.
+pub(super) fn open_on_start_action(host: &Host, game: GameTarget, favourites: &[crate::config::Favourite], chosen: Option<&crate::config::OpenGame>) -> Option<GameAction> {
+    let this = open_game_of(host, game, favourites)?;
+    Some(if chosen.is_some_and(|c| c.same_game(&this)) { GameAction::StopOpenOnStart } else { GameAction::OpenOnStart })
 }
 
 /// The classic app entry a game menu's game starts through, once the PC's app list is loaded. A

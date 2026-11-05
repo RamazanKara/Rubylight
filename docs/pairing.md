@@ -8,7 +8,7 @@ Each Nightjar installation pairs with a PC's host once. Pairing exchanges certif
 | --- | --- | --- |
 | [PIN](#pin-flow) | Every Moonlight-compatible host | Nightjar shows a PIN; you enter it on the host |
 | [One-time PIN](#host-generated-one-time-pin) | Hosts with one-time PINs, such as Apollo, Vibepollo and Rubylight | The host shows a PIN and passphrase; you enter them in Nightjar |
-| [QR code or pairing link](#pair-with-a-qr-code) | Hosts with QR pairing (Rubylight 3.0) | You scan the host's code, or paste its link |
+| [QR code or pairing link](#pair-with-a-qr-code) | Hosts with QR pairing (Rubylight 3.0) | You scan the host's code, or open or paste its link |
 
 ## Find the PC
 
@@ -36,21 +36,30 @@ A host with QR pairing (Rubylight 3.0) shows a QR code on its **Devices** page f
 
 - **Android:** choose **Add PC**, then **Scan QR code**, and point the camera at the code. Nightjar asks for camera access only at this point; without it, enter the address instead. Devices without a camera do not show the button.
 - **Windows and Linux:** choose **Copy pairing link** under the code on the PC, then **Paste link** in Nightjar's **Add PC** dialog, or paste the link into its address field.
+- **Any device with Nightjar:** choose **Open in Nightjar** under the code, or scan the code with another QR reader and open the link. See [Open a pairing link](#open-a-pairing-link).
 
-Nightjar adds the PC at the code's address and pairs immediately. It refuses to pair if the PC presents a certificate other than the one named in the code, so a code only pairs with the PC that showed it. A code is consumed by a failed attempt as well as a successful one; scanning a used or expired code again reports that and asks for a new code.
+Scanned in Nightjar or pasted there, Nightjar adds the PC at the code's address and pairs immediately. It refuses to pair if the PC presents a certificate other than the one named in the code, so a code only pairs with the PC that showed it. A code is consumed by a failed attempt as well as a successful one; scanning a used or expired code again reports that and asks for a new code.
+
+### Open a pairing link
+
+Android, and the Windows installer and the Linux packages (including the Flatpak), make Nightjar the handler of `rubylight:` links. The portable Windows zip and a Linux archive or AppImage that was not integrated into the desktop do not register it; paste the link there.
+
+Any web page can open a link, so a link opened from outside Nightjar never pairs on its own. Nightjar first asks, naming the PC and its address, with **Pair** and **Cancel**; focus starts on **Cancel**, and a controller reaches both. Nothing is added or paired before **Pair**, and the certificate check above still applies. A name in a link is the link's claim, so check the address. A link that is not valid, including one of another version or a very long one, is refused like a pasted one.
+
+On Windows and Linux, a link goes to the window that is already open, and that window comes to the front. It waits for a running stream or an open dialog to end, and only the newest link waits. With no window open, the link opens one. Nightjar otherwise starts as usual, and more than one window can be open; the first one takes the links.
 
 ### Pairing link
 
-The QR code contains a single link; **Copy pairing link** copies the same text:
+The QR code contains a single link; **Copy pairing link** copies the same text and **Open in Nightjar** opens it:
 
 ```
 rubylight://pair?v=1&host=<address>&port=<http port>&otp=<one-time PIN>&pass=<passphrase>&id=<host uniqueid>&fp=<certificate SHA-256>&name=<host name>
 ```
 
 - `v` is `1`; other versions are refused.
-- `host`, `port`, `otp` and `fp` are required. `port` is the host's HTTP port, 1 to 65535. `fp` is the SHA-256 of the host certificate's DER encoding, as 64 hexadecimal digits.
+- `host`, `port`, `otp` and `fp` are required. `host` is an address or host name: up to 255 ASCII letters, digits and `.`, `-`, `_`, `:`, `%`, `[`, `]`. `port` is the host's HTTP port, 1 to 65535. `fp` is the SHA-256 of the host certificate's DER encoding, as 64 hexadecimal digits.
 - `pass`, `id` and `name` are optional. Unknown keys are ignored; a repeated key invalidates the link.
-- Values are percent-encoded UTF-8.
+- Values are percent-encoded UTF-8. A link longer than 4096 bytes is refused.
 
 The PIN and passphrase pair exactly like a host-generated one-time PIN. Treat the link as a secret until it expires: anyone on your network who uses it within those three minutes can pair.
 

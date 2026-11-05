@@ -20,7 +20,7 @@ This page lists every feature with a link to its guide. Features available on on
 ## Pairing and PCs
 
 - **Discovery and manual entry.** PCs are found on the local network or added by name, IPv4 or IPv6 address and port. Wake-on-LAN is sent on every network interface.
-- **Pairing.** PIN, one-time PIN, and QR pairing: **Scan QR code** on Android, or a pasted pairing link on Windows and Linux. QR pairing needs a host that offers it (Rubylight 3.0). [Pairing](pairing.md)
+- **Pairing.** PIN, one-time PIN, and QR pairing: **Scan QR code** on Android, or a pasted pairing link on Windows and Linux. A pairing link opened from any other app opens Nightjar, which asks before it pairs. QR pairing needs a host that offers it (Rubylight 3.0). [Pairing](pairing.md)
 - **Per-device permissions.** Permissions set on the host are checked before every protected action, and a refused action names the missing permission.
 - **Settings per PC and per game.** Profiles selected by network (mobile data, home Wi-Fi, other Wi-Fi) and a mobile data cap. [Settings](settings.md)
 - **Remote Monitor and Input-only.** Watch a PC without sending input (on hosts that list the role, such as Rubylight and Vibepollo), or control it without video on any PC. [Input-only](controls.md#input-only-on-any-pc)

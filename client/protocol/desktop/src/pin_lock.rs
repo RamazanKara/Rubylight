@@ -761,14 +761,23 @@ impl PinGate {
     /// screen. A yes answer from the PIN screen ([`Self::grant`]) is used up by the start it was
     /// given for.
     pub fn needs_pin_for_stream(&mut self, store: &PinStore, key: &str) -> bool {
-        let now = store.elapsed();
-        let granted = self.grant.as_ref().is_some_and(|(pc, at)| !key.is_empty() && pc.eq_ignore_ascii_case(key) && (0..GRANT_MS).contains(&(now - at)));
-        let view = store.view();
-        let needed = stream_needed(view.has_pin, view.mode, &view.pcs, key, self.unlocked_app, granted);
-        if !needed && granted {
+        let needed = self.locks_stream(store, key);
+        if !needed && self.granted(store, key) {
             self.grant = None;
         }
         needed
+    }
+
+    /// The same answer without using up a grant: Continue here's press asks this, and the stream
+    /// start that follows the press uses the grant.
+    pub fn locks_stream(&self, store: &PinStore, key: &str) -> bool {
+        let view = store.view();
+        stream_needed(view.has_pin, view.mode, &view.pcs, key, self.unlocked_app, self.granted(store, key))
+    }
+
+    fn granted(&self, store: &PinStore, key: &str) -> bool {
+        let now = store.elapsed();
+        self.grant.as_ref().is_some_and(|(pc, at)| !key.is_empty() && pc.eq_ignore_ascii_case(key) && (0..GRANT_MS).contains(&(now - at)))
     }
 
     /// The PIN was entered for starting a stream under `key`.
@@ -1110,6 +1119,21 @@ mod tests {
         assert!(!within_grace(false, 1000, 1001, 10));
         assert!(!within_grace(true, 1000, 1001, 0));
         assert!(!within_grace(true, 1000, 999, 10), "a clock that went back");
+    }
+
+    #[test]
+    fn continue_heres_press_leaves_the_grant_to_the_stream_it_starts() {
+        let (store, _clock, dir) = store("press");
+        store.set_pin_with(b"1234", 1_000).unwrap();
+        store.set_mode(Mode::Streams);
+        let mut gate = PinGate::new(&store);
+        assert!(gate.locks_stream(&store, "pc"), "the press waits for the PIN");
+        gate.grant(&store, "pc");
+        assert!(!gate.locks_stream(&store, "pc"), "the PIN passed: the press goes on");
+        assert!(!gate.locks_stream(&store, "pc"), "and asking did not use it up");
+        assert!(!gate.needs_pin_for_stream(&store, "pc"), "the stream after the press does not ask again");
+        assert!(gate.locks_stream(&store, "pc"), "the next press asks again");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

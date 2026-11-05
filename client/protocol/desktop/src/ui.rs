@@ -348,7 +348,7 @@ pub struct Launcher {
     /// The last Sleep PC token request's number.
     sleep_asks: u64,
     /// Messages that came while the user was busy with another dialog, shown once it closes.
-    queued: std::collections::VecDeque<(String, String)>,
+    queued: std::collections::VecDeque<Dialog>,
     settings_return: Screen,
     /// Where Back goes: the screens left by moving forward, with the item that had focus.
     trail: Vec<(Screen, Option<String>)>,
@@ -680,6 +680,26 @@ impl Launcher {
     pub fn ask(&mut self, dialog: Dialog) {
         self.dialog = dialog;
         self.focus_dialog = true;
+    }
+
+    /// Opens `dialog` once the open one is closed: for an answer that arrives by itself, which must
+    /// not take away what the player is reading or answering.
+    pub fn ask_after(&mut self, dialog: Dialog) {
+        if matches!(self.dialog, Dialog::None) {
+            self.ask(dialog);
+        } else {
+            self.queued.push_back(dialog);
+        }
+    }
+
+    /// Opens the next waiting dialog, if one waits.
+    pub(crate) fn next_queued(&mut self) -> bool {
+        let next = self.queued.pop_front();
+        let any = next.is_some();
+        if let Some(dialog) = next {
+            self.ask(dialog);
+        }
+        any
     }
 
     /// The profile a stream on the current network uses, None for the main settings.

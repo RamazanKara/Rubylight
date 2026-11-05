@@ -72,8 +72,6 @@ pub struct Native {
     /// The library was read from the PC in this run (not loaded from disk).
     pub library_live: bool,
     pub session: Option<Session>,
-    /// Who plays the running game and where this device's stream went.
-    pub stream_move: StreamMove,
     /// Why the last read failed; the data above is then the last good one.
     pub error: Option<String>,
     /// The PC's host update, where it lists `update`.
@@ -113,7 +111,6 @@ pub struct NativeRead {
     capabilities: Option<NativeCapabilities>,
     library: Option<NativeLibrary>,
     session: Result<Session, String>,
-    stream_move: StreamMove,
     /// The PC's wake targets (`wol::targets`) to keep in place of the stored ones: empty for a
     /// PC without `wake`; None when they were not read, or the read failed (those adapters
     /// still belong to the PC).
@@ -320,6 +317,18 @@ pub const SLEEP_BUSY: &str = en("The PC cannot sleep right now. Close games and 
 pub const PC_POWER_NOT_ALLOWED: &str = en("The PC does not let this device restart or shut it down. Allow it in the host's device settings.");
 pub const PC_POWER_BUSY: &str = en("The PC cannot do this right now. Close games and streams on it, then try again.");
 
+/// How long selecting a game waits to learn who plays it, before it starts the stream as it always did.
+const SELECT_READ_WAIT: Duration = Duration::from_millis(1500);
+
+/// `work`'s answer, or an error when it takes longer than `wait`. It then ends on its own.
+fn within<T: Send + 'static>(wait: Duration, work: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
+    let (sender, answer) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(work());
+    });
+    answer.recv_timeout(wait).unwrap_or_else(|_| Err(format!("no answer within {} ms", wait.as_millis())))
+}
+
 pub enum Event {
     Info {
         id: u64,
@@ -364,6 +373,13 @@ pub enum Event {
         epoch: u64,
         seq: u64,
         result: Result<Box<NativeRead>, String>,
+    },
+    /// Who plays the running game, read for selecting `app`; None when the PC did not say in time.
+    SelectRead {
+        id: u64,
+        app: i32,
+        resume: bool,
+        read: Option<StreamMove>,
     },
     StreamMoved {
         id: u64,
@@ -1464,15 +1480,12 @@ impl Hosts {
                     }
                     client.host_update().map_err(|e| eprintln!("nightjar: host update not read: {}", describe(&e))).ok()
                 });
-                let (session, stream_move) = match client.session_and_move() {
-                    Ok((session, stream_move)) => (Ok(session), stream_move),
-                    Err(e) => (Err(describe(&e)), StreamMove::default()),
-                };
+                let session = client.session().map_err(|e| describe(&e));
                 // Without a library in this read, a failed session is the whole failure; with
                 // one, Home still has the games and shows the session error beside them.
                 match (&session, full) {
                     (Err(e), false) => Err(e.clone()),
-                    _ => Ok(Box::new(NativeRead { capabilities, library, session, stream_move, wake, update })),
+                    _ => Ok(Box::new(NativeRead { capabilities, library, session, wake, update })),
                 }
             });
             Some(Event::Native { id, epoch, seq, result })
@@ -1489,7 +1502,7 @@ impl Hosts {
     /// After a stream ended, unless the player left it on purpose: asks the PC whether it moved
     /// to another device.
     pub fn read_stream_move(&mut self, id: u64, app: i32, left_on_purpose: bool) {
-        if !nightjar_policy::continue_here::reads_move_after_end(self.offers_continue_here(id), left_on_purpose) {
+        if !nightjar_policy::continue_here::reads_move_after_end(self.offers_continue_here(id), left_on_purpose, false) {
             return;
         }
         let (Some(identity), Some(host)) = (self.identity.clone(), self.get(id)) else {
@@ -1508,6 +1521,30 @@ impl Hosts {
             };
             Some(Event::StreamMoved { id, app, device })
         });
+    }
+
+    /// Selecting a game on a PC that offers the move: reads who plays it now, off the UI thread and
+    /// for at most [`SELECT_READ_WAIT`], and answers with [`Event::SelectRead`]. False when it cannot
+    /// ask, and no answer comes.
+    pub fn read_before_start(&mut self, id: u64, app: i32, resume: bool) -> bool {
+        let (Some(identity), Some(host)) = (self.identity.clone(), self.get(id)) else {
+            return false;
+        };
+        let record = host.connect_record();
+        self.spawn("continue-here-read", move || {
+            let read = within(SELECT_READ_WAIT, move || {
+                client_for(&identity, &record, &record.address).and_then(|client| client.stream_move().map_err(|e| describe(&e)))
+            });
+            let read = match read {
+                Ok(read) => Some(read),
+                Err(e) => {
+                    eprintln!("nightjar: could not read who plays the game; starting the stream: {e}");
+                    None
+                }
+            };
+            Some(Event::SelectRead { id, app, resume, read })
+        });
+        true
     }
 
     /// Continue here: the other device's stream of the running game ends. The launch follows
@@ -1797,10 +1834,7 @@ impl Hosts {
                                 match read.session {
                                     // A session read before an action landed is older than its answer.
                                     Ok(_) if !newest => {}
-                                    Ok(session) => {
-                                        host.native.session = Some(session);
-                                        host.native.stream_move = read.stream_move;
-                                    }
+                                    Ok(session) => host.native.session = Some(session),
                                     Err(e) => host.native.error = Some(trf("The session could not be read. {}", &[&e])),
                                 }
                             }
@@ -1836,6 +1870,7 @@ impl Hosts {
                 }
                 event @ Event::Sleep { .. } => out.push(event),
                 event @ Event::PcPower { .. } => out.push(event),
+                event @ Event::SelectRead { .. } => out.push(event),
                 event @ Event::StreamMoved { .. } => out.push(event),
                 event @ Event::ContinueHere { .. } => out.push(event),
                 Event::HostUpdate { id, name, result } => {
@@ -2179,6 +2214,19 @@ fn decode_image(bytes: &[u8]) -> Option<egui::ColorImage> {
 pub(crate) mod tests {
     use super::*;
 
+    #[test]
+    fn the_read_for_a_selected_game_gives_up_at_its_deadline_and_says_why() {
+        let started = Instant::now();
+        let slow = within(Duration::from_millis(20), || {
+            std::thread::sleep(Duration::from_secs(5));
+            Ok(1)
+        });
+        assert!(slow.is_err_and(|e| e.contains("no answer")));
+        assert!(started.elapsed() < Duration::from_secs(4), "it does not wait for the read");
+        assert_eq!(within(Duration::from_secs(5), || Ok(1)), Ok(1));
+        assert_eq!(within(Duration::from_secs(5), || Err::<i32, _>("refused".to_owned())), Err("refused".to_owned()));
+    }
+
     /// The native-api capabilities fixture with these features added, and the folder grant.
     pub(crate) fn native_caps(features: &[&str], shared_folders: bool) -> NativeCapabilities {
         let mut value: serde_json::Value =
@@ -2192,7 +2240,7 @@ pub(crate) mod tests {
     /// A full native read of `id` with these capabilities lands, as the worker would send it.
     pub(crate) fn native_lands(hosts: &mut Hosts, id: u64, capabilities: NativeCapabilities) {
         let epoch = hosts.get(id).unwrap().native_epoch;
-        let read = NativeRead { capabilities: Some(capabilities), library: Some(library().into()), session: Ok(session("idle")), stream_move: Default::default(), wake: None, update: None };
+        let read = NativeRead { capabilities: Some(capabilities), library: Some(library().into()), session: Ok(session("idle")), wake: None, update: None };
         send(hosts, Event::Native { id, epoch, seq: 1, result: Ok(Box::new(read)) });
     }
 
@@ -2238,7 +2286,7 @@ pub(crate) mod tests {
             assert_eq!(gated(&hosts), [false; 4], "{why}: no old grant opens a row or a gate");
             assert!(hosts.list[0].native.capabilities.is_none() && hosts.list[0].native.library.is_none(), "{why}");
             // A read that started before lands now: dropped.
-            let read = NativeRead { capabilities: Some(granted.clone()), library: Some(library().into()), session: Ok(session("idle")), stream_move: Default::default(), wake: None, update: None };
+            let read = NativeRead { capabilities: Some(granted.clone()), library: Some(library().into()), session: Ok(session("idle")), wake: None, update: None };
             hosts.list[0].record.server_certificate = Some("pem".into());
             send(&mut hosts, Event::Native { id, epoch: in_flight, seq: 9, result: Ok(Box::new(read)) });
             assert!(hosts.list[0].native.capabilities.is_none(), "{why}: the old read is not taken in");
@@ -2443,7 +2491,7 @@ pub(crate) mod tests {
     }
 
     fn full_read(session: Session) -> Box<NativeRead> {
-        Box::new(NativeRead { capabilities: None, library: Some(library().into()), session: Ok(session), stream_move: Default::default(), wake: None, update: None })
+        Box::new(NativeRead { capabilities: None, library: Some(library().into()), session: Ok(session), wake: None, update: None })
     }
 
     #[test]

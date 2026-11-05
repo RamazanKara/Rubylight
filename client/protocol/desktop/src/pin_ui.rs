@@ -144,6 +144,11 @@ impl PinLock {
         self.gate.needs_pin_for_stream(&self.store, key)
     }
 
+    /// See [`crate::pin_lock::PinGate::locks_stream`].
+    pub fn locks_stream(&self, key: &str) -> bool {
+        self.gate.locks_stream(&self.store, key)
+    }
+
     /// Asks for the PIN to start a stream under `key` (`pc` names the PC). Under the app lock its
     /// screen asks already, and unlocking the app lets the start go on.
     pub fn ask_for_stream(&mut self, key: &str, pc: &str) {

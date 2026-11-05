@@ -11,9 +11,10 @@ pub fn asks_on_select(offered: bool, plain_start: bool, same_game: bool) -> bool
 }
 
 /// Whether a stream that ended asks the PC if it moved: any end this device did not ask for, on a
-/// PC that offers the move.
-pub fn reads_move_after_end(offered: bool, left_on_purpose: bool) -> bool {
-    offered && !left_on_purpose
+/// PC that offers the move. One that goes on to reconnect does not wait for the answer on a link
+/// that may be dead: its resume asks once the PC answered, where the game is no longer its own.
+pub fn reads_move_after_end(offered: bool, left_on_purpose: bool, recovery_follows: bool) -> bool {
+    offered && !left_on_purpose && !recovery_follows
 }
 
 /// Whether a stream may reconnect on its own. One that moved never does: two devices must not
@@ -40,8 +41,8 @@ impl Subject for Traced {
                 Ok(asks_on_select(a.flag(0)?, a.flag(1)?, a.flag(2)?).into())
             }
             "reads_move_after_end" => {
-                let a = Args::new(args, 2)?;
-                Ok(reads_move_after_end(a.flag(0)?, a.flag(1)?).into())
+                let a = Args::new(args, 3)?;
+                Ok(reads_move_after_end(a.flag(0)?, a.flag(1)?, a.flag(2)?).into())
             }
             "recovers" => {
                 let a = Args::new(args, 2)?;
@@ -77,9 +78,10 @@ mod tests {
     }
 
     #[test]
-    fn leaving_on_purpose_or_an_old_pc_reads_nothing() {
-        assert!(reads_move_after_end(true, false));
-        assert!(!reads_move_after_end(true, true));
-        assert!(!reads_move_after_end(false, false));
+    fn leaving_on_purpose_an_old_pc_or_a_coming_recovery_reads_nothing() {
+        assert!(reads_move_after_end(true, false, false));
+        assert!(!reads_move_after_end(true, true, false));
+        assert!(!reads_move_after_end(false, false, false));
+        assert!(!reads_move_after_end(true, false, true));
     }
 }

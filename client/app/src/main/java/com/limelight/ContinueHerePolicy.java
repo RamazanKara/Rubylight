@@ -9,9 +9,12 @@ public final class ContinueHerePolicy {
         return offered && plainStart && sameGame;
     }
 
-    /** A stream that ended asks the PC if it moved, unless this device left on purpose or the PC cannot say. */
-    public static boolean readsMoveAfterEnd(boolean offered, boolean leftOnPurpose) {
-        return offered && !leftOnPurpose;
+    /**
+     * A stream that ended asks the PC if it moved, unless this device left on purpose or the PC cannot say. One that
+     * goes on to reconnect does not wait for the answer on a link that may be dead: its resume asks once the PC answered.
+     */
+    public static boolean readsMoveAfterEnd(boolean offered, boolean leftOnPurpose, boolean recoveryFollows) {
+        return offered && !leftOnPurpose && !recoveryFollows;
     }
 
     /** A stream that moved never reconnects on its own: two devices must not fight over the stream. */

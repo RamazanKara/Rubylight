@@ -200,6 +200,8 @@ struct App {
     color_probed: Option<(Hardware, (u32, String))>,
     /// The stream start that waits for the PIN screen.
     pin_pending: Option<PinPending>,
+    /// Selecting a game waits for the PC to say who plays it.
+    select_read: bool,
     /// This launch's update check (Windows); command-line and test streams make none.
     updates: update_check::Updates,
     open_play: open_play::OpenPlay,
@@ -657,6 +659,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         cli,
         color_probed: None,
         pin_pending: None,
+        select_read: false,
         title_bar: *theme::NIGHT,
     };
     match identity {
@@ -1153,9 +1156,21 @@ impl App {
                 // Nothing changed on the PC: the game keeps running and the prompt says why not.
                 HostEvent::ContinueHere { result: Err(e), .. } => self.launcher.message(tr("Could not continue here"), e),
                 HostEvent::ContinueHere { id, app, result: Ok(()) } => self.launch(id, app, true, LaunchKind::Stream, LaunchFrom::Launcher),
+                HostEvent::SelectRead { id, app, resume, read } => {
+                    self.select_read = false;
+                    if self.streaming.is_some() || self.connecting.is_some() {
+                        eprintln!("nightjar: another stream started while the PC said who plays; this start is dropped");
+                        continue;
+                    }
+                    let playing = read.as_ref().and_then(|read| self.hosts.get(id).and_then(|h| ui::playing_elsewhere(h, app, read)));
+                    match playing {
+                        Some((name, device)) => self.launcher.ask_after(Dialog::ContinueHere { host: id, app, resume, name, device }),
+                        None => self.launch(id, app, resume, LaunchKind::Stream, LaunchFrom::Launcher),
+                    }
+                }
                 HostEvent::StreamMoved { id, app, device: Some(device) } if self.streaming.is_none() && self.connecting.is_none() => {
                     eprintln!("nightjar: the stream moved to {device}");
-                    self.launcher.ask(Dialog::NowPlaying { host: id, app, device });
+                    self.launcher.ask_after(Dialog::NowPlaying { host: id, app, device });
                 }
                 HostEvent::Action { result: Err(e), .. } => self.launcher.message(tr("The PC action failed"), e),
                 _ => {}
@@ -1204,7 +1219,7 @@ impl App {
                         match failed {
                             ConnectFailed::Message(e) => self.launcher.message(tr("The stream could not start"), e),
                             ConnectFailed::ConfirmReplace(plan) => self.ask_replace(plan),
-                            ConnectFailed::Moved { host, app, device } => self.launcher.ask(Dialog::NowPlaying { host, app, device }),
+                            ConnectFailed::Moved { host, app, device } => self.launcher.ask_after(Dialog::NowPlaying { host, app, device }),
                         }
                     }
                 }
@@ -1291,6 +1306,7 @@ impl App {
             Command::PinPassed => match self.pin_pending.take() {
                 Some(PinPending::Launch { host, app, resume, kind, from }) => self.launch(host, app, resume, kind, from),
                 Some(PinPending::QuitAndLaunch { host, app, named }) => self.command(Command::QuitAndLaunch { host, app, named }),
+                Some(PinPending::ContinueHere { host, app }) => self.hosts.continue_here(host, app),
                 None => {}
             },
             Command::PinCancelled => {
@@ -1310,14 +1326,24 @@ impl App {
                 }
             }
             Command::Launch { host, app, resume } => {
-                let playing = self.hosts.get(host).and_then(|h| ui::playing_elsewhere(h, app));
-                match playing {
-                    Some((name, device)) => self.launcher.ask(Dialog::ContinueHere { host, app, resume, name, device }),
-                    None => self.launch(host, app, resume, LaunchKind::Stream, LaunchFrom::Launcher),
+                // Who plays is read now, not taken from the last poll. One at a time: a second
+                // tap while the PC answers changes nothing.
+                if !self.hosts.offers_continue_here(host) {
+                    self.launch(host, app, resume, LaunchKind::Stream, LaunchFrom::Launcher);
+                } else if !self.select_read {
+                    self.select_read = self.hosts.read_before_start(host, app, resume);
+                    if !self.select_read {
+                        self.launch(host, app, resume, LaunchKind::Stream, LaunchFrom::Launcher);
+                    }
                 }
             }
             Command::StreamHereToo { host, app, resume } => self.launch(host, app, resume, LaunchKind::Stream, LaunchFrom::Launcher),
-            Command::ContinueHere { host, app } => self.hosts.continue_here(host, app),
+            // The press ends another device's stream: the PIN comes before it, not at the start after it.
+            Command::ContinueHere { host, app } => {
+                if !self.pin_holds(host, PinPending::ContinueHere { host, app }) {
+                    self.hosts.continue_here(host, app);
+                }
+            }
             Command::LaunchInputOnly { host, app, resume } => self.launch(host, app, resume, LaunchKind::SmallInputOnly, LaunchFrom::Launcher),
             Command::MicOnly { host } => self.launch(host, MIC_ONLY_APP_ID, false, LaunchKind::MicOnly, LaunchFrom::Launcher),
             Command::ToggleFavourite(entry) => {
@@ -1810,7 +1836,9 @@ impl App {
         let Some(pin) = self.launcher.pin.as_mut() else { return false };
         let (uuid, name) = self.hosts.get(host).map_or((String::new(), String::new()), |h| (h.record.unique_id.clone(), h.display_name().to_owned()));
         let key = pin_lock::stream_key(&uuid, host);
-        if !pin.needs_pin_for_stream(&key) {
+        // A press leaves a grant to the stream it starts, which uses it up.
+        let needed = if matches!(pending, PinPending::ContinueHere { .. }) { pin.locks_stream(&key) } else { pin.needs_pin_for_stream(&key) };
+        if !needed {
             return false;
         }
         eprintln!("nightjar: the PIN lock asks for the PIN before this start");
@@ -2083,7 +2111,8 @@ impl App {
         }
         let Some(pending) = self.pending_end.take() else { return };
         if let Some((title, body)) = stream::doctor::after_stream(pending.ended, pending.health) {
-            self.launcher.message(title, stream::doctor::with_host_reason(body, answered.flatten().as_deref()));
+            // "Now playing on" may have come first; this stream's report waits for it.
+            self.launcher.ask_after(Dialog::Message { title: title.into(), body: stream::doctor::with_host_reason(body, answered.flatten().as_deref()) });
         }
     }
 
@@ -3087,6 +3116,8 @@ fn remove_host(
 enum PinPending {
     Launch { host: u64, app: i32, resume: bool, kind: LaunchKind, from: LaunchFrom },
     QuitAndLaunch { host: u64, app: i32, named: Option<i32> },
+    /// Continue here's press, and with it the stream start it leads to.
+    ContinueHere { host: u64, app: i32 },
 }
 
 /// What asked for a launch. The log names it, so it shows what had the PC start or replace a game.

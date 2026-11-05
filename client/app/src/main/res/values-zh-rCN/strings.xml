@@ -449,5 +449,6 @@
     <string name="continue_here_action">在此继续</string>
     <string name="continue_here_stream_too">也在此串流</string>
     <string name="continue_here_now_playing">正在 %1$s 上游玩</string>
+    <string name="continue_here_now_playing_elsewhere">正在另一台设备上游玩</string>
     <string name="continue_here_failed">无法在此继续</string>
 </resources>

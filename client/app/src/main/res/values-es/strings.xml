@@ -449,5 +449,6 @@
     <string name="continue_here_action">Continuar aquí</string>
     <string name="continue_here_stream_too">Transmitir aquí también</string>
     <string name="continue_here_now_playing">Ahora se juega en %1$s</string>
+    <string name="continue_here_now_playing_elsewhere">Ahora se juega en otro dispositivo</string>
     <string name="continue_here_failed">No se pudo continuar aquí</string>
 </resources>

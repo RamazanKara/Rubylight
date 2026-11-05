@@ -449,5 +449,6 @@
     <string name="continue_here_action">ここで続ける</string>
     <string name="continue_here_stream_too">ここでも配信</string>
     <string name="continue_here_now_playing">%1$s でプレイ中</string>
+    <string name="continue_here_now_playing_elsewhere">別のデバイスでプレイ中</string>
     <string name="continue_here_failed">ここで続けられませんでした</string>
 </resources>

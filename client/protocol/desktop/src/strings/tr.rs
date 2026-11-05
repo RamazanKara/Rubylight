@@ -532,6 +532,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Continue here", "Burada devam et"),
     ("Stream here too", "Burada da yayınla"),
     ("Now playing on {}", "Şimdi {} üzerinde oynanıyor"),
+    ("Now playing on another device", "Şimdi başka bir cihazda oynanıyor"),
     ("Could not continue here", "Burada devam edilemedi"),
     ("Could not end the session", "Oturum bitirilemedi"),
     ("The session action failed", "Oturum işlemi başarısız oldu"),

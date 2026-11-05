@@ -163,6 +163,46 @@ fn collections_join_a_games_store_and_playnite_names_and_change_the_revision() {
     assert!(unscanned.games.iter().all(|g| g.collections.is_empty()));
 }
 
+/// Control characters take six bytes each in JSON: a file full of them must not take the whole
+/// library past what a client reads, whatever the game count.
+#[test]
+fn all_of_a_scans_collection_names_stay_within_a_budget_counted_in_json() {
+    let control = |n: usize| format!("{n:05}{}", "\u{1}".repeat(90));
+    let games = 3000;
+    let scan = Scan::default().collecting((1..=games).map(|game| {
+        (
+            format!("steam:{game}"),
+            (0..MAX_COLLECTIONS_PER_GAME)
+                .map(control)
+                .collect::<Vec<_>>(),
+        )
+    }));
+    let apps: Vec<App> = (1..=games)
+        .map(|game| {
+            app(json!({"name": format!("G{game}"), "uuid": format!("u{game}"), "steam-id": game}))
+        })
+        .collect();
+    let names: Vec<Vec<String>> = apps.iter().map(|app| scan.collections(app)).collect();
+    let bytes = serde_json::to_string(&names).unwrap().len();
+    assert!(
+        bytes <= MAX_COLLECTIONS_JSON_BYTES + 3 * games,
+        "{bytes} bytes of JSON"
+    );
+    let kept: usize = names.iter().map(Vec::len).sum();
+    assert!(kept > 0, "the budget cuts, it does not empty");
+    assert_eq!(
+        scan.collections_cut(&apps),
+        games * MAX_COLLECTIONS_PER_GAME - kept,
+        "every name left out is counted"
+    );
+    // A name already there costs nothing and is no cut.
+    let twice = Scan::default().collecting([
+        ("steam:1".to_owned(), vec!["VR".to_owned()]),
+        ("steam:1".to_owned(), vec!["VR".to_owned()]),
+    ]);
+    assert_eq!(twice.collections_cut(&[]), 0);
+}
+
 #[test]
 fn collections_are_capped_per_game_and_per_name_and_the_cut_is_counted() {
     let both = app(json!({"name": "Dota", "uuid": "b", "steam-id": 570, "playnite-id": "aa"}));
@@ -175,12 +215,17 @@ fn collections_are_capped_per_game_and_per_name_and_the_cut_is_counted() {
         ("steam:570".into(), many("store")),
         (playnite_key("aa"), many("playnite")),
     ]);
+    let apps = [both];
     assert_eq!(
-        scan.collections_cut(),
+        scan.collections_cut(&[]),
         2 * (MAX_COLLECTIONS_PER_GAME + 5 + 5),
         "every name is too long, five of each are too many"
     );
-    let apps = [both];
+    assert_eq!(
+        scan.collections_cut(&apps),
+        2 * (MAX_COLLECTIONS_PER_GAME + 5 + 5) + MAX_COLLECTIONS_PER_GAME,
+        "and the store's and Playnite's together are too many for the game"
+    );
     let library = library(&apps, Some(&scan), None);
     let names = &library.games[0].collections;
     assert_eq!(
@@ -199,7 +244,7 @@ fn collections_are_capped_per_game_and_per_name_and_the_cut_is_counted() {
     assert_eq!(
         Scan::default()
             .collecting([("steam:1".into(), vec!["VR".to_owned()])])
-            .collections_cut(),
+            .collections_cut(&[]),
         0
     );
 }

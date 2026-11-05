@@ -61,12 +61,17 @@ fn scan_installed(settings: library::Settings) -> Scan {
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .keeping(collections);
-    if newly_told(&TOLD_PROBLEM, collections.problem.as_deref())
-        && let Some(problem) = &collections.problem
+    // Keeping the last ones and then dropping them are two things to tell, for one problem.
+    let told = collections
+        .problem
+        .as_ref()
+        .map(|problem| format!("{}: {problem}", collections.problem_line()));
+    if newly_told(&TOLD_PROBLEM, told.as_deref())
+        && let Some(told) = &told
     {
-        tracing::warn!(%problem, kept = !collections.apps.is_empty(), "Steam's collections are missing from the library");
+        tracing::warn!("{told}");
     }
-    let scan = Scan::from_games(&discovery.games)
+    Scan::from_games(&discovery.games)
         .adding(
             steam
                 .iter()
@@ -89,17 +94,20 @@ fn scan_installed(settings: library::Settings) -> Scan {
                 .into_iter()
                 .map(|(appid, names)| (format!("steam:{appid}"), names)),
         )
-        .collecting(crate::playnite::collections());
-    let cut = scan.collections_cut();
+        .collecting(crate::playnite::collections())
+}
+/// Tells once how many collection names `/library` leaves out or shortens for these apps.
+pub fn tell_collections_cut(apps: &[butterpollo_core::state::App], scan: &Scan) {
+    let cut = scan.collections_cut(apps);
     if newly_told(&TOLD_CUT, (cut > 0).then(|| cut.to_string()).as_deref()) {
         tracing::warn!(
             names = cut,
             per_game = butterpollo_core::native::MAX_COLLECTIONS_PER_GAME,
             name_bytes = butterpollo_core::native::MAX_COLLECTION_NAME_BYTES,
+            json_bytes = butterpollo_core::native::MAX_COLLECTIONS_JSON_BYTES,
             "collection names left out or shortened in the library"
         );
     }
-    scan
 }
 /// Tests never read the registry and the launchers' folders.
 #[cfg(test)]
@@ -114,12 +122,10 @@ static LAST_COLLECTIONS: LazyLock<Mutex<butterpollo_core::steam::LastCollections
 /// The last problem told about Steam's collections: a scan every few minutes says it once.
 #[cfg(not(test))]
 static TOLD_PROBLEM: Mutex<Option<String>> = Mutex::new(None);
-/// The same for how many collection names the last scan cut.
-#[cfg(not(test))]
+/// The same for how many collection names the library cuts.
 static TOLD_CUT: Mutex<Option<String>> = Mutex::new(None);
 /// Whether there is a problem and it is not the one told last. Notes it, and a scan without one
 /// clears it, so a problem that comes back is told again.
-#[cfg_attr(test, allow(dead_code))]
 fn newly_told(told: &Mutex<Option<String>>, problem: Option<&str>) -> bool {
     let mut told = told.lock().unwrap_or_else(PoisonError::into_inner);
     if told.as_deref() == problem {
@@ -325,20 +331,33 @@ fn launcher_cover(h: &Shared, game: &mut library::Game) {
 /// are on joins the library, as Steam's sync does (see `library::reconcile`). While Playnite
 /// syncs the library, it is Playnite's job and nothing changes here.
 pub fn sync(h: &Shared) -> Result<Value> {
+    sync_discovering(h, |settings| {
+        let discovery = butterpollo_windows::library::in_background(|| {
+            butterpollo_windows::library::discover(settings)
+        });
+        let read = discovery
+            .sources
+            .iter()
+            .filter(|status| !matches!(status.state, "error" | "disabled"))
+            .map(|status| status.source)
+            .collect();
+        (discovery.games, read)
+    })
+}
+/// One sync at a time, Sync now's and the tick's: an older discovery reconciling last would remove
+/// an app a newer one just added.
+static SYNC: Mutex<()> = Mutex::new(());
+fn sync_discovering(
+    h: &Shared,
+    discover: impl FnOnce(&library::Settings) -> (Vec<library::Game>, Vec<library::Source>),
+) -> Result<Value> {
+    let _one = SYNC.lock().unwrap_or_else(PoisonError::into_inner);
     let settings = settings(h);
     if crate::playnite::syncs_launchers(h) {
         return Ok(json!({ "status": true, "added": 0, "removed": 0, "playnite": true }));
     }
-    let discovery = butterpollo_windows::library::in_background(|| {
-        butterpollo_windows::library::discover(&settings)
-    });
-    let read: Vec<library::Source> = discovery
-        .sources
-        .iter()
-        .filter(|status| !matches!(status.state, "error" | "disabled"))
-        .map(|status| status.source)
-        .collect();
-    let change = sync_games(h, &settings, discovery.games, &read)?;
+    let (games, read) = discover(&settings);
+    let change = sync_games(h, &settings, games, &read)?;
     Ok(
         json!({ "status": true, "added": change.added, "removed": change.removed, "playnite": false }),
     )
@@ -529,6 +548,29 @@ mod tests {
         assert!(newly_told(&told, Some("two")));
         assert!(!newly_told(&told, None), "nothing to tell");
         assert!(newly_told(&told, Some("two")), "it came back");
+    }
+
+    #[test]
+    fn a_sync_waits_for_the_one_in_flight_before_it_discovers() {
+        let f = Fixture::new();
+        let discovered = std::sync::Arc::new(AtomicBool::new(false));
+        let waiting = SYNC.lock().unwrap_or_else(PoisonError::into_inner);
+        let second = {
+            let (h, discovered) = (f.host.clone(), discovered.clone());
+            std::thread::spawn(move || {
+                sync_discovering(&h, |_| {
+                    discovered.store(true, Ordering::SeqCst);
+                    (Vec::new(), Vec::new())
+                })
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+            })
+        };
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(!discovered.load(Ordering::SeqCst), "the first still runs");
+        drop(waiting);
+        second.join().unwrap().unwrap();
+        assert!(discovered.load(Ordering::SeqCst));
     }
 
     #[test]

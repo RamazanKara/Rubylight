@@ -25,10 +25,17 @@ pub const LAUNCH: u32 = 1 << 26;
 pub const FILE_UPLOAD: u32 = 1 << 18;
 pub const FILE_DOWNLOAD: u32 = 1 << 19;
 
-/// The most collections `/library` names for one game, and the most bytes of one's name: with a
-/// thousand games at these limits it stays under what a client reads of it (4 MiB).
+/// The most collections `/library` names for one game, and the most bytes of one's name.
 pub const MAX_COLLECTIONS_PER_GAME: usize = 20;
 pub const MAX_COLLECTION_NAME_BYTES: usize = 100;
+/// The most bytes all of a scan's names may take in `/library`'s JSON, where a control character
+/// takes six: the whole answer has to stay under what a client reads of it (4 MiB).
+pub const MAX_COLLECTIONS_JSON_BYTES: usize = 1024 * 1024;
+
+/// What a name takes in JSON, quotes and comma included.
+fn json_bytes(name: &str) -> usize {
+    serde_json::to_string(name).map_or(name.len() * 6, |text| text.len()) + 1
+}
 
 /// The games the host's last launcher scan found installed, by `game_id`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -46,6 +53,8 @@ pub struct Scan {
     collections: BTreeMap<String, BTreeSet<String>>,
     /// How many collection names [`Self::collecting`] left out or shortened.
     collections_cut: usize,
+    /// What the names in `collections` take in JSON, against [`MAX_COLLECTIONS_JSON_BYTES`].
+    collections_bytes: usize,
 }
 impl Scan {
     pub fn new(game_ids: impl IntoIterator<Item = String>) -> Self {
@@ -56,10 +65,12 @@ impl Scan {
             played: BTreeMap::new(),
             collections: BTreeMap::new(),
             collections_cut: 0,
+            collections_bytes: 0,
         }
     }
     /// The collections these games are in, by `game_id` or [`playnite_key`], up to
-    /// [`MAX_COLLECTIONS_PER_GAME`] a game and [`MAX_COLLECTION_NAME_BYTES`] a name.
+    /// [`MAX_COLLECTIONS_PER_GAME`] a game, [`MAX_COLLECTION_NAME_BYTES`] a name and
+    /// [`MAX_COLLECTIONS_JSON_BYTES`] in all.
     pub fn collecting(mut self, games: impl IntoIterator<Item = (String, Vec<String>)>) -> Self {
         for (key, names) in games {
             let collected = self.collections.entry(key).or_default();
@@ -72,7 +83,14 @@ impl Scan {
                     name.truncate(end);
                     self.collections_cut += 1;
                 }
-                if collected.len() < MAX_COLLECTIONS_PER_GAME || collected.contains(&name) {
+                if collected.contains(&name) {
+                    continue;
+                }
+                let bytes = json_bytes(&name);
+                if collected.len() < MAX_COLLECTIONS_PER_GAME
+                    && self.collections_bytes + bytes <= MAX_COLLECTIONS_JSON_BYTES
+                {
+                    self.collections_bytes += bytes;
                     collected.insert(name);
                 } else {
                     self.collections_cut += 1;
@@ -81,12 +99,29 @@ impl Scan {
         }
         self
     }
-    /// How many collection names were left out or shortened, for one log line.
-    pub fn collections_cut(&self) -> usize {
+    /// How many collection names were left out or shortened, for one log line: the scan's own, and
+    /// those a game's store and Playnite names go over [`MAX_COLLECTIONS_PER_GAME`] by together.
+    pub fn collections_cut(&self, apps: &[App]) -> usize {
         self.collections_cut
+            + apps
+                .iter()
+                .map(|app| {
+                    self.all_collections(app)
+                        .len()
+                        .saturating_sub(MAX_COLLECTIONS_PER_GAME)
+                })
+                .sum::<usize>()
     }
     /// The collections the app's game is in, its store's and its Playnite game's together, by name.
     pub fn collections(&self, app: &App) -> Vec<String> {
+        // A game's store and Playnite names are each within the limit, together maybe not.
+        self.all_collections(app)
+            .into_iter()
+            .take(MAX_COLLECTIONS_PER_GAME)
+            .cloned()
+            .collect()
+    }
+    fn all_collections(&self, app: &App) -> BTreeSet<&String> {
         let store = store_of(app).map(|(_, game_id)| game_id);
         let playnite = app
             .extra
@@ -94,17 +129,11 @@ impl Scan {
             .and_then(Value::as_str)
             .filter(|id| !id.is_empty())
             .map(playnite_key);
-        let names: BTreeSet<&String> = [store, playnite]
+        [store, playnite]
             .iter()
             .flatten()
             .filter_map(|key| self.collections.get(key))
             .flatten()
-            .collect();
-        // A game's store and Playnite names are each within the limit, together maybe not.
-        names
-            .into_iter()
-            .take(MAX_COLLECTIONS_PER_GAME)
-            .cloned()
             .collect()
     }
     /// When the stores say these games were last played (`0` for never), by `game_id` or

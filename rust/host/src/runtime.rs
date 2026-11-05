@@ -279,6 +279,31 @@ fn spawn_library_tick(h: &Shared, running: &Arc<AtomicBool>) -> bool {
         crate::library::watch(&h);
     })
 }
+/// How long a library tick may run before it is told: while one hangs the Steam, Playnite and
+/// launcher checks all wait for it.
+const LIBRARY_TICK_TOO_LONG: Duration = Duration::from_secs(5 * 60);
+/// Since when a library tick has been in flight, for one warning about a hung one.
+#[derive(Default)]
+struct LibraryTickWatch {
+    since: Option<Instant>,
+    told: bool,
+}
+impl LibraryTickWatch {
+    /// Notes whether a tick just started; how long it has run, once, when that is too long.
+    fn note(&mut self, started: bool, now: Instant) -> Option<Duration> {
+        if started {
+            self.since = Some(now);
+            self.told = false;
+            return None;
+        }
+        let running = now.duration_since(self.since?);
+        if running < LIBRARY_TICK_TOO_LONG || self.told {
+            return None;
+        }
+        self.told = true;
+        Some(running)
+    }
+}
 /// Run `work` on the blocking pool unless the previous run behind `running`
 /// has not finished. Returns whether it started.
 fn spawn_exclusive(running: &Arc<AtomicBool>, work: impl FnOnce() + Send + 'static) -> bool {
@@ -312,6 +337,7 @@ pub async fn maintain(
     let mut wake_at = Instant::now();
     let waking = Arc::new(AtomicBool::new(false));
     let library_ticking = Arc::new(AtomicBool::new(false));
+    let mut library_tick_watch = LibraryTickWatch::default();
     let mut hotkey = RestoreHotkey::default();
     let mut tray = butterpollo_core::tray::Tracker::default();
     let mut housekeeping: Option<tokio::task::JoinHandle<()>> = None;
@@ -358,7 +384,13 @@ pub async fn maintain(
         }
         if Instant::now() >= steam_at {
             steam_at = Instant::now() + Duration::from_secs(30);
-            spawn_library_tick(&h, &library_ticking);
+            let started = spawn_library_tick(&h, &library_ticking);
+            if let Some(running) = library_tick_watch.note(started, Instant::now()) {
+                tracing::warn!(
+                    seconds = running.as_secs(),
+                    "a library check is still running: Steam, Playnite and launcher changes wait for it"
+                );
+            }
         }
         if Instant::now() >= update_at {
             update_at = Instant::now() + Duration::from_secs(1);
@@ -420,6 +452,25 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
         assert!(spawn_exclusive(&running, || ()));
+    }
+
+    #[test]
+    fn a_hung_library_tick_is_told_once_and_the_next_one_starts_over() {
+        let start = Instant::now();
+        let mut watch = LibraryTickWatch::default();
+        assert_eq!(watch.note(false, start), None, "none started yet");
+        assert_eq!(watch.note(true, start), None);
+        assert_eq!(watch.note(false, start + Duration::from_secs(30)), None);
+        let late = start + LIBRARY_TICK_TOO_LONG;
+        assert_eq!(watch.note(false, late), Some(LIBRARY_TICK_TOO_LONG));
+        assert_eq!(
+            watch.note(false, late + Duration::from_secs(30)),
+            None,
+            "once"
+        );
+        assert_eq!(watch.note(true, late), None);
+        let again = late + LIBRARY_TICK_TOO_LONG;
+        assert_eq!(watch.note(false, again), Some(LIBRARY_TICK_TOO_LONG));
     }
 
     #[tokio::test]

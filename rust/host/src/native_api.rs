@@ -442,6 +442,9 @@ fn library_of(h: &Shared) -> native_api::library::Library {
         .as_ref()
         .map(|app| app.id);
     let scan = crate::library::installed(h);
+    if let Some(scan) = &scan {
+        crate::library::tell_collections_cut(&apps, scan);
+    }
     // The same directory `/appasset` serves covers from.
     let assets = h.assets.parent().unwrap_or(&h.assets);
     native::library_with(&apps, scan.as_ref(), current, |app| {

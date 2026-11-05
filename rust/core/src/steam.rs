@@ -132,23 +132,58 @@ pub struct Collections {
     pub failed: bool,
 }
 
+/// The scans in a row that may fail to read a file before its last collections are dropped, the last
+/// of them dropping them: past a moment's rewrite, old names must not stay until the host restarts.
+pub const MAX_FAILED_COLLECTION_READS: u32 = 3;
+
 /// The last collections a file gave. A file being rewritten can fail to read for a moment, and that
 /// must not take every collection group off Home until the next scan.
 #[derive(Default)]
-pub struct LastCollections(Option<(PathBuf, BTreeMap<u32, Vec<String>>)>);
+pub struct LastCollections(Option<LastRead>);
+struct LastRead {
+    file: PathBuf,
+    apps: BTreeMap<u32, Vec<String>>,
+    failures: u32,
+}
 impl LastCollections {
-    /// `read`, or the last collections its file gave when it failed. A file that reads replaces
-    /// them; another account's file or none forgets them.
+    /// `read`, or the last collections its file gave when it failed, for fewer scans in a row than
+    /// [`MAX_FAILED_COLLECTION_READS`]. A file that reads replaces them; another account's file or
+    /// none forgets them.
     pub fn keeping(&mut self, mut read: Collections) -> Collections {
         match &read.file {
-            Some(file) if read.failed => match &self.0 {
-                Some((last, apps)) if last == file => read.apps = apps.clone(),
+            Some(file) if read.failed => match &mut self.0 {
+                Some(last) if last.file == *file => {
+                    last.failures += 1;
+                    if last.failures < MAX_FAILED_COLLECTION_READS {
+                        read.apps = last.apps.clone();
+                    } else {
+                        self.0 = None;
+                    }
+                }
                 _ => self.0 = None,
             },
-            Some(file) => self.0 = Some((file.clone(), read.apps.clone())),
+            Some(file) => {
+                self.0 = Some(LastRead {
+                    file: file.clone(),
+                    apps: read.apps.clone(),
+                    failures: 0,
+                })
+            }
             None => self.0 = None,
         }
         read
+    }
+}
+impl Collections {
+    /// The one line for [`Self::problem`]: what it means for the library right now.
+    pub fn problem_line(&self) -> &'static str {
+        if self.failed && !self.apps.is_empty() {
+            "Steam's collections could not be read, the library keeps the last ones for a few scans"
+        } else if self.failed {
+            "Steam's collections could not be read, the library has none"
+        } else {
+            "some of Steam's collections could not be read and are missing from the library"
+        }
     }
 }
 

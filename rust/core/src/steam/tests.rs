@@ -1240,6 +1240,32 @@ fn a_steam_file_over_the_limit_is_a_problem_and_never_read() {
     assert!(!games[&570].history);
 }
 
+/// A format Steam changed, or a file past the limit, fails every scan: the old names go.
+#[test]
+fn collections_are_kept_through_a_few_failed_scans_and_no_longer() {
+    let good = r#"[["user-collections.a",{"value":"{\"name\":\"VR\",\"added\":[1]}"}]]"#;
+    let steam = steam_with_collections("1", good);
+    let roots = [steam.path().to_owned()];
+    let mut last = LastCollections::default();
+    last.keeping(collections(&roots));
+    write_collections(steam.path(), "1", "[[\"user-coll");
+    for _ in 1..MAX_FAILED_COLLECTION_READS {
+        assert_eq!(last.keeping(collections(&roots)).apps[&1], ["VR"]);
+    }
+    let gone = last.keeping(collections(&roots));
+    assert!(gone.failed && gone.apps.is_empty());
+    assert!(gone.problem_line().contains("has none"));
+    assert!(
+        last.keeping(collections(&roots)).apps.is_empty(),
+        "stays gone"
+    );
+    // A good read starts the count over.
+    write_collections(steam.path(), "1", good);
+    assert_eq!(last.keeping(collections(&roots)).apps[&1], ["VR"]);
+    write_collections(steam.path(), "1", "[[\"user-coll");
+    assert_eq!(last.keeping(collections(&roots)).apps[&1], ["VR"]);
+}
+
 #[test]
 fn a_failed_read_keeps_the_last_collections_until_the_file_reads_again() {
     let good = |name: &str| {
@@ -1254,6 +1280,7 @@ fn a_failed_read_keeps_the_last_collections_until_the_file_reads_again() {
     let kept = last.keeping(collections(&roots));
     assert_eq!(kept.apps[&1], ["VR"]);
     assert!(kept.failed && kept.problem.is_some());
+    assert!(kept.problem_line().contains("keeps the last ones"));
     // Read again, it says what the file says now, also that a game left a collection.
     write_collections(steam.path(), "1", &good("Couch"));
     assert_eq!(last.keeping(collections(&roots)).apps[&1], ["Couch"]);

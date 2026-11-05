@@ -18,11 +18,13 @@
 # -Smoke installs the result silently into a temporary folder, checks it against the zip, starts
 # `nightjar.exe --version` from it, upgrades it in place with a second run (a stale DLL goes, the
 # settings stay), checks that /RELAUNCH starts Nightjar again and that an install that aborts stays
-# usable (the old nightjar.exe, its old DLLs, its uninstall entry, Nightjar started again),
-# uninstalls it and checks that the files, the shortcuts and the uninstall entry are gone. Then it
-# checks the settings: a plain uninstall keeps them, /REMOVESETTINGS removes them
-# but keeps the screenshots and the saved statistics. On GitHub Actions (a fresh runner) that runs
-# with this installer against the real %APPDATA%\Nightjar; anywhere else the real folder is never
+# usable (the old nightjar.exe, its old DLLs put back whether nightjar.ico or nightjar.exe was the
+# locked file, its uninstall entry, Nightjar started again), that a stream's AppMutex stops Setup
+# before it changes anything, and that a launch during an install exits with 75 (Update now's
+# /SILENT /NOCANCEL flags throughout), uninstalls it and checks that the files, the shortcuts and
+# the uninstall entry are gone. Then it checks the settings: a plain uninstall keeps them,
+# /REMOVESETTINGS removes them but keeps the screenshots and the saved statistics. On GitHub Actions
+# (a fresh runner) that runs with this installer against the real %APPDATA%\Nightjar; anywhere else the real folder is never
 # created, moved or deleted, and a test installer built with /DTestDataDir=<temporary folder> runs
 # the settings checks instead. It refuses to run where Nightjar is installed already (it would
 # take over that install's uninstall entry and shortcuts): it is for CI runners and test PCs.
@@ -103,8 +105,8 @@ $config = Join-Path $data 'config'
 
 # Runs the installer or uninstaller, waits for it and returns its exit code; Start-Process -Wait can
 # lose the exit code.
-function Get-SilentExit([string]$file, [string[]]$arguments) {
-    $process = Start-Process $file -ArgumentList (@('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') + $arguments) -PassThru
+function Get-SilentExit([string]$file, [string[]]$arguments, [string[]]$flags = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART')) {
+    $process = Start-Process $file -ArgumentList ($flags + $arguments) -PassThru
     $null = $process.Handle
     $process.WaitForExit()
     $process.ExitCode
@@ -122,14 +124,16 @@ function Stop-Installed {
         $null = $process.WaitForExit(10000)
     }
 }
-# Runs Setup with /RELAUNCH, as Update now does, and checks that Nightjar came back: a process from
-# the install folder, or the log of one that had no display to stay on. Returns Setup's exit code.
+# The command line Update now gives Setup (setup_arguments in self_update.rs), but for its log.
+$updateFlags = @('/SILENT', '/SUPPRESSMSGBOXES', '/NOCANCEL', '/NORESTART', '/SP-', '/RELAUNCH')
+# Runs Setup as Update now does and checks that Nightjar came back: a process from the install
+# folder, or the log of one that had no display to stay on. Returns Setup's exit code.
 function Get-RelaunchExit([string[]]$arguments) {
     $savedConfig = $env:NIGHTJAR_CONFIG_DIR
     $env:NIGHTJAR_CONFIG_DIR = "$dir.config"
     Remove-Item -Recurse -Force "$dir.config" -ErrorAction SilentlyContinue
     try {
-        $code = Get-SilentExit $setup (@('/RELAUNCH') + $arguments)
+        $code = Get-SilentExit $setup $arguments $updateFlags
         $deadline = (Get-Date).AddSeconds(30)
         $back = $false
         while (-not $back -and (Get-Date) -lt $deadline) {
@@ -142,6 +146,33 @@ function Get-RelaunchExit([string[]]$arguments) {
     } finally {
         $env:NIGHTJAR_CONFIG_DIR = $savedConfig
     }
+}
+# Runs the installed nightjar.exe, which ends by itself with --version, and returns its exit code.
+function Get-InstalledExit([string[]]$arguments) {
+    $savedConfig = $env:NIGHTJAR_CONFIG_DIR
+    $env:NIGHTJAR_CONFIG_DIR = "$dir.config"
+    try {
+        $run = Start-Process (Join-Path $dir 'nightjar.exe') -ArgumentList $arguments -RedirectStandardOutput "$dir.version.txt" -PassThru
+        $null = $run.Handle
+        $run.WaitForExit()
+        $run.ExitCode
+    } finally {
+        $env:NIGHTJAR_CONFIG_DIR = $savedConfig
+    }
+}
+# Makes the installed DLLs differ from the zip's, as an older version's do, and returns their hashes.
+function Set-OldDlls {
+    $old = @{}
+    foreach ($dll in Get-ChildItem $dir -Filter *.dll -File) {
+        [IO.File]::AppendAllText($dll.FullName, 'the old one')
+        $old[$dll.Name] = (Get-FileHash $dll.FullName).Hash
+    }
+    if ($old.Count -eq 0) { throw "the install in $dir has no DLLs to tell old from new" }
+    $old
+}
+# Every file in the install folder, with its hash, as one string to compare.
+function Get-InstallState {
+    (Get-ChildItem $dir -File -Recurse | Sort-Object FullName | ForEach-Object { "$($_.FullName)=$((Get-FileHash $_.FullName).Hash)" }) -join "`n"
 }
 # Uninstalls silently and checks that the files, the shortcuts and the uninstall entry are gone.
 function Remove-Install([string[]]$arguments) {
@@ -225,7 +256,8 @@ try {
     }
 
     # An update: Setup again over the live install, without /DIR. A DLL the package does not ship
-    # (an older FFmpeg) goes; the settings stay.
+    # (an older FFmpeg) goes; the settings stay. The DLLs differ, so a restore after success would show.
+    $null = Set-OldDlls
     New-TestFile (Join-Path $dir 'stale.dll')
     Invoke-Silent $setup @("/LOG=`"$dir.upgrade.log`"")
     if (Test-Path (Join-Path $dir 'stale.dll')) { throw 'the upgrade left stale.dll in the install' }
@@ -241,34 +273,73 @@ try {
     Write-Host 'smoke: /RELAUNCH started Nightjar again'
 
     # An install that aborts in [Files], at a file it cannot replace (it must not close this shell
-    # for it): Setup says so in its exit code, the old nightjar.exe and a DLL the new version doesn't
-    # ship are still there, the uninstall entry stands, and Nightjar comes back anyway.
+    # for it): at nightjar.ico, just before the program, and at the program itself. By then [Files]
+    # has overwritten the DLLs, which differ here. Setup says so in its exit code, the old
+    # nightjar.exe, its own DLLs and a DLL the new version doesn't ship are there, the uninstall
+    # entry stands, and Nightjar comes back anyway (not while its own file is locked: it can't start).
     $exe = Join-Path $dir 'nightjar.exe'
     $stale = Join-Path $dir 'stale.dll'
-    New-TestFile $stale
-    [IO.File]::AppendAllText($exe, 'the old one')
-    $oldExe = (Get-FileHash $exe).Hash
-    $locked = [IO.File]::Open((Join-Path $dir 'nightjar.ico'), 'Open', 'Read', 'None')
-    try {
-        $code = Get-RelaunchExit @('/NOCLOSEAPPLICATIONS', "/LOG=`"$dir.abort.log`"")
-    } finally {
-        $locked.Dispose()
+    foreach ($lockedName in 'nightjar.ico', 'nightjar.exe') {
+        $oldDlls = Set-OldDlls
+        New-TestFile $stale
+        [IO.File]::AppendAllText($exe, 'the old one')
+        $oldExe = (Get-FileHash $exe).Hash
+        $abortLog = "$dir.abort.log"
+        Remove-Item -Force $abortLog -ErrorAction SilentlyContinue
+        $abortArguments = @('/NOCLOSEAPPLICATIONS', "/LOG=`"$abortLog`"")
+        $locked = [IO.File]::Open((Join-Path $dir $lockedName), 'Open', 'Read', 'None')
+        try {
+            $code = if ($lockedName -eq 'nightjar.exe') { Get-SilentExit $setup $abortArguments $updateFlags } else { Get-RelaunchExit $abortArguments }
+        } finally {
+            $locked.Dispose()
+        }
+        if ($code -eq 0) { throw "an install that could not replace $lockedName reported success" }
+        if (-not (Test-Path $stale)) { throw "an install aborted at $lockedName removed stale.dll" }
+        if ((Get-FileHash $exe).Hash -ne $oldExe) { throw "an install aborted at $lockedName replaced nightjar.exe" }
+        foreach ($name in $oldDlls.Keys) {
+            if ((Get-FileHash (Join-Path $dir $name)).Hash -ne $oldDlls[$name]) { throw "an install aborted at $lockedName left the new $name beside the old program" }
+        }
+        if ((Get-Content $abortLog -Raw) -notmatch 'Restored the old ') { throw "an install aborted at $lockedName had no DLL to restore: it stopped before [Files] reached them" }
+        Assert-Entry
+        $versionExit = Get-InstalledExit @('--version')
+        if ($versionExit -ne 0) { throw ('nightjar.exe --version after an install aborted at {0} exited with 0x{1:X8}' -f $lockedName, $versionExit) }
+        Write-Host "smoke: an install aborted at $lockedName (exit $code) left the old program working with its old DLLs"
     }
-    if ($code -eq 0) { throw 'an install that could not replace nightjar.ico reported success' }
-    if (-not (Test-Path $stale)) { throw 'an aborted install removed stale.dll' }
-    if ((Get-FileHash $exe).Hash -ne $oldExe) { throw 'an aborted install replaced nightjar.exe' }
-    Assert-Entry
-    $savedConfig = $env:NIGHTJAR_CONFIG_DIR
-    $env:NIGHTJAR_CONFIG_DIR = "$dir.config"
+
+    # A stream in another Nightjar (AppMutex, STREAM_MUTEX in self_update.rs): Setup stops before it
+    # changes anything and Nightjar comes back. Once the stream has ended the same Setup installs.
+    $before = Get-InstallState
+    $stream = [Threading.Mutex]::new($false, 'Local\NightjarStream')
     try {
-        $run = Start-Process $exe -ArgumentList '--version' -RedirectStandardOutput "$dir.version.txt" -PassThru
-        $null = $run.Handle
-        $run.WaitForExit()
+        $code = Get-RelaunchExit @("/LOG=`"$dir.mutex.log`"")
     } finally {
-        $env:NIGHTJAR_CONFIG_DIR = $savedConfig
+        $stream.Dispose()
     }
-    if ($run.ExitCode -ne 0) { throw ('nightjar.exe --version after an aborted install exited with 0x{0:X8}' -f $run.ExitCode) }
-    Write-Host "smoke: an aborted install (exit $code) left the old program working and started it again"
+    if ($code -eq 0) { throw 'Setup ran on with a stream open' }
+    if ((Get-InstallState) -ne $before) { throw 'Setup changed the install with a stream open' }
+    Write-Host "smoke: a stream stopped Setup (exit $code) with nothing changed"
+    $code = Get-RelaunchExit @("/LOG=`"$dir.mutex.log`"")
+    if ($code -ne 0) { throw "Setup exited with $code once the stream had ended" }
+    Assert-MatchesZip
+    if (Test-Path $stale) { throw 'the upgrade left stale.dll in the install' }
+
+    # A launch during Update now's install exits with 75, so it neither takes the setup's result nor
+    # locks files. The pending marker and SETUP_MUTEX (self_update.rs) are all it looks at, and this
+    # shell holds the mutex in Setup's place: a launch during a real Setup's [Files] would be a race,
+    # and would lock what that Setup replaces. The setup's own start at its end goes on.
+    New-TestFile "$dir.config\update-pending.json"
+    $installing = [Threading.Mutex]::new($false, 'Local\NightjarSetup')
+    try {
+        $during = Get-InstalledExit @('--version')
+        $own = Get-InstalledExit @('--after-setup', '--version')
+    } finally {
+        $installing.Dispose()
+    }
+    $afterwards = Get-InstalledExit @('--version')
+    if ($during -ne 75) { throw "a launch during an install exited with $during, not 75" }
+    if ($own -ne 0) { throw "the setup's own start exited with $own" }
+    if ($afterwards -ne 0) { throw "a launch after an install exited with $afterwards" }
+    Write-Host 'smoke: a launch during an install exits with 75, the setup''s own start goes on'
     Remove-Install @()
     Write-Host 'smoke: uninstalled, nothing left'
 
@@ -308,7 +379,7 @@ try {
     }
     throw $failure
 } finally {
-    Remove-Item -Recurse -Force "$dir.install.log", "$dir.upgrade.log", "$dir.relaunch.log", "$dir.abort.log", "$dir.version.txt", "$dir.config", "$dir.zip", "$dir.test-setup" -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force "$dir.install.log", "$dir.upgrade.log", "$dir.relaunch.log", "$dir.abort.log", "$dir.mutex.log", "$dir.version.txt", "$dir.config", "$dir.zip", "$dir.test-setup" -ErrorAction SilentlyContinue
     # Only the temporary folder: never the real %APPDATA%\Nightjar.
     if ($data -eq "$dir.data") { Remove-Item -Recurse -Force $data -ErrorAction SilentlyContinue }
 }

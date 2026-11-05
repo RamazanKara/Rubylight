@@ -791,6 +791,8 @@ pub struct Prepared {
     revision: u64,
     recovery: Recovery,
     layout_watch: butterpollo_core::display_policy::LayoutWatch,
+    /// [`display_arrangement::departures`] when this stream last looked.
+    departures: u64,
     /// The console session at the last layout check.
     console_session: Option<u32>,
     /// Keep switching the physical monitors of an exclusive layout off while
@@ -943,6 +945,7 @@ impl Prepared {
             revision: 0,
             recovery: Recovery::new(),
             layout_watch: Default::default(),
+            departures: display_arrangement::departures(),
             console_session: None,
             // A game window holds no layout to keep while paused.
             hold_layout_while_paused: false,
@@ -1043,6 +1046,35 @@ impl Prepared {
         }
         fed.map(|_| ())
     }
+    /// The game on a display that was removed is minimised by Windows, and the
+    /// stream that goes on would show the desktop. Off this thread: finding the
+    /// game's processes takes a process list and the running app's lock.
+    fn bring_back_game(&self) {
+        let Some(host) = self.host.upgrade() else {
+            return;
+        };
+        std::thread::spawn(move || {
+            let processes = match host.current_app.lock().unwrap().as_ref() {
+                Some(app) => app.window_processes(),
+                None => return,
+            };
+            match processes {
+                Ok(processes) => {
+                    for pid in processes {
+                        if butterpollo_windows::lossless::restore_minimized(pid) {
+                            tracing::info!(
+                                pid,
+                                "brought back the game's window Windows minimised when a display left"
+                            );
+                        }
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(error = %format!("{error:#}"), "could not find the game's windows after a display left");
+                }
+            }
+        });
+    }
     fn remote_monitors(&self) -> Vec<String> {
         self.host
             .upgrade()
@@ -1070,6 +1102,25 @@ impl Prepared {
         let Some(arrangement) = &self._arrangement else {
             return Ok(());
         };
+        let departures = display_arrangement::departures();
+        if departures != self.departures {
+            self.departures = departures;
+            self.layout_watch.display_left(now);
+        }
+        if self.layout_watch.departure_due(now) {
+            tracing::info!(output = %self.output, "another stream's display left; laying this stream's displays out again");
+            let retained = self.remote_monitors();
+            if let Err(error) = arrangement.reapply(&self.output, &retained) {
+                self.layout_watch.failed(now);
+                return Err(error);
+            }
+            self.layout_watch.departure_handled();
+            if let Some(display) = &self.display {
+                display.apply_virtual_mode("after a display left");
+            }
+            self.bring_back_game();
+            return Ok(());
+        }
         // Windows recalls its own layout after the lock screen, a UAC prompt
         // or a session switch: a display back on then is not coming back.
         let session = butterpollo_windows::process::console_session();
@@ -1656,6 +1707,7 @@ impl Prepared {
                 revision,
                 recovery: Recovery::new(),
                 layout_watch: Default::default(),
+                departures: display_arrangement::departures(),
                 console_session: None,
                 hold_layout_while_paused,
                 mode_report,

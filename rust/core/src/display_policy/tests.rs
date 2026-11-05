@@ -984,3 +984,16 @@ fn a_return_after_the_lock_screen_or_a_session_switch_is_not_counted() {
         }
     );
 }
+#[test]
+fn a_display_that_left_lays_the_stream_out_again_once_windows_has_settled() {
+    let mut watch = LayoutWatch::default();
+    let start = std::time::Instant::now();
+    assert!(!watch.departure_due(start));
+    watch.display_left(start);
+    assert!(!watch.departure_due(start + LayoutWatch::DEPARTURE_SETTLE / 2));
+    assert!(watch.departure_due(start + LayoutWatch::DEPARTURE_SETTLE));
+    // A failed attempt stays due; a done one is over.
+    assert!(watch.departure_due(start + LayoutWatch::DEPARTURE_SETTLE * 2));
+    watch.departure_handled();
+    assert!(!watch.departure_due(start + LayoutWatch::DEPARTURE_SETTLE * 3));
+}

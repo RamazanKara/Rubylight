@@ -123,6 +123,11 @@ impl VirtualDisplay {
         };
         display.resolve(&result)?;
         display.check_hotplug("created")?;
+        if let Err(error) =
+            crate::display_arrangement::display_arrived(&display.hotplug_monitor()?.device_id)
+        {
+            tracing::warn!(error = %format!("{error:#}"), "settling the saved layout for a second stream's display failed");
+        }
         Ok(display)
     }
     /// The display path the driver's create reply names.

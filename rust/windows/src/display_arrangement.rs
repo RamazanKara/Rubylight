@@ -2,7 +2,10 @@
 use crate::display::{Snapshot, Topology};
 use anyhow::{Result, bail};
 use butterpollo_core::{display_policy::Arrangement, topology::Node};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{
+    Mutex, OnceLock,
+    atomic::{AtomicU64, Ordering},
+};
 #[derive(Default)]
 struct State {
     users: usize,
@@ -165,6 +168,31 @@ fn connected() -> Result<Vec<String>> {
         .map(|m| m.device_id)
         .collect())
 }
+/// Keep the displays a held layout switched off in the newly composed one. A
+/// snapshot lists only the displays that are on, so a layout composed while
+/// they are off would forget them, and [`Lease::switched_back_on`] would no
+/// longer see Windows switching them on again.
+fn keep_switched_off(desired: &mut Vec<Node>, applied: &[Node]) {
+    for node in applied.iter().filter(|node| !node.active) {
+        if !desired.iter().any(|d| d.device_id == node.device_id) {
+            desired.push(node.clone());
+        }
+    }
+}
+/// How many streams' displays have left a layout other streams still hold.
+static DEPARTURES: AtomicU64 = AtomicU64::new(0);
+/// Compare it to see that a display left while this stream goes on.
+pub fn departures() -> u64 {
+    DEPARTURES.load(Ordering::Relaxed)
+}
+/// The streams' displays that are not on (a snapshot lists only the ones that are).
+fn targets_off(nodes: &[Node], targets: &[String]) -> Vec<String> {
+    targets
+        .iter()
+        .filter(|t| !nodes.iter().any(|n| n.device_id == **t && n.active))
+        .cloned()
+        .collect()
+}
 fn active_ids(nodes: &[Node]) -> std::collections::BTreeSet<String> {
     nodes
         .iter()
@@ -175,8 +203,18 @@ fn active_ids(nodes: &[Node]) -> std::collections::BTreeSet<String> {
 /// Lay out the current owners' displays and record the result for recovery.
 /// `leaving` is switched off unless it was on before streaming started.
 fn apply(state: &mut State, arrangement: Arrangement, leaving: Option<&str>) -> Result<()> {
-    let current = Snapshot::capture()?;
+    let mut current = Snapshot::capture()?;
     let targets: Vec<_> = state.owners.iter().map(|(t, _)| t.clone()).collect();
+    // Windows can drop a virtual display that has just arrived beside another
+    // one while it rearranges them: on again, or there is nothing to lay out.
+    let off = targets_off(&current.nodes, &targets);
+    if !off.is_empty() {
+        tracing::info!(displays = ?off, "switching a stream's display back on before laying it out");
+        let mut ids = active_ids(&current.nodes);
+        ids.extend(off);
+        Topology::set_active(&ids.into_iter().collect::<Vec<_>>())?;
+        current = Snapshot::capture()?;
+    }
     let mut desired = arrangement.compose_all_after_hotplug(
         &current.nodes,
         &targets,
@@ -197,6 +235,7 @@ fn apply(state: &mut State, arrangement: Arrangement, leaving: Option<&str>) -> 
             }
         }
     }
+    keep_switched_off(&mut desired, &state.applied);
     if let Some(before) = &state.before {
         crate::display_recovery::arrangement(Some((before.clone(), desired.clone())))?;
     }
@@ -212,8 +251,41 @@ fn apply(state: &mut State, arrangement: Arrangement, leaving: Option<&str>) -> 
             .collect(),
     )?;
     state.applied = desired;
-    save_layout(state);
+    if saves_layout(leaving) {
+        save_layout(state);
+    }
     Ok(())
+}
+/// A display on its way out is still connected, so saving now would file the
+/// layout without it under the entry for both displays, and Windows would
+/// recall that the next time they meet: the first stream's display off when the
+/// second one arrives. Nothing puts that entry back at the end of the stream.
+fn saves_layout(leaving: Option<&str>) -> bool {
+    leaving.is_none()
+}
+/// A virtual display arrived beside the running streams' on a layout that keeps
+/// its entry in the Windows display database. Settle that entry now, before
+/// anything makes Windows recall it: one saved earlier can switch the running
+/// stream's display off, or the new one.
+pub fn display_arrived(device_id: &str) -> Result<()> {
+    let state = state().lock().unwrap();
+    if state.users == 0 || !state.persisted {
+        return Ok(());
+    }
+    let ids = arrived_layout(&state.owners, &state.retained, device_id);
+    settled(|| {
+        Topology::set_active(&ids)?;
+        Topology::save_current()
+    })
+}
+/// What is on once `device_id` joined: the streams' displays, what they keep on, and it.
+fn arrived_layout(owners: &[(String, usize)], retained: &[String], device_id: &str) -> Vec<String> {
+    let mut ids: Vec<String> = owners.iter().map(|(id, _)| id.clone()).collect();
+    ids.extend(retained.iter().cloned());
+    ids.push(device_id.to_owned());
+    ids.sort();
+    ids.dedup();
+    ids
 }
 /// Whether to save a stream's layout to the Windows display database. Windows
 /// recalls the saved layout for the connected displays when an
@@ -476,6 +548,7 @@ impl Drop for Lease {
         if state.users != 0 {
             // Other streams continue: lay out their displays without this one.
             if left {
+                DEPARTURES.fetch_add(1, Ordering::Relaxed);
                 let arrangement = state.arrangement.unwrap_or(self.arrangement);
                 let result = if unchanged(&state.applied).unwrap_or(false) {
                     apply(&mut state, arrangement, Some(&target))

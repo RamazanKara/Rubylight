@@ -159,6 +159,19 @@ pub fn minimize(pid: u32) {
         }
     }
 }
+/// Bring back `pid`'s minimised windows, the last one in front; true when one
+/// was minimised. Windows minimises what sits on a display that is removed.
+pub fn restore_minimized(pid: u32) -> bool {
+    let minimized: Vec<_> = windows_of(pid)
+        .into_iter()
+        // SAFETY: IsIconic only takes a window handle by value; a stale handle just fails.
+        .filter(|window| unsafe { IsIconic(*window).as_bool() })
+        .collect();
+    for window in &minimized {
+        to_front_quietly(*window);
+    }
+    !minimized.is_empty()
+}
 /// Bring `pid`'s main window to the front; true when it is in front.
 pub fn focus(pid: u32) -> bool {
     let Some(window) = windows_of(pid).into_iter().next() else {

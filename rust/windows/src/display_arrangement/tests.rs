@@ -27,6 +27,63 @@ fn snapshot(nodes: Vec<Node>) -> Snapshot {
     }
 }
 #[test]
+fn a_display_the_layout_switched_off_is_still_watched_after_another_display_left() {
+    // Exclusive, two streams: the physical monitor is off, so the snapshot a
+    // later layout is composed from does not list it.
+    let before = vec![node("physical", true, true)];
+    let applied = vec![
+        node("physical", false, false),
+        node("a", true, true),
+        node("b", true, false),
+    ];
+    let mut desired = vec![node("a", false, false), node("b", true, true)];
+    keep_switched_off(&mut desired, &applied);
+    assert_eq!(desired.len(), 3);
+    // Windows switches it on when the other virtual display is removed.
+    assert_eq!(
+        butterpollo_core::display_policy::switched_back_on(
+            &before,
+            &desired,
+            &["physical".to_owned(), "b".to_owned()],
+        ),
+        ["physical"]
+    );
+    // One the new layout has an answer for keeps that answer.
+    let mut desired = vec![node("physical", true, true)];
+    keep_switched_off(&mut desired, &[node("physical", false, false)]);
+    assert!(desired[0].active);
+    assert_eq!(desired.len(), 1);
+}
+#[test]
+fn a_layout_without_a_display_on_its_way_out_is_not_saved_under_its_entry() {
+    assert!(!saves_layout(Some("a")));
+    assert!(saves_layout(None));
+}
+#[test]
+fn a_display_arriving_beside_a_stream_is_on_with_it_and_what_it_keeps() {
+    let owners = [("a".to_owned(), 1), ("kept".to_owned(), 2)];
+    assert_eq!(
+        arrived_layout(&owners, &["monitor".to_owned(), "a".to_owned()], "b"),
+        ["a", "b", "kept", "monitor"]
+    );
+}
+#[test]
+fn a_streams_display_windows_dropped_is_switched_back_on_before_the_layout() {
+    let targets = ["a".to_owned(), "b".to_owned()];
+    assert_eq!(
+        targets_off(
+            &[node("physical", true, true), node("a", true, false)],
+            &targets
+        ),
+        ["b"]
+    );
+    assert!(targets_off(&[node("a", true, true), node("b", true, false)], &targets).is_empty());
+    assert_eq!(
+        targets_off(&[node("a", true, true), node("b", false, false)], &targets),
+        ["b"]
+    );
+}
+#[test]
 fn reapplying_follows_a_display_windows_listed_under_another_name() {
     let monitor = |device_id: &str, display_name: &str| crate::display::Monitor {
         device_id: device_id.into(),

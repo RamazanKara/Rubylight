@@ -739,6 +739,8 @@ pub struct LayoutWatch {
     kept: Vec<String>,
     /// Until when a reapply follows the secure desktop or a session switch.
     excused_until: Option<std::time::Instant>,
+    /// When to lay the displays out again after another stream's display left.
+    departure: Option<std::time::Instant>,
 }
 /// What [`LayoutWatch::observe`] decides.
 #[derive(Debug, PartialEq, Eq)]
@@ -759,6 +761,8 @@ impl LayoutWatch {
     pub const RETURN_WINDOW: std::time::Duration = std::time::Duration::from_secs(300);
     /// How long after the secure desktop or a session switch a return is excused.
     pub const EXCUSE: std::time::Duration = std::time::Duration::from_secs(30);
+    /// How long Windows gets to finish rearranging after a display is removed.
+    pub const DEPARTURE_SETTLE: std::time::Duration = std::time::Duration::from_millis(1500);
     /// Whether to query the displays now.
     pub fn due(&mut self, now: std::time::Instant) -> bool {
         if self.next_check.is_some_and(|next| now < next) {
@@ -766,6 +770,20 @@ impl LayoutWatch {
         }
         self.next_check = Some(now + Self::INTERVAL);
         true
+    }
+    /// Another stream's display left. Windows rearranges what remains once it
+    /// is gone: it can recall a layout with the physical monitors on, or make
+    /// the remaining virtual display primary, and neither is this stream's.
+    pub fn display_left(&mut self, now: std::time::Instant) {
+        self.departure = Some(now + Self::DEPARTURE_SETTLE);
+    }
+    /// Whether to lay the displays out again for a display that left.
+    pub fn departure_due(&self, now: std::time::Instant) -> bool {
+        self.departure.is_some_and(|at| now >= at)
+    }
+    /// The displays were laid out again; a failed attempt keeps it due.
+    pub fn departure_handled(&mut self) {
+        self.departure = None;
     }
     /// The displays left on for the rest of the stream.
     pub fn kept(&self) -> &[String] {

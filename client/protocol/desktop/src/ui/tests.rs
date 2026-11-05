@@ -61,7 +61,7 @@ fn a_prompt_that_said_the_game_moved_says_it_came_back() {
     assert_eq!(l.moved_prompt(), None, "nothing left to watch");
 
     // A device that only streamed beside the game: another prompt, for that game only.
-    let mut beside = Launcher::default();
+    let mut beside = launcher(true, true);
     beside.ask_after(Dialog::NowPlaying { host: 1, app: 7, device: "TV".into() });
     beside.move_failed(1, 8);
     assert!(matches!(beside.dialog, Dialog::NowPlaying { .. }));

@@ -638,6 +638,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         heatChangesStream = changes;
     }
 
+    /** The bitrate the stream is asked to carry now; it moves with automatic bitrate. */
+    public void setStreamBitrateKbps(int kbps) {
+        streamBitrateKbps = kbps;
+    }
+
     private String thermalStats() {
         float headroom = thermalMonitor.headroom();
         return context.getString(R.string.perf_overlay_thermal, context.getString(thermalState(thermalLevel, heatChangesStream))) +
@@ -676,6 +681,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private long baseTimestampUs;
     private volatile int refreshRate;
     private volatile int streamFrameRateMilliHz;
+    // What the stream is asked to carry now, for erratum 23's calm picture; 0 until a stream sets it.
+    private volatile int streamBitrateKbps;
     private PreferenceConfiguration prefs;
 
     // Its monitor makes replacing a full queue atomic with the display thread's poll.
@@ -3362,7 +3369,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         frameLatencyStats.onDecoderOutput(index, ptsUs, outputNs);
         KeyframeSafetyNet safetyNet = keyframeSafetyNet;
         if (safetyNet == null) return;
-        safetyNet.onDecodeLatency(SystemClock.uptimeMillis(), frameLatencyStats.getInputToOutputNs(index) / 1_000_000f);
+        safetyNet.onDecodeLatency(SystemClock.uptimeMillis(), frameLatencyStats.getInputToOutputNs(index) / 1_000_000f,
+                streamFrameRateMilliHz);
         String event = safetyNet.takeEvent();
         if (event != null) LimeLog.info(event);
     }
@@ -4716,7 +4724,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if (safetyNet != null && frameType != MoonBridge.FRAME_TYPE_IDR) {
             safetyNet.onFrame(decodeUnitLength);
             // This frame is queued and decodes; only the frames in flight until the keyframe are dropped.
-            if (safetyNet.due(lastVideoFrameTimeMs)) return MoonBridge.DR_NEED_IDR;
+            if (safetyNet.due(lastVideoFrameTimeMs, streamBitrateKbps > 0 ? streamBitrateKbps : prefs.bitrate,
+                    streamFrameRateMilliHz)) {
+                return MoonBridge.DR_NEED_IDR;
+            }
         }
 
         return MoonBridge.DR_OK;

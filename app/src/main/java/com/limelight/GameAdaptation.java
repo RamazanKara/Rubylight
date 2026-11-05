@@ -46,6 +46,7 @@ final class GameAdaptation {
             if (!game.connected || game.decoderRenderer == null || game.app.getRole() == NvApp.Role.INPUT_ONLY) return;
             game.decoderRenderer.setHeatChangesStream(heatChangesStream(
                     game.prefConfig.thermalProtection, isAdaptiveBitrateEnabled(), game.adaptiveQuality != null));
+            game.decoderRenderer.setStreamBitrateKbps(game.currentBitrate == 0 ? game.prefConfig.bitrate : game.currentBitrate);
             if (game.foreground && !game.hostActionInProgress) {
                 // A hanging decoder holds the locks this sample reads for seconds: never on the main thread.
                 MediaCodecDecoderRenderer renderer = game.decoderRenderer;

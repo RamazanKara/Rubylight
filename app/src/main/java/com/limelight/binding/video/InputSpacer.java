@@ -6,8 +6,10 @@ package com.limelight.binding.video;
  *
  * Half a frame interval: frames on time are a whole interval apart, so one up to half an interval early
  * still waits nothing, and a backlog drains at twice the stream's rate. In direct submit the wait blocks
- * packet receive, as a full decoder's input already does for 20-35 ms on this decoder, and the socket
- * buffer takes what arrives meanwhile. Only the thread that submits decode units uses this.
+ * packet receive, as a full decoder's input also does, and the socket buffer has to take what arrives
+ * meanwhile. How long a full input blocks in this mode and how much buffer the system grants on this TV
+ * are not known, so the first report from it has to judge the hold: it carries the time held and the
+ * granted buffer. Only the thread that submits decode units uses this.
  */
 final class InputSpacer {
     // The longest wait at any frame rate, so a low one can't hold the receive thread or a stop for long.

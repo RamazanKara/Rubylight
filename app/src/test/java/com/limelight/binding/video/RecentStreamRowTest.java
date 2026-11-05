@@ -107,7 +107,7 @@ public class RecentStreamRowTest {
         String section = RecentStreams.section();
         for (String part : new String[] {"1970-01-01T00:00:00Z 97 s", "c2.mtk.hevc.decoder video/hevc", "3840x2160 60 fps",
                 "HDR off", "engine new", "low latency on", "vendor on", "RFI off", "keyframe net on",
-                "frames in 3 ", "keyframes 2, largest 512 B", "climbs 0, repairs climb 0 end 0 quiet 0 limit 0",
+                "frames in 3 ", "keyframes 2, largest 512 B", "climbs 0, settled 0, repairs climb 0 end 0 quiet 0 limit 0",
                 "gap frames 0", "held ", "input waits 0", "input buffer 4096 B",
                 "hottest normal, thermal protection off", "link wired 1000 Mbps"}) {
             assertTrue(part + " in " + section, section.contains(part));

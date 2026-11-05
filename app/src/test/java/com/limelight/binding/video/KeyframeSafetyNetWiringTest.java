@@ -109,7 +109,9 @@ public class KeyframeSafetyNetWiringTest {
         prefs.videoFormat = PreferenceConfiguration.FormatOption.FORCE_HEVC;
         prefs.codecLowLatency = lowLatency;
         prefs.disableHevcLowLatency = hevcOverrideOff;
+        prefs.bitrate = 63_000;
         renderer = new MediaCodecDecoderRenderer(activity.get(), prefs, null, 0, false, false, "", null);
+        ReflectionHelpers.setField(renderer, "streamFrameRateMilliHz", 60_000);
         ReflectionHelpers.setField(renderer, "renderTarget", surface);
         ReflectionHelpers.setField(renderer, "videoFormat", MoonBridge.VIDEO_FORMAT_H265);
         MediaFormat format = MediaFormat.createVideoFormat("video/hevc", 3840, 2160);
@@ -143,6 +145,11 @@ public class KeyframeSafetyNetWiringTest {
 
     private KeyframeSafetyNet.Counts counts() {
         return ReflectionHelpers.getField(renderer, "repairCounts");
+    }
+
+    // The hold goes by real time: a test of hundreds of frames about something else doesn't wait for it.
+    private void withoutHolds() {
+        ReflectionHelpers.setField(renderer, "inputSpacer", null);
     }
 
     // Frames are the small ones of a calm picture here: the net's quiet refresh is what asks.
@@ -327,6 +334,7 @@ public class KeyframeSafetyNetWiringTest {
     @Test
     public void aClimbOnTheOutputSideAsksFromTheInputSideAndReachesTheReport() {
         configure(MODEL, MTK, true, false);
+        withoutHolds();
         submit(MoonBridge.FRAME_TYPE_IDR);
         int asked = 0;
         // Six seconds at 60 fps: 3 ms decode for three, then 20 ms.

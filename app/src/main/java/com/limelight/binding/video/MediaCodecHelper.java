@@ -678,6 +678,15 @@ public class MediaCodecHelper {
         return false;
     }
 
+    /**
+     * Whether a stream of this format runs in that mode: the decoder qualifies and Android's
+     * low-latency flag reaches it (the HEVC override can leave the flag out).
+     */
+    public static boolean runsCorruptingLowLatency(String mimeType, String decoderName, boolean lowLatency, int hevcLowLatencyMode) {
+        return lowLatency && corruptsInLowLatency(decoderName) &&
+                !omitsHevcLowLatencyFlags(mimeType, decoderName, hevcLowLatencyMode);
+    }
+
     /** Whether this device has a decoder of {@link #corruptsInLowLatency}. Other models list no codecs. */
     public static boolean hasLowLatencyCorruptingDecoder() {
         if (!LOW_LATENCY_CORRUPTION_MODEL.equals(Build.MODEL)) return false;

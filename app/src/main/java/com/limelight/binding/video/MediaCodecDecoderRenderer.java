@@ -1394,6 +1394,23 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             refFrameInvalidationHevc10 = refFrameInvalidationAv110 = false;
             LimeLog.warning("Disabling RFI due to previous crash");
         }
+
+        // Erratum 23 with Android's low-latency mode turned back on: one reference and no long-term
+        // ones, so a lost frame recovers with a keyframe. With the mode off these decoders keep RFI.
+        if (runsCorruptingLowLatency(avcDecoder, "video/avc")) refFrameInvalidationAvc = false;
+        if (runsCorruptingLowLatency(hevcDecoder, "video/hevc")) refFrameInvalidationHevc = false;
+        if (runsCorruptingLowLatency(tenBitHevcDecoder(), "video/hevc")) refFrameInvalidationHevc10 = false;
+        if (runsCorruptingLowLatency(av1Decoder, "video/av01")) refFrameInvalidationAv1 = false;
+        if (runsCorruptingLowLatency(tenBitAv1Decoder(), "video/av01")) refFrameInvalidationAv110 = false;
+    }
+
+    private boolean runsCorruptingLowLatency(MediaCodecInfo decoder, String mimeType) {
+        if (decoder == null || !MediaCodecHelper.runsCorruptingLowLatency(mimeType, decoder.getName(),
+                prefs.codecLowLatency, prefs.hevcLowLatency())) {
+            return false;
+        }
+        LimeLog.warning("Decoder " + decoder.getName() + " in Android low latency: no RFI for " + mimeType);
+        return true;
     }
 
     public boolean isHevcSupported() {

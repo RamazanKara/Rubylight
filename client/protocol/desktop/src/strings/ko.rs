@@ -536,6 +536,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Could not continue here", "여기서 계속할 수 없습니다"),
     ("The game came back to this device", "게임이 이 기기로 돌아왔습니다"),
     ("The game did not move to the other device", "게임이 다른 기기로 옮겨지지 않았습니다"),
+    ("Another device is playing this game in a browser, and this stream can't run beside it. End that stream first.", "다른 기기가 브라우저에서 이 게임을 플레이 중이라 이 스트림을 함께 실행할 수 없습니다. 먼저 해당 스트림을 종료하세요."),
     ("Could not end the session", "세션을 끝낼 수 없습니다"),
     ("The session action failed", "세션 작업에 실패했습니다"),
     ("The PC action failed", "PC 작업에 실패했습니다"),

@@ -25,6 +25,13 @@
     {"call": "joins_after_read", "args": [true, false, false], "expect": false},
     {"call": "joins_after_read", "args": [false, false, true], "expect": true},
     {"call": "joins_after_read", "args": [false, true, true], "expect": false},
-    {"call": "joins_after_read", "args": [false, false, false], "expect": false}
+    {"call": "joins_after_read", "args": [false, false, false], "expect": false},
+    {"call": "resume_refusal", "args": [true, 409, "The game running on this PC changed"], "expect": "session_changed"},
+    {"call": "resume_refusal", "args": [false, 409, "The game running on this PC changed"], "expect": "session_changed"},
+    {"call": "resume_refusal", "args": [true, 503, "no application or remote monitor to resume"], "expect": "session_changed"},
+    {"call": "resume_refusal", "args": [false, 503, "no application or remote monitor to resume"], "expect": null},
+    {"call": "resume_refusal", "args": [false, 409, "Another device is streaming over WebRTC"], "expect": "browser_stream"},
+    {"call": "resume_refusal", "args": [true, 503, "Encoder failure"], "expect": null},
+    {"call": "resume_refusal", "args": [true, 409, "This background game belongs to another device"], "expect": null}
   ]
 }

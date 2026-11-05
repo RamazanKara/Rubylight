@@ -536,6 +536,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Could not continue here", "ここで続けられませんでした"),
     ("The game came back to this device", "ゲームはこのデバイスに戻りました"),
     ("The game did not move to the other device", "ゲームは別のデバイスに移動しませんでした"),
+    ("Another device is playing this game in a browser, and this stream can't run beside it. End that stream first.", "別のデバイスがブラウザーでこのゲームをプレイしているため、このストリームは同時に実行できません。先にそのストリームを終了してください。"),
     ("Could not end the session", "セッションを終了できませんでした"),
     ("The session action failed", "セッションの操作に失敗しました"),
     ("The PC action failed", "PCの操作に失敗しました"),

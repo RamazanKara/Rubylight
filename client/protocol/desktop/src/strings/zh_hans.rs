@@ -536,6 +536,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Could not continue here", "无法在此继续"),
     ("The game came back to this device", "游戏已回到此设备"),
     ("The game did not move to the other device", "游戏没有转移到另一台设备"),
+    ("Another device is playing this game in a browser, and this stream can't run beside it. End that stream first.", "另一台设备正在浏览器中玩这款游戏，此串流无法同时运行。请先结束那个串流。"),
     ("Could not end the session", "无法结束会话"),
     ("The session action failed", "会话操作失败"),
     ("The PC action failed", "电脑操作失败"),

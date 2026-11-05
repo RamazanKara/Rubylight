@@ -123,6 +123,7 @@ impl Pc {
                     max_players: 2,
                     supports_keyboard: false,
                     hides_taskbar: false,
+                    has_steps: false,
                     own: false,
                     owner: None,
                     admin: Vec::new(),

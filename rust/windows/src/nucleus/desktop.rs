@@ -210,6 +210,69 @@ const DIALOG_CLASS: &str = "#32770";
 /// How the class of a WinForms window starts (`WindowsForms10.Window.8.app...`).
 const FORM_CLASS: &str = "WindowsForms10.";
 
+/// What a WinForms window of another process is called in its program
+/// (`WM_GETCONTROLNAME`). The answer is written at the pointer sent, so it
+/// takes memory in that process.
+fn control_name(window: HWND) -> Option<String> {
+    use std::os::windows::io::{AsRawHandle, FromRawHandle};
+    use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+    use windows::Win32::System::Memory::{
+        MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE, VirtualAllocEx, VirtualFreeEx,
+    };
+    const CHARS: usize = 64;
+    let mut pid = 0;
+    // SAFETY: `pid` is a live u32 and the name a static string; a closed window fails the calls,
+    // the handle opened has one owner, and the memory read is the buffer allocated here, as long
+    // as it is, into a local of that size.
+    unsafe {
+        let message = RegisterWindowMessageW(windows::core::w!("WM_GETCONTROLNAME"));
+        GetWindowThreadProcessId(window, Some(&mut pid));
+        let process = OwnedHandle::from_raw_handle(
+            OpenProcess(
+                PROCESS_VM_OPERATION | PROCESS_VM_READ | PROCESS_VM_WRITE,
+                false,
+                pid,
+            )
+            .ok()?
+            .0,
+        );
+        let process = HANDLE(process.as_raw_handle());
+        let remote = VirtualAllocEx(
+            process,
+            None,
+            CHARS * 2,
+            MEM_COMMIT | MEM_RESERVE,
+            PAGE_READWRITE,
+        );
+        if remote.is_null() {
+            return None;
+        }
+        let mut written = 0usize;
+        let sent = SendMessageTimeoutW(
+            window,
+            message,
+            WPARAM(CHARS),
+            LPARAM(remote as isize),
+            SMTO_ABORTIFHUNG | SMTO_NORMAL,
+            200,
+            Some(&mut written),
+        );
+        // A window that didn't answer in time still will, into this buffer:
+        // it stays allocated then, for the life of a process that small.
+        if sent.0 == 0 {
+            return None;
+        }
+        let mut name = [0u16; CHARS];
+        let read = ReadProcessMemory(process, remote, name.as_mut_ptr().cast(), CHARS * 2, None);
+        let _ = VirtualFreeEx(process, remote, 0, MEM_RELEASE);
+        read.ok()?;
+        // Its length with the terminator; none or more than fits on failure.
+        (1..=CHARS)
+            .contains(&written)
+            .then(|| String::from_utf16_lossy(&name[..written - 1]))
+    }
+}
+
 /// The visible descendants of `parent`.
 fn children(parent: HWND) -> Vec<HWND> {
     unsafe extern "system" fn visit(window: HWND, context: LPARAM) -> BOOL {
@@ -483,6 +546,26 @@ impl Desktop for Win32 {
                 found.len()
             ),
         }
+    }
+    fn button(&mut self, processes: &BTreeSet<u32>, name: &str) -> Result<Option<u64>> {
+        if processes.is_empty() {
+            return Ok(None);
+        }
+        crate::input::follow_input_desktop();
+        for window in top_level(Some(processes))? {
+            if !window.visible {
+                continue;
+            }
+            for child in children(hwnd(window.id)) {
+                let button = class_of(child).is_some_and(|class| {
+                    class.starts_with(FORM_CLASS) && class.contains(".BUTTON.")
+                });
+                if button && control_name(child).as_deref() == Some(name) {
+                    return Ok(Some(child.0 as usize as u64));
+                }
+            }
+        }
+        Ok(None)
     }
     fn to_front(&mut self, window: u64) -> bool {
         crate::lossless::to_front_quietly(hwnd(window))

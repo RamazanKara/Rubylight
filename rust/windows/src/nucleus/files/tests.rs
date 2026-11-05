@@ -234,7 +234,7 @@ fn a_game_that_refused_the_hooks_gets_the_next_way_down_to_none() {
     let setup = Setup::new(r"D:\Games\Black Flag\ACBlackFlag.exe", "Black Flag", None);
     let other = Setup::new(r"D:\Games\Other\Game.exe", "Other", None);
     let file = nucleus.path().join("handlers").join(setup.file());
-    let kept = nucleus.path().join("Rubylight-injection.json");
+    let kept = nucleus.path().join("Rubylight-injection-2.json");
     let written = |way: Inject| {
         write_own(nucleus.path(), &setup).unwrap();
         let text = std::fs::read_to_string(&file).unwrap();
@@ -272,29 +272,16 @@ fn a_game_that_refused_the_hooks_gets_the_next_way_down_to_none() {
     let other_text =
         std::fs::read_to_string(nucleus.path().join("handlers").join(other.file())).unwrap();
     assert!(other_text.contains("Game.ProtoInput.InjectRuntime_EasyHookMethod = true;"));
-    // A game the test build before the ladder kept as refusing the
-    // hooks starts at the second way; one kept since, at its own.
-    let legacy = tempfile::tempdir().unwrap();
-    std::fs::write(
-        legacy.path().join("Rubylight-unhooked.json"),
-        r#"{"Games": ["d:\\games\\black flag\\acblackflag.exe", "d:\\games\\other\\game.exe"]}"#,
-    )
-    .unwrap();
+    // What the files before held were mostly Nucleus' double starts (#59): a
+    // game kept there starts at the first way again.
+    let older = tempfile::tempdir().unwrap();
+    let game = r#"{"Games": {"d:\\games\\black flag\\acblackflag.exe": "none"}}"#;
+    std::fs::write(older.path().join("Rubylight-injection.json"), game).unwrap();
+    let list = r#"{"Games": ["d:\\games\\black flag\\acblackflag.exe"]}"#;
+    std::fs::write(older.path().join("Rubylight-unhooked.json"), list).unwrap();
     assert_eq!(
-        inject_for(legacy.path(), &setup.exe_path).unwrap(),
-        Inject::Startup
-    );
-    assert_eq!(
-        refuse_inject(legacy.path(), &other.exe_path).unwrap(),
-        Inject::Stealth
-    );
-    assert_eq!(
-        inject_for(legacy.path(), &other.exe_path).unwrap(),
-        Inject::Stealth
-    );
-    assert_eq!(
-        inject_for(legacy.path(), &setup.exe_path).unwrap(),
-        Inject::Startup
+        inject_for(older.path(), &setup.exe_path).unwrap(),
+        Inject::default()
     );
     // A file Rubylight can't read is loud, never taken for the first way.
     for broken in [
@@ -848,6 +835,7 @@ fn the_profile_takes_its_own_number_or_the_next() {
         "Borderlands 2",
         &[player(0), player(1)],
         &screens,
+        false,
     )
     .unwrap();
     assert_eq!(number, 3);
@@ -864,7 +852,14 @@ fn the_profile_takes_its_own_number_or_the_next() {
     );
 
     // Next time the same file is rewritten, for one player.
-    let again = write_profile(nucleus.path(), "Borderlands 2", &[player(2)], &screens).unwrap();
+    let again = write_profile(
+        nucleus.path(),
+        "Borderlands 2",
+        &[player(2)],
+        &screens,
+        false,
+    )
+    .unwrap();
     assert_eq!(again, 3);
     let written: serde_json::Value =
         serde_json::from_slice(&std::fs::read(profiles.join("Profile[3].json")).unwrap()).unwrap();
@@ -881,7 +876,7 @@ fn a_foreign_profile_in_the_next_place_is_never_overwritten() {
     // Numbers 1 and 3: the list has two, so a new profile would be the 3rd.
     std::fs::write(profiles.join("Profile[1].json"), r#"{"Title":"A"}"#).unwrap();
     std::fs::write(profiles.join("Profile[3].json"), r#"{"Title":"B"}"#).unwrap();
-    let error = write_profile(nucleus.path(), "game", &[player(0)], &[SCREEN])
+    let error = write_profile(nucleus.path(), "game", &[player(0)], &[SCREEN], false)
         .unwrap_err()
         .to_string();
     assert!(error.contains("Profile[3].json"), "{error}");
@@ -896,7 +891,7 @@ fn a_foreign_profile_in_the_next_place_is_never_overwritten() {
     std::fs::create_dir_all(&stray).unwrap();
     std::fs::write(stray.join("Profile[1].json"), r#"{"Title":"A"}"#).unwrap();
     std::fs::write(stray.join("Profile[1].json.bak"), r#"{"Title":"A"}"#).unwrap();
-    let error = write_profile(nucleus.path(), "stray", &[player(0)], &[SCREEN])
+    let error = write_profile(nucleus.path(), "stray", &[player(0)], &[SCREEN], false)
         .unwrap_err()
         .to_string();
     assert!(error.contains("would not load"), "{error}");
@@ -911,7 +906,7 @@ fn a_foreign_profile_in_the_next_place_is_never_overwritten() {
 fn a_guid_that_names_another_folder_is_refused() {
     let nucleus = tempfile::tempdir().unwrap();
     for guid in ["..", r"..\..\x", "a/b", "C:x", " ", "a\nb"] {
-        let error = write_profile(nucleus.path(), guid, &[player(0)], &[SCREEN])
+        let error = write_profile(nucleus.path(), guid, &[player(0)], &[SCREEN], false)
             .unwrap_err()
             .to_string();
         assert!(

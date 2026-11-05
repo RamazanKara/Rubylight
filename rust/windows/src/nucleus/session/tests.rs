@@ -150,6 +150,9 @@ impl Desktop for Screen {
     fn label(&mut self, processes: &BTreeSet<u32>, text: &str) -> Result<Option<u64>> {
         self.0.lock().unwrap().label(processes, text)
     }
+    fn button(&mut self, processes: &BTreeSet<u32>, name: &str) -> Result<Option<u64>> {
+        self.0.lock().unwrap().button(processes, name)
+    }
     fn click(&mut self, label: u64) -> Result<()> {
         self.0.lock().unwrap().click(label)
     }
@@ -263,6 +266,7 @@ fn handler() -> Handler {
         max_players: 4,
         supports_keyboard: false,
         hides_taskbar: false,
+        has_steps: false,
         own: false,
         owner: None,
         admin: Vec::new(),
@@ -307,6 +311,9 @@ fn runner(players: usize, screen: &Screen, probe: &Probe, t0: Instant) -> Runner
         clicked: false,
         clicked_at: None,
         hid: false,
+        // Tests of the later steps have Nucleus play the profile.
+        plays_itself: true,
+        played: false,
         closed: BTreeSet::new(),
         boxed: false,
         last_form: None,
@@ -564,6 +571,86 @@ fn the_profile_is_clicked_again_while_nucleus_still_lists_it() {
     assert_eq!(runner.shared.session.lock().unwrap().phase, Phase::Running);
     assert_eq!(runner.step(t0 + 8 * RECLICK), None);
     assert_eq!(clicks(&screen), 2);
+}
+
+/// #59: a profile that plays by itself starts the game twice when Nucleus
+/// paints during the start. Rubylight's doesn't: Play is pressed, as soon as
+/// Nucleus shows it and exactly once, even if Nucleus takes its time.
+#[test]
+fn play_is_pressed_once_after_the_profile_is_loaded() {
+    const BUTTON: u64 = 9;
+    let t0 = Instant::now();
+    let (screen, probe) = (screen(), Probe::default());
+    let mut runner = runner(1, &screen, &probe, t0);
+    runner.plays_itself = false;
+    let clicks = |screen: &Screen| screen.0.lock().unwrap().clicks.clone();
+    label(&screen);
+    assert_eq!(runner.step(t0), None);
+    assert_eq!(clicks(&screen), vec![7]);
+    // No Play yet: a player has no controller. Nothing to press.
+    assert_eq!(runner.step(t0 + PERIOD), None);
+    assert_eq!(clicks(&screen), vec![7]);
+    screen
+        .0
+        .lock()
+        .unwrap()
+        .buttons
+        .push((NUCLEUS, PLAY.into(), BUTTON));
+    assert_eq!(runner.step(t0 + 2 * PERIOD), None);
+    assert_eq!(clicks(&screen), vec![7, BUTTON]);
+    // Pressed again it is Stop, and the profile clicked again reloads it.
+    assert_eq!(runner.step(t0 + 2 * RECLICK), None);
+    assert_eq!(runner.step(t0 + 4 * RECLICK), None);
+    assert_eq!(clicks(&screen), vec![7, BUTTON]);
+    instance(&screen, 0);
+    assert_eq!(runner.step(t0 + 5 * RECLICK), None);
+    assert_eq!(runner.shared.session.lock().unwrap().phase, Phase::Running);
+    assert_eq!(clicks(&screen), vec![7, BUTTON]);
+}
+
+/// A profile that plays by itself shows Play as well: pressing it would be
+/// the second start.
+#[test]
+fn play_is_not_pressed_for_a_profile_that_plays_by_itself() {
+    let t0 = Instant::now();
+    let (screen, probe) = (screen(), Probe::default());
+    let mut runner = runner(1, &screen, &probe, t0);
+    label(&screen);
+    screen
+        .0
+        .lock()
+        .unwrap()
+        .buttons
+        .push((NUCLEUS, PLAY.into(), 9));
+    assert_eq!(runner.step(t0), None);
+    assert_eq!(runner.step(t0 + PERIOD), None);
+    assert_eq!(screen.0.lock().unwrap().clicks, vec![7]);
+}
+
+/// Play under another window is pressed when it can be, and the start that
+/// never comes after a press says so.
+#[test]
+fn play_covered_is_pressed_later_and_a_press_that_starts_nothing_says_so() {
+    let t0 = Instant::now();
+    let (screen, probe) = (screen(), Probe::default());
+    let mut runner = runner(1, &screen, &probe, t0);
+    runner.plays_itself = false;
+    label(&screen);
+    assert_eq!(runner.step(t0), None);
+    {
+        let mut desktop = screen.0.lock().unwrap();
+        desktop.buttons.push((NUCLEUS, PLAY.into(), 9));
+        desktop.covered = true;
+    }
+    assert_eq!(runner.step(t0 + PERIOD), None);
+    assert!(!runner.played);
+    screen.0.lock().unwrap().covered = false;
+    assert_eq!(runner.step(t0 + 2 * PERIOD), None);
+    assert!(runner.played);
+    let End::Failed(why) = runner.step(t0 + START_TIMEOUT).unwrap() else {
+        panic!("no failure");
+    };
+    assert!(why.contains("pressed Play"), "{why}");
 }
 
 /// #56: Nucleus 2.4.2 can't load a profile clicked before its setup screen

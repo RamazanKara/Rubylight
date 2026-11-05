@@ -36,8 +36,14 @@ fn rect(r: Rect) -> Value {
 }
 
 /// The profile for `players` on a PC with `screens` (Nucleus checks the
-/// players' screens against its own list).
-pub fn build(players: &[Player], screens: &[Rect]) -> Value {
+/// players' screens against its own list). Only a handler with steps of its
+/// own needs one that `plays_itself`: Nucleus 2.4.2 decides that while it
+/// paints its setup screen (`GameProfile.FindProfilePlayers`) and clears the
+/// flag only after the start, so a paint during the start starts the game a
+/// second time. About half of Black Flag's starts did, and each of those
+/// looked like the game refusing the hooks or exiting by itself (#59). Without
+/// it, Rubylight presses Play, once.
+pub fn build(players: &[Player], screens: &[Rect], plays_itself: bool) -> Value {
     let screen_of = |bounds: Rect| {
         screens
             .iter()
@@ -92,7 +98,7 @@ pub fn build(players: &[Player], screens: &[Rect]) -> Value {
         "Controller(s)": players.len(),
         "Use XInput Index": true,
         "K&M": 0,
-        "AutoPlay": { "Enabled": true },
+        "AutoPlay": { "Enabled": plays_itself },
         "Data": data,
         "Options": {},
         "UseNicknames": { "Use": false },
@@ -515,9 +521,13 @@ mod tests {
                 },
             },
         ];
-        let p = build(&players, &[SCREEN]);
+        let p = build(&players, &[SCREEN], false);
         assert_eq!(p["Title"], TITLE);
-        assert_eq!(p["AutoPlay"]["Enabled"], true);
+        assert_eq!(p["AutoPlay"]["Enabled"], false);
+        assert_eq!(
+            build(&players, &[SCREEN], true)["AutoPlay"]["Enabled"],
+            true
+        );
         assert_eq!(p["Use XInput Index"], true);
         assert_eq!(p["Player(s)"], 2);
         assert_eq!(p["UseSplitDiv"]["Enabled"], false);
@@ -562,7 +572,7 @@ mod tests {
             xinput: 0,
             bounds: SCREEN,
         };
-        let p = build(&[player, player], &[SCREEN]);
+        let p = build(&[player, player], &[SCREEN], false);
         for data in p["Data"].as_array().unwrap() {
             let processor = &data["Processor"];
             let ideal = processor["IdealProcessor"].as_str().unwrap();

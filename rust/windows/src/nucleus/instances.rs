@@ -28,6 +28,9 @@ pub trait Desktop: Send {
     /// The visible child window with this text in a window of `processes`:
     /// the profile's entry in Nucleus' list. An error when several match.
     fn label(&mut self, processes: &BTreeSet<u32>, text: &str) -> Result<Option<u64>>;
+    /// The visible button a WinForms window of `processes` calls `name` in
+    /// its program: Nucleus' Play shows only a picture.
+    fn button(&mut self, processes: &BTreeSet<u32>, name: &str) -> Result<Option<u64>>;
     /// Click it as the mouse would; refused while another window covers it.
     fn click(&mut self, label: u64) -> Result<()>;
     /// Bring a window to the front, activated: whether it is in front.
@@ -455,6 +458,7 @@ pub(crate) mod tests {
         pub keep_frames: bool,
         pub unthrottled: BTreeSet<u32>,
         pub labels: Vec<(u32, String, u64)>,
+        pub buttons: Vec<(u32, String, u64)>,
         pub clicks: Vec<u64>,
         pub covered: bool,
         /// Message boxes and the process showing each; [`CSRSS`]'s are those
@@ -522,6 +526,13 @@ pub(crate) mod tests {
             let first = found.next().map(|(_, _, id)| *id);
             anyhow::ensure!(found.next().is_none(), "two labels");
             Ok(first)
+        }
+        fn button(&mut self, processes: &BTreeSet<u32>, name: &str) -> Result<Option<u64>> {
+            Ok(self
+                .buttons
+                .iter()
+                .find(|(pid, n, _)| processes.contains(pid) && n == name)
+                .map(|(_, _, id)| *id))
         }
         fn click(&mut self, label: u64) -> Result<()> {
             anyhow::ensure!(!self.covered, "covered");

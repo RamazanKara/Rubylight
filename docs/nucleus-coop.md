@@ -347,6 +347,15 @@ every 5 seconds while Nucleus Co-op still lists it and shows no message box.
 Once Nucleus Co-op hides the list to play the profile, it is never clicked
 again. When the last click ends in such a box, the start fails saying so.
 
+The host then presses Nucleus Co-op's Play once, without moving the mouse.
+The profile has Nucleus Co-op's auto-play off, because auto-play runs from the
+setup screen's paint and can start the game a second time during a start, which
+kills the first one (#59). Nucleus Co-op shows Play only once every player of
+the profile has a controller, on the options step if the handler has options,
+so the press waits for that. A handler with steps of its own
+(`Game.ShowOptionAsStep`, `Game.CustomSteps`) shows no Play until someone
+answers them, so its profile keeps auto-play and can still start twice.
+
 The host must run as the Windows service (the installer's default), because
 Nucleus Co-op runs as the signed-in user, elevated or from their own copy. A
 portable host refuses these launches and says why. Everything that runs

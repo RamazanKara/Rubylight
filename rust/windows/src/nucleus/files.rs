@@ -230,22 +230,16 @@ pub fn write_own(folder: &Path, setup: &Setup) -> Result<Handler> {
 /// How Rubylight's handler injects ProtoInput's input hooks into the games
 /// that refused a way in a session of the Nucleus Co-op at `folder` (the
 /// host's, which only SYSTEM and Administrators change):
-/// `{"Games": {<.exe path in lower case>: <Inject::name>}}`.
+/// `{"Games": {<.exe path in lower case>: <Inject::name>}}`. Named anew when
+/// Nucleus stopped starting games twice: what the files before it hold are
+/// mostly those double starts, not refusals (#59), and a game kept there
+/// would never get its hooks back.
 fn injection(folder: &Path) -> PathBuf {
-    folder.join("Rubylight-injection.json")
+    folder.join("Rubylight-injection-2.json")
 }
 
 fn injections(folder: &Path) -> Result<BTreeMap<String, Inject>> {
-    // A test build before the ladder listed the games that refused the
-    // first way here (`{"Games": [<.exe>]}`): they start at the second.
-    let mut games: BTreeMap<String, Inject> =
-        read_existing(&folder.join("Rubylight-unhooked.json"))?
-            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-            .and_then(|json| json.get("Games").and_then(|g| g.as_array()).cloned())
-            .into_iter()
-            .flatten()
-            .filter_map(|game| Some((game.as_str()?.to_string(), Inject::Startup)))
-            .collect();
+    let mut games = BTreeMap::new();
     let path = injection(folder);
     let Some(text) = read_existing(&path)? else {
         return Ok(games);
@@ -781,6 +775,7 @@ pub fn write_profile(
     guid: &str,
     players: &[Player],
     screens: &[Rect],
+    plays_itself: bool,
 ) -> Result<u32> {
     ensure!(
         !players.is_empty(),
@@ -806,7 +801,7 @@ pub fn write_profile(
         None => false,
     };
     let path = profiles.join(&name);
-    let text = serde_json::to_string_pretty(&profile::build(players, screens))?;
+    let text = serde_json::to_string_pretty(&profile::build(players, screens, plays_itself))?;
     super::unfollowed::write(folder, &path, text.as_bytes())?;
     let after = listed(&profiles)?;
     let place = after.iter().position(|(file, _, _)| *file == name);

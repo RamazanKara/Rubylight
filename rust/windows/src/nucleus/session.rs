@@ -50,6 +50,8 @@ const RECLICK: Duration = Duration::from_secs(5);
 /// timer (`BoundsFunctions.ScreensWatcher_Tick`); a profile clicked before
 /// that fails to load, and its untitled box says so (#56).
 const SETTLE: Duration = Duration::from_millis(3500);
+/// Nucleus Co-op's Play button, as its program calls it (`MainForm.Designer`).
+const PLAY: &str = "btn_Play";
 /// Passes in a row that may fail (the desktop switching for a UAC prompt)
 /// before the session ends with the error.
 const FAILED_PASSES: u32 = 8;
@@ -223,6 +225,11 @@ struct Runner {
     /// Whether Nucleus hid its profile list after a click: it plays then,
     /// and the profile is never clicked again.
     hid: bool,
+    /// The profile plays by itself, for a handler with steps of its own
+    /// ([`Handler::has_steps`]): Nucleus has no Play to press before them.
+    plays_itself: bool,
+    /// Play was pressed. Never again: Nucleus turns it into Stop.
+    played: bool,
     /// The forms Nucleus showed over its window after a click, closed;
     /// whether one was closed since the last click; the last one.
     closed: BTreeSet<u64>,
@@ -433,6 +440,18 @@ impl Runner {
             // A box Nucleus shows after the click (its End-key reminder, a
             // check of the game) holds the start as one before it does.
             self.look(&job);
+            // Nucleus shows Play once the profile is loaded and every player
+            // has a controller.
+            if !self.plays_itself && !self.played && self.showing.is_empty() {
+                match self.desktop.button(&job, PLAY) {
+                    Ok(Some(button)) => self.play(&job, button),
+                    Ok(None) => {}
+                    Err(error) => {
+                        return self
+                            .failed_pass(error.context("looking for Nucleus Co-op's Play button"));
+                    }
+                }
+            }
             // Nucleus hides the list when it plays the profile: a list that
             // comes back means no second click, which could start the game
             // again.
@@ -441,7 +460,8 @@ impl Runner {
                     Ok(Some(label)) => {
                         // Not as the start times out: what the last click
                         // led to says why.
-                        if self.showing.is_empty()
+                        if !self.played
+                            && self.showing.is_empty()
                             && self.clicked_at.is_some_and(|at| now >= at + RECLICK)
                             && now < self.deadline
                         {
@@ -611,7 +631,8 @@ impl Runner {
         (self.failed >= FAILED_PASSES).then(|| self.failure(why))
     }
 
-    /// Load the host's profile: Nucleus starts the game by itself then.
+    /// Load the host's profile: Nucleus shows Play then, or starts the game
+    /// by itself for a profile that plays by itself.
     fn click(&mut self, job: &BTreeSet<u32>, now: Instant) -> Option<End> {
         let label = match self.desktop.label(job, TITLE) {
             Ok(Some(label)) => label,
@@ -652,6 +673,25 @@ impl Runner {
                 }
                 self.unclicked = Some(why);
                 // What covers the list may be Nucleus' own message box.
+                self.look(job);
+            }
+        }
+    }
+
+    /// Press Nucleus' Play, which starts the game; pressed once, it stops it.
+    fn play(&mut self, job: &BTreeSet<u32>, button: u64) {
+        match self.desktop.click(button) {
+            Ok(()) => {
+                tracing::info!("Nucleus Co-op Play pressed");
+                self.played = true;
+                self.unclicked = None;
+            }
+            Err(error) => {
+                let why = format!("{error:#}");
+                if self.unclicked.as_ref() != Some(&why) {
+                    tracing::warn!(why, "Nucleus Co-op Play not pressed");
+                }
+                self.unclicked = Some(why);
                 self.look(job);
             }
         }
@@ -722,9 +762,10 @@ impl Runner {
     }
 
     /// Why Nucleus did not start the game after the profile was clicked.
-    /// Nucleus plays a loaded profile by itself once each of its players
-    /// has a controller (`GameProfile.FindProfilePlayers`), and hides the
-    /// profile list then.
+    /// Nucleus shows Play on a loaded profile, or plays one that plays by
+    /// itself, once each of its players has a controller
+    /// (`GameProfile.FindProfilePlayers`), and hides the profile list as it
+    /// plays.
     /// What came after the last click says why: a form closed since it, or
     /// else whether the list is still there.
     fn unstarted(&self) -> String {
@@ -735,6 +776,11 @@ impl Runner {
                 self.title,
                 said(form),
                 self.closed.len()
+            )
+        } else if self.played {
+            format!(
+                "Nucleus Co-op did not start {} after Rubylight pressed Play on the profile {TITLE}",
+                self.title
             )
         } else if !self.hid {
             format!(
@@ -1094,7 +1140,13 @@ fn begin(
         if start.user_copy.is_some() {
             files::write_copy_settings(folder)?;
         }
-        number = files::write_profile(folder, &start.handler.guid, &players, &screens)?;
+        number = files::write_profile(
+            folder,
+            &start.handler.guid,
+            &players,
+            &screens,
+            start.handler.has_steps,
+        )?;
         Ok(())
     })?;
     // Nucleus takes the pads' assignment from there, not from the profile:
@@ -1159,6 +1211,8 @@ fn begin(
         clicked: false,
         clicked_at: None,
         hid: false,
+        plays_itself: start.handler.has_steps,
+        played: false,
         closed: BTreeSet::new(),
         boxed: false,
         last_form: None,

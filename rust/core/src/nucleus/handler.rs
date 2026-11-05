@@ -22,6 +22,11 @@ pub struct Handler {
     /// The handler hides the Windows taskbar, which the person at the PC
     /// would lose while the game runs.
     pub hides_taskbar: bool,
+    /// It asks for steps of its own in Nucleus' setup
+    /// (`Game.ShowOptionAsStep`, `Game.CustomSteps`): with one, Nucleus shows
+    /// Play only after a person answers it, unless the profile plays by
+    /// itself (`Core_Interface.GoToStep`).
+    pub has_steps: bool,
     /// Rubylight's own one-player handler ([`super::generic`]), which only
     /// background streams use.
     pub own: bool,
@@ -231,6 +236,7 @@ pub fn parse(file: &str, text: &str) -> Result<Handler, String> {
         max_players,
         supports_keyboard: flag("SupportsKeyboard"),
         hides_taskbar: flag("HideTaskbar"),
+        has_steps: text.contains("ShowOptionAsStep") || text.contains("CustomSteps"),
         own: super::generic::owns(text),
         owner: owner(text),
         // A value the script works out may be true.
@@ -526,6 +532,18 @@ Game.SupportsKeyboard = true; // { not a block
         assert_eq!(h.max_players, 4);
         assert!(h.supports_keyboard);
         assert!(!h.hides_taskbar);
+    }
+
+    #[test]
+    fn a_handler_with_steps_of_its_own_is_known() {
+        assert!(!parse("Racer.js", HANDLER).unwrap().has_steps);
+        for steps in [
+            "Game.ShowOptionAsStep(\"Mode\", true, \"Pick one\");",
+            "Game.CustomSteps = [];",
+        ] {
+            let text = format!("{HANDLER}\n{steps}");
+            assert!(parse("Racer.js", &text).unwrap().has_steps, "{steps}");
+        }
     }
 
     #[test]

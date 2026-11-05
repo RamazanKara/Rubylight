@@ -23,8 +23,8 @@ public enum StreamPreset {
             "checkbox_network_priority",
     };
 
-    // Where Android's low-latency mode can corrupt the picture, it starts off and only the person's own
-    // switch turns it on: no preset sets it or asks for it.
+    // Where Android's low-latency mode can corrupt the picture, it starts off and only the person turns it
+    // on, with its own switch or the "Low-latency decoding" master that sets it too. No preset sets it or asks for it.
     static boolean setsLatencySwitch(String key) {
         return !"checkbox_codec_low_latency".equals(key) ||
                 // The model first: everything else never starts MediaCodecHelper for this.

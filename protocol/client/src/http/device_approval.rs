@@ -2,7 +2,7 @@
 //! `/pairing/deny`), offered while the host lists the feature `pairing.approve` and this device
 //! holds Host control. The pinned native API types predate them, so they live here.
 //!
-//! A refusal's `code` (`wrong_pin`, `pairing_unconfirmed`, `pairing_ended`) is newer than the pinned
+//! A refusal's `code` (`wrong_pin`, `pairing_unconfirmed`, `pairing_ended`, `pairing_cooldown`) is newer than the pinned
 //! `ErrorCode` too and reads as `Unknown`; its message, in the host's words, is what is shown.
 
 use serde::{Deserialize, Serialize};

@@ -776,7 +776,8 @@ impl Launcher {
                     .show(ctx, |ui| {
                         ui.set_width(380.0);
                         ui.label(RichText::new(trf("{} wants to pair", &[&name])).font(semibold(text::SECTION)));
-                        ui.label(RichText::new(trf("From {0}, for {1}", &[&address, &pc])).color(ON_SURFACE_VARIANT));
+                        // The one part of the request the device can't choose.
+                        ui.label(RichText::new(trf("From {0}, for {1}", &[&address, &pc])).font(semibold(text::BODY)));
                         ui.add_space(space::S);
                         let shown = if *busy { trf("Waiting for {}…", &[&name]) } else { pin.clone() };
                         ui.label(RichText::new(shown).font(semibold(text::SECTION)));

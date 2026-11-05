@@ -23,6 +23,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Stop opening this when Nightjar starts", "Nightjar 시작 시 열지 않기"),
     ("Starting on {} in {}", "{0}에서 {1}초 후 시작"),
     ("Starting on {}", "{}에서 시작하는 중"),
+    ("A game is already running on {}, so Nightjar opened as usual.", "{}에서 이미 게임이 실행 중이므로 Nightjar가 평소처럼 열렸습니다."),
     ("A game on {} is playing on another device, so Nightjar opened as usual.", "{}의 게임을 다른 기기에서 플레이 중이므로 Nightjar가 평소처럼 열렸습니다."),
     ("No network, so Nightjar opened as usual.", "네트워크가 없어 Nightjar가 평소처럼 열렸습니다."),
     ("Automatic start skipped", "자동 시작을 건너뛰었습니다"),

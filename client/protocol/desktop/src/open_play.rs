@@ -152,6 +152,13 @@ impl Run {
         !matches!(self.phase, Phase::Hold | Phase::Counting { .. })
     }
 
+    /// What to say when this run's launch met another game, in the PC's report or in the host's
+    /// answer: the player pressed nothing, so there is nothing to confirm. `None` for any other
+    /// launch, which asks as usual.
+    pub fn game_running(&self) -> Option<String> {
+        matches!(self.phase, Phase::Launched).then(|| trf("A game is already running on {}, so Nightjar opened as usual.", &[&self.target.pc]))
+    }
+
     /// Before the countdown, while the network still counts.
     fn holding(&self) -> bool {
         self.phase == Phase::Hold
@@ -558,6 +565,21 @@ impl crate::App {
         }
     }
 
+    fn open_play_stop(&mut self, why: String) {
+        self.close_countdown();
+        self.open_play.run = None;
+        self.open_play_armed(false);
+        self.launcher.message(tr("Automatic start skipped"), why);
+    }
+
+    /// The launch of an automatic start met another game: it stops with one message. False when no
+    /// automatic start is launching, and the launcher asks.
+    pub(crate) fn open_play_game_running(&mut self) -> bool {
+        let Some(why) = self.open_play.run.as_ref().and_then(Run::game_running) else { return false };
+        self.open_play_stop(why);
+        true
+    }
+
     /// Drives the sign-in setting and the automatic start, whichever screen is up.
     pub(crate) fn open_play_step(&mut self) {
         self.sign_in_step();
@@ -613,8 +635,10 @@ impl crate::App {
                     },
                     None => None,
                 };
-                if let Some(dialog) = dialog {
-                    // Another game runs there: the player decides now, so this is no longer an automatic start.
+                if matches!(dialog, Some(Dialog::ConfirmQuit { .. })) {
+                    self.open_play_game_running();
+                } else if let Some(dialog) = dialog {
+                    // Not a start this run can make alone: the player decides now.
                     self.launcher.ask(dialog);
                     self.open_play.run = None;
                     self.open_play_armed(false);
@@ -623,12 +647,7 @@ impl crate::App {
                     self.command(command);
                 }
             }
-            Step::Stopped(why) => {
-                self.close_countdown();
-                self.open_play.run = None;
-                self.open_play_armed(false);
-                self.launcher.message(tr("Automatic start skipped"), why);
-            }
+            Step::Stopped(why) => self.open_play_stop(why),
             Step::Failed(why) => {
                 self.open_play.run = None;
                 if let Some(why) = why {
@@ -820,6 +839,16 @@ mod tests {
         let mut run = begun(now);
         run.next(&going(), now);
         assert_eq!(run.next(&Seen { message: true, no_dialog: false, ..ready() }, now), Step::Failed(None));
+    }
+
+    #[test]
+    fn another_game_met_at_launch_stops_the_start_and_asks_nothing() {
+        let now = Instant::now();
+        let mut run = begun(now);
+        assert_eq!(run.game_running(), None, "a launch of the player's own still asks");
+        assert_eq!(run.next(&going(), now), Step::Start(7));
+        let said = run.game_running().expect("this run launched");
+        assert!(said.contains(&run.target.pc), "{said}");
     }
 
     #[test]

@@ -23,6 +23,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Stop opening this when Nightjar starts", "Nightjar 啟動時不再開啟"),
     ("Starting on {} in {}", "{1} 秒後在 {0} 上啟動"),
     ("Starting on {}", "正在 {} 上啟動"),
+    ("A game is already running on {}, so Nightjar opened as usual.", "{} 上已有遊戲在執行,因此 Nightjar 照常開啟。"),
     ("A game on {} is playing on another device, so Nightjar opened as usual.", "{} 上的遊戲正在另一台裝置上遊玩,因此 Nightjar 照常開啟。"),
     ("No network, so Nightjar opened as usual.", "沒有網路,因此 Nightjar 照常開啟。"),
     ("Automatic start skipped", "已略過自動啟動"),

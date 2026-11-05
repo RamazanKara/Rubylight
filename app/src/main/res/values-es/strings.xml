@@ -452,4 +452,5 @@
     <string name="continue_here_now_playing_elsewhere">Ahora se juega en otro dispositivo</string>
     <string name="continue_here_failed">No se pudo continuar aquí</string>
     <string name="continue_here_came_back">El juego ha vuelto a este dispositivo</string>
+    <string name="continue_here_did_not_move">La partida no pasó al otro dispositivo</string>
 </resources>

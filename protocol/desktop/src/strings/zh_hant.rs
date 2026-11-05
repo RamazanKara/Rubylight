@@ -535,6 +535,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Now playing on another device", "正在另一台裝置上遊玩"),
     ("Could not continue here", "無法在此繼續"),
     ("The game came back to this device", "遊戲已回到此裝置"),
+    ("The game did not move to the other device", "遊戲沒有轉移到另一台裝置"),
     ("Could not end the session", "無法結束工作階段"),
     ("The session action failed", "工作階段操作失敗"),
     ("The PC action failed", "電腦操作失敗"),

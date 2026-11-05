@@ -696,6 +696,29 @@ public class GameRecoveryTest {
 
     @Test
     @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aMoveThatFailsOnADeviceThatOnlyStreamedBesideOffersThatAgain() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        Game game = movedAwayFrom(pcAnswering(reads, "{\"press_failed\":true}"));
+        try {
+            awaitReads(reads, 1);
+            assertEquals(game.getString(R.string.continue_here_did_not_move), promptTitle(game));
+            android.widget.Button too = promptButton(game, android.content.DialogInterface.BUTTON_POSITIVE);
+            assertEquals(game.getString(R.string.continue_here_stream_too), too.getText().toString());
+            int after = reads.get();
+            passWatchInterval();
+            assertEquals("nothing left to watch", after, reads.get());
+            too.performClick();
+            awaitOnUi(() -> game.isFinishing());
+            Intent started = org.robolectric.Shadows.shadowOf(game).getNextStartedActivity();
+            assertEquals(Game.class.getName(), started.getComponent().getClassName());
+            assertTrue(started.getBooleanExtra("rubylight.outputResumeOnly", false));
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
     public void okOnTheOfferJustLeaves() throws Exception {
         java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
         Game game = movedAwayFrom(pcAnswering(reads, GAME_BACK));

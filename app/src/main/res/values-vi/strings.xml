@@ -452,4 +452,5 @@
     <string name="continue_here_now_playing_elsewhere">Đang chơi trên thiết bị khác</string>
     <string name="continue_here_failed">Không thể tiếp tục tại đây</string>
     <string name="continue_here_came_back">Trò chơi đã quay lại thiết bị này</string>
+    <string name="continue_here_did_not_move">Trò chơi không chuyển sang thiết bị kia</string>
 </resources>

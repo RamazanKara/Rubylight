@@ -452,4 +452,5 @@
     <string name="continue_here_now_playing_elsewhere">Тепер грає інший пристрій</string>
     <string name="continue_here_failed">Не вдалося продовжити тут</string>
     <string name="continue_here_came_back">Гра повернулася на цей пристрій</string>
+    <string name="continue_here_did_not_move">Гра не перейшла на інший пристрій</string>
 </resources>

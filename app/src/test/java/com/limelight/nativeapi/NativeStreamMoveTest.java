@@ -58,5 +58,7 @@ public class NativeStreamMoveTest {
         assertEquals("TV", move.movedTo);
         assertFalse(move.ownedHere);
         assertTrue(StreamMove.parse(new JSONObject("{\"owns_game\":true}")).ownedHere);
+        assertFalse(move.pressFailed);
+        assertTrue(StreamMove.parse(new JSONObject("{\"press_failed\":true}")).pressFailed);
     }
 }

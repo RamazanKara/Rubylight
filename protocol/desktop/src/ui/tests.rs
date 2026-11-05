@@ -60,6 +60,15 @@ fn a_prompt_that_said_the_game_moved_says_it_came_back() {
     assert!(l.focus_dialog, "the new question gets the focus");
     assert_eq!(l.moved_prompt(), None, "nothing left to watch");
 
+    // A device that only streamed beside the game: another prompt, for that game only.
+    let mut beside = Launcher::default();
+    beside.ask_after(Dialog::NowPlaying { host: 1, app: 7, device: "TV".into() });
+    beside.move_failed(1, 8);
+    assert!(matches!(beside.dialog, Dialog::NowPlaying { .. }));
+    beside.move_failed(1, 7);
+    assert!(matches!(beside.dialog, Dialog::MoveFailed { host: 1, app: 7 }));
+    assert_eq!(beside.moved_prompt(), None);
+
     // One that still waits behind another dialog changes in its place, and takes nothing away.
     l.dialog = Dialog::Message { title: "Stream".into(), body: "failed".into() };
     l.ask_after(Dialog::NowPlaying { host: 1, app: 7, device: "TV".into() });
@@ -991,6 +1000,7 @@ fn at_150_percent_in_german_a_1280x720_window_clips_no_button() {
             Dialog::ContinueHere { host: id, app: 7, resume: true, name: "A game with a rather long title".into(), device: "A long name for a phone".into() },
             Dialog::NowPlaying { host: id, app: 7, device: "A long name for a television".into() },
             Dialog::GameCameBack { host: id, app: 7 },
+            Dialog::MoveFailed { host: id, app: 7 },
             Dialog::PairError { host: id, body: "PIN rejected. Generate a new one-time PIN in your host's web UI and check the passphrase.".into(), one_time: true },
             Dialog::Message { title: "Network test failed".into(), body: "The PC did not answer.".into() },
             Dialog::ConfirmSleep { host: id, ask: 1, name: "A long name for a gaming PC".into(), offer: None },

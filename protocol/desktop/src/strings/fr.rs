@@ -535,6 +535,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Now playing on another device", "Maintenant sur un autre appareil"),
     ("Could not continue here", "Impossible de continuer ici"),
     ("The game came back to this device", "Le jeu est revenu sur cet appareil"),
+    ("The game did not move to the other device", "Le jeu n'est pas passé sur l'autre appareil"),
     ("Could not end the session", "Impossible d’arrêter la session"),
     ("The session action failed", "L’action de session a échoué"),
     ("The PC action failed", "L’action sur le PC a échoué"),

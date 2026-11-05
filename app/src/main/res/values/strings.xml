@@ -526,4 +526,5 @@
     <string name="continue_here_now_playing_elsewhere">Now playing on another device</string>
     <string name="continue_here_failed">Could not continue here</string>
     <string name="continue_here_came_back">The game came back to this device</string>
+    <string name="continue_here_did_not_move">The game did not move to the other device</string>
 </resources>

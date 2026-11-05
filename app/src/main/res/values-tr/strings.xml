@@ -452,4 +452,5 @@
     <string name="continue_here_now_playing_elsewhere">Şimdi başka bir cihazda oynanıyor</string>
     <string name="continue_here_failed">Burada devam edilemedi</string>
     <string name="continue_here_came_back">Oyun bu cihaza geri döndü</string>
+    <string name="continue_here_did_not_move">Oyun diğer cihaza geçmedi</string>
 </resources>

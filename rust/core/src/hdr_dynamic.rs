@@ -8,6 +8,8 @@
 //! 880f1ef): `video_hdr_metadata.h`, `video_hdr_metadata.cpp` and `video_hdr_bitstream.cpp`.
 //! Copyright (c) Foundation Sunshine authors, GPL-3.0.
 
+use std::time::{Duration, Instant};
+
 /// The maxRGB percentages HDR10+ carries. [`FrameStats::percentiles_pq`] lines up with it.
 pub const PERCENTAGES: [u8; 9] = [1, 5, 10, 25, 50, 75, 90, 95, 99];
 const P10: usize = 2;
@@ -642,8 +644,8 @@ fn read_leb128(data: &[u8], at: &mut usize) -> Option<u64> {
 pub struct StatsSmoother {
     smoothed: Option<FrameStats>,
     last: Option<FrameStats>,
-    /// Samples since the last cut, none before the first.
-    since_cut: Option<u32>,
+    /// When the last cut snapped, none before the first.
+    last_cut: Option<Instant>,
     held_cuts: u64,
 }
 
@@ -659,25 +661,32 @@ impl StatsSmoother {
     /// Weight of each new sample between cuts.
     pub const ALPHA: f32 = 0.15;
 
-    /// Samples after a cut in which another jump is smoothed instead of snapped to (a second
-    /// at 120 fps). A picture that keeps jumping would otherwise step the display's tone
-    /// mapping with every jump, which shows most on bright menus and HUDs (#59).
-    pub const CUT_GAP: u32 = 120;
+    /// How long after a cut another jump is smoothed instead of snapped to. A picture that
+    /// keeps jumping would otherwise step the display's tone mapping with every jump, which
+    /// shows most on bright menus and HUDs (#59). Time, not samples: a slower source's real
+    /// cuts stay as far apart as a fast one's.
+    pub const CUT_GAP: Duration = Duration::from_secs(1);
 
     /// Feed one new analysis sample, not one per encoded frame: repeating a sample would
     /// speed the smoothing up. `None` for invalid statistics, which leave the state alone.
     pub fn update(&mut self, raw: &FrameStats) -> Option<Smoothed> {
+        self.update_at(raw, Instant::now())
+    }
+
+    /// [`Self::update`] for a sample taken at `now`.
+    pub fn update_at(&mut self, raw: &FrameStats, now: Instant) -> Option<Smoothed> {
         if !raw.is_valid() {
             return None;
         }
         let jump = self.last.is_some_and(|last| is_scene_cut(&last, raw));
-        let held = jump && self.since_cut.is_some_and(|since| since < Self::CUT_GAP);
+        let held = jump
+            && self
+                .last_cut
+                .is_some_and(|cut| now.duration_since(cut) < Self::CUT_GAP);
         self.held_cuts += u64::from(held);
-        self.since_cut = if jump && !held {
-            Some(0)
-        } else {
-            self.since_cut.map(|since| since.saturating_add(1))
-        };
+        if jump && !held {
+            self.last_cut = Some(now);
+        }
         let scene_cut = self.last.is_none() || (jump && !held);
         let stats = match self.smoothed {
             Some(previous) if !scene_cut => blend(&previous, raw, Self::ALPHA),

@@ -765,32 +765,39 @@ fn a_picture_that_keeps_jumping_does_not_snap_with_every_jump() {
         stats
     };
     let (dark, bright) = (with_mean(0.3), with_mean(0.5));
+    let start = Instant::now();
+    let at = |millis: u64| start + Duration::from_millis(millis);
     let mut smoother = StatsSmoother::default();
-    smoother.update(&dark).unwrap();
+    smoother.update_at(&dark, at(0)).unwrap();
     // The first cut of a stream snaps, right after its first sample too.
-    let first = smoother.update(&bright).unwrap();
+    let first = smoother.update_at(&bright, at(8)).unwrap();
     assert!(first.scene_cut);
     assert_eq!(first.stats, bright);
 
     // Back at once: smoothed, a step of ALPHA instead of the whole way.
-    let back = smoother.update(&dark).unwrap();
+    let back = smoother.update_at(&dark, at(16)).unwrap();
     assert!(!back.scene_cut);
     assert!((back.stats.mean_pq - (0.5 - StatsSmoother::ALPHA * 0.2)).abs() < 1e-5);
     assert_eq!(smoother.held_cuts(), 1);
 
-    // Still within the gap the last sample before it ends holds another jump.
-    for _ in 2..StatsSmoother::CUT_GAP {
-        assert!(!smoother.update(&dark).unwrap().scene_cut);
-    }
-    assert!(!smoother.update(&bright).unwrap().scene_cut);
+    // The last moment within the gap still holds a jump; samples in between don't move it.
+    assert!(!smoother.update_at(&dark, at(500)).unwrap().scene_cut);
+    assert!(!smoother.update_at(&bright, at(1007)).unwrap().scene_cut);
     assert_eq!(smoother.held_cuts(), 2);
 
-    // After the gap a jump is a cut again, and it starts the next gap.
-    let cut = smoother.update(&dark).unwrap();
+    // From a second after the cut a jump is a cut again, and it starts the next gap.
+    let cut = smoother.update_at(&dark, at(1008)).unwrap();
     assert!(cut.scene_cut);
     assert_eq!(cut.stats, dark);
-    assert!(!smoother.update(&bright).unwrap().scene_cut);
+    assert!(!smoother.update_at(&bright, at(1016)).unwrap().scene_cut);
     assert_eq!(smoother.held_cuts(), 3);
+
+    // Time, not samples: at a slow source's 30 samples a second, cuts a second apart snap.
+    let mut slow = StatsSmoother::default();
+    slow.update_at(&dark, at(0)).unwrap();
+    assert!(slow.update_at(&bright, at(33)).unwrap().scene_cut);
+    assert!(slow.update_at(&dark, at(1033)).unwrap().scene_cut);
+    assert_eq!(slow.held_cuts(), 0);
 
     smoother.reset();
     assert_eq!(smoother.held_cuts(), 0);

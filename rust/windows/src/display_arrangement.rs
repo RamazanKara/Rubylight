@@ -202,8 +202,14 @@ fn note_departure(
     now: std::time::Instant,
     minimized: impl FnOnce() -> std::collections::BTreeSet<isize>,
 ) {
-    if recent_departure(last, now).is_none() {
-        *last = Some((now, minimized()));
+    match last
+        .as_mut()
+        .filter(|(at, _)| now.saturating_duration_since(*at) < DEPARTURE_RECENT)
+    {
+        // The earlier reading stands: what the first display minimised is no user's
+        // doing. The streams handle this departure later, so the time moves on.
+        Some((at, _)) => *at = now,
+        None => *last = Some((now, minimized())),
     }
 }
 fn recent_departure(
@@ -351,14 +357,33 @@ fn release_owner(state: &mut State, target: &str) -> Released {
 /// anything makes Windows recall it: one saved earlier can switch the running
 /// stream's display off, or the new one.
 pub fn display_arrived(device_id: &str) -> Result<()> {
-    let state = state().lock().unwrap();
+    settle_arrival(
+        &state().lock().unwrap(),
+        device_id,
+        Topology::set_active,
+        Topology::save_current,
+    )
+}
+/// Switch on what is on once `device_id` joined, and save that only as any other
+/// layout is ([`saves_layout`]): with no virtual display it persists for left, nothing
+/// would ever take that entry back, and Windows would recall the user's monitors off.
+fn settle_arrival(
+    state: &State,
+    device_id: &str,
+    mut set_active: impl FnMut(&[String]) -> Result<()>,
+    mut save: impl FnMut() -> Result<()>,
+) -> Result<()> {
     if state.users == 0 || !state.persisted {
         return Ok(());
     }
     let ids = arrived_layout(&state.owners, &state.retained, device_id);
     settled(|| {
-        Topology::set_active(&ids)?;
-        Topology::save_current()
+        set_active(&ids)?;
+        if saves_layout(state, None) {
+            save()
+        } else {
+            Ok(())
+        }
     })
 }
 /// What is on once `device_id` joined: the streams' displays, what they keep on, and it.
@@ -429,6 +454,15 @@ fn original_layout(mut snapshot: Snapshot, target: &str) -> Snapshot {
         snapshot.rotation.remove(target);
     }
     snapshot
+}
+/// Whether the layout a display left is still as it was applied. The read fails
+/// while Windows applies a change, as this departure's own can, and a read that
+/// keeps failing says nothing of the user: the streams that go on are laid out.
+fn left_as_applied(read: impl FnMut() -> Result<bool>) -> bool {
+    settled(read).unwrap_or_else(|error| {
+        tracing::warn!(error = %format!("{error:#}"), "reading the layout a display left failed; laying out the remaining streams");
+        true
+    })
 }
 /// A stream's display left while others go on. A layout still as it was applied
 /// is laid out without it, and again once Windows has settled ([`departures`]).
@@ -646,7 +680,7 @@ impl Drop for Lease {
             // Other streams continue: lay out their displays without this one.
             if left {
                 let arrangement = state.arrangement.unwrap_or(self.arrangement);
-                let as_applied = unchanged(&state.applied).unwrap_or(false);
+                let as_applied = left_as_applied(|| unchanged(&state.applied));
                 let result = display_left(&mut state, &target, as_applied, |state| {
                     apply(state, arrangement, Some(&target))
                 });

@@ -184,14 +184,67 @@ fn only_a_recent_departure_explains_a_minimised_window() {
     note_departure(&mut last, start, || windows(&[1]));
     assert_eq!(recent_departure(&last, start), Some(&windows(&[1])));
     // A second display soon after: what the first minimised was not the user's doing.
-    let soon = start + std::time::Duration::from_secs(1);
-    note_departure(&mut last, soon, || windows(&[1, 2]));
-    assert_eq!(recent_departure(&last, soon), Some(&windows(&[1])));
+    let second = start + std::time::Duration::from_secs(9);
+    note_departure(&mut last, second, || windows(&[1, 2]));
+    assert_eq!(recent_departure(&last, second), Some(&windows(&[1])));
+    // The streams handle it once Windows settled, past the first display's window.
+    let handled = second + std::time::Duration::from_millis(1500);
+    assert!(handled > start + DEPARTURE_RECENT);
+    assert_eq!(recent_departure(&last, handled), Some(&windows(&[1])));
     // A stream that was paused meanwhile comes back too late to tell.
-    let late = start + DEPARTURE_RECENT;
+    let late = second + DEPARTURE_RECENT;
     assert_eq!(recent_departure(&last, late), None);
     note_departure(&mut last, late, || windows(&[3]));
     assert_eq!(recent_departure(&last, late), Some(&windows(&[3])));
+}
+#[test]
+fn a_read_of_the_layout_settles_and_a_failed_one_is_no_user_change() {
+    let reads = |last| {
+        let mut reads = [Err(anyhow::anyhow!("Windows is applying")), Ok(last)].into_iter();
+        left_as_applied(|| reads.next().unwrap())
+    };
+    // Windows applying a change: the read after it is the answer, either way.
+    assert!(reads(true));
+    assert!(!reads(false));
+    // It never answered: nothing says the user changed the layout.
+    assert!(left_as_applied(|| anyhow::bail!("Windows is applying")));
+}
+#[test]
+fn a_display_arriving_beside_a_remote_monitor_left_alone_saves_no_entry() {
+    let arrive = |state: &State| {
+        let on = std::cell::RefCell::new(Vec::new());
+        let saved = std::cell::Cell::new(0);
+        settle_arrival(
+            state,
+            "m2",
+            |ids| {
+                *on.borrow_mut() = ids.to_vec();
+                Ok(())
+            },
+            || {
+                saved.set(saved.get() + 1);
+                Ok(())
+            },
+        )
+        .unwrap();
+        (on.into_inner(), saved.get())
+    };
+    // A exclusive beside remote monitor M: a second one arriving settles the entry.
+    let mut state = saving_state("a");
+    add_owner(&mut state, "m", false);
+    state.users = 2;
+    assert_eq!(
+        arrive(&state),
+        (vec!["a".into(), "m".into(), "m2".into()], 1)
+    );
+    // A ended. The displays still go on as they should, but {P, m, m2} with P off is
+    // no entry to save: nothing would forget it, and Windows would recall P dark.
+    release_owner(&mut state, "a");
+    state.users = 1;
+    assert_eq!(arrive(&state), (vec!["m".into(), "m2".into()], 0));
+    // No stream left to arrive beside.
+    state.users = 0;
+    assert_eq!(arrive(&state), (Vec::<String>::new(), 0));
 }
 #[test]
 fn a_display_arriving_beside_a_stream_is_on_with_it_and_what_it_keeps() {

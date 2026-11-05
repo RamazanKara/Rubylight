@@ -522,6 +522,15 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_getWireBytesRe
     engine::with_session(0, |s| s.wire_bytes() as jlong)
 }
 
+/// The video socket's receive buffer, asked over granted (`extras::receive_buffer_info`); -1 without a session.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_getVideoReceiveBufferInfo(
+    _: JNIEnv,
+    _: JClass,
+) -> jlong {
+    engine::with_session(-1, |s| extras::receive_buffer_info(s.video_receive_buffer()))
+}
+
 #[no_mangle]
 pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_getEstimatedRttInfo(
     _: JNIEnv,

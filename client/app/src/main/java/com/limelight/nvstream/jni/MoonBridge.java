@@ -888,6 +888,12 @@ public class MoonBridge {
     }
     private static native long cGetWireBytesReceived();
 
+    // The video socket's receive buffer in bytes: asked in the top 32 bits, what the system granted in
+    // the bottom. -1 when unknown: the classic engine only logs it, in debug builds.
+    public static long getVideoReceiveBufferInfo() {
+        return rustStream ? RustBridge.getVideoReceiveBufferInfo() : -1;
+    }
+
     // Early edge of the last phase-lock report in microseconds before the latch, or
     // Integer.MIN_VALUE before the first one.
     public static int getPhaseLockLeadUs() {

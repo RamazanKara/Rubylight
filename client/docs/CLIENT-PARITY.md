@@ -38,8 +38,8 @@ Which Nightjar features each client provides: Android (phones, handhelds, tablet
 | Interface size, high contrast, reduced motion | Yes | Yes | Yes | On Linux, **Follow system** leaves motion on, since there is no system setting to read. |
 | Screen reader | Yes | Yes | Yes | Android: TalkBack. Desktop: the platform accessibility API (UI Automation on Windows, AT-SPI on Linux). |
 | Languages | Yes | Yes | Yes | The same 15 languages everywhere. Desktop CJK, Cyrillic, Polish, Turkish and Vietnamese text uses a system font ([Translations](TRANSLATIONS.md#desktop)). |
-| Update check | Yes | Yes | N/A | Android outside Google Play; Windows and the AppImage once per launch. deb, rpm and Flatpak update through their package manager. |
-| One-click update | Yes | Yes | N/A | Android outside Google Play; the installed Windows copy runs the new setup silently and restarts, the AppImage replaces its file and restarts. Size and SHA-256 are checked first. A portable Windows copy keeps the link to the release page. |
+| Update check | Yes | Yes | Partial | Android outside Google Play; Windows and the AppImage once per launch. deb, rpm and Flatpak update through their package manager. |
+| One-click update | Yes | Yes | Partial | Android outside Google Play; the installed Windows copy runs the new setup with its progress window and restarts, the AppImage replaces its file and restarts. Size and SHA-256 are checked first. A portable Windows copy keeps the link to the release page; deb, rpm and Flatpak update through their package manager. |
 | Problem reports and crash records | Yes | Partial | Partial | The desktop writes redacted logs to its logs folder, and on Windows a minidump for each crash; it has no problem-report export. |
 
 ## Picture

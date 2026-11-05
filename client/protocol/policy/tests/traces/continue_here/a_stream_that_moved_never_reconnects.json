@@ -19,6 +19,12 @@
     {"call": "came_back", "args": [false, true], "expect": true},
     {"call": "came_back", "args": [true, true], "expect": false},
     {"call": "came_back", "args": [false, false], "expect": false},
-    {"call": "came_back", "args": [true, false], "expect": false}
+    {"call": "came_back", "args": [true, false], "expect": false},
+    {"call": "joins_after_read", "args": [true, true, false], "expect": true},
+    {"call": "joins_after_read", "args": [true, false, true], "expect": true},
+    {"call": "joins_after_read", "args": [true, false, false], "expect": false},
+    {"call": "joins_after_read", "args": [false, false, true], "expect": true},
+    {"call": "joins_after_read", "args": [false, true, true], "expect": false},
+    {"call": "joins_after_read", "args": [false, false, false], "expect": false}
   ]
 }

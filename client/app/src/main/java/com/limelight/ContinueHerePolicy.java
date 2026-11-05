@@ -25,6 +25,15 @@ public final class ContinueHerePolicy {
         return !moved && owns;
     }
 
+    /**
+     * Whether a resume joins the game the PC runs, once the PC answered who plays: {@code /resume} joins it whoever owns it,
+     * so only an answer that says it is another device's may. {@code too}: the user already chose to stream beside it.
+     * Otherwise another device's same game asks first, and only a press that failed with nobody to ask about joins.
+     */
+    public static boolean joinsAfterRead(boolean too, boolean sameGame, boolean pressFailed) {
+        return too ? sameGame || pressFailed : !sameGame && pressFailed;
+    }
+
     /** A stream that moved never reconnects on its own: two devices must not fight over the stream. */
     public static boolean recovers(boolean transientFailure, boolean moved) {
         return transientFailure && !moved;

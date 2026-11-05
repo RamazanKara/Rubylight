@@ -753,7 +753,8 @@ public class ComputerManagerService extends Service {
             com.limelight.preferences.AppStreamSettings.forget(this, computer.uuid);
             com.limelight.preferences.AutoBitrateChoice.forget(this, computer.uuid);
             getSharedPreferences(AppView.HIDDEN_APPS_PREF_FILENAME, MODE_PRIVATE)
-                    .edit().remove(computer.uuid).apply();
+                    .edit().remove(computer.uuid)
+                    .remove(com.limelight.nativeapi.HiddenStore.Preferences.idsKey(computer.uuid)).apply();
             FrontendExportStore.forgetHost(this, computer.uuid);
             CacheHelper.deleteCacheFile(getCacheDir(), "applist", computer.uuid);
             new DiskAssetLoader(this).deleteAssetsForComputer(computer.uuid);

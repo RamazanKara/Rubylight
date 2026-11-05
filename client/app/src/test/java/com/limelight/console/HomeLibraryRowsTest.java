@@ -431,4 +431,103 @@ public class HomeLibraryRowsTest {
         HomeModel.Row epic = model.row("shelf:store:epic");
         assertEquals(epic.cards, model.whole(epic));
     }
+
+    private static HomeModel.GameCard titled(List<HomeModel.GameCard> cards, String title) {
+        for (HomeModel.GameCard card : cards) {
+            if (card.title.equals(title)) return card;
+        }
+        throw new AssertionError(title + " not in " + titles(cards));
+    }
+
+    /** The same game ("i1") under another app id, as a host lists it after renumbering. */
+    private static String renumbered(int appId, String title) {
+        return game(appId, title, "steam", true, null).replace("\"i" + appId + "\"", "\"i1\"").replace("\"g" + appId + "\"", "\"g1\"");
+    }
+
+    @Test
+    public void aHiddenGameStaysHiddenWhenTheHostRenumbersItAndAnotherGetsItsOldId() throws Exception {
+        tower(Collections.emptyList(), game(1, "Alpha", "steam", true, null), game(2, "Beta", "steam", true, null));
+        HomeModel before = model();
+        rig.repository.setHidden(before.copiesOf(titled(before.library, "Alpha")), true);
+
+        rig.transport.reply("tower", "library", ok(library("t2", renumbered(7, "Alpha"),
+                game(2, "Beta", "steam", true, null), game(1, "Newcomer", "steam", true, null).replace("\"i1\"", "\"i9\"").replace("\"g1\"", "\"g9\""))));
+        HomeModel after = model();
+
+        assertEquals(Arrays.asList("Beta", "Newcomer"), titles(after.library));
+        List<HomeModel.GameCard> hidden = AllGamesActivity.cardsOf(after, HomeModel.FILTER_HIDDEN);
+        assertEquals(Collections.singletonList("Alpha"), titles(hidden));
+        assertEquals(7, hidden.get(0).appId);
+
+        // Shown again under its new id, it stays shown through the next renumber.
+        rig.repository.setHidden(after.copiesOf(hidden.get(0)), false);
+        rig.transport.reply("tower", "library", ok(library("t3", renumbered(8, "Alpha"), game(2, "Beta", "steam", true, null))));
+        assertEquals(Arrays.asList("Alpha", "Beta"), titles(model().library));
+    }
+
+    @Test
+    public void aCollectionRowsCardStillKnowsItsLibraryCardForWhichPc() throws Exception {
+        tower(Collections.emptyList(), in(game(1, "Alpha", "steam", true, null), "VR"));
+        CollectionGroups.use(request -> "{\"ok\":{\"groups\":[{\"name\":\"VR\",\"games\":[0]}]}}");
+        HomeModel model = model();
+        HomeModel.GameCard card = model.rows(HomeView.Group.COLLECTION).get(0).cards.get(0);
+        assertFalse(card.key.startsWith("game:"));
+        assertEquals(titled(model.library, "Alpha").key, card.libraryKey);
+    }
+
+    @Test
+    public void aCollectionsChipHoldsTheCardsItsGroupPlacesOnItNotAComparisonOfNames() throws Exception {
+        // The shared code groups these two; Java's trim and ignore-case would not.
+        tower(Collections.emptyList(),
+                in(game(1, "Alpha", "steam", true, null), "Straße"),
+                in(game(2, "Beta", "steam", true, null), "STRASSE"),
+                game(3, "Gamma", "steam", true, null));
+        CollectionGroups.use(request -> "{\"ok\":{\"groups\":[{\"name\":\"Straße\",\"games\":[0,1]},"
+                + "{\"name\":null,\"games\":[2]}]}}");
+        HomeModel model = model();
+        assertEquals(Arrays.asList("Alpha", "Beta"),
+                titles(AllGamesActivity.cardsOf(model, HomeModel.COLLECTION_FILTER + "Straße")));
+        assertEquals(Collections.singletonList("Gamma"),
+                titles(AllGamesActivity.cardsOf(model, HomeModel.FILTER_NO_COLLECTION)));
+        assertEquals(Collections.emptyList(), AllGamesActivity.cardsOf(model, HomeModel.COLLECTION_FILTER + "Gone"));
+    }
+
+    @Test
+    public void aRunningHiddenGameStaysUnderContinuePlayingAndItsCardShowsItAgain() throws Exception {
+        tower(Collections.emptyList(), game(1, "Alpha", "steam", true, null), game(2, "Beta", "steam", true, null));
+        HomeModel before = model();
+        rig.repository.setHidden(before.copiesOf(titled(before.library, "Alpha")), true);
+        rig.transport.reply("tower", "session", ok(NativeApiFixtures.session("streaming", "other_device",
+                "{\"install_id\":\"i1\",\"app_id\":1,\"title\":\"Alpha\"}", "[]")));
+
+        HomeModel model = model();
+        HomeModel.GameCard running = titled(model.continuePlaying, "Alpha");
+        assertTrue(running.sourceHidden());
+        assertEquals(Collections.singletonList("Beta"), titles(model.library));
+
+        // Its menu offers Show: the copies are the hidden ones, and that brings it back.
+        assertEquals(1, model.copiesOf(running).size());
+        assertTrue(model.copiesOf(running).get(0).hidden);
+        rig.repository.setHidden(model.copiesOf(running), false);
+        HomeModel shown = model();
+        assertFalse(titled(shown.continuePlaying, "Alpha").sourceHidden());
+        assertEquals(Arrays.asList("Alpha", "Beta"), titles(shown.library));
+    }
+
+    @Test
+    public void aHiddenGameTakesNoPlaceAmongTheRecentOnes() throws Exception {
+        List<String> games = new ArrayList<>();
+        for (int id = 1; id <= 11; id++) {
+            games.add(game(id, "Game " + id, "steam", true, null));
+            rig.recents.add(new com.limelight.nativeapi.RecentsStore.Recent("tower", "Tower", id, "Game " + id, 1000 - id));
+        }
+        tower(Collections.emptyList(), games.toArray(new String[0]));
+        HomeModel before = model();
+        rig.repository.setHidden(before.copiesOf(titled(before.library, "Game 1")), true);
+
+        List<String> recent = titles(model().continuePlaying);
+        assertEquals(recent.toString(), 10, recent.size());
+        assertFalse(recent.contains("Game 1"));
+        assertTrue("the place goes to the next one", recent.contains("Game 11"));
+    }
 }

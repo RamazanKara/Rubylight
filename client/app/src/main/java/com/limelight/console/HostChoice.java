@@ -34,7 +34,7 @@ final class HostChoice {
     }
 
     /**
-     * @param cardKey the key of the library card ({@code "game:" + title key})
+     * @param cardKey the key of the library card ({@code "game:" + title key}; a card's {@link HomeModel.GameCard#libraryKey})
      * @param online  the UUIDs of the hosts that answer now
      * @return the hosts that list the game; empty when the snapshot has no such title
      */
@@ -46,8 +46,8 @@ final class HostChoice {
                 continue;
             }
             for (ConsoleSnapshot.Source source : title.sources) {
-                // A copy the PC found but has not added has no app id to open.
-                if (Boolean.FALSE.equals(source.installed) || !source.added) {
+                // A copy the PC found but has not added has no app id to open; a hidden one is off Home on this device.
+                if (Boolean.FALSE.equals(source.installed) || !source.added || source.hidden) {
                     continue;
                 }
                 boolean up = online.contains(source.hostUuid);

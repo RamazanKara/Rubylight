@@ -17,6 +17,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -252,7 +253,7 @@ public final class ConsoleRepository {
     /** Hides these copies of a game on this device, or shows them again. */
     public void setHidden(List<ConsoleSnapshot.Source> copies, boolean hide) {
         for (ConsoleSnapshot.Source copy : copies) {
-            hidden.set(copy.hostUuid, copy.appId, hide);
+            hidden.set(copy.hostUuid, copy.appId, copy.stableId(), hide);
         }
     }
 
@@ -268,7 +269,11 @@ public final class ConsoleRepository {
             return new ConsoleSnapshot.Host(computer.uuid, computer.displayName(), ConsoleSnapshot.Status.UNAVAILABLE, 0,
                     null, null, Collections.emptyList());
         }
-        Set<Integer> away = hidden.of(computer.uuid);
+        Map<String, Integer> listed = new HashMap<>();
+        for (NvApp app : apps) {
+            if (app.getAppUuid() != null && !app.getAppUuid().isEmpty()) listed.put(app.getAppUuid(), app.getAppId());
+        }
+        Set<Integer> away = hidden.following(computer.uuid, listed);
         List<ConsoleSnapshot.Source> sources = new ArrayList<>();
         for (NvApp app : apps) {
             sources.add(new ConsoleSnapshot.Source(computer.uuid, computer.displayName(), app.getAppId(), null,
@@ -351,7 +356,11 @@ public final class ConsoleRepository {
     }
 
     private List<ConsoleSnapshot.Source> sourcesOf(ComputerDetails computer, NativeLibrary library) {
-        Set<Integer> away = hidden.of(computer.uuid);
+        Map<String, Integer> listed = new HashMap<>();
+        for (NativeLibrary.Game game : library.games) {
+            if (game.added && game.installId != null && !game.installId.isEmpty()) listed.put(game.installId, game.appId);
+        }
+        Set<Integer> away = hidden.following(computer.uuid, listed);
         List<ConsoleSnapshot.Source> sources = new ArrayList<>();
         for (NativeLibrary.Game game : library.games) {
             sources.add(new ConsoleSnapshot.Source(computer.uuid, computer.displayName(), game.appId,
@@ -455,6 +464,10 @@ public final class ConsoleRepository {
             ConsoleSnapshot.Source source = find(host, null, recent.appId);
             // A known library without the game means it was uninstalled or removed from the host.
             if (source == null && host.status != ConsoleSnapshot.Status.UNAVAILABLE) {
+                continue;
+            }
+            // A hidden game takes no place among the shown ones; a running one stays above, as the way back to it.
+            if (source != null && source.hidden) {
                 continue;
             }
             older.add(new ConsoleSnapshot.Continue(ConsoleSnapshot.ContinueKind.RECENT, host.uuid, host.name,

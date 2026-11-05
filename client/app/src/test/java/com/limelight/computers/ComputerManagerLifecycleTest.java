@@ -6,6 +6,7 @@ import android.content.ServiceConnection;
 
 import com.limelight.AppView;
 import com.limelight.discovery.DiscoveryService;
+import com.limelight.nativeapi.HiddenStore;
 import com.limelight.nativeapi.HostEndpoint;
 import com.limelight.nativeapi.NativeApiClient;
 import com.limelight.nativeapi.NativeApiFixtures;
@@ -61,7 +62,8 @@ public class ComputerManagerLifecycleTest {
                 Files.writeString(CacheHelper.openPath(true, service.getCacheDir(), "applist", host).toPath(), "library");
                 Files.writeString(CacheHelper.openPath(true, service.getCacheDir(), "boxart", host, "42.png").toPath(), "cover");
                 service.getSharedPreferences(AppView.HIDDEN_APPS_PREF_FILENAME, 0).edit()
-                        .putStringSet(host, Collections.singleton("42")).commit();
+                        .putStringSet(host, Collections.singleton("42"))
+                        .putStringSet(HiddenStore.Preferences.idsKey(host), Collections.singleton("42:install")).commit();
             }
 
             service.removeComputer(computer);
@@ -69,6 +71,10 @@ public class ComputerManagerLifecycleTest {
             assertFalse(CacheHelper.openPath(false, service.getCacheDir(), "applist", computer.uuid).exists());
             assertFalse(CacheHelper.openPath(false, service.getCacheDir(), "boxart", computer.uuid).exists());
             assertFalse(service.getSharedPreferences(AppView.HIDDEN_APPS_PREF_FILENAME, 0).contains(computer.uuid));
+            assertFalse(service.getSharedPreferences(AppView.HIDDEN_APPS_PREF_FILENAME, 0)
+                    .contains(HiddenStore.Preferences.idsKey(computer.uuid)));
+            assertTrue(service.getSharedPreferences(AppView.HIDDEN_APPS_PREF_FILENAME, 0)
+                    .contains(HiddenStore.Preferences.idsKey("another-host")));
             assertTrue(CacheHelper.openPath(false, service.getCacheDir(), "applist", "another-host").isFile());
             assertTrue(CacheHelper.openPath(false, service.getCacheDir(), "boxart", "another-host", "42.png").isFile());
             assertTrue(service.getSharedPreferences(AppView.HIDDEN_APPS_PREF_FILENAME, 0).contains("another-host"));

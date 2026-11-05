@@ -192,18 +192,15 @@ def close(_):
     f.log('closed')
 
 
-def task_exists():
-    return subprocess.run(['schtasks', '/Query', '/TN', HOST_TASK], capture_output=True).returncode == 0
-
-
 def down(_):
     # Every step runs and the locks always go: a step that failed is reported at the end, with what is left behind.
     left = []
     try:
         results = elevate([dict(args=['/End', '/TN', HOST_TASK]), dict(kill=True),
                            dict(args=['/Delete', '/TN', HOST_TASK, '/F']), dict(firewall=True, remove=True)])
-        # /End fails on a task that no longer runs, /Delete on one already gone.
-        if results[2]['exit'] and task_exists():
+        # /End fails on a task that no longer runs, /Delete on one a failed up never made. The elevation task has no
+        # /Query and this shell can't see a SYSTEM task, so the answer's text tells; another language's reads as left.
+        if results[2]['exit'] and not re.search('cannot find|nicht finden', results[2]['output']):
             left.append(f"the task {HOST_TASK}: {results[2]['output'][:120]}")
         if results[3]['exit']:
             left.append(f"the firewall rule: {results[3]['output'][:120]}")
@@ -216,13 +213,15 @@ def down(_):
             left.append(f'the Retroid ({line}): {error}')
     f.release_locks()
     if left:
-        raise SystemExit('down left behind: ' + '; '.join(left))
+        print('down left behind: ' + '; '.join(left), file=sys.stderr)
     log = PROFILE / 'logs' / 'butterpollo.log'
     if log.exists():
         shutil.copy(log, OUT / f'{time.strftime("%H%M%S")}-host.log')
         if re.search(HANG, log.read_text(errors='replace'), re.I):
             print('encoder hang in the host log: stop and investigate', file=sys.stderr)
             sys.exit(3)
+    if left:
+        sys.exit(1)
 
 
 def main():

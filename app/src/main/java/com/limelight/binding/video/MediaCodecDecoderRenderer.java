@@ -1409,10 +1409,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         // Erratum 23 with Android's low-latency mode turned back on: one reference and no long-term
         // ones, so a lost frame recovers with a keyframe. With the mode off these decoders keep RFI.
+        // A Dolby Vision stream runs on its own decoder and mime, but declares its base codec's RFI.
+        // No short circuit: each decoder this applies to says so in the log.
         if (runsCorruptingLowLatency(avcDecoder, "video/avc")) refFrameInvalidationAvc = false;
-        if (runsCorruptingLowLatency(hevcDecoder, "video/hevc")) refFrameInvalidationHevc = false;
+        if (runsCorruptingLowLatency(hevcDecoder, "video/hevc") |
+                runsCorruptingLowLatency(dolbyVisionDecoder, HdrFormatPolicy.MIME_DOLBY_VISION)) refFrameInvalidationHevc = false;
         if (runsCorruptingLowLatency(tenBitHevcDecoder(), "video/hevc")) refFrameInvalidationHevc10 = false;
-        if (runsCorruptingLowLatency(av1Decoder, "video/av01")) refFrameInvalidationAv1 = false;
+        if (runsCorruptingLowLatency(av1Decoder, "video/av01") |
+                runsCorruptingLowLatency(dolbyVisionAv1Decoder, HdrFormatPolicy.MIME_DOLBY_VISION)) refFrameInvalidationAv1 = false;
         if (runsCorruptingLowLatency(tenBitAv1Decoder(), "video/av01")) refFrameInvalidationAv110 = false;
     }
 

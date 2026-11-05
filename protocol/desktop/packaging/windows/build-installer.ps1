@@ -329,7 +329,11 @@ try {
     # locks files. The pending marker and SETUP_MUTEX (self_update.rs) are all it looks at, and this
     # shell holds the mutex in Setup's place: a launch during a real Setup's [Files] would be a race,
     # and would lock what that Setup replaces. The setup's own start at its end goes on.
+    # A marker this young says the same on its own: Setup takes the mutex a moment after it starts.
     New-TestFile "$dir.config\update-pending.json"
+    $starting = Get-InstalledExit @('--version')
+    if ($starting -ne 75) { throw "a launch just after the hand-over exited with $starting, not 75" }
+    (Get-Item "$dir.config\update-pending.json").LastWriteTime = (Get-Date).AddMinutes(-1)
     $installing = [Threading.Mutex]::new($false, 'Local\NightjarSetup')
     try {
         $during = Get-InstalledExit @('--version')

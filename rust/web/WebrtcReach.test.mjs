@@ -109,6 +109,35 @@ test('an answered check waits for the browser, and a failure after it is the han
   assert.deepEqual(seen.failed, ['no-handshake']);
 });
 
+test('an answer whose handshake stalls is called, however long the browser would wait', async () => {
+  const pc = new FakePeer();
+  pc.pairs = [{ state: 'in-progress', responsesReceived: 1 }];
+  const seen = [];
+  reach.watchConnection(pc, () => {}, (why) => seen.push(why), 10_000, 5, 60);
+  await settle(20);
+  assert.deepEqual(seen, []);
+  await settle(150);
+  assert.deepEqual(seen, ['no-handshake']);
+});
+
+test('the handshake limit counts from the first answer and spares one that connects in time', async () => {
+  const pc = new FakePeer();
+  const seen = [];
+  reach.watchConnection(pc, () => {}, (why) => seen.push(why), 10_000, 5, 120);
+  // An answer this late gets the whole limit, though the wait for it was already that long.
+  await settle(150);
+  pc.pairs = ['succeeded'];
+  await settle(40);
+  assert.deepEqual(seen, []);
+  pc.become('connected');
+  await settle(200);
+  assert.deepEqual(seen, []);
+});
+
+test('the handshake limit leaves a slow link room, 5.5 s to a first frame having been seen under loss', () => {
+  assert.ok(reach.NO_HANDSHAKE_MS >= 5 * 5_500);
+});
+
 test('a slow start that connects says nothing, and a later failure is a lost connection', async () => {
   const pc = new FakePeer();
   pc.pairs = ['in-progress'];

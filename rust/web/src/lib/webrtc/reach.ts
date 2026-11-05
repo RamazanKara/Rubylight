@@ -4,6 +4,8 @@
 
 /** A check takes one round trip and browsers repeat them many times a second: by now none will come back. */
 export const NO_ANSWER_MS = 8_000;
+/** From the first answer to connected. A first frame has taken 5.5 s under loss, handshake included, and this leaves it several times that. */
+export const NO_HANDSHAKE_MS = 30_000;
 const LOOK_EVERY_MS = 1_000;
 
 /**
@@ -67,14 +69,16 @@ export type Watched = {
 
 /**
  * Watches a peer connection from its answer on, until it closes. `connected` runs when it
- * connects. `failed` runs once, when the browser gives up or when `ms` passed without a single
- * answer; a connection that is closed says nothing. Pairs are remembered as they appear, since
- * Chrome drops them the moment it gives up.
+ * connects. `failed` runs once, when the browser gives up, when `ms` passed without a single
+ * answer, or when `handshakeMs` passed from the first answer without connecting; a connection that
+ * is closed says nothing. Pairs are remembered as they appear, since Chrome drops them the moment
+ * it gives up.
  */
-export function watchConnection(pc: Watched, connected: () => void, failed: (why: Failure) => void, ms = NO_ANSWER_MS, every = LOOK_EVERY_MS) {
+export function watchConnection(pc: Watched, connected: () => void, failed: (why: Failure) => void, ms = NO_ANSWER_MS, every = LOOK_EVERY_MS, handshakeMs = NO_HANDSHAKE_MS) {
   const started = Date.now();
   let tried = false;
   let answered = false;
+  let answeredAt = 0;
   let up = false;
   let over = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -116,7 +120,8 @@ export function watchConnection(pc: Watched, connected: () => void, failed: (why
     if (pc.connectionState === 'closed') return stop();
     void look().then(() => {
       if (over || up) return;
-      if (!answered && Date.now() - started >= ms) return fail();
+      if (answered) answeredAt ||= Date.now();
+      if (answered ? Date.now() - answeredAt >= handshakeMs : Date.now() - started >= ms) return fail();
       timer = setTimeout(tick, every);
     });
   };

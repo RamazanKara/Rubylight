@@ -59,8 +59,8 @@ public class GameOpenPlayLeaveTest {
         return game;
     }
 
-    /** The configuration the real screen built for its connection. */
-    private StreamConfiguration configOf(String source) {
+    /** The real screen, through its onCreate. */
+    private Game created(String source) {
         Intent intent = new Intent(context, Game.class)
                 .putExtra(Game.EXTRA_HOST, "192.0.2.1")
                 .putExtra(Game.EXTRA_UNIQUEID, "device")
@@ -68,7 +68,20 @@ public class GameOpenPlayLeaveTest {
         LaunchSource.put(intent, source);
         Game game = Robolectric.buildActivity(Game.class, intent).create().get();
         assertNotNull("the screen got as far as its connection", game.conn);
-        return ReflectionHelpers.getField(ReflectionHelpers.<Object>getField(game.conn, "context"), "streamConfig");
+        return game;
+    }
+
+    /** The configuration the real screen built for its connection. */
+    private StreamConfiguration configOf(String source) {
+        return ReflectionHelpers.getField(ReflectionHelpers.<Object>getField(created(source).conn, "context"), "streamConfig");
+    }
+
+    @Test
+    public void aMissingDecoderIsAFailedStartWhenItsDialogClosesTheScreen() {
+        Game game = created(LaunchSource.OPEN_PLAY);
+        assertFalse("the case under test: no AVC decoder here", game.decoderRenderer.isAvcSupported());
+        game.finish();
+        assertTrue(armed());
     }
 
     @Test

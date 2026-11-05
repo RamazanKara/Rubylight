@@ -40,6 +40,8 @@ const SETUP_MUTEX: &str = "Local\\NightjarSetup";
 const AFTER_SETUP: &str = "--after-setup";
 /// How long a started program gets to fail at once. After this it runs, and Nightjar can go.
 const START_WATCH: Duration = Duration::from_secs(1);
+/// How long a started setup can take to hold SETUP_MUTEX.
+const SETUP_STARTING: Duration = Duration::from_secs(10);
 /// The entry the setup writes for its AppId (nightjar.iss): per user, so under HKCU.
 #[cfg(windows)]
 const UNINSTALL_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{6A3C8F12-5E7B-4D2A-9C41-7B0E8D3F2A65}_is1";
@@ -448,7 +450,18 @@ pub fn split_after_setup(mut args: Vec<std::ffi::OsString>) -> (Vec<std::ffi::Os
 /// which is the setup's result, or holds on to the files the setup is replacing. The setup's own
 /// start at its end isn't one.
 pub fn install_running(after_setup: bool) -> bool {
-    !after_setup && marker_path().is_some_and(|marker| marker.exists()) && mutex_exists(SETUP_MUTEX)
+    !after_setup && installing(marker_path().as_deref().and_then(marker_age), mutex_exists(SETUP_MUTEX))
+}
+
+/// Windows' setup takes its mutex a moment after it starts: until then a young marker says the same.
+fn installing(marker_age: Option<Duration>, setup_mutex: bool) -> bool {
+    marker_age.is_some_and(|age| setup_mutex || (cfg!(windows) && age < SETUP_STARTING))
+}
+
+/// A marker with a clock that can't tell counts as an old one.
+fn marker_age(marker: &Path) -> Option<Duration> {
+    let written = std::fs::metadata(marker).ok()?.modified().ok();
+    Some(written.and_then(|at| at.elapsed().ok()).unwrap_or(Duration::MAX))
 }
 
 fn marker_path() -> Option<PathBuf> {
@@ -702,6 +715,16 @@ mod tests {
         assert_eq!(split_after_setup(args(&[AFTER_SETUP])), (args(&[]), true));
         assert_eq!(split_after_setup(args(&[AFTER_SETUP, "--host", "x"])), (args(&["--host", "x"]), true));
         assert!(!install_running(true), "the setup's own start always goes on");
+    }
+
+    #[test]
+    fn a_setup_that_has_not_taken_its_mutex_yet_is_running() {
+        let (young, old) = (Some(Duration::from_secs(1)), Some(Duration::from_secs(60)));
+        assert_eq!(installing(young, false), cfg!(windows));
+        assert!(installing(old, true));
+        assert!(!installing(old, false), "a setup that ended and left its marker");
+        assert!(!installing(None, true), "another way of running the setup");
+        assert!(!installing(None, false));
     }
 
     #[test]

@@ -35,7 +35,7 @@ export function inviteToken(hash: string): string | null {
 export const gamepads = (permission: Permission) => permission !== 'view';
 export const keyboardMouse = (permission: Permission) => permission === 'controller-keyboard-mouse';
 
-const LOST = 'The connection to the host was lost.';
+const LOST = guestFailure('lost', null);
 const REFUSED = 'The host refused this page’s connection.';
 /** What the host says of a link that opens nothing; its guest port answers 404 once no link works. */
 const INVALID_LINK = 'This invite link does not work: it expired, the host withdrew it, or it was copied incompletely.';

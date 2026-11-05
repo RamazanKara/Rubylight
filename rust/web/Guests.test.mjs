@@ -80,7 +80,7 @@ test('only a link that still works waits, and a withdrawn or wrong one is final'
   const kicked = guest.ending({ type: 'ended', reason: 'kicked', message: 'The host removed you from the stream.' });
   assert.equal(kicked.wait || kicked.final, false);
   assert.equal(guest.ending({ type: 'error', code: 'full', message: 'x' }).final, false);
-  assert.deepEqual(guest.ending({}), { code: 'connection-lost', message: 'The connection to the host was lost.', wait: false, final: false });
+  assert.deepEqual(guest.ending({}), { code: 'connection-lost', message: 'The connection to the PC was lost. Check your network and join again.', wait: false, final: false });
   assert.ok(!guest.gamepads('view') && !guest.keyboardMouse('view'));
   assert.ok(guest.gamepads('controller') && !guest.keyboardMouse('controller'));
   assert.ok(guest.gamepads('controller-keyboard-mouse') && guest.keyboardMouse('controller-keyboard-mouse'));

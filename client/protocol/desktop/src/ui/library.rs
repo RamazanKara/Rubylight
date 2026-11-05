@@ -895,7 +895,7 @@ pub(super) fn at_sentence_start(name: &str) -> String {
 
 /// The game's title and the device playing it, when selecting `app` asks first because another
 /// device plays that very game. Never on a PC that does not offer moving the stream.
-pub fn playing_elsewhere(host: &Host, app: i32, resume: bool, read: &nightjar_core::http::StreamMove) -> Option<(String, String)> {
+pub fn playing_elsewhere(host: &Host, app: i32, read: &nightjar_core::http::StreamMove) -> Option<(String, String)> {
     let offered = host.info.as_ref().is_some_and(|info| {
         info.capabilities.availability(nightjar_core::http::Feature::ContinueHere) == nightjar_core::http::Availability::Supported
     });
@@ -904,7 +904,7 @@ pub fn playing_elsewhere(host: &Host, app: i32, resume: bool, read: &nightjar_co
         crate::hosts::Apps::Loaded(apps) => apps.iter().find(|known| known.id == app),
         _ => None,
     };
-    let same = playing.is_some_and(|playing| plays_this_game(known, app, resume, playing));
+    let same = playing.is_some_and(|playing| plays_this_game(known, app, playing));
     if !nightjar_policy::continue_here::asks_on_select(offered, true, same) {
         return None;
     }
@@ -922,13 +922,13 @@ pub fn join_target(known: Option<&nightjar_core::http::App>, app: i32, playing: 
 }
 
 /// The same game by its install id where both sides have one, as a stream's resume decides it: an
-/// id alone can have been given to another game since the list was read. A resume through a tile
-/// that only names a way to reach the game (a stream's Resume or Running Game) means whatever runs,
-/// as `join_target` has it; selecting such a tile without a resume does not.
-pub(super) fn plays_this_game(known: Option<&nightjar_core::http::App>, app: i32, resume: bool, playing: &nightjar_core::http::PlayingOn) -> bool {
+/// id alone can have been given to another game since the list was read. A tile that only names a
+/// way to reach the game (a stream's Resume or Running Game) means whatever runs, as `join_target`
+/// has it.
+pub(super) fn plays_this_game(known: Option<&nightjar_core::http::App>, app: i32, playing: &nightjar_core::http::PlayingOn) -> bool {
     use nightjar_core::http::AppControl;
     match known {
-        Some(known) if resume && matches!(known.control, AppControl::Resume | AppControl::RunningGame) => true,
+        Some(known) if matches!(known.control, AppControl::Resume | AppControl::RunningGame) => true,
         Some(known) => known.matches_running_app(playing.app.app_id as i32, Some(&playing.app.install_id)),
         None => playing.app.app_id as i32 == app,
     }

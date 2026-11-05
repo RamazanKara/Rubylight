@@ -16,6 +16,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Open this when Nightjar starts", "Открывать при запуске Nightjar"),
     ("Stop opening this when Nightjar starts", "Не открывать при запуске Nightjar"),
     ("Starting on {} in {}", "Запуск на {0} через {1}"),
+    ("Starting on {}", "Запуск на {}"),
     ("Automatic start skipped", "Автозапуск пропущен"),
     ("{} didn't start last time, so Nightjar opened as usual.", "{} не запустилась в прошлый раз, поэтому Nightjar открылся как обычно."),
     ("Could not change the start at sign-in", "Не удалось изменить запуск при входе"),

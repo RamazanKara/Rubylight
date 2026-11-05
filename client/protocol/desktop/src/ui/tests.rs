@@ -1236,6 +1236,16 @@ fn waking_shows_the_pc_and_cancel_stops_it() {
 }
 
 #[test]
+fn the_open_play_dialog_keeps_its_cancel_after_the_countdown() {
+    let mut f = Frames::new(record("Den", true, true), Reach::Online);
+    f.l.ask(Dialog::OpenPlay { game: "Hades".into(), pc: "Den".into(), left: 0 });
+    f.settle();
+    assert!(f.drawn.iter().any(|t| t == "Starting on Den"), "{:?}", f.drawn);
+    assert!(f.press(Key::Enter).is_empty());
+    assert!(f.no_dialog(), "Cancel has focus");
+}
+
+#[test]
 fn the_open_play_countdown_names_the_game_and_the_pc_and_stops_at_cancel_or_back() {
     let mut f = Frames::new(record("Den", true, true), Reach::Online);
     let countdown = || Dialog::OpenPlay { game: "Hades".into(), pc: "Den".into(), left: 3 };

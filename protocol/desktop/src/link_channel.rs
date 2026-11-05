@@ -7,7 +7,7 @@
 //!
 //! The channel carries one link and a newline, answered by [`DELIVERED`]. It is local to this
 //! user: a named pipe open to this user alone, refusing remote clients and with an owner the sender
-//! checks, on Windows; a Unix socket in the private `XDG_RUNTIME_DIR` elsewhere. Every step has a
+//! checks, on Windows; a Unix socket in `XDG_RUNTIME_DIR` whose peer each side checks elsewhere. Every step has a
 //! time limit, so neither side can hang the other. What arrives is only ever a link for
 //! the window to ask about, and it is never written to the log.
 
@@ -118,6 +118,7 @@ fn thread(run: impl FnOnce() + Send + 'static) -> Result<(), String> {
 #[cfg(unix)]
 mod os {
     use super::*;
+    use std::os::fd::AsRawFd;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::{Path, PathBuf};
     use std::time::Duration;
@@ -129,9 +130,34 @@ mod os {
         socket_path(std::env::var_os("XDG_RUNTIME_DIR"), std::env::var_os("FLATPAK_ID"))
     }
 
+    /// The user at the other end, as the kernel knows it.
+    fn peer_user(conn: &UnixStream) -> Option<u32> {
+        // SAFETY: a zeroed ucred is a valid one, and the call writes at most its size.
+        unsafe {
+            let mut peer: libc::ucred = std::mem::zeroed();
+            let mut size = size_of::<libc::ucred>() as libc::socklen_t;
+            let read = libc::getsockopt(conn.as_raw_fd(), libc::SOL_SOCKET, libc::SO_PEERCRED, (&raw mut peer).cast(), &mut size);
+            (read == 0 && size as usize == size_of::<libc::ucred>()).then_some(peer.uid)
+        }
+    }
+
+    /// Whether a connection is with this user. The socket's directory comes from the environment
+    /// and need not be private, so another user could have made the socket to read the links.
+    fn with_this_user(conn: &UnixStream) -> bool {
+        // SAFETY: no arguments, and it cannot fail.
+        same_user(peer_user(conn), unsafe { libc::geteuid() })
+    }
+
+    fn same_user(peer: Option<u32>, me: u32) -> bool {
+        peer == Some(me)
+    }
+
     pub fn send_to(path: &Path, link: &str) -> bool {
         let Ok(mut conn) = UnixStream::connect(path) else { return false };
-        conn.set_read_timeout(Some(PATIENCE)).is_ok() && conn.set_write_timeout(Some(PATIENCE)).is_ok() && hand_over(&mut conn, link)
+        with_this_user(&conn)
+            && conn.set_read_timeout(Some(PATIENCE)).is_ok()
+            && conn.set_write_timeout(Some(PATIENCE)).is_ok()
+            && hand_over(&mut conn, link)
     }
 
     pub fn listen_at(path: &Path, inbox: Arc<Inbox>, wake: Waker) -> Result<(), String> {
@@ -150,7 +176,7 @@ mod os {
         thread(move || loop {
             match listener.accept() {
                 Ok((mut conn, _)) => {
-                    if conn.set_read_timeout(Some(PATIENCE)).is_ok() && conn.set_write_timeout(Some(PATIENCE)).is_ok() {
+                    if with_this_user(&conn) && conn.set_read_timeout(Some(PATIENCE)).is_ok() && conn.set_write_timeout(Some(PATIENCE)).is_ok() {
                         serve(&mut conn, &inbox, &wake);
                     }
                 }
@@ -160,6 +186,21 @@ mod os {
                 }
             }
         })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn only_this_user_is_trusted_at_the_other_end() {
+            let (near, _far) = UnixStream::pair().unwrap();
+            assert!(with_this_user(&near));
+            assert!(same_user(Some(1000), 1000));
+            assert!(!same_user(Some(1001), 1000));
+            assert!(!same_user(Some(0), 1000), "not root's either");
+            assert!(!same_user(None, 1000));
+        }
     }
 }
 

@@ -42,8 +42,10 @@
     <string name="perf_overlay_phone_hints">휴대전화 성능 힌트: %1$s</string>
     <string name="perf_overlay_thermal">휴대전화 발열: %1$s</string>
     <string name="perf_overlay_thermal_normal">정상</string>
-    <string name="perf_overlay_thermal_warm">따뜻함, 비트레이트 유지</string>
-    <string name="perf_overlay_thermal_hot">뜨거움, 부하 완화 중</string>
+    <string name="perf_overlay_thermal_warm">따뜻함</string>
+    <string name="perf_overlay_thermal_hot">뜨거움</string>
+    <string name="perf_overlay_thermal_warm_holding">따뜻함, 비트레이트 유지</string>
+    <string name="perf_overlay_thermal_hot_easing">뜨거움, 부하 완화 중</string>
     <string name="connection_test_title">연결 테스트</string>
     <string name="connection_test_intro">PC까지의 속도와 지연 시간을 테스트합니다.\n모바일 데이터를 포함해 최대 32 MiB를 사용합니다.</string>
     <string name="connection_test_running">테스트 중… 중지하려면 취소를 탭하세요.</string>

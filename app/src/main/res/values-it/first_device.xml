@@ -42,8 +42,10 @@
     <string name="perf_overlay_phone_hints">Suggerimenti prestazioni del telefono: %1$s</string>
     <string name="perf_overlay_thermal">Calore del telefono: %1$s</string>
     <string name="perf_overlay_thermal_normal">normale</string>
-    <string name="perf_overlay_thermal_warm">caldo, bitrate mantenuto</string>
-    <string name="perf_overlay_thermal_hot">molto caldo, carico ridotto</string>
+    <string name="perf_overlay_thermal_warm">caldo</string>
+    <string name="perf_overlay_thermal_hot">molto caldo</string>
+    <string name="perf_overlay_thermal_warm_holding">caldo, bitrate mantenuto</string>
+    <string name="perf_overlay_thermal_hot_easing">molto caldo, carico ridotto</string>
     <string name="connection_test_title">Test di connessione</string>
     <string name="connection_test_intro">Testa velocità e ritardo verso il PC.\nUsa fino a 32 MiB, inclusi i dati mobili.</string>
     <string name="connection_test_running">Test in corso… Tocca Annulla per interrompere.</string>

@@ -42,8 +42,10 @@
     <string name="perf_overlay_phone_hints">Indications de performances du téléphone : %1$s</string>
     <string name="perf_overlay_thermal">Chaleur du téléphone : %1$s</string>
     <string name="perf_overlay_thermal_normal">normale</string>
-    <string name="perf_overlay_thermal_warm">tiède, débit maintenu</string>
-    <string name="perf_overlay_thermal_hot">chaud, charge allégée</string>
+    <string name="perf_overlay_thermal_warm">tiède</string>
+    <string name="perf_overlay_thermal_hot">chaud</string>
+    <string name="perf_overlay_thermal_warm_holding">tiède, débit maintenu</string>
+    <string name="perf_overlay_thermal_hot_easing">chaud, charge allégée</string>
     <string name="connection_test_title">Test de connexion</string>
     <string name="connection_test_intro">Testez la vitesse et le délai vers votre PC.\nUtilise jusqu’à 32 Mio, données mobiles comprises.</string>
     <string name="connection_test_running">Test en cours… Appuyez sur Annuler pour arrêter.</string>

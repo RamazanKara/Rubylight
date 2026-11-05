@@ -42,8 +42,10 @@
     <string name="perf_overlay_phone_hints">Gợi ý hiệu năng của điện thoại: %1$s</string>
     <string name="perf_overlay_thermal">Nhiệt độ điện thoại: %1$s</string>
     <string name="perf_overlay_thermal_normal">bình thường</string>
-    <string name="perf_overlay_thermal_warm">ấm, giữ nguyên tốc độ bit</string>
-    <string name="perf_overlay_thermal_hot">nóng, đang giảm tải</string>
+    <string name="perf_overlay_thermal_warm">ấm</string>
+    <string name="perf_overlay_thermal_hot">nóng</string>
+    <string name="perf_overlay_thermal_warm_holding">ấm, giữ nguyên tốc độ bit</string>
+    <string name="perf_overlay_thermal_hot_easing">nóng, đang giảm tải</string>
     <string name="connection_test_title">Kiểm tra kết nối</string>
     <string name="connection_test_intro">Kiểm tra tốc độ và độ trễ đến PC của bạn.\nDùng tối đa 32 MiB, kể cả dữ liệu di động.</string>
     <string name="connection_test_running">Đang kiểm tra… Nhấn Hủy để dừng.</string>

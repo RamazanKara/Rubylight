@@ -108,6 +108,85 @@ fn joined_display(ask: &JoinAsk, game: Option<JoinedGame>) -> Option<String> {
         && (ask.resumes || display == ask.identity))
         .then(|| display.to_owned())
 }
+/// The display this launch would join, by [`joined_display`], whether or not it is
+/// still there.
+fn asked_game_display(
+    h: &Shared,
+    launch: &Launch,
+    app: Option<&butterpollo_core::state::App>,
+    virtual_mode: bool,
+    display_mode: &str,
+    identity: &str,
+) -> Option<String> {
+    let ask = JoinAsk {
+        client: &launch.client.uuid,
+        role: launch.role,
+        resumes: launch.options.contains_key(RESUMES_GAME),
+        launched: app.map(|a| a.id()),
+        virtual_mode,
+        display_mode,
+        identity,
+        claim_live: h.claim_live(),
+    };
+    joined_display(
+        &ask,
+        h.current_app.lock().unwrap().as_ref().map(|r| JoinedGame {
+            id: r.id,
+            display: r.display.as_deref(),
+            background: r.background,
+            desktop: r.is_desktop(),
+        }),
+    )
+}
+/// The display a launch resumes, if `serves` says it still does for the stream. A
+/// launch that asked for the running game does not take its own empty display over
+/// the game's, while that is `live`: only a new setup can join it. Handed back as by
+/// [`crate::state::take_retained`], for the caller to drop outside the lock.
+pub(crate) fn take_retained_display(
+    h: &Shared,
+    launch: &Launch,
+    config: &Config,
+    app: Option<&butterpollo_core::state::App>,
+    serves: impl FnOnce(&Ready) -> bool,
+    live: impl FnOnce(&str) -> bool,
+) -> std::result::Result<Arc<Ready>, Option<Arc<Ready>>> {
+    let mode = virtual_display_mode(
+        config,
+        &launch.client,
+        app,
+        butterpollo_windows::display::virtual_display_os(),
+    );
+    let identity = virtual_display_identity(config, launch, app);
+    let game = asked_game_display(h, launch, app, true, mode, &identity).filter(|id| live(id));
+    crate::state::take_retained(
+        &mut h.app_display.lock().unwrap(),
+        &launch.client.uuid,
+        |lease| serves(lease) && lease.shows(game.as_deref()),
+    )
+}
+/// What setting up a stream may do to its display beyond the lease.
+#[derive(Debug, PartialEq, Clone, Copy)]
+struct DisplayChanges {
+    /// Take the device's HDR profile.
+    hdr_profile: bool,
+    /// Set a virtual display's scale.
+    scale: bool,
+    /// Set the mode again after the layout.
+    mode: bool,
+}
+/// One that joined a running game's display has it as it is: that display's HDR,
+/// scale and mode stay the first stream's.
+fn display_changes(joined: bool, hdr: bool, virtual_layout: bool) -> DisplayChanges {
+    DisplayChanges {
+        hdr_profile: hdr && !joined,
+        scale: virtual_layout && !joined,
+        mode: !joined,
+    }
+}
+/// The HDR a joined stream wanted (`wanted`), when the display it shares has another.
+fn joined_hdr_mismatch(joined: bool, wanted: Option<bool>, display: Option<bool>) -> Option<bool> {
+    wanted.filter(|wanted| joined && display.is_some_and(|display| display != *wanted))
+}
 /// What a stream's display is asked for: its own mode and HDR, or for a stream
 /// that joined (`joined`, the mode the display runs at) the display as it is. The
 /// encoder scales from it, and its mode, HDR and scale stay the first stream's.
@@ -141,6 +220,20 @@ fn game_display_after(
 ) -> Option<String> {
     let moved = owns_game || (current.is_some() && !current_live);
     if moved && !joined { own } else { current }.map(str::to_owned)
+}
+/// Where the running game is once the stream of a press that ended without it came
+/// after all (`stream`: that device's display).
+pub(crate) fn display_of_new_owner(
+    current: Option<&str>,
+    stream: Option<&Ready>,
+) -> Option<String> {
+    game_display_after(
+        current,
+        true,
+        true,
+        stream.is_some_and(|stream| stream.joined),
+        stream.and_then(|stream| stream.identity.as_deref()),
+    )
 }
 /// Note where the running game is after this launch's stream was set up.
 pub(crate) fn record_game_display(h: &Shared, launch: &Launch, display: &Ready) {
@@ -498,6 +591,12 @@ fn notice_departure(
         watch.display_left(now);
     }
 }
+/// Whether a stream brings the game back after a display left. Not a remote monitor's,
+/// whose display is someone else's to look at, nor a paused one's, which may hold its
+/// layout but has nobody to show the game to.
+fn brings_back_game(remote_monitor: bool, active: bool) -> bool {
+    !remote_monitor && active
+}
 /// Lay the displays out again after a display left, with what stays on: the remote
 /// monitors, and what the watch leaves on for the rest of the stream. A failure stays
 /// due for the next try.
@@ -853,6 +952,11 @@ impl Ready {
                 .as_deref()
                 .is_none_or(|old| old == layout)
     }
+    /// Whether it shows `game`, the display a launch that asked for the running game
+    /// would join. One on no virtual display has no other to give up.
+    pub fn shows(&self, game: Option<&str>) -> bool {
+        game.is_none_or(|game| self.identity.as_deref().is_none_or(|own| own == game))
+    }
     pub fn output(&self) -> String {
         self.target.current().0
     }
@@ -1159,7 +1263,7 @@ impl Prepared {
             // Opted in (issue #56): a monitor that wakes up or re-announces
             // itself over HDMI must not take the game while the device is away.
             return if self.hold_layout_while_paused {
-                self.keep_layout()
+                self.keep_layout(false)
             } else {
                 Ok(())
             };
@@ -1208,7 +1312,7 @@ impl Prepared {
             }
             self.recovery.finish();
         } else {
-            self.keep_layout()?;
+            self.keep_layout(true)?;
         }
         fed.map(|_| ())
     }
@@ -1264,7 +1368,7 @@ impl Prepared {
     /// Alt+Tab) makes Windows recall its saved layout, which has the physical
     /// monitor on; the virtual display stays on, so the recovery above never
     /// starts.
-    fn keep_layout(&mut self) -> Result<()> {
+    fn keep_layout(&mut self, active: bool) -> Result<()> {
         use butterpollo_core::display_policy::LayoutAction;
         let now = std::time::Instant::now();
         if self.recovery.pending || !self.layout_watch.due(now) {
@@ -1288,7 +1392,9 @@ impl Prepared {
             if let Some(display) = &self.display {
                 display.apply_virtual_mode("after a display left");
             }
-            self.bring_back_game();
+            if brings_back_game(self._retained.is_some(), active) {
+                self.bring_back_game();
+            }
             return Ok(());
         }
         // Windows recalls its own layout after the lock screen, a UAC prompt
@@ -1475,25 +1581,7 @@ impl Prepared {
         };
         // Stream here too: the game is on the display it is on. A display of its
         // own would show this device an empty desktop.
-        let ask = JoinAsk {
-            client: &launch.client.uuid,
-            role: launch.role,
-            resumes: launch.options.contains_key(RESUMES_GAME),
-            launched: app.as_ref().map(|a| a.id()),
-            virtual_mode,
-            display_mode: mode,
-            identity: &shared_id,
-            claim_live: h.claim_live(),
-        };
-        let joined_id = joined_display(
-            &ask,
-            h.current_app.lock().unwrap().as_ref().map(|r| JoinedGame {
-                id: r.id,
-                display: r.display.as_deref(),
-                background: r.background,
-                desktop: r.is_desktop(),
-            }),
-        );
+        let joined_id = asked_game_display(h, launch, app.as_ref(), virtual_mode, mode, &shared_id);
         // Gone with its last stream: this stream makes its own, as usual.
         let joined = joined_id
             .and_then(|id| butterpollo_windows::display::joinable_mode(&id).map(|mode| (id, mode)));
@@ -1642,8 +1730,13 @@ impl Prepared {
         };
         // Read while the physical displays are still on: the virtual display
         // can turn them off, and Windows keeps a profile only on an active one.
+        let changes = display_changes(
+            joined_mode.is_some(),
+            stream.hdr,
+            virtual_mode || retained.is_some(),
+        );
         let recovery_profile = stream_profile(
-            stream.hdr && joined_mode.is_none(),
+            changes.hdr_profile,
             launch
                 .client
                 .extra
@@ -1691,7 +1784,7 @@ impl Prepared {
         let setup = scale_setup(
             config,
             &launch.options,
-            virtual_layout && joined_mode.is_none(),
+            changes.scale,
             remember && display.is_some(),
             || butterpollo_windows::display::largest_scale(&output),
         )?;
@@ -1796,7 +1889,7 @@ impl Prepared {
             }
             _ => None,
         };
-        if let Some(display) = display.as_ref().filter(|_| joined_mode.is_none()) {
+        if let Some(display) = display.as_ref().filter(|_| changes.mode) {
             // Applying the layout can recall the display's saved mode.
             display.apply_virtual_mode("after layout");
         }
@@ -1863,16 +1956,16 @@ impl Prepared {
             mode_report = mode_report.shared();
         }
         let applied = applied_mode(&output);
-        if joined_mode.is_some()
-            && let (Some(wanted), Ok(actual)) = (request.hdr, &applied)
-            && wanted != actual.3
-        {
+        if let Some(wanted) = joined_hdr_mismatch(
+            joined_mode.is_some(),
+            request.hdr,
+            applied.as_ref().ok().map(|actual| actual.3),
+        ) {
             tracing::warn!(
                 client = %launch.client.name,
                 output = %output,
                 wanted,
-                display_hdr = actual.3,
-                "this stream joined a running game's display, whose HDR stays as it is: an HDR stream shows SDR colours correctly mapped into its HDR signal, an SDR stream the HDR display tone-mapped"
+                "this stream joined a running game's display, whose HDR stays as it is: an HDR stream carries the SDR picture without highlights, an SDR stream the HDR picture limited to SDR"
             );
         }
         mode_report.publish(applied);

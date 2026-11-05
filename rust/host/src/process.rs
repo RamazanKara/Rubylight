@@ -281,6 +281,13 @@ fn directory(s: &str) -> Option<&Path> {
     }
 }
 impl RunningApp {
+    /// Take the place of the placeholder a launch before sign-in left, as the same
+    /// session: its generation, and the display the game's stream is on.
+    pub fn take_place_of(&mut self, placeholder: &mut RunningApp, owner: String) {
+        self.generation = placeholder.generation.clone();
+        self.owner = owner;
+        self.display = placeholder.display.take();
+    }
     /// Id, name and owner for `app.started`, or none for a placeholder that
     /// waits for a sign-in to start.
     pub fn started_event(&self) -> Option<(u32, String, String)> {
@@ -1917,6 +1924,18 @@ mod tests {
         assert!(app.observe_foreground(20, "player.exe").is_none());
         // Another program under that id is.
         assert!(app.observe_foreground(20, "other.exe").is_some());
+    }
+    #[test]
+    fn a_deferred_start_keeps_its_placeholders_session_and_where_the_game_is() {
+        let mut placeholder =
+            RunningApp::with_environment(&App::desktop(), BTreeMap::new()).unwrap();
+        placeholder.generation = "launch".into();
+        placeholder.display = Some("phone".into());
+        let mut started = RunningApp::with_environment(&App::desktop(), BTreeMap::new()).unwrap();
+        started.take_place_of(&mut placeholder, "tv".into());
+        assert_eq!(started.generation, "launch");
+        assert_eq!(started.owner, "tv");
+        assert_eq!(started.display.as_deref(), Some("phone"));
     }
     #[test]
     fn a_display_leaving_brings_back_only_a_game_with_processes_to_name() {

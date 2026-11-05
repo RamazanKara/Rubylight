@@ -71,6 +71,8 @@ struct Claim {
     to: String,
     name: String,
     previous_owner: String,
+    /// Where the game was: the launch that follows a press records its own display at once.
+    previous_display: Option<String>,
     /// It started a stream of its own since the press: see [`Late::owner_returned`].
     owner_returned: bool,
     generation: String,
@@ -413,18 +415,20 @@ impl Host {
             return Err(Refusal::Busy.into());
         }
         // A background game belongs to Nucleus Co-op, and a co-op session has no running app.
-        let (previous_owner, generation, game, app_id) = locked(&self.current_app)
-            .as_ref()
-            .filter(|app| !app.background)
-            .map(|app| {
-                (
-                    app.owner.clone(),
-                    app.generation.clone(),
-                    app.name.clone(),
-                    app.id,
-                )
-            })
-            .ok_or(Refusal::NoSession)?;
+        let (previous_owner, previous_display, generation, game, app_id) =
+            locked(&self.current_app)
+                .as_ref()
+                .filter(|app| !app.background)
+                .map(|app| {
+                    (
+                        app.owner.clone(),
+                        app.display.clone(),
+                        app.generation.clone(),
+                        app.name.clone(),
+                        app.id,
+                    )
+                })
+                .ok_or(Refusal::NoSession)?;
         // The resume that follows would be refused with the other device's stream already gone.
         crate::nvhttp::check_background_mode(self, caller, app_id)
             .map_err(|error| Refused::Launch(format!("{error:#}")))?;
@@ -465,6 +469,7 @@ impl Host {
             to: device.to_owned(),
             name: caller.name.clone(),
             previous_owner,
+            previous_display,
             owner_returned: false,
             generation,
             until: Instant::now() + CLAIM_KEPT,
@@ -542,6 +547,7 @@ impl Host {
             .filter(|app| app.generation == claim.generation && app.owner == claim.to)
         {
             app.owner = claim.previous_owner.clone();
+            app.display = claim.previous_display.clone();
         }
         let now = Instant::now();
         let mut inner = locked(&self.moves.0);
@@ -600,11 +606,18 @@ impl Host {
         if late.owner_returned {
             return;
         }
+        let stream = locked(&self.app_display)
+            .get(&late.to)
+            .map(|(lease, _)| lease.clone());
         if let Some(app) = locked(&self.current_app)
             .as_mut()
             .filter(|app| app.owner == late.previous_owner)
         {
             app.owner = late.to;
+            app.display = crate::display_session::display_of_new_owner(
+                app.display.as_deref(),
+                stream.as_deref(),
+            );
         } else {
             return;
         }

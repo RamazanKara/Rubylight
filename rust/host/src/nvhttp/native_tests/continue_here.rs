@@ -846,6 +846,74 @@ async fn a_device_a_failed_press_displaced_without_owning_the_game_hears_that_no
     assert!(!session_of(&s, &laptop_connection).await.press_failed);
 }
 
+fn game_display(s: &Setup) -> Option<String> {
+    let current = s.host().current_app.lock().unwrap();
+    current.as_ref().unwrap().display.clone()
+}
+fn set_game_display(s: &Setup, display: &str) {
+    let mut current = s.host().current_app.lock().unwrap();
+    current.as_mut().unwrap().display = Some(display.into());
+}
+/// A press from the phone's display whose time ran out: the TV's launch recorded its
+/// display at once, as a launch does, and its stream has not come.
+async fn press_that_ran_out(s: &Setup, tv_connection: &Connection, phone: Arc<Session>) {
+    set_game_display(s, "phone-display");
+    press(s, tv_connection).await.session();
+    set_game_display(s, "tv-display");
+    s.host()
+        .sessions
+        .lock()
+        .unwrap()
+        .active
+        .remove(&phone.launch.id);
+    drop(phone);
+    s.host().moves.expire_claim();
+    s.host().settle_move();
+}
+
+#[tokio::test]
+async fn a_press_that_fails_puts_the_game_back_on_the_display_it_is_on() {
+    let s = Setup::new();
+    let phone = s.streaming();
+    let (_, tv_connection) = device(&s, "tv", "TV", ALL);
+    press_that_ran_out(&s, &tv_connection, phone).await;
+    assert_eq!(game_owner(&s), s.client.uuid);
+    // Not the TV's, which goes with its launch: the next device joins the game's.
+    assert_eq!(game_display(&s).as_deref(), Some("phone-display"));
+}
+
+#[tokio::test]
+async fn a_late_stream_moves_the_games_display_with_it_unless_it_joined() {
+    let late = |identity: &'static str, joined: bool| async move {
+        let s = Setup::new();
+        let phone = s.streaming();
+        let (tv, tv_connection) = device(&s, "tv", "TV", ALL);
+        press_that_ran_out(&s, &tv_connection, phone).await;
+        let config = s.host().config.read().unwrap().clone();
+        let display =
+            crate::display_session::tests::retained_on(s.host(), &config, identity, joined);
+        s.host()
+            .app_display
+            .lock()
+            .unwrap()
+            .insert(tv.uuid.clone(), (display, None));
+        let stream = s.stream_as(tv.clone());
+        s.host().settle_move();
+        assert_eq!(game_owner(&s), tv.uuid);
+        let display = game_display(&s);
+        drop(stream);
+        display
+    };
+    assert_eq!(
+        late("tv-display", false).await.as_deref(),
+        Some("tv-display")
+    );
+    assert_eq!(
+        late("phone-display", true).await.as_deref(),
+        Some("phone-display")
+    );
+}
+
 #[tokio::test]
 async fn a_stream_that_arrives_after_the_press_expired_takes_the_game() {
     let expired = |s: &Setup, phone: Arc<Session>| {

@@ -166,6 +166,106 @@ fn the_games_display_follows_its_owner_and_outlives_only_while_it_is_live() {
 }
 
 #[test]
+fn a_joined_stream_leaves_the_displays_hdr_scale_and_mode_alone() {
+    assert_eq!(
+        display_changes(false, true, true),
+        DisplayChanges {
+            hdr_profile: true,
+            scale: true,
+            mode: true
+        }
+    );
+    assert_eq!(
+        display_changes(true, true, true),
+        DisplayChanges {
+            hdr_profile: false,
+            scale: false,
+            mode: false
+        }
+    );
+    // An SDR stream of a physical display, as ever.
+    assert_eq!(
+        display_changes(false, false, false),
+        DisplayChanges {
+            hdr_profile: false,
+            scale: false,
+            mode: true
+        }
+    );
+}
+
+#[test]
+fn only_a_joined_stream_with_other_hdr_than_its_display_is_logged() {
+    assert_eq!(
+        joined_hdr_mismatch(true, Some(true), Some(false)),
+        Some(true)
+    );
+    assert_eq!(
+        joined_hdr_mismatch(true, Some(false), Some(true)),
+        Some(false)
+    );
+    assert_eq!(joined_hdr_mismatch(true, Some(true), Some(true)), None);
+    assert_eq!(joined_hdr_mismatch(true, None, Some(true)), None);
+    assert_eq!(joined_hdr_mismatch(true, Some(true), None), None);
+    assert_eq!(joined_hdr_mismatch(false, Some(true), Some(false)), None);
+}
+
+#[test]
+fn only_an_active_stream_of_its_own_brings_the_game_back() {
+    assert!(brings_back_game(false, true));
+    // A remote monitor's display is someone else's to look at.
+    assert!(!brings_back_game(true, true));
+    // A paused stream holding its layout has nobody to show the game to.
+    assert!(!brings_back_game(false, false));
+}
+
+#[test]
+fn a_resume_leaves_its_own_kept_display_for_the_one_the_game_is_on() {
+    let fixture = crate::state::test_support::Fixture::new();
+    let host = &fixture.host;
+    let mut config = host.config.read().unwrap().clone();
+    config
+        .values
+        .insert("virtual_display_mode".into(), "per_client".into());
+    let mut app = host.apps.read().unwrap()[0].clone();
+    app.cmd = "game.exe".into();
+    let mut running =
+        crate::process::RunningApp::with_environment(&app, Default::default()).unwrap();
+    running.owner = "a".into();
+    running.display = Some("a".into());
+    *host.current_app.lock().unwrap() = Some(running);
+    let client = fixture.client(u32::MAX);
+    let plain = fixture.launch(client.clone(), Role::Stream);
+    let mut resume = fixture.launch(client.clone(), Role::Stream);
+    resume.options.insert(RESUMES_GAME.into(), "1".into());
+    let keep = |identity: &str, joined: bool| {
+        host.app_display.lock().unwrap().insert(
+            client.uuid.clone(),
+            (retained_on(host, &config, identity, joined), None),
+        );
+    };
+    let take = |launch: &Launch, serves: bool, live: bool| {
+        take_retained_display(host, launch, &config, Some(&app), |_| serves, |_| live)
+    };
+    // It tapped the tile, saw an empty desktop and left. A launch comes back to that.
+    keep(&client.uuid, false);
+    assert!(take(&plain, true, true).is_ok());
+    // Stream here too in the same mode must not: it is handed back to be dropped, and
+    // the setup that follows joins the game's display.
+    assert!(matches!(take(&resume, true, true), Err(Some(_))));
+    assert!(host.app_display.lock().unwrap().is_empty());
+    // With the game's display gone it has nothing better.
+    keep(&client.uuid, false);
+    assert!(take(&resume, true, false).is_ok());
+    // A display in another mode goes as ever.
+    assert!(matches!(take(&resume, false, false), Err(Some(_))));
+    // Already on the game's display, joined earlier.
+    keep("a", true);
+    assert!(take(&resume, true, true).is_ok());
+    host.app_display.lock().unwrap().clear();
+}
+
+#[test]
 fn a_joined_stream_asks_for_the_display_as_it_is_whatever_its_own_size() {
     assert_eq!(
         display_ask(
@@ -920,6 +1020,20 @@ fn only_an_opted_in_exclusive_layout_is_held_while_paused() {
 /// of the session state and the grace period.
 pub(crate) fn retained_display(host: &Shared, config: &Config) -> Arc<Ready> {
     let prepared = test_prepared(host);
+    let limiter = limiter::Lease::acquire(&host.directory, config, &prepared.framegen).unwrap();
+    Ready::prepare((prepared, limiter)).unwrap().display.clone()
+}
+
+/// A kept display that is the virtual display `identity`, joined or a stream's own.
+pub(crate) fn retained_on(
+    host: &Shared,
+    config: &Config,
+    identity: &str,
+    joined: bool,
+) -> Arc<Ready> {
+    let mut prepared = test_prepared(host);
+    prepared.identity = Some(identity.into());
+    prepared.joined = joined;
     let limiter = limiter::Lease::acquire(&host.directory, config, &prepared.framegen).unwrap();
     Ready::prepare((prepared, limiter)).unwrap().display.clone()
 }

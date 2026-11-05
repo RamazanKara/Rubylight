@@ -2614,10 +2614,13 @@ fn prepare_launch_display(
             app.as_ref(),
             client_display,
         );
-        let retained = crate::state::take_retained(
-            &mut h.app_display.lock().unwrap(),
-            &launch.client.uuid,
+        let retained = crate::display_session::take_retained_display(
+            h,
+            launch,
+            &config,
+            app.as_ref(),
             |lease| lease.matches(&stream) && lease.serves(client_display, layout),
+            |display| butterpollo_windows::display::joinable_mode(display).is_some(),
         );
         match retained {
             Ok(lease) => return lease.resume(&h.directory, &config, launch.warnings.clone()),

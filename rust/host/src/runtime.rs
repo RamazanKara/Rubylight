@@ -130,12 +130,11 @@ fn start_deferred(h: &Shared) {
         match crate::process::launch(&h, &app, &args) {
             Ok(mut started) => {
                 let mut current = h.current_app.lock().unwrap();
-                if current
-                    .as_ref()
-                    .is_some_and(|placeholder| placeholder.generation == generation)
+                if let Some(placeholder) = current
+                    .as_mut()
+                    .filter(|placeholder| placeholder.generation == generation)
                 {
-                    started.generation = generation;
-                    started.owner = owner;
+                    started.take_place_of(placeholder, owner);
                     let event = started.started_event();
                     *current = Some(started);
                     drop(current);

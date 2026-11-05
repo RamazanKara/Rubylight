@@ -424,6 +424,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @Override
     public void finish() {
+        // Failures say so first; a hand-off to a new stream goes through finishNow.
+        if (!exitFinished && !exiting) streamConnection.playerLeft();
         if (exitFinished) {
             super.finish();
         } else if (exiting) {
@@ -984,6 +986,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     protected void onStop() {
         super.onStop();
+        // Home, or the screen going off; a finishing screen has been through finish or is handing off.
+        if (!isFinishing() && !isChangingConfigurations()) streamConnection.playerLeft();
         if (adaptiveLayout != null) adaptiveLayout.stop();
         streamRecovery.rememberStreamForResume(true);
 
@@ -1390,6 +1394,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public void connectionStarted() {
         streamConnection.connectionStarted();
+    }
+
+    @Override
+    public void automaticStartStopped() {
+        streamConnection.automaticStartStopped();
     }
 
     @Override

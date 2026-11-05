@@ -1007,6 +1007,12 @@ public class NvConnection {
             return false;
         }
 
+        return launchOrResume(h, context, details, app, serverInfo);
+    }
+
+    /** Goes by what the PC says now, which may no longer be what the screen that asked for this saw. */
+    boolean launchOrResume(NvHTTP h, ConnectionContext context, ComputerDetails details, NvApp app, String serverInfo)
+            throws XmlPullParserException, IOException {
         if (launchesBesideRunningGame(app)) {
             return launchNotRunningApp(h, context);
         }
@@ -1031,6 +1037,11 @@ public class NvConnection {
                     // The host resolves control tiles and confirms replacement itself. Cancelling
                     // first would terminate the game when selecting its Resume or Remote Input tile.
                     return launchNotRunningApp(h, context);
+                } else if (context.streamConfig.isNeverReplace()) {
+                    // However old the look that let this start go on (a poll, a PIN in between): no tap, no quit.
+                    context.connListener.automaticStartStopped();
+                    context.connListener.displayMessage(appContext.getString(R.string.open_play_other_device, details.name));
+                    return false;
                 } else {
                     return quitAndLaunch(h, context);
                 }

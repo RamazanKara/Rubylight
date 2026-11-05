@@ -142,6 +142,13 @@ pub(crate) fn browser_keeps_monitors(launch: &Launch, layout: &str, virtual_layo
         && turns_off_other_monitors(layout, virtual_layout)
 }
 
+/// Why this stream's layout is not the `configured` one, for the log.
+fn layout_reason(monitors_kept: bool, configured: &str) -> Option<String> {
+    monitors_kept.then(|| {
+        format!("the browser runs on this PC, so its monitors stay on instead of `{configured}`")
+    })
+}
+
 /// The device that keeps the layout this stream ends with, if any. `learnable` is false for a
 /// stream that planned no layout of the device's own: a client's choice, a background stream's
 /// fixed layout, or one Windows did not take. A layout [`browser_keeps_monitors`] ran in place of
@@ -1582,6 +1589,7 @@ impl Prepared {
             virtual_display = virtual_mode,
             output = %output,
             layout = selection,
+            layout_reason = layout_reason(monitors_kept, configured).as_deref(),
             arrangement = ?parsed,
             requested_refresh_millihz = request.refresh.or(virtual_mode.then_some(rate.0)),
             limiter_rate = %framegen.rate,

@@ -1361,6 +1361,13 @@ fn a_browser_on_this_pc_teaches_its_device_no_layout() {
         );
     }
 }
+#[test]
+fn the_log_says_why_a_browser_on_this_pc_kept_its_monitors() {
+    let reason = layout_reason(true, "ensure_only_display").unwrap();
+    assert!(reason.contains("browser runs on this PC"), "{reason}");
+    assert!(reason.contains("`ensure_only_display`"), "{reason}");
+    assert_eq!(layout_reason(false, "exclusive"), None);
+}
 fn set_device_layout(fixture: &crate::state::test_support::Fixture, layout: &str) {
     let mut paired = fixture.host.paired.write().unwrap();
     paired.clients[0]

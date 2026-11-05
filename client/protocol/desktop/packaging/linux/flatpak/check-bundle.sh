@@ -52,6 +52,9 @@ mkdir -p "$work/next"
 cp -a "$deploy/files" "$deploy/metadata" "$work/next/"
 [[ -d $deploy/export ]] && cp -a "$deploy/export" "$work/next/"
 chmod -R u+w "$work/next"
+# An installed desktop file has the Exec flatpak wrote (`@@u %u @@`), which an install refuses in a
+# bundle: back to the one a build exports.
+sed -i 's/^Exec=.*/Exec=nightjar %u/' "$work/next/export/share/applications/$app_id.desktop"
 echo "$first" >"$work/next/files/lib/nightjar/update-check"
 flatpak build-export "$work/repo" "$work/next" "${ref##*/}" >/dev/null
 flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo "$work/repo" "$work/next.flatpak" "$app_id" "${ref##*/}"

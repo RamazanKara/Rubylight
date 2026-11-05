@@ -4509,5 +4509,106 @@ fn stream_hotkeys_screenshots() {
     }
 }
 
+fn opened_link(name: &str) -> rubylight_protocol::pairing_uri::PairingUri {
+    rubylight_protocol::pairing_uri::PairingUri {
+        host: "192.168.4.2".into(),
+        port: 47989,
+        otp: "4821".into(),
+        passphrase: "hunter2".into(),
+        unique_id: String::new(),
+        cert_sha256: [7; 32],
+        name: name.into(),
+    }
+}
+
+fn pairs(commands: &[Command]) -> bool {
+    commands.iter().any(|c| matches!(c, Command::PairLink(_)))
+}
+
+#[test]
+fn a_link_from_outside_pairs_only_when_pair_is_chosen() {
+    let mut f = Frames::new(record("Desk", true, false), Reach::Online);
+    let link = opened_link("Wohnzimmer");
+    let uri = link.to_uri();
+    f.l.open_link(&uri);
+    let commands = f.settle();
+    assert!(!pairs(&commands), "opening it asks, nothing more");
+    assert_eq!(f.hosts.list.len(), 1);
+    assert!(f.drawn.iter().any(|t| t.contains("Wohnzimmer")), "names the PC");
+    assert!(f.drawn.iter().any(|t| t == "192.168.4.2:47989"), "and its address");
+    assert!(!f.drawn.iter().any(|t| t.contains("4821") || t.contains("hunter2")), "never the secrets");
+    assert!(!f.l.can_open_link(), "the next link waits behind it");
+    // Cancel has focus: Enter, and the controller's A and B, leave the PC out.
+    assert!(!pairs(&f.press(Key::Enter)));
+    assert!(f.no_dialog());
+    f.l.open_link(&uri);
+    f.settle();
+    assert!(!pairs(&f.press(Key::Escape)));
+    assert!(f.no_dialog());
+    assert!(f.l.can_open_link());
+    // The controller's way to Pair: right, then A.
+    f.l.open_link(&uri);
+    f.settle();
+    assert!(f.ctx.memory(|m| m.focused()).is_some(), "a control has focus");
+    pad_press(&mut f, Key::ArrowRight);
+    let events = f.l.controller_key(&f.ctx, Key::Enter);
+    let commands = f.frame(events);
+    let chosen = commands.iter().find_map(|c| if let Command::PairLink(chosen) = c { Some(chosen) } else { None });
+    assert_eq!(chosen.map(|chosen| **chosen == link), Some(true), "the link as it was opened");
+    f.settle();
+    assert!(f.no_dialog());
+}
+
+#[test]
+fn a_link_that_hides_its_name_is_shown_plainly() {
+    let mut f = Frames::new(record("Desk", true, false), Reach::Online);
+    f.l.open_link(&opened_link("Desk\u{202e}cod\n").to_uri());
+    f.settle();
+    assert!(f.drawn.iter().any(|t| t.contains("Deskcod")), "{:?}", f.drawn);
+    assert!(!f.drawn.iter().any(|t| t.contains('\u{202e}')));
+    // No name left: the PC stands in for it, and the address still says which.
+    f.press(Key::Escape);
+    f.l.open_link(&opened_link("\u{202e}").to_uri());
+    f.settle();
+    assert!(f.drawn.iter().any(|t| t.contains(tr("the PC"))), "{:?}", f.drawn);
+    assert!(f.drawn.iter().any(|t| t == "192.168.4.2:47989"));
+}
+
+#[test]
+fn a_link_waits_behind_a_dialog_and_the_pin_screen() {
+    let mut f = Frames::new(record("Desk", true, false), Reach::Online);
+    assert!(f.l.can_open_link());
+    let id = f.hosts.list[0].id;
+    f.l.ask(Dialog::ConfirmRemove { host: id, name: "Desk".into() });
+    assert!(!f.l.can_open_link(), "not over a question already open");
+    f.l.dialog = Dialog::None;
+    let dir = std::env::temp_dir().join(format!("nightjar-link-pin-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let store = crate::pin_lock::PinStore::new(&dir, Arc::new(crate::pin_lock::SystemClock));
+    store.set_pin(b"1234").unwrap();
+    store.set_mode(crate::pin_lock::Mode::App);
+    store.flush();
+    f.l.pin = Some(crate::pin_ui::PinLock::with_store(store));
+    f.settle();
+    assert!(!f.l.can_open_link(), "not past the PIN screen");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_bad_link_from_outside_is_refused_without_repeating_it() {
+    let good = opened_link("Desk").to_uri();
+    let wrong_version = good.replacen("v=1", "v=2", 1);
+    let hostile = format!("{good}&x={}", "a".repeat(32 * 1024 * 1024));
+    for bad in ["", "rubylight:", "RUBYLIGHT://PAIR?v=1", "rubylight://other?otp=4821", wrong_version.as_str(), hostile.as_str()] {
+        let mut f = Frames::new(record("Desk", true, false), Reach::Online);
+        f.l.open_link(bad);
+        let commands = f.settle();
+        assert!(!pairs(&commands));
+        assert!(matches!(&f.l.dialog, Dialog::Message { body, .. } if body == tr(crate::hosts::LINK_INVALID)), "{}", &bad[..bad.len().min(40)]);
+        assert!(!f.drawn.iter().any(|t| t.contains("4821")));
+    }
+}
+
 #[path = "settings_tests.rs"]
 mod settings_tests;

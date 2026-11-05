@@ -405,6 +405,34 @@ impl Launcher {
                         });
                     });
             }
+            Dialog::ConfirmLink { link } => {
+                let name = link.shown_name();
+                let shown: &str = if name.is_empty() { tr("the PC") } else { &name };
+                let title = trf("Pair with {}", &[&shown]);
+                egui::Modal::new(Id::unique("confirm-link"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new(title).font(semibold(text::SECTION)));
+                        ui.label(RichText::new(link.shown_address()).color(ON_SURFACE_VARIANT));
+                        dialog_buttons(ui, |ui| {
+                            if primary_button(ui, "Pair").clicked() {
+                                commands.push(Command::PairLink(link.clone()));
+                                close = true;
+                            }
+                            // Cancel has focus: a key or button already held down must not pair.
+                            let cancel = quiet_button(ui, "Cancel");
+                            if focus_first {
+                                cancel.request_focus();
+                                focused = true;
+                            }
+                            if cancel.clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+            }
             Dialog::ConfirmUnpair { host, name } => {
                 let id = *host;
                 egui::Modal::new(Id::unique("confirm-unpair"))

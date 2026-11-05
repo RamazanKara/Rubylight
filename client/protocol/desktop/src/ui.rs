@@ -57,6 +57,8 @@ pub enum Command {
     ConfirmReplace,
     Pair(u64),
     PairOtp { host: u64, pin: String, passphrase: String },
+    /// Add and pair the PC of a link the user confirmed.
+    PairLink(Box<rubylight_protocol::pairing_uri::PairingUri>),
     Wake(u64),
     /// Stop waking the PC ("Waking <PC>…").
     CancelWake,
@@ -198,6 +200,9 @@ pub enum Dialog {
     None,
     AddHost { text: String, error: Option<String> },
     Pairing { host: u64, pin: String },
+    /// A pairing link the system opened with Nightjar: any web page can open one, so nothing is
+    /// added or paired until Pair is chosen here.
+    ConfirmLink { link: Box<rubylight_protocol::pairing_uri::PairingUri> },
     NetworkTest { stage: String },
     Otp { host: u64, pin: String, passphrase: String, error: Option<String> },
     Message { title: String, body: String },
@@ -681,6 +686,20 @@ impl Launcher {
             body: body.into(),
         };
         self.focus_dialog = true;
+    }
+
+    /// Whether a link from the system can be shown now, in front of nothing the user is doing.
+    pub fn can_open_link(&self) -> bool {
+        matches!(self.dialog, Dialog::None) && !self.pin.as_ref().is_some_and(crate::pin_ui::PinLock::app_locked)
+    }
+
+    /// Asks about a link from the system, or refuses it. The link is not shown back: it holds a
+    /// PIN and passphrase.
+    pub fn open_link(&mut self, text: &str) {
+        match crate::hosts::parse_link(text) {
+            Ok(link) => self.ask(Dialog::ConfirmLink { link }),
+            Err(why) => self.message(tr("Could not pair"), tr(why)),
+        }
     }
 
     /// Shows `text` over the launcher for a few seconds, like Android's toasts.

@@ -7,6 +7,8 @@
 //! A PC or app that cannot be found, or a stream that cannot start, ends the process with an
 //! error (exit code 1) instead of leaving the launcher open; a wrong command line exits with 64.
 //! Cancelling the start closes Nightjar with exit code 0.
+//!
+//! `nightjar <pairing link>` is how the system opens a `rubylight:` link (see `link_channel`).
 
 use std::ffi::OsString;
 use std::time::{Duration, Instant};
@@ -19,7 +21,10 @@ const START_LIMIT: Duration = Duration::from_secs(60);
 /// sooner.
 const LAUNCH_LIMIT: Duration = Duration::from_secs(180);
 
-pub const USAGE: &str = "usage: nightjar [--version | --host <name|uuid> [--app <name|uuid>] [--quit-on-exit]]";
+pub const USAGE: &str = "usage: nightjar [--version | --host <name|uuid> [--app <name|uuid>] [--quit-on-exit] | <pairing link>]";
+
+/// Not the link itself: it holds a PIN and passphrase, and this goes to the log.
+const LINK_NOT_ALONE: &str = "a pairing link is the only argument";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Launch {
@@ -36,6 +41,15 @@ pub enum Parsed {
     /// `--version`: print the version and exit, without a window (the packages' install checks).
     Version,
     Launch(Launch),
+    /// A link the system opened with Nightjar, as it came: the window asks before it pairs, or
+    /// refuses it. Text that is not valid is empty here, and refused the same way.
+    Link(String),
+}
+
+/// Whether an argument is meant as a link. A browser or a QR reader may write the scheme in any
+/// case, and any part after it may be wrong: that is for the window to refuse, with its own words.
+fn is_link(arg: &str) -> bool {
+    arg.get(.."rubylight:".len()).is_some_and(|scheme| scheme.eq_ignore_ascii_case("rubylight:"))
 }
 
 /// Reads the arguments after the program name. `--name value` and `--name=value` both work.
@@ -45,6 +59,14 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Parsed, String
     let mut quit_on_exit = false;
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
+        // Alone, whatever else the command line holds: a link with a quote in it must not be able
+        // to break out of the system's quoting and add arguments of its own.
+        if is_link(&arg.to_string_lossy()) {
+            if host.is_some() || app.is_some() || quit_on_exit || args.next().is_some() {
+                return Err(LINK_NOT_ALONE.into());
+            }
+            return Ok(Parsed::Link(arg.into_string().unwrap_or_default()));
+        }
         let arg = arg
             .into_string()
             .map_err(|a| format!("{} is not valid text", a.to_string_lossy()))?;
@@ -522,6 +544,44 @@ mod tests {
     #[test]
     fn no_arguments_open_the_launcher() {
         assert_eq!(args(&[]), Ok(Parsed::Gui));
+    }
+
+    #[test]
+    fn a_pairing_link_is_an_argument_of_its_own() {
+        let link = "rubylight://pair?v=1&host=pc&port=1&otp=4821&pass=secret&fp=00";
+        assert_eq!(args(&[link]), Ok(Parsed::Link(link.into())));
+        // Whatever follows the scheme is the window's to refuse, never a usage error.
+        for odd in ["RUBYLIGHT://pair?v=9", "rubylight:", "rubylight://other"] {
+            assert_eq!(args(&[odd]), Ok(Parsed::Link(odd.into())));
+        }
+        let huge = format!("rubylight://pair?{}", "a".repeat(1024 * 1024));
+        assert_eq!(args(&[huge.as_str()]), Ok(Parsed::Link(huge.clone())));
+        // Any other positional argument stays the error it was.
+        assert_eq!(args(&["ruby"]), Err("unknown argument ruby".into()));
+        assert_eq!(args(&["rubylightning"]), Err("unknown argument rubylightning".into()));
+    }
+
+    #[test]
+    fn a_link_cannot_add_arguments_and_errors_do_not_repeat_it() {
+        let link = "rubylight://pair?otp=4821&pass=secret";
+        for line in [
+            vec![link, "--host", "evil"],
+            vec![link, "--check-pyrowave"],
+            vec![link, link],
+            vec!["--host", "pc", link],
+            vec!["--quit-on-exit", link],
+        ] {
+            let error = args(&line).unwrap_err();
+            assert_eq!(error, LINK_NOT_ALONE, "{line:?}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_that_is_not_text_is_refused_without_being_repeated() {
+        use std::os::unix::ffi::OsStringExt;
+        let parsed = parse([OsString::from_vec(b"rubylight://pair?otp=4821\xff".to_vec())]);
+        assert_eq!(parsed, Ok(Parsed::Link(String::new())));
     }
 
     #[test]

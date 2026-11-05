@@ -129,6 +129,13 @@ Source: "..\icons\nightjar.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; back (BackUpDlls, RestoreDlls); the rest it replaced (nightjar.ico, texts) nothing needs to start.
 Source: "{#SourceDir}\nightjar.exe"; DestDir: "{app}"; Flags: ignoreversion
 
+[Registry]
+; rubylight: pairing links open Nightjar, which asks before it pairs. Per user, like the install.
+Root: HKCU; Subkey: "Software\Classes\rubylight"; ValueType: string; ValueName: ""; ValueData: "URL:Nightjar pairing link"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\rubylight"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\rubylight\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\nightjar.ico"
+Root: HKCU; Subkey: "Software\Classes\rubylight\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\nightjar.exe"" ""%1"""
+
 [Icons]
 Name: "{autoprograms}\Nightjar"; Filename: "{app}\nightjar.exe"; IconFilename: "{app}\nightjar.ico"; Comment: "Stream games from your PC"
 Name: "{autodesktop}\Nightjar"; Filename: "{app}\nightjar.exe"; IconFilename: "{app}\nightjar.ico"; Comment: "Stream games from your PC"; Tasks: desktopicon

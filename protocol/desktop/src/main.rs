@@ -1138,11 +1138,12 @@ impl App {
         let launcher = &mut self.launcher;
         let hosts = &self.hosts;
         let pads = &self.pads;
+        // Outside the frame: egui can run it twice, and the answer comes only once.
+        if self.updates.step() { self.running = false; }
         let updates = &mut self.updates;
         self.gui.set_readable(true);
-        let mut exit_for_update = false;
         let output = self.gui.run(self.window, self.renderer, |ui| {
-            exit_for_update = updates.show(ui.ctx());
+            updates.show(ui.ctx());
             commands = launcher.ui(
                 ui,
                 View {
@@ -1157,7 +1158,6 @@ impl App {
                 },
             );
         });
-        if exit_for_update { self.running = false; }
         self.gui.platform(self.window, &output.platform_output);
         if self.title_bar != *theme::NIGHT {
             self.title_bar = *theme::NIGHT;

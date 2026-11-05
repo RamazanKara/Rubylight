@@ -177,8 +177,9 @@ impl Updates {
         }
     }
 
-    /// Takes in what the threads finished. True when Nightjar should exit now for the update.
-    fn step(&mut self) -> bool {
+    /// Takes in what the threads finished, once per pass of the main loop. True when Nightjar should
+    /// exit now for the update: the installer is running or the new AppImage has started.
+    pub fn step(&mut self) -> bool {
         if let Some(release) = self.pending.as_ref().and_then(|r| r.try_recv().ok()) {
             self.pending = None;
             self.found = Some(release);
@@ -216,11 +217,9 @@ impl Updates {
         result
     }
 
-    /// The notice over the launcher until it is opened or dismissed. True when Nightjar should exit
-    /// now for the update: the installer is running or the new AppImage has started.
-    pub fn show(&mut self, ctx: &egui::Context) -> bool {
-        let quit = self.step();
-        let Some(release) = &self.found else { return quit };
+    /// The notice over the launcher until it is opened or dismissed.
+    pub fn show(&mut self, ctx: &egui::Context) {
+        let Some(release) = &self.found else { return };
         let (mut update, mut stop, mut close) = (false, false, false);
         egui::Area::new(egui::Id::unique("update-notice"))
             .order(egui::Order::Foreground)
@@ -262,7 +261,6 @@ impl Updates {
             self.found = None;
             self.failure = None;
         }
-        quit
     }
 }
 
@@ -797,10 +795,26 @@ mod tests {
         }
     }
 
-    fn frame(updates: &mut Updates, ctx: &egui::Context) -> bool {
-        let mut quit = false;
-        ctx.run_ui(egui::RawInput::default(), |ui| quit = updates.show(ui.ctx())).textures_delta.clear();
-        quit
+    fn frame(updates: &mut Updates, ctx: &egui::Context) {
+        ctx.run_ui(egui::RawInput::default(), |ui| updates.show(ui.ctx())).textures_delta.clear();
+    }
+
+    #[test]
+    fn drawing_the_notice_never_takes_the_answer_to_exit() {
+        let bytes = body();
+        let served = bytes.clone();
+        let fixture = Fixture::start(move |_, _| Reply::Body(served.clone()));
+        let installer = Installer::new("two-passes");
+        let mut updates = notice(Ok(asset_at(fixture.url("/setup"), &bytes)), Some(installer.steps(native(), local)));
+        updates.update_now();
+        let progress = updates.job.as_ref().unwrap().progress.clone();
+        wait_until("the download never ended", || Arc::strong_count(&progress) == 2);
+        // egui runs a frame's closure a second time after request_discard.
+        let ctx = egui::Context::default();
+        frame(&mut updates, &ctx);
+        frame(&mut updates, &ctx);
+        assert!(installer.ran().is_empty(), "nothing happens while drawing");
+        assert!(updates.step(), "the main loop gets the answer");
     }
 
     fn checked(copy: CopyKind, steps: impl FnOnce(Arc<dyn Transport>) -> Option<Steps>) -> (Updates, Arc<Counting>) {
@@ -819,7 +833,10 @@ mod tests {
         let installer = Installer::new("no-click");
         let ctx = egui::Context::default();
         let (mut updates, count) = checked(CopyKind::Installed, |net| Some(installer.steps(net, local)));
-        for _ in 0..20 { assert!(!frame(&mut updates, &ctx)); }
+        for _ in 0..20 {
+            frame(&mut updates, &ctx);
+            assert!(!updates.step());
+        }
         assert!(updates.job.is_none());
         assert!(updates.found.as_ref().unwrap().asset.is_ok());
         assert_eq!(count.gets.load(Ordering::Relaxed), 1, "only the release question");
@@ -832,7 +849,10 @@ mod tests {
         let (mut updates, count) = checked(CopyKind::Portable, |_| None);
         assert_eq!(updates.found.as_ref().unwrap().asset, Err(Failure::NoInstaller));
         updates.update_now();
-        for _ in 0..5 { assert!(!frame(&mut updates, &ctx)); }
+        for _ in 0..5 {
+            frame(&mut updates, &ctx);
+            assert!(!updates.step());
+        }
         assert!(updates.job.is_none() && updates.failure.is_none());
         assert_eq!(count.gets.load(Ordering::Relaxed), 1);
     }

@@ -1037,12 +1037,12 @@ public class NvConnection {
                     // The host resolves control tiles and confirms replacement itself. Cancelling
                     // first would terminate the game when selecting its Resume or Remote Input tile.
                     return launchNotRunningApp(h, context);
-                } else if (context.streamConfig.isNeverReplace()) {
+                } else if (context.streamConfig.isNeverReplace() && !context.streamConfig.isResumeOnly()) {
                     // However old the look that let this start go on (a poll, a PIN in between): no tap, no quit.
                     // Its one message closes the screen, with no failure dialog after it.
                     context.connListener.automaticStartStopped();
                     context.launchActionCompleted = true;
-                    context.connListener.launchActionCompleted(appContext.getString(R.string.open_play_other_device, details.name));
+                    context.connListener.launchActionCompleted(appContext.getString(R.string.open_play_game_running, details.name));
                     return false;
                 } else {
                     return quitAndLaunch(h, context);

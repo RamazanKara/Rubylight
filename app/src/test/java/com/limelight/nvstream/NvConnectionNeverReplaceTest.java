@@ -102,7 +102,7 @@ public class NvConnectionNeverReplaceTest {
         ConnectionContext start = start(true, app);
         assertFalse(connection.launchOrResume(pcRunning(99), start, freshDetails(), app, ""));
         assertEquals(0, quits.get());
-        assertEquals(List.of(context.getString(R.string.open_play_other_device, "Tower")), messages);
+        assertEquals(List.of(context.getString(R.string.open_play_game_running, "Tower")), messages);
         assertTrue("error text would come with the failure dialog", errors.isEmpty());
         assertTrue("what keeps the start thread from reporting a failed stage", start.launchActionCompleted);
         assertEquals("nothing failed: the next start is not skipped for it", 1, stopped.get());
@@ -126,10 +126,26 @@ public class NvConnectionNeverReplaceTest {
         org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
 
         assertEquals(1, ShadowToast.shownToastCount());
-        assertEquals(context.getString(R.string.open_play_other_device, "Tower"), ShadowToast.getTextOfLatestToast());
+        assertEquals(context.getString(R.string.open_play_game_running, "Tower"), ShadowToast.getTextOfLatestToast());
         assertNull("no failure dialog on top", ShadowDialog.getLatestDialog());
         assertTrue(game.isFinishing());
         assertFalse(context.getSharedPreferences("open_play", Context.MODE_PRIVATE).getBoolean("armed", true));
+    }
+
+    @Test
+    public void aReconnectFindingAnotherGameSaysTheSessionChangedNotARefusal() throws Exception {
+        NvApp app = new NvApp("Portal", 11, false);
+        ConnectionContext start = start(true, app);
+        start.streamConfig = new StreamConfiguration.Builder().setApp(app).setNeverReplace(true).setResumeOnly(true).build();
+        NvConnection connection = new NvConnection(context, new ComputerDetails.AddressTuple("192.0.2.1", 47989),
+                47984, "device", new StreamConfiguration.Builder().setApp(app).build(), null, null);
+        NvHTTP pc = pcRunning(99);
+        ComputerDetails details = freshDetails();
+
+        assertThrows(NvConnection.LocalLaunchFailure.class, () -> connection.launchOrResume(pc, start, details, app, ""));
+        assertEquals(0, quits.get());
+        assertTrue(messages.isEmpty());
+        assertEquals(0, stopped.get());
     }
 
     @Test

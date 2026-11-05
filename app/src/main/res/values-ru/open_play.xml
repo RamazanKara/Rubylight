@@ -11,6 +11,7 @@
     <string name="open_play_not_listed">На %1$s больше нет этой игры</string>
     <string name="open_play_no_list">%1$s не передал список игр</string>
     <string name="open_play_other_device">Игра на %1$s запущена на другом устройстве, поэтому Nightjar открылся как обычно.</string>
+    <string name="open_play_game_running">На %1$s уже запущена игра, поэтому Nightjar открылся как обычно.</string>
     <string name="open_play_no_network">Нет сети, поэтому Nightjar открылся как обычно.</string>
     <string name="open_play_waiting_network">Ожидание сети…</string>
     <string name="open_play_no_answer">%1$s не ответил вовремя.</string>

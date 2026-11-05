@@ -373,6 +373,7 @@ impl Host {
         else {
             return Ok(Outcome::Unchanged);
         };
+        self.moves.end_back_window();
         let canceled = locked(&self.sessions).stop_role(Role::Stream, Some(&owner));
         drop(canceled);
         // Releasing a display restores Windows: never under a lock.

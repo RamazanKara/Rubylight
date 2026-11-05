@@ -495,7 +495,8 @@ async fn session(State(h): State<Shared>, Extension(c): Extension<Connection>) -
     let snapshot = h.session_snapshot();
     let mut view = native::session_view(&snapshot, &client);
     view.microphone_busy = crate::mic::busy_for(&h, &client.uuid);
-    view.moved_to = native::moved_view(h.moves.note_for(&client.uuid), &client);
+    view.moved_to = native::moved_view(h.moved_note(&client.uuid), &client);
+    view.owns_game = h.owns_game(&client.uuid);
     Ok(json(StatusCode::OK, &view))
 }
 

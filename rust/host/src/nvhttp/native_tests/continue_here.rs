@@ -570,10 +570,10 @@ async fn a_press_is_tied_to_its_game() {
     let (_, tv_connection) = device(&s, "tv", "TV", ALL);
     press(&s, &tv_connection).await.session();
     assert!(s.host().claim_live());
-    // Another game runs now: the press and what it said are over.
+    // Another game runs now: the press and what it said are over, for the first to ask.
     s.run_game();
-    assert!(!s.host().claim_live());
     assert!(s.get("/session").await.session().moved_to.is_none());
+    assert!(!s.host().claim_live());
     assert_eq!(game_owner(&s), s.client.uuid);
     // So is it when the game is gone.
     let s = Setup::new();
@@ -581,8 +581,203 @@ async fn a_press_is_tied_to_its_game() {
     let (_, tv_connection) = device(&s, "tv", "TV", ALL);
     press(&s, &tv_connection).await.session();
     *s.host().current_app.lock().unwrap() = None;
+    assert!(s.get("/session").await.session().moved_to.is_none());
     assert!(!s.host().claim_live());
-    assert!(s.host().moves.note_for(&s.client.uuid).is_none());
+}
+
+#[tokio::test]
+async fn the_note_of_a_move_that_happened_ends_with_its_game() {
+    let s = Setup::new();
+    let _phone = s.streaming();
+    let (tv, tv_connection) = device(&s, "tv", "TV", ALL);
+    press(&s, &tv_connection).await.session();
+    let _tv = s.stream_as(tv);
+    s.host().settle_move();
+    assert!(!s.host().claim_live(), "the move happened");
+    assert!(s.get("/session").await.session().moved_to.is_some());
+    *s.host().current_app.lock().unwrap() = None;
+    assert!(s.get("/session").await.session().moved_to.is_none());
+}
+
+#[tokio::test]
+async fn the_window_after_a_failed_press_is_a_minute_whatever_the_display_grace_says() {
+    for (revert, timeout) in [
+        (None, None),
+        (Some("false"), None),
+        (Some("false"), Some("0")),
+    ] {
+        let s = Setup::new();
+        let _phone = s.streaming();
+        {
+            let mut config = s.host().config.write().unwrap();
+            if let Some(revert) = revert {
+                config
+                    .values
+                    .insert("dd_config_revert_on_disconnect".into(), revert.into());
+            }
+            if let Some(timeout) = timeout {
+                config.values.insert(
+                    "dd_paused_virtual_display_timeout_secs".into(),
+                    timeout.into(),
+                );
+            }
+        }
+        let (_, tv_connection) = device(&s, "tv", "TV", ALL);
+        press(&s, &tv_connection).await.session();
+        s.host().moves.expire_claim();
+        s.host().settle_move();
+        let left = s.host().moves.back_left().expect("the window");
+        assert!(
+            left > std::time::Duration::from_secs(50) && left <= std::time::Duration::from_secs(60),
+            "{left:?} with {revert:?} and {timeout:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn after_a_failed_press_the_session_reads_as_the_first_devices_own_again() {
+    let s = Setup::new();
+    let phone = s.streaming();
+    let (_, tv_connection) = device(&s, "tv", "TV", ALL);
+    press(&s, &tv_connection).await.session();
+    s.host()
+        .sessions
+        .lock()
+        .unwrap()
+        .active
+        .remove(&phone.launch.id);
+    drop(phone);
+    // What the phone's open prompt watches: still moved.
+    let moved = s.get("/session").await.session();
+    assert!(moved.moved_to.is_some() && !moved.owns_game);
+    s.host().moves.expire_claim();
+    s.host().settle_move();
+    let back = s.get("/session").await.session();
+    assert!(back.moved_to.is_none());
+    assert!(
+        back.owns_game,
+        "the prompt offers to resume on exactly this"
+    );
+    assert!(back.playing_on.is_none());
+    assert_eq!(
+        back.owner,
+        butterpollo_core::native_api::session::Owner::You
+    );
+
+    // A device without a kept display has no session between streams, and the game is still its.
+    let s = Setup::new();
+    s.run_game();
+    let phone = s.stream_as(s.client.clone());
+    let (_, tv_connection) = device(&s, "tv", "TV", ALL);
+    press(&s, &tv_connection).await.session();
+    s.host()
+        .sessions
+        .lock()
+        .unwrap()
+        .active
+        .remove(&phone.launch.id);
+    drop(phone);
+    s.host().moves.expire_claim();
+    s.host().settle_move();
+    let back = s.get("/session").await.session();
+    assert_eq!(s.state(), SessionState::Idle);
+    assert!(back.moved_to.is_none() && back.owns_game);
+}
+
+#[tokio::test]
+async fn a_note_that_runs_out_or_a_game_that_ended_does_not_read_as_coming_back() {
+    let s = Setup::new();
+    let phone = s.streaming();
+    let (tv, tv_connection) = device(&s, "tv", "TV", ALL);
+    press(&s, &tv_connection).await.session();
+    let _tv = s.stream_as(tv);
+    s.host()
+        .sessions
+        .lock()
+        .unwrap()
+        .active
+        .remove(&phone.launch.id);
+    s.host().settle_move();
+    s.host().moves.expire_notes();
+    let read = s.get("/session").await.session();
+    assert!(read.moved_to.is_none() && !read.owns_game);
+    assert_eq!(
+        read.owner,
+        butterpollo_core::native_api::session::Owner::OtherDevice
+    );
+
+    // The game ended after the press failed.
+    let s = Setup::new();
+    let phone = s.streaming();
+    let (_, tv_connection) = device(&s, "tv", "TV", ALL);
+    press(&s, &tv_connection).await.session();
+    s.host()
+        .sessions
+        .lock()
+        .unwrap()
+        .active
+        .remove(&phone.launch.id);
+    drop(phone);
+    s.host().moves.expire_claim();
+    s.host().settle_move();
+    s.host()
+        .stop_app(crate::state::AppStop::CloseGame(&s.client.uuid));
+    s.host().reap_paused_display();
+    let read = s.get("/session").await.session();
+    assert!(read.moved_to.is_none() && !read.owns_game);
+}
+
+#[tokio::test]
+async fn a_stream_that_arrives_after_the_press_expired_takes_the_game() {
+    let expired = |s: &Setup, phone: Arc<Session>| {
+        s.host()
+            .sessions
+            .lock()
+            .unwrap()
+            .active
+            .remove(&phone.launch.id);
+        drop(phone);
+        s.host().moves.expire_claim();
+        s.host().settle_move();
+    };
+    let s = Setup::new();
+    let phone = s.streaming();
+    let (tv, tv_connection) = device(&s, "tv", "TV", ALL);
+    press(&s, &tv_connection).await.session();
+    expired(&s, phone);
+    assert_eq!(game_owner(&s), s.client.uuid);
+    let stream = s.stream_as(tv.clone());
+    s.host().settle_move();
+    assert_eq!(
+        game_owner(&s),
+        tv.uuid,
+        "its own recovery must find the game"
+    );
+    drop(stream);
+
+    // The first device came back first: it keeps its game, the late one streams beside it.
+    let s = Setup::new();
+    let phone = s.streaming();
+    let (tv, tv_connection) = device(&s, "tv", "TV", ALL);
+    press(&s, &tv_connection).await.session();
+    expired(&s, phone);
+    let back = s.stream_as(s.client.clone());
+    let stream = s.stream_as(tv);
+    s.host().settle_move();
+    assert_eq!(game_owner(&s), s.client.uuid);
+    drop((back, stream));
+
+    // The game went on to a third device in the meantime: it is not taken from there.
+    let s = Setup::new();
+    let phone = s.streaming();
+    let (tv, tv_connection) = device(&s, "tv", "TV", ALL);
+    press(&s, &tv_connection).await.session();
+    expired(&s, phone);
+    s.host().current_app.lock().unwrap().as_mut().unwrap().owner = "laptop".into();
+    let stream = s.stream_as(tv);
+    s.host().settle_move();
+    assert_eq!(game_owner(&s), "laptop");
+    drop(stream);
 }
 
 #[tokio::test]

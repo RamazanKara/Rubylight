@@ -27,7 +27,7 @@ use butterpollo_core::{
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::{Mutex, PoisonError},
+    sync::Mutex,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -37,10 +37,10 @@ const MOVED_KEPT: Duration = Duration::from_secs(120);
 /// and an unused press gives the game back to its previous owner after it. A launch that is
 /// pending holds the press longer, up to the launch's own limit (`session::CLAIM_LIMIT`).
 const CLAIM_KEPT: Duration = Duration::from_secs(15);
-/// The least a device has to come back after a failed press. Its screen says the game moved and
-/// it does not reconnect on its own, so the 3 s of the default disconnect grace would close the
-/// game under a person still reading that.
-const BACK_AT_LEAST: Duration = Duration::from_secs(60);
+/// How long a device has to come back after a failed press, whatever the disconnect grace says:
+/// that one is about displays, 3 s by default and hours or forever with its revert turned off. A
+/// person has to read that the game came back and answer before close-on-disconnect applies.
+const BACK_KEPT: Duration = Duration::from_secs(60);
 
 /// Why a press changed nothing.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,6 +59,8 @@ impl From<Refusal> for Refused {
 
 struct Note {
     device: String,
+    /// The game that moved: when it is gone, nothing moved any more.
+    generation: String,
     since_unix_ms: u64,
     at: Instant,
 }
@@ -77,14 +79,14 @@ struct Claim {
 /// A press that failed: its previous owner may still come back to this game.
 struct Back {
     generation: String,
-    /// `None` when the disconnect grace never ends.
-    until: Option<Instant>,
+    until: Instant,
 }
 
 /// A press that ended before its stream came. If it still comes, the displays it displaced go
 /// as they would have on time.
 struct Late {
     to: String,
+    previous_owner: String,
     generation: String,
     displaced: BTreeSet<String>,
     at: Instant,
@@ -139,6 +141,7 @@ impl Moves {
                 device.clone(),
                 Note {
                     device: claim.name.clone(),
+                    generation: claim.generation.clone(),
                     since_unix_ms,
                     at: Instant::now(),
                 },
@@ -148,6 +151,11 @@ impl Moves {
         inner.back = None;
         inner.late = None;
         inner.claim = Some(claim);
+    }
+    /// An explicit End session: the device that left does not come back, so the window of a
+    /// failed press no longer holds close-on-disconnect back.
+    pub fn end_back_window(&self) {
+        locked(&self.0).back = None;
     }
     /// The displays to release for moved streams.
     pub fn displays_to_release(&self) -> BTreeSet<String> {
@@ -177,8 +185,15 @@ impl Moves {
     #[cfg(test)]
     pub fn expire_back(&self) {
         if let Some(back) = &mut locked(&self.0).back {
-            back.until = Some(Instant::now());
+            back.until = Instant::now();
         }
+    }
+    #[cfg(test)]
+    pub fn back_left(&self) -> Option<Duration> {
+        locked(&self.0)
+            .back
+            .as_ref()
+            .map(|back| back.until.saturating_duration_since(Instant::now()))
     }
     #[cfg(test)]
     pub fn expire_notes(&self) {
@@ -226,6 +241,24 @@ impl Host {
             .find(|client| client.uuid == uuid)
             .map(|client| client.name.clone())
     }
+    /// Where `device`'s stream went, for its own `/session`. Nothing else asks once the game has
+    /// ended, so this read ends the press of a game that is gone and drops what a move said of it.
+    pub fn moved_note(&self, device: &str) -> Option<MovedTo> {
+        self.live_claim();
+        let generation = locked(&self.current_app)
+            .as_ref()
+            .map(|app| app.generation.clone());
+        locked(&self.moves.0)
+            .notes
+            .retain(|_, note| Some(&note.generation) == generation.as_ref());
+        self.moves.note_for(device)
+    }
+    /// Whether the running game is `device`'s: what `/serverinfo` reports to it alone.
+    pub fn owns_game(&self, device: &str) -> bool {
+        locked(&self.current_app)
+            .as_ref()
+            .is_some_and(|app| !app.background && app.owner == device)
+    }
     /// The press waiting for its stream. One whose game is gone is over: nothing moved.
     fn live_claim(&self) -> Option<Claim> {
         let generation = locked(&self.current_app)
@@ -262,7 +295,7 @@ impl Host {
         inner.back = inner.back.take().filter(|back| {
             !streaming
                 && Some(&back.generation) == generation.as_ref()
-                && back.until.is_none_or(|until| Instant::now() < until)
+                && Instant::now() < back.until
         });
         claimed || inner.back.is_some()
     }
@@ -440,8 +473,8 @@ impl Host {
         inner.release.extend(kept);
     }
     /// A press is over without its stream: the game is its previous owner's again, nothing says
-    /// it moved, and that device has the disconnect grace to come back. The stream may still
-    /// arrive, a little late.
+    /// it moved, and that device has [`BACK_KEPT`] to come back. The stream may still arrive, a
+    /// little late.
     fn give_back(&self, claim: Claim) {
         if let Some(app) = locked(&self.current_app)
             .as_mut()
@@ -449,31 +482,26 @@ impl Host {
         {
             app.owner = claim.previous_owner.clone();
         }
-        let exclusive = locked(&self.app_display)
-            .get(&claim.previous_owner)
-            .is_some_and(|(lease, _)| lease.exclusive_layout());
-        let grace = self
-            .config
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
-            .display_disconnect_delay(exclusive);
         let now = Instant::now();
         let mut inner = locked(&self.moves.0);
         inner.claim = None;
         inner.forget_notes(&claim.displaced);
         inner.back = Some(Back {
             generation: claim.generation.clone(),
-            until: grace.map(|grace| now + grace.max(BACK_AT_LEAST)),
+            until: now + BACK_KEPT,
         });
         inner.late = Some(Late {
             to: claim.to,
+            previous_owner: claim.previous_owner,
             generation: claim.generation,
             displaced: claim.displaced,
             at: now,
         });
     }
     /// The stream of a press that ended without it comes after all: the displays that press
-    /// would have released go, instead of waiting out a grace that can last hours.
+    /// would have released go, instead of waiting out a grace that can last hours, and the game
+    /// is that device's, so its own recovery finds it. Not when the previous owner came back
+    /// first: this stream then runs beside that one.
     fn settle_late_arrival(&self) {
         let generation = locked(&self.current_app)
             .as_ref()
@@ -483,17 +511,28 @@ impl Host {
             inner.late = inner.late.take().filter(|late| {
                 Some(&late.generation) == generation.as_ref() && late.at.elapsed() < MOVED_KEPT
             });
-            inner
-                .late
-                .as_ref()
-                .map(|late| (late.to.clone(), late.displaced.clone()))
+            inner.late.as_ref().map(|late| {
+                (
+                    late.to.clone(),
+                    late.previous_owner.clone(),
+                    late.displaced.clone(),
+                )
+            })
         };
-        let Some((to, displaced)) = late else {
+        let Some((to, previous_owner, displaced)) = late else {
             return;
         };
-        if locked(&self.sessions).plain_streams().contains_key(&to) {
-            self.release_displaced(&displaced);
-            locked(&self.moves.0).late = None;
+        let streams = locked(&self.sessions).plain_streams();
+        if !streams.contains_key(&to) {
+            return;
+        }
+        self.release_displaced(&displaced);
+        locked(&self.moves.0).late = None;
+        if let Some(app) = locked(&self.current_app)
+            .as_mut()
+            .filter(|app| app.owner == previous_owner && !streams.contains_key(&previous_owner))
+        {
+            app.owner = to;
         }
     }
 }

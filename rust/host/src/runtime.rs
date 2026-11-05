@@ -622,6 +622,46 @@ mod tests {
     }
 
     #[test]
+    fn ending_the_session_after_a_failed_move_gives_up_the_window() {
+        let fixture = Fixture::new();
+        fixture
+            .host
+            .config
+            .write()
+            .unwrap()
+            .values
+            .insert("terminate_on_pause".into(), "true".into());
+        let app = serde_json::from_value(serde_json::json!({"name":"Desktop"})).unwrap();
+        *fixture.host.current_app.lock().unwrap() =
+            Some(crate::process::launch(&fixture.host, &app, &Default::default()).unwrap());
+        let phone = fixture.client(u32::MAX);
+        // Its kept display is what makes this a session to end.
+        let config = fixture.host.config.read().unwrap().clone();
+        let display = crate::display_session::tests::retained_display(&fixture.host, &config);
+        fixture
+            .host
+            .app_display
+            .lock()
+            .unwrap()
+            .insert(phone.uuid.clone(), (display, None));
+        let stream = fixture.session(phone.clone(), Role::Stream);
+        assert!(!application_finished(&fixture.host));
+        let mut tv = phone.clone();
+        tv.uuid = "tv".into();
+        fixture.host.continue_here(&tv).unwrap();
+        let sessions = &fixture.host.sessions;
+        sessions.lock().unwrap().active.remove(&stream.launch.id);
+        fixture.host.moves.expire_claim();
+        fixture.host.reap_paused_display();
+        assert!(!application_finished(&fixture.host));
+        fixture.host.end_session(Some(&phone.uuid)).unwrap();
+        assert!(
+            application_finished(&fixture.host),
+            "the phone said it is done, so it is not coming back"
+        );
+    }
+
+    #[test]
     fn the_device_that_came_back_after_a_failed_move_closes_the_game_by_leaving() {
         let fixture = Fixture::new();
         fixture

@@ -144,6 +144,12 @@ pub struct Session {
     /// features.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moved_to: Option<MovedTo>,
+    /// The running game is the caller's: its resume finds it, whether or not a session holds it
+    /// (a game without a kept display has none between streams). Together with `moved_to` gone,
+    /// this is how a device that was told its stream moved learns that the move failed. Only when
+    /// the host lists `session.continue_here` in its features.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub owns_game: bool,
     pub actions: Vec<Action>,
 }
 

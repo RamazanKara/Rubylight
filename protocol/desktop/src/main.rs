@@ -289,7 +289,12 @@ fn main() {
         std::process::exit(stream::pyrowave_mode::package_check(std::path::Path::new(&report)));
     }
     // Frontends start a stream directly (see `cli`); a release build has no console to print to.
-    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    let (args, after_setup) = self_update::split_after_setup(std::env::args_os().skip(1).collect());
+    if self_update::install_running(after_setup) {
+        // Its progress window is up, and it starts Nightjar when it ends.
+        eprintln!("nightjar: the update is installing");
+        std::process::exit(75);
+    }
     let usage_box = cli::shows_usage_box(cli::HAS_CONSOLE, &args);
     let launch = match cli::parse(args) {
         Ok(cli::Parsed::Gui) => None,

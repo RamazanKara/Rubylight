@@ -514,6 +514,7 @@ async fn capabilities_list_the_radeon_features_only_with_a_worker() {
             "radeon.write",
             "radeon.profile",
             "session.couch_menu",
+            "pairing.approve",
             "clipboard.image"
         ]
     );

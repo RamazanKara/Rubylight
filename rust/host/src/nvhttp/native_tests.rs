@@ -405,6 +405,7 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
             "power.restart",
             "power.shutdown",
             "session.couch_menu",
+            "pairing.approve",
             "clipboard.image"
         ]
     );
@@ -436,6 +437,7 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
             "power.shutdown",
             "session.couch_menu",
             "coop",
+            "pairing.approve",
             "clipboard.image"
         ]
     );

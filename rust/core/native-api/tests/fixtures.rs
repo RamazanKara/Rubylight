@@ -5,6 +5,7 @@ use rubylight_native_api::error::{ErrorBody, ErrorCode};
 use rubylight_native_api::files::{FileList, Uploaded};
 use rubylight_native_api::folders::{EntryKind, FolderAccess, FolderEntries, FolderList};
 use rubylight_native_api::library::Library;
+use rubylight_native_api::pairing::{PairingApprove, PairingDeny, PairingRequests};
 use rubylight_native_api::power::{Power, PowerRequest, Update};
 use rubylight_native_api::radeon::{Change, ControlState, Kind, Radeon, SettingsWrite, Value};
 use rubylight_native_api::session::{ActionId, LauncherKind, Owner, ProfileState, Session, State};
@@ -54,6 +55,24 @@ fn capabilities_round_trip() {
         .any(|f| f == feature::FILES_UPLOAD));
     assert!(capabilities.permissions.file_upload && !capabilities.permissions.file_download);
     assert!(!capabilities.permissions.usb && !capabilities.permissions.shared_folders);
+}
+
+#[test]
+fn pairing_requests_round_trip_without_a_certificate_and_requests_stay_strict() {
+    let requests: PairingRequests = round_trip("pairing_requests");
+    assert_eq!(requests.requests[0].name, "Living room TV");
+    assert!(!fixture("pairing_requests").contains("cert"));
+    assert_eq!(feature::PAIRING_APPROVE, "pairing.approve");
+    let approve: PairingApprove =
+        serde_json::from_value(json!({"id": "a", "pin": "1234"})).unwrap();
+    assert_eq!(approve.pin, "1234");
+    assert!(
+        serde_json::from_value::<PairingApprove>(json!({"id": "a", "pin": "1", "x": 1})).is_err()
+    );
+    assert!(serde_json::from_value::<PairingDeny>(json!({"id": "a", "x": 1})).is_err());
+    assert_eq!(ErrorCode::WrongPin.status(), 422);
+    assert_eq!(ErrorCode::PairingUnconfirmed.status(), 409);
+    assert_eq!(ErrorCode::PairingEnded.status(), 409);
 }
 
 #[test]

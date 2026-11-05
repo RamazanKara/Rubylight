@@ -32,6 +32,7 @@ mod couch_menu;
 mod files;
 mod folders;
 mod launcher;
+mod pairing;
 mod power;
 mod radeon;
 mod usb;

@@ -26,6 +26,10 @@ const APP_CHANGED: u32 = WM_APP + 2;
 #[derive(Clone, Copy)]
 pub enum Action {
     Open,
+    /// Open the console where a waiting device's PIN goes.
+    EnterPin,
+    /// Open the console where the QR code that pairs a device is.
+    PairDevice,
     StopSessions,
     /// Quit the running app, as the console's close button does.
     QuitApp,
@@ -237,6 +241,7 @@ unsafe extern "system" fn window(
                         let hide_controls = (*state).hide_controls;
                         if let Ok(menu) = CreatePopupMenu() {
                             let _ = AppendMenuW(menu, MF_STRING, 1, w!("Open Rubylight"));
+                            let _ = AppendMenuW(menu, MF_STRING, 7, w!("Pair a device"));
                             let _ = AppendMenuW(menu, MF_STRING, 6, w!("Check for updates"));
                             if !hide_controls {
                                 let _ = AppendMenuW(menu, MF_STRING, 2, w!("Disconnect clients"));
@@ -281,6 +286,7 @@ unsafe extern "system" fn window(
                                 4 => Some(Action::Quit),
                                 5 => Some(Action::QuitApp),
                                 6 => Some(Action::CheckUpdates),
+                                7 => Some(Action::PairDevice),
                                 _ => None,
                             };
                             if let Some(action) = action {
@@ -473,6 +479,12 @@ static NOTICE_ACTION: Mutex<Option<Action>> = Mutex::new(None);
 pub fn notify(title: &str, text: &str) {
     let _ = notify_with_action(title, text, None);
 }
+/// Show a pairing request's notification; clicking it opens the console at the PIN.
+pub fn notify_pairing(title: &str, text: &str) {
+    if let Err(error) = notify_with_action(title, text, Some(Action::EnterPin)) {
+        tracing::debug!(%error, "no tray notification for a pairing request");
+    }
+}
 /// Show a notification from the tray icon, or say why it could not be shown.
 pub fn try_notify(title: &str, text: &str) -> Result<()> {
     notify_with_action(title, text, None)
@@ -519,15 +531,38 @@ fn notify_with_action(title: &str, text: &str, action: Option<Action>) -> Result
     }
 }
 
+/// The console's Devices page with a waiting device's PIN field focused.
+pub const PAGE_ENTER_PIN: &str = "/devices?pair=pin";
+/// The console's Devices page at the QR code that pairs a device.
+pub const PAGE_PAIR_QR: &str = "/devices?pair=qr";
+
+fn console_url(port: u16, page: &str) -> String {
+    format!("https://localhost:{port}{page}")
+}
+
 pub fn open_web(port: u16) -> Result<()> {
+    open_web_page(port, "/")
+}
+
+/// Open a page of the console in the signed-in user's browser. `page` is one
+/// of the `PAGE_` paths or `/`.
+pub fn open_web_page(port: u16, page: &str) -> Result<()> {
+    if !matches!(page, "/" | PAGE_ENTER_PIN | PAGE_PAIR_QR) {
+        bail!("not a console page: {page}");
+    }
     if crate::process::is_system() {
         return crate::process::Process::spawn_detached(
             &std::env::current_exe()?,
-            &["--open-web".into(), port.to_string().into()],
+            &[
+                "--open-web".into(),
+                port.to_string().into(),
+                "--open-web-page".into(),
+                page.into(),
+            ],
             crate::process::Target::User { elevated: false },
         );
     }
-    let url: Vec<u16> = format!("https://localhost:{port}/\0")
+    let url: Vec<u16> = format!("{}\0", console_url(port, page))
         .encode_utf16()
         .collect();
     // SAFETY: The verb and URL are terminated UTF-16 strings that remain live for
@@ -551,6 +586,20 @@ pub fn open_web(port: u16) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_pairing_pages_lead_to_the_devices_page() {
+        assert_eq!(console_url(47990, "/"), "https://localhost:47990/");
+        assert_eq!(
+            console_url(47990, PAGE_ENTER_PIN),
+            "https://localhost:47990/devices?pair=pin"
+        );
+        assert_eq!(
+            console_url(47990, PAGE_PAIR_QR),
+            "https://localhost:47990/devices?pair=qr"
+        );
+        assert!(open_web_page(47990, "//evil.example/").is_err());
+    }
 
     #[test]
     fn launch_error_uses_vibepollos_wording_and_signed_exit_code() {

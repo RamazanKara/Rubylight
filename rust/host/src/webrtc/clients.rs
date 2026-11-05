@@ -433,7 +433,28 @@ impl Registry {
             let mut inner = self.inner.lock().unwrap();
             inner.pins.approve(request_id, entered, self.now())
         };
-        let request = approved.map_err(|failure| failure.code())?;
+        let request = approved.map_err(|failure| {
+            crate::native_api::pairing::failed(h, request_id);
+            failure.code()
+        })?;
+        // A device approved from another one: `add_webrtc` gives it the default,
+        // which that device must still hold.
+        let default = butterpollo_core::state::LATER_DEVICE_PERMISSION;
+        let capped = crate::native_api::pairing::capped(
+            h,
+            &h.paired.read().unwrap(),
+            request_id,
+            default,
+            Default::default(),
+        );
+        if !capped.is_ok_and(|(perm, _)| perm == default) {
+            tracing::warn!(
+                client = name,
+                "A WebRTC device's approver no longer holds what it would get"
+            );
+            crate::native_api::pairing::failed(h, request_id);
+            return Err(ErrorCode::PairingFailed);
+        }
         let credentials = Credentials::generate(&mut OsRng);
         let name = if name.trim().is_empty() {
             request.client_name()
@@ -468,10 +489,14 @@ impl Registry {
                 json!({"device": crate::webhooks::device(id, ""), "reason": "limit"}),
             );
         }
-        h.webhook(
-            "pairing.paired",
-            json!({"device": crate::webhooks::device(&uuid, name), "transport": "webrtc"}),
-        );
+        let mut paired =
+            json!({"device": crate::webhooks::device(&uuid, name), "transport": "webrtc"});
+        if let Some(approver) = crate::native_api::pairing::paired(h, request_id) {
+            paired["approved_by"] = crate::webhooks::device(&approver.uuid, &approver.name);
+            let (title, text) = crate::state::pairing_approved_notice(&approver.name, name);
+            butterpollo_windows::tray::notify(&title, &text);
+        }
+        h.webhook("pairing.paired", paired);
         self.clients_changed();
         Ok(credentials)
     }

@@ -158,6 +158,15 @@ fn user_action(h: &Shared, action: Action, web_port: u16) {
                 tracing::warn!(%error, "could not open the administration console");
             }
         }
+        Action::EnterPin | Action::PairDevice => {
+            let page = match action {
+                Action::EnterPin => butterpollo_windows::tray::PAGE_ENTER_PIN,
+                _ => butterpollo_windows::tray::PAGE_PAIR_QR,
+            };
+            if let Err(error) = butterpollo_windows::tray::open_web_page(web_port, page) {
+                tracing::warn!(%error, page, "could not open the administration console");
+            }
+        }
         Action::StopSessions => {
             let h = h.clone();
             tokio::task::spawn_blocking(move || {

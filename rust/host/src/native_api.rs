@@ -11,6 +11,7 @@ mod audio;
 pub(crate) mod coop;
 pub(crate) mod files;
 mod folders;
+pub(crate) mod pairing;
 mod power;
 pub(crate) mod radeon;
 pub(crate) mod wake;
@@ -232,6 +233,18 @@ pub fn router() -> Router<Shared> {
             &path("/update/install"),
             post(power::install).fallback(unknown),
         )
+        .route(
+            &path("/pairing/requests"),
+            get(pairing::requests).fallback(unknown),
+        )
+        .route(
+            &path("/pairing/approve"),
+            post(pairing::approve).fallback(unknown),
+        )
+        .route(
+            &path("/pairing/deny"),
+            post(pairing::deny).fallback(unknown),
+        )
         .route(&path("/coop"), get(coop::list).fallback(unknown))
         .route(&path("/coop/join"), post(coop::join).fallback(unknown))
         .route(
@@ -348,11 +361,12 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
         },
         |config| config.couch_menu(),
     );
-    let (name, extension_features) = {
+    let (name, extension_features, pairing) = {
         let config = h.config.read().unwrap_or_else(PoisonError::into_inner);
         (
             crate::network::host_name(&config),
             crate::extensions::native_features(&h, &config),
+            config.boolean("enable_pairing", true),
         )
     };
     let coop = h.nucleus.unavailable().is_none();
@@ -418,6 +432,8 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
             .chain(coop.then_some(feature::COOP))
             // Where the host installs its own updates; installing needs Host control.
             .chain(update.then_some(feature::UPDATE))
+            // While new devices may pair; approving needs Host control.
+            .chain(pairing.then_some(feature::PAIRING_APPROVE))
             .chain(extension_features)
             .map(String::from)
             .collect(),

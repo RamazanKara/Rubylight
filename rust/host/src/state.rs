@@ -243,13 +243,40 @@ const NOTICE_NAME_CHARS: usize = 40;
 /// the name the device chose, which is cut short so it can neither push the address out of the
 /// notice (Windows keeps 255 UTF-16 units) nor pass for it.
 pub fn pairing_notice(name: &str, address: std::net::IpAddr) -> (String, String) {
+    (
+        format!("Pairing request from {}", pairing_source(address)),
+        format!(
+            "{} wants to pair. Enter the PIN it shows in the Rubylight console.",
+            notice_name(name)
+        ),
+    )
+}
+fn notice_name(name: &str) -> String {
     let mut shown: String = name.chars().take(NOTICE_NAME_CHARS).collect();
     if shown.len() < name.len() {
         shown.push('…');
     }
+    shown
+}
+/// The tray notice when a device paired because another one approved it.
+pub fn pairing_approved_notice(approver: &str, name: &str) -> (String, String) {
     (
-        format!("Pairing request from {}", pairing_source(address)),
-        format!("{shown} wants to pair. Enter the PIN it shows in the Rubylight console."),
+        "Device paired".into(),
+        format!(
+            "{} approved {}. It can now stream from this PC.",
+            notice_name(approver),
+            notice_name(name)
+        ),
+    )
+}
+/// The tray notice when wrong PINs ended a device's requests on other devices.
+pub fn pairing_ended_notice(name: &str) -> (String, String) {
+    (
+        "Pairing ended".into(),
+        format!(
+            "Three wrong PINs for {}. Other devices can't approve it for now; the Rubylight console still can.",
+            notice_name(name)
+        ),
     )
 }
 /// A client's display lease and when it last stopped being streamed.
@@ -303,6 +330,8 @@ pub struct Host {
     /// Pairing requests waiting for a PIN in the console. A request with an
     /// empty `certificate` is a WebRTC device (see `webrtc::clients`).
     pub pins: Mutex<BTreeMap<String, PendingPin>>,
+    /// Pairings approved from another paired device.
+    pub approvals: Mutex<crate::native_api::pairing::Approvals>,
     pub webrtc: crate::webrtc::clients::Registry,
     /// The media transport of each WebRTC session between its signalling task and its stream.
     pub webrtc_links: crate::webrtc::session::Links,
@@ -771,6 +800,7 @@ impl Host {
             hardware_metrics: Mutex::new(None),
             pairings: Mutex::new(Pairings::default()),
             pins: Mutex::new(BTreeMap::new()),
+            approvals: Default::default(),
             webrtc: crate::webrtc::clients::Registry::new(),
             webrtc_links: Default::default(),
             guests: Default::default(),

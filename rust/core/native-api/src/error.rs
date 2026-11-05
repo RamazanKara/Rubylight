@@ -58,6 +58,16 @@ pub enum ErrorCode {
     TokenExpired,
     /// No update to install, or the host can't install it; the message says why.
     UpdateUnavailable,
+    /// The PIN of an approval is not the one the new device shows; the device
+    /// starts again with a new PIN.
+    WrongPin,
+    /// The new device did not finish pairing after an approval, so the PIN
+    /// could not be confirmed. It counts as a wrong PIN unless the device
+    /// finishes later.
+    PairingUnconfirmed,
+    /// Three wrong PINs ended this device's requests here for a few minutes;
+    /// the console on the PC can still pair it.
+    PairingEnded,
     /// A code from a newer host. Clients treat it by its HTTP status.
     #[serde(other)]
     Unknown,
@@ -81,7 +91,7 @@ impl ErrorCode {
             Self::InvalidRequest | Self::InvalidName | Self::IncompleteUpload => 400,
             Self::LengthRequired => 411,
             Self::TooLarge => 413,
-            Self::InvalidValue | Self::NotWritable => 422,
+            Self::InvalidValue | Self::NotWritable | Self::WrongPin => 422,
             Self::NoSession
             | Self::NotSessionOwner
             | Self::SessionBusy
@@ -93,7 +103,9 @@ impl ErrorCode {
             | Self::CoopRefused
             | Self::HostInUse
             | Self::TokenExpired
-            | Self::UpdateUnavailable => 409,
+            | Self::UpdateUnavailable
+            | Self::PairingUnconfirmed
+            | Self::PairingEnded => 409,
             Self::InsufficientStorage => 507,
             Self::TemporarilyUnavailable => 503,
             Self::Internal | Self::Unknown => 500,

@@ -1045,6 +1045,7 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
         // a wrong PIN without telling the host, and its apps share one unique
         // ID, so the stale session refused every later attempt until restart.
         h.pairings.lock().unwrap().sessions.remove(&id);
+        crate::native_api::pairing::failed(&h, &id);
         if h.pairings
             .lock()
             .unwrap()
@@ -1120,7 +1121,7 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
         }
         tracing::info!(client=%name,%peer,"Pairing PIN required in the web interface");
         let (title, text) = crate::state::pairing_notice(&name, peer);
-        butterpollo_windows::tray::notify(&title, &text);
+        butterpollo_windows::tray::notify_pairing(&title, &text);
         let response = tokio::time::timeout(Duration::from_secs(300), receiver).await;
         {
             // Only this request's entry: a newer request may have replaced it.
@@ -1201,6 +1202,9 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
                 p.finish(secret)?;
                 let mut state = h.paired.write().unwrap();
                 let perm = state.paired_device_permission(p.permission);
+                let extra = butterpollo_core::state::PairedState::paired_device_extra(perm);
+                let (perm, extra) =
+                    crate::native_api::pairing::capped(&h, &state, &id, perm, extra)?;
                 let uuid = uuid::Uuid::new_v4().to_string();
                 state.add(
                     &h.paired_path,
@@ -1210,25 +1214,36 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
                         uuid: uuid.clone(),
                         perm,
                         enabled: true,
-                        extra: butterpollo_core::state::PairedState::paired_device_extra(perm),
+                        extra,
                     },
                 )?;
                 drop(state);
                 tracing::info!(client=%p.name,"Client paired and saved");
-                h.webhook(
-                    "pairing.paired",
-                    serde_json::json!({"device": crate::webhooks::device(&uuid, &p.name), "transport": "moonlight"}),
-                );
-                butterpollo_windows::tray::notify(
-                    "Device paired",
-                    &format!("{} can now stream from this PC.", p.name),
-                );
+                let approver = crate::native_api::pairing::paired(&h, &id);
+                let mut paired = serde_json::json!({"device": crate::webhooks::device(&uuid, &p.name), "transport": "moonlight"});
+                if let Some(approver) = &approver {
+                    paired["approved_by"] = crate::webhooks::device(&approver.uuid, &approver.name);
+                }
+                h.webhook("pairing.paired", paired);
+                let (title, text) = match &approver {
+                    Some(approver) => {
+                        crate::state::pairing_approved_notice(&approver.name, &p.name)
+                    }
+                    None => (
+                        "Device paired".to_owned(),
+                        format!("{} can now stream from this PC.", p.name),
+                    ),
+                };
+                butterpollo_windows::tray::notify(&title, &text);
                 Ok(vec![("paired".into(), "1".into())])
             }
         }
     })();
     if result.is_err() || matches!(step, Step::Secret(_)) {
         pairings.sessions.remove(&id);
+    }
+    if result.is_err() {
+        crate::native_api::pairing::failed(&h, &id);
     }
     result
 }
@@ -2705,10 +2720,22 @@ fn cancel_app(h: Shared, connection: Connection) -> Response {
     h.stop_app(AppStop::Cancel(&client.uuid));
     xml(200, &[("cancel", "1".into())], None)
 }
-async fn unpair(State(h): State<Shared>, Extension(connection): Extension<Connection>) -> Response {
+async fn unpair(
+    State(h): State<Shared>,
+    Extension(connection): Extension<Connection>,
+    args: Result<Query<Args>, axum::extract::rejection::QueryRejection>,
+) -> Response {
     // Only a paired client's own certificate can unpair it; anything else is
     // answered like Vibepollo, with nothing removed.
     let Ok(client) = authenticated(&h, &connection, 0) else {
+        // Moonlight says this right after it finds its PIN wrong, so a pairing
+        // approved from another device hears it at once.
+        if let Ok(Query(args)) = &args
+            && let Some(id) = args.get("uniqueid")
+        {
+            let id = pairing_id(id, connection.peer.ip());
+            crate::native_api::pairing::failed(&h, &id);
+        }
         return xml(200, &[("unpaired", "0".into())], None);
     };
     let removed = h.unpair_with_network_history(Some(&client.uuid));

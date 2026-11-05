@@ -955,7 +955,11 @@ async fn one_time_pin_is_spent_after_wrong_attempts_from_many_addresses() {
 
 /// A certificate request from `client`, named `id`, with the one-time PIN
 /// hash of `pin` and `passphrase` when given.
-fn device_request(client: &crypto::Identity, id: &str, otp: Option<(&str, &str)>) -> Args {
+pub(super) fn device_request(
+    client: &crypto::Identity,
+    id: &str,
+    otp: Option<(&str, &str)>,
+) -> Args {
     let mut args = Args::from([
         ("uniqueid".into(), id.into()),
         ("phrase".into(), "getservercert".into()),
@@ -977,7 +981,12 @@ fn device_request(client: &crypto::Identity, id: &str, otp: Option<(&str, &str)>
     args
 }
 /// The rest of `client`'s handshake after its certificate request, with `pin`.
-async fn finish_pairing(f: &Fixture, client: &crypto::Identity, id: &str, pin: &str) -> Result<()> {
+pub(super) async fn finish_pairing(
+    f: &Fixture,
+    client: &crypto::Identity,
+    id: &str,
+    pin: &str,
+) -> Result<()> {
     let peer = "127.0.0.1".parse().unwrap();
     let aes = crypto::pin_key(&[0x12; 16], pin);
     let step = |name: &str, value: Vec<u8>| {

@@ -14,6 +14,7 @@ pub mod error;
 pub mod files;
 pub mod folders;
 pub mod library;
+pub mod pairing;
 pub mod power;
 pub mod radeon;
 pub mod session;
@@ -84,4 +85,7 @@ pub mod feature {
     /// `GET /update` and `POST /update/install` answer: the host installs
     /// its own updates.
     pub const UPDATE: &str = "update";
+    /// [`crate::pairing`]: a device with Host control lists, approves and
+    /// denies pairing requests, while the host's pairing setting is on.
+    pub const PAIRING_APPROVE: &str = "pairing.approve";
 }

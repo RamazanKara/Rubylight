@@ -165,6 +165,15 @@ fn page_path(path: &str) -> Option<&str> {
 pub(crate) fn return_path(value: &str) -> &str {
     page_path(value).unwrap_or("/")
 }
+/// Sign-in first, and then still on to the PC's own pairing links.
+fn login_path(path: &str, query: Option<&str>) -> String {
+    match (path, query) {
+        ("/devices", Some(query @ ("pair=pin" | "pair=qr"))) => {
+            format!("/login?next=%2Fdevices%3F{}", query.replace('=', "%3D"))
+        }
+        _ => "/login".to_owned(),
+    }
+}
 fn redirect(path: &str) -> Response {
     (StatusCode::SEE_OTHER, [(header::LOCATION, path)]).into_response()
 }
@@ -302,7 +311,7 @@ pub(crate) async fn page(
         return result;
     }
     if configured && !signed_in && path != "/login" {
-        return redirect("/login");
+        return redirect(&login_path(path, uri.query()));
     }
     if configured && signed_in && matches!(path, "/login" | "/setup") {
         return redirect("/");
@@ -404,6 +413,25 @@ mod tests {
             "/api/config",
         ] {
             assert_eq!(return_path(path), "/");
+        }
+    }
+
+    #[test]
+    fn sign_in_keeps_only_the_pairing_links() {
+        assert_eq!(
+            login_path("/devices", Some("pair=pin")),
+            "/login?next=%2Fdevices%3Fpair%3Dpin"
+        );
+        assert_eq!(
+            login_path("/devices", Some("pair=qr")),
+            "/login?next=%2Fdevices%3Fpair%3Dqr"
+        );
+        for (path, query) in [
+            ("/devices", None),
+            ("/devices", Some("pair=other")),
+            ("/settings", Some("pair=pin")),
+        ] {
+            assert_eq!(login_path(path, query), "/login");
         }
     }
 }

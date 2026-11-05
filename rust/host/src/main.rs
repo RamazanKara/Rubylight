@@ -120,6 +120,8 @@ struct Args {
     codec_probe_parent: Option<u32>,
     #[arg(long, hide = true)]
     open_web: Option<u16>,
+    #[arg(long, hide = true, requires = "open_web")]
+    open_web_page: Option<String>,
     #[arg(long, hide = true, requires = "wgc_parent")]
     wgc_worker: Option<String>,
     #[arg(long, hide = true, requires = "wgc_worker")]
@@ -221,7 +223,10 @@ fn main() -> Result<()> {
         return butterpollo_windows::rtss::worker(pipe, args.rtss_parent.unwrap());
     }
     if let Some(port) = args.open_web {
-        return butterpollo_windows::tray::open_web(port);
+        return butterpollo_windows::tray::open_web_page(
+            port,
+            args.open_web_page.as_deref().unwrap_or("/"),
+        );
     }
     if let Some(pid) = args.display_watch {
         return butterpollo_windows::display_recovery::wait_and_recover(

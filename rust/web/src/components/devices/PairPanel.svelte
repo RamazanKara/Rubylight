@@ -2,7 +2,7 @@
   // Pairing, QR code first: Nightjar scans it; Moonlight, Artemis and other apps show a PIN
   // that is typed here. The one-time PIN for Artemis is under Other ways to pair. What the
   // device may do once paired is chosen first and sent with every code and PIN.
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import Button from '../Button.svelte';
   import CopyButton from '../CopyButton.svelte';
   import Icon from '../Icon.svelte';
@@ -12,8 +12,10 @@
   import PendingRequest from './PendingRequest.svelte';
   import QrPairing from './QrPairing.svelte';
   import type { Access } from './access';
+  import { pairLinkTarget } from './pairLink';
   import { api } from '../../lib/api';
   import { failed } from '../../lib/feedback.svelte';
+  import { query, route } from '../../lib/router.svelte';
   import { refreshMetadata, refreshPending, session } from '../../lib/session.svelte';
 
   let { title = 'Pair a device', bare = false }: { title?: string; bare?: boolean } = $props();
@@ -27,6 +29,18 @@
   let turningOn = $state(false);
   let allowing = $state(false);
   onMount(() => { refreshMetadata().catch(() => {}); refreshPending().catch(() => {}); });
+
+  // The PC's toast leads to the PIN field, its tray item to the code.
+  let followed: string | null = null;
+  $effect(() => {
+    const target = pairLinkTarget(query('pair'), session.pending.length, qr);
+    if (!target || followed === route.search) return;
+    followed = route.search;
+    void tick().then(() => {
+      if (target === 'pin') document.querySelector<HTMLInputElement>('.requests input')?.focus();
+      else document.getElementById('pair-qr')?.scrollIntoView();
+    });
+  });
 
   async function turnOnQr() {
     turningOn = true;

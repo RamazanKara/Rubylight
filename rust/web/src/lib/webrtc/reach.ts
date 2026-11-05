@@ -121,6 +121,9 @@ export function watchConnection(pc: Watched, connected: () => void, failed: (why
     void look().then(() => {
       if (over || up) return;
       if (answered) answeredAt ||= Date.now();
+      // A browser without connectionState never says the connection is up, so an answer is as far
+      // as this can see, and a stream that may be playing isn't ended on a guess.
+      if (answered && typeof pc.connectionState !== 'string') return stop();
       if (answered ? Date.now() - answeredAt >= handshakeMs : Date.now() - started >= ms) return fail();
       timer = setTimeout(tick, every);
     });

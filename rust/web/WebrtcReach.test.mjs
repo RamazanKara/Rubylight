@@ -120,6 +120,16 @@ test('an answer whose handshake stalls is called, however long the browser would
   assert.deepEqual(seen, ['no-handshake']);
 });
 
+test('a browser that never reports the connection state is not ended by the handshake limit', async () => {
+  const pc = new FakePeer();
+  pc.connectionState = undefined;
+  pc.pairs = [{ state: 'in-progress', responsesReceived: 1 }];
+  const seen = [];
+  reach.watchConnection(pc, () => {}, (why) => seen.push(why), 10_000, 5, 60);
+  await settle(200);
+  assert.deepEqual(seen, []);
+});
+
 test('the handshake limit counts from the first answer and spares one that connects in time', async () => {
   const pc = new FakePeer();
   const seen = [];

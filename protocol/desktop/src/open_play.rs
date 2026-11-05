@@ -45,7 +45,8 @@ enum Phase {
     Starting { wake_asked: bool, apps_asked: bool, since: Instant, shown: bool },
     /// The launch was asked for: the stream comes, or a prompt or the PIN stands in front of it.
     Launched,
-    Streaming { since: Instant },
+    /// `since`: when the stream came up, without a break since; None while it reconnects.
+    Streaming { since: Option<Instant> },
 }
 
 /// The app list as far as a start cares.
@@ -60,21 +61,24 @@ pub enum AppsSeen {
 /// Whose game the PC is streaming, as far as a start cares.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SessionSeen {
-    /// Its first read after answering is still to come.
+    /// A read that says is still to come.
     Waiting,
-    /// Nothing of another device's, or a PC that cannot tell (a host refuses a start it may not make).
+    /// Nothing of another device's, or a PC without the native API, which cannot tell (a host refuses a
+    /// start it may not make).
     Free,
     /// Another device is playing there: an automatic start never moves that.
     Elsewhere,
 }
 
 impl SessionSeen {
+    /// `read_failed`: the latest read did not answer, so a free session from before is old news. The
+    /// next poll reads again, within the start's limit.
     fn of(native_api: bool, session: Option<&Session>, read_failed: bool) -> Self {
         match session {
             _ if !native_api => Self::Free,
             Some(s) if s.owner == Owner::OtherDevice && console::active(s) => Self::Elsewhere,
+            _ if read_failed => Self::Waiting,
             Some(_) => Self::Free,
-            None if read_failed => Self::Free,
             None => Self::Waiting,
         }
     }
@@ -193,7 +197,7 @@ impl Run {
             Phase::Starting { .. } => self.starting(seen, now),
             Phase::Launched => {
                 if seen.streaming {
-                    self.phase = Phase::Streaming { since: now };
+                    self.phase = Phase::Streaming { since: Some(now) };
                     Step::Wait
                 } else if seen.message {
                     Step::Failed(None)
@@ -205,10 +209,19 @@ impl Run {
                 }
             }
             Phase::Streaming { since } => {
-                let lasted = now.saturating_duration_since(since).as_millis() as u64;
-                if lasted >= policy::SETTLED_MS {
-                    Step::Over { disarm: true }
-                } else if seen.streaming || seen.busy {
+                let lasted = since.map_or(0, |since| now.saturating_duration_since(since).as_millis() as u64);
+                if seen.streaming {
+                    // Only a stream that is up now can have lasted: the clock starts over after a reconnect.
+                    if since.is_none() {
+                        self.phase = Phase::Streaming { since: Some(now) };
+                        Step::Wait
+                    } else if lasted >= policy::SETTLED_MS {
+                        Step::Over { disarm: true }
+                    } else {
+                        Step::Wait
+                    }
+                } else if seen.busy {
+                    self.phase = Phase::Streaming { since: None };
                     Step::Wait
                 } else {
                     Step::Over { disarm: policy::stream_end_disarms(lasted, seen.left_by_player) }
@@ -335,6 +348,9 @@ fn may_start_a_game(launcher_start: bool, after_setup: bool, stream_elsewhere: b
     launcher_start && !after_setup && !stream_elsewhere && !window_elsewhere
 }
 
+/// How often a copy without the claim asks for it again.
+const CLAIM_RETRY: Duration = Duration::from_secs(1);
+
 /// This copy's claim on the config folder, held for as long as it runs; `Ok(None)` when another copy
 /// holds it. The system lets go of it however a copy ends, so a crash leaves nothing behind.
 #[cfg(windows)]
@@ -367,14 +383,12 @@ fn claim_window(dir: &Path) -> std::io::Result<Option<File>> {
 /// Sets up a start of Nightjar: decides the run and gives the settings page and game menu their state.
 pub fn at_launch(store: &Store, launcher: &mut Launcher, hosts: &Hosts, launcher_start: bool, started: Started) -> OpenPlay {
     let window = claim_window(store.dir());
-    let window_elsewhere = match &window {
-        Ok(claim) => claim.is_none(),
-        Err(e) => {
-            // No way to know it is alone, and starting a game unasked is the worse mistake.
-            eprintln!("nightjar: checking for another window failed: {e}");
-            true
-        }
-    };
+    let window_elsewhere = !matches!(window, Ok(Some(_)));
+    // No way to know it is alone, and starting a game unasked is the worse mistake: the player hears why.
+    let claim_notice = window.as_ref().err().and_then(|e| {
+        eprintln!("nightjar: checking for another window failed: {e}");
+        claim_failed(may_start_a_game(launcher_start, started.after_setup, false, false) && launcher.settings.open_on_start != OpenOnStart::Pcs, e)
+    });
     let launcher_start = may_start_a_game(launcher_start, started.after_setup, self_update::mutex_exists(self_update::STREAM_MUTEX), window_elsewhere);
     let at_sign_in = started.at_sign_in;
     let host_of = |unique: &str| {
@@ -383,11 +397,17 @@ pub fn at_launch(store: &Store, launcher: &mut Launcher, hosts: &Hosts, launcher
     let (run, notice) = at_start(store, &launcher.settings, &launcher.recents, launcher_start, host_of);
     let run = run.map(|run| Run { at_sign_in, ..run });
     let sign_in = autostart::system(store.dir());
-    let mut open_play = OpenPlay::new(run, notice, sign_in);
+    let mut open_play = OpenPlay::new(run, notice.or(claim_notice), sign_in);
     open_play._window = window.ok().flatten();
+    open_play.claim_at = open_play._window.is_none().then(|| Instant::now() + CLAIM_RETRY);
     launcher.open_game = store.open_play().game;
     launcher.sign_in = open_play.sign_in_now();
     open_play
+}
+
+/// The one line for a claim that failed, which stops a start this copy would otherwise have made.
+fn claim_failed(would_start: bool, why: &std::io::Error) -> Option<(String, String)> {
+    would_start.then(|| (tr("Automatic start skipped").to_owned(), trf("Nightjar could not check for another open window, so it opened as usual. {}", &[why])))
 }
 
 /// `App`'s part in all this.
@@ -402,11 +422,29 @@ pub struct OpenPlay {
     pub sign_in_answer: Option<(bool, Receiver<Result<(), String>>)>,
     /// Kept for its lock (`claim_window`).
     _window: Option<File>,
+    /// When a copy without the claim asks again: the claim passes on when its holder ends, so that a
+    /// copy opened after that does not start a game beside this one.
+    claim_at: Option<Instant>,
 }
 
 impl OpenPlay {
     pub fn new(run: Option<Run>, notice: Option<(String, String)>, sign_in: Option<Arc<dyn autostart::Writer>>) -> Self {
         Self { run, notice, sign_in, ..Self::default() }
+    }
+
+    /// Asks for the claim again when it is time. It starts no game by itself: this copy's start was decided.
+    fn keep_claiming(&mut self, dir: &Path, now: Instant) {
+        if self.claim_at.is_none_or(|at| now < at) {
+            return;
+        }
+        match claim_window(dir) {
+            Ok(Some(file)) => {
+                self._window = Some(file);
+                self.claim_at = None;
+            }
+            // A failure was said at launch; it stays worth asking.
+            Ok(None) | Err(_) => self.claim_at = Some(now + CLAIM_RETRY),
+        }
     }
 
     /// What the settings page shows at start: the writer's word, or off when it cannot say.
@@ -501,7 +539,7 @@ impl crate::App {
                     Apps::Loaded(apps) => {
                         let game = self.open_play.run.as_ref().map(|r| &r.target.game);
                         let pairs: Vec<(i32, &str)> = apps.iter().map(|a| (a.id, a.uuid.as_str())).collect();
-                        AppsSeen::Loaded(game.and_then(|g| console::classic_app(&pairs, &g.install_id, g.app_id)))
+                        AppsSeen::Loaded(game.and_then(|g| console::saved_classic_app(&pairs, &g.install_id, g.app_id)))
                     }
                 },
             }),
@@ -516,6 +554,7 @@ impl crate::App {
     /// Drives the sign-in setting and the automatic start, whichever screen is up.
     pub(crate) fn open_play_step(&mut self) {
         self.sign_in_step();
+        self.open_play.keep_claiming(self.store.dir(), Instant::now());
         if self.open_play.notice.is_some() && matches!(self.launcher.dialog, Dialog::None) && !self.launcher.pin.as_ref().is_some_and(crate::pin_ui::PinLock::app_locked) {
             if let Some((title, body)) = self.open_play.notice.take() {
                 self.launcher.message(title, body);
@@ -739,6 +778,28 @@ mod tests {
     }
 
     #[test]
+    fn a_stream_that_died_young_is_not_cleared_by_a_reconnect_across_the_mark() {
+        let now = Instant::now();
+        let at = |secs| now + Duration::from_secs(secs);
+        let reconnecting = Seen { busy: true, ..ready() };
+        let streaming = Seen { streaming: true, ..ready() };
+        let mut run = begun(now);
+        run.next(&going(), now);
+        assert_eq!(run.next(&streaming, now), Step::Wait);
+        assert_eq!(run.next(&reconnecting, at(4)), Step::Wait, "the host died");
+        assert_eq!(run.next(&reconnecting, at(11)), Step::Wait, "no stream, so nothing lasted");
+        assert_eq!(run.next(&ready(), at(12)), Step::Over { disarm: false }, "the reconnect gave up");
+
+        let mut run = begun(now);
+        run.next(&going(), now);
+        run.next(&streaming, now);
+        run.next(&reconnecting, at(4));
+        assert_eq!(run.next(&streaming, at(8)), Step::Wait, "back, and its clock starts over");
+        assert_eq!(run.next(&streaming, at(17)), Step::Wait, "9 s of it");
+        assert_eq!(run.next(&streaming, at(18)), Step::Over { disarm: true });
+    }
+
+    #[test]
     fn a_failed_launch_ends_on_its_message_with_the_guard_armed() {
         let now = Instant::now();
         let mut run = begun(now);
@@ -836,7 +897,9 @@ mod tests {
         assert_eq!(SessionSeen::of(true, Some(&session("streaming", "you")), false), SessionSeen::Free);
         assert_eq!(SessionSeen::of(true, Some(&session("idle", "other_device")), false), SessionSeen::Free);
         assert_eq!(SessionSeen::of(true, None, false), SessionSeen::Waiting);
-        assert_eq!(SessionSeen::of(true, None, true), SessionSeen::Free, "the host refuses what it may not do");
+        assert_eq!(SessionSeen::of(true, None, true), SessionSeen::Waiting, "a read that failed says nothing");
+        assert_eq!(SessionSeen::of(true, Some(&session("idle", "you")), true), SessionSeen::Waiting, "and free before is old news");
+        assert_eq!(SessionSeen::of(true, Some(&session("streaming", "other_device")), true), SessionSeen::Elsewhere);
         assert_eq!(SessionSeen::of(false, None, false), SessionSeen::Free, "no native API, no owner to wait for");
     }
 
@@ -928,6 +991,34 @@ mod tests {
         drop(first);
         assert!(claim_window(store.dir()).unwrap().is_some(), "it ended");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_copy_that_lost_the_claim_takes_it_when_its_holder_ends_so_a_later_copy_stands_aside() {
+        let (store, dir) = store("claim-again");
+        let now = Instant::now();
+        let first = claim_window(store.dir()).unwrap();
+        let mut second = OpenPlay { claim_at: Some(now), ..OpenPlay::default() };
+        second.keep_claiming(store.dir(), now);
+        assert!(second._window.is_none(), "the first still holds it");
+        assert_eq!(second.claim_at, Some(now + CLAIM_RETRY), "and it asks again");
+        second.keep_claiming(store.dir(), now);
+        assert_eq!(second.claim_at, Some(now + CLAIM_RETRY), "not before its time");
+        drop(first);
+        second.keep_claiming(store.dir(), now + CLAIM_RETRY);
+        assert!(second._window.is_some());
+        assert_eq!(second.claim_at, None);
+        assert!(claim_window(store.dir()).unwrap().is_none(), "a third copy sees the second");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_claim_that_fails_says_so_when_a_start_was_due() {
+        let why = std::io::Error::other("no locks");
+        assert!(claim_failed(false, &why).is_none(), "nothing was going to start");
+        let (title, body) = claim_failed(true, &why).unwrap();
+        assert_eq!(title, "Automatic start skipped");
+        assert!(body.contains("no locks"), "{body}");
     }
 
     #[test]

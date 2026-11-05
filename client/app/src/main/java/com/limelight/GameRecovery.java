@@ -35,6 +35,9 @@ final class GameRecovery {
 
     private static final String EXTRA_OUTPUT_RESUME_ONLY = "rubylight.outputResumeOnly";
 
+    // This start joins the game the PC runs, also another device's. Only the press that asked for it does.
+    static final String EXTRA_JOIN_RUNNING = "rubylight.joinRunning";
+
     private static final String EXTRA_RECOVERY_ATTEMPTS = "RecoveryAttempts";
 
     private static final String EXTRA_RECOVERY_STARTED = "RecoveryStarted";
@@ -66,6 +69,8 @@ final class GameRecovery {
         // Only a resume after the user's trip carries them; any other start spends the budget it has.
         again.removeExtra(EXTRA_TRIP_BUDGET);
         again.removeExtra(Game.EXTRA_TRIP_RESUME_STARTED);
+        // Only the press that asked for it joins: a recovery checks what it finds.
+        again.removeExtra(EXTRA_JOIN_RUNNING);
         return again;
     }
 
@@ -110,9 +115,39 @@ final class GameRecovery {
      */
     void reconnectStream(boolean behindPin, boolean resumeOnly) {
         if (game.recoveryHandoffInProgress || game.isFinishing() || game.isDestroyed()) return;
+        startReconnect(behindPin, createReconnectIntent(resumeOnly), resumeOnly);
+    }
+
+    /**
+     * Stream here too: the new stream joins the game the PC runs, also another device's, through a {@code /resume} that
+     * fails if no game runs. {@code appId} and {@code appUuid} name that game when the PC said; otherwise the one this
+     * stream showed. With neither there is nothing to name, as for a resume-only start.
+     */
+    void joinRunningGame(boolean behindPin, int appId, String appUuid) {
+        if (game.recoveryHandoffInProgress || game.isFinishing() || game.isDestroyed()) return;
+        Intent retry = null;
+        int joinId = appId != 0 ? appId : game.recoveryAppId != 0 ? game.recoveryAppId :
+                game.app != null && game.app.getControl() == NvApp.Control.NONE ? game.app.getAppId() : 0;
+        if (joinId != 0) {
+            retry = createReconnectIntent(false)
+                    .putExtra(Game.EXTRA_APP_ID, joinId)
+                    .putExtra(Game.EXTRA_APP_UUID, appId != 0 ? appUuid : game.recoveryAppId != 0 ? game.recoveryAppUuid : game.app.getAppUuid())
+                    .putExtra(EXTRA_JOIN_RUNNING, true);
+        }
+        startReconnect(behindPin, retry, true);
+    }
+
+    boolean isJoinRunningStream() {
+        return game.getIntent().getBooleanExtra(EXTRA_JOIN_RUNNING, false);
+    }
+
+    private void startReconnect(boolean behindPin, final Intent retry, boolean resumeOnly) {
         game.stoppedStreamResumeIntent = null;
-        final Intent retry = createReconnectIntent(resumeOnly);
         if (retry == null) {
+            // A press names a game that is gone; an output change ends as quietly as it did.
+            if (resumeOnly && !game.outputSwitchPending) {
+                game.messages.alert(R.string.stream_recovery_session_changed, Toast.LENGTH_LONG);
+            }
             game.streamConnection.stopConnection();
             game.finish();
             return;

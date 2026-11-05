@@ -39,6 +39,7 @@ public class NvConnectionRecoveryTest {
         FakeHost.resumeResult = false;
         FakeHost.requests.clear();
         FakeHost.probes = 0;
+        FakeHost.appLookups = 0;
     }
 
     @Test public void recoveryOfAnIdleHostEndsWithoutLaunchingOrFailing() throws Exception {
@@ -165,6 +166,66 @@ public class NvConnectionRecoveryTest {
         Result result = start(offering(
                 (host, op, argument) -> "{\"ok\":{\"moved_to\":{\"device\":\"TV\",\"since_unix_ms\":5}}}"));
         assertEquals(List.of("TV"), result.movedTo);
+    }
+
+    /** A join on a PC that offers Continue here, whose native API answers with {@code transport}. */
+    private static NvConnection joining(com.limelight.nativeapi.NativeApiTransport transport) {
+        NvApp app = new NvApp("Game", 73, false);
+        app.setAppUuid("game-a");
+        NvConnection connection = new NvConnection(RuntimeEnvironment.getApplication(),
+                new ComputerDetails.AddressTuple("192.0.2.1", 47989), 47984, "device",
+                new StreamConfiguration.Builder().setApp(app).setJoinRunning(true)
+                        .setResolution(1280, 720).setRefreshRate(60)
+                        .setSupportedVideoFormats(MoonBridge.VIDEO_FORMAT_H264).build(), crypto(), null) {
+            @Override public boolean offersContinueHere() { return true; }
+            @Override public com.limelight.nativeapi.HostEndpoint hostEndpoint() {
+                return new com.limelight.nativeapi.HostEndpoint("test-host", "192.0.2.1", 47989, 47984,
+                        "pem", "device", new byte[0], new byte[0]);
+            }
+        };
+        connection.setNativeApiTransport(transport);
+        return connection;
+    }
+
+    /** What the PC tells a device that does not own the game. */
+    private static final String HIDDEN_GAME = serverInfo("SUNSHINE_SERVER_FREE", 0, "", true, -1);
+
+    @Test public void aJoinGetsPastTheGameThePcHidesAndOnlyResumes() throws Exception {
+        FakeHost.initial = HIDDEN_GAME;
+        // The note a late flip left must not bring "Now playing on" back: a join does not read it.
+        Result result = start(joining((host, op, argument) -> {
+            throw new AssertionError("a join reads nothing: " + op);
+        }));
+        assertEquals("/resume and no /launch, which could start a closed game", List.of("resume"), FakeHost.requests);
+        assertEquals(0, FakeHost.appLookups);
+        assertTrue(result.movedTo.isEmpty());
+        assertEquals("the PC said no, loudly", List.of(0), result.failures);
+        assertTrue(result.terminations.isEmpty());
+        assertEquals(0, FakeHost.probes);
+    }
+
+    @Test public void aJoinThePcRefusesFailsAndStartsNothing() throws Exception {
+        FakeHost.initial = HIDDEN_GAME;
+        FakeHost.resumeFailure = new HostHttpResponseException(503, "no application or remote monitor to resume");
+        Result result = start(joining((host, op, argument) -> "{\"ok\":{}}"));
+        assertEquals(List.of("resume"), FakeHost.requests);
+        assertEquals(List.of(503), result.failures);
+        assertTrue(result.terminations.isEmpty());
+    }
+
+    @Test public void aJoinNeverOffersToReplaceTheGame() throws Exception {
+        FakeHost.initial = HIDDEN_GAME;
+        FakeHost.resumeFailure = new HostHttpResponseException(410,
+                "An app is already running. Launch this app again within 60 seconds to confirm that you want to close it.");
+        Result result = start(joining((host, op, argument) -> "{\"ok\":{}}"));
+        assertEquals(List.of("resume"), FakeHost.requests);
+        assertEquals(List.of(410), result.failures);
+    }
+
+    @Test public void withoutAJoinTheSameHiddenGameStillStops() throws Exception {
+        FakeHost.initial = HIDDEN_GAME;
+        assertGraceful(start(true));
+        assertTrue(FakeHost.requests.isEmpty());
     }
 
     @Test public void firstLaunchStillLaunchesAndIts503RemainsAnError() throws Exception {
@@ -322,6 +383,7 @@ public class NvConnectionRecoveryTest {
         // The query the last launch or resume would send.
         static String lastQuery;
         static int probes;
+        static int appLookups;
         static final List<String> requests = new ArrayList<>();
         // The link test before a launch: its result in Mbit/s, or the failure it throws.
         static double linkMbps;
@@ -334,6 +396,7 @@ public class NvConnectionRecoveryTest {
             return linkMbps;
         }
         @Implementation public NvApp getAppByUuid(String uuid) {
+            appLookups++;
             NvApp app = new NvApp("Game", 73, false);
             app.setAppUuid(uuid);
             return app;

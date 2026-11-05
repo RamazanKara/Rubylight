@@ -59,6 +59,7 @@ public class StreamConfiguration {
     private int colorSpace;
     private boolean persistGamepadsAfterDisconnect;
     private boolean resumeOnly;
+    private boolean joinRunning;
     private boolean allowIdleSessionEnd = true;
     private boolean neverReplace;
 
@@ -79,6 +80,12 @@ public class StreamConfiguration {
         /** Nobody pressed anything: another game running on the PC ends the start, it is never closed for it. */
         public StreamConfiguration.Builder setNeverReplace(boolean neverReplace) {
             config.neverReplace = neverReplace;
+            return this;
+        }
+
+        /** Joins whatever game the PC runs, also another device's: {@code /resume} starts nothing, and fails when no game runs. */
+        public StreamConfiguration.Builder setJoinRunning(boolean joinRunning) {
+            config.joinRunning = joinRunning;
             return this;
         }
 
@@ -340,6 +347,10 @@ public class StreamConfiguration {
 
     public boolean isResumeOnly() {
         return resumeOnly;
+    }
+
+    public boolean isJoinRunning() {
+        return joinRunning;
     }
 
     public boolean isIdleSessionEndAllowed() {

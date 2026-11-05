@@ -641,7 +641,178 @@ public class GameRecoveryTest {
         }
     }
 
-    private static final String TV_PLAYS = "{\"owns_game\":true,\"playing_on\":{\"device\":\"TV\","
+    private static final String PRESS_FAILED = "{\"press_failed\":true}";
+
+    /** A start that joins the game the PC runs, whoever owns it. */
+    private static void assertJoins(Intent started) {
+        assertEquals(Game.class.getName(), started.getComponent().getClassName());
+        assertTrue("joins", started.getBooleanExtra(GameRecovery.EXTRA_JOIN_RUNNING, false));
+        assertFalse(started.getBooleanExtra("rubylight.outputResumeOnly", false));
+        assertEquals(73, started.getIntExtra(Game.EXTRA_APP_ID, 0));
+    }
+
+    /** A start that joins only a game of this device's own, and fails otherwise. */
+    private static void assertResumesOnly(Intent started) {
+        assertEquals(Game.class.getName(), started.getComponent().getClassName());
+        assertTrue(started.getBooleanExtra("rubylight.outputResumeOnly", false));
+        assertFalse("does not join", started.getBooleanExtra(GameRecovery.EXTRA_JOIN_RUNNING, false));
+    }
+
+    /** "Stream here too" on "did not move", with the PC giving this answer when it is pressed. */
+    private void streamTooHears(String answer, java.util.function.Consumer<Intent> expect) throws Exception {
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        Game game = movedAwayFrom(pcAnswering(reads, PRESS_FAILED, answer));
+        try {
+            awaitReads(reads, 1);
+            assertEquals(game.getString(R.string.continue_here_did_not_move), promptTitle(game));
+            promptButton(game, android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+            awaitOnUi(() -> game.isFinishing());
+            expect.accept(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void streamHereTooJoinsWhileTheGameStaysAnotherDevices() throws Exception {
+        streamTooHears(PRESS_FAILED, GameRecoveryTest::assertJoins);
+        streamTooHears(TV_PLAYS, GameRecoveryTest::assertJoins);
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void streamHereTooOnAPcThatDoesNotAnswerOrWhoseGameCameBackNeverJoins() throws Exception {
+        // /resume joins whatever runs: no answer is no reason to.
+        streamTooHears(null, GameRecoveryTest::assertResumesOnly);
+        streamTooHears(GAME_BACK, GameRecoveryTest::assertResumesOnly);
+        streamTooHears("{}", GameRecoveryTest::assertResumesOnly);
+    }
+
+    /** Resume on "the game came back", with the PC giving this answer when it is pressed. */
+    private void cameBackHears(String answer, java.util.function.Consumer<Intent> expect) throws Exception {
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        Game game = movedAwayFrom(pcAnswering(reads, GAME_BACK, answer));
+        try {
+            awaitReads(reads, 1);
+            promptButton(game, android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+            awaitOnUi(() -> game.isFinishing());
+            expect.accept(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void resumingAGameThatTurnedOutAnotherDevicesWithNobodyToAskAboutJoins() throws Exception {
+        cameBackHears(PRESS_FAILED, GameRecoveryTest::assertJoins);
+        cameBackHears(null, GameRecoveryTest::assertResumesOnly);
+        cameBackHears(GAME_BACK, GameRecoveryTest::assertResumesOnly);
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void underThePinLockAJoinWaitsBehindThePinScreen() throws Exception {
+        com.limelight.pin.PinGate.resetForTests();
+        Application application = org.robolectric.RuntimeEnvironment.getApplication();
+        com.limelight.pin.PinStore store = new com.limelight.pin.PinStore(application);
+        store.setPin("2468".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        store.setMode(com.limelight.pin.PinStore.Mode.STREAMS);
+        try {
+            streamTooHears(PRESS_FAILED, started -> {
+                assertEquals(com.limelight.pin.PinLockActivity.class.getName(), started.getComponent().getClassName());
+                assertJoins(started.getParcelableExtra(com.limelight.pin.PinLockActivity.EXTRA_NEXT));
+            });
+        } finally {
+            store.setMode(com.limelight.pin.PinStore.Mode.OFF);
+            com.limelight.pin.PinGate.resetForTests();
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aRecoveryOfAJoinNeverJoinsAgain() throws Exception {
+        Game game = recoveryGame();
+        game.getIntent().putExtra(GameRecovery.EXTRA_JOIN_RUNNING, true);
+        try {
+            assertTrue(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "tryAutomaticRecovery"));
+            assertFalse(awaitRecoveryLaunch(game, 1).hasExtra(GameRecovery.EXTRA_JOIN_RUNNING));
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void leavingWhileThePcSaysWhoPlaysLeavesNoSpinnerAndAsksOnTheWayBack() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        Game game = movedAwayFrom(pcAnswering(reads, GAME_BACK));
+        try {
+            awaitReads(reads, 1);
+            promptButton(game, android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+            game.onPause();
+            awaitReads(reads, 2);
+            assertNull("no spinner that nothing ends", ReflectionHelpers.getField(game, "spinner"));
+            assertFalse(ReflectionHelpers.<Boolean>getField(game, "recoveryHandoffInProgress"));
+            assertTrue(ReflectionHelpers.<Boolean>getField(game, "recoveryCancelledOnPause"));
+            game.onResume();
+            assertEquals(game.getString(R.string.stream_recovery_paused), promptMessage(game));
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aStreamStartedFromATileAsksByTheGameItStreamed() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        Game game = movedAwayFrom(pcAnswering(reads, GAME_BACK, TV_PLAYS));
+        // The Resume tile's own identity; the game it streamed is 73.
+        ReflectionHelpers.setField(game, "app", new com.limelight.nvstream.http.NvApp("Resume", 4242, false));
+        try {
+            awaitReads(reads, 1);
+            promptButton(game, android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+            String asked = game.getString(R.string.continue_here_playing_on, "Game", "TV");
+            awaitOnUi(() -> asked.equals(promptMessage(game)) || game.isFinishing());
+            assertFalse("it asks instead of starting", game.isFinishing());
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void takingTheStreamBackNeverStartsAGameThatClosedMeanwhile() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        Game game = movedAwayFrom(pcAnswering(reads, STILL_MOVED));
+        try {
+            promptButton(game, android.content.DialogInterface.BUTTON_NEGATIVE).performClick();
+            awaitOnUi(() -> game.isFinishing());
+            assertResumesOnly(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void takingTheStreamBackWithNoGameToNameSaysSoAndLeaves() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        Game game = movedAwayFrom(pcAnswering(reads, STILL_MOVED));
+        ReflectionHelpers.setField(game, "app", null);
+        try {
+            promptButton(game, android.content.DialogInterface.BUTTON_NEGATIVE).performClick();
+            awaitOnUi(() -> game.isFinishing());
+            assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+            assertEquals(game.getString(R.string.stream_recovery_session_changed),
+                    org.robolectric.shadows.ShadowToast.getTextOfLatestToast());
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    private static final String TV_PLAYS = "{\"owns_game\":false,\"moved_to\":{\"device\":\"TV\",\"since_unix_ms\":5},\"playing_on\":{\"device\":\"TV\","
             + "\"app\":{\"install_id\":\"\",\"app_id\":73,\"title\":\"Game\"}}}";
 
     private static String promptMessage(Game game) {
@@ -667,9 +838,7 @@ public class GameRecoveryTest {
 
             promptButton(game, android.content.DialogInterface.BUTTON_NEUTRAL).performClick();
             awaitOnUi(() -> game.isFinishing());
-            Intent started = org.robolectric.Shadows.shadowOf(game).getNextStartedActivity();
-            assertEquals(Game.class.getName(), started.getComponent().getClassName());
-            assertTrue(started.getBooleanExtra("rubylight.outputResumeOnly", false));
+            assertJoins(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
         } finally {
             cleanupRecovery(game);
         }
@@ -709,9 +878,7 @@ public class GameRecoveryTest {
             assertEquals("nothing left to watch", after, reads.get());
             too.performClick();
             awaitOnUi(() -> game.isFinishing());
-            Intent started = org.robolectric.Shadows.shadowOf(game).getNextStartedActivity();
-            assertEquals(Game.class.getName(), started.getComponent().getClassName());
-            assertTrue(started.getBooleanExtra("rubylight.outputResumeOnly", false));
+            assertJoins(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
         } finally {
             cleanupRecovery(game);
         }

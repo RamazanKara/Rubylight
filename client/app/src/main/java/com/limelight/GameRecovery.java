@@ -70,13 +70,18 @@ final class GameRecovery {
     }
 
     private Intent createReconnectIntent() {
+        return createReconnectIntent(game.outputSwitchPending);
+    }
+
+    /** {@code resumeOnly}: joins the running game or fails, as an output change does; it never starts one. */
+    private Intent createReconnectIntent(boolean resumeOnly) {
         Intent retry = createStreamHandoffIntent(LaunchSource.RECONNECT);
         retry.removeExtra(EXTRA_RECOVERY_ATTEMPTS);
         retry.removeExtra(EXTRA_RECOVERY_STARTED);
         retry.removeExtra(Game.EXTRA_RECOVERY_MEDIA_FAILURE);
         retry.removeExtra(EXTRA_RECOVERY_VIDEO);
         retry.removeExtra(EXTRA_OUTPUT_RESUME_ONLY);
-        if (game.outputSwitchPending) {
+        if (resumeOnly) {
             if (game.app == null || game.app.isControlAction()) return null;
             if (game.app.getRole() == NvApp.Role.STREAM) {
                 // Output changes only move the existing stream. Resolve Resume/Running
@@ -95,17 +100,18 @@ final class GameRecovery {
     }
 
     void reconnectStream() {
-        reconnectStream(false);
+        reconnectStream(false, game.outputSwitchPending);
     }
 
     /**
      * {@code behindPin}: the new stream waits behind the PIN screen. This screen is gone by then, since it cannot start
      * anything once that screen has stopped it, and leaving the PIN screen without the PIN goes back to the library.
+     * {@code resumeOnly}: see {@link #createReconnectIntent}.
      */
-    void reconnectStream(boolean behindPin) {
+    void reconnectStream(boolean behindPin, boolean resumeOnly) {
         if (game.recoveryHandoffInProgress || game.isFinishing() || game.isDestroyed()) return;
         game.stoppedStreamResumeIntent = null;
-        final Intent retry = createReconnectIntent();
+        final Intent retry = createReconnectIntent(resumeOnly);
         if (retry == null) {
             game.streamConnection.stopConnection();
             game.finish();

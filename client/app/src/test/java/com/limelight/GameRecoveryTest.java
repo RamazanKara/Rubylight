@@ -622,6 +622,7 @@ public class GameRecoveryTest {
             awaitOnUi(() -> game.isFinishing());
             Intent started = org.robolectric.Shadows.shadowOf(game).getNextStartedActivity();
             assertEquals(Game.class.getName(), started.getComponent().getClassName());
+            assertTrue("a game that ended meanwhile is not started again", started.getBooleanExtra("rubylight.outputResumeOnly", false));
         } finally {
             cleanupRecovery(game);
         }
@@ -635,6 +636,59 @@ public class GameRecoveryTest {
         try {
             awaitReads(reads, 3);
             assertMovedPrompt(game, game.getString(R.string.continue_here_now_playing, "TV"));
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    private static final String TV_PLAYS = "{\"owns_game\":true,\"playing_on\":{\"device\":\"TV\","
+            + "\"app\":{\"install_id\":\"\",\"app_id\":73,\"title\":\"Game\"}}}";
+
+    private static String promptMessage(Game game) {
+        android.app.Dialog prompt = ReflectionHelpers.getField(game, "streamMenu");
+        if (prompt == null) return null;
+        android.widget.TextView text = prompt.findViewById(android.R.id.message);
+        return text == null ? null : text.getText().toString();
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void resumingAsksWhoPlaysWhenTheOtherDeviceArrivedAfterAll() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        Game game = movedAwayFrom(pcAnswering(reads, GAME_BACK, TV_PLAYS));
+        try {
+            awaitReads(reads, 1);
+            assertEquals(game.getString(R.string.continue_here_came_back), promptTitle(game));
+            promptButton(game, android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+            String asked = game.getString(R.string.continue_here_playing_on, "Game", "TV");
+            awaitOnUi(() -> asked.equals(promptMessage(game)));
+            assertFalse("nothing started without an answer", game.isFinishing());
+            assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+
+            promptButton(game, android.content.DialogInterface.BUTTON_NEUTRAL).performClick();
+            awaitOnUi(() -> game.isFinishing());
+            Intent started = org.robolectric.Shadows.shadowOf(game).getNextStartedActivity();
+            assertEquals(Game.class.getName(), started.getComponent().getClassName());
+            assertTrue(started.getBooleanExtra("rubylight.outputResumeOnly", false));
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void cancellingWhoPlaysLeavesWithoutAStart() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        Game game = movedAwayFrom(pcAnswering(reads, GAME_BACK, TV_PLAYS));
+        try {
+            awaitReads(reads, 1);
+            promptButton(game, android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+            String asked = game.getString(R.string.continue_here_playing_on, "Game", "TV");
+            awaitOnUi(() -> asked.equals(promptMessage(game)));
+            promptButton(game, android.content.DialogInterface.BUTTON_NEGATIVE).performClick();
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertTrue(game.isFinishing());
+            assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
         } finally {
             cleanupRecovery(game);
         }
@@ -678,6 +732,7 @@ public class GameRecoveryTest {
             assertEquals(com.limelight.pin.PinLockActivity.class.getName(), started.getComponent().getClassName());
             Intent next = started.getParcelableExtra(com.limelight.pin.PinLockActivity.EXTRA_NEXT);
             assertEquals("the PIN screen starts the stream", Game.class.getName(), next.getComponent().getClassName());
+            assertTrue(next.getBooleanExtra("rubylight.outputResumeOnly", false));
         } finally {
             cleanupRecovery(game);
             store.setMode(com.limelight.pin.PinStore.Mode.OFF);

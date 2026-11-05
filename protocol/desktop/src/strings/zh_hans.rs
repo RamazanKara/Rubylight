@@ -214,6 +214,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Delete {}?", "要删除 {} 吗？"),
     ("Replace your {} saved shortcuts with {} from this file.", "用此文件中的 {1} 个快捷键替换你保存的 {0} 个快捷键。"),
     ("Pair with {}", "与 {} 配对"),
+    ("Address: {}", "地址：{}"),
     ("{} closes on the PC. Unsaved progress is lost.", "{} 将在电脑上关闭。未保存的进度将会丢失。"),
     ("Quit {} and start {}?", "要退出 {0} 并启动 {1} 吗？"),
     ("Close {} and start {}?", "要关闭 {0} 并启动 {1} 吗？"),

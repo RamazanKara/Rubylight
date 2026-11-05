@@ -214,6 +214,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Delete {}?", "{} を削除しますか？"),
     ("Replace your {} saved shortcuts with {} from this file.", "保存済みの{0}個のショートカットを、このファイルの{1}個で置き換えます。"),
     ("Pair with {}", "{}とペアリング"),
+    ("Address: {}", "アドレス: {}"),
     ("{} closes on the PC. Unsaved progress is lost.", "{}はPCで終了します。保存していない進行状況は失われます。"),
     ("Quit {} and start {}?", "{0}を終了して{1}を開始しますか？"),
     ("Close {} and start {}?", "{0}を閉じて{1}を開始しますか？"),

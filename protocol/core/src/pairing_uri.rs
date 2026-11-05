@@ -118,15 +118,32 @@ impl PairingUri {
     }
 
     /// The link's name for a confirmation: without control characters and the invisible ones that
-    /// can reorder or hide text, and cut to a length a dialog can show. Empty when none is left.
+    /// can reorder or hide text, each run of spaces one space, so that it cannot pass for the
+    /// address line, and cut to a length a dialog can show. Empty when none is left.
     pub fn shown_name(&self) -> String {
-        self.name
-            .chars()
-            .filter(|&c| !hidden_char(c))
-            .take(MAX_SHOWN_NAME)
-            .collect::<String>()
-            .trim()
-            .into()
+        let mut out = String::new();
+        let mut count = 0;
+        let mut space = false;
+        for c in self.name.chars().filter(|&c| !hidden_char(c)) {
+            if c.is_whitespace() {
+                space = true;
+                continue;
+            }
+            if count == MAX_SHOWN_NAME {
+                break;
+            }
+            if space && count > 0 {
+                out.push(' ');
+                count += 1;
+                if count == MAX_SHOWN_NAME {
+                    break;
+                }
+            }
+            space = false;
+            out.push(c);
+            count += 1;
+        }
+        out
     }
 
     /// Where the link pairs, for a confirmation: `host:port`, `[v6-address]:port`.
@@ -398,6 +415,20 @@ mod tests {
         assert_eq!(named("Wohnzimmer-PC ä"), "Wohnzimmer-PC ä");
         assert_eq!(named("  Desk\u{202e}cod\n\u{200b}\u{feff} "), "Deskcod");
         assert_eq!(named("\u{202e}\u{200b}"), "");
+        // A name padded to look like the address line stays a name.
+        assert_eq!(
+            named("Gaming PC      192.168.4.2:47989"),
+            "Gaming PC 192.168.4.2:47989"
+        );
+        assert_eq!(
+            named("Gaming\u{a0}\u{2003}\t\u{3000}PC\u{200b} \u{200b} x"),
+            "Gaming PC x"
+        );
+        assert_eq!(named(&format!("{}  b", "a".repeat(MAX_SHOWN_NAME - 1))), format!("{} ", "a".repeat(MAX_SHOWN_NAME - 1)));
+        assert_eq!(
+            named(&format!("{} {}", "a".repeat(10), "b".repeat(100))).chars().count(),
+            MAX_SHOWN_NAME
+        );
         assert_eq!(
             named(&"ä".repeat(MAX_SHOWN_NAME + 1)),
             "ä".repeat(MAX_SHOWN_NAME)

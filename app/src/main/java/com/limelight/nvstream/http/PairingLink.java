@@ -110,27 +110,41 @@ public final class PairingLink {
 
     /**
      * The link's name for a confirmation: without control characters and the invisible ones that can
-     * reorder or hide text, and cut to a length a dialog can show. Empty when none is left.
+     * reorder or hide text, each run of spaces one space, so that it cannot pass for the address line,
+     * and cut to a length a dialog can show. Empty when none is left.
      */
     public String shownName() {
         StringBuilder out = new StringBuilder();
         int shown = 0;
-        for (int at = 0; at < name.length() && shown < MAX_SHOWN_NAME; ) {
+        boolean space = false;
+        for (int at = 0; at < name.length(); ) {
             int c = name.codePointAt(at);
             at += Character.charCount(c);
-            if (!hiddenChar(c)) {
-                out.appendCodePoint(c);
-                shown++;
+            if (hiddenChar(c)) {
+                continue;
             }
+            if (blank(c)) {
+                space = true;
+                continue;
+            }
+            if (shown == MAX_SHOWN_NAME) {
+                break;
+            }
+            if (space && shown > 0) {
+                out.append(' ');
+                shown++;
+                if (shown == MAX_SHOWN_NAME) {
+                    break;
+                }
+            }
+            space = false;
+            out.appendCodePoint(c);
+            shown++;
         }
-        int start = 0;
-        int end = out.length();
-        while (start < end && blank(out.charAt(start))) start++;
-        while (end > start && blank(out.charAt(end - 1))) end--;
-        return out.substring(start, end);
+        return out.toString();
     }
 
-    private static boolean blank(char c) {
+    private static boolean blank(int c) {
         return Character.isWhitespace(c) || Character.isSpaceChar(c);
     }
 

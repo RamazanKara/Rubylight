@@ -157,6 +157,13 @@ public class PairingLinkTest {
         assertEquals("Deskcod", PairingLink.parse(base + "%20Desk%E2%80%AEcod%0A%E2%80%8B%EF%BB%BF%20").shownName());
         assertEquals("", PairingLink.parse(base + "%E2%80%AE%E2%80%8B").shownName());
         assertEquals("", PairingLink.parse(base).shownName());
+        // A name padded to look like the address line stays a name.
+        assertEquals("Gaming PC 192.168.4.2:47989",
+                PairingLink.parse(base + "Gaming%20PC%20%20%20%20%20%20192.168.4.2:47989").shownName());
+        assertEquals("Gaming PC x",
+                PairingLink.parse(base + "Gaming%C2%A0%E2%80%83%09%E3%80%80PC%E2%80%8B%20%E2%80%8B%20x").shownName());
+        assertEquals("a".repeat(63) + " ", PairingLink.parse(base + "a".repeat(63) + "%20%20b").shownName());
+        assertEquals(64, PairingLink.parse(base + "a".repeat(10) + "%20" + "b".repeat(100)).shownName().length());
         assertEquals("ä".repeat(64), PairingLink.parse(base + "%C3%A4".repeat(65)).shownName());
         assertEquals("192.168.4.2:47989", PairingLink.parse(GOOD).shownAddress());
         String v6 = "rubylight://pair?v=1&port=47989&otp=1234&fp=" + FP + "&host=";

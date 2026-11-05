@@ -5,5 +5,5 @@
   "permissions": { "list": true, "view": true, "launch": true, "host_control": false,
                    "file_upload": true, "file_download": false,
                    "usb": false, "shared_folders": false, "coop_join": false,
-                   "restart_shutdown": false }
+                   "restart_shutdown": false, "pairing_approve": false }
 }

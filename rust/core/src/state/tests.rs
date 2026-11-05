@@ -367,13 +367,18 @@ fn pairing_access_applies_to_later_devices_and_never_to_the_first() {
     );
     assert!(pairing_access("Play").is_err());
     // Play games and Everything may join co-op too; view only may not.
+    let dir = tempfile::tempdir().unwrap();
+    let mut later = PairedState::load(&dir.path().join("state.json")).unwrap();
+    later
+        .clients
+        .push(client_with(PLAY_DEVICE_PERMISSION, json!({})));
     for (perm, joins) in [
         (PLAY_DEVICE_PERMISSION, true),
         (FIRST_DEVICE_PERMISSION, true),
         (LATER_DEVICE_PERMISSION, false),
     ] {
         let mut client = client_with(perm, json!({}));
-        client.extra = PairedState::paired_device_extra(perm);
+        client.extra = later.paired_device_extra(perm);
         assert_eq!(client.allows_coop_join(), joins, "{perm:#x}");
     }
     let d = tempfile::tempdir().unwrap();
@@ -744,4 +749,67 @@ fn existing_credentials_format() {
         crypto::legacy_hash(format!("new-password{}", current.salt).as_bytes())
     );
     assert!(current.verifies("user", "new-password"));
+}
+
+#[test]
+fn approve_new_devices_is_only_a_json_true_and_grants_nothing_else() {
+    let client = client_with(u32::MAX, json!({"pairing_approve": true}));
+    assert!(client.allows_pairing_approve() && client.may_approve_pairing());
+    assert!(!client.allows_host_control() && !client.allows_sleep());
+    assert!(!client.allows_restart_shutdown() && !client.allows_usb());
+    // Host control approves too, without holding this flag.
+    let client = client_with(0, json!({"host_control": true}));
+    assert!(client.may_approve_pairing() && !client.allows_pairing_approve());
+    // A permission value or anything but true never grants it.
+    assert!(!client_with(u32::MAX, json!({})).may_approve_pairing());
+    for value in [json!("true"), json!(1), json!(false), json!(null)] {
+        let client = client_with(u32::MAX, json!({"pairing_approve": value}));
+        assert!(!client.may_approve_pairing(), "{value}");
+    }
+    let mut disabled = client_with(0, json!({"pairing_approve": true}));
+    disabled.enabled = false;
+    assert!(!disabled.may_approve_pairing());
+}
+
+#[test]
+fn only_the_first_device_gets_approve_new_devices() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = PairedState::load(&dir.path().join("state.json")).unwrap();
+    let extra = state.paired_device_extra(FIRST_DEVICE_PERMISSION);
+    assert_eq!(extra.get(PAIRING_APPROVE_KEY), Some(&json!(true)));
+    // The next one does not, not even with everything chosen in the console.
+    state
+        .clients
+        .push(client_with(FIRST_DEVICE_PERMISSION, json!({})));
+    for perm in [
+        FIRST_DEVICE_PERMISSION,
+        PLAY_DEVICE_PERMISSION,
+        LATER_DEVICE_PERMISSION,
+    ] {
+        assert!(
+            !state
+                .paired_device_extra(perm)
+                .contains_key(PAIRING_APPROVE_KEY)
+        );
+    }
+}
+
+#[test]
+fn an_upgrade_leaves_devices_paired_before_it_without_the_grant() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.json");
+    let mut state = PairedState::load(&path).unwrap();
+    let mut existing = phone("Phone");
+    existing.perm = FIRST_DEVICE_PERMISSION;
+    existing.extra.insert("coop_join".into(), json!(true));
+    state.add(&path, existing).unwrap();
+    let before = state.clients[0].extra.clone();
+    let loaded = PairedState::load(&path).unwrap();
+    assert_eq!(loaded.clients[0].extra, before);
+    assert!(!loaded.clients[0].may_approve_pairing());
+    assert!(
+        !loaded
+            .paired_device_extra(FIRST_DEVICE_PERMISSION)
+            .contains_key(PAIRING_APPROVE_KEY)
+    );
 }

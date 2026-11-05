@@ -2,11 +2,11 @@
 use super::*;
 use crate::{
     native_api::pairing,
-    nvhttp::parity_tests::{device_request, finish_pairing},
+    nvhttp::parity_tests::{device_request, finish_pairing, one_time_pin},
 };
 use butterpollo_core::{
-    native_api::pairing::PairingRequests,
-    state::{LATER_DEVICE_PERMISSION, PLAY_DEVICE_PERMISSION},
+    native_api::{capabilities::Capabilities, pairing::PairingRequests},
+    state::{FIRST_DEVICE_PERMISSION, LATER_DEVICE_PERMISSION, PLAY_DEVICE_PERMISSION},
 };
 use std::time::{Duration, Instant};
 
@@ -67,7 +67,7 @@ async fn run(f: &Fixture, approver: &Connection, name: &str, typed: &str, shown:
 }
 
 #[tokio::test]
-async fn the_routes_need_a_paired_device_with_host_control() {
+async fn the_routes_need_a_paired_device_with_a_grant() {
     let f = Fixture::new();
     f.client(ALL);
     let (_, id) = asking(&f, "TV").await;
@@ -78,7 +78,7 @@ async fn the_routes_need_a_paired_device_with_host_control() {
     };
     for connection in [&plain, &stranger] {
         let code = if connection.certificate.is_some() {
-            "host_control_required"
+            "permission_required"
         } else {
             "not_paired"
         };
@@ -441,4 +441,134 @@ fn the_notices_name_both_devices_and_cut_long_names() {
     assert!(text.len() < 100, "{text}");
     let (_, text) = crate::state::pairing_ended_notice("TV");
     assert!(text.contains("Three wrong PINs for TV"), "{text}");
+}
+
+/// A device paired with the console's one-time PIN, nobody approving.
+async fn pair_from_the_console(f: &Fixture, name: &str) -> Client {
+    let client = Identity::generate().unwrap();
+    f.host.otp.lock().unwrap().typed = Some(one_time_pin("1234", "phrase", None));
+    let request = device_request(&client, name, Some(("1234", "phrase")));
+    do_pair(f.host.clone(), &request, PEER.parse().unwrap())
+        .await
+        .unwrap();
+    finish_pairing(f, &client, name, "1234").await.unwrap();
+    saved(f, name).unwrap()
+}
+/// Sets or clears "Approve new devices" on the paired device `uuid`.
+fn grant(f: &Fixture, uuid: &str, on: bool) {
+    let mut paired = f.host.paired.write().unwrap();
+    let extra = &mut paired
+        .clients
+        .iter_mut()
+        .find(|c| c.uuid == uuid)
+        .unwrap()
+        .extra;
+    if on {
+        extra.insert("pairing_approve".into(), true.into());
+    } else {
+        extra.remove("pairing_approve");
+    }
+}
+
+#[tokio::test]
+async fn the_first_device_may_approve_and_the_second_may_not() {
+    let f = Fixture::new();
+    let first = pair_from_the_console(&f, "Phone").await;
+    assert_eq!(first.perm, FIRST_DEVICE_PERMISSION);
+    assert!(first.allows_pairing_approve());
+    assert!(!first.allows_host_control());
+    let second = pair_from_the_console(&f, "Tablet").await;
+    assert!(!second.extra.contains_key("pairing_approve"));
+    assert!(!second.may_approve_pairing());
+    // What pairing gave, and nothing more, is still there after a restart.
+    let reloaded = butterpollo_core::state::PairedState::load(&f.host.paired_path).unwrap();
+    assert!(reloaded.clients[0].allows_pairing_approve());
+    assert!(!reloaded.clients[1].may_approve_pairing());
+}
+
+#[tokio::test]
+async fn devices_paired_before_the_upgrade_stay_as_they_were() {
+    let f = Fixture::new();
+    // As an older host saved it: everything, and no such key.
+    let existing = f.client(FIRST_DEVICE_PERMISSION);
+    let connection = f.connection(true);
+    let read: Capabilities =
+        serde_json::from_slice(&api(&f, &connection, "GET", "/capabilities").await.body).unwrap();
+    assert!(!read.permissions.pairing_approve && !read.permissions.host_control);
+    api(&f, &connection, "GET", "/pairing/requests")
+        .await
+        .assert_error(403, "permission_required");
+    let next = pair_from_the_console(&f, "Tablet").await;
+    assert!(!next.may_approve_pairing());
+    let after = saved(&f, &existing.name).unwrap();
+    assert_eq!((after.perm, after.extra), (existing.perm, existing.extra));
+}
+
+#[tokio::test]
+async fn approve_new_devices_opens_the_three_routes_and_no_other_host_control_action() {
+    let s = Setup::new();
+    grant(&s.f, &s.client.uuid, true);
+    let read: Capabilities = serde_json::from_slice(&s.get("/capabilities").await.body).unwrap();
+    assert!(read.permissions.pairing_approve && !read.permissions.host_control);
+    assert!(listed(&s.f, &s.connection).await.is_empty());
+    let reply = run(&s.f, &s.connection, "TV", "1234", "1234").await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    let (_, id) = asking(&s.f, "Console").await;
+    let reply = send(
+        &s.f,
+        true,
+        &s.connection,
+        "POST",
+        &format!("{PREFIX}/pairing/deny"),
+        None,
+        serde_json::json!({"id": id}).to_string(),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+
+    let _stream = s.streaming();
+    for path in [
+        "/session/close-game",
+        "/radeon/settings",
+        "/radeon/restore",
+        "/update/install",
+    ] {
+        s.post(path)
+            .await
+            .assert_error(403, "host_control_required");
+    }
+    assert!(s.game_running());
+    assert_eq!(s.state(), SessionState::Streaming);
+}
+
+#[tokio::test]
+async fn an_approved_device_never_inherits_approve_new_devices() {
+    for host_control in [false, true] {
+        let f = Fixture::new();
+        let approver = other_device(&f, ALL, host_control);
+        grant(&f, "other-device", !host_control);
+        let reply = run(&f, &approver, "TV", "1234", "1234").await;
+        assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+        let tv = saved(&f, "TV").unwrap();
+        assert!(!tv.extra.contains_key("pairing_approve"));
+        assert!(!tv.may_approve_pairing());
+    }
+}
+
+#[tokio::test]
+async fn approve_new_devices_lost_during_the_handshake_refuses_the_new_device() {
+    let f = Fixture::new();
+    let approver = other_device(&f, ALL, false);
+    grant(&f, "other-device", true);
+    let (client, id) = asking(&f, "TV").await;
+    let _ = tokio::join!(approve(&f, &approver, &id, "1234"), async {
+        while f.host.pins.lock().unwrap().contains_key(&id)
+            || !f.host.pairings.lock().unwrap().sessions.contains_key(&id)
+        {
+            tokio::task::yield_now().await;
+        }
+        grant(&f, "other-device", false);
+        let _ = finish_pairing(&f, &client, "TV", "1234").await;
+    });
+    assert!(saved(&f, "TV").is_none());
 }

@@ -46,6 +46,8 @@ pub const LAUNCH_APPS: u32 = 0x0400_0000;
 pub const ALL_INPUT: u32 = 0x0000_1f00;
 /// "Play games": list, watch and launch apps, with every kind of input.
 pub const PLAY_DEVICE_PERMISSION: u32 = LIST_APPS | VIEW_STREAMS | LAUNCH_APPS | ALL_INPUT;
+/// The `extra` key of "Approve new devices" ([`Client::allows_pairing_approve`]).
+pub const PAIRING_APPROVE_KEY: &str = "pairing_approve";
 /// The permissions the console's pairing access choice (`access`) grants a
 /// later device: `play`, `view` or `all`. Empty means no choice, so the device
 /// gets [`PairedState::new_device_permission`].
@@ -116,6 +118,17 @@ impl Client {
                 .extra
                 .get("host_control")
                 .is_some_and(|v| v == true || v == "true")
+    }
+    /// Whether this device holds "Approve new devices" (`pairing_approve`): the
+    /// three `/pairing` routes and nothing else. Only a JSON `true` counts. The
+    /// first device paired on a host gets it ([`PairedState::paired_device_extra`]),
+    /// any other only from the console; Host control never reads it.
+    pub fn allows_pairing_approve(&self) -> bool {
+        self.enabled && self.extra.get(PAIRING_APPROVE_KEY) == Some(&Value::Bool(true))
+    }
+    /// Whether this device may list, approve and deny devices waiting to pair.
+    pub fn may_approve_pairing(&self) -> bool {
+        self.allows_host_control() || self.allows_pairing_approve()
     }
     /// Whether the administrator let this device put the host to sleep
     /// (`power_action`). Only a JSON `true` counts, as in Vibepollo, so an
@@ -506,13 +519,20 @@ impl PairedState {
             later => chosen.unwrap_or(later),
         }
     }
-    /// The grants a device paired with `perm` gets besides its permission
+    /// The grants a device paired now with `perm` gets besides its permission
     /// bits: one that may launch apps may also join co-op sessions
-    /// (`coop_join`), which the owner can take away on the device's page.
-    pub fn paired_device_extra(perm: u32) -> BTreeMap<String, Value> {
+    /// (`coop_join`), which the owner can take away on the device's page. The
+    /// first device on this host may also approve new devices, decided by being
+    /// first and not by `perm`: a later device the console gives everything does
+    /// not get it. Devices already paired are never touched, so one from before
+    /// this grant existed reads as off.
+    pub fn paired_device_extra(&self, perm: u32) -> BTreeMap<String, Value> {
         let mut extra = BTreeMap::new();
         if perm & LAUNCH_APPS != 0 {
             extra.insert(crate::nucleus::coop::DEVICE_KEY.into(), Value::Bool(true));
+        }
+        if self.new_device_permission() == FIRST_DEVICE_PERMISSION {
+            extra.insert(PAIRING_APPROVE_KEY.into(), Value::Bool(true));
         }
         extra
     }

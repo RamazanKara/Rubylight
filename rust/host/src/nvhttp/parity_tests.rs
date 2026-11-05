@@ -1010,7 +1010,7 @@ fn permission_of(f: &Fixture, name: &str) -> u32 {
     let saved = butterpollo_core::state::PairedState::load(&f.host.paired_path).unwrap();
     saved.clients.iter().find(|c| c.name == name).unwrap().perm
 }
-fn one_time_pin(pin: &str, passphrase: &str, permission: Option<u32>) -> OneTimePin {
+pub(super) fn one_time_pin(pin: &str, passphrase: &str, permission: Option<u32>) -> OneTimePin {
     OneTimePin {
         pin: pin.into(),
         passphrase: passphrase.into(),

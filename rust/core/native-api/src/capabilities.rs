@@ -50,4 +50,9 @@ pub struct Permissions {
     /// older hosts, which then reads as not granted.
     #[serde(default)]
     pub restart_shutdown: bool,
+    /// The device holds "Approve new devices": its own `pairing_approve` flag,
+    /// which allows the `/pairing` routes and nothing else. Host control allows
+    /// them too. Missing from older hosts, which then reads as not granted.
+    #[serde(default)]
+    pub pairing_approve: bool,
 }

@@ -95,11 +95,13 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 .iter_mut()
                 .find(|c| c.uuid == text("uuid"))
                 .ok_or_else(|| anyhow::anyhow!("client not found"))?;
-            // Host control, Sleep PC, Restart and shut down PC, USB forwarding
-            // and Join co-op are granted only here, and only as a real boolean
-            // (null clears it). Anything else is refused before any change.
+            // Host control, Approve new devices, Sleep PC, Restart and shut down
+            // PC, USB forwarding and Join co-op are granted only here, and only as
+            // a real boolean (null clears it). Anything else is refused before any
+            // change.
             for key in [
                 "host_control",
+                butterpollo_core::state::PAIRING_APPROVE_KEY,
                 "allow_sleep",
                 "allow_restart_shutdown",
                 "allow_usb",
@@ -675,6 +677,30 @@ mod tests {
             json!({"uuid": client.uuid, "virtual_display_layout": "exclusive"}),
         );
         assert_eq!(layout_settings(&f), (Some(json!("exclusive")), true, false));
+    }
+
+    #[test]
+    fn approve_new_devices_is_granted_only_as_a_boolean_and_alone() {
+        let f = Fixture::new();
+        let client = f.client(PERM);
+        let saved = || f.host.paired.read().unwrap().clients[0].clone();
+        for bad in [json!("true"), json!(1)] {
+            assert!(
+                handle(
+                    &f.host,
+                    "POST",
+                    "/api/clients/update",
+                    &json!({"uuid": client.uuid, "pairing_approve": bad}),
+                )
+                .is_err()
+            );
+        }
+        assert!(!saved().extra.contains_key("pairing_approve"));
+        update(&f, json!({"uuid": client.uuid, "pairing_approve": true}));
+        assert!(saved().allows_pairing_approve());
+        assert!(!saved().allows_host_control());
+        update(&f, json!({"uuid": client.uuid, "pairing_approve": null}));
+        assert!(!saved().extra.contains_key("pairing_approve"));
     }
 
     #[test]

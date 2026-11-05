@@ -448,6 +448,7 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
                 shared_folders: client.has_folders(),
                 coop_join: client.allows_coop_join(),
                 restart_shutdown: client.allows_restart_shutdown(),
+                pairing_approve: client.allows_pairing_approve(),
             },
         },
     ))

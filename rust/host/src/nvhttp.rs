@@ -1202,7 +1202,7 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
                 p.finish(secret)?;
                 let mut state = h.paired.write().unwrap();
                 let perm = state.paired_device_permission(p.permission);
-                let extra = butterpollo_core::state::PairedState::paired_device_extra(perm);
+                let extra = state.paired_device_extra(perm);
                 let (perm, extra) =
                     crate::native_api::pairing::capped(&h, &state, &id, perm, extra)?;
                 let uuid = uuid::Uuid::new_v4().to_string();

@@ -354,6 +354,8 @@ export interface Client {
   allow_client_commands?: boolean | string | null;
   /** Host control (Radeon settings, close game). Sent as true or null; the host refuses anything else. */
   host_control?: boolean | string | null;
+  /** Approve new devices from this device. Sent as true or null; only a JSON true grants it. */
+  pairing_approve?: boolean | null;
   /** Sleep PC from this device. Sent as true or null; the host refuses anything else. */
   allow_sleep?: boolean | string | null;
   /** Restart and shut down PC from this device. Sent as true or null; only a JSON true grants it. */

@@ -5,7 +5,7 @@
 //! carries no check of it, so the host learns a PIN was wrong only from how the
 //! new device's handshake ends, and that attempt is then over: the device starts
 //! again with a new PIN. Wrong PINs are counted per device for that reason.
-use super::{Failure, Reply, caller, json, read_body, require_host_control};
+use super::{Failure, Reply, caller, json, permission_required, read_body};
 use crate::{
     state::{Host, Shared},
     tls::Connection,
@@ -16,13 +16,15 @@ use axum::{
     http::StatusCode,
 };
 use butterpollo_core::{
-    native,
     native_api::{
         error::ErrorCode,
         pairing::{PairingApprove, PairingApproved, PairingDeny, PairingRequest, PairingRequests},
     },
     nucleus::coop,
-    state::{Client, LATER_DEVICE_PERMISSION, LAUNCH_APPS, PLAY_DEVICE_PERMISSION, PairedState},
+    state::{
+        Client, LATER_DEVICE_PERMISSION, LAUNCH_APPS, PAIRING_APPROVE_KEY, PLAY_DEVICE_PERMISSION,
+        PairedState,
+    },
 };
 use serde_json::Value;
 use std::{
@@ -138,11 +140,13 @@ pub(crate) fn capped(
     let approver = state
         .clients
         .iter()
-        .find(|c| c.uuid == uuid && native::host_control(c))
+        .find(|c| c.uuid == uuid && c.may_approve_pairing())
         .ok_or_else(|| {
-            anyhow::anyhow!("the device that approved this pairing lost Host control")
+            anyhow::anyhow!("the device that approved this pairing may no longer approve")
         })?;
     let perm = perm & approver.perm;
+    // Only the console hands this one on.
+    extra.remove(PAIRING_APPROVE_KEY);
     // The default follows Launch apps, so it takes an explicit false.
     if perm & LAUNCH_APPS != 0 && !approver.allows_coop_join() {
         extra.insert(coop::DEVICE_KEY.into(), false.into());
@@ -214,9 +218,18 @@ fn waiting(h: &Host) -> PairingRequests {
     PairingRequests { requests }
 }
 
+/// Host control or "Approve new devices". The refusal stays `permission_required`:
+/// `host_control_required` would name a wider grant than this route needs.
+fn require_approver(client: &Client) -> Result<(), Failure> {
+    client
+        .may_approve_pairing()
+        .then_some(())
+        .ok_or_else(|| permission_required("Approve new devices"))
+}
+
 /// `GET /pairing/requests`.
 pub async fn requests(State(h): State<Shared>, Extension(c): Extension<Connection>) -> Reply {
-    require_host_control(&caller(&h, &c)?)?;
+    require_approver(&caller(&h, &c)?)?;
     Ok(json(StatusCode::OK, &waiting(&h)))
 }
 
@@ -285,7 +298,7 @@ pub async fn approve(
     request: Request,
 ) -> Reply {
     let client = caller(&h, &c)?;
-    require_host_control(&client)?;
+    require_approver(&client)?;
     let body: PairingApprove =
         serde_json::from_slice(&read_body(request).await?).map_err(invalid)?;
     if body.pin.len() != 4 || !body.pin.bytes().all(|c| c.is_ascii_digit()) {
@@ -328,7 +341,7 @@ pub async fn deny(
     request: Request,
 ) -> Reply {
     let client = caller(&h, &c)?;
-    require_host_control(&client)?;
+    require_approver(&client)?;
     let body: PairingDeny = serde_json::from_slice(&read_body(request).await?).map_err(invalid)?;
     let removed = h
         .pins

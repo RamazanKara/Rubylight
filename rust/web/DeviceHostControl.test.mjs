@@ -33,6 +33,19 @@ test('granting sends true and revoking sends null, never a string', () => {
   assert.deepEqual(changes(stored, { ...stored, name: 'Tablet' }), { name: 'Tablet' });
 });
 
+test('approve new devices shows only a JSON true, and sends true or null', () => {
+  assert.equal(toDraft(client({ perm: 0xffffffff })).pairing_approve, false);
+  assert.equal(toDraft(client({ host_control: true })).pairing_approve, false);
+  assert.equal(toDraft(client({ pairing_approve: true })).pairing_approve, true);
+  for (const value of [false, null, 1, 'true', [true]]) {
+    assert.equal(toDraft(client({ pairing_approve: value })).pairing_approve, false, String(value));
+  }
+  const off = toDraft(client({}));
+  const on = { ...off, pairing_approve: true };
+  assert.deepEqual(changes(off, on), { pairing_approve: true });
+  assert.deepEqual(changes(on, off), { pairing_approve: null });
+});
+
 test('saving warns about ending the stream only when the device is cut off', () => {
   const draft = toDraft(client({}));
   const edit = patch => ({ ...draft, ...patch });

@@ -62,7 +62,7 @@
   // Custom permissions, or a granted Host control, Sleep PC or USB devices, open the section.
   // Nothing closes it again: unticking a box must not snap it shut under the cursor.
   const granted = () =>
-    accessOf(draft.perm) === 'custom' || draft.host_control || draft.allow_sleep || draft.allow_restart_shutdown || draft.allow_usb;
+    accessOf(draft.perm) === 'custom' || draft.host_control || draft.pairing_approve || draft.allow_sleep || draft.allow_restart_shutdown || draft.allow_usb;
   let permissionsOpen = $state(untrack(granted));
   $effect(() => {
     if (granted()) permissionsOpen = true;
@@ -295,6 +295,10 @@
             <label class="check">
               <input type="checkbox" bind:checked={draft.host_control} />
               Host control: change Radeon settings and close games from this device
+            </label>
+            <label class="check">
+              <input type="checkbox" bind:checked={draft.pairing_approve} />
+              Approve new devices: pair another device from this device
             </label>
             {#if sleepUnavailable}
               <p class="note">Sleep PC is unavailable: {sleepUnavailable}.</p>

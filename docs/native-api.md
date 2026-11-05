@@ -41,7 +41,7 @@ GET /api/native/v1/capabilities
 ```
 
 - `features` says what the host implements and has turned on, the same for every client. `radeon.read`, `radeon.write` and `radeon.profile` appear only where the host started its Radeon worker; `files.upload` and `files.download` only while the host's File transfer setting is on. Clients ignore feature strings they don't know.
-- `permissions` belongs to the calling device. `file_upload` and `file_download` (bits `1 << 18` and `1 << 19`) are missing from hosts before file transfer and decode as `false`. `coop_join` is whether the device may join co-op games (Launch apps and its **Can join co-op games** setting, which follows Launch apps until set), never a permission bit; hosts before 3.0 leave it out, which decodes as `false`. `restart_shutdown` is the device's **Restart and shut down PC** grant (see Power and update); older hosts leave it out. With a feature listed but its permission off, the client shows the control disabled, with the sentence from the matching error (for example "Turn on Host control for this device in the Rubylight console").
+- `permissions` belongs to the calling device. `file_upload` and `file_download` (bits `1 << 18` and `1 << 19`) are missing from hosts before file transfer and decode as `false`. `coop_join` is whether the device may join co-op games (Launch apps and its **Can join co-op games** setting, which follows Launch apps until set), never a permission bit; hosts before 3.0 leave it out, which decodes as `false`. `restart_shutdown` is the device's **Restart and shut down PC** grant (see Power and update); older hosts leave it out. `pairing_approve` is the device's **Approve new devices** grant (see Approve a device), which is not implied by Host control and is reported apart from it; older hosts leave it out. With a feature listed but its permission off, the client shows the control disabled, with the sentence from the matching error (for example "Turn on Host control for this device in the Rubylight console").
 
 ## Endpoints
 
@@ -77,12 +77,12 @@ All paths start with `/api/native/v1`. "Owner" means the caller owns the current
 | POST | `/power/restart`, `/power/shutdown` `{"token": "..."}` | **Restart and shut down PC**, nothing running | 202 `{"action"}`, then the host asks Windows. 403 `permission_required`, 409 `host_in_use` or `token_expired` |
 | GET | `/update` | paired | Update: `current_version`, `latest_version`, `phase`, `install_supported`, `error`, `waiting_for`, `install_now` (feature `update`) |
 | POST | `/update/install` | **host control**, no other device streaming | 202 Update. 409 `host_in_use` or `update_unavailable` |
-| GET | `/pairing/requests` | **host control** | PairingRequests: the devices waiting to pair, never a certificate (feature `pairing.approve`, listed while pairing is on) |
-| POST | `/pairing/approve` `{"id", "pin"}` | **host control** | PairingApproved `{"name"}` once the device has paired. 404 `not_found`, 409 `pairing_ended` or `pairing_unconfirmed`, 422 `wrong_pin` or `invalid_value` |
-| POST | `/pairing/deny` `{"id"}` | **host control** | PairingRequests: those still waiting. 404 `not_found` |
+| GET | `/pairing/requests` | **approve new devices** or **host control** | PairingRequests: the devices waiting to pair, never a certificate (feature `pairing.approve`, listed while pairing is on) |
+| POST | `/pairing/approve` `{"id", "pin"}` | **approve new devices** or **host control** | PairingApproved `{"name"}` once the device has paired. 404 `not_found`, 409 `pairing_ended` or `pairing_unconfirmed`, 422 `wrong_pin` or `invalid_value` |
+| POST | `/pairing/deny` `{"id"}` | **approve new devices** or **host control** | PairingRequests: those still waiting. 404 `not_found` |
 | POST | `/coop/join` `{"session": N}` | Launch; **Can join co-op games** to take another device's free slot | Joined `{"session", "slot", "app_id"}`: the slot is held until this device launches `app_id`. 403 `permission_required`, 409 `no_session` or `coop_refused` |
 
-Permission bits are the existing ones: List `1 << 24`, View `1 << 25`, Launch `1 << 26`, Upload files `1 << 18`, Download files `1 << 19`. Host control is a separate per-device flag (see below).
+Permission bits are the existing ones: List `1 << 24`, View `1 << 25`, Launch `1 << 26`, Upload files `1 << 18`, Download files `1 << 19`. Host control and Approve new devices are separate per-device flags (see below).
 
 ## Library
 
@@ -509,7 +509,7 @@ Restart and Shut down work as Sleep PC does on `/power-actions/v1` (Vibepollo's 
 
 ## Approve a device (`pairing.approve`)
 
-A device with Host control approves a new one from the couch: it reads the waiting devices and types the PIN the new device shows. The Moonlight key comes from the PIN, so the host needs it and one click cannot do; the protocol and `PROTOCOL_VERSION` stay as they are.
+A device with **Approve new devices** or Host control approves a new one from the couch: it reads the waiting devices and types the PIN the new device shows. The Moonlight key comes from the PIN, so the host needs it and one click cannot do; the protocol and `PROTOCOL_VERSION` stay as they are.
 
 ```json
 { "requests": [ { "id": "a1f3", "name": "Living room TV", "address": "192.168.4.116", "age_seconds": 12 } ] }
@@ -524,8 +524,9 @@ A device with Host control approves a new one from the couch: it reads the waiti
   - 404 `not_found`: the request expired, was denied or was already answered.
   - 422 `invalid_value`: not four digits.
 - A browser (WebRTC) request is in the same list. Its PIN is compared at once, so one wrong PIN ends the request. It keeps a browser's default of view only, and an approver without List and View gets 403 `permission_required`.
-- **What the new device gets:** what a PIN typed in the console defaults to, Play (list, view, launch and all input), never more than the approver holds: the host caps `Play & approver's perm` when the handshake ends, and turns **Can join co-op games** off if the approver lacks it. Host control and shared folders are never passed on. The first device paired to a PC can't come this way, since an approver is already paired.
-- **Who approves:** only Host control, checked on every request and again when the handshake ends. If the approver lost it meanwhile, the new device doesn't pair. Host control is off for every device until the console grants it, the first paired device included, so a PC where nobody granted it shows no request to any device.
+- **What the new device gets:** what a PIN typed in the console defaults to, Play (list, view, launch and all input), never more than the approver holds: the host caps `Play & approver's perm` when the handshake ends, and turns **Can join co-op games** off if the approver lacks it. Host control, Approve new devices and shared folders are never passed on; only the console grants them. The first device paired to a PC can't come this way, since an approver is already paired.
+- **Who approves:** a device with Approve new devices or Host control, checked on every request and again when the handshake ends. If the approver lost both meanwhile, the new device doesn't pair. Without either, the three routes answer 403 `permission_required`.
+- **Approve new devices** is stored per device as `"pairing_approve": true` in `extra`, and only a JSON `true` counts. It allows these three routes and nothing else: every other Host control action still answers `host_control_required`. The first device paired on a host gets it; later devices don't, even with **Everything** chosen in the console. Devices paired before a host had it stay as they were: an upgrade migrates nothing. The console sets it under Devices → device → Other, and `/api/clients/update` accepts only `true`, `false` or `null`.
 - Every approval raises a toast on the PC, a log line and the `pairing.paired` webhook, each naming the approver and the new device.
 
 ## USB forwarding
@@ -571,7 +572,7 @@ Every non-2xx answer has the same body:
 | HTTP | `code` | When |
 |---|---|---|
 | 403 | `not_paired` | No TLS client certificate, or the device is unknown or disabled |
-| 403 | `permission_required` | List, View or Launch missing. `message` names the permission, as `authenticated()` does for the Moonlight endpoints |
+| 403 | `permission_required` | List, View or Launch missing, or Approve new devices on a `/pairing` route. `message` names the permission, as `authenticated()` does for the Moonlight endpoints |
 | 403 | `host_control_required` | Write or Close game without host control |
 | 403 | `file_transfer_disabled` / `forbidden` | Files: the host's File transfer setting is off / the device lacks Upload files or Download files |
 | 404 | `not_found` | Unknown path under `/api/native/v1`, GPU or setting id, or Radeon controls this host does not have (a restore or write on a host without them) |

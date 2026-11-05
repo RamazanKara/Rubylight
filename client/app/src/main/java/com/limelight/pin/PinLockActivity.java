@@ -475,6 +475,10 @@ public class PinLockActivity extends NightjarActivity {
         if (purpose == Purpose.APP) {
             finishAffinity();
         } else {
+            // Stopping an automatic start at the PIN is the player's choice, not a failed start.
+            if (nextIntent() != null && com.limelight.console.OpenPlay.isAutoStart(nextIntent())) {
+                com.limelight.console.OpenPlay.streamEnded(this, 0, true);
+            }
             setResult(RESULT_CANCELED);
             finish();
         }

@@ -95,6 +95,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
     private final static int VIEW_DETAILS_ID = 5;
     private final static int CREATE_SHORTCUT_ID = 6;
     private final static int HIDE_APP_ID = 7;
+    private final static int OPEN_ON_START_ID = 8;
 
     public final static String HIDDEN_APPS_PREF_FILENAME = "HiddenApps";
 
@@ -704,6 +705,8 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
             addAppAction(sheet, selectedApp, selectedView, CREATE_SHORTCUT_ID,
                     R.drawable.ic_add, getString(R.string.applist_menu_scut));
         }
+        addAppAction(sheet, selectedApp, selectedView, OPEN_ON_START_ID, R.drawable.ic_play,
+                com.limelight.console.OpenPlay.menuLabel(this, computer.uuid, selectedApp.app.getAppId()));
         addAppAction(sheet, selectedApp, selectedView, VIEW_DETAILS_ID,
                 R.drawable.ic_info, getString(R.string.applist_menu_details));
         sheet.setOnDismissListener(dialog -> {
@@ -920,6 +923,10 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
                                 updateHiddenApps(true);
                             }).show();
                 }
+                return true;
+
+            case OPEN_ON_START_ID:
+                com.limelight.console.OpenPlay.toggle(this, computer.uuid, computer.displayName(), app.app.getAppId(), app.app.getAppName());
                 return true;
 
             case CREATE_SHORTCUT_ID:

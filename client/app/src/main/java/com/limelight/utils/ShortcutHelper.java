@@ -18,6 +18,7 @@ import java.util.LinkedList;
 import java.util.List;
 
 public class ShortcutHelper {
+    private static final String CONTINUE_SUFFIX = ":continue";
 
     private final ShortcutManager sm;
     private final Activity context;
@@ -92,6 +93,35 @@ public class ShortcutHelper {
     public void reportGameLaunched(ComputerDetails computer, NvApp app) {
         tvChannelHelper.createTvChannel(computer);
         tvChannelHelper.addGameToChannel(computer, app);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1 && app.getRole() == NvApp.Role.STREAM) {
+            reportContinue(computer, app);
+        }
+    }
+
+    /**
+     * Long-pressing the app icon offers the last game first. Its id starts with the PC's, so removing the PC takes
+     * it along ({@link #disableComputerShortcut}); there is one, so the previous PC's goes when another PC plays.
+     */
+    @TargetApi(Build.VERSION_CODES.N_MR1)
+    void reportContinue(ComputerDetails computer, NvApp app) {
+        String id = computer.uuid + CONTINUE_SUFFIX;
+        List<String> others = new ArrayList<>();
+        for (ShortcutInfo info : sm.getDynamicShortcuts()) {
+            if (info.getId().endsWith(CONTINUE_SUFFIX) && !info.getId().equals(id)) others.add(info.getId());
+        }
+        if (!others.isEmpty()) sm.removeDynamicShortcuts(others);
+        String label = context.getString(R.string.open_play_continue, app.getAppName());
+        ShortcutInfo info = new ShortcutInfo.Builder(context, id)
+                .setIntent(ServerHelper.createAppShortcutIntent(context, computer, app))
+                .setShortLabel(label)
+                .setLongLabel(label)
+                .setIcon(Icon.createWithResource(context, R.mipmap.ic_pc_scut))
+                .setRank(0)
+                .build();
+        if (!isExistingDynamicShortcut(id)) reapShortcutsForDynamicAdd();
+        // Also replaces this PC's previous one: the same id.
+        sm.addDynamicShortcuts(Collections.singletonList(info));
+        sm.reportShortcutUsed(id);
     }
 
     public void createAppViewShortcut(ComputerDetails computer, boolean forceAdd, boolean newlyPaired) {

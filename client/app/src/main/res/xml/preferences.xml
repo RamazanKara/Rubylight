@@ -759,6 +759,13 @@
             android:title="@string/console_home_setting_title"
             android:dialogMessage="@string/console_home_setting_summary"
             android:defaultValue="true" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_open_on_start"
+            android:title="@string/title_open_on_start"
+            android:dialogMessage="@string/summary_open_on_start"
+            android:entries="@array/open_on_start_names"
+            android:entryValues="@array/open_on_start_values"
+            android:defaultValue="pcs" />
         <Preference android:key="pin_lock" android:title="@string/pin_lock_title"
             android:summary="@string/pin_lock_summary" android:persistent="false" />
         <Preference android:key="help" android:title="@string/help"

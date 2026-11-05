@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_open_on_start">Nightjarの起動時</string>
+    <string name="summary_open_on_start">PCの一覧、または3秒のカウントダウンの後にゲーム。</string>
+    <string name="open_play_menu">Nightjarの起動時に開く</string>
+    <string name="open_play_menu_stop">Nightjarの起動時に開かない</string>
+    <string name="open_play_countdown">%1$sで%2$d秒後に開始</string>
+    <string name="open_play_skipped">%1$sは前回開始できなかったため、Nightjarを通常どおり開きました。</string>
+    <string name="open_play_chosen">Nightjarの起動時に%1$sを開きます</string>
+    <string name="open_play_continue">%1$sを続ける</string>
+    <string-array name="open_on_start_names">
+        <item>PCの一覧を表示</item>
+        <item>前回のゲームを続ける</item>
+        <item>選んだゲーム</item>
+    </string-array>
+</resources>

@@ -114,6 +114,7 @@ public final class ConsoleRepository {
         new PreferencesRecentsStore(app).forgetHost(hostUuid);
         new PreferencesFavouritesStore(app).forgetHost(hostUuid);
         new WakeTargets(app).forget(hostUuid);
+        com.limelight.console.OpenPlay.forgetHost(app, hostUuid);
     }
 
     /** The snapshot from what is stored: no network. Hosts with a native library show CACHED. */

@@ -212,11 +212,19 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         super.onCreate(savedInstanceState);
 
         // Home is the launch screen once a host has shown its games; the list of PCs stays one tap away.
+        Intent openPlay = com.limelight.console.OpenPlay.atEntry(this, savedInstanceState);
         if (savedInstanceState == null && opensHome()) {
-            startActivity(new Intent(this, com.limelight.console.ConsoleHomeActivity.class));
+            Intent home = new Intent(this, com.limelight.console.ConsoleHomeActivity.class);
+            if (openPlay != null) {
+                // The game's page over Home: Cancel, a failed start and the stream's end all land there.
+                startActivities(new Intent[] {home, openPlay});
+            } else {
+                startActivity(home);
+            }
             finish();
             return;
         }
+        openPlayPage = openPlay;
 
         // Once per phone and app version: lets Automatic skip codecs that decode slower here.
         DecoderBenchmark.runIfNeeded(this);
@@ -264,6 +272,9 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         }
     }
 
+    /** "When Nightjar opens": the game's page, opened once this screen is set up. */
+    private Intent openPlayPage;
+
     private boolean opensHome() {
         Intent intent = getIntent();
         if (intent == null || !Intent.ACTION_MAIN.equals(intent.getAction())
@@ -300,6 +311,11 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         }
 
         // The discovery screen explains setup inline; Help remains available from the toolbar.
+
+        if (openPlayPage != null) {
+            startActivity(openPlayPage);
+            openPlayPage = null;
+        }
     }
 
     private void showPairingGuide() {

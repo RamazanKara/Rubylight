@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_open_on_start">Khi Nightjar mở</string>
+    <string name="summary_open_on_start">Các PC của bạn, hoặc đếm ngược 3 giây vào trò chơi.</string>
+    <string name="open_play_menu">Mở mục này khi Nightjar khởi động</string>
+    <string name="open_play_menu_stop">Không mở mục này khi Nightjar khởi động nữa</string>
+    <string name="open_play_countdown">Bắt đầu trên %1$s sau %2$d</string>
+    <string name="open_play_skipped">%1$s không khởi động được lần trước, nên Nightjar mở như bình thường.</string>
+    <string name="open_play_chosen">%1$s sẽ mở khi Nightjar khởi động</string>
+    <string name="open_play_continue">Tiếp tục %1$s</string>
+    <string-array name="open_on_start_names">
+        <item>Hiện các PC của tôi</item>
+        <item>Tiếp tục trò chơi gần nhất</item>
+        <item>Một trò chơi đã chọn</item>
+    </string-array>
+</resources>

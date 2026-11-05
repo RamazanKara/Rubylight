@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_open_on_start">Nightjar를 열 때</string>
+    <string name="summary_open_on_start">내 PC 또는 3초 카운트다운 후 게임.</string>
+    <string name="open_play_menu">Nightjar 시작 시 열기</string>
+    <string name="open_play_menu_stop">Nightjar 시작 시 열지 않기</string>
+    <string name="open_play_countdown">%1$s에서 %2$d초 후 시작</string>
+    <string name="open_play_skipped">%1$s이(가) 지난번에 시작되지 않아 Nightjar를 평소대로 열었습니다.</string>
+    <string name="open_play_chosen">Nightjar 시작 시 %1$s을(를) 엽니다</string>
+    <string name="open_play_continue">%1$s 계속하기</string>
+    <string-array name="open_on_start_names">
+        <item>내 PC 표시</item>
+        <item>마지막 게임 계속하기</item>
+        <item>선택한 게임</item>
+    </string-array>
+</resources>

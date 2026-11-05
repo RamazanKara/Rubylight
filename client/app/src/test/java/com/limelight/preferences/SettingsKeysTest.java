@@ -76,6 +76,7 @@ public class SettingsKeysTest {
     // Stored settings that are read outside PreferenceConfiguration.
     private static final Set<String> READ_ELSEWHERE = new HashSet<>(Arrays.asList(
             "performance_overlay_mode", // Game and the overlay
+            com.limelight.console.OpenPlay.SETTING, // the launch screen, before any stream
             com.limelight.ui.AppTheme.OLED_BLACK, // AppTheme, including activities opened directly
             com.limelight.ui.AppTheme.ALWAYS_DARK,
             com.limelight.ui.AppTheme.HIGH_CONTRAST, // AppTheme and the contrast overlay

@@ -654,6 +654,9 @@ final class GameMenuActions {
      * stream still holds the host connection; a failure is reported because the game stays running.
      */
     void leaveStream() {
+        if (com.limelight.console.OpenPlay.isAutoStart(game.getIntent())) {
+            com.limelight.console.OpenPlay.streamEnded(game, 0, true);
+        }
         boolean chosen = AppQuitOnLeave.isEnabled(game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID),
                 game.app.getAppUuid(), game.app.getAppId());
         // A plain disconnect never waits for a host request; its callbacks check the activity.

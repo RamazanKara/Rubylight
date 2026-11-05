@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::strings::tr;
+
 /// The app id, as the Flatpak and the `.desktop` file name it.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 const APP_ID: &str = "io.github.ramazankara.nightjar";
@@ -24,7 +26,7 @@ pub fn split_sign_in(mut args: Vec<std::ffi::OsString>) -> (Vec<std::ffi::OsStri
 /// Where this system keeps the sign-in start.
 pub trait Writer: Send + Sync {
     /// Whether this copy starts at sign-in. An entry of this copy that no longer says what it should
-    /// (another version moved it, or wrote other arguments) is brought up to date on the way.
+    /// (another version wrote other arguments) is brought up to date on the way.
     fn is_on(&self) -> Result<bool, String>;
     fn set(&self, on: bool) -> Result<(), String>;
 }
@@ -74,20 +76,21 @@ fn within<T: Send + 'static>(limit: Duration, work: impl FnOnce() -> T + Send + 
 enum Saved {
     Off,
     Current,
-    /// This program's with other words, or of a program that is gone: it is written again.
+    /// This program's with other words: it is written again.
     Stale,
-    /// Another copy's, which still exists: not this copy's to take without the player asking.
+    /// Anything else, there or gone: another copy's, or a command naming no path (a Flatpak's portal
+    /// writes `flatpak run` in the same file). Not this copy's to take without the player asking.
     Others,
 }
 
-fn compare(saved: Option<&str>, command: &str, program_of: fn(&str) -> Option<String>, exists: impl Fn(&str) -> bool) -> Saved {
+fn compare(saved: Option<&str>, command: &str, program_of: fn(&str) -> Option<String>) -> Saved {
     let Some(saved) = saved else { return Saved::Off };
     if saved == command {
         return Saved::Current;
     }
     let same = |a: &str, b: &str| if cfg!(windows) { a.eq_ignore_ascii_case(b) } else { a == b };
     match (program_of(saved), program_of(command)) {
-        (Some(theirs), Some(ours)) if same(&theirs, &ours) || !exists(&theirs) => Saved::Stale,
+        (Some(theirs), Some(ours)) if same(&theirs, &ours) => Saved::Stale,
         _ => Saved::Others,
     }
 }
@@ -159,9 +162,11 @@ fn linux_writer(
         return Some(Arc::new(Portal { marker: config_dir.join("sign_in_portal"), request }));
     }
     let config = xdg_config_home.filter(|p| p.is_absolute()).or_else(|| home.map(|h| h.join(".config")))?;
+    let exe = exe?;
     Some(Arc::new(XdgFile {
         path: config.join("autostart").join(format!("{APP_ID}.desktop")),
-        exec: format!("{} {SIGN_IN_ARG}", exec_field(&exe?)),
+        exec: format!("{} {SIGN_IN_ARG}", exec_field(&exe)),
+        try_exec: try_exec_field(&exe),
     }))
 }
 
@@ -184,9 +189,17 @@ fn exec_field(exe: &Path) -> String {
     quoted
 }
 
+/// A path as `TryExec` wants it: no quoting, only the key file format's own escapes.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn desktop_entry(exec: &str) -> String {
-    format!("[Desktop Entry]\nType=Application\nName=Nightjar\nExec={exec}\nIcon={APP_ID}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n")
+fn try_exec_field(exe: &Path) -> String {
+    exe.to_string_lossy().replace('\\', "\\\\").replace('\n', "\\n")
+}
+
+/// `TryExec`: nothing takes a per-user file away when a package goes, so the desktop skips the entry
+/// once its program is gone.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn desktop_entry(exec: &str, try_exec: &str) -> String {
+    format!("[Desktop Entry]\nType=Application\nName=Nightjar\nExec={exec}\nTryExec={try_exec}\nIcon={APP_ID}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n")
 }
 
 /// `~/.config/autostart/<app id>.desktop`.
@@ -194,6 +207,7 @@ fn desktop_entry(exec: &str) -> String {
 struct XdgFile {
     path: PathBuf,
     exec: String,
+    try_exec: String,
 }
 
 impl Writer for XdgFile {
@@ -204,7 +218,7 @@ impl Writer for XdgFile {
             Err(e) => return Err(format!("{}: {e}", self.path.display())),
         };
         let saved = text.as_ref().map(|text| text.lines().find_map(|l| l.strip_prefix("Exec=")).unwrap_or(""));
-        let state = compare(saved, &self.exec, exec_program, |p| Path::new(p).exists());
+        let state = compare(saved, &self.exec, exec_program);
         Ok(settle(state, || self.set(true)))
     }
 
@@ -214,13 +228,24 @@ impl Writer for XdgFile {
             if let Some(dir) = self.path.parent() {
                 std::fs::create_dir_all(dir).map_err(failed)?;
             }
-            std::fs::write(&self.path, desktop_entry(&self.exec)).map_err(failed)
+            std::fs::write(&self.path, desktop_entry(&self.exec, &self.try_exec)).map_err(failed)
         } else {
             match std::fs::remove_file(&self.path) {
                 Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(failed(e)),
                 _ => Ok(()),
             }
         }
+    }
+}
+
+/// What the Background portal's answer means. A desktop without autostart answers 0 too, with
+/// `autostart` false: turned on, only its own word that it is on counts.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn portal_answer(on: bool, code: u32, autostart: Option<bool>) -> Result<(), String> {
+    match code {
+        0 if !on || autostart == Some(true) => Ok(()),
+        0 => Err(tr("This desktop cannot start apps at sign-in.").to_owned()),
+        _ => Err(tr("The desktop did not allow it.").to_owned()),
     }
 }
 
@@ -293,7 +318,7 @@ mod run_key {
     impl super::Writer for RunKey {
         fn is_on(&self) -> Result<bool, String> {
             let saved = saved()?;
-            let state = compare(saved.as_deref(), &self.command, run_program, |p| std::path::Path::new(p).exists());
+            let state = compare(saved.as_deref(), &self.command, run_program);
             Ok(settle(state, || self.set(true)))
         }
 
@@ -315,6 +340,8 @@ mod run_key {
 mod portal {
     use std::collections::HashMap;
     use std::time::Duration;
+
+    use crate::strings::{tr, trf};
     use zbus::blocking::{Connection, Proxy};
     use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 
@@ -326,13 +353,13 @@ mod portal {
     /// `org.freedesktop.portal.Background`: asks for (or takes back) the start at sign-in. The
     /// desktop may ask the user first, so this waits for its answer, within reason; call it off the UI thread.
     pub fn request_background(on: bool) -> Result<(), String> {
-        super::within(ANSWER_LIMIT, move || request_once(on)).unwrap_or_else(|| Err("The desktop portal did not answer.".into()))
+        super::within(ANSWER_LIMIT, move || request_once(on)).unwrap_or_else(|| Err(tr("The desktop portal did not answer.").to_owned()))
     }
 
     fn request_once(on: bool) -> Result<(), String> {
-        let failed = |e: zbus::Error| format!("The desktop portal did not answer: {e}");
+        let failed = |e: zbus::Error| trf("The desktop portal did not answer: {}", &[&e]);
         let connection = Connection::session().map_err(failed)?;
-        let sender = connection.unique_name().ok_or("no D-Bus name")?.trim_start_matches(':').replace('.', "_");
+        let sender = connection.unique_name().ok_or_else(|| tr("The desktop portal did not answer.").to_owned())?.trim_start_matches(':').replace('.', "_");
         let token = format!("nightjar{}", std::process::id());
         // Listen before asking, so the answer cannot go by first.
         let path = format!("/org/freedesktop/portal/desktop/request/{sender}/{token}");
@@ -341,17 +368,14 @@ mod portal {
         let background = Proxy::new(&connection, DESTINATION, "/org/freedesktop/portal/desktop", "org.freedesktop.portal.Background").map_err(failed)?;
         let mut options: HashMap<&str, Value> = HashMap::new();
         options.insert("handle_token", Value::from(token.as_str()));
-        options.insert("reason", Value::from("Start Nightjar when you sign in"));
+        options.insert("reason", Value::from(tr("Start Nightjar when you sign in")));
         options.insert("autostart", Value::from(on));
         options.insert("commandline", Value::from(vec!["nightjar", super::SIGN_IN_ARG]));
         let _: OwnedObjectPath = background.call("RequestBackground", &("", options)).map_err(failed)?;
-        let answer = answers.next().ok_or("the desktop portal closed without an answer")?;
-        let (code, _results): (u32, HashMap<String, OwnedValue>) = answer.body().deserialize().map_err(failed)?;
-        if code == 0 {
-            Ok(())
-        } else {
-            Err("The desktop did not allow it.".into())
-        }
+        let answer = answers.next().ok_or_else(|| tr("The desktop portal did not answer.").to_owned())?;
+        let (code, results): (u32, HashMap<String, OwnedValue>) = answer.body().deserialize().map_err(failed)?;
+        let autostart = results.get("autostart").and_then(|value| bool::try_from(value).ok());
+        super::portal_answer(on, code, autostart)
     }
 }
 
@@ -381,13 +405,12 @@ mod tests {
     #[test]
     fn an_entry_is_compared_with_the_command_of_this_copy() {
         let ours = r#""C:\N\nightjar.exe" --autostart"#;
-        let exists = |p: &str| p != r"C:\Gone\nightjar.exe";
-        let of = |saved| compare(saved, ours, run_program, exists);
+        let of = |saved| compare(saved, ours, run_program);
         assert_eq!(of(None), Saved::Off);
         assert_eq!(of(Some(ours)), Saved::Current);
         assert_eq!(of(Some(r#""C:\N\nightjar.exe""#)), Saved::Stale, "an older version's words");
-        assert_eq!(of(Some(r#""C:\Gone\nightjar.exe" --autostart"#)), Saved::Stale, "moved away");
-        assert_eq!(of(Some(r#""C:\Other\nightjar.exe" --autostart"#)), Saved::Others);
+        assert_eq!(of(Some(r#""C:\Other\nightjar.exe" --autostart"#)), Saved::Others, "another copy's, there or gone");
+        assert_eq!(of(Some("nightjar.exe --autostart")), Saved::Others, "a bare name is not this path");
         assert_eq!(of(Some("")), Saved::Others, "says nothing");
     }
 
@@ -429,16 +452,61 @@ mod tests {
         // Absolute on every test machine, so `exists` answers the same.
         let other = std::env::current_exe().unwrap();
         let other = other.to_string_lossy().replace('\\', "/");
-        std::fs::write(&file, desktop_entry(&exec_field(Path::new(&other)))).unwrap();
+        std::fs::write(&file, desktop_entry(&exec_field(Path::new(&other)), &other)).unwrap();
         let writer = xdg_writer(&config, "/old/copy/of/nightjar");
         assert!(!writer.is_on().unwrap(), "another copy's");
         assert!(std::fs::read_to_string(&file).unwrap().contains(&other), "and left alone");
-        std::fs::write(&file, desktop_entry("\"/old/copy/of/nightjar\"")).unwrap();
+        std::fs::write(&file, desktop_entry("\"/old/copy/of/nightjar\"", "/old/copy/of/nightjar")).unwrap();
         assert!(writer.is_on().unwrap());
         assert!(std::fs::read_to_string(&file).unwrap().contains("Exec=\"/old/copy/of/nightjar\" --autostart\n"), "refreshed");
         writer.set(true).unwrap();
         assert!(writer.is_on().unwrap());
         let _ = std::fs::remove_dir_all(&config);
+    }
+
+    #[test]
+    fn a_flatpak_entry_in_the_same_file_is_left_to_the_flatpak() {
+        // As the portal writes it, in the file a native copy would use (xdp-app-info-flatpak.c).
+        let config = folder("flatpak-entry");
+        let file = config.join("autostart").join("io.github.ramazankara.nightjar.desktop");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        let entry = "[Desktop Entry]\nType=Application\nName=Nightjar\nExec=flatpak run --command=nightjar io.github.ramazankara.nightjar --autostart\nX-Flatpak=io.github.ramazankara.nightjar\n";
+        std::fs::write(&file, entry).unwrap();
+        assert!(!xdg_writer(&config, "/usr/bin/nightjar").is_on().unwrap());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), entry);
+        let _ = std::fs::remove_dir_all(&config);
+    }
+
+    #[test]
+    fn an_entry_of_a_program_that_is_gone_reads_as_off_and_stays_as_it_was() {
+        let config = folder("gone");
+        let file = config.join("autostart").join("io.github.ramazankara.nightjar.desktop");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        let entry = desktop_entry("\"/mnt/unplugged/nightjar\" --autostart", "/mnt/unplugged/nightjar");
+        std::fs::write(&file, &entry).unwrap();
+        assert!(!xdg_writer(&config, "/usr/bin/nightjar").is_on().unwrap(), "no opt-in here");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), entry);
+        let _ = std::fs::remove_dir_all(&config);
+    }
+
+    #[test]
+    fn the_entry_names_its_program_for_the_desktop_to_skip_once_it_is_gone() {
+        let config = folder("try-exec");
+        xdg_writer(&config, "/opt/my apps/nightjar").set(true).unwrap();
+        let text = std::fs::read_to_string(config.join("autostart").join("io.github.ramazankara.nightjar.desktop")).unwrap();
+        assert!(text.contains("\nTryExec=/opt/my apps/nightjar\n"), "{text}");
+        assert_eq!(try_exec_field(Path::new("/a\\b")), "/a\\\\b");
+        let _ = std::fs::remove_dir_all(&config);
+    }
+
+    #[test]
+    fn only_the_portals_word_that_it_is_on_turns_it_on() {
+        assert_eq!(portal_answer(true, 0, Some(true)), Ok(()));
+        assert!(portal_answer(true, 0, Some(false)).is_err(), "a desktop without autostart");
+        assert!(portal_answer(true, 0, None).is_err(), "says nothing");
+        assert_eq!(portal_answer(false, 0, Some(false)), Ok(()), "turning off");
+        assert!(portal_answer(true, 1, Some(true)).is_err(), "refused");
+        assert!(portal_answer(false, 2, None).is_err(), "failed");
     }
 
     #[test]

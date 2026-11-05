@@ -423,6 +423,8 @@ pub enum Event {
         device: Option<String>,
     },
     MoveWatched {
+        /// The prompt that asked: see [`crate::move_watch`].
+        token: u64,
         id: u64,
         app: i32,
         read: Result<StreamMove, String>,
@@ -1615,7 +1617,7 @@ impl Hosts {
     /// While "Now playing on ..." is open: reads the PC once after [`MOVE_WATCH_EVERY`], off the UI
     /// thread, and answers with [`Event::MoveWatched`]. The next read is the answer's to start, so
     /// a closed prompt ends this. False when it cannot ask, and no answer comes.
-    pub fn watch_stream_move(&mut self, id: u64, app: i32) -> bool {
+    pub fn watch_stream_move(&mut self, id: u64, app: i32, token: u64) -> bool {
         let (Some(identity), Some(host)) = (self.identity.clone(), self.get(id)) else {
             return false;
         };
@@ -1624,7 +1626,7 @@ impl Hosts {
             std::thread::sleep(MOVE_WATCH_EVERY);
             let read = client_for(&identity, &record, &record.address)
                 .and_then(|client| client.stream_move().map_err(|e| describe(&e)));
-            Some(Event::MoveWatched { id, app, read })
+            Some(Event::MoveWatched { token, id, app, read })
         });
         true
     }

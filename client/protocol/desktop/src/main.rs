@@ -35,6 +35,7 @@ mod logpipe;
 mod media;
 mod menu_style;
 mod nav_repeat;
+mod move_watch;
 mod network;
 mod network_test;
 mod open_play;
@@ -202,10 +203,8 @@ struct App {
     pin_pending: Option<PinPending>,
     /// Selecting a game waits for the PC to say who plays it.
     select_read: bool,
-    /// A read for an open "Now playing on ..." is under way.
-    move_watching: bool,
-    /// How many more such reads the prompt may start.
-    move_watch_reads: u32,
+    /// The reads for the open "Now playing on ...".
+    move_watch: move_watch::MoveWatch,
     /// This launch's update check (Windows); command-line and test streams make none.
     updates: update_check::Updates,
     open_play: open_play::OpenPlay,
@@ -664,8 +663,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         color_probed: None,
         pin_pending: None,
         select_read: false,
-        move_watching: false,
-        move_watch_reads: 0,
+        move_watch: Default::default(),
         title_bar: *theme::NIGHT,
     };
     match identity {
@@ -1185,21 +1183,22 @@ impl App {
                     eprintln!("nightjar: the stream moved to {device}");
                     self.show_moved(id, app, device);
                 }
-                HostEvent::MoveWatched { id, app, read } => {
-                    self.move_watching = false;
-                    match read {
-                        // Still moved, as far as the PC says.
-                        Ok(read) if read.moved_to.is_some() => {}
-                        Ok(read) => {
-                            self.move_watch_reads = 0;
-                            if nightjar_policy::continue_here::came_back(false, read.owns_game) {
-                                eprintln!("nightjar: the move failed; the game is this device's again");
-                                self.launcher.game_came_back(id, app);
+                HostEvent::MoveWatched { id, app, token, read } => {
+                    if self.move_watch.answered(token) {
+                        match read {
+                            // Still moved, as far as the PC says.
+                            Ok(read) if read.moved_to.is_some() => {}
+                            Ok(read) => {
+                                self.move_watch.done();
+                                if nightjar_policy::continue_here::came_back(false, read.owns_game) {
+                                    eprintln!("nightjar: the move failed; the game is this device's again");
+                                    self.launcher.game_came_back(id, app);
+                                }
                             }
+                            Err(e) => eprintln!("nightjar: could not ask the PC whether the move failed: {e}"),
                         }
-                        Err(e) => eprintln!("nightjar: could not ask the PC whether the move failed: {e}"),
+                        self.watch_moved_prompt();
                     }
-                    self.watch_moved_prompt();
                 }
                 HostEvent::Action { result: Err(e), .. } => self.launcher.message(tr("The PC action failed"), e),
                 _ => {}
@@ -1875,18 +1874,19 @@ impl App {
     /// this device, which has a minute to come back before close-on-disconnect applies.
     fn show_moved(&mut self, host: u64, app: i32, device: String) {
         self.launcher.ask_after(Dialog::NowPlaying { host, app, device });
-        self.move_watch_reads = hosts::MOVE_WATCH_READS;
+        self.move_watch.open();
         self.watch_moved_prompt();
     }
 
     /// The next read for the open prompt. None once it closed, or it has asked enough.
     fn watch_moved_prompt(&mut self) {
-        if self.move_watching || self.move_watch_reads == 0 {
+        let Some((host, app)) = self.launcher.moved_prompt() else {
             return;
-        }
-        if let Some((host, app)) = self.launcher.moved_prompt() {
-            self.move_watch_reads -= 1;
-            self.move_watching = self.hosts.watch_stream_move(host, app);
+        };
+        if let Some(token) = self.move_watch.next()
+            && !self.hosts.watch_stream_move(host, app, token)
+        {
+            self.move_watch.not_started();
         }
     }
 

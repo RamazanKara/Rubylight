@@ -11,6 +11,9 @@
 ; /REMOVESETTINGS to a silent uninstall), and even then keeps the screenshots and the saved
 ; statistics, which are the user's own files.
 ;
+; The client's Update now runs this Setup with /VERYSILENT and /RELAUNCH: same folder and tasks as
+; the install it upgrades (Inno Setup's previous-install defaults), Nightjar started again at the end.
+;
 ; /DTestDataDir=<folder> builds a test installer that uses <folder> in place of
 ; %APPDATA%\Nightjar, so build-installer.ps1 -Smoke can check the removal on a developer's PC
 ; without touching the real settings. Release builds never define it.
@@ -234,6 +237,29 @@ begin
   for I := 1 to ParamCount() do
     if CompareText(ParamStr(I), '/REMOVESETTINGS') = 0 then
       Result := True;
+end;
+
+// Nightjar's Update now (self_update.rs) exits and runs Setup silently with /RELAUNCH, so it needs
+// Setup to bring it back: here, not in [Run], so that a Setup that failed brings it back too, on
+// the old version, and Nightjar says so.
+function RelaunchParam(): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount() do
+    if CompareText(ParamStr(I), '/RELAUNCH') = 0 then
+      Result := True;
+end;
+
+procedure DeinitializeSetup();
+var
+  Folder: String;
+  ResultCode: Integer;
+begin
+  if RelaunchParam() and RegQueryStringValue(HKCU, UninstallKey, 'InstallLocation', Folder) then
+    if not Exec(AddBackslash(Folder) + 'nightjar.exe', '', Folder, SW_SHOWNORMAL, ewNoWait, ResultCode) then
+      Log('Could not start Nightjar again: ' + SysErrorMessage(ResultCode));
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

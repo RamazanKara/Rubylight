@@ -53,7 +53,7 @@ The browser does not say why the host refused the connection, so the page lists 
 
 Once the offer is answered, the picture and sound travel over UDP `webrtc_media_port`, not over the console's port. If nothing comes back on it within 8 seconds the page ends the attempt and says what it saw, with the address and port ([what each message means](troubleshooting.md#the-browser-stream-or-a-guest-link-fails-to-connect)).
 
-A browser on the PC itself may open the console at `127.0.0.1` or `localhost`. Firefox makes no connection attempt to a loopback address, so on a host bound to all addresses the page is offered the PC's network address instead (the first hardware adapter's IPv4 address). With `--bind 127.0.0.1` there is no other address to offer, and Firefox says so on the page. Such a stream doesn't turn off the monitors: an `exclusive` display layout runs as `extended_primary`, because the browser showing the stream is on one of them.
+A browser on the PC itself may open the console at `127.0.0.1` or `localhost`. Firefox makes no connection attempt to a loopback address, so on a host bound to all addresses the page is offered the PC's network address instead (the first hardware adapter's IPv4 address). With `--bind 127.0.0.1` there is no other address to offer, and Firefox says so on the page. Such a stream doesn't turn off the monitors: an `exclusive` display layout, and `ensure_only_display` on a physical display, run as `extended_primary`, because the browser showing the stream is on one of them.
 
 ### Play in a TV browser
 

@@ -122,10 +122,27 @@ pub(crate) fn virtual_display_layout<'a>(
 /// Set on a WebRTC launch whose browser runs on this PC.
 pub(crate) const BROWSER_ON_THIS_PC: &str = "rlBrowserOnThisPc";
 
-/// The virtual display layout of this launch. A browser on this PC shows the stream on this PC's
-/// monitors, so the exclusive layout would switch off the stream, the page and its Disconnect
-/// button for whoever watches: they stay on, with the virtual display as the primary one, where
-/// the game opens.
+/// Whether `layout` turns off every monitor but the stream's, read as a stream's display setup
+/// reads it: an unknown value falls back to exclusive for a virtual display and arranges nothing
+/// for a physical one (`dd_configuration_option`).
+fn turns_off_other_monitors(layout: &str, virtual_layout: bool) -> bool {
+    if matches!(layout, "disabled" | "verify_only") {
+        return false;
+    }
+    Arrangement::parse(layout).map_or(virtual_layout, |parsed| parsed == Arrangement::Exclusive)
+}
+
+/// Whether this launch runs [`Arrangement::Primary`] instead of `layout`. A browser on this PC
+/// shows the stream on this PC's monitors, so turning them off would switch off the stream, the
+/// page and its Disconnect button for whoever watches: they stay on, with the stream's display as
+/// the primary one, where the game opens.
+pub(crate) fn browser_keeps_monitors(launch: &Launch, layout: &str, virtual_layout: bool) -> bool {
+    launch.transport == Transport::WebRtc
+        && launch.options.contains_key(BROWSER_ON_THIS_PC)
+        && turns_off_other_monitors(layout, virtual_layout)
+}
+
+/// The virtual display layout of this launch.
 pub(crate) fn launch_display_layout<'a>(
     config: &'a Config,
     launch: &'a Launch,
@@ -133,10 +150,7 @@ pub(crate) fn launch_display_layout<'a>(
     requested: Option<HostDisplay>,
 ) -> &'a str {
     let layout = virtual_display_layout(config, &launch.client, app, requested);
-    if layout == Arrangement::Exclusive.name()
-        && launch.transport == Transport::WebRtc
-        && launch.options.contains_key(BROWSER_ON_THIS_PC)
-    {
+    if browser_keeps_monitors(launch, layout, true) {
         return Arrangement::Primary.name();
     }
     layout
@@ -1430,15 +1444,21 @@ impl Prepared {
         }
         // The client's choice for this stream comes before the device, app
         // and host layouts.
-        let selection = if virtual_layout {
-            launch_display_layout(
+        let configured = if virtual_layout {
+            virtual_display_layout(
                 config,
-                launch,
+                &launch.client,
                 app.as_ref(),
                 client_display.filter(|_| virtual_mode),
             )
         } else {
             config.get("dd_configuration_option", "verify_only")
+        };
+        let monitors_kept = browser_keeps_monitors(launch, configured, virtual_layout);
+        let selection = if monitors_kept {
+            Arrangement::Primary.name()
+        } else {
+            configured
         };
         // An unknown layout falls back to the default: exclusive for a
         // virtual display, verify only (no arrangement) for a physical one.
@@ -1449,7 +1469,7 @@ impl Prepared {
         {
             None
         } else {
-            butterpollo_core::display_policy::Arrangement::parse(selection)
+            butterpollo_core::display_policy::Arrangement::parse(configured)
                 .inspect_err(|_| {
                     butterpollo_core::config::invalid(
                         if virtual_layout {
@@ -1457,12 +1477,19 @@ impl Prepared {
                         } else {
                             "dd_configuration_option"
                         },
-                        selection,
+                        configured,
                     )
                 })
                 .ok()
                 .or(virtual_layout
                     .then_some(butterpollo_core::display_policy::Arrangement::Exclusive))
+                .map(|parsed| {
+                    if monitors_kept {
+                        Arrangement::Primary
+                    } else {
+                        parsed
+                    }
+                })
                 .and_then(|parsed| {
                     if launch.role == Role::RemoteMonitor {
                         parsed.for_remote_monitor()

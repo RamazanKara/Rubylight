@@ -673,6 +673,72 @@ fn a_browser_on_this_pc_keeps_the_monitors_it_shows_the_stream_on() {
     );
 }
 #[test]
+fn a_browser_on_this_pc_keeps_its_monitors_however_the_setting_is_spelled() {
+    use crate::display_session::{
+        BROWSER_ON_THIS_PC, browser_keeps_monitors, launch_display_layout,
+    };
+    use butterpollo_core::session::Transport;
+    let f = crate::state::test_support::Fixture::new();
+    let mut launch = f.launch(f.client(u32::MAX), Role::Stream);
+    launch.transport = Transport::WebRtc;
+    launch.options.insert(BROWSER_ON_THIS_PC.into(), "1".into());
+    let layout = |launch: &Launch, value: &str| {
+        let config =
+            butterpollo_core::config::Config::parse(&format!("virtual_display_layout={value}\n"))
+                .unwrap();
+        launch_display_layout(&config, launch, None, None).to_owned()
+    };
+    // All of these turn the other monitors off when the display setup reads them, and an unknown
+    // virtual display layout falls back to that.
+    for value in [
+        "exclusive",
+        "Exclusive",
+        "EXCLUSIVE",
+        "ensure_only_display",
+        "Ensure-Only-Display",
+        "no_such_layout",
+    ] {
+        assert_eq!(layout(&launch, value), "extended_primary", "{value}");
+    }
+    // These two arrange nothing, and no layout that leaves the monitors on is replaced.
+    for value in [
+        "disabled",
+        "verify_only",
+        "extended",
+        "extended_isolated",
+        "extended_primary_isolated",
+    ] {
+        assert_eq!(layout(&launch, value), value);
+    }
+    // A physical display takes `dd_configuration_option`; an unknown value arranges nothing.
+    for value in ["ensure_only_display", "Ensure-Only-Display", "exclusive"] {
+        assert!(browser_keeps_monitors(&launch, value, false), "{value}");
+    }
+    for value in [
+        "disabled",
+        "verify_only",
+        "ensure_active",
+        "ensure_primary",
+        "no_such_option",
+    ] {
+        assert!(!browser_keeps_monitors(&launch, value, false), "{value}");
+    }
+    // Only a browser on this PC.
+    launch.transport = Transport::default();
+    assert!(!browser_keeps_monitors(
+        &launch,
+        "ensure_only_display",
+        false
+    ));
+    launch.transport = Transport::WebRtc;
+    launch.options.remove(BROWSER_ON_THIS_PC);
+    assert!(!browser_keeps_monitors(
+        &launch,
+        "ensure_only_display",
+        false
+    ));
+}
+#[test]
 fn a_background_stream_keeps_keyboard_and_mouse_off_whatever_overrides_say() {
     use crate::state::test_support::Fixture;
     use serde_json::json;

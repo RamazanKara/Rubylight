@@ -18,11 +18,13 @@ import java.util.function.LongSupplier;
 /**
  * Keeps the wake targets of the PCs the computer manager polls, so a PC woken from the PC list or a shortcut reaches
  * every adapter its {@code /wake} lists, not only the PCs the console or a stream already asked. A PC is asked when a
- * poll first finds it online and again every {@link #INTERVAL_MS} while it stays so: its adapters change with
- * hardware, not between polls. A host offering its update to this device has that read on the same ask.
+ * poll first finds it online and again every {@link #INTERVAL_MS} while it stays so. Its adapters change with hardware,
+ * but this device's permissions change in the console at any moment, and the same ask is what brings them to the menus
+ * ({@link com.limelight.nativeapi.KnownCapabilities}). A host offering its update to this device has that read on the
+ * same ask.
  */
 public final class WakeTargetsPoll {
-    static final long INTERVAL_MS = 10 * 60_000;
+    static final long INTERVAL_MS = 30_000;
 
     public interface Clients {
         /** A client for the PC's native API, or null when it has no address or pinned certificate yet. */

@@ -608,6 +608,7 @@ mod tests {
         assert!(iss.contains("DisableDirPage=yes") && !iss.contains("UsePreviousAppDir=no"), "the same folder");
         assert!(iss.contains("procedure DeinitializeSetup") && iss.contains("'/RELAUNCH'"), "Nightjar comes back");
         assert!(iss.contains(&format!("AppMutex={STREAM_MUTEX}\n")), "the setup stops for a stream");
+        assert!(iss.contains("RegDeleteValue(HKCU, 'Software\\Microsoft\\Windows\\CurrentVersion\\Run', 'Nightjar')"), "the uninstaller takes the sign-in start along");
         assert!(iss.contains(&format!("SetupMutex={SETUP_MUTEX}\n")), "a launch can tell the setup runs");
         assert!(iss.contains(&format!("'{AFTER_SETUP}'")) && iss.contains(&format!("Parameters: \"{AFTER_SETUP}\"")), "and the setup's own start says so");
         let data = iss.split("\n[InstallDelete]\n").nth(1).unwrap().split("\n[Files]\n").next().unwrap();

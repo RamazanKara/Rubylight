@@ -22,6 +22,8 @@ pub fn split_sign_in(mut args: Vec<std::ffi::OsString>) -> (Vec<std::ffi::OsStri
 
 /// Where this system keeps the sign-in start.
 pub trait Writer: Send + Sync {
+    /// Whether this copy starts at sign-in. An entry of this copy that no longer says what it should
+    /// (another version moved it, or wrote other arguments) is brought up to date on the way.
     fn is_on(&self) -> Result<bool, String>;
     fn set(&self, on: bool) -> Result<(), String>;
 }
@@ -54,6 +56,82 @@ pub fn system(_config_dir: &Path) -> Option<Arc<dyn Writer>> {
 #[cfg_attr(not(windows), allow(dead_code))]
 fn run_command(exe: &Path) -> String {
     format!("\"{}\" {SIGN_IN_ARG}", exe.display())
+}
+
+/// What the saved entry is to this copy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Saved {
+    Off,
+    Current,
+    /// This program's with other words, or of a program that is gone: it is written again.
+    Stale,
+    /// Another copy's, which still exists: not this copy's to take without the player asking.
+    Others,
+}
+
+fn compare(saved: Option<&str>, command: &str, program_of: fn(&str) -> Option<String>, exists: impl Fn(&str) -> bool) -> Saved {
+    let Some(saved) = saved else { return Saved::Off };
+    if saved == command {
+        return Saved::Current;
+    }
+    let same = |a: &str, b: &str| if cfg!(windows) { a.eq_ignore_ascii_case(b) } else { a == b };
+    match (program_of(saved), program_of(command)) {
+        (Some(theirs), Some(ours)) if same(&theirs, &ours) || !exists(&theirs) => Saved::Stale,
+        _ => Saved::Others,
+    }
+}
+
+/// `is_on`'s answer. A failed refresh leaves the entry on as it was, which the log says.
+fn settle(saved: Saved, refresh: impl FnOnce() -> Result<(), String>) -> bool {
+    match saved {
+        Saved::Off | Saved::Others => false,
+        Saved::Current => true,
+        Saved::Stale => {
+            if let Err(e) = refresh() {
+                eprintln!("nightjar: refreshing the sign-in start failed: {e}");
+            }
+            true
+        }
+    }
+}
+
+/// The program of a Run value: quoted, or up to the first space.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn run_program(command: &str) -> Option<String> {
+    let command = command.trim();
+    let program = match command.strip_prefix('"') {
+        Some(rest) => rest.split('"').next(),
+        None => command.split_whitespace().next(),
+    };
+    program.filter(|p| !p.is_empty()).map(str::to_owned)
+}
+
+/// The program of an `Exec` line, undoing [`exec_field`].
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn exec_program(exec: &str) -> Option<String> {
+    let exec = exec.trim();
+    let Some(quoted) = exec.strip_prefix('"') else {
+        return exec.split_whitespace().next().map(|p| p.replace("%%", "%"));
+    };
+    let mut program = String::new();
+    let mut chars = quoted.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => return Some(program).filter(|p| !p.is_empty()),
+            '\\' => {
+                // Both unescaping rounds of exec_field.
+                let next = chars.next()?;
+                let next = if next == '\\' { chars.next()? } else { next };
+                program.push(next);
+            }
+            '%' => {
+                chars.next();
+                program.push('%');
+            }
+            c => program.push(c),
+        }
+    }
+    None
 }
 
 /// The writer for a Linux session: the portal in a Flatpak, else a file in the autostart folder.
@@ -109,7 +187,14 @@ struct XdgFile {
 
 impl Writer for XdgFile {
     fn is_on(&self) -> Result<bool, String> {
-        self.path.try_exists().map_err(|e| format!("{}: {e}", self.path.display()))
+        let text = match std::fs::read_to_string(&self.path) {
+            Ok(text) => Some(text),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(format!("{}: {e}", self.path.display())),
+        };
+        let saved = text.as_ref().map(|text| text.lines().find_map(|l| l.strip_prefix("Exec=")).unwrap_or(""));
+        let state = compare(saved, &self.exec, exec_program, |p| Path::new(p).exists());
+        Ok(settle(state, || self.set(true)))
     }
 
     fn set(&self, on: bool) -> Result<(), String> {
@@ -137,6 +222,7 @@ struct Portal {
 }
 
 impl Writer for Portal {
+    /// Its command names no path, so it cannot go stale, and asking again could put a question up.
     fn is_on(&self) -> Result<bool, String> {
         self.marker.try_exists().map_err(|e| format!("{}: {e}", self.marker.display()))
     }
@@ -161,6 +247,8 @@ mod run_key {
     use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, WIN32_ERROR};
     use windows::Win32::System::Registry::{RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ};
 
+    use super::{compare, run_program, settle};
+
     const RUN: PCWSTR = w!(r"Software\Microsoft\Windows\CurrentVersion\Run");
     const VALUE: PCWSTR = w!("Nightjar");
 
@@ -176,15 +264,26 @@ mod run_key {
         }
     }
 
+    fn saved() -> Result<Option<String>, String> {
+        let mut size = 0u32;
+        // SAFETY: constant strings, and the out size lives across the call.
+        let answer = unsafe { RegGetValueW(HKEY_CURRENT_USER, RUN, VALUE, RRF_RT_REG_SZ, None, None, Some(&mut size)) };
+        if answer == ERROR_FILE_NOT_FOUND {
+            return Ok(None);
+        }
+        checked(answer)?;
+        let mut text = vec![0u16; (size as usize).div_ceil(2)];
+        // SAFETY: as above, and the buffer holds `size` bytes.
+        checked(unsafe { RegGetValueW(HKEY_CURRENT_USER, RUN, VALUE, RRF_RT_REG_SZ, None, Some(text.as_mut_ptr().cast()), Some(&mut size)) })?;
+        let end = text.iter().position(|&c| c == 0).unwrap_or(text.len());
+        Ok(Some(String::from_utf16_lossy(&text[..end])))
+    }
+
     impl super::Writer for RunKey {
         fn is_on(&self) -> Result<bool, String> {
-            let mut size = 0u32;
-            // SAFETY: constant strings, and the out size lives across the call.
-            let answer = unsafe { RegGetValueW(HKEY_CURRENT_USER, RUN, VALUE, RRF_RT_REG_SZ, None, None, Some(&mut size)) };
-            if answer == ERROR_FILE_NOT_FOUND {
-                return Ok(false);
-            }
-            checked(answer).map(|()| true)
+            let saved = saved()?;
+            let state = compare(saved.as_deref(), &self.command, run_program, |p| std::path::Path::new(p).exists());
+            Ok(settle(state, || self.set(true)))
         }
 
         fn set(&self, on: bool) -> Result<(), String> {
@@ -258,6 +357,69 @@ mod tests {
         assert_eq!(split_sign_in(args(&[])), (args(&[]), false));
         assert_eq!(split_sign_in(args(&["--autostart"])), (args(&[]), true));
         assert_eq!(split_sign_in(args(&["--host", "x"])), (args(&["--host", "x"]), false));
+    }
+
+    #[test]
+    fn an_entry_is_compared_with_the_command_of_this_copy() {
+        let ours = r#""C:\N\nightjar.exe" --autostart"#;
+        let exists = |p: &str| p != r"C:\Gone\nightjar.exe";
+        let of = |saved| compare(saved, ours, run_program, exists);
+        assert_eq!(of(None), Saved::Off);
+        assert_eq!(of(Some(ours)), Saved::Current);
+        assert_eq!(of(Some(r#""C:\N\nightjar.exe""#)), Saved::Stale, "an older version's words");
+        assert_eq!(of(Some(r#""C:\Gone\nightjar.exe" --autostart"#)), Saved::Stale, "moved away");
+        assert_eq!(of(Some(r#""C:\Other\nightjar.exe" --autostart"#)), Saved::Others);
+        assert_eq!(of(Some("")), Saved::Others, "says nothing");
+    }
+
+    #[test]
+    fn only_a_stale_entry_is_written_again_and_a_failure_leaves_it_on() {
+        assert!(!settle(Saved::Off, || panic!("not written")));
+        assert!(!settle(Saved::Others, || panic!("not written")));
+        assert!(settle(Saved::Current, || panic!("not written")));
+        let mut wrote = false;
+        assert!(settle(Saved::Stale, || {
+            wrote = true;
+            Ok(())
+        }));
+        assert!(wrote);
+        assert!(settle(Saved::Stale, || Err("no".into())));
+    }
+
+    #[test]
+    fn a_run_value_and_an_exec_line_name_their_program() {
+        assert_eq!(run_program(r#""C:\Program Files\N\nightjar.exe" --autostart"#).as_deref(), Some(r"C:\Program Files\N\nightjar.exe"));
+        assert_eq!(run_program(r"C:\N\nightjar.exe --autostart").as_deref(), Some(r"C:\N\nightjar.exe"));
+        assert_eq!(run_program(""), None);
+        for path in ["/opt/my apps/nightjar", "/a$b/100%/c", "/a\"b`c\\d"] {
+            assert_eq!(exec_program(&format!("{} --autostart", exec_field(Path::new(path)))).as_deref(), Some(path));
+        }
+        assert_eq!(exec_program("/usr/bin/nightjar --autostart").as_deref(), Some("/usr/bin/nightjar"));
+        assert_eq!(exec_program("\"never closed"), None);
+    }
+
+    fn xdg_writer(config: &Path, exe: &str) -> Arc<dyn Writer> {
+        linux_writer(false, Some(config.to_owned()), None, Some(exe.into()), config, |_| panic!("no portal")).unwrap()
+    }
+
+    #[test]
+    fn a_stale_xdg_entry_is_brought_up_to_date_and_another_copys_is_left() {
+        let config = folder("stale");
+        let file = config.join("autostart").join("io.github.ramazankara.nightjar.desktop");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        // Absolute on every test machine, so `exists` answers the same.
+        let other = std::env::current_exe().unwrap();
+        let other = other.to_string_lossy().replace('\\', "/");
+        std::fs::write(&file, desktop_entry(&exec_field(Path::new(&other)))).unwrap();
+        let writer = xdg_writer(&config, "/old/copy/of/nightjar");
+        assert!(!writer.is_on().unwrap(), "another copy's");
+        assert!(std::fs::read_to_string(&file).unwrap().contains(&other), "and left alone");
+        std::fs::write(&file, desktop_entry("\"/old/copy/of/nightjar\"")).unwrap();
+        assert!(writer.is_on().unwrap());
+        assert!(std::fs::read_to_string(&file).unwrap().contains("Exec=\"/old/copy/of/nightjar\" --autostart\n"), "refreshed");
+        writer.set(true).unwrap();
+        assert!(writer.is_on().unwrap());
+        let _ = std::fs::remove_dir_all(&config);
     }
 
     #[test]

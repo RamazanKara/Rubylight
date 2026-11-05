@@ -390,10 +390,23 @@ begin
       Log('Could not start Nightjar again: ' + SysErrorMessage(ResultCode));
 end;
 
+{ The sign-in start of this install: nothing is left to run. Another copy's entry is that copy's. }
+procedure RemoveSignInStart();
+var
+  Command: String;
+begin
+  if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Nightjar', Command)
+    and (Pos(Lowercase(ExpandConstant('{app}\nightjar.exe')), Lowercase(Command)) > 0)
+    and not RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Nightjar') then
+    Log('Could not remove the sign-in start.');
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Remove: Boolean;
 begin
+  if CurUninstallStep = usPostUninstall then
+    RemoveSignInStart();
   if (CurUninstallStep <> usPostUninstall) or not DirExists(ConfigDir()) then
     Exit;
   if UninstallSilent() then

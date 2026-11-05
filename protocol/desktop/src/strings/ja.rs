@@ -763,6 +763,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("The download failed: {}", "ダウンロードに失敗しました: {}"),
     ("The update could not start: {}", "更新を開始できませんでした: {}"),
     ("The new version is installed, but could not start: {}", "新しいバージョンはインストールされましたが、起動できませんでした: {}"),
+    ("Another Nightjar window is streaming, so nothing was installed.", "別の Nightjar ウィンドウがストリーミング中のため、何もインストールしませんでした。"),
     ("Check for updates", "アップデートを確認"),
     ("Once per launch, asks GitHub whether a newer Nightjar release is out and says so here. Nothing is downloaded until you choose Update now.", "起動ごとに1回、新しいNightjarリリースが出ているかGitHubに問い合わせ、ここに表示します。「今すぐ更新」を選ぶまで何もダウンロードしません。"),
     ("Controller mouse enabled. {}/{} click; D-pad scrolls.", "コントローラーマウスを有効にしました。{0}/{1}でクリック、十字キーでスクロール。"),

@@ -763,6 +763,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("The download failed: {}", "İndirme başarısız oldu: {}"),
     ("The update could not start: {}", "Güncelleme başlatılamadı: {}"),
     ("The new version is installed, but could not start: {}", "Yeni sürüm yüklendi ancak başlatılamadı: {}"),
+    ("Another Nightjar window is streaming, so nothing was installed.", "Başka bir Nightjar penceresi yayın yapıyor, bu yüzden hiçbir şey yüklenmedi."),
     ("Check for updates", "Güncellemeleri denetle"),
     ("Once per launch, asks GitHub whether a newer Nightjar release is out and says so here. Nothing is downloaded until you choose Update now.", "Her açılışta bir kez GitHub'a daha yeni bir Nightjar sürümü olup olmadığını sorar ve burada bildirir. Şimdi güncelle'yi seçene kadar hiçbir şey indirilmez."),
     ("Controller mouse enabled. {}/{} click; D-pad scrolls.", "Kumanda faresi açıldı. {0}/{1} tıklar; yön tuşu kaydırır."),

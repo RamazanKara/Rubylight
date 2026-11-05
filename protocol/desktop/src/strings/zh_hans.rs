@@ -763,6 +763,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("The download failed: {}", "下载失败：{}"),
     ("The update could not start: {}", "无法启动更新：{}"),
     ("The new version is installed, but could not start: {}", "新版本已安装，但无法启动：{}"),
+    ("Another Nightjar window is streaming, so nothing was installed.", "另一个 Nightjar 窗口正在串流，因此未安装任何内容。"),
     ("Check for updates", "检查更新"),
     ("Once per launch, asks GitHub whether a newer Nightjar release is out and says so here. Nothing is downloaded until you choose Update now.", "每次启动时向 GitHub 查询是否有更新的 Nightjar 版本，并在这里提示。在你选择立即更新之前不会下载任何内容。"),
     ("Controller mouse enabled. {}/{} click; D-pad scrolls.", "手柄鼠标已启用。{0}/{1} 单击；方向键滚动。"),

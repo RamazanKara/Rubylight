@@ -83,6 +83,8 @@ pub struct Updates {
     job: Option<Job>,
     failure: Option<Failure>,
     held: bool,
+    /// Held while `held`: tells another Nightjar's update, and the setup, about this stream.
+    stream_mark: Option<self_update::Mark>,
 }
 
 impl Updates {
@@ -120,12 +122,15 @@ impl Updates {
             }
         });
         if let Err(e) = spawned { eprintln!("nightjar: update check: no thread: {e}"); }
-        Self { pending: Some(receive), found, steps, wake: Some(wake), job: None, failure, held: false }
+        Self { pending: Some(receive), found, steps, wake: Some(wake), failure, ..Self::default() }
     }
 
     /// Whether a stream is running or starting. Called on every pass of the main loop, so a stream
     /// never shares the network with a download or loses Nightjar to an installer.
     pub fn hold(&mut self, busy: bool) {
+        if busy != self.held {
+            self.stream_mark = busy.then(|| self_update::Mark::new(self_update::STREAM_MUTEX)).and_then(|mark| mark.map_err(|e| eprintln!("nightjar: update: {e}")).ok());
+        }
         self.held = busy;
         if busy && self.job.is_some() {
             eprintln!("nightjar: update: a stream is starting, the download stops");
@@ -137,6 +142,11 @@ impl Updates {
     fn update_now(&mut self) {
         if self.held || self.job.is_some() { return; }
         let (Some(steps), Some(release)) = (&self.steps, &self.found) else { return };
+        if (steps.stream_elsewhere)() {
+            eprintln!("nightjar: update: refused: another Nightjar is streaming");
+            self.failure = Some(Failure::StreamElsewhere);
+            return;
+        }
         let asset = match &release.asset {
             Ok(asset) => asset.clone(),
             Err(refused) => {
@@ -205,6 +215,10 @@ impl Updates {
     fn hand_over(&self, part: &Path) -> Result<(), Failure> {
         let (Some(steps), Some(release)) = (&self.steps, &self.found) else { return Err(Failure::Cancelled) };
         let Ok(asset) = &release.asset else { return Err(Failure::NoInstaller) };
+        if (steps.stream_elsewhere)() {
+            if let Err(e) = std::fs::remove_file(part) { eprintln!("nightjar: update: leftover {}: {e}", part.display()); }
+            return Err(Failure::StreamElsewhere);
+        }
         let marker = steps.marker.as_deref();
         if let Some(marker) = marker {
             let attempt = Attempt { version: release.version.clone(), url: release.url.clone() };
@@ -275,6 +289,7 @@ fn failure_text(failure: &Failure, version: &str) -> String {
         Failure::Apply(why) => trf("The update could not start: {}", &[why]),
         Failure::Restart(why) => trf("The new version is installed, but could not start: {}", &[why]),
         Failure::NotInstalled => trf("Nightjar {} did not install.", &[&version]),
+        Failure::StreamElsewhere => tr("Another Nightjar window is streaming, so nothing was installed.").to_owned(),
         Failure::Cancelled => String::new(),
     }
 }
@@ -532,6 +547,7 @@ mod tests {
                 allow,
                 dir: self.dir.clone(),
                 marker: Some(self.marker()),
+                stream_elsewhere: || false,
                 apply: Box::new(move |part, _| {
                     ran.lock().unwrap().push(std::fs::read(part).unwrap());
                     std::fs::remove_file(part).unwrap();
@@ -780,6 +796,44 @@ mod tests {
         assert!(installer.ran().is_empty());
     }
 
+    #[test]
+    fn a_stream_in_another_process_stops_the_update() {
+        static STREAMING: AtomicBool = AtomicBool::new(true);
+        let bytes = body();
+        let served = bytes.clone();
+        let fixture = Fixture::start(move |_, _| Reply::Body(served.clone()));
+        let installer = Installer::new("elsewhere");
+        let mut steps = installer.steps(native(), local);
+        steps.stream_elsewhere = || STREAMING.load(Ordering::SeqCst);
+        let mut updates = notice(Ok(asset_at(fixture.url("/setup"), &bytes)), Some(steps));
+        updates.update_now();
+        assert_eq!(updates.failure, Some(Failure::StreamElsewhere), "it says why");
+        assert!(updates.job.is_none() && fixture.hits().is_empty(), "nothing is fetched");
+        assert!(!Failure::StreamElsewhere.is_final(), "Update now stays for after that stream");
+        // It starts during the download: the file goes and nothing runs.
+        STREAMING.store(false, Ordering::SeqCst);
+        updates.update_now();
+        let progress = updates.job.as_ref().unwrap().progress.clone();
+        wait_until("the download never ended", || Arc::strong_count(&progress) == 2);
+        STREAMING.store(true, Ordering::SeqCst);
+        assert!(!updates.step(), "Nightjar stays open");
+        assert_eq!(updates.failure, Some(Failure::StreamElsewhere));
+        assert!(installer.ran().is_empty() && !installer.marker().exists());
+        assert_eq!(installer.parts(), 0);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_stream_here_is_visible_from_other_processes() {
+        let mut updates = Updates::default();
+        updates.hold(true);
+        assert!(self_update::mutex_exists(self_update::STREAM_MUTEX));
+        updates.hold(true);
+        assert!(updates.stream_mark.is_some(), "while it runs");
+        updates.hold(false);
+        assert!(updates.stream_mark.is_none(), "and not after");
+    }
+
     /// Answers the release question and counts what it is asked.
     #[derive(Default)]
     struct Counting {
@@ -898,6 +952,7 @@ mod tests {
             allow: local,
             dir: dir.clone(),
             marker: None,
+            stream_elsewhere: || false,
             apply: Box::new(move |part, _| {
                 self_update::replace_file(part, &copy).map_err(Failure::Apply)?;
                 flag.store(true, Ordering::Relaxed);
@@ -932,7 +987,7 @@ mod tests {
 
     #[test]
     fn every_failure_has_words() {
-        for failure in [Failure::NoInstaller, Failure::NoDigest, Failure::Digest, Failure::Size, Failure::Address("x".into()), Failure::Network("x".into()), Failure::Apply("x".into()), Failure::Restart("x".into()), Failure::NotInstalled] {
+        for failure in [Failure::NoInstaller, Failure::NoDigest, Failure::Digest, Failure::Size, Failure::Address("x".into()), Failure::Network("x".into()), Failure::Apply("x".into()), Failure::Restart("x".into()), Failure::NotInstalled, Failure::StreamElsewhere] {
             assert!(!failure_text(&failure, "4.1.0").is_empty(), "{failure:?}");
         }
     }

@@ -763,6 +763,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("The download failed: {}", "다운로드 실패: {}"),
     ("The update could not start: {}", "업데이트를 시작할 수 없습니다: {}"),
     ("The new version is installed, but could not start: {}", "새 버전이 설치되었지만 시작할 수 없습니다: {}"),
+    ("Another Nightjar window is streaming, so nothing was installed.", "다른 Nightjar 창이 스트리밍 중이어서 아무것도 설치하지 않았습니다."),
     ("Check for updates", "업데이트 확인"),
     ("Once per launch, asks GitHub whether a newer Nightjar release is out and says so here. Nothing is downloaded until you choose Update now.", "실행할 때마다 한 번 GitHub에 새 Nightjar 릴리스가 있는지 묻고 여기에 알려 줍니다. 지금 업데이트를 선택하기 전에는 아무것도 다운로드하지 않습니다."),
     ("Controller mouse enabled. {}/{} click; D-pad scrolls.", "컨트롤러 마우스를 켰습니다. {0}/{1}(으)로 클릭, 방향 패드로 스크롤."),

@@ -6,8 +6,9 @@
 //! be open, as ever.
 //!
 //! The channel carries one link and a newline, answered by [`DELIVERED`]. It is local to this
-//! user: a named pipe that refuses remote clients and whose owner the sender checks on Windows,
-//! a Unix socket in the private `XDG_RUNTIME_DIR` elsewhere. What arrives is only ever a link for
+//! user: a named pipe open to this user alone, refusing remote clients and with an owner the sender
+//! checks, on Windows; a Unix socket in the private `XDG_RUNTIME_DIR` elsewhere. Every step has a
+//! time limit, so neither side can hang the other. What arrives is only ever a link for
 //! the window to ask about, and it is never written to the log.
 
 use std::io::{self, Read, Write};
@@ -165,20 +166,21 @@ mod os {
 #[cfg(windows)]
 mod os {
     use super::*;
-    use std::fs::File;
-    use std::mem::ManuallyDrop;
-    use std::os::windows::io::{FromRawHandle, RawHandle};
     use std::time::Duration;
     use windows::core::{PCWSTR, PWSTR};
-    use windows::Win32::Foundation::{CloseHandle, LocalFree, ERROR_PIPE_BUSY, ERROR_PIPE_CONNECTED, GENERIC_READ, GENERIC_WRITE, HANDLE, HLOCAL};
-    use windows::Win32::Security::Authorization::{ConvertSidToStringSidW, GetSecurityInfo, SE_KERNEL_OBJECT};
-    use windows::Win32::Security::{EqualSid, GetTokenInformation, TokenUser, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY, TOKEN_USER};
-    use windows::Win32::Storage::FileSystem::{CreateFileW, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_NONE, OPEN_EXISTING, PIPE_ACCESS_DUPLEX, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT};
+    use windows::Win32::Foundation::{CloseHandle, LocalFree, ERROR_IO_PENDING, ERROR_PIPE_BUSY, ERROR_PIPE_CONNECTED, GENERIC_READ, GENERIC_WRITE, HANDLE, HLOCAL, WAIT_OBJECT_0};
+    use windows::Win32::Security::Authorization::{ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, GetSecurityInfo, SDDL_REVISION_1, SE_KERNEL_OBJECT};
+    use windows::Win32::Security::{EqualSid, GetTokenInformation, TokenUser, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER};
+    use windows::Win32::Storage::FileSystem::{CreateFileW, ReadFile, WriteFile, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_NONE, OPEN_EXISTING, PIPE_ACCESS_DUPLEX, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT};
+    use windows::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
     use windows::Win32::System::Pipes::{ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, WaitNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_WAIT};
-    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    use windows::Win32::System::Threading::{CreateEventW, GetCurrentProcess, OpenProcessToken, WaitForSingleObject, INFINITE};
 
     /// How long a busy pipe (the window is reading another start's link) is waited for.
-    const PATIENCE: Duration = Duration::from_millis(500);
+    const BUSY_PATIENCE: Duration = Duration::from_millis(500);
+    /// How long one read or write may take: a suspended window cannot hang a new start, which
+    /// then opens its own window, and a stuck start cannot hold the window's channel.
+    const PATIENCE: Duration = Duration::from_secs(2);
 
     fn wide(text: &str) -> Vec<u16> {
         text.encode_utf16().chain([0]).collect()
@@ -243,17 +245,103 @@ mod os {
         Some(format!(r"\\.\pipe\nightjar-link-{}", User::current()?.text()?))
     }
 
-    fn open(name: &[u16]) -> Option<HANDLE> {
-        let flags = FILE_FLAGS_AND_ATTRIBUTES(SECURITY_SQOS_PRESENT.0 | SECURITY_IDENTIFICATION.0);
+    /// A handle this code closes.
+    struct Owned(HANDLE);
+    // SAFETY: a kernel handle; only one thread uses it at a time.
+    unsafe impl Send for Owned {}
+
+    impl Drop for Owned {
+        fn drop(&mut self) {
+            // SAFETY: the handle is this value's own.
+            let _ = unsafe { CloseHandle(self.0) };
+        }
+    }
+
+    /// One end of the pipe, opened for overlapped I/O so that every step can give up.
+    struct Conn {
+        pipe: Owned,
+        done: Owned,
+    }
+
+    impl Conn {
+        fn new(pipe: Owned) -> io::Result<Self> {
+            // SAFETY: an unnamed manual-reset event, as overlapped I/O asks.
+            let done = unsafe { CreateEventW(None, true, false, PCWSTR::null()) }?;
+            Ok(Self { pipe, done: Owned(done) })
+        }
+
+        fn overlapped(&self) -> OVERLAPPED {
+            OVERLAPPED { hEvent: self.done.0, ..Default::default() }
+        }
+
+        /// Waits for what `started` began, up to `patience` milliseconds, and says how many bytes
+        /// it moved. It returns only once the system is done with `overlapped` and the buffer.
+        fn finish(&self, started: windows::core::Result<()>, overlapped: &OVERLAPPED, patience: u32) -> io::Result<u32> {
+            let mut moved = 0;
+            if let Err(e) = started {
+                if e.code() != ERROR_IO_PENDING.to_hresult() {
+                    return Err(e.into());
+                }
+                // SAFETY: both handles are this value's own, and `overlapped` stays alive and
+                // unmoved until the wait below has seen the end of the operation.
+                unsafe {
+                    if WaitForSingleObject(self.done.0, patience) != WAIT_OBJECT_0 {
+                        let _ = CancelIoEx(self.pipe.0, Some(overlapped));
+                        let _ = GetOverlappedResult(self.pipe.0, overlapped, &mut moved, true);
+                        return Err(io::ErrorKind::TimedOut.into());
+                    }
+                }
+            }
+            // SAFETY: as above; the operation has ended.
+            unsafe { GetOverlappedResult(self.pipe.0, overlapped, &mut moved, false) }?;
+            Ok(moved)
+        }
+
+        /// Waits for a sender, for as long as it takes.
+        fn accept(&self) -> io::Result<()> {
+            let mut overlapped = self.overlapped();
+            // SAFETY: a valid pipe; `finish` keeps `overlapped` alive until it is done.
+            let started = unsafe { ConnectNamedPipe(self.pipe.0, Some(&raw mut overlapped)) };
+            if matches!(&started, Err(e) if e.code() == ERROR_PIPE_CONNECTED.to_hresult()) {
+                return Ok(());
+            }
+            self.finish(started, &overlapped, INFINITE).map(|_| ())
+        }
+    }
+
+    impl Read for Conn {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            let mut overlapped = self.overlapped();
+            // SAFETY: a valid pipe; `finish` keeps the buffer and `overlapped` in use until it is done.
+            let started = unsafe { ReadFile(self.pipe.0, Some(&mut *buffer), None, Some(&raw mut overlapped)) };
+            self.finish(started, &overlapped, PATIENCE.as_millis() as u32).map(|moved| moved as usize)
+        }
+    }
+
+    impl Write for Conn {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            let mut overlapped = self.overlapped();
+            // SAFETY: as in `read`.
+            let started = unsafe { WriteFile(self.pipe.0, Some(buffer), None, Some(&raw mut overlapped)) };
+            self.finish(started, &overlapped, PATIENCE.as_millis() as u32).map(|moved| moved as usize)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn open(name: &[u16]) -> Option<Owned> {
+        let flags = FILE_FLAGS_AND_ATTRIBUTES(FILE_FLAG_OVERLAPPED.0 | SECURITY_SQOS_PRESENT.0 | SECURITY_IDENTIFICATION.0);
         for _ in 0..2 {
             // SAFETY: a NUL-terminated name; the handle goes to the caller. The flags keep the
             // pipe's creator from acting as this user.
             let opened = unsafe { CreateFileW(PCWSTR(name.as_ptr()), (GENERIC_READ | GENERIC_WRITE).0, FILE_SHARE_NONE, None, OPEN_EXISTING, flags, None) };
             match opened {
-                Ok(pipe) => return Some(pipe),
+                Ok(pipe) => return Some(Owned(pipe)),
                 // SAFETY: a NUL-terminated name.
                 Err(e) if e.code() == ERROR_PIPE_BUSY.to_hresult() => {
-                    let _ = unsafe { WaitNamedPipeW(PCWSTR(name.as_ptr()), PATIENCE.as_millis() as u32) };
+                    let _ = unsafe { WaitNamedPipeW(PCWSTR(name.as_ptr()), BUSY_PATIENCE.as_millis() as u32) };
                 }
                 Err(_) => return None,
             }
@@ -263,59 +351,125 @@ mod os {
 
     pub fn send_to(name: &str, link: &str) -> bool {
         let Some(pipe) = open(&wide(name)) else { return false };
-        // SAFETY: the handle is this function's own; the File closes it.
-        let mut conn = unsafe { File::from_raw_handle(pipe.0 as RawHandle) };
-        User::current().is_some_and(|user| user.owns(pipe)) && hand_over(&mut conn, link)
+        User::current().is_some_and(|user| user.owns(pipe.0)) && Conn::new(pipe).is_ok_and(|mut conn| hand_over(&mut conn, link))
     }
 
-    struct Pipe(HANDLE);
-    // SAFETY: only the channel's thread uses the handle after it is made.
-    unsafe impl Send for Pipe {}
-
-    pub fn listen_at(name: &str, inbox: Arc<Inbox>, wake: Waker) -> Result<(), String> {
+    /// The pipe, open to this user alone: under the default rules any local account can open it
+    /// for reading, and with one instance that alone would keep the links from this window. The
+    /// user owns it even in an elevated window, whose objects the Administrators group owns
+    /// otherwise, so a sender that is not elevated still recognizes it.
+    fn create(name: &str) -> Result<Owned, String> {
         let name = wide(name);
+        let sid = User::current().and_then(|user| user.text()).ok_or("this user has no SID")?;
+        let rules = wide(&format!("O:{sid}D:P(A;;GA;;;{sid})"));
+        let mut descriptor = PSECURITY_DESCRIPTOR::default();
         let buffer = MAX_LEN as u32 + 1;
-        // SAFETY: a NUL-terminated name and plain flags. One instance, reused for every link, so
-        // the name is never free for someone else while this window is open; the first-instance
-        // flag makes this fail when someone has it now.
+        // SAFETY: NUL-terminated strings and plain flags; the descriptor is freed after the call
+        // that reads it. One instance, reused for every link, so the name is never free for
+        // someone else while this window is open; the first-instance flag makes this fail when
+        // someone has it now.
         let pipe = unsafe {
-            CreateNamedPipeW(
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(PCWSTR(rules.as_ptr()), SDDL_REVISION_1, &mut descriptor, None).map_err(|e| e.to_string())?;
+            let attributes = SECURITY_ATTRIBUTES {
+                nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: descriptor.0,
+                bInheritHandle: false.into(),
+            };
+            let pipe = CreateNamedPipeW(
                 PCWSTR(name.as_ptr()),
-                PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE,
+                PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE | FILE_FLAG_OVERLAPPED,
                 PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
                 1,
                 buffer,
                 buffer,
                 0,
-                None,
-            )
-        };
-        if pipe.is_invalid() {
-            return Err(io::Error::last_os_error().to_string());
-        }
-        let pipe = Pipe(pipe);
-        thread(move || {
-            let pipe = pipe;
-            let handle = pipe.0;
-            // SAFETY: the handle lives as long as the process; ManuallyDrop keeps the File from
-            // closing it between links.
-            let mut conn = ManuallyDrop::new(unsafe { File::from_raw_handle(handle.0 as RawHandle) });
-            loop {
-                // SAFETY: a valid pipe handle, used without overlapped I/O.
-                match unsafe { ConnectNamedPipe(handle, None) } {
-                    Ok(()) => {}
-                    Err(e) if e.code() == ERROR_PIPE_CONNECTED.to_hresult() => {}
-                    Err(e) => {
-                        eprintln!("nightjar: pairing links cannot reach this window: {e}");
-                        std::thread::sleep(Duration::from_secs(1));
-                        continue;
-                    }
-                }
-                serve(&mut *conn, &inbox, &wake);
-                // SAFETY: as above.
-                let _ = unsafe { DisconnectNamedPipe(handle) };
+                Some(&attributes),
+            );
+            let made = if pipe.is_invalid() { Err(io::Error::last_os_error().to_string()) } else { Ok(Owned(pipe)) };
+            let _ = LocalFree(Some(HLOCAL(descriptor.0)));
+            made
+        }?;
+        Ok(pipe)
+    }
+
+    pub fn listen_at(name: &str, inbox: Arc<Inbox>, wake: Waker) -> Result<(), String> {
+        run(create(name)?, inbox, wake)
+    }
+
+    fn run(pipe: Owned, inbox: Arc<Inbox>, wake: Waker) -> Result<(), String> {
+        let mut conn = Conn::new(pipe).map_err(|e| e.to_string())?;
+        thread(move || loop {
+            if let Err(e) = conn.accept() {
+                eprintln!("nightjar: pairing links cannot reach this window: {e}");
+                std::thread::sleep(Duration::from_secs(1));
+                continue;
             }
+            serve(&mut conn, &inbox, &wake);
+            // SAFETY: the pipe is this loop's own.
+            let _ = unsafe { DisconnectNamedPipe(conn.pipe.0) };
         })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::time::Instant;
+        use windows::Win32::Security::Authorization::ConvertSecurityDescriptorToStringSecurityDescriptorW;
+        use windows::Win32::Security::DACL_SECURITY_INFORMATION;
+
+        fn address(tag: &str) -> String {
+            format!(r"\\.\pipe\nightjar-link-os-test-{}-{tag}", std::process::id())
+        }
+
+        /// Who may do what with the pipe, as the system holds it.
+        fn rules_of(pipe: HANDLE) -> String {
+            let mut descriptor = PSECURITY_DESCRIPTOR::default();
+            let wanted = OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
+            let mut text = PWSTR::null();
+            // SAFETY: a valid pipe; the strings are freed once copied.
+            unsafe {
+                assert!(GetSecurityInfo(pipe, SE_KERNEL_OBJECT, wanted, None, None, None, None, Some(&mut descriptor)).is_ok());
+                ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor, SDDL_REVISION_1, wanted, &mut text, None).unwrap();
+                let rules = text.to_string().unwrap();
+                let _ = LocalFree(Some(HLOCAL(text.0.cast())));
+                let _ = LocalFree(Some(HLOCAL(descriptor.0)));
+                rules
+            }
+        }
+
+        #[test]
+        fn the_pipe_is_this_users_alone() {
+            let name = address("rules");
+            let pipe = create(&name).unwrap();
+            let sid = User::current().unwrap().text().unwrap();
+            assert_eq!(rules_of(pipe.0), format!("O:{sid}D:P(A;;FA;;;{sid})"));
+        }
+
+        #[test]
+        fn a_window_that_does_not_answer_cannot_hang_a_start() {
+            let name = address("silent");
+            // Made, and then never served: what a suspended window looks like from outside.
+            let _pipe = create(&name).unwrap();
+            let began = Instant::now();
+            assert!(!send_to(&name, "rubylight://pair?v=1"), "this start opens its own window");
+            assert!(began.elapsed() < PATIENCE * 3, "{:?}", began.elapsed());
+        }
+
+        #[test]
+        fn a_start_that_says_nothing_cannot_hold_the_channel() {
+            let name = address("mute");
+            let inbox = Arc::new(Inbox::default());
+            let wake: Waker = Arc::new(|| {});
+            listen_at(&name, inbox.clone(), wake).unwrap();
+            let _mute = open(&wide(&name)).unwrap();
+            let began = Instant::now();
+            let mut sent = false;
+            while !sent && began.elapsed() < PATIENCE * 3 {
+                sent = send_to(&name, "rubylight://pair?v=1");
+            }
+            assert!(sent, "the next start gets through once the silent one is dropped");
+            assert_eq!(inbox.take().as_deref(), Some("rubylight://pair?v=1"));
+        }
     }
 }
 

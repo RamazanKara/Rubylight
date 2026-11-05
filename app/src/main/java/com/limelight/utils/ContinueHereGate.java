@@ -79,7 +79,9 @@ public final class ContinueHereGate {
      */
     @VisibleForTesting
     static boolean plainStart(NvApp app, boolean smallStreamInputOnly, String source) {
-        return !smallStreamInputOnly && app.getControl() == NvApp.Control.NONE && app.getRole() == NvApp.Role.STREAM
+        NvApp.Control control = app.getControl();
+        return !smallStreamInputOnly && (control == NvApp.Control.NONE || reachesTheRunningGame(control))
+                && app.getRole() == NvApp.Role.STREAM
                 && !LaunchSource.COOP_JOIN.equals(source) && !LaunchSource.RECOVERY.equals(source)
                 && !LaunchSource.OPEN_PLAY.equals(source);
     }
@@ -88,7 +90,12 @@ public final class ContinueHereGate {
     @VisibleForTesting
     static boolean asks(boolean offered, boolean plainStart, StreamMove move, NvApp app) {
         return move.playingOn != null && ContinueHerePolicy.asksOnSelect(offered, plainStart,
-                app.matchesRunningApp(move.playingAppId, move.playingAppUuid));
+                reachesTheRunningGame(app.getControl()) || app.matchesRunningApp(move.playingAppId, move.playingAppUuid));
+    }
+
+    /** The tiles a device beside the game gets for it: the game's own name first, then Resume. Both mean whatever runs. */
+    private static boolean reachesTheRunningGame(NvApp.Control control) {
+        return control == NvApp.Control.RUNNING_GAME || control == NvApp.Control.RESUME;
     }
 
     /**
@@ -121,7 +128,8 @@ public final class ContinueHereGate {
         return true;
     }
 
-    private static AlertDialog prompt(Activity parent, ComputerDetails computer, NativeApiClient client, StreamMove move, Consumer<Context> start) {
+    @VisibleForTesting
+    static AlertDialog prompt(Activity parent, ComputerDetails computer, NativeApiClient client, StreamMove move, Consumer<Context> start) {
         AlertDialog dialog = new NavigationDialogBuilder(parent)
                 .setMessage(parent.getString(R.string.continue_here_playing_on, move.playingTitle, move.playingOn))
                 .setPositiveButton(R.string.continue_here_action, (shown, which) -> PinLockActivity.runAfterPin(
@@ -129,7 +137,11 @@ public final class ContinueHereGate {
                 .setNeutralButton(R.string.continue_here_stream_too, (shown, which) -> start.accept(parent))
                 .setNegativeButton(android.R.string.cancel, null)
                 .create();
-        dialog.setOnShowListener(shown -> dialog.getButton(DialogInterface.BUTTON_POSITIVE).requestFocus());
+        // A tile reached by touch leaves the dialog in touch mode, where a plain request fails and a pad's A presses nothing.
+        dialog.setOnShowListener(shown -> {
+            android.view.View action = dialog.getButton(DialogInterface.BUTTON_POSITIVE);
+            if (!action.requestFocus()) action.requestFocusFromTouch();
+        });
         return dialog;
     }
 

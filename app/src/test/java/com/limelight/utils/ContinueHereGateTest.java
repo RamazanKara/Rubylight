@@ -24,6 +24,20 @@ public class ContinueHereGateTest {
         assertTrue(ContinueHereGate.asks(true, true, StreamMoveFixtures.playing("Phone", 7), game(7)));
     }
 
+    // The host lists the game under its own name first for a device beside it, with another id and UUID.
+    @Test
+    public void theTilesThatReachTheRunningGameAskToo() {
+        for (String uuid : new String[]{"9a1c5a25-58fe-40e0-b9aa-7d3f00000007", "9a1c5a25-58fe-40e0-b9aa-7d3f00000001"}) {
+            NvApp tile = game(1941625188);
+            tile.setAppUuid(uuid);
+            assertTrue(uuid, ContinueHereGate.plainStart(tile, false, LaunchSource.LIBRARY_TAP));
+            assertTrue(uuid, ContinueHereGate.asks(true, true, StreamMoveFixtures.playing("Phone", 7), tile));
+            assertFalse(uuid, ContinueHereGate.asks(true, true, StreamMoveFixtures.playing(null, 7), tile));
+        }
+        NvApp terminate = game(2147483504);
+        assertFalse(ContinueHereGate.plainStart(terminate, false, LaunchSource.LIBRARY_TAP));
+    }
+
     @Test
     public void theReadGivesUpAtItsDeadlineOrOnAFailureAndTheStartGoesOn() {
         StreamMove move = StreamMoveFixtures.playing("Phone", 7);

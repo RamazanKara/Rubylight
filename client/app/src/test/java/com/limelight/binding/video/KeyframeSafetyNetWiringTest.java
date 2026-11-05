@@ -85,7 +85,7 @@ public class KeyframeSafetyNetWiringTest {
         ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
         QueueingCodec.queued = 0;
         QueueingCodec.queuedAtNs.clear();
-        activity =Robolectric.buildActivity(Activity.class).create();
+        activity = Robolectric.buildActivity(Activity.class).create();
         texture = new SurfaceTexture(0);
         surface = new Surface(texture);
         frame = 0;
@@ -288,13 +288,28 @@ public class KeyframeSafetyNetWiringTest {
     }
 
     @Test
-    public void aStoppingStreamHoldsNothing() {
+    public void aStopHoldsNothing() {
         configure(MODEL, MTK, true, false);
         ReflectionHelpers.setField(renderer, "streamFrameRateMilliHz", 60_000);
         submit(MoonBridge.FRAME_TYPE_IDR);
+        for (int i = 0; i < 3; i++) submit(MoonBridge.FRAME_TYPE_PFRAME);
         int held = counts().heldFrames;
+        // Past submitDecodeUnit's own check for a stop, as another thread's stop can be.
         renderer.prepareForStop();
-        for (int i = 0; i < 5; i++) submit(MoonBridge.FRAME_TYPE_PFRAME);
+        ReflectionHelpers.callInstanceMethod(renderer, "holdForInputSpacing");
+        assertEquals(held, counts().heldFrames);
+    }
+
+    @Test
+    public void aCodecRecoveryHoldsNothing() {
+        configure(MODEL, MTK, true, false);
+        ReflectionHelpers.setField(renderer, "streamFrameRateMilliHz", 60_000);
+        submit(MoonBridge.FRAME_TYPE_IDR);
+        for (int i = 0; i < 3; i++) submit(MoonBridge.FRAME_TYPE_PFRAME);
+        int held = counts().heldFrames;
+        ReflectionHelpers.<java.util.concurrent.atomic.AtomicInteger>getField(renderer, "codecRecoveryType")
+                .set(ReflectionHelpers.<Integer>getStaticField(MediaCodecDecoderRenderer.class, "CR_RECOVERY_TYPE_FLUSH"));
+        ReflectionHelpers.callInstanceMethod(renderer, "holdForInputSpacing");
         assertEquals(held, counts().heldFrames);
     }
 
@@ -358,7 +373,7 @@ public class KeyframeSafetyNetWiringTest {
     public void theModeAndItsRepairsAreNamedInTheReport() {
         configure(MODEL, MTK, true, false);
         String log = com.limelight.LimeLog.getRedactedLog();
-        assertTrue(log, log.contains("Decoder " + MTK + " in Android low latency"));
+        assertTrue(log, log.contains("Decoder " + MTK + " in Android low latency: keyframes on a decode latency climb"));
     }
 
     @Test

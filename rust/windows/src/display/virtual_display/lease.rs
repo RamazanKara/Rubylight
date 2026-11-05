@@ -18,15 +18,27 @@ pub(in crate::display) fn display_lease(
     fps: u32,
     options: &VirtualOptions,
 ) -> Result<(DisplayLease, Option<u32>)> {
-    let mut displays = DISPLAYS.lock().unwrap();
-    if options.joins
-        && let Some((display, _)) = joined_lease(&displays, id)
-    {
+    lease_or_join(
+        &mut DISPLAYS.lock().unwrap(),
+        id,
+        options.joins,
+        (width, height, fps),
+        || VirtualDisplay::create_options(id, width, height, fps, options.clone()),
+    )
+}
+/// A stream's lease: one that `joins` takes the live display as it is, any other
+/// asks for its mode. A join with no live display left makes its own.
+pub(super) fn lease_or_join<D: SharedDisplay>(
+    displays: &mut Leases<D>,
+    id: &str,
+    joins: bool,
+    requested: Timing,
+    create: impl FnOnce() -> Result<D>,
+) -> Result<(std::sync::Arc<std::sync::Mutex<D>>, Option<u32>)> {
+    if joins && let Some((display, _)) = joined_lease(displays, id) {
         return Ok((display, None));
     }
-    lease(&mut displays, id, (width, height, fps), || {
-        VirtualDisplay::create_options(id, width, height, fps, options.clone())
-    })
+    lease(displays, id, requested, create)
 }
 /// The mode the live display `id` runs at, for a stream that joins it; None
 /// when no stream holds it any more and the stream has to make its own.

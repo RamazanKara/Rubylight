@@ -144,14 +144,17 @@ fn a_stream_beside_the_game_takes_its_display_as_it_is_at_any_size_or_refresh() 
     let owner = (1920, 1080, 60_000);
     let mut displays = super::Leases::new();
     let first = stream(&mut displays, owner, Some(Fake::new(owner))).unwrap();
+    let asked = (1280, 720, 120_000);
+    let no_display = || -> anyhow::Result<Fake> { panic!("a display was created") };
     // Asked for as a second stream, this size is refused and this refresh raises.
-    assert!(lease(&mut displays, (1280, 720, 120_000), None).is_err());
-    let (joined, mode) = super::joined_lease(&displays, "shared").unwrap();
-    assert_eq!(mode, owner);
+    assert!(super::lease_or_join(&mut displays, "shared", false, asked, no_display).is_err());
+    assert_eq!(super::joined_lease(&displays, "shared").unwrap().1, owner);
+    let (joined, needed) =
+        super::lease_or_join(&mut displays, "shared", true, asked, no_display).unwrap();
     assert!(Arc::ptr_eq(&first, &joined));
     first.lock().unwrap().log.borrow_mut().clear();
-    // As a guard does with what `display_lease` returns for a join.
-    super::joined_monitor(&mut *joined.lock().unwrap(), None).unwrap();
+    // As a guard does with what a join's lease returns.
+    super::joined_monitor(&mut *joined.lock().unwrap(), needed).unwrap();
     let display = first.lock().unwrap();
     assert_eq!(display.modes(), (owner, owner));
     assert_eq!(*display.log.borrow(), ["on"]);
@@ -159,6 +162,11 @@ fn a_stream_beside_the_game_takes_its_display_as_it_is_at_any_size_or_refresh() 
     // Nothing to join once its last stream is gone: the stream makes its own.
     drop((first, joined));
     assert!(super::joined_lease(&displays, "shared").is_none());
+    let (own, _) = super::lease_or_join(&mut displays, "shared", true, asked, || {
+        Ok(Fake::new(asked))
+    })
+    .unwrap();
+    assert_eq!(own.lock().unwrap().modes(), (asked, asked));
 }
 
 #[test]

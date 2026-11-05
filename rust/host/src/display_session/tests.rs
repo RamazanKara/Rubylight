@@ -158,6 +158,11 @@ fn the_games_display_follows_its_owner_and_outlives_only_while_it_is_live() {
         game_display_after(Some("a"), false, false, false, Some("b")).as_deref(),
         Some("b")
     );
+    // An owner that joined streams the display the game is on, and moves nothing.
+    assert_eq!(
+        game_display_after(Some("a"), true, true, true, Some("b")).as_deref(),
+        Some("a")
+    );
 }
 
 #[test]
@@ -252,10 +257,11 @@ fn a_display_that_left_lays_out_again_with_what_the_watch_keeps_on() {
     assert!(!watch.departure_due(now));
     now += LayoutWatch::DEPARTURE_SETTLE;
     assert!(watch.departure_due(now));
-    // A failed attempt stays due.
+    // A failed attempt stays due, and the watch waits before it looks again.
     let error = lay_out_after_departure(&mut watch, Vec::new(), now, |_| anyhow::bail!("no"));
     assert!(error.is_err());
     assert!(watch.departure_due(now));
+    assert!(!watch.due(now));
     // The kept display stays on beside the remote monitors.
     let mut asked = Vec::new();
     lay_out_after_departure(&mut watch, vec!["monitor".into()], now, |retained| {

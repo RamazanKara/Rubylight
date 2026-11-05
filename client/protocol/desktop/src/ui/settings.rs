@@ -1054,8 +1054,8 @@ impl Launcher {
                 setting_row(ui, s, &mut rows, &["input_only_any_host"], "Input-only on any PC", "Adds Input-only to a game’s menu on PCs without an Input-only mode of their own. The PC still sends video and audio at the smallest size, under 1 Mbit/s, which Nightjar doesn’t show or play.", |ui, s| {
                     toggle(ui, &mut s.input_only_any_host)
                 });
-                if cfg!(windows) {
-                    setting_row(ui, s, &mut rows, &["check_updates"], "Check for updates", "Once per launch, asks GitHub whether a newer Nightjar release is out and says so here. Nothing is downloaded or installed.", |ui, s| {
+                if crate::self_update::current().checks() {
+                    setting_row(ui, s, &mut rows, &["check_updates"], "Check for updates", "Once per launch, asks GitHub whether a newer Nightjar release is out and says so here. Nothing is downloaded until you choose Update now.", |ui, s| {
                         toggle(ui, &mut s.check_updates)
                     });
                 }

@@ -58,7 +58,9 @@ mod usb_winusb;
 // build.rs uses the parser; here only its tests do.
 #[cfg_attr(not(test), allow(dead_code))]
 mod version_name;
+mod self_update;
 mod update_check;
+mod update_net;
 // Linux only, and in tests everywhere with zero_copy, which plans its extensions.
 #[cfg(any(unix, test))]
 #[cfg_attr(not(unix), allow(dead_code))]
@@ -633,6 +635,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
     }
 
     while app.running {
+        app.updates.hold(app.streaming.is_some() || app.connecting.is_some() || app.network_launch.is_some());
         if app.streaming.is_some() {
             app.stream_frame();
         } else {
@@ -1137,8 +1140,9 @@ impl App {
         let pads = &self.pads;
         let updates = &mut self.updates;
         self.gui.set_readable(true);
+        let mut exit_for_update = false;
         let output = self.gui.run(self.window, self.renderer, |ui| {
-            updates.show(ui.ctx());
+            exit_for_update = updates.show(ui.ctx());
             commands = launcher.ui(
                 ui,
                 View {
@@ -1153,6 +1157,7 @@ impl App {
                 },
             );
         });
+        if exit_for_update { self.running = false; }
         self.gui.platform(self.window, &output.platform_output);
         if self.title_bar != *theme::NIGHT {
             self.title_bar = *theme::NIGHT;

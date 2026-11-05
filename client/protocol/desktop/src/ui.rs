@@ -352,6 +352,8 @@ pub struct Launcher {
     library_filter: console::LibraryFilter,
     /// The item to focus when the screen is drawn again after Back.
     restore_key: Option<String>,
+    /// The cards a menu's Hide can take off this frame's screen, in the order drawn, with their game.
+    cards: Vec<(String, String)>,
     /// Some PC has a library to show, so Home has something on it.
     home_ready: bool,
     /// The width the header's actions took last frame, to keep them at the right edge.
@@ -439,6 +441,7 @@ impl Launcher {
             menu_anchor: Anchor::Center,
             library_filter: console::LibraryFilter::All,
             restore_key: None,
+            cards: Vec::new(),
             home_ready: false,
             header_width: 0.0,
             tearing_supported: false,
@@ -602,6 +605,12 @@ impl Launcher {
         } else {
             Screen::Hosts
         }
+    }
+
+    /// [`Self::focus_item`] for a card of a game, noted for the focus to move on when Hide takes it.
+    fn focus_card(&mut self, response: &Response, key: &str, game: &str, first: bool) {
+        self.cards.push((key.to_owned(), game.to_owned()));
+        self.focus_item(response, key, first);
     }
 
     /// Gives an item focus: the first one on a new screen, or the one that had it before the
@@ -862,6 +871,7 @@ impl Launcher {
         );
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(content).layout(Layout::top_down(Align::Min)));
         let ui = &mut child;
+        self.cards.clear();
         // A menu by its card leaves the page as it is (it holds the input itself); a dialog dims it.
         let menu = matches!(self.dialog, Dialog::HostOptions { .. } | Dialog::GameMenu { .. } | Dialog::HomeView) && self.menu_anchor != Anchor::Center;
         let blocked = (!matches!(self.dialog, Dialog::None) && !menu) || view.connecting.is_some() || view.waking.is_some();

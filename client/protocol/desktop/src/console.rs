@@ -578,6 +578,23 @@ pub fn recently_played(sources: &[Source<'_>], recents: &[Recent], playing: &[Co
     out
 }
 
+/// Whether game `app_id` of PC `host` is not hidden on this device; one its PC does not list has
+/// nothing to hide it by.
+pub fn not_hidden(sources: &[Source<'_>], host: u64, app_id: u32, hidden: &[Favourite]) -> bool {
+    let source = sources.iter().find(|s| s.id == host);
+    let game = source.and_then(|s| s.library).and_then(|l| l.games.iter().find(|g| g.app_id == app_id));
+    source.zip(game).is_none_or(|(s, g)| !is_hidden(s, &g.install_id, app_id, hidden))
+}
+
+/// [`recently_played`] without the games this device hides, then capped: a hidden game takes no
+/// place in the row.
+pub fn recently_shown(sources: &[Source<'_>], recents: &[Recent], playing: &[Continue], hidden: &[Favourite], limit: usize) -> Vec<Recently> {
+    let mut shown = recently_played(sources, recents, playing, usize::MAX);
+    shown.retain(|r| not_hidden(sources, r.host, r.app_id, hidden));
+    shown.truncate(limit);
+    shown
+}
+
 /// When the entry was last played, in seconds since the epoch (`0` for never): the newest of what
 /// its copies' PCs say, as on Android. Only when no PC says, this device's own recent games (they
 /// keep the last few only), matched as "Recently played" matches them (install id, else app id).
@@ -1552,6 +1569,21 @@ mod tests {
         assert_eq!(line(Some(5_000), 5_000 + 86_400 + 60), with_store("Played yesterday"));
         assert_eq!(line(Some(5_000), 5_000 + 9 * 86_400), with_store("Played 9 days ago"));
         assert_eq!(line(Some(9_000), 5_000), with_store("Played today"), "a clock that went back reads as today");
+    }
+
+    #[test]
+    fn a_hidden_game_takes_no_place_among_the_recent_ones() {
+        let lib = library();
+        let mut a = source(1, "Desk", true, Some(&lib), None);
+        a.unique_id = "uid-a";
+        let sources = [a];
+        let recents = [recent("uid-a", "", 1093052211, "Dota 2"), recent("uid-a", "", 881448767, "Desktop")];
+        let keys = hide_keys(&sources, 1, 1093052211);
+        assert_eq!(keys.len(), 1);
+        let list = recently_shown(&sources, &recents, &[], &keys, 1);
+        assert_eq!(list.iter().map(|r| r.app_id).collect::<Vec<_>>(), [881448767], "the next one has its place");
+        assert_eq!(recently_shown(&sources, &recents, &[], &[], 1)[0].app_id, 1093052211);
+        assert!(recently_shown(&sources, &recents[..1], &[], &keys, 6).is_empty());
     }
 
     #[test]

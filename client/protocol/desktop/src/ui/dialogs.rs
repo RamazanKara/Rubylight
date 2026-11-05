@@ -301,9 +301,11 @@ impl Launcher {
                                     let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
                                     let games = hide_keys_of(host, game, &sources);
                                     commands.push(Command::SetHidden { games, hidden: actions[n] == GameAction::Hide });
-                                    // Its card goes from where it is: the focus goes to the screen.
-                                    self.focused_key = None;
-                                    self.focus_screen = true;
+                                    // Its card goes from where it is and the focus to its neighbour,
+                                    // as for Unstar below. Continue playing keeps a hidden game's card.
+                                    if !self.focused_key.as_deref().is_some_and(|key| key.starts_with("continue:")) {
+                                        self.focused_key = self.focused_key.as_deref().and_then(|key| card_neighbour(&self.cards, key));
+                                    }
                                 }
                                 // The Favourites card goes with its star: the focus goes back to
                                 // its neighbour instead, as Delete on the card does.

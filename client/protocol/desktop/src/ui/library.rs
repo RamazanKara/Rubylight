@@ -130,7 +130,7 @@ impl Launcher {
                                 let response = poster(ui, &app.name, art, if is_running { Badge::Running } else { Badge::None }, width);
                                 let first = if running.is_some() { is_running } else { row == 0 && i == 0 };
                                 let key = format!("app:{}", app.id);
-                                self.focus_item(&response, &key, first);
+                                self.focus_card(&response, &key, &key, first);
                                 let image = Rect::from_min_size(response.rect.min, vec2(width, (width * 4.0 / 3.0).round()));
                                 let dots = cover_dots(ui, &response, image);
                                 if response.clicked() {
@@ -185,13 +185,8 @@ impl Launcher {
         let rows = console::home_rows(&entries, group);
         let playing = console::continue_playing(&sources);
         // A running game stays under Continue playing: hiding must not lose the way back to it.
-        let listed = |host: u64, app: u32| {
-            let source = sources.iter().find(|s| s.id == host);
-            let game = source.and_then(|s| s.library).and_then(|l| l.games.iter().find(|g| g.app_id == app));
-            source.zip(game).is_none_or(|(s, g)| !console::is_hidden(s, &g.install_id, app, &self.hidden_games))
-        };
-        let recent: Vec<_> = console::recently_played(&sources, &self.recents, &playing, 6).into_iter().filter(|r| listed(r.host, r.app_id)).collect();
-        let starred: Vec<_> = console::favourite_games(&sources, &self.favourites).into_iter().filter(|s| listed(s.host, s.app_id)).collect();
+        let recent = console::recently_shown(&sources, &self.recents, &playing, &self.hidden_games, 6);
+        let starred: Vec<_> = console::favourite_games(&sources, &self.favourites).into_iter().filter(|s| console::not_hidden(&sources, s.host, s.app_id, &self.hidden_games)).collect();
         let loading = library_loading(view);
         scroll(ui, "home", |ui| {
             // A failed read stays on screen beside the last good data.
@@ -212,7 +207,7 @@ impl Launcher {
                         let line = if item.online { trf("On {}", &[&item.host_name]) } else { trf("{} is away", &[&item.host_name]) };
                         let response = continue_card(ui, &item.title, &line, false, card_w);
                         let key = favourite_key(item);
-                        self.focus_item(&response, &key, std::mem::take(&mut first));
+                        self.focus_card(&response, &key, &key, std::mem::take(&mut first));
                         if response.clicked() {
                             self.open(Screen::Game { host: item.host, app: item.app_id });
                         }
@@ -259,7 +254,7 @@ impl Launcher {
                         let line = if item.online { trf("On {}", &[&item.host_name]) } else { trf("{} is away", &[&item.host_name]) };
                         let response = continue_card(ui, &item.title, &line, false, card_w);
                         let key = format!("recent:{}:{}", item.host, item.app_id);
-                        self.focus_item(&response, &key, std::mem::take(&mut first));
+                        self.focus_card(&response, &key, &key, std::mem::take(&mut first));
                         if response.clicked() {
                             self.open(Screen::Game { host: item.host, app: item.app_id });
                         }
@@ -295,7 +290,7 @@ impl Launcher {
                     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
                     for entry in &row.games {
                         let line = console::list_line(entry, console::last_played(entry, &sources, &self.recents), now);
-                        self.library_line(ui, view, entry, &line, width.min(LIST_MAX_W), std::mem::take(&mut first), commands);
+                        self.library_line(ui, view, &row.key(), entry, &line, width.min(LIST_MAX_W), std::mem::take(&mut first), commands);
                         ui.add_space(space::XS);
                     }
                     continue;
@@ -314,7 +309,7 @@ impl Launcher {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = POSTER_GAP;
                         for entry in line {
-                            self.library_cover(ui, view, entry, cover_w, std::mem::take(&mut first), commands);
+                            self.library_cover(ui, view, Some(&row.key()), entry, cover_w, std::mem::take(&mut first), commands);
                         }
                         if more && line.len() < columns {
                             let tile = all_tile(ui, row.games.len(), &said, cover_w);
@@ -415,7 +410,7 @@ impl Launcher {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = POSTER_GAP;
                     for entry in line {
-                        self.library_cover(ui, view, entry, width, std::mem::take(&mut first), commands);
+                        self.library_cover(ui, view, None, entry, width, std::mem::take(&mut first), commands);
                     }
                 });
                 ui.add_space(space::XS);
@@ -426,7 +421,7 @@ impl Launcher {
 
     /// A game of the merged library as a line of the List layout; it opens and offers as its cover does.
     #[allow(clippy::too_many_arguments)]
-    fn library_line(&mut self, ui: &mut Ui, view: &View<'_>, entry: &console::Entry, line: &str, width: f32, first: bool, commands: &mut Vec<Command>) {
+    fn library_line(&mut self, ui: &mut Ui, view: &View<'_>, row: &str, entry: &console::Entry, line: &str, width: f32, first: bool, commands: &mut Vec<Command>) {
         let cover = entry.cover();
         let art = cover.and_then(|c| view.hosts.get(c.host).and_then(|h| h.art.get(&(c.app_id as i32))));
         let badge = if entry.running() {
@@ -440,8 +435,8 @@ impl Launcher {
         if let Some(c) = cover {
             request_cover(ui, view, c.host, c.app_id, &c.cover_version, &response, commands);
         }
-        let key = format!("game:{}", entry.key);
-        self.focus_item(&response, &key, first);
+        let key = format!("{row}:game:{}", entry.key);
+        self.focus_card(&response, &key, &entry.key, first);
         let best = entry.best();
         if response.clicked() {
             self.open(Screen::Game { host: best.host, app: best.app_id });
@@ -452,7 +447,9 @@ impl Launcher {
     }
 
     /// A game of the merged library as a cover: selecting it opens its page, its menu offers the rest.
-    fn library_cover(&mut self, ui: &mut Ui, view: &View<'_>, entry: &console::Entry, width: f32, first: bool, commands: &mut Vec<Command>) {
+    /// On Home a game can show in several rows: `row` tells its cards apart for focus.
+    #[allow(clippy::too_many_arguments)]
+    fn library_cover(&mut self, ui: &mut Ui, view: &View<'_>, row: Option<&str>, entry: &console::Entry, width: f32, first: bool, commands: &mut Vec<Command>) {
         let cover = entry.cover();
         let art = cover.and_then(|c| view.hosts.get(c.host).and_then(|h| h.art.get(&(c.app_id as i32))));
         let badge = if entry.running() {
@@ -466,8 +463,11 @@ impl Launcher {
         if let Some(c) = cover {
             request_cover(ui, view, c.host, c.app_id, &c.cover_version, &response, commands);
         }
-        let key = format!("game:{}", entry.key);
-        self.focus_item(&response, &key, first);
+        let key = match row {
+            Some(row) => format!("{row}:game:{}", entry.key),
+            None => format!("game:{}", entry.key),
+        };
+        self.focus_card(&response, &key, &entry.key, first);
         let image = Rect::from_min_size(response.rect.min, vec2(width, (width * 4.0 / 3.0).round()));
         let dots = cover_dots(ui, &response, image);
         let best = entry.best();
@@ -776,6 +776,15 @@ pub(super) fn favourite_key(item: &console::Starred) -> String {
 /// when it was the last.
 pub(super) fn favourite_neighbour(starred: &[console::Starred], index: usize) -> Option<String> {
     console::neighbour(starred.len(), index).map(|near| favourite_key(&starred[near]))
+}
+
+/// The card to focus once the game of card `key` leaves the screen: the next card of another game,
+/// else the previous; None when there is none. `cards` are the screen's, in the order drawn, each
+/// with its game: a game shown in several rows leaves all of them.
+pub(super) fn card_neighbour(cards: &[(String, String)], key: &str) -> Option<String> {
+    let at = cards.iter().position(|(card, _)| card == key)?;
+    let game = &cards[at].1;
+    cards[at + 1..].iter().chain(cards[..at].iter().rev()).find(|(_, other)| other != game).map(|(card, _)| card.clone())
 }
 
 /// "Loading the games…" by a spinner, on Home and All games alike.

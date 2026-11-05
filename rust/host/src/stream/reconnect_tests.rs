@@ -3850,3 +3850,38 @@ async fn an_expired_co_op_launch_gives_its_slot_back() -> Result<()> {
     assert!(listed[0].session.players()[0].away);
     h.finish().await
 }
+
+/// "Stream here too" on a device that does not own the game: `/resume` joins it beside the owner,
+/// and takes nothing from it. With no game there is nothing to join, and nothing starts one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_resume_by_a_device_that_does_not_own_the_game_joins_and_never_starts_one() -> Result<()>
+{
+    let h = Harness::new(10_000, 2).await?;
+    let owner = "0".to_owned();
+    h.h.current_app.lock().unwrap().as_mut().unwrap().owner = owner.clone();
+    let launch = h.launch(1, true).await?;
+    assert_eq!(launch.client.uuid, "1");
+    h.counts(0, 1).await?;
+    assert_eq!(
+        h.h.current_app.lock().unwrap().as_ref().unwrap().owner,
+        owner
+    );
+    assert!(!h.h.owns_game("1"));
+    let (session, client) = h.play(&launch).await?;
+    assert_eq!(
+        h.h.current_app.lock().unwrap().as_ref().unwrap().owner,
+        owner
+    );
+    h.end(&session, client).await?;
+
+    *h.h.current_app.lock().unwrap() = None;
+    let refused = h.launch_response(1, true).await;
+    assert!(
+        refused
+            .as_ref()
+            .map_or(true, |reply| !reply.contains("status_code=\"200\"")),
+        "{refused:?}"
+    );
+    assert!(h.h.current_app.lock().unwrap().is_none(), "nothing started");
+    h.finish().await
+}

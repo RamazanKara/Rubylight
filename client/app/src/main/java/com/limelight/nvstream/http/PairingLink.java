@@ -167,10 +167,19 @@ public final class PairingLink {
                         + "|[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*(%[A-Za-z0-9._-]+)?");
     }
 
+    /**
+     * Controls, Unicode's format characters (Cf), and what else draws nothing: combining and variation
+     * marks with no shape, Hangul and Khmer fillers, the blank Braille cell and the tag block. The same
+     * list as the protocol crate, so both clients show one name the same.
+     */
     private static boolean hiddenChar(int c) {
-        return Character.isISOControl(c) || c == 0xAD || c == 0x61C || c == 0x180E
-                || (c >= 0x200B && c <= 0x200F) || (c >= 0x2028 && c <= 0x202E)
-                || (c >= 0x2060 && c <= 0x206F) || c == 0xFEFF || (c >= 0xFFF9 && c <= 0xFFFB);
+        return Character.isISOControl(c) || c == 0xAD || c == 0x34F || (c >= 0x600 && c <= 0x605) || c == 0x61C
+                || c == 0x6DD || c == 0x70F || (c >= 0x890 && c <= 0x891) || c == 0x8E2
+                || (c >= 0x115F && c <= 0x1160) || (c >= 0x17B4 && c <= 0x17B5) || (c >= 0x180B && c <= 0x180F)
+                || (c >= 0x200B && c <= 0x200F) || (c >= 0x2028 && c <= 0x202E) || (c >= 0x2060 && c <= 0x206F)
+                || c == 0x2800 || c == 0x3164 || (c >= 0xFE00 && c <= 0xFE0F) || c == 0xFEFF || c == 0xFFA0
+                || (c >= 0xFFF0 && c <= 0xFFFB) || c == 0x110BD || c == 0x110CD || (c >= 0x13430 && c <= 0x1343F)
+                || (c >= 0x1BCA0 && c <= 0x1BCA3) || (c >= 0x1D173 && c <= 0x1D17A) || (c >= 0xE0000 && c <= 0xE0FFF);
     }
 
     /** True when the certificate's DER hashes to the link's fingerprint. */

@@ -157,6 +157,11 @@ public class PairingLinkTest {
         assertEquals("Deskcod", PairingLink.parse(base + "%20Desk%E2%80%AEcod%0A%E2%80%8B%EF%BB%BF%20").shownName());
         assertEquals("", PairingLink.parse(base + "%E2%80%AE%E2%80%8B").shownName());
         assertEquals("", PairingLink.parse(base).shownName());
+        for (int hidden : new int[] {0x34F, 0x600, 0x6DD, 0x70F, 0x8E2, 0x115F, 0x1160, 0x17B4, 0x180B, 0x2800,
+                0x3164, 0xFE0F, 0xFFA0, 0xFFFB, 0x110BD, 0x13430, 0x1BCA0, 0x1D173, 0xE0001, 0xE0041, 0xE007F, 0xE0100}) {
+            String encoded = java.net.URLEncoder.encode(new String(Character.toChars(hidden)), java.nio.charset.StandardCharsets.UTF_8);
+            assertEquals(Integer.toHexString(hidden), "Desktop", PairingLink.parse(base + "Desk" + encoded + "top").shownName());
+        }
         // A name padded to look like the address line stays a name.
         assertEquals("Gaming PC 192.168.4.2:47989",
                 PairingLink.parse(base + "Gaming%20PC%20%20%20%20%20%20192.168.4.2:47989").shownName());

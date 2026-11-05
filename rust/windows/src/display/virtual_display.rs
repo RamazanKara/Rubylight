@@ -17,10 +17,11 @@ pub use driver::{
     virtual_display_available, virtual_display_installed, virtual_display_os,
     virtual_display_status, windows_build,
 };
+pub use lease::joinable_mode;
 use lease::reshape;
 pub(super) use lease::{DisplayLease, display_lease, joined_monitor, raise_lease};
 #[cfg(test)]
-use lease::{Leases, SharedDisplay, join, lease, take_name};
+use lease::{Leases, SharedDisplay, join, joined_lease, lease, take_name};
 use presence::{
     Heartbeat, cloned_with_physical, connected, heartbeat, lease_exists, listed, listed_by_path,
     not_active, retry_busy, still_duplicated, wait_for_monitor, wait_listed,

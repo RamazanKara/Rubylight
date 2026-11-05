@@ -201,6 +201,11 @@ pub struct RunningApp {
     pub name: String,
     pub child: Option<Process>,
     pub owner: String,
+    /// The identity of the virtual display the game is on, as streams lease it:
+    /// not the owner's as such, since a press moves the owner while the game
+    /// stays. None on a physical display, or before a stream showed it (a game
+    /// the console started).
+    pub display: Option<String>,
     pub generation: String,
     pub background: bool,
     undo: Vec<PrepCommand>,
@@ -361,6 +366,7 @@ impl RunningApp {
                 .get("SUNSHINE_CLIENT_UUID")
                 .cloned()
                 .unwrap_or_default(),
+            display: None,
             generation: uuid::Uuid::new_v4().to_string(),
             background: false,
             undo: vec![],

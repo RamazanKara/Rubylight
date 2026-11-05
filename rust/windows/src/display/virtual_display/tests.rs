@@ -140,6 +140,28 @@ fn stream(
 }
 
 #[test]
+fn a_stream_beside_the_game_takes_its_display_as_it_is_at_any_size_or_refresh() {
+    let owner = (1920, 1080, 60_000);
+    let mut displays = super::Leases::new();
+    let first = stream(&mut displays, owner, Some(Fake::new(owner))).unwrap();
+    // Asked for as a second stream, this size is refused and this refresh raises.
+    assert!(lease(&mut displays, (1280, 720, 120_000), None).is_err());
+    let (joined, mode) = super::joined_lease(&displays, "shared").unwrap();
+    assert_eq!(mode, owner);
+    assert!(Arc::ptr_eq(&first, &joined));
+    first.lock().unwrap().log.borrow_mut().clear();
+    // As a guard does with what `display_lease` returns for a join.
+    super::joined_monitor(&mut *joined.lock().unwrap(), None).unwrap();
+    let display = first.lock().unwrap();
+    assert_eq!(display.modes(), (owner, owner));
+    assert_eq!(*display.log.borrow(), ["on"]);
+    drop(display);
+    // Nothing to join once its last stream is gone: the stream makes its own.
+    drop((first, joined));
+    assert!(super::joined_lease(&displays, "shared").is_none());
+}
+
+#[test]
 fn a_second_stream_joins_a_shared_display_whose_mode_changed_in_place() {
     let launched = (1920, 1080, 60_000);
     // The first stream raised the rate, turned, or Windows took a size

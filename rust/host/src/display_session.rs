@@ -59,19 +59,120 @@ fn virtual_display_mode<'a>(
         .unwrap_or(config.virtual_display_mode(windows_11))
 }
 
-/// The identity of the display a stream beside another device's running game
-/// shares: that device's, where the game is. `running`: its owner, id and whether
-/// it is a background game, which has a display per player. After a press the
-/// caller already owns the game, and its stream gets a display of its own.
-fn joined_display(
-    caller: &str,
+/// What deciding on a join needs of the stream ([`joined_display`]).
+struct JoinAsk<'a> {
+    client: &'a str,
     role: Role,
+    /// The launch was a `/resume` or the prompt's Stream here too ([`RESUMES_GAME`]).
+    resumes: bool,
+    /// The app it launched.
     launched: Option<u32>,
-    running: Option<(&str, u32, bool)>,
+    virtual_mode: bool,
+    /// `virtual_display_mode`, and the identity that gives this stream's display.
+    display_mode: &'a str,
+    identity: &'a str,
+    /// A press of Continue here is under way: the game's display goes with the
+    /// previous owner, and the device that pressed has none yet.
+    claim_live: bool,
+}
+/// What deciding on a join needs of the running game ([`joined_display`]).
+struct JoinedGame<'a> {
+    id: u32,
+    /// Where it is ([`crate::process::RunningApp::display`]).
+    display: Option<&'a str>,
+    /// A background game has a display per player.
+    background: bool,
+    desktop: bool,
+}
+/// The identity of the display a stream shares because it asked for the running
+/// game: that game's, where it is. Asked for means `/resume` or the prompt's Stream
+/// here too, never for Desktop: a plain second stream, of Desktop or a game, has
+/// a display of its own. A device coming back to the display the game is on needs
+/// no asking: its display can only be live if others stream it. Only under
+/// `per_client` with the device's own identity: elsewhere its identity already says
+/// which display it shares.
+fn joined_display(ask: &JoinAsk, game: Option<JoinedGame>) -> Option<String> {
+    if ask.role != Role::Stream
+        || !ask.virtual_mode
+        || ask.display_mode != "per_client"
+        || ask.identity != ask.client
+        || ask.claim_live
+    {
+        return None;
+    }
+    let game = game?;
+    let display = game.display?;
+    (!game.background
+        && !game.desktop
+        && ask.launched == Some(game.id)
+        && (ask.resumes || display == ask.identity))
+        .then(|| display.to_owned())
+}
+/// What a stream's display is asked for: its own mode and HDR, or for a stream
+/// that joined (`joined`, the mode the display runs at) the display as it is. The
+/// encoder scales from it, and its mode, HDR and scale stay the first stream's.
+fn display_ask(
+    joined: Option<(u32, u32, u32)>,
+    own: (u32, u32),
+    rate: Rate,
+    hdr: Option<bool>,
+) -> ((u32, u32), Rate, Option<bool>) {
+    match joined {
+        Some((width, height, refresh)) => ((width, height), Rate(refresh), None),
+        None => (own, rate, hdr),
+    }
+}
+/// The mode a joined stream checks its display against for the device's card: no
+/// size, since the encoder scales, but the refresh and HDR it would have asked
+/// for. A slower display or another HDR state is said out loud, and fails nothing.
+fn joined_report(rate: Rate, hdr: Option<bool>) -> RequestedMode {
+    (None, Some(rate.0), hdr)
+}
+/// The display the running game is on once a stream of it was set up (`own`: that
+/// stream's virtual display, if any). It follows its owner's stream unless that
+/// joined one. A display whose streams all left no longer holds it: Windows moved
+/// the game to what is left, which the next stream's own display then is.
+fn game_display_after(
+    current: Option<&str>,
+    current_live: bool,
+    owns_game: bool,
+    joined: bool,
+    own: Option<&str>,
 ) -> Option<String> {
-    let (owner, id, background) = running?;
-    (role == Role::Stream && !background && owner != caller && launched == Some(id))
-        .then(|| owner.to_owned())
+    let moved = owns_game || (current.is_some() && !current_live);
+    if moved && !joined { own } else { current }.map(str::to_owned)
+}
+/// Note where the running game is after this launch's stream was set up.
+pub(crate) fn record_game_display(h: &Shared, launch: &Launch, display: &Ready) {
+    if launch.role != Role::Stream {
+        return;
+    }
+    let current = h
+        .current_app
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|app| app.display.clone());
+    // Outside the app's lock, which every server info takes: a display can be
+    // busy with Windows.
+    let current_live = current
+        .as_deref()
+        .is_some_and(|id| butterpollo_windows::display::joinable_mode(id).is_some());
+    if let Some(app) = h
+        .current_app
+        .lock()
+        .unwrap()
+        .as_mut()
+        .filter(|app| app.id == launch.app_id)
+    {
+        app.display = game_display_after(
+            app.display.as_deref(),
+            current_live,
+            app.owner == launch.client.uuid,
+            display.joined,
+            display.identity.as_deref(),
+        );
+    }
 }
 fn virtual_display_identity(
     config: &Config,
@@ -135,6 +236,9 @@ pub(crate) fn virtual_display_layout<'a>(
 
 /// Set on a WebRTC launch whose browser runs on this PC.
 pub(crate) const BROWSER_ON_THIS_PC: &str = "rlBrowserOnThisPc";
+/// Set on a launch that asks for the running game (`/resume`, the prompt's Stream
+/// here too, a Resume tile). The host decides this, never the client's query.
+pub(crate) const RESUMES_GAME: &str = "rlResumesGame";
 
 /// Whether `layout` turns off every monitor but the stream's, read as a stream's display setup
 /// reads it: an unknown value falls back to exclusive for a virtual display and arranges nothing
@@ -509,6 +613,10 @@ pub struct Ready {
     client_display: Option<HostDisplay>,
     virtual_layout: Option<String>,
     exclusive_layout: bool,
+    /// The identity of the virtual display it streams, and whether that is a
+    /// running game's it joined ([`record_game_display`]).
+    identity: Option<String>,
+    joined: bool,
     /// One game window's stream (`Ready::window`): never kept for a
     /// reconnect, whose launch prepares and checks the window again.
     game_window: bool,
@@ -535,6 +643,8 @@ impl Ready {
         let framegen = prepared.framegen.clone();
         let mode_report = prepared.mode_report.clone();
         let retained = prepared._retained.clone();
+        let identity = prepared.identity.clone();
+        let joined = prepared.joined;
         let state = Arc::new(Mutex::new(prepared));
         let stop = Arc::new(AtomicBool::new(false));
         let worker_state = state.clone();
@@ -587,6 +697,8 @@ impl Ready {
             client_display,
             virtual_layout,
             exclusive_layout,
+            identity,
+            joined,
             game_window: false,
             framegen: Mutex::new(framegen),
             mode_report,
@@ -670,6 +782,8 @@ impl Ready {
             client_display: None,
             virtual_layout: None,
             exclusive_layout: false,
+            identity: None,
+            joined: false,
             game_window: true,
             framegen: Mutex::new(framegen),
             mode_report,
@@ -821,6 +935,11 @@ pub struct Prepared {
     /// How the stream's own display follows a stream that turns, when
     /// `dd_rotation_option` is auto.
     follow: Option<Follow>,
+    /// The identity of the virtual display it holds, by which streams lease it.
+    identity: Option<String>,
+    /// That display is a running game's, which this stream joined: it takes the
+    /// display as it is, and never changes its mode, HDR or scale.
+    joined: bool,
     /// A topology fixture keeps lifecycle tests independent of the real desktop.
     #[cfg(test)]
     layout_snapshot: Option<Vec<(String, bool)>>,
@@ -979,6 +1098,8 @@ impl Prepared {
             resolution_owner: None,
             scale_baseline: None,
             follow: None,
+            identity: None,
+            joined: false,
             #[cfg(test)]
             layout_snapshot: None,
             #[cfg(test)]
@@ -1352,28 +1473,33 @@ impl Prepared {
         } else {
             id
         };
-        // Stream here too: the game is on its owner's display. A display of its
+        // Stream here too: the game is on the display it is on. A display of its
         // own would show this device an empty desktop.
-        // During a press the owner has no display yet and the game is on the
-        // previous owner's, so this stream keeps a display of its own.
-        let joined = (virtual_mode
-            && mode == "per_client"
-            && shared_id == launch.client.uuid
-            && !h.claim_live())
-        .then(|| {
-            let running = h.current_app.lock().unwrap();
-            joined_display(
-                &launch.client.uuid,
-                launch.role,
-                app.as_ref().map(|a| a.id()),
-                running
-                    .as_ref()
-                    .map(|r| (r.owner.as_str(), r.id, r.background)),
-            )
-        })
-        .flatten();
+        let ask = JoinAsk {
+            client: &launch.client.uuid,
+            role: launch.role,
+            resumes: launch.options.contains_key(RESUMES_GAME),
+            launched: app.as_ref().map(|a| a.id()),
+            virtual_mode,
+            display_mode: mode,
+            identity: &shared_id,
+            claim_live: h.claim_live(),
+        };
+        let joined_id = joined_display(
+            &ask,
+            h.current_app.lock().unwrap().as_ref().map(|r| JoinedGame {
+                id: r.id,
+                display: r.display.as_deref(),
+                background: r.background,
+                desktop: r.is_desktop(),
+            }),
+        );
+        // Gone with its last stream: this stream makes its own, as usual.
+        let joined = joined_id
+            .and_then(|id| butterpollo_windows::display::joinable_mode(&id).map(|mode| (id, mode)));
+        let joined_mode = joined.as_ref().map(|(_, mode)| *mode);
         let shares = mode == "shared" || joined.is_some();
-        let shared_id = joined.unwrap_or(shared_id);
+        let shared_id = joined.map_or(shared_id, |(id, _)| id);
         let stable_id = &shared_id;
         let app_scale = app
             .as_ref()
@@ -1437,11 +1563,13 @@ impl Prepared {
         } else {
             (stream.width, stream.height)
         };
-        let rate = if virtual_mode {
+        let own_rate = if virtual_mode {
             Rate(request.refresh.unwrap_or(framegen.display_rate.0))
         } else {
             framegen.display_rate
         };
+        let ((width, height), rate, display_hdr) =
+            display_ask(joined_mode, (width, height), own_rate, request.hdr);
         let retained = if launch.role == Role::RemoteMonitor {
             Some(crate::remote_display::activate(
                 h,
@@ -1466,7 +1594,8 @@ impl Prepared {
         // the turn, and its highest refresh looked up at that mode.
         let physical = !virtual_mode && retained.is_none();
         let follow = (config.dd_rotation_option() == butterpollo_core::config::DisplayAdjust::Auto
-            && retained.is_none())
+            && retained.is_none()
+            && joined_mode.is_none())
         .then_some(if virtual_mode {
             Follow::Virtual
         } else {
@@ -1497,6 +1626,7 @@ impl Prepared {
             } else {
                 None
             },
+            joins: joined_mode.is_some(),
         };
         // The layout to return to after the stream, taken before the virtual
         // display exists: Windows can switch other displays on or off, change
@@ -1513,7 +1643,7 @@ impl Prepared {
         // Read while the physical displays are still on: the virtual display
         // can turn them off, and Windows keeps a profile only on an active one.
         let recovery_profile = stream_profile(
-            stream.hdr,
+            stream.hdr && joined_mode.is_none(),
             launch
                 .client
                 .extra
@@ -1532,7 +1662,7 @@ impl Prepared {
                 width,
                 height,
                 rate,
-                request.hdr,
+                display_hdr,
                 turn.before,
                 request.refresh.map(Rate),
                 &virtual_options,
@@ -1556,11 +1686,12 @@ impl Prepared {
         let virtual_layout = virtual_mode || retained.is_some();
         // A remote monitor's retained display too: the lease never sets the scale.
         // The client's own scale (`rlDisplayScale`, checked at /launch) comes
-        // before the device, app and host setting.
+        // before the device, app and host setting. A stream that joined a game's
+        // display has none, as on a physical display: that scale is the game's.
         let setup = scale_setup(
             config,
             &launch.options,
-            virtual_layout,
+            virtual_layout && joined_mode.is_none(),
             remember && display.is_some(),
             || butterpollo_windows::display::largest_scale(&output),
         )?;
@@ -1665,7 +1796,7 @@ impl Prepared {
             }
             _ => None,
         };
-        if let Some(display) = &display {
+        if let Some(display) = display.as_ref().filter(|_| joined_mode.is_none()) {
             // Applying the layout can recall the display's saved mode.
             display.apply_virtual_mode("after layout");
         }
@@ -1719,7 +1850,9 @@ impl Prepared {
             "stream display selection"
         );
         // A virtual display is created for the stream at exactly this mode.
-        let requested = if virtual_mode {
+        let requested = if joined_mode.is_some() {
+            joined_report(own_rate, request.hdr)
+        } else if virtual_mode {
             (Some((width, height)), Some(rate.0), request.hdr)
         } else {
             (turn.after, request.refresh, request.hdr)
@@ -1729,7 +1862,20 @@ impl Prepared {
         if virtual_mode && shares {
             mode_report = mode_report.shared();
         }
-        mode_report.publish(applied_mode(&output));
+        let applied = applied_mode(&output);
+        if joined_mode.is_some()
+            && let (Some(wanted), Ok(actual)) = (request.hdr, &applied)
+            && wanted != actual.3
+        {
+            tracing::warn!(
+                client = %launch.client.name,
+                output = %output,
+                wanted,
+                display_hdr = actual.3,
+                "this stream joined a running game's display, whose HDR stays as it is: an HDR stream shows SDR colours correctly mapped into its HDR signal, an SDR stream the HDR display tone-mapped"
+            );
+        }
+        mode_report.publish(applied);
         let profile = recovery_profile
             .as_ref()
             .map(|p| hdr_profile::Lease::acquire(&output, p))
@@ -1767,6 +1913,8 @@ impl Prepared {
                 resolution_owner: (remember && owns_display).then(|| launch.client.uuid.clone()),
                 scale_baseline,
                 follow,
+                identity: (virtual_mode && owns_display).then(|| shared_id.clone()),
+                joined: joined_mode.is_some(),
                 #[cfg(test)]
                 layout_snapshot: None,
                 #[cfg(test)]
@@ -1845,9 +1993,9 @@ pub fn retime(
     let (framegen, device_mode) = frame_policy(app.as_ref(), launch, stream, config, true)?;
     let raised = butterpollo_windows::input::on_input_desktop(|| -> Result<Raise> {
         let mut prepared = display._state.lock().unwrap();
-        let Some(guard) = &prepared.display else {
+        if prepared.display.is_none() && !prepared.joined {
             return Ok(Raise::NotOwned);
-        };
+        }
         let (display_width, display_height) = prepared.recovery_dimensions;
         let request = config.display_request_rate(
             display_width,
@@ -1862,18 +2010,29 @@ pub fn retime(
         } else {
             Rate(request.refresh.unwrap_or(framegen.display_rate.0))
         };
-        let Some(applied) = guard.raise_virtual_rate(rate) else {
-            return Ok(Raise::Refused(rate));
+        // A stream that joined a game's display takes the refresh it has: raising
+        // it would retime the display under the game. The card says so.
+        let (applied, requested) = if prepared.joined {
+            let applied = applied_mode(&prepared.output).map_or(rate.0, |actual| actual.2);
+            (applied, joined_report(rate, request.hdr))
+        } else {
+            let Some(guard) = &prepared.display else {
+                return Ok(Raise::NotOwned);
+            };
+            let Some(applied) = guard.raise_virtual_rate(rate) else {
+                return Ok(Raise::Refused(rate));
+            };
+            (
+                applied,
+                (
+                    Some((display_width, display_height)),
+                    Some(applied),
+                    request.hdr,
+                ),
+            )
         };
         prepared.framegen = framegen.clone();
-        prepared.mode_report.retime(
-            (
-                Some((display_width, display_height)),
-                Some(applied),
-                request.hdr,
-            ),
-            stream.fps_millihz(),
-        );
+        prepared.mode_report.retime(requested, stream.fps_millihz());
         prepared.mode_report.publish(applied_mode(&prepared.output));
         Ok(Raise::Raised(applied))
     })?;

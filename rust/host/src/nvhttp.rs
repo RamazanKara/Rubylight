@@ -1553,6 +1553,12 @@ fn launch_back_half(
     let role = launch.role;
     let app_id = launch.app_id;
     let id = launch.id.clone();
+    launch.options.remove(crate::display_session::RESUMES_GAME);
+    if resume {
+        launch
+            .options
+            .insert(crate::display_session::RESUMES_GAME.into(), "1".into());
+    }
     // A stream of Nucleus Co-op's (a co-op or a background launch) streams a
     // game window of its own: it neither ends the other transport's streams
     // nor takes the host's session from whoever owns it.
@@ -2729,6 +2735,7 @@ fn retain_launch_app(
             .as_ref()
             .map(|prepared| prepared.prepared().display.clone())
         {
+            crate::display_session::record_game_display(h, launch, &lease);
             h.app_display
                 .lock()
                 .unwrap()

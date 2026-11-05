@@ -167,6 +167,9 @@ impl SessionThread<'_> {
         });
         stream_preparation.report_limiter(&s.launch.warnings, &c);
         let prepared = stream_preparation.display.clone();
+        if s.launch.nucleus.is_none() {
+            crate::display_session::record_game_display(&h, &s.launch, &prepared);
+        }
         // A game window is no display to keep for the device.
         if s.launch.role == Role::Stream
             && s.launch.nucleus.is_none()

@@ -4,27 +4,267 @@ use std::sync::mpsc;
 
 #[test]
 fn stream_here_too_shares_the_display_the_game_is_on() {
-    let join = |caller, role, launched, running| joined_display(caller, role, launched, running);
     assert_eq!(
-        join("b", Role::Stream, Some(7), Some(("a", 7, false))).as_deref(),
+        joined_display(&join_ask(), joined_game(Some("a"))).as_deref(),
         Some("a")
     );
-    // After a press the caller owns the game, and its display is its own.
-    assert_eq!(
-        join("b", Role::Stream, Some(7), Some(("b", 7, false))),
-        None
-    );
     // Another app, nothing running, a background game, a remote monitor.
+    let refused = |ask: JoinAsk| assert_eq!(joined_display(&ask, joined_game(Some("a"))), None);
+    refused(JoinAsk {
+        launched: Some(8),
+        ..join_ask()
+    });
+    assert_eq!(joined_display(&join_ask(), None), None);
     assert_eq!(
-        join("b", Role::Stream, Some(8), Some(("a", 7, false))),
+        joined_display(
+            &join_ask(),
+            Some(JoinedGame {
+                background: true,
+                ..joined_game(Some("a")).unwrap()
+            })
+        ),
         None
     );
-    assert_eq!(join("b", Role::Stream, Some(7), None), None);
-    assert_eq!(join("b", Role::Stream, Some(7), Some(("a", 7, true))), None);
+    refused(JoinAsk {
+        role: Role::RemoteMonitor,
+        ..join_ask()
+    });
+    // A press: the game's display goes with the previous owner.
+    refused(JoinAsk {
+        claim_live: true,
+        ..join_ask()
+    });
+    // The device streams a physical display, or its settings pick its display.
+    refused(JoinAsk {
+        virtual_mode: false,
+        ..join_ask()
+    });
+    refused(JoinAsk {
+        display_mode: "shared",
+        ..join_ask()
+    });
+    refused(JoinAsk {
+        identity: "an app's",
+        ..join_ask()
+    });
+}
+/// `b`'s `/resume` of game 7, under per-client virtual displays.
+fn join_ask<'a>() -> JoinAsk<'a> {
+    JoinAsk {
+        client: "b",
+        role: Role::Stream,
+        resumes: true,
+        launched: Some(7),
+        virtual_mode: true,
+        display_mode: "per_client",
+        identity: "b",
+        claim_live: false,
+    }
+}
+fn joined_game(display: Option<&str>) -> Option<JoinedGame<'_>> {
+    Some(JoinedGame {
+        id: 7,
+        display,
+        background: false,
+        desktop: false,
+    })
+}
+
+#[test]
+fn a_plain_second_stream_and_desktop_keep_displays_of_their_own() {
+    let plain = JoinAsk {
+        resumes: false,
+        ..join_ask()
+    };
+    assert_eq!(joined_display(&plain, joined_game(Some("a"))), None);
+    let desktop = || {
+        Some(JoinedGame {
+            desktop: true,
+            ..joined_game(Some("a")).unwrap()
+        })
+    };
+    assert_eq!(joined_display(&plain, desktop()), None);
+    // Not when it asks either, and not the device whose display that is.
+    assert_eq!(joined_display(&join_ask(), desktop()), None);
+    let returning = JoinAsk {
+        client: "a",
+        identity: "a",
+        ..join_ask()
+    };
+    assert_eq!(joined_display(&returning, desktop()), None);
+}
+
+#[test]
+fn a_game_no_stream_showed_gives_a_join_no_display_to_make() {
+    // Started from the console (its owner is ""), or with its owner on a physical
+    // monitor: an empty display under the owner's id would show nothing.
+    assert_eq!(joined_display(&join_ask(), joined_game(None)), None);
+    assert_eq!(game_display_after(None, false, true, false, None), None);
+    // A stream beside it stays beside it, and does not become where the game is.
     assert_eq!(
-        join("b", Role::RemoteMonitor, Some(7), Some(("a", 7, false))),
+        game_display_after(None, false, false, false, Some("b")),
         None
     );
+}
+
+#[test]
+fn a_press_moves_the_owner_and_a_join_still_finds_the_display_the_game_is_on() {
+    // `b` joined `a`'s display and pressed: `b` owns the game, on the display under
+    // `a`'s identity. Nothing asks for the owner here, only for the display.
+    let after_press = game_display_after(Some("a"), true, true, true, Some("a"));
+    assert_eq!(after_press.as_deref(), Some("a"));
+    let third = JoinAsk {
+        client: "c",
+        identity: "c",
+        ..join_ask()
+    };
+    assert_eq!(
+        joined_display(&third, joined_game(after_press.as_deref())).as_deref(),
+        Some("a")
+    );
+    // `a` coming back, however it asks, finds it too instead of a mode conflict.
+    let returning = JoinAsk {
+        client: "a",
+        identity: "a",
+        resumes: false,
+        ..join_ask()
+    };
+    assert_eq!(
+        joined_display(&returning, joined_game(after_press.as_deref())).as_deref(),
+        Some("a")
+    );
+    // A press from a device with a display of its own: the game follows it there.
+    assert_eq!(
+        game_display_after(Some("a"), true, true, false, Some("b")).as_deref(),
+        Some("b")
+    );
+}
+
+#[test]
+fn the_games_display_follows_its_owner_and_outlives_only_while_it_is_live() {
+    // A launch, on a virtual display or a physical one.
+    assert_eq!(
+        game_display_after(None, false, true, false, Some("a")).as_deref(),
+        Some("a")
+    );
+    assert_eq!(game_display_after(Some("a"), true, true, false, None), None);
+    // A second stream on a display of its own changes nothing.
+    assert_eq!(
+        game_display_after(Some("a"), true, false, false, Some("b")).as_deref(),
+        Some("a")
+    );
+    // Unless the game's display is gone: what is left is where Windows moved it.
+    assert_eq!(
+        game_display_after(Some("a"), false, false, false, Some("b")).as_deref(),
+        Some("b")
+    );
+}
+
+#[test]
+fn a_joined_stream_asks_for_the_display_as_it_is_whatever_its_own_size() {
+    assert_eq!(
+        display_ask(
+            Some((2560, 1440, 120_000)),
+            (1280, 720),
+            Rate(60_000),
+            Some(true)
+        ),
+        ((2560, 1440), Rate(120_000), None)
+    );
+    assert_eq!(
+        display_ask(None, (1280, 720), Rate(60_000), Some(true)),
+        ((1280, 720), Rate(60_000), Some(true))
+    );
+}
+
+#[test]
+fn a_joined_stream_hears_of_a_slower_or_other_hdr_display_and_nothing_fails() {
+    let warnings = Arc::new(Warnings::default());
+    let report = ModeReport::new(
+        warnings.clone(),
+        joined_report(Rate(120_000), Some(true)),
+        120_000,
+    )
+    .shared();
+    // Another size is what the encoder is for; 60 Hz and SDR are not what it asked.
+    report.publish(Ok((2560, 1440, 60_000, false)));
+    let found = codes(&warnings);
+    assert!(
+        found.iter().any(|code| code == "display_refresh"),
+        "{found:?}"
+    );
+    assert!(found.iter().any(|code| code == "display_hdr"), "{found:?}");
+    assert!(
+        !found.iter().any(|code| code == "display_resolution"),
+        "{found:?}"
+    );
+    report.publish(Ok((2560, 1440, 240_000, true)));
+    assert_eq!(codes(&warnings), Vec::<String>::new());
+}
+
+#[test]
+fn a_joined_stream_at_another_rate_keeps_its_place_and_leaves_the_display() {
+    let fixture = crate::state::test_support::Fixture::new();
+    let config = Config::default();
+    let mut prepared = test_prepared(&fixture.host);
+    prepared.joined = true;
+    let policy = prepared.framegen.clone();
+    let limiter = limiter::Lease::acquire(&fixture.host.directory, &config, &policy).unwrap();
+    let preparation = Ready::prepare((prepared, limiter)).unwrap();
+    let display = preparation.display.clone();
+    let launch = fixture.launch(fixture.client(u32::MAX), Role::Stream);
+    let request = Negotiated {
+        fps: 120,
+        ..Default::default()
+    };
+    // Nothing to raise and nothing to prepare again: it stays on the game's display.
+    let preparation = retime(preparation, &fixture.host, &launch, &request, &config)
+        .unwrap()
+        .ok()
+        .expect("kept");
+    assert_eq!(display.active.load(Ordering::Acquire), 1);
+    drop(preparation);
+}
+
+#[test]
+fn a_display_that_left_lays_out_again_with_what_the_watch_keeps_on() {
+    use butterpollo_core::display_policy::{LayoutAction, LayoutWatch};
+    let start = std::time::Instant::now();
+    let mut watch = LayoutWatch::default();
+    // A display that keeps coming back is left on, without a reapply of its own.
+    let mut now = start;
+    let mut kept = false;
+    for _ in 0..40 {
+        now += Duration::from_secs(1);
+        if let LayoutAction::Reapply { displays, kept_now } = watch.observe(&["tv".into()], now) {
+            kept |= !kept_now.is_empty();
+            watch.reapplied(&displays, now);
+        }
+    }
+    assert!(kept);
+    assert_eq!(watch.kept(), ["tv"]);
+    // Nothing left since this stream last looked.
+    let mut seen = 3;
+    notice_departure(&mut seen, 3, &mut watch, now);
+    assert!(!watch.departure_due(now + LayoutWatch::DEPARTURE_SETTLE));
+    notice_departure(&mut seen, 4, &mut watch, now);
+    assert_eq!(seen, 4);
+    assert!(!watch.departure_due(now));
+    now += LayoutWatch::DEPARTURE_SETTLE;
+    assert!(watch.departure_due(now));
+    // A failed attempt stays due.
+    let error = lay_out_after_departure(&mut watch, Vec::new(), now, |_| anyhow::bail!("no"));
+    assert!(error.is_err());
+    assert!(watch.departure_due(now));
+    // The kept display stays on beside the remote monitors.
+    let mut asked = Vec::new();
+    lay_out_after_departure(&mut watch, vec!["monitor".into()], now, |retained| {
+        asked = retained.to_vec();
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(asked, ["monitor", "tv"]);
+    assert!(!watch.departure_due(now));
 }
 #[test]
 fn the_configured_scale_reaches_every_stream_display_including_remote_monitors() {
@@ -715,6 +955,8 @@ fn test_prepared(host: &Shared) -> Prepared {
         resolution_owner: None,
         scale_baseline: None,
         follow: None,
+        identity: None,
+        joined: false,
         layout_snapshot: None,
         size_snapshot: None,
         scale_snapshot: None,
@@ -1765,6 +2007,8 @@ fn a_faster_stream_request_keeps_only_a_display_that_can_follow_it() {
         resolution_owner: None,
         scale_baseline: None,
         follow: None,
+        identity: None,
+        joined: false,
         layout_snapshot: None,
         size_snapshot: None,
         scale_snapshot: None,

@@ -18,12 +18,31 @@ pub(in crate::display) fn display_lease(
     fps: u32,
     options: &VirtualOptions,
 ) -> Result<(DisplayLease, Option<u32>)> {
-    lease(
-        &mut DISPLAYS.lock().unwrap(),
-        id,
-        (width, height, fps),
-        || VirtualDisplay::create_options(id, width, height, fps, options.clone()),
-    )
+    let mut displays = DISPLAYS.lock().unwrap();
+    if options.joins
+        && let Some((display, _)) = joined_lease(&displays, id)
+    {
+        return Ok((display, None));
+    }
+    lease(&mut displays, id, (width, height, fps), || {
+        VirtualDisplay::create_options(id, width, height, fps, options.clone())
+    })
+}
+/// The mode the live display `id` runs at, for a stream that joins it; None
+/// when no stream holds it any more and the stream has to make its own.
+pub fn joinable_mode(id: &str) -> Option<Timing> {
+    joined_lease(&DISPLAYS.lock().unwrap(), id).map(|(_, mode)| mode)
+}
+/// A stream beside a running game takes that game's display as it is: at the
+/// mode it runs at now, whatever size the stream has (the encoder scales) and
+/// with no refresh to raise, which would retime the display under the game.
+pub(super) fn joined_lease<D: SharedDisplay>(
+    displays: &Leases<D>,
+    id: &str,
+) -> Option<(std::sync::Arc<std::sync::Mutex<D>>, Timing)> {
+    let display = displays.get(id)?.upgrade()?;
+    let (_, current) = display.lock().unwrap().modes();
+    Some((display, current))
 }
 /// What leasing, joining and raising a virtual display need of it, so that
 /// tests can stand in for the driver and Windows.

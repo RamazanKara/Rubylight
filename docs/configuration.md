@@ -99,7 +99,7 @@ Each default below is what a fresh 3.0.0 install uses, checked against the host 
 | Limit every stream — `frame_limiter_enable` | `false` | Physical monitors keep the game's own frame rate; virtual displays are limited automatically. |
 | Limiter — `frame_limiter_provider` | `auto` | RTSS when it is installed. |
 | **Displays and HDR** | | |
-| Virtual display — `virtual_display_mode` | `per_client` on Windows 11 23H2 or later, `disabled` on earlier Windows | Each device gets a display at its own resolution and refresh. Earlier Windows lacks the driver interface the virtual display needs. |
+| Virtual display — `virtual_display_mode` | `per_client` on Windows 11 23H2 or later, `disabled` on earlier Windows | Each device gets a display at its own resolution and refresh; only Stream here too shares the display the running game is on. Earlier Windows lacks the driver interface the virtual display needs. |
 | Virtual display layout — `virtual_display_layout` | `exclusive` | The other monitors turn off while you stream, so games open on the streamed display. See [Displays and RTSS](#displays-and-rtss). |
 | Monitor setup — `dd_configuration_option` | `verify_only` | A physical monitor is only checked to be on; its mode is left alone. |
 | Display HDR — `dd_hdr_option` | `auto` | The streamed display's HDR follows the stream. |

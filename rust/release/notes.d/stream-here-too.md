@@ -1,0 +1,5 @@
+# Stream here too and layouts
+
+- **Stream here too shows the game.** The second device now shares the display the game is on, whatever resolution it asked for: the picture is scaled to the device, and the game's resolution, refresh, HDR and scale stay as they were. If that display is slower than the device asked for or has other HDR, the stream still runs and the device is told. A plain second stream and Desktop still get a display of their own for each device.
+- **A stream going on keeps its layout when another display leaves.** Monitors that were off stay off, and a game the leaving display minimised comes back. A layout you changed yourself in the meantime, a window you minimised yourself and a game running in the background are left alone.
+- **Monitors no longer stay dark after a shared session.** The layout is saved only while a virtual display it was made for is still there, never under your own monitors' entry, so Windows has nothing with your monitor off to recall once the last stream ends.

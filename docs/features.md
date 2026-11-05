@@ -52,7 +52,7 @@ The complete feature set of Rubylight 3.0, by area. Features that need client su
 - **Client-side display choice.** A Rubylight client can request, per PC, the virtual display alone, a virtual display beside your monitors, or no virtual display, without changing the host's settings ([Configuration](configuration.md#display-choice-from-the-client)).
 - **Rotation.** A device's own virtual display takes the stream's portrait or landscape orientation, and a monitor rotates to match and back after the stream; with **Match the device**, the display follows a device as it turns ([Configuration](configuration.md#displays-and-rtss)).
 - **Monitors stay off while a device is away** (off by default). A monitor that wakes over HDMI while a device is disconnected stays off until the device returns ([#56](https://github.com/RamazanKara/Rubylight/issues/56)).
-- **Concurrent clients**, each on its own virtual display.
+- **Concurrent clients**, each on its own virtual display; **Stream here too** shares the display the running game is on, as that display is.
 
 ## Audio
 

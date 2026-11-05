@@ -1686,6 +1686,25 @@ async fn malformed_rtsp_requests_receive_an_authenticated_error_response() -> Re
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_a_resume_says_it_came_for_the_running_game() -> Result<()> {
+    use crate::display_session::RESUMES_GAME;
+
+    let h = Harness::new(10_000, 1).await?;
+    // A client that sends the name itself is not asking for anything: a plain
+    // launch keeps a display of its own.
+    let launch = h
+        .launch_with(0, false, None, &[(RESUMES_GAME, "1")])
+        .await?;
+    assert_eq!(launch.options.get(RESUMES_GAME), None);
+    let resumed = h.launch(0, true).await?;
+    assert_eq!(
+        resumed.options.get(RESUMES_GAME).map(String::as_str),
+        Some("1")
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn vanishes_then_resumes_within_ping_timeout() -> Result<()> {
     let h = Harness::new(10_000, 1).await?;
     let launch = h.launch(0, false).await?;

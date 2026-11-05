@@ -107,12 +107,16 @@ pub struct VirtualOptions {
     pub peak_nits: u32,
     /// The GPU to render the display on; None leaves the choice to Windows.
     pub render_adapter: Option<RenderAdapter>,
+    /// The stream joins a running game's display and takes it as it is
+    /// ([`super::joinable_mode`]).
+    pub joins: bool,
 }
 impl Default for VirtualOptions {
     fn default() -> Self {
         Self {
             peak_nits: 1000,
             render_adapter: None,
+            joins: false,
         }
     }
 }

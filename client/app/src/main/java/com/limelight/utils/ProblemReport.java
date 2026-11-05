@@ -101,6 +101,14 @@ public final class ProblemReport {
                 .appendPath(REPORT_ROOT).appendPath(REPORT_NAME).build();
     }
 
+    /** The report's opening lines; the device line names exactly what device-specific fixes are gated on. */
+    static String header() {
+        return BuildConfig.BRAND_NAME + " " + BuildConfig.VERSION_NAME + " / Android API " + Build.VERSION.SDK_INT
+                + "\nDevice: " + Build.MANUFACTURER + " " + Build.MODEL + ", hardware " + Build.HARDWARE
+                + "\nRedacted event log for this app process, oldest first (up to " + RedactedLog.MAX_ENTRIES + " entries), times in UTC."
+                + "\nAddresses, user-assigned device/host names, PINs, credentials and free-text diagnostic details are omitted.\n\n";
+    }
+
     /** Writes the report to the reports provider's folder and returns its content URI. */
     private static Uri write(Activity activity) throws IOException {
         File report = reportFile(activity);
@@ -108,9 +116,7 @@ public final class ProblemReport {
         if (!directory.isDirectory() && !directory.mkdirs()) {
             throw new IOException("Cannot create report directory");
         }
-        String text = BuildConfig.BRAND_NAME + " " + BuildConfig.VERSION_NAME + " / Android API " + Build.VERSION.SDK_INT
-                + "\nRedacted event log for this app process, oldest first (up to 200 entries)."
-                + "\nAddresses, user-assigned device/host names, PINs, credentials and free-text diagnostic details are omitted.\n\n"
+        String text = header()
                 + engineSection()
                 + "Last decoder configuration:\n" + decoderDiagnostics + "\n\n"
                 + "Last audio configuration:\n" + audioDiagnostics + "\n\n"

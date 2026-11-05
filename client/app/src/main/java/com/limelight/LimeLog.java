@@ -6,7 +6,7 @@ import java.util.logging.Logger;
 
 public class LimeLog {
     private static final Logger LOGGER = Logger.getLogger(LimeLog.class.getName());
-    private static final com.limelight.utils.RedactedLog REPORT_LOG = new com.limelight.utils.RedactedLog();
+    private static final com.limelight.utils.RedactedLog REPORT_LOG = new com.limelight.utils.RedactedLog(System::currentTimeMillis);
 
     public static void info(String msg) {
         REPORT_LOG.add("INFO", msg);

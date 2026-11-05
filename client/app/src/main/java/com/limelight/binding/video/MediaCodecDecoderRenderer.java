@@ -258,6 +258,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile long lastVideoFrameTimeMs;
     // Set when a decoder is configured; null except on the decoders of erratum 23 in low latency.
     private volatile KeyframeSafetyNet keyframeSafetyNet;
+    private final InputStallLine inputStalls = new InputStallLine();
     private volatile float networkFrameLossPercent;
     private final AtomicLong receivedVideoBytes = new AtomicLong();
     private long bitrateWindowStartNs;
@@ -3734,7 +3735,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         int deltaMs = (int)(SystemClock.uptimeMillis() - startTime);
 
         if (deltaMs >= 20) {
-            LimeLog.warning("Dequeue input buffer ran long: " + deltaMs + " ms");
+            String stallLine = inputStalls.onStall(SystemClock.uptimeMillis(), deltaMs);
+            if (stallLine != null) LimeLog.warning(stallLine);
         }
 
         if (nextInputBuffer == null) {
@@ -3946,6 +3948,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     @Override
     public void cleanup() {
         hostFrameClock.stop();
+        String lastStalls = inputStalls.flush();
+        if (lastStalls != null) LimeLog.warning(lastStalls);
         pyroWaveRenderer.cleanup(frameLatencyStats);
         if (videoDecoder != null) {
             videoDecoder.release();

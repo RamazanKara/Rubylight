@@ -472,7 +472,7 @@ public class AddComputerManually extends NightjarActivity {
             linkDialog.dismiss();
         }
         String name = link.shownName();
-        String address = link.shownAddress();
+        String address = getString(R.string.pair_link_address, link.shownAddress());
         AlertDialog dialog = new NavigationDialogBuilder(this)
                 .setTitle(R.string.pair_pairing_title)
                 .setMessage(name.isEmpty() ? address : name + "\n" + address)

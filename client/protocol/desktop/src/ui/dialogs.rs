@@ -415,7 +415,7 @@ impl Launcher {
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
                         ui.label(RichText::new(title).font(semibold(text::SECTION)));
-                        ui.label(RichText::new(link.shown_address()).color(ON_SURFACE_VARIANT));
+                        ui.label(RichText::new(trf("Address: {}", &[&link.shown_address()])).color(ON_SURFACE_VARIANT));
                         dialog_buttons(ui, |ui| {
                             if primary_button(ui, "Pair").clicked() {
                                 commands.push(Command::PairLink(link.clone()));

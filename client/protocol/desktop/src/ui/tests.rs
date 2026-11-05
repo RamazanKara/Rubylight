@@ -4535,7 +4535,7 @@ fn a_link_from_outside_pairs_only_when_pair_is_chosen() {
     assert!(!pairs(&commands), "opening it asks, nothing more");
     assert_eq!(f.hosts.list.len(), 1);
     assert!(f.drawn.iter().any(|t| t.contains("Wohnzimmer")), "names the PC");
-    assert!(f.drawn.iter().any(|t| t == "192.168.4.2:47989"), "and its address");
+    assert!(f.drawn.iter().any(|t| t == "Address: 192.168.4.2:47989"), "and its address, on a line that says so");
     assert!(!f.drawn.iter().any(|t| t.contains("4821") || t.contains("hunter2")), "never the secrets");
     assert!(!f.l.can_open_link(), "the next link waits behind it");
     // Cancel has focus: Enter, and the controller's A and B, leave the PC out.
@@ -4571,7 +4571,7 @@ fn a_link_that_hides_its_name_is_shown_plainly() {
     f.l.open_link(&opened_link("\u{202e}").to_uri());
     f.settle();
     assert!(f.drawn.iter().any(|t| t.contains(tr("the PC"))), "{:?}", f.drawn);
-    assert!(f.drawn.iter().any(|t| t == "192.168.4.2:47989"));
+    assert!(f.drawn.iter().any(|t| t == "Address: 192.168.4.2:47989"));
 }
 
 #[test]

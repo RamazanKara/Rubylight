@@ -214,6 +214,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Delete {}?", "Eliminare {}?"),
     ("Replace your {} saved shortcuts with {} from this file.", "Sostituisci le tue {0} scorciatoie salvate con le {1} di questo file."),
     ("Pair with {}", "Accoppia con {}"),
+    ("Address: {}", "Indirizzo: {}"),
     ("{} closes on the PC. Unsaved progress is lost.", "{} si chiude sul PC. I progressi non salvati vanno persi."),
     ("Quit {} and start {}?", "Uscire da {0} e avviare {1}?"),
     ("Close {} and start {}?", "Chiudere {0} e avviare {1}?"),

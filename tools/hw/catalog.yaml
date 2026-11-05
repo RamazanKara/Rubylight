@@ -524,7 +524,7 @@ cases:
   - id: background-stream-retroid
     device: retroid
     title: Real background stream of a one-player game, played from the Retroid with its own pad and another window in front on the PC
-    command: 'cd {{repo}}\tools\hw; python background_stream.py up --game <exe> --nucleus <folder>; python background_stream.py start --hdr --fps 120 --app-name <app>; python background_stream.py press up,up,down; python background_stream.py shot <name>; python background_stream.py close; python background_stream.py down'
+    command: 'cd {{repo}}\tools\hw; $env:BACKGROUND_HOST=''<butterpollo.exe>''; python background_stream.py up --game <exe> --nucleus <folder>; python background_stream.py start --hdr --fps 120 --app-name <app>; python background_stream.py press up,up,down; python background_stream.py shot <name>; python background_stream.py close; python background_stream.py down'
     preconditions: [idle]
     manages_locks: true
     verdict: review

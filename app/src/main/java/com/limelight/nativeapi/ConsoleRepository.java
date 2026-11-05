@@ -149,6 +149,17 @@ public final class ConsoleRepository {
         return assemble(hosts);
     }
 
+    /** Whether the host's classic app list, as last saved, has this id (blocks): a native library may leave a tile out. */
+    public boolean classicListHas(ComputerDetails computer, int appId) {
+        List<NvApp> apps = classic.apps(computer);
+        if (apps != null) {
+            for (NvApp app : apps) {
+                if (app.getAppId() == appId) return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * The permissions of this device on the host, read now (blocks); null for a host without the native API
      * and when the host does not answer.

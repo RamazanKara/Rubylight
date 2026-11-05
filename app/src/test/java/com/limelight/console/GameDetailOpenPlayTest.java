@@ -28,6 +28,7 @@ import com.limelight.computers.ComputerManagerListener;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.nativeapi.NativeApiFixtures;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.NvApp;
 
 import org.junit.After;
 import org.junit.Before;
@@ -183,18 +184,15 @@ public class GameDetailOpenPlayTest {
         assertTrue(OpenPlay.armed(context));
     }
 
-    /** The countdown over with this game reported running on Tower and nothing but that report to go on. */
+    /** The countdown over with a game reported running on Tower, a host that does not ask itself, whose list fails. */
     private AlertDialog promptOverRunningGame(int runningId, String runningUuid) throws Exception {
         open(true, null, null);
-        rig.transport.replies.clear();
-        rig.transport.unreachable("tower");
-        ComputerDetails tower = nativeHost("tower", "Tower", true);
+        ComputerDetails tower = NativeApiFixtures.classicHost("tower", "Tower");
         tower.runningGameId = runningId;
         tower.runningGameUuid = runningUuid;
         feed.update(tower);
         Dialog countdown = shown();
         pass(3100);
-        assertTrue(OpenPlay.armed(context));
         await(() -> ShadowDialog.getLatestDialog() != countdown && ShadowDialog.getLatestDialog().isShowing());
         return shown();
     }
@@ -229,7 +227,8 @@ public class GameDetailOpenPlayTest {
     @Test
     public void thisGameRunningThereIsNoReplacementSoItStartsWithoutAPrompt() throws Exception {
         open(true, null, null);
-        ComputerDetails tower = nativeHost("tower", "Tower", true);
+        rig.classicApps.put("tower", Collections.singletonList(new NvApp("Portal", 11, false)));
+        ComputerDetails tower = NativeApiFixtures.classicHost("tower", "Tower");
         tower.runningGameId = 11;
         feed.update(tower);
         pass(3100);
@@ -239,9 +238,8 @@ public class GameDetailOpenPlayTest {
     @Test
     public void aPromptOfTheModelsOwnNamesTheGame() throws Exception {
         open(true, null, null);
-        rig.transport.reply("tower", "library", ok(library("r2", game("t-portal", 11, "Portal", "steam:400", false),
-                game("t-zelda", 22, "Zelda", "steam:500", true))));
-        ComputerDetails tower = nativeHost("tower", "Tower", true);
+        rig.classicApps.put("tower", java.util.Arrays.asList(new NvApp("Portal", 11, false), new NvApp("Zelda", 22, false)));
+        ComputerDetails tower = NativeApiFixtures.classicHost("tower", "Tower");
         tower.runningGameId = 22;
         feed.update(tower);
         Dialog countdown = shown();
@@ -261,8 +259,8 @@ public class GameDetailOpenPlayTest {
         int reads = rig.transport.calls.size();
         pass(3100);
         assertTrue("the countdown's end", OpenPlay.armed(context));
-        assertTrue("no start on it", GameDetailWakeTest.Detail.played.isEmpty());
-        await(() -> rig.transport.calls.size() > reads && !GameDetailWakeTest.Detail.played.isEmpty());
+        await(() -> !GameDetailWakeTest.Detail.played.isEmpty());
+        assertTrue("it read the PC before it started anything", rig.transport.calls.size() > reads);
     }
 
     @Test
@@ -296,6 +294,66 @@ public class GameDetailOpenPlayTest {
         pass(100);
         assertTrue(screen.isFinishing());
         assertTrue(OpenPlay.armed(context));
+        assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
+    }
+
+    /** What Tower's fresh answer has the automatic start say, with Tower online: {@code library} replaces its list. */
+    private String failureWith(String library) throws Exception {
+        open(true, null, null);
+        rig.transport.reply("tower", "library", ok(library));
+        Dialog countdown = shown();
+        pass(3100);
+        assertTrue(OpenPlay.armed(context));
+        await(() -> ShadowDialog.getLatestDialog() != countdown && ShadowDialog.getLatestDialog().isShowing());
+        assertFalse(screen.isFinishing());
+        String said = ((TextView) shown().findViewById(android.R.id.message)).getText().toString();
+        shown().getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        pass(100);
+        assertTrue("on to Home", screen.isFinishing());
+        assertTrue("a real failure: the guard stays", OpenPlay.armed(context));
+        assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
+        return said;
+    }
+
+    @Test
+    public void aGameThePcCannotStartSaysWhyAndNotThatThePcIsOffline() throws Exception {
+        assertEquals("Not installed on Tower", failureWith(library("r2", portalWith("\"installed\":false"))));
+    }
+
+    @Test
+    public void aGameThePcCannotLaunchSaysThat() throws Exception {
+        assertEquals("Tower can't start this game", failureWith(library("r2", portalWith("\"launchable\":false"))));
+    }
+
+    /** Portal as the library lists it, with this field where it says it is installed. */
+    private static String portalWith(String field) {
+        return game("t-portal", 11, "Portal", "steam:400", false).replace("\"installed\":true", field);
+    }
+
+    @Test
+    public void aGameGoneFromTheLibraryFailsCleanlyInsteadOfLaunchingAStaleId() throws Exception {
+        assertEquals(context.getString(R.string.open_play_not_listed, "Tower"),
+                failureWith(library("r2", game("t-zelda", 22, "Zelda", "steam:500", false))));
+    }
+
+    @Test
+    public void aTileOnlyTheClassicListHasStillStarts() throws Exception {
+        open(true, null, null);
+        rig.classicApps.put("tower", Collections.singletonList(new NvApp("Desktop", 11, false)));
+        rig.transport.reply("tower", "library", ok(library("r2", game("t-zelda", 22, "Zelda", "steam:500", false))));
+        pass(3100);
+        await(() -> !GameDetailWakeTest.Detail.played.isEmpty());
+    }
+
+    @Test
+    public void aListThatCouldNotBeReadSaysSoAndStartsNoSavedId() throws Exception {
+        open(true, null, null);
+        feed.update(NativeApiFixtures.classicHost("tower", "Tower"));
+        Dialog countdown = shown();
+        pass(3100);
+        await(() -> ShadowDialog.getLatestDialog() != countdown && ShadowDialog.getLatestDialog().isShowing());
+        assertEquals(context.getString(R.string.open_play_no_list, "Tower"),
+                ((TextView) shown().findViewById(android.R.id.message)).getText().toString());
         assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
     }
 

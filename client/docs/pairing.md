@@ -57,7 +57,7 @@ rubylight://pair?v=1&host=<address>&port=<http port>&otp=<one-time PIN>&pass=<pa
 ```
 
 - `v` is `1`; other versions are refused.
-- `host`, `port`, `otp` and `fp` are required. `host` is an address or host name: up to 255 ASCII letters, digits and `.`, `-`, `_`, `:`, `%`, `[`, `]`. `port` is the host's HTTP port, 1 to 65535. `fp` is the SHA-256 of the host certificate's DER encoding, as 64 hexadecimal digits.
+- `host`, `port`, `otp` and `fp` are required. `host` is a host name or IP address of up to 255 ASCII characters: letters, digits, `.`, `-` and `_`, or an IPv6 address, in brackets or not, whose zone alone may follow a `%`. `port` is the host's HTTP port, 1 to 65535. `fp` is the SHA-256 of the host certificate's DER encoding, as 64 hexadecimal digits.
 - `pass`, `id` and `name` are optional. Unknown keys are ignored; a repeated key invalidates the link.
 - Values are percent-encoded UTF-8. A link longer than 4096 bytes is refused.
 

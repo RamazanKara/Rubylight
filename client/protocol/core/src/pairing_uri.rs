@@ -141,13 +141,26 @@ impl PairingUri {
     }
 }
 
-/// Letters, digits and what names and IP addresses use (`[fe80::1%eth0]`): nothing that can end
-/// the authority of a URL, or make the address read as something else.
+/// A name or an IP address (`pc.local`, `192.168.4.2`, `::1`, `[fe80::1%eth0]`): nothing that can
+/// end the authority of a URL, or make the address read as something else. A `%` only starts an
+/// IPv6 literal's zone, because a URL parser may decode one anywhere else
+/// (`192.168.4.2%2Eevil.example`), and then connect elsewhere than the dialog says.
 fn address_like(host: &str) -> bool {
-    host.len() <= MAX_HOST_LEN
-        && host.bytes().all(|b| {
-            b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b':' | b'%' | b'[' | b']')
-        })
+    let name_char = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_');
+    let bare = host.strip_prefix('[').and_then(|h| h.strip_suffix(']'));
+    let literal = bare.unwrap_or(host);
+    if host.len() > MAX_HOST_LEN || literal.is_empty() {
+        return false;
+    }
+    if !literal.contains(':') {
+        return bare.is_none() && literal.bytes().all(name_char);
+    }
+    let (address, zone) = literal.split_once('%').unwrap_or((literal, "a"));
+    address
+        .bytes()
+        .all(|b| b.is_ascii_hexdigit() || matches!(b, b':' | b'.'))
+        && !zone.is_empty()
+        && zone.bytes().all(name_char)
 }
 
 fn hidden_char(c: char) -> bool {
@@ -350,6 +363,20 @@ mod tests {
             "bank.example\u{202e}cod",
             "pc\u{430}",
             long.as_str(),
+            // Decoded by a URL parser, these name somewhere else than the dialog shows.
+            "192.168.4.2%2Eevil.example",
+            "192.168.4.2%2eevil.example",
+            "pc%40evil.example",
+            "pc.local%",
+            "[pc.local%2Eevil.example]",
+            "pc.local:80%2Eevil.example",
+            "[fe80::1%]",
+            "[fe80::1%25%2Eevil.example]",
+            "[]",
+            "[pc]",
+            "[::1",
+            "::1]",
+            "pc.local:47989",
         ] {
             let link = PairingUri {
                 host: host.into(),

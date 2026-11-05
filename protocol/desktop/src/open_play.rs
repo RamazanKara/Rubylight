@@ -644,7 +644,7 @@ impl crate::App {
                     self.open_play_armed(false);
                 }
                 for command in commands {
-                    self.command(command);
+                    self.command(unasked(command));
                 }
             }
             Step::Stopped(why) => self.open_play_stop(why),
@@ -662,6 +662,15 @@ impl crate::App {
                 }
             }
         }
+    }
+}
+
+/// What an automatic start sends: the read of who plays would hold the launch while the run looks
+/// finished, and could put Continue here in front of a player who pressed nothing.
+fn unasked(command: Command) -> Command {
+    match command {
+        Command::Launch { host, app, resume } => Command::LaunchUnasked { host, app, resume },
+        other => other,
     }
 }
 
@@ -839,6 +848,12 @@ mod tests {
         let mut run = begun(now);
         run.next(&going(), now);
         assert_eq!(run.next(&Seen { message: true, no_dialog: false, ..ready() }, now), Step::Failed(None));
+    }
+
+    #[test]
+    fn an_automatic_start_launches_without_reading_who_plays() {
+        assert!(matches!(unasked(Command::Launch { host: 1, app: 7, resume: true }), Command::LaunchUnasked { host: 1, app: 7, resume: true }));
+        assert!(matches!(unasked(Command::Wake(1)), Command::Wake(1)));
     }
 
     #[test]

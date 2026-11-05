@@ -18,7 +18,7 @@ use nightjar_core::http::{
     PcPower, PcPowerOffer, PowerError, PowerReply, Reason, ServerInfo, DEFAULT_HTTP_PORT,
 };
 
-use rubylight_protocol::pairing_uri::{PairingUri, PREFIX};
+use rubylight_protocol::pairing_uri::PairingUri;
 
 use crate::strings::{en, trf};
 use crate::config::{HostRecord, Store};
@@ -595,7 +595,7 @@ pub enum Entry {
 /// never read as an address.
 pub fn parse_entry(text: &str) -> Result<Entry, &'static str> {
     let text = text.trim();
-    if text.starts_with(PREFIX) {
+    if PairingUri::is_link(text) {
         return parse_link(text).map(Entry::Link);
     }
     crate::config::parse_address(text)
@@ -3041,6 +3041,9 @@ pub(crate) mod tests {
         };
         let pasted = format!("  {}\n", invitation.to_uri());
         assert_eq!(parse_entry(&pasted), Ok(Entry::Link(Box::new(invitation.clone()))));
+        // As Windows' shell hands a link over; whoever copies it from there pastes this form.
+        let from_shell = invitation.to_uri().replacen("pair?", "pair/?", 1);
+        assert_eq!(parse_entry(&from_shell), Ok(Entry::Link(Box::new(invitation.clone()))));
         let v6 = PairingUri { host: "[fe80::1%eth0]".into(), ..invitation.clone() };
         let Ok(Entry::Link(link)) = parse_entry(&v6.to_uri()) else { panic!("an IPv6 link") };
         assert_eq!(link.host, "fe80::1%eth0", "kept without brackets, like a typed address");

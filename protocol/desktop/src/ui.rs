@@ -44,6 +44,8 @@ pub enum Command {
     /// "Start Nightjar when I sign in".
     SetSignIn(bool),
     Launch { host: u64, app: i32, resume: bool },
+    /// A launch with nobody to ask: without [`Command::Launch`]'s read of who plays.
+    LaunchUnasked { host: u64, app: i32, resume: bool },
     /// Input-only through a small ordinary stream, on a PC without its own Input-only mode.
     LaunchInputOnly { host: u64, app: i32, resume: bool },
     /// Only this device's microphone, on a PC that offers it (`Feature::MicOnly`).

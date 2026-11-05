@@ -80,6 +80,10 @@ impl PairingUri {
     /// that is 0 or not a number, a fingerprint that is not 64 hex digits, a bad percent escape,
     /// text that is not UTF-8 and a repeated key reject it. Unknown keys are ignored; `pass`, `id`
     /// and `name` may be absent.
+    pub fn is_link(text: &str) -> bool {
+        text.starts_with(PREFIX) || text.starts_with(SHELL_PREFIX)
+    }
+
     pub fn parse(uri: &str) -> Option<Self> {
         if uri.len() > MAX_LEN {
             return None;
@@ -290,6 +294,8 @@ mod tests {
         let from_shell = uri.replacen(PREFIX, SHELL_PREFIX, 1);
         assert_ne!(from_shell, uri);
         assert_eq!(PairingUri::parse(&from_shell), Some(invitation()));
+        assert!(PairingUri::is_link(&uri) && PairingUri::is_link(&from_shell));
+        assert!(!PairingUri::is_link("192.168.4.2"));
         assert_eq!(PairingUri::parse(&uri.replacen(PREFIX, "rubylight://pair/x?", 1)), None);
     }
 

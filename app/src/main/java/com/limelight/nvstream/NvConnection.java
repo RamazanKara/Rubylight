@@ -80,6 +80,7 @@ import com.limelight.preferences.HostDisplayChoice;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.utils.NetworkGrace;
 import com.limelight.utils.PyroWavePaceStore;
+import com.limelight.utils.RecentStreams;
 import com.limelight.utils.WiredLink;
 
 public class NvConnection {
@@ -995,6 +996,7 @@ public class NvConnection {
         }
 
         context.linkHints = WiredLink.hintsToward(appContext, context.serverAddress.address);
+        RecentStreams.noteLink(context.linkHints);
         context.startBitrateKbps = pyroWaveStartKbps(context, context.linkHints.mbps);
         if (context.startBitrateKbps != context.streamConfig.getBitrate()) {
             LimeLog.info("PyroWave: starting at its default of " + context.startBitrateKbps + " kbps (link " +

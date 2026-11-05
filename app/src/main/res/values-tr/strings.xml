@@ -445,4 +445,9 @@
     <string name="hevc_low_latency_on">Açık</string>
     <string name="hevc_low_latency_off">Kapalı</string>
     <string name="title_oled_black">OLED siyahı</string>
+    <string name="continue_here_playing_on">%1$s, %2$s üzerinde oynanıyor</string>
+    <string name="continue_here_action">Burada devam et</string>
+    <string name="continue_here_stream_too">Burada da yayınla</string>
+    <string name="continue_here_now_playing">Şimdi %1$s üzerinde oynanıyor</string>
+    <string name="continue_here_failed">Burada devam edilemedi</string>
 </resources>

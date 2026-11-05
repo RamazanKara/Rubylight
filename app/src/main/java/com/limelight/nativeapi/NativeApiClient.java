@@ -92,6 +92,16 @@ public final class NativeApiClient {
         return parseSession(call("session", ""));
     }
 
+    /** Who plays the running game and where this device's stream went. Only when the host lists session.continue_here. */
+    public StreamMove streamMove() throws NativeApiException {
+        return StreamMove.parse(call("session_move", ""));
+    }
+
+    /** Ends the other devices' streams of the running game, which keeps running; the normal resume follows. */
+    public NativeSession continueHere() throws NativeApiException {
+        return parseSession(call("session_continue_here", ""));
+    }
+
     /** Runs a session action and returns the session as it stands afterwards. Resume is the launch path, not an action. */
     public NativeSession sessionAction(NativeSession.ActionId action) throws NativeApiException {
         if (action == NativeSession.ActionId.RESUME || action == NativeSession.ActionId.UNKNOWN) {

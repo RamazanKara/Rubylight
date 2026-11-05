@@ -445,4 +445,9 @@
     <string name="hevc_low_latency_on">Вкл.</string>
     <string name="hevc_low_latency_off">Выкл.</string>
     <string name="title_oled_black">Чёрный OLED</string>
+    <string name="continue_here_playing_on">%1$s запущена на %2$s</string>
+    <string name="continue_here_action">Продолжить здесь</string>
+    <string name="continue_here_stream_too">Транслировать и здесь</string>
+    <string name="continue_here_now_playing">Теперь играет %1$s</string>
+    <string name="continue_here_failed">Не удалось продолжить здесь</string>
 </resources>

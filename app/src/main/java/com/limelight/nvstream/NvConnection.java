@@ -30,6 +30,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import javax.crypto.KeyGenerator;
@@ -37,6 +38,7 @@ import javax.crypto.SecretKey;
 
 import org.xmlpull.v1.XmlPullParserException;
 
+import com.limelight.ContinueHerePolicy;
 import com.limelight.LimeLog;
 import com.limelight.R;
 import com.limelight.binding.audio.AudioPassthrough;
@@ -50,6 +52,7 @@ import com.limelight.computers.HostNotices;
 import com.limelight.computers.HostPackedModes;
 import com.limelight.nativeapi.HostEndpoint;
 import com.limelight.nativeapi.JniNativeApiTransport;
+import com.limelight.nativeapi.KnownCapabilities;
 import com.limelight.nativeapi.NativeApiClient;
 import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nativeapi.NativeApiTransport;
@@ -83,6 +86,8 @@ public class NvConnection {
     private LimelightCryptoProvider cryptoProvider;
     private String uniqueId;
     private ConnectionContext context;
+    /** How long the end of a stream waits to hear whether it moved. */
+    private static final long STREAM_MOVE_WAIT_MS = 1500;
     private NativeApiTransport nativeApiTransport = new JniNativeApiTransport();
     private volatile boolean nativeHostControl;
     private volatile boolean nativeCouchMenu;
@@ -787,6 +792,11 @@ public class NvConnection {
         if (context.streamConfig.isResumeOnly() &&
                 (app.getControl() != NvApp.Control.NONE ||
                         !app.matchesRunningApp(details.runningGameId, details.runningGameUuid))) {
+            String movedTo = streamMovedTo();
+            if (movedTo != null) {
+                context.connListener.displayMessage(appContext.getString(R.string.continue_here_now_playing, movedTo));
+                return false;
+            }
             if (details.runningGameId == 0 && context.streamConfig.isIdleSessionEndAllowed() && hasEndedSession(h)) {
                 throw new SessionEndedException();
             }
@@ -1852,6 +1862,36 @@ public class NvConnection {
             return null;
         }
         return nativeClient();
+    }
+
+    /**
+     * The device this stream moved to, or null: it did not, the PC does not say, or it did not answer in time. A
+     * recovery that goes on after that stops at the running-game check, since the PC gave the game to that device.
+     */
+    public String streamMovedTo() {
+        if (!ContinueHerePolicy.readsMoveAfterEnd(
+                NativeCapabilities.offersContinueHere(KnownCapabilities.of(hostDetails.uuid)), false)) {
+            return null;
+        }
+        NativeApiClient client = nativeClient();
+        if (client == null) {
+            return null;
+        }
+        AtomicReference<String> movedTo = new AtomicReference<>();
+        Thread read = new Thread(() -> {
+            try {
+                movedTo.set(client.streamMove().movedTo);
+            } catch (NativeApiException e) {
+                LimeLog.info("Could not ask the PC whether the stream moved: " + e.getMessage());
+            }
+        }, "Stream move");
+        read.start();
+        try {
+            read.join(STREAM_MOVE_WAIT_MS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return movedTo.get();
     }
 
     private NativeApiClient nativeClient() {

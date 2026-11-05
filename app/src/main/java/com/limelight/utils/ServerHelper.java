@@ -206,6 +206,16 @@ public class ServerHelper {
             Toast.makeText(parent, parent.getResources().getString(R.string.pair_pc_offline), Toast.LENGTH_SHORT).show();
             return;
         }
+        Runnable start = () -> startStream(parent, app, computer, managerBinder, smallStreamInputOnly, options, source);
+        if (!ContinueHereGate.handles(parent, app, computer, managerBinder,
+                ContinueHereGate.plainStart(app, smallStreamInputOnly, source), start)) {
+            start.run();
+        }
+    }
+
+    private static void startStream(Activity parent, NvApp app, ComputerDetails computer,
+                                    ComputerManagerService.ComputerManagerBinder managerBinder, boolean smallStreamInputOnly,
+                                    android.os.Bundle options, String source) {
         boolean pin = PinGate.needsPinForStream(parent, computer.uuid);
         Intent intent = createStartIntent(parent, app, computer, managerBinder, !pin, source);
         if (smallStreamInputOnly) {

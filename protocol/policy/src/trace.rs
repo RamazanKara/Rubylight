@@ -36,6 +36,7 @@ fn subject(name: &str, args: &Value) -> Result<Box<dyn Subject>, String> {
         "launch::LaunchPolicy" => crate::launch::traced(crate::launch::Traced::Launch, args),
         "launch::StreamExitPolicy" => crate::launch::traced(crate::launch::Traced::Exit, args),
         "launch::InputOnlyPolicy" => crate::launch::traced(crate::launch::Traced::InputOnly, args),
+        "continue_here::ContinueHerePolicy" => crate::continue_here::traced(args),
         _ => Err(format!("unknown subject {name}")),
     }
 }

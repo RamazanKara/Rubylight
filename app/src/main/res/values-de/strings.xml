@@ -445,4 +445,9 @@
     <string name="hevc_low_latency_on">Ein</string>
     <string name="hevc_low_latency_off">Aus</string>
     <string name="title_oled_black">OLED-Schwarz</string>
+    <string name="continue_here_playing_on">%1$s läuft auf %2$s</string>
+    <string name="continue_here_action">Hier fortsetzen</string>
+    <string name="continue_here_stream_too">Auch hier streamen</string>
+    <string name="continue_here_now_playing">Läuft jetzt auf %1$s</string>
+    <string name="continue_here_failed">Konnte hier nicht fortgesetzt werden</string>
 </resources>

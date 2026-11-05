@@ -23,7 +23,7 @@ use nightjar_core::http::native_api::session::{ActionId, CouchMenu, CouchMenuReq
 use nightjar_core::http::native_api::wake::Wake;
 use nightjar_core::http::{
     update_arrived, ClientIdentity, Coop, CoopJoined, Error, HostClient, HostUpdate, NativeCapabilities,
-    NativeLibrary, PcPower, PcPowerOffer, PowerError, PowerReply, Refusal,
+    NativeLibrary, PcPower, PcPowerOffer, PowerError, PowerReply, Refusal, StreamMove,
 };
 
 /// What the client of one host needs; Java builds it from the paired host's stored data.
@@ -44,6 +44,8 @@ pub trait Host {
     fn library(&self) -> Result<NativeLibrary, Error>;
     fn session(&self) -> Result<Session, Error>;
     fn session_action(&self, action: ActionId) -> Result<Session, Error>;
+    fn stream_move(&self) -> Result<StreamMove, Error>;
+    fn continue_here(&self) -> Result<Session, Error>;
     fn couch_menu(&self, open: bool) -> Result<CouchMenu, Error>;
     fn radeon(&self) -> Result<Radeon, Error>;
     fn write_radeon(&self, write: &SettingsWrite) -> Result<Radeon, Error>;
@@ -73,6 +75,12 @@ impl Host for HostClient {
     }
     fn session_action(&self, action: ActionId) -> Result<Session, Error> {
         HostClient::session_action(self, action)
+    }
+    fn stream_move(&self) -> Result<StreamMove, Error> {
+        HostClient::stream_move(self)
+    }
+    fn continue_here(&self) -> Result<Session, Error> {
+        HostClient::continue_here(self)
     }
     fn couch_menu(&self, open: bool) -> Result<CouchMenu, Error> {
         HostClient::couch_menu(self, open)
@@ -283,6 +291,8 @@ pub fn execute(host: &dyn Host, op: &str, argument: &str) -> String {
         }
         "library" => ok(host.library()),
         "session" => ok(host.session()),
+        "session_move" => ok(host.stream_move()),
+        "session_continue_here" => ok(host.continue_here()),
         "session_action" => {
             let action = match argument {
                 "disconnect" => ActionId::Disconnect,
@@ -472,6 +482,14 @@ mod tests {
         }
         fn session_action(&self, action: ActionId) -> Result<Session, Error> {
             self.note(&format!("action {action:?}"));
+            Fake::session(self)
+        }
+        fn stream_move(&self) -> Result<StreamMove, Error> {
+            self.note("stream move");
+            Ok(serde_json::from_str(r#"{"moved_to":{"device":"TV","since_unix_ms":5}}"#).unwrap())
+        }
+        fn continue_here(&self) -> Result<Session, Error> {
+            self.note("continue here");
             Fake::session(self)
         }
         fn radeon(&self) -> Result<Radeon, Error> {
@@ -770,6 +788,16 @@ mod tests {
         }
         // Nothing reached the host for the refused ones.
         assert_eq!(fake.calls.lock().unwrap().len(), calls);
+    }
+
+    #[test]
+    fn continue_here_and_the_move_note_reach_java() {
+        let fake = Fake::default();
+        let reply = parse(&execute(&fake, "session_move", ""));
+        assert_eq!(reply["ok"]["moved_to"]["device"], "TV");
+        let reply = parse(&execute(&fake, "session_continue_here", ""));
+        assert_eq!(reply["ok"]["revision"], 4);
+        assert_eq!(fake.calls.lock().unwrap().last().unwrap(), "continue here");
     }
 
     #[test]

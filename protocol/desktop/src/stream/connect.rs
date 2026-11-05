@@ -49,6 +49,8 @@ pub enum ConnectFailed {
     /// The PC asks the user to confirm closing the running app; the plan launches again with
     /// the answer.
     ConfirmReplace(Box<LaunchPlan>),
+    /// A recovery found that the stream moved to `device`; it stops there.
+    Moved { host: u64, app: i32, device: String },
 }
 
 /// A launch and session start running on a worker thread.
@@ -193,7 +195,9 @@ impl Connecting {
                     Ok(Some((session, facts)))
                 }
             }
-            Ok(Err(e)) => Err(if expired {
+            Ok(Err(e)) => Err(if let Some(device) = e.moved_to {
+                ConnectFailed::Moved { host: self.host_id, app: self.plan.app.id, device }
+            } else if expired {
                 ConnectFailed::Message("Automatic recovery stopped after one minute.".into())
             } else if e.asks_replace {
                 ConnectFailed::ConfirmReplace(Box::new(self.plan.clone()))
@@ -218,10 +222,29 @@ pub(super) struct ConnectError {
     pub(super) retryable: bool,
     /// The PC asks the user to confirm closing the running app.
     pub(super) asks_replace: bool,
+    /// The stream moved to this device; a reconnect must not take it back.
+    pub(super) moved_to: Option<String>,
+}
+
+/// The device a recovery's stream moved to, read before it launches: two devices must not fight
+/// over the stream. A PC that does not offer the move is not asked. One that cannot answer is
+/// not ruled out: the recovery's next attempt asks again, and the launch would stop at the
+/// running-game check, since the PC gave the game to the other device.
+fn recovery_moved_to(offered: bool, read: impl FnOnce() -> Result<nightjar_core::http::StreamMove, nightjar_core::http::Error>) -> Option<String> {
+    if !offered {
+        return None;
+    }
+    match read() {
+        Ok(read) => read.moved_to.map(|moved| moved.device),
+        Err(error) => {
+            eprintln!("nightjar: recovery: could not ask the PC whether the stream moved: {error}");
+            None
+        }
+    }
 }
 
 impl From<String> for ConnectError {
-    fn from(message: String) -> Self { Self { message, retryable: false, asks_replace: false } }
+    fn from(message: String) -> Self { Self { message, retryable: false, asks_replace: false, moved_to: None } }
 }
 
 impl From<&str> for ConnectError {
@@ -735,9 +758,15 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         client.cancel_pending_requests();
         return Err("Cancelled.".into());
     }
+    if plan.recovery.is_some() {
+        let offered = plan.info.capabilities.availability(Feature::ContinueHere) == Availability::Supported;
+        if let Some(device) = recovery_moved_to(offered, || client.stream_move()) {
+            return Err(ConnectError { message: String::new(), retryable: false, asks_replace: false, moved_to: Some(device) });
+        }
+    }
     if plan.resume {
         plan.info = client.server_info_https().map_err(|e| ConnectError {
-            retryable: recovery::transient_http(&e), message: format!("Checking the running app failed: {e}"), asks_replace: false,
+            retryable: recovery::transient_http(&e), message: format!("Checking the running app failed: {e}"), asks_replace: false, moved_to: None,
         })?;
         crate::hosts::merge_native(&mut plan.info, plan.native.as_ref());
         if !plan.info.paired || !plan.app.matches_running_app(plan.info.current_game, plan.info.current_game_uuid.as_deref()) {
@@ -819,14 +848,14 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
     let launched = match launched {
         // The answer goes out with a new launch that says it confirms.
         Err(e) if asks_replace(plan, role, &e) => {
-            return Err(ConnectError { message: e.to_string(), retryable: false, asks_replace: true })
+            return Err(ConnectError { message: e.to_string(), retryable: false, asks_replace: true, moved_to: None })
         }
         Ok(Some(launched)) => launched,
         Ok(None) => return Err(refused("The PC declined to start the app.".into())),
         Err(nightjar_core::http::Error::Status { code, message }) => {
             return Err(refused(format!("The PC could not start the app ({code}: {message}).")))
         }
-        Err(e) => return Err(ConnectError { retryable: recovery::transient_http(&e), message: format!("Starting the app failed: {e}"), asks_replace: false }),
+        Err(e) => return Err(ConnectError { retryable: recovery::transient_http(&e), message: format!("Starting the app failed: {e}"), asks_replace: false, moved_to: None }),
     };
     if interrupt.is_interrupted() {
         return Err("Cancelled.".into());
@@ -906,7 +935,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         Arc::new(pipeline::Events::new(shared)),
         interrupt,
     )
-    .map_err(|e| ConnectError { retryable: recovery::transient_start(e.stage, e.code), message: format!("Could not start the stream: {e}"), asks_replace: false })?;
+    .map_err(|e| ConnectError { retryable: recovery::transient_start(e.stage, e.code), message: format!("Could not start the stream: {e}"), asks_replace: false, moved_to: None })?;
     let outcome = session.outcome();
     keep_roam_watch(&roam_shared, watch);
     let mut facts = Facts {
@@ -1272,7 +1301,7 @@ mod replace_tests {
         for asks_replace in [true, false] {
             let (sender, result) = channel();
             let mut connecting = connecting(result, None);
-            sender.send(Err(ConnectError { message: "refused".into(), retryable: false, asks_replace })).unwrap();
+            sender.send(Err(ConnectError { message: "refused".into(), retryable: false, asks_replace, moved_to: None })).unwrap();
             match connecting.poll() {
                 Err(ConnectFailed::ConfirmReplace(plan)) => {
                     assert!(asks_replace);
@@ -1282,8 +1311,30 @@ mod replace_tests {
                     assert!(!asks_replace);
                     assert_eq!(message, "refused");
                 }
-                Ok(_) => panic!("the launch failed"),
+                Err(ConnectFailed::Moved { .. }) | Ok(_) => panic!("the launch failed"),
             }
+        }
+    }
+
+    #[test]
+    fn a_stream_that_moved_stops_its_recovery_and_says_where_it_went() {
+        use nightjar_core::http::{Error, StreamMove};
+        let moved: StreamMove = serde_json::from_str(r#"{"moved_to":{"device":"TV","since_unix_ms":1}}"#).unwrap();
+        assert_eq!(recovery_moved_to(true, || Ok(moved.clone())).as_deref(), Some("TV"));
+        assert_eq!(recovery_moved_to(true, || Ok(StreamMove::default())), None);
+        // An old PC is not even asked; one that cannot answer is asked by the next attempt.
+        assert_eq!(recovery_moved_to(false, || panic!("not asked")), None);
+        assert_eq!(recovery_moved_to(true, || Err(Error::Cancelled)), None);
+
+        // The refusal is final: not retried, and it wins over the end of the recovery window.
+        let refusal = ConnectError { message: String::new(), retryable: false, asks_replace: false, moved_to: Some("TV".into()) };
+        assert!(!refusal.retryable);
+        let (sender, result) = channel();
+        let mut connecting = connecting(result, None);
+        sender.send(Err(refusal)).unwrap();
+        match connecting.poll() {
+            Err(ConnectFailed::Moved { app, device, .. }) => assert_eq!((app, device.as_str()), (9, "TV")),
+            _ => panic!("the recovery must stop on the move"),
         }
     }
 }

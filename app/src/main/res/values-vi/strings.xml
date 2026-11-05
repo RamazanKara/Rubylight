@@ -445,4 +445,9 @@
     <string name="hevc_low_latency_on">Bật</string>
     <string name="hevc_low_latency_off">Tắt</string>
     <string name="title_oled_black">Đen OLED</string>
+    <string name="continue_here_playing_on">%1$s đang chơi trên %2$s</string>
+    <string name="continue_here_action">Tiếp tục tại đây</string>
+    <string name="continue_here_stream_too">Cũng phát tại đây</string>
+    <string name="continue_here_now_playing">Đang chơi trên %1$s</string>
+    <string name="continue_here_failed">Không thể tiếp tục tại đây</string>
 </resources>

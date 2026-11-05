@@ -862,6 +862,8 @@ fn at_150_percent_in_german_a_1280x720_window_clips_no_button() {
             Dialog::ConfirmClose { host: id, name: "A game with a rather long title".into() },
             Dialog::ConfirmQuit { host: id, start: Some((8, "Another long game title".into())), running: "A game with a rather long title".into(), resume: Some(7), named: None },
             Dialog::ConfirmReplace { app: "Another long game title".into(), running: "A game with a rather long title".into() },
+            Dialog::ContinueHere { host: id, app: 7, resume: true, name: "A game with a rather long title".into(), device: "A long name for a phone".into() },
+            Dialog::NowPlaying { host: id, app: 7, device: "A long name for a television".into() },
             Dialog::PairError { host: id, body: "PIN rejected. Generate a new one-time PIN in your host's web UI and check the passphrase.".into(), one_time: true },
             Dialog::Message { title: "Network test failed".into(), body: "The PC did not answer.".into() },
             Dialog::ConfirmSleep { host: id, ask: 1, name: "A long name for a gaming PC".into(), offer: None },

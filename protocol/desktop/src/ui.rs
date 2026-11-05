@@ -29,7 +29,7 @@ use crate::theme::*;
 use cards::*;
 use dialogs::*;
 pub use dialogs::moves_in_hotkey_dialog;
-pub use library::{policy_role, running_name};
+pub use library::{playing_elsewhere, policy_role, running_name};
 use library::*;
 pub(crate) use widgets::{focus_ring, name_for_readers, primary_button, quiet_button, toggle};
 use widgets::*;
@@ -55,6 +55,10 @@ pub enum Command {
     QuitAndLaunch { host: u64, app: i32, named: Option<i32> },
     /// Start the app the PC refused again, closing the one it runs: the answer to its prompt.
     ConfirmReplace,
+    /// Move the stream of the running game to this device, then resume it.
+    ContinueHere { host: u64, app: i32 },
+    /// Start a stream beside the other device's, as a start without the prompt does.
+    StreamHereToo { host: u64, app: i32, resume: bool },
     Pair(u64),
     PairOtp { host: u64, pin: String, passphrase: String },
     /// Add and pair the PC of a link the user confirmed.
@@ -218,6 +222,10 @@ pub enum Dialog {
     /// The PC refused to start `app` until the user confirms closing `running`. Closing the
     /// dialog any other way than confirming cancels the launch.
     ConfirmReplace { app: String, running: String },
+    /// `name` runs on `device`: move it here, stream it here too, or neither.
+    ContinueHere { host: u64, app: i32, resume: bool, name: String, device: String },
+    /// This device's stream moved to `device`.
+    NowPlaying { host: u64, app: i32, device: String },
     ConfirmClose { host: u64, name: String },
     ProfileName { id: Option<u64>, name: String, settings: Overrides, error: Option<String> },
     DeleteProfile { id: u64, name: String },

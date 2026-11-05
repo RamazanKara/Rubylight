@@ -945,6 +945,54 @@ impl Launcher {
                         });
                     });
             }
+            Dialog::ContinueHere { host, app, resume, name, device } => {
+                let (host, app, resume) = (*host, *app, *resume);
+                egui::Modal::new(Id::unique("continue-here"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new(trf("{} is playing on {}", &[&name, &device])).font(semibold(text::SECTION)));
+                        dialog_buttons(ui, |ui| {
+                            let here = primary_button(ui, "Continue here");
+                            if focus_first {
+                                here.request_focus();
+                                focused = true;
+                            }
+                            if here.clicked() {
+                                commands.push(Command::ContinueHere { host, app });
+                                close = true;
+                            }
+                            if quiet_button(ui, "Stream here too").clicked() {
+                                commands.push(Command::StreamHereToo { host, app, resume });
+                                close = true;
+                            }
+                            if quiet_button(ui, "Cancel").clicked() { close = true; }
+                        });
+                    });
+            }
+            Dialog::NowPlaying { host, app, device } => {
+                let (host, app) = (*host, *app);
+                egui::Modal::new(Id::unique("now-playing"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new(trf("Now playing on {}", &[&device])).font(semibold(text::SECTION)));
+                        dialog_buttons(ui, |ui| {
+                            let ok = primary_button(ui, "OK");
+                            if focus_first {
+                                ok.request_focus();
+                                focused = true;
+                            }
+                            if ok.clicked() { close = true; }
+                            if quiet_button(ui, "Continue here").clicked() {
+                                commands.push(Command::ContinueHere { host, app });
+                                close = true;
+                            }
+                        });
+                    });
+            }
             Dialog::ConfirmAction { host, app, name } => {
                 egui::Modal::new(Id::unique("host-action"))
                     .frame(frame)

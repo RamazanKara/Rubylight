@@ -16,6 +16,8 @@ public final class NativeCapabilities {
     public static final String LIBRARY_ADD = "library.add";
     /** POST /session/couch-menu opens the menu the host draws into this device's stream. */
     public static final String COUCH_MENU = "session.couch_menu";
+    /** POST /session/continue-here moves the running game's stream here; GET /session carries playing_on and moved_to. */
+    public static final String CONTINUE_HERE = "session.continue_here";
     /** GET /wake lists the PC's wake targets: every adapter's MAC and subnet broadcasts. */
     public static final String WAKE = "wake";
     /** USB devices this device forwards to the host during a stream (control message 0x553A). */
@@ -64,6 +66,19 @@ public final class NativeCapabilities {
     /** Whether the host offers the audio setting {@code id} and lets this device change it: View or Launch. */
     public boolean offersAudio(String id) {
         return (view || launch) && has(id);
+    }
+
+    /** Whether {@code knownJson} ({@link KnownCapabilities#of}) offers moving the game's stream to this device, which takes View and Launch. */
+    public static boolean offersContinueHere(String knownJson) {
+        if (knownJson == null) {
+            return false;
+        }
+        try {
+            NativeCapabilities capabilities = parse(new JSONObject(knownJson));
+            return capabilities.view && capabilities.launch && capabilities.has(CONTINUE_HERE);
+        } catch (JSONException e) {
+            return false;
+        }
     }
 
     /** Whether the host advertises {@code feature} (one of the constants here, or any other name). */

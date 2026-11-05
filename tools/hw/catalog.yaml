@@ -521,6 +521,18 @@ cases:
     status: pending
     note: needs Nightjar Android's folder browser (rl-clip) on main
 
+  - id: background-stream-retroid
+    device: retroid
+    title: Real background stream of a one-player game, played from the Retroid with its own pad and another window in front on the PC
+    command: 'cd {{repo}}\tools\hw; python background_stream.py up --game <exe> --nucleus <folder>; python background_stream.py start --hdr --fps 120 --app-name <app>; python background_stream.py press up,up,down; python background_stream.py shot <name>; python background_stream.py close; python background_stream.py down'
+    preconditions: [idle]
+    manages_locks: true
+    verdict: review
+    status: pending
+    pass: 'each down exit 0; the host log has "Nucleus Co-op Play pressed" once per start and "session running"; Nucleus debug-log.txt has one "--------- START ---" and one "Launching game directly" per start; ProtoInputHooks64.dll in the game; shots show the menu following the presses while another window has the focus on the PC'
+    output: '{{repo}}\..\butterpollo-release\unified\nj-background'
+    note: isolated SYSTEM host at C:\tests\webrtc-host through the release's elevation task, the game through Nucleus Co-op on its own virtual display. Set BACKGROUND_HOST to a build that trusts the Nucleus folder if it is not one the installer set up. Exit 3 means an encoder hang; stop, never retry
+
   - id: nucleus-generic-background
     device: desktop
     title: Background stream of a one-player game without a hub handler, through Rubylight's own Nucleus Co-op handler

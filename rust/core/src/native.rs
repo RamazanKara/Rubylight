@@ -11,7 +11,8 @@ use crate::library::Source;
 use crate::native_api::error::ErrorCode;
 use crate::native_api::library::{Artwork, Game, Library, Store};
 use crate::native_api::session::{
-    Action, ActionId, LauncherNotice, Owner, PlayingOn, RadeonProfile, Session, SessionApp, State,
+    Action, ActionId, LauncherNotice, MovedTo, Owner, PlayingOn, RadeonProfile, Session,
+    SessionApp, State,
 };
 use crate::remote;
 use crate::state::{App, Client};
@@ -396,6 +397,20 @@ pub fn host_control(client: &Client) -> bool {
 }
 
 /// The session as `caller` may see it, with the actions it may run.
+/// Where the caller's stream went. The device's name needs List or View, as `playing_on` does;
+/// without them the caller still learns that it moved, so it stops recovering, with no name.
+pub fn moved_view(moved: Option<MovedTo>, caller: &Client) -> Option<MovedTo> {
+    moved.map(|moved| {
+        if caller.allows(LIST) || caller.allows(VIEW) {
+            moved
+        } else {
+            MovedTo {
+                device: String::new(),
+                ..moved
+            }
+        }
+    })
+}
 pub fn session_view(snapshot: &SessionSnapshot, caller: &Client) -> Session {
     let state = snapshot.state;
     let idle = state == State::Idle;

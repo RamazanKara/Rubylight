@@ -584,11 +584,15 @@ impl Host {
         let config = self.config.read().unwrap().clone();
         // A stream that moved to another device, which runs now, gives its display up at once.
         let moved = self.moves.displays_to_release();
+        // A press waiting for its stream keeps the displays it displaced; their grace starts
+        // over if it fails.
+        let held = self.moves.displays_held();
         let expired: Vec<String> = {
             let mut displays = self.app_display.lock().unwrap();
             let mut expired = vec![];
             for (owner, (lease, paused)) in displays.iter_mut() {
-                if Arc::strong_count(lease) > 1 {
+                if Arc::strong_count(lease) > 1 || (held.contains(owner) && !moved.contains(owner))
+                {
                     *paused = None;
                 } else if moved.contains(owner)
                     || config

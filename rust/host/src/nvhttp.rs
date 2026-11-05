@@ -1392,6 +1392,14 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         }
     };
     let _transition = h.launch_transition.lock().unwrap();
+    // Whatever refuses this launch below, a press of Continue here it was for ends with it.
+    let attempt = crate::continue_here::Attempt::new(
+        &h,
+        &client.uuid,
+        matches!(control, None | Some(Control::Resume | Control::RunningGame))
+            && !args.get("input_only").is_some_and(|v| v == "1")
+            && !args.get("remote_monitor").is_some_and(|v| v == "1"),
+    );
     // A new stream: the last one's failure no longer describes it.
     h.clear_failure(&client.uuid);
     // The reply names the endpoint Moonlight called. Android and iOS read
@@ -1463,6 +1471,9 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         };
         Ok((reply.into(), format!("{scheme}://{host}:{rtsp_port}")))
     })();
+    if result.is_ok() {
+        attempt.succeeded();
+    }
     let driver_ready = result.is_ok() && butterpollo_windows::display::virtual_display_available();
     launch_response(result, requested, reply, resume, driver_ready)
 }
@@ -1737,6 +1748,7 @@ pub(crate) fn launch_webrtc(
     request: WebRtcLaunch,
 ) -> std::result::Result<Launch, WebRtcLaunchError> {
     let _transition = h.launch_transition.lock().unwrap();
+    let attempt = crate::continue_here::Attempt::new(h, &request.client.uuid, true);
     let outcome = (|| -> Result<Launch> {
         check_streaming_session(h, "launch_request")?;
         h.request_codec_probe();
@@ -1808,6 +1820,9 @@ pub(crate) fn launch_webrtc(
         launch.background = Some(coop.is_none() && validate_background_launch(h, &launch)?);
         launch_back_half(h, &args, launch, app, coop, false, owner)
     })();
+    if outcome.is_ok() {
+        attempt.succeeded();
+    }
     outcome.map_err(|error| match error.downcast_ref::<LaunchFailure>() {
         Some(LaunchFailure(404, _)) => WebRtcLaunchError::InvalidApplication,
         Some(LaunchFailure(409, message)) => WebRtcLaunchError::SessionActive((*message).into()),
@@ -1863,7 +1878,7 @@ pub(crate) fn terminate_refused(h: &Shared, client: &str) -> bool {
             .active
             .values()
             .any(|s| !s.stopping() && s.launch.role != Role::Stream);
-    remote_active && game.owner != client
+    (remote_active && game.owner != client) || h.claimed_by_other(client)
 }
 /// Unplug the controllers that streams which ended still park and wait until XInput shows them
 /// gone, so a new Nucleus Co-op session's players take the first free slots (#56). A pending
@@ -2414,6 +2429,20 @@ fn replacement_confirmed(h: &Shared, launch: &Launch, generation: &str) -> bool 
             now,
         ),
     }
+}
+/// Refuses what `validate_background_launch` would refuse of `client`'s stream of the running app,
+/// before a press of Continue here ends another device's stream for that launch.
+pub(crate) fn check_background_mode(h: &Shared, client: &Client, app_id: u32) -> Result<()> {
+    let launch = build_launch(
+        std::net::Ipv4Addr::LOCALHOST.into(),
+        &Args::new(),
+        client.clone(),
+        app_id,
+        Role::Stream,
+        [0; 16],
+        0,
+    );
+    validate_background_launch(h, &launch).map(|_| ())
 }
 fn validate_background_launch(h: &Shared, launch: &Launch) -> Result<bool> {
     if launch.role != Role::Stream {

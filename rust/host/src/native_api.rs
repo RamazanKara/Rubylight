@@ -88,6 +88,9 @@ impl From<crate::continue_here::Refused> for Failure {
                 ErrorCode::HostInUse,
                 "Guests are watching the other device's stream.",
             ),
+            crate::continue_here::Refused::Launch(message) => {
+                Self::new(ErrorCode::HostInUse, message)
+            }
         }
     }
 }
@@ -492,7 +495,7 @@ async fn session(State(h): State<Shared>, Extension(c): Extension<Connection>) -
     let snapshot = h.session_snapshot();
     let mut view = native::session_view(&snapshot, &client);
     view.microphone_busy = crate::mic::busy_for(&h, &client.uuid);
-    view.moved_to = h.moves.note_for(&client.uuid);
+    view.moved_to = native::moved_view(h.moves.note_for(&client.uuid), &client);
     Ok(json(StatusCode::OK, &view))
 }
 

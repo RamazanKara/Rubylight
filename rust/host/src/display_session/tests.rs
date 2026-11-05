@@ -654,6 +654,15 @@ pub(crate) fn retained_display(host: &Shared, config: &Config) -> Arc<Ready> {
     Ready::prepare((prepared, limiter)).unwrap().display.clone()
 }
 
+/// A kept display of an exclusive layout, whose grace is short whatever the settings say.
+pub(crate) fn retained_exclusive_display(host: &Shared, config: &Config) -> Arc<Ready> {
+    let prepared = test_prepared(host);
+    let limiter = limiter::Lease::acquire(&host.directory, config, &prepared.framegen).unwrap();
+    let mut stream = Ready::prepare((prepared, limiter)).unwrap();
+    Arc::get_mut(&mut stream.display).unwrap().exclusive_layout = true;
+    stream.display.clone()
+}
+
 fn test_prepared(host: &Shared) -> Prepared {
     let framegen = Policy::resolve(
         &Config::default(),

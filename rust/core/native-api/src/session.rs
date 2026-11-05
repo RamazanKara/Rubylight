@@ -139,8 +139,9 @@ pub struct Session {
     /// features.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub playing_on: Option<PlayingOn>,
-    /// The caller's stream moved to another device, within the last two minutes. Only when the
-    /// host lists `session.continue_here` in its features.
+    /// The caller's stream moved to another device, within the last two minutes, and that device
+    /// is on its way or streaming. Only when the host lists `session.continue_here` in its
+    /// features.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moved_to: Option<MovedTo>,
     pub actions: Vec<Action>,
@@ -157,7 +158,7 @@ pub struct PlayingOn {
 /// Where the caller's stream went, as [`Session::moved_to`] says it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MovedTo {
-    /// The device's name, as it was paired.
+    /// The device's name, as it was paired; empty for callers without List or View permission.
     pub device: String,
     pub since_unix_ms: u64,
 }

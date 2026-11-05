@@ -401,6 +401,11 @@ impl Host {
     /// teardown of a game nobody owns.
     pub fn close_game(&self, caller: &str) -> Result<Outcome, Refusal> {
         let _transition = self.transition()?;
+        // The game is on its way to the device that pressed Continue here.
+        self.settle_move();
+        if self.claimed_by_other(caller) {
+            return Err(Refusal::Busy);
+        }
         let Some((teardown, _)) = self.begin_teardown(Some(caller), |machine, facts| {
             owned_by(machine, Some(caller))?;
             machine.plan_close(facts.game_running)

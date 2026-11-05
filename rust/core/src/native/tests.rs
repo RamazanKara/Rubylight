@@ -702,3 +702,18 @@ fn the_session_serialises_like_the_spec_example() {
         json!({"id": "resume", "allowed": true})
     );
 }
+
+#[test]
+fn a_moved_note_names_the_device_only_with_list_or_view() {
+    let moved = crate::native_api::session::MovedTo {
+        device: "TV".into(),
+        since_unix_ms: 5,
+    };
+    for (perm, device) in [(LIST, "TV"), (VIEW, "TV"), (LAUNCH, ""), (0, "")] {
+        let caller = client(perm, json!({}));
+        let view = moved_view(Some(moved.clone()), &caller).expect("the move itself is told");
+        assert_eq!(view.device, device, "{perm}");
+        assert_eq!(view.since_unix_ms, 5);
+        assert!(moved_view(None, &caller).is_none());
+    }
+}

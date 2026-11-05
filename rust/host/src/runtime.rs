@@ -39,8 +39,12 @@ fn application_finished_with(
     processes: impl FnOnce() -> anyhow::Result<Vec<butterpollo_core::steam::Process>>,
     image_path: impl Fn(u32) -> Option<String>,
 ) -> bool {
-    // Between a press of Continue here and its stream, a device is on its way to the game.
-    let connected = streaming(h) || h.moves.claim_live();
+    // Between a press of Continue here and its stream a device is on its way to the game, and
+    // after a failed press the device it was taken from may still come back.
+    let streaming = streaming(h);
+    // Asked even with a stream: that one closes the window of the device that came back.
+    let awaited = h.game_awaited(streaming);
+    let connected = streaming || awaited;
     let scan_for = {
         let mut current = h.current_app.lock().unwrap();
         let Some(app) = current.as_mut() else {
@@ -605,9 +609,46 @@ mod tests {
             !application_finished(&fixture.host),
             "the game outlives the gap between the two streams"
         );
-        // The TV never came: now the last device has left.
+        // The TV never came, and the phone never left on purpose: it gets to come back.
         fixture.host.moves.expire_claim();
         fixture.host.reap_paused_display();
+        assert!(
+            !application_finished(&fixture.host),
+            "a failed move does not close the game"
+        );
+        // It did not: now the last device has left.
+        fixture.host.moves.expire_back();
+        assert!(application_finished(&fixture.host));
+    }
+
+    #[test]
+    fn the_device_that_came_back_after_a_failed_move_closes_the_game_by_leaving() {
+        let fixture = Fixture::new();
+        fixture
+            .host
+            .config
+            .write()
+            .unwrap()
+            .values
+            .insert("terminate_on_pause".into(), "true".into());
+        let app = serde_json::from_value(serde_json::json!({"name":"Desktop"})).unwrap();
+        *fixture.host.current_app.lock().unwrap() =
+            Some(crate::process::launch(&fixture.host, &app, &Default::default()).unwrap());
+        let phone = fixture.client(u32::MAX);
+        let stream = fixture.session(phone.clone(), Role::Stream);
+        assert!(!application_finished(&fixture.host));
+        let mut tv = phone.clone();
+        tv.uuid = "tv".into();
+        fixture.host.continue_here(&tv).unwrap();
+        let sessions = &fixture.host.sessions;
+        sessions.lock().unwrap().active.remove(&stream.launch.id);
+        fixture.host.moves.expire_claim();
+        fixture.host.reap_paused_display();
+        assert!(!application_finished(&fixture.host));
+        let back = fixture.session(phone, Role::Stream);
+        assert!(!application_finished(&fixture.host));
+        sessions.lock().unwrap().active.remove(&back.launch.id);
+        // Its window closed when it came back: leaving now is leaving.
         assert!(application_finished(&fixture.host));
     }
 

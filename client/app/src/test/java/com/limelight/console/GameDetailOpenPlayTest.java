@@ -498,6 +498,43 @@ public class GameDetailOpenPlayTest {
     }
 
     @Test
+    public void whatThePcSaysIsReadAgainOnceTheNetworkIsBack() throws Exception {
+        android.net.ConnectivityManager connectivity = (android.net.ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        android.net.NetworkInfo network = connectivity.getActiveNetworkInfo();
+        shadowOf(connectivity).setActiveNetworkInfo(null);
+        open(true, null, null);
+        await(() -> {
+            pass(100);
+            return ReflectionHelpers.<Boolean>getField(screen, "modelLive");
+        });
+        rig.transport.reply("tower", "session", ok(NativeApiFixtures.session("streaming", "other_device", ZELDA_APP, "[]")));
+        shadowOf(connectivity).setActiveNetworkInfo(network);
+        Dialog waiting = shown();
+        await(() -> {
+            pass(500);
+            return ShadowDialog.getLatestDialog() != waiting && ((TextView) shown().findViewById(android.R.id.message)).getText()
+                    .toString().equals(context.getString(R.string.open_play_other_device, "Tower"));
+        });
+        assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
+    }
+
+    @Test
+    public void leavingThePageEndsTheWaitForTheNetwork() throws Exception {
+        android.net.ConnectivityManager connectivity = (android.net.ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        android.net.NetworkInfo network = connectivity.getActiveNetworkInfo();
+        shadowOf(connectivity).setActiveNetworkInfo(null);
+        open(true, null, null);
+        pass(1000);
+        controller.pause();
+        shadowOf(connectivity).setActiveNetworkInfo(network);
+        pass(70_000);
+        Thread.sleep(200);
+        pass(100);
+        assertFalse(OpenPlay.armed(context));
+        assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
+    }
+
+    @Test
     public void theWaitForTheNetworkCancelsLikeTheCountdown() throws Exception {
         android.net.ConnectivityManager connectivity = (android.net.ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
         shadowOf(connectivity).setActiveNetworkInfo(null);
@@ -579,6 +616,7 @@ public class GameDetailOpenPlayTest {
         pass(3100);
         Thread.sleep(300);
         pass(100);
+        assertTrue("a failed read is not a free PC", GameDetailWakeTest.Detail.played.isEmpty());
         rig.transport.reply("tower", "session", ok(NativeApiFixtures.IDLE));
         await(() -> {
             pass(2100);

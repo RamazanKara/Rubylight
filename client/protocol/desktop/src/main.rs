@@ -1513,7 +1513,9 @@ impl App {
                     self.launcher.message(tr("Could not unpair"), e);
                 }
             }
-            Command::Remove(host) => remove_host(&mut self.hosts, &self.store, &mut self.launcher.recents, &mut self.launcher.favourites, host),
+            Command::Remove(host) => {
+                remove_host(&mut self.hosts, &self.store, &mut self.launcher.recents, &mut self.launcher.favourites, &mut self.launcher.open_game, host);
+            }
             Command::Refresh(host) => {
                 self.hosts.poll_one(host);
                 match self.launcher.screen {
@@ -2990,10 +2992,12 @@ fn remove_host(
     store: &config::Store,
     recents: &mut Vec<config::Recent>,
     favourites: &mut Vec<config::Favourite>,
+    open_game: &mut Option<config::OpenGame>,
     id: u64,
 ) {
     if let Some(unique_id) = hosts.get(id).map(|h| h.record.unique_id.clone()).filter(|id| !id.is_empty()) {
         (*recents, *favourites) = store.forget_host(&unique_id, recents, favourites);
+        *open_game = store.open_play().game;
     }
     hosts.remove(id);
     save_hosts(store, hosts);
@@ -3491,7 +3495,12 @@ mod tests {
             std::fs::write(cover, b"x").unwrap();
         }
         save_hosts(&store, &hosts);
-        remove_host(&mut hosts, &store, &mut recents, &mut favourites, gone);
+        let game = config::OpenGame { host: "gone".into(), install_id: String::new(), app_id: 1, title: "G".into() };
+        store.save_open_play(&config::OpenPlayState { game: Some(game.clone()), armed: false }).unwrap();
+        let mut open_game = Some(game);
+        remove_host(&mut hosts, &store, &mut recents, &mut favourites, &mut open_game, gone);
+        assert_eq!(open_game, None, "the settings page and game menu forget its chosen game");
+        assert_eq!(store.open_play().game, None);
         assert_eq!(store.hosts().len(), 1);
         assert_eq!(store.hosts()[0].unique_id, "kept");
         assert_eq!(recents.len(), 1);

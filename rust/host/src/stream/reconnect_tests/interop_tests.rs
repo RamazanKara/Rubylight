@@ -695,7 +695,7 @@ async fn nightjar_pairs_with_the_pin_entered_on_the_host() -> Result<()> {
         assert_eq!(pin.name, "Nightjar interop");
         assert_eq!(pin.certificate.trim(), identity.certificate_pem().trim());
         pin.sender
-            .send((entered.into(), pin.name.clone(), None))
+            .send((entered.into(), pin.name.clone(), None, None))
             .unwrap();
         let result = pairing.await??;
         if typed != entered {

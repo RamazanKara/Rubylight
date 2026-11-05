@@ -64,6 +64,9 @@ pub struct Pairing {
     /// The permissions the owner chose for this device
     /// ([`crate::state::pairing_access`]); `None` keeps the default.
     pub permission: Option<u32>,
+    /// The paired device that typed the PIN, by uuid; `None` for the console.
+    /// Lives here so the cap can't be dropped with anything but the session.
+    pub approver: Option<String>,
     phase: Phase,
     key: [u8; 16],
     server_secret: [u8; 16],
@@ -107,6 +110,7 @@ impl Pairing {
             created: Instant::now(),
             peer: None,
             permission: None,
+            approver: None,
             phase: Phase::Cert,
             key: crypto::pin_key(salt[..16].try_into().unwrap(), pin),
             server_secret: crypto::random(),

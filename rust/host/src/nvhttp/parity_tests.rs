@@ -1235,7 +1235,7 @@ async fn the_access_typed_with_a_console_pin_is_applied_and_the_first_device_get
         };
         pending
             .sender
-            .send(("4321".into(), name.into(), access))
+            .send(("4321".into(), name.into(), access, None))
             .unwrap();
         task.await.unwrap().unwrap();
         finish_pairing(&f, &client, name, "4321").await.unwrap();

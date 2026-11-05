@@ -55,8 +55,10 @@ enum Outcome {
     Paired,
     WrongPin,
 }
+/// How an approval reports back, with what its log lines name. Who approved
+/// lives on the handshake's session ([`PinEntry`](crate::state::PinEntry)), so
+/// losing this entry loses the answer and never the cap.
 struct Approval {
-    approver: String,
     approver_name: String,
     device: String,
     address: IpAddr,
@@ -125,17 +127,27 @@ fn loud_strike(h: &Host, address: IpAddr, device: &str) {
     butterpollo_windows::tray::notify(&title, &text);
 }
 
-/// What a device gets when the request `id` was approved: never more than its
-/// approver holds now. A request without an approver keeps `perm` and `extra`.
+/// What a device gets for pairing, and who approved it.
+pub(crate) struct Granted {
+    pub perm: u32,
+    pub extra: BTreeMap<String, Value>,
+    pub approver: Option<Approver>,
+}
+/// What a device gets when `approver` (a uuid, from its session) typed its PIN:
+/// never more than the approver holds now, and nothing if it may no longer
+/// approve. Without an approver, as from the console, it keeps `perm` and `extra`.
 pub(crate) fn capped(
-    h: &Host,
     state: &PairedState,
-    id: &str,
+    approver: Option<&str>,
     perm: u32,
     mut extra: BTreeMap<String, Value>,
-) -> anyhow::Result<(u32, BTreeMap<String, Value>)> {
-    let Some(uuid) = approvals(h).running.get(id).map(|a| a.approver.clone()) else {
-        return Ok((perm, extra));
+) -> anyhow::Result<Granted> {
+    let Some(uuid) = approver else {
+        return Ok(Granted {
+            perm,
+            extra,
+            approver: None,
+        });
     };
     let approver = state
         .clients
@@ -151,25 +163,27 @@ pub(crate) fn capped(
     if perm & LAUNCH_APPS != 0 && !approver.allows_coop_join() {
         extra.insert(coop::DEVICE_KEY.into(), false.into());
     }
-    Ok((perm, extra))
+    Ok(Granted {
+        perm,
+        extra,
+        approver: Some(Approver {
+            uuid: approver.uuid.clone(),
+            name: approver.name.clone(),
+        }),
+    })
 }
 
-/// The new device finished pairing. Its approver, if it had one, hears so.
-pub(crate) fn paired(h: &Host, id: &str) -> Option<Approver> {
+/// A device finished pairing with an approver, who hears so if still waiting.
+pub(crate) fn paired(h: &Host, id: &str, approver: &Approver, device: &str, address: IpAddr) {
+    let address = address.to_canonical();
     let mut approvals = approvals(h);
-    let mut approval = approvals.running.remove(id)?;
-    approvals
-        .wrong_pins
-        .remove(&(approval.address, approval.device.clone()));
+    let running = approvals.running.remove(id);
+    approvals.wrong_pins.remove(&(address, device.to_owned()));
     drop(approvals);
-    if let Some(outcome) = approval.outcome.take() {
+    if let Some(outcome) = running.and_then(|mut approval| approval.outcome.take()) {
         let _ = outcome.send(Outcome::Paired);
     }
-    tracing::warn!(approver = %approval.approver_name, client = %approval.device, address = %approval.address, "Device paired, approved from another device");
-    Some(Approver {
-        uuid: approval.approver,
-        name: approval.approver_name,
-    })
+    tracing::warn!(approver = %approver.name, client = %device, %address, "Device paired, approved from another device");
 }
 
 /// The handshake of request `id` ended without a pairing. Does nothing to a
@@ -270,7 +284,6 @@ fn send_pin(
     approvals(h).running.insert(
         body.id.clone(),
         Approval {
-            approver: client.uuid.clone(),
             approver_name: client.name.clone(),
             device: device.clone(),
             address,
@@ -281,7 +294,12 @@ fn send_pin(
     let request = pins.remove(&body.id).ok_or_else(no_request)?;
     if request
         .sender
-        .send((body.pin.clone(), device.clone(), permission))
+        .send((
+            body.pin.clone(),
+            device.clone(),
+            permission,
+            Some(client.uuid.clone()),
+        ))
         .is_err()
     {
         approvals(h).running.remove(&body.id);

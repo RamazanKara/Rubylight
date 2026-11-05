@@ -215,8 +215,9 @@ impl OneTimePins {
     }
 }
 /// What the console sends a waiting pairing request: the PIN, the device's
-/// name and the access the owner chose (`None` keeps the default).
-pub type PinEntry = (String, String, Option<u32>);
+/// name, the access the owner chose (`None` keeps the default) and the uuid of
+/// the paired device that typed the PIN (`None` from the console).
+pub type PinEntry = (String, String, Option<u32>, Option<String>);
 pub struct PendingPin {
     pub name: String,
     /// The requesting device's certificate: Moonlight's apps share one

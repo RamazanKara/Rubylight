@@ -1130,12 +1130,13 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
                 pins.remove(&id);
             }
         }
-        let (pin, name, permission) = response
+        let (pin, name, permission, approver) = response
             .context("PIN entry timed out")?
             .context("pairing cancelled")?;
         let mut pair = Pairing::new(id, name, certificate, &salt, &pin)?;
         pair.peer = Some(peer);
         pair.permission = permission;
+        pair.approver = approver;
         h.pairings.lock().unwrap().insert(pair)?;
         return Ok(vec![
             ("paired".into(), "1".into()),
@@ -1203,8 +1204,11 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
                 let mut state = h.paired.write().unwrap();
                 let perm = state.paired_device_permission(p.permission);
                 let extra = state.paired_device_extra(perm);
-                let (perm, extra) =
-                    crate::native_api::pairing::capped(&h, &state, &id, perm, extra)?;
+                let crate::native_api::pairing::Granted {
+                    perm,
+                    extra,
+                    approver,
+                } = crate::native_api::pairing::capped(&state, p.approver.as_deref(), perm, extra)?;
                 let uuid = uuid::Uuid::new_v4().to_string();
                 state.add(
                     &h.paired_path,
@@ -1219,9 +1223,9 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
                 )?;
                 drop(state);
                 tracing::info!(client=%p.name,"Client paired and saved");
-                let approver = crate::native_api::pairing::paired(&h, &id);
                 let mut paired = serde_json::json!({"device": crate::webhooks::device(&uuid, &p.name), "transport": "moonlight"});
                 if let Some(approver) = &approver {
+                    crate::native_api::pairing::paired(&h, &id, approver, &p.name, peer);
                     paired["approved_by"] = crate::webhooks::device(&approver.uuid, &approver.name);
                 }
                 h.webhook("pairing.paired", paired);

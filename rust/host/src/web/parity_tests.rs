@@ -546,7 +546,7 @@ async fn pending_pairing_requests_expire_and_pin_submission_selects_one_device()
     .await;
     assert_eq!(
         receivers[0].try_recv().unwrap(),
-        ("1234".into(), "Living room".into(), None)
+        ("1234".into(), "Living room".into(), None, None)
     );
     assert!(receivers[1].try_recv().is_err());
     assert!(!f.host.pins.lock().unwrap().contains_key("first"));

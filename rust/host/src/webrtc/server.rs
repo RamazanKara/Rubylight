@@ -1079,12 +1079,15 @@ impl Connection {
                     "The pairing request was cancelled",
                 ));
             }
-            Outcome::Entered(Ok((entered, name, _))) => {
-                match self
-                    .h
-                    .webrtc
-                    .finish_pairing(&self.h, &pairing.request_id, &entered, &name)
-                {
+            Outcome::Entered(Ok((entered, name, _, approver))) => {
+                match self.h.webrtc.finish_pairing(
+                    &self.h,
+                    &pairing.request_id,
+                    &entered,
+                    &name,
+                    approver.as_deref(),
+                    self.peer.address.ip(),
+                ) {
                     Err(code) => {
                         let text = match code {
                             ErrorCode::IncorrectPin => "The PIN does not match the one shown",

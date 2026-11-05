@@ -238,8 +238,8 @@ async fn a_right_pin_clears_the_wrong_ones() {
 #[tokio::test]
 async fn moonlights_unpair_after_a_wrong_pin_counts_at_once() {
     let f = Fixture::new();
-    let approver = other_device(&f, u32::MAX, true);
-    let (_client, id) = asking(&f, "TV").await;
+    let approver = other_device(&f, LATER_DEVICE_PERMISSION, true);
+    let (client, id) = asking(&f, "TV").await;
     let plain = Connection {
         certificate: None,
         tls: false,
@@ -261,6 +261,54 @@ async fn moonlights_unpair_after_a_wrong_pin_counts_at_once() {
         .await
     });
     reply.assert_error(422, "wrong_pin");
+    // The device dropped its own approval and finishes anyway: still capped.
+    finish_pairing(&f, &client, "TV", "1111").await.unwrap();
+    let tv = saved(&f, "TV").unwrap();
+    assert_eq!(tv.perm, LATER_DEVICE_PERMISSION);
+    assert!(!tv.extra.contains_key("pairing_approve"));
+}
+
+#[tokio::test]
+async fn an_approvers_revocation_still_counts_after_the_approval_is_dropped() {
+    let f = Fixture::new();
+    let approver = other_device(&f, PLAY_DEVICE_PERMISSION, true);
+    let (client, id) = asking(&f, "TV").await;
+    let (_, finished) = tokio::join!(approve(&f, &approver, &id, "1234"), async {
+        while !f.host.pairings.lock().unwrap().sessions.contains_key(&id) {
+            tokio::task::yield_now().await;
+        }
+        pairing::failed(&f.host, &id);
+        f.host
+            .paired
+            .write()
+            .unwrap()
+            .clients
+            .iter_mut()
+            .find(|c| c.name == "Other device")
+            .unwrap()
+            .extra
+            .remove("host_control");
+        finish_pairing(&f, &client, "TV", "1234").await
+    });
+    assert!(finished.is_err());
+    assert!(saved(&f, "TV").is_none());
+}
+
+#[test]
+fn the_approver_comes_from_the_session_and_a_missing_one_fails_closed() {
+    let f = Fixture::new();
+    other_device(&f, LATER_DEVICE_PERMISSION, true);
+    let state = f.host.paired.read().unwrap();
+    let granted = pairing::capped(
+        &state,
+        Some("other-device"),
+        PLAY_DEVICE_PERMISSION,
+        Default::default(),
+    )
+    .unwrap();
+    assert_eq!(granted.perm, LATER_DEVICE_PERMISSION);
+    assert_eq!(granted.approver.unwrap().name, "Other device");
+    assert!(pairing::capped(&state, Some("gone"), 7, Default::default()).is_err());
 }
 
 #[tokio::test]
@@ -385,10 +433,10 @@ async fn a_browser_devices_pin_is_checked_and_its_approver_named() {
     let finishing = {
         let id = id.clone();
         tokio::spawn(async move {
-            let (pin, name, access) = entered.await.unwrap();
+            let (pin, name, access, approver) = entered.await.unwrap();
             assert_eq!(access, None, "a browser device takes no access choice");
             host.webrtc
-                .finish_pairing(&host, &id, &pin, &name)
+                .finish_pairing(&host, &id, &pin, &name, approver.as_deref(), PEER.parse().unwrap())
                 .map(drop)
         })
     };
@@ -408,9 +456,9 @@ async fn a_browser_devices_pin_is_checked_and_its_approver_named() {
     let finishing = {
         let id = id.clone();
         tokio::spawn(async move {
-            let (pin, name, _) = entered.await.unwrap();
+            let (pin, name, _, approver) = entered.await.unwrap();
             host.webrtc
-                .finish_pairing(&host, &id, &pin, &name)
+                .finish_pairing(&host, &id, &pin, &name, approver.as_deref(), PEER.parse().unwrap())
                 .map(drop)
         })
     };
@@ -423,12 +471,13 @@ async fn a_browser_devices_pin_is_checked_and_its_approver_named() {
 
 #[test]
 fn an_approval_carries_no_state_a_console_pin_would_touch() {
-    // No approval registered: the console's pairings keep their permission.
+    // No approver: the console's pairings keep their permission.
     let f = Fixture::new();
     let state = f.host.paired.read().unwrap();
-    let (perm, extra) = pairing::capped(&f.host, &state, "nobody", 7, Default::default()).unwrap();
-    assert_eq!(perm, 7);
-    assert!(extra.is_empty());
+    let granted = pairing::capped(&state, None, 7, Default::default()).unwrap();
+    assert_eq!(granted.perm, 7);
+    assert!(granted.extra.is_empty());
+    assert!(granted.approver.is_none());
 }
 
 #[test]

@@ -285,7 +285,7 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 text("name").to_owned()
             };
             p.sender
-                .send((pin.into(), name, permission))
+                .send((pin.into(), name, permission, None))
                 .map_err(|_| anyhow::anyhow!("pairing request expired"))?;
             json!({"status":true})
         }
@@ -1023,7 +1023,8 @@ mod tests {
             (
                 "1234".to_owned(),
                 "moonlight".to_owned(),
-                Some(butterpollo_core::state::PLAY_DEVICE_PERMISSION)
+                Some(butterpollo_core::state::PLAY_DEVICE_PERMISSION),
+                None
             )
         );
         pin("tv", "").unwrap();

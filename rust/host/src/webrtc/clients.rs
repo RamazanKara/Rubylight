@@ -421,13 +421,17 @@ impl Registry {
 
     /// The administrator entered `entered` for the request. The PIN is
     /// compared with the TV's in constant time, once; on a match the device is
-    /// stored, named `name`, and its credentials returned.
+    /// stored, named `name`, and its credentials returned. `approver` is the
+    /// paired device that typed the PIN, if one did, and `address` where the
+    /// request came from.
     pub fn finish_pairing(
         &self,
         h: &Host,
         request_id: &str,
         entered: &str,
         name: &str,
+        approver: Option<&str>,
+        address: IpAddr,
     ) -> Result<Credentials, ErrorCode> {
         let approved = {
             let mut inner = self.inner.lock().unwrap();
@@ -441,20 +445,22 @@ impl Registry {
         // which that device must still hold.
         let default = butterpollo_core::state::LATER_DEVICE_PERMISSION;
         let capped = crate::native_api::pairing::capped(
-            h,
             &h.paired.read().unwrap(),
-            request_id,
+            approver,
             default,
             Default::default(),
         );
-        if !capped.is_ok_and(|(perm, _)| perm == default) {
-            tracing::warn!(
-                client = name,
-                "A WebRTC device's approver no longer holds what it would get"
-            );
-            crate::native_api::pairing::failed(h, request_id);
-            return Err(ErrorCode::PairingFailed);
-        }
+        let approver = match capped {
+            Ok(granted) if granted.perm == default => granted.approver,
+            _ => {
+                tracing::warn!(
+                    client = name,
+                    "A WebRTC device's approver no longer holds what it would get"
+                );
+                crate::native_api::pairing::failed(h, request_id);
+                return Err(ErrorCode::PairingFailed);
+            }
+        };
         let credentials = Credentials::generate(&mut OsRng);
         let name = if name.trim().is_empty() {
             request.client_name()
@@ -491,7 +497,8 @@ impl Registry {
         }
         let mut paired =
             json!({"device": crate::webhooks::device(&uuid, name), "transport": "webrtc"});
-        if let Some(approver) = crate::native_api::pairing::paired(h, request_id) {
+        if let Some(approver) = &approver {
+            crate::native_api::pairing::paired(h, request_id, approver, name, address);
             paired["approved_by"] = crate::webhooks::device(&approver.uuid, &approver.name);
             let (title, text) = crate::state::pairing_approved_notice(&approver.name, name);
             butterpollo_windows::tray::notify(&title, &text);

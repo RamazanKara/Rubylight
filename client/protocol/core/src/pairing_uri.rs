@@ -15,6 +15,8 @@ use core::fmt::{self, Write};
 
 /// Scheme and path of every pairing link.
 pub const PREFIX: &str = "rubylight://pair?";
+/// The same link as Windows' shell hands it to its handler: it adds the empty path's slash.
+const SHELL_PREFIX: &str = "rubylight://pair/?";
 /// The link version this module reads and writes.
 pub const VERSION: u32 = 1;
 /// The longest link read, in bytes; a real one stays far below it.
@@ -82,7 +84,7 @@ impl PairingUri {
         if uri.len() > MAX_LEN {
             return None;
         }
-        let query = uri.strip_prefix(PREFIX)?;
+        let query = uri.strip_prefix(PREFIX).or_else(|| uri.strip_prefix(SHELL_PREFIX))?;
         let mut pairs: Vec<(&str, String)> = Vec::new();
         for part in query.split('&') {
             let (key, value) = part.split_once('=')?;
@@ -280,6 +282,15 @@ mod tests {
             ..invitation()
         };
         assert_eq!(PairingUri::parse(&v6.to_uri()), Some(v6));
+    }
+
+    #[test]
+    fn a_link_reads_the_same_after_the_windows_shell_added_its_slash() {
+        let uri = invitation().to_uri();
+        let from_shell = uri.replacen(PREFIX, SHELL_PREFIX, 1);
+        assert_ne!(from_shell, uri);
+        assert_eq!(PairingUri::parse(&from_shell), Some(invitation()));
+        assert_eq!(PairingUri::parse(&uri.replacen(PREFIX, "rubylight://pair/x?", 1)), None);
     }
 
     #[test]

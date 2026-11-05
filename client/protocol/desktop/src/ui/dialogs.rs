@@ -302,8 +302,10 @@ impl Launcher {
                                     let games = hide_keys_of(host, game, &sources);
                                     commands.push(Command::SetHidden { games, hidden: actions[n] == GameAction::Hide });
                                     // Its card goes from where it is and the focus to its neighbour,
-                                    // as for Unstar below. Continue playing keeps a hidden game's card.
-                                    if !self.focused_key.as_deref().is_some_and(|key| key.starts_with("continue:")) {
+                                    // as for Unstar below. Continue playing keeps a hidden game's card,
+                                    // and so does the PC's page while it shows hidden games.
+                                    let shown_page = self.show_hidden_apps;
+                                    if !self.focused_key.as_deref().is_some_and(|key| key.starts_with("continue:") || (shown_page && key.starts_with("app:"))) {
                                         self.focused_key = self.focused_key.as_deref().and_then(|key| card_neighbour(&self.cards, key));
                                     }
                                 }

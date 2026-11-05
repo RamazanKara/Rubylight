@@ -207,7 +207,8 @@ impl Launcher {
                         let line = if item.online { trf("On {}", &[&item.host_name]) } else { trf("{} is away", &[&item.host_name]) };
                         let response = continue_card(ui, &item.title, &line, false, card_w);
                         let key = favourite_key(item);
-                        self.focus_card(&response, &key, &key, std::mem::take(&mut first));
+                        let game = console::entry_key_of(&entries, item.host, item.app_id).unwrap_or(&key);
+                        self.focus_card(&response, &key, game, std::mem::take(&mut first));
                         if response.clicked() {
                             self.open(Screen::Game { host: item.host, app: item.app_id });
                         }
@@ -254,7 +255,8 @@ impl Launcher {
                         let line = if item.online { trf("On {}", &[&item.host_name]) } else { trf("{} is away", &[&item.host_name]) };
                         let response = continue_card(ui, &item.title, &line, false, card_w);
                         let key = format!("recent:{}:{}", item.host, item.app_id);
-                        self.focus_card(&response, &key, &key, std::mem::take(&mut first));
+                        let game = console::entry_key_of(&entries, item.host, item.app_id).unwrap_or(&key);
+                        self.focus_card(&response, &key, game, std::mem::take(&mut first));
                         if response.clicked() {
                             self.open(Screen::Game { host: item.host, app: item.app_id });
                         }

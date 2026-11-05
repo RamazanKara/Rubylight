@@ -474,7 +474,7 @@ mod tests {
 
     #[test]
     fn a_portable_copy_has_no_asset_and_nothing_to_run() {
-        let net: Arc<dyn Transport> = Arc::new(crate::update_net::Native { agent: "test".into() });
+        let net: Arc<dyn Transport> = Arc::new(crate::update_net::Native::new("test".into()));
         assert_eq!(CopyKind::Portable.asset_name("4.8.0"), None);
         assert!(Steps::for_copy(&CopyKind::Portable, net.clone()).is_none());
         assert!(Steps::for_copy(&CopyKind::Managed, net).is_none());

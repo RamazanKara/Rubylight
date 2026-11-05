@@ -177,15 +177,74 @@ public class GameDetailOpenPlayTest {
     @Test
     public void anOnlinePcStartsTheGameWithTheGuardArmedUntilTheStreamClearsIt() throws Exception {
         open(true, null, null);
-        pass(2000);
+        long end = ReflectionHelpers.<Long>getField(screen, "countdownEnd");
+        pass(end - android.os.SystemClock.elapsedRealtime() - 1);
         assertTrue("not before the countdown ends", GameDetailWakeTest.Detail.played.isEmpty());
         assertFalse(OpenPlay.armed(context));
-        pass(1100);
+        pass(101);
         assertTrue(OpenPlay.armed(context));
         await(() -> !GameDetailWakeTest.Detail.played.isEmpty());
         assertEquals("Portal", GameDetailWakeTest.Detail.played.get(0));
         assertEquals("once", 1, GameDetailWakeTest.Detail.played.size());
         assertTrue(OpenPlay.armed(context));
+    }
+
+    /** The page as it ships: {@code play} itself runs, up to the stream's intent. */
+    public static class RealPlay extends GameDetailActivity {
+        @Override public boolean bindService(Intent intent, android.content.ServiceConnection connection, int flags) {
+            return false;
+        }
+
+        @Override protected com.limelight.nativeapi.ConsoleRepository createRepository(String uniqueId) {
+            return GameDetailWakeTest.Detail.repository;
+        }
+    }
+
+    @Test
+    public void theCountdownsEndStartsTheStreamAsAnAutomaticStartAndLeavesThePage() throws Exception {
+        rig = new ConsoleRig(temporary.newFolder());
+        rig.transport.reply("tower", "library", ok(library("r", game("t-portal", 11, "Portal", "steam:400", false))));
+        rig.transport.reply("tower", "session", ok(NativeApiFixtures.IDLE));
+        rig.repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", true)));
+        GameDetailWakeTest.Detail.repository = rig.repository;
+        Intent intent = new Intent(context, RealPlay.class)
+                .putExtra(GameDetailActivity.EXTRA_HOST_UUID, "tower")
+                .putExtra(GameDetailActivity.EXTRA_APP_ID, 11)
+                .putExtra(GameDetailActivity.EXTRA_TITLE, "Portal")
+                .putExtra(GameDetailActivity.EXTRA_HOST_NAME, "Tower")
+                .putExtra(GameDetailActivity.EXTRA_OPEN_PLAY, true);
+        RealPlay page = Robolectric.buildActivity(RealPlay.class, intent).setup().visible().get();
+        HostFeed pageFeed = ReflectionHelpers.getField(page, "feed");
+        ReflectionHelpers.setField(pageFeed, "binder", binder());
+        pageFeed.update(nativeHost("tower", "Tower", true));
+        pass(3100);
+        await(() -> shadowOf(page).peekNextStartedActivity() != null);
+        Intent stream = shadowOf(page).getNextStartedActivity();
+        assertEquals(com.limelight.utils.LaunchSource.OPEN_PLAY, com.limelight.utils.LaunchSource.of(stream));
+        assertTrue(OpenPlay.isAutoStart(stream));
+        assertEquals("Portal", stream.getStringExtra(com.limelight.Game.EXTRA_APP_NAME));
+        assertTrue("the stream's end lands on Home", page.isFinishing());
+        assertEquals("the automatic part is over", "OFF", ReflectionHelpers.getField(page, "auto").toString());
+        assertTrue("armed until the stream clears it", OpenPlay.armed(context));
+        pass(5000);
+        assertEquals("once", null, shadowOf(page).getNextStartedActivity());
+    }
+
+    @Test
+    public void onlyAStreamThatLastedClearsTheGuard() {
+        OpenPlayModel.use(request -> request.contains("stream_end")
+                ? "{\"ok\":{\"disarm\":true}}" : "{\"ok\":{\"countdown_ms\":3000,\"settled_ms\":10000}}");
+        android.os.Handler handler = new android.os.Handler(Looper.getMainLooper());
+        OpenPlay.arm(context);
+        OpenPlay.settleAfter(context, handler);
+        pass(9999);
+        assertTrue("not yet", OpenPlay.armed(context));
+        pass(2);
+        assertFalse("it lasted", OpenPlay.armed(context));
+        OpenPlay.arm(context);
+        handler.removeCallbacks(OpenPlay.settleAfter(context, handler));
+        pass(11000);
+        assertTrue("it stopped first", OpenPlay.armed(context));
     }
 
     /** The countdown over with a game reported running on Tower, a host that does not ask itself, whose list fails. */

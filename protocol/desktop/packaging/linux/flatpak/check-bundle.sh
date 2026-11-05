@@ -64,5 +64,6 @@ second=$(flatpak info --show-commit "$app_id")
 [[ $(cat "$NIGHTJAR_CONFIG_DIR/update-check" 2>/dev/null) == kept ]] || { echo "error: updating the bundle lost the settings in ~/.var/app" >&2; exit 1; }
 echo "flatpak: the update from $first to $second keeps the settings"
 flatpak info --show-permissions "$app_id" | grep -q 'xdg-run/gamescope-0' || { echo "error: the bundle cannot reach gamescope's socket (xdg-run/gamescope-0)" >&2; exit 1; }
+grep -q '^MimeType=.*x-scheme-handler/rubylight;' "$(flatpak info --show-location "$app_id")/export/share/applications/$app_id.desktop" || { echo "error: the bundle does not take rubylight: pairing links" >&2; exit 1; }
 flatpak uninstall --user -y --noninteractive "$app_id" >/dev/null
 echo "flatpak: the bundle installs, starts and uninstalls"

@@ -229,7 +229,8 @@ All are off unless set.
 | File | Role |
 | --- | --- |
 | `src/main.rs` | SDL setup, the main loop, switching between launcher and stream, the overlay |
-| `src/cli.rs` | `--host`, `--app` and `--quit-on-exit` for game frontends |
+| `src/cli.rs` | `--host`, `--app` and `--quit-on-exit` for game frontends, and a pairing link as the only argument |
+| `src/link_channel.rs` | Hands a pairing link to the open window (named pipe, Unix socket in `XDG_RUNTIME_DIR`) |
 | `src/gui.rs`, `src/a11y.rs` | egui input from SDL events and painting with `SDL_RenderGeometryRaw`; screen reader access |
 | `src/theme.rs` | Palette, Figtree type, the brand mark rasterized from its vector path |
 | `src/ui.rs` | The launcher: screens, navigation and focus, the header |

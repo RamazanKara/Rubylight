@@ -30,6 +30,7 @@ mod host_page;
 mod hosts;
 mod keymap;
 mod logfile;
+mod link_channel;
 mod logpipe;
 mod media;
 mod menu_style;
@@ -179,6 +180,8 @@ struct App {
     /// Host, app, resume, and Input-only through a small stream.
     network_launch: Option<(u64, i32, bool, LaunchKind)>,
     next_network_check: Instant,
+    /// A pairing link from the system, until the launcher can ask about it.
+    links: Arc<link_channel::Inbox>,
     waker: hosts::Waker,
     wake_event: u32,
     screenshot_dir: PathBuf,
@@ -300,9 +303,16 @@ fn main() {
     }
     let (args, at_sign_in) = autostart::split_sign_in(args);
     let usage_box = cli::shows_usage_box(cli::HAS_CONSOLE, &args);
-    let launch = match cli::parse(args) {
-        Ok(cli::Parsed::Gui) => None,
-        Ok(cli::Parsed::Launch(launch)) => Some(launch),
+    let (launch, link) = match cli::parse(args) {
+        Ok(cli::Parsed::Gui) => (None, None),
+        Ok(cli::Parsed::Launch(launch)) => (Some(launch), None),
+        // An open window takes the link; this start ends here, before it touches the log.
+        Ok(cli::Parsed::Link(link)) => {
+            if link_channel::send(&link) {
+                return;
+            }
+            (None, Some(link))
+        }
         Ok(cli::Parsed::Help) => {
             println!("{}", cli::USAGE);
             if usage_box {
@@ -336,7 +346,7 @@ fn main() {
         Err(e) => eprintln!("nightjar: crash dumps off: no logs folder: {e}"),
     }
     let error_box = cli::shows_error_box(launch.as_ref());
-    if let Err(e) = run(launch, open_play::Started { at_sign_in, after_setup }) {
+    if let Err(e) = run(launch, open_play::Started { at_sign_in, after_setup }, link) {
         eprintln!("nightjar: {e}");
         if error_box {
             message_box(SDL_MESSAGEBOX_ERROR, &e);
@@ -410,7 +420,7 @@ fn any_hardware_decoding<'a>(settings: &config::Settings, overrides: impl IntoIt
         || overrides.into_iter().any(|own| own.apply(settings).decoder != DecoderPreference::Software)
 }
 
-fn run(launch: Option<cli::Launch>, started: open_play::Started) -> Result<(), String> {
+fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<String>) -> Result<(), String> {
     sdl::set_hint(SDL_HINT_APP_NAME, c"Nightjar");
     sdl::set_hint(SDL_HINT_APP_ID, c"io.github.ramazankara.nightjar");
     #[cfg(windows)]
@@ -541,6 +551,17 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started) -> Result<(), S
         launcher.tearing_supported
     );
 
+    let links = Arc::new(link_channel::Inbox::default());
+    if let Some(link) = link {
+        links.put(link);
+    }
+    // A frontend's start ends with its stream, and a link waiting behind it would be lost: the
+    // link starts its own window then.
+    if launch.is_none() {
+        if let Err(e) = link_channel::listen(links.clone(), waker.clone()) {
+            eprintln!("nightjar: pairing links do not come to this window: {e}");
+        }
+    }
     let mut hosts = Hosts::new(store.hosts(), waker.clone());
     let cli = match launch {
         Some(_) if std::env::var_os("NIGHTJAR_AUTOSTREAM").is_some() => {
@@ -612,6 +633,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started) -> Result<(), S
         network_test: None,
         network_launch: None,
         next_network_check: Instant::now(),
+        links,
         waker,
         wake_event,
         screenshot_dir,
@@ -733,20 +755,40 @@ impl App {
         save_hosts(&self.store, &self.hosts);
     }
 
+    /// Adds the PC a pairing link names and pairs with its one-time PIN and certificate.
+    fn pair_link(&mut self, link: rubylight_protocol::pairing_uri::PairingUri) {
+        let id = self.hosts.add_manual(&link.host, Some(link.port));
+        self.save_hosts();
+        self.launcher.dialog = Dialog::Pairing { host: id, pin: String::new() };
+        self.hosts.pair_link(id, link);
+    }
+
+    /// Shows a link the system opened with Nightjar, once nothing else is in the way: a stream
+    /// (this runs only between them), a stream being started, an open dialog or the PIN screen.
+    fn open_waiting_link(&mut self) {
+        if self.connecting.is_some() || self.network_launch.is_some() || !self.launcher.can_open_link() {
+            return;
+        }
+        let Some(link) = self.links.take() else { return };
+        // SAFETY: window calls on the main thread with a live window.
+        unsafe {
+            if SDL_GetWindowFlags(self.window) & SDL_WINDOW_MINIMIZED != 0 {
+                SDL_RestoreWindow(self.window);
+            }
+            SDL_RaiseWindow(self.window);
+        }
+        self.launcher.open_link(&link);
+    }
+
     /// Add PC: an address adds the PC; a QR pairing link adds it and pairs with the link's
-    /// one-time PIN and certificate.
+    /// one-time PIN and certificate, at once: it was typed or pasted here on purpose.
     fn add_entry(&mut self, text: &str) {
         match hosts::parse_entry(text) {
             Ok(hosts::Entry::Address(address, port)) => {
                 self.hosts.add_manual(&address, port);
                 self.save_hosts();
             }
-            Ok(hosts::Entry::Link(link)) => {
-                let id = self.hosts.add_manual(&link.host, Some(link.port));
-                self.save_hosts();
-                self.launcher.dialog = Dialog::Pairing { host: id, pin: String::new() };
-                self.hosts.pair_link(id, *link);
-            }
+            Ok(hosts::Entry::Link(link)) => self.pair_link(*link),
             // The link holds a PIN and passphrase: it is not shown back.
             Err(hosts::LINK_INVALID) => self.launcher.message(tr("Could not pair"), tr(hosts::LINK_INVALID)),
             Err(why) => self.launcher.message(tr(why), text.trim()),
@@ -945,6 +987,7 @@ impl App {
             return;
         }
         self.repeat_navigation();
+        self.open_waiting_link();
         let test_events: Vec<_> = self.network_test.as_ref().map(|test| test.events.try_iter().collect()).unwrap_or_default();
         for event in test_events {
             match event {
@@ -1503,6 +1546,7 @@ impl App {
             }
             Command::CancelPair => self.hosts.cancel_pairing(),
             Command::AddHost(text) => self.add_entry(&text),
+            Command::PairLink(link) => self.pair_link(*link),
             Command::AddFromClipboard => match gui::clipboard_text() {
                 Some(text) if text.trim().starts_with(rubylight_protocol::pairing_uri::PREFIX) => self.add_entry(&text),
                 _ => self.launcher.message(tr("No pairing link to paste"), tr(hosts::CLIPBOARD_NO_LINK)),

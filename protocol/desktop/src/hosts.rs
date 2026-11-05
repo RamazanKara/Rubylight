@@ -500,16 +500,21 @@ pub enum Entry {
 pub fn parse_entry(text: &str) -> Result<Entry, &'static str> {
     let text = text.trim();
     if text.starts_with(PREFIX) {
-        let mut link = PairingUri::parse(text).ok_or(LINK_INVALID)?;
-        // Records keep IPv6 addresses without brackets, as typed ones are.
-        if let Some(bare) = link.host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
-            link.host = bare.to_owned();
-        }
-        return Ok(Entry::Link(Box::new(link)));
+        return parse_link(text).map(Entry::Link);
     }
     crate::config::parse_address(text)
         .map(|(address, port)| Entry::Address(address, port))
         .ok_or(ADDRESS_INVALID)
+}
+
+/// Reads a pairing link; anything else is refused with [`LINK_INVALID`].
+pub fn parse_link(text: &str) -> Result<Box<PairingUri>, &'static str> {
+    let mut link = PairingUri::parse(text.trim()).ok_or(LINK_INVALID)?;
+    // Records keep IPv6 addresses without brackets, as typed ones are.
+    if let Some(bare) = link.host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
+        link.host = bare.to_owned();
+    }
+    Ok(Box::new(link))
 }
 
 /// What a pairing attempt that reached the host says to the user.

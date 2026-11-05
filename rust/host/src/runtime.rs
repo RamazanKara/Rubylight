@@ -269,6 +269,16 @@ fn spawn_session_tick(h: &Shared, ticking: &Arc<AtomicBool>) -> bool {
     let h = h.clone();
     spawn_exclusive(ticking, move || h.session_tick())
 }
+/// The Steam, Playnite and launcher sync checks, one at a time: an older discovery reconciling last
+/// would remove an app a newer one just added, and a hung drive must not park a thread per tick.
+fn spawn_library_tick(h: &Shared, running: &Arc<AtomicBool>) -> bool {
+    let h = h.clone();
+    spawn_exclusive(running, move || {
+        crate::steam::watch(&h);
+        crate::playnite::watch(&h);
+        crate::library::watch(&h);
+    })
+}
 /// Run `work` on the blocking pool unless the previous run behind `running`
 /// has not finished. Returns whether it started.
 fn spawn_exclusive(running: &Arc<AtomicBool>, work: impl FnOnce() + Send + 'static) -> bool {
@@ -301,6 +311,7 @@ pub async fn maintain(
     let launcher_reading = Arc::new(AtomicBool::new(false));
     let mut wake_at = Instant::now();
     let waking = Arc::new(AtomicBool::new(false));
+    let library_ticking = Arc::new(AtomicBool::new(false));
     let mut hotkey = RestoreHotkey::default();
     let mut tray = butterpollo_core::tray::Tracker::default();
     let mut housekeeping: Option<tokio::task::JoinHandle<()>> = None;
@@ -347,12 +358,7 @@ pub async fn maintain(
         }
         if Instant::now() >= steam_at {
             steam_at = Instant::now() + Duration::from_secs(30);
-            let h = h.clone();
-            tokio::task::spawn_blocking(move || {
-                crate::steam::watch(&h);
-                crate::playnite::watch(&h);
-                crate::library::watch(&h);
-            });
+            spawn_library_tick(&h, &library_ticking);
         }
         if Instant::now() >= update_at {
             update_at = Instant::now() + Duration::from_secs(1);
@@ -414,6 +420,17 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
         assert!(spawn_exclusive(&running, || ()));
+    }
+
+    #[tokio::test]
+    async fn a_library_tick_in_flight_is_not_joined_by_another() {
+        let f = Fixture::new();
+        let running = Arc::new(AtomicBool::new(true));
+        assert!(!spawn_library_tick(&f.host, &running));
+        assert!(
+            running.load(Ordering::Acquire),
+            "the one in flight still holds it"
+        );
     }
 
     fn steam_app() -> crate::process::RunningApp {

@@ -164,6 +164,47 @@ fn collections_join_a_games_store_and_playnite_names_and_change_the_revision() {
 }
 
 #[test]
+fn collections_are_capped_per_game_and_per_name_and_the_cut_is_counted() {
+    let both = app(json!({"name": "Dota", "uuid": "b", "steam-id": 570, "playnite-id": "aa"}));
+    let many = |prefix: &str| -> Vec<String> {
+        (0..MAX_COLLECTIONS_PER_GAME + 5)
+            .map(|n| format!("{prefix} {n:03} {}", "é".repeat(100)))
+            .collect()
+    };
+    let scan = Scan::new(["steam:570".into()]).collecting([
+        ("steam:570".into(), many("store")),
+        (playnite_key("aa"), many("playnite")),
+    ]);
+    assert_eq!(
+        scan.collections_cut(),
+        2 * (MAX_COLLECTIONS_PER_GAME + 5 + 5),
+        "every name is too long, five of each are too many"
+    );
+    let apps = [both];
+    let library = library(&apps, Some(&scan), None);
+    let names = &library.games[0].collections;
+    assert_eq!(
+        names.len(),
+        MAX_COLLECTIONS_PER_GAME,
+        "store and Playnite together"
+    );
+    assert!(
+        names
+            .iter()
+            .all(|name| name.len() <= MAX_COLLECTION_NAME_BYTES)
+    );
+    assert!(names[0].ends_with('é'), "cut on a character: {}", names[0]);
+    let per_game = serde_json::to_string(names).unwrap().len();
+    assert!(per_game * 1000 < 4 * 1024 * 1024, "{per_game} bytes a game");
+    assert_eq!(
+        Scan::default()
+            .collecting([("steam:1".into(), vec!["VR".to_owned()])])
+            .collections_cut(),
+        0
+    );
+}
+
+#[test]
 fn not_installed_is_only_for_a_known_launcher_id_the_scan_did_not_find() {
     let steam = |name: &str, id: u32| app(json!({"name": name, "uuid": name, "steam-id": id}));
     let epic = app(

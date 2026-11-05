@@ -64,6 +64,7 @@ pub fn steamapps(root: &Path) -> Option<PathBuf> {
 /// Every installed app in the libraries of `roots` (Steam installations),
 /// with play history, names and types from the app cache, and artwork.
 pub fn discover(roots: &[PathBuf]) -> Vec<Game> {
+    let roots = &only_on_this_pc(roots);
     let libraries = libraries(roots);
     let mut games: BTreeMap<u32, Game> = BTreeMap::new();
     for steamapps in &libraries {
@@ -125,50 +126,129 @@ pub struct Collections {
     pub apps: BTreeMap<u32, Vec<String>>,
     /// Why some or all of them could not be read, for one log line.
     pub problem: Option<String>,
+    /// The file they came from, `None` when no account has one.
+    pub file: Option<PathBuf>,
+    /// The file could not be read at all, so `apps` says nothing about it ([`LastCollections`]).
+    pub failed: bool,
+}
+
+/// The last collections a file gave. A file being rewritten can fail to read for a moment, and that
+/// must not take every collection group off Home until the next scan.
+#[derive(Default)]
+pub struct LastCollections(Option<(PathBuf, BTreeMap<u32, Vec<String>>)>);
+impl LastCollections {
+    /// `read`, or the last collections its file gave when it failed. A file that reads replaces
+    /// them; another account's file or none forgets them.
+    pub fn keeping(&mut self, mut read: Collections) -> Collections {
+        match &read.file {
+            Some(file) if read.failed => match &self.0 {
+                Some((last, apps)) if last == file => read.apps = apps.clone(),
+                _ => self.0 = None,
+            },
+            Some(file) => self.0 = Some((file.clone(), read.apps.clone())),
+            None => self.0 = None,
+        }
+        read
+    }
 }
 
 /// The cloud storage file that holds an account's collections.
 const COLLECTIONS_FILE: &str = "cloud-storage-namespace-1.json";
 
-/// The account folder's collections file Steam wrote last, for the account signed in last.
-/// `loginusers.vdf` does not always say who that was.
-fn collections_file(roots: &[PathBuf]) -> Option<PathBuf> {
-    roots
-        .iter()
-        .filter(|root| on_this_pc(root))
-        .filter_map(|root| std::fs::read_dir(root.join("userdata")).ok())
-        .flat_map(|users| users.flatten())
-        .map(|user| {
-            user.path()
-                .join("config")
-                .join("cloudstorage")
-                .join(COLLECTIONS_FILE)
-        })
-        .filter_map(|file| {
-            let modified = std::fs::metadata(&file).ok()?.modified().ok()?;
-            Some((modified, file))
-        })
-        .max_by_key(|(modified, _)| *modified)
-        .map(|(_, file)| file)
+/// The most this reads of one of Steam's text files. Any user can write to Steam's folder and the
+/// host reads it as SYSTEM: a huge file must not make it allocate until it aborts.
+const MAX_STEAM_TEXT: u64 = 16 * 1024 * 1024;
+
+/// The file's text, or an error when it is over [`MAX_STEAM_TEXT`] (also one still growing).
+fn read_capped(path: &Path) -> std::io::Result<String> {
+    use std::io::Read;
+    let too_large = |size: u64| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("{size} bytes, more than the {MAX_STEAM_TEXT} this reads"),
+        )
+    };
+    let file = std::fs::File::open(path)?;
+    let size = file.metadata()?.len();
+    if size > MAX_STEAM_TEXT {
+        return Err(too_large(size));
+    }
+    let mut text = String::new();
+    file.take(MAX_STEAM_TEXT + 1).read_to_string(&mut text)?;
+    if text.len() as u64 > MAX_STEAM_TEXT {
+        return Err(too_large(text.len() as u64));
+    }
+    Ok(text)
 }
 
-/// The collections of the Steam account signed in last. Steam's format is undocumented and this
-/// never writes it: anything missing, malformed or changed leaves fewer collections and a
+/// The `userdata` folder of the account `loginusers.vdf` marks `MostRecent`: a SteamID64's low 32
+/// bits. Not every Steam writes the mark.
+fn most_recent_account(root: &Path) -> Option<String> {
+    let text = read_capped(&root.join("config").join("loginusers.vdf")).ok()?;
+    let document = Vdf::parse(&text);
+    let (id, _) = document
+        .get("users")?
+        .entries()
+        .iter()
+        .find(|(_, user)| user.get("MostRecent").and_then(Vdf::text) == Some("1"))?;
+    Some((id.parse::<u64>().ok()? & 0xFFFF_FFFF).to_string())
+}
+
+/// The collections file of the account `loginusers.vdf` marks as signed in last, when it has one;
+/// else the one Steam wrote last, of any account.
+fn collections_file(roots: &[PathBuf]) -> Option<PathBuf> {
+    let in_account = |user: PathBuf| {
+        user.join("config")
+            .join("cloudstorage")
+            .join(COLLECTIONS_FILE)
+    };
+    let roots = only_on_this_pc(roots);
+    roots
+        .iter()
+        .find_map(|root| {
+            let account = most_recent_account(root)?;
+            let file = in_account(root.join("userdata").join(account));
+            file.is_file().then_some(file)
+        })
+        .or_else(|| {
+            roots
+                .iter()
+                .filter_map(|root| std::fs::read_dir(root.join("userdata")).ok())
+                .flat_map(|users| users.flatten())
+                .map(|user| in_account(user.path()))
+                .filter_map(|file| {
+                    let modified = std::fs::metadata(&file).ok()?.modified().ok()?;
+                    Some((modified, file))
+                })
+                .max_by_key(|(modified, _)| *modified)
+                .map(|(_, file)| file)
+        })
+}
+
+/// The collections of the Steam account [`collections_file`] picks. Steam's format is undocumented
+/// and this never writes it: anything missing, malformed or changed leaves fewer collections and a
 /// [`Collections::problem`], never an error. A PC with no Steam has no problem to tell.
 pub fn collections(roots: &[PathBuf]) -> Collections {
     let Some(file) = collections_file(roots) else {
-        let steam = roots.iter().any(|root| root.join("userdata").is_dir());
+        let steam = only_on_this_pc(roots)
+            .iter()
+            .any(|root| root.join("userdata").is_dir());
         return Collections {
-            apps: BTreeMap::new(),
             problem: steam.then(|| format!("no account has {COLLECTIONS_FILE}")),
+            ..Default::default()
         };
     };
-    match std::fs::read_to_string(&file) {
+    let read = match read_capped(&file) {
         Ok(text) => parse_collections(&text),
         Err(error) => Collections {
-            apps: BTreeMap::new(),
             problem: Some(format!("{COLLECTIONS_FILE} could not be read: {error}")),
+            failed: true,
+            ..Default::default()
         },
+    };
+    Collections {
+        file: Some(file),
+        ..read
     }
 }
 
@@ -182,10 +262,12 @@ fn parse_collections(text: &str) -> Collections {
         Ok(Value::Array(entries)) => entries,
         Ok(_) => {
             collections.problem = Some(format!("{COLLECTIONS_FILE} is not a list"));
+            collections.failed = true;
             return collections;
         }
         Err(error) => {
             collections.problem = Some(format!("{COLLECTIONS_FILE} is not JSON: {error}"));
+            collections.failed = true;
             return collections;
         }
     };
@@ -273,6 +355,15 @@ fn on_this_pc(path: &Path) -> bool {
     crate::nucleus::generic::on_this_pc(&path.to_string_lossy()).is_some()
 }
 
+/// The roots on this PC's drives ([`on_this_pc`]).
+fn only_on_this_pc(roots: &[PathBuf]) -> Vec<PathBuf> {
+    roots
+        .iter()
+        .filter(|root| on_this_pc(root))
+        .cloned()
+        .collect()
+}
+
 /// The `steamapps` folders of every library of `roots` on this PC's drives.
 fn libraries(roots: &[PathBuf]) -> Vec<PathBuf> {
     let mut libraries: Vec<PathBuf> = vec![];
@@ -286,7 +377,7 @@ fn libraries(roots: &[PathBuf]) -> Vec<PathBuf> {
             continue;
         };
         add(apps.clone(), &mut libraries);
-        let folders = std::fs::read_to_string(apps.join("libraryfolders.vdf"))
+        let folders = read_capped(&apps.join("libraryfolders.vdf"))
             .map(|text| Vdf::parse(&text))
             .unwrap_or(Vdf::Object(vec![]));
         let folders = folders.get("libraryfolders").unwrap_or(&folders);
@@ -711,9 +802,14 @@ fn apply_history(root: &Path, games: &mut BTreeMap<u32, Game>) {
         return;
     };
     for user in users.flatten() {
-        let Ok(text) = std::fs::read_to_string(user.path().join("config").join("localconfig.vdf"))
-        else {
-            continue;
+        let file = user.path().join("config").join("localconfig.vdf");
+        let text = match read_capped(&file) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                tracing::warn!(%error, file = %file.display(), "Steam's play history could not be read");
+                continue;
+            }
         };
         let document = Vdf::parse(&text);
         let Some(apps) =

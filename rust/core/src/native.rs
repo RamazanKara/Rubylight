@@ -25,6 +25,11 @@ pub const LAUNCH: u32 = 1 << 26;
 pub const FILE_UPLOAD: u32 = 1 << 18;
 pub const FILE_DOWNLOAD: u32 = 1 << 19;
 
+/// The most collections `/library` names for one game, and the most bytes of one's name: with a
+/// thousand games at these limits it stays under what a client reads of it (4 MiB).
+pub const MAX_COLLECTIONS_PER_GAME: usize = 20;
+pub const MAX_COLLECTION_NAME_BYTES: usize = 100;
+
 /// The games the host's last launcher scan found installed, by `game_id`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Scan {
@@ -39,6 +44,8 @@ pub struct Scan {
     played: BTreeMap<String, u64>,
     /// The collections and categories each game is in, keyed like `played`.
     collections: BTreeMap<String, BTreeSet<String>>,
+    /// How many collection names [`Self::collecting`] left out or shortened.
+    collections_cut: usize,
 }
 impl Scan {
     pub fn new(game_ids: impl IntoIterator<Item = String>) -> Self {
@@ -48,14 +55,35 @@ impl Scan {
             folders: None,
             played: BTreeMap::new(),
             collections: BTreeMap::new(),
+            collections_cut: 0,
         }
     }
-    /// The collections these games are in, by `game_id` or [`playnite_key`].
+    /// The collections these games are in, by `game_id` or [`playnite_key`], up to
+    /// [`MAX_COLLECTIONS_PER_GAME`] a game and [`MAX_COLLECTION_NAME_BYTES`] a name.
     pub fn collecting(mut self, games: impl IntoIterator<Item = (String, Vec<String>)>) -> Self {
         for (key, names) in games {
-            self.collections.entry(key).or_default().extend(names);
+            let collected = self.collections.entry(key).or_default();
+            for mut name in names {
+                if name.len() > MAX_COLLECTION_NAME_BYTES {
+                    let end = (0..=MAX_COLLECTION_NAME_BYTES)
+                        .rev()
+                        .find(|at| name.is_char_boundary(*at))
+                        .unwrap_or(0);
+                    name.truncate(end);
+                    self.collections_cut += 1;
+                }
+                if collected.len() < MAX_COLLECTIONS_PER_GAME || collected.contains(&name) {
+                    collected.insert(name);
+                } else {
+                    self.collections_cut += 1;
+                }
+            }
         }
         self
+    }
+    /// How many collection names were left out or shortened, for one log line.
+    pub fn collections_cut(&self) -> usize {
+        self.collections_cut
     }
     /// The collections the app's game is in, its store's and its Playnite game's together, by name.
     pub fn collections(&self, app: &App) -> Vec<String> {
@@ -72,7 +100,12 @@ impl Scan {
             .filter_map(|key| self.collections.get(key))
             .flatten()
             .collect();
-        names.into_iter().cloned().collect()
+        // A game's store and Playnite names are each within the limit, together maybe not.
+        names
+            .into_iter()
+            .take(MAX_COLLECTIONS_PER_GAME)
+            .cloned()
+            .collect()
     }
     /// When the stores say these games were last played (`0` for never), by `game_id` or
     /// [`playnite_key`]. A key seen twice keeps the later time.

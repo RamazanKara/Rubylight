@@ -45,21 +45,28 @@ fn settings(h: &Shared) -> library::Settings {
 }
 #[cfg(not(test))]
 fn scan_installed(settings: library::Settings) -> Scan {
-    butterpollo_windows::library::in_background(|| read_installed(settings))
-}
-#[cfg(not(test))]
-fn read_installed(settings: library::Settings) -> Scan {
-    let discovery = butterpollo_windows::library::discover(&settings);
-    // The launcher scan leaves Steam's tools out; an app for one is still installed.
-    let roots = butterpollo_windows::steam::roots();
-    let steam = butterpollo_core::steam::discover(&roots);
-    let collections = butterpollo_core::steam::collections(&roots);
-    if let Some(problem) = &collections.problem
-        && first_time_told(problem)
+    // Only the files are read in background mode, which must hold no lock: what the scan keeps and
+    // Playnite's catalog are locked after it.
+    let (discovery, steam, collections) = butterpollo_windows::library::in_background(|| {
+        let discovery = butterpollo_windows::library::discover(&settings);
+        // The launcher scan leaves Steam's tools out; an app for one is still installed.
+        let roots = butterpollo_windows::steam::roots();
+        (
+            discovery,
+            butterpollo_core::steam::discover(&roots),
+            butterpollo_core::steam::collections(&roots),
+        )
+    });
+    let collections = LAST_COLLECTIONS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .keeping(collections);
+    if newly_told(&TOLD_PROBLEM, collections.problem.as_deref())
+        && let Some(problem) = &collections.problem
     {
-        tracing::warn!(%problem, "Steam's collections are missing from the library");
+        tracing::warn!(%problem, kept = !collections.apps.is_empty(), "Steam's collections are missing from the library");
     }
-    Scan::from_games(&discovery.games)
+    let scan = Scan::from_games(&discovery.games)
         .adding(
             steam
                 .iter()
@@ -82,7 +89,17 @@ fn read_installed(settings: library::Settings) -> Scan {
                 .into_iter()
                 .map(|(appid, names)| (format!("steam:{appid}"), names)),
         )
-        .collecting(crate::playnite::collections())
+        .collecting(crate::playnite::collections());
+    let cut = scan.collections_cut();
+    if newly_told(&TOLD_CUT, (cut > 0).then(|| cut.to_string()).as_deref()) {
+        tracing::warn!(
+            names = cut,
+            per_game = butterpollo_core::native::MAX_COLLECTIONS_PER_GAME,
+            name_bytes = butterpollo_core::native::MAX_COLLECTION_NAME_BYTES,
+            "collection names left out or shortened in the library"
+        );
+    }
+    scan
 }
 /// Tests never read the registry and the launchers' folders.
 #[cfg(test)]
@@ -90,16 +107,26 @@ fn scan_installed(_: library::Settings) -> Scan {
     Scan::default()
 }
 
+/// The last collections Steam's file gave, kept through a read that fails.
+#[cfg(not(test))]
+static LAST_COLLECTIONS: LazyLock<Mutex<butterpollo_core::steam::LastCollections>> =
+    LazyLock::new(Default::default);
 /// The last problem told about Steam's collections: a scan every few minutes says it once.
-static TOLD: Mutex<Option<String>> = Mutex::new(None);
-/// Whether this problem is not the one told last, and notes it.
-fn first_time_told(problem: &str) -> bool {
-    let mut told = TOLD.lock().unwrap_or_else(PoisonError::into_inner);
-    if told.as_deref() == Some(problem) {
+#[cfg(not(test))]
+static TOLD_PROBLEM: Mutex<Option<String>> = Mutex::new(None);
+/// The same for how many collection names the last scan cut.
+#[cfg(not(test))]
+static TOLD_CUT: Mutex<Option<String>> = Mutex::new(None);
+/// Whether there is a problem and it is not the one told last. Notes it, and a scan without one
+/// clears it, so a problem that comes back is told again.
+#[cfg_attr(test, allow(dead_code))]
+fn newly_told(told: &Mutex<Option<String>>, problem: Option<&str>) -> bool {
+    let mut told = told.lock().unwrap_or_else(PoisonError::into_inner);
+    if told.as_deref() == problem {
         return false;
     }
-    *told = Some(problem.to_owned());
-    true
+    *told = problem.map(str::to_owned);
+    problem.is_some()
 }
 
 /// The games the last launcher scan found installed, `None` before the first
@@ -388,7 +415,10 @@ fn steam_stamp() -> u64 {
 /// installed or removed in Steam, or a collection edited, reaches the next library request after
 /// one tick, whether or not the sync is on.
 pub fn watch(h: &Shared) {
-    let moved = steam_moved(&h.directory, steam_stamp());
+    watch_stamp(h, steam_stamp());
+}
+fn watch_stamp(h: &Shared, stamp: u64) {
+    let moved = steam_moved(&h.directory, stamp);
     if moved {
         invalidate(h);
     }
@@ -492,10 +522,33 @@ mod tests {
     }
 
     #[test]
-    fn a_collections_problem_is_told_once_until_another_comes() {
-        assert!(first_time_told("told-test: one"));
-        assert!(!first_time_told("told-test: one"));
-        assert!(first_time_told("told-test: two"));
+    fn a_collections_problem_is_told_once_until_another_comes_or_a_scan_has_none() {
+        let told = Mutex::new(None);
+        assert!(newly_told(&told, Some("one")));
+        assert!(!newly_told(&told, Some("one")));
+        assert!(newly_told(&told, Some("two")));
+        assert!(!newly_told(&told, None), "nothing to tell");
+        assert!(newly_told(&told, Some("two")), "it came back");
+    }
+
+    #[test]
+    fn a_moved_steam_library_rescans_on_the_next_tick_with_the_sync_off() {
+        let f = Fixture::new();
+        // Off: the tick never reaches the sync, which would read the launchers' folders.
+        f.host
+            .config
+            .write()
+            .unwrap()
+            .values
+            .insert("library_auto_sync".into(), "false".into());
+        seed(&f.host, Scan::new(["steam:570".to_owned()]));
+        let found = |h: &Shared| installed(h).is_some_and(|scan| scan.contains("steam:570"));
+        watch_stamp(&f.host, 1);
+        watch_stamp(&f.host, 1);
+        assert!(found(&f.host), "unchanged: the cached scan stands");
+        watch_stamp(&f.host, 2);
+        // Tests' scans find nothing: the seeded game goes when the new one is in.
+        wait_for(|| !found(&f.host));
     }
 
     static OPEN: AtomicBool = AtomicBool::new(false);

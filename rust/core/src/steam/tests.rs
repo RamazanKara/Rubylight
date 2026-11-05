@@ -1147,6 +1147,164 @@ fn collections_come_from_the_account_steam_wrote_last() {
     assert_eq!(collections(&[steam.path().to_owned()]).apps[&1], ["New"]);
 }
 
+/// Steam folder with accounts 1 ("Old", written an hour ago) and 2 ("New"), and a `loginusers.vdf`
+/// when `marked` names an account for `MostRecent`.
+fn steam_with_two_accounts(marked: Option<u64>) -> tempfile::TempDir {
+    let named = |name: &str| {
+        format!(r#"[["user-collections.a",{{"value":"{{\"name\":\"{name}\",\"added\":[1]}}"}}]]"#)
+    };
+    let steam = steam_with_collections("1", &named("Old"));
+    write_collections(steam.path(), "2", &named("New"));
+    std::fs::File::options()
+        .write(true)
+        .open(
+            steam
+                .path()
+                .join("userdata/1/config/cloudstorage")
+                .join(COLLECTIONS_FILE),
+        )
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(3600))
+        .unwrap();
+    if let Some(account) = marked {
+        std::fs::create_dir_all(steam.path().join("config")).unwrap();
+        let id = 76561197960265728 + account;
+        let other = id + 100;
+        std::fs::write(
+            steam.path().join("config/loginusers.vdf"),
+            format!(
+                "\"users\"\n{{\n\"{other}\"\n{{\n\"MostRecent\" \"0\"\n}}\n\"{id}\"\n{{\n\"AccountName\" \"a\"\n\"MostRecent\" \"1\"\n}}\n}}\n"
+            ),
+        )
+        .unwrap();
+    }
+    steam
+}
+
+#[test]
+fn collections_come_from_the_account_marked_most_recent_else_from_the_file_written_last() {
+    let read = |steam: &tempfile::TempDir| collections(&[steam.path().to_owned()]).apps[&1].clone();
+    assert_eq!(
+        read(&steam_with_two_accounts(Some(1))),
+        ["Old"],
+        "the mark beats the file's date"
+    );
+    assert_eq!(
+        read(&steam_with_two_accounts(None)),
+        ["New"],
+        "no mark, as on some PCs"
+    );
+    assert_eq!(
+        read(&steam_with_two_accounts(Some(9))),
+        ["New"],
+        "the marked account has no file"
+    );
+}
+
+#[test]
+fn a_steam_file_over_the_limit_is_a_problem_and_never_read() {
+    let steam = steam_with_collections("1", "[]");
+    let file = steam
+        .path()
+        .join("userdata/1/config/cloudstorage")
+        .join(COLLECTIONS_FILE);
+    let grow = |file: &Path, size: u64| {
+        std::fs::File::options()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(file)
+            .unwrap()
+            .set_len(size)
+            .unwrap();
+    };
+    grow(&file, MAX_STEAM_TEXT + 1);
+    let read = collections(&[steam.path().to_owned()]);
+    assert!(read.failed && read.apps.is_empty());
+    assert!(
+        read.problem.as_deref().is_some_and(|p| p.contains("bytes")),
+        "{:?}",
+        read.problem
+    );
+    // Play history too: the game stays unknown, as without the file.
+    let history = steam.path().join("userdata/1/config/localconfig.vdf");
+    grow(&history, MAX_STEAM_TEXT + 1);
+    let mut games = BTreeMap::from([(
+        570,
+        Game {
+            appid: 570,
+            ..Default::default()
+        },
+    )]);
+    apply_history(steam.path(), &mut games);
+    assert!(!games[&570].history);
+}
+
+#[test]
+fn a_failed_read_keeps_the_last_collections_until_the_file_reads_again() {
+    let good = |name: &str| {
+        format!(r#"[["user-collections.a",{{"value":"{{\"name\":\"{name}\",\"added\":[1]}}"}}]]"#)
+    };
+    let steam = steam_with_collections("1", &good("VR"));
+    let roots = [steam.path().to_owned()];
+    let mut last = LastCollections::default();
+    assert_eq!(last.keeping(collections(&roots)).apps[&1], ["VR"]);
+    // Caught half written: the groups stay, and the line still tells.
+    write_collections(steam.path(), "1", "[[\"user-coll");
+    let kept = last.keeping(collections(&roots));
+    assert_eq!(kept.apps[&1], ["VR"]);
+    assert!(kept.failed && kept.problem.is_some());
+    // Read again, it says what the file says now, also that a game left a collection.
+    write_collections(steam.path(), "1", &good("Couch"));
+    assert_eq!(last.keeping(collections(&roots)).apps[&1], ["Couch"]);
+    write_collections(steam.path(), "1", "[]");
+    assert!(last.keeping(collections(&roots)).apps.is_empty());
+    // Another account's file that fails gets nothing of this one's.
+    write_collections(steam.path(), "1", &good("VR"));
+    last.keeping(collections(&roots));
+    let other = steam_with_collections("2", "{ not json");
+    let read = last.keeping(collections(&[other.path().to_owned()]));
+    assert!(read.failed && read.apps.is_empty());
+    // No file at all: nothing to keep from.
+    last.keeping(collections(&roots));
+    assert_eq!(
+        last.keeping(collections(&[])),
+        Collections::default(),
+        "the file is gone"
+    );
+}
+
+#[test]
+fn roots_off_this_pc_are_not_opened_for_collections_or_games() {
+    let steam = tempfile::tempdir().unwrap();
+    let local = steam.path().to_owned();
+    let share = PathBuf::from(r"\\nas\games\Steam");
+    assert_eq!(only_on_this_pc(&[share.clone(), local.clone()]), [local]);
+    assert_eq!(
+        collections(std::slice::from_ref(&share)),
+        Collections::default()
+    );
+    assert!(discover(&[share]).is_empty());
+}
+
+#[test]
+fn the_library_stamp_moves_when_a_games_folder_comes_or_goes() {
+    let steam = tempfile::tempdir().unwrap();
+    let roots = [steam.path().to_owned()];
+    let common = steam.path().join("steamapps").join("common");
+    std::fs::create_dir_all(&common).unwrap();
+    let before = library_stamp(&roots);
+    // No manifest changes: only the folder's time can tell. Past the clock's tick.
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    std::fs::create_dir(common.join("Dota 2")).unwrap();
+    let added = library_stamp(&roots);
+    assert_ne!(added, before);
+    assert_eq!(library_stamp(&roots), added, "nothing since");
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    std::fs::remove_dir(common.join("Dota 2")).unwrap();
+    assert_ne!(library_stamp(&roots), added);
+}
+
 #[test]
 fn no_steam_is_no_problem_and_an_account_without_the_file_is_one() {
     let empty = tempfile::tempdir().unwrap();

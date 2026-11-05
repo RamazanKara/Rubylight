@@ -17,8 +17,10 @@
 #
 # -Smoke installs the result silently into a temporary folder, checks it against the zip, starts
 # `nightjar.exe --version` from it, upgrades it in place with a second run (a stale DLL goes, the
-# settings stay), uninstalls it and checks that the files, the shortcuts and the uninstall entry
-# are gone. Then it checks the settings: a plain uninstall keeps them, /REMOVESETTINGS removes them
+# settings stay), checks that /RELAUNCH starts Nightjar again and that an install that aborts stays
+# usable (the old nightjar.exe, its old DLLs, its uninstall entry, Nightjar started again),
+# uninstalls it and checks that the files, the shortcuts and the uninstall entry are gone. Then it
+# checks the settings: a plain uninstall keeps them, /REMOVESETTINGS removes them
 # but keeps the screenshots and the saved statistics. On GitHub Actions (a fresh runner) that runs
 # with this installer against the real %APPDATA%\Nightjar; anywhere else the real folder is never
 # created, moved or deleted, and a test installer built with /DTestDataDir=<temporary folder> runs
@@ -99,12 +101,47 @@ if ($env:GITHUB_ACTIONS -eq 'true') {
 }
 $config = Join-Path $data 'config'
 
-# Runs the installer or uninstaller and waits for it; Start-Process -Wait can lose the exit code.
-function Invoke-Silent([string]$file, [string[]]$arguments) {
+# Runs the installer or uninstaller, waits for it and returns its exit code; Start-Process -Wait can
+# lose the exit code.
+function Get-SilentExit([string]$file, [string[]]$arguments) {
     $process = Start-Process $file -ArgumentList (@('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') + $arguments) -PassThru
     $null = $process.Handle
     $process.WaitForExit()
-    if ($process.ExitCode -ne 0) { throw "$([IO.Path]::GetFileName($file)) $($arguments -join ' ') exited with $($process.ExitCode)" }
+    $process.ExitCode
+}
+function Invoke-Silent([string]$file, [string[]]$arguments) {
+    $code = Get-SilentExit $file $arguments
+    if ($code -ne 0) { throw "$([IO.Path]::GetFileName($file)) $($arguments -join ' ') exited with $code" }
+}
+# Every Nightjar running from the install folder ends. By the folder's unique name: the runner's
+# temporary path can be a short 8.3 one, and a process reports the long one.
+function Stop-Installed {
+    $running = @(Get-Process nightjar -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "*\$(Split-Path $dir -Leaf)\nightjar.exe" })
+    foreach ($process in $running) {
+        Stop-Process -Id $process.Id -Force
+        $null = $process.WaitForExit(10000)
+    }
+}
+# Runs Setup with /RELAUNCH, as Update now does, and checks that Nightjar came back: a process from
+# the install folder, or the log of one that had no display to stay on. Returns Setup's exit code.
+function Get-RelaunchExit([string[]]$arguments) {
+    $savedConfig = $env:NIGHTJAR_CONFIG_DIR
+    $env:NIGHTJAR_CONFIG_DIR = "$dir.config"
+    Remove-Item -Recurse -Force "$dir.config" -ErrorAction SilentlyContinue
+    try {
+        $code = Get-SilentExit $setup (@('/RELAUNCH') + $arguments)
+        $deadline = (Get-Date).AddSeconds(30)
+        $back = $false
+        while (-not $back -and (Get-Date) -lt $deadline) {
+            $back = (Test-Path "$dir.config\logs\nightjar.log") -or @(Get-Process nightjar -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "*\$(Split-Path $dir -Leaf)\nightjar.exe" }).Count -gt 0
+            if (-not $back) { Start-Sleep -Milliseconds 250 }
+        }
+        Stop-Installed
+        if (-not $back) { throw "Setup /RELAUNCH $($arguments -join ' ') did not start Nightjar again" }
+        $code
+    } finally {
+        $env:NIGHTJAR_CONFIG_DIR = $savedConfig
+    }
 }
 # Uninstalls silently and checks that the files, the shortcuts and the uninstall entry are gone.
 function Remove-Install([string[]]$arguments) {
@@ -196,6 +233,42 @@ try {
     Assert-MatchesZip
     if ((Get-FileHash $settings).Hash -ne $settingsHash) { throw "the install or the upgrade changed $settings" }
     Write-Host 'smoke: upgraded in place (stale DLL gone, files match the zip, one uninstall entry, settings kept)'
+
+    # What Update now runs: Nightjar comes back at the end.
+    $code = Get-RelaunchExit @("/LOG=`"$dir.relaunch.log`"")
+    if ($code -ne 0) { throw "Setup /RELAUNCH exited with $code" }
+    Assert-MatchesZip
+    Write-Host 'smoke: /RELAUNCH started Nightjar again'
+
+    # An install that aborts in [Files], at a file it cannot replace (it must not close this shell
+    # for it): Setup says so in its exit code, the old nightjar.exe and a DLL the new version doesn't
+    # ship are still there, the uninstall entry stands, and Nightjar comes back anyway.
+    $exe = Join-Path $dir 'nightjar.exe'
+    $stale = Join-Path $dir 'stale.dll'
+    New-TestFile $stale
+    [IO.File]::AppendAllText($exe, 'the old one')
+    $oldExe = (Get-FileHash $exe).Hash
+    $locked = [IO.File]::Open((Join-Path $dir 'nightjar.ico'), 'Open', 'Read', 'None')
+    try {
+        $code = Get-RelaunchExit @('/NOCLOSEAPPLICATIONS', "/LOG=`"$dir.abort.log`"")
+    } finally {
+        $locked.Dispose()
+    }
+    if ($code -eq 0) { throw 'an install that could not replace nightjar.ico reported success' }
+    if (-not (Test-Path $stale)) { throw 'an aborted install removed stale.dll' }
+    if ((Get-FileHash $exe).Hash -ne $oldExe) { throw 'an aborted install replaced nightjar.exe' }
+    Assert-Entry
+    $savedConfig = $env:NIGHTJAR_CONFIG_DIR
+    $env:NIGHTJAR_CONFIG_DIR = "$dir.config"
+    try {
+        $run = Start-Process $exe -ArgumentList '--version' -RedirectStandardOutput "$dir.version.txt" -PassThru
+        $null = $run.Handle
+        $run.WaitForExit()
+    } finally {
+        $env:NIGHTJAR_CONFIG_DIR = $savedConfig
+    }
+    if ($run.ExitCode -ne 0) { throw ('nightjar.exe --version after an aborted install exited with 0x{0:X8}' -f $run.ExitCode) }
+    Write-Host "smoke: an aborted install (exit $code) left the old program working and started it again"
     Remove-Install @()
     Write-Host 'smoke: uninstalled, nothing left'
 
@@ -225,6 +298,7 @@ try {
     # Leave no install behind on a failed check (and keep the first error).
     $failure = $_
     try {
+        Stop-Installed
         if (Test-Path $uninstallKey) {
             $uninstaller = Join-Path (Get-ItemProperty $uninstallKey).InstallLocation 'unins000.exe'
             if (Test-Path $uninstaller) { Invoke-Silent $uninstaller @() }
@@ -234,7 +308,7 @@ try {
     }
     throw $failure
 } finally {
-    Remove-Item -Recurse -Force "$dir.install.log", "$dir.upgrade.log", "$dir.version.txt", "$dir.config", "$dir.zip", "$dir.test-setup" -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force "$dir.install.log", "$dir.upgrade.log", "$dir.relaunch.log", "$dir.abort.log", "$dir.version.txt", "$dir.config", "$dir.zip", "$dir.test-setup" -ErrorAction SilentlyContinue
     # Only the temporary folder: never the real %APPDATA%\Nightjar.
     if ($data -eq "$dir.data") { Remove-Item -Recurse -Force $data -ErrorAction SilentlyContinue }
 }

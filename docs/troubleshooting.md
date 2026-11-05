@@ -86,7 +86,7 @@ The picture and sound reach a browser over UDP, on a port of their own (`webrtc_
 | The page says | What it means and what to do |
 | --- | --- |
 | "This browser does not stream from this PC's loopback address" | Firefox on the PC itself, with a host that only listens on `127.0.0.1`. Firefox makes no attempt to reach a loopback address. Remove `--bind 127.0.0.1`, or use Chrome or Edge. |
-| "This browser did not try to reach the PC" (or "Your browser did not try") | The browser sent nothing. A setting or extension that limits WebRTC (an ad blocker's WebRTC protection, `media.peerconnection.enabled` in Firefox), or a VPN, usually causes it: turn it off for this page. |
+| "This browser did not try to reach the PC" (or "Your browser did not try") | The browser sent nothing. A setting or extension that limits WebRTC (an ad blocker's WebRTC protection, `media.peerconnection.ice.proxy_only` in Firefox), or a VPN, usually causes it: turn it off for this page. |
 | "The PC did not answer at *address*, UDP port *port*" | The browser sent to that address and nothing came back within 8 seconds. Allow `butterpollo.exe` or that UDP port through the firewall on the PC, including other security software. Setup adds a Windows Firewall rule for the program, so a block usually comes from something else. Check that no VPN on the device takes the traffic away from the PC. |
 | "Your browser could not reach the PC on UDP port *port*" | The same, for a guest. Forward that UDP port to the PC ([ports](browser-guests.md)), or connect over Tailscale. |
 | "...reached the PC, but the encrypted connection to it failed" | The PC answered and the DTLS handshake failed. Try again. If it keeps failing, antivirus or a firewall that inspects traffic may be in the way. |

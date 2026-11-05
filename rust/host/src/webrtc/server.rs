@@ -513,6 +513,15 @@ struct Connection {
     streaming: Option<Streaming>,
     /// The session actor, started with the first session request.
     session: Option<Commands>,
+    /// This connection's page has said why its peer connection failed ([`client_line_is_loud`]).
+    reported_failure: bool,
+}
+
+/// Whether a `client-log` line goes in a default log; the others are for debugging. A page's report
+/// that its peer connection failed has what the host can't see, the reason and the browser, and a
+/// client gets one such line per connection.
+fn client_line_is_loud(line: &str, reported: &mut bool) -> bool {
+    line.starts_with("connection failed:") && !std::mem::replace(reported, true)
 }
 
 struct Streaming {
@@ -534,6 +543,7 @@ impl Connection {
             unauthenticated_until: tokio::time::Instant::now() + limits.unauthenticated,
             streaming: None,
             session: None,
+            reported_failure: false,
         }
     }
 }
@@ -865,7 +875,11 @@ impl Connection {
             ClientMessage::ClientLog { lines } => {
                 let name = self.client.as_ref().map_or("", |c| c.name.as_str());
                 for line in lines {
-                    tracing::debug!(device = name, "WebRTC client: {line}");
+                    if client_line_is_loud(&line, &mut self.reported_failure) {
+                        tracing::warn!(device = name, "WebRTC client: {line}");
+                    } else {
+                        tracing::debug!(device = name, "WebRTC client: {line}");
+                    }
                 }
             }
         }
@@ -1277,6 +1291,21 @@ pub(crate) mod tests {
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpStream,
     };
+
+    #[test]
+    fn a_pages_connection_failure_reaches_a_default_log_once_per_connection() {
+        let mut reported = false;
+        assert!(!client_line_is_loud("decoder started", &mut reported));
+        assert!(!reported);
+        assert!(client_line_is_loud(
+            "connection failed: no-answer, offered 192.168.4.69:8001, Firefox/159.0",
+            &mut reported
+        ));
+        assert!(!client_line_is_loud(
+            "connection failed: the same page again",
+            &mut reported
+        ));
+    }
 
     #[test]
     fn a_refusal_log_is_one_line_in_ten_seconds_with_the_skipped_count() {

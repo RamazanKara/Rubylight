@@ -293,6 +293,11 @@ impl Run {
             Reach::Offline if self.at_sign_in => in_time(Step::Wait),
             Reach::Offline => Step::Failed(Some(trf("{} is offline and has no address to wake it at.", &[&pc]))),
             Reach::Online if !host.paired => Step::Failed(Some(trf("{} is not paired.", &[&pc]))),
+            // Before what the session says: the other device may have stopped during the countdown too.
+            Reach::Online if host.reads.is_some_and(|r| r.answered <= self.session_reads_before) => {
+                let asked = host.reads.is_some_and(|r| r.asked > self.session_reads_before);
+                in_time(if asked { Step::Wait } else { Step::ReadSession })
+            }
             Reach::Online if host.session == SessionSeen::Elsewhere => {
                 Step::Stopped(trf("A game on {} is playing on another device, so Nightjar opened as usual.", &[&pc]))
             }
@@ -302,10 +307,6 @@ impl Run {
                 Step::Count(0)
             }
             Reach::Online if host.session == SessionSeen::Waiting => in_time(Step::Wait),
-            Reach::Online if host.reads.is_some_and(|r| r.answered <= self.session_reads_before) => {
-                let asked = host.reads.is_some_and(|r| r.asked > self.session_reads_before);
-                in_time(if asked { Step::Wait } else { Step::ReadSession })
-            }
             Reach::Online => match &host.apps {
                 AppsSeen::NotLoaded if !apps_asked => {
                     self.phase = Phase::Starting { wake_asked, apps_asked: true, since, shown };
@@ -765,6 +766,18 @@ mod tests {
         let end = now + Duration::from_millis(policy::COUNTDOWN_MS);
         assert_eq!(run.next(&reading(5, 5, SessionSeen::Free), end), Step::Begin);
         assert!(matches!(run.next(&reading(6, 6, SessionSeen::Elsewhere), end), Step::Stopped(_)));
+    }
+
+    #[test]
+    fn a_game_that_ended_during_the_countdown_does_not_stop_the_start() {
+        let now = Instant::now();
+        let mut run = Run::new(target());
+        assert_eq!(run.next(&ready(), now), Step::Count(3));
+        let end = now + Duration::from_millis(policy::COUNTDOWN_MS);
+        let elsewhere = SessionSeen::Elsewhere;
+        assert_eq!(run.next(&reading(5, 5, elsewhere), end), Step::Begin);
+        assert_eq!(run.next(&reading(5, 5, elsewhere), end), Step::ReadSession, "that says who played before the end");
+        assert_eq!(run.next(&reading(6, 6, SessionSeen::Free), end), Step::Start(7));
     }
 
     #[test]

@@ -34,6 +34,18 @@
   #define OutputBaseName "nightjar-desktop-" + AppVersion + "-windows-x86_64-setup"
 #endif
 
+; The DLLs this Setup ships, as |a.dll|b.dll|, for RemoveStaleDlls.
+#define ShippedDlls "|"
+#define DllFind
+#define DllFound
+#sub AddShippedDll
+  #expr ShippedDlls = ShippedDlls + LowerCase(FindGetFileName(DllFind)) + "|"
+#endsub
+#for {DllFind = DllFound = FindFirst(SourceDir + "\*.dll", 0); DllFound; DllFound = FindNext(DllFind)} AddShippedDll
+#if DllFind
+  #expr FindClose(DllFind)
+#endif
+
 [Setup]
 ; The AppId ties upgrades and the uninstall entry together: never change it.
 AppId={{6A3C8F12-5E7B-4D2A-9C41-7B0E8D3F2A65}
@@ -97,15 +109,18 @@ de.RemoveSettings=&Diese auch entfernen (Screenshots und Statistiken bleiben)
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [InstallDelete]
-; An upgrade replaces the libraries: a DLL the new version no longer ships (another FFmpeg
-; version) must not stay behind. Only over Nightjar's own previous install (the folder its
-; uninstall entry names), never in a folder a first install was pointed at with /DIR.
-Type: files; Name: "{app}\*.dll"; Check: IsUpgradeOfThisFolder
+; Only the license texts, which nothing needs to start. The libraries an upgrade no longer ships
+; go after it succeeded (RemoveStaleDlls): this runs before [Files], and neither these deletions
+; nor a file [Files] replaced is restored when the install aborts. Only over Nightjar's own previous
+; install (the folder its uninstall entry names), never in a folder a first install was pointed at
+; with /DIR.
 Type: filesandordirs; Name: "{app}\licenses-*"; Check: IsUpgradeOfThisFolder
 
 [Files]
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "\nightjar.exe"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\icons\nightjar.ico"; DestDir: "{app}"; Flags: ignoreversion
+; Last: an install that aborts leaves the old program with every library it had, or a complete new one.
+Source: "{#SourceDir}\nightjar.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\Nightjar"; Filename: "{app}\nightjar.exe"; IconFilename: "{app}\nightjar.ico"; Comment: "Stream games from your PC"
@@ -118,6 +133,9 @@ Filename: "{app}\nightjar.exe"; Description: "{cm:LaunchProgram,Nightjar}"; Flag
 const
   // The entry Setup writes for the AppId above (per user, so under HKCU).
   UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{6A3C8F12-5E7B-4D2A-9C41-7B0E8D3F2A65}_is1';
+
+var
+  WasUpgrade: Boolean;
 
 // True when {app} is the folder of the Nightjar this Setup upgrades.
 function IsUpgradeOfThisFolder(): Boolean;
@@ -237,6 +255,35 @@ begin
   for I := 1 to ParamCount() do
     if CompareText(ParamStr(I), '/REMOVESETTINGS') = 0 then
       Result := True;
+end;
+
+// After a successful upgrade only: a DLL the new version no longer ships (another FFmpeg version)
+// must not stay behind.
+procedure RemoveStaleDlls();
+var
+  Found: TFindRec;
+  Folder: String;
+begin
+  Folder := ExpandConstant('{app}\');
+  if FindFirst(Folder + '*.dll', Found) then begin
+    try
+      repeat
+        if (Pos('|' + Lowercase(Found.Name) + '|', '{#ShippedDlls}') = 0) and not DeleteFile(Folder + Found.Name) then
+          Log('Could not remove the old ' + Found.Name);
+      until not FindNext(Found);
+    finally
+      FindClose(Found);
+    end;
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  // Asked before the install: it rewrites the entry IsUpgradeOfThisFolder reads.
+  if CurStep = ssInstall then
+    WasUpgrade := IsUpgradeOfThisFolder()
+  else if (CurStep = ssPostInstall) and WasUpgrade then
+    RemoveStaleDlls();
 end;
 
 // Nightjar's Update now (self_update.rs) exits and runs Setup silently with /RELAUNCH, so it needs

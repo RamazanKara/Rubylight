@@ -473,8 +473,13 @@ mod tests {
         assert!(iss.contains("AppId={{6A3C8F12-5E7B-4D2A-9C41-7B0E8D3F2A65}"), "the same install is upgraded");
         assert!(iss.contains("DisableDirPage=yes") && !iss.contains("UsePreviousAppDir=no"), "the same folder");
         assert!(iss.contains("procedure DeinitializeSetup") && iss.contains("'/RELAUNCH'"), "Nightjar comes back");
-        let data = iss.split("[InstallDelete]").nth(1).unwrap().split("[Files]").next().unwrap();
+        let data = iss.split("\n[InstallDelete]\n").nth(1).unwrap().split("\n[Files]\n").next().unwrap();
         assert!(!data.contains("userappdata") && !data.contains("config"), "an upgrade deletes nothing of the user's");
+        assert!(!data.lines().any(|line| line.starts_with("Type:") && line.contains(".dll")), "no library goes before [Files]: an abort wouldn't bring it back");
+        assert!(iss.contains("(CurStep = ssPostInstall) and WasUpgrade"), "old libraries go only after success");
+        let files = iss.split("\n[Files]\n").nth(1).unwrap().split("\n[Icons]\n").next().unwrap();
+        let last = files.lines().rfind(|line| line.starts_with("Source:")).unwrap();
+        assert!(last.contains(r"\nightjar.exe"), "the program is replaced last: {last}");
         #[cfg(windows)]
         assert!(UNINSTALL_KEY.contains("{6A3C8F12-5E7B-4D2A-9C41-7B0E8D3F2A65}_is1") && iss.contains(UNINSTALL_KEY));
     }

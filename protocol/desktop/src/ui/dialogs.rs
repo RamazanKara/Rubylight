@@ -405,7 +405,13 @@ impl Launcher {
                         });
                     });
             }
-            Dialog::ConfirmLink { link } => {
+            Dialog::ConfirmLink { link, shown } => {
+                let now = ctx.input(|i| i.time);
+                let waited = now - *shown.get_or_insert(now);
+                let may_pair = waited >= PAIR_LINK_DELAY;
+                if !may_pair {
+                    ctx.request_repaint_after(std::time::Duration::from_secs_f64(PAIR_LINK_DELAY - waited));
+                }
                 let name = link.shown_name();
                 let shown: &str = if name.is_empty() { tr("the PC") } else { &name };
                 let title = trf("Pair with {}", &[&shown]);
@@ -417,7 +423,7 @@ impl Launcher {
                         ui.label(RichText::new(title).font(semibold(text::SECTION)));
                         ui.label(RichText::new(trf("Address: {}", &[&link.shown_address()])).color(ON_SURFACE_VARIANT));
                         dialog_buttons(ui, |ui| {
-                            if primary_button(ui, "Pair").clicked() {
+                            if ui.add_enabled_ui(may_pair, |ui| primary_button(ui, "Pair")).inner.clicked() {
                                 commands.push(Command::PairLink(link.clone()));
                                 close = true;
                             }

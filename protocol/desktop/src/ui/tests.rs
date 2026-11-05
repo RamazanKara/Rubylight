@@ -4550,6 +4550,8 @@ fn a_link_from_outside_pairs_only_when_pair_is_chosen() {
     f.l.open_link(&uri);
     f.settle();
     assert!(f.ctx.memory(|m| m.focused()).is_some(), "a control has focus");
+    f.time += 1.0;
+    f.settle();
     pad_press(&mut f, Key::ArrowRight);
     let events = f.l.controller_key(&f.ctx, Key::Enter);
     let commands = f.frame(events);
@@ -4557,6 +4559,31 @@ fn a_link_from_outside_pairs_only_when_pair_is_chosen() {
     assert_eq!(chosen.map(|chosen| **chosen == link), Some(true), "the link as it was opened");
     f.settle();
     assert!(f.no_dialog());
+}
+
+#[test]
+fn pair_only_works_once_the_question_has_been_there_a_second() {
+    let mut f = Frames::new(record("Desk", true, false), Reach::Online);
+    f.l.open_link(&opened_link("Wohnzimmer").to_uri());
+    f.settle();
+    let tr_pair = tr("Pair");
+    let pair = f.placed.iter().find(|(t, ..)| t == tr_pair).expect("Pair is drawn").1.center();
+    // The controller cannot reach it yet: focus stays on Cancel.
+    let cancel_focus = f.ctx.memory(|m| m.focused());
+    assert!(cancel_focus.is_some());
+    pad_press(&mut f, Key::ArrowRight);
+    assert_eq!(f.ctx.memory(|m| m.focused()), cancel_focus);
+    // A click meant for what was there before lands on it, and the question stays.
+    assert!(!pairs(&f.click_at(pair, egui::PointerButton::Primary)));
+    assert!(matches!(f.l.dialog, Dialog::ConfirmLink { .. }));
+    f.time += 1.0;
+    f.settle();
+    assert!(pairs(&f.click_at(pair, egui::PointerButton::Primary)));
+    assert!(f.no_dialog());
+    // The next question starts its own wait.
+    f.l.open_link(&opened_link("Studio").to_uri());
+    f.settle();
+    assert!(!pairs(&f.click_at(pair, egui::PointerButton::Primary)));
 }
 
 #[test]

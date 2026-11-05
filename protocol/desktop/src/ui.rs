@@ -201,8 +201,9 @@ pub enum Dialog {
     AddHost { text: String, error: Option<String> },
     Pairing { host: u64, pin: String },
     /// A pairing link the system opened with Nightjar: any web page can open one, so nothing is
-    /// added or paired until Pair is chosen here.
-    ConfirmLink { link: Box<rubylight_protocol::pairing_uri::PairingUri> },
+    /// added or paired until Pair is chosen here. `shown` is when it first appeared (egui's time):
+    /// Pair stays off for a moment, so a click meant for what was there before cannot land on it.
+    ConfirmLink { link: Box<rubylight_protocol::pairing_uri::PairingUri>, shown: Option<f64> },
     NetworkTest { stage: String },
     Otp { host: u64, pin: String, passphrase: String, error: Option<String> },
     Message { title: String, body: String },
@@ -386,6 +387,8 @@ pub struct View<'a> {
 }
 
 const CONTENT_MAX: f32 = 1760.0;
+/// Seconds a pairing link's question shows before Pair can be chosen.
+const PAIR_LINK_DELAY: f64 = 1.0;
 /// The column of settings rows: settings, a PC's details, the profile and shortcut lists.
 const SETTINGS_W: f32 = 760.0;
 
@@ -697,7 +700,7 @@ impl Launcher {
     /// PIN and passphrase.
     pub fn open_link(&mut self, text: &str) {
         match crate::hosts::parse_link(text) {
-            Ok(link) => self.ask(Dialog::ConfirmLink { link }),
+            Ok(link) => self.ask(Dialog::ConfirmLink { link, shown: None }),
             Err(why) => self.message(tr("Could not pair"), tr(why)),
         }
     }

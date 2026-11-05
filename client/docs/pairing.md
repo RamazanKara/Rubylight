@@ -44,7 +44,11 @@ Scanned in Nightjar or pasted there, Nightjar adds the PC at the code's address 
 
 Android, and the Windows installer and the Linux packages (including the Flatpak), make Nightjar the handler of `rubylight:` links. The portable Windows zip and a Linux archive or AppImage that was not integrated into the desktop do not register it; paste the link there.
 
-Any web page can open a link, so a link opened from outside Nightjar never pairs on its own. Nightjar first asks, naming the PC and its address, with **Pair** and **Cancel**; focus starts on **Cancel**, and a controller reaches both. Nothing is added or paired before **Pair**, and the certificate check above still applies. A name in a link is the link's claim, so check the address. A link that is not valid, including one of another version or a very long one, is refused like a pasted one.
+Any web page can open a link, so a link opened from outside Nightjar never pairs on its own. Nightjar first asks, naming the PC and its address, with **Pair** and **Cancel**; focus starts on **Cancel**, and a controller reaches both. **Pair** stays off for a second after the question appears or changes, so a click meant for something else cannot land on it. Nothing is added or paired before **Pair**, and the certificate check above still applies. A name in a link is the link's claim, so check the address. A link that is not valid, including one of another version or a very long one, is refused like a pasted one.
+
+A link cannot move a PC Nightjar knows. If a PC paired here has a certificate other than the one the link names, a link to its address is refused, and so is an address that answers with its identity. A PC's own link still finds it at a new address.
+
+On Android, the question opens in its own window, and it leaves no entry in Recents. A link that arrives during a stream or a pairing waits for it to end, and only the newest link waits.
 
 On Windows and Linux, a link goes to the window that is already open, and that window comes to the front. It waits for a running stream or an open dialog to end, and only the newest link waits. With no window open, the link opens one. Nightjar otherwise starts as usual, and more than one window can be open; the first one takes the links.
 

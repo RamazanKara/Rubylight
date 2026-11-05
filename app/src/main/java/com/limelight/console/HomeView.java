@@ -14,8 +14,11 @@ public final class HomeView {
      */
     public enum Layout { GRID, LIST, ROWS }
 
-    /** A part per store, the games apart from the apps of no store (launchers, the desktop), or one library. */
-    public enum Group { STORE, TYPE, NONE }
+    /**
+     * A part per store, the games apart from the apps of no store (launchers, the desktop), a part per collection the
+     * PCs name, or one library. Stored by name.
+     */
+    public enum Group { STORE, TYPE, COLLECTION, NONE }
 
     public enum Size {
         SMALL(0.75f), MEDIUM(1f), LARGE(1.3f);
@@ -60,6 +63,11 @@ public final class HomeView {
         prefs.edit().putString(KEY_LAYOUT, layout.name().toLowerCase(java.util.Locale.ROOT))
                 .putString(KEY_GROUP, group.name().toLowerCase(java.util.Locale.ROOT))
                 .putString(KEY_SIZE, size.name().toLowerCase(java.util.Locale.ROOT)).apply();
+    }
+
+    /** The groupings the View sheet offers: Collection only while the PCs name any. */
+    public static Group[] offeredGroups(boolean collections) {
+        return collections ? Group.values() : new Group[] {Group.STORE, Group.TYPE, Group.NONE};
     }
 
     public HomeView with(Layout next) {

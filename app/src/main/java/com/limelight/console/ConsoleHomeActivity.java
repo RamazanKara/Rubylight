@@ -238,9 +238,20 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                     for (View part : sizeSection) part.setVisibility(view.layout == HomeView.Layout.LIST ? View.GONE : View.VISIBLE);
                 });
         sheet.addSection(R.string.home_view_group);
-        addChoices(sheet, new int[] {R.drawable.ic_view_group_store, R.drawable.ic_view_group_type, R.drawable.ic_view_group_none},
-                new int[] {R.string.home_view_group_store, R.string.home_view_group_type, R.string.home_view_group_none},
-                view.group.ordinal(), at -> view = view.with(HomeView.Group.values()[at]));
+        HomeView.Group[] groups = HomeView.offeredGroups(model.hasCollections());
+        int[] groupIcons = new int[groups.length];
+        int[] groupLabels = new int[groups.length];
+        for (int i = 0; i < groups.length; i++) {
+            groupIcons[i] = groups[i] == HomeView.Group.STORE ? R.drawable.ic_view_group_store
+                    : groups[i] == HomeView.Group.TYPE ? R.drawable.ic_view_group_type
+                    : groups[i] == HomeView.Group.COLLECTION ? R.drawable.ic_folder : R.drawable.ic_view_group_none;
+            groupLabels[i] = groups[i] == HomeView.Group.STORE ? R.string.home_view_group_store
+                    : groups[i] == HomeView.Group.TYPE ? R.string.home_view_group_type
+                    : groups[i] == HomeView.Group.COLLECTION ? R.string.home_view_group_collection : R.string.home_view_group_none;
+        }
+        // Collection chosen while no PC names any shows by store, and says so.
+        addChoices(sheet, groupIcons, groupLabels, Math.max(0, java.util.Arrays.asList(groups).indexOf(view.group)),
+                at -> view = view.with(groups[at]));
         sizeSection[0] = sheet.addSection(R.string.home_view_size);
         sizeSection[1] = addChoices(sheet, new int[] {R.drawable.ic_view_size_small, R.drawable.ic_view_size_medium, R.drawable.ic_view_size_large},
                 new int[] {R.string.home_view_size_small, R.string.home_view_size_medium, R.string.home_view_size_large},
@@ -771,24 +782,58 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         });
     }
 
-    /** The long-press menu of a game card: star or unstar it. A game not added has no app id to star. */
+    /** The long-press menu of a game card: star or unstar it, hide it. A game not added has no app id for either. */
     void askFavourite(HomeModel.GameCard card) {
         if (repository == null || card.notAdded()) {
             return;
         }
         boolean remove = card.favourite;
+        List<ConsoleSnapshot.Source> copies = model.copiesOf(card);
+        CharSequence star = getString(remove ? R.string.console_favourite_remove : R.string.console_favourite_add);
+        CharSequence hide = getString(R.string.applist_menu_hide_app);
+        CharSequence openPlay = OpenPlay.menuLabel(this, card.hostUuid, card.appId);
         UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this)
                 .setTitle(card.title)
-                .setItems(new CharSequence[]{getString(remove ? R.string.console_favourite_remove
-                        : R.string.console_favourite_add), OpenPlay.menuLabel(this, card.hostUuid, card.appId)},
-                        (dialog, which) -> {
-                            if (which == 0) {
-                                setFavourite(card, !remove);
-                            } else {
-                                OpenPlay.toggle(this, card.hostUuid, card.hostName, card.appId, card.source != null ? card.source.stableId() : "", card.title);
-                            }
-                        })
+                .setItems(copies.isEmpty() ? new CharSequence[]{star, openPlay}
+                        : new CharSequence[]{star, openPlay, hide}, (dialog, which) -> {
+                    if (which == 0) {
+                        setFavourite(card, !remove);
+                    } else if (which == 1) {
+                        OpenPlay.toggle(this, card.hostUuid, card.hostName, card.appId, card.source != null ? card.source.stableId() : "", card.title);
+                    } else {
+                        setHidden(copies);
+                    }
+                })
                 .setNegativeButton(android.R.string.cancel, null).create());
+    }
+
+    /** Hides on the star thread and paints the saved result right away, like a star. */
+    private void setHidden(List<ConsoleSnapshot.Source> copies) {
+        final ConsoleRepository repo = repository;
+        if (repo == null) {
+            return;
+        }
+        final List<ComputerDetails> hosts = feed.hosts();
+        final Set<String> online = onlineOf(hosts);
+        starWorker.execute(() -> {
+            try {
+                repo.setHidden(copies, true);
+                HomeModel model = HomeModel.of(repo.cached(hosts), online, HomeModel.launchDenied(hosts));
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) {
+                        return;
+                    }
+                    this.model = model;
+                    submitKeepingFocus(model);
+                    for (ConsoleSnapshot.Source copy : copies) {
+                        com.limelight.utils.FrontendSync.appListChanged(this, feed.host(copy.hostUuid));
+                    }
+                    scheduleReload();
+                });
+            } catch (RuntimeException e) {
+                com.limelight.LimeLog.warning("Home could not hide a game: " + e);
+            }
+        });
     }
 
     /**

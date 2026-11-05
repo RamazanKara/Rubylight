@@ -23,4 +23,7 @@
         <item quantity="many">Играли %d дней назад</item>
         <item quantity="other">Играли %d дня назад</item>
     </plurals>
+    <string name="home_view_group_collection">Коллекция</string>
+    <string name="console_row_no_collection">Без коллекции</string>
+    <string name="console_filter_hidden">Скрытые</string>
 </resources>

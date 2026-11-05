@@ -57,6 +57,8 @@ public final class HomeModel {
          * else its own host's; null when none says.
          */
         public final Long lastPlayed;
+        /** The copies of the game the card stands for, by its {@link #hostUuids}; empty when the host lists none. */
+        final List<ConsoleSnapshot.Source> copies;
 
         GameCard(String key, String title, String hostUuid, String hostName, int appId, Badge badge,
                  ConsoleSnapshot.Source source, int hostCount, boolean favourite) {
@@ -85,6 +87,13 @@ public final class HomeModel {
         GameCard(String key, String title, String hostUuid, String hostName, int appId, Badge badge,
                  ConsoleSnapshot.Source source, int hostCount, boolean favourite, boolean addable,
                  List<String> hostUuids, Long lastPlayed) {
+            this(key, title, hostUuid, hostName, appId, badge, source, hostCount, favourite, addable, hostUuids, lastPlayed,
+                    source == null ? Collections.emptyList() : Collections.singletonList(source));
+        }
+
+        GameCard(String key, String title, String hostUuid, String hostName, int appId, Badge badge,
+                 ConsoleSnapshot.Source source, int hostCount, boolean favourite, boolean addable,
+                 List<String> hostUuids, Long lastPlayed, List<ConsoleSnapshot.Source> copies) {
             this.key = key;
             this.title = title;
             this.hostUuid = hostUuid;
@@ -97,6 +106,25 @@ public final class HomeModel {
             this.addable = addable;
             this.hostUuids = hostUuids;
             this.lastPlayed = lastPlayed;
+            this.copies = copies;
+        }
+
+        /** The same game under another key: a row of its own, for a game that shows in several. */
+        GameCard keyed(String other) {
+            return new GameCard(other, title, hostUuid, hostName, appId, badge, source, hostCount, favourite, addable,
+                    hostUuids, lastPlayed, copies);
+        }
+
+        /** The collections its PCs keep it in, as they name them. */
+        public List<String> collections() {
+            List<String> names = new ArrayList<>();
+            for (ConsoleSnapshot.Source copy : copies) names.addAll(copy.collections);
+            return names;
+        }
+
+        /** The copies this device hides, shown only under {@link #FILTER_HIDDEN}. */
+        public boolean hidden() {
+            return key.startsWith(HIDDEN_KEY);
         }
 
         /** The store's key ("steam", ...); null for an app no store owns and for a classic app. */
@@ -122,9 +150,9 @@ public final class HomeModel {
 
     /**
      * Which of the library's rows: one per store, the apps of no store, the host's last played, the games not added,
-     * or every store's games in one (grouped by type).
+     * every store's games in one (grouped by type), a collection's games or the games in none (grouped by collection).
      */
-    public enum RowKind { RECENT, STORE, OTHER, UNADDED, GAMES }
+    public enum RowKind { RECENT, STORE, OTHER, UNADDED, GAMES, COLLECTION, NO_COLLECTION }
 
     /** A library row on TV Home: at most {@link #ROW_CAP} cards, then an "All N" tile when there are more. */
     public static final class Row {
@@ -133,7 +161,7 @@ public final class HomeModel {
         public final RowKind kind;
         /** The store's key of a STORE row, else null. */
         public final String store;
-        /** The store's name of a STORE row, else null; the other rows' titles are strings of this app. */
+        /** The store's or collection's name of such a row, else null; the other rows' titles are strings of this app. */
         public final String storeName;
         public final List<GameCard> cards;
         /** Every card the row has before the cap; above the cap the row ends in an "All N" tile. */
@@ -163,9 +191,9 @@ public final class HomeModel {
 
     /** One chip above the All games grid. */
     public static final class Filter {
-        /** {@link #FILTER_ALL}, {@link #FILTER_INSTALLED}, "store:steam", {@link #FILTER_OTHER} or {@link #FILTER_UNADDED}. */
+        /** {@link #FILTER_ALL}, {@link #FILTER_INSTALLED}, "store:steam", "collection:VR", {@link #FILTER_OTHER}, ... */
         public final String key;
-        /** The store's name of a store chip, else null. */
+        /** The store's or collection's name of such a chip, else null. */
         public final String storeName;
         public final int count;
 
@@ -186,9 +214,18 @@ public final class HomeModel {
     public static final String FILTER_GAMES = "games";
     public static final String FILTER_UNADDED = "unadded";
     static final String STORE_FILTER = "store:";
+    /** One collection's games, by the name after this. */
+    static final String COLLECTION_FILTER = "collection:";
+    /** The games in no collection, offered beside collections. */
+    public static final String FILTER_NO_COLLECTION = "no-collection";
+    /** The games hidden on this device, offered when there are any. */
+    public static final String FILTER_HIDDEN = "hidden";
+    private static final String HIDDEN_KEY = "hidden:";
 
     /** Whether a card of {@link #allGames} shows under a filter chip. An unknown filter shows everything added. */
     public static boolean matches(String filter, GameCard card) {
+        if (FILTER_HIDDEN.equals(filter)) return card.hidden();
+        if (card.hidden()) return false;
         if (FILTER_UNADDED.equals(filter)) return card.notAdded();
         if (card.notAdded()) return false;
         if (filter == null || FILTER_ALL.equals(filter)) return true;
@@ -196,6 +233,14 @@ public final class HomeModel {
         if (FILTER_GAMES.equals(filter)) return card.store() != null;
         if (FILTER_OTHER.equals(filter)) return card.store() == null;
         if (filter.startsWith(STORE_FILTER)) return filter.substring(STORE_FILTER.length()).equals(card.store());
+        if (FILTER_NO_COLLECTION.equals(filter)) return card.collections().isEmpty();
+        if (filter.startsWith(COLLECTION_FILTER)) {
+            String name = filter.substring(COLLECTION_FILTER.length()).trim();
+            for (String collection : card.collections()) {
+                if (collection.trim().equalsIgnoreCase(name)) return true;
+            }
+            return false;
+        }
         return true;
     }
 
@@ -260,10 +305,12 @@ public final class HomeModel {
      * the games not installed after the installed ones as in the store rows, so each row is exactly its chip; or the
      * whole library as one row, the installed games by name as the phone's grid lists them. A library with no stores
      * at all cannot tell games from apps and keeps its one plain row by type too. A title is a game when its host says
-     * which store it is from: hosts send nothing else that tells games from apps.
+     * which store it is from: hosts send nothing else that tells games from apps. By collection, a row per collection
+     * by name, a game in several in each, then the games in none; by store while no game is in one.
      */
     public List<Row> rows(HomeView.Group group) {
         if (group == HomeView.Group.STORE) return rows;
+        if (group == HomeView.Group.COLLECTION) return collectionRows();
         if (group == HomeView.Group.NONE) {
             if (library.isEmpty()) return Collections.emptyList();
             return Collections.singletonList(new Row(LIBRARY_ROW, RowKind.OTHER, null, null, library, FILTER_INSTALLED, true));
@@ -271,7 +318,7 @@ public final class HomeModel {
         List<GameCard> games = new ArrayList<>();
         List<GameCard> apps = new ArrayList<>();
         for (GameCard card : allGames) {
-            if (card.notAdded()) continue;
+            if (card.notAdded() || card.hidden()) continue;
             (card.store() == null ? apps : games).add(card);
         }
         List<Row> parts = new ArrayList<>();
@@ -284,6 +331,58 @@ public final class HomeModel {
             parts.add(new Row("shelf:other", RowKind.OTHER, null, null, installedFirst(apps), FILTER_OTHER, true));
         }
         return parts;
+    }
+
+    private List<Row> collectionRows() {
+        List<GameCard> cards = shownGames(allGames);
+        List<CollectionGroups.Group> groups = CollectionGroups.of(namesOf(cards));
+        if (groups.isEmpty()) return rows;
+        List<Row> parts = new ArrayList<>();
+        for (CollectionGroups.Group group : groups) {
+            boolean none = group.name == null;
+            String key = none ? "shelf:no-collection" : "shelf:collection:" + group.name.toLowerCase(java.util.Locale.ROOT);
+            List<GameCard> part = new ArrayList<>();
+            // A game in several shows in each: every row needs a key of its own for it.
+            for (int at : group.games) part.add(cards.get(at).keyed(key + ":" + cards.get(at).key));
+            parts.add(new Row(key, none ? RowKind.NO_COLLECTION : RowKind.COLLECTION, null, group.name, installedFirst(part),
+                    none ? FILTER_NO_COLLECTION : COLLECTION_FILTER + group.name, true));
+        }
+        return parts;
+    }
+
+    /** Whether Home can group by collection: its PCs name any for the games it shows. */
+    public boolean hasCollections() {
+        for (GameCard card : shownGames(allGames)) {
+            if (!card.collections().isEmpty()) return true;
+        }
+        return false;
+    }
+
+    /**
+     * The copies hiding a card takes: every PC's copy of its title, from whichever row the card is in. A hidden card's
+     * are the ones to show again.
+     */
+    public List<ConsoleSnapshot.Source> copiesOf(GameCard card) {
+        if (card.source != null) {
+            for (GameCard game : allGames) {
+                if (game.hidden() == card.hidden() && game.copies.contains(card.source)) return game.copies;
+            }
+        }
+        return card.copies;
+    }
+
+    private static List<GameCard> shownGames(List<GameCard> allGames) {
+        List<GameCard> shown = new ArrayList<>();
+        for (GameCard card : allGames) {
+            if (!card.notAdded() && !card.hidden()) shown.add(card);
+        }
+        return shown;
+    }
+
+    private static List<List<String>> namesOf(List<GameCard> cards) {
+        List<List<String>> names = new ArrayList<>(cards.size());
+        for (GameCard card : cards) names.add(card.collections());
+        return names;
     }
 
     /** Every game of a row, not only those before its "All N" tile: a grid shows each row whole. */
@@ -319,7 +418,7 @@ public final class HomeModel {
         for (ConsoleSnapshot.Starred entry : snapshot.favourites) {
             starred.add(entry.hostUuid + ":" + entry.appId);
             // A title the host lists as not installed cannot be started from here, as in the library.
-            if (entry.source != null && Boolean.FALSE.equals(entry.source.installed)) {
+            if (entry.source != null && (Boolean.FALSE.equals(entry.source.installed) || entry.source.hidden)) {
                 continue;
             }
             String id = entry.source != null && !entry.source.stableId().isEmpty() ? entry.source.stableId()
@@ -330,6 +429,10 @@ public final class HomeModel {
         }
         List<GameCard> continuePlaying = new ArrayList<>();
         for (ConsoleSnapshot.Continue entry : snapshot.continuePlaying) {
+            // A running game stays: hiding it must not lose the way back to it.
+            if (entry.kind == ConsoleSnapshot.ContinueKind.RECENT && entry.source != null && entry.source.hidden) {
+                continue;
+            }
             Badge badge = entry.kind == ConsoleSnapshot.ContinueKind.RUNNING ? Badge.RUNNING
                     : entry.kind == ConsoleSnapshot.ContinueKind.SUSPENDED ? Badge.SUSPENDED : Badge.NONE;
             continuePlaying.add(new GameCard("continue:" + entry.hostUuid + ":" + entry.appId, entry.title,
@@ -343,7 +446,7 @@ public final class HomeModel {
             List<String> listing = new ArrayList<>();
             for (ConsoleSnapshot.Source source : title.sources) {
                 // A library entry that is not installed, or not added, cannot be started from here.
-                if (Boolean.FALSE.equals(source.installed) || !source.added) {
+                if (Boolean.FALSE.equals(source.installed) || !source.added || source.hidden) {
                     continue;
                 }
                 if (best == null) {
@@ -407,7 +510,15 @@ public final class HomeModel {
             boolean addable = false;
             int hosts = 0;
             List<String> listing = new ArrayList<>();
+            List<ConsoleSnapshot.Source> copies = new ArrayList<>();
+            List<ConsoleSnapshot.Source> away = new ArrayList<>();
+            List<String> awayHosts = new ArrayList<>();
             for (ConsoleSnapshot.Source source : title.sources) {
+                if (source.hidden) {
+                    away.add(source);
+                    awayHosts.add(source.hostUuid);
+                    continue;
+                }
                 if (!source.added) {
                     ConsoleSnapshot.Host host = snapshot.host(source.hostUuid);
                     if (found == null && host != null && host.has(NativeCapabilities.LIBRARY_UNADDED)) {
@@ -418,11 +529,18 @@ public final class HomeModel {
                 }
                 hosts++;
                 listing.add(source.hostUuid);
+                copies.add(source);
                 if (Boolean.FALSE.equals(source.installed)) {
                     if (missing == null) missing = source;
                 } else if (installed == null) {
                     installed = source;
                 }
+            }
+            if (!away.isEmpty()) {
+                ConsoleSnapshot.Source first = away.get(0);
+                allGames.add(new GameCard(HIDDEN_KEY + title.key, title.title, first.hostUuid, first.hostName, first.appId,
+                        badgeOf(snapshot, first), first, away.size(), starred.contains(first.hostUuid + ":" + first.appId),
+                        false, awayHosts, lastPlayed(title), away));
             }
             ConsoleSnapshot.Source best = installed != null ? installed : missing;
             if (best == null) {
@@ -436,7 +554,7 @@ public final class HomeModel {
             }
             boolean star = starred.contains(best.hostUuid + ":" + best.appId);
             GameCard card = new GameCard("game:" + title.key, title.title, best.hostUuid, best.hostName, best.appId,
-                    badgeOf(snapshot, best), best, hosts, star, false, listing, lineLastPlayed(snapshot, title));
+                    badgeOf(snapshot, best), best, hosts, star, false, listing, lineLastPlayed(snapshot, title), copies);
             allGames.add(card);
             if (best.storeSource == null) {
                 other.add(card);
@@ -454,7 +572,7 @@ public final class HomeModel {
             Long last = lastPlayed(title);
             if (last != null && last > 0) {
                 played.add(new GameCard("recent:" + title.key, title.title, best.hostUuid, best.hostName, best.appId,
-                        card.badge, best, hosts, star, listing));
+                        card.badge, best, hosts, star, false, listing, last, copies));
             }
         }
         List<Row> rows = new ArrayList<>();
@@ -538,9 +656,14 @@ public final class HomeModel {
         int installed = 0;
         int other = 0;
         int unadded = 0;
+        int hidden = 0;
         Map<String, Integer> stores = new LinkedHashMap<>();
         Map<String, String> names = new HashMap<>();
         for (GameCard card : allGames) {
+            if (card.hidden()) {
+                hidden++;
+                continue;
+            }
             if (card.notAdded()) {
                 unadded++;
                 continue;
@@ -557,7 +680,7 @@ public final class HomeModel {
             }
         }
         List<Filter> filters = new ArrayList<>();
-        if (added == 0 && unadded == 0) return filters;
+        if (added == 0 && unadded == 0 && hidden == 0) return filters;
         filters.add(new Filter(FILTER_ALL, null, added));
         // Installed narrows only when something is not.
         if (installed < added) filters.add(new Filter(FILTER_INSTALLED, null, installed));
@@ -572,7 +695,12 @@ public final class HomeModel {
             filters.add(new Filter(STORE_FILTER + store, names.get(store), stores.get(store)));
         }
         if (other > 0 && !stores.isEmpty()) filters.add(new Filter(FILTER_OTHER, null, other));
+        for (CollectionGroups.Group group : CollectionGroups.of(namesOf(shownGames(allGames)))) {
+            filters.add(group.name == null ? new Filter(FILTER_NO_COLLECTION, null, group.games.length)
+                    : new Filter(COLLECTION_FILTER + group.name, group.name, group.games.length));
+        }
         if (unadded > 0) filters.add(new Filter(FILTER_UNADDED, null, unadded));
+        if (hidden > 0) filters.add(new Filter(FILTER_HIDDEN, null, hidden));
         return filters;
     }
 

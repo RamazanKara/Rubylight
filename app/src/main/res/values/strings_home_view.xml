@@ -24,4 +24,7 @@
         <item quantity="one">Played %d day ago</item>
         <item quantity="other">Played %d days ago</item>
     </plurals>
+    <string name="home_view_group_collection">Collection</string>
+    <string name="console_row_no_collection">No collection</string>
+    <string name="console_filter_hidden">Hidden</string>
 </resources>

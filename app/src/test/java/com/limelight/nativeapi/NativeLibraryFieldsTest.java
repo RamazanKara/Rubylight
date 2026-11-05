@@ -21,6 +21,20 @@ import org.robolectric.annotation.Config;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 29, application = Application.class)
 public class NativeLibraryFieldsTest {
+    @Test
+    public void collectionsAreReadAndStoredAndAbsentMeansNone() throws Exception {
+        String named = "{\"revision\":\"r\",\"games\":[{\"install_id\":\"i1\",\"app_id\":5,\"title\":\"Portal\","
+                + "\"collections\":[\"VR\",\"  \",null,\"Couch\"]},{\"install_id\":\"i2\",\"app_id\":6,\"title\":\"Hades\","
+                + "\"collections\":\"not a list\"}," + BARE + "]}";
+        NativeLibrary library = NativeLibrary.parse(new JSONObject(named));
+        assertEquals(java.util.Arrays.asList("VR", "Couch"), library.games.get(0).collections);
+        assertTrue(library.games.get(1).collections.isEmpty());
+        assertTrue(library.games.get(2).collections.isEmpty());
+        JSONObject stored = library.toJson();
+        assertEquals(library.games.get(0).collections, NativeLibrary.parse(stored).games.get(0).collections);
+        assertFalse("none stays absent", stored.getJSONArray("games").getJSONObject(2).has("collections"));
+    }
+
     private static final String BARE = "{\"install_id\":\"i1\",\"app_id\":5,\"title\":\"Portal\"}";
     private static final String FULL = "{\"install_id\":\"i2\",\"app_id\":6,\"title\":\"Hades\",\"game_id\":\"epic:h\","
             + "\"store\":{\"source\":\"epic\",\"id\":\"h\",\"name\":\"Epic Games\",\"region\":\"eu\"},"

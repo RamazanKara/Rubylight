@@ -46,6 +46,10 @@ public final class ConsoleSnapshot {
         public final Long lastPlayed;
         /** False when the host says it cannot start the game; null when it does not say. */
         public final Boolean launchable;
+        /** The Steam collections or Playnite categories the host keeps it in, by name. */
+        public final List<String> collections;
+        /** Hidden on this device (the same list as the PC's app grid). */
+        public final boolean hidden;
 
         Source(String hostUuid, String hostName, int appId, String installId, String title, String gameId,
                boolean running, String coverPath, String coverVersion, Boolean installed, String appUuid,
@@ -58,6 +62,15 @@ public final class ConsoleSnapshot {
                boolean running, String coverPath, String coverVersion, Boolean installed, String appUuid,
                boolean hdrSupported, String storeSource, String storeName, boolean added, Long lastPlayed,
                Boolean launchable) {
+            this(hostUuid, hostName, appId, installId, title, gameId, running, coverPath, coverVersion, installed,
+                    appUuid, hdrSupported, storeSource, storeName, added, lastPlayed, launchable,
+                    Collections.emptyList(), false);
+        }
+
+        Source(String hostUuid, String hostName, int appId, String installId, String title, String gameId,
+               boolean running, String coverPath, String coverVersion, Boolean installed, String appUuid,
+               boolean hdrSupported, String storeSource, String storeName, boolean added, Long lastPlayed,
+               Boolean launchable, List<String> collections, boolean hidden) {
             this.hostUuid = hostUuid;
             this.hostName = hostName;
             this.appId = appId;
@@ -75,6 +88,8 @@ public final class ConsoleSnapshot {
             this.added = added;
             this.lastPlayed = lastPlayed;
             this.launchable = launchable;
+            this.collections = collections;
+            this.hidden = hidden;
         }
 
         /**

@@ -62,6 +62,89 @@ public class HomeLibraryRowsTest {
                 + "\"store\":{\"source\":\"" + store + "\"},\"installed\":true,\"added\":false}";
     }
 
+    private static String in(String game, String... collections) {
+        return game.substring(0, game.length() - 1) + ",\"collections\":[\"" + String.join("\",\"", collections) + "\"]}";
+    }
+
+    @After
+    public void forgetTheGroups() {
+        CollectionGroups.use(null);
+    }
+
+    @Test
+    public void rowsByCollectionShowAGameInEachAndTheRestLast() throws Exception {
+        tower(Collections.emptyList(),
+                in(game(1, "Alpha", "steam", true, null), "VR", "Couch"),
+                game(2, "Beta", "steam", true, null),
+                in(game(3, "Gamma", "steam", true, null), "couch"));
+        CollectionGroups.use(request -> {
+            assertEquals("{\"games\":[[\"VR\",\"Couch\"],[],[\"couch\"]]}", request);
+            return "{\"ok\":{\"groups\":[{\"name\":\"Couch\",\"games\":[0,2]},{\"name\":\"VR\",\"games\":[0]},"
+                    + "{\"name\":null,\"games\":[1]}]}}";
+        });
+        HomeModel model = model();
+        assertTrue(model.hasCollections());
+        List<HomeModel.Row> rows = model.rows(HomeView.Group.COLLECTION);
+        assertEquals(3, rows.size());
+        assertEquals(HomeModel.RowKind.COLLECTION, rows.get(0).kind);
+        assertEquals("Couch", rows.get(0).storeName);
+        assertEquals("Alpha", rows.get(0).cards.get(0).title);
+        assertEquals("Gamma", rows.get(0).cards.get(1).title);
+        assertEquals("Alpha", rows.get(1).cards.get(0).title);
+        assertEquals(HomeModel.RowKind.NO_COLLECTION, rows.get(2).kind);
+        assertEquals("Beta", rows.get(2).cards.get(0).title);
+        assertTrue("every row its own key for a game in several",
+                !rows.get(0).cards.get(0).key.equals(rows.get(1).cards.get(0).key));
+        // Each row is exactly its chip.
+        for (HomeModel.Row row : rows) {
+            assertNotNull(row.filter, AllGamesActivity.filterOf(model, row.filter));
+            assertEquals(row.total, AllGamesActivity.cardsOf(model, row.filter).size());
+        }
+    }
+
+    @Test
+    public void withNoCollectionsGroupingByThemShowsStoresAndIsNotOffered() throws Exception {
+        tower(Collections.emptyList(), game(1, "Alpha", "steam", true, null));
+        CollectionGroups.use(request -> {
+            throw new AssertionError("asked: " + request);
+        });
+        HomeModel model = model();
+        assertFalse(model.hasCollections());
+        assertEquals(model.rows(HomeView.Group.STORE), model.rows(HomeView.Group.COLLECTION));
+    }
+
+    @Test
+    public void aHiddenGameLeavesHomeAndComesBackFromItsChip() throws Exception {
+        tower(Collections.emptyList(), game(1, "Alpha", "steam", true, 100L), game(2, "Beta", "steam", true, null));
+        HomeModel before = model();
+        HomeModel.GameCard alpha = null;
+        for (HomeModel.GameCard card : before.library) {
+            if (card.title.equals("Alpha")) alpha = card;
+        }
+        assertNotNull(alpha);
+        assertNull(AllGamesActivity.filterOf(before, HomeModel.FILTER_HIDDEN));
+        rig.repository.setHidden(before.copiesOf(alpha), true);
+
+        HomeModel after = model();
+        assertEquals(1, after.library.size());
+        assertEquals("Beta", after.library.get(0).title);
+        for (HomeModel.Row row : after.rows) {
+            for (HomeModel.GameCard card : row.cards) assertFalse(row.key, card.title.equals("Alpha"));
+        }
+        assertEquals(1, AllGamesActivity.cardsOf(after, HomeModel.FILTER_ALL).size());
+        HomeModel.Filter chip = AllGamesActivity.filterOf(after, HomeModel.FILTER_HIDDEN);
+        assertNotNull(chip);
+        assertEquals(1, chip.count);
+        List<HomeModel.GameCard> hidden = AllGamesActivity.cardsOf(after, HomeModel.FILTER_HIDDEN);
+        assertEquals("Alpha", hidden.get(0).title);
+        assertTrue(hidden.get(0).hidden());
+
+        rig.repository.setHidden(after.copiesOf(hidden.get(0)), false);
+        HomeModel shown = model();
+        assertEquals(2, shown.library.size());
+        assertNull(AllGamesActivity.filterOf(shown, HomeModel.FILTER_HIDDEN));
+    }
+
     private void tower(List<String> features, String... games) {
         StringBuilder list = new StringBuilder("[\"library\"");
         for (String feature : features) list.append(",\"").append(feature).append('"');

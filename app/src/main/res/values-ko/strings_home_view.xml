@@ -20,4 +20,7 @@
     <plurals name="console_list_played_days">
         <item quantity="other">%d일 전 플레이</item>
     </plurals>
+    <string name="home_view_group_collection">컬렉션</string>
+    <string name="console_row_no_collection">컬렉션 없음</string>
+    <string name="console_filter_hidden">숨김</string>
 </resources>

@@ -22,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -52,6 +53,7 @@ public final class ConsoleRepository {
     private final LibraryCache cache;
     private final RecentsStore recents;
     private final FavouritesStore favourites;
+    private final HiddenStore hidden;
     private final ClassicAppSource classic;
     private final ExecutorService executor;
     private final Clock clock;
@@ -71,11 +73,18 @@ public final class ConsoleRepository {
     public ConsoleRepository(NativeApiTransport transport, EndpointFactory endpoints, LibraryCache cache,
                              RecentsStore recents, FavouritesStore favourites, ClassicAppSource classic, ExecutorService executor,
                              Clock clock, WakeTargets wakeTargets) {
+        this(transport, endpoints, cache, recents, favourites, classic, executor, clock, wakeTargets, new HiddenStore.InMemory());
+    }
+
+    public ConsoleRepository(NativeApiTransport transport, EndpointFactory endpoints, LibraryCache cache,
+                             RecentsStore recents, FavouritesStore favourites, ClassicAppSource classic, ExecutorService executor,
+                             Clock clock, WakeTargets wakeTargets, HiddenStore hidden) {
         this.transport = transport;
         this.endpoints = endpoints;
         this.cache = cache;
         this.recents = recents;
         this.favourites = favourites;
+        this.hidden = hidden;
         this.classic = classic;
         this.executor = executor;
         this.clock = clock;
@@ -89,7 +98,7 @@ public final class ConsoleRepository {
                 computer -> HostEndpoint.of(computer, uniqueId, PlatformBinding.getCryptoProvider(app)),
                 new FileLibraryCache(libraryDirectory(app)),
                 new PreferencesRecentsStore(app), new PreferencesFavouritesStore(app), new CachedAppListSource(app.getCacheDir()),
-                Executors.newCachedThreadPool(), System::currentTimeMillis, new WakeTargets(app));
+                Executors.newCachedThreadPool(), System::currentTimeMillis, new WakeTargets(app), new HiddenStore.Preferences(app));
     }
 
     private static File libraryDirectory(Context context) {
@@ -240,6 +249,13 @@ public final class ConsoleRepository {
         setFavourite(hostUuid, hostName, "", appId, title, starred);
     }
 
+    /** Hides these copies of a game on this device, or shows them again. */
+    public void setHidden(List<ConsoleSnapshot.Source> copies, boolean hide) {
+        for (ConsoleSnapshot.Source copy : copies) {
+            hidden.set(copy.hostUuid, copy.appId, hide);
+        }
+    }
+
     private ConsoleSnapshot.Host hostOf(ComputerDetails computer, boolean network) {
         if (computer.caps.has(HostCapabilities.Feature.NATIVE_API)) {
             return nativeHost(computer, network);
@@ -252,12 +268,13 @@ public final class ConsoleRepository {
             return new ConsoleSnapshot.Host(computer.uuid, computer.displayName(), ConsoleSnapshot.Status.UNAVAILABLE, 0,
                     null, null, Collections.emptyList());
         }
+        Set<Integer> away = hidden.of(computer.uuid);
         List<ConsoleSnapshot.Source> sources = new ArrayList<>();
         for (NvApp app : apps) {
             sources.add(new ConsoleSnapshot.Source(computer.uuid, computer.displayName(), app.getAppId(), null,
                     app.getAppName(), null, computer.hasRunningGame() && app.matchesRunningApp(computer.runningGameId,
                     computer.runningGameUuid), null, app.getArtVersion(), null, app.getAppUuid(),
-                    app.isHdrSupported()));
+                    app.isHdrSupported(), null, null, true, null, null, Collections.emptyList(), away.contains(app.getAppId())));
         }
         return new ConsoleSnapshot.Host(computer.uuid, computer.displayName(), ConsoleSnapshot.Status.CLASSIC, 0, null, null,
                 sources);
@@ -333,13 +350,14 @@ public final class ConsoleRepository {
         return stored != null ? stored.features : Collections.emptyList();
     }
 
-    private static List<ConsoleSnapshot.Source> sourcesOf(ComputerDetails computer, NativeLibrary library) {
+    private List<ConsoleSnapshot.Source> sourcesOf(ComputerDetails computer, NativeLibrary library) {
+        Set<Integer> away = hidden.of(computer.uuid);
         List<ConsoleSnapshot.Source> sources = new ArrayList<>();
         for (NativeLibrary.Game game : library.games) {
             sources.add(new ConsoleSnapshot.Source(computer.uuid, computer.displayName(), game.appId,
                     game.installId == null ? "" : game.installId, game.title, game.gameId, game.running,
                     game.coverPath, game.coverVersion, game.installed, "", false, game.storeSource, game.storeName,
-                    game.added, game.lastPlayed, game.launchable));
+                    game.added, game.lastPlayed, game.launchable, game.collections, game.added && away.contains(game.appId)));
         }
         return sources;
     }

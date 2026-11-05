@@ -6,13 +6,16 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Set;
+import java.util.function.LongSupplier;
 
 public final class RedactedLog {
-    private static final int MAX_ENTRIES = 400;
+    static final int MAX_ENTRIES = 400;
     static final int MAX_TRACE_BYTES = 64 * 1024;
     static final int MAX_TRACE_CHARS = 4096;
     static final Set<String> NATIVE_LIBRARIES = Set.of("libc.so", "libart.so", "libandroid_runtime.so",
@@ -27,6 +30,8 @@ public final class RedactedLog {
             "USB controller attached", "USB controller detached", "USB permission denied",
             "Bluetooth or Android controller detached", "Connection test started", "Connection test finished");
     private final ArrayDeque<String> entries = new ArrayDeque<>();
+    // Stamps each entry in UTC when set. Added after redaction, whose address patterns would eat a time.
+    private final LongSupplier clockMs;
     // Names and addresses known to belong to the user's PCs; replaced wherever they appear.
     private static final Set<String> SECRETS = java.util.concurrent.ConcurrentHashMap.newKeySet();
     // Stands for [PC] while they are replaced: a private use character, which PC names do not hold.
@@ -52,6 +57,14 @@ public final class RedactedLog {
             "Display luminance", "Display modes changed", "Display refresh policy:", "Microphone", "PC stream profiles", "Present mode",
             "PyroWave", "Phase lock", "Low latency", "Automatic codec", "Streaming engine",
             "DualSense USB ", "USB controller announcement ", "Audio output:", "Audio track configuration:"};
+
+    public RedactedLog() {
+        this(null);
+    }
+
+    public RedactedLog(LongSupplier clockMs) {
+        this.clockMs = clockMs;
+    }
 
     /** A PC name or address to keep out of problem reports. */
     public static void addSecret(String secret) {
@@ -84,7 +97,9 @@ public final class RedactedLog {
         if (entries.size() == MAX_ENTRIES) {
             entries.removeFirst();
         }
-        entries.addLast(("SEVERE".equals(level) ? "ERROR" : "WARNING".equals(level) ? "WARNING" : "INFO")
+        String time = clockMs == null ? "" :
+                Instant.ofEpochMilli(clockMs.getAsLong()).truncatedTo(ChronoUnit.SECONDS) + " ";
+        entries.addLast(time + ("SEVERE".equals(level) ? "ERROR" : "WARNING".equals(level) ? "WARNING" : "INFO")
                 + " " + safeMessage);
     }
 

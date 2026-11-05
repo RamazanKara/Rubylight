@@ -19,13 +19,23 @@ import java.util.Map;
  * and the passphrase it is hashed with, where to reach the host, and the SHA-256 of the host
  * certificate's DER; pairing is refused when the host presents another certificate.
  *
- * <p>Reads links exactly like the protocol crate's {@code pairing_uri}: another scheme, a version
- * other than 1, a missing or empty host, otp or fp, a port that is 0 or not a number, a fingerprint
- * that is not 64 hex digits, a bad percent escape, text that is not UTF-8 and a repeated key refuse
- * it. Unknown keys are ignored; {@code pass}, {@code id} and {@code name} may be absent.
+ * <p>Reads links exactly like the protocol crate's {@code pairing_uri}: another scheme, more than
+ * {@link #MAX_LENGTH} bytes, a version other than 1, a missing or empty host, otp or fp, a host with
+ * anything but an address's characters, a port that is 0 or not a number, a fingerprint that is not
+ * 64 hex digits, a bad percent escape, text that is not UTF-8 and a repeated key refuse it. Unknown
+ * keys are ignored; {@code pass}, {@code id} and {@code name} may be absent.
+ *
+ * <p>A link can come from any web page, so one opened from outside the app asks first, showing
+ * {@link #shownName()} and {@link #shownAddress()}.
  */
 public final class PairingLink {
     public static final String PREFIX = "rubylight://pair?";
+    /** The longest link read, in bytes; a real one stays far below it. */
+    static final int MAX_LENGTH = 4096;
+    /** The longest address a link may name, as DNS allows. */
+    private static final int MAX_HOST_LENGTH = 255;
+    /** How many characters of a link's name are shown. */
+    private static final int MAX_SHOWN_NAME = 64;
 
     public final String host;
     public final int port;
@@ -36,9 +46,12 @@ public final class PairingLink {
     private final byte[] certSha256;
     /** The host's name, for display; empty when the link has none. */
     public final String name;
+    /** The link as it was read. It holds the PIN and passphrase: never for a log. */
+    public final String text;
 
-    private PairingLink(String host, int port, String otp, String passphrase, String uniqueId,
+    private PairingLink(String text, String host, int port, String otp, String passphrase, String uniqueId,
                         byte[] certSha256, String name) {
+        this.text = text;
         this.host = host;
         this.port = port;
         this.otp = otp;
@@ -59,7 +72,9 @@ public final class PairingLink {
             return null;
         }
         text = text.trim();
-        if (!text.startsWith(PREFIX)) {
+        // The first test spares a very long text from being encoded for the second.
+        if (!text.startsWith(PREFIX) || text.length() > MAX_LENGTH
+                || text.getBytes(StandardCharsets.UTF_8).length > MAX_LENGTH) {
             return null;
         }
         Map<String, String> values = new HashMap<>();
@@ -81,7 +96,7 @@ public final class PairingLink {
         String port = required(values, "port");
         String otp = required(values, "otp");
         String fp = required(values, "fp");
-        if (host == null || port == null || otp == null || fp == null || !port.matches("[0-9]+")) {
+        if (host == null || !addressLike(host) || port == null || otp == null || fp == null || !port.matches("[0-9]+")) {
             return null;
         }
         BigInteger number = new BigInteger(port);
@@ -89,8 +104,53 @@ public final class PairingLink {
         if (number.signum() == 0 || number.compareTo(BigInteger.valueOf(65535)) > 0 || fingerprint == null) {
             return null;
         }
-        return new PairingLink(host, number.intValue(), otp, orEmpty(values.get("pass")), orEmpty(values.get("id")),
+        return new PairingLink(text, host, number.intValue(), otp, orEmpty(values.get("pass")), orEmpty(values.get("id")),
                 fingerprint, orEmpty(values.get("name")));
+    }
+
+    /**
+     * The link's name for a confirmation: without control characters and the invisible ones that can
+     * reorder or hide text, and cut to a length a dialog can show. Empty when none is left.
+     */
+    public String shownName() {
+        StringBuilder out = new StringBuilder();
+        int shown = 0;
+        for (int at = 0; at < name.length() && shown < MAX_SHOWN_NAME; ) {
+            int c = name.codePointAt(at);
+            at += Character.charCount(c);
+            if (!hiddenChar(c)) {
+                out.appendCodePoint(c);
+                shown++;
+            }
+        }
+        int start = 0;
+        int end = out.length();
+        while (start < end && blank(out.charAt(start))) start++;
+        while (end > start && blank(out.charAt(end - 1))) end--;
+        return out.substring(start, end);
+    }
+
+    private static boolean blank(char c) {
+        return Character.isWhitespace(c) || Character.isSpaceChar(c);
+    }
+
+    /** Where the link pairs, for a confirmation: {@code host:port}, {@code [v6-address]:port}. */
+    public String shownAddress() {
+        return (host.indexOf(':') >= 0 && !host.startsWith("[") ? "[" + host + "]" : host) + ":" + port;
+    }
+
+    /**
+     * Letters, digits and what names and IP addresses use ({@code [fe80::1%eth0]}): nothing that can
+     * end the authority of a URL, or make the address read as something else.
+     */
+    private static boolean addressLike(String host) {
+        return host.length() <= MAX_HOST_LENGTH && host.matches("[A-Za-z0-9._:%\\[\\]-]+");
+    }
+
+    private static boolean hiddenChar(int c) {
+        return Character.isISOControl(c) || c == 0xAD || c == 0x61C || c == 0x180E
+                || (c >= 0x200B && c <= 0x200F) || (c >= 0x2028 && c <= 0x202E)
+                || (c >= 0x2060 && c <= 0x206F) || c == 0xFEFF || (c >= 0xFFF9 && c <= 0xFFFB);
     }
 
     /** True when the certificate's DER hashes to the link's fingerprint. */

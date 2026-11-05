@@ -769,7 +769,7 @@ proptest! {
     /// A pairing link reads back as the invitation it was written from.
     #[test]
     fn pairing_uri_round_trip(
-        host in "\\PC{1,24}",
+        host in "[a-zA-Z0-9.:_%\\[\\]-]{1,24}",
         port in 1u16..,
         otp in "\\PC{1,8}",
         passphrase in "\\PC{0,16}",

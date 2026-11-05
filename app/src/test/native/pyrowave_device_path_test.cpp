@@ -71,7 +71,21 @@ static void pathExtensions() {
     assert(!has(bare, "VK_KHR_8bit_storage") && !has(bare, "VK_KHR_driver_properties"));
 }
 
+static void adrenoAndMaliNeedTheirDriverIdBelowVulkan12() {
+    for (uint32_t vendor : {PYRO_VENDOR_QUALCOMM, PYRO_VENDOR_ARM}) {
+        assert(!pyroDriverIdKnown(PYRO_VULKAN_1_1, vendor, false));
+        assert(pyroDriverIdKnown(PYRO_VULKAN_1_1, vendor, true));
+        // Core from Vulkan 1.2 on.
+        assert(pyroDriverIdKnown(PYRO_VULKAN_1_2, vendor, false));
+        assert(pyroDriverIdKnown(PYRO_VULKAN_1_3, vendor, false));
+    }
+    // The Shield's NVIDIA and others take no path by driver id.
+    assert(pyroDriverIdKnown(PYRO_VULKAN_1_1, 0x10DE, false));
+    assert(pyroDriverIdKnown(PYRO_VULKAN_1_1, 0x1010, false));
+}
+
 int main() {
+    adrenoAndMaliNeedTheirDriverIdBelowVulkan12();
     vulkan13DevicesKeepTheirPath();
     theLowerOfLoaderAndDeviceDecides();
     theTestSwitchTakesTheVulkan11Path();

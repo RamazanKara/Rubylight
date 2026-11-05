@@ -1606,6 +1606,27 @@ mod tests {
         remove_leftover_folders(drive, &BTreeSet::from([PathBuf::from("C:\\Windows")]));
         assert!(drive.join("Windows").is_dir());
     }
+    /// A junction at `at`. Under a full test run `cmd` can fail to start at all
+    /// (0xC0000142, its DLLs did not initialize), which says nothing about the code under test.
+    fn junction(at: &Path, to: &Path) {
+        const DLL_INIT_FAILED: i32 = 0xC0000142_u32 as i32;
+        let mut tries = 0;
+        loop {
+            let made = std::process::Command::new("cmd")
+                .args(["/c", "mklink", "/J"])
+                .arg(at)
+                .arg(to)
+                .output()
+                .unwrap();
+            tries += 1;
+            if tries < 5 && made.status.code() == Some(DLL_INIT_FAILED) {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                continue;
+            }
+            assert!(made.status.success(), "{made:?}");
+            return;
+        }
+    }
     #[test]
     fn leftover_folders_keep_the_users_files_and_never_follow_a_link_out() {
         let temp = tempfile::tempdir().unwrap();
@@ -1618,15 +1639,7 @@ mod tests {
         let outside = temp.path().join("outside");
         write(&outside.join("libvpl\\keep.txt"), "not ours");
         std::fs::create_dir_all(outside.join("empty")).unwrap();
-        let link = |at: &Path, to: &Path| {
-            let made = std::process::Command::new("cmd")
-                .args(["/c", "mklink", "/J"])
-                .arg(at)
-                .arg(to)
-                .output()
-                .unwrap();
-            assert!(made.status.success(), "{made:?}");
-        };
+        let link = junction;
         link(&root.join("through"), &outside);
         let touched = remove_package(&root);
         remove_leftover_folders(&root, &touched);
@@ -1648,15 +1661,7 @@ mod tests {
     #[test]
     fn setup_staging_goes_with_the_uninstall_and_its_links_lead_nowhere() {
         let temp = tempfile::tempdir().unwrap();
-        let link = |at: &Path, to: &Path| {
-            let made = std::process::Command::new("cmd")
-                .args(["/c", "mklink", "/J"])
-                .arg(at)
-                .arg(to)
-                .output()
-                .unwrap();
-            assert!(made.status.success(), "{made:?}");
-        };
+        let link = junction;
         let outside = temp.path().join("outside");
         write(&outside.join("keep.txt"), "not ours");
         // A transaction cut short, an unpacked package and a download.

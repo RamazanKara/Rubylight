@@ -99,6 +99,13 @@ const MAX_APP_LIST_BYTES: usize = 4 * 1024 * 1024;
 const MAX_BOX_ART_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CLIPBOARD_BYTES: usize = 1024 * 1024;
 
+/// The SHA-256 of a stored host certificate's DER: what a QR pairing link's `fp` names.
+pub fn certificate_sha256(pem: &str) -> Result<[u8; 32], Error> {
+    let mut hash = [0; 32];
+    hash.copy_from_slice(&crypto::sha256(&der::pem_decode(pem, "CERTIFICATE")?));
+    Ok(hash)
+}
+
 /// The `box.png` hosts send from `/appasset` for an app with no cover of its own, by length and SHA-256:
 /// Rubylight's and Sunshine-family hosts' since Sunshine 0.21, and Sunshine 0.20 and older. Android's
 /// `PlaceholderArt` knows the same two.

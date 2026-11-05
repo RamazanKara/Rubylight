@@ -832,6 +832,12 @@ fn run_session(direct_submit: bool, packed_format: Option<u32>) {
     until("audio", || record.lock().unwrap().audio.len() >= 90);
     until("every datagram counted on the wire", || session.wire_bytes() == sent);
 
+    // What Android's getVideoReceiveBufferInfo reads: the real socket's answer, not "unknown".
+    let buffer = session
+        .video_receive_buffer()
+        .expect("the video socket's receive buffer is known");
+    assert!(buffer.asked > 0 && buffer.granted > 0, "{buffer:?}");
+
     let stats = session.stats();
     assert!(stats.rtt.is_some());
     assert_eq!(stats.frames_submitted, 4);

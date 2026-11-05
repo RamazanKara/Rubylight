@@ -97,6 +97,45 @@ public class MediaCodecDebtReleaseTest {
         }
     }
 
+    private static int climbWatchSamples(KeyframeSafetyNet net) {
+        return ReflectionHelpers.<Integer>getField(net, "bucketSamples");
+    }
+
+    private static KeyframeSafetyNet watch(MediaCodecDecoderRenderer renderer) {
+        KeyframeSafetyNet.Counts counts = new KeyframeSafetyNet.Counts();
+        KeyframeSafetyNet net = new KeyframeSafetyNet(counts);
+        ReflectionHelpers.setField(renderer, "repairCounts", counts);
+        ReflectionHelpers.setField(renderer, "keyframeSafetyNet", net);
+        return net;
+    }
+
+    // Erratum 23's climb watch sees every output, whichever way it left the decoder.
+    @Test public void theNewerOutputOfADebtDropReachesTheClimbWatch() {
+        Fixture fixture = new Fixture(FRAME_PACING_MAX_SMOOTHNESS, NEWER);
+        try {
+            KeyframeSafetyNet net = watch(fixture.renderer);
+            fixture.release();
+            assertEquals(Collections.singletonList(HELD), fixture.dropped);
+            assertEquals(1, climbWatchSamples(net));
+        } finally {
+            fixture.close();
+        }
+    }
+
+    @Test public void theNewerOutputThatReplacesAHeldOneReachesTheClimbWatch() {
+        Fixture fixture = new Fixture(FRAME_PACING_MAX_SMOOTHNESS, NEWER);
+        try {
+            KeyframeSafetyNet net = watch(fixture.renderer);
+            ReflectionHelpers.setField(fixture.renderer, "heldIndex", HELD);
+            ScheduledRelease release = ReflectionHelpers.getField(fixture.renderer, "scheduledRelease");
+            ScheduledRelease.Port port = ReflectionHelpers.getField(release, "port");
+            assertTrue(port.replaceHeld("test", 0));
+            assertEquals(1, climbWatchSamples(net));
+        } finally {
+            fixture.close();
+        }
+    }
+
     private static final class Fixture {
         final ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create();
         final MediaCodecDecoderRenderer renderer;

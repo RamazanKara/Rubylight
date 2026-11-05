@@ -5,10 +5,14 @@ import android.app.Application;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecInfo.CodecCapabilities;
 import android.media.MediaCodecInfo.CodecProfileLevel;
+import android.graphics.SurfaceTexture;
 import android.media.MediaFormat;
+import android.view.Display;
+import android.view.Surface;
 
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.PreferenceConfiguration;
+import com.limelight.utils.RecentStreams;
 
 import org.junit.After;
 import org.junit.Before;
@@ -16,6 +20,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.Shadows;
 import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.MediaCodecInfoBuilder;
@@ -39,7 +44,7 @@ import static org.junit.Assert.assertTrue;
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 34, application = Application.class,
-        shadows = com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class,
+        shadows = {KeyframeSafetyNetWiringTest.QueueingCodec.class, com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class},
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class DecoderLowLatencyCorruptionTest {
     private static final String MODEL = "AFTNE4E43F";
@@ -187,22 +192,29 @@ public class DecoderLowLatencyCorruptionTest {
         assertFalse(rfi(renderer, MoonBridge.VIDEO_FORMAT_H265_MAIN10, HdrFormatPolicy.DV_81, HEVC_RFI));
     }
 
-    // What setup makes of a launch: the field the report's row and the diagnostics read. Set before the decoder
-    // is configured, so it doesn't matter here that this test's decoders can't start.
-    private static boolean rfiAfterSetup(MediaCodecDecoderRenderer renderer, int format, int hdrFormat) {
+    // A launch through setup to the end of the stream: what the report's row says of RFI.
+    private static boolean rfiInTheRow(MediaCodecDecoderRenderer renderer, int format, int hdrFormat) {
+        RecentStreams.clear();
         renderer.getCapabilities(format, hdrFormat);
+        SurfaceTexture texture = new SurfaceTexture(0);
+        Surface surface = new Surface(texture);
+        ReflectionHelpers.setField(renderer, "renderTarget", surface);
         try {
-            renderer.setup(format, 3840, 2160, 60);
+            assertEquals(0, renderer.setup(format, 3840, 2160, 60));
         } finally {
             renderer.stop();
             renderer.cleanup();
+            surface.release();
+            texture.release();
         }
-        return ReflectionHelpers.<Boolean>getField(renderer, "refFrameInvalidationActive");
+        String section = RecentStreams.section();
+        assertTrue(section, section.contains(", RFI on") != section.contains(", RFI off"));
+        return section.contains(", RFI on");
     }
 
     // The launch has told the host, so the report says so on whichever decoder the stream ends up.
     @Test
-    public void setupReportsTheRfiTheLaunchDeclaredForTheStreamsOwnCodec() {
+    public void whatTheLaunchGaveUpIsWhatTheStreamReports() {
         ShadowBuild.setModel(MODEL);
         decoders("acme");
         int hevc = MoonBridge.VIDEO_FORMAT_H265_MAIN10;
@@ -223,8 +235,38 @@ public class DecoderLowLatencyCorruptionTest {
             String name = "format " + format + ", HDR format " + hdrFormat;
             MediaCodecDecoderRenderer renderer = rendererWithDolbyVision("c2.mtk.dolby-vision.decoder", false);
             assertEquals(name, launch[3], rfi(renderer, format, hdrFormat, (int) launch[2]));
-            assertEquals(name, launch[3], rfiAfterSetup(renderer, format, hdrFormat));
+            assertEquals(name, launch[3], rfiInTheRow(renderer, format, hdrFormat));
         }
+    }
+
+    // Force AV1 still offers HEVC Main10, so the launch can pick DV_81 for a decoder the stream never runs on:
+    // the host takes AV1 first, and AV1's RFI was declared.
+    @Test
+    public void forceAv1WithAProfile8PickKeepsAv1Rfi() {
+        ShadowBuild.setModel(MODEL);
+        ShadowMediaCodecList.addCodec(decoder("c2.acme.hevc.decoder", "video/hevc", CodecProfileLevel.HEVCProfileMain10));
+        ShadowMediaCodecList.addCodec(decoder("c2.acme.av1.decoder", "video/av01", CodecProfileLevel.AV1ProfileMain10));
+        ShadowMediaCodecList.addCodec(decoder("c2.mtk.dolby-vision.decoder", HdrFormatPolicy.MIME_DOLBY_VISION,
+                CodecProfileLevel.DolbyVisionProfileDvheSt));
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.videoFormat = PreferenceConfiguration.FormatOption.FORCE_AV1;
+        prefs.width = 3840;
+        prefs.height = 2160;
+        prefs.codecLowLatency = true;
+        prefs.vendorLowLatency = true;
+        MediaCodecDecoderRenderer renderer = new MediaCodecDecoderRenderer(activity.get(), prefs, null, 0, false, true, "", null);
+        Display display = activity.get().getWindowManager().getDefaultDisplay();
+        Shadows.shadowOf(display).setDisplayHdrCapabilities(display.getDisplayId(), 1000, 500, 0.0005f,
+                Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION);
+        ReflectionHelpers.setField(renderer, "outputDisplay", display);
+
+        assertTrue("the offer carries HEVC", renderer.isHevcMain10Supported());
+        int offered = MoonBridge.VIDEO_FORMAT_H265_MAIN10 | MoonBridge.VIDEO_FORMAT_AV1_MAIN10;
+        int hdrFormat = renderer.pickHdrFormat(HdrFormatPolicy.DV_81 | HdrFormatPolicy.PQ, offered, false);
+        assertEquals(HdrFormatPolicy.DV_81, hdrFormat);
+        assertEquals("only the automatic codec moves", offered, renderer.videoFormatsForHdrFormat(hdrFormat, offered));
+        assertTrue("declared", rfi(renderer, MoonBridge.VIDEO_FORMAT_AV1_MAIN10, hdrFormat, AV1_RFI));
+        assertTrue("and reported", rfiInTheRow(renderer, MoonBridge.VIDEO_FORMAT_AV1_MAIN10, hdrFormat));
     }
 
     @Test

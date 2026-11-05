@@ -359,6 +359,28 @@ public class PairingApprovalTest {
         }
     }
 
+    // A Retroid Pocket 6 at its default density, with its system bars taken off the height.
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-xhdpi")
+    public void aHandheldInLandscapeShowsEveryRowOfThePinPad() {
+        try (ActivityController<ToolbarIconTintTest.Screen> controller =
+                     Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+            Transcript transcript = new Transcript();
+            AlertDialog dialog = dialogs(controller.get(), transcript).showPin(tv(), client(transcript, ""));
+            idle();
+            View decor = dialog.getWindow().getDecorView();
+            float density = controller.get().getResources().getDisplayMetrics().density;
+            decor.measure(View.MeasureSpec.makeMeasureSpec((int) (960 * density), View.MeasureSpec.AT_MOST),
+                    View.MeasureSpec.makeMeasureSpec((int) ((540 - 48) * density), View.MeasureSpec.AT_MOST));
+            decor.layout(0, 0, decor.getMeasuredWidth(), decor.getMeasuredHeight());
+            View pad = dialog.findViewById(R.id.pairing_pin_pad);
+            ViewGroup scroll = (ViewGroup) pad.getParent().getParent();
+            assertTrue("the pad is " + scroll.getChildAt(0).getHeight() + " px in " + scroll.getHeight() + " px",
+                    scroll.getChildAt(0).getHeight() <= scroll.getHeight());
+            dialog.dismiss();
+        }
+    }
+
     @Test
     public void aLongDeviceNameKeepsToTwoLinesInThePinDialog() {
         try (ActivityController<ToolbarIconTintTest.Screen> controller =

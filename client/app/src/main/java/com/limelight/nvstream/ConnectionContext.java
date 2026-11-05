@@ -39,6 +39,8 @@ public class ConnectionContext {
     public boolean rateChange;
     // Set only for the launch that retries after the user confirmed closing the running game
     public boolean confirmReplace;
+    // What an automatic start says when another game runs on the PC
+    public String gameRunningMessage;
     // The bitrate the stream starts at: the configured one, lower after a link test, or PyroWave's own
     public int startBitrateKbps;
     // This device's route toward the host, looked up once at launch: PyroWave's default stays within

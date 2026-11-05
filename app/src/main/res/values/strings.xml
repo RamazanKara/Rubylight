@@ -523,5 +523,6 @@
     <string name="continue_here_action">Continue here</string>
     <string name="continue_here_stream_too">Stream here too</string>
     <string name="continue_here_now_playing">Now playing on %1$s</string>
+    <string name="continue_here_now_playing_elsewhere">Now playing on another device</string>
     <string name="continue_here_failed">Could not continue here</string>
 </resources>

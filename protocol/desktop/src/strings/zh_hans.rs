@@ -532,6 +532,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Continue here", "在此继续"),
     ("Stream here too", "也在此串流"),
     ("Now playing on {}", "正在 {} 上游玩"),
+    ("Now playing on another device", "正在另一台设备上游玩"),
     ("Could not continue here", "无法在此继续"),
     ("Could not end the session", "无法结束会话"),
     ("The session action failed", "会话操作失败"),

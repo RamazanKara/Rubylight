@@ -449,5 +449,6 @@
     <string name="continue_here_action">Continuer ici</string>
     <string name="continue_here_stream_too">Diffuser aussi ici</string>
     <string name="continue_here_now_playing">Maintenant sur %1$s</string>
+    <string name="continue_here_now_playing_elsewhere">Maintenant sur un autre appareil</string>
     <string name="continue_here_failed">Impossible de continuer ici</string>
 </resources>

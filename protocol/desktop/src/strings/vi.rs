@@ -532,6 +532,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Continue here", "Tiếp tục tại đây"),
     ("Stream here too", "Cũng phát tại đây"),
     ("Now playing on {}", "Đang chơi trên {}"),
+    ("Now playing on another device", "Đang chơi trên thiết bị khác"),
     ("Could not continue here", "Không thể tiếp tục tại đây"),
     ("Could not end the session", "Không thể kết thúc phiên"),
     ("The session action failed", "Thao tác phiên thất bại"),

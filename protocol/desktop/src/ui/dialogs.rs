@@ -222,6 +222,15 @@ impl GameAction {
     }
 }
 
+/// A caller without List or View is told that its stream moved, not where to.
+pub(super) fn now_playing_title(device: &str) -> String {
+    if device.is_empty() {
+        tr("Now playing on another device").into()
+    } else {
+        trf("Now playing on {}", &[&device])
+    }
+}
+
 impl Launcher {
     pub(super) fn dialogs(&mut self, ctx: &egui::Context, view: &View<'_>, commands: &mut Vec<Command>) {
         let frame = Frame::new()
@@ -237,8 +246,7 @@ impl Launcher {
         let mut focused = false;
         match &mut self.dialog {
             Dialog::None => {
-                if let Some((title, body)) = self.queued.pop_front() {
-                    self.message(title, body);
+                if self.next_queued() {
                     ctx.request_repaint();
                 }
                 return;
@@ -978,7 +986,7 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
-                        ui.label(RichText::new(trf("Now playing on {}", &[&device])).font(semibold(text::SECTION)));
+                        ui.label(RichText::new(now_playing_title(device)).font(semibold(text::SECTION)));
                         dialog_buttons(ui, |ui| {
                             let ok = primary_button(ui, "OK");
                             if focus_first {
@@ -1577,7 +1585,7 @@ impl Launcher {
         match &self.dialog {
             Dialog::None => self.message(title, body),
             Dialog::ConfirmSleep { host: asked, .. } | Dialog::ConfirmPcPower { host: asked, .. } if *asked == host => self.message(title, body),
-            _ => self.queued.push_back((title, body)),
+            _ => self.queued.push_back(Dialog::Message { title, body }),
         }
     }
 

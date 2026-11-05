@@ -794,7 +794,8 @@ public class NvConnection {
                         !app.matchesRunningApp(details.runningGameId, details.runningGameUuid))) {
             String movedTo = streamMovedTo();
             if (movedTo != null) {
-                context.connListener.displayMessage(appContext.getString(R.string.continue_here_now_playing, movedTo));
+                context.connListener.displayMessage(movedMessage(appContext, movedTo));
+                context.connListener.streamMoved(movedTo);
                 return false;
             }
             if (details.runningGameId == 0 && context.streamConfig.isIdleSessionEndAllowed() && hasEndedSession(h)) {
@@ -1864,13 +1865,25 @@ public class NvConnection {
         return nativeClient();
     }
 
-    /**
-     * The device this stream moved to, or null: it did not, the PC does not say, or it did not answer in time. A
-     * recovery that goes on after that stops at the running-game check, since the PC gave the game to that device.
-     */
+    /** "Now playing on ..."; a device without List or View is told that its stream moved, not where to. */
+    public static String movedMessage(Context context, String device) {
+        return device.isEmpty() ? context.getString(R.string.continue_here_now_playing_elsewhere)
+                : context.getString(R.string.continue_here_now_playing, device);
+    }
+
+    /** {@link #streamMovedTo(boolean)} when no recovery follows. */
     public String streamMovedTo() {
+        return streamMovedTo(false);
+    }
+
+    /**
+     * The device this stream moved to, or null: it did not, the PC does not say, or it did not answer in time. With
+     * {@code recoveryFollows} it is not asked at all, on a link that may be dead: the recovery stops at the running-game
+     * check, since the PC reports the game to its owner only, and asks there.
+     */
+    public String streamMovedTo(boolean recoveryFollows) {
         if (!ContinueHerePolicy.readsMoveAfterEnd(
-                NativeCapabilities.offersContinueHere(KnownCapabilities.of(hostDetails.uuid)), false)) {
+                NativeCapabilities.offersContinueHere(KnownCapabilities.of(hostDetails.uuid)), false, recoveryFollows)) {
             return null;
         }
         NativeApiClient client = nativeClient();

@@ -532,6 +532,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Continue here", "Continuer ici"),
     ("Stream here too", "Diffuser aussi ici"),
     ("Now playing on {}", "Maintenant sur {}"),
+    ("Now playing on another device", "Maintenant sur un autre appareil"),
     ("Could not continue here", "Impossible de continuer ici"),
     ("Could not end the session", "Impossible d’arrêter la session"),
     ("The session action failed", "L’action de session a échoué"),

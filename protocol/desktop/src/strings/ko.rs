@@ -532,6 +532,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Continue here", "여기서 계속"),
     ("Stream here too", "여기서도 스트리밍"),
     ("Now playing on {}", "지금 {}에서 플레이 중"),
+    ("Now playing on another device", "지금 다른 기기에서 플레이 중"),
     ("Could not continue here", "여기서 계속할 수 없습니다"),
     ("Could not end the session", "세션을 끝낼 수 없습니다"),
     ("The session action failed", "세션 작업에 실패했습니다"),

@@ -449,5 +449,6 @@
     <string name="continue_here_action">Продовжити тут</string>
     <string name="continue_here_stream_too">Транслювати і тут</string>
     <string name="continue_here_now_playing">Тепер грає %1$s</string>
+    <string name="continue_here_now_playing_elsewhere">Тепер грає інший пристрій</string>
     <string name="continue_here_failed">Не вдалося продовжити тут</string>
 </resources>

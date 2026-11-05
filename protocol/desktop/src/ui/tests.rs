@@ -22,6 +22,49 @@ fn launcher(console_home: bool, home_ready: bool) -> Launcher {
 }
 
 #[test]
+fn an_answer_that_arrives_by_itself_waits_for_the_open_dialog() {
+    let mut l = launcher(true, true);
+    let moved = || Dialog::NowPlaying { host: 1, app: 7, device: "TV".into() };
+    l.ask_after(moved());
+    assert!(matches!(l.dialog, Dialog::NowPlaying { .. }), "nothing open: at once");
+    // The failure report of the same stream arrives while it is up, and neither is lost.
+    l.ask_after(Dialog::Message { title: "Stream".into(), body: "failed".into() });
+    assert!(matches!(l.dialog, Dialog::NowPlaying { .. }));
+    l.dialog = Dialog::None;
+    assert!(l.next_queued());
+    assert!(matches!(&l.dialog, Dialog::Message { body, .. } if body == "failed"));
+
+    // And the other way round: a question the player is in stays, its answer comes after it.
+    l.dialog = Dialog::ContinueHere { host: 1, app: 7, resume: true, name: "Game".into(), device: "Phone".into() };
+    l.ask_after(moved());
+    assert!(matches!(l.dialog, Dialog::ContinueHere { .. }));
+    l.dialog = Dialog::None;
+    assert!(l.next_queued());
+    assert!(matches!(l.dialog, Dialog::NowPlaying { .. }));
+    assert!(!l.next_queued());
+}
+
+#[test]
+fn the_game_another_device_plays_is_matched_by_id_and_install_id() {
+    let playing: nightjar_core::http::PlayingOn = serde_json::from_str(
+        r#"{"device":"Phone","app":{"install_id":"game-a","app_id":7,"title":"Game"}}"#,
+    ).unwrap();
+    let app = |id, uuid: &str| nightjar_core::http::App { uuid: uuid.into(), ..game(id) };
+    assert!(super::library::plays_this_game(Some(&app(7, "game-a")), 7, &playing));
+    assert!(!super::library::plays_this_game(Some(&app(7, "game-b")), 7, &playing), "the id was given to another game");
+    assert!(super::library::plays_this_game(Some(&app(9, "game-a")), 9, &playing), "the game has a new id");
+    assert!(super::library::plays_this_game(Some(&app(7, "")), 7, &playing), "no install id: the id decides");
+    assert!(super::library::plays_this_game(None, 7, &playing));
+    assert!(!super::library::plays_this_game(None, 8, &playing));
+}
+
+#[test]
+fn a_move_to_a_device_it_may_not_name_says_another_device() {
+    assert_eq!(super::dialogs::now_playing_title("TV"), "Now playing on TV");
+    assert_eq!(super::dialogs::now_playing_title(""), "Now playing on another device");
+}
+
+#[test]
 fn back_returns_to_the_screen_and_the_item_it_left() {
     let mut l = launcher(true, true);
     l.go(Screen::Home);

@@ -283,17 +283,6 @@ impl HostClient {
         self.native("session", None, MAX_JSON_BYTES, READ_TIMEOUT)
     }
 
-    /// The session and [`HostClient::stream_move`] from one read.
-    pub fn session_and_move(&self) -> Result<(Session, StreamMove), Error> {
-        let session: serde_json::Value =
-            self.native("session", None, MAX_JSON_BYTES, READ_TIMEOUT)?;
-        // What an old host does not say is absent, never an error.
-        let moved = serde_json::from_value(session.clone()).unwrap_or_default();
-        let session = serde_json::from_value(session)
-            .map_err(|e| Error::InvalidArgument(format!("session: {e}")))?;
-        Ok((session, moved))
-    }
-
     /// Continue here: the other devices' streams of the running game end and the game stays. The
     /// caller then starts its stream with the normal resume. Only when the capabilities list
     /// `session.continue_here`.

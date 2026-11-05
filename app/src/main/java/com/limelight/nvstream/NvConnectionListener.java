@@ -14,6 +14,12 @@ public interface NvConnectionListener {
     void displayMessage(String message);
     void displayTransientMessage(String message);
 
+    /**
+     * A resume found that the stream moved to {@code device}; empty when this device may not know its name. Comes
+     * before the failed stage, on the connection's thread.
+     */
+    default void streamMoved(String device) {}
+
     /** The stream's network went away. On ConnectivityManager's thread. */
     default void streamNetworkLost() {}
 

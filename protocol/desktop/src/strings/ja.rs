@@ -532,6 +532,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Continue here", "ここで続ける"),
     ("Stream here too", "ここでも配信"),
     ("Now playing on {}", "{} でプレイ中"),
+    ("Now playing on another device", "別のデバイスでプレイ中"),
     ("Could not continue here", "ここで続けられませんでした"),
     ("Could not end the session", "セッションを終了できませんでした"),
     ("The session action failed", "セッションの操作に失敗しました"),

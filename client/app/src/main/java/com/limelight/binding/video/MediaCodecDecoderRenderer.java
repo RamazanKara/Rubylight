@@ -305,6 +305,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private final PyroWaveSubmissionTiming pyroWaveSubmissionTiming = new PyroWaveSubmissionTiming();
     private ThermalMonitor thermalMonitor;
     private volatile int thermalLevel = ThermalMonitor.NORMAL;
+    private volatile boolean heatChangesStream;
 
     private final FrameLatencyStats frameLatencyStats;
     // Releases MediaCodec frames at the host's frame times when that setting is on.
@@ -627,12 +628,26 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return thermalLevel;
     }
 
+    /** Whether heat is changing this stream right now: Thermal protection is on and a controller follows it. */
+    public void setHeatChangesStream(boolean changes) {
+        heatChangesStream = changes;
+    }
+
     private String thermalStats() {
-        int state = thermalLevel == ThermalMonitor.HOT ? R.string.perf_overlay_thermal_hot :
-                thermalLevel == ThermalMonitor.WARM ? R.string.perf_overlay_thermal_warm : R.string.perf_overlay_thermal_normal;
         float headroom = thermalMonitor.headroom();
-        return context.getString(R.string.perf_overlay_thermal, context.getString(state)) +
+        return context.getString(R.string.perf_overlay_thermal, context.getString(thermalState(thermalLevel, heatChangesStream))) +
                 (headroom >= 0 ? String.format(Locale.US, " (%.2f)", headroom) : "");
+    }
+
+    // The overlay names what heat does to the stream only when it does something.
+    static int thermalState(int level, boolean changesStream) {
+        if (level == ThermalMonitor.HOT) {
+            return changesStream ? R.string.perf_overlay_thermal_hot_easing : R.string.perf_overlay_thermal_hot;
+        }
+        if (level == ThermalMonitor.WARM) {
+            return changesStream ? R.string.perf_overlay_thermal_warm_holding : R.string.perf_overlay_thermal_warm;
+        }
+        return R.string.perf_overlay_thermal_normal;
     }
 
     // Network queueing delay above its recent minimum, ms; -1 when unknown.

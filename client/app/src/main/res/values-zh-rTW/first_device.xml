@@ -42,8 +42,10 @@
     <string name="perf_overlay_phone_hints">手機效能提示：%1$s</string>
     <string name="perf_overlay_thermal">手機溫度：%1$s</string>
     <string name="perf_overlay_thermal_normal">正常</string>
-    <string name="perf_overlay_thermal_warm">偏熱，維持位元速率</string>
-    <string name="perf_overlay_thermal_hot">過熱，降低負載</string>
+    <string name="perf_overlay_thermal_warm">偏熱</string>
+    <string name="perf_overlay_thermal_hot">過熱</string>
+    <string name="perf_overlay_thermal_warm_holding">偏熱，維持位元速率</string>
+    <string name="perf_overlay_thermal_hot_easing">過熱，降低負載</string>
     <string name="connection_test_title">連線測試</string>
     <string name="connection_test_intro">測試與電腦之間的速度和延遲。\n最多使用 32 MiB，包括行動數據。</string>
     <string name="connection_test_running">正在測試… 輕觸「取消」即可停止。</string>

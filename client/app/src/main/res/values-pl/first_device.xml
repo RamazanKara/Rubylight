@@ -42,8 +42,10 @@
     <string name="perf_overlay_phone_hints">Wskazówki wydajności telefonu: %1$s</string>
     <string name="perf_overlay_thermal">Temperatura telefonu: %1$s</string>
     <string name="perf_overlay_thermal_normal">normalna</string>
-    <string name="perf_overlay_thermal_warm">podwyższona, szybkość transmisji wstrzymana</string>
-    <string name="perf_overlay_thermal_hot">wysoka, zmniejszanie obciążenia</string>
+    <string name="perf_overlay_thermal_warm">podwyższona</string>
+    <string name="perf_overlay_thermal_hot">wysoka</string>
+    <string name="perf_overlay_thermal_warm_holding">podwyższona, szybkość transmisji wstrzymana</string>
+    <string name="perf_overlay_thermal_hot_easing">wysoka, zmniejszanie obciążenia</string>
     <string name="connection_test_title">Test połączenia</string>
     <string name="connection_test_intro">Przetestuj szybkość i opóźnienie do komputera.\nZużywa do 32 MiB, także z danych mobilnych.</string>
     <string name="connection_test_running">Testowanie… Kliknij Anuluj, aby zatrzymać.</string>

@@ -42,8 +42,10 @@
     <string name="perf_overlay_phone_hints">Підказки продуктивності телефона: %1$s</string>
     <string name="perf_overlay_thermal">Нагрів телефона: %1$s</string>
     <string name="perf_overlay_thermal_normal">нормальний</string>
-    <string name="perf_overlay_thermal_warm">теплий, бітрейт утримується</string>
-    <string name="perf_overlay_thermal_hot">гарячий, навантаження знижується</string>
+    <string name="perf_overlay_thermal_warm">теплий</string>
+    <string name="perf_overlay_thermal_hot">гарячий</string>
+    <string name="perf_overlay_thermal_warm_holding">теплий, бітрейт утримується</string>
+    <string name="perf_overlay_thermal_hot_easing">гарячий, навантаження знижується</string>
     <string name="connection_test_title">Тест з’єднання</string>
     <string name="connection_test_intro">Перевірте швидкість і затримку до вашого ПК.\nВикористовує до 32 МіБ, зокрема мобільного трафіку.</string>
     <string name="connection_test_running">Тестування… Торкніться «Скасувати», щоб зупинити.</string>

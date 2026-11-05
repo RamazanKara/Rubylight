@@ -42,8 +42,10 @@
     <string name="perf_overlay_phone_hints">Android-Leistungssteuerung: %1$s</string>
     <string name="perf_overlay_thermal">Gerätetemperatur: %1$s</string>
     <string name="perf_overlay_thermal_normal">normal</string>
-    <string name="perf_overlay_thermal_warm">warm, Bitrate wird gehalten</string>
-    <string name="perf_overlay_thermal_hot">heiß, Last wird reduziert</string>
+    <string name="perf_overlay_thermal_warm">warm</string>
+    <string name="perf_overlay_thermal_hot">heiß</string>
+    <string name="perf_overlay_thermal_warm_holding">warm, Bitrate wird gehalten</string>
+    <string name="perf_overlay_thermal_hot_easing">heiß, Last wird reduziert</string>
     <string name="connection_test_title">Verbindungstest</string>
     <string name="connection_test_intro">Teste Tempo und Latenz zum PC.\nVerbraucht bis zu 32 MiB, auch im Mobilfunk.</string>
     <string name="connection_test_running">Test läuft… Abbrechen beendet den Test.</string>

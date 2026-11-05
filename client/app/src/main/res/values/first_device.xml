@@ -42,8 +42,10 @@
     <string name="perf_overlay_phone_hints">Phone performance hints: %1$s</string>
     <string name="perf_overlay_thermal">Phone heat: %1$s</string>
     <string name="perf_overlay_thermal_normal">normal</string>
-    <string name="perf_overlay_thermal_warm">warm, holding bitrate</string>
-    <string name="perf_overlay_thermal_hot">hot, easing load</string>
+    <string name="perf_overlay_thermal_warm">warm</string>
+    <string name="perf_overlay_thermal_hot">hot</string>
+    <string name="perf_overlay_thermal_warm_holding">warm, holding bitrate</string>
+    <string name="perf_overlay_thermal_hot_easing">hot, easing load</string>
     <string name="connection_test_title">Connection test</string>
     <string name="connection_test_intro">Test speed and delay to your PC.\nUses up to 32 MiB, including mobile data.</string>
     <string name="connection_test_running">Testing… Tap Cancel to stop.</string>

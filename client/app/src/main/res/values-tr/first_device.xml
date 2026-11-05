@@ -42,8 +42,10 @@
     <string name="perf_overlay_phone_hints">Telefon performans ipuçları: %1$s</string>
     <string name="perf_overlay_thermal">Telefon sıcaklığı: %1$s</string>
     <string name="perf_overlay_thermal_normal">normal</string>
-    <string name="perf_overlay_thermal_warm">ılık, bit hızı sabit tutuluyor</string>
-    <string name="perf_overlay_thermal_hot">sıcak, yük azaltılıyor</string>
+    <string name="perf_overlay_thermal_warm">ılık</string>
+    <string name="perf_overlay_thermal_hot">sıcak</string>
+    <string name="perf_overlay_thermal_warm_holding">ılık, bit hızı sabit tutuluyor</string>
+    <string name="perf_overlay_thermal_hot_easing">sıcak, yük azaltılıyor</string>
     <string name="connection_test_title">Bağlantı testi</string>
     <string name="connection_test_intro">Bilgisayarınıza olan hızı ve gecikmeyi test edin.\nMobil veri dahil en fazla 32 MiB kullanır.</string>
     <string name="connection_test_running">Test ediliyor… Durdurmak için İptal’e dokunun.</string>

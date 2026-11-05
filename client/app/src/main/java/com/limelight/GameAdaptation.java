@@ -44,6 +44,8 @@ final class GameAdaptation {
     final Runnable sampleStreamHealth = new Runnable() {
         @Override public void run() {
             if (!game.connected || game.decoderRenderer == null || game.app.getRole() == NvApp.Role.INPUT_ONLY) return;
+            game.decoderRenderer.setHeatChangesStream(heatChangesStream(
+                    game.prefConfig.thermalProtection, isAdaptiveBitrateEnabled(), game.adaptiveQuality != null));
             if (game.foreground && !game.hostActionInProgress) {
                 // A hanging decoder holds the locks this sample reads for seconds: never on the main thread.
                 MediaCodecDecoderRenderer renderer = game.decoderRenderer;
@@ -115,6 +117,11 @@ final class GameAdaptation {
     int adaptationThermalLevel() {
         return com.limelight.binding.video.ThermalMonitor.forAdaptation(game.prefConfig.thermalProtection,
                 game.decoderRenderer.getThermalLevel());
+    }
+
+    /** Heat acts only through Thermal protection and a controller that follows it: automatic bitrate or quality. */
+    static boolean heatChangesStream(boolean thermalProtection, boolean adaptiveBitrate, boolean adaptiveQuality) {
+        return thermalProtection && (adaptiveBitrate || adaptiveQuality);
     }
 
     void toggleAdaptiveBitrateFromMenu() {

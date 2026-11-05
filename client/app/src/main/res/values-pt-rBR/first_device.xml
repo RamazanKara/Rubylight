@@ -42,8 +42,10 @@
     <string name="perf_overlay_phone_hints">Dicas de desempenho do celular: %1$s</string>
     <string name="perf_overlay_thermal">Temperatura do celular: %1$s</string>
     <string name="perf_overlay_thermal_normal">normal</string>
-    <string name="perf_overlay_thermal_warm">morno, mantendo a taxa de bits</string>
-    <string name="perf_overlay_thermal_hot">quente, reduzindo a carga</string>
+    <string name="perf_overlay_thermal_warm">morno</string>
+    <string name="perf_overlay_thermal_hot">quente</string>
+    <string name="perf_overlay_thermal_warm_holding">morno, mantendo a taxa de bits</string>
+    <string name="perf_overlay_thermal_hot_easing">quente, reduzindo a carga</string>
     <string name="connection_test_title">Teste de conexão</string>
     <string name="connection_test_intro">Teste a velocidade e o atraso até o seu PC.\nUsa até 32 MiB, incluindo dados móveis.</string>
     <string name="connection_test_running">Testando… Toque em Cancelar para parar.</string>

@@ -42,8 +42,10 @@
     <string name="perf_overlay_phone_hints">手机性能提示：%1$s</string>
     <string name="perf_overlay_thermal">手机发热：%1$s</string>
     <string name="perf_overlay_thermal_normal">正常</string>
-    <string name="perf_overlay_thermal_warm">温热，保持码率</string>
-    <string name="perf_overlay_thermal_hot">过热，正在减轻负载</string>
+    <string name="perf_overlay_thermal_warm">温热</string>
+    <string name="perf_overlay_thermal_hot">过热</string>
+    <string name="perf_overlay_thermal_warm_holding">温热，保持码率</string>
+    <string name="perf_overlay_thermal_hot_easing">过热，正在减轻负载</string>
     <string name="connection_test_title">连接测试</string>
     <string name="connection_test_intro">测试到你电脑的速度和延迟。\n最多使用 32 MiB 流量，包括移动数据。</string>
     <string name="connection_test_running">正在测试… 点按“取消”可停止。</string>

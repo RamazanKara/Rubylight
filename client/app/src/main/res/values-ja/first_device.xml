@@ -42,8 +42,10 @@
     <string name="perf_overlay_phone_hints">スマートフォンのパフォーマンス ヒント: %1$s</string>
     <string name="perf_overlay_thermal">スマートフォンの温度: %1$s</string>
     <string name="perf_overlay_thermal_normal">通常</string>
-    <string name="perf_overlay_thermal_warm">やや高温、ビットレートを維持</string>
-    <string name="perf_overlay_thermal_hot">高温、負荷を軽減中</string>
+    <string name="perf_overlay_thermal_warm">やや高温</string>
+    <string name="perf_overlay_thermal_hot">高温</string>
+    <string name="perf_overlay_thermal_warm_holding">やや高温、ビットレートを維持</string>
+    <string name="perf_overlay_thermal_hot_easing">高温、負荷を軽減中</string>
     <string name="connection_test_title">接続テスト</string>
     <string name="connection_test_intro">PC までの速度と遅延をテストします。\nモバイルデータを含め、最大 32 MiB を使用します。</string>
     <string name="connection_test_running">テストしています… 停止するには [キャンセル] をタップします。</string>

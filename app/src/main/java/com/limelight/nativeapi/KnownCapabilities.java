@@ -9,8 +9,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * The last GET /capabilities each host answered in this process, as the {@code capabilities} op returned it, for
  * menus that decide without asking the host (see
  * {@link com.limelight.nvstream.http.HostCapabilities#withNativeCapabilities}). The computer manager reads every
- * native host's capabilities when a poll first finds it online, so a menu opened after that knows them. It lacks the
- * file permissions the {@code files.capabilities} op adds: gate files on that op, not on this.
+ * native host's capabilities when a poll first finds it online and again while it polls, so a menu opened after that
+ * knows them and a permission changed in the console arrives within half a minute. It lacks the file permissions the {@code files.capabilities} op adds: gate files on that op, not on this.
  */
 public final class KnownCapabilities {
     private static final Map<String, String> byHost = new ConcurrentHashMap<>();

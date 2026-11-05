@@ -2,12 +2,14 @@ package com.limelight.nvstream.wol;
 
 import static com.limelight.nativeapi.NativeApiFixtures.ok;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
 
 import com.limelight.nativeapi.HostEndpoint;
+import com.limelight.nativeapi.KnownCapabilities;
 import com.limelight.nativeapi.NativeApiClient;
 import com.limelight.nativeapi.NativeApiFixtures;
 import com.limelight.nvstream.http.ComputerDetails;
@@ -81,6 +83,19 @@ public class WakeTargetsPollTest {
 
     private int asks() {
         return Collections.frequency(transport.calls, "pc|wake");
+    }
+
+    @Test
+    public void aPermissionTurnedOnInTheConsoleReachesTheMenusWithinHalfAMinute() {
+        ComputerDetails pc = NativeApiFixtures.nativeHost("pc", "PC", true);
+        poll.polled(pc);
+        assertFalse(KnownCapabilities.of("pc").contains("pairing.approve"));
+
+        transport.reply("pc", "capabilities", ok("{\"api_version\":1,\"features\":[\"wake\",\"pairing.approve\"],"
+                + "\"permissions\":{\"list\":true,\"view\":true,\"launch\":true,\"host_control\":false}}"));
+        now += 30_000;
+        poll.polled(pc);
+        assertTrue(KnownCapabilities.of("pc").contains("pairing.approve"));
     }
 
     @Test

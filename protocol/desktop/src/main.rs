@@ -1886,10 +1886,10 @@ impl App {
         let Some((host, app)) = self.launcher.moved_prompt() else {
             return;
         };
-        if let Some(token) = self.move_watch.next()
-            && !self.hosts.watch_stream_move(host, app, token)
-        {
-            self.move_watch.not_started();
+        if let Some(token) = self.move_watch.next() {
+            if !self.hosts.watch_stream_move(host, app, token) {
+                self.move_watch.not_started();
+            }
         }
     }
 

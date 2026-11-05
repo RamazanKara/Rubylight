@@ -146,6 +146,7 @@ public class GameDetailOpenPlayTest {
         AlertDialog dialog = shown();
         assertEquals("Starting on Tower in 3", ((TextView) dialog.findViewById(android.R.id.message)).getText().toString());
         assertTrue("Cancel takes the first press", dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isFocused());
+        assertTrue("also straight after a touch", dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isFocusableInTouchMode());
         pass(1200);
         assertEquals("Starting on Tower in 2", ((TextView) dialog.findViewById(android.R.id.message)).getText().toString());
     }

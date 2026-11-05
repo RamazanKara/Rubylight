@@ -257,8 +257,15 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                 .setNegativeButton(android.R.string.cancel, (dialog, which) -> cancelCountdown())
                 .setOnCancelListener(dialog -> cancelCountdown())
                 .show();
-        countdown.getButton(AlertDialog.BUTTON_NEGATIVE).requestFocus();
+        focusCancel();
         handler.postDelayed(networkTick, NETWORK_CHECK_MS);
+    }
+
+    /** Also after a touch, or the first press of a pad would only leave touch mode and the game would start. */
+    private void focusCancel() {
+        android.view.View cancel = countdown.getButton(AlertDialog.BUTTON_NEGATIVE);
+        cancel.setFocusableInTouchMode(true);
+        cancel.requestFocus();
     }
 
     private void tickNetwork() {
@@ -296,7 +303,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                 .setNegativeButton(android.R.string.cancel, (dialog, which) -> cancelCountdown())
                 .setOnCancelListener(dialog -> cancelCountdown())
                 .show();
-        countdown.getButton(AlertDialog.BUTTON_NEGATIVE).requestFocus();
+        focusCancel();
         handler.postDelayed(countdownTick, 100);
     }
 

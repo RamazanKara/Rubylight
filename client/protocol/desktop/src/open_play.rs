@@ -85,6 +85,13 @@ impl SessionSeen {
     }
 }
 
+/// The PC's session reads so far, counted in the order they started.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SessionReads {
+    pub asked: u64,
+    pub answered: u64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HostSeen {
     pub reach: Reach,
@@ -92,6 +99,8 @@ pub struct HostSeen {
     pub paired: bool,
     pub apps: AppsSeen,
     pub session: SessionSeen,
+    /// `None` on a PC without the native API, which has no session to read.
+    pub reads: Option<SessionReads>,
 }
 
 /// What the launcher shows now.
@@ -117,6 +126,8 @@ pub enum Step {
     Wait,
     /// The network is back: ask the PC now rather than at the next poll.
     Repoll,
+    /// The countdown is over: ask who plays now, as another device may have started during it.
+    ReadSession,
     /// Show the countdown with this many seconds left; 0 once it ran out and the start is under way.
     Count(u64),
     /// The countdown ran out: the guard is armed from here.
@@ -140,11 +151,13 @@ pub struct Run {
     at_sign_in: bool,
     network_down_since: Option<Instant>,
     settled_at: Option<Instant>,
+    /// The session reads asked by the end of the countdown: only a later one says who plays now.
+    session_reads_before: u64,
 }
 
 impl Run {
     pub fn new(target: Target) -> Self {
-        Self { target, phase: Phase::Hold, at_sign_in: false, network_down_since: None, settled_at: None }
+        Self { target, phase: Phase::Hold, at_sign_in: false, network_down_since: None, settled_at: None, session_reads_before: 0 }
     }
 
     /// Whether the guard is armed for this run: past the countdown.
@@ -197,6 +210,7 @@ impl Run {
                     return Step::Over { disarm: false };
                 }
                 if now >= until {
+                    self.session_reads_before = seen.host.as_ref().and_then(|h| h.reads).map_or(0, |r| r.asked);
                     self.phase = Phase::Starting { wake_asked: false, apps_asked: false, since: now, shown: true };
                     return Step::Begin;
                 }
@@ -288,6 +302,10 @@ impl Run {
                 Step::Count(0)
             }
             Reach::Online if host.session == SessionSeen::Waiting => in_time(Step::Wait),
+            Reach::Online if host.reads.is_some_and(|r| r.answered <= self.session_reads_before) => {
+                let asked = host.reads.is_some_and(|r| r.asked > self.session_reads_before);
+                in_time(if asked { Step::Wait } else { Step::ReadSession })
+            }
             Reach::Online => match &host.apps {
                 AppsSeen::NotLoaded if !apps_asked => {
                     self.phase = Phase::Starting { wake_asked, apps_asked: true, since, shown };
@@ -546,6 +564,7 @@ impl crate::App {
                 can_wake: h.record.mac.is_some(),
                 paired: h.paired(),
                 session: SessionSeen::of(h.native_api(), h.native.session.as_ref(), h.native.error.is_some()),
+                reads: h.native_api().then(|| h.session_reads()),
                 apps: match &h.apps {
                     Apps::NotLoaded => AppsSeen::NotLoaded,
                     Apps::Loading => AppsSeen::Loading,
@@ -604,6 +623,7 @@ impl crate::App {
         match run.next(&seen, Instant::now()) {
             Step::Wait => {}
             Step::Repoll => self.hosts.poll_one(host),
+            Step::ReadSession => self.hosts.refresh_native(host, false),
             Step::Count(left) => {
                 let (game, pc) = (run.target.game.title.clone(), run.target.pc.clone());
                 if let Dialog::OpenPlay { left: shown, .. } = &mut self.launcher.dialog {
@@ -691,7 +711,7 @@ mod tests {
     }
 
     fn online(apps: AppsSeen) -> Option<HostSeen> {
-        Some(HostSeen { reach: Reach::Online, can_wake: true, paired: true, apps, session: SessionSeen::Free })
+        Some(HostSeen { reach: Reach::Online, can_wake: true, paired: true, apps, session: SessionSeen::Free, reads: None })
     }
 
     fn ready() -> Seen {
@@ -704,7 +724,58 @@ mod tests {
     }
 
     fn offline(can_wake: bool) -> Option<HostSeen> {
-        Some(HostSeen { reach: Reach::Offline, can_wake, paired: true, apps: AppsSeen::NotLoaded, session: SessionSeen::Waiting })
+        Some(HostSeen { reach: Reach::Offline, can_wake, paired: true, apps: AppsSeen::NotLoaded, session: SessionSeen::Waiting, reads: None })
+    }
+
+    /// A native PC's page during the start, with its session reads as counted.
+    fn reading(asked: u64, answered: u64, session: SessionSeen) -> Seen {
+        let host = HostSeen { session, reads: Some(SessionReads { asked, answered }), ..online(AppsSeen::Loaded(Some(7))).unwrap() };
+        Seen { host: Some(host), ..going() }
+    }
+
+    #[test]
+    fn who_plays_is_read_again_when_the_countdown_ends() {
+        let now = Instant::now();
+        let mut run = Run::new(target());
+        let free = SessionSeen::Free;
+        assert_eq!(run.next(&ready(), now), Step::Count(3));
+        let end = now + Duration::from_millis(policy::COUNTDOWN_MS);
+        assert_eq!(run.next(&reading(5, 5, free), end), Step::Begin, "free as of a read from before the end");
+        assert_eq!(run.next(&reading(5, 5, free), end), Step::ReadSession);
+        assert_eq!(run.next(&reading(6, 5, free), end), Step::Wait, "asked, so not asked again");
+        assert_eq!(run.next(&reading(6, 6, free), end), Step::Start(7));
+    }
+
+    #[test]
+    fn a_read_under_way_when_the_countdown_ends_does_not_count() {
+        let now = Instant::now();
+        let mut run = Run::new(target());
+        let free = SessionSeen::Free;
+        assert_eq!(run.next(&ready(), now), Step::Count(3));
+        let end = now + Duration::from_millis(policy::COUNTDOWN_MS);
+        assert_eq!(run.next(&reading(5, 4, free), end), Step::Begin);
+        assert_eq!(run.next(&reading(5, 5, free), end), Step::ReadSession, "that read started before the end");
+    }
+
+    #[test]
+    fn a_game_another_device_started_during_the_countdown_stops_the_start() {
+        let now = Instant::now();
+        let mut run = Run::new(target());
+        assert_eq!(run.next(&ready(), now), Step::Count(3));
+        let end = now + Duration::from_millis(policy::COUNTDOWN_MS);
+        assert_eq!(run.next(&reading(5, 5, SessionSeen::Free), end), Step::Begin);
+        assert!(matches!(run.next(&reading(6, 6, SessionSeen::Elsewhere), end), Step::Stopped(_)));
+    }
+
+    #[test]
+    fn a_read_that_never_answers_ends_within_the_limit() {
+        let now = Instant::now();
+        let mut run = Run::new(target());
+        assert_eq!(run.next(&ready(), now), Step::Count(3));
+        let end = now + Duration::from_millis(policy::COUNTDOWN_MS);
+        assert_eq!(run.next(&reading(5, 5, SessionSeen::Free), end), Step::Begin);
+        let late = end + START_LIMIT + Duration::from_secs(1);
+        assert!(matches!(run.next(&reading(6, 5, SessionSeen::Free), late), Step::Failed(Some(_))));
     }
 
     /// A run past its countdown.
@@ -971,11 +1042,11 @@ mod tests {
         let failed = |seen: Seen| matches!(begun(now).next(&seen, now), Step::Failed(Some(_)));
         assert!(failed(Seen { host: None, ..going() }), "the PC was removed");
         assert!(failed(Seen { host: offline(false), ..going() }), "no address");
-        assert!(failed(Seen { host: Some(HostSeen { reach: Reach::Online, can_wake: true, paired: false, apps: AppsSeen::NotLoaded, session: SessionSeen::Waiting }), ..going() }), "not paired");
+        assert!(failed(Seen { host: Some(HostSeen { reach: Reach::Online, can_wake: true, paired: false, apps: AppsSeen::NotLoaded, session: SessionSeen::Waiting, reads: None }), ..going() }), "not paired");
         assert!(failed(Seen { host: online(AppsSeen::Loaded(None)), ..going() }), "not in the list");
         assert!(failed(Seen { host: online(AppsSeen::Failed("x".into())), ..going() }), "no list");
         let mut run = begun(now);
-        let unknown = Seen { host: Some(HostSeen { reach: Reach::Unknown, can_wake: true, paired: true, apps: AppsSeen::NotLoaded, session: SessionSeen::Waiting }), ..going() };
+        let unknown = Seen { host: Some(HostSeen { reach: Reach::Unknown, can_wake: true, paired: true, apps: AppsSeen::NotLoaded, session: SessionSeen::Waiting, reads: None }), ..going() };
         assert_eq!(run.next(&unknown, now), Step::Wait);
         assert!(matches!(run.next(&unknown, now + START_LIMIT + Duration::from_secs(10)), Step::Failed(Some(_))), "a PC that never answers");
     }

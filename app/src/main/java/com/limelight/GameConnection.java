@@ -1444,7 +1444,7 @@ final class GameConnection {
             game.runOnUiThread(() -> {
                 if (game.isFinishing() || game.isDestroyed()) return;
                 if (!game.foreground) {
-                    game.recoveryCancelledOnPause = true;
+                    game.streamRecovery.leftDuringPress();
                     return;
                 }
                 answer.accept(read);
@@ -1502,6 +1502,10 @@ final class GameConnection {
             String why = failure;
             game.runOnUiThread(() -> {
                 if (game.isFinishing() || game.isDestroyed()) {
+                    return;
+                }
+                if (!game.foreground) {
+                    game.streamRecovery.leftDuringPress();
                     return;
                 }
                 if (why == null) {

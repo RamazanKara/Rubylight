@@ -40,6 +40,8 @@ final class GameRecovery {
 
     private static final String EXTRA_RECOVERY_ATTEMPTS = "RecoveryAttempts";
 
+    private boolean reconnectResumesOnly;
+
     private static final String EXTRA_RECOVERY_STARTED = "RecoveryStarted";
 
     // An earlier connection of this automatic reconnect chain showed video (videoStarted).
@@ -137,8 +139,25 @@ final class GameRecovery {
         startReconnect(behindPin, retry, true);
     }
 
+    /** Once per press: a screen the system re-creates from this intent checks what it finds. */
     boolean isJoinRunningStream() {
-        return game.getIntent().getBooleanExtra(EXTRA_JOIN_RUNNING, false);
+        boolean join = game.getIntent().getBooleanExtra(EXTRA_JOIN_RUNNING, false);
+        game.getIntent().removeExtra(EXTRA_JOIN_RUNNING);
+        return join;
+    }
+
+    /** The user left while a press waited for the PC: the Reconnect prompt on the way back stands in for it, and like it never starts a game. */
+    void leftDuringPress() {
+        game.recoveryCancelledOnPause = true;
+        reconnectResumesOnly = true;
+    }
+
+    private void reconnectFromPrompt() {
+        if (reconnectResumesOnly) {
+            reconnectStream(com.limelight.pin.PinGate.needsPinForStream(game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID)), true);
+        } else {
+            reconnectStream();
+        }
     }
 
     private void startReconnect(boolean behindPin, final Intent retry, boolean resumeOnly) {
@@ -523,6 +542,6 @@ final class GameRecovery {
         game.menuActions.showStreamDialog(new NavigationDialogBuilder(game).setTitle(title).setMessage(message)
                 .setCancelable(false)
                 .setNegativeButton(R.string.stream_disconnect, (dialog, which) -> game.finish())
-                .setPositiveButton(R.string.stream_reconnect, (dialog, which) -> reconnectStream()).create());
+                .setPositiveButton(R.string.stream_reconnect, (dialog, which) -> reconnectFromPrompt()).create());
     }
 }

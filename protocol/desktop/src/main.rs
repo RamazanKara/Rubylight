@@ -9,6 +9,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod a11y;
+mod autostart;
 mod autostream;
 mod cli;
 mod clipboard;
@@ -35,6 +36,7 @@ mod menu_style;
 mod nav_repeat;
 mod network;
 mod network_test;
+mod open_play;
 mod pin_lock;
 mod pin_ui;
 mod power;
@@ -197,6 +199,7 @@ struct App {
     pin_pending: Option<PinPending>,
     /// This launch's update check (Windows); command-line and test streams make none.
     updates: update_check::Updates,
+    open_play: open_play::OpenPlay,
     /// The background the title bar was last given (High contrast turns it black).
     title_bar: egui::Color32,
 }
@@ -582,6 +585,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         settings.check_updates && cli.is_none() && std::env::var_os("NIGHTJAR_AUTOSTREAM").is_none(),
         waker.clone(),
     );
+    let open_play = open_play::at_launch(&store, &mut launcher, &hosts, cli.is_none() && std::env::var_os("NIGHTJAR_AUTOSTREAM").is_none());
     let mut app = App {
         window,
         renderer,
@@ -618,6 +622,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         running: true,
         autostream: autostream::Autostream::from_env(),
         updates,
+        open_play,
         cli,
         color_probed: None,
         pin_pending: None,
@@ -646,6 +651,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         } else {
             app.launcher_frame();
         }
+        app.open_play_step();
     }
     eprintln!("nightjar: leaving");
     app.shutdown();
@@ -1234,6 +1240,8 @@ impl App {
                 }
             }
             Command::Quit => self.running = false,
+            Command::OpenOnStart(game) => self.open_play_choose(game),
+            Command::SetSignIn(on) => self.sign_in_set(on),
             Command::Power(offer) => {
                 // One at a time: a second confirm while logind waits on its password is dropped.
                 if self.power_request.is_none() {
@@ -2006,6 +2014,7 @@ impl App {
             return;
         };
         let host = streaming.host_id;
+        self.open_play.left_by_player = matches!(exit, Exit::User | Exit::CloseWindow);
         // Microphone only has no video; it is going once connected.
         let reconnect = if matches!(exit, Exit::Reconnect) || exit.retryable(streaming.video_started() || streaming.mic_only()) {
             // SAFETY: the window lives as long as the app.

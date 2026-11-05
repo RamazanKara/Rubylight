@@ -39,6 +39,10 @@ use icons::Icon;
 pub const GUIDES: &str = "https://github.com/RamazanKara/nightjar/blob/main/docs/";
 
 pub enum Command {
+    /// The game a cold start goes on to, chosen in its menu; None takes it back.
+    OpenOnStart(Option<crate::config::OpenGame>),
+    /// "Start Nightjar when I sign in".
+    SetSignIn(bool),
     Launch { host: u64, app: i32, resume: bool },
     /// Input-only through a small ordinary stream, on a PC without its own Input-only mode.
     LaunchInputOnly { host: u64, app: i32, resume: bool },
@@ -197,6 +201,8 @@ pub enum Dialog {
     NetworkTest { stage: String },
     Otp { host: u64, pin: String, passphrase: String, error: Option<String> },
     Message { title: String, body: String },
+    /// The countdown of an automatic start (`open_play`): closing it any way cancels the start.
+    OpenPlay { game: String, pc: String, left: u64 },
     /// Quit the running app, then start `start`. `resume` is the running app's id when the
     /// dialog can offer to carry on with it instead.
     ConfirmQuit { host: u64, start: Option<(i32, String)>, running: String, resume: Option<i32>, named: Option<i32> },
@@ -310,6 +316,10 @@ pub struct Launcher {
     pub recents: Vec<crate::config::Recent>,
     /// Starred games, newest star first.
     pub favourites: Vec<crate::config::Favourite>,
+    /// The game chosen for "When Nightjar opens".
+    pub open_game: Option<crate::config::OpenGame>,
+    /// Whether Nightjar starts at sign-in; None hides the row (no way to set it here).
+    pub sign_in: Option<bool>,
     logo: Option<TextureHandle>,
     focus_screen: bool,
     focus_dialog: bool,
@@ -399,6 +409,8 @@ impl Launcher {
             shortcuts,
             recents: Vec::new(),
             favourites: Vec::new(),
+            open_game: None,
+            sign_in: None,
             logo: None,
             focus_screen: true,
             focus_dialog: false,

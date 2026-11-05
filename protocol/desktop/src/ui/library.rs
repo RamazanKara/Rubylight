@@ -454,7 +454,7 @@ impl Launcher {
     /// Starts an entry of a PC's app list as selecting it does: a control tile asks first, the
     /// running game resumes, another game asks before it replaces the running one. A dialog to ask
     /// first is returned.
-    pub(super) fn start_app(&mut self, host: &Host, app: &nightjar_core::http::App, commands: &mut Vec<Command>) -> Option<Dialog> {
+    pub(crate) fn start_app(&mut self, host: &Host, app: &nightjar_core::http::App, commands: &mut Vec<Command>) -> Option<Dialog> {
         let id = host.id;
         let running = host.running_app();
         let is_running = running.is_some_and(|r| app.matches_running_app(r, None));

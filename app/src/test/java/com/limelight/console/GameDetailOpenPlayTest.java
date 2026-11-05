@@ -80,6 +80,8 @@ public class GameDetailOpenPlayTest {
 
     @After
     public void tearDown() {
+        // A read still under way must not start its game in the next test.
+        if (screen != null && !screen.isDestroyed()) controller.destroy();
         OpenPlayModel.use(null);
         GameDetailWakeTest.Detail.repository = null;
     }
@@ -513,7 +515,9 @@ public class GameDetailOpenPlayTest {
         Dialog waiting = shown();
         await(() -> {
             pass(500);
-            return ShadowDialog.getLatestDialog() != waiting && ((TextView) shown().findViewById(android.R.id.message)).getText()
+            // No dialog while the countdown's end reads the PC.
+            return ShadowDialog.getLatestDialog() != waiting && ShadowDialog.getLatestDialog().isShowing()
+                    && ((TextView) shown().findViewById(android.R.id.message)).getText()
                     .toString().equals(context.getString(R.string.open_play_other_device, "Tower"));
         });
         assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
@@ -605,6 +609,20 @@ public class GameDetailOpenPlayTest {
             pass(2100);
             return ShadowDialog.getLatestDialog() != countdown;
         });
+        assertEquals(context.getString(R.string.open_play_other_device, "Tower"),
+                ((TextView) shown().findViewById(android.R.id.message)).getText().toString());
+        assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
+    }
+
+    @Test
+    public void aGameAnotherDeviceStartedDuringTheCountdownStopsTheStart() throws Exception {
+        open(true, null, null);
+        await(() -> ReflectionHelpers.<Boolean>getField(screen, "modelLive"));
+        Dialog countdown = shown();
+        // The page read the PC as free; the other device starts after that read, and no poll comes before the end.
+        rig.transport.reply("tower", "session", ok(NativeApiFixtures.session("streaming", "other_device", ZELDA_APP, "[]")));
+        pass(3100);
+        await(() -> ShadowDialog.getLatestDialog() != countdown && ShadowDialog.getLatestDialog().isShowing());
         assertEquals(context.getString(R.string.open_play_other_device, "Tower"),
                 ((TextView) shown().findViewById(android.R.id.message)).getText().toString());
         assertTrue(GameDetailWakeTest.Detail.played.isEmpty());

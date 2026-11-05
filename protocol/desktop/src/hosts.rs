@@ -139,6 +139,8 @@ pub struct Host {
     native_seq: u64,
     /// `native_seq` when the last session action landed: older reads carry an older session.
     action_seq: u64,
+    /// The newest read whose session was taken in.
+    session_seq: u64,
     pub error: Option<String>,
     polling: bool,
     last_poll: Option<Instant>,
@@ -212,6 +214,10 @@ impl Host {
     pub fn native_api(&self) -> bool {
         self.info.as_ref().is_some_and(|i| i.capabilities.has(Feature::NativeApi))
             || (self.info.is_none() && self.native.library.is_some())
+    }
+
+    pub fn session_reads(&self) -> crate::open_play::SessionReads {
+        crate::open_play::SessionReads { asked: self.native_seq, answered: self.session_seq }
     }
 
     /// Whether the cover of `app` at `version` has not been asked for yet.
@@ -967,6 +973,7 @@ impl Hosts {
             native_epoch: 0,
             native_seq: 0,
             action_seq: 0,
+            session_seq: 0,
             error: None,
             polling: false,
             last_poll: None,
@@ -1946,7 +1953,10 @@ impl Hosts {
                                 match read.session {
                                     // A session read before an action landed is older than its answer.
                                     Ok(_) if !newest => {}
-                                    Ok(session) => host.native.session = Some(session),
+                                    Ok(session) => {
+                                        host.native.session = Some(session);
+                                        host.session_seq = seq;
+                                    }
                                     Err(e) => host.native.error = Some(trf("The session could not be read. {}", &[&e])),
                                 }
                             }

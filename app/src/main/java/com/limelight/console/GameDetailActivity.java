@@ -325,11 +325,11 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         // Armed before anything can go wrong: only a good ending clears it.
         OpenPlay.arm(this);
         startAutoLimit();
-        if (modelLive) {
-            actOnAuto();
-        } else {
-            scheduleReload();
-        }
+        // Another device may have started in these seconds, so only a read from after them decides.
+        generation++;
+        modelLive = false;
+        handler.removeCallbacks(reload);
+        reloadNow();
     }
 
     /** The countdown is over without a start; the guard stays as it was. */

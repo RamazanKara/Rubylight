@@ -280,8 +280,10 @@ try {
     $exe = Join-Path $dir 'nightjar.exe'
     $stale = Join-Path $dir 'stale.dll'
     foreach ($lockedName in 'nightjar.ico', 'nightjar.exe') {
-        $oldDlls = Set-OldDlls
+        # In this order: the first round's stale.dll is still there, and rewritten after the hashes
+        # are taken it would no longer match its own.
         New-TestFile $stale
+        $oldDlls = Set-OldDlls
         [IO.File]::AppendAllText($exe, 'the old one')
         $oldExe = (Get-FileHash $exe).Hash
         $abortLog = "$dir.abort.log"

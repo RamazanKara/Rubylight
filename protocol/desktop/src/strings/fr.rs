@@ -23,6 +23,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Stop opening this when Nightjar starts", "Ne plus ouvrir au lancement de Nightjar"),
     ("Starting on {} in {}", "Démarrage sur {0} dans {1}"),
     ("Starting on {}", "Démarrage sur {}"),
+    ("A game is already running on {}, so Nightjar opened as usual.", "Un jeu est déjà en cours sur {}, Nightjar s'est donc ouvert normalement."),
     ("A game on {} is playing on another device, so Nightjar opened as usual.", "Un jeu de {} est en cours sur un autre appareil, Nightjar s'est donc ouvert normalement."),
     ("No network, so Nightjar opened as usual.", "Pas de réseau, Nightjar s'est donc ouvert normalement."),
     ("Automatic start skipped", "Démarrage automatique ignoré"),

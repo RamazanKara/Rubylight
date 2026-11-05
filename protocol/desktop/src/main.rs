@@ -1258,7 +1258,11 @@ impl App {
                     if !std::mem::take(&mut self.cancelled) {
                         match failed {
                             ConnectFailed::Message(e) => self.launcher.message(tr("The stream could not start"), e),
-                            ConnectFailed::ConfirmReplace(plan) => self.ask_replace(plan),
+                            ConnectFailed::ConfirmReplace(plan) => {
+                                if !self.open_play_game_running() {
+                                    self.ask_replace(plan);
+                                }
+                            }
                             ConnectFailed::Moved { host, app, device } => self.show_moved(host, app, device),
                         }
                     }

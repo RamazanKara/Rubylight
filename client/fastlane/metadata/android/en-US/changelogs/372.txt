@@ -1,0 +1,6 @@
+- No more freezes leaving a stream when a controller's battery or rumble is slow to answer.
+- PyroWave also runs on devices with Vulkan 1.1 or 1.2, when the GPU has the features it needs.
+- Vibrate on press works on both on-screen keyboards and the on-screen controller's buttons.
+- Your own shortcuts come first, and Settings remembers open sections.
+- Shield: Smoothest and the FPS limit no longer build up extra delay.
+- TV: one highlight in Settings, badges in the tile's corner.

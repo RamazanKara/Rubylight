@@ -516,10 +516,19 @@ mod tests {
         };
         update(old, butterpollo_core::state::LATER_DEVICE_PERMISSION).unwrap();
         let state = f.host.paired.read().unwrap();
-        assert_eq!(state.clients[0].perm, butterpollo_core::state::LATER_DEVICE_PERMISSION);
+        assert_eq!(
+            state.clients[0].perm,
+            butterpollo_core::state::LATER_DEVICE_PERMISSION
+        );
         assert_eq!(state.clients[0].name, old);
         drop(state);
-        assert!(update("TV\u{202e}2", butterpollo_core::state::LATER_DEVICE_PERMISSION).is_err());
+        assert!(
+            update(
+                "TV\u{202e}2",
+                butterpollo_core::state::LATER_DEVICE_PERMISSION
+            )
+            .is_err()
+        );
         update("TV", butterpollo_core::state::LATER_DEVICE_PERMISSION).unwrap();
     }
 

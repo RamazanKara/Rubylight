@@ -45,7 +45,10 @@ async fn asking(f: &Fixture, name: &str) -> (crypto::Identity, String) {
     let host = f.host.clone();
     tokio::spawn(async move { do_pair(host, &request, PEER.parse().unwrap()).await });
     let id = pairing_id(name, PEER.parse().unwrap());
-    until("the device's request", || f.host.pins.lock().unwrap().contains_key(&id)).await;
+    until("the device's request", || {
+        f.host.pins.lock().unwrap().contains_key(&id)
+    })
+    .await;
     (client, id)
 }
 fn saved(f: &Fixture, name: &str) -> Option<Client> {
@@ -258,10 +261,7 @@ async fn a_browser_devices_approver_losing_the_grant_is_no_strike_either() {
         .await
         .assert_error(403, "permission_required");
     assert!(finishing.await.unwrap().is_err());
-    assert_eq!(
-        f.host.approvals.lock().unwrap().wrong_pins_at(PEER),
-        0
-    );
+    assert_eq!(f.host.approvals.lock().unwrap().wrong_pins_at(PEER), 0);
     assert!(saved(&f, "Browser TV").is_none());
 }
 
@@ -409,7 +409,10 @@ async fn after_a_wrong_pin_the_address_waits_and_another_one_does_not() {
     let elsewhere: std::net::IpAddr = "192.168.4.9".parse().unwrap();
     tokio::spawn(async move { do_pair(host, &request, elsewhere).await });
     let other = pairing_id("Console", elsewhere);
-    until("the device's request", || f.host.pins.lock().unwrap().contains_key(&other)).await;
+    until("the device's request", || {
+        f.host.pins.lock().unwrap().contains_key(&other)
+    })
+    .await;
     approve(&f, &approver, &other, "1234")
         .await
         .assert_error(409, "pairing_unconfirmed");
@@ -548,7 +551,10 @@ async fn deny_ends_the_devices_wait_and_answers_the_rest() {
     let host = f.host.clone();
     let waiting = tokio::spawn(async move { do_pair(host, &request, PEER.parse().unwrap()).await });
     let id = pairing_id("TV", PEER.parse().unwrap());
-    until("the device's request", || f.host.pins.lock().unwrap().contains_key(&id)).await;
+    until("the device's request", || {
+        f.host.pins.lock().unwrap().contains_key(&id)
+    })
+    .await;
     let reply = send(
         &f,
         true,
@@ -606,7 +612,14 @@ async fn a_browser_devices_pin_is_checked_and_its_approver_named() {
             let (pin, name, access, approver) = entered.await.unwrap();
             assert_eq!(access, None, "a browser device takes no access choice");
             host.webrtc
-                .finish_pairing(&host, &id, &pin, &name, approver.as_deref(), PEER.parse().unwrap())
+                .finish_pairing(
+                    &host,
+                    &id,
+                    &pin,
+                    &name,
+                    approver.as_deref(),
+                    PEER.parse().unwrap(),
+                )
                 .map(drop)
         })
     };
@@ -628,7 +641,14 @@ async fn a_browser_devices_pin_is_checked_and_its_approver_named() {
         tokio::spawn(async move {
             let (pin, name, _, approver) = entered.await.unwrap();
             host.webrtc
-                .finish_pairing(&host, &id, &pin, &name, approver.as_deref(), PEER.parse().unwrap())
+                .finish_pairing(
+                    &host,
+                    &id,
+                    &pin,
+                    &name,
+                    approver.as_deref(),
+                    PEER.parse().unwrap(),
+                )
                 .map(drop)
         })
     };

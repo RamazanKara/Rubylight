@@ -319,14 +319,18 @@ fn send_pin(
     if approvals(h).ended(address) {
         return Err(Failure::new(
             ErrorCode::PairingEnded,
-            format!("Three wrong PINs from {address}. Pair {device} in the Rubylight console on the PC."),
+            format!(
+                "Three wrong PINs from {address}. Pair {device} in the Rubylight console on the PC."
+            ),
         ));
     }
     let cooling = approvals(h).cooling(address);
     if let Some(seconds) = cooling {
         return Err(Failure::new(
             ErrorCode::PairingCooldown,
-            format!("A wrong PIN just came from {address}. It can be approved again in {seconds} s."),
+            format!(
+                "A wrong PIN just came from {address}. It can be approved again in {seconds} s."
+            ),
         ));
     }
     // A Moonlight device gets what a PIN typed in the console gives it by

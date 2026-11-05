@@ -44,8 +44,9 @@ pub fn browser_on_this_pc(peer: SocketAddr, local: SocketAddr, headers: &HeaderM
 /// Whether a request connected to `local` shows it came through something: a proxy's own header, a
 /// `Host` at another port than the one it connected to, or a `Host` or `Origin` that isn't this PC.
 /// A browser on this PC that opened the page at the PC's network address connects to that address,
-/// so it names `local`. A missing header says nothing. The `Origin`'s port isn't compared: a page
-/// may signal to another port than it came from.
+/// so it names `local`. A missing header says nothing. A `Host` without a port means the scheme's
+/// default, so it only fits a host listening on 80 or 443. The `Origin`'s port isn't compared: a
+/// page may signal to another port than it came from.
 fn request_names_elsewhere(headers: &HeaderMap, local: SocketAddr, pc_name: Option<&str>) -> bool {
     let forwarded = headers
         .keys()
@@ -54,7 +55,11 @@ fn request_names_elsewhere(headers: &HeaderMap, local: SocketAddr, pc_name: Opti
         let authority = host.to_str().ok();
         let authority = authority.and_then(|host| host.parse::<Authority>().ok());
         !authority.is_some_and(|authority| {
-            authority.port_u16().is_none_or(|port| port == local.port())
+            authority
+                .port_u16()
+                .map_or(matches!(local.port(), 80 | 443), |port| {
+                    port == local.port()
+                })
                 && names_this_pc(authority.host(), local.ip(), pc_name)
         })
     });
@@ -804,7 +809,12 @@ mod tests {
                 "console.localhost:47990",
                 "https://console.localhost:47990",
             ),
-            (loopback, "127.0.0.1", "https://127.0.0.1"),
+            // A console on the scheme's default port.
+            (
+                "127.0.0.1:443".parse().unwrap(),
+                "127.0.0.1",
+                "https://127.0.0.1",
+            ),
             (v6, "[::1]:47990", "https://[::1]:47990"),
             // At the PC's network address the connection reaches that address.
             (lan, "192.168.4.69:47990", "https://192.168.4.69:47990"),
@@ -872,6 +882,10 @@ mod tests {
             // `netsh portproxy` from the network address to loopback, or to another port.
             (loopback, "192.168.4.69:47990", "https://192.168.4.69:47990"),
             (lan, "192.168.4.69:8443", "https://192.168.4.69:8443"),
+            // `netsh portproxy` from 443, so the browser sends no port.
+            (lan, "192.168.4.69", "https://192.168.4.69"),
+            (lan, "gaming-pc", "https://gaming-pc"),
+            (loopback, "127.0.0.1", "https://127.0.0.1"),
             // Another address than the connection reached.
             (lan, "192.168.4.70:47990", "https://192.168.4.70:47990"),
             // No address at all.

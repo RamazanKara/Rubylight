@@ -30,6 +30,7 @@ Which Nightjar features each client provides: Android (phones, handhelds, tablet
 | Store shelves, All games and the TV layout | Yes | Partial | Partial | The desktop Home has a row per store with an **All N** tile, and All games filters by All, Installed, each store and Other apps, as on Android. It has no **Not added** chip and no per-PC last-played row, because the desktop API does not provide that data, and no separate TV layout. |
 | Launch, resume, quit, and quit and start another | Yes | Yes | Yes | |
 | Confirmation before a running game closes | Yes | Yes | Yes | |
+| Continue here: move the running game's stream between devices | Yes | Yes | Yes | Hosts with `session.continue_here`, for a device with View and Launch |
 | Join co-op (Nucleus Co-op) | Yes | Yes | Yes | |
 | Quick resume and quit on leave, per game | Yes | Yes | Yes | Off by default (**Settings → App**). |
 | Remote Monitor and Input-only entries | Yes | Yes | Yes | Remote Monitor sends no input, microphone, clipboard or commands. |

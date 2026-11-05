@@ -1167,16 +1167,25 @@ impl App {
                     self.launcher.message(tr("Could not continue here"), e);
                 }
                 HostEvent::ContinueHere { id, app, result: Ok(()) } => self.launch(id, app, true, LaunchKind::Stream, LaunchFrom::Launcher),
-                HostEvent::SelectRead { id, app, resume, read } => {
+                HostEvent::SelectRead { id, app, resume, too, read } => {
                     self.select_read = false;
                     if self.streaming.is_some() || self.connecting.is_some() {
                         eprintln!("nightjar: another stream started while the PC said who plays; this start is dropped");
                         continue;
                     }
                     let playing = read.as_ref().and_then(|read| self.hosts.get(id).and_then(|h| ui::playing_elsewhere(h, app, read)));
-                    match playing {
-                        Some((name, device)) => self.launcher.ask_after(Dialog::ContinueHere { host: id, app, resume, name, device }),
-                        None => self.launch(id, app, resume, LaunchKind::Stream, LaunchFrom::Launcher),
+                    let press_failed = read.as_ref().is_some_and(|read| read.press_failed);
+                    match select_step(resume, too, playing, press_failed) {
+                        SelectStep::Ask(name, device) => self.launcher.ask_after(Dialog::ContinueHere { host: id, app, resume, name, device }),
+                        SelectStep::Join => {
+                            let known = self.hosts.get(id).and_then(|h| match &h.apps {
+                                hosts::Apps::Loaded(apps) => apps.iter().find(|known| known.id == app),
+                                _ => None,
+                            });
+                            let target = ui::join_target(known, app, read.as_ref().and_then(|read| read.playing_on.as_ref()));
+                            self.launch(id, target, true, LaunchKind::JoinRunning, LaunchFrom::Launcher);
+                        }
+                        SelectStep::Start => self.launch(id, app, resume, LaunchKind::Stream, LaunchFrom::Launcher),
                     }
                 }
                 HostEvent::StreamMoved { id, app, device: Some(device) } if self.streaming.is_none() && self.connecting.is_none() => {
@@ -1356,19 +1365,9 @@ impl App {
                     self.power_request = Some((offer, power::request(offer, self.waker.clone())));
                 }
             }
-            Command::Launch { host, app, resume } => {
-                // Who plays is read now, not taken from the last poll. One at a time: a second
-                // tap while the PC answers changes nothing.
-                if !self.hosts.offers_continue_here(host) {
-                    self.launch(host, app, resume, LaunchKind::Stream, LaunchFrom::Launcher);
-                } else if !self.select_read {
-                    self.select_read = self.hosts.read_before_start(host, app, resume);
-                    if !self.select_read {
-                        self.launch(host, app, resume, LaunchKind::Stream, LaunchFrom::Launcher);
-                    }
-                }
-            }
-            Command::StreamHereToo { host, app, resume } => self.launch(host, app, resume, LaunchKind::Stream, LaunchFrom::Launcher),
+            Command::Launch { host, app, resume } => self.read_then_start(host, app, resume, false),
+            Command::StreamTooAfterFailedMove { host, app } => self.read_then_start(host, app, true, true),
+            Command::StreamHereToo { host, app, resume } => self.launch(host, app, resume, LaunchKind::stream_here_too(resume), LaunchFrom::Launcher),
             // The press ends another device's stream: the PIN comes before it, not at the start after it.
             Command::ContinueHere { host, app } => {
                 if !self.pin_holds(host, PinPending::ContinueHere { host, app }) {
@@ -1851,6 +1850,19 @@ impl App {
         }
     }
 
+    /// Who plays is read now, not taken from the last poll. One at a time: a second tap while the
+    /// PC answers changes nothing.
+    fn read_then_start(&mut self, host: u64, app: i32, resume: bool, too: bool) {
+        if !self.hosts.offers_continue_here(host) {
+            self.launch(host, app, resume, LaunchKind::Stream, LaunchFrom::Launcher);
+        } else if !self.select_read {
+            self.select_read = self.hosts.read_before_start(host, app, resume, too);
+            if !self.select_read {
+                self.launch(host, app, resume, LaunchKind::Stream, LaunchFrom::Launcher);
+            }
+        }
+    }
+
     fn launch(&mut self, host_id: u64, app_id: i32, resume: bool, kind: LaunchKind, from: LaunchFrom) {
         let busy = self.connecting.is_some() || self.network_launch.is_some();
         eprintln!("nightjar: {}{}", launch_line(from, app_id, resume, busy), kind.log_suffix());
@@ -2039,6 +2051,7 @@ impl App {
             native: host.native.capabilities.clone(),
             app,
             resume,
+            join: kind == LaunchKind::JoinRunning,
             small_stream_input_only: small,
             mic_only,
             settings: settings.clone(),
@@ -3215,6 +3228,8 @@ enum LaunchKind {
     SmallInputOnly,
     /// Only this device's microphone, on a PC that lists `Feature::MicOnly`.
     MicOnly,
+    /// A resume of the game the PC runs, also another device's (`LaunchPlan::join`).
+    JoinRunning,
 }
 
 impl LaunchKind {
@@ -3223,7 +3238,33 @@ impl LaunchKind {
             LaunchKind::Stream => "",
             LaunchKind::SmallInputOnly => ", input only through a small stream",
             LaunchKind::MicOnly => ", microphone only",
+            LaunchKind::JoinRunning => ", joining the running game",
         }
+    }
+
+    /// Stream here too: a game selected by its tile launches beside the running one as it always
+    /// did; a resume would stop here, since the PC reports the game to its owner only.
+    fn stream_here_too(resume: bool) -> Self {
+        if resume { LaunchKind::JoinRunning } else { LaunchKind::Stream }
+    }
+}
+
+/// What a start does once the PC answered who plays.
+#[derive(Debug, PartialEq, Eq)]
+enum SelectStep {
+    /// Another device plays this game: "X is playing on Y", with this title and device.
+    Ask(String, String),
+    Join,
+    Start,
+}
+
+fn select_step(resume: bool, too: bool, playing: Option<(String, String)>, press_failed: bool) -> SelectStep {
+    if resume && nightjar_policy::continue_here::joins_after_read(too, playing.is_some(), press_failed) {
+        return SelectStep::Join;
+    }
+    match playing {
+        Some((name, device)) => SelectStep::Ask(name, device),
+        None => SelectStep::Start,
     }
 }
 
@@ -3347,6 +3388,26 @@ mod shot;
 
 #[cfg(test)]
 mod tests {
+    /// Stream here too on a resume joins; a PC that did not answer never does.
+    #[test]
+    fn who_plays_decides_how_a_start_goes_on() {
+        use super::{select_step, LaunchKind, SelectStep};
+        let tv = || Some(("Game".to_owned(), "TV".to_owned()));
+        // Resume on "came back", and a selected game.
+        assert_eq!(select_step(true, false, tv(), false), SelectStep::Ask("Game".into(), "TV".into()));
+        assert_eq!(select_step(true, false, tv(), true), SelectStep::Ask("Game".into(), "TV".into()), "it asks first");
+        assert_eq!(select_step(false, false, tv(), true), SelectStep::Ask("Game".into(), "TV".into()));
+        assert_eq!(select_step(true, false, None, true), SelectStep::Join);
+        assert_eq!(select_step(true, false, None, false), SelectStep::Start);
+        assert_eq!(select_step(false, false, None, true), SelectStep::Start, "a plain start launches beside it");
+        // Stream here too on "did not move".
+        assert_eq!(select_step(true, true, tv(), false), SelectStep::Join);
+        assert_eq!(select_step(true, true, None, true), SelectStep::Join);
+        assert_eq!(select_step(true, true, None, false), SelectStep::Start);
+        assert_eq!(LaunchKind::stream_here_too(true), LaunchKind::JoinRunning);
+        assert_eq!(LaunchKind::stream_here_too(false), LaunchKind::Stream);
+    }
+
     /// Vulkan video's renderer is left out only when every decoder setting a stream can use says
     /// Software: a host's, an app's or a profile's override counts as the global setting does.
     #[test]
@@ -3403,6 +3464,7 @@ mod tests {
         assert_eq!(app.id, super::MIC_ONLY_APP_ID);
         assert!(!app.is_control_action());
         assert_eq!(super::LaunchKind::MicOnly.log_suffix(), ", microphone only");
+        assert_eq!(super::LaunchKind::JoinRunning.log_suffix(), ", joining the running game");
         assert_eq!(super::mic_only_title(false, false, false), "Microphone on");
         assert_eq!(super::mic_only_title(true, false, false), "Microphone muted");
         // A failed microphone is not called muted, also once it was muted for the failure.

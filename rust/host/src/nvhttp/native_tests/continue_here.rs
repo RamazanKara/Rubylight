@@ -908,8 +908,9 @@ async fn a_late_stream_moves_the_games_display_with_it_unless_it_joined() {
         late("tv-display", false).await.as_deref(),
         Some("tv-display")
     );
+    // A stream that joined moves nothing, whatever display it holds by now.
     assert_eq!(
-        late("phone-display", true).await.as_deref(),
+        late("joined-display", true).await.as_deref(),
         Some("phone-display")
     );
 }

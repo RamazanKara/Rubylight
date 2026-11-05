@@ -256,6 +256,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private VideoStats globalVideoStats;
     private volatile VideoStatsFps overlayFps;
     private volatile long lastVideoFrameTimeMs;
+    // Set when a decoder is configured; null except on the decoders of erratum 23 in low latency.
+    private volatile KeyframeSafetyNet keyframeSafetyNet;
     private volatile float networkFrameLossPercent;
     private final AtomicLong receivedVideoBytes = new AtomicLong();
     private long bitrateWindowStartNs;
@@ -2350,6 +2352,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             LimeLog.info("Using codec " + selectedDecoderInfo.getName() + " for hardware decoding " + format.getString(MediaFormat.KEY_MIME));
             activeDecoderName = selectedDecoderInfo.getName();
             debt.watchDisplay(DecoderQueuePolicy.watchesDisplayQueue(activeDecoderName));
+            keyframeSafetyNet = MediaCodecHelper.runsCorruptingLowLatency(format.getString(MediaFormat.KEY_MIME),
+                    activeDecoderName, prefs.codecLowLatency, prefs.hevcLowLatency()) ? new KeyframeSafetyNet() : null;
+            if (keyframeSafetyNet != null) {
+                LimeLog.info("Asking for a keyframe when none came for " + KeyframeSafetyNet.INTERVAL_MS + " ms");
+            }
             configured = true;
         } catch (IllegalArgumentException e) {
             noteConfigureError(selectedDecoderInfo, format, e);
@@ -4394,10 +4401,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         // Reset CSD data for each IDR frame
+        KeyframeSafetyNet safetyNet = keyframeSafetyNet;
         if (lastFrameNumber != frameNumber && frameType == MoonBridge.FRAME_TYPE_IDR) {
             vpsBuffers.clear();
             spsBuffers.clear();
             ppsBuffers.clear();
+            if (safetyNet != null) safetyNet.onKeyframe(lastVideoFrameTimeMs);
         }
 
         if (frameNumber != lastFrameNumber) {
@@ -4573,6 +4582,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if (hostFrameTimes || trackContentRate) hostFrameClock.onQueued(timestampUs, presentationTimeUs);
         if (!queueNextInputBuffer(timestampUs, codecFlags, frameNumber, receiveTimeNs, enqueueTimeNs, frameHostProcessingLatency,
                 presentationTimeUs)) {
+            return MoonBridge.DR_NEED_IDR;
+        }
+
+        // This frame is queued and decodes; only the frames in flight until the keyframe are dropped.
+        if (safetyNet != null && frameType != MoonBridge.FRAME_TYPE_IDR && safetyNet.due(lastVideoFrameTimeMs)) {
             return MoonBridge.DR_NEED_IDR;
         }
 

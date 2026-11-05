@@ -73,6 +73,7 @@ fn pairing_requests_round_trip_without_a_certificate_and_requests_stay_strict() 
     assert_eq!(ErrorCode::WrongPin.status(), 422);
     assert_eq!(ErrorCode::PairingUnconfirmed.status(), 409);
     assert_eq!(ErrorCode::PairingEnded.status(), 409);
+    assert_eq!(ErrorCode::PairingCooldown.status(), 409);
 }
 
 #[test]

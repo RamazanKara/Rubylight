@@ -30,6 +30,14 @@ async fn listed(f: &Fixture, connection: &Connection) -> Vec<String> {
     let requests: PairingRequests = serde_json::from_slice(&reply.body).unwrap();
     requests.requests.into_iter().map(|r| r.name).collect()
 }
+/// Waits for the host's state, and fails rather than hangs if it never comes.
+async fn until(what: &str, ready: impl Fn() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !ready() {
+        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        tokio::task::yield_now().await;
+    }
+}
 /// A device asking to pair: its certificate request waits for the PIN.
 async fn asking(f: &Fixture, name: &str) -> (crypto::Identity, String) {
     let client = Identity::generate().unwrap();
@@ -37,9 +45,7 @@ async fn asking(f: &Fixture, name: &str) -> (crypto::Identity, String) {
     let host = f.host.clone();
     tokio::spawn(async move { do_pair(host, &request, PEER.parse().unwrap()).await });
     let id = pairing_id(name, PEER.parse().unwrap());
-    while !f.host.pins.lock().unwrap().contains_key(&id) {
-        tokio::task::yield_now().await;
-    }
+    until("the device's request", || f.host.pins.lock().unwrap().contains_key(&id)).await;
     (client, id)
 }
 fn saved(f: &Fixture, name: &str) -> Option<Client> {
@@ -56,11 +62,11 @@ fn saved(f: &Fixture, name: &str) -> Option<Client> {
 async fn run(f: &Fixture, approver: &Connection, name: &str, typed: &str, shown: &str) -> Reply {
     let (client, id) = asking(f, name).await;
     let (reply, _) = tokio::join!(approve(f, approver, &id, typed), async {
-        while f.host.pins.lock().unwrap().contains_key(&id)
-            || !f.host.pairings.lock().unwrap().sessions.contains_key(&id)
-        {
-            tokio::task::yield_now().await;
-        }
+        until("the PIN to reach the handshake", || {
+            !f.host.pins.lock().unwrap().contains_key(&id)
+                && f.host.pairings.lock().unwrap().sessions.contains_key(&id)
+        })
+        .await;
         let _ = finish_pairing(f, &client, name, shown).await;
     });
     reply
@@ -191,9 +197,10 @@ async fn host_control_lost_during_the_handshake_refuses_the_new_device() {
     let approver = other_device(&f, u32::MAX, true);
     let (client, id) = asking(&f, "TV").await;
     let (reply, finished) = tokio::join!(approve(&f, &approver, &id, "1234"), async {
-        while !f.host.pairings.lock().unwrap().sessions.contains_key(&id) {
-            tokio::task::yield_now().await;
-        }
+        until("the handshake to start", || {
+            f.host.pairings.lock().unwrap().sessions.contains_key(&id)
+        })
+        .await;
         f.host
             .paired
             .write()
@@ -209,7 +216,7 @@ async fn host_control_lost_during_the_handshake_refuses_the_new_device() {
     assert!(finished.is_err());
     // The approver's doing, and said so; the device takes no strike for it.
     reply.assert_error(403, "permission_required");
-    assert_eq!(f.host.approvals.lock().unwrap().wrong_pins_for("TV"), 0);
+    assert_eq!(f.host.approvals.lock().unwrap().wrong_pins_at(PEER), 0);
     assert!(saved(&f, "TV").is_none());
 }
 
@@ -252,7 +259,7 @@ async fn a_browser_devices_approver_losing_the_grant_is_no_strike_either() {
         .assert_error(403, "permission_required");
     assert!(finishing.await.unwrap().is_err());
     assert_eq!(
-        f.host.approvals.lock().unwrap().wrong_pins_for("Browser TV"),
+        f.host.approvals.lock().unwrap().wrong_pins_at(PEER),
         0
     );
     assert!(saved(&f, "Browser TV").is_none());
@@ -267,6 +274,7 @@ async fn three_wrong_pins_end_the_devices_requests_here_and_the_console_still_ca
             .await
             .assert_error(422, "wrong_pin");
         assert!(saved(&f, "TV").is_none());
+        f.host.approvals.lock().unwrap().cool_down();
     }
     // The device asks again: not offered, refused, and left for the console.
     let (_, id) = asking(&f, "TV").await;
@@ -279,16 +287,20 @@ async fn three_wrong_pins_end_the_devices_requests_here_and_the_console_still_ca
 }
 
 #[tokio::test]
-async fn another_device_at_the_same_address_keeps_its_own_count() {
+async fn a_new_name_at_the_same_address_does_not_escape_the_count() {
     let f = Fixture::new();
     let approver = other_device(&f, u32::MAX, true);
-    for _ in 0..3 {
-        run(&f, &approver, "TV", "1111", "2222")
+    for name in ["TV", "TV2", "LivingRoom"] {
+        run(&f, &approver, name, "1111", "2222")
             .await
             .assert_error(422, "wrong_pin");
+        f.host.approvals.lock().unwrap().cool_down();
     }
-    asking(&f, "Console").await;
-    assert_eq!(listed(&f, &approver).await, ["Console"]);
+    let (_, id) = asking(&f, "Console").await;
+    assert!(listed(&f, &approver).await.is_empty());
+    approve(&f, &approver, &id, "2222")
+        .await
+        .assert_error(409, "pairing_ended");
 }
 
 #[tokio::test]
@@ -298,13 +310,14 @@ async fn a_right_pin_clears_the_wrong_ones() {
     run(&f, &approver, "TV", "1111", "2222")
         .await
         .assert_error(422, "wrong_pin");
+    f.host.approvals.lock().unwrap().cool_down();
     let reply = run(&f, &approver, "TV", "2222", "2222").await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
     assert!(f.host.approvals.lock().unwrap().is_idle());
 }
 
 #[tokio::test]
-async fn moonlights_unpair_after_a_wrong_pin_counts_at_once() {
+async fn moonlights_unpair_neither_counts_nor_drops_an_approval() {
     let f = Fixture::new();
     let approver = other_device(&f, LATER_DEVICE_PERMISSION, true);
     let (client, id) = asking(&f, "TV").await;
@@ -314,9 +327,51 @@ async fn moonlights_unpair_after_a_wrong_pin_counts_at_once() {
         ..f.connection(false)
     };
     let (reply, _) = tokio::join!(approve(&f, &approver, &id, "1111"), async {
-        while !f.host.pairings.lock().unwrap().sessions.contains_key(&id) {
-            tokio::task::yield_now().await;
+        until("the handshake to start", || {
+            f.host.pairings.lock().unwrap().sessions.contains_key(&id)
+        })
+        .await;
+        // Without a certificate it proves nothing, however often it comes.
+        for _ in 0..5 {
+            let reply = send(
+                &f,
+                false,
+                &plain,
+                "GET",
+                "/unpair?uniqueid=TV",
+                None,
+                vec![],
+            )
+            .await;
+            assert!(reply.text().contains("<unpaired>0</unpaired>"));
         }
+        assert_eq!(f.host.approvals.lock().unwrap().wrong_pins_at(PEER), 0);
+        assert!(!f.host.approvals.lock().unwrap().is_idle());
+        // The device finishes after it: approved, told so and capped.
+        finish_pairing(&f, &client, "TV", "1111").await.unwrap();
+    });
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    let tv = saved(&f, "TV").unwrap();
+    assert_eq!(tv.perm, LATER_DEVICE_PERMISSION);
+    assert!(!tv.extra.contains_key("pairing_approve"));
+    assert_eq!(f.host.approvals.lock().unwrap().wrong_pins_at(PEER), 0);
+}
+
+#[tokio::test]
+async fn moonlights_real_wrong_pin_counts_once_when_the_wait_ends() {
+    let f = Fixture::new();
+    let approver = other_device(&f, LATER_DEVICE_PERMISSION, true);
+    let (_client, id) = asking(&f, "TV").await;
+    let plain = Connection {
+        certificate: None,
+        tls: false,
+        ..f.connection(false)
+    };
+    let (reply, _) = tokio::join!(approve(&f, &approver, &id, "1111"), async {
+        until("the handshake to start", || {
+            f.host.pairings.lock().unwrap().sessions.contains_key(&id)
+        })
+        .await;
         send(
             &f,
             false,
@@ -328,12 +383,60 @@ async fn moonlights_unpair_after_a_wrong_pin_counts_at_once() {
         )
         .await
     });
-    reply.assert_error(422, "wrong_pin");
-    // The device dropped its own approval and finishes anyway: still capped.
-    finish_pairing(&f, &client, "TV", "1111").await.unwrap();
-    let tv = saved(&f, "TV").unwrap();
-    assert_eq!(tv.perm, LATER_DEVICE_PERMISSION);
-    assert!(!tv.extra.contains_key("pairing_approve"));
+    reply.assert_error(409, "pairing_unconfirmed");
+    assert_eq!(f.host.approvals.lock().unwrap().wrong_pins_at(PEER), 1);
+}
+
+#[tokio::test]
+async fn after_a_wrong_pin_the_address_waits_and_another_one_does_not() {
+    let f = Fixture::new();
+    let approver = other_device(&f, u32::MAX, true);
+    run(&f, &approver, "TV", "1111", "2222")
+        .await
+        .assert_error(422, "wrong_pin");
+    // The look-alike asks again at once: the same PIN must not reach it.
+    let (_, id) = asking(&f, "TV").await;
+    assert_eq!(listed(&f, &approver).await, ["TV"]);
+    approve(&f, &approver, &id, "2222")
+        .await
+        .assert_error(409, "pairing_cooldown");
+    assert!(f.host.pins.lock().unwrap().contains_key(&id));
+    assert!(f.host.approvals.lock().unwrap().is_idle());
+    // Another address is not held up by it.
+    let client = Identity::generate().unwrap();
+    let request = device_request(&client, "Console", None);
+    let host = f.host.clone();
+    let elsewhere: std::net::IpAddr = "192.168.4.9".parse().unwrap();
+    tokio::spawn(async move { do_pair(host, &request, elsewhere).await });
+    let other = pairing_id("Console", elsewhere);
+    until("the device's request", || f.host.pins.lock().unwrap().contains_key(&other)).await;
+    approve(&f, &approver, &other, "1234")
+        .await
+        .assert_error(409, "pairing_unconfirmed");
+    // When it has passed, the first address may be approved again.
+    f.host.approvals.lock().unwrap().cool_down();
+    approve(&f, &approver, &id, "2222")
+        .await
+        .assert_error(409, "pairing_unconfirmed");
+}
+
+#[test]
+fn an_ipv6_prefix_counts_as_one_and_another_prefix_does_not() {
+    let f = Fixture::new();
+    let same = [
+        "fd00:1:2:3::1",
+        "fd00:1:2:3:aaaa:bbbb:cccc:dddd",
+        "fd00:1:2:3::9",
+    ];
+    let mut approvals = f.host.approvals.lock().unwrap();
+    for address in same {
+        approvals.strike_at(address.parse().unwrap());
+    }
+    assert_eq!(approvals.wrong_pins_at("fd00:1:2:3::77"), 3);
+    assert_eq!(approvals.wrong_pins_at("fd00:1:2:4::1"), 0);
+    // An IPv4 peer counts the same however it reached the socket.
+    approvals.strike_at("::ffff:192.168.4.9".parse().unwrap());
+    assert_eq!(approvals.wrong_pins_at("192.168.4.9"), 1);
 }
 
 #[tokio::test]
@@ -342,9 +445,10 @@ async fn an_approvers_revocation_still_counts_after_the_approval_is_dropped() {
     let approver = other_device(&f, PLAY_DEVICE_PERMISSION, true);
     let (client, id) = asking(&f, "TV").await;
     let (_, finished) = tokio::join!(approve(&f, &approver, &id, "1234"), async {
-        while !f.host.pairings.lock().unwrap().sessions.contains_key(&id) {
-            tokio::task::yield_now().await;
-        }
+        until("the handshake to start", || {
+            f.host.pairings.lock().unwrap().sessions.contains_key(&id)
+        })
+        .await;
         pairing::failed(&f.host, &id);
         f.host
             .paired
@@ -387,10 +491,10 @@ async fn a_device_that_goes_quiet_counts_and_may_still_finish_under_the_cap() {
     approve(&f, &approver, &id, "1234")
         .await
         .assert_error(409, "pairing_unconfirmed");
-    assert_eq!(f.host.approvals.lock().unwrap().wrong_pins_for("TV"), 1);
+    assert_eq!(f.host.approvals.lock().unwrap().wrong_pins_at(PEER), 1);
     finish_pairing(&f, &client, "TV", "1234").await.unwrap();
     assert_eq!(saved(&f, "TV").unwrap().perm, LATER_DEVICE_PERMISSION);
-    assert_eq!(f.host.approvals.lock().unwrap().wrong_pins_for("TV"), 0);
+    assert_eq!(f.host.approvals.lock().unwrap().wrong_pins_at(PEER), 0);
     assert!(f.host.approvals.lock().unwrap().is_idle());
 }
 
@@ -444,9 +548,7 @@ async fn deny_ends_the_devices_wait_and_answers_the_rest() {
     let host = f.host.clone();
     let waiting = tokio::spawn(async move { do_pair(host, &request, PEER.parse().unwrap()).await });
     let id = pairing_id("TV", PEER.parse().unwrap());
-    while !f.host.pins.lock().unwrap().contains_key(&id) {
-        tokio::task::yield_now().await;
-    }
+    until("the device's request", || f.host.pins.lock().unwrap().contains_key(&id)).await;
     let reply = send(
         &f,
         true,
@@ -556,8 +658,8 @@ fn the_notices_name_both_devices_and_cut_long_names() {
     let long = "x".repeat(100);
     let (_, text) = crate::state::pairing_approved_notice(&long, "TV");
     assert!(text.len() < 100, "{text}");
-    let (_, text) = crate::state::pairing_ended_notice("TV");
-    assert!(text.contains("Three wrong PINs for TV"), "{text}");
+    let (_, text) = crate::state::pairing_ended_notice("192.168.4.9".parse().unwrap());
+    assert!(text.contains("Three wrong PINs from 192.168.4.9"), "{text}");
 }
 
 /// A device paired with the console's one-time PIN, nobody approving.
@@ -679,11 +781,11 @@ async fn approve_new_devices_lost_during_the_handshake_refuses_the_new_device() 
     grant(&f, "other-device", true);
     let (client, id) = asking(&f, "TV").await;
     let _ = tokio::join!(approve(&f, &approver, &id, "1234"), async {
-        while f.host.pins.lock().unwrap().contains_key(&id)
-            || !f.host.pairings.lock().unwrap().sessions.contains_key(&id)
-        {
-            tokio::task::yield_now().await;
-        }
+        until("the PIN to reach the handshake", || {
+            !f.host.pins.lock().unwrap().contains_key(&id)
+                && f.host.pairings.lock().unwrap().sessions.contains_key(&id)
+        })
+        .await;
         grant(&f, "other-device", false);
         let _ = finish_pairing(&f, &client, "TV", "1234").await;
     });

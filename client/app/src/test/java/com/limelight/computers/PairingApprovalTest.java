@@ -8,6 +8,8 @@ import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
 import android.os.Looper;
+import android.text.Spanned;
+import android.text.style.StyleSpan;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -316,6 +318,23 @@ public class PairingApprovalTest {
 
     private static void idle() {
         Shadows.shadowOf(Looper.getMainLooper()).idle();
+    }
+
+    @Test
+    public void theAddressStandsOutInThePinDialog() {
+        try (ActivityController<ToolbarIconTintTest.Screen> controller =
+                     Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+            Transcript transcript = new Transcript();
+            AlertDialog dialog = dialogs(controller.get(), transcript).showPin(tv(), client(transcript, ""));
+            idle();
+            CharSequence from = ((TextView) dialog.findViewById(R.id.pairing_pin_from)).getText();
+            Spanned spanned = (Spanned) from;
+            StyleSpan[] bold = spanned.getSpans(0, from.length(), StyleSpan.class);
+            assertEquals(1, bold.length);
+            assertEquals("192.168.4.116",
+                    from.subSequence(spanned.getSpanStart(bold[0]), spanned.getSpanEnd(bold[0])).toString());
+            dialog.dismiss();
+        }
     }
 
     @Test

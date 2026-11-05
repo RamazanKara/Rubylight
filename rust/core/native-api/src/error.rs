@@ -65,9 +65,12 @@ pub enum ErrorCode {
     /// could not be confirmed. It counts as a wrong PIN unless the device
     /// finishes later.
     PairingUnconfirmed,
-    /// Three wrong PINs ended this device's requests here for a few minutes;
+    /// Three wrong PINs ended this address's requests here for a few minutes;
     /// the console on the PC can still pair it.
     PairingEnded,
+    /// A wrong PIN just came from this address: it can be approved again in
+    /// seconds, and the message says how many.
+    PairingCooldown,
     /// A code from a newer host. Clients treat it by its HTTP status.
     #[serde(other)]
     Unknown,
@@ -105,7 +108,8 @@ impl ErrorCode {
             | Self::TokenExpired
             | Self::UpdateUnavailable
             | Self::PairingUnconfirmed
-            | Self::PairingEnded => 409,
+            | Self::PairingEnded
+            | Self::PairingCooldown => 409,
             Self::InsufficientStorage => 507,
             Self::TemporarilyUnavailable => 503,
             Self::Internal | Self::Unknown => 500,

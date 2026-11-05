@@ -2728,22 +2728,12 @@ fn cancel_app(h: Shared, connection: Connection) -> Response {
     h.stop_app(AppStop::Cancel(&client.uuid));
     xml(200, &[("cancel", "1".into())], None)
 }
-async fn unpair(
-    State(h): State<Shared>,
-    Extension(connection): Extension<Connection>,
-    args: Result<Query<Args>, axum::extract::rejection::QueryRejection>,
-) -> Response {
+async fn unpair(State(h): State<Shared>, Extension(connection): Extension<Connection>) -> Response {
     // Only a paired client's own certificate can unpair it; anything else is
-    // answered like Vibepollo, with nothing removed.
+    // answered like Vibepollo, with nothing removed. That goes for an approval
+    // in flight too: Moonlight sends this after a wrong PIN, but without a
+    // certificate, so it proves nothing about who is asking.
     let Ok(client) = authenticated(&h, &connection, 0) else {
-        // Moonlight says this right after it finds its PIN wrong, so a pairing
-        // approved from another device hears it at once.
-        if let Ok(Query(args)) = &args
-            && let Some(id) = args.get("uniqueid")
-        {
-            let id = pairing_id(id, connection.peer.ip());
-            crate::native_api::pairing::failed(&h, &id);
-        }
         return xml(200, &[("unpaired", "0".into())], None);
     };
     let removed = h.unpair_with_network_history(Some(&client.uuid));

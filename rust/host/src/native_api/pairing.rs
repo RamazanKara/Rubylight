@@ -4,7 +4,10 @@
 //! WebRTC signalling. Moonlight's handshake derives its key from the PIN and
 //! carries no check of it, so the host learns a PIN was wrong only from how the
 //! new device's handshake ends, and that attempt is then over: the device starts
-//! again with a new PIN. Wrong PINs are counted per device for that reason.
+//! again with a new PIN. Wrong PINs are counted per address for that reason, as
+//! the device chooses its name. Moonlight's `/unpair` after a wrong PIN comes
+//! without a certificate, so anyone at the address could send it: it counts for
+//! nothing here, and the approval ends when the wait does.
 use super::{Failure, Reply, caller, json, permission_required, read_body};
 use crate::{
     state::{Host, Shared},
@@ -43,10 +46,13 @@ const HANDSHAKE_WAIT: Duration = Duration::from_secs(10);
 const HANDSHAKE_WAIT: Duration = Duration::from_secs(2);
 /// As long as a waiting request and a started handshake live.
 const REQUEST_LIFETIME: Duration = Duration::from_secs(300);
-/// Wrong PINs that end a device's requests on this path.
+/// Wrong PINs that end an address's requests on this path.
 const WRONG_PIN_LIMIT: u8 = 3;
 /// How long those wrong PINs are remembered after the last one.
 const WRONG_PIN_MEMORY: Duration = Duration::from_secs(300);
+/// How long an address waits for its next approval after a wrong PIN. A real
+/// device takes about this long to be asked again and show a new PIN.
+const WRONG_PIN_COOLDOWN: Duration = Duration::from_secs(30);
 /// A little past the handshake's own limit, so a late finish is still capped.
 const APPROVAL_LIFETIME: Duration = Duration::from_secs(310);
 
@@ -82,13 +88,18 @@ pub(crate) struct Approver {
     pub uuid: String,
     pub name: String,
 }
+/// What the wrong PINs count against: the address, an IPv6 /64 as one. The name
+/// is the device's to choose, so it can't be part of it.
+fn counted_as(address: IpAddr) -> IpAddr {
+    crate::webrtc::clients::peer_group(address.to_canonical())
+}
 /// The approvals whose new device has not finished yet, by request id, and the
-/// wrong PINs per device. A retry has a new request, so the count goes by the
-/// address and name it keeps.
+/// wrong PINs per address. A retry has a new request, so the count goes by the
+/// address it keeps.
 #[derive(Default)]
 pub struct Approvals {
     running: HashMap<String, Approval>,
-    wrong_pins: HashMap<(IpAddr, String), (u8, Instant)>,
+    wrong_pins: HashMap<IpAddr, (u8, Instant)>,
 }
 impl Approvals {
     fn prune(&mut self) {
@@ -97,17 +108,27 @@ impl Approvals {
         self.wrong_pins
             .retain(|_, (_, last)| last.elapsed() < WRONG_PIN_MEMORY);
     }
-    fn ended(&mut self, address: IpAddr, name: &str) -> bool {
+    fn ended(&mut self, address: IpAddr) -> bool {
         self.prune();
         self.wrong_pins
-            .get(&(address, name.to_owned()))
+            .get(&counted_as(address))
             .is_some_and(|(count, _)| *count >= WRONG_PIN_LIMIT)
     }
-    /// Counts a wrong PIN. True when this one ended the device's requests.
-    fn strike(&mut self, address: IpAddr, name: &str) -> bool {
+    /// The seconds left before this address may be approved again after a wrong
+    /// PIN. A PIN typed for a look-alike can be worked out from its handshake,
+    /// and the real device keeps showing it; the same PIN typed again at once
+    /// must not reach the look-alike's next request.
+    fn cooling(&mut self, address: IpAddr) -> Option<u64> {
+        self.prune();
+        let (_, last) = self.wrong_pins.get(&counted_as(address))?;
+        let left = WRONG_PIN_COOLDOWN.checked_sub(last.elapsed())?;
+        Some(left.as_secs() + 1)
+    }
+    /// Counts a wrong PIN. True when this one ended the address's requests.
+    fn strike(&mut self, address: IpAddr) -> bool {
         let entry = self
             .wrong_pins
-            .entry((address, name.to_owned()))
+            .entry(counted_as(address))
             .or_insert((0, Instant::now()));
         *entry = (entry.0.saturating_add(1), Instant::now());
         entry.0 == WRONG_PIN_LIMIT
@@ -118,11 +139,19 @@ impl Approvals {
     pub(crate) fn is_idle(&self) -> bool {
         self.running.is_empty()
     }
-    pub(crate) fn wrong_pins_for(&self, name: &str) -> u8 {
+    pub(crate) fn wrong_pins_at(&self, address: &str) -> u8 {
         self.wrong_pins
-            .iter()
-            .find(|((_, device), _)| device == name)
-            .map_or(0, |(_, (count, _))| *count)
+            .get(&counted_as(address.parse().unwrap()))
+            .map_or(0, |(count, _)| *count)
+    }
+    pub(crate) fn strike_at(&mut self, address: IpAddr) {
+        self.strike(address);
+    }
+    /// The cooldown has passed, without waiting for it.
+    pub(crate) fn cool_down(&mut self) {
+        for (_, last) in self.wrong_pins.values_mut() {
+            *last -= WRONG_PIN_COOLDOWN;
+        }
     }
 }
 fn approvals(h: &Host) -> std::sync::MutexGuard<'_, Approvals> {
@@ -130,11 +159,11 @@ fn approvals(h: &Host) -> std::sync::MutexGuard<'_, Approvals> {
 }
 
 fn loud_strike(h: &Host, address: IpAddr, device: &str) {
-    if !approvals(h).strike(address, device) {
+    if !approvals(h).strike(address) {
         return;
     }
-    tracing::warn!(client = %device, %address, "Three wrong PINs from other devices: this device can now only be paired in the console");
-    let (title, text) = crate::state::pairing_ended_notice(device);
+    tracing::warn!(client = %device, %address, "Three wrong PINs from other devices: this address can now only be paired in the console");
+    let (title, text) = crate::state::pairing_ended_notice(address);
     butterpollo_windows::tray::notify(&title, &text);
 }
 
@@ -191,7 +220,7 @@ pub(crate) fn paired(h: &Host, id: &str, approver: &Approver, device: &str, addr
     let address = address.to_canonical();
     let mut approvals = approvals(h);
     let running = approvals.running.remove(id);
-    approvals.wrong_pins.remove(&(address, device.to_owned()));
+    approvals.wrong_pins.remove(&counted_as(address));
     drop(approvals);
     if let Some(outcome) = running.and_then(|mut approval| approval.outcome.take()) {
         let _ = outcome.send(Outcome::Paired);
@@ -246,7 +275,7 @@ fn waiting(h: &Host) -> PairingRequests {
     let mut approvals = approvals(h);
     let mut requests: Vec<_> = pins
         .iter()
-        .filter(|(_, p)| live(p) && !approvals.ended(p.address.to_canonical(), &p.name))
+        .filter(|(_, p)| live(p) && !approvals.ended(p.address))
         .map(|(id, p)| PairingRequest {
             id: id.clone(),
             name: p.name.clone(),
@@ -287,10 +316,17 @@ fn send_pin(
         .ok_or_else(no_request)?;
     let address = request.address.to_canonical();
     let device = request.name.clone();
-    if approvals(h).ended(address, &device) {
+    if approvals(h).ended(address) {
         return Err(Failure::new(
             ErrorCode::PairingEnded,
-            format!("Three wrong PINs for {device}. Pair it in the Rubylight console on the PC."),
+            format!("Three wrong PINs from {address}. Pair {device} in the Rubylight console on the PC."),
+        ));
+    }
+    let cooling = approvals(h).cooling(address);
+    if let Some(seconds) = cooling {
+        return Err(Failure::new(
+            ErrorCode::PairingCooldown,
+            format!("A wrong PIN just came from {address}. It can be approved again in {seconds} s."),
         ));
     }
     // A Moonlight device gets what a PIN typed in the console gives it by

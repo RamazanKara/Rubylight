@@ -270,13 +270,13 @@ pub fn pairing_approved_notice(approver: &str, name: &str) -> (String, String) {
         ),
     )
 }
-/// The tray notice when wrong PINs ended a device's requests on other devices.
-pub fn pairing_ended_notice(name: &str) -> (String, String) {
+/// The tray notice when wrong PINs ended an address's requests on other devices.
+pub fn pairing_ended_notice(address: std::net::IpAddr) -> (String, String) {
     (
         "Pairing ended".into(),
         format!(
-            "Three wrong PINs for {}. Other devices can't approve it for now; the Rubylight console still can.",
-            notice_name(name)
+            "Three wrong PINs from {}. Other devices can't approve it for now; the Rubylight console still can.",
+            pairing_source(address)
         ),
     )
 }

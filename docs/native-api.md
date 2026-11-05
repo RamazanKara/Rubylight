@@ -78,7 +78,7 @@ All paths start with `/api/native/v1`. "Owner" means the caller owns the current
 | GET | `/update` | paired | Update: `current_version`, `latest_version`, `phase`, `install_supported`, `error`, `waiting_for`, `install_now` (feature `update`) |
 | POST | `/update/install` | **host control**, no other device streaming | 202 Update. 409 `host_in_use` or `update_unavailable` |
 | GET | `/pairing/requests` | **approve new devices** or **host control** | PairingRequests: the devices waiting to pair, never a certificate (feature `pairing.approve`, listed while pairing is on) |
-| POST | `/pairing/approve` `{"id", "pin"}` | **approve new devices** or **host control** | PairingApproved `{"name"}` once the device has paired. 404 `not_found`, 409 `pairing_ended` or `pairing_unconfirmed`, 422 `wrong_pin` or `invalid_value` |
+| POST | `/pairing/approve` `{"id", "pin"}` | **approve new devices** or **host control** | PairingApproved `{"name"}` once the device has paired. 403 `permission_required`, 404 `not_found`, 409 `pairing_ended`, `pairing_cooldown` or `pairing_unconfirmed`, 422 `wrong_pin` or `invalid_value` |
 | POST | `/pairing/deny` `{"id"}` | **approve new devices** or **host control** | PairingRequests: those still waiting. 404 `not_found` |
 | POST | `/coop/join` `{"session": N}` | Launch; **Can join co-op games** to take another device's free slot | Joined `{"session", "slot", "app_id"}`: the slot is held until this device launches `app_id`. 403 `permission_required`, 409 `no_session` or `coop_refused` |
 
@@ -518,9 +518,11 @@ A device with **Approve new devices** or Host control approves a new one from th
 - `id` names the request, for the calls below. `name` is the device's own choice, so a client shows `address` beside it. A request lasts 300 s.
 - `POST /pairing/approve` waits up to 10 s for the handshake and answers how it ended. The host cannot check a PIN when it receives it, only see the handshake fail, and a Moonlight client that finds a wrong PIN starts over with a new one:
   - 200 `{"name"}`: the device has paired.
-  - 422 `wrong_pin`: the handshake failed, or the device gave up on it. Its next try is a new request with a new PIN.
-  - 409 `pairing_unconfirmed`: nothing came back in 10 s. It counts as a wrong PIN unless the device still finishes.
-  - 409 `pairing_ended`: three wrong PINs from this address and name within 5 minutes. The device leaves the list, and only the console can pair it for those 5 minutes. A right PIN clears the count.
+  - 422 `wrong_pin`: the handshake failed, or the device asked again before it ended. Its next try is a new request with a new PIN.
+  - 409 `pairing_unconfirmed`: nothing came back in 10 s. It counts as a wrong PIN unless the device still finishes. This is how a wrong PIN usually ends with Moonlight: the `/unpair` it sends then has no certificate, so anyone at the address could send it, and the host ignores it.
+  - 409 `pairing_cooldown`: a wrong PIN came from this address in the last 30 s. The request stays listed and can be approved after that. A PIN typed for a look-alike can be worked out from its handshake, and the real device keeps showing it, so the same PIN must not reach the look-alike's next request at once.
+  - 409 `pairing_ended`: three wrong PINs from this address within 5 minutes, whatever names it used. An IPv6 /64 counts as one address. Its requests leave the list, and only the console can pair from it for those 5 minutes. A right PIN clears the count.
+  - 403 `permission_required`: the approver has no Play permission to hand on, or lost its right to approve during the handshake. Neither counts against the new device.
   - 404 `not_found`: the request expired, was denied or was already answered.
   - 422 `invalid_value`: not four digits.
 - A browser (WebRTC) request is in the same list. Its PIN is compared at once, so one wrong PIN ends the request. It keeps a browser's default of view only, and an approver without List and View gets 403 `permission_required`.
@@ -585,7 +587,7 @@ Every non-2xx answer has the same body:
 | 413 | `too_large` | An upload over `max_file_bytes` |
 | 507 | `insufficient_storage` | The PC has no room for the upload |
 | 409 | `no_console_user` / `transfer_busy` | Files: nobody is signed in to Windows / the device already has an upload or two downloads running, the PC eight downloads, or another program holds the file |
-| 409 | `pairing_ended` / `pairing_unconfirmed` | Approving a device: three wrong PINs ended it / the device did not answer the handshake |
+| 409 | `pairing_ended` / `pairing_cooldown` / `pairing_unconfirmed` | Approving a device: three wrong PINs ended this address's requests / a wrong PIN just came from it / the device did not answer the handshake |
 | 422 | `wrong_pin` | Approving a device: the handshake failed, and the device starts over with a new PIN |
 | 409 | `host_in_use` / `token_expired` / `update_unavailable` | Power and update: the PC is in use, and `message` names the device or what runs / the power token expired or was used, so confirm again / no update to install, `message` says why |
 | 503 | `temporarily_unavailable` | ADLX is busy or reinitialising, with `retry_after_ms` |

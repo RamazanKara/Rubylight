@@ -1,6 +1,10 @@
 package com.limelight.computers;
 
 import android.app.Activity;
+import android.graphics.Typeface;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.StyleSpan;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -111,8 +115,7 @@ final class PairingDialogs {
         }
         final NativePairing.Request request = waiting.request;
         View content = activity.getLayoutInflater().inflate(R.layout.dialog_pairing_pin, null);
-        ((TextView) content.findViewById(R.id.pairing_pin_from)).setText(
-                activity.getString(R.string.pairing_pin_from, request.address, waiting.host.displayName()));
+        ((TextView) content.findViewById(R.id.pairing_pin_from)).setText(from(waiting));
         final TextView value = content.findViewById(R.id.pairing_pin_value);
         final GridLayout pad = content.findViewById(R.id.pairing_pin_pad);
         final StringBuilder pin = new StringBuilder();
@@ -158,6 +161,19 @@ final class PairingDialogs {
         });
         dialog.show();
         return dialog;
+    }
+
+    /** Where the request came from, the address in bold: the one part of it the device can't choose. */
+    private CharSequence from(PairingWatch.Waiting waiting) {
+        String address = waiting.request.address;
+        String text = activity.getString(R.string.pairing_pin_from, address, waiting.host.displayName());
+        SpannableString shown = new SpannableString(text);
+        int start = text.indexOf(address);
+        if (start >= 0) {
+            shown.setSpan(new StyleSpan(Typeface.BOLD), start, start + address.length(),
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        return shown;
     }
 
     private static int digitOf(int key) {

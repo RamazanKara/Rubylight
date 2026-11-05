@@ -83,7 +83,7 @@ struct Inner {
 
 /// What counts as one peer: an IPv4 address, or an IPv6 /64. One PC rotates
 /// through many privacy addresses of its /64.
-fn peer_group(peer: IpAddr) -> IpAddr {
+pub(crate) fn peer_group(peer: IpAddr) -> IpAddr {
     match peer {
         IpAddr::V6(v6) => IpAddr::V6(Ipv6Addr::from(u128::from(v6) & (u128::MAX << 64))),
         v4 => v4,

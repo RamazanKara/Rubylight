@@ -57,6 +57,7 @@ All paths start with `/api/native/v1`. "Owner" means the caller owns the current
 | POST | `/session/disconnect` | View or Launch, owner | Session (now `suspended`) |
 | POST | `/session/end` | Launch, owner | Session |
 | POST | `/session/close-game` | Launch + **host control**, owner, or no session | Session |
+| POST | `/session/continue-here` | View and Launch | Session. Moves the running game's stream to this device (feature `session.continue_here`). 403 `permission_required`, 409 `no_session`, `session_busy` or `host_in_use` |
 | GET | `/launch`, `/resume` (existing) | Launch / View | Play and Resume, unchanged |
 | GET | `/radeon` | View or Launch | Radeon |
 | POST | `/radeon/settings` | View + **host control**, owner of a `streaming` or `suspended` session | Radeon |
@@ -208,6 +209,17 @@ The host writes `session.json` in the profile directory while a session is not `
 When the grace period of a suspended session runs out, the host behaves as for `end`. A disconnect never ends the game. `close_game` also works with no session, when `game_running` is true, for a caller with Launch and host control. That closes a game left behind by End session. Stock Moonlight's `/cancel` is unchanged: it stops every stream and closes the game with Launch permission alone.
 
 Clients poll `/session` about every 2 s while a home or detail screen is visible, and not at all while streaming. The overlay knows the stream is up.
+
+**Continue here (`session.continue_here`).** With this feature, the Session of a caller with List or View names the other device playing: `"playing_on": { "device": "Living room TV", "app": { ... } }`, absent when nobody else plays or the game isn't known. `POST /session/continue-here` (View and Launch, the bits that already let a device replace the running game after confirming) gives that game to the caller. It keeps the launch lock while it:
+
+- writes `moved_to` for each displaced device, so its own `GET /session` reads `"moved_to": { "device": "Living room TV", "since_unix_ms": 1792303212000 }` for two minutes, or until it streams again or presses Continue here itself;
+- makes the caller the game's owner, so the displaced device's `/serverinfo` no longer shows the game as its own and any recovery that device still runs stops at its running-game check;
+- stops the other devices' plain Stream sessions through the same path as `disconnect`: nothing closes the game and no undo command runs;
+- logs one line naming both devices.
+
+The caller then starts the normal `/resume`. Nucleus co-op and background sessions, Input-only and Remote Monitor roles and WebRTC guests' seats are never touched. A game that runs as a background session, or no running game at all, answers 409 `no_session`; a WebRTC stream of another device with guests seated answers 409 `host_in_use` and changes nothing; a launch in flight answers 409 `session_busy`. A second device pressing at the same time also gets `session_busy`, until the winner's stream runs or 15 s pass. If the winner never connects, the game goes back to its previous owner and keeps running. A game set to close on disconnect keeps running during those 15 s as well.
+
+The display: each displaced device's kept virtual display stays until the new stream runs and is then released at once, instead of waiting out the grace period; Windows moves the game's windows to the display that remains. Releasing it earlier would flash the monitors twice and change the mode twice. The new device's stream gets its own display at its own mode, as any stream does. A displaced Moonlight client just sees its stream end.
 
 **Launcher prompt (`session.launcher`).** When a launched game does not show up and a Steam, Epic Games, EA app or Ubisoft Connect window is up instead, the owner's Session carries a `launcher` note:
 

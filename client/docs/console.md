@@ -25,6 +25,8 @@ Select a game to see the PC it runs on and the settings the stream will use (res
 
 Starting a game while another is running closes the running game only after you confirm a prompt that names both games. A cancelled prompt or a remembered launch never closes a game. When the host asks for confirmation before closing a game, Nightjar shows that question to you and starts the new game once you confirm.
 
+Selecting a game another device is playing shows "<game> is playing on <device>" on hosts that offer it, with **Continue here** focused, **Stream here too** and **Cancel**. **Continue here** ends the other device's stream, leaves the game running and resumes it here; that device shows "Now playing on <device>" with **Continue here** and **OK**, and doesn't reconnect by itself. If the move fails Nightjar says so and the game keeps running. **Stream here too** starts a second stream beside the first. Other hosts start the stream without asking.
+
 When the host lists a game as not installed, **Play** is unavailable and the page says so, for example "Not installed on Living-room PC". A game the host cannot start says "Living-room PC can't start this game".
 
 On a TV the page keeps the backdrop that Home showed for the game. A row of chips above the title shows the state (**Running** or **Suspended**), the store (Steam, Epic, GOG, Microsoft), whether the game is installed, and HDR support. A screen reader reads the row as one item.

@@ -96,6 +96,20 @@ public class AddComputerInputTest {
         }
     }
 
+    @Test public void aSecondLinkReachesTheScreenAnEarlierOneLeftOpen() {
+        LinkGate.reset();
+        try (var controller = Robolectric.buildActivity(Screen.class, fromLink()).setup()) {
+            assertTrue(queue(controller.get()).isEmpty());
+            // Android brings the old task back for a new link: no onCreate, and no new intent.
+            controller.pause().stop();
+            LinkGate.confirm(LINK);
+            controller.restart().resume();
+            assertEquals(LINK, queue(controller.get()).peek());
+            assertTrue("the link went on its way, not left to block later ones", LinkGate.held());
+        }
+        assertFalse(LinkGate.held());
+    }
+
     @Test public void aScreenOpenedForALinkLeavesToThePcListWhateverBroughtItBack() {
         LinkGate.reset();
         try (var controller = Robolectric.buildActivity(Screen.class, fromLink()).setup()) {

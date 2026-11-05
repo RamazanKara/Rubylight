@@ -536,6 +536,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Could not continue here", "Burada devam edilemedi"),
     ("The game came back to this device", "Oyun bu cihaza geri döndü"),
     ("The game did not move to the other device", "Oyun diğer cihaza geçmedi"),
+    ("Another device is playing this game in a browser, and this stream can't run beside it. End that stream first.", "Başka bir cihaz bu oyunu tarayıcıda oynuyor ve bu yayın onunla birlikte çalışamaz. Önce o yayını sonlandırın."),
     ("Could not end the session", "Oturum bitirilemedi"),
     ("The session action failed", "Oturum işlemi başarısız oldu"),
     ("The PC action failed", "Bilgisayar işlemi başarısız oldu"),

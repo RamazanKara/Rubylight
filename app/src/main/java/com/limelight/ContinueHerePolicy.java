@@ -34,6 +34,24 @@ public final class ContinueHerePolicy {
         return too ? sameGame || pressFailed : !sameGame && pressFailed;
     }
 
+    /** {@link #resumeRefusal}: the game the user chose is not what runs any more. */
+    public static final String SESSION_CHANGED = "session_changed";
+    /** {@link #resumeRefusal}: another device's browser stream would end, and a join promises to stream beside it. */
+    public static final String BROWSER_STREAM = "browser_stream";
+
+    /**
+     * Reads a refused {@code /resume} by the host's words, as {@code LaunchConfirmation} reads its prompts: a host without
+     * these words keeps its own message. {@code join}: no game running is what this start could not check itself; any
+     * other resume keeps the host's message and its recovery.
+     */
+    public static String resumeRefusal(boolean join, int code, String message) {
+        String said = message == null ? "" : message.trim();
+        if (code == 409 && said.equals("The game running on this PC changed")) return SESSION_CHANGED;
+        if (join && code == 503 && said.equals("no application or remote monitor to resume")) return SESSION_CHANGED;
+        if (code == 409 && said.equals("Another device is streaming over WebRTC")) return BROWSER_STREAM;
+        return null;
+    }
+
     /** A stream that moved never reconnects on its own: two devices must not fight over the stream. */
     public static boolean recovers(boolean transientFailure, boolean moved) {
         return transientFailure && !moved;

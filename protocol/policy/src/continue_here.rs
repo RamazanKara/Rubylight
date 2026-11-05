@@ -44,6 +44,27 @@ pub fn joins_after_read(too: bool, same_game: bool, press_failed: bool) -> bool 
     }
 }
 
+/// What a PC's refusal of a `/resume` means, where the user gets a sentence of ours for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResumeRefusal {
+    /// The game the user chose is not what runs any more.
+    SessionChanged,
+    /// Another device's browser stream would end, and a join promises to stream beside it.
+    BrowserStream,
+}
+
+/// Reads a refused `/resume` by the host's words, as `LaunchConfirmation` reads its prompts: a host
+/// without these words keeps its own message. `join`: no game running is what this start could not
+/// check itself; any other resume keeps the host's message and its recovery.
+pub fn resume_refusal(join: bool, code: i32, message: &str) -> Option<ResumeRefusal> {
+    match (code, message.trim()) {
+        (409, "The game running on this PC changed") => Some(ResumeRefusal::SessionChanged),
+        (503, "no application or remote monitor to resume") if join => Some(ResumeRefusal::SessionChanged),
+        (409, "Another device is streaming over WebRTC") => Some(ResumeRefusal::BrowserStream),
+        _ => None,
+    }
+}
+
 pub(crate) fn traced(args: &Value) -> Result<Box<dyn Subject>, String> {
     if !args.is_null() {
         return Err("static policy: new must be null".into());
@@ -75,6 +96,15 @@ impl Subject for Traced {
             "joins_after_read" => {
                 let a = Args::new(args, 3)?;
                 Ok(joins_after_read(a.flag(0)?, a.flag(1)?, a.flag(2)?).into())
+            }
+            "resume_refusal" => {
+                let a = Args::new(args, 3)?;
+                let message = a.text(2)?.unwrap_or("");
+                Ok(match resume_refusal(a.flag(0)?, a.int(1)?, message) {
+                    Some(ResumeRefusal::SessionChanged) => "session_changed".into(),
+                    Some(ResumeRefusal::BrowserStream) => "browser_stream".into(),
+                    None => Value::Null,
+                })
             }
             other => Err(format!("unknown method {other}")),
         }

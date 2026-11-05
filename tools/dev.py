@@ -213,10 +213,9 @@ def plan(paths, root=ROOT):
             crates = sorted(set(crates) | {host['tests/interop'][0]})
         checks.append(Check('host', 'host', crates))
     if client_dirs or client_all:
-        if client_all:
-            crates = sorted(client[d][0] for d in client_default)
-        else:
-            crates = sorted(client[d][0] for d in dependants(client, client_dirs))
+        # A lock file change checks the default members; a crate changed with it still gets its own check.
+        dirs = dependants(client, client_dirs) | (set(client_default) if client_all else set())
+        crates = sorted(client[d][0] for d in dirs)
         checks.append(Check('client-protocol', 'client', crates))
     if interop_hit and not interop_in_host:
         if (interop / 'Cargo.toml').is_file():

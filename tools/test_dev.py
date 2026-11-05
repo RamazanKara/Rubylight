@@ -58,6 +58,12 @@ class Plan(unittest.TestCase):
         self.assertIn('rubylight-protocol', client)
         self.assertNotIn('nightjar-desktop', client)  # SDL3 and FFmpeg, not a default member
 
+    def test_client_lock_file_keeps_a_crate_changed_with_it(self):
+        planned, _ = checks('client/protocol/Cargo.lock', 'client/protocol/desktop/src/main.rs')
+        client = planned['client-protocol'].items
+        self.assertIn('rubylight-protocol', client)
+        self.assertIn('nightjar-desktop', client)
+
     def test_interop_skips_until_it_exists(self):
         planned, _ = checks('client/protocol/client/src/lib.rs')
         if not (ROOT / 'tests/interop').exists():

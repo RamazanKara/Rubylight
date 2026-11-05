@@ -398,6 +398,7 @@ impl Registry {
         let mut pins = h.pins.lock().unwrap();
         if let Some(evicted) = inner.pins.add(request) {
             pins.remove(evicted.request_id());
+            butterpollo_windows::tray::pairing_request_ended(evicted.request_id());
         }
         pins.insert(
             id.clone(),
@@ -417,6 +418,7 @@ impl Registry {
     pub fn cancel_pairing(&self, h: &Host, request_id: &str) {
         self.inner.lock().unwrap().pins.cancel(request_id);
         h.pins.lock().unwrap().remove(request_id);
+        butterpollo_windows::tray::pairing_request_ended(request_id);
     }
 
     /// The administrator entered `entered` for the request. The PIN is
@@ -433,6 +435,7 @@ impl Registry {
         approver: Option<&str>,
         address: IpAddr,
     ) -> Result<Credentials, ErrorCode> {
+        butterpollo_windows::tray::pairing_request_ended(request_id);
         let approved = {
             let mut inner = self.inner.lock().unwrap();
             inner.pins.approve(request_id, entered, self.now())

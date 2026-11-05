@@ -1121,13 +1121,14 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
         }
         tracing::info!(client=%name,%peer,"Pairing PIN required in the web interface");
         let (title, text) = crate::state::pairing_notice(&name, peer);
-        butterpollo_windows::tray::notify_pairing(&title, &text);
+        butterpollo_windows::tray::notify_pairing(&id, &title, &text);
         let response = tokio::time::timeout(Duration::from_secs(300), receiver).await;
         {
             // Only this request's entry: a newer request may have replaced it.
             let mut pins = h.pins.lock().unwrap();
-            if pins.get(&id).is_some_and(|p| p.created == created) {
+            if pins.get(&id).is_none_or(|p| p.created == created) {
                 pins.remove(&id);
+                butterpollo_windows::tray::pairing_request_ended(&id);
             }
         }
         let (pin, name, permission, approver) = response

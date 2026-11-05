@@ -422,6 +422,7 @@ pub async fn maintain(
         start_deferred(&h);
         if actions.is_some() {
             show_app(&h, &mut tray);
+            butterpollo_windows::tray::release_overdue_notices();
         }
         if let Some(actions) = &actions {
             while let Ok(action) = actions.try_recv() {

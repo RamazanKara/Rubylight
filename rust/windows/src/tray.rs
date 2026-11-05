@@ -1,11 +1,12 @@
 //! Native notification-area UI, owned by its Windows message thread.
 use anyhow::{Context, Result, bail};
-use butterpollo_core::tray::{HeldNotice, Icon, NoticeAction, Notices, Post};
+use butterpollo_core::tray::{Icon, NoticeAction, Notices, Post, QueuedNotice};
 use std::{
     mem::size_of,
     path::PathBuf,
     sync::{Mutex, mpsc},
     thread,
+    time::Instant,
 };
 use windows::{
     Win32::{
@@ -242,7 +243,7 @@ unsafe extern "system" fn window(
                         show_held(held);
                     }
                     NIN_BALLOONTIMEOUT => {
-                        let held = NOTICES.lock().unwrap().timed_out();
+                        let held = NOTICES.lock().unwrap().timed_out(Instant::now());
                         show_held(held);
                     }
                     WM_LBUTTONDBLCLK => {
@@ -486,19 +487,44 @@ impl Drop for Tray {
 /// The tray icon's window while it is shown.
 static SHOWN: std::sync::Mutex<Option<isize>> = std::sync::Mutex::new(None);
 static NOTICES: Mutex<Notices> = Mutex::new(Notices::new());
+/// Keeps notices in the order they reach Windows. Held across the call to Windows,
+/// so never taken on the tray's window thread: a callback dispatched during that
+/// call would wait for itself. [`NOTICES`] is only ever held briefly.
+static SHOWING: Mutex<()> = Mutex::new(());
+fn notice(title: &str, text: &str, action: Option<NoticeAction>) -> QueuedNotice {
+    QueuedNotice {
+        title: title.to_owned(),
+        text: text.to_owned(),
+        action,
+        request: None,
+    }
+}
 /// Show a notification from the tray icon, if there is one.
 pub fn notify(title: &str, text: &str) {
-    let _ = notify_with_action(title, text, None);
+    let _ = post_notice(&notice(title, text, None));
 }
-/// Show a pairing request's notification; clicking it opens the console at the PIN.
-pub fn notify_pairing(title: &str, text: &str) {
-    if let Err(error) = notify_with_action(title, text, Some(NoticeAction::EnterPin)) {
+/// Show pairing request `request`'s notification; clicking it opens the console at the PIN.
+pub fn notify_pairing(request: &str, title: &str, text: &str) {
+    let notice = QueuedNotice {
+        request: Some(request.to_owned()),
+        ..notice(title, text, Some(NoticeAction::EnterPin))
+    };
+    if let Err(error) = post_notice(&notice) {
         tracing::debug!(%error, "no tray notification for a pairing request");
     }
 }
+/// Pairing request `request` ended, so a notification still waiting about it goes.
+pub fn pairing_request_ended(request: &str) {
+    NOTICES.lock().unwrap().request_ended(request);
+}
+/// Called from the host's loop: a launch error nobody answered lets others go up.
+pub fn release_overdue_notices() {
+    let held = NOTICES.lock().unwrap().tick(Instant::now());
+    show_held(held);
+}
 /// Show a notification from the tray icon, or say why it could not be shown.
 pub fn try_notify(title: &str, text: &str) -> Result<()> {
-    notify_with_action(title, text, None)
+    post_notice(&notice(title, text, None))
 }
 fn launch_error_notice(app: &str, code: u32) -> butterpollo_core::tray::Notice {
     (
@@ -512,41 +538,47 @@ fn launch_error_notice(app: &str, code: u32) -> butterpollo_core::tray::Notice {
 /// Keep the detached stream open until the user chooses to end it.
 pub fn launch_error(app: &str, code: u32) {
     let (title, text) = launch_error_notice(app, code);
-    if let Err(error) = notify_with_action(title, &text, Some(NoticeAction::QuitApp)) {
+    if let Err(error) = post_notice(&notice(title, &text, Some(NoticeAction::QuitApp))) {
         tracing::warn!(%error, "no tray notification for a launch error");
     }
 }
-/// Put up a notice that waited for a launch error's notification to go.
-fn show_held(held: Option<HeldNotice>) {
-    let Some(held) = held else {
+/// Put up notices that waited for a launch error's notification to go, on a
+/// thread of their own: callers include the window procedure and the host's loop.
+fn show_held(held: Vec<QueuedNotice>) {
+    if held.is_empty() {
         return;
-    };
-    if let Err(error) = notify_with_action(&held.title, &held.text, held.action) {
-        tracing::warn!(%error, title = %held.title, "no tray notification for a held notice");
+    }
+    let shown = std::thread::Builder::new()
+        .name("tray-notices".into())
+        .spawn(move || {
+            for notice in &held {
+                if let Err(error) = post_notice(notice) {
+                    tracing::warn!(%error, title = %notice.title, "no tray notification for a held notice");
+                }
+            }
+        });
+    if let Err(error) = shown {
+        tracing::warn!(%error, "no thread for held tray notifications");
     }
 }
-/// Holds [`NOTICES`] until Windows has taken the notification, so what a click
-/// does can't be set by one notice while another goes up.
-fn notify_with_action(title: &str, text: &str, action: Option<NoticeAction>) -> Result<()> {
+fn post_notice(notice: &QueuedNotice) -> Result<()> {
     let Some(window) = *SHOWN.lock().unwrap() else {
         bail!("the tray icon is not shown");
     };
-    let mut notices = NOTICES.lock().unwrap();
-    let post = notices.post(title, text, action);
+    let showing = SHOWING.lock().unwrap();
+    let post = NOTICES.lock().unwrap().post(notice, Instant::now());
     if post == Post::Held {
-        tracing::info!(title, "tray notification waits for the launch error's");
+        tracing::info!(title = %notice.title, "tray notification waits for the launch error's");
         return Ok(());
     }
-    if post == Post::ClearThenShow && !show_notification(window, "", "") {
-        notices.not_shown();
-        bail!("Windows did not take down the notification");
+    let cleared = post != Post::ClearThenShow || show_notification(window, "", "");
+    if cleared && show_notification(window, &notice.title, &notice.text) {
+        return Ok(());
     }
-    if show_notification(window, title, text) {
-        Ok(())
-    } else {
-        notices.not_shown();
-        bail!("Windows did not show the notification")
-    }
+    let held = NOTICES.lock().unwrap().not_shown();
+    drop(showing);
+    show_held(held);
+    bail!("Windows did not show the notification")
 }
 /// Empty text takes down what is up.
 fn show_notification(window: isize, title: &str, text: &str) -> bool {

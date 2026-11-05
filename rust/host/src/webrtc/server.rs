@@ -1026,6 +1026,7 @@ impl Connection {
         let address = self.peer.address.ip().to_canonical();
         let (request_id, entered) = self.h.webrtc.begin_pairing(&self.h, pin, name, address);
         let deadline = tokio::time::Instant::now() + self.limits.pairing;
+        let notice_id = request_id.clone();
         self.pairing = Some(Pairing {
             request_id,
             entered,
@@ -1036,7 +1037,7 @@ impl Connection {
         tracing::info!(client = name, peer = %self.peer.address, "WebRTC pairing PIN required in the web interface");
         if !again && self.h.webrtc.may_notify(address) {
             let (title, text) = crate::state::pairing_notice(name, address);
-            butterpollo_windows::tray::notify_pairing(&title, &text);
+            butterpollo_windows::tray::notify_pairing(&notice_id, &title, &text);
         }
     }
 

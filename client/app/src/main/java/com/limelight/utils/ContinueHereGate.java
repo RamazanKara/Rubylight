@@ -20,14 +20,49 @@ import com.limelight.nativeapi.NativeCapabilities;
 import com.limelight.nativeapi.StreamMove;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
+import com.limelight.pin.PinLockActivity;
 import com.limelight.ui.NavigationDialogBuilder;
+
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Selecting a game another device plays: "X is playing on Y", with Continue here focused, Stream here too and
  * Cancel. A PC that does not offer the move, or that cannot say who plays, starts the stream as it always did.
  */
 final class ContinueHereGate {
+    /** How long selecting a game waits to learn who plays it, before it starts the stream as it always did. */
+    private static final long SELECT_READ_WAIT_MS = 1500;
+
+    /** One read of the PC. */
+    @VisibleForTesting
+    interface MoveRead {
+        StreamMove read() throws NativeApiException, InterruptedException;
+    }
+
     private ContinueHereGate() {
+    }
+
+    /** The answer of {@code read}, or null when it failed or took longer than {@code waitMs}. It then ends on its own. */
+    @VisibleForTesting
+    static StreamMove readWithin(MoveRead read, long waitMs) {
+        AtomicReference<StreamMove> answer = new AtomicReference<>();
+        Thread reading = new Thread(() -> {
+            try {
+                answer.set(read.read());
+            } catch (NativeApiException | InterruptedException e) {
+                LimeLog.warning("Could not read who plays the game; starting the stream: " + e.getMessage());
+            }
+        }, "Continue here read");
+        reading.start();
+        try {
+            reading.join(waitMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        if (reading.isAlive()) {
+            LimeLog.warning("Could not read who plays the game in time; starting the stream");
+        }
+        return answer.get();
     }
 
     /** Whether this start could ask: only a plain stream of a game. A co-op seat, recovery or Input-only never does. */
@@ -56,31 +91,26 @@ final class ContinueHereGate {
         }
         NativeApiClient client = new NativeApiClient(new JniNativeApiTransport(), endpoint);
         new Thread(() -> {
-            StreamMove move = null;
-            try {
-                move = client.streamMove();
-            } catch (NativeApiException e) {
-                LimeLog.warning("Could not read who plays the game; starting the stream: " + e.getMessage());
-            }
-            StreamMove read = move;
+            StreamMove read = readWithin(client::streamMove, SELECT_READ_WAIT_MS);
             parent.runOnUiThread(() -> {
                 if (parent.isFinishing() || parent.isDestroyed()) {
                     return;
                 }
                 if (read != null && asks(true, true, read, app)) {
-                    prompt(parent, client, read, start).show();
+                    prompt(parent, computer, client, read, start).show();
                 } else {
                     start.run();
                 }
             });
-        }, "Continue here read").start();
+        }, "Continue here select").start();
         return true;
     }
 
-    private static AlertDialog prompt(Activity parent, NativeApiClient client, StreamMove move, Runnable start) {
+    private static AlertDialog prompt(Activity parent, ComputerDetails computer, NativeApiClient client, StreamMove move, Runnable start) {
         AlertDialog dialog = new NavigationDialogBuilder(parent)
                 .setMessage(parent.getString(R.string.continue_here_playing_on, move.playingTitle, move.playingOn))
-                .setPositiveButton(R.string.continue_here_action, (shown, which) -> press(parent, client, start))
+                .setPositiveButton(R.string.continue_here_action, (shown, which) -> PinLockActivity.runAfterPin(
+                        parent, computer.uuid, computer.displayName(), () -> press(parent, client, start)))
                 .setNeutralButton(R.string.continue_here_stream_too, (shown, which) -> start.run())
                 .setNegativeButton(android.R.string.cancel, null)
                 .create();
@@ -88,7 +118,10 @@ final class ContinueHereGate {
         return dialog;
     }
 
-    /** Moves the stream here, then starts the normal resume. A failure says so and leaves the game running. */
+    /**
+     * Moves the stream here, then starts the normal resume. A failure says so and leaves the game running. It ends
+     * another device's stream, so the PIN lock comes before it, not at the start after it.
+     */
     private static void press(Activity parent, NativeApiClient client, Runnable start) {
         new Thread(() -> {
             String failure = null;
@@ -101,6 +134,7 @@ final class ContinueHereGate {
             String why = failure;
             parent.runOnUiThread(() -> {
                 if (parent.isFinishing() || parent.isDestroyed()) {
+                    LimeLog.warning("The screen went away during Continue here; the press expires on the PC");
                     return;
                 }
                 if (why == null) {

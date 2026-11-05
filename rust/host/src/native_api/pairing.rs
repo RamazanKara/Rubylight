@@ -291,7 +291,8 @@ pub(crate) fn approver_revoked(h: &Host, id: &str, missing: &'static str) {
 }
 
 /// The handshake of request `id` was right, but its device could not be saved.
-/// The save's own error is logged by the caller; the device takes no strike.
+/// The save's own error is logged where the save failed, also when no approval
+/// runs and this returns early; the device takes no strike.
 pub(crate) fn not_saved(h: &Host, id: &str) {
     let Some(mut approval) = approvals(h).running.remove(id) else {
         return;

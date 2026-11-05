@@ -1223,7 +1223,11 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
                             extra,
                         },
                     )
-                    .map_err(|error| error.context(crate::native_api::pairing::NotSaved))?;
+                    .map_err(|error| {
+                        // Moonlight hears only the generic words below.
+                        tracing::error!(error = %format!("{error:#}"), "a Moonlight device could not be saved");
+                        error.context(crate::native_api::pairing::NotSaved)
+                    })?;
                 drop(state);
                 tracing::info!(client=%p.name,"Client paired and saved");
                 let mut paired = serde_json::json!({"device": crate::webhooks::device(&uuid, &p.name), "transport": "moonlight"});

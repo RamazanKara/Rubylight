@@ -199,6 +199,44 @@ async fn a_device_the_pc_could_not_save_costs_its_address_nothing() {
 }
 
 #[tokio::test]
+async fn a_save_that_fails_logs_why_and_moonlight_hears_only_that_it_failed() {
+    let f = Fixture::new();
+    // The saved state can't replace a directory.
+    let _ = std::fs::remove_file(&f.host.paired_path);
+    std::fs::create_dir_all(&f.host.paired_path).unwrap();
+    let path = f.host.directory.join("not-saved.log");
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::ERROR)
+        .without_time()
+        .with_ansi(false)
+        .with_writer(std::sync::Mutex::new(std::fs::File::create(&path).unwrap()))
+        .finish();
+    let guard = crate::test_log::capture(subscriber);
+    // No approval runs: a PIN typed in the console, the case nothing else logs.
+    let (client, id) = asking(&f, "TV").await;
+    let waiting = f.host.pins.lock().unwrap().remove(&id).unwrap();
+    assert!(
+        waiting
+            .sender
+            .send(("1234".into(), "TV".into(), None, None))
+            .is_ok()
+    );
+    until("the handshake to start", || {
+        f.host.pairings.lock().unwrap().sessions.contains_key(&id)
+    })
+    .await;
+    let refused = finish_pairing(&f, &client, "TV", "1234").await.unwrap_err();
+    drop(guard);
+    assert_eq!(refused.to_string(), pairing::NotSaved.to_string());
+    let log = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        log.contains("a Moonlight device could not be saved"),
+        "{log}"
+    );
+    assert!(log.contains("os error"), "the save's own error: {log}");
+}
+
+#[tokio::test]
 async fn a_step_a_device_fails_on_purpose_still_counts() {
     let f = Fixture::new();
     let approver = other_device(&f, ALL, true);

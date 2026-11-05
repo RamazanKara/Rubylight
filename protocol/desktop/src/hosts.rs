@@ -419,6 +419,8 @@ pub struct Hosts {
     next_id: u64,
     pairing: Option<(u64, Arc<HostClient>)>,
     pairing_generation: u64,
+    /// The certificate a pairing link named, for each record it was opened on.
+    link_claims: HashMap<u64, [u8; 32]>,
     /// Hosts whose live library changed since the last `take_library_saves`.
     library_saves: Vec<u64>,
     /// STUN for the remote address of PCs found on the LAN; off in tests, which stay offline.
@@ -474,6 +476,15 @@ pub fn random_pin() -> String {
             .map_or(0, |d| d.as_nanos()),
     );
     format!("{:04}", hasher.finish() % 10_000)
+}
+
+/// Whether this record is paired with a certificate other than `certificate`. One that cannot be
+/// read is another one.
+fn pins_another(record: &HostRecord, certificate: &[u8; 32]) -> bool {
+    record
+        .server_certificate
+        .as_deref()
+        .is_some_and(|pem| nightjar_core::http::certificate_sha256(pem).ok().as_ref() != Some(certificate))
 }
 
 /// What proves the pairing user is at the PC.
@@ -836,6 +847,7 @@ impl Hosts {
             next_id: 1,
             pairing: None,
             pairing_generation: 0,
+            link_claims: HashMap::new(),
             library_saves: Vec::new(),
             stun: false,
             _mdns: None,
@@ -1054,6 +1066,7 @@ impl Hosts {
 
     pub fn remove(&mut self, id: u64) {
         self.list.retain(|h| h.id != id);
+        self.link_claims.remove(&id);
     }
 
     /// Checks every host that is due.
@@ -1132,12 +1145,47 @@ impl Hosts {
     /// Pairs with a QR pairing link (Experimental): its one-time PIN, refused when the PC's
     /// certificate is not the link's.
     pub fn pair_link(&mut self, id: u64, link: PairingUri) {
+        if self.get(id).is_some_and(|host| pins_another(&host.record, &link.cert_sha256)) {
+            self.refuse_link(id);
+            return;
+        }
+        self.link_claims.insert(id, link.cert_sha256);
         self.start_pairing(id, Secret::Link(Box::new(link)));
+    }
+
+    /// Ends the pairing at `id`, if one runs, with what a link to another certificate gets.
+    fn refuse_link(&mut self, id: u64) {
+        self.cancel_pairing();
+        let result = Err(PAIR_LINK_MISMATCH.into());
+        let _ = self.sender.send(Event::Paired { id, request: self.pairing_generation, result });
+        (self.waker)();
+    }
+
+    /// `id` was added for a link and now says it is a PC known here with a certificate other than
+    /// the link names. Any web page can make that address the one tried, and nothing has proved
+    /// who answered, so the known PC keeps its address and this record goes.
+    fn drop_link_claiming_known_pc(&mut self, id: u64) {
+        eprintln!("nightjar: a pairing link's address claims a known PC with another certificate");
+        if self.pairing.as_ref().is_some_and(|(pairing, _)| *pairing == id) {
+            self.refuse_link(id);
+        }
+        self.remove(id);
     }
 
     fn start_pairing(&mut self, id: u64, secret: Secret) {
         self.cancel_pairing();
         let request = self.pairing_generation;
+        // The PCs a link's certificate cannot be: known with another one. The PIN is not spent on
+        // something that says it is one of them.
+        let known_otherwise: Vec<String> = match &secret {
+            Secret::Link(link) => self
+                .list
+                .iter()
+                .filter(|host| !host.record.unique_id.is_empty() && pins_another(&host.record, &link.cert_sha256))
+                .map(|host| host.record.unique_id.clone())
+                .collect(),
+            _ => Vec::new(),
+        };
         let Some(identity) = self.identity.clone() else {
             return;
         };
@@ -1159,6 +1207,7 @@ impl Hosts {
             let result = client
                 .server_info_http(true)
                 .and_then(|info| match &secret {
+                    Secret::Link(_) if known_otherwise.contains(&info.unique_id) => Err(nightjar_core::http::Error::CertificateMismatch),
                     Secret::Pin(pin) => client.pair(&info, pin),
                     Secret::OneTime { pin, passphrase } => client.pair_with_passphrase(&info, pin, passphrase),
                     Secret::Link(link) => client.pair_with_link(&info, link),
@@ -1813,6 +1862,14 @@ impl Hosts {
         };
         // A newly found address may belong to a host already listed under another one.
         if let Ok(info) = &result {
+            if let Some(certificate) = self.link_claims.get(&id) {
+                if !info.unique_id.is_empty()
+                    && self.list.iter().any(|h| h.id != id && h.record.unique_id == info.unique_id && pins_another(&h.record, certificate))
+                {
+                    self.drop_link_claiming_known_pc(id);
+                    return true;
+                }
+            }
             if let Some(other) = self
                 .list
                 .iter()
@@ -2426,6 +2483,84 @@ pub(crate) mod tests {
     }
 
     const INFO: &str = "<?xml version=\"1.0\" encoding=\"utf-8\"?><root status_code=\"200\">        <hostname>Renamed on the PC</hostname><uniqueid>uid</uniqueid><HttpsPort>47984</HttpsPort>        <ExternalPort>47989</ExternalPort><PairStatus>1</PairStatus><currentgame>0</currentgame>        <state>SUNSHINE_SERVER_FREE</state></root>";
+
+    const PEM: &str = "-----BEGIN CERTIFICATE-----\nAQID\n-----END CERTIFICATE-----\n";
+
+    fn link_naming(cert_sha256: [u8; 32]) -> PairingUri {
+        PairingUri {
+            host: "203.0.113.9".into(),
+            port: 47989,
+            otp: "4821".into(),
+            passphrase: "hunter2".into(),
+            unique_id: String::new(),
+            cert_sha256,
+            name: "Claimed".into(),
+        }
+    }
+
+    fn known_pc_with_link(cert_sha256: [u8; 32]) -> (Hosts, u64) {
+        let mut known = paired_record("uid");
+        known.server_certificate = Some(PEM.into());
+        let mut hosts = Hosts::without_discovery(vec![known], Arc::new(|| {}));
+        let id = hosts.add_manual("203.0.113.9", Some(47989));
+        hosts.pair_link(id, link_naming(cert_sha256));
+        (hosts, id)
+    }
+
+    #[test]
+    fn a_link_address_claiming_a_known_pc_cannot_move_it() {
+        let (mut hosts, id) = known_pc_with_link([9; 32]);
+        let info = ServerInfo::parse(INFO, 47989).unwrap();
+        assert!(hosts.apply_info(id, "203.0.113.9".into(), Ok(Box::new(info))));
+        assert_eq!(hosts.list.len(), 1, "the record the link added is gone");
+        let known = &hosts.list[0].record;
+        assert_eq!(known.unique_id, "uid");
+        assert_eq!(known.address, "192.0.2.1", "the known PC stays where it was");
+        assert!(!known.other_addresses.contains(&"203.0.113.9".to_owned()));
+        assert_eq!(known.name, "PC");
+        assert_eq!(known.server_certificate.as_deref(), Some(PEM));
+    }
+
+    #[test]
+    fn the_known_pcs_own_link_may_still_find_it_at_a_new_address() {
+        let (mut hosts, id) = known_pc_with_link(nightjar_core::http::certificate_sha256(PEM).unwrap());
+        let info = ServerInfo::parse(INFO, 47989).unwrap();
+        assert!(hosts.apply_info(id, "203.0.113.9".into(), Ok(Box::new(info))));
+        assert_eq!(hosts.list.len(), 1, "one PC, as before");
+        assert_eq!(hosts.list[0].record.address, "203.0.113.9");
+        assert_eq!(hosts.list[0].record.server_certificate.as_deref(), Some(PEM));
+    }
+
+    #[test]
+    fn a_link_to_a_known_address_with_another_certificate_is_refused_at_once() {
+        let mut known = paired_record("uid");
+        known.server_certificate = Some(PEM.into());
+        known.http_port = 47989;
+        let mut hosts = Hosts::without_discovery(vec![known], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        hosts.pair_link(id, link_naming([9; 32]));
+        assert!(matches!(
+            hosts.events.try_recv(),
+            Ok(Event::Paired { id: refused, result: Err(why), .. }) if refused == id && why == PAIR_LINK_MISMATCH
+        ));
+        assert!(hosts.link_claims.is_empty());
+        assert_eq!(hosts.list[0].record.server_certificate.as_deref(), Some(PEM));
+    }
+
+    #[test]
+    fn a_pc_paired_nowhere_takes_any_link_and_a_typed_address_is_as_before() {
+        assert!(!pins_another(&HostRecord::default(), &[9; 32]));
+        let mut record = paired_record("uid");
+        record.server_certificate = Some("not a certificate".into());
+        assert!(pins_another(&record, &[9; 32]), "unreadable counts as another");
+        let mut known = paired_record("uid");
+        known.server_certificate = Some(PEM.into());
+        let mut hosts = Hosts::without_discovery(vec![known], Arc::new(|| {}));
+        let id = hosts.add_manual("203.0.113.9", Some(47989));
+        let info = ServerInfo::parse(INFO, 47989).unwrap();
+        hosts.apply_info(id, "203.0.113.9".into(), Ok(Box::new(info)));
+        assert_eq!(hosts.list[0].record.address, "203.0.113.9", "no link, no claim");
+    }
 
     #[test]
     fn a_name_chosen_here_survives_the_pc_reporting_another() {

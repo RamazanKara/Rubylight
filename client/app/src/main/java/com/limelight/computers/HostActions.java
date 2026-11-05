@@ -89,6 +89,10 @@ public final class HostActions {
         default void onWakeEnded(ComputerDetails computer) {
         }
 
+        /** A waiting device was approved or denied from here; the list changed. */
+        default void pairingChanged() {
+        }
+
         void pausePolling();
 
         void resumePolling();
@@ -511,6 +515,46 @@ public final class HostActions {
             return;
         }
         startSleep(computer, nativeClient(computer, binder), task -> new Thread(task, "Sleep PC").start());
+    }
+
+    // Approving a device
+
+    private PairingDialogs pairingDialogs() {
+        return new PairingDialogs(activity, (title, message) -> showError(title, message, null),
+                task -> new Thread(task, "Approve device").start(), main::post, callbacks::pairingChanged);
+    }
+
+    /** The menu's Pair another device. */
+    public void pairAnother(ComputerDetails computer) {
+        ComputerManagerService.ComputerManagerBinder binder = callbacks.binder();
+        if (binder == null) {
+            showError(R.string.host_menu_pair_another, activity.getString(R.string.error_manager_not_running), null);
+            return;
+        }
+        pairingDialogs().showRequests(computer, nativeClient(computer, binder));
+    }
+
+    /** Home's banner: one device goes straight to its PIN, more to the list. */
+    public void approvePairing(java.util.List<PairingWatch.Waiting> waiting) {
+        ComputerManagerService.ComputerManagerBinder binder = callbacks.binder();
+        if (binder == null) {
+            showError(R.string.host_menu_pair_another, activity.getString(R.string.error_manager_not_running), null);
+            return;
+        }
+        if (waiting.size() == 1) {
+            pairingDialogs().showPin(waiting.get(0), nativeClient(waiting.get(0).host, binder));
+        } else {
+            pairingDialogs().showList(waiting, entry -> nativeClient(entry.host, binder));
+        }
+    }
+
+    /** Reads a PC's waiting devices on a worker, for {@link PairingWatch}. Without the service there is nothing to read. */
+    public PairingWatch.Reader pairingReader() {
+        return host -> {
+            ComputerManagerService.ComputerManagerBinder binder = callbacks.binder();
+            return binder == null ? java.util.Collections.emptyList()
+                    : nativeClient(host, binder).open().pairingRequests();
+        };
     }
 
     /** The paired PC's native API, opened on the worker. */

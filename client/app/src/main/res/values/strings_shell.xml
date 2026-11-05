@@ -28,6 +28,17 @@
     <string name="host_menu_restart">Restart PC</string>
     <string name="host_menu_shutdown">Shut down PC</string>
     <string name="host_menu_update">Update the PC’s host</string>
+    <string name="host_menu_pair_another">Pair another device</string>
+    <string name="pairing_wants_to_pair">%1$s wants to pair</string>
+    <string name="pairing_many_want_to_pair">%1$d devices want to pair</string>
+    <string name="pairing_approve">Approve</string>
+    <string name="pairing_deny">Deny</string>
+    <string name="pairing_pin_from">From %1$s, for %2$s</string>
+    <string name="pairing_request_row">%1$s · %2$s · %3$s</string>
+    <string name="pairing_pin_erase">Delete digit</string>
+    <string name="pairing_waiting_for">Waiting for %1$s…</string>
+    <string name="pairing_approved">%1$s is paired</string>
+    <string name="pairing_none_waiting">On the new device, select %1$s in Nightjar or Moonlight.</string>
     <string name="host_restart_title">Restart %1$s?</string>
     <string name="host_shutdown_title">Shut down %1$s?</string>
     <string name="host_power_message">Apps with unsaved work on the PC can block this.</string>

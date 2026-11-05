@@ -22,8 +22,8 @@ use nightjar_core::http::native_api::radeon::{Radeon, SettingsWrite};
 use nightjar_core::http::native_api::session::{ActionId, CouchMenu, CouchMenuRequest, Session};
 use nightjar_core::http::native_api::wake::Wake;
 use nightjar_core::http::{
-    update_arrived, ClientIdentity, Coop, CoopJoined, Error, HostClient, HostUpdate, NativeCapabilities,
-    NativeLibrary, PcPower, PcPowerOffer, PowerError, PowerReply, Refusal, StreamMove,
+    update_arrived, valid_pairing_pin, ClientIdentity, Coop, CoopJoined, Error, HostClient,
+    HostUpdate, NativeCapabilities, NativeLibrary, PairingApprove, PairingApproved, PairingRequests, PcPower, PcPowerOffer, PowerError, PowerReply, Refusal, StreamMove,
 };
 
 /// What the client of one host needs; Java builds it from the paired host's stored data.
@@ -56,6 +56,9 @@ pub trait Host {
     fn power_pc(&self, action: PcPower, token: &str) -> Result<(), Error>;
     fn host_update(&self) -> Result<HostUpdate, Error>;
     fn install_host_update(&self) -> Result<HostUpdate, Error>;
+    fn pairing_requests(&self) -> Result<PairingRequests, Error>;
+    fn approve_pairing(&self, id: &str, pin: &str) -> Result<PairingApproved, Error>;
+    fn deny_pairing(&self, id: &str) -> Result<PairingRequests, Error>;
     fn wake(&self) -> Result<Wake, Error>;
     fn coop(&self) -> Result<Coop, Error>;
     fn join_coop(&self, session: u32) -> Result<CoopJoined, Error>;
@@ -111,6 +114,15 @@ impl Host for HostClient {
     }
     fn install_host_update(&self) -> Result<HostUpdate, Error> {
         HostClient::install_host_update(self)
+    }
+    fn pairing_requests(&self) -> Result<PairingRequests, Error> {
+        HostClient::pairing_requests(self)
+    }
+    fn approve_pairing(&self, id: &str, pin: &str) -> Result<PairingApproved, Error> {
+        HostClient::approve_pairing(self, id, pin)
+    }
+    fn deny_pairing(&self, id: &str) -> Result<PairingRequests, Error> {
+        HostClient::deny_pairing(self, id)
     }
     fn wake(&self) -> Result<Wake, Error> {
         HostClient::wake(self)
@@ -325,6 +337,15 @@ pub fn execute(host: &dyn Host, op: &str, argument: &str) -> String {
         }
         "update" => update_json(host.host_update(), argument),
         "update.install" => update_json(host.install_host_update(), ""),
+        "pairing.requests" => ok(host.pairing_requests()),
+        "pairing.approve" => match serde_json::from_str::<PairingApprove>(argument) {
+            Ok(approve) if valid_pairing_pin(&approve.pin) => {
+                ok(host.approve_pairing(&approve.id, &approve.pin))
+            }
+            Ok(_) => argument_error("pairing approval: the PIN has four digits".to_owned()),
+            Err(e) => argument_error(format!("pairing approval: {e}")),
+        },
+        "pairing.deny" => ok(host.deny_pairing(argument)),
         "wake" => ok(host.wake()),
         "coop" => ok(host.coop()),
         "coop.join" => match argument.trim().parse::<u32>() {
@@ -430,6 +451,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_NativeApiBridge_request(
 mod tests {
     use super::*;
     use nightjar_core::http::native_api::error::{ApiError, ErrorCode};
+    use nightjar_core::http::PairingRequest;
     use std::sync::Mutex;
 
     #[derive(Default)]
@@ -594,6 +616,36 @@ mod tests {
                 r#"{"current_version":"3.3.0","latest_version":"v3.4.0","phase":"idle","install_supported":true,"error":null}"#,
             )
             .unwrap())
+        }
+        fn pairing_requests(&self) -> Result<PairingRequests, Error> {
+            self.note("pairing requests");
+            Ok(PairingRequests {
+                requests: vec![PairingRequest {
+                    id: "a1".into(),
+                    name: "TV".into(),
+                    address: "192.168.4.116".into(),
+                    age_seconds: 12,
+                }],
+            })
+        }
+        fn approve_pairing(&self, id: &str, pin: &str) -> Result<PairingApproved, Error> {
+            self.note(&format!("approve {id} {pin}"));
+            if pin == "0000" {
+                return Err(Error::Api {
+                    status: 422,
+                    error: ApiError {
+                        code: ErrorCode::Unknown,
+                        message: "That is not the PIN TV shows.".into(),
+                        setting: None,
+                        retry_after_ms: None,
+                    },
+                });
+            }
+            Ok(PairingApproved { name: "TV".into() })
+        }
+        fn deny_pairing(&self, id: &str) -> Result<PairingRequests, Error> {
+            self.note(&format!("deny {id}"));
+            Ok(PairingRequests { requests: Vec::new() })
         }
         fn install_host_update(&self) -> Result<HostUpdate, Error> {
             self.note("update install");
@@ -906,6 +958,32 @@ mod tests {
         assert!(refused.get("ok").is_none());
         let invalid = parse(&execute(&fake, "power.sleep", ""));
         assert_eq!(invalid["error"]["kind"], "invalid_argument");
+    }
+
+    #[test]
+    fn pairing_requests_reach_the_host_and_a_bad_pin_never_leaves_this_device() {
+        let fake = Fake::default();
+        let list = parse(&execute(&fake, "pairing.requests", ""));
+        assert_eq!(list["ok"]["requests"][0]["name"], "TV");
+        assert_eq!(list["ok"]["requests"][0].get("certificate"), None);
+        let approve = |pin: &str| json!({ "id": "a1", "pin": pin }).to_string();
+        assert_eq!(parse(&execute(&fake, "pairing.approve", &approve("1234")))["ok"]["name"], "TV");
+        let wrong = parse(&execute(&fake, "pairing.approve", &approve("0000")));
+        assert_eq!(wrong["error"]["message"], "That is not the PIN TV shows.");
+        assert_eq!(wrong["error"]["http_status"], 422);
+        for bad in ["123", "12345", "12a4", ""] {
+            let refused = parse(&execute(&fake, "pairing.approve", &approve(bad)));
+            assert_eq!(refused["error"]["kind"], "invalid_argument", "{bad}");
+        }
+        assert_eq!(
+            parse(&execute(&fake, "pairing.approve", "nonsense"))["error"]["kind"],
+            "invalid_argument"
+        );
+        assert_eq!(parse(&execute(&fake, "pairing.deny", "a1"))["ok"]["requests"], json!([]));
+        assert_eq!(
+            *fake.calls.lock().unwrap(),
+            ["pairing requests", "approve a1 1234", "approve a1 0000", "deny a1"]
+        );
     }
 
     #[test]

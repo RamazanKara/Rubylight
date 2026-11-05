@@ -296,6 +296,39 @@ public final class NativeApiClient {
         }
     }
 
+    /** The devices waiting to pair (GET /pairing/requests). Only with feature pairing.approve and Host control. */
+    public List<NativePairing.Request> pairingRequests() throws NativeApiException {
+        try {
+            return NativePairing.parseRequests(call("pairing.requests", ""));
+        } catch (JSONException e) {
+            throw malformed("pairing requests", e);
+        }
+    }
+
+    /**
+     * Sends the PIN a waiting device shows (POST /pairing/approve) and answers that device's name once it has paired.
+     * Blocks while the host finishes the handshake; a refusal is in the host's words.
+     */
+    public String approvePairing(String id, String pin) throws NativeApiException {
+        try {
+            JSONObject request = new JSONObject();
+            request.put("id", id);
+            request.put("pin", pin);
+            return call("pairing.approve", request.toString()).getString("name");
+        } catch (JSONException e) {
+            throw malformed("pairing approval", e);
+        }
+    }
+
+    /** Ends a waiting device's request (POST /pairing/deny) and answers the devices still waiting. */
+    public List<NativePairing.Request> denyPairing(String id) throws NativeApiException {
+        try {
+            return NativePairing.parseRequests(call("pairing.deny", id));
+        } catch (JSONException e) {
+            throw malformed("pairing requests", e);
+        }
+    }
+
     private JSONObject call(String op, String argument) throws NativeApiException {
         return decode(transport.request(host, op, argument));
     }

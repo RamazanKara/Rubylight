@@ -63,6 +63,8 @@ pub enum Command {
     PairOtp { host: u64, pin: String, passphrase: String },
     /// Add and pair the PC of a link the user confirmed.
     PairLink(Box<rubylight_protocol::pairing_uri::PairingUri>),
+    ApprovePairing { host: u64, request: String, name: String, pin: String },
+    DenyPairing { host: u64, request: String, name: String },
     Wake(u64),
     /// Stop waking the PC ("Waking <PC>…").
     CancelWake,
@@ -251,6 +253,10 @@ pub enum Dialog {
     ConfirmPcPower { host: u64, ask: u64, name: String, action: PcPower, offer: Option<(String, Handed, bool)> },
     /// Update the PC's host to `version`.
     ConfirmUpdate { host: u64, name: String, version: String },
+    /// Devices waiting to pair: on one PC from its menu, on all from Home's banner.
+    PairRequests { only: Option<u64> },
+    /// The PIN a waiting device shows. `busy` while the PC finishes that device's handshake.
+    ApprovePairing { host: u64, request: String, name: String, address: String, pc: String, pin: String, busy: bool },
     /// Pairing did not work: what to do about it, and a way to try again.
     PairError { host: u64, body: String, one_time: bool },
     /// How to pair, for a PC that is not paired yet.

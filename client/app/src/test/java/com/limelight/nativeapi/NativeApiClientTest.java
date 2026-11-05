@@ -224,6 +224,36 @@ public class NativeApiClientTest {
     }
 
     @Test
+    public void pairingRequestsAreReadAndARefusalKeepsTheHostsCode() throws Exception {
+        transport.reply("pc", "pairing.requests", NativeApiFixtures.ok(
+                "{\"requests\":[{\"id\":\"a1\",\"name\":\"TV\",\"address\":\"192.168.4.116\",\"age_seconds\":12}]}"));
+        NativePairing.Request request = client().pairingRequests().get(0);
+        assertEquals("a1", request.id);
+        assertEquals("TV", request.name);
+        assertEquals("192.168.4.116", request.address);
+        assertEquals(12, request.ageSeconds);
+
+        transport.reply("pc", "pairing.approve", NativeApiFixtures.ok("{\"name\":\"TV\"}"));
+        assertEquals("TV", client().approvePairing("a1", "1234"));
+        JSONObject sent = new JSONObject(transport.arguments.get(1));
+        assertEquals("a1", sent.getString("id"));
+        assertEquals("1234", sent.getString("pin"));
+
+        transport.reply("pc", "pairing.approve", "{\"error\":{\"kind\":\"api\",\"message\":\"That is not the PIN TV shows.\","
+                + "\"http_status\":422,\"code\":\"wrong_pin\"}}");
+        try {
+            client().approvePairing("a1", "0000");
+            fail();
+        } catch (NativeApiException e) {
+            assertEquals("That is not the PIN TV shows.", e.getMessage());
+            assertEquals(422, e.getHttpStatus());
+        }
+
+        transport.reply("pc", "pairing.deny", NativeApiFixtures.ok("{\"requests\":[]}"));
+        assertTrue(client().denyPairing("a1").isEmpty());
+    }
+
+    @Test
     public void transportAndMalformedFailuresAreTold() {
         transport.reply("pc", "library", error("certificate_mismatch", "pinned certificate changed"));
         try {

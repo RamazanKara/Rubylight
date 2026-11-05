@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The PIN another device shows: a digit pad a gamepad can reach, filled in by PairingDialogs. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:fillViewport="true">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:gravity="center_horizontal"
+        android:paddingStart="@dimen/space_xl" android:paddingEnd="@dimen/space_xl"
+        android:paddingTop="@dimen/space_s" android:paddingBottom="@dimen/space_s">
+        <TextView android:id="@+id/pairing_pin_from" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurfaceVariant" />
+        <TextView android:id="@+id/pairing_pin_value" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_m" android:gravity="center" android:textDirection="ltr"
+            android:minHeight="@dimen/touch_target"
+            android:textAppearance="@style/TextAppearance.Nightjar.ScreenTitle" android:textColor="?attr/colorOnSurface" />
+        <GridLayout android:id="@+id/pairing_pin_pad" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_s" android:columnCount="3" android:layoutDirection="ltr" />
+    </LinearLayout>
+</ScrollView>

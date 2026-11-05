@@ -1,6 +1,7 @@
 //! PCs, Home and a PC's library: the pages that list PCs and games, a game's page, and what
 //! selecting a PC or game does.
 
+use super::dialogs::{approve_dialog, short_device_name};
 use super::*;
 
 /// How wide a List line grows: past it, the store and the date sit too far from the title.
@@ -161,6 +162,27 @@ impl Launcher {
         }
     }
 
+    /// "TV wants to pair" while a PC this device may approve for has a device waiting.
+    fn pairing_banner(&mut self, ui: &mut Ui, view: &View<'_>) {
+        let mut waiting = view.hosts.list.iter().flat_map(|h| h.waiting_to_pair().iter().map(move |r| (h, r)));
+        let Some((host, request)) = waiting.next() else {
+            return;
+        };
+        let more = waiting.count();
+        let words = if more == 0 {
+            trf("{} wants to pair", &[&short_device_name(&request.name)])
+        } else {
+            trf("{} devices want to pair", &[&(more + 1)])
+        };
+        let banner = button(ui, Some(Icon::Key), &words, Tone::Raised, Size::CONTROL);
+        self.focus_item(&banner, "pairing-banner", false);
+        if banner.clicked() {
+            self.dialog = if more == 0 { approve_dialog(host, request) } else { Dialog::PairRequests { only: None } };
+            self.focus_dialog = true;
+        }
+        ui.add_space(space::S);
+    }
+
     pub(super) fn home(&mut self, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>, logo: egui::TextureId) {
         if view.hosts.list.is_empty() {
             ui.add_space(60.0);
@@ -195,6 +217,7 @@ impl Launcher {
                     ui.label(RichText::new(format!("{}: {}", host.display_name(), tr(error))).color(ERROR));
                 }
             }
+            self.pairing_banner(ui, view);
             let width = ui.available_width();
             let (columns, cover_w) = grid_up_to(width, POSTER_MAX_W * self.settings.home_card_size.scale());
             let (_, card_w) = card_grid(width, CARD_GAP);

@@ -2,6 +2,7 @@
 //! answers, and the waking and connecting cards.
 
 use super::*;
+use nightjar_core::http::{valid_pairing_pin, PairingRequest};
 
 /// What the pairing help says, in the order of Nightjar Android's guide.
 pub(super) const PAIRING_STEPS: [&str; 3] = [
@@ -23,6 +24,7 @@ pub enum HostOption {
     RestartPc,
     ShutDownPc,
     UpdateHost,
+    PairAnother,
     Files,
     Settings,
     Details,
@@ -47,6 +49,7 @@ impl HostOption {
             Self::RestartPc => Icon::Refresh,
             Self::ShutDownPc => Icon::Power,
             Self::UpdateHost => Icon::Gear,
+            Self::PairAnother => Icon::Key,
             Self::Files => Icon::Folder,
             Self::Settings => Icon::Sliders,
             Self::Details => Icon::Info,
@@ -76,6 +79,7 @@ impl HostOption {
             Self::RestartPc => en("Restart PC"),
             Self::ShutDownPc => en("Shut down PC"),
             Self::UpdateHost => en("Update the PC's host"),
+            Self::PairAnother => en("Pair another device"),
             Self::Files => en("Files"),
             Self::Settings => en("PC settings"),
             Self::Details => en("View details"),
@@ -123,6 +127,9 @@ pub fn host_options(host: &Host) -> Vec<HostOption> {
     }
     if host.update_offer().is_some() {
         options.push(HostOption::UpdateHost);
+    }
+    if host.may_approve_pairing() {
+        options.push(HostOption::PairAnother);
     }
     if files::offers_files(host) {
         options.push(HostOption::Files);
@@ -714,6 +721,84 @@ impl Launcher {
                                 focused = true;
                             }
                             if cancel.clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+            }
+            Dialog::PairRequests { only } => {
+                let only = *only;
+                egui::Modal::new(Id::unique("pair-requests"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new(tr("Pair another device")).font(semibold(text::SECTION)));
+                        let waiting: Vec<_> = view.hosts.list.iter().filter(|h| only.is_none_or(|id| h.id == id)).flat_map(|h| h.waiting_to_pair().iter().map(move |r| (h, r))).collect();
+                        if waiting.is_empty() {
+                            let pc = only.and_then(|id| view.hosts.get(id)).map_or("", |h| h.display_name());
+                            ui.label(RichText::new(trf("On the new device, select {} in Nightjar or Moonlight.", &[&pc])).color(ON_SURFACE_VARIANT));
+                        }
+                        ui.add_space(space::S);
+                        for (index, (host, request)) in waiting.iter().enumerate() {
+                            // The address beside the name, which is the device's to choose.
+                            let mut words = format!("{} · {}", short_device_name(&request.name), request.address);
+                            if only.is_none() {
+                                words = format!("{words} · {}", host.display_name());
+                            }
+                            let row = button(ui, Some(Icon::Key), &words, Tone::Plain, Size::CONTROL);
+                            if focus_first && index == 0 {
+                                row.request_focus();
+                                focused = true;
+                            }
+                            if row.clicked() {
+                                next = Some(approve_dialog(host, request));
+                            }
+                        }
+                        dialog_buttons(ui, |ui| {
+                            let done = quiet_button(ui, "Close");
+                            if focus_first && waiting.is_empty() {
+                                done.request_focus();
+                                focused = true;
+                            }
+                            if done.clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+            }
+            Dialog::ApprovePairing { host, request, name, address, pc, pin, busy } => {
+                let id = *host;
+                egui::Modal::new(Id::unique("approve-pairing"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(380.0);
+                        ui.label(RichText::new(trf("{} wants to pair", &[&name])).font(semibold(text::SECTION)));
+                        ui.label(RichText::new(trf("From {0}, for {1}", &[&address, &pc])).color(ON_SURFACE_VARIANT));
+                        ui.add_space(space::S);
+                        let shown = if *busy { trf("Waiting for {}…", &[&name]) } else { pin.clone() };
+                        ui.label(RichText::new(shown).font(semibold(text::SECTION)));
+                        ui.add_space(space::S);
+                        let mut filled = false;
+                        ui.add_enabled_ui(!*busy, |ui| {
+                            filled = pin_pad(ui, pin, focus_first, &mut focused);
+                        });
+                        let whole = valid_pairing_pin(pin);
+                        dialog_buttons(ui, |ui| {
+                            let approve = ui.add_enabled_ui(whole && !*busy, |ui| primary_button(ui, "Approve")).inner;
+                            if filled {
+                                approve.request_focus();
+                            }
+                            if approve.clicked() {
+                                *busy = true;
+                                commands.push(Command::ApprovePairing { host: id, request: request.clone(), name: name.clone(), pin: pin.clone() });
+                            }
+                            if ui.add_enabled_ui(!*busy, |ui| quiet_button(ui, "Deny")).inner.clicked() {
+                                *busy = true;
+                                commands.push(Command::DenyPairing { host: id, request: request.clone(), name: name.clone() });
+                            }
+                            if ui.add_enabled_ui(!*busy, |ui| quiet_button(ui, "Cancel")).inner.clicked() {
                                 close = true;
                             }
                         });
@@ -1382,6 +1467,8 @@ impl Launcher {
                 | Dialog::ConfirmSleep { .. }
                 | Dialog::ConfirmPcPower { .. }
                 | Dialog::ConfirmUpdate { .. }
+                | Dialog::PairRequests { .. }
+                | Dialog::ApprovePairing { .. }
                 | Dialog::PairError { .. }
                 | Dialog::PairingHelp
                 | Dialog::HomeView
@@ -1436,6 +1523,7 @@ impl Launcher {
                     return Some(Dialog::ConfirmUpdate { host: id, name, version: version.to_owned() });
                 }
             }
+            HostOption::PairAnother => return Some(Dialog::PairRequests { only: Some(id) }),
             HostOption::Files => commands.push(Command::OpenFiles(id)),
             HostOption::Settings => commands.push(Command::HostSettings(id)),
             HostOption::Details => self.open(Screen::HostDetails(id)),
@@ -1591,6 +1679,20 @@ impl Launcher {
 
     /// The PC's host update: started, waiting for another device's stream, back on the new
     /// version, or why not.
+    /// What the PC said to an approval or a denial. A refusal is in its words, in a dialog; one
+    /// that lands after the dialog was left still gets said.
+    pub fn pairing_answered(&mut self, host: u64, request: &str, name: &str, denied: bool, result: Result<(), String>) {
+        let asked = matches!(&self.dialog, Dialog::ApprovePairing { host: h, request: r, .. } if *h == host && r == request);
+        if asked {
+            self.close_dialog();
+        }
+        match result {
+            Ok(()) if denied => {}
+            Ok(()) => self.toast(trf("{} is paired", &[&name])),
+            Err(reason) => self.message(trf("{} wants to pair", &[&name]), reason),
+        }
+    }
+
     pub fn update_answered(&mut self, host: u64, name: &str, result: Result<UpdateStep, String>) {
         let (title, body) = match result {
             Ok(UpdateStep::Started(version)) => {
@@ -1816,6 +1918,68 @@ pub(super) fn dialog_buttons(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
 /// A dialog's one-line text field: full width, with room around its text.
 pub(super) fn dialog_field(ui: &mut Ui, edit: egui::TextEdit<'_>) -> Response {
     ui.add(edit.desired_width(f32::INFINITY).margin(Margin::symmetric(12, 10)))
+}
+
+/// The dialog for one waiting device.
+pub(super) fn approve_dialog(host: &Host, request: &PairingRequest) -> Dialog {
+    Dialog::ApprovePairing {
+        host: host.id,
+        request: request.id.clone(),
+        name: short_device_name(&request.name),
+        address: request.address.clone(),
+        pc: host.display_name().to_owned(),
+        pin: String::new(),
+        busy: false,
+    }
+}
+
+/// A device names itself, at any length; a row stays one row.
+pub(super) fn short_device_name(name: &str) -> String {
+    const MOST: usize = 32;
+    if name.chars().count() <= MOST { name.to_owned() } else { name.chars().take(MOST).chain(['…']).collect() }
+}
+
+/// The digit pad of a PIN, for a controller or the mouse; the keyboard's digits work beside it.
+/// True when this frame's digit filled the PIN.
+fn pin_pad(ui: &mut Ui, pin: &mut String, focus_first: bool, focused: &mut bool) -> bool {
+    const LENGTH: usize = 4;
+    const KEY: Size = Size { height: Size::CONTROL.height, pad: 26.0, radius: Size::CONTROL.radius, font: Size::CONTROL.font };
+    let before = pin.len();
+    let enabled = ui.is_enabled();
+    if enabled {
+        let (typed, erase) = ui.input(|i| {
+            let typed: String = i.events.iter().filter_map(|e| if let egui::Event::Text(t) = e { Some(t.as_str()) } else { None }).collect();
+            (typed, i.key_pressed(Key::Backspace))
+        });
+        pin.extend(typed.chars().filter(char::is_ascii_digit));
+        if erase {
+            pin.pop();
+        }
+    }
+    let row = |ui: &mut Ui, digits: &[char], pin: &mut String, focused: &mut bool| {
+        for digit in digits {
+            let key = button(ui, None, digit.encode_utf8(&mut [0; 4]), Tone::Quiet, KEY);
+            if focus_first && *digit == '1' {
+                key.request_focus();
+                *focused = true;
+            }
+            if key.clicked() {
+                pin.push(*digit);
+            }
+        }
+    };
+    for digits in [['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9']] {
+        ui.horizontal(|ui| row(ui, &digits, pin, focused));
+    }
+    ui.horizontal(|ui| {
+        let erase = button(ui, Some(Icon::Back), "", Tone::Quiet, KEY).on_hover_text(tr("Delete digit"));
+        if erase.clicked() {
+            pin.pop();
+        }
+        row(ui, &['0'], pin, focused);
+    });
+    pin.truncate(LENGTH);
+    before < LENGTH && pin.len() == LENGTH
 }
 
 /// Where a popover menu opens.

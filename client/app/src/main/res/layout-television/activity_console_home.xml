@@ -26,6 +26,10 @@
         </LinearLayout>
         <ProgressBar android:id="@+id/console_loading" style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent" android:layout_height="4dp" android:indeterminate="true" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/home_pairing_banner"
+            style="?attr/nightjarButtonTonalStyle" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_xs" android:maxLines="1" android:ellipsize="end"
+            android:visibility="gone" app:icon="@drawable/ic_add" />
         <!-- Read by the focus, never focused: a screen reader reads the card, which says the same. -->
         <LinearLayout android:id="@+id/home_hero" android:layout_width="match_parent" android:layout_height="@dimen/hero_height"
             android:orientation="vertical" android:gravity="bottom"

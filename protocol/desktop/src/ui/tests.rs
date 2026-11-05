@@ -907,11 +907,26 @@ fn assert_fits(f: &Frames, what: &str, whole_height: bool) {
             rect.left() >= clip.left() - 1.0 && rect.right() <= clip.right() + 1.0 && rect.right() <= screen.right() + 1.0,
             "{what}: {text:?} runs past its edge: text {rect:?}, clip {clip:?}, window {screen:?}"
         );
-        // The label of a tall row scrolled mostly out of its list is laid out but never seen.
-        if whole_height && rect.intersects(*clip) {
+        if whole_height && must_stay_in_window(*rect, *clip, screen) {
             assert!(rect.top() >= -1.0 && rect.bottom() <= screen.bottom() + 1.0, "{what}: {text:?} leaves the window: {rect:?} in {screen:?}");
         }
     }
+}
+
+/// The label of a tall row scrolled out of its list is laid out but never seen, and its list's
+/// clip ends above the window's edge. A clip that reaches the edge scrolls nothing away: text
+/// past it is cut off, even when none of it shows.
+fn must_stay_in_window(rect: Rect, clip: Rect, screen: Rect) -> bool {
+    rect.intersects(clip) || clip.bottom() >= screen.bottom() - 1.0
+}
+
+#[test]
+fn a_button_wholly_below_the_window_does_not_fit_but_a_row_scrolled_out_of_its_list_does() {
+    let screen = Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 720.0));
+    let below = Rect::from_min_size(Pos2::new(100.0, 800.0), vec2(80.0, 30.0));
+    assert!(must_stay_in_window(below, screen, screen), "a dialog that doesn't scroll");
+    let list = Rect::from_min_max(Pos2::new(0.0, 100.0), Pos2::new(1280.0, 600.0));
+    assert!(!must_stay_in_window(below, list, screen), "a list that ends above the edge");
 }
 
 #[test]

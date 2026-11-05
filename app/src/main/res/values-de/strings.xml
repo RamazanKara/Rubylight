@@ -451,4 +451,5 @@
     <string name="continue_here_now_playing">Läuft jetzt auf %1$s</string>
     <string name="continue_here_now_playing_elsewhere">Läuft jetzt auf einem anderen Gerät</string>
     <string name="continue_here_failed">Konnte hier nicht fortgesetzt werden</string>
+    <string name="continue_here_came_back">Das Spiel ist zu diesem Gerät zurückgekehrt</string>
 </resources>

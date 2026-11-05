@@ -17,6 +17,14 @@ public final class ContinueHerePolicy {
         return offered && !leftOnPurpose && !recoveryFollows;
     }
 
+    /**
+     * A prompt saying the stream moved turns into "the game came back" when the PC no longer says it moved and this
+     * device owns the game again. A note that ran out with the game elsewhere, or a game that ended, offers nothing.
+     */
+    public static boolean cameBack(boolean moved, boolean owns) {
+        return !moved && owns;
+    }
+
     /** A stream that moved never reconnects on its own: two devices must not fight over the stream. */
     public static boolean recovers(boolean transientFailure, boolean moved) {
         return transientFailure && !moved;

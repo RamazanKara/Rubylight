@@ -451,4 +451,5 @@
     <string name="continue_here_now_playing">Теперь играет %1$s</string>
     <string name="continue_here_now_playing_elsewhere">Теперь играет другое устройство</string>
     <string name="continue_here_failed">Не удалось продолжить здесь</string>
+    <string name="continue_here_came_back">Игра вернулась на это устройство</string>
 </resources>

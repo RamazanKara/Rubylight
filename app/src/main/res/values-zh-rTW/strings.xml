@@ -451,4 +451,5 @@
     <string name="continue_here_now_playing">正在 %1$s 上遊玩</string>
     <string name="continue_here_now_playing_elsewhere">正在另一台裝置上遊玩</string>
     <string name="continue_here_failed">無法在此繼續</string>
+    <string name="continue_here_came_back">遊戲已回到此裝置</string>
 </resources>

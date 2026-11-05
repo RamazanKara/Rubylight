@@ -123,11 +123,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private boolean refFrameInvalidationHevc10, refFrameInvalidationAv110;
     private byte optimalSlicesPerFrame10;
     private boolean refFrameInvalidationActive;
-    // Erratum 23 on the Dolby Vision decoders, and whether the launch's capabilities gave up RFI for one:
-    // the host was told so, whichever decoder the stream ends up on.
+    // Erratum 23 on the Dolby Vision decoders, and which codec's RFI the launch's capabilities gave up for one:
+    // the host was told so, whichever decoder a stream of that codec ends up on.
     private boolean dolbyVisionCorrupts;
     private boolean dolbyVisionAv1Corrupts;
-    private volatile boolean dolbyVisionTookRfi;
+    private volatile boolean dolbyVisionTookHevcRfi;
+    private volatile boolean dolbyVisionTookAv1Rfi;
     private int initialWidth, initialHeight;
     // Why the last setup() failed, for the stream dialog; null when it did not. The last codec
     // exception stays here too, because configure() is retried and only the final one matters.
@@ -2528,7 +2529,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 return -2;
             }
 
-            refFrameInvalidationActive = !dolbyVisionTookRfi &&
+            refFrameInvalidationActive = !dolbyVisionTookHevcRfi &&
                     (tenBitSdr(videoFormat) ? refFrameInvalidationHevc10 : refFrameInvalidationHevc);
         }
         else if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0) {
@@ -2548,7 +2549,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 return -2;
             }
 
-            refFrameInvalidationActive = !dolbyVisionTookRfi &&
+            refFrameInvalidationActive = !dolbyVisionTookAv1Rfi &&
                     (tenBitSdr(videoFormat) ? refFrameInvalidationAv110 : refFrameInvalidationAv1);
         }
         else {
@@ -5117,7 +5118,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         boolean av1 = dolbyVisionAv1Corrupts && (hdrFormat & HdrFormatPolicy.DOLBY_VISION_AV1) != 0;
         if (hevc) capabilities &= ~MoonBridge.CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC;
         if (av1) capabilities &= ~MoonBridge.CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1;
-        dolbyVisionTookRfi = hevc || av1;
+        dolbyVisionTookHevcRfi = hevc;
+        dolbyVisionTookAv1Rfi = av1;
         return capabilities;
     }
 

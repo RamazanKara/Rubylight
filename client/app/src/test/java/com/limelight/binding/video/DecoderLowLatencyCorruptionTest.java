@@ -187,16 +187,44 @@ public class DecoderLowLatencyCorruptionTest {
         assertFalse(rfi(renderer, MoonBridge.VIDEO_FORMAT_H265_MAIN10, HdrFormatPolicy.DV_81, HEVC_RFI));
     }
 
+    // What setup makes of a launch: the field the report's row and the diagnostics read. Set before the decoder
+    // is configured, so it doesn't matter here that this test's decoders can't start.
+    private static boolean rfiAfterSetup(MediaCodecDecoderRenderer renderer, int format, int hdrFormat) {
+        renderer.getCapabilities(format, hdrFormat);
+        try {
+            renderer.setup(format, 3840, 2160, 60);
+        } finally {
+            renderer.stop();
+            renderer.cleanup();
+        }
+        return ReflectionHelpers.<Boolean>getField(renderer, "refFrameInvalidationActive");
+    }
+
     // The launch has told the host, so the report says so on whichever decoder the stream ends up.
     @Test
-    public void whatTheLaunchGaveUpIsWhatTheStreamReports() {
+    public void setupReportsTheRfiTheLaunchDeclaredForTheStreamsOwnCodec() {
         ShadowBuild.setModel(MODEL);
-        decoders("mtk");
-        MediaCodecDecoderRenderer renderer = rendererWithDolbyVision("c2.mtk.dolby-vision.decoder", true);
-        renderer.getCapabilities(MoonBridge.VIDEO_FORMAT_H265_MAIN10, HdrFormatPolicy.DV_81);
-        assertTrue(ReflectionHelpers.<Boolean>getField(renderer, "dolbyVisionTookRfi"));
-        renderer.getCapabilities(MoonBridge.VIDEO_FORMAT_H265_MAIN10, HdrFormatPolicy.PQ);
-        assertFalse(ReflectionHelpers.<Boolean>getField(renderer, "dolbyVisionTookRfi"));
+        decoders("acme");
+        int hevc = MoonBridge.VIDEO_FORMAT_H265_MAIN10;
+        int av1 = MoonBridge.VIDEO_FORMAT_AV1_MAIN10;
+        Object[][] launches = {
+                {hevc, HdrFormatPolicy.DV_81, HEVC_RFI, false},
+                {hevc, HdrFormatPolicy.DV_84, HEVC_RFI, false},
+                {av1, HdrFormatPolicy.DV_101, AV1_RFI, false},
+                {hevc, HdrFormatPolicy.PQ, HEVC_RFI, true},
+                {av1, HdrFormatPolicy.PQ, AV1_RFI, true},
+                // A Dolby Vision pick for the other codec: this codec's RFI was declared, and runs.
+                {av1, HdrFormatPolicy.DV_81, AV1_RFI, true},
+                {hevc, HdrFormatPolicy.DV_101, HEVC_RFI, true},
+        };
+        for (Object[] launch : launches) {
+            int format = (int) launch[0];
+            int hdrFormat = (int) launch[1];
+            String name = "format " + format + ", HDR format " + hdrFormat;
+            MediaCodecDecoderRenderer renderer = rendererWithDolbyVision("c2.mtk.dolby-vision.decoder", false);
+            assertEquals(name, launch[3], rfi(renderer, format, hdrFormat, (int) launch[2]));
+            assertEquals(name, launch[3], rfiAfterSetup(renderer, format, hdrFormat));
+        }
     }
 
     @Test

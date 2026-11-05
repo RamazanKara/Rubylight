@@ -781,7 +781,6 @@ impl Launcher {
                         ui.add_space(space::S);
                         let shown = if *busy { trf("Waiting for {}…", &[&name]) } else { pin.clone() };
                         ui.label(RichText::new(shown).font(semibold(text::SECTION)));
-                        ui.add_space(space::S);
                         let mut filled = false;
                         ui.add_enabled_ui(!*busy, |ui| {
                             filled = pin_pad(ui, pin, focus_first, &mut focused);

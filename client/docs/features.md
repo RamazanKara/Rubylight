@@ -89,4 +89,4 @@ Each needs a host that offers it (Rubylight 3.0) and allows it for this device.
 - **Accessibility.** Interface size, high contrast, reduced motion and screen reader support, and System, Dark and OLED black themes. [Accessibility](console.md#accessibility-on-android)
 - **Languages.** The same 15 on Android, Windows and Linux. [Translations](TRANSLATIONS.md)
 - **Steam Deck and Linux handhelds.** A Flatpak with every release; under gamescope it opens fullscreen without a border, is driven by a controller alone, with Start+Back for the stream menu, and shows HDR through gamescope. Linux. [Steam Deck](steam-deck.md)
-- **Help and updates.** Built-in help that works offline. Update checks on Android (outside Google Play) and on Windows.
+- **Help and updates.** Built-in help that works offline. Update checks on Android (outside Google Play), on Windows and in the AppImage, with a one-click update that checks the download's size and SHA-256 before installing; a portable Windows copy gets a link to the release page.

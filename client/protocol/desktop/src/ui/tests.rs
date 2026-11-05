@@ -81,6 +81,18 @@ fn a_prompt_that_said_the_game_moved_says_it_came_back() {
 }
 
 #[test]
+fn a_join_from_a_tile_starts_the_game_the_pc_runs() {
+    let playing: nightjar_core::http::PlayingOn = serde_json::from_str(
+        r#"{"device":"Phone","app":{"install_id":"game-a","app_id":7,"title":"Game"}}"#,
+    ).unwrap();
+    let tile = nightjar_core::http::App { control: nightjar_core::http::AppControl::Resume, ..game(9) };
+    assert_eq!(super::join_target(Some(&tile), 9, Some(&playing)), 7);
+    assert_eq!(super::join_target(Some(&tile), 9, None), 9, "nobody plays it: the PC decides");
+    assert_eq!(super::join_target(Some(&game(9)), 9, Some(&playing)), 9);
+    assert_eq!(super::join_target(None, 9, Some(&playing)), 9);
+}
+
+#[test]
 fn the_game_another_device_plays_is_matched_by_id_and_install_id() {
     let playing: nightjar_core::http::PlayingOn = serde_json::from_str(
         r#"{"device":"Phone","app":{"install_id":"game-a","app_id":7,"title":"Game"}}"#,

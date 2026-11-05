@@ -414,6 +414,8 @@ pub enum Event {
         id: u64,
         app: i32,
         resume: bool,
+        /// The user pressed Stream here too on "did not move".
+        too: bool,
         read: Option<StreamMove>,
     },
     StreamMoved {
@@ -1634,7 +1636,8 @@ impl Hosts {
     /// Selecting a game on a PC that offers the move: reads who plays it now, off the UI thread and
     /// for at most [`SELECT_READ_WAIT`], and answers with [`Event::SelectRead`]. False when it cannot
     /// ask, and no answer comes.
-    pub fn read_before_start(&mut self, id: u64, app: i32, resume: bool) -> bool {
+    /// `too`: the user pressed Stream here too on "did not move" (`continue_here::joins_after_read`).
+    pub fn read_before_start(&mut self, id: u64, app: i32, resume: bool, too: bool) -> bool {
         let (Some(identity), Some(host)) = (self.identity.clone(), self.get(id)) else {
             return false;
         };
@@ -1650,7 +1653,7 @@ impl Hosts {
                     None
                 }
             };
-            Some(Event::SelectRead { id, app, resume, read })
+            Some(Event::SelectRead { id, app, resume, too, read })
         });
         true
     }

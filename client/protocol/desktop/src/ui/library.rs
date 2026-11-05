@@ -911,6 +911,16 @@ pub fn playing_elsewhere(host: &Host, app: i32, read: &nightjar_core::http::Stre
     playing.map(|playing| (playing.app.title.clone(), playing.device.clone()))
 }
 
+/// The app a join starts: `app`, or the game the PC says runs when `app` is a tile that only names
+/// a way to reach it (a stream's Resume or Running Game).
+pub fn join_target(known: Option<&nightjar_core::http::App>, app: i32, playing: Option<&nightjar_core::http::PlayingOn>) -> i32 {
+    let tile = known.is_some_and(|known| known.control != nightjar_core::http::AppControl::None);
+    match playing {
+        Some(playing) if tile => playing.app.app_id as i32,
+        _ => app,
+    }
+}
+
 /// The same game by its install id where both sides have one, as a stream's resume decides it: an
 /// id alone can have been given to another game since the list was read.
 pub(super) fn plays_this_game(known: Option<&nightjar_core::http::App>, app: i32, playing: &nightjar_core::http::PlayingOn) -> bool {

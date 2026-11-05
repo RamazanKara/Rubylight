@@ -132,6 +132,10 @@ pub struct LaunchPlan {
     pub native: Option<NativeCapabilities>,
     pub app: App,
     pub resume: bool,
+    /// This resume joins the game the PC runs although the PC reports no game of this device's: the
+    /// user chose Stream here too. `/resume` starts nothing, so a closed game stays closed.
+    /// Only that start: a reconnect of it checks as any other (`rejoin`).
+    pub join: bool,
     /// Input-only on a PC without its own mode: an ordinary small stream, shown and played nowhere.
     pub small_stream_input_only: bool,
     /// An input-only session that carries only this device's microphone (`Feature::MicOnly`):

@@ -1126,7 +1126,7 @@ impl Launcher {
                                 focused = true;
                             }
                             if too.clicked() {
-                                commands.push(Command::StreamHereToo { host, app, resume: true });
+                                commands.push(Command::StreamTooAfterFailedMove { host, app });
                                 close = true;
                             }
                             if quiet_button(ui, "OK").clicked() { close = true; }

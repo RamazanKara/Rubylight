@@ -29,7 +29,7 @@ use crate::theme::*;
 use cards::*;
 use dialogs::*;
 pub use dialogs::moves_in_hotkey_dialog;
-pub use library::{playing_elsewhere, policy_role, running_name};
+pub use library::{join_target, playing_elsewhere, policy_role, running_name};
 use library::*;
 pub(crate) use widgets::{focus_ring, name_for_readers, primary_button, quiet_button, toggle};
 use widgets::*;
@@ -59,6 +59,8 @@ pub enum Command {
     ContinueHere { host: u64, app: i32 },
     /// Start a stream beside the other device's, as a start without the prompt does.
     StreamHereToo { host: u64, app: i32, resume: bool },
+    /// Stream here too on "did not move": the answer may be old, so it asks who plays first.
+    StreamTooAfterFailedMove { host: u64, app: i32 },
     Pair(u64),
     PairOtp { host: u64, pin: String, passphrase: String },
     /// Add and pair the PC of a link the user confirmed.

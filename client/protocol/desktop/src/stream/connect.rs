@@ -243,6 +243,20 @@ fn resume_moved_to(paired: bool, running: bool, offered: bool, read: impl FnOnce
     }
 }
 
+/// What a resume checks before it goes to the PC, which reports the game to its owner only. A join
+/// does not look for the game, nor for a note saying it moved: the user chose to stream beside it.
+fn check_resume(join: bool, paired: bool, running: bool, offered: bool, read: impl FnOnce() -> Result<nightjar_core::http::StreamMove, nightjar_core::http::Error>) -> Result<(), ConnectError> {
+    if !join {
+        if let Some(device) = resume_moved_to(paired, running, offered, read)? {
+            return Err(ConnectError { message: String::new(), retryable: false, asks_replace: false, moved_to: Some(device) });
+        }
+    }
+    if !paired || !(running || join) {
+        return Err("The original app is no longer running on the PC. Choose an app to start a new stream.".into());
+    }
+    Ok(())
+}
+
 impl From<String> for ConnectError {
     fn from(message: String) -> Self { Self { message, retryable: false, asks_replace: false, moved_to: None } }
 }
@@ -603,6 +617,7 @@ pub(super) fn early_decode(setting: bool) -> bool {
 pub(super) fn rejoin(mut plan: LaunchPlan, role: AppRole) -> Option<LaunchPlan> {
     // Only the launch the user answered closes the running app; a reconnect never does.
     plan.confirm_replace = false;
+    plan.join = false;
     plan.resume = role == AppRole::Stream;
     if plan.resume && plan.app.control != nightjar_core::http::AppControl::None {
         if plan.info.current_game == 0 { return None; }
@@ -765,12 +780,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         crate::hosts::merge_native(&mut plan.info, plan.native.as_ref());
         let running = plan.app.matches_running_app(plan.info.current_game, plan.info.current_game_uuid.as_deref());
         let offered = plan.info.capabilities.availability(Feature::ContinueHere) == Availability::Supported;
-        if let Some(device) = resume_moved_to(plan.info.paired, running, offered, || client.stream_move())? {
-            return Err(ConnectError { message: String::new(), retryable: false, asks_replace: false, moved_to: Some(device) });
-        }
-        if !plan.info.paired || !running {
-            return Err("The original app is no longer running on the PC. Choose an app to start a new stream.".into());
-        }
+        check_resume(plan.join, plan.info.paired, running, offered, || client.stream_move())?;
     }
     let scm = plan
         .info
@@ -1048,6 +1058,7 @@ mod replace_tests {
                 monitor_resume: false,
             },
             resume: false,
+            join: false,
             small_stream_input_only: false,
             mic_only: false,
             settings: Settings::default(),
@@ -1174,6 +1185,35 @@ mod replace_tests {
         plan.recovery = Some(spent);
         let rejoined = automatic_rejoin(&plan, AppRole::Stream, true, false, 0, true, true).unwrap();
         assert!(!rejoined.recovery.unwrap().allows_attempt(now));
+    }
+
+    #[test]
+    fn a_join_goes_to_the_pc_whatever_it_hides_and_a_plain_resume_does_not() {
+        use nightjar_core::http::{Error, StreamMove};
+        // The PC reports no game to a device that does not own it, and its note still says moved.
+        check_resume(true, true, false, true, || panic!("a join asks nothing")).unwrap_or_else(|e| panic!("{}", e.message));
+        // Unpaired stays refused.
+        let unpaired = check_resume(true, false, false, true, || panic!("not asked")).err().expect("refused");
+        assert!(unpaired.message.contains("no longer running"), "{}", unpaired.message);
+
+        let moved: StreamMove = serde_json::from_str(r#"{"moved_to":{"device":"TV","since_unix_ms":1}}"#).unwrap();
+        let refused = check_resume(false, true, false, true, || Ok(moved)).err().expect("the move");
+        assert_eq!(refused.moved_to.as_deref(), Some("TV"));
+        let gone = check_resume(false, true, false, true, || Ok(StreamMove::default())).err().expect("no game");
+        assert!(gone.message.contains("no longer running"), "{}", gone.message);
+        let unanswered = check_resume(false, true, false, true, || Err(Error::Cancelled)).err().expect("no verdict");
+        assert!(unanswered.retryable);
+        assert!(check_resume(false, true, true, true, || panic!("not asked")).is_ok());
+    }
+
+    #[test]
+    fn a_reconnect_of_a_join_never_joins() {
+        let mut plan = launch_plan();
+        plan.resume = true;
+        plan.join = true;
+        plan.app.control = nightjar_core::http::AppControl::None;
+        assert!(!rejoin(plan.clone(), AppRole::Stream).expect("a plan").join);
+        assert!(!automatic_rejoin(&plan, AppRole::Stream, true, false, 0, false, true).expect("a plan").join);
     }
 
     #[test]

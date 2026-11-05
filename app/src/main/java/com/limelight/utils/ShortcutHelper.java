@@ -8,6 +8,7 @@ import android.graphics.Bitmap;
 import android.graphics.drawable.Icon;
 import android.os.Build;
 
+import com.limelight.LimeLog;
 import com.limelight.R;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
@@ -94,7 +95,12 @@ public class ShortcutHelper {
         tvChannelHelper.createTvChannel(computer);
         tvChannelHelper.addGameToChannel(computer, app);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1 && app.getRole() == NvApp.Role.STREAM) {
-            reportContinue(computer, app);
+            // A convenience: the system's shortcut service failing must not stop the stream being started.
+            try {
+                reportContinue(computer, app);
+            } catch (RuntimeException e) {
+                LimeLog.warning("Could not update the Continue shortcut: " + e);
+            }
         }
     }
 

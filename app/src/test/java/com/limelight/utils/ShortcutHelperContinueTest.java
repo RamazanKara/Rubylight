@@ -30,6 +30,20 @@ public class ShortcutHelperContinueTest {
     }
 
     @Test
+    public void aFailingShortcutServiceDoesNotStopTheStream() {
+        Activity activity = Robolectric.buildActivity(Activity.class).setup().get();
+        boolean[] asked = {false};
+        ShortcutHelper helper = new ShortcutHelper(activity) {
+            @Override void reportContinue(ComputerDetails computer, NvApp app) {
+                asked[0] = true;
+                throw new IllegalStateException("the shortcut service went away");
+            }
+        };
+        helper.reportGameLaunched(pc("desk"), new NvApp("Dota 2", 7, false));
+        org.junit.Assert.assertTrue("it was on the path", asked[0]);
+    }
+
+    @Test
     public void theLastGameComesFirstAndReplacesThePreviousOne() {
         Activity activity = Robolectric.buildActivity(Activity.class).setup().get();
         ShortcutManager manager = activity.getSystemService(ShortcutManager.class);

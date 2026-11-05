@@ -688,6 +688,41 @@ public class GameDetailOpenPlayTest {
         assertFalse(rig.repository.classicListHas(tower, 11, "t-portal"));
     }
 
+    /** To just before the countdown's end on a page read while the PC was away, then the PC comes back. */
+    private Dialog pcBackAsTheCountdownEnds() throws Exception {
+        open(false, null, null);
+        await(() -> {
+            pass(100);
+            return ReflectionHelpers.<Boolean>getField(screen, "modelLive");
+        });
+        Dialog countdown = shown();
+        pass(ReflectionHelpers.<Long>getField(screen, "countdownEnd") - android.os.SystemClock.elapsedRealtime() - 100);
+        feed.update(nativeHost("tower", "Tower", true));
+        return countdown;
+    }
+
+    @Test
+    public void aPcBackJustBeforeTheReloadIsReadAgainAndTheGameStarts() throws Exception {
+        Dialog countdown = pcBackAsTheCountdownEnds();
+        pass(150);
+        assertTrue("armed, and no failure", OpenPlay.armed(context) && ShadowDialog.getLatestDialog() == countdown);
+        await(() -> !GameDetailWakeTest.Detail.played.isEmpty());
+        assertTrue(ShadowDialog.getLatestDialog() == countdown);
+    }
+
+    @Test
+    public void aPcBackJustBeforeTheReloadWaitsWithinTheSameLimit() throws Exception {
+        Dialog countdown = pcBackAsTheCountdownEnds();
+        // Nothing is read from here on: the service is gone, so the reload stops at its first line.
+        ReflectionHelpers.setField(feed, "binder", null);
+        pass(44_500);
+        assertTrue("within the limit", ShadowDialog.getLatestDialog() == countdown);
+        pass(1_000);
+        assertEquals(context.getString(R.string.open_play_no_list, "Tower"),
+                ((TextView) shown().findViewById(android.R.id.message)).getText().toString());
+        assertTrue(OpenPlay.armed(context));
+    }
+
     @Test
     public void aPcThatWokeStillHasALimitWhenItsReadNeverComesBack() throws Exception {
         open(false, "00:11:22:33:44:55", null);

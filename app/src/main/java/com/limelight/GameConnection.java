@@ -622,6 +622,7 @@ final class GameConnection {
             }
 
             // If we can't find an AVC decoder, we can't proceed
+            streamFailed = true;
             Dialog.displayDialog(game, game.getResources().getString(R.string.conn_error_title),
                     game.getString(R.string.stream_h264_decoder_missing), true);
             return;

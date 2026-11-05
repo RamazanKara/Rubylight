@@ -24,6 +24,9 @@ public interface NvConnectionListener {
      */
     default void streamNetworkReturned(int change, boolean metered) {}
 
+    /** An automatic start stopped short of closing another game: nothing failed, whatever follows says so. */
+    default void automaticStartStopped() {}
+
     default void launchConfirmationRequired(LaunchConfirmation confirmation) { confirmation.cancel(); }
     default void launchConfirmationFinished() {}
     default void launchActionCompleted(String message) {}

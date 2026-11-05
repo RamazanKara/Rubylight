@@ -85,6 +85,7 @@ final class GameConnection {
         if (savedInstanceState != null) {
             LimeLog.info("Stream restored after process death");
             game.messages.alert(R.string.stream_restore_help, Toast.LENGTH_LONG);
+            streamFailed = true;
             game.finish();
             return;
         }
@@ -93,6 +94,7 @@ final class GameConnection {
                 game.getIntent().getStringExtra(Game.EXTRA_UNIQUEID),
                 game.getIntent().getIntExtra(Game.EXTRA_APP_ID, StreamConfiguration.INVALID_APP_ID),
                 game.getIntent().getStringExtra(Game.EXTRA_APP_UUID))) {
+            streamFailed = true;
             game.finish();
             return;
         }
@@ -318,6 +320,7 @@ final class GameConnection {
         }
 
         if (appId == StreamConfiguration.INVALID_APP_ID && game.app.getAppUuid().isEmpty()) {
+            streamFailed = true;
             game.finish();
             return;
         }
@@ -506,6 +509,7 @@ final class GameConnection {
                 .setApp(game.app)
                 .setResumeOnly(game.streamRecovery.isResumeOnlyStream())
                 .setAllowIdleSessionEnd(!game.getIntent().getBooleanExtra(Game.EXTRA_RECOVERY_MEDIA_FAILURE, false))
+                .setNeverReplace(com.limelight.console.OpenPlay.isAutoStart(game.getIntent()))
                 .setBitrate(smallStream ? InputOnlyPolicy.SMALL_BITRATE_KBPS : game.prefConfig.bitrate)
                 .setProbeFirstBitrate(!smallStream && game.prefConfig.probesFirstBitrate())
                 .setAutomaticBitrate(!smallStream && game.prefConfig.automaticBitrate)
@@ -805,6 +809,7 @@ final class GameConnection {
 
     void stageFailed(final String stage, final int portFlags, final int errorCode) {
         LimeLog.info("Stream failed");
+        streamFailed = true;
         // Perform a connection test if the failure could be due to a blocked port
         // This does network I/O, so don't do it on the main thread.
         // Experimental full chroma refused by the PC (or no mode in common): not a network failure.
@@ -877,6 +882,7 @@ final class GameConnection {
         LimeLog.info("Stream disconnected");
         game.streamTerminated = true;
         final boolean exitRequested = game.hostExitRequested;
+        streamFailed |= !exitRequested;
         if (reportedErrorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION) {
             LimeLog.info("Connection terminated: the PC ended the stream");
         } else if (exitRequested) {
@@ -1117,6 +1123,21 @@ final class GameConnection {
 
     /** An automatic start's stream clears the guard once it lasted (OpenPlay); removed if it stops first. */
     private Runnable openPlaySettled;
+
+    /** This screen's start or stream went wrong, whichever way the player then leaves it. */
+    private boolean streamFailed;
+
+    /** The player left: an automatic start did not fail, unless it already had or this is its reconnect. */
+    void playerLeft() {
+        if (streamFailed || !com.limelight.console.OpenPlay.isAutoStart(game.getIntent())) return;
+        if (game.streamRecovery.isRecoveryAttempt() && !game.connected) return;
+        com.limelight.console.OpenPlay.streamEnded(game, 0, true);
+    }
+
+    /** The PC runs another game and nobody agreed to closing it: nothing failed, as when the page saw it first. */
+    void automaticStartStopped() {
+        com.limelight.console.OpenPlay.streamEnded(game, 0, true);
+    }
 
     void connectionStarted() {
         game.runOnUiThread(new Runnable() {

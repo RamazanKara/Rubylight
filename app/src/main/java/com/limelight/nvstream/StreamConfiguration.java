@@ -60,6 +60,7 @@ public class StreamConfiguration {
     private boolean persistGamepadsAfterDisconnect;
     private boolean resumeOnly;
     private boolean allowIdleSessionEnd = true;
+    private boolean neverReplace;
 
     public static class Builder {
         private StreamConfiguration config = new StreamConfiguration();
@@ -72,6 +73,12 @@ public class StreamConfiguration {
         /** Recovery must never launch, replace or terminate an application. */
         public StreamConfiguration.Builder setResumeOnly(boolean resumeOnly) {
             config.resumeOnly = resumeOnly;
+            return this;
+        }
+
+        /** Nobody pressed anything: another game running on the PC ends the start, it is never closed for it. */
+        public StreamConfiguration.Builder setNeverReplace(boolean neverReplace) {
+            config.neverReplace = neverReplace;
             return this;
         }
 
@@ -325,6 +332,10 @@ public class StreamConfiguration {
 
     public NvApp getApp() {
         return app;
+    }
+
+    public boolean isNeverReplace() {
+        return neverReplace;
     }
 
     public boolean isResumeOnly() {

@@ -203,6 +203,10 @@ impl Notices {
         self.action = notice.action;
         if notice.action.is_some() {
             self.up.retain(|up| up.request != notice.request);
+            // Nothing clears these under Do Not Disturb, and devices choose how often they ask.
+            if self.up.len() >= MOST_HELD {
+                self.up.remove(0);
+            }
             self.up.push(notice.clone());
         }
         self.posted = Some(now);
@@ -363,6 +367,20 @@ mod tests {
         let (action, held) = notices.clicked(now + QUIT_CLICKABLE_AFTER);
         assert_eq!(action, Some(QuitApp));
         assert_eq!(texts(&held), ["Approved", "TV"]);
+    }
+
+    #[test]
+    fn the_requests_up_stay_as_few_as_the_queue_holds() {
+        let now = Instant::now();
+        let mut notices = Notices::new();
+        for n in 0..MOST_HELD * 2 {
+            notices.post(&request(&format!("{n}")), now);
+        }
+        assert_eq!(notices.up.len(), MOST_HELD);
+        assert_eq!(
+            notices.up.last(),
+            Some(&request(&format!("{}", MOST_HELD * 2 - 1)))
+        );
     }
 
     #[test]

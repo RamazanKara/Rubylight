@@ -6,12 +6,14 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import com.limelight.computers.ComputerManagerListener;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.computers.HostCapabilityCache;
 import com.limelight.grid.AppGridAdapter;
 import com.limelight.grid.assets.CachedAppAssetLoader;
+import com.limelight.nativeapi.HiddenStore;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
@@ -88,6 +90,8 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
     private volatile boolean inForeground;
     private boolean showHiddenApps;
     private HashSet<Integer> hiddenAppIds = new HashSet<>();
+    /** What {@link #hiddenAppIds} was when last read from or written to the list. */
+    private HashSet<Integer> savedHiddenAppIds = new HashSet<>();
 
     private final static int START_OR_RESUME_ID = 1;
     private final static int QUIT_ID = 2;
@@ -392,6 +396,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
                 // Ignore a stale or malformed saved entry without making the library unusable.
             }
         }
+        savedHiddenAppIds = new HashSet<>(hiddenAppIds);
 
         String computerName = getIntent().getStringExtra(NAME_EXTRA);
 
@@ -404,16 +409,15 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
     }
 
     private void updateHiddenApps(boolean hideImmediately) {
-        HashSet<String> hiddenAppIdStringSet = new HashSet<>();
-
-        for (Integer hiddenAppId : hiddenAppIds) {
-            hiddenAppIdStringSet.add(hiddenAppId.toString());
-        }
-
-        getSharedPreferences(HIDDEN_APPS_PREF_FILENAME, MODE_PRIVATE)
-                .edit()
-                .putStringSet(uuidString, hiddenAppIdStringSet)
-                .apply();
+        // Only what changed here: the list may have followed a renumber since this screen read it.
+        HashSet<Integer> shown = new HashSet<>(savedHiddenAppIds);
+        shown.removeAll(hiddenAppIds);
+        HashSet<Integer> hidden = new HashSet<>(hiddenAppIds);
+        hidden.removeAll(savedHiddenAppIds);
+        Set<Integer> now = new HiddenStore.Preferences(this).changed(uuidString, shown, hidden);
+        hiddenAppIds.clear();
+        hiddenAppIds.addAll(now);
+        savedHiddenAppIds = new HashSet<>(now);
 
         appGridAdapter.updateHiddenApps(hiddenAppIds, hideImmediately);
         updateLibraryState();

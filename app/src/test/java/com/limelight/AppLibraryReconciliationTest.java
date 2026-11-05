@@ -172,6 +172,24 @@ public class AppLibraryReconciliationTest {
                 .getStringSet("library-host", Collections.emptySet()));
     }
 
+    @Test public void hidingHereKeepsAMoveTheListMadeSinceThisScreenReadIt() {
+        ReflectionHelpers.setField(screen, "hiddenAppIds", new HashSet<>(Collections.singleton(10)));
+        ReflectionHelpers.callInstanceMethod(screen, "updateHiddenApps",
+                ReflectionHelpers.ClassParameter.from(boolean.class, true));
+        // Home followed the renumbered game while this screen stayed open.
+        screen.getSharedPreferences(AppView.HIDDEN_APPS_PREF_FILENAME, 0).edit()
+                .putStringSet("library-host", Collections.singleton("70")).commit();
+
+        HashSet<Integer> ids = ReflectionHelpers.getField(screen, "hiddenAppIds");
+        ids.add(20);
+        ReflectionHelpers.callInstanceMethod(screen, "updateHiddenApps",
+                ReflectionHelpers.ClassParameter.from(boolean.class, true));
+
+        assertEquals(new HashSet<>(Arrays.asList("70", "20")), screen.getSharedPreferences(AppView.HIDDEN_APPS_PREF_FILENAME, 0)
+                .getStringSet("library-host", Collections.emptySet()));
+        assertEquals(new HashSet<>(Arrays.asList(70, 20)), ReflectionHelpers.getField(screen, "hiddenAppIds"));
+    }
+
     @Test public void differentGameReusingARemovedHiddenIdDoesNotInheritTheHiddenChoice() {
         ReflectionHelpers.setField(screen, "hiddenAppIds", new HashSet<>(Arrays.asList(10, 30)));
         ReflectionHelpers.callInstanceMethod(screen, "updateHiddenApps",

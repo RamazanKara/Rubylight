@@ -466,6 +466,18 @@ public class HomeLibraryRowsTest {
     }
 
     @Test
+    public void aStableIdListedTwiceHidesNeitherApp() throws Exception {
+        tower(Collections.emptyList(), game(1, "Alpha", "steam", true, null), game(2, "Beta", "steam", true, null));
+        HomeModel before = model();
+        rig.repository.setHidden(before.copiesOf(titled(before.library, "Alpha")), true);
+
+        rig.transport.reply("tower", "library", ok(library("t2", renumbered(5, "Alpha"),
+                game(6, "Other", "steam", true, null).replace("\"i6\"", "\"i1\""))));
+
+        assertEquals(Arrays.asList("Alpha", "Other"), titles(model().library));
+    }
+
+    @Test
     public void aCollectionRowsCardStillKnowsItsLibraryCardForWhichPc() throws Exception {
         tower(Collections.emptyList(), in(game(1, "Alpha", "steam", true, null), "VR"));
         CollectionGroups.use(request -> "{\"ok\":{\"groups\":[{\"name\":\"VR\",\"games\":[0]}]}}");

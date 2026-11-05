@@ -17,6 +17,27 @@ import java.util.Set;
  * of it goes to the PC.
  */
 public interface HiddenStore {
+    /** Every store and the PC's grid write one list, each from its own objects. */
+    Object WRITES = new Object();
+
+    /** A host's listed games by stable id. One listed twice says nothing about which app it is, so it is left out. */
+    final class Listing {
+        private final Map<String, Integer> games = new HashMap<>();
+        private final Set<String> twice = new HashSet<>();
+
+        public void add(String stableId, int appId) {
+            if (stableId == null || stableId.isEmpty() || twice.contains(stableId)) return;
+            if (games.put(stableId, appId) != null) {
+                games.remove(stableId);
+                twice.add(stableId);
+            }
+        }
+
+        public Map<String, Integer> games() {
+            return games;
+        }
+    }
+
     /** The app ids hidden on this host, as last stored. */
     Set<Integer> of(String hostUuid);
 
@@ -25,17 +46,21 @@ public interface HiddenStore {
 
     void save(String hostUuid, Set<Integer> appIds, Map<String, Integer> ids);
 
-    /** Hides a game or shows it again. A game with no stable id ("") goes by its app id alone. */
+    /**
+     * Hides a game or shows it again. A game with no stable id ("") goes by its app id alone. Showing from a menu older
+     * than the last renumber also takes the id the game has now, and leaves its old one if another hidden game has that.
+     */
     default void set(String hostUuid, int appId, String stableId, boolean hidden) {
-        synchronized (this) {
+        synchronized (WRITES) {
             Set<Integer> appIds = new HashSet<>(of(hostUuid));
             Map<String, Integer> ids = new HashMap<>(ids(hostUuid));
             if (hidden) {
                 appIds.add(appId);
                 if (!stableId.isEmpty()) ids.put(stableId, appId);
             } else {
-                appIds.remove(appId);
-                ids.remove(stableId);
+                Integer now = ids.remove(stableId);
+                if (now != null) appIds.remove(now);
+                if (!ids.containsValue(appId)) appIds.remove(appId);
             }
             save(hostUuid, appIds, ids);
         }
@@ -47,7 +72,7 @@ public interface HiddenStore {
      * shows again stays shown, and what it hid, or what was hidden before stable ids were kept, is learned here.
      */
     default Set<Integer> following(String hostUuid, Map<String, Integer> games) {
-        synchronized (this) {
+        synchronized (WRITES) {
             Set<Integer> before = of(hostUuid);
             Map<String, Integer> known = ids(hostUuid);
             Map<String, Integer> kept = new HashMap<>(known);
@@ -128,12 +153,32 @@ public interface HiddenStore {
         }
 
         @Override
-        public synchronized void save(String hostUuid, Set<Integer> appIds, Map<String, Integer> ids) {
-            Set<String> list = new HashSet<>();
-            for (int id : appIds) list.add(Integer.toString(id));
+        public void save(String hostUuid, Set<Integer> appIds, Map<String, Integer> ids) {
             Set<String> named = new HashSet<>();
             for (Map.Entry<String, Integer> id : ids.entrySet()) named.add(id.getValue() + ":" + id.getKey());
-            prefs.edit().putStringSet(hostUuid, list).putStringSet(idsKey(hostUuid), named).apply();
+            prefs.edit().putStringSet(hostUuid, stored(appIds)).putStringSet(idsKey(hostUuid), named).apply();
+        }
+
+        /**
+         * The PC's grid changing the list: only these ids, on what the list is now, as it may have followed a renumber
+         * since the grid read it.
+         *
+         * @return the list now
+         */
+        public Set<Integer> changed(String hostUuid, Set<Integer> shown, Set<Integer> hidden) {
+            synchronized (WRITES) {
+                Set<Integer> appIds = of(hostUuid);
+                appIds.removeAll(shown);
+                appIds.addAll(hidden);
+                prefs.edit().putStringSet(hostUuid, stored(appIds)).apply();
+                return appIds;
+            }
+        }
+
+        private static Set<String> stored(Set<Integer> appIds) {
+            Set<String> list = new HashSet<>();
+            for (int id : appIds) list.add(Integer.toString(id));
+            return list;
         }
     }
 

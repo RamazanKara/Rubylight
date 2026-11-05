@@ -180,11 +180,19 @@ fn address_like(host: &str) -> bool {
         && zone.bytes().all(name_char)
 }
 
+/// Controls, Unicode's format characters (Cf), and what else draws nothing: combining and variation
+/// marks with no shape, Hangul and Khmer fillers, the blank Braille cell and the tag block. `PairingLink`
+/// has the same list.
 fn hidden_char(c: char) -> bool {
     c.is_control()
         || matches!(c,
-            '\u{ad}' | '\u{61c}' | '\u{180e}' | '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}'
-            | '\u{2060}'..='\u{206f}' | '\u{feff}' | '\u{fff9}'..='\u{fffb}')
+            '\u{ad}' | '\u{34f}' | '\u{600}'..='\u{605}' | '\u{61c}' | '\u{6dd}' | '\u{70f}'
+            | '\u{890}'..='\u{891}' | '\u{8e2}' | '\u{115f}'..='\u{1160}' | '\u{17b4}'..='\u{17b5}'
+            | '\u{180b}'..='\u{180f}' | '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}'
+            | '\u{2060}'..='\u{206f}' | '\u{2800}' | '\u{3164}' | '\u{fe00}'..='\u{fe0f}' | '\u{feff}'
+            | '\u{ffa0}' | '\u{fff0}'..='\u{fffb}' | '\u{110bd}' | '\u{110cd}'
+            | '\u{13430}'..='\u{1343f}' | '\u{1bca0}'..='\u{1bca3}' | '\u{1d173}'..='\u{1d17a}'
+            | '\u{e0000}'..='\u{e0fff}')
 }
 
 /// Percent-encodes everything but RFC 3986's unreserved characters.
@@ -415,6 +423,14 @@ mod tests {
         assert_eq!(named("Wohnzimmer-PC ä"), "Wohnzimmer-PC ä");
         assert_eq!(named("  Desk\u{202e}cod\n\u{200b}\u{feff} "), "Deskcod");
         assert_eq!(named("\u{202e}\u{200b}"), "");
+        for hidden in [
+            '\u{34f}', '\u{600}', '\u{6dd}', '\u{70f}', '\u{8e2}', '\u{115f}', '\u{1160}',
+            '\u{17b4}', '\u{180b}', '\u{2800}', '\u{3164}', '\u{fe0f}', '\u{ffa0}', '\u{fffb}',
+            '\u{110bd}', '\u{13430}', '\u{1bca0}', '\u{1d173}', '\u{e0001}', '\u{e0041}', '\u{e007f}',
+            '\u{e0100}',
+        ] {
+            assert_eq!(named(&format!("Desk{hidden}top")), "Desktop", "{:x}", hidden as u32);
+        }
         // A name padded to look like the address line stays a name.
         assert_eq!(
             named("Gaming PC      192.168.4.2:47989"),

@@ -228,6 +228,8 @@ If the winner never connects, or its launch fails, which ends the press at once,
 
 The display: each displaced device's kept virtual display stays until the new stream runs and is then released at once, instead of waiting out the grace period, also on a layout with a shorter grace of its own; Windows moves the game's windows to the display that remains. Releasing it earlier would flash the monitors twice and change the mode twice. If the press fails the display's grace starts over; if the winner's stream still arrives within the two minutes after that, it releases the display as it would have. The new device's stream gets its own display at its own mode, as any stream does. A displaced Moonlight client just sees its stream end.
 
+A stream beside another device's running game (the prompt's Stream here too, or a plain `/resume` of that game) shares that device's virtual display under `virtual_display_mode = per_client`, where the game is, in the display's mode, and is scaled to the stream's size. Its own display would show an empty desktop.
+
 **Launcher prompt (`session.launcher`).** When a launched game does not show up and a Steam, Epic Games, EA app or Ubisoft Connect window is up instead, the owner's Session carries a `launcher` note:
 
 ```json

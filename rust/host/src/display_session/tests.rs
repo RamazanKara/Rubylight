@@ -3,6 +3,30 @@ use std::cell::Cell;
 use std::sync::mpsc;
 
 #[test]
+fn stream_here_too_shares_the_display_the_game_is_on() {
+    let join = |caller, role, launched, running| joined_display(caller, role, launched, running);
+    assert_eq!(
+        join("b", Role::Stream, Some(7), Some(("a", 7, false))).as_deref(),
+        Some("a")
+    );
+    // After a press the caller owns the game, and its display is its own.
+    assert_eq!(
+        join("b", Role::Stream, Some(7), Some(("b", 7, false))),
+        None
+    );
+    // Another app, nothing running, a background game, a remote monitor.
+    assert_eq!(
+        join("b", Role::Stream, Some(8), Some(("a", 7, false))),
+        None
+    );
+    assert_eq!(join("b", Role::Stream, Some(7), None), None);
+    assert_eq!(join("b", Role::Stream, Some(7), Some(("a", 7, true))), None);
+    assert_eq!(
+        join("b", Role::RemoteMonitor, Some(7), Some(("a", 7, false))),
+        None
+    );
+}
+#[test]
 fn the_configured_scale_reaches_every_stream_display_including_remote_monitors() {
     let mut seen = None;
     let display = r"\\.\DISPLAY7";

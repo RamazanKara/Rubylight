@@ -59,6 +59,20 @@ fn virtual_display_mode<'a>(
         .unwrap_or(config.virtual_display_mode(windows_11))
 }
 
+/// The identity of the display a stream beside another device's running game
+/// shares: that device's, where the game is. `running`: its owner, id and whether
+/// it is a background game, which has a display per player. After a press the
+/// caller already owns the game, and its stream gets a display of its own.
+fn joined_display(
+    caller: &str,
+    role: Role,
+    launched: Option<u32>,
+    running: Option<(&str, u32, bool)>,
+) -> Option<String> {
+    let (owner, id, background) = running?;
+    (role == Role::Stream && !background && owner != caller && launched == Some(id))
+        .then(|| owner.to_owned())
+}
 fn virtual_display_identity(
     config: &Config,
     launch: &Launch,
@@ -1303,6 +1317,23 @@ impl Prepared {
         } else {
             id
         };
+        // Stream here too: the game is on its owner's display. A display of its
+        // own would show this device an empty desktop.
+        let joined = (virtual_mode && mode == "per_client" && shared_id == launch.client.uuid)
+            .then(|| {
+                let running = h.current_app.lock().unwrap();
+                joined_display(
+                    &launch.client.uuid,
+                    launch.role,
+                    app.as_ref().map(|a| a.id()),
+                    running
+                        .as_ref()
+                        .map(|r| (r.owner.as_str(), r.id, r.background)),
+                )
+            })
+            .flatten();
+        let shares = mode == "shared" || joined.is_some();
+        let shared_id = joined.unwrap_or(shared_id);
         let stable_id = &shared_id;
         let app_scale = app
             .as_ref()
@@ -1340,7 +1371,7 @@ impl Prepared {
         // the device comes first.
         let remember = launch.role == Role::Stream
             && virtual_mode
-            && mode != "shared"
+            && !shares
             && device_mode.is_none()
             && launch
                 .client
@@ -1655,7 +1686,7 @@ impl Prepared {
         };
         let mut mode_report =
             ModeReport::new(launch.warnings.clone(), requested, stream.fps_millihz());
-        if virtual_mode && mode == "shared" {
+        if virtual_mode && shares {
             mode_report = mode_report.shared();
         }
         mode_report.publish(applied_mode(&output));

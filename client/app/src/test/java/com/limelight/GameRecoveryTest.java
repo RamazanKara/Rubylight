@@ -758,9 +758,58 @@ public class GameRecoveryTest {
             assertTrue(ReflectionHelpers.<Boolean>getField(game, "recoveryCancelledOnPause"));
             game.onResume();
             assertEquals(game.getString(R.string.stream_recovery_paused), promptMessage(game));
+            // Its Reconnect stands in for the press it replaced, which could not start a closed game.
+            promptButton(game, android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+            awaitOnUi(() -> game.isFinishing());
+            assertResumesOnly(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
         } finally {
             cleanupRecovery(game);
         }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void leavingWhileTheStreamMovesBackLeavesNoSpinnerAndAsksOnTheWayBack() throws Exception {
+        java.util.concurrent.CountDownLatch pressed = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch answer = new java.util.concurrent.CountDownLatch(1);
+        com.limelight.nativeapi.NativeApiClient pc = new com.limelight.nativeapi.NativeApiClient((host, op, argument) -> {
+            if (op.equals("session_continue_here")) {
+                pressed.countDown();
+                try { answer.await(HANG_GUARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }
+            return "{\"ok\":" + STILL_MOVED + "}";
+        }, new com.limelight.nativeapi.HostEndpoint("pc", "192.0.2.1", 47989, 47984, "pem", "device", new byte[0], new byte[0]));
+        Game game = movedAwayFrom(pc);
+        try {
+            promptButton(game, android.content.DialogInterface.BUTTON_NEGATIVE).performClick();
+            awaitOnUi(() -> pressed.getCount() == 0);
+            game.onPause();
+            answer.countDown();
+            for (int i = 0; i < 40; i++) {
+                Thread.sleep(5);
+                org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            }
+            assertNull("no spinner that nothing ends", ReflectionHelpers.getField(game, "spinner"));
+            assertFalse(ReflectionHelpers.<Boolean>getField(game, "recoveryHandoffInProgress"));
+            assertTrue(ReflectionHelpers.<Boolean>getField(game, "recoveryCancelledOnPause"));
+            game.onResume();
+            assertEquals(game.getString(R.string.stream_recovery_paused), promptMessage(game));
+            promptButton(game, android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+            awaitOnUi(() -> game.isFinishing());
+            assertResumesOnly(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+        } finally {
+            answer.countDown();
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    public void aStartAsksToJoinOnlyOnce() {
+        Game game = recoveryGame();
+        game.getIntent().putExtra(GameRecovery.EXTRA_JOIN_RUNNING, true);
+        assertTrue(game.streamRecovery.isJoinRunningStream());
+        assertFalse("a re-created screen checks what it finds", game.streamRecovery.isJoinRunningStream());
     }
 
     @Test

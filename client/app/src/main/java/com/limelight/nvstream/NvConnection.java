@@ -66,6 +66,7 @@ import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.FecChoice;
 import com.limelight.nvstream.http.HardwareMetrics;
 import com.limelight.nvstream.http.HostCapabilities;
+import com.limelight.ContinueHerePolicy;
 import com.limelight.nvstream.http.HostHttpResponseException;
 import com.limelight.nvstream.http.LimelightCryptoProvider;
 import com.limelight.nvstream.http.LaunchConfirmation;
@@ -1232,6 +1233,12 @@ public class NvConnection {
                     context.launchActionCompleted = true;
                     context.connListener.launchActionCompleted(e.getErrorMessage());
                     return false;
+                }
+                String refusal = "resume".equals(verb) ? ContinueHerePolicy.resumeRefusal(
+                        context.streamConfig.isJoinRunning(), e.getErrorCode(), e.getErrorMessage()) : null;
+                if (refusal != null) {
+                    throw new LocalLaunchFailure(e.getErrorCode(), ContinueHerePolicy.SESSION_CHANGED.equals(refusal) ?
+                            R.string.stream_recovery_session_changed : R.string.continue_here_browser_stream, e.getErrorMessage());
                 }
                 if (context.streamConfig.isResumeOnly() || context.streamConfig.isJoinRunning() ||
                         !LaunchConfirmation.isRequired(app, e)) {

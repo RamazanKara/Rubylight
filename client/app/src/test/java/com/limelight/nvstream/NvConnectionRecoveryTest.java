@@ -211,6 +211,38 @@ public class NvConnectionRecoveryTest {
         assertEquals(List.of("resume"), FakeHost.requests);
         assertEquals(List.of(503), result.failures);
         assertTrue(result.terminations.isEmpty());
+        assertEquals("our sentence, not the host's words", List.of(sessionChanged()), result.messages);
+    }
+
+    private static String sessionChanged() {
+        return RuntimeEnvironment.getApplication().getString(com.limelight.R.string.stream_recovery_session_changed);
+    }
+
+    @Test public void aJoinOfAGameThatChangedSaysSoAndStartsNothing() throws Exception {
+        FakeHost.initial = HIDDEN_GAME;
+        FakeHost.resumeFailure = new HostHttpResponseException(409, "The game running on this PC changed");
+        Result result = start(joining((host, op, argument) -> "{\"ok\":{}}"));
+        assertEquals(List.of("resume"), FakeHost.requests);
+        assertEquals(List.of(409), result.failures);
+        assertEquals(List.of(sessionChanged()), result.messages);
+    }
+
+    @Test public void aJoinBesideABrowserStreamSaysToEndItFirst() throws Exception {
+        FakeHost.initial = HIDDEN_GAME;
+        FakeHost.resumeFailure = new HostHttpResponseException(409, "Another device is streaming over WebRTC");
+        Result result = start(joining((host, op, argument) -> "{\"ok\":{}}"));
+        assertEquals(List.of("resume"), FakeHost.requests);
+        assertEquals(List.of(409), result.failures);
+        assertEquals(List.of(RuntimeEnvironment.getApplication().getString(com.limelight.R.string.continue_here_browser_stream)),
+                result.messages);
+    }
+
+    @Test public void aFailureThatIsNotAboutTheGameKeepsTheHostsWords() throws Exception {
+        FakeHost.initial = HIDDEN_GAME;
+        FakeHost.resumeFailure = new HostHttpResponseException(503, "Encoder failure");
+        Result result = start(joining((host, op, argument) -> "{\"ok\":{}}"));
+        assertEquals(List.of(503), result.failures);
+        assertTrue(result.messages.toString(), result.messages.get(0).contains("Encoder failure"));
     }
 
     @Test public void aJoinNeverOffersToReplaceTheGame() throws Exception {
@@ -325,6 +357,7 @@ public class NvConnectionRecoveryTest {
                         result.failures.add((Integer) args[2]);
                     } else if (method.getName().equals("streamMoved")) result.movedTo.add((String) args[0]);
                     else if (method.getName().equals("connectionTerminated")) result.terminations.add((Integer) args[0]);
+                    else if (method.getName().equals("displayMessage")) result.messages.add((String) args[0]);
                     return null;
                 });
         connection.start(null, new VideoDecoderRenderer() {
@@ -362,6 +395,7 @@ public class NvConnectionRecoveryTest {
         final List<Integer> failurePorts = new ArrayList<>();
         final List<String> movedTo = new ArrayList<>();
         final List<Integer> terminations = new ArrayList<>();
+        final List<String> messages = new ArrayList<>();
         int cleanups;
     }
 

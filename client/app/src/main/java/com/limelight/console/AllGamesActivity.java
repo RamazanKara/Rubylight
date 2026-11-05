@@ -318,7 +318,7 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         return cards;
     }
 
-    /** A chip's name: All, Installed, Games, the store's, Other apps or Not added. */
+    /** A chip's name: All, Installed, Games, the store's or collection's, Other apps, Not added or Hidden. */
     static CharSequence labelOf(android.content.Context context, HomeModel.Filter f) {
         if (f.storeName != null) return f.storeName;
         switch (f.key) {
@@ -330,6 +330,10 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
                 return context.getString(R.string.console_row_other);
             case HomeModel.FILTER_UNADDED:
                 return context.getString(R.string.console_chip_not_added);
+            case HomeModel.FILTER_NO_COLLECTION:
+                return context.getString(R.string.console_row_no_collection);
+            case HomeModel.FILTER_HIDDEN:
+                return context.getString(R.string.console_filter_hidden);
             default:
                 return context.getString(R.string.console_filter_all);
         }
@@ -466,18 +470,42 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
     private void askFavourite(HomeModel.GameCard card) {
         if (repository == null || card.notAdded()) return;
         boolean remove = card.favourite;
+        List<ConsoleSnapshot.Source> copies = model.copiesOf(card);
+        boolean hide = !card.hidden();
+        CharSequence star = getString(remove ? R.string.console_favourite_remove : R.string.console_favourite_add);
+        CharSequence hiding = getString(hide ? R.string.applist_menu_hide_app : R.string.applist_menu_show_app);
+        CharSequence openPlay = OpenPlay.menuLabel(this, card.hostUuid, card.appId);
         UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this)
                 .setTitle(card.title)
-                .setItems(new CharSequence[]{getString(remove ? R.string.console_favourite_remove
-                        : R.string.console_favourite_add), OpenPlay.menuLabel(this, card.hostUuid, card.appId)},
-                        (dialog, which) -> {
-                            if (which == 0) {
-                                setFavourite(card, !remove);
-                            } else {
-                                OpenPlay.toggle(this, card.hostUuid, card.hostName, card.appId, card.source != null ? card.source.stableId() : "", card.title);
-                            }
-                        })
+                .setItems(copies.isEmpty() ? new CharSequence[]{star, openPlay}
+                        : new CharSequence[]{star, openPlay, hiding}, (dialog, which) -> {
+                    if (which == 0) {
+                        setFavourite(card, !remove);
+                    } else if (which == 1) {
+                        OpenPlay.toggle(this, card.hostUuid, card.hostName, card.appId, card.source != null ? card.source.stableId() : "", card.title);
+                    } else {
+                        setHidden(copies, hide);
+                    }
+                })
                 .setNegativeButton(android.R.string.cancel, null).create());
+    }
+
+    private void setHidden(List<ConsoleSnapshot.Source> copies, boolean hide) {
+        final ConsoleRepository repo = repository;
+        if (repo == null) return;
+        worker.execute(() -> {
+            try {
+                repo.setHidden(copies, hide);
+            } catch (RuntimeException e) {
+                com.limelight.LimeLog.warning("All games could not hide a game: " + e);
+            }
+            runOnUiThread(() -> {
+                for (ConsoleSnapshot.Source copy : copies) {
+                    com.limelight.utils.FrontendSync.appListChanged(this, feed.host(copy.hostUuid));
+                }
+                scheduleReload();
+            });
+        });
     }
 
     private void setFavourite(HomeModel.GameCard card, boolean starred) {

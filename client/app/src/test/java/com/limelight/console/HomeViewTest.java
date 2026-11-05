@@ -22,6 +22,18 @@ import org.robolectric.annotation.Config;
 public class HomeViewTest {
     private SharedPreferences prefs;
 
+    @Test
+    public void collectionIsOfferedOnlyWithCollectionsAndStoredByName() {
+        assertFalse(java.util.Arrays.asList(HomeView.offeredGroups(false)).contains(HomeView.Group.COLLECTION));
+        assertTrue(java.util.Arrays.asList(HomeView.offeredGroups(true)).contains(HomeView.Group.COLLECTION));
+        new HomeView(HomeView.Layout.ROWS, HomeView.Group.COLLECTION, HomeView.Size.MEDIUM).save(prefs);
+        assertEquals("collection", prefs.getString(HomeView.KEY_GROUP, null));
+        assertEquals(HomeView.Group.COLLECTION, HomeView.read(prefs, false).group);
+        // The older values still read as before.
+        prefs.edit().putString(HomeView.KEY_GROUP, "none").commit();
+        assertEquals(HomeView.Group.NONE, HomeView.read(prefs, false).group);
+    }
+
     @Before
     public void setUp() {
         prefs = PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication());

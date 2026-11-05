@@ -22,4 +22,7 @@
         <item quantity="many">Giocato %d giorni fa</item>
         <item quantity="other">Giocato %d giorni fa</item>
     </plurals>
+    <string name="home_view_group_collection">Raccolta</string>
+    <string name="console_row_no_collection">Nessuna raccolta</string>
+    <string name="console_filter_hidden">Nascosti</string>
 </resources>

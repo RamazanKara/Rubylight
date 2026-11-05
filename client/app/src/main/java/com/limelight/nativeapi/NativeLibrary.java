@@ -47,11 +47,13 @@ public final class NativeLibrary {
         public final String heroPath;
         public final String logoPath;
         public final String landscapePath;
+        /** The Steam collections or Playnite categories it is in, by name; empty when the host names none. */
+        public final List<String> collections;
 
         Game(String installId, int appId, String title, String gameId, String storeSource, String storeId,
              String storeName, Boolean installed, boolean running, boolean added, Long lastPlayed,
              Integer playtimeMinutes, Boolean launchable, String coverPath, String coverVersion, String heroPath,
-             String logoPath, String landscapePath) {
+             String logoPath, String landscapePath, List<String> collections) {
             this.installId = installId;
             this.appId = appId;
             this.title = title;
@@ -70,6 +72,7 @@ public final class NativeLibrary {
             this.heroPath = heroPath;
             this.logoPath = logoPath;
             this.landscapePath = landscapePath;
+            this.collections = Collections.unmodifiableList(collections);
         }
 
         JSONObject toJson() throws JSONException {
@@ -89,6 +92,7 @@ public final class NativeLibrary {
             if (lastPlayed != null) json.put("last_played", lastPlayed.longValue());
             if (playtimeMinutes != null) json.put("playtime_minutes", playtimeMinutes.intValue());
             if (launchable != null) json.put("launchable", launchable.booleanValue());
+            if (!collections.isEmpty()) json.put("collections", new JSONArray(collections));
             JSONObject artwork = new JSONObject().put("version", coverVersion);
             if (coverPath != null) artwork.put("cover", coverPath);
             if (heroPath != null) artwork.put("hero", heroPath);
@@ -113,7 +117,19 @@ public final class NativeLibrary {
                     json.has("launchable") && !json.isNull("launchable")
                             ? Boolean.valueOf(json.optBoolean("launchable")) : null,
                     text(artwork, "cover"), artwork == null ? "" : artwork.optString("version", ""),
-                    text(artwork, "hero"), text(artwork, "logo"), text(artwork, "landscape"));
+                    text(artwork, "hero"), text(artwork, "logo"), text(artwork, "landscape"), names(json));
+        }
+
+        /** The game's collections; a host that sends none, or something else, names none. */
+        private static List<String> names(JSONObject json) {
+            JSONArray array = json.optJSONArray("collections");
+            if (array == null) return Collections.emptyList();
+            List<String> names = new ArrayList<>(array.length());
+            for (int i = 0; i < array.length(); i++) {
+                String name = array.isNull(i) ? "" : array.optString(i).trim();
+                if (!name.isEmpty()) names.add(name);
+            }
+            return names;
         }
 
         private static String text(JSONObject json, String key) {

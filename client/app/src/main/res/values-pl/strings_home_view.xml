@@ -23,4 +23,7 @@
         <item quantity="many">Grano %d dni temu</item>
         <item quantity="other">Grano %d dnia temu</item>
     </plurals>
+    <string name="home_view_group_collection">Kolekcja</string>
+    <string name="console_row_no_collection">Bez kolekcji</string>
+    <string name="console_filter_hidden">Ukryte</string>
 </resources>

@@ -424,7 +424,10 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
         static CharSequence rowTitle(Context context, HomeModel.Row row) {
             switch (row.kind) {
                 case STORE:
+                case COLLECTION:
                     return row.storeName;
+                case NO_COLLECTION:
+                    return context.getString(R.string.console_row_no_collection);
                 case RECENT:
                     return context.getString(R.string.console_row_recent);
                 case UNADDED:

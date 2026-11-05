@@ -20,4 +20,7 @@
     <plurals name="console_list_played_days">
         <item quantity="other">Đã chơi %d ngày trước</item>
     </plurals>
+    <string name="home_view_group_collection">Bộ sưu tập</string>
+    <string name="console_row_no_collection">Không có bộ sưu tập</string>
+    <string name="console_filter_hidden">Đã ẩn</string>
 </resources>

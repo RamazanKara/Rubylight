@@ -20,4 +20,7 @@
     <plurals name="console_list_played_days">
         <item quantity="other">%d 天前玩過</item>
     </plurals>
+    <string name="home_view_group_collection">收藏集</string>
+    <string name="console_row_no_collection">未分類</string>
+    <string name="console_filter_hidden">已隱藏</string>
 </resources>

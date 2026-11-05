@@ -206,14 +206,16 @@ public class ServerHelper {
             Toast.makeText(parent, parent.getResources().getString(R.string.pair_pc_offline), Toast.LENGTH_SHORT).show();
             return;
         }
-        Runnable start = () -> startStream(parent, app, computer, managerBinder, smallStreamInputOnly, options, source);
+        java.util.function.Consumer<android.content.Context> start =
+                from -> startStream(from, parent, app, computer, managerBinder, smallStreamInputOnly, options, source);
         if (!ContinueHereGate.handles(parent, app, computer, managerBinder,
                 ContinueHereGate.plainStart(app, smallStreamInputOnly, source), start)) {
-            start.run();
+            start.accept(parent);
         }
     }
 
-    private static void startStream(Activity parent, NvApp app, ComputerDetails computer,
+    /** {@code from} starts it: {@code parent}, or the application's context once {@code parent} is gone. */
+    private static void startStream(android.content.Context from, Activity parent, NvApp app, ComputerDetails computer,
                                     ComputerManagerService.ComputerManagerBinder managerBinder, boolean smallStreamInputOnly,
                                     android.os.Bundle options, String source) {
         boolean pin = PinGate.needsPinForStream(parent, computer.uuid);
@@ -221,11 +223,14 @@ public class ServerHelper {
         if (smallStreamInputOnly) {
             intent.putExtra(Game.EXTRA_SMALL_STREAM_INPUT_ONLY, true);
         }
-        if (pin) {
-            parent.startActivity(PinLockActivity.forStream(parent, intent, computer, app), options);
-            return;
-        }
-        parent.startActivity(intent, options);
+        startFrom(from, pin ? PinLockActivity.forStream(parent, intent, computer, app) : intent, options);
+    }
+
+    @androidx.annotation.VisibleForTesting
+    static void startFrom(android.content.Context from, Intent intent, android.os.Bundle options) {
+        // Only an activity starts into its own task.
+        if (!(from instanceof Activity)) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        from.startActivity(intent, options);
     }
 
     public static void doQuit(final Activity parent,

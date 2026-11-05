@@ -132,6 +132,16 @@ public class PinGateTest {
     }
 
     @Test
+    public void aForgottenGrantOpensNothing() {
+        lock(PinStore.Mode.STREAMS);
+        PinGate.grant(PC);
+        assertFalse(PinGate.streamLocked(app, PC));
+        PinGate.forgetGrant();
+        assertTrue(PinGate.streamLocked(app, PC));
+        assertTrue(PinGate.needsPinForStream(app, PC));
+    }
+
+    @Test
     public void aGrantForOnePcDoesNotOpenAnother() {
         lock(PinStore.Mode.STREAMS);
         PinGate.grant(OTHER);

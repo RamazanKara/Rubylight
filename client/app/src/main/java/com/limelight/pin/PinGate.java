@@ -106,6 +106,11 @@ public final class PinGate {
         grantAt = SystemClock.elapsedRealtime();
     }
 
+    /** The start a grant was left for will not come (Continue here's press failed): it must not open the next one. */
+    public static synchronized void forgetGrant() {
+        grantUuid = null;
+    }
+
     /** The PIN was entered (or has just been set): the app stays open until it is left for the grace time. */
     public static synchronized void unlockApp() {
         unlockedApp = true;

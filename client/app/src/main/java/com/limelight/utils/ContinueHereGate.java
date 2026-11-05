@@ -1,7 +1,9 @@
 package com.limelight.utils;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.DialogInterface;
+import android.widget.Toast;
 
 import androidx.annotation.VisibleForTesting;
 import androidx.appcompat.app.AlertDialog;
@@ -20,10 +22,12 @@ import com.limelight.nativeapi.NativeCapabilities;
 import com.limelight.nativeapi.StreamMove;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
+import com.limelight.pin.PinGate;
 import com.limelight.pin.PinLockActivity;
 import com.limelight.ui.NavigationDialogBuilder;
 
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 /**
  * Selecting a game another device plays: "X is playing on Y", with Continue here focused, Stream here too and
@@ -32,6 +36,12 @@ import java.util.concurrent.atomic.AtomicReference;
 final class ContinueHereGate {
     /** How long selecting a game waits to learn who plays it, before it starts the stream as it always did. */
     private static final long SELECT_READ_WAIT_MS = 1500;
+
+    /** The press itself. */
+    @VisibleForTesting
+    interface Press {
+        void send() throws NativeApiException;
+    }
 
     /** One read of the PC. */
     @VisibleForTesting
@@ -79,9 +89,12 @@ final class ContinueHereGate {
                 app.matchesRunningApp(move.playingAppId, move.playingAppUuid));
     }
 
-    /** Takes the start over when it may have to ask, and then calls {@code start} on the UI thread unless cancelled. */
+    /**
+     * Takes the start over when it may have to ask, and then calls {@code start} on the UI thread unless cancelled, with
+     * the context to start from: {@code parent}, or the application's once a press outlived it.
+     */
     static boolean handles(Activity parent, NvApp app, ComputerDetails computer,
-                           ComputerManagerService.ComputerManagerBinder binder, boolean plainStart, Runnable start) {
+                           ComputerManagerService.ComputerManagerBinder binder, boolean plainStart, Consumer<Context> start) {
         if (binder == null || !plainStart || !NativeCapabilities.offersContinueHere(KnownCapabilities.of(computer.uuid))) {
             return false;
         }
@@ -99,19 +112,19 @@ final class ContinueHereGate {
                 if (read != null && asks(true, true, read, app)) {
                     prompt(parent, computer, client, read, start).show();
                 } else {
-                    start.run();
+                    start.accept(parent);
                 }
             });
         }, "Continue here select").start();
         return true;
     }
 
-    private static AlertDialog prompt(Activity parent, ComputerDetails computer, NativeApiClient client, StreamMove move, Runnable start) {
+    private static AlertDialog prompt(Activity parent, ComputerDetails computer, NativeApiClient client, StreamMove move, Consumer<Context> start) {
         AlertDialog dialog = new NavigationDialogBuilder(parent)
                 .setMessage(parent.getString(R.string.continue_here_playing_on, move.playingTitle, move.playingOn))
                 .setPositiveButton(R.string.continue_here_action, (shown, which) -> PinLockActivity.runAfterPin(
-                        parent, computer.uuid, computer.displayName(), () -> press(parent, client, start)))
-                .setNeutralButton(R.string.continue_here_stream_too, (shown, which) -> start.run())
+                        parent, computer.uuid, computer.displayName(), () -> press(parent, client::continueHere, start)))
+                .setNeutralButton(R.string.continue_here_stream_too, (shown, which) -> start.accept(parent))
                 .setNegativeButton(android.R.string.cancel, null)
                 .create();
         dialog.setOnShowListener(shown -> dialog.getButton(DialogInterface.BUTTON_POSITIVE).requestFocus());
@@ -120,25 +133,30 @@ final class ContinueHereGate {
 
     /**
      * Moves the stream here, then starts the normal resume. A failure says so and leaves the game running. It ends
-     * another device's stream, so the PIN lock comes before it, not at the start after it.
+     * another device's stream, so the PIN lock comes before it, not at the start after it, and a failure leaves no grant.
+     * The other device has lost its stream by the time the answer comes, so the start must happen even if this screen
+     * went away meanwhile (a rotation): it goes on from the application.
      */
-    private static void press(Activity parent, NativeApiClient client, Runnable start) {
+    @VisibleForTesting
+    static void press(Activity parent, Press press, Consumer<Context> start) {
+        Context application = parent.getApplicationContext();
         new Thread(() -> {
             String failure = null;
             try {
-                client.continueHere();
+                press.send();
             } catch (NativeApiException e) {
                 LimeLog.warning("Continue here failed: " + e.getMessage());
                 failure = e.getMessage();
             }
             String why = failure;
+            if (why != null) PinGate.forgetGrant();
             parent.runOnUiThread(() -> {
-                if (parent.isFinishing() || parent.isDestroyed()) {
-                    LimeLog.warning("The screen went away during Continue here; the press expires on the PC");
-                    return;
-                }
+                boolean gone = parent.isFinishing() || parent.isDestroyed();
                 if (why == null) {
-                    start.run();
+                    start.accept(gone ? application : parent);
+                } else if (gone) {
+                    Toast.makeText(application, application.getString(R.string.continue_here_failed) + "\n" + why,
+                            Toast.LENGTH_LONG).show();
                 } else {
                     new NavigationDialogBuilder(parent)
                             .setTitle(R.string.continue_here_failed)

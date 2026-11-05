@@ -514,6 +514,7 @@ final class GameConnection {
                 .setRefreshRate(smallStream ? InputOnlyPolicy.SMALL_FPS : chosenFrameRate)
                 .setApp(game.app)
                 .setResumeOnly(game.streamRecovery.isResumeOnlyStream())
+                .setJoinRunning(game.streamRecovery.isJoinRunningStream())
                 .setAllowIdleSessionEnd(!game.getIntent().getBooleanExtra(Game.EXTRA_RECOVERY_MEDIA_FAILURE, false))
                 .setNeverReplace(com.limelight.console.OpenPlay.isAutoStart(game.getIntent()))
                 .setBitrate(smallStream ? InputOnlyPolicy.SMALL_BITRATE_KBPS : game.prefConfig.bitrate)
@@ -1384,7 +1385,7 @@ final class GameConnection {
                     } else if (answer.pressFailed) {
                         LimeLog.info("The move failed; the game stayed with another device");
                         prompt.dismiss();
-                        showMoveFailedPrompt();
+                        showMoveFailedPrompt(client);
                     }
                     // Otherwise the note ran out with the game elsewhere, or the game ended: what it said stands.
                 });
@@ -1403,29 +1404,63 @@ final class GameConnection {
     }
 
     /** The move failed, and the game is another device's: this device streamed beside it, and may again. */
-    private void showMoveFailedPrompt() {
+    private void showMoveFailedPrompt(NativeApiClient client) {
         game.menuActions.showStreamDialog(new NavigationDialogBuilder(game)
                 .setTitle(R.string.continue_here_did_not_move)
                 .setCancelable(false)
-                .setPositiveButton(R.string.continue_here_stream_too, (dialog, which) -> resumeTheGame())
+                .setPositiveButton(R.string.continue_here_stream_too, (dialog, which) -> joinOrResume(client))
                 .setNegativeButton(android.R.string.ok, (dialog, which) -> game.finish())
                 .create());
     }
 
     /** The answer may be old by now, so this asks who plays as selecting the game does; a PC that does not say gets the resume, which fails if the game is gone. */
     private void askWhoPlaysThenResume(NativeApiClient client) {
+        readWhoPlays(client, "Came back read", read -> {
+            if (read != null && playsThisGame(read)) {
+                showWhoPlaysPrompt(read, client);
+            } else if (read != null && ContinueHerePolicy.joinsAfterRead(false, false, read.pressFailed)) {
+                joinTheGame(read);
+            } else {
+                resumeTheGame();
+            }
+        });
+    }
+
+    /** Stream here too on "did not move", asked again for the same reason. A PC that does not say never gets a join: {@code /resume} would join whatever runs. */
+    private void joinOrResume(NativeApiClient client) {
+        readWhoPlays(client, "Stream too read", read -> {
+            if (read != null && ContinueHerePolicy.joinsAfterRead(true, playsThisGame(read), read.pressFailed)) {
+                joinTheGame(read);
+            } else {
+                resumeTheGame();
+            }
+        });
+    }
+
+    /** Who plays, off the UI thread and within the wait selecting a game has. Leaving meanwhile leaves the start to the reconnect prompt on the way back. */
+    private void readWhoPlays(NativeApiClient client, String thread, java.util.function.Consumer<StreamMove> answer) {
         new Thread(() -> {
             StreamMove read = ContinueHereGate.readWithin(client::streamMove, ContinueHereGate.SELECT_READ_WAIT_MS);
             game.runOnUiThread(() -> {
                 if (game.isFinishing() || game.isDestroyed()) return;
-                if (read != null && read.playingOn != null && game.app != null && ContinueHerePolicy.asksOnSelect(true, true,
-                        game.app.matchesRunningApp(read.playingAppId, read.playingAppUuid))) {
-                    showWhoPlaysPrompt(read, client);
-                } else {
-                    resumeTheGame();
+                if (!game.foreground) {
+                    game.recoveryCancelledOnPause = true;
+                    return;
                 }
+                answer.accept(read);
             });
-        }, "Came back read").start();
+        }, thread).start();
+    }
+
+    /** Whether another device plays the game this stream showed; a Resume or Running Game tile keeps its own identity in {@code game.app}. */
+    private boolean playsThisGame(StreamMove read) {
+        NvApp streamed = game.app;
+        if (game.recoveryAppId != 0) {
+            streamed = new NvApp("app", game.recoveryAppId, false);
+            streamed.setAppUuid(game.recoveryAppUuid);
+        }
+        return read.playingOn != null && streamed != null && ContinueHerePolicy.asksOnSelect(true, true,
+                streamed.matchesRunningApp(read.playingAppId, read.playingAppUuid));
     }
 
     /** "X is playing on Y". Under the PIN lock no Continue here, as in {@link #showMovedPrompt}: that goes through the library. */
@@ -1433,7 +1468,7 @@ final class GameConnection {
         NavigationDialogBuilder builder = new NavigationDialogBuilder(game);
         builder.setMessage(game.getString(R.string.continue_here_playing_on, move.playingTitle, move.playingOn))
                 .setCancelable(false)
-                .setNeutralButton(R.string.continue_here_stream_too, (dialog, which) -> resumeTheGame())
+                .setNeutralButton(R.string.continue_here_stream_too, (dialog, which) -> joinTheGame(move))
                 .setNegativeButton(android.R.string.cancel, (dialog, which) -> game.finish());
         if (!PinGate.streamLocked(game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID))) {
             builder.setPositiveButton(R.string.continue_here_action, (dialog, which) -> takeStreamBack(client));
@@ -1441,10 +1476,17 @@ final class GameConnection {
         game.menuActions.showStreamDialog(builder.create());
     }
 
-    /** Joins the running game, behind the PIN where the lock covers this PC. A game that ended meanwhile is not started again. */
+    /** Joins this device's own running game, behind the PIN where the lock covers this PC. A game that ended meanwhile is not started again. */
     private void resumeTheGame() {
         game.streamRecovery.reconnectStream(
                 PinGate.needsPinForStream(game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID)), true);
+    }
+
+    /** Streams beside the device that owns the game, behind the PIN likewise. A game that ended meanwhile is not started again, here either. */
+    private void joinTheGame(StreamMove read) {
+        game.streamRecovery.joinRunningGame(
+                PinGate.needsPinForStream(game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID)),
+                read.playingAppId, read.playingAppUuid);
     }
 
     /** Continue here on the displaced device: moves the stream back, then resumes. A failure says so; the game keeps running. */
@@ -1463,7 +1505,8 @@ final class GameConnection {
                     return;
                 }
                 if (why == null) {
-                    game.streamRecovery.reconnectStream();
+                    // The game may exit before the new stream starts: that must not start it again.
+                    game.streamRecovery.reconnectStream(false, true);
                     return;
                 }
                 game.menuActions.showStreamDialog(new NavigationDialogBuilder(game)

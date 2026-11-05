@@ -789,8 +789,10 @@ public class NvConnection {
 
         NvApp app = context.streamConfig.getApp();
         NvApp currentApp = null;
+        // The PC reports the game to its owner only, so this start does not look for it: /resume joins or fails.
+        boolean join = context.streamConfig.isJoinRunning();
 
-        if (context.streamConfig.isResumeOnly() &&
+        if (!join && context.streamConfig.isResumeOnly() &&
                 (app.getControl() != NvApp.Control.NONE ||
                         !app.matchesRunningApp(details.runningGameId, details.runningGameUuid))) {
             // No answer is no verdict: this fails as a transport failure, which a recovery retries.
@@ -807,7 +809,7 @@ public class NvConnection {
             return false;
         }
 
-        if (!app.getAppUuid().isEmpty()) {
+        if (!join && !app.getAppUuid().isEmpty()) {
             // Resolve stale shortcut IDs before the host's ID-or-UUID lookup can select another app.
             if (details.runningGameId != 0 && app.matchesRunningApp(details.runningGameId, details.runningGameUuid)) {
                 app.setAppId(details.runningGameId);
@@ -1026,14 +1028,15 @@ public class NvConnection {
     /** Goes by what the PC says now, which may no longer be what the screen that asked for this saw. */
     boolean launchOrResume(NvHTTP h, ConnectionContext context, ComputerDetails details, NvApp app, String serverInfo)
             throws XmlPullParserException, IOException {
-        if (launchesBesideRunningGame(app)) {
+        boolean join = context.streamConfig.isJoinRunning();
+        if (!join && launchesBesideRunningGame(app)) {
             return launchNotRunningApp(h, context);
         }
 
         // If there's a game running, resume it
-        if (h.getCurrentGame(serverInfo) != 0) {
+        if (join || h.getCurrentGame(serverInfo) != 0) {
             try {
-                if (app.matchesRunningApp(details.runningGameId, details.runningGameUuid)) {
+                if (join || app.matchesRunningApp(details.runningGameId, details.runningGameUuid)) {
                     if (!launchApp(h, context, "resume")) {
                         if (context.streamConfig.isResumeOnly() && context.streamConfig.isIdleSessionEndAllowed() &&
                                 hasEndedSession(h)) {
@@ -1230,7 +1233,8 @@ public class NvConnection {
                     context.connListener.launchActionCompleted(e.getErrorMessage());
                     return false;
                 }
-                if (context.streamConfig.isResumeOnly() || !LaunchConfirmation.isRequired(app, e)) {
+                if (context.streamConfig.isResumeOnly() || context.streamConfig.isJoinRunning() ||
+                        !LaunchConfirmation.isRequired(app, e)) {
                     throw e;
                 }
                 if (retried) {

@@ -35,7 +35,7 @@
   #define OutputBaseName "nightjar-desktop-" + AppVersion + "-windows-x86_64-setup"
 #endif
 
-; The DLLs this Setup ships, as |a.dll|b.dll|, for RemoveStaleDlls.
+; The DLLs this Setup ships, as |a.dll|b.dll|, for IsShippedDll.
 #define ShippedDlls "|"
 #define DllFind
 #define DllFound
@@ -116,8 +116,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [InstallDelete]
 ; Only the license texts, which nothing needs to start. The libraries an upgrade no longer ships
-; go after it succeeded (RemoveStaleDlls): this runs before [Files], and neither these deletions
-; nor a file [Files] replaced is restored when the install aborts. Only over Nightjar's own previous
+; go after it succeeded (RemoveStaleDlls): this runs before [Files], and Inno Setup's rollback puts
+; back neither these deletions nor a file [Files] replaced. Only over Nightjar's own previous
 ; install (the folder its uninstall entry names), never in a folder a first install was pointed at
 ; with /DIR.
 Type: filesandordirs; Name: "{app}\licenses-*"; Check: IsUpgradeOfThisFolder
@@ -125,7 +125,8 @@ Type: filesandordirs; Name: "{app}\licenses-*"; Check: IsUpgradeOfThisFolder
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "\nightjar.exe"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\icons\nightjar.ico"; DestDir: "{app}"; Flags: ignoreversion
-; Last: an install that aborts leaves the old program with every library it had, or a complete new one.
+; Last, so an install that aborts still has the old program. The libraries it replaced by then go
+; back (BackUpDlls, RestoreDlls); the rest it replaced (nightjar.ico, texts) nothing needs to start.
 Source: "{#SourceDir}\nightjar.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
@@ -147,6 +148,10 @@ const
 
 var
   WasUpgrade: Boolean;
+  // [Files] and the rest of the install are done: the new libraries stay.
+  InstallFinished: Boolean;
+  // Where BackUpDlls put the old libraries and where they came from. Empty when it hasn't run.
+  DllBackup, DllFolder: String;
 
 // True when {app} is the folder of the Nightjar this Setup upgrades.
 function IsUpgradeOfThisFolder(): Boolean;
@@ -268,6 +273,11 @@ begin
       Result := True;
 end;
 
+function IsShippedDll(Name: String): Boolean;
+begin
+  Result := Pos('|' + Lowercase(Name) + '|', '{#ShippedDlls}') > 0;
+end;
+
 // After a successful upgrade only: a DLL the new version no longer ships (another FFmpeg version)
 // must not stay behind.
 procedure RemoveStaleDlls();
@@ -279,7 +289,7 @@ begin
   if FindFirst(Folder + '*.dll', Found) then begin
     try
       repeat
-        if (Pos('|' + Lowercase(Found.Name) + '|', '{#ShippedDlls}') = 0) and not DeleteFile(Folder + Found.Name) then
+        if not IsShippedDll(Found.Name) and not DeleteFile(Folder + Found.Name) then
           Log('Could not remove the old ' + Found.Name);
       until not FindNext(Found);
     finally
@@ -288,13 +298,71 @@ begin
   end;
 end;
 
+// Before [Files] overwrites them: Inno Setup's rollback doesn't put a replaced file back, and the
+// old program can't start with a new library whose ABI changed, nor say that the update failed. In
+// {tmp}, so a Setup that is killed leaves nothing in the install. A copy that fails stops the
+// install while nothing has changed.
+procedure BackUpDlls();
+var
+  Found: TFindRec;
+  Failed: Boolean;
+begin
+  DllFolder := ExpandConstant('{app}\');
+  DllBackup := ExpandConstant('{tmp}\old-dlls\');
+  Failed := not ForceDirectories(DllBackup);
+  if not Failed and FindFirst(DllFolder + '*.dll', Found) then begin
+    try
+      repeat
+        if IsShippedDll(Found.Name) and not CopyFile(DllFolder + Found.Name, DllBackup + Found.Name, False) then begin
+          Log('Could not back up the old ' + Found.Name);
+          Failed := True;
+        end;
+      until not FindNext(Found);
+    finally
+      FindClose(Found);
+    end;
+  end;
+  if Failed then begin
+    Log('The old libraries could not be backed up: nothing is installed.');
+    Abort();
+  end;
+end;
+
+// Puts the backup back when the install never finished, and removes it either way.
+procedure RestoreDlls();
+var
+  Found: TFindRec;
+begin
+  if DllBackup = '' then
+    Exit;
+  if not InstallFinished and FindFirst(DllBackup + '*.dll', Found) then begin
+    try
+      repeat
+        if CopyFile(DllBackup + Found.Name, DllFolder + Found.Name, False) then
+          Log('Restored the old ' + Found.Name)
+        else
+          Log('Could not restore the old ' + Found.Name);
+      until not FindNext(Found);
+    finally
+      FindClose(Found);
+    end;
+  end;
+  if not DelTree(DllBackup, True, True, True) then
+    Log('Could not remove the backup ' + DllBackup);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   // Asked before the install: it rewrites the entry IsUpgradeOfThisFolder reads.
-  if CurStep = ssInstall then
-    WasUpgrade := IsUpgradeOfThisFolder()
-  else if (CurStep = ssPostInstall) and WasUpgrade then
-    RemoveStaleDlls();
+  if CurStep = ssInstall then begin
+    WasUpgrade := IsUpgradeOfThisFolder();
+    if WasUpgrade then
+      BackUpDlls();
+  end else if CurStep = ssPostInstall then begin
+    InstallFinished := True;
+    if WasUpgrade then
+      RemoveStaleDlls();
+  end;
 end;
 
 // Nightjar's Update now (self_update.rs) exits and runs Setup silently with /RELAUNCH, so it needs
@@ -315,6 +383,8 @@ var
   Folder: String;
   ResultCode: Integer;
 begin
+  // First: the program started below needs its libraries.
+  RestoreDlls();
   if RelaunchParam() and RegQueryStringValue(HKCU, UninstallKey, 'InstallLocation', Folder) then
     if not Exec(AddBackslash(Folder) + 'nightjar.exe', '--after-setup', Folder, SW_SHOWNORMAL, ewNoWait, ResultCode) then
       Log('Could not start Nightjar again: ' + SysErrorMessage(ResultCode));

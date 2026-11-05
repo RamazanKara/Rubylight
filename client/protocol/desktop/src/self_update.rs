@@ -608,12 +608,26 @@ mod tests {
         let data = iss.split("\n[InstallDelete]\n").nth(1).unwrap().split("\n[Files]\n").next().unwrap();
         assert!(!data.contains("userappdata") && !data.contains("config"), "an upgrade deletes nothing of the user's");
         assert!(!data.lines().any(|line| line.starts_with("Type:") && line.contains(".dll")), "no library goes before [Files]: an abort wouldn't bring it back");
-        assert!(iss.contains("(CurStep = ssPostInstall) and WasUpgrade"), "old libraries go only after success");
+        assert!(iss.contains("InstallFinished := True;\n    if WasUpgrade then\n      RemoveStaleDlls()"), "old libraries go only after success");
+        assert!(iss.contains("if CurStep = ssInstall then begin\n    WasUpgrade := IsUpgradeOfThisFolder();\n    if WasUpgrade then\n      BackUpDlls();"), "the libraries [Files] replaces are kept first");
+        let closing = iss.split("procedure DeinitializeSetup").nth(1).unwrap();
+        assert!(closing.find("RestoreDlls()").unwrap() < closing.find("nightjar.exe").unwrap(), "an aborted install gets them back before Nightjar starts");
+        assert!(iss.contains("if not InstallFinished and FindFirst(DllBackup"), "a finished one keeps the new ones");
         let files = iss.split("\n[Files]\n").nth(1).unwrap().split("\n[Icons]\n").next().unwrap();
         let last = files.lines().rfind(|line| line.starts_with("Source:")).unwrap();
         assert!(last.contains(r"\nightjar.exe"), "the program is replaced last: {last}");
         #[cfg(windows)]
         assert!(UNINSTALL_KEY.contains("{6A3C8F12-5E7B-4D2A-9C41-7B0E8D3F2A65}_is1") && iss.contains(UNINSTALL_KEY));
+    }
+
+    #[test]
+    fn the_installer_smoke_runs_what_update_now_runs() {
+        let smoke = include_str!("../packaging/windows/build-installer.ps1");
+        let flags = smoke.lines().find_map(|line| line.strip_prefix("$updateFlags = ")).expect("the smoke's flags");
+        let listed: Vec<String> = setup_arguments(Path::new("x")).iter().filter(|a| !a.starts_with("/LOG=")).map(|a| format!("'{a}'")).collect();
+        assert_eq!(flags, format!("@({})", listed.join(", ")));
+        assert!(smoke.contains(&format!("'{STREAM_MUTEX}'")) && smoke.contains(&format!("'{SETUP_MUTEX}'")), "the same mutexes");
+        assert!(smoke.contains(&format!("'{AFTER_SETUP}'")));
     }
 
     #[cfg(windows)]

@@ -69,7 +69,7 @@ static SENSITIVE: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
 /// A secret's keyword and up to three separators, then the secret itself.
 static PIN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(
-        r"(?-u:\b)((?i-u:pin|password|passphrase|passcode|secret|token|key))(?-u:\b)([^A-Za-z0-9_]{{0,3}}){NOT_SPACE}+"
+        r"(?-u:\b)((?i-u:pin|otp|pass|password|passphrase|passcode|secret|token|key))(?-u:\b)([^A-Za-z0-9_]{{0,3}}){NOT_SPACE}+"
     ))
     .expect("PIN pattern")
 });
@@ -78,7 +78,7 @@ static PIN: LazyLock<Regex> = LazyLock::new(|| {
 /// [`can_cut`] keeps together. Over bytes, so separators may be up to 3 characters of 4 bytes.
 static KEYWORD_END: LazyLock<regex::bytes::Regex> = LazyLock::new(|| {
     regex::bytes::Regex::new(
-        r"(?-u:\b)(?i-u:pin|password|passphrase|passcode|secret|token|key)(?-u:\b)(?-u:[^A-Za-z0-9_]){0,12}\z",
+        r"(?-u:\b)(?i-u:pin|otp|pass|password|passphrase|passcode|secret|token|key)(?-u:\b)(?-u:[^A-Za-z0-9_]){0,12}\z",
     )
     .expect("keyword pattern")
 });
@@ -221,6 +221,14 @@ pub fn can_cut(text: &[u8], at: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pairing_links_secrets_never_stay_even_without_its_scheme() {
+        let text = redact("pair?v=1&host=pc otp=9876 pass=swordfish OTP: abcde");
+        for secret in ["9876", "swordfish", "abcde"] {
+            assert!(!text.contains(secret), "{text}");
+        }
+    }
 
     #[test]
     fn the_longest_secret_goes_first_and_short_ones_are_ignored() {

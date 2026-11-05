@@ -18,6 +18,7 @@ pub mod native_api;
 mod opus;
 mod platform;
 mod renderers;
+pub mod open_play;
 pub mod stream_menu;
 mod usb;
 

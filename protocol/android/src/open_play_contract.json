@@ -1,0 +1,37 @@
+[
+  {
+    "name": "timing",
+    "request": {"op": "timing"},
+    "response": {"ok": {"countdown_ms": 3000, "settled_ms": 10000}}
+  },
+  {
+    "name": "cold start, last game",
+    "request": {"op": "decide", "first_screen": true, "launcher": true, "restored": false, "from_recents": false, "opens": "last", "has_last": true, "has_chosen": false, "armed": false},
+    "response": {"ok": {"action": "countdown", "game": "last", "disarm": false}}
+  },
+  {
+    "name": "cold start, chosen game",
+    "request": {"op": "decide", "first_screen": true, "launcher": true, "restored": false, "from_recents": false, "opens": "chosen", "has_last": true, "has_chosen": true, "armed": false},
+    "response": {"ok": {"action": "countdown", "game": "chosen", "disarm": false}}
+  },
+  {
+    "name": "the last automatic start failed",
+    "request": {"op": "decide", "first_screen": true, "launcher": true, "restored": false, "from_recents": false, "opens": "last", "has_last": true, "has_chosen": false, "armed": true},
+    "response": {"ok": {"action": "skip", "game": "last", "disarm": true}}
+  },
+  {
+    "name": "recreated",
+    "request": {"op": "decide", "first_screen": true, "launcher": true, "restored": true, "from_recents": false, "opens": "last", "has_last": true, "has_chosen": false, "armed": false},
+    "response": {"ok": {"action": "stay", "game": null, "disarm": false}}
+  },
+  {
+    "name": "the default",
+    "request": {"op": "decide", "first_screen": true, "launcher": true, "restored": false, "from_recents": false, "opens": "pcs", "has_last": true, "has_chosen": false, "armed": false},
+    "response": {"ok": {"action": "stay", "game": null, "disarm": false}}
+  },
+  {
+    "name": "a stream that died young",
+    "request": {"op": "stream_end", "connected_ms": 4000, "left_by_player": false},
+    "response": {"ok": {"disarm": false}}
+  }
+]

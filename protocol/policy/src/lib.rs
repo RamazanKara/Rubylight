@@ -9,6 +9,7 @@ pub mod bitrate;
 pub mod client_hint;
 pub mod health;
 pub mod launch;
+pub mod open_play;
 pub mod overlay;
 pub mod pyrowave;
 pub mod quality;

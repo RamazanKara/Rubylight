@@ -6,6 +6,8 @@
 //! as an AppImage has its file replaced atomically and starts the new one. Every other copy has no
 //! Update now: a Windows copy the setup didn't install keeps the link to the release page, and a
 //! deb, rpm, Flatpak or archive doesn't check at all, as its package manager or its user updates it.
+//! Either way the next Nightjar can start while this one is still leaving, so what it reads is saved
+//! before the hand-over (save_for_next_run in main.rs).
 //!
 //! The asset's size and SHA-256 come from GitHub's release answer. Nothing runs without both
 //! matching, and only https addresses at GitHub's own hosts are ever connected to, redirects included.
@@ -276,6 +278,8 @@ pub struct Steps {
     pub marker: Option<PathBuf>,
     /// Whether another Nightjar process is streaming.
     pub stream_elsewhere: fn() -> bool,
+    /// Whether a setup is running already, another Nightjar's Update now.
+    pub setup_running: fn() -> bool,
     /// Takes the verified download. Ok means Nightjar should exit now.
     pub apply: Apply,
 }
@@ -287,6 +291,7 @@ impl Steps {
     pub fn for_copy(copy: &CopyKind, net: Arc<dyn Transport>) -> Option<Self> {
         let marker = marker_path();
         let stream_elsewhere = || mutex_exists(STREAM_MUTEX);
+        let setup_running = || mutex_exists(SETUP_MUTEX);
         match copy {
             CopyKind::Installed => {
                 let local = directories::BaseDirs::new().map(|dirs| dirs.data_local_dir().to_path_buf());
@@ -294,7 +299,7 @@ impl Steps {
                     eprintln!("nightjar: update: no folder for the download");
                     return None;
                 };
-                Some(Self { net, allow: download_host, dir, own_dir: true, marker, stream_elsewhere, apply: Box::new(run_setup) })
+                Some(Self { net, allow: download_host, dir, own_dir: true, marker, stream_elsewhere, setup_running, apply: Box::new(run_setup) })
             }
             CopyKind::AppImage(path) => {
                 let target = path.clone();
@@ -303,7 +308,7 @@ impl Steps {
                     start_watched(&target, &[], START_WATCH).map_err(Failure::Restart)
                 };
                 // The same folder as the AppImage: a rename across file systems isn't atomic.
-                Some(Self { net, allow: download_host, dir: path.parent()?.to_path_buf(), own_dir: false, marker, stream_elsewhere, apply: Box::new(apply) })
+                Some(Self { net, allow: download_host, dir: path.parent()?.to_path_buf(), own_dir: false, marker, stream_elsewhere, setup_running, apply: Box::new(apply) })
             }
             CopyKind::Portable | CopyKind::Managed => None,
         }

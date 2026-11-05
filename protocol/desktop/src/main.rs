@@ -660,26 +660,42 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
 }
 
 impl App {
-    fn shutdown(&mut self) {
+    fn save_edits(&mut self) {
         // Closing Nightjar is leaving it: a start within the grace time stays unlocked.
         if let Some(pin) = self.launcher.pin.as_mut() {
             pin.left();
             pin.flush();
         }
-        self.network_test = None;
         if let Some(command) = self.launcher.screen.save_command() { self.command(command); }
-        // The PC's automatic bitrate goes off after the window has gone, not with the process.
-        let abr_stop = self.streaming.take().and_then(|(streaming, _)| streaming.finish(self.window, &mut self.pads));
-        if let Some(c) = &self.connecting {
-            c.cancel();
-        }
-        let _ = self.store.save_hosts(&self.hosts.records());
+    }
+
+    fn save_hosts_and_place(&self) {
+        if let Err(e) = self.store.save_hosts(&self.hosts.records()) { eprintln!("nightjar: PCs not saved: {e}"); }
         // Under gamescope the window was never placed from the saved place, so Desktop Mode's stays.
         if handheld::start_window(handheld::gamescope()).restore_place {
             if let Some(placement) = window_place::current(self.window, self.store.window_placement().as_ref()) {
                 if let Err(e) = self.store.save_window_placement(&placement) { eprintln!("nightjar: window place not saved: {e}"); }
             }
         }
+    }
+
+    /// Before an update's hand-over, with nothing streaming: the next Nightjar can read these files
+    /// as soon as it starts (a new AppImage, or the old program after a setup that stopped), and
+    /// would overwrite with what it read what shutdown writes only later.
+    fn save_for_next_run(&mut self) {
+        self.save_edits();
+        self.save_hosts_and_place();
+    }
+
+    fn shutdown(&mut self) {
+        self.save_edits();
+        self.network_test = None;
+        // The PC's automatic bitrate goes off after the window has gone, not with the process.
+        let abr_stop = self.streaming.take().and_then(|(streaming, _)| streaming.finish(self.window, &mut self.pads));
+        if let Some(c) = &self.connecting {
+            c.cancel();
+        }
+        self.save_hosts_and_place();
         self.pads.close_all();
         self.gui.destroy();
         if self.connecting.is_some() {
@@ -1139,12 +1155,20 @@ impl App {
             stage: tr("Checking network profile").into(),
         }));
         let waking = self.waking.host().and_then(|id| self.hosts.get(id)).map(|h| h.display_name().to_owned());
+        // Outside the frame: egui can run it twice, and the answer comes only once.
+        if let Some(part) = self.updates.step() {
+            self.save_for_next_run();
+            if self.updates.hand_over(&part) {
+                self.running = false;
+            } else if let Some(pin) = self.launcher.pin.as_mut() {
+                // Nightjar stays open after all, so it wasn't left.
+                pin.returned();
+            }
+        }
         let mut commands = Vec::new();
         let launcher = &mut self.launcher;
         let hosts = &self.hosts;
         let pads = &self.pads;
-        // Outside the frame: egui can run it twice, and the answer comes only once.
-        if self.updates.step() { self.running = false; }
         let updates = &mut self.updates;
         self.gui.set_readable(true);
         let output = self.gui.run(self.window, self.renderer, |ui| {

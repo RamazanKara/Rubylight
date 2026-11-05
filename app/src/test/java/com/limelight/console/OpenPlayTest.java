@@ -2,6 +2,7 @@ package com.limelight.console;
 
 import android.app.Application;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.Intent;
 import android.preference.PreferenceManager;
 
@@ -64,6 +65,30 @@ public class OpenPlayTest {
 
     private JSONObject lastAsked() {
         return asked.get(asked.size() - 1);
+    }
+
+    @Test
+    public void armingIsOnDiskBeforeItReturns() {
+        java.util.List<String> edits = new java.util.ArrayList<>();
+        SharedPreferences real = context.getSharedPreferences("open_play", Context.MODE_PRIVATE);
+        SharedPreferences.Editor editor = real.edit();
+        java.lang.reflect.InvocationHandler editing = (self, method, args) -> {
+            edits.add(method.getName());
+            Object answer = method.invoke(editor, args);
+            return answer == editor ? self : answer;
+        };
+        SharedPreferences watched = (SharedPreferences) java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[] {SharedPreferences.class}, (self, method, args) -> method.getName().equals("edit")
+                        ? java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(),
+                                new Class<?>[] {SharedPreferences.Editor.class}, editing)
+                        : method.invoke(real, args));
+        OpenPlay.arm(new android.content.ContextWrapper(context) {
+            @Override public Context getApplicationContext() { return this; }
+            @Override public SharedPreferences getSharedPreferences(String name, int mode) { return watched; }
+        });
+        assertTrue(edits.toString(), edits.contains("commit"));
+        assertFalse(edits.toString(), edits.contains("apply"));
+        assertTrue(OpenPlay.armed(context));
     }
 
     @Test

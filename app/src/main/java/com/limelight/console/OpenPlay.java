@@ -136,7 +136,10 @@ public final class OpenPlay {
 
     /** The countdown ended: until something clears this, the start did not work out. */
     static void arm(Context context) {
-        state(context).edit().putBoolean(ARMED, true).apply();
+        // On disk before anything can go wrong: a crash in the start is what this is for.
+        if (!state(context).edit().putBoolean(ARMED, true).commit()) {
+            LimeLog.warning("Automatic start: the guard could not be saved");
+        }
     }
 
     static void disarm(Context context) {

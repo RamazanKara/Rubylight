@@ -7,6 +7,8 @@ import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -31,6 +33,7 @@ import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.nvstream.jni.StreamEngine;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.utils.ProblemReport;
+import com.limelight.utils.RecentStreams;
 
 import android.annotation.TargetApi;
 import android.app.Activity;
@@ -259,6 +262,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // Set when a decoder is configured; null except on the decoders of erratum 23 in low latency.
     private volatile KeyframeSafetyNet keyframeSafetyNet;
     private final InputStallLine inputStalls = new InputStallLine();
+    // For this stream's row in the problem report; a negative start is no stream to report.
+    private long streamStartMs = -1;
+    private long streamStartUptimeMs;
+    private volatile int keyframesReceived;
+    private volatile int largestKeyframeBytes;
+    private volatile int inputBufferBytes;
     private volatile float networkFrameLossPercent;
     private final AtomicLong receivedVideoBytes = new AtomicLong();
     private long bitrateWindowStartNs;
@@ -2597,6 +2606,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             this.maxDecodeHeight = this.expectedHeight = this.streamHeight = height;
             this.videoFormat = format;
             this.refreshRate = redrawRate;
+            if (streamStartMs < 0) {
+                streamStartMs = System.currentTimeMillis();
+                streamStartUptimeMs = SystemClock.uptimeMillis();
+            }
             this.streamFrameRateMilliHz = FramePacingPolicy.negotiatedFrameRateMilliHz(
                     streamFrameRateMilliHz, redrawRate);
             String drop = hostTenBitDrop(packedTenBitOffered, packedHdrDrop, format, hostPacked444Modes);
@@ -3945,11 +3958,62 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
     }
 
+    /** This stream's line in the problem report: only device names and counters, no address. */
+    private void addRecentStreamRow() {
+        boolean pyroWave = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;
+        if (streamStartMs < 0 || (!pyroWave && activeDecoderName == null)) return;
+        long startMs = streamStartMs;
+        streamStartMs = -1;
+        VideoStats total = new VideoStats();
+        total.add(globalVideoStats);
+        total.add(activeWindowVideoStats);
+        KeyframeSafetyNet safetyNet = keyframeSafetyNet;
+        MediaFormat output = outputFormat;
+        boolean rfi = refFrameInvalidationActive;
+        RecentStreams.add(Instant.ofEpochMilli(startMs).truncatedTo(ChronoUnit.SECONDS) + " " +
+                (SystemClock.uptimeMillis() - streamStartUptimeMs) / 1000 + " s" +
+                " | " + (pyroWave ? "PyroWave" : activeDecoderName + " " + configuredMime()) +
+                " | " + initialWidth + "x" + initialHeight + " " + refreshRate + " fps" +
+                " HDR " + onOff(Boolean.TRUE.equals(currentHdrMode)) +
+                " | engine " + (prefs.rustEngine ? "new" : "classic") +
+                " | low latency " + onOff(prefs.codecLowLatency) + ", vendor " + onOff(prefs.vendorLowLatency) +
+                ", hints " + onOff(prefs.phonePerformanceHints) + ", RFI " + onOff(rfi) +
+                ", keyframe net " + onOff(safetyNet != null) +
+                " | frames in " + numFramesIn + " out " + numFramesOut + " rendered " + total.totalFramesRendered +
+                " lost " + total.framesLost + " in " + total.frameLossEvents + " events" +
+                " | decode avg " + getAverageDecoderLatency() + " ms" +
+                " | keyframes " + keyframesReceived + ", largest " + largestKeyframeBytes + " B" +
+                ", net requests " + (safetyNet != null ? safetyNet.requests() : 0) +
+                " | input waits " + inputStalls.total() + ", worst " + inputStalls.totalMaxMs() + " ms" +
+                ", input buffer " + inputBufferBytes + " B" +
+                " | output " + (output == null ? "none" : outputDescription(output)));
+    }
+
+    private String configuredMime() {
+        return configuredFormat == null ? "" : configuredFormat.getString(MediaFormat.KEY_MIME);
+    }
+
+    private static String onOff(boolean on) {
+        return on ? "on" : "off";
+    }
+
+    private static String outputDescription(MediaFormat format) {
+        return outputKey(format, MediaFormat.KEY_WIDTH) + "x" + outputKey(format, MediaFormat.KEY_HEIGHT) +
+                " color " + outputKey(format, MediaFormat.KEY_COLOR_FORMAT) +
+                " standard " + outputKey(format, MediaFormat.KEY_COLOR_STANDARD) +
+                " transfer " + outputKey(format, MediaFormat.KEY_COLOR_TRANSFER);
+    }
+
+    private static String outputKey(MediaFormat format, String key) {
+        return format.containsKey(key) ? String.valueOf(format.getInteger(key)) : "?";
+    }
+
     @Override
     public void cleanup() {
         hostFrameClock.stop();
         String lastStalls = inputStalls.flush();
         if (lastStalls != null) LimeLog.warning(lastStalls);
+        addRecentStreamRow();
         pyroWaveRenderer.cleanup(frameLatencyStats);
         if (videoDecoder != null) {
             videoDecoder.release();
@@ -4411,6 +4475,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             spsBuffers.clear();
             ppsBuffers.clear();
             if (safetyNet != null) safetyNet.onKeyframe(lastVideoFrameTimeMs);
+            keyframesReceived++;
         }
 
         if (frameNumber != lastFrameNumber) {
@@ -4514,6 +4579,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         if (frameType == MoonBridge.FRAME_TYPE_IDR) {
             codecFlags |= MediaCodec.BUFFER_FLAG_SYNC_FRAME;
+            largestKeyframeBytes = Math.max(largestKeyframeBytes, decodeUnitLength);
+            inputBufferBytes = nextInputBuffer.limit();
 
             // If we are using fused IDR frames, submit the CSD with each IDR frame
             if (fusedIdrFrame && !csdSubmittedForThisFrame) {

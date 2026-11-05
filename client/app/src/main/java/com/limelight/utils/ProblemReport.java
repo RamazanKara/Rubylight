@@ -117,6 +117,7 @@ public final class ProblemReport {
             throw new IOException("Cannot create report directory");
         }
         String text = header()
+                + RecentStreams.section()
                 + engineSection()
                 + "Last decoder configuration:\n" + decoderDiagnostics + "\n\n"
                 + "Last audio configuration:\n" + audioDiagnostics + "\n\n"

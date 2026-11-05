@@ -3547,6 +3547,7 @@ async fn webrtc_co_op_launches_take_seats_and_answer_refusals() -> Result<()> {
         let request = WebRtcLaunch {
             client: h.h.paired.read().unwrap().clients[client].clone(),
             peer: std::net::Ipv4Addr::LOCALHOST.into(),
+            this_pc: false,
             app_id: id,
             width: 1280,
             height: 720,

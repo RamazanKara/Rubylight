@@ -343,6 +343,8 @@ pub struct Engine {
     disconnected_since: Option<Instant>,
     /// Wire bytes of the biggest frame written since [`Engine::take_frame_wire_bytes`].
     frame_wire_bytes: usize,
+    /// Datagrams that reached the socket, whoever sent them.
+    received: u64,
     rejected: u64,
     failed: u64,
     /// RTP time of audio position 0, 48 kHz ticks since `start`: set from the capture instant of
@@ -379,6 +381,7 @@ impl Engine {
             closed: false,
             disconnected_since: None,
             frame_wire_bytes: 0,
+            received: 0,
             rejected: 0,
             failed: 0,
             audio_base: None,
@@ -431,6 +434,7 @@ impl Engine {
     /// str0m is only asked to handle what it says is for this session (`Rtc::accepts`), and
     /// whatever it still refuses is dropped, counted and logged, never fatal.
     pub fn handle_datagram(&mut self, now: Instant, from: SocketAddr, data: &[u8]) -> Datagram {
+        self.received = self.received.saturating_add(1);
         let receive = match Receive::new(Protocol::Udp, from, self.local, data) {
             Ok(receive) => receive,
             Err(e) => {
@@ -1753,6 +1757,14 @@ fn media_loop(
     })();
     if let Err(e) = result {
         tracing::error!("webrtc: media thread stopped: {e:#}");
+    }
+    if !engine.connected {
+        // `received` tells a browser that never reached this socket from one that did.
+        tracing::warn!(
+            media = %engine.local,
+            received = engine.received,
+            "webrtc: the stream ended before its media connected"
+        );
     }
     engine.disconnect();
     (shared.hooks.event)(TransportEvent::Closed);

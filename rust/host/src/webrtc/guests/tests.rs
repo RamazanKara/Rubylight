@@ -10,6 +10,7 @@ fn owner() -> Owner {
         followers: Arc::default(),
         input: InputHandle::probe().0,
         session: Weak::new(),
+        bind: IpAddr::from([0, 0, 0, 0]),
     }
 }
 

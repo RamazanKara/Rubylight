@@ -908,6 +908,7 @@ impl Actor {
         let request = WebRtcLaunch {
             client,
             peer: self.peer.ip(),
+            this_pc: crate::network::peer_is_this_pc(self.peer.ip(), self.local),
             app_id,
             width: settings.width,
             height: settings.height,
@@ -1057,8 +1058,13 @@ impl Actor {
         // The previous session's worker frees the port as it ends, which can be moments after the
         // client was told the session is over.
         let deadline = tokio::time::Instant::now() + BIND_WAIT;
+        let address = crate::network::media_address(
+            self.local,
+            self.media.bind(),
+            crate::network::this_pc_address,
+        );
         let socket = loop {
-            match media::bind_socket((self.local, port).into()) {
+            match media::bind_socket((address, port).into()) {
                 Ok(socket) => break socket,
                 Err(error)
                     if tokio::time::Instant::now() < deadline
@@ -1072,6 +1078,7 @@ impl Actor {
             }
         };
         let local = socket.local_addr().context("reading the media address")?;
+        tracing::info!(media = %local, signalled = %self.local, peer = %self.peer, "WebRTC offer's host candidate");
         let spec = OfferSpec {
             video: VideoMode {
                 codec: match settings.codec {
@@ -1250,6 +1257,7 @@ fn start_live(
                 followers,
                 input,
                 session: Arc::downgrade(&session),
+                bind: media.bind(),
             },
         )
     });

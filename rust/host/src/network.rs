@@ -17,6 +17,52 @@ mod fixtures;
 mod ipv6;
 mod upnp;
 
+/// Whether a connection from `peer` to `local` comes from this PC: over loopback, or to one of
+/// this PC's own addresses, which it then comes from too.
+pub fn peer_is_this_pc(peer: IpAddr, local: IpAddr) -> bool {
+    let peer = peer.to_canonical();
+    peer.is_loopback() || peer == local.to_canonical()
+}
+
+/// The address a WebRTC stream's media socket binds and offers: the one the browser's signalling
+/// reached, which is known to work from there. A browser on this PC that opened the page at
+/// `localhost` signals over loopback, and not every browser sends media there: Firefox makes no
+/// candidate pair with a loopback address, so its connection fails after 5 s without one check.
+/// That browser gets `lan`, this PC's own address, which it reaches without leaving the PC. A host
+/// bound to loopback stays there, and so does a PC with no network.
+pub fn media_address(
+    signalled: IpAddr,
+    bind: IpAddr,
+    lan: impl FnOnce() -> Option<IpAddr>,
+) -> IpAddr {
+    let signalled = signalled.to_canonical();
+    if signalled.is_loopback() && bind.is_unspecified() {
+        return lan().unwrap_or(signalled);
+    }
+    signalled
+}
+
+/// This PC's own address on the network, for [`media_address`]; None without a network.
+pub fn this_pc_address() -> Option<IpAddr> {
+    let addresses = butterpollo_windows::net::lan_addresses().unwrap_or_else(|error| {
+        tracing::warn!(error = %format!("{error:#}"), "the LAN addresses for a WebRTC stream could not be read");
+        Vec::new()
+    });
+    addresses
+        .iter()
+        .find_map(|address| address.parse().ok())
+        // `lan_addresses` lists IPv4 only. A UDP connect sends nothing; it only picks the route.
+        .or_else(|| {
+            let probe = UdpSocket::bind((IpAddr::from([0u16; 8]), 0)).ok()?;
+            probe.connect(("2001:4860:4860::8888", 9)).ok()?;
+            let address = probe.local_addr().ok()?.ip();
+            let usable = !address.is_loopback()
+                && !address.is_unspecified()
+                && !matches!(address, IpAddr::V6(ip) if ip.is_unicast_link_local());
+            usable.then_some(address)
+        })
+}
+
 /// Where a peer is, by address, as Vibepollo classifies it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Reach {
@@ -628,6 +674,47 @@ mod tests {
         assert!(play_refused(at("192.168.4.20:50000"), lan).is_none());
         assert!(play_refused(at(&format!("{TEST_GATEWAY}:50000")), lan).is_some());
         assert_eq!(reads(), before + 2);
+    }
+    #[test]
+    fn a_browser_on_this_pc_gets_media_at_an_address_every_browser_sends_to() {
+        let lan: IpAddr = "192.168.4.69".parse().unwrap();
+        let any_v4 = IpAddr::from([0, 0, 0, 0]);
+        let any = IpAddr::from([0u16; 8]);
+        // Opened at 127.0.0.1 or localhost, on a host listening everywhere (issue 67).
+        for signalled in ["127.0.0.1", "::1", "::ffff:127.0.0.1"] {
+            let signalled = signalled.parse().unwrap();
+            assert_eq!(media_address(signalled, any_v4, || Some(lan)), lan);
+            assert_eq!(media_address(signalled, any, || Some(lan)), lan);
+        }
+        // No network: nothing better than loopback.
+        let loopback = IpAddr::from([127, 0, 0, 1]);
+        assert_eq!(media_address(loopback, any_v4, || None), loopback);
+        // A host bound to loopback never opens a port on the network.
+        assert_eq!(
+            media_address(loopback, loopback, || panic!("no LAN lookup")),
+            loopback
+        );
+        // Every other browser keeps the address its signalling reached.
+        for signalled in ["192.168.4.69", "100.101.102.103", "fd43::1", "2001:db8::1"] {
+            let signalled: IpAddr = signalled.parse().unwrap();
+            assert_eq!(
+                media_address(signalled, any_v4, || panic!("no LAN lookup")),
+                signalled
+            );
+        }
+    }
+    #[test]
+    fn a_peer_on_this_pc_comes_over_loopback_or_from_the_address_it_reached() {
+        let lan: IpAddr = "192.168.4.69".parse().unwrap();
+        let loopback = IpAddr::from([127, 0, 0, 1]);
+        assert!(peer_is_this_pc(loopback, loopback));
+        assert!(peer_is_this_pc(
+            "::1".parse().unwrap(),
+            "::1".parse().unwrap()
+        ));
+        assert!(peer_is_this_pc(lan, lan));
+        assert!(peer_is_this_pc("::ffff:192.168.4.69".parse().unwrap(), lan));
+        assert!(!peer_is_this_pc("192.168.4.10".parse().unwrap(), lan));
     }
     #[test]
     fn lan_defaults_and_explicit_binding_keep_legacy_semantics() {

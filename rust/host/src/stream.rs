@@ -425,6 +425,11 @@ fn capture_config(config: &Config) -> Config {
     capture
 }
 impl Media {
+    /// The address the host listens on: unspecified unless it was bound to one.
+    pub fn bind(&self) -> IpAddr {
+        self.bind
+    }
+
     pub fn new(h: Shared, bind: IpAddr) -> Result<Arc<Self>> {
         let ports = h.config.read().unwrap().ports()?;
         let video = ReplySocket::new(crate::network::udp((bind, ports.video).into())?)?;

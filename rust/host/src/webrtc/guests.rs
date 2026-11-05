@@ -90,6 +90,8 @@ pub struct Owner {
     pub followers: Arc<Followers>,
     pub input: InputHandle,
     pub session: Weak<Session>,
+    /// The address the host listens on, for [`crate::network::media_address`].
+    pub bind: IpAddr,
 }
 
 /// Why the host ended a guest's stream.
@@ -812,7 +814,9 @@ async fn guest(
     let _seat = Seat { h: h.clone(), id };
     tracing::info!(guest = id, %name, permission = permission.as_str(), %peer, "guest joined the console stream");
 
-    let prepared = match prepare(h, &owner.spec, local.ip(), seat, address.as_deref()).await {
+    let media =
+        crate::network::media_address(local.ip(), owner.bind, crate::network::this_pc_address);
+    let prepared = match prepare(h, &owner.spec, media, seat, address.as_deref()).await {
         Ok(prepared) => prepared,
         Err(error) => {
             tracing::error!(guest = id, error = %format!("{error:#}"), "guest stream could not be prepared");
@@ -991,6 +995,7 @@ async fn prepare(
         }
     };
     let bound = socket.local_addr().context("reading the media address")?;
+    tracing::info!(media = %bound, advertised = ?advertised, "guest offer's host candidate");
     let mut rtc = sdp::rtc_config(spec)?.build(Instant::now());
     rtc.add_local_candidate(str0m::Candidate::host(bound, "udp").context("the host candidate")?);
     if let Some(host) = advertised

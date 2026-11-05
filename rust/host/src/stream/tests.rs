@@ -635,6 +635,44 @@ fn stream_presets_fill_the_host_and_a_device_or_app_can_pick_its_own() {
     assert_eq!(config.get("amd_quality", ""), "quality");
 }
 #[test]
+fn a_browser_on_this_pc_keeps_the_monitors_it_shows_the_stream_on() {
+    use crate::display_session::{BROWSER_ON_THIS_PC, launch_display_layout};
+    use butterpollo_core::session::Transport;
+    let f = crate::state::test_support::Fixture::new();
+    let config = butterpollo_core::config::Config::default();
+    let client = f.client(u32::MAX);
+    let mut launch = f.launch(client.clone(), Role::Stream);
+    // The default for everyone else: the stream takes over the displays.
+    assert_eq!(
+        launch_display_layout(&config, &launch, None, None),
+        "exclusive"
+    );
+    launch.transport = Transport::WebRtc;
+    assert_eq!(
+        launch_display_layout(&config, &launch, None, None),
+        "exclusive"
+    );
+    launch.options.insert(BROWSER_ON_THIS_PC.into(), "1".into());
+    assert_eq!(
+        launch_display_layout(&config, &launch, None, None),
+        "extended_primary"
+    );
+    // A layout that leaves the monitors on is the user's and stays.
+    let extended =
+        butterpollo_core::config::Config::parse("virtual_display_layout=extended\n").unwrap();
+    assert_eq!(
+        launch_display_layout(&extended, &launch, None, None),
+        "extended"
+    );
+    // A Moonlight client cannot ask for this with a launch parameter.
+    launch.transport = Transport::default();
+    assert_ne!(launch.transport, Transport::WebRtc);
+    assert_eq!(
+        launch_display_layout(&config, &launch, None, None),
+        "exclusive"
+    );
+}
+#[test]
 fn a_background_stream_keeps_keyboard_and_mouse_off_whatever_overrides_say() {
     use crate::state::test_support::Fixture;
     use serde_json::json;

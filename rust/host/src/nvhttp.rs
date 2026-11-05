@@ -1773,6 +1773,8 @@ fn launch_size(args: &Args, config: &Config) -> Result<(u32, u32)> {
 pub(crate) struct WebRtcLaunch {
     pub client: Client,
     pub peer: std::net::IpAddr,
+    /// The browser runs on this PC ([`crate::network::peer_is_this_pc`]).
+    pub this_pc: bool,
     pub app_id: u32,
     pub width: u32,
     pub height: u32,
@@ -1866,6 +1868,12 @@ pub(crate) fn launch_webrtc(
             rand::random(),
         );
         launch.transport = Transport::WebRtc;
+        if request.this_pc {
+            launch.options.insert(
+                crate::display_session::BROWSER_ON_THIS_PC.into(),
+                "1".into(),
+            );
+        }
         launch.background = Some(coop.is_none() && validate_background_launch(h, &launch)?);
         launch_back_half(h, &args, launch, app, coop, false, owner)
     })();
@@ -2594,9 +2602,9 @@ fn prepare_launch_display(
         // another display choice or layout is replaced.
         let client_display = crate::display_session::client_display(launch);
         let app = crate::stream::launch_app(h, launch);
-        let layout = crate::display_session::virtual_display_layout(
+        let layout = crate::display_session::launch_display_layout(
             &config,
-            &launch.client,
+            launch,
             app.as_ref(),
             client_display,
         );

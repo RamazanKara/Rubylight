@@ -412,6 +412,7 @@ async fn a_failed_launch_ends_the_press_at_once() {
         WebRtcLaunch {
             client: tv.clone(),
             peer: std::net::Ipv4Addr::LOCALHOST.into(),
+            this_pc: false,
             app_id: 999_999,
             width: 1280,
             height: 720,

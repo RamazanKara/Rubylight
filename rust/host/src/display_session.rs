@@ -4,10 +4,10 @@ use crate::state::{Launch, Shared};
 use anyhow::{Context, Result};
 use butterpollo_core::{
     config::Config,
-    display_policy::HostDisplay,
+    display_policy::{Arrangement, HostDisplay},
     framegen::{Policy, Rate},
     rtsp::Negotiated,
-    session::{Preparation, Role, Warnings},
+    session::{Preparation, Role, Transport, Warnings},
 };
 use butterpollo_windows::{
     display::{Guard, Retained},
@@ -117,6 +117,29 @@ pub(crate) fn virtual_display_layout<'a>(
                 .is_none_or(|over| over == inherited)
         })
         .unwrap_or(inherited)
+}
+
+/// Set on a WebRTC launch whose browser runs on this PC.
+pub(crate) const BROWSER_ON_THIS_PC: &str = "rlBrowserOnThisPc";
+
+/// The virtual display layout of this launch. A browser on this PC shows the stream on this PC's
+/// monitors, so the exclusive layout would switch off the stream, the page and its Disconnect
+/// button for whoever watches: they stay on, with the virtual display as the primary one, where
+/// the game opens.
+pub(crate) fn launch_display_layout<'a>(
+    config: &'a Config,
+    launch: &'a Launch,
+    app: Option<&'a butterpollo_core::state::App>,
+    requested: Option<HostDisplay>,
+) -> &'a str {
+    let layout = virtual_display_layout(config, &launch.client, app, requested);
+    if layout == Arrangement::Exclusive.name()
+        && launch.transport == Transport::WebRtc
+        && launch.options.contains_key(BROWSER_ON_THIS_PC)
+    {
+        return Arrangement::Primary.name();
+    }
+    layout
 }
 
 /// The device setting naming the app or host layout a learned device layout replaced.
@@ -1408,9 +1431,9 @@ impl Prepared {
         // The client's choice for this stream comes before the device, app
         // and host layouts.
         let selection = if virtual_layout {
-            virtual_display_layout(
+            launch_display_layout(
                 config,
-                &launch.client,
+                launch,
                 app.as_ref(),
                 client_display.filter(|_| virtual_mode),
             )

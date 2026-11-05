@@ -51,6 +51,10 @@ The page signals over the console's own HTTPS port (`wss://`, at `/api/webrtc/si
 
 The browser does not say why the host refused the connection, so the page lists the causes (it asks you to sign in again when the tab's sign-in has lapsed): the tab is not signed in or opened the console from an address the host does not list as its own (`csrf_allowed_origins`), the device is not on the local network or Tailscale, the WebRTC server is off or was turned on without a restart, or the console device is disabled.
 
+Once the offer is answered, the picture and sound travel over UDP `webrtc_media_port`, not over the console's port. If nothing comes back on it within 8 seconds the page ends the attempt and says what it saw, with the address and port ([what each message means](troubleshooting.md#the-browser-stream-or-a-guest-link-fails-to-connect)).
+
+A browser on the PC itself may open the console at `127.0.0.1` or `localhost`. Firefox makes no connection attempt to a loopback address, so on a host bound to all addresses the page is offered the PC's network address instead (the first hardware adapter's IPv4 address). With `--bind 127.0.0.1` there is no other address to offer, and Firefox says so on the page. Such a stream doesn't turn off the monitors: an `exclusive` display layout runs as `extended_primary`, because the browser showing the stream is on one of them.
+
 ### Play in a TV browser
 
 A TV, console or car browser plays games from this PC with no app: it pairs once like a TV, then lists the PC's games and plays one full screen.
@@ -108,7 +112,7 @@ The host sends the offer. It carries one video codec at a fixed payload type, on
 | `control` | ordered, reliable | Host to client: `rumble` and `mouse-mode`. Client to host: `request-keyframe`. |
 | `gamepad` | unordered, no retransmits | Client to host: gamepad messages. |
 
-The host is ICE-lite. Its only candidate is its own address plus `webrtc_media_port`. It has no STUN or TURN, learns your address from your connectivity checks, and ignores `candidate` messages.
+The host is ICE-lite. Its only candidate is the address your connection reached plus `webrtc_media_port` (over loopback, on a host bound to all addresses, the PC's network address: [see above](#stream-in-the-console)). It has no STUN or TURN, learns your address from your connectivity checks, and ignores `candidate` messages.
 
 The host checks your answer. A changed codec or profile is an error, and the host never falls back to something else.
 

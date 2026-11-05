@@ -7,7 +7,7 @@ Start with the stream card on **Home**, **Help → Log analysis** and the host l
 | Area | Symptoms |
 | --- | --- |
 | Install and start | [This PC cannot run Rubylight 3.0](#setup-or-the-host-says-this-pc-cannot-run-rubylight-30) · [Console or port](#the-console-will-not-open-or-a-port-is-occupied) · [Profile folder owner](#setup-rejects-the-profile-folders-owner) · [Install folder](#an-update-says-rubylight-cannot-be-updated-in-its-folder) · [Queued update](#an-update-stays-queued) · [Drivers](#a-driver-is-missing-or-out-of-date) |
-| Connecting | [Pairing](#moonlight-cannot-find-or-pair-with-the-pc) · [Outside your network](#clients-outside-your-network-cannot-connect) · [os error 10035](#the-stream-disconnects-after-a-second-with-os-error-10035) · [Drops and timeouts](#the-stream-breaks-up-drops-or-times-out-on-the-network) |
+| Connecting | [Pairing](#moonlight-cannot-find-or-pair-with-the-pc) · [Outside your network](#clients-outside-your-network-cannot-connect) · [Browser stream or guest link](#the-browser-stream-or-a-guest-link-fails-to-connect) · [os error 10035](#the-stream-disconnects-after-a-second-with-os-error-10035) · [Drops and timeouts](#the-stream-breaks-up-drops-or-times-out-on-the-network) |
 | Picture | [Stream card warnings](#what-the-stream-card-warnings-mean) · [Codec not available](#the-client-asks-for-a-codec-this-gpu-cannot-encode) · [Black screen](#black-picture-no-display-or-wgc-fails) · [HDR colour](#hdr-looks-washed-out-too-bright-or-different-between-clients) · [Blurred PyroWave](#pyrowave-shows-blurred-grey-blocks) · [Stutter](#low-latency-is-reported-but-motion-still-stutters) · [Frozen picture](#the-picture-freezes-while-audio-and-input-continue) · [GPU reset](#the-picture-freezes-and-the-gpu-resets-during-a-stream) |
 | Displays | [Layout not restored](#monitors-stay-on-or-the-display-layout-does-not-return) · [Mode refused](#windows-refuses-the-virtual-displays-requested-mode) · [Display not active](#virtual-display-did-not-become-active-before-the-deadline) |
 | Sound and input | [Audio](#audio-cuts-out-or-lags) · [Controllers](#a-controller-or-other-input-does-nothing) · [Two controllers in Steam](#steam-shows-two-controllers) · [Steam Deck](#a-steam-deck-has-no-gyro-trackpads-or-back-grips) |
@@ -78,6 +78,21 @@ If the device pairs but cannot launch Desktop, open the device on **Devices** an
 ## Clients outside your network cannot connect
 
 With `upnp` on, the host asks the router to forward its streaming ports. "UPnP mapping failed" or "UPnP mapping timed out" means the router refused or did not answer: turn UPnP on in the router, or forward the ports by hand. "UPnP port is already owned by another mapping" means an older mapping, often from another streaming host, holds the port: remove it in the router's port forwarding list. Devices on the same network do not need UPnP.
+
+## The browser stream or a guest link fails to connect
+
+The picture and sound reach a browser over UDP, on a port of their own (`webrtc_media_port`, 8001 by default; guests use the next four). The page says what it saw:
+
+| The page says | What it means and what to do |
+| --- | --- |
+| "This browser does not stream from this PC's loopback address" | Firefox on the PC itself, with a host that only listens on `127.0.0.1`. Firefox makes no attempt to reach a loopback address. Remove `--bind 127.0.0.1`, or use Chrome or Edge. |
+| "This browser did not try to reach the PC" (or "Your browser did not try") | The browser sent nothing. A setting or extension that limits WebRTC (an ad blocker's WebRTC protection, `media.peerconnection.enabled` in Firefox), or a VPN, usually causes it: turn it off for this page. |
+| "The PC did not answer at *address*, UDP port *port*" | The browser sent to that address and nothing came back within 8 seconds. Allow `butterpollo.exe` or that UDP port through the firewall on the PC, including other security software. Setup adds a Windows Firewall rule for the program, so a block usually comes from something else. Check that no VPN on the device takes the traffic away from the PC. |
+| "Your browser could not reach the PC on UDP port *port*" | The same, for a guest. Forward that UDP port to the PC ([ports](browser-guests.md)), or connect over Tailscale. |
+| "...reached the PC, but the encrypted connection to it failed" | The PC answered and the DTLS handshake failed. Try again. If it keeps failing, antivirus or a firewall that inspects traffic may be in the way. |
+| "The connection to the PC was lost" | The stream had connected and then stopped getting through. Check the network between the device and the PC. |
+
+In the host log, `WebRTC offer's host candidate` and `guest offer's host candidate` give the address that was offered, `connection failed:` gives what the Stream page saw and the browser, and `the stream ended before its media connected` gives how many datagrams reached the media port. Zero datagrams means they never reached the host.
 
 ## The stream disconnects after a second with "os error 10035"
 

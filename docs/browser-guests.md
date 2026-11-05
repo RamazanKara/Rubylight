@@ -38,7 +38,7 @@ Never forward TCP 47990, the console's port, nor UDP 8000 or 8001 (the TV protoc
 
 When a guest joins, the PC looks up the link's address (only the one you typed, never one a guest sends) and offers it to the guest's browser beside its own, so a forwarded UDP port is found.
 
-Rubylight uses no STUN or TURN server and no relay. Each guest's browser connects to the PC's UDP port; the PC learns the guest's address from that connection. A guest behind its own router needs no setup. A PC that can't take incoming connections (behind carrier-grade NAT, or a router you can't configure) can't have guests from the internet; Tailscale gets around that.
+Rubylight uses no STUN or TURN server and no relay. Each guest's browser connects to the PC's UDP port; the PC learns the guest's address from that connection. A guest behind its own router needs no setup. A PC that can't take incoming connections (behind carrier-grade NAT, or a router you can't configure) can't have guests from the internet; Tailscale gets around that. A guest whose browser gets no answer on the UDP port sees that within 8 seconds, with the port and what to ask you for ([what each message means](troubleshooting.md#the-browser-stream-or-a-guest-link-fails-to-connect)).
 
 ## The certificate warning
 

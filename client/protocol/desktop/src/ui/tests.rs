@@ -968,6 +968,15 @@ fn at_150_percent_in_german_a_1280x720_window_clips_no_button() {
         assert_fits(&f, &format!("PCs, {}", state.name), false);
         // Every dialog a PC can open, at the busiest state.
         let id = f.hosts.list[0].id;
+        let approving = |name: &str, busy: bool| Dialog::ApprovePairing {
+            host: id,
+            request: "a1".into(),
+            name: name.into(),
+            address: "192.168.100.116".into(),
+            pc: "A long name for a gaming PC".into(),
+            pin: "12".into(),
+            busy,
+        };
         let dialogs = [
             Dialog::HostOptions { host: id },
             Dialog::AddHost { text: String::new(), error: Some("Cannot reach the host.".into()) },
@@ -996,15 +1005,14 @@ fn at_150_percent_in_german_a_1280x720_window_clips_no_button() {
             },
             Dialog::ConfirmUpdate { host: id, name: "A long name for a gaming PC".into(), version: "3.4.0".into() },
             Dialog::PairRequests { only: Some(id) },
-            Dialog::ApprovePairing {
-                host: id,
-                request: "a1".into(),
-                name: "A long name for a television set".into(),
-                address: "192.168.100.116".into(),
-                pc: "A long name for a gaming PC".into(),
-                pin: "12".into(),
-                busy: false,
-            },
+            approving("A long name for a television set", false),
+            approving("A long name for a television set", true),
+            // A device picks its own name: words, one long word, or lines.
+            approving(&"A long name ".repeat(11)[..128], false),
+            approving(&"A long name ".repeat(11)[..128], true),
+            approving(&"W".repeat(128), false),
+            approving(&"W".repeat(128), true),
+            approving(&"TV\n".repeat(40), true),
         ];
         for dialog in dialogs {
             let name = format!("{:?}", std::mem::discriminant(&dialog));

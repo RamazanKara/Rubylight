@@ -10,6 +10,7 @@
     <string name="open_play_continue">繼續 %1$s</string>
     <string name="open_play_not_listed">%1$s 不再列出此遊戲</string>
     <string name="open_play_no_list">%1$s 未傳送遊戲清單</string>
+    <string name="open_play_other_device">%1$s 上的遊戲正在另一台裝置上遊玩,因此 Nightjar 照常開啟。</string>
     <string-array name="open_on_start_names">
         <item>顯示我的電腦</item>
         <item>繼續上次的遊戲</item>

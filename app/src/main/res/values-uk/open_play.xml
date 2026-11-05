@@ -10,6 +10,7 @@
     <string name="open_play_continue">Продовжити %1$s</string>
     <string name="open_play_not_listed">На %1$s більше немає цієї гри</string>
     <string name="open_play_no_list">%1$s не надіслав список ігор</string>
+    <string name="open_play_other_device">Гра на %1$s запущена на іншому пристрої, тому Nightjar відкрився як зазвичай.</string>
     <string-array name="open_on_start_names">
         <item>Показати мої ПК</item>
         <item>Продовжити останню гру</item>

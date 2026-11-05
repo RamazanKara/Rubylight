@@ -10,6 +10,7 @@
     <string name="open_play_continue">%1$s devam et</string>
     <string name="open_play_not_listed">%1$s artık bu oyunu listelemiyor</string>
     <string name="open_play_no_list">%1$s oyun listesini göndermedi</string>
+    <string name="open_play_other_device">%1$s üzerindeki bir oyun başka bir cihazda oynanıyor, bu yüzden Nightjar her zamanki gibi açıldı.</string>
     <string-array name="open_on_start_names">
         <item>Bilgisayarlarımı göster</item>
         <item>Son oyunuma devam et</item>

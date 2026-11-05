@@ -341,7 +341,7 @@ fn installed(game: &Game) -> bool {
 }
 
 /// Whether the PC's session runs or holds a game (not idle, stopping or unknown).
-fn active(session: &Session) -> bool {
+pub(crate) fn active(session: &Session) -> bool {
     matches!(session.state, State::Preparing | State::Launching | State::Streaming | State::Suspended)
         && session.app.is_some()
 }

@@ -39,10 +39,13 @@ public final class GameDetailModel {
     public final ConsoleSnapshot.Source otherRunningSource;
     /** The host's list was read just now, so a game it leaves out ({@link #source} null) is really not on it. */
     public final boolean libraryRead;
+    /** A game on the host is another device's stream: it is not this device's to take over unasked. */
+    public final boolean playingElsewhere;
 
     private GameDetailModel(String hostUuid, String hostName, String title, int appId, ConsoleSnapshot.Source source,
                             State state, boolean hostOnline, EndAction endAction, String otherRunningTitle,
-                            int otherRunningAppId, ConsoleSnapshot.Source otherRunningSource, boolean libraryRead) {
+                            int otherRunningAppId, ConsoleSnapshot.Source otherRunningSource, boolean libraryRead,
+                            boolean playingElsewhere) {
         this.hostUuid = hostUuid;
         this.hostName = hostName;
         this.title = title;
@@ -55,6 +58,7 @@ public final class GameDetailModel {
         this.otherRunningAppId = otherRunningAppId;
         this.otherRunningSource = otherRunningSource;
         this.libraryRead = libraryRead;
+        this.playingElsewhere = playingElsewhere;
     }
 
     /** Resume when the game runs or is suspended on this host, Play otherwise. */
@@ -155,6 +159,7 @@ public final class GameDetailModel {
         return new GameDetailModel(hostUuid, host != null ? host.name : fallbackHostName,
                 source != null ? source.title : fallbackTitle, appId, source, state, hostOnline, end, otherRunning,
                 otherRunning == null ? 0 : otherRunningId, otherRunning == null ? null : otherRunningSource,
-                host != null && (host.status == ConsoleSnapshot.Status.LIVE || host.status == ConsoleSnapshot.Status.CLASSIC));
+                host != null && (host.status == ConsoleSnapshot.Status.LIVE || host.status == ConsoleSnapshot.Status.CLASSIC),
+                hostOnline && session != null && session.isActive() && session.owner == NativeSession.Owner.OTHER_DEVICE);
     }
 }

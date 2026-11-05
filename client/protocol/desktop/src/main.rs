@@ -1173,7 +1173,7 @@ impl App {
                         eprintln!("nightjar: another stream started while the PC said who plays; this start is dropped");
                         continue;
                     }
-                    let playing = read.as_ref().and_then(|read| self.hosts.get(id).and_then(|h| ui::playing_elsewhere(h, app, read)));
+                    let playing = read.as_ref().and_then(|read| self.hosts.get(id).and_then(|h| ui::playing_elsewhere(h, app, resume, read)));
                     let press_failed = read.as_ref().is_some_and(|read| read.press_failed);
                     match select_step(resume, too, playing, press_failed) {
                         SelectStep::Ask(name, device) => self.launcher.ask_after(Dialog::ContinueHere { host: id, app, resume, name, device }),

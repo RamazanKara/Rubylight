@@ -54,6 +54,7 @@ public class PinLockActivity extends NightjarActivity {
     private static final String EXTRA_RECENT_HOST_NAME = "pin_recent_host_name";
     private static final String EXTRA_RECENT_APP_ID = "pin_recent_app_id";
     private static final String EXTRA_RECENT_TITLE = "pin_recent_title";
+    private static final String EXTRA_RECENT_STABLE_ID = "pin_recent_stable_id";
 
     /** Tests run the key derivation on the calling thread. */
     static Executor executorForTests;
@@ -74,7 +75,8 @@ public class PinLockActivity extends NightjarActivity {
         if (app.getRole() == NvApp.Role.STREAM) {
             // The "Continue playing" entry is made when the stream really starts, not when the PIN is asked for.
             intent.putExtra(EXTRA_RECENT_HOST, computer.uuid).putExtra(EXTRA_RECENT_HOST_NAME, computer.name)
-                    .putExtra(EXTRA_RECENT_APP_ID, app.getAppId()).putExtra(EXTRA_RECENT_TITLE, app.getAppName());
+                    .putExtra(EXTRA_RECENT_APP_ID, app.getAppId()).putExtra(EXTRA_RECENT_TITLE, app.getAppName())
+                    .putExtra(EXTRA_RECENT_STABLE_ID, app.getAppUuid());
         }
         return intent;
     }
@@ -84,7 +86,7 @@ public class PinLockActivity extends NightjarActivity {
         if (!in.hasExtra(EXTRA_RECENT_HOST)) return;
         new PreferencesRecentsStore(this).record(new RecentsStore.Recent(in.getStringExtra(EXTRA_RECENT_HOST),
                 in.getStringExtra(EXTRA_RECENT_HOST_NAME), in.getIntExtra(EXTRA_RECENT_APP_ID, 0),
-                in.getStringExtra(EXTRA_RECENT_TITLE), System.currentTimeMillis()));
+                in.getStringExtra(EXTRA_RECENT_TITLE), System.currentTimeMillis(), in.getStringExtra(EXTRA_RECENT_STABLE_ID)));
     }
 
     /**

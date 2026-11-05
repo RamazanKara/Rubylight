@@ -173,7 +173,7 @@ public class OpenPlayTest {
     public void theMenuChoiceSetsTheSettingAndTakingItBackReturnsToThePcs() throws Exception {
         android.content.SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(context);
         String choose = OpenPlay.menuLabel(context, "pc", 9);
-        OpenPlay.toggle(context, "pc", "Desk", 9, "Hades");
+        OpenPlay.toggle(context, "pc", "Desk", 9, "t-hades", "Hades");
         assertEquals("chosen", settings.getString(OpenPlay.SETTING, null));
         assertNotEquals(choose, OpenPlay.menuLabel(context, "pc", 9));
         assertEquals("another game still offers it", choose, OpenPlay.menuLabel(context, "pc", 10));
@@ -182,14 +182,32 @@ public class OpenPlayTest {
         assertEquals(9, OpenPlay.atEntry(context, launcher(), false, true).getIntExtra(GameDetailActivity.EXTRA_APP_ID, 0));
         assertTrue(lastAsked().getBoolean("has_chosen"));
 
-        OpenPlay.toggle(context, "pc", "Desk", 9, "Hades");
+        OpenPlay.toggle(context, "pc", "Desk", 9, "t-hades", "Hades");
         assertEquals("pcs", settings.getString(OpenPlay.SETTING, null));
         assertEquals(choose, OpenPlay.menuLabel(context, "pc", 9));
     }
 
     @Test
+    public void aChosenGameCarriesItsStableIdAndAnOlderSaveOpensWithout() throws Exception {
+        answer = "{\"ok\":{\"action\":\"countdown\",\"game\":\"chosen\",\"disarm\":false}}";
+        OpenPlay.toggle(context, "pc", "Desk", 9, "t-hades", "Hades");
+        assertEquals("t-hades", OpenPlay.atEntry(context, launcher(), false, true).getStringExtra(GameDetailActivity.EXTRA_STABLE_ID));
+        context.getSharedPreferences("open_play", android.content.Context.MODE_PRIVATE).edit()
+                .putString("game", "{\"host\":\"pc\",\"host_name\":\"Desk\",\"app\":9,\"title\":\"Hades\"}").commit();
+        assertEquals("", OpenPlay.atEntry(context, launcher(), false, true).getStringExtra(GameDetailActivity.EXTRA_STABLE_ID));
+    }
+
+    @Test
+    public void theLastGameCarriesItsStableIdAndAnOlderEntryOpensWithout() throws Exception {
+        answer = "{\"ok\":{\"action\":\"countdown\",\"game\":\"last\",\"disarm\":false}}";
+        assertEquals("older entry", "", OpenPlay.atEntry(context, launcher(), false, true).getStringExtra(GameDetailActivity.EXTRA_STABLE_ID));
+        new PreferencesRecentsStore(context).record(new RecentsStore.Recent("pc", "Desk", 8, "Hades", 2, "t-hades"));
+        assertEquals("t-hades", OpenPlay.atEntry(context, launcher(), false, true).getStringExtra(GameDetailActivity.EXTRA_STABLE_ID));
+    }
+
+    @Test
     public void removingThePcForgetsItsChosenGameOnly() {
-        OpenPlay.toggle(context, "pc", "Desk", 9, "Hades");
+        OpenPlay.toggle(context, "pc", "Desk", 9, "t-hades", "Hades");
         OpenPlay.forgetHost(context, "other");
         assertNotEquals(OpenPlay.menuLabel(context, "other", 9), OpenPlay.menuLabel(context, "pc", 9));
         OpenPlay.forgetHost(context, "pc");

@@ -41,11 +41,13 @@ public final class GameDetailModel {
     public final boolean libraryRead;
     /** A game on the host is another device's stream: it is not this device's to take over unasked. */
     public final boolean playingElsewhere;
+    /** The host has a session to tell of and it could not be read: nobody knows yet whose game runs there. */
+    public final boolean sessionUnread;
 
     private GameDetailModel(String hostUuid, String hostName, String title, int appId, ConsoleSnapshot.Source source,
                             State state, boolean hostOnline, EndAction endAction, String otherRunningTitle,
                             int otherRunningAppId, ConsoleSnapshot.Source otherRunningSource, boolean libraryRead,
-                            boolean playingElsewhere) {
+                            boolean playingElsewhere, boolean sessionUnread) {
         this.hostUuid = hostUuid;
         this.hostName = hostName;
         this.title = title;
@@ -59,6 +61,7 @@ public final class GameDetailModel {
         this.otherRunningSource = otherRunningSource;
         this.libraryRead = libraryRead;
         this.playingElsewhere = playingElsewhere;
+        this.sessionUnread = sessionUnread;
     }
 
     /** Resume when the game runs or is suspended on this host, Play otherwise. */
@@ -160,6 +163,7 @@ public final class GameDetailModel {
                 source != null ? source.title : fallbackTitle, appId, source, state, hostOnline, end, otherRunning,
                 otherRunning == null ? 0 : otherRunningId, otherRunning == null ? null : otherRunningSource,
                 host != null && (host.status == ConsoleSnapshot.Status.LIVE || host.status == ConsoleSnapshot.Status.CLASSIC),
-                hostOnline && session != null && session.isActive() && session.owner == NativeSession.Owner.OTHER_DEVICE);
+                hostOnline && session != null && session.isActive() && session.owner == NativeSession.Owner.OTHER_DEVICE,
+                hostOnline && nativeHost && session == null && (host == null || host.status != ConsoleSnapshot.Status.CLASSIC));
     }
 }

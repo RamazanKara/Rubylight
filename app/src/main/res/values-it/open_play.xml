@@ -12,6 +12,8 @@
     <string name="open_play_no_list">%1$s non ha inviato il suo elenco di giochi</string>
     <string name="open_play_other_device">Un gioco di %1$s è in uso su un altro dispositivo, quindi Nightjar si è aperto come al solito.</string>
     <string name="open_play_no_network">Nessuna rete, quindi Nightjar si è aperto come al solito.</string>
+    <string name="open_play_waiting_network">In attesa della rete…</string>
+    <string name="open_play_no_answer">%1$s non ha risposto in tempo.</string>
     <string-array name="open_on_start_names">
         <item>Mostra i miei PC</item>
         <item>Riprendi l’ultimo gioco</item>

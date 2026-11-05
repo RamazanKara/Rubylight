@@ -56,13 +56,22 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     public static final String EXTRA_HOST_NAME = "com.limelight.console.HOST_NAME";
     /** "When Nightjar opens": the page counts down and starts the game by itself (see {@link OpenPlay}). */
     static final String EXTRA_OPEN_PLAY = "com.limelight.console.OPEN_PLAY";
+    /** With {@link #EXTRA_OPEN_PLAY}: what the host calls the saved game, whatever its app id is by now. */
+    static final String EXTRA_STABLE_ID = "com.limelight.console.STABLE_ID";
 
     private static final long DEBOUNCE_MS = 250;
     /** How long an automatic start waits for the page to load; a wake that follows has its own limit. */
     private static final long AUTO_LOAD_LIMIT_MS = 45_000;
+    /** How often an automatic start asks again for what the PC has not said yet. */
+    private static final long AUTO_RETRY_MS = 2_000;
+    /** As on the desktop: how long a start waits for the network, a TV launcher's at boot being ahead of its Wi-Fi. */
+    private static final long NETWORK_LIMIT_MS = 60_000;
+    /** After the network came back: longer than a poll, so the countdown never names a PC not yet heard from. */
+    private static final long NETWORK_SETTLE_MS = 6_000;
+    private static final long NETWORK_CHECK_MS = 500;
 
-    /** An automatic start: waiting for the PIN screen to clear, counting down, then going to the game. */
-    private enum Auto { OFF, WAITING, COUNTING, GOING }
+    /** An automatic start: waiting for the PIN screen to clear, then the network, counting down, then going to the game. */
+    private enum Auto { OFF, WAITING, NETWORK, COUNTING, GOING }
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
@@ -88,12 +97,22 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     private Auto auto = Auto.OFF;
     private AlertDialog countdown;
     private long countdownEnd;
+    private long networkLimit;
+    /** When the wait for the network ends, now that it is back; 0 until then. */
+    private long networkSettled;
+    /** {@link #autoLoadLimit} is on its way. */
+    private boolean autoLimitPosted;
+    private String stableId;
     /** {@link #model} comes from a finished read of the PC, not from what was saved or a poll's redraw of it. */
     private boolean modelLive;
     /** The automatic start has acted on a live page. */
     private boolean autoActed;
     private final Runnable countdownTick = this::tickCountdown;
-    private final Runnable autoLoadLimit = this::autoLoadFailed;
+    private final Runnable networkTick = this::tickNetwork;
+    private final Runnable autoLoadLimit = () -> {
+        autoLimitPosted = false;
+        autoLoadFailed();
+    };
 
     private View loading;
     private ImageView cover;
@@ -158,6 +177,8 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         appId = getIntent().getIntExtra(EXTRA_APP_ID, 0);
         titleExtra = getIntent().getStringExtra(EXTRA_TITLE);
         hostNameExtra = getIntent().getStringExtra(EXTRA_HOST_NAME);
+        stableId = getIntent().getStringExtra(EXTRA_STABLE_ID);
+        if (stableId == null) stableId = "";
         if (hostUuid == null) {
             finish();
             return;
@@ -225,6 +246,46 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         return connectivity == null || connectivity.getActiveNetworkInfo() != null;
     }
 
+    /** No network yet: a wait the player can still say no to, with the same ways out as the countdown. */
+    private void waitForNetwork() {
+        auto = Auto.NETWORK;
+        networkLimit = SystemClock.elapsedRealtime() + NETWORK_LIMIT_MS;
+        networkSettled = 0;
+        countdown = new NavigationDialogBuilder(this)
+                .setTitle(titleExtra)
+                .setMessage(R.string.open_play_waiting_network)
+                .setNegativeButton(android.R.string.cancel, (dialog, which) -> cancelCountdown())
+                .setOnCancelListener(dialog -> cancelCountdown())
+                .show();
+        countdown.getButton(AlertDialog.BUTTON_NEGATIVE).requestFocus();
+        handler.postDelayed(networkTick, NETWORK_CHECK_MS);
+    }
+
+    private void tickNetwork() {
+        if (auto != Auto.NETWORK) return;
+        long now = SystemClock.elapsedRealtime();
+        if (networkSettled == 0 && hasNetwork()) {
+            networkSettled = now + NETWORK_SETTLE_MS;
+            // What the page read without a network says nothing.
+            modelLive = false;
+            loadedSignature = null;
+            scheduleReload();
+        }
+        if (networkSettled == 0 && now >= networkLimit) {
+            countdown.dismiss();
+            countdown = null;
+            // No guard for a start that cannot happen.
+            auto = Auto.GOING;
+            autoFailed(WakeFeedback.said(this, hostNameExtra, getString(R.string.open_play_no_network)));
+        } else if (networkSettled != 0 && now >= networkSettled) {
+            countdown.dismiss();
+            countdown = null;
+            startCountdown();
+        } else {
+            handler.postDelayed(networkTick, NETWORK_CHECK_MS);
+        }
+    }
+
     /** The 3 seconds in which the player can still say no, naming the game and the PC. */
     private void startCountdown() {
         auto = Auto.COUNTING;
@@ -256,10 +317,10 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         auto = Auto.GOING;
         // Armed before anything can go wrong: only a good ending clears it.
         OpenPlay.arm(this);
+        startAutoLimit();
         if (modelLive) {
             actOnAuto();
         } else {
-            handler.postDelayed(autoLoadLimit, AUTO_LOAD_LIMIT_MS);
             scheduleReload();
         }
     }
@@ -267,6 +328,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     /** The countdown is over without a start; the guard stays as it was. */
     private void stopCountdown() {
         handler.removeCallbacks(countdownTick);
+        handler.removeCallbacks(networkTick);
         if (countdown != null) {
             countdown.dismiss();
             countdown = null;
@@ -282,13 +344,31 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
 
     /** The page is loaded and the countdown over: wake the PC, or start the game. */
     private void actOnAuto() {
+        ComputerDetails computer = currentHost();
+        if (computer != null && computer.state == ComputerDetails.State.UNKNOWN) {
+            // Not heard from yet is not offline: the next poll's news comes back here, within the limit.
+            modelLive = false;
+            return;
+        }
         autoActed = true;
-        handler.removeCallbacks(autoLoadLimit);
         if (wakeable(model)) {
+            // The wake has its own limit.
+            stopAutoLimit();
             wakeAndPlay();
         } else {
             startAuto(model);
         }
+    }
+
+    private void startAutoLimit() {
+        if (autoLimitPosted) return;
+        autoLimitPosted = true;
+        handler.postDelayed(autoLoadLimit, AUTO_LOAD_LIMIT_MS);
+    }
+
+    private void stopAutoLimit() {
+        autoLimitPosted = false;
+        handler.removeCallbacks(autoLoadLimit);
     }
 
     /** The PC answers, or cannot be woken: the game starts, or the player learns why not. */
@@ -299,9 +379,17 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             // Nothing went wrong, so the next start is not skipped for it. Never moved automatically.
             OpenPlay.disarm(this);
             autoFailed(WakeFeedback.said(this, m.hostName, getString(R.string.open_play_other_device, m.hostName)));
-        } else if (m.source == null && m.libraryRead && !classicListCache) {
-            // Its id is stale; the PC would be asked for a game it no longer has.
+        } else if (m.libraryRead && (m.source == null ? !classicListCache
+                : !stableId.isEmpty() && !OpenPlay.sameGame(m.source, stableId))) {
+            // Its id is stale, or another game's by now; the PC would be asked for a game it no longer has.
             autoFailed(WakeFeedback.said(this, m.hostName, getString(R.string.open_play_not_listed, m.hostName)));
+        } else if (m.sessionUnread && (m.source != null || classicListCache)) {
+            // Free is not what a failed read says: ask again, within the limit. (With nothing to start, Play says so.)
+            autoActed = false;
+            modelLive = false;
+            startAutoLimit();
+            handler.removeCallbacks(reload);
+            handler.postDelayed(reload, AUTO_RETRY_MS);
         } else {
             onPlay();
         }
@@ -316,14 +404,21 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     /** The page never loaded in time: either the PC is away, or it answers without telling what it has. */
     private void autoLoadFailed() {
         ComputerDetails computer = currentHost();
-        autoFailed(WakeFeedback.said(this, hostNameExtra, computer != null && computer.state == ComputerDetails.State.ONLINE
-                ? getString(R.string.open_play_no_list, hostNameExtra) : getString(R.string.error_pc_offline)));
+        boolean online = computer != null && computer.state == ComputerDetails.State.ONLINE;
+        autoFailed(WakeFeedback.said(this, hostNameExtra, !online ? getString(R.string.error_pc_offline)
+                : model != null && modelSaidNoSession() ? getString(R.string.open_play_no_answer, hostNameExtra)
+                : getString(R.string.open_play_no_list, hostNameExtra)));
+    }
+
+    /** The list came, and it was the session that kept the start waiting. */
+    private boolean modelSaidNoSession() {
+        return model.sessionUnread && (model.source != null || classicListCache);
     }
 
     /** The automatic part is over; what follows is the page's usual behaviour. */
     private void endAuto() {
         auto = Auto.OFF;
-        handler.removeCallbacks(autoLoadLimit);
+        stopAutoLimit();
     }
 
     /** An automatic start failed and says so: the player lands on Home, and the guard stays armed. */
@@ -378,9 +473,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             if (hasNetwork()) {
                 startCountdown();
             } else {
-                // No countdown and no guard for a start that cannot happen.
-                auto = Auto.GOING;
-                autoFailed(WakeFeedback.said(this, hostNameExtra, getString(R.string.open_play_no_network)));
+                waitForNetwork();
             }
         }
     }
@@ -388,7 +481,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     @Override
     protected void onPause() {
         shown = false;
-        if (auto == Auto.COUNTING) {
+        if (auto == Auto.COUNTING || auto == Auto.NETWORK) {
             stopCountdown();
         } else if (auto == Auto.GOING) {
             // Leaving the page during the start, the wake's wait for one, is the player's choice.
@@ -472,7 +565,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                     NativeCapabilities capabilities = online ? repo.capabilities(computer) : null;
                     control = capabilities != null && capabilities.hostControl;
                     controlCache = control;
-                    classicListCache = repo.classicListHas(computer, appId);
+                    classicListCache = repo.classicListHas(computer, OpenPlay.listedAs(snapshot.host(hostUuid), stableId, appId), stableId);
                 } else {
                     control = controlCache;
                 }
@@ -513,7 +606,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
 
     private void show(int mine, ComputerDetails computer, boolean online, boolean nativeHost, ConsoleSnapshot snapshot,
                       boolean control, boolean done, boolean live, int starVersion, Boolean starred) {
-        GameDetailModel next = GameDetailModel.of(snapshot, hostUuid, appId, titleExtra, hostNameExtra, online,
+        GameDetailModel next = GameDetailModel.of(snapshot, hostUuid, OpenPlay.listedAs(snapshot.host(hostUuid), stableId, appId), titleExtra, hostNameExtra, online,
                 nativeHost, control);
         runOnUiThread(() -> {
             if (mine != generation || isFinishing() || isDestroyed()) {

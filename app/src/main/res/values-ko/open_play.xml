@@ -12,6 +12,8 @@
     <string name="open_play_no_list">%1$s에서 게임 목록을 받지 못했습니다</string>
     <string name="open_play_other_device">%1$s의 게임을 다른 기기에서 플레이 중이므로 Nightjar가 평소처럼 열렸습니다.</string>
     <string name="open_play_no_network">네트워크가 없어 Nightjar가 평소처럼 열렸습니다.</string>
+    <string name="open_play_waiting_network">네트워크를 기다리는 중…</string>
+    <string name="open_play_no_answer">%1$s이(가) 제시간에 응답하지 않았습니다.</string>
     <string-array name="open_on_start_names">
         <item>내 PC 표시</item>
         <item>마지막 게임 계속하기</item>

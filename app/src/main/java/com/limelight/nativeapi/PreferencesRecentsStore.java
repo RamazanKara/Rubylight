@@ -30,7 +30,7 @@ public final class PreferencesRecentsStore implements RecentsStore {
             for (int i = 0; i < array.length(); i++) {
                 JSONObject json = array.getJSONObject(i);
                 recents.add(new Recent(json.getString("host"), json.optString("host_name"), json.getInt("app"),
-                        json.optString("title"), json.optLong("played_ms")));
+                        json.optString("title"), json.optLong("played_ms"), json.optString("stable_id")));
             }
         } catch (JSONException e) {
             recents.clear();
@@ -66,7 +66,8 @@ public final class PreferencesRecentsStore implements RecentsStore {
         try {
             for (Recent recent : recents) {
                 array.put(new JSONObject().put("host", recent.hostUuid).put("host_name", recent.hostName)
-                        .put("app", recent.appId).put("title", recent.title).put("played_ms", recent.playedAtMs));
+                        .put("app", recent.appId).put("title", recent.title).put("played_ms", recent.playedAtMs)
+                        .put("stable_id", recent.stableId));
             }
         } catch (JSONException e) {
             return;

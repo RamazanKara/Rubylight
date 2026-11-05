@@ -785,7 +785,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                             if (which == 0) {
                                 setFavourite(card, !remove);
                             } else {
-                                OpenPlay.toggle(this, card.hostUuid, card.hostName, card.appId, card.title);
+                                OpenPlay.toggle(this, card.hostUuid, card.hostName, card.appId, card.source != null ? card.source.stableId() : "", card.title);
                             }
                         })
                 .setNegativeButton(android.R.string.cancel, null).create());

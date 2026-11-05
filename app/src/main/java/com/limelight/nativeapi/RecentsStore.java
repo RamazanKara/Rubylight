@@ -13,17 +13,24 @@ public interface RecentsStore {
         public final int appId;
         public final String title;
         public final long playedAtMs;
+        /** What the host calls the game across id changes; empty when it gave nothing or for an older entry. */
+        public final String stableId;
 
         public Recent(String hostUuid, String hostName, int appId, String title, long playedAtMs) {
+            this(hostUuid, hostName, appId, title, playedAtMs, "");
+        }
+
+        public Recent(String hostUuid, String hostName, int appId, String title, long playedAtMs, String stableId) {
             this.hostUuid = hostUuid;
             this.hostName = hostName;
             this.appId = appId;
             this.title = title;
             this.playedAtMs = playedAtMs;
+            this.stableId = stableId == null ? "" : stableId;
         }
 
         public static Recent of(ComputerDetails computer, NvApp app, long playedAtMs) {
-            return new Recent(computer.uuid, computer.name, app.getAppId(), app.getAppName(), playedAtMs);
+            return new Recent(computer.uuid, computer.name, app.getAppId(), app.getAppName(), playedAtMs, app.getAppUuid());
         }
     }
 

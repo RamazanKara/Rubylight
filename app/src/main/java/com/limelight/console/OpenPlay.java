@@ -14,6 +14,7 @@ import androidx.annotation.VisibleForTesting;
 
 import com.limelight.LimeLog;
 import com.limelight.R;
+import com.limelight.nativeapi.ConsoleSnapshot;
 import com.limelight.nativeapi.PreferencesRecentsStore;
 import com.limelight.nativeapi.RecentsStore;
 import com.limelight.utils.LaunchSource;
@@ -36,6 +37,8 @@ public final class OpenPlay {
     private static final String FILE = "open_play";
     private static final String ARMED = "armed";
     private static final String GAME = "game";
+    /** In {@link #GAME}'s saved game, beside its app id. */
+    private static final String STABLE_ID = "stable_id";
 
     /** Screens created in this process: only the first can be a cold start. */
     private static final AtomicInteger screens = new AtomicInteger();
@@ -64,12 +67,15 @@ public final class OpenPlay {
         final String hostName;
         final int appId;
         final String title;
+        /** What the host calls the game across id changes; empty when it gave nothing or for an older save. */
+        final String stableId;
 
-        Game(String hostUuid, String hostName, int appId, String title) {
+        Game(String hostUuid, String hostName, int appId, String title, String stableId) {
             this.hostUuid = hostUuid;
             this.hostName = hostName;
             this.appId = appId;
             this.title = title;
+            this.stableId = stableId;
         }
 
         Intent page(Context context) {
@@ -78,6 +84,7 @@ public final class OpenPlay {
                     .putExtra(GameDetailActivity.EXTRA_APP_ID, appId)
                     .putExtra(GameDetailActivity.EXTRA_TITLE, title)
                     .putExtra(GameDetailActivity.EXTRA_HOST_NAME, hostName)
+                    .putExtra(GameDetailActivity.EXTRA_STABLE_ID, stableId)
                     .putExtra(GameDetailActivity.EXTRA_OPEN_PLAY, true);
         }
     }
@@ -87,7 +94,8 @@ public final class OpenPlay {
         if (saved == null) return null;
         try {
             JSONObject json = new JSONObject(saved);
-            return new Game(json.getString("host"), json.optString("host_name"), json.getInt("app"), json.optString("title"));
+            return new Game(json.getString("host"), json.optString("host_name"), json.getInt("app"), json.optString("title"),
+                    json.optString(STABLE_ID));
         } catch (JSONException e) {
             LimeLog.warning("Automatic start: the chosen game is unreadable: " + e);
             return null;
@@ -98,7 +106,7 @@ public final class OpenPlay {
         List<RecentsStore.Recent> recents = new PreferencesRecentsStore(context).load();
         if (recents.isEmpty()) return null;
         RecentsStore.Recent recent = recents.get(0);
-        return new Game(recent.hostUuid, recent.hostName, recent.appId, recent.title);
+        return new Game(recent.hostUuid, recent.hostName, recent.appId, recent.title, recent.stableId);
     }
 
     /** The launcher's start, not a shortcut's, a link's or an app's that asks for something else. */
@@ -182,7 +190,7 @@ public final class OpenPlay {
     }
 
     /** The game menu's choice, or taking it back: the setting follows, so the choice does what it says. */
-    public static void toggle(Context context, String hostUuid, String hostName, int appId, String title) {
+    public static void toggle(Context context, String hostUuid, String hostName, int appId, String stableId, String title) {
         SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(context);
         if (isChosen(context, hostUuid, appId)) {
             state(context).edit().remove(GAME).apply();
@@ -191,13 +199,28 @@ public final class OpenPlay {
         }
         try {
             String game = new JSONObject().put("host", hostUuid).put("host_name", hostName).put("app", appId)
-                    .put("title", title).toString();
+                    .put("title", title).put(STABLE_ID, stableId).toString();
             state(context).edit().putString(GAME, game).apply();
         } catch (JSONException impossible) {
             throw new IllegalStateException(impossible);
         }
         settings.edit().putString(SETTING, "chosen").apply();
         Toast.makeText(context, context.getString(R.string.open_play_chosen, title), Toast.LENGTH_SHORT).show();
+    }
+
+    /** Whether a game's entry on the host is the one saved under this stable id. */
+    static boolean sameGame(ConsoleSnapshot.Source source, String stableId) {
+        return stableId.equalsIgnoreCase(source.installId) || stableId.equalsIgnoreCase(source.appUuid);
+    }
+
+    /** The app id the host lists a saved game under now; {@code appId} when the list does not tell. */
+    static int listedAs(ConsoleSnapshot.Host host, String stableId, int appId) {
+        if (host != null && !stableId.isEmpty()) {
+            for (ConsoleSnapshot.Source source : host.sources) {
+                if (sameGame(source, stableId)) return source.appId;
+            }
+        }
+        return appId;
     }
 
     /** A removed PC's game cannot be opened any more. */

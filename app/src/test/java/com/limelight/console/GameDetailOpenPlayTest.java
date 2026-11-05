@@ -61,6 +61,8 @@ public class GameDetailOpenPlayTest {
     private static final String ZELDA_APP = "{\"install_id\":\"t-zelda\",\"app_id\":22,\"title\":\"Zelda\"}";
 
     private String sessionThere = NativeApiFixtures.IDLE;
+    private String stableThere = null;
+    private String libraryThere = library("r", game("t-portal", 11, "Portal", "steam:400", false));
     private ActivityController<GameDetailWakeTest.Detail> controller;
     private GameDetailWakeTest.Detail screen;
     private HostFeed feed;
@@ -84,8 +86,8 @@ public class GameDetailOpenPlayTest {
 
     private void open(boolean online, String mac, Bundle state) throws Exception {
         rig = new ConsoleRig(temporary.newFolder());
-        rig.transport.reply("tower", "library", ok(library("r", game("t-portal", 11, "Portal", "steam:400", false))));
-        rig.transport.reply("tower", "session", ok(sessionThere));
+        rig.transport.reply("tower", "library", ok(libraryThere));
+        rig.transport.reply("tower", "session", sessionThere.startsWith("{\"error") ? sessionThere : ok(sessionThere));
         rig.repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", true)));
         GameDetailWakeTest.Detail.repository = rig.repository;
         Intent intent = new Intent(context, GameDetailWakeTest.Detail.class)
@@ -93,6 +95,7 @@ public class GameDetailOpenPlayTest {
                 .putExtra(GameDetailActivity.EXTRA_APP_ID, 11)
                 .putExtra(GameDetailActivity.EXTRA_TITLE, "Portal")
                 .putExtra(GameDetailActivity.EXTRA_HOST_NAME, "Tower")
+                .putExtra(GameDetailActivity.EXTRA_STABLE_ID, stableThere)
                 .putExtra(GameDetailActivity.EXTRA_OPEN_PLAY, true);
         controller = Robolectric.buildActivity(GameDetailWakeTest.Detail.class, intent);
         controller = state == null ? controller.setup() : controller.setup(state);
@@ -455,10 +458,16 @@ public class GameDetailOpenPlayTest {
     }
 
     @Test
-    public void noNetworkOpensAsUsualWithoutACountdownOrTheGuard() throws Exception {
+    public void aNetworkThatStaysAwayOpensAsUsualAfterAMinuteWithoutACountdownOrTheGuard() throws Exception {
         android.net.ConnectivityManager connectivity = (android.net.ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
         shadowOf(connectivity).setActiveNetworkInfo(null);
         open(true, null, null);
+        assertEquals(context.getString(R.string.open_play_waiting_network),
+                ((TextView) shown().findViewById(android.R.id.message)).getText().toString());
+        pass(59_000);
+        assertEquals(context.getString(R.string.open_play_waiting_network),
+                ((TextView) shown().findViewById(android.R.id.message)).getText().toString());
+        pass(1_500);
         assertEquals(context.getString(R.string.open_play_no_network),
                 ((TextView) shown().findViewById(android.R.id.message)).getText().toString());
         pass(5000);
@@ -467,6 +476,154 @@ public class GameDetailOpenPlayTest {
         shown().dismiss();
         pass(100);
         assertTrue(screen.isFinishing());
+    }
+
+    @Test
+    public void aNetworkThatComesBackGivesThePcAPollAndThenTheFullCountdown() throws Exception {
+        android.net.ConnectivityManager connectivity = (android.net.ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        android.net.NetworkInfo network = connectivity.getActiveNetworkInfo();
+        shadowOf(connectivity).setActiveNetworkInfo(null);
+        open(true, null, null);
+        pass(30_000);
+        shadowOf(connectivity).setActiveNetworkInfo(network);
+        pass(5_000);
+        assertEquals(context.getString(R.string.open_play_waiting_network),
+                ((TextView) shown().findViewById(android.R.id.message)).getText().toString());
+        pass(1_500);
+        assertEquals("Starting on Tower in 3", ((TextView) shown().findViewById(android.R.id.message)).getText().toString());
+        assertFalse(OpenPlay.armed(context));
+        pass(3100);
+        assertTrue(OpenPlay.armed(context));
+        await(() -> !GameDetailWakeTest.Detail.played.isEmpty());
+    }
+
+    @Test
+    public void theWaitForTheNetworkCancelsLikeTheCountdown() throws Exception {
+        android.net.ConnectivityManager connectivity = (android.net.ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        shadowOf(connectivity).setActiveNetworkInfo(null);
+        open(true, null, null);
+        pass(1000);
+        shown().getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+        pass(100);
+        assertTrue(screen.isFinishing());
+        pass(70_000);
+        assertFalse(OpenPlay.armed(context));
+        assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
+    }
+
+    private void unknown() {
+        ComputerDetails tower = nativeHost("tower", "Tower", false);
+        tower.state = ComputerDetails.State.UNKNOWN;
+        feed.update(tower);
+    }
+
+    @Test
+    public void aPcNotHeardFromYetIsWaitedForAndNotCalledOffline() throws Exception {
+        open(true, null, null);
+        unknown();
+        Dialog countdown = shown();
+        pass(3100);
+        Thread.sleep(200);
+        pass(10_000);
+        Thread.sleep(200);
+        pass(10_000);
+        assertTrue("no failure yet", ShadowDialog.getLatestDialog() == countdown);
+        assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
+        feed.update(nativeHost("tower", "Tower", true));
+        await(() -> !GameDetailWakeTest.Detail.played.isEmpty());
+    }
+
+    @Test
+    public void aPcNeverHeardFromFailsAtTheLimit() throws Exception {
+        open(true, null, null);
+        unknown();
+        Dialog countdown = shown();
+        pass(3100);
+        Thread.sleep(200);
+        pass(44_000);
+        assertTrue("within the limit", ShadowDialog.getLatestDialog() == countdown);
+        pass(1_100);
+        await(() -> ShadowDialog.getLatestDialog() != countdown);
+        assertEquals(context.getString(R.string.error_pc_offline),
+                ((TextView) shown().findViewById(android.R.id.message)).getText().toString());
+        assertTrue(OpenPlay.armed(context));
+    }
+
+    private static final String SESSION_FAILS = "{\"error\":{\"kind\":\"status\",\"message\":\"boom\",\"http_status\":500}}";
+
+    @Test
+    public void aSessionThatCouldNotBeReadIsAskedAgainAndAGameOfAnotherDeviceStillStopsTheStart() throws Exception {
+        sessionThere = SESSION_FAILS;
+        open(true, null, null);
+        Dialog countdown = shown();
+        pass(3100);
+        Thread.sleep(300);
+        pass(100);
+        Thread.sleep(300);
+        pass(100);
+        assertTrue("not read as free", GameDetailWakeTest.Detail.played.isEmpty());
+        rig.transport.reply("tower", "session", ok(NativeApiFixtures.session("streaming", "other_device", ZELDA_APP, "[]")));
+        await(() -> {
+            pass(2100);
+            return ShadowDialog.getLatestDialog() != countdown;
+        });
+        assertEquals(context.getString(R.string.open_play_other_device, "Tower"),
+                ((TextView) shown().findViewById(android.R.id.message)).getText().toString());
+        assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
+    }
+
+    @Test
+    public void aSessionReadThatRecoversStartsTheGame() throws Exception {
+        sessionThere = SESSION_FAILS;
+        open(true, null, null);
+        pass(3100);
+        Thread.sleep(300);
+        pass(100);
+        rig.transport.reply("tower", "session", ok(NativeApiFixtures.IDLE));
+        await(() -> {
+            pass(2100);
+            return !GameDetailWakeTest.Detail.played.isEmpty();
+        });
+    }
+
+    @Test
+    public void aSessionThatNeverReadsFailsAtTheLimitWithTheGuardArmed() throws Exception {
+        sessionThere = SESSION_FAILS;
+        open(true, null, null);
+        Dialog countdown = shown();
+        pass(3100);
+        await(() -> {
+            pass(2100);
+            return ShadowDialog.getLatestDialog() != countdown;
+        });
+        assertEquals(context.getString(R.string.open_play_no_answer, "Tower"),
+                ((TextView) shown().findViewById(android.R.id.message)).getText().toString());
+        assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
+        assertTrue(OpenPlay.armed(context));
+    }
+
+    @Test
+    public void anotherGameUnderTheSavedAppIdIsNotStartedUnderTheSavedTitle() throws Exception {
+        stableThere = "t-portal";
+        libraryThere = library("r", game("t-zelda", 11, "Zelda", "steam:500", false));
+        open(true, null, null);
+        Dialog countdown = shown();
+        pass(3100);
+        await(() -> ShadowDialog.getLatestDialog() != countdown && ShadowDialog.getLatestDialog().isShowing());
+        assertEquals(context.getString(R.string.open_play_not_listed, "Tower"),
+                ((TextView) shown().findViewById(android.R.id.message)).getText().toString());
+        assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
+    }
+
+    @Test
+    public void aSavedGameTheHostMovedToAnotherAppIdStillStarts() throws Exception {
+        stableThere = "t-portal";
+        libraryThere = library("r", game("t-zelda", 11, "Zelda", "steam:500", false), game("t-portal", 33, "Portal", "steam:400", false));
+        open(true, null, null);
+        pass(3100);
+        await(() -> !GameDetailWakeTest.Detail.played.isEmpty());
+        assertEquals("Portal", GameDetailWakeTest.Detail.played.get(0));
+        assertEquals(33, ReflectionHelpers.<GameDetailModel>getField(screen, "model").appId);
     }
 
     @Test

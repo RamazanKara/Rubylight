@@ -12,6 +12,8 @@
     <string name="open_play_no_list">%1$s 未发送游戏列表</string>
     <string name="open_play_other_device">%1$s 上的游戏正在另一台设备上游玩,因此 Nightjar 照常打开。</string>
     <string name="open_play_no_network">没有网络,因此 Nightjar 照常打开。</string>
+    <string name="open_play_waiting_network">正在等待网络…</string>
+    <string name="open_play_no_answer">%1$s 未及时响应。</string>
     <string-array name="open_on_start_names">
         <item>显示我的电脑</item>
         <item>继续上次的游戏</item>

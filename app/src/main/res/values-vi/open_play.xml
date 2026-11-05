@@ -12,6 +12,8 @@
     <string name="open_play_no_list">%1$s không gửi danh sách trò chơi</string>
     <string name="open_play_other_device">Một trò chơi trên %1$s đang được chơi trên thiết bị khác, nên Nightjar mở như bình thường.</string>
     <string name="open_play_no_network">Không có mạng, nên Nightjar mở như bình thường.</string>
+    <string name="open_play_waiting_network">Đang chờ mạng…</string>
+    <string name="open_play_no_answer">%1$s không phản hồi kịp thời.</string>
     <string-array name="open_on_start_names">
         <item>Hiện các PC của tôi</item>
         <item>Tiếp tục trò chơi gần nhất</item>

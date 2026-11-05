@@ -325,6 +325,7 @@ struct Report {
     stand_in: u64,
     samples: u64,
     scene_cuts: u64,
+    cuts_held: u64,
     invalid: u64,
     readout_errors: u64,
     no_insertion: u64,
@@ -434,6 +435,7 @@ impl Dynamic {
                     Some(smoothed) => {
                         self.report.samples += 1;
                         self.report.scene_cuts += u64::from(smoothed.scene_cut);
+                        self.report.cuts_held = self.writer.held_cuts();
                         if let Some(rpus) = self.dovi.as_mut() {
                             rpus.sample(&smoothed);
                         }
@@ -570,6 +572,7 @@ impl Drop for Dynamic {
             unmeasured_rpus = r.unmeasured_rpus,
             samples = r.samples,
             scene_cuts = r.scene_cuts,
+            cuts_held = r.cuts_held,
             invalid = r.invalid,
             readout_errors = r.readout_errors,
             no_insertion = r.no_insertion,

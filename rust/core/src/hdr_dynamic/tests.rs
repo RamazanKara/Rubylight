@@ -758,6 +758,50 @@ fn target_display_prefers_client_then_host_then_1000() {
 }
 
 #[test]
+fn a_picture_that_keeps_jumping_does_not_snap_with_every_jump() {
+    let with_mean = |mean_pq: f32| {
+        let mut stats = sample();
+        stats.mean_pq = mean_pq;
+        stats
+    };
+    let (dark, bright) = (with_mean(0.3), with_mean(0.5));
+    let mut smoother = StatsSmoother::default();
+    smoother.update(&dark).unwrap();
+    // The first cut of a stream snaps, right after its first sample too.
+    let first = smoother.update(&bright).unwrap();
+    assert!(first.scene_cut);
+    assert_eq!(first.stats, bright);
+
+    // Back at once: smoothed, a step of ALPHA instead of the whole way.
+    let back = smoother.update(&dark).unwrap();
+    assert!(!back.scene_cut);
+    assert!((back.stats.mean_pq - (0.5 - StatsSmoother::ALPHA * 0.2)).abs() < 1e-5);
+    assert_eq!(smoother.held_cuts(), 1);
+
+    // Still within the gap the last sample before it ends holds another jump.
+    for _ in 2..StatsSmoother::CUT_GAP {
+        assert!(!smoother.update(&dark).unwrap().scene_cut);
+    }
+    assert!(!smoother.update(&bright).unwrap().scene_cut);
+    assert_eq!(smoother.held_cuts(), 2);
+
+    // After the gap a jump is a cut again, and it starts the next gap.
+    let cut = smoother.update(&dark).unwrap();
+    assert!(cut.scene_cut);
+    assert_eq!(cut.stats, dark);
+    assert!(!smoother.update(&bright).unwrap().scene_cut);
+    assert_eq!(smoother.held_cuts(), 3);
+
+    smoother.reset();
+    assert_eq!(smoother.held_cuts(), 0);
+    smoother.update(&dark).unwrap();
+    assert!(
+        smoother.update(&bright).unwrap().scene_cut,
+        "a reset starts over"
+    );
+}
+
+#[test]
 fn smoothing_follows_slowly_and_snaps_at_a_scene_cut() {
     let mut smoother = StatsSmoother::default();
     let first = smoother.update(&sample()).unwrap();

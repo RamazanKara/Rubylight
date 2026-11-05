@@ -512,6 +512,11 @@ impl Writer {
 
     /// Feed one new analysis sample, as [`StatsSmoother::update`]. Invalid statistics
     /// return `None` and keep the current units.
+    /// Jumps smoothed because a cut had just happened.
+    pub fn held_cuts(&self) -> u64 {
+        self.smoother.held_cuts()
+    }
+
     pub fn sample(&mut self, raw: &FrameStats) -> Option<Smoothed> {
         let smoothed = self.smoother.update(raw)?;
         self.units = self.frame_units(&smoothed.stats)?;
@@ -637,6 +642,9 @@ fn read_leb128(data: &[u8], at: &mut usize) -> Option<u64> {
 pub struct StatsSmoother {
     smoothed: Option<FrameStats>,
     last: Option<FrameStats>,
+    /// Samples since the last cut, none before the first.
+    since_cut: Option<u32>,
+    held_cuts: u64,
 }
 
 /// What [`StatsSmoother::update`] returns.
@@ -651,13 +659,26 @@ impl StatsSmoother {
     /// Weight of each new sample between cuts.
     pub const ALPHA: f32 = 0.15;
 
+    /// Samples after a cut in which another jump is smoothed instead of snapped to (a second
+    /// at 120 fps). A picture that keeps jumping would otherwise step the display's tone
+    /// mapping with every jump, which shows most on bright menus and HUDs (#59).
+    pub const CUT_GAP: u32 = 120;
+
     /// Feed one new analysis sample, not one per encoded frame: repeating a sample would
     /// speed the smoothing up. `None` for invalid statistics, which leave the state alone.
     pub fn update(&mut self, raw: &FrameStats) -> Option<Smoothed> {
         if !raw.is_valid() {
             return None;
         }
-        let scene_cut = self.last.is_none_or(|last| is_scene_cut(&last, raw));
+        let jump = self.last.is_some_and(|last| is_scene_cut(&last, raw));
+        let held = jump && self.since_cut.is_some_and(|since| since < Self::CUT_GAP);
+        self.held_cuts += u64::from(held);
+        self.since_cut = if jump && !held {
+            Some(0)
+        } else {
+            self.since_cut.map(|since| since.saturating_add(1))
+        };
+        let scene_cut = self.last.is_none() || (jump && !held);
         let stats = match self.smoothed {
             Some(previous) if !scene_cut => blend(&previous, raw, Self::ALPHA),
             _ => *raw,
@@ -665,6 +686,11 @@ impl StatsSmoother {
         self.last = Some(*raw);
         self.smoothed = Some(stats);
         Some(Smoothed { stats, scene_cut })
+    }
+
+    /// Jumps smoothed because a cut had just happened ([`Self::CUT_GAP`]).
+    pub fn held_cuts(&self) -> u64 {
+        self.held_cuts
     }
 
     pub fn reset(&mut self) {

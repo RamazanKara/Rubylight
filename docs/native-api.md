@@ -519,9 +519,9 @@ A device with **Approve new devices** or Host control approves a new one from th
 - `POST /pairing/approve` waits up to 10 s for the handshake and answers how it ended. The host cannot check a PIN when it receives it, only see the handshake fail, and a Moonlight client that finds a wrong PIN starts over with a new one:
   - 200 `{"name"}`: the device has paired.
   - 422 `wrong_pin`: the handshake failed, or the device asked again before it ended. Its next try is a new request with a new PIN.
-  - 409 `pairing_unconfirmed`: nothing came back in 10 s. It counts as a wrong PIN unless the device still finishes. This is how a wrong PIN usually ends with Moonlight: the `/unpair` it sends then has no certificate, so anyone at the address could send it, and the host ignores it.
+  - 409 `pairing_unconfirmed`: nothing came back in 10 s, or the PC could not save the device, which costs the address nothing. Nothing coming back counts as a wrong PIN unless the device still finishes. This is how a wrong PIN usually ends with Moonlight: the `/unpair` it sends then has no certificate, so anyone at the address could send it, and the host ignores it.
   - 409 `pairing_cooldown`: a wrong PIN came from this address in the last 30 s. The request stays listed and can be approved after that. A PIN typed for a look-alike can be worked out from its handshake, and the real device keeps showing it, so the same PIN must not reach the look-alike's next request at once.
-  - 409 `pairing_ended`: three wrong PINs from this address within 5 minutes, whatever names it used. An IPv6 /64 counts as one address. Its requests leave the list, and only the console can pair from it for those 5 minutes. A right PIN clears the count.
+  - 409 `pairing_ended`: three wrong PINs from this address within 5 minutes, whatever names it used. An IPv6 /64 counts as one address. Its requests leave the list, and only the console can pair from it for those 5 minutes. A right PIN or a pairing from the console clears the count.
   - 403 `permission_required`: the approver has no Play permission to hand on, or lost its right to approve during the handshake. Neither counts against the new device.
   - 404 `not_found`: the request expired, was denied or was already answered.
   - 422 `invalid_value`: not four digits.

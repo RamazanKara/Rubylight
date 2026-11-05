@@ -1211,23 +1211,27 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
                     approver,
                 } = crate::native_api::pairing::capped(&state, p.approver.as_deref(), perm, extra)?;
                 let uuid = uuid::Uuid::new_v4().to_string();
-                state.add(
-                    &h.paired_path,
-                    Client {
-                        name: p.name.clone(),
-                        cert: p.certificate.clone(),
-                        uuid: uuid.clone(),
-                        perm,
-                        enabled: true,
-                        extra,
-                    },
-                )?;
+                state
+                    .add(
+                        &h.paired_path,
+                        Client {
+                            name: p.name.clone(),
+                            cert: p.certificate.clone(),
+                            uuid: uuid.clone(),
+                            perm,
+                            enabled: true,
+                            extra,
+                        },
+                    )
+                    .map_err(|error| error.context(crate::native_api::pairing::NotSaved))?;
                 drop(state);
                 tracing::info!(client=%p.name,"Client paired and saved");
                 let mut paired = serde_json::json!({"device": crate::webhooks::device(&uuid, &p.name), "transport": "moonlight"});
                 if let Some(approver) = &approver {
                     crate::native_api::pairing::paired(&h, &id, approver, &p.name, peer);
                     paired["approved_by"] = crate::webhooks::device(&approver.uuid, &approver.name);
+                } else {
+                    crate::native_api::pairing::paired_by_owner(&h, peer);
                 }
                 h.webhook("pairing.paired", paired);
                 let (title, text) = match &approver {
@@ -1248,9 +1252,14 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
         pairings.sessions.remove(&id);
     }
     if let Err(error) = &result {
-        if error.is::<crate::native_api::pairing::ApproverRevoked>() {
-            crate::native_api::pairing::approver_revoked(&h, &id);
+        if let Some(revoked) = error.downcast_ref::<crate::native_api::pairing::ApproverRevoked>() {
+            crate::native_api::pairing::approver_revoked(&h, &id, revoked.missing);
+        } else if error.is::<crate::native_api::pairing::NotSaved>() {
+            crate::native_api::pairing::not_saved(&h, &id);
         } else {
+            // Any other step that fails still counts, malformed ones too: the PIN can
+            // be worked out from an earlier reply, so a device must not choose to fail
+            // in a way that costs it nothing.
             crate::native_api::pairing::failed(&h, &id);
         }
     }

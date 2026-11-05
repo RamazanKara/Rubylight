@@ -60,18 +60,37 @@ const APPROVAL_LIFETIME: Duration = Duration::from_secs(310);
 enum Outcome {
     Paired,
     WrongPin,
-    /// The approver may no longer approve. Not the new device's doing: no strike.
-    ApproverRevoked,
+    /// The approver lost what this takes, named here. Not the new device's doing: no strike.
+    ApproverRevoked(&'static str),
+    /// The PIN was right but the host could not save the device: no strike either.
+    NotSaved,
 }
-/// Why [`capped`] refused: the device that approved may no longer approve.
+/// What an approver needs to hand on anything of Play.
+pub(crate) const LIST_AND_VIEW: &str = "List applications and View streams";
+/// Why [`capped`] refused: the device that approved lost `missing`.
 #[derive(Debug)]
-pub(crate) struct ApproverRevoked;
+pub(crate) struct ApproverRevoked {
+    pub missing: &'static str,
+}
 impl std::fmt::Display for ApproverRevoked {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("the device that approved this pairing may no longer approve")
+        write!(
+            f,
+            "the device that approved this pairing no longer holds {}",
+            self.missing
+        )
     }
 }
 impl std::error::Error for ApproverRevoked {}
+/// A handshake that was right, whose device could not be saved.
+#[derive(Debug)]
+pub(crate) struct NotSaved;
+impl std::fmt::Display for NotSaved {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the paired device could not be saved")
+    }
+}
+impl std::error::Error for NotSaved {}
 /// How an approval reports back, with what its log lines name. Who approved
 /// lives on the handshake's session ([`PinEntry`](crate::state::PinEntry)), so
 /// losing this entry loses the answer and never the cap.
@@ -193,11 +212,16 @@ pub(crate) fn capped(
         .clients
         .iter()
         .find(|c| c.uuid == uuid && c.may_approve_pairing())
-        .ok_or(ApproverRevoked)?;
+        .ok_or(ApproverRevoked {
+            missing: "Approve new devices",
+        })?;
     let perm = perm & approver.perm;
     // The approver's bits may have gone during the handshake: no dead device.
     if perm == 0 {
-        return Err(ApproverRevoked.into());
+        return Err(ApproverRevoked {
+            missing: LIST_AND_VIEW,
+        }
+        .into());
     }
     // Only the console hands this one on.
     extra.remove(PAIRING_APPROVE_KEY);
@@ -228,6 +252,14 @@ pub(crate) fn paired(h: &Host, id: &str, approver: &Approver, device: &str, addr
     tracing::warn!(approver = %approver.name, client = %device, %address, "Device paired, approved from another device");
 }
 
+/// The owner paired a device at `address` without an approver, so its wrong PINs
+/// no longer say anything: a home network isn't left waiting behind them.
+pub(crate) fn paired_by_owner(h: &Host, address: IpAddr) {
+    approvals(h)
+        .wrong_pins
+        .remove(&counted_as(address.to_canonical()));
+}
+
 /// The handshake of request `id` ended without a pairing. Does nothing to a
 /// request no device approved, or one whose approval already gave up waiting.
 pub(crate) fn failed(h: &Host, id: &str) {
@@ -237,21 +269,36 @@ pub(crate) fn failed(h: &Host, id: &str) {
     let Some(outcome) = approval.outcome.take() else {
         return;
     };
-    tracing::warn!(approver = %approval.approver_name, client = %approval.device, address = %approval.address, "Pairing approval failed: the PIN is not the one the device shows");
+    tracing::warn!(approver = %approval.approver_name, client = %approval.device, address = %approval.address, "Pairing approval failed: the device did not prove it knows the PIN");
     loud_strike(h, approval.address, &approval.device);
     let _ = outcome.send(Outcome::WrongPin);
 }
 
 /// The handshake of request `id` was right, but [`capped`] refused it. The
 /// approver hears why, and the device, which did nothing wrong, takes no strike.
-pub(crate) fn approver_revoked(h: &Host, id: &str) {
+pub(crate) fn approver_revoked(h: &Host, id: &str, missing: &'static str) {
     let Some(mut approval) = approvals(h).running.remove(id) else {
-        tracing::warn!("Pairing refused: the device that approved it may no longer approve");
+        tracing::warn!(
+            missing,
+            "Pairing refused: the device that approved it lost this"
+        );
         return;
     };
-    tracing::warn!(approver = %approval.approver_name, client = %approval.device, address = %approval.address, "Pairing refused: the device that approved it may no longer approve");
+    tracing::warn!(approver = %approval.approver_name, client = %approval.device, address = %approval.address, missing, "Pairing refused: the device that approved it lost this");
     if let Some(outcome) = approval.outcome.take() {
-        let _ = outcome.send(Outcome::ApproverRevoked);
+        let _ = outcome.send(Outcome::ApproverRevoked(missing));
+    }
+}
+
+/// The handshake of request `id` was right, but its device could not be saved.
+/// The save's own error is logged by the caller; the device takes no strike.
+pub(crate) fn not_saved(h: &Host, id: &str) {
+    let Some(mut approval) = approvals(h).running.remove(id) else {
+        return;
+    };
+    tracing::warn!(approver = %approval.approver_name, client = %approval.device, address = %approval.address, "Pairing approval: the device could not be saved");
+    if let Some(outcome) = approval.outcome.take() {
+        let _ = outcome.send(Outcome::NotSaved);
     }
 }
 
@@ -338,16 +385,14 @@ fn send_pin(
     // default and takes no access choice, so an approver without it may not.
     let permission = if request.certificate.is_empty() {
         if !client.allows(LATER_DEVICE_PERMISSION) {
-            return Err(super::permission_required(
-                "List applications and View streams",
-            ));
+            return Err(super::permission_required(LIST_AND_VIEW));
         }
         None
     } else {
         // Nothing of Play to hand on would store a device that can't connect.
         let play = PLAY_DEVICE_PERMISSION & client.perm;
         if play == 0 {
-            return Err(permission_required("List applications and View streams"));
+            return Err(permission_required(LIST_AND_VIEW));
         }
         Some(play)
     };
@@ -404,7 +449,11 @@ pub async fn approve(
             ErrorCode::WrongPin,
             format!("That is not the PIN {device} shows. It has a new one when it asks again."),
         )),
-        Ok(Ok(Outcome::ApproverRevoked)) => Err(permission_required("Approve new devices")),
+        Ok(Ok(Outcome::ApproverRevoked(missing))) => Err(permission_required(missing)),
+        Ok(Ok(Outcome::NotSaved)) => Err(Failure::new(
+            ErrorCode::PairingUnconfirmed,
+            format!("The PC could not save {device}."),
+        )),
         // The handshake went quiet. Moonlight may stop after a wrong PIN without
         // saying so, so it counts as one unless the device still finishes.
         Ok(Err(_)) | Err(_) => {

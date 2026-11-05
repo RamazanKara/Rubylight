@@ -171,7 +171,92 @@ async fn an_approver_with_nothing_of_play_is_refused_and_stores_no_dead_device()
         PLAY_DEVICE_PERMISSION,
         Default::default(),
     );
-    assert!(refused.is_err_and(|e| e.is::<pairing::ApproverRevoked>()));
+    // What it lost is named: it still may approve, and has nothing of Play to hand on.
+    let refused = refused.err().unwrap();
+    let revoked = refused.downcast_ref::<pairing::ApproverRevoked>();
+    assert_eq!(revoked.unwrap().missing, pairing::LIST_AND_VIEW);
+    let refused = pairing::capped(&state, Some("gone"), 7, Default::default()).err();
+    let refused = refused.unwrap();
+    let revoked = refused.downcast_ref::<pairing::ApproverRevoked>();
+    assert_eq!(revoked.unwrap().missing, "Approve new devices");
+}
+
+#[tokio::test]
+async fn a_device_the_pc_could_not_save_costs_its_address_nothing() {
+    let f = Fixture::new();
+    let approver = other_device(&f, ALL, true);
+    // The saved state can't replace a directory.
+    let _ = std::fs::remove_file(&f.host.paired_path);
+    std::fs::create_dir_all(&f.host.paired_path).unwrap();
+    let reply = run(&f, &approver, "TV", "1234", "1234").await;
+    reply.assert_error(409, "pairing_unconfirmed");
+    assert!(
+        reply.text().contains("could not save TV"),
+        "{}",
+        reply.text()
+    );
+    assert_eq!(f.host.approvals.lock().unwrap().wrong_pins_at(PEER), 0);
+}
+
+#[tokio::test]
+async fn a_step_a_device_fails_on_purpose_still_counts() {
+    let f = Fixture::new();
+    let approver = other_device(&f, ALL, true);
+    let (client, id) = asking(&f, "TV").await;
+    let (reply, _) = tokio::join!(approve(&f, &approver, &id, "1234"), async {
+        until("the handshake to start", || {
+            f.host.pairings.lock().unwrap().sessions.contains_key(&id)
+        })
+        .await;
+        // The secret before any challenge: out of order.
+        let mut request = device_request(&client, "TV", None);
+        request.remove("phrase");
+        request.insert("clientpairingsecret".into(), "00".repeat(272));
+        let _ = do_pair(f.host.clone(), &request, PEER.parse().unwrap()).await;
+    });
+    reply.assert_error(422, "wrong_pin");
+    assert_eq!(f.host.approvals.lock().unwrap().wrong_pins_at(PEER), 1);
+}
+
+#[tokio::test]
+async fn a_pairing_from_the_console_clears_the_address_count() {
+    let f = Fixture::new();
+    let peer: std::net::IpAddr = PEER.parse().unwrap();
+    let strike = |f: &Fixture| {
+        let mut approvals = f.host.approvals.lock().unwrap();
+        for _ in 0..3 {
+            approvals.strike_at(peer);
+        }
+    };
+    strike(&f);
+    let (client, id) = asking(&f, "TV").await;
+    let waiting = f.host.pins.lock().unwrap().remove(&id).unwrap();
+    assert!(
+        waiting
+            .sender
+            .send(("1234".into(), "TV".into(), None, None))
+            .is_ok()
+    );
+    until("the handshake to start", || {
+        f.host.pairings.lock().unwrap().sessions.contains_key(&id)
+    })
+    .await;
+    finish_pairing(&f, &client, "TV", "1234").await.unwrap();
+    assert!(saved(&f, "TV").is_some());
+    assert_eq!(f.host.approvals.lock().unwrap().wrong_pins_at(PEER), 0);
+
+    // A browser's pairing from the console does too.
+    strike(&f);
+    let (request, _) = f
+        .host
+        .webrtc
+        .begin_pairing(&f.host, "1234", "Browser", peer);
+    let finished = f
+        .host
+        .webrtc
+        .finish_pairing(&f.host, &request, "1234", "Browser", None, peer);
+    assert!(finished.is_ok());
+    assert_eq!(f.host.approvals.lock().unwrap().wrong_pins_at(PEER), 0);
 }
 
 #[tokio::test]

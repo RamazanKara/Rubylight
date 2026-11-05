@@ -455,12 +455,20 @@ impl Registry {
         );
         let approver = match capped {
             Ok(granted) if granted.perm == default => granted.approver,
-            _ => {
+            refused => {
                 tracing::warn!(
                     client = name,
                     "A WebRTC device's approver no longer holds what it would get"
                 );
-                crate::native_api::pairing::approver_revoked(h, request_id);
+                let missing = refused
+                    .err()
+                    .and_then(|error| {
+                        let revoked =
+                            error.downcast_ref::<crate::native_api::pairing::ApproverRevoked>()?;
+                        Some(revoked.missing)
+                    })
+                    .unwrap_or(crate::native_api::pairing::LIST_AND_VIEW);
+                crate::native_api::pairing::approver_revoked(h, request_id, missing);
                 return Err(ErrorCode::PairingFailed);
             }
         };
@@ -483,6 +491,7 @@ impl Registry {
             .add_webrtc(&h.paired_path, client, MAX_PAIRED)
             .map_err(|error| {
                 tracing::error!(error = %format!("{error:#}"), "a WebRTC device could not be saved");
+                crate::native_api::pairing::not_saved(h, request_id);
                 ErrorCode::PairingFailed
             })?;
         if !surplus.is_empty() {
@@ -505,6 +514,8 @@ impl Registry {
             paired["approved_by"] = crate::webhooks::device(&approver.uuid, &approver.name);
             let (title, text) = crate::state::pairing_approved_notice(&approver.name, name);
             butterpollo_windows::tray::notify(&title, &text);
+        } else {
+            crate::native_api::pairing::paired_by_owner(h, address);
         }
         h.webhook("pairing.paired", paired);
         self.clients_changed();

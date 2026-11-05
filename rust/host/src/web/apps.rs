@@ -105,6 +105,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             json!({"status":true})
         }
         ("POST", "/api/apps/close") => {
+            let _transition = h.launch_transition.lock().unwrap();
             let canceled = h
                 .sessions
                 .lock()

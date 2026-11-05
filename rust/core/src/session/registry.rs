@@ -247,6 +247,17 @@ impl<P, A> Sessions<P, A> {
                 && s.launch.client.uuid != client
         })
     }
+    /// Whether another device's plain WebRTC stream runs or is about to: what a Moonlight stream of
+    /// this device would end (`supersede_other_transport`).
+    pub fn plain_webrtc_held_by_other(&self, client: &str) -> bool {
+        self.plain_webrtc_of_other(client)
+            || self.pending.values().any(|p| {
+                p.live()
+                    && p.plain_stream()
+                    && p.transport == Transport::WebRtc
+                    && p.client.uuid != client
+            })
+    }
     /// Continue here: stop every other device's plain stream and launch. A Nucleus Co-op or
     /// background stream, an Input-only or Remote Monitor session and the caller's own stay.
     #[must_use = "drop canceled launches after releasing the sessions lock"]

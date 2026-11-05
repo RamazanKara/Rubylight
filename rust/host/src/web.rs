@@ -1552,6 +1552,28 @@ mod tests {
             json!([])
         );
     }
+    /// A launch holds this lock from its check of the running game to its start of one: closing
+    /// the game from the console waits for it, as Terminate and the tray do.
+    #[test]
+    fn closing_the_game_from_the_console_waits_for_a_launch_in_progress() {
+        let f = crate::state::test_support::Fixture::new();
+        let app = butterpollo_core::state::App::desktop();
+        *f.host.current_app.lock().unwrap() =
+            Some(crate::process::RunningApp::with_environment(&app, Default::default()).unwrap());
+        let launching = f.host.launch_transition.lock().unwrap();
+        let host = f.host.clone();
+        let close = std::thread::spawn(move || {
+            apps::handle(&host, "POST", "/api/apps/close", &json!({})).unwrap();
+        });
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert!(
+            f.host.current_app.lock().unwrap().is_some(),
+            "closed during a launch"
+        );
+        drop(launching);
+        close.join().unwrap();
+        assert!(f.host.current_app.lock().unwrap().is_none());
+    }
     #[tokio::test]
     async fn basic_credentials_do_not_carry_a_cross_site_form() {
         use axum::{Extension, body::Body, http::Request};

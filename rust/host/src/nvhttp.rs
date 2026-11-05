@@ -1460,6 +1460,7 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         ControlFlow::Continue(owner) => owner,
         ControlFlow::Break(response) => return response,
     };
+    let requested_resume = resume;
     let resume = resume
         || matches!(control, Some(Control::Resume | Control::RunningGame))
         || (control == Some(Control::Monitor) && owner == remote::Owner::Monitor);
@@ -1490,6 +1491,17 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         // A co-op launch is no background stream; a background stream runs
         // in a Nucleus Co-op session of its own ([`launch_back_half`]).
         launch.background = Some(coop.is_none() && validate_background_launch(&h, &launch)?);
+        // Beside another device's game a Moonlight stream never ends what that device streams.
+        if requested_resume
+            && launch.plain_stream()
+            && !plays_game(&h, &launch.client.uuid)
+            && h.sessions
+                .lock()
+                .unwrap()
+                .plain_webrtc_held_by_other(&launch.client.uuid)
+        {
+            return Err(LaunchFailure(409, WEBRTC_HELD_BY_OTHER).into());
+        }
         let rtsp_port = h.config.read().unwrap().ports()?.rtsp;
         if !launch.rtsp_encrypted
             && crate::network::encryption_mode(&h.config.read().unwrap(), connection.peer.ip()) == 2
@@ -1667,7 +1679,7 @@ fn launch_back_half(
         // Nucleus Co-op started the game when it admitted the launch.
         Ok(None)
     } else {
-        prepare_launch_app(h, args, app.as_ref(), &launch)
+        prepare_launch_app(h, args, app.as_ref(), &launch, resume)
     };
     let prepared_app = match prepared_app {
         Ok(prepared_app) => prepared_app,
@@ -2184,6 +2196,19 @@ fn validate_launch_request(
     }
     ControlFlow::Continue(owner)
 }
+/// Why a `/resume` of another device's game found nothing to join. Nightjar and Android read these
+/// to say it in the user's language: `nightjar_policy::continue_here::resume_refusal`.
+pub(crate) const WEBRTC_HELD_BY_OTHER: &str = "Another device is streaming over WebRTC";
+pub(crate) const RESUME_GAME_CHANGED: &str = "The game running on this PC changed";
+pub(crate) const NOTHING_TO_RESUME: &str = "no application or remote monitor to resume";
+/// Whether `device` started or took over the running game, also a background one.
+fn plays_game(h: &Shared, device: &str) -> bool {
+    h.current_app
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|game| game.owner == device)
+}
 fn resolve_launch_app(
     h: &Shared,
     args: &Args,
@@ -2244,7 +2269,7 @@ fn resolve_launch_app(
             role = Role::RemoteMonitor;
             2147483505
         } else {
-            bail!("no application or remote monitor to resume");
+            bail!(NOTHING_TO_RESUME);
         }
     } else {
         requested
@@ -2257,11 +2282,29 @@ fn resolve_launch_app(
         .find(|a| {
             a.id() == app_id
                 || a.aliases.contains(&app_id)
-                || args.get("appuuid").is_some_and(|id| {
-                    a.extra.get("uuid").and_then(serde_json::Value::as_str) == Some(id)
-                })
+                // A resume is of the running game, whatever the client still calls it.
+                || (!resume
+                    && args.get("appuuid").is_some_and(|id| {
+                        a.extra.get("uuid").and_then(serde_json::Value::as_str) == Some(id)
+                    }))
         })
         .cloned();
+    // A Resume or Running Game tile names only a way to reach the game, and a device's own game
+    // is its own whatever it calls it. Anyone else who names another game asked before it changed.
+    if resume
+        && control.is_none()
+        && role == Role::Stream
+        && !plays_game(h, &client.uuid)
+        && let (Some(running), Some(named)) = (&app, args.get("appuuid"))
+        && !named.is_empty()
+        && running
+            .extra
+            .get("uuid")
+            .and_then(serde_json::Value::as_str)
+            != Some(named.as_str())
+    {
+        return Err(LaunchFailure(409, RESUME_GAME_CHANGED).into());
+    }
     // The co-op entries come after the apps: an app keeps its id.
     let coop = if role == Role::Stream && app.is_none() && !resume {
         let apps = h.apps.read().unwrap().clone();
@@ -2575,7 +2618,12 @@ fn prepare_launch_app(
     args: &Args,
     app: Option<&App>,
     launch: &Launch,
+    resume: bool,
 ) -> Result<Option<crate::process::RunningApp>> {
+    // A resume never starts a game: one closed while this launch prepared stays closed.
+    if resume && launch.role == Role::Stream && h.current_app.lock().unwrap().is_none() {
+        bail!(NOTHING_TO_RESUME);
+    }
     #[cfg(test)]
     if let Some(fixture) = &h.reconnect_fixture {
         return fixture.prepare_app(h, app, launch);

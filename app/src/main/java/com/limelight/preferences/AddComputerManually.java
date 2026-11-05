@@ -342,6 +342,11 @@ public class AddComputerManually extends NightjarActivity {
         super.onResume();
         foreground = true;
         hostActions.deliverPendingResult();
+        // A screen an earlier link left open comes back rather than being created again, so this is not in onCreate.
+        String confirmed = openedFromLink ? LinkGate.takeConfirmed() : null;
+        if (confirmed != null) {
+            submit(confirmed);
+        }
     }
 
     @Override
@@ -435,10 +440,6 @@ public class AddComputerManually extends NightjarActivity {
                     ComputerManagerService.class), serviceConnection, Service.BIND_AUTO_CREATE);
 
         openedFromLink = getIntent().getBooleanExtra(EXTRA_FROM_LINK, false);
-        String confirmed = openedFromLink ? LinkGate.takeConfirmed() : null;
-        if (confirmed != null) {
-            submit(confirmed);
-        }
     }
 
     /** A screen opened for a link has nothing under it when the app was closed: the PC list comes next. */

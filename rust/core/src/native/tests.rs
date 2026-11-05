@@ -132,6 +132,38 @@ fn last_played_comes_from_the_stores_and_stays_out_of_the_revision() {
 }
 
 #[test]
+fn collections_join_a_games_store_and_playnite_names_and_change_the_revision() {
+    let both = app(json!({"name": "Dota", "uuid": "b", "steam-id": 570, "playnite-id": "AA-bb"}));
+    let kart = app(json!({"name": "Kart", "uuid": "k", "playnite-id": "cc", "cmd": "kart.exe"}));
+    let manual = app(json!({"name": "Desktop", "uuid": "d"}));
+    let apps = [both, kart, manual];
+    let scan = Scan::new(["steam:570".into()]).collecting([
+        (
+            "steam:570".into(),
+            vec!["VR".to_owned(), "Couch".to_owned()],
+        ),
+        (
+            playnite_key("aa-BB"),
+            vec!["Couch".to_owned(), "Co-op".to_owned()],
+        ),
+        (playnite_key("CC"), vec!["Racing".to_owned()]),
+    ]);
+    let library = library(&apps, Some(&scan), None);
+    assert_eq!(library.games[0].collections, ["Co-op", "Couch", "VR"]);
+    assert_eq!(library.games[1].collections, ["Racing"]);
+    assert!(library.games[2].collections.is_empty());
+    let text = serde_json::to_string(&library.games[2]).unwrap();
+    assert!(!text.contains("collections"), "absent, not empty: {text}");
+    let without = super::library(&apps, Some(&Scan::new(["steam:570".into()])), None);
+    assert_ne!(
+        without.revision, library.revision,
+        "clients refetch when a collection changes"
+    );
+    let unscanned = super::library(&apps, None, None);
+    assert!(unscanned.games.iter().all(|g| g.collections.is_empty()));
+}
+
+#[test]
 fn not_installed_is_only_for_a_known_launcher_id_the_scan_did_not_find() {
     let steam = |name: &str, id: u32| app(json!({"name": name, "uuid": name, "steam-id": id}));
     let epic = app(

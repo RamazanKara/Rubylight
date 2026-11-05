@@ -1,7 +1,8 @@
 //! Steam library discovery and the apps it maintains, as in Vibepollo 2.0.
 //!
 //! Only local files are read: `libraryfolders.vdf`, `appmanifest_*.acf`,
-//! `userdata/*/config/localconfig.vdf`, `appcache/appinfo.vdf` and the
+//! `userdata/*/config/localconfig.vdf`, `userdata/*/config/cloudstorage` (the
+//! collections, read only), `appcache/appinfo.vdf` and the
 //! library cache artwork. Apps the sync adds carry `steam-managed: "auto"`,
 //! a UUID derived from the Steam app ID and `synced-by: steam`; only the
 //! stamp makes an app the sync's own, since Vibepollo writes the rest too.
@@ -117,6 +118,154 @@ pub fn discover(roots: &[PathBuf]) -> Vec<Game> {
     }
     games.into_values().filter(|g| !g.name.is_empty()).collect()
 }
+/// What Steam's collections said: their names by app, and what got in the way of reading them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Collections {
+    /// Each app's collections by name, in file order.
+    pub apps: BTreeMap<u32, Vec<String>>,
+    /// Why some or all of them could not be read, for one log line.
+    pub problem: Option<String>,
+}
+
+/// The cloud storage file that holds an account's collections.
+const COLLECTIONS_FILE: &str = "cloud-storage-namespace-1.json";
+
+/// The account folder's collections file Steam wrote last, for the account signed in last.
+/// `loginusers.vdf` does not always say who that was.
+fn collections_file(roots: &[PathBuf]) -> Option<PathBuf> {
+    roots
+        .iter()
+        .filter(|root| on_this_pc(root))
+        .filter_map(|root| std::fs::read_dir(root.join("userdata")).ok())
+        .flat_map(|users| users.flatten())
+        .map(|user| {
+            user.path()
+                .join("config")
+                .join("cloudstorage")
+                .join(COLLECTIONS_FILE)
+        })
+        .filter_map(|file| {
+            let modified = std::fs::metadata(&file).ok()?.modified().ok()?;
+            Some((modified, file))
+        })
+        .max_by_key(|(modified, _)| *modified)
+        .map(|(_, file)| file)
+}
+
+/// The collections of the Steam account signed in last. Steam's format is undocumented and this
+/// never writes it: anything missing, malformed or changed leaves fewer collections and a
+/// [`Collections::problem`], never an error. A PC with no Steam has no problem to tell.
+pub fn collections(roots: &[PathBuf]) -> Collections {
+    let Some(file) = collections_file(roots) else {
+        let steam = roots.iter().any(|root| root.join("userdata").is_dir());
+        return Collections {
+            apps: BTreeMap::new(),
+            problem: steam.then(|| format!("no account has {COLLECTIONS_FILE}")),
+        };
+    };
+    match std::fs::read_to_string(&file) {
+        Ok(text) => parse_collections(&text),
+        Err(error) => Collections {
+            apps: BTreeMap::new(),
+            problem: Some(format!("{COLLECTIONS_FILE} could not be read: {error}")),
+        },
+    }
+}
+
+/// One cloud storage file: an array of `[key, {value, is_deleted, ..}]` pairs, where the value of a
+/// `user-collections.<id>` key is JSON text of `{id, name, added: [appid], removed: [appid]}`.
+/// Steam's own Hidden collection is no group. A dynamic collection's filter is left unread: its
+/// group holds the apps it lists itself.
+fn parse_collections(text: &str) -> Collections {
+    let mut collections = Collections::default();
+    let entries = match serde_json::from_str::<Value>(text) {
+        Ok(Value::Array(entries)) => entries,
+        Ok(_) => {
+            collections.problem = Some(format!("{COLLECTIONS_FILE} is not a list"));
+            return collections;
+        }
+        Err(error) => {
+            collections.problem = Some(format!("{COLLECTIONS_FILE} is not JSON: {error}"));
+            return collections;
+        }
+    };
+    let mut unread = 0;
+    for entry in &entries {
+        let key = entry.get(0).and_then(Value::as_str).unwrap_or("");
+        if !key.starts_with("user-collections.") || key == "user-collections.hidden" {
+            continue;
+        }
+        let fields = entry.get(1);
+        if fields
+            .and_then(|fields| fields.get("is_deleted"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let collection = fields
+            .and_then(|fields| fields.get("value"))
+            .and_then(Value::as_str)
+            .and_then(|value| serde_json::from_str::<Value>(value).ok());
+        let name = collection
+            .as_ref()
+            .and_then(|collection| collection.get("name"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty());
+        let ids = |field: &str| -> Option<BTreeSet<u32>> {
+            collection
+                .as_ref()?
+                .get(field)?
+                .as_array()?
+                .iter()
+                .map(|id| id.as_u64().and_then(|id| u32::try_from(id).ok()))
+                .collect()
+        };
+        let (Some(name), Some(added)) = (name, ids("added")) else {
+            unread += 1;
+            continue;
+        };
+        let removed = ids("removed").unwrap_or_default();
+        for appid in added.difference(&removed) {
+            collections
+                .apps
+                .entry(*appid)
+                .or_default()
+                .push(name.to_owned());
+        }
+    }
+    if unread > 0 {
+        collections.problem = Some(format!("{unread} collections could not be read"));
+    }
+    collections
+}
+
+/// What changes when an app is installed or removed, or a collection edited: the libraries'
+/// manifest names, their `common` folders' times and the collections file. Not a manifest's
+/// content, which a download rewrites all the time, so reading this every few seconds is cheap and
+/// a running download starts no scans. Equal only within one run.
+pub fn library_stamp(roots: &[PathBuf]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for steamapps in libraries(roots) {
+        steamapps.hash(&mut hasher);
+        manifests(&steamapps).hash(&mut hasher);
+        std::fs::metadata(steamapps.join("common"))
+            .and_then(|folder| folder.modified())
+            .ok()
+            .hash(&mut hasher);
+    }
+    if let Some(file) = collections_file(roots) {
+        file.hash(&mut hasher);
+        if let Ok(metadata) = std::fs::metadata(&file) {
+            metadata.len().hash(&mut hasher);
+            metadata.modified().ok().hash(&mut hasher);
+        }
+    }
+    hasher.finish()
+}
+
 /// Whether `path` is on one of this PC's drives. The host runs as SYSTEM:
 /// opening a network share would hand it the PC's account, so a library on
 /// a share is skipped before anything opens it.

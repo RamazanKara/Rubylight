@@ -383,6 +383,35 @@ impl Discovery {
     }
 }
 
+/// Runs `work` in the thread's background mode (lowest CPU, disk and memory priority), so reading
+/// a library's files never competes with a running stream. Hold no lock in it: a thread that gets
+/// no time would hold up whoever waits for the lock. The mode ends with `work`, also on a panic.
+pub fn in_background<T>(work: impl FnOnce() -> T) -> T {
+    use windows::Win32::System::Threading::{
+        GetCurrentThread, SetThreadPriority, THREAD_MODE_BACKGROUND_BEGIN,
+        THREAD_MODE_BACKGROUND_END,
+    };
+    struct Background {
+        began: bool,
+    }
+    impl Drop for Background {
+        fn drop(&mut self) {
+            if self.began {
+                // SAFETY: acts on the current thread's pseudo-handle and takes no pointers.
+                unsafe {
+                    let _ = SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_END);
+                }
+            }
+        }
+    }
+    // SAFETY: acts on the current thread's pseudo-handle and takes no pointers. It fails when the
+    // thread is in the mode already: the caller's mode then stays until the caller ends it.
+    let began =
+        unsafe { SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN) }.is_ok();
+    let _background = Background { began };
+    work()
+}
+
 pub fn discover(settings: &library::Settings) -> Discovery {
     let mut registry_errors = vec![];
     let installs = installed(&mut registry_errors);
@@ -758,6 +787,35 @@ pub fn launch(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn background_mode_answers_and_ends_also_on_a_panic() {
+        use windows::Win32::System::Threading::{
+            GetCurrentThread, SetThreadPriority, THREAD_MODE_BACKGROUND_BEGIN,
+            THREAD_MODE_BACKGROUND_END,
+        };
+        // Beginning fails while the thread is in the mode: it tells whether the mode ended.
+        let outside = || {
+            // SAFETY: the current thread's pseudo-handle, no pointers.
+            let began =
+                unsafe { SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN) }
+                    .is_ok();
+            if began {
+                // SAFETY: as above.
+                unsafe { SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_END) }
+                    .unwrap();
+            }
+            began
+        };
+        assert!(outside());
+        assert_eq!(super::in_background(|| super::in_background(|| 7)), 7);
+        assert!(
+            outside(),
+            "a nested call leaves the mode to the outer one, which ends it"
+        );
+        assert!(std::panic::catch_unwind(|| super::in_background(|| panic!("boom"))).is_err());
+        assert!(outside(), "the mode ended with the panic");
+    }
+
     use super::*;
 
     #[test]

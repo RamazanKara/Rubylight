@@ -559,6 +559,22 @@ pub fn last_played() -> Vec<(String, u64)> {
         })
         .collect()
 }
+/// The categories of the games the plugin last reported, by [`butterpollo_core::native::playnite_key`].
+#[cfg(not(test))]
+pub fn collections() -> Vec<(String, Vec<String>)> {
+    let catalog = CATALOG.lock().unwrap();
+    catalog
+        .games
+        .iter()
+        .filter(|game| !game.categories.is_empty())
+        .map(|game| {
+            (
+                butterpollo_core::native::playnite_key(&game.id),
+                game.categories.clone(),
+            )
+        })
+        .collect()
+}
 /// `/api/playnite/categories` (and the plugins seen, for the console).
 pub fn categories() -> Result<Value> {
     catalog_ready()?;

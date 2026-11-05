@@ -45,9 +45,20 @@ fn settings(h: &Shared) -> library::Settings {
 }
 #[cfg(not(test))]
 fn scan_installed(settings: library::Settings) -> Scan {
+    butterpollo_windows::library::in_background(|| read_installed(settings))
+}
+#[cfg(not(test))]
+fn read_installed(settings: library::Settings) -> Scan {
     let discovery = butterpollo_windows::library::discover(&settings);
     // The launcher scan leaves Steam's tools out; an app for one is still installed.
-    let steam = butterpollo_core::steam::discover(&butterpollo_windows::steam::roots());
+    let roots = butterpollo_windows::steam::roots();
+    let steam = butterpollo_core::steam::discover(&roots);
+    let collections = butterpollo_core::steam::collections(&roots);
+    if let Some(problem) = &collections.problem
+        && first_time_told(problem)
+    {
+        tracing::warn!(%problem, "Steam's collections are missing from the library");
+    }
     Scan::from_games(&discovery.games)
         .adding(
             steam
@@ -65,11 +76,30 @@ fn scan_installed(settings: library::Settings) -> Scan {
                 .map(|game| (format!("steam:{}", game.appid), game.last_played)),
         )
         .playing(crate::playnite::last_played())
+        .collecting(
+            collections
+                .apps
+                .into_iter()
+                .map(|(appid, names)| (format!("steam:{appid}"), names)),
+        )
+        .collecting(crate::playnite::collections())
 }
 /// Tests never read the registry and the launchers' folders.
 #[cfg(test)]
 fn scan_installed(_: library::Settings) -> Scan {
     Scan::default()
+}
+
+/// The last problem told about Steam's collections: a scan every few minutes says it once.
+static TOLD: Mutex<Option<String>> = Mutex::new(None);
+/// Whether this problem is not the one told last, and notes it.
+fn first_time_told(problem: &str) -> bool {
+    let mut told = TOLD.lock().unwrap_or_else(PoisonError::into_inner);
+    if told.as_deref() == Some(problem) {
+        return false;
+    }
+    *told = Some(problem.to_owned());
+    true
 }
 
 /// The games the last launcher scan found installed, `None` before the first
@@ -272,7 +302,9 @@ pub fn sync(h: &Shared) -> Result<Value> {
     if crate::playnite::syncs_launchers(h) {
         return Ok(json!({ "status": true, "added": 0, "removed": 0, "playnite": true }));
     }
-    let discovery = butterpollo_windows::library::discover(&settings);
+    let discovery = butterpollo_windows::library::in_background(|| {
+        butterpollo_windows::library::discover(&settings)
+    });
     let read: Vec<library::Source> = discovery
         .sources
         .iter()
@@ -328,9 +360,38 @@ fn sync_games(
 static SYNCED: LazyLock<Mutex<HashMap<PathBuf, (Instant, String)>>> =
     LazyLock::new(Default::default);
 
-/// The automatic launcher sync, from the 30-second housekeeping tick: at once when the
-/// launcher settings change, else every five minutes like the cached scan.
+/// What Steam's library looked like at the last housekeeping tick, by profile directory.
+static STEAM_STAMPS: LazyLock<Mutex<HashMap<PathBuf, u64>>> = LazyLock::new(Default::default);
+
+/// Notes `stamp` and says whether it moved since the last one. The first one has nothing to
+/// compare with: the host's first scan and sync read Steam anyway.
+fn steam_moved(directory: &Path, stamp: u64) -> bool {
+    let mut stamps = STEAM_STAMPS.lock().unwrap_or_else(PoisonError::into_inner);
+    stamps
+        .insert(directory.to_owned(), stamp)
+        .is_some_and(|last| last != stamp)
+}
+#[cfg(not(test))]
+fn steam_stamp() -> u64 {
+    butterpollo_windows::library::in_background(|| {
+        butterpollo_core::steam::library_stamp(&butterpollo_windows::steam::roots())
+    })
+}
+/// Tests never read the registry and the launchers' folders.
+#[cfg(test)]
+fn steam_stamp() -> u64 {
+    0
+}
+
+/// The automatic launcher sync, from the 30-second housekeeping tick: at once when the launcher
+/// settings change or Steam's library does, else every five minutes like the cached scan. A game
+/// installed or removed in Steam, or a collection edited, reaches the next library request after
+/// one tick, whether or not the sync is on.
 pub fn watch(h: &Shared) {
+    let moved = steam_moved(&h.directory, steam_stamp());
+    if moved {
+        invalidate(h);
+    }
     let settings = settings(h);
     if !settings.auto_sync {
         return;
@@ -338,9 +399,10 @@ pub fn watch(h: &Shared) {
     let key = format!("{settings:?}");
     {
         let mut synced = SYNCED.lock().unwrap_or_else(PoisonError::into_inner);
-        let due = synced
-            .get(&h.directory)
-            .is_none_or(|(at, last)| *last != key || at.elapsed() >= SCAN_EVERY);
+        let due = moved
+            || synced
+                .get(&h.directory)
+                .is_none_or(|(at, last)| *last != key || at.elapsed() >= SCAN_EVERY);
         if !due {
             return;
         }
@@ -415,6 +477,26 @@ mod tests {
     use crate::state::test_support::Fixture;
     use std::path::Path;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    #[test]
+    fn steam_moved_says_so_only_when_the_stamp_changes() {
+        let directory = Path::new("steam-moved-test");
+        assert!(!steam_moved(directory, 1), "nothing to compare with yet");
+        assert!(!steam_moved(directory, 1));
+        assert!(steam_moved(directory, 2), "an install or removal");
+        assert!(!steam_moved(directory, 2), "told once");
+        assert!(
+            !steam_moved(Path::new("steam-moved-other"), 3),
+            "each host keeps its own"
+        );
+    }
+
+    #[test]
+    fn a_collections_problem_is_told_once_until_another_comes() {
+        assert!(first_time_told("told-test: one"));
+        assert!(!first_time_told("told-test: one"));
+        assert!(first_time_told("told-test: two"));
+    }
 
     static OPEN: AtomicBool = AtomicBool::new(false);
     static RUNS: AtomicUsize = AtomicUsize::new(0);

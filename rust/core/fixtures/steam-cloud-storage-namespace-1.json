@@ -1,0 +1,7 @@
+[["GameReleased",{"key":"GameReleased","timestamp":1790000000,"value":"{\"apps\":[],\"lastChangeNumber\":1}","version":"700"}],
+["user-collections.favorite",{"key":"user-collections.favorite","timestamp":1790371972,"value":"{\"id\":\"favorite\",\"name\":\"Favoriten\",\"added\":[570,730,1234567],\"removed\":[]}","version":"730","conflictResolutionMethod":"custom","strMethodId":"union-collections"}],
+["user-collections.hidden",{"key":"user-collections.hidden","timestamp":1668041674,"value":"{\"id\":\"hidden\",\"name\":\"Hidden\",\"added\":[440],\"removed\":[]}","version":"369"}],
+["user-collections.uc-AbCdEfGhIjKl",{"key":"user-collections.uc-AbCdEfGhIjKl","timestamp":1792076360,"value":"{\"id\":\"uc-AbCdEfGhIjKl\",\"name\":\"VR\",\"added\":[570,620,1000],\"removed\":[1000]}","version":"732"}],
+["user-collections.srm-RGVsZXRlZA==",{"key":"user-collections.srm-RGVsZXRlZA==","timestamp":1652355719,"is_deleted":true,"version":"369"}],
+["user-collections.srm-UGxheXN0YXRpb24gMg==",{"key":"user-collections.srm-UGxheXN0YXRpb24gMg==","timestamp":1652364586,"value":"{\"id\":\"srm-UGxheXN0YXRpb24gMg==\",\"name\":\"Playstation 2\",\"added\":[],\"removed\":[]}","version":"369"}],
+["collection-bootstrap-complete",{"key":"collection-bootstrap-complete","timestamp":1652055899,"value":"true","version":"1"}]]

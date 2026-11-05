@@ -31,6 +31,10 @@ pub struct Game {
     /// when no store says, and from hosts older than the field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_played: Option<u64>,
+    /// The groups the user keeps the game in on the host's stores: Steam collections and Playnite
+    /// categories, by name. Absent when it is in none, and from hosts older than the field.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub collections: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

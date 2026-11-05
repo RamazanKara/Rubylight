@@ -37,6 +37,8 @@ pub struct Scan {
     /// When the stores say each game was last played, in seconds since the epoch, `0` for
     /// never: by `game_id` (`steam:570`) and by Playnite game ([`playnite_key`]).
     played: BTreeMap<String, u64>,
+    /// The collections and categories each game is in, keyed like `played`.
+    collections: BTreeMap<String, BTreeSet<String>>,
 }
 impl Scan {
     pub fn new(game_ids: impl IntoIterator<Item = String>) -> Self {
@@ -45,7 +47,32 @@ impl Scan {
             skipped: BTreeSet::new(),
             folders: None,
             played: BTreeMap::new(),
+            collections: BTreeMap::new(),
         }
+    }
+    /// The collections these games are in, by `game_id` or [`playnite_key`].
+    pub fn collecting(mut self, games: impl IntoIterator<Item = (String, Vec<String>)>) -> Self {
+        for (key, names) in games {
+            self.collections.entry(key).or_default().extend(names);
+        }
+        self
+    }
+    /// The collections the app's game is in, its store's and its Playnite game's together, by name.
+    pub fn collections(&self, app: &App) -> Vec<String> {
+        let store = store_of(app).map(|(_, game_id)| game_id);
+        let playnite = app
+            .extra
+            .get("playnite-id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .map(playnite_key);
+        let names: BTreeSet<&String> = [store, playnite]
+            .iter()
+            .flatten()
+            .filter_map(|key| self.collections.get(key))
+            .flatten()
+            .collect();
+        names.into_iter().cloned().collect()
     }
     /// When the stores say these games were last played (`0` for never), by `game_id` or
     /// [`playnite_key`]. A key seen twice keeps the later time.
@@ -238,6 +265,7 @@ pub fn library_with(
                 },
             },
             last_played: None,
+            collections: scan.map(|scan| scan.collections(app)).unwrap_or_default(),
         });
         played.push(scan.and_then(|scan| scan.last_played(app)));
     }

@@ -41,7 +41,7 @@ pub fn catalog(settings: &Settings) -> Result<(Vec<PathBuf>, Vec<Game>)> {
 /// Sync the managed Steam apps now.
 pub fn sync(h: &Shared) -> Result<Outcome> {
     let settings = Settings::from_config(&h.config.read().unwrap());
-    let (_, games) = catalog(&settings)?;
+    let (_, games) = butterpollo_windows::library::in_background(|| catalog(&settings))?;
     sync_beside(h, &settings, &games, crate::playnite::syncs_launchers(h))
 }
 /// While Playnite syncs the library its export brings the Steam games too, so the Steam
@@ -297,7 +297,7 @@ pub fn watch(h: &Shared) {
         return;
     }
     let roots = butterpollo_windows::steam::roots();
-    let current = fingerprint(&settings, &roots);
+    let current = butterpollo_windows::library::in_background(|| fingerprint(&settings, &roots));
     let due = {
         let watch = WATCH.lock().unwrap();
         watch.fingerprint != current

@@ -76,7 +76,8 @@ impl SessionSeen {
     fn of(native_api: bool, session: Option<&Session>, read_failed: bool) -> Self {
         match session {
             _ if !native_api => Self::Free,
-            Some(s) if s.owner == Owner::OtherDevice && console::active(s) => Self::Elsewhere,
+            // No `console::active`: the host does not name another device's app to this one.
+            Some(s) if s.owner == Owner::OtherDevice && console::live(s) => Self::Elsewhere,
             _ if read_failed => Self::Waiting,
             Some(_) => Self::Free,
             None => Self::Waiting,
@@ -908,6 +909,9 @@ mod tests {
         };
         assert_eq!(SessionSeen::of(true, Some(&session("streaming", "other_device")), false), SessionSeen::Elsewhere);
         assert_eq!(SessionSeen::of(true, Some(&session("suspended", "other_device")), false), SessionSeen::Elsewhere);
+        let mut no_app = session("streaming", "other_device");
+        no_app.app = None;
+        assert_eq!(SessionSeen::of(true, Some(&no_app), false), SessionSeen::Elsewhere, "what a real host sends");
         assert_eq!(SessionSeen::of(true, Some(&session("streaming", "you")), false), SessionSeen::Free);
         assert_eq!(SessionSeen::of(true, Some(&session("idle", "other_device")), false), SessionSeen::Free);
         assert_eq!(SessionSeen::of(true, None, false), SessionSeen::Waiting);

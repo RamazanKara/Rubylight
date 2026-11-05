@@ -130,6 +130,9 @@ pub struct FilePermissions {
     /// The device may restart and shut down the PC (its own grant on the host).
     #[serde(default, deserialize_with = "bool_or_false")]
     pub restart_shutdown: bool,
+    /// The device may approve new devices, and nothing else (its own grant on the host).
+    #[serde(default, deserialize_with = "bool_or_false")]
+    pub pairing_approve: bool,
 }
 
 fn bool_or_false<'de, D: Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
@@ -144,10 +147,16 @@ pub struct NativeCapabilities {
 }
 
 impl NativeCapabilities {
-    /// Whether this device may list and approve devices waiting to pair on this PC.
-    pub fn may_approve_pairing(&self) -> bool {
+    /// Whether this PC can approve new devices at all, for this device or another.
+    pub fn offers_pairing_approve(&self) -> bool {
         self.capabilities.features.iter().any(|f| f == FEATURE_PAIRING_APPROVE)
-            && self.capabilities.permissions.host_control
+    }
+
+    /// Whether this device may list and approve devices waiting to pair on this PC: with
+    /// "Approve new devices" or Host control.
+    pub fn may_approve_pairing(&self) -> bool {
+        self.offers_pairing_approve()
+            && (self.files.pairing_approve || self.capabilities.permissions.host_control)
     }
 }
 
@@ -549,6 +558,34 @@ mod tests {
     }
 
     #[test]
+    fn approving_a_device_takes_the_feature_and_either_grant() {
+        let read = |features: &str, permissions: &str| {
+            decode::<NativeCapabilities>(
+                response(
+                    200,
+                    &format!(
+                        r#"{{"api_version":1,"host":{{"name":"PC","version":"3.7.0","unique_id":"U"}},
+                        "features":[{features}],"permissions":{{"list":true,"view":true,"launch":false,
+                        {permissions}}}}}"#
+                    ),
+                ),
+                "api/native/v1/capabilities",
+            )
+            .unwrap()
+        };
+        let feature = r#""pairing.approve""#;
+        let neither = read(feature, r#""host_control":false"#);
+        assert!(neither.offers_pairing_approve() && !neither.may_approve_pairing());
+        assert!(read(feature, r#""host_control":true"#).may_approve_pairing());
+        assert!(read(feature, r#""host_control":false,"pairing_approve":true"#).may_approve_pairing());
+        // A value that is not a bool grants nothing.
+        assert!(!read(feature, r#""host_control":false,"pairing_approve":"true""#).may_approve_pairing());
+        // An older host has no such feature, whatever the device holds.
+        let older = read("", r#""host_control":true,"pairing_approve":true"#);
+        assert!(!older.offers_pairing_approve() && !older.may_approve_pairing());
+    }
+
+    #[test]
     fn the_file_permissions_come_from_the_same_body() {
         let body = |permissions: &str| {
             format!(
@@ -571,6 +608,7 @@ mod tests {
                 usb: false,
                 shared_folders: false,
                 restart_shutdown: false,
+                pairing_approve: false,
             }
         );
         let read = decode::<NativeCapabilities>(

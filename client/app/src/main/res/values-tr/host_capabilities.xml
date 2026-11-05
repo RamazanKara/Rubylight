@@ -30,6 +30,7 @@
     <string name="host_feature_reason_hardware_metrics_off">Ana bilgisayarın ayarlarından donanım ölçümlerini açın</string>
     <string name="host_feature_reason_sleep_permission">Bu cihazın bilgisayarı uyutma izni yok</string>
     <string name="host_feature_reason_restart_shutdown_permission">Bu cihazın PC’yi yeniden başlatma veya kapatma izni yok</string>
+    <string name="host_feature_reason_pairing_approve_permission">Hostun Devices sayfasında “Approve new devices” gerekir</string>
     <string name="host_feature_reason_file_permission">Dosya izni yok: ana bilgisayarın web arayüzünden verin</string>
     <string name="host_feature_reason_usb_permission">USB izni yok: ana bilgisayarın web arayüzünden verin</string>
     <string name="host_feature_reason_folder_permission">Paylaşılan klasör izni yok: web arayüzünden verin</string>

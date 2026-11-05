@@ -1355,6 +1355,7 @@ sudo sysctl -w net.core.rmem_max={}", "Bufor odbioru: system przydzielił {0} Ki
     ("Restart PC", "Uruchom PC ponownie"),
     ("Shut down PC", "Wyłącz PC"),
     ("Update the PC's host", "Zaktualizuj hosta PC"),
+    ("Needs Approve new devices on the host's Devices page.", "Wymaga „Approve new devices” w Devices na hoście."),
     ("Pair another device", "Sparuj inne urządzenie"),
     ("{} wants to pair", "{} chce się sparować"),
     ("{} devices want to pair", "Urządzenia chcące się sparować: {}"),

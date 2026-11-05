@@ -128,7 +128,7 @@ pub fn host_options(host: &Host) -> Vec<HostOption> {
     if host.update_offer().is_some() {
         options.push(HostOption::UpdateHost);
     }
-    if host.may_approve_pairing() {
+    if host.pair_another_option().is_some() {
         options.push(HostOption::PairAnother);
     }
     if files::offers_files(host) {
@@ -274,6 +274,7 @@ impl Launcher {
                                 HostOption::Sleep => host.sleep_option().and_then(Result::err),
                                 HostOption::RestartPc => host.pc_power_option(PcPower::Restart).and_then(Result::err),
                                 HostOption::ShutDownPc => host.pc_power_option(PcPower::ShutDown).and_then(Result::err),
+                                HostOption::PairAnother => host.pair_another_option().and_then(Result::err),
                                 _ => None,
                             },
                         })

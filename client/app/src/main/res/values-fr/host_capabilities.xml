@@ -30,6 +30,7 @@
     <string name="host_feature_reason_hardware_metrics_off">Activez les mesures matérielles dans les paramètres de l’hôte</string>
     <string name="host_feature_reason_sleep_permission">Cet appareil n’est pas autorisé à mettre le PC en veille</string>
     <string name="host_feature_reason_restart_shutdown_permission">Cet appareil ne peut ni redémarrer ni éteindre le PC</string>
+    <string name="host_feature_reason_pairing_approve_permission">Requiert « Approve new devices » dans Devices de l’hôte</string>
     <string name="host_feature_reason_file_permission">Pas d’accès aux fichiers : autorisez cet appareil sur l’hôte</string>
     <string name="host_feature_reason_usb_permission">Pas d’accès USB : autorisez cet appareil sur l’hôte</string>
     <string name="host_feature_reason_folder_permission">Pas de dossiers partagés : autorisez-les sur l’hôte</string>

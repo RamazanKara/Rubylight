@@ -1355,6 +1355,7 @@ sudo sysctl -w net.core.rmem_max={}", "Буфер приёма: система �
     ("Restart PC", "Перезагрузить ПК"),
     ("Shut down PC", "Выключить ПК"),
     ("Update the PC's host", "Обновить хост ПК"),
+    ("Needs Approve new devices on the host's Devices page.", "Нужно «Approve new devices» в разделе Devices на хосте."),
     ("Pair another device", "Подключить другое устройство"),
     ("{} wants to pair", "{} запрашивает сопряжение"),
     ("{} devices want to pair", "Запрашивают сопряжение: {}"),

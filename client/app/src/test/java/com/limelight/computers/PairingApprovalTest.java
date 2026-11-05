@@ -63,9 +63,13 @@ public class PairingApprovalTest {
     }
 
     private static String capabilities(String features, boolean hostControl) {
+        return capabilities(features, hostControl, false);
+    }
+
+    private static String capabilities(String features, boolean hostControl, boolean pairingApprove) {
         return "{\"ok\":{\"api_version\":1,\"host\":{\"name\":\"PC\",\"version\":\"3.6.0\",\"unique_id\":\"U\"},"
                 + "\"features\":[" + features + "],\"permissions\":{\"list\":true,\"view\":true,\"launch\":true,"
-                + "\"host_control\":" + hostControl + ",\"restart_shutdown\":false}}}";
+                + "\"host_control\":" + hostControl + ",\"restart_shutdown\":false,\"pairing_approve\":" + pairingApprove + "}}}";
     }
 
     private static NativeApiClient api(NativeApiTransportReply reply) {
@@ -87,12 +91,14 @@ public class PairingApprovalTest {
     }
 
     @Test
-    public void onlyAPcOfferingItToADeviceWithHostControlIsAsked() throws Exception {
+    public void onlyAPcOfferingItToADeviceWithAGrantIsAsked() throws Exception {
         assertFalse(HostMenu.mayApprovePairing(pc("pc")));
         read(capabilities("\"update\"", true));
         assertFalse("an older host", HostMenu.mayApprovePairing(pc("pc")));
         read(capabilities("\"pairing.approve\"", false));
-        assertFalse("no Host control", HostMenu.mayApprovePairing(pc("pc")));
+        assertFalse("no grant", HostMenu.mayApprovePairing(pc("pc")));
+        read(capabilities("\"pairing.approve\"", false, true));
+        assertTrue("Approve new devices", HostMenu.mayApprovePairing(pc("pc")));
         read(capabilities("\"pairing.approve\"", true));
         assertTrue(HostMenu.mayApprovePairing(pc("pc")));
         ComputerDetails asleep = pc("pc");
@@ -108,25 +114,63 @@ public class PairingApprovalTest {
             String label = screen.getString(R.string.host_menu_pair_another);
             List<Integer> chosen = new ArrayList<>();
             read(capabilities("\"pairing.approve\"", false));
+            String reason = screen.getString(R.string.host_feature_reason_pairing_approve_permission);
             ActionSheet without = HostMenu.build(screen, pc("pc"), PcGridAdapter.RowState.READY, null, chosen::add);
             without.show();
-            assertNull(row(without.findViewById(android.R.id.content), label));
-            without.dismiss();
-
-            read(capabilities("\"pairing.approve\"", true));
-            ActionSheet with = HostMenu.build(screen, pc("pc"), PcGridAdapter.RowState.READY, null, chosen::add);
-            with.show();
-            MaterialButton entry = row(with.findViewById(android.R.id.content), label);
-            assertNotNull(entry);
-            entry.performClick();
+            View content = without.findViewById(android.R.id.content);
+            MaterialButton dimmed = row(content, label);
+            assertNotNull("Findable without the grant", dimmed);
+            assertEquals(HostMenu.DISABLED_ALPHA, dimmed.getAlpha(), 0f);
+            assertTrue("It names the permission", reason.contains("Approve new devices"));
+            assertTrue("It points to the Devices page", reason.contains("Devices"));
+            assertTrue(containsText(content, reason));
+            dimmed.performClick();
             Shadows.shadowOf(Looper.getMainLooper()).idle();
             assertEquals(List.of(HostMenu.PAIR_ANOTHER), chosen);
-            with.dismiss();
+            chosen.clear();
+
+            read(capabilities("\"update\"", true));
+            ActionSheet older = HostMenu.build(screen, pc("pc"), PcGridAdapter.RowState.READY, null, chosen::add);
+            older.show();
+            assertNull("A host that offers nothing lists nothing", row(older.findViewById(android.R.id.content), label));
+            older.dismiss();
+
+            for (String granted : List.of(capabilities("\"pairing.approve\"", true),
+                    capabilities("\"pairing.approve\"", false, true))) {
+                read(granted);
+                ActionSheet with = HostMenu.build(screen, pc("pc"), PcGridAdapter.RowState.READY, null, chosen::add);
+                with.show();
+                MaterialButton entry = row(with.findViewById(android.R.id.content), label);
+                assertNotNull(entry);
+                assertEquals(1f, entry.getAlpha(), 0f);
+                assertFalse(containsText(with.findViewById(android.R.id.content), reason));
+                entry.performClick();
+                Shadows.shadowOf(Looper.getMainLooper()).idle();
+                assertEquals(List.of(HostMenu.PAIR_ANOTHER), chosen);
+                chosen.clear();
+                with.dismiss();
+            }
         }
     }
 
+    private static boolean containsText(View view, String text) {
+        if (view instanceof android.widget.TextView
+                && ((android.widget.TextView) view).getText().toString().contains(text)) {
+            return true;
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                if (containsText(group.getChildAt(i), text)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private static MaterialButton row(View view, String text) {
-        if (view instanceof MaterialButton && text.contentEquals(((MaterialButton) view).getText())) {
+        if (view instanceof MaterialButton && ((MaterialButton) view).getText().toString().startsWith(text)) {
             return (MaterialButton) view;
         }
         if (view instanceof ViewGroup) {

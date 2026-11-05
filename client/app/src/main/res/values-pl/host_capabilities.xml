@@ -30,6 +30,7 @@
     <string name="host_feature_reason_hardware_metrics_off">Włącz metryki sprzętowe w ustawieniach hosta</string>
     <string name="host_feature_reason_sleep_permission">To urządzenie nie ma uprawnień do usypiania komputera</string>
     <string name="host_feature_reason_restart_shutdown_permission">To urządzenie nie może ponownie uruchamiać ani wyłączać PC</string>
+    <string name="host_feature_reason_pairing_approve_permission">Wymaga „Approve new devices” w Devices na hoście</string>
     <string name="host_feature_reason_file_permission">Brak dostępu do plików: zezwól temu urządzeniu na hoście</string>
     <string name="host_feature_reason_usb_permission">Brak urządzeń USB: zezwól na nie w interfejsie WWW hosta</string>
     <string name="host_feature_reason_folder_permission">Brak udostępnionych folderów: zezwól na nie na hoście</string>

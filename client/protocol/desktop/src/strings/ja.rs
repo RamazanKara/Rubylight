@@ -1355,6 +1355,7 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("Restart PC", "PCを再起動"),
     ("Shut down PC", "PCをシャットダウン"),
     ("Update the PC's host", "PCのホストを更新"),
+    ("Needs Approve new devices on the host's Devices page.", "ホストの Devices ページで「Approve new devices」が必要です。"),
     ("Pair another device", "別のデバイスをペアリング"),
     ("{} wants to pair", "{} がペアリングを求めています"),
     ("{} devices want to pair", "{} 台のデバイスがペアリングを求めています"),

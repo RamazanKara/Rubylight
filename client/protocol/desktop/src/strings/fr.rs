@@ -1355,6 +1355,7 @@ sudo sysctl -w net.core.rmem_max={}", "Tampon de réception : le système a acco
     ("Restart PC", "Redémarrer le PC"),
     ("Shut down PC", "Éteindre le PC"),
     ("Update the PC's host", "Mettre à jour l'hôte du PC"),
+    ("Needs Approve new devices on the host's Devices page.", "Requiert « Approve new devices » dans Devices de l’hôte."),
     ("Pair another device", "Associer un autre appareil"),
     ("{} wants to pair", "{} veut s’associer"),
     ("{} devices want to pair", "{} appareils veulent s’associer"),

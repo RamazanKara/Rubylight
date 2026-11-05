@@ -281,6 +281,19 @@ impl Host {
         Some(if native.files.restart_shutdown { Ok(()) } else { Err(PC_POWER_NOT_ALLOWED) })
     }
 
+    /// Pair another device: listed on every PC that offers it, off with its reason on a device
+    /// without the permission, so that it can be found.
+    pub fn pair_another_option(&self) -> Option<Result<(), &'static str>> {
+        if self.reach != Reach::Online || !self.paired() {
+            return None;
+        }
+        let native = self.native.capabilities.as_ref()?;
+        if !native.offers_pairing_approve() {
+            return None;
+        }
+        Some(if native.may_approve_pairing() { Ok(()) } else { Err(PAIRING_NOT_ALLOWED) })
+    }
+
     /// Whether this device may approve devices waiting to pair on this PC, as last read.
     pub fn may_approve_pairing(&self) -> bool {
         self.reach == Reach::Online
@@ -332,6 +345,8 @@ pub const SLEEP_BUSY: &str = en("The PC cannot sleep right now. Close games and 
 // Restart and shut down. A refusal shows the host's own words instead.
 pub const PC_POWER_NOT_ALLOWED: &str = en("The PC does not let this device restart or shut it down. Allow it in the host's device settings.");
 pub const PC_POWER_BUSY: &str = en("The PC cannot do this right now. Close games and streams on it, then try again.");
+// Approving a new device, without the permission for it. The console's own names, in every language.
+pub const PAIRING_NOT_ALLOWED: &str = en("Needs Approve new devices on the host's Devices page.");
 
 /// How long selecting a game waits to learn who plays it, before it starts the stream as it always did.
 const SELECT_READ_WAIT: Duration = Duration::from_millis(1500);

@@ -145,8 +145,18 @@ public final class HostMenu {
         if (updateOffer(details, state) != null) {
             add(sheet, onAction, UPDATE_HOST, R.drawable.ic_download, activity.getString(R.string.host_menu_update));
         }
-        if (known(details, state).has(HostCapabilities.Feature.PAIRING_APPROVE)) {
+        SleepEntry pairAnother = pairAnotherEntry(details, state);
+        if (pairAnother == SleepEntry.ENABLED) {
             add(sheet, onAction, PAIR_ANOTHER, R.drawable.ic_add, activity.getString(R.string.host_menu_pair_another));
+        } else if (pairAnother == SleepEntry.DISABLED) {
+            MaterialButton action = sheet.addAction(R.drawable.ic_add, activity.getString(R.string.host_menu_pair_another),
+                    activity.getString(R.string.host_feature_reason_pairing_approve_permission));
+            // Reachable as Sleep's is: choosing it asks the host again, which says why or lists who waits.
+            action.setAlpha(DISABLED_ALPHA);
+            action.setOnClickListener(v -> {
+                sheet.dismiss();
+                onAction.accept(PAIR_ANOTHER);
+            });
         }
         if (offersFiles(details, state)) {
             add(sheet, onAction, FILES, R.drawable.ic_files, activity.getString(R.string.files_menu));
@@ -199,6 +209,19 @@ public final class HostMenu {
             return SleepEntry.ENABLED;
         }
         return availability.reason == HostCapabilities.Reason.RESTART_SHUTDOWN_PERMISSION ? SleepEntry.DISABLED
+                : SleepEntry.HIDDEN;
+    }
+
+    /**
+     * Pair another device: on every ready PC whose capabilities list it, dimmed where this device lacks the permission,
+     * so that it can be found. The banner never shows without it ({@link #mayApprovePairing}).
+     */
+    static SleepEntry pairAnotherEntry(ComputerDetails details, PcGridAdapter.RowState state) {
+        HostCapabilities.Availability availability = known(details, state).availability(HostCapabilities.Feature.PAIRING_APPROVE);
+        if (availability.isSupported()) {
+            return SleepEntry.ENABLED;
+        }
+        return availability.reason == HostCapabilities.Reason.PAIRING_APPROVE_PERMISSION ? SleepEntry.DISABLED
                 : SleepEntry.HIDDEN;
     }
 

@@ -305,7 +305,7 @@ impl Steps {
                 let target = path.clone();
                 let apply = move |part: &Path, _: &Asset| {
                     replace_file(part, &target).map_err(Failure::Apply)?;
-                    start_watched(&target, &[], START_WATCH).map_err(Failure::Restart)
+                    start_watched(&target, &restart_arguments(), START_WATCH).map_err(Failure::Restart)
                 };
                 // The same folder as the AppImage: a rename across file systems isn't atomic.
                 Some(Self { net, allow: download_host, dir: path.parent()?.to_path_buf(), own_dir: false, marker, stream_elsewhere, setup_running, apply: Box::new(apply) })
@@ -429,6 +429,11 @@ fn start_watched(program: &Path, arguments: &[String], watch: Duration) -> Resul
         }
     }
     Ok(())
+}
+
+/// An update's restart says so, as the setup's does: it is no launch that starts a game.
+fn restart_arguments() -> Vec<String> {
+    vec![AFTER_SETUP.to_owned()]
 }
 
 /// Takes the setup's word out of the command line, and says whether it was there.
@@ -690,6 +695,7 @@ mod tests {
     #[test]
     fn the_setups_word_never_reaches_the_command_line() {
         let args = |list: &[&str]| list.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
+        assert_eq!(split_after_setup(restart_arguments().into_iter().map(Into::into).collect()), (args(&[]), true), "an AppImage's restart");
         assert_eq!(split_after_setup(args(&[])), (args(&[]), false));
         assert_eq!(split_after_setup(args(&["--host", "x"])), (args(&["--host", "x"]), false));
         assert_eq!(split_after_setup(args(&[AFTER_SETUP])), (args(&[]), true));

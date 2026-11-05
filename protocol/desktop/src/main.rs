@@ -336,7 +336,7 @@ fn main() {
         Err(e) => eprintln!("nightjar: crash dumps off: no logs folder: {e}"),
     }
     let error_box = cli::shows_error_box(launch.as_ref());
-    if let Err(e) = run(launch, at_sign_in) {
+    if let Err(e) = run(launch, open_play::Started { at_sign_in, after_setup }) {
         eprintln!("nightjar: {e}");
         if error_box {
             message_box(SDL_MESSAGEBOX_ERROR, &e);
@@ -410,7 +410,7 @@ fn any_hardware_decoding<'a>(settings: &config::Settings, overrides: impl IntoIt
         || overrides.into_iter().any(|own| own.apply(settings).decoder != DecoderPreference::Software)
 }
 
-fn run(launch: Option<cli::Launch>, at_sign_in: bool) -> Result<(), String> {
+fn run(launch: Option<cli::Launch>, started: open_play::Started) -> Result<(), String> {
     sdl::set_hint(SDL_HINT_APP_NAME, c"Nightjar");
     sdl::set_hint(SDL_HINT_APP_ID, c"io.github.ramazankara.nightjar");
     #[cfg(windows)]
@@ -586,7 +586,7 @@ fn run(launch: Option<cli::Launch>, at_sign_in: bool) -> Result<(), String> {
         settings.check_updates && cli.is_none() && std::env::var_os("NIGHTJAR_AUTOSTREAM").is_none(),
         waker.clone(),
     );
-    let open_play = open_play::at_launch(&store, &mut launcher, &hosts, cli.is_none() && std::env::var_os("NIGHTJAR_AUTOSTREAM").is_none(), at_sign_in);
+    let open_play = open_play::at_launch(&store, &mut launcher, &hosts, cli.is_none() && std::env::var_os("NIGHTJAR_AUTOSTREAM").is_none(), started);
     let mut app = App {
         window,
         renderer,

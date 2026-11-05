@@ -870,6 +870,20 @@ pub(super) fn at_sentence_start(name: &str) -> String {
     chars.next().map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
 }
 
+/// The game's title and the device playing it, when selecting `app` asks first because another
+/// device plays that very game. Never on a PC that does not offer moving the stream.
+pub fn playing_elsewhere(host: &Host, app: i32) -> Option<(String, String)> {
+    let offered = host.info.as_ref().is_some_and(|info| {
+        info.capabilities.availability(nightjar_core::http::Feature::ContinueHere) == nightjar_core::http::Availability::Supported
+    });
+    let playing = host.native.stream_move.playing_on.as_ref();
+    let same = playing.is_some_and(|playing| playing.app.app_id as i32 == app);
+    if !nightjar_policy::continue_here::asks_on_select(offered, true, same) {
+        return None;
+    }
+    playing.map(|playing| (playing.app.title.clone(), playing.device.clone()))
+}
+
 pub fn running_name(host: &Host) -> String {
     let Some(running) = host.running_app() else {
         return tr("the running app").into();

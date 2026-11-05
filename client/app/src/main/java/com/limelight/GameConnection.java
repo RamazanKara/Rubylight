@@ -20,6 +20,8 @@ import com.limelight.binding.video.PerformanceOverlay;
 import com.limelight.binding.video.Sdr10Policy;
 import com.limelight.computers.HostCapabilityCache;
 import com.limelight.computers.HostNotices;
+import com.limelight.nativeapi.NativeApiClient;
+import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.av.audio.AudioRenderer;
@@ -33,6 +35,7 @@ import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.GlPreferences;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.LegacyKeyboardInsets;
+import com.limelight.ui.NavigationDialogBuilder;
 import com.limelight.ui.StreamView;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.NetworkGrace;
@@ -900,13 +903,20 @@ final class GameConnection {
         final int errorCode = exitRequested || endedSession ?
                 MoonBridge.ML_ERROR_GRACEFUL_TERMINATION : reportedErrorCode;
         if (endedSession) LimeLog.info("Connection terminated: the PC ended the previous session");
+        // Another device pressed Continue here: this stream must not come back.
+        final boolean mayHaveMoved = !exitRequested && game.conn != null && (reportedErrorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION
+                || StreamRecoveryPolicy.transportTermination(reportedErrorCode));
+        final String movedTo = mayHaveMoved ? game.conn.streamMovedTo() : null;
+        final NativeApiClient moveClient = movedTo != null ? game.conn.nativeApiClient() : null;
+        if (movedTo != null) LimeLog.info("Connection terminated: the stream moved to " + movedTo);
         // The PC's own words for a failure it ended the stream on, where it says them.
         final String hostFailure = !exitRequested && StreamExitPolicy.hostEndedStream(errorCode) &&
                 game.conn != null ? game.conn.hostFailureReason() : null;
         if (hostFailure != null) LimeLog.severe("The PC reported: " + hostFailure);
         final int portFlags = MoonBridge.getPortFlagsFromTerminationErrorCode(errorCode);
         // A stream that never had video does not reconnect: its error (and the port test) shows at once.
-        final boolean transientFailure = StreamRecoveryPolicy.recoversTermination(errorCode, game.streamRecovery.videoStarted());
+        final boolean transientFailure = ContinueHerePolicy.recovers(
+                StreamRecoveryPolicy.recoversTermination(errorCode, game.streamRecovery.videoStarted()), movedTo != null);
         // A renderer failure on this device says nothing about the network
         final int portTestResult = errorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION ||
                 errorCode == MoonBridge.CLIENT_ERROR_VULKAN_RENDERER || errorCode == MoonBridge.CLIENT_ERROR_DECODER ||
@@ -947,6 +957,11 @@ final class GameConnection {
                 if (!game.displayedFailureDialog) {
                     game.displayedFailureDialog = true;
                     stopConnection();
+
+                    if (movedTo != null) {
+                        showMovedPrompt(movedTo, moveClient);
+                        return;
+                    }
 
                     // Display the error dialog if it was an unexpected termination.
                     // Otherwise, just finish the activity immediately.
@@ -1267,6 +1282,47 @@ final class GameConnection {
                 }
             }
         });
+    }
+
+    /** "Now playing on X" with OK and, on a PC this device may ask, Continue here. */
+    private void showMovedPrompt(String device, NativeApiClient client) {
+        NavigationDialogBuilder builder = new NavigationDialogBuilder(game);
+        builder.setTitle(game.getString(R.string.continue_here_now_playing, device))
+                .setCancelable(false)
+                .setPositiveButton(android.R.string.ok, (dialog, which) -> game.finish());
+        if (client != null) {
+            builder.setNegativeButton(R.string.continue_here_action, (dialog, which) -> takeStreamBack(client));
+        }
+        game.menuActions.showStreamDialog(builder.create());
+    }
+
+    /** Continue here on the displaced device: moves the stream back, then resumes. A failure says so; the game keeps running. */
+    private void takeStreamBack(NativeApiClient client) {
+        new Thread(() -> {
+            String failure = null;
+            try {
+                client.continueHere();
+            } catch (NativeApiException e) {
+                LimeLog.warning("Continue here failed: " + e.getMessage());
+                failure = e.getMessage();
+            }
+            String why = failure;
+            game.runOnUiThread(() -> {
+                if (game.isFinishing() || game.isDestroyed()) {
+                    return;
+                }
+                if (why == null) {
+                    game.streamRecovery.reconnectStream();
+                    return;
+                }
+                game.menuActions.showStreamDialog(new NavigationDialogBuilder(game)
+                        .setTitle(R.string.continue_here_failed)
+                        .setMessage(why)
+                        .setCancelable(false)
+                        .setPositiveButton(android.R.string.ok, (dialog, which) -> game.finish())
+                        .create());
+            });
+        }, "Continue here").start();
     }
 
     void launchConfirmationRequired(LaunchConfirmation confirmation) {

@@ -445,4 +445,9 @@
     <string name="hevc_low_latency_on">켜기</string>
     <string name="hevc_low_latency_off">끄기</string>
     <string name="title_oled_black">OLED 블랙</string>
+    <string name="continue_here_playing_on">%1$s: %2$s에서 플레이 중</string>
+    <string name="continue_here_action">여기서 계속</string>
+    <string name="continue_here_stream_too">여기서도 스트리밍</string>
+    <string name="continue_here_now_playing">지금 %1$s에서 플레이 중</string>
+    <string name="continue_here_failed">여기서 계속할 수 없습니다</string>
 </resources>

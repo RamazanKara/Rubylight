@@ -445,4 +445,9 @@
     <string name="hevc_low_latency_on">Wł.</string>
     <string name="hevc_low_latency_off">Wył.</string>
     <string name="title_oled_black">Czerń OLED</string>
+    <string name="continue_here_playing_on">%1$s jest uruchomione na %2$s</string>
+    <string name="continue_here_action">Kontynuuj tutaj</string>
+    <string name="continue_here_stream_too">Przesyłaj także tutaj</string>
+    <string name="continue_here_now_playing">Teraz gra na %1$s</string>
+    <string name="continue_here_failed">Nie udało się kontynuować tutaj</string>
 </resources>

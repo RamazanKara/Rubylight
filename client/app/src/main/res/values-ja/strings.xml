@@ -445,4 +445,9 @@
     <string name="hevc_low_latency_on">オン</string>
     <string name="hevc_low_latency_off">オフ</string>
     <string name="title_oled_black">OLEDブラック</string>
+    <string name="continue_here_playing_on">%1$s は %2$s でプレイ中です</string>
+    <string name="continue_here_action">ここで続ける</string>
+    <string name="continue_here_stream_too">ここでも配信</string>
+    <string name="continue_here_now_playing">%1$s でプレイ中</string>
+    <string name="continue_here_failed">ここで続けられませんでした</string>
 </resources>

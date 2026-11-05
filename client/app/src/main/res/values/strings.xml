@@ -519,4 +519,9 @@
     <string name="hevc_low_latency_on">On</string>
     <string name="hevc_low_latency_off">Off</string>
     <string name="title_oled_black">OLED black</string>
+    <string name="continue_here_playing_on">%1$s is playing on %2$s</string>
+    <string name="continue_here_action">Continue here</string>
+    <string name="continue_here_stream_too">Stream here too</string>
+    <string name="continue_here_now_playing">Now playing on %1$s</string>
+    <string name="continue_here_failed">Could not continue here</string>
 </resources>

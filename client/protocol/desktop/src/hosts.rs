@@ -14,6 +14,7 @@ use nightjar_core::http::native_api::library::Library;
 use nightjar_core::http::native_api::session::{ActionId, Session};
 use nightjar_core::http::{
     App, AppControl, Availability, ClientIdentity, Feature, HostClient, HostUpdate, LateRefusal, NativeCapabilities, NativeLibrary, PairResult,
+    StreamMove,
     PcPower, PcPowerOffer, PowerError, PowerReply, Reason, ServerInfo, DEFAULT_HTTP_PORT,
 };
 
@@ -71,6 +72,8 @@ pub struct Native {
     /// The library was read from the PC in this run (not loaded from disk).
     pub library_live: bool,
     pub session: Option<Session>,
+    /// Who plays the running game and where this device's stream went.
+    pub stream_move: StreamMove,
     /// Why the last read failed; the data above is then the last good one.
     pub error: Option<String>,
     /// The PC's host update, where it lists `update`.
@@ -110,6 +113,7 @@ pub struct NativeRead {
     capabilities: Option<NativeCapabilities>,
     library: Option<NativeLibrary>,
     session: Result<Session, String>,
+    stream_move: StreamMove,
     /// The PC's wake targets (`wol::targets`) to keep in place of the stored ones: empty for a
     /// PC without `wake`; None when they were not read, or the read failed (those adapters
     /// still belong to the PC).
@@ -360,6 +364,17 @@ pub enum Event {
         epoch: u64,
         seq: u64,
         result: Result<Box<NativeRead>, String>,
+    },
+    StreamMoved {
+        id: u64,
+        app: i32,
+        /// The device the stream moved to; None when it did not, or the PC could not say.
+        device: Option<String>,
+    },
+    ContinueHere {
+        id: u64,
+        app: i32,
+        result: Result<(), String>,
     },
     Session {
         id: u64,
@@ -1449,15 +1464,63 @@ impl Hosts {
                     }
                     client.host_update().map_err(|e| eprintln!("nightjar: host update not read: {}", describe(&e))).ok()
                 });
-                let session = client.session().map_err(|e| describe(&e));
+                let (session, stream_move) = match client.session_and_move() {
+                    Ok((session, stream_move)) => (Ok(session), stream_move),
+                    Err(e) => (Err(describe(&e)), StreamMove::default()),
+                };
                 // Without a library in this read, a failed session is the whole failure; with
                 // one, Home still has the games and shows the session error beside them.
                 match (&session, full) {
                     (Err(e), false) => Err(e.clone()),
-                    _ => Ok(Box::new(NativeRead { capabilities, library, session, wake, update })),
+                    _ => Ok(Box::new(NativeRead { capabilities, library, session, stream_move, wake, update })),
                 }
             });
             Some(Event::Native { id, epoch, seq, result })
+        });
+    }
+
+    /// Whether this PC offers moving its game's stream between devices.
+    pub fn offers_continue_here(&self, id: u64) -> bool {
+        self.get(id).and_then(|host| host.info.as_ref()).is_some_and(|info| {
+            info.capabilities.availability(Feature::ContinueHere) == Availability::Supported
+        })
+    }
+
+    /// After a stream ended, unless the player left it on purpose: asks the PC whether it moved
+    /// to another device.
+    pub fn read_stream_move(&mut self, id: u64, app: i32, left_on_purpose: bool) {
+        if !nightjar_policy::continue_here::reads_move_after_end(self.offers_continue_here(id), left_on_purpose) {
+            return;
+        }
+        let (Some(identity), Some(host)) = (self.identity.clone(), self.get(id)) else {
+            return;
+        };
+        let record = host.connect_record();
+        self.spawn("stream-move", move || {
+            let read = client_for(&identity, &record, &record.address)
+                .and_then(|client| client.stream_move().map_err(|e| describe(&e)));
+            let device = match read {
+                Ok(read) => read.moved_to.map(|moved| moved.device),
+                Err(e) => {
+                    eprintln!("nightjar: could not ask the PC whether the stream moved: {e}");
+                    None
+                }
+            };
+            Some(Event::StreamMoved { id, app, device })
+        });
+    }
+
+    /// Continue here: the other device's stream of the running game ends. The launch follows
+    /// the PC's answer.
+    pub fn continue_here(&mut self, id: u64, app: i32) {
+        let (Some(identity), Some(host)) = (self.identity.clone(), self.get(id)) else {
+            return;
+        };
+        let record = host.connect_record();
+        self.spawn("continue-here", move || {
+            let result = client_for(&identity, &record, &record.address)
+                .and_then(|client| client.continue_here().map(|_| ()).map_err(|e| describe(&e)));
+            Some(Event::ContinueHere { id, app, result })
         });
     }
 
@@ -1734,7 +1797,10 @@ impl Hosts {
                                 match read.session {
                                     // A session read before an action landed is older than its answer.
                                     Ok(_) if !newest => {}
-                                    Ok(session) => host.native.session = Some(session),
+                                    Ok(session) => {
+                                        host.native.session = Some(session);
+                                        host.native.stream_move = read.stream_move;
+                                    }
                                     Err(e) => host.native.error = Some(trf("The session could not be read. {}", &[&e])),
                                 }
                             }
@@ -1770,6 +1836,8 @@ impl Hosts {
                 }
                 event @ Event::Sleep { .. } => out.push(event),
                 event @ Event::PcPower { .. } => out.push(event),
+                event @ Event::StreamMoved { .. } => out.push(event),
+                event @ Event::ContinueHere { .. } => out.push(event),
                 Event::HostUpdate { id, name, result } => {
                     if matches!(result, Ok(UpdateStep::Back(_))) {
                         self.poll_one(id);
@@ -2124,7 +2192,7 @@ pub(crate) mod tests {
     /// A full native read of `id` with these capabilities lands, as the worker would send it.
     pub(crate) fn native_lands(hosts: &mut Hosts, id: u64, capabilities: NativeCapabilities) {
         let epoch = hosts.get(id).unwrap().native_epoch;
-        let read = NativeRead { capabilities: Some(capabilities), library: Some(library().into()), session: Ok(session("idle")), wake: None, update: None };
+        let read = NativeRead { capabilities: Some(capabilities), library: Some(library().into()), session: Ok(session("idle")), stream_move: Default::default(), wake: None, update: None };
         send(hosts, Event::Native { id, epoch, seq: 1, result: Ok(Box::new(read)) });
     }
 
@@ -2170,7 +2238,7 @@ pub(crate) mod tests {
             assert_eq!(gated(&hosts), [false; 4], "{why}: no old grant opens a row or a gate");
             assert!(hosts.list[0].native.capabilities.is_none() && hosts.list[0].native.library.is_none(), "{why}");
             // A read that started before lands now: dropped.
-            let read = NativeRead { capabilities: Some(granted.clone()), library: Some(library().into()), session: Ok(session("idle")), wake: None, update: None };
+            let read = NativeRead { capabilities: Some(granted.clone()), library: Some(library().into()), session: Ok(session("idle")), stream_move: Default::default(), wake: None, update: None };
             hosts.list[0].record.server_certificate = Some("pem".into());
             send(&mut hosts, Event::Native { id, epoch: in_flight, seq: 9, result: Ok(Box::new(read)) });
             assert!(hosts.list[0].native.capabilities.is_none(), "{why}: the old read is not taken in");
@@ -2375,7 +2443,7 @@ pub(crate) mod tests {
     }
 
     fn full_read(session: Session) -> Box<NativeRead> {
-        Box::new(NativeRead { capabilities: None, library: Some(library().into()), session: Ok(session), wake: None, update: None })
+        Box::new(NativeRead { capabilities: None, library: Some(library().into()), session: Ok(session), stream_move: Default::default(), wake: None, update: None })
     }
 
     #[test]

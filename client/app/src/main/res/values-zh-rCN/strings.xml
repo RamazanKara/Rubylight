@@ -445,4 +445,9 @@
     <string name="hevc_low_latency_on">开启</string>
     <string name="hevc_low_latency_off">关闭</string>
     <string name="title_oled_black">OLED 纯黑</string>
+    <string name="continue_here_playing_on">%1$s 正在 %2$s 上运行</string>
+    <string name="continue_here_action">在此继续</string>
+    <string name="continue_here_stream_too">也在此串流</string>
+    <string name="continue_here_now_playing">正在 %1$s 上游玩</string>
+    <string name="continue_here_failed">无法在此继续</string>
 </resources>

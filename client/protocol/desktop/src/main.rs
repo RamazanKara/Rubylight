@@ -1150,6 +1150,13 @@ impl App {
                     };
                     self.launcher.message(title, e);
                 }
+                // Nothing changed on the PC: the game keeps running and the prompt says why not.
+                HostEvent::ContinueHere { result: Err(e), .. } => self.launcher.message(tr("Could not continue here"), e),
+                HostEvent::ContinueHere { id, app, result: Ok(()) } => self.launch(id, app, true, LaunchKind::Stream, LaunchFrom::Launcher),
+                HostEvent::StreamMoved { id, app, device: Some(device) } if self.streaming.is_none() && self.connecting.is_none() => {
+                    eprintln!("nightjar: the stream moved to {device}");
+                    self.launcher.ask(Dialog::NowPlaying { host: id, app, device });
+                }
                 HostEvent::Action { result: Err(e), .. } => self.launcher.message(tr("The PC action failed"), e),
                 _ => {}
             }
@@ -1197,6 +1204,7 @@ impl App {
                         match failed {
                             ConnectFailed::Message(e) => self.launcher.message(tr("The stream could not start"), e),
                             ConnectFailed::ConfirmReplace(plan) => self.ask_replace(plan),
+                            ConnectFailed::Moved { host, app, device } => self.launcher.ask(Dialog::NowPlaying { host, app, device }),
                         }
                     }
                 }
@@ -1301,7 +1309,15 @@ impl App {
                     self.power_request = Some((offer, power::request(offer, self.waker.clone())));
                 }
             }
-            Command::Launch { host, app, resume } => self.launch(host, app, resume, LaunchKind::Stream, LaunchFrom::Launcher),
+            Command::Launch { host, app, resume } => {
+                let playing = self.hosts.get(host).and_then(|h| ui::playing_elsewhere(h, app));
+                match playing {
+                    Some((name, device)) => self.launcher.ask(Dialog::ContinueHere { host, app, resume, name, device }),
+                    None => self.launch(host, app, resume, LaunchKind::Stream, LaunchFrom::Launcher),
+                }
+            }
+            Command::StreamHereToo { host, app, resume } => self.launch(host, app, resume, LaunchKind::Stream, LaunchFrom::Launcher),
+            Command::ContinueHere { host, app } => self.hosts.continue_here(host, app),
             Command::LaunchInputOnly { host, app, resume } => self.launch(host, app, resume, LaunchKind::SmallInputOnly, LaunchFrom::Launcher),
             Command::MicOnly { host } => self.launch(host, MIC_ONLY_APP_ID, false, LaunchKind::MicOnly, LaunchFrom::Launcher),
             Command::ToggleFavourite(entry) => {
@@ -2110,6 +2126,7 @@ impl App {
                 self.hosts.quit_app(host);
             }
         }
+        let streaming_app = streaming.app().id;
         streaming.finish(self.window, &mut self.pads);
         // The stream's cursor shows the pointer again on leaving.
         self.pointer.shown();
@@ -2121,6 +2138,10 @@ impl App {
             SDL_SetRenderVSync(self.renderer, 1);
         }
         self.hosts.refresh_after_exit(host);
+        // A reconnect asks the PC itself before it launches.
+        if reconnect.is_none() && self.running {
+            self.hosts.read_stream_move(host, streaming_app, matches!(exit, Exit::User | Exit::CloseWindow));
+        }
         if let Some(mut plan) = reconnect {
             self.refresh_plan(&mut plan);
             self.cancelled = false;

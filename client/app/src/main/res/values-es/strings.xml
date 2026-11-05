@@ -445,4 +445,9 @@
     <string name="hevc_low_latency_on">Activado</string>
     <string name="hevc_low_latency_off">Desactivado</string>
     <string name="title_oled_black">Negro OLED</string>
+    <string name="continue_here_playing_on">%1$s se está jugando en %2$s</string>
+    <string name="continue_here_action">Continuar aquí</string>
+    <string name="continue_here_stream_too">Transmitir aquí también</string>
+    <string name="continue_here_now_playing">Ahora se juega en %1$s</string>
+    <string name="continue_here_failed">No se pudo continuar aquí</string>
 </resources>

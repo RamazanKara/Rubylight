@@ -400,7 +400,13 @@ mod os {
         let mut conn = Conn::new(pipe).map_err(|e| e.to_string())?;
         thread(move || loop {
             match conn.accept() {
-                Ok(()) => serve(&mut conn, &inbox, &wake),
+                Ok(()) => {
+                    serve(&mut conn, &inbox, &wake);
+                    // A disconnect throws away what the sender has not read yet, the answer
+                    // included, and it would open a second window: wait for it to close, within
+                    // the time limit of a read.
+                    let _ = conn.read(&mut [0]);
+                }
                 // A start that came and went between two links: the disconnect below ends it,
                 // and only that readies the pipe again.
                 Err(e) if e.raw_os_error() == Some(ERROR_NO_DATA.0 as i32) => {}
@@ -476,6 +482,24 @@ mod os {
             }
             assert!(sent);
             assert_eq!(inbox.take().as_deref(), Some("rubylight://pair?v=1"));
+        }
+
+        #[test]
+        fn the_answer_waits_for_a_slow_sender() {
+            let name = address("slow");
+            let inbox = Arc::new(Inbox::default());
+            let wake: Waker = Arc::new(|| {});
+            listen_at(&name, inbox.clone(), wake).unwrap();
+            let mut conn = Conn::new(open(&wide(&name)).unwrap()).unwrap();
+            conn.write_all(b"rubylight://pair?v=1\n").unwrap();
+            while inbox.take().is_none() {
+                std::thread::yield_now();
+            }
+            // Past the moment the window has written its answer.
+            std::thread::sleep(Duration::from_millis(200));
+            let mut answer = [0];
+            conn.read_exact(&mut answer).unwrap();
+            assert_eq!(answer[0], DELIVERED);
         }
 
         #[test]

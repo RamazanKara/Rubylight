@@ -209,6 +209,7 @@ fn capabilities_with_files(result: Result<NativeCapabilities, Error>) -> String 
         permissions.insert("usb".into(), json!(files.usb));
         permissions.insert("shared_folders".into(), json!(files.shared_folders));
         permissions.insert("restart_shutdown".into(), json!(files.restart_shutdown));
+        permissions.insert("pairing_approve".into(), json!(files.pairing_approve));
         Ok(value)
     }))
 }
@@ -490,7 +491,7 @@ mod tests {
         fn capabilities_with_files(&self) -> Result<NativeCapabilities, Error> {
             self.note("capabilities");
             Ok(serde_json::from_str(self.capabilities.unwrap_or(
-                r#"{"api_version":1,"host":{"name":"PC","version":"3.0.0","unique_id":"U"},"features":["files.upload","files.download"],"permissions":{"list":true,"view":true,"launch":true,"host_control":true,"file_upload":true,"file_download":false,"usb":"yes","shared_folders":true}}"#,
+                r#"{"api_version":1,"host":{"name":"PC","version":"3.0.0","unique_id":"U"},"features":["files.upload","files.download"],"permissions":{"list":true,"view":true,"launch":true,"host_control":true,"file_upload":true,"file_download":false,"usb":"yes","shared_folders":true,"pairing_approve":true}}"#,
             ))
             .unwrap())
         }
@@ -750,6 +751,7 @@ mod tests {
         assert_eq!(permissions["shared_folders"], true);
         assert_eq!(permissions["restart_shutdown"], false);
         assert_eq!(permissions["host_control"], true);
+        assert_eq!(permissions["pairing_approve"], true);
         assert_eq!(reply["ok"]["features"][0], "files.upload");
         assert_eq!(fake.calls.lock().unwrap().last().unwrap(), "capabilities");
         // The plain capabilities answer the same.

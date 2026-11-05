@@ -112,6 +112,19 @@
 
     <style name="AppTheme" parent="Base.Theme.Nightjar" />
 
+    <!-- A window with only a dialog in it, over whatever runs; the overlay keeps it so under the app's other looks. -->
+    <style name="PairLinkTheme" parent="AppTheme">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowContentOverlay">@null</item>
+    </style>
+
+    <style name="ThemeOverlay.Nightjar.PairLink" parent="">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowContentOverlay">@null</item>
+    </style>
+
     <!--
         Everything shown over a stream: the stream activity, its sheets and dialogs. Always the night
         palette, whatever the system theme, so nothing light flashes over a game.

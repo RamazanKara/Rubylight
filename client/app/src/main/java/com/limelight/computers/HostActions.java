@@ -38,6 +38,7 @@ import com.limelight.nvstream.http.PairingManager.PairState;
 import com.limelight.nvstream.wol.WakeOnLanSender;
 import com.limelight.nvstream.wol.WakeTargets;
 import com.limelight.ui.NavigationDialogBuilder;
+import com.limelight.preferences.LinkGate;
 import com.limelight.utils.LaunchSource;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.UiHelper;
@@ -241,6 +242,7 @@ public final class HostActions {
             pairingDialog.dismiss();
             pairingDialog = null;
         }
+        LinkGate.release(this, activity);
     }
 
     private void pair(final ComputerDetails computer, final String oneTimePin, final String passphrase,
@@ -255,6 +257,8 @@ public final class HostActions {
             return;
         }
         cancelPairing();
+        // A pairing link from outside waits for this pairing instead of coming over its dialog.
+        LinkGate.hold(this);
         final int generation = pairingGeneration;
         final String pin = oneTimePin == null ? PairingManager.generatePinString() : oneTimePin;
         android.text.SpannableStringBuilder pairingText = new android.text.SpannableStringBuilder();
@@ -401,6 +405,7 @@ public final class HostActions {
                 }
             });
         }
+        LinkGate.release(this, activity);
     }
 
     // Wake

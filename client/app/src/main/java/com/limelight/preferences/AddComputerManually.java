@@ -24,7 +24,6 @@ import com.limelight.utils.Dialog;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.SpinnerDialog;
 import com.limelight.utils.UiHelper;
-import com.limelight.ui.NavigationDialogBuilder;
 import com.limelight.ui.TopAppBar;
 
 import com.limelight.PcView;
@@ -50,7 +49,6 @@ import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.ContextCompat;
 
 public class AddComputerManually extends NightjarActivity {
@@ -62,12 +60,10 @@ public class AddComputerManually extends NightjarActivity {
     private Thread addThread;
     private boolean managerServiceBound;
     private boolean foreground;
-    // A link the system opened with this screen: asked about once, and the screen leaves to the PC list.
+    // Opened to pair a link the user confirmed in PairLinkActivity: the link stays in memory, and this mark in the
+    // intent also tells a screen back from Recents that it leaves to the PC list.
+    static final String EXTRA_FROM_LINK = "com.limelight.preferences.FROM_LINK";
     private boolean openedFromLink;
-    private boolean linkAnswered;
-    private AlertDialog linkDialog;
-    // A link that arrived while another request is on its way.
-    private PairingLink waitingLink;
     // Pairs a PC added from a QR pairing link (Experimental); a typed address only adds it.
     private final HostActions hostActions = new HostActions(this, new HostActions.Callbacks() {
         @Override public ComputerManagerService.ComputerManagerBinder binder() { return managerBinder; }
@@ -188,6 +184,7 @@ public class AddComputerManually extends NightjarActivity {
     private void doAddPc(String rawUserInput, ComputerManagerService.ComputerManagerBinder binder) throws InterruptedException {
         boolean wrongSiteLocal = false;
         boolean invalidInput = false;
+        boolean pinnedElsewhere = false;
         PairingLink link = PairingLink.parse(rawUserInput);
         boolean invalidLink = link == null && PairingLink.looksLikeLink(rawUserInput);
         ComputerDetails details = new ComputerDetails();
@@ -202,8 +199,10 @@ public class AddComputerManually extends NightjarActivity {
             URI uri = link != null || invalidLink ? null : parseRawUserInputToUri(rawUserInput);
             if (link != null) {
                 details.manualAddress = new ComputerDetails.AddressTuple(link.host, link.port);
-                success = binder.addComputerBlocking(details);
-                if (!success) {
+                ComputerManagerService.LinkAdd added = binder.addComputerForLink(details, link);
+                pinnedElsewhere = added == ComputerManagerService.LinkAdd.CERTIFICATE_MISMATCH;
+                success = added == ComputerManagerService.LinkAdd.ADDED;
+                if (added == ComputerManagerService.LinkAdd.UNREACHABLE) {
                     wrongSiteLocal = isWrongSubnetSiteLocalAddress(link.host);
                 }
             } else if (uri != null && uri.getHost() != null && !uri.getHost().isEmpty()) {
@@ -243,7 +242,7 @@ public class AddComputerManually extends NightjarActivity {
         }
 
         // Keep the SpinnerDialog open while testing connectivity
-        if (!success && !wrongSiteLocal && !invalidInput) {
+        if (!success && !wrongSiteLocal && !invalidInput && !pinnedElsewhere) {
             // Run the test before dismissing the spinner because it can take a few seconds.
             portTestResult = MoonBridge.testClientConnectivity(ServerHelper.CONNECTION_TEST_SERVER, 443,
                     MoonBridge.ML_PORT_FLAG_TCP_47984 | MoonBridge.ML_PORT_FLAG_TCP_47989);
@@ -260,6 +259,9 @@ public class AddComputerManually extends NightjarActivity {
 
         if (invalidLink) {
             Dialog.displayDialog(this, getResources().getString(R.string.conn_error_title), getResources().getString(R.string.addpc_qr_invalid), false);
+        }
+        else if (pinnedElsewhere) {
+            Dialog.displayDialog(this, getResources().getString(R.string.pair_pairing_title), getResources().getString(R.string.pair_qr_cert_mismatch), false);
         }
         else if (invalidInput) {
             Dialog.displayDialog(this, getResources().getString(R.string.conn_error_title), getResources().getString(R.string.addpc_unknown_host), false);
@@ -360,9 +362,7 @@ public class AddComputerManually extends NightjarActivity {
     protected void onDestroy() {
         super.onDestroy();
 
-        if (linkDialog != null) {
-            linkDialog.dismiss();
-        }
+        LinkGate.release(this, this);
         hostActions.destroy();
         joinAddThread();
         if (managerServiceBound) {
@@ -434,74 +434,14 @@ public class AddComputerManually extends NightjarActivity {
         managerServiceBound = bindService(new Intent(AddComputerManually.this,
                     ComputerManagerService.class), serviceConnection, Service.BIND_AUTO_CREATE);
 
-        linkAnswered = savedInstanceState != null && savedInstanceState.getBoolean("linkAnswered");
-        openLink(getIntent());
-    }
-
-    @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        setIntent(intent);
-        linkAnswered = false;
-        openLink(intent);
-    }
-
-    /**
-     * A rubylight://pair link from a browser, a QR reader or any other app. Any web page can open one, so nothing is
-     * added or paired until the user says so; the scanner and the address field go straight to {@link #submit}.
-     */
-    private void openLink(Intent intent) {
-        if (linkAnswered || !Intent.ACTION_VIEW.equals(intent.getAction()) || intent.getData() == null
-                || (intent.getFlags() & Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) {
-            return;
-        }
-        openedFromLink = true;
-        PairingLink link = PairingLink.parse(intent.getDataString());
-        if (link == null) {
-            linkAnswered = true;
-            Dialog.displayDialog(this, getString(R.string.conn_error_title), getString(R.string.addpc_qr_invalid), false);
-        } else if (submitting) {
-            waitingLink = link;
-        } else {
-            confirmLink(link);
+        openedFromLink = getIntent().getBooleanExtra(EXTRA_FROM_LINK, false);
+        String confirmed = openedFromLink ? LinkGate.takeConfirmed() : null;
+        if (confirmed != null) {
+            submit(confirmed);
         }
     }
 
-    private void confirmLink(PairingLink link) {
-        if (linkDialog != null) {
-            linkDialog.dismiss();
-        }
-        String name = link.shownName();
-        String address = getString(R.string.pair_link_address, link.shownAddress());
-        AlertDialog dialog = new NavigationDialogBuilder(this)
-                .setTitle(R.string.pair_pairing_title)
-                .setMessage(name.isEmpty() ? address : name + "\n" + address)
-                .setNegativeButton(android.R.string.cancel, (ignored, which) -> {
-                    linkAnswered = true;
-                    finish();
-                })
-                .setPositiveButton(R.string.pcview_menu_pair_pc, (ignored, which) -> {
-                    linkAnswered = true;
-                    submit(link.text);
-                })
-                .setOnCancelListener(ignored -> {
-                    linkAnswered = true;
-                    finish();
-                })
-                .create();
-        // Cancel has focus: a key or button already held down must not pair. An overlay cannot tap Pair for the user.
-        dialog.setOnShowListener(ignored -> {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setFilterTouchesWhenObscured(true);
-            View cancel = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
-            cancel.setFocusable(true);
-            cancel.setFocusableInTouchMode(true);
-            cancel.requestFocus();
-        });
-        linkDialog = dialog;
-        dialog.show();
-    }
-
-    /** A screen the system opened for a link has nothing under it when the app was closed: the PC list comes next. */
+    /** A screen opened for a link has nothing under it when the app was closed: the PC list comes next. */
     @Override
     public void finish() {
         if (openedFromLink && isTaskRoot()) {
@@ -514,7 +454,6 @@ public class AddComputerManually extends NightjarActivity {
     protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
         state.putString("address", hostText.getText().toString());
-        state.putBoolean("linkAnswered", linkAnswered);
     }
 
     // Returns true if the event should be eaten
@@ -569,10 +508,11 @@ public class AddComputerManually extends NightjarActivity {
         TextView button = findViewById(R.id.addPcButton);
         button.setEnabled(!submitting);
         button.setText(submitting ? R.string.add_pc_connecting : R.string.addpc_button);
-        if (!submitting && waitingLink != null) {
-            PairingLink link = waitingLink;
-            waitingLink = null;
-            confirmLink(link);
+        // A link from outside waits for a request on its way, whichever way that ends.
+        if (submitting) {
+            LinkGate.hold(this);
+        } else {
+            LinkGate.release(this, this);
         }
     }
 }

@@ -1207,3 +1207,17 @@ fn dropping_the_job_terminates_the_shell_and_its_child() {
         );
     }
 }
+
+#[test]
+fn a_host_started_from_a_shell_can_still_hand_on_its_environment() {
+    use super::*;
+    let inherited = BTreeMap::from([
+        ("=C:".to_string(), r"C:\src".to_string()),
+        ("=EXITCODE".to_string(), "00000000".to_string()),
+        ("PATH".to_string(), r"C:\a=b".to_string()),
+    ]);
+    assert_eq!(
+        settable(inherited),
+        BTreeMap::from([("PATH".to_string(), r"C:\a=b".to_string())])
+    );
+}

@@ -590,7 +590,16 @@ impl AudioProcess {
     }
 }
 pub fn user_environment() -> Result<BTreeMap<String, String>> {
-    environment(target_token(&Target::User { elevated: false })?.as_ref())
+    Ok(settable(environment(
+        target_token(&Target::User { elevated: false })?.as_ref(),
+    )?))
+}
+/// Without Windows' hidden `=C:` and `=ExitCode` entries, which a host started from a shell
+/// inherits. Callers hand these back as a program's variables, and a name with `=` cannot be one:
+/// every app with a command failed its launch with "invalid process environment variable".
+fn settable(mut environment: BTreeMap<String, String>) -> BTreeMap<String, String> {
+    environment.retain(|name, _| !name.contains('='));
+    environment
 }
 /// The environment of a program started with `token`: that user's variables, as the desktop
 /// gives them. Without a token the program runs as this host's own user, and gets this host's

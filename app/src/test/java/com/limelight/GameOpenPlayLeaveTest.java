@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 
 import com.limelight.console.OpenPlayModel;
+import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.utils.LaunchSource;
 
@@ -56,6 +57,28 @@ public class GameOpenPlayLeaveTest {
         Game game = Robolectric.buildActivity(Game.class, intent).get();
         ReflectionHelpers.setField(game, "prefConfig", new PreferenceConfiguration());
         return game;
+    }
+
+    /** The configuration the real screen built for its connection. */
+    private StreamConfiguration configOf(String source) {
+        Intent intent = new Intent(context, Game.class)
+                .putExtra(Game.EXTRA_HOST, "192.0.2.1")
+                .putExtra(Game.EXTRA_UNIQUEID, "device")
+                .putExtra(Game.EXTRA_APP_ID, 11);
+        LaunchSource.put(intent, source);
+        Game game = Robolectric.buildActivity(Game.class, intent).create().get();
+        assertNotNull("the screen got as far as its connection", game.conn);
+        return ReflectionHelpers.getField(ReflectionHelpers.<Object>getField(game.conn, "context"), "streamConfig");
+    }
+
+    @Test
+    public void anAutomaticStartsConnectionMayNeverReplaceAGame() {
+        assertTrue(configOf(LaunchSource.OPEN_PLAY).isNeverReplace());
+    }
+
+    @Test
+    public void aStartThePlayerPressedMayReplaceAGameAsBefore() {
+        assertFalse(configOf(LaunchSource.CONSOLE_PLAY).isNeverReplace());
     }
 
     @Test

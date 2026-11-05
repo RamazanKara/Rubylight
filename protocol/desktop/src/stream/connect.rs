@@ -1219,15 +1219,15 @@ mod replace_tests {
         // The PC reports no game to a device that does not own it, and its note still says moved.
         check_resume(true, true, false, true, || panic!("a join asks nothing")).unwrap_or_else(|e| panic!("{}", e.message));
         // Unpaired stays refused.
-        let unpaired = check_resume(true, false, false, true, || panic!("not asked")).err().expect("refused");
+        let unpaired = check_resume(true, false, false, true, || panic!("not asked")).expect_err("refused");
         assert!(unpaired.message.contains("no longer running"), "{}", unpaired.message);
 
         let moved: StreamMove = serde_json::from_str(r#"{"moved_to":{"device":"TV","since_unix_ms":1}}"#).unwrap();
-        let refused = check_resume(false, true, false, true, || Ok(moved)).err().expect("the move");
+        let refused = check_resume(false, true, false, true, || Ok(moved)).expect_err("the move");
         assert_eq!(refused.moved_to.as_deref(), Some("TV"));
-        let gone = check_resume(false, true, false, true, || Ok(StreamMove::default())).err().expect("no game");
+        let gone = check_resume(false, true, false, true, || Ok(StreamMove::default())).expect_err("no game");
         assert!(gone.message.contains("no longer running"), "{}", gone.message);
-        let unanswered = check_resume(false, true, false, true, || Err(Error::Cancelled)).err().expect("no verdict");
+        let unanswered = check_resume(false, true, false, true, || Err(Error::Cancelled)).expect_err("no verdict");
         assert!(unanswered.retryable);
         assert!(check_resume(false, true, true, true, || panic!("not asked")).is_ok());
     }
@@ -1392,7 +1392,7 @@ mod replace_tests {
         assert_eq!(device(resume_moved_to(true, false, false, || panic!("not asked"))), None);
         // One that cannot answer is asked by the next attempt: its game may only have moved, so
         // this is not "the original app is no longer running".
-        let unanswered = resume_moved_to(true, false, true, || Err(Error::Cancelled)).err().expect("no verdict");
+        let unanswered = resume_moved_to(true, false, true, || Err(Error::Cancelled)).expect_err("no verdict");
         assert!(unanswered.retryable && !unanswered.asks_replace && unanswered.moved_to.is_none());
         assert!(!unanswered.message.contains("no longer running"), "{}", unanswered.message);
         // A resume that goes on costs no extra request: the PC reports the game to its owner only.

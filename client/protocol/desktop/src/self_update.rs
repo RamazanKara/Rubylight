@@ -32,6 +32,12 @@ const STALE_AFTER: Duration = Duration::from_secs(3600);
 /// Exists while any Nightjar streams. The setup's AppMutex names it too (nightjar.iss): Setup stops
 /// before it deletes anything, instead of closing that stream with Restart Manager.
 pub const STREAM_MUTEX: &str = "Local\\NightjarStream";
+/// Exists while the setup runs (SetupMutex in nightjar.iss).
+const SETUP_MUTEX: &str = "Local\\NightjarSetup";
+/// What the setup starts Nightjar with when it ends, so that isn't taken for a launch during the install.
+const AFTER_SETUP: &str = "--after-setup";
+/// How long a started program gets to fail at once. After this it runs, and Nightjar can go.
+const START_WATCH: Duration = Duration::from_secs(1);
 /// The entry the setup writes for its AppId (nightjar.iss): per user, so under HKCU.
 #[cfg(windows)]
 const UNINSTALL_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{6A3C8F12-5E7B-4D2A-9C41-7B0E8D3F2A65}_is1";
@@ -46,7 +52,7 @@ pub enum Failure {
     Digest,
     Size,
     Network(String),
-    /// Nothing changed: the setup or the replacement didn't happen.
+    /// The setup didn't start or ended at once, or the replacement didn't happen.
     Apply(String),
     /// The AppImage is replaced, but the new one didn't start.
     Restart(String),
@@ -279,7 +285,7 @@ pub type Apply = Box<dyn Fn(&Path, &Asset) -> Result<(), Failure> + Send>;
 impl Steps {
     /// The real steps for a copy that can update itself.
     pub fn for_copy(copy: &CopyKind, net: Arc<dyn Transport>) -> Option<Self> {
-        let marker = crate::config::config_dir().ok().map(|dir| dir.join("update-pending.json"));
+        let marker = marker_path();
         let stream_elsewhere = || mutex_exists(STREAM_MUTEX);
         match copy {
             CopyKind::Installed => Some(Self { net, allow: download_host, dir: std::env::temp_dir().join("nightjar-update"), own_dir: true, marker, stream_elsewhere, apply: Box::new(run_setup) }),
@@ -287,7 +293,7 @@ impl Steps {
                 let target = path.clone();
                 let apply = move |part: &Path, _: &Asset| {
                     replace_file(part, &target).map_err(Failure::Apply)?;
-                    start_detached(&target, &[]).map_err(Failure::Restart)
+                    start_watched(&target, &[], START_WATCH).map_err(Failure::Restart)
                 };
                 // The same folder as the AppImage: a rename across file systems isn't atomic.
                 Some(Self { net, allow: download_host, dir: path.parent()?.to_path_buf(), own_dir: false, marker, stream_elsewhere, apply: Box::new(apply) })
@@ -355,10 +361,12 @@ pub fn mutex_exists(_: &str) -> bool {
     false
 }
 
-/// The setup's command line. /RELAUNCH is ours: nightjar.iss starts Nightjar again when it ends.
-/// No /DIR: an upgrade stays in the folder of the install it upgrades, and keeps its tasks.
+/// The setup's command line. /SILENT shows its progress and asks nothing; /NOCANCEL because stopping
+/// half way would leave new and old files mixed. /RELAUNCH is ours: nightjar.iss starts Nightjar
+/// again when it ends. No /DIR: an upgrade stays in the folder of the install it upgrades, and keeps
+/// its tasks.
 pub fn setup_arguments(log: &Path) -> Vec<String> {
-    let mut arguments: Vec<String> = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/RELAUNCH"].map(str::to_owned).to_vec();
+    let mut arguments: Vec<String> = ["/SILENT", "/SUPPRESSMSGBOXES", "/NOCANCEL", "/NORESTART", "/SP-", "/RELAUNCH"].map(str::to_owned).to_vec();
     arguments.push(format!("/LOG={}", log.display()));
     arguments
 }
@@ -367,21 +375,55 @@ fn run_setup(part: &Path, asset: &Asset) -> Result<(), Failure> {
     // Its asset name: Windows runs only what is called .exe.
     let setup = part.with_file_name(&asset.name);
     std::fs::rename(part, &setup).map_err(|e| Failure::Apply(format!("{}: {e}", setup.display())))?;
-    start_detached(&setup, &setup_arguments(&setup.with_extension("log"))).map_err(|e| {
+    start_watched(&setup, &setup_arguments(&setup.with_extension("log")), START_WATCH).map_err(|e| {
         let _ = std::fs::remove_file(&setup);
         Failure::Apply(e)
     })
 }
 
-fn start_detached(program: &Path, arguments: &[String]) -> Result<(), String> {
-    Command::new(program)
+/// Starts a program that outlives Nightjar, and stays for `watch` to see it isn't gone at once with
+/// a failure: Nightjar must not exit for something that already ended.
+fn start_watched(program: &Path, arguments: &[String], watch: Duration) -> Result<(), String> {
+    let mut child = Command::new(program)
         .args(arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .map(drop)
-        .map_err(|e| format!("{}: {e}", program.display()))
+        .map_err(|e| format!("{}: {e}", program.display()))?;
+    let started = Instant::now();
+    while started.elapsed() < watch {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(Some(status)) => return Err(format!("{}: {status}", program.display())),
+            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+            Err(e) => {
+                // It did start; only the watching failed.
+                eprintln!("nightjar: update: {}: {e}", program.display());
+                return Ok(());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Takes the setup's word out of the command line, and says whether it was there.
+pub fn split_after_setup(mut args: Vec<std::ffi::OsString>) -> (Vec<std::ffi::OsString>, bool) {
+    let before = args.len();
+    args.retain(|arg| arg != AFTER_SETUP);
+    let found = args.len() != before;
+    (args, found)
+}
+
+/// A launch while this user's Update now is installing: it has to end before it reads the marker,
+/// which is the setup's result, or holds on to the files the setup is replacing. The setup's own
+/// start at its end isn't one.
+pub fn install_running(after_setup: bool) -> bool {
+    !after_setup && marker_path().is_some_and(|marker| marker.exists()) && mutex_exists(SETUP_MUTEX)
+}
+
+fn marker_path() -> Option<PathBuf> {
+    crate::config::config_dir().ok().map(|dir| dir.join("update-pending.json"))
 }
 
 /// Puts the verified `part` in `target`'s place in one step, runnable as `target` was. A failure
@@ -523,7 +565,7 @@ mod tests {
     #[test]
     fn the_silent_setup_keeps_its_folder_and_starts_nightjar_again() {
         let arguments = setup_arguments(Path::new("C:\\a b\\setup.log"));
-        for wanted in ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/RELAUNCH", "/LOG=C:\\a b\\setup.log"] {
+        for wanted in ["/SILENT", "/SUPPRESSMSGBOXES", "/NOCANCEL", "/NORESTART", "/SP-", "/RELAUNCH", "/LOG=C:\\a b\\setup.log"] {
             assert!(arguments.iter().any(|a| a == wanted), "{wanted}");
         }
         assert!(!arguments.iter().any(|a| a.to_uppercase().starts_with("/DIR")), "the firewall asks once per path");
@@ -537,6 +579,8 @@ mod tests {
         assert!(iss.contains("DisableDirPage=yes") && !iss.contains("UsePreviousAppDir=no"), "the same folder");
         assert!(iss.contains("procedure DeinitializeSetup") && iss.contains("'/RELAUNCH'"), "Nightjar comes back");
         assert!(iss.contains(&format!("AppMutex={STREAM_MUTEX}\n")), "the setup stops for a stream");
+        assert!(iss.contains(&format!("SetupMutex={SETUP_MUTEX}\n")), "a launch can tell the setup runs");
+        assert!(iss.contains(&format!("'{AFTER_SETUP}'")) && iss.contains(&format!("Parameters: \"{AFTER_SETUP}\"")), "and the setup's own start says so");
         let data = iss.split("\n[InstallDelete]\n").nth(1).unwrap().split("\n[Files]\n").next().unwrap();
         assert!(!data.contains("userappdata") && !data.contains("config"), "an upgrade deletes nothing of the user's");
         assert!(!data.lines().any(|line| line.starts_with("Type:") && line.contains(".dll")), "no library goes before [Files]: an abort wouldn't bring it back");
@@ -559,6 +603,60 @@ mod tests {
         assert!(mutex_exists(&name), "two streams: the other one still counts");
         drop(second);
         assert!(!mutex_exists(&name));
+    }
+
+    /// A command line that runs `script` in the system's shell.
+    fn shell(script: &str) -> (PathBuf, Vec<String>) {
+        let (program, flag) = if cfg!(windows) { ("cmd", "/c") } else { ("sh", "-c") };
+        (program.into(), vec![flag.to_owned(), script.to_owned()])
+    }
+
+    #[test]
+    fn a_program_that_fails_at_once_is_noticed() {
+        let (program, arguments) = shell("exit 3");
+        let failure = start_watched(&program, &arguments, Duration::from_secs(10)).unwrap_err();
+        assert!(failure.contains('3'), "{failure}");
+        let (program, arguments) = shell("exit 0");
+        let started = Instant::now();
+        assert_eq!(start_watched(&program, &arguments, Duration::from_secs(10)), Ok(()));
+        assert!(started.elapsed() < Duration::from_secs(9), "no reason to wait on");
+    }
+
+    #[test]
+    fn a_program_that_keeps_running_is_left_running() {
+        let (program, arguments) = shell(if cfg!(windows) { "ping -n 4 127.0.0.1 >nul" } else { "sleep 3" });
+        let started = Instant::now();
+        assert_eq!(start_watched(&program, &arguments, Duration::from_millis(200)), Ok(()));
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn a_setup_that_ends_at_once_with_a_failure_keeps_nightjar_open() {
+        let dir = folder("early-exit");
+        let part = dir.join("download.part");
+        // A real program that refuses the setup's arguments.
+        #[cfg(windows)]
+        std::fs::copy(std::env::var_os("SystemRoot").map(PathBuf::from).unwrap().join("System32\\where.exe"), &part).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::write(&part, b"#!/bin/sh\nexit 3\n").unwrap();
+            std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let name = "nightjar-desktop-9.0.0-windows-x86_64-setup.exe";
+        let asset = Asset { name: name.into(), url: String::new(), digest: String::new(), size: 0 };
+        assert!(matches!(run_setup(&part, &asset), Err(Failure::Apply(_))));
+        assert!(!dir.join(name).exists(), "the setup goes again");
+    }
+
+    #[test]
+    fn the_setups_word_never_reaches_the_command_line() {
+        let args = |list: &[&str]| list.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
+        assert_eq!(split_after_setup(args(&[])), (args(&[]), false));
+        assert_eq!(split_after_setup(args(&["--host", "x"])), (args(&["--host", "x"]), false));
+        assert_eq!(split_after_setup(args(&[AFTER_SETUP])), (args(&[]), true));
+        assert_eq!(split_after_setup(args(&[AFTER_SETUP, "--host", "x"])), (args(&["--host", "x"]), true));
+        assert!(!install_running(true), "the setup's own start always goes on");
     }
 
     #[test]

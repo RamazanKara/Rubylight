@@ -11,8 +11,9 @@
 ; /REMOVESETTINGS to a silent uninstall), and even then keeps the screenshots and the saved
 ; statistics, which are the user's own files.
 ;
-; The client's Update now runs this Setup with /VERYSILENT and /RELAUNCH: same folder and tasks as
-; the install it upgrades (Inno Setup's previous-install defaults), Nightjar started again at the end.
+; The client's Update now runs this Setup with /SILENT and /RELAUNCH: its progress window, the same
+; folder and tasks as the install it upgrades (Inno Setup's previous-install defaults), Nightjar
+; started again at the end.
 ;
 ; /DTestDataDir=<folder> builds a test installer that uses <folder> in place of
 ; %APPDATA%\Nightjar, so build-installer.ps1 -Smoke can check the removal on a developer's PC
@@ -83,6 +84,8 @@ CloseApplications=yes
 ; But never a stream, in any Nightjar process: Setup stops before it deletes anything. The same
 ; name as STREAM_MUTEX in self_update.rs.
 AppMutex=Local\NightjarStream
+; Lets a Nightjar started during an update leave the install alone (install_running in self_update.rs).
+SetupMutex=Local\NightjarSetup
 RestartApplications=no
 Compression=lzma2/max
 SolidCompression=yes
@@ -130,7 +133,7 @@ Name: "{autoprograms}\Nightjar"; Filename: "{app}\nightjar.exe"; IconFilename: "
 Name: "{autodesktop}\Nightjar"; Filename: "{app}\nightjar.exe"; IconFilename: "{app}\nightjar.ico"; Comment: "Stream games from your PC"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\nightjar.exe"; Description: "{cm:LaunchProgram,Nightjar}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\nightjar.exe"; Parameters: "--after-setup"; Description: "{cm:LaunchProgram,Nightjar}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 const
@@ -308,7 +311,7 @@ var
   ResultCode: Integer;
 begin
   if RelaunchParam() and RegQueryStringValue(HKCU, UninstallKey, 'InstallLocation', Folder) then
-    if not Exec(AddBackslash(Folder) + 'nightjar.exe', '', Folder, SW_SHOWNORMAL, ewNoWait, ResultCode) then
+    if not Exec(AddBackslash(Folder) + 'nightjar.exe', '--after-setup', Folder, SW_SHOWNORMAL, ewNoWait, ResultCode) then
       Log('Could not start Nightjar again: ' + SysErrorMessage(ResultCode));
 end;
 

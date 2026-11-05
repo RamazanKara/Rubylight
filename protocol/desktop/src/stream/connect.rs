@@ -252,9 +252,21 @@ fn check_resume(join: bool, paired: bool, running: bool, offered: bool, read: im
         }
     }
     if !paired || !(running || join) {
-        return Err("The original app is no longer running on the PC. Choose an app to start a new stream.".into());
+        return Err(APP_GONE.to_string().into());
     }
     Ok(())
+}
+
+const APP_GONE: &str = "The original app is no longer running on the PC. Choose an app to start a new stream.";
+
+/// Our sentence for a refused `/resume` where the PC's words would say nothing to the user. A
+/// refusal is final: what it said does not change by trying again.
+fn resume_refused(join: bool, code: i32, message: &str) -> Option<String> {
+    use nightjar_policy::continue_here::{resume_refusal, ResumeRefusal};
+    Some(match resume_refusal(join, code, message)? {
+        ResumeRefusal::SessionChanged => APP_GONE.to_string(),
+        ResumeRefusal::BrowserStream => tr("Another device is playing this game in a browser, and this stream can't run beside it. End that stream first.").to_string(),
+    })
 }
 
 impl From<String> for ConnectError {
@@ -862,6 +874,9 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         Ok(Some(launched)) => launched,
         Ok(None) => return Err(refused("The PC declined to start the app.".into())),
         Err(nightjar_core::http::Error::Status { code, message }) => {
+            if let Some(why) = plan.resume.then(|| resume_refused(plan.join, code, &message)).flatten() {
+                return Err(why.into());
+            }
             return Err(refused(format!("The PC could not start the app ({code}: {message}).")))
         }
         Err(e) => return Err(ConnectError { retryable: recovery::transient_http(&e), message: format!("Starting the app failed: {e}"), asks_replace: false, moved_to: None }),
@@ -1185,6 +1200,17 @@ mod replace_tests {
         plan.recovery = Some(spent);
         let rejoined = automatic_rejoin(&plan, AppRole::Stream, true, false, 0, true, true).unwrap();
         assert!(!rejoined.recovery.unwrap().allows_attempt(now));
+    }
+
+    #[test]
+    fn a_refused_join_says_what_happened_in_our_words() {
+        let gone = "no application or remote monitor to resume";
+        assert_eq!(resume_refused(true, 503, gone).as_deref(), Some(APP_GONE));
+        assert_eq!(resume_refused(false, 503, gone), None, "a resume keeps the PC's words and its recovery");
+        assert_eq!(resume_refused(true, 409, "The game running on this PC changed").as_deref(), Some(APP_GONE));
+        let browser = resume_refused(true, 409, "Another device is streaming over WebRTC").expect("our words");
+        assert!(browser.contains("browser"), "{browser}");
+        assert_eq!(resume_refused(true, 503, "Encoder failure"), None);
     }
 
     #[test]

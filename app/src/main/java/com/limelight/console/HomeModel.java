@@ -37,6 +37,8 @@ public final class HomeModel {
     public static final class GameCard {
         /** Stable across refreshes; the same game on the same host keeps its key in each row. */
         public final String key;
+        /** The library card's key of a card that stands for a title on every PC, whichever row it is in; else null. */
+        public final String libraryKey;
         public final String title;
         public final String hostUuid;
         public final String hostName;
@@ -94,7 +96,15 @@ public final class HomeModel {
         GameCard(String key, String title, String hostUuid, String hostName, int appId, Badge badge,
                  ConsoleSnapshot.Source source, int hostCount, boolean favourite, boolean addable,
                  List<String> hostUuids, Long lastPlayed, List<ConsoleSnapshot.Source> copies) {
+            this(key, HostChoice.libraryKeyOf(key), title, hostUuid, hostName, appId, badge, source, hostCount, favourite,
+                    addable, hostUuids, lastPlayed, copies);
+        }
+
+        private GameCard(String key, String libraryKey, String title, String hostUuid, String hostName, int appId, Badge badge,
+                         ConsoleSnapshot.Source source, int hostCount, boolean favourite, boolean addable,
+                         List<String> hostUuids, Long lastPlayed, List<ConsoleSnapshot.Source> copies) {
             this.key = key;
+            this.libraryKey = libraryKey;
             this.title = title;
             this.hostUuid = hostUuid;
             this.hostName = hostName;
@@ -111,8 +121,8 @@ public final class HomeModel {
 
         /** The same game under another key: a row of its own, for a game that shows in several. */
         GameCard keyed(String other) {
-            return new GameCard(other, title, hostUuid, hostName, appId, badge, source, hostCount, favourite, addable,
-                    hostUuids, lastPlayed, copies);
+            return new GameCard(other, libraryKey, title, hostUuid, hostName, appId, badge, source, hostCount, favourite,
+                    addable, hostUuids, lastPlayed, copies);
         }
 
         /** The collections its PCs keep it in, as they name them. */
@@ -125,6 +135,11 @@ public final class HomeModel {
         /** The copies this device hides, shown only under {@link #FILTER_HIDDEN}. */
         public boolean hidden() {
             return key.startsWith(HIDDEN_KEY);
+        }
+
+        /** The copy the card shows is hidden on this device, as a running game's under Continue playing can be. */
+        public boolean sourceHidden() {
+            return source != null && source.hidden;
         }
 
         /** The store's key ("steam", ...); null for an app no store owns and for a classic app. */
@@ -233,15 +248,20 @@ public final class HomeModel {
         if (FILTER_GAMES.equals(filter)) return card.store() != null;
         if (FILTER_OTHER.equals(filter)) return card.store() == null;
         if (filter.startsWith(STORE_FILTER)) return filter.substring(STORE_FILTER.length()).equals(card.store());
-        if (FILTER_NO_COLLECTION.equals(filter)) return card.collections().isEmpty();
-        if (filter.startsWith(COLLECTION_FILTER)) {
-            String name = filter.substring(COLLECTION_FILTER.length()).trim();
-            for (String collection : card.collections()) {
-                if (collection.trim().equalsIgnoreCase(name)) return true;
-            }
-            return false;
-        }
         return true;
+    }
+
+    /** The cards of {@link #allGames} under a filter chip. A collection's are its group's, as the shared code groups them. */
+    List<GameCard> cardsUnder(String filter) {
+        if (filter != null && (FILTER_NO_COLLECTION.equals(filter) || filter.startsWith(COLLECTION_FILTER))) {
+            List<GameCard> cards = grouped.get(filter);
+            return cards == null ? Collections.emptyList() : cards;
+        }
+        List<GameCard> cards = new ArrayList<>();
+        for (GameCard card : allGames) {
+            if (matches(filter, card)) cards.add(card);
+        }
+        return cards;
     }
 
     public static final class HostCard {
@@ -273,9 +293,13 @@ public final class HomeModel {
     public final List<GameCard> allGames;
     /** The chips above All games, for what the library has: All, Installed, the stores, Other apps, Not added. */
     public final List<Filter> filters;
+    /** The cards of each collection's chip and of the games in none, by the chip's key. */
+    private final Map<String, List<GameCard>> grouped;
 
     private HomeModel(List<GameCard> favourites, List<GameCard> continuePlaying, List<GameCard> library,
-                      List<HostCard> hosts, List<Row> rows, List<GameCard> allGames, List<Filter> filters) {
+                      List<HostCard> hosts, List<Row> rows, List<GameCard> allGames, List<Filter> filters,
+                      Map<String, List<GameCard>> grouped) {
+        this.grouped = grouped;
         this.favourites = Collections.unmodifiableList(favourites);
         this.continuePlaying = Collections.unmodifiableList(continuePlaying);
         this.library = Collections.unmodifiableList(library);
@@ -287,7 +311,7 @@ public final class HomeModel {
 
     public static HomeModel empty() {
         return new HomeModel(new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(),
-                new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+                new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new HashMap<>());
     }
 
     /** The UUIDs of the hosts that do not let this device start games (no Launch permission). */
@@ -359,13 +383,13 @@ public final class HomeModel {
     }
 
     /**
-     * The copies hiding a card takes: every PC's copy of its title, from whichever row the card is in. A hidden card's
-     * are the ones to show again.
+     * The copies hiding a card takes: every PC's copy of its title, from whichever row the card is in. A hidden copy's
+     * are the hidden ones, to show again.
      */
     public List<ConsoleSnapshot.Source> copiesOf(GameCard card) {
         if (card.source != null) {
             for (GameCard game : allGames) {
-                if (game.hidden() == card.hidden() && game.copies.contains(card.source)) return game.copies;
+                if (game.copies.contains(card.source)) return game.copies;
             }
         }
         return card.copies;
@@ -488,7 +512,19 @@ public final class HomeModel {
             }
             hosts.add(new HostCard(host.uuid, host.name, line, count, online));
         }
-        return new HomeModel(favourites, continuePlaying, library, hosts, rows, allGames, filtersOf(allGames));
+        List<CollectionGroups.Group> groups = CollectionGroups.of(namesOf(shownGames(allGames)));
+        return new HomeModel(favourites, continuePlaying, library, hosts, rows, allGames, filtersOf(allGames, groups),
+                groupedCards(shownGames(allGames), groups));
+    }
+
+    private static Map<String, List<GameCard>> groupedCards(List<GameCard> shown, List<CollectionGroups.Group> groups) {
+        Map<String, List<GameCard>> grouped = new HashMap<>();
+        for (CollectionGroups.Group group : groups) {
+            List<GameCard> cards = new ArrayList<>(group.games.length);
+            for (int at : group.games) cards.add(shown.get(at));
+            grouped.put(group.name == null ? FILTER_NO_COLLECTION : COLLECTION_FILTER + group.name, cards);
+        }
+        return grouped;
     }
 
     /**
@@ -651,7 +687,7 @@ public final class HomeModel {
         return sorted;
     }
 
-    private static List<Filter> filtersOf(List<GameCard> allGames) {
+    private static List<Filter> filtersOf(List<GameCard> allGames, List<CollectionGroups.Group> groups) {
         int added = 0;
         int installed = 0;
         int other = 0;
@@ -695,7 +731,7 @@ public final class HomeModel {
             filters.add(new Filter(STORE_FILTER + store, names.get(store), stores.get(store)));
         }
         if (other > 0 && !stores.isEmpty()) filters.add(new Filter(FILTER_OTHER, null, other));
-        for (CollectionGroups.Group group : CollectionGroups.of(namesOf(shownGames(allGames)))) {
+        for (CollectionGroups.Group group : groups) {
             filters.add(group.name == null ? new Filter(FILTER_NO_COLLECTION, null, group.games.length)
                     : new Filter(COLLECTION_FILTER + group.name, group.name, group.games.length));
         }

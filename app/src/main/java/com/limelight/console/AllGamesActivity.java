@@ -311,11 +311,7 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
 
     /** The cards a filter shows, in the order All games lists them. */
     static List<HomeModel.GameCard> cardsOf(HomeModel model, String filter) {
-        List<HomeModel.GameCard> cards = new ArrayList<>();
-        for (HomeModel.GameCard card : model.allGames) {
-            if (HomeModel.matches(filter, card)) cards.add(card);
-        }
-        return cards;
+        return model.cardsUnder(filter);
     }
 
     /** A chip's name: All, Installed, Games, the store's or collection's, Other apps, Not added or Hidden. */

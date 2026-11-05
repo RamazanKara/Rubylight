@@ -334,4 +334,27 @@ public class HomeModelTest {
         assertFalse(choices.get(0).online);
         assertFalse(choices.get(1).online);
     }
+
+    @Test
+    public void aRowsKeyedCardStillAsksWhichPcAndAHiddenCopyIsNoAnswer() throws Exception {
+        tower();
+        laptop();
+        List<ComputerDetails> hosts = Arrays.asList(nativeHost("tower", "Tower", true), nativeHost("laptop", "Laptop", true));
+        ConsoleSnapshot snapshot = rig.repository.refresh(hosts);
+        HomeModel.GameCard portal = card(HomeModel.of(snapshot, online("tower", "laptop")), "Portal");
+        HomeModel.GameCard inRow = portal.keyed("shelf:collection:vr:" + portal.key);
+        HomeModel.GameCard twice = inRow.keyed("other:" + inRow.key);
+        assertEquals(portal.key, twice.libraryKey);
+        assertEquals(2, HostChoice.of(snapshot, twice.libraryKey, online("tower", "laptop")).size());
+
+        List<ConsoleSnapshot.Source> tower = new ArrayList<>();
+        for (ConsoleSnapshot.Source copy : portal.copies) {
+            if (copy.hostUuid.equals("tower")) tower.add(copy);
+        }
+        assertEquals(1, tower.size());
+        rig.repository.setHidden(tower, true);
+        List<HostChoice> left = HostChoice.of(rig.repository.refresh(hosts), twice.libraryKey, online("tower", "laptop"));
+        assertEquals(1, left.size());
+        assertEquals("laptop", left.get(0).hostUuid);
+    }
 }

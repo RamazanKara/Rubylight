@@ -671,7 +671,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
      */
     private boolean askHost(HomeModel.GameCard card) {
         final ConsoleRepository repo = repository;
-        final String libraryKey = HostChoice.libraryKeyOf(card.key);
+        final String libraryKey = card.libraryKey;
         if (repo == null || libraryKey == null) {
             return false;
         }
@@ -790,25 +790,27 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         boolean remove = card.favourite;
         List<ConsoleSnapshot.Source> copies = model.copiesOf(card);
         CharSequence star = getString(remove ? R.string.console_favourite_remove : R.string.console_favourite_add);
-        CharSequence hide = getString(R.string.applist_menu_hide_app);
+        // A running game stays under Continue playing while hidden: its menu shows it again.
+        boolean hide = !card.sourceHidden();
+        CharSequence hiding = getString(hide ? R.string.applist_menu_hide_app : R.string.applist_menu_show_app);
         CharSequence openPlay = OpenPlay.menuLabel(this, card.hostUuid, card.appId);
         UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this)
                 .setTitle(card.title)
                 .setItems(copies.isEmpty() ? new CharSequence[]{star, openPlay}
-                        : new CharSequence[]{star, openPlay, hide}, (dialog, which) -> {
+                        : new CharSequence[]{star, openPlay, hiding}, (dialog, which) -> {
                     if (which == 0) {
                         setFavourite(card, !remove);
                     } else if (which == 1) {
                         OpenPlay.toggle(this, card.hostUuid, card.hostName, card.appId, card.source != null ? card.source.stableId() : "", card.title);
                     } else {
-                        setHidden(copies);
+                        setHidden(copies, hide);
                     }
                 })
                 .setNegativeButton(android.R.string.cancel, null).create());
     }
 
-    /** Hides on the star thread and paints the saved result right away, like a star. */
-    private void setHidden(List<ConsoleSnapshot.Source> copies) {
+    /** Hides or shows on the star thread and paints the saved result right away, like a star. */
+    private void setHidden(List<ConsoleSnapshot.Source> copies, boolean hide) {
         final ConsoleRepository repo = repository;
         if (repo == null) {
             return;
@@ -817,7 +819,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         final Set<String> online = onlineOf(hosts);
         starWorker.execute(() -> {
             try {
-                repo.setHidden(copies, true);
+                repo.setHidden(copies, hide);
                 HomeModel model = HomeModel.of(repo.cached(hosts), online, HomeModel.launchDenied(hosts));
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) {

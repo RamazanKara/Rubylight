@@ -1246,8 +1246,12 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
     if result.is_err() || matches!(step, Step::Secret(_)) {
         pairings.sessions.remove(&id);
     }
-    if result.is_err() {
-        crate::native_api::pairing::failed(&h, &id);
+    if let Err(error) = &result {
+        if error.is::<crate::native_api::pairing::ApproverRevoked>() {
+            crate::native_api::pairing::approver_revoked(&h, &id);
+        } else {
+            crate::native_api::pairing::failed(&h, &id);
+        }
     }
     result
 }

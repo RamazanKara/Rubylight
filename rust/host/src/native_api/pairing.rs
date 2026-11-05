@@ -54,7 +54,18 @@ const APPROVAL_LIFETIME: Duration = Duration::from_secs(310);
 enum Outcome {
     Paired,
     WrongPin,
+    /// The approver may no longer approve. Not the new device's doing: no strike.
+    ApproverRevoked,
 }
+/// Why [`capped`] refused: the device that approved may no longer approve.
+#[derive(Debug)]
+pub(crate) struct ApproverRevoked;
+impl std::fmt::Display for ApproverRevoked {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the device that approved this pairing may no longer approve")
+    }
+}
+impl std::error::Error for ApproverRevoked {}
 /// How an approval reports back, with what its log lines name. Who approved
 /// lives on the handshake's session ([`PinEntry`](crate::state::PinEntry)), so
 /// losing this entry loses the answer and never the cap.
@@ -153,9 +164,7 @@ pub(crate) fn capped(
         .clients
         .iter()
         .find(|c| c.uuid == uuid && c.may_approve_pairing())
-        .ok_or_else(|| {
-            anyhow::anyhow!("the device that approved this pairing may no longer approve")
-        })?;
+        .ok_or(ApproverRevoked)?;
     let perm = perm & approver.perm;
     // Only the console hands this one on.
     extra.remove(PAIRING_APPROVE_KEY);
@@ -198,6 +207,19 @@ pub(crate) fn failed(h: &Host, id: &str) {
     tracing::warn!(approver = %approval.approver_name, client = %approval.device, address = %approval.address, "Pairing approval failed: the PIN is not the one the device shows");
     loud_strike(h, approval.address, &approval.device);
     let _ = outcome.send(Outcome::WrongPin);
+}
+
+/// The handshake of request `id` was right, but [`capped`] refused it. The
+/// approver hears why, and the device, which did nothing wrong, takes no strike.
+pub(crate) fn approver_revoked(h: &Host, id: &str) {
+    let Some(mut approval) = approvals(h).running.remove(id) else {
+        tracing::warn!("Pairing refused: the device that approved it may no longer approve");
+        return;
+    };
+    tracing::warn!(approver = %approval.approver_name, client = %approval.device, address = %approval.address, "Pairing refused: the device that approved it may no longer approve");
+    if let Some(outcome) = approval.outcome.take() {
+        let _ = outcome.send(Outcome::ApproverRevoked);
+    }
 }
 
 /// A request that can still be answered.
@@ -333,6 +355,7 @@ pub async fn approve(
             ErrorCode::WrongPin,
             format!("That is not the PIN {device} shows. It has a new one when it asks again."),
         )),
+        Ok(Ok(Outcome::ApproverRevoked)) => Err(permission_required("Approve new devices")),
         // The handshake went quiet. Moonlight may stop after a wrong PIN without
         // saying so, so it counts as one unless the device still finishes.
         Ok(Err(_)) | Err(_) => {

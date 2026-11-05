@@ -186,8 +186,55 @@ async fn host_control_lost_during_the_handshake_refuses_the_new_device() {
         finish_pairing(&f, &client, "TV", "1234").await
     });
     assert!(finished.is_err());
-    reply.assert_error(422, "wrong_pin");
+    // The approver's doing, and said so; the device takes no strike for it.
+    reply.assert_error(403, "permission_required");
+    assert_eq!(f.host.approvals.lock().unwrap().wrong_pins_for("TV"), 0);
     assert!(saved(&f, "TV").is_none());
+}
+
+#[tokio::test]
+async fn a_browser_devices_approver_losing_the_grant_is_no_strike_either() {
+    let f = Fixture::new();
+    let approver = other_device(&f, u32::MAX, true);
+    let (id, entered) =
+        f.host
+            .webrtc
+            .begin_pairing(&f.host, "4321", "Browser TV", PEER.parse().unwrap());
+    let host = f.host.clone();
+    let finishing = {
+        let id = id.clone();
+        tokio::spawn(async move {
+            let (pin, name, _, approver) = entered.await.unwrap();
+            host.paired
+                .write()
+                .unwrap()
+                .clients
+                .iter_mut()
+                .find(|c| c.name == "Other device")
+                .unwrap()
+                .extra
+                .remove("host_control");
+            host.webrtc
+                .finish_pairing(
+                    &host,
+                    &id,
+                    &pin,
+                    &name,
+                    approver.as_deref(),
+                    PEER.parse().unwrap(),
+                )
+                .map(drop)
+        })
+    };
+    approve(&f, &approver, &id, "4321")
+        .await
+        .assert_error(403, "permission_required");
+    assert!(finishing.await.unwrap().is_err());
+    assert_eq!(
+        f.host.approvals.lock().unwrap().wrong_pins_for("Browser TV"),
+        0
+    );
+    assert!(saved(&f, "Browser TV").is_none());
 }
 
 #[tokio::test]

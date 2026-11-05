@@ -457,7 +457,7 @@ impl Registry {
                     client = name,
                     "A WebRTC device's approver no longer holds what it would get"
                 );
-                crate::native_api::pairing::failed(h, request_id);
+                crate::native_api::pairing::approver_revoked(h, request_id);
                 return Err(ErrorCode::PairingFailed);
             }
         };

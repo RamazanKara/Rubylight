@@ -109,6 +109,42 @@ public class NvConnectionNeverReplaceTest {
     }
 
     @Test
+    public void anAutomaticStartAsksNothingWhenTheHostAsksToConfirmReplacing() throws Exception {
+        NvApp app = new NvApp("Portal", 11, false);
+        NvConnection connection = new NvConnection(context, new ComputerDetails.AddressTuple("192.0.2.1", 47989),
+                47984, "device", new StreamConfiguration.Builder().setApp(app).build(), null, null);
+        ConnectionContext start = start(true, app);
+        AtomicInteger launches = new AtomicInteger();
+        NvHTTP pc = new NvHTTP(new ComputerDetails.AddressTuple("192.0.2.1", 47989), 47984, "device", null,
+                new LimelightCryptoProvider() {
+                    public java.security.cert.X509Certificate getClientCertificate() { return null; }
+                    public java.security.PrivateKey getClientPrivateKey() { return null; }
+                    public byte[] getPemEncodedClientCertificate() { return new byte[0]; }
+                    public String encodeBase64String(byte[] data) { return ""; }
+                }) {
+            @Override public int getCurrentGame(String serverInfo) { return 0; }
+            @Override public boolean launchApp(ConnectionContext c, String verb, int appId, boolean hdr) throws java.io.IOException {
+                launches.incrementAndGet();
+                throw new com.limelight.nvstream.http.HostHttpResponseException(410, replacePrompt());
+            }
+        };
+        // Serverinfo saw nothing running either: the session began after it.
+        ComputerDetails details = freshDetails();
+        details.runningGameId = 0;
+
+        assertFalse(connection.launchOrResume(pc, start, details, app, ""));
+        assertEquals(1, launches.get());
+        assertEquals(List.of(context.getString(R.string.open_play_game_running, "Tower")), messages);
+        assertTrue(errors.isEmpty());
+        assertTrue(start.launchActionCompleted);
+        assertEquals(1, stopped.get());
+    }
+
+    private static String replacePrompt() {
+        return ReflectionHelpers.getStaticField(com.limelight.nvstream.http.LaunchConfirmation.class, "REPLACE");
+    }
+
+    @Test
     public void theStreamScreenShowsThatOneMessageAndClosesWithTheGuardOff() throws Exception {
         OpenPlayModel.use(request -> "{\"ok\":{\"disarm\":true}}");
         context.getSharedPreferences("open_play", Context.MODE_PRIVATE).edit().putBoolean("armed", true).commit();

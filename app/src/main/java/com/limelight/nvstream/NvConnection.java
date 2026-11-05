@@ -1029,6 +1029,7 @@ public class NvConnection {
     /** Goes by what the PC says now, which may no longer be what the screen that asked for this saw. */
     boolean launchOrResume(NvHTTP h, ConnectionContext context, ComputerDetails details, NvApp app, String serverInfo)
             throws XmlPullParserException, IOException {
+        context.gameRunningMessage = appContext.getString(R.string.open_play_game_running, details.name);
         boolean join = context.streamConfig.isJoinRunning();
         if (!join && launchesBesideRunningGame(app)) {
             return launchNotRunningApp(h, context);
@@ -1057,9 +1058,7 @@ public class NvConnection {
                 } else if (context.streamConfig.isNeverReplace() && !context.streamConfig.isResumeOnly()) {
                     // However old the look that let this start go on (a poll, a PIN in between): no tap, no quit.
                     // Its one message closes the screen, with no failure dialog after it.
-                    context.connListener.automaticStartStopped();
-                    context.launchActionCompleted = true;
-                    context.connListener.launchActionCompleted(appContext.getString(R.string.open_play_game_running, details.name));
+                    stopAutomaticStart(context);
                     return false;
                 } else {
                     return quitAndLaunch(h, context);
@@ -1221,6 +1220,13 @@ public class NvConnection {
         }
     }
 
+    /** The PC runs another game and nobody agreed to closing it: one message, no failure after it. */
+    private static void stopAutomaticStart(ConnectionContext context) {
+        context.connListener.automaticStartStopped();
+        context.launchActionCompleted = true;
+        context.connListener.launchActionCompleted(context.gameRunningMessage);
+    }
+
     private static boolean launchConfirming(NvHTTP http, ConnectionContext context, String verb)
             throws IOException, XmlPullParserException {
         NvApp app = context.streamConfig.getApp();
@@ -1243,6 +1249,11 @@ public class NvConnection {
                 if (context.streamConfig.isResumeOnly() || context.streamConfig.isJoinRunning() ||
                         !LaunchConfirmation.isRequired(app, e)) {
                     throw e;
+                }
+                if (context.streamConfig.isNeverReplace()) {
+                    // Another game started after every look so far. The player pressed nothing, so nothing to confirm.
+                    stopAutomaticStart(context);
+                    return false;
                 }
                 if (retried) {
                     throw new LocalLaunchFailure(409, R.string.startup_confirmation_rejected,

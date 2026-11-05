@@ -124,9 +124,156 @@ pub fn badge(pixels: &mut [u8], width: usize, height: usize, icon: Icon) -> bool
     true
 }
 
+/// What clicking the tray's notification does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoticeAction {
+    EnterPin,
+    QuitApp,
+}
+/// How the tray puts up a notice it just posted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Post {
+    Show,
+    /// Take down what is up first: a click on it would do this notice's action.
+    ClearThenShow,
+    /// Not now, see [`Notices`].
+    Held,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeldNotice {
+    pub title: String,
+    pub text: String,
+    pub action: Option<NoticeAction>,
+}
+/// The tray has one notification slot and a click doesn't say which notification
+/// it was on, so a click can only be matched to the last one posted. A notice that
+/// quits the app therefore holds the slot: while it can be clicked, others wait,
+/// and it never goes up over another one, whose click would then quit the app.
+#[derive(Debug, Default)]
+pub struct Notices {
+    action: Option<NoticeAction>,
+    held: Option<HeldNotice>,
+}
+impl Notices {
+    pub const fn new() -> Self {
+        Self {
+            action: None,
+            held: None,
+        }
+    }
+    pub fn post(&mut self, title: &str, text: &str, action: Option<NoticeAction>) -> Post {
+        if action == Some(NoticeAction::QuitApp) {
+            self.action = action;
+            return Post::ClearThenShow;
+        }
+        if self.action == Some(NoticeAction::QuitApp) {
+            // The latest one waits, but a plain notice doesn't push out a request.
+            if action.is_some() || self.held.as_ref().is_none_or(|h| h.action.is_none()) {
+                self.held = Some(HeldNotice {
+                    title: title.to_owned(),
+                    text: text.to_owned(),
+                    action,
+                });
+            }
+            return Post::Held;
+        }
+        self.action = action;
+        self.held = None;
+        Post::Show
+    }
+    /// The notification was clicked: what to do, and what may go up now.
+    pub fn clicked(&mut self) -> (Option<NoticeAction>, Option<HeldNotice>) {
+        (self.action.take(), self.held.take())
+    }
+    /// It went away unclicked: what may go up now.
+    pub fn timed_out(&mut self) -> Option<HeldNotice> {
+        self.action = None;
+        self.held.take()
+    }
+    /// Another app runs or none does, so a click can't mean the one that quit.
+    /// Only that goes: a device still waits for its PIN.
+    pub fn app_changed(&mut self) -> Option<HeldNotice> {
+        if self.action == Some(NoticeAction::QuitApp) {
+            self.action = None;
+            return self.held.take();
+        }
+        None
+    }
+    /// Windows refused the notification, so no click will come for it.
+    pub fn not_shown(&mut self) {
+        self.action = None;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_click_on_a_pairing_notice_never_quits_the_app() {
+        use NoticeAction::{EnterPin, QuitApp};
+        let mut notices = Notices::new();
+        // A launch error while the pairing toast is up takes it down first.
+        assert_eq!(notices.post("Pair", "TV", Some(EnterPin)), Post::Show);
+        assert_eq!(
+            notices.post("Launch Error", "Game", Some(QuitApp)),
+            Post::ClearThenShow
+        );
+        // A request during the launch error waits, and keeps its action for later.
+        assert_eq!(notices.post("Pair", "Tablet", Some(EnterPin)), Post::Held);
+        let (action, held) = notices.clicked();
+        assert_eq!(action, Some(QuitApp));
+        let held = held.expect("the request");
+        assert_eq!(held.text, "Tablet");
+        assert_eq!(
+            notices.post(&held.title, &held.text, held.action),
+            Post::Show
+        );
+        // Its click opens the PIN and there is nothing left to quit.
+        assert_eq!(notices.clicked(), (Some(EnterPin), None));
+        assert_eq!(notices.clicked(), (None, None));
+    }
+
+    #[test]
+    fn a_held_notice_goes_up_when_the_launch_error_is_over() {
+        use NoticeAction::{EnterPin, QuitApp};
+        let mut notices = Notices::new();
+        notices.post("Launch Error", "Game", Some(QuitApp));
+        assert_eq!(notices.post("Update", "Ready", None), Post::Held);
+        // A plain notice neither replaces a held request nor the action.
+        assert_eq!(notices.post("Pair", "TV", Some(EnterPin)), Post::Held);
+        assert_eq!(notices.post("Update", "Ready", None), Post::Held);
+        let held = notices.timed_out().expect("the request");
+        assert_eq!(held.action, Some(EnterPin));
+        assert_eq!(notices.clicked(), (None, None));
+
+        notices.post("Launch Error", "Game", Some(QuitApp));
+        notices.post("Pair", "TV", Some(EnterPin));
+        assert_eq!(notices.app_changed().expect("the request").text, "TV");
+        assert_eq!(notices.clicked(), (None, None));
+    }
+
+    #[test]
+    fn a_changed_app_takes_only_the_quit_away() {
+        use NoticeAction::{EnterPin, QuitApp};
+        let mut notices = Notices::new();
+        notices.post("Pair", "TV", Some(EnterPin));
+        assert_eq!(notices.app_changed(), None);
+        assert_eq!(notices.clicked(), (Some(EnterPin), None));
+
+        notices.post("Launch Error", "Game", Some(QuitApp));
+        notices.app_changed();
+        assert_eq!(notices.clicked(), (None, None));
+    }
+
+    #[test]
+    fn a_notice_windows_refused_has_nothing_to_click() {
+        let mut notices = Notices::new();
+        notices.post("Launch Error", "Game", Some(NoticeAction::QuitApp));
+        notices.not_shown();
+        assert_eq!(notices.clicked(), (None, None));
+        assert_eq!(notices.post("Update", "Ready", None), Post::Show);
+    }
 
     fn status(app: Option<&str>, streaming: bool) -> Status {
         Status {

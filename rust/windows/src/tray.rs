@@ -1,6 +1,6 @@
 //! Native notification-area UI, owned by its Windows message thread.
 use anyhow::{Context, Result, bail};
-use butterpollo_core::tray::Icon;
+use butterpollo_core::tray::{HeldNotice, Icon, NoticeAction, Notices, Post};
 use std::{
     mem::size_of,
     path::PathBuf,
@@ -80,15 +80,17 @@ static APP: Mutex<Shown> = Mutex::new(Shown {
 /// state, the tooltip and the menu's item that quits it.
 pub fn show_app(icon: Icon, app: Option<&str>, summary: Option<&str>) {
     let mut shown = APP.lock().unwrap();
-    if shown.app.as_deref() != app {
-        NOTICE_ACTION.lock().unwrap().take();
-    }
+    let changed = shown.app.as_deref() != app;
     *shown = Shown {
         icon,
         app: app.map(str::to_owned),
         summary: summary.map(str::to_owned),
     };
     drop(shown);
+    if changed {
+        let held = NOTICES.lock().unwrap().app_changed();
+        show_held(held);
+    }
     if let Some(window) = *SHOWN.lock().unwrap() {
         // SAFETY: The tray publishes its HWND under SHOWN; this asynchronous message
         // contains only integer values and borrows no Rust data after the call returns.
@@ -227,12 +229,21 @@ unsafe extern "system" fn window(
             if message == WM_APP + 1 {
                 match (lparam.0 & 0xffff) as u32 {
                     NIN_BALLOONUSERCLICK => {
-                        if let Some(action) = NOTICE_ACTION.lock().unwrap().take() {
-                            let _ = (*state).sender.send(action);
+                        let (action, held) = NOTICES.lock().unwrap().clicked();
+                        match action {
+                            Some(NoticeAction::EnterPin) => {
+                                let _ = (*state).sender.send(Action::EnterPin);
+                            }
+                            Some(NoticeAction::QuitApp) => {
+                                let _ = (*state).sender.send(Action::QuitApp);
+                            }
+                            None => {}
                         }
+                        show_held(held);
                     }
                     NIN_BALLOONTIMEOUT => {
-                        NOTICE_ACTION.lock().unwrap().take();
+                        let held = NOTICES.lock().unwrap().timed_out();
+                        show_held(held);
                     }
                     WM_LBUTTONDBLCLK => {
                         let _ = (*state).sender.send(Action::Open);
@@ -474,14 +485,14 @@ impl Drop for Tray {
 }
 /// The tray icon's window while it is shown.
 static SHOWN: std::sync::Mutex<Option<isize>> = std::sync::Mutex::new(None);
-static NOTICE_ACTION: Mutex<Option<Action>> = Mutex::new(None);
+static NOTICES: Mutex<Notices> = Mutex::new(Notices::new());
 /// Show a notification from the tray icon, if there is one.
 pub fn notify(title: &str, text: &str) {
     let _ = notify_with_action(title, text, None);
 }
 /// Show a pairing request's notification; clicking it opens the console at the PIN.
 pub fn notify_pairing(title: &str, text: &str) {
-    if let Err(error) = notify_with_action(title, text, Some(Action::EnterPin)) {
+    if let Err(error) = notify_with_action(title, text, Some(NoticeAction::EnterPin)) {
         tracing::debug!(%error, "no tray notification for a pairing request");
     }
 }
@@ -501,12 +512,44 @@ fn launch_error_notice(app: &str, code: u32) -> butterpollo_core::tray::Notice {
 /// Keep the detached stream open until the user chooses to end it.
 pub fn launch_error(app: &str, code: u32) {
     let (title, text) = launch_error_notice(app, code);
-    let _ = notify_with_action(title, &text, Some(Action::QuitApp));
+    if let Err(error) = notify_with_action(title, &text, Some(NoticeAction::QuitApp)) {
+        tracing::warn!(%error, "no tray notification for a launch error");
+    }
 }
-fn notify_with_action(title: &str, text: &str, action: Option<Action>) -> Result<()> {
+/// Put up a notice that waited for a launch error's notification to go.
+fn show_held(held: Option<HeldNotice>) {
+    let Some(held) = held else {
+        return;
+    };
+    if let Err(error) = notify_with_action(&held.title, &held.text, held.action) {
+        tracing::warn!(%error, title = %held.title, "no tray notification for a held notice");
+    }
+}
+/// Holds [`NOTICES`] until Windows has taken the notification, so what a click
+/// does can't be set by one notice while another goes up.
+fn notify_with_action(title: &str, text: &str, action: Option<NoticeAction>) -> Result<()> {
     let Some(window) = *SHOWN.lock().unwrap() else {
         bail!("the tray icon is not shown");
     };
+    let mut notices = NOTICES.lock().unwrap();
+    let post = notices.post(title, text, action);
+    if post == Post::Held {
+        tracing::info!(title, "tray notification waits for the launch error's");
+        return Ok(());
+    }
+    if post == Post::ClearThenShow && !show_notification(window, "", "") {
+        notices.not_shown();
+        bail!("Windows did not take down the notification");
+    }
+    if show_notification(window, title, text) {
+        Ok(())
+    } else {
+        notices.not_shown();
+        bail!("Windows did not show the notification")
+    }
+}
+/// Empty text takes down what is up.
+fn show_notification(window: isize, title: &str, text: &str) -> bool {
     let mut icon = NOTIFYICONDATAW {
         cbSize: size_of::<NOTIFYICONDATAW>() as u32,
         hWnd: HWND(window as *mut _),
@@ -521,14 +564,9 @@ fn notify_with_action(title: &str, text: &str, action: Option<Action>) -> Result
     };
     copy(&mut icon.szInfoTitle, title);
     copy(&mut icon.szInfo, text);
-    *NOTICE_ACTION.lock().unwrap() = action;
     // SAFETY: icon is initialized with its exact size and terminated text buffers,
     // and Shell_NotifyIconW consumes it synchronously; hWnd is only an opaque identifier.
-    if unsafe { Shell_NotifyIconW(NIM_MODIFY, &icon) }.as_bool() {
-        Ok(())
-    } else {
-        bail!("Windows did not show the notification")
-    }
+    unsafe { Shell_NotifyIconW(NIM_MODIFY, &icon) }.as_bool()
 }
 
 /// The console's Devices page with a waiting device's PIN field focused.

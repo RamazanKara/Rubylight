@@ -404,6 +404,11 @@ namespace {
             probe.reason = MISSING_DEVICE_FEATURES;
             return probe;
         }
+        if (!pyroDriverIdKnown(coreVersion, props.vendorID, hasExtension(extensions, VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME))) {
+            LOGW("PyroWave refused: %s has no VK_KHR_driver_properties, so its decode path can't be chosen", props.deviceName);
+            probe.reason = MISSING_DEVICE_FEATURES;
+            return probe;
+        }
         const bool storage8Extension = !core12 && hasExtension(extensions, VK_KHR_8BIT_STORAGE_EXTENSION_NAME);
         probe.float16Extension = !core12 && hasExtension(extensions, VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME);
 
@@ -459,6 +464,11 @@ namespace {
         }
         const bool storage16Feature = core12 ? f11.storageBuffer16BitAccess : storage16.storageBuffer16BitAccess;
         probe.storage8 = core12 ? f12.storageBuffer8BitAccess : storage8Extension && storage8.storageBuffer8BitAccess;
+        // adb shell setprop debug.nightjar.pyro_no_storage8 1, with pyro_vk11, runs the texel buffer
+        // path of devices without 8-bit storage on one we have.
+        char noStorage8[PROP_VALUE_MAX] = {};
+        __system_property_get("debug.nightjar.pyro_no_storage8", noStorage8);
+        if (std::strcmp(noStorage8, "1") == 0) probe.storage8 = false;
         const bool payloadAccess = pyroPayloadReadable(coreVersion, probe.storage8, props.limits.maxTexelBufferElements);
         // Vulkan 1.3 devices keep their timeline/synchronization2 path; older ones use legacySync.
         const bool sync = pyroSyncUsable(coreVersion, f12.timelineSemaphore, f13.synchronization2);

@@ -53,6 +53,17 @@ inline bool pyroNeedsSubgroupSizeControlExtension(uint32_t coreVersion) {
     return coreVersion < PYRO_VULKAN_1_3;
 }
 
+// Adreno and Mali depend on PyroWave's fragment decode path and its driver workarounds, which go by
+// Granite's driver id. Below Vulkan 1.2 that id takes VK_KHR_driver_properties: without it those
+// GPUs would decode on the wrong path with no sign of it, so they are refused.
+constexpr uint32_t PYRO_VENDOR_QUALCOMM = 0x5143;
+constexpr uint32_t PYRO_VENDOR_ARM = 0x13B5;
+
+inline bool pyroDriverIdKnown(uint32_t coreVersion, uint32_t vendorId, bool driverProperties) {
+    return coreVersion >= PYRO_VULKAN_1_2 || driverProperties ||
+           (vendorId != PYRO_VENDOR_QUALCOMM && vendorId != PYRO_VENDOR_ARM);
+}
+
 // The device extensions the path adds, none on Vulkan 1.3. Granite only sees what is enabled on the
 // device it is lent: without VK_KHR_driver_properties below Vulkan 1.2 it has no driver id, so
 // Adreno and Mali would lose PyroWave's fragment decode path and their driver workarounds.

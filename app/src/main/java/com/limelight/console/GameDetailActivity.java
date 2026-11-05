@@ -350,6 +350,12 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             modelLive = false;
             return;
         }
+        if (computer != null && computer.state == ComputerDetails.State.ONLINE && !model.hostOnline) {
+            // It came back after this page was read, which is out of date: read it again, within the limit.
+            modelLive = false;
+            scheduleReload();
+            return;
+        }
         autoActed = true;
         if (wakeable(model)) {
             // The wake has its own limit.

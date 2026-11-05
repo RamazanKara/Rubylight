@@ -374,7 +374,10 @@ pub fn setup_arguments(log: &Path) -> Vec<String> {
 fn run_setup(part: &Path, asset: &Asset) -> Result<(), Failure> {
     // Its asset name: Windows runs only what is called .exe.
     let setup = part.with_file_name(&asset.name);
-    std::fs::rename(part, &setup).map_err(|e| Failure::Apply(format!("{}: {e}", setup.display())))?;
+    std::fs::rename(part, &setup).map_err(|e| {
+        let _ = std::fs::remove_file(part);
+        Failure::Apply(format!("{}: {e}", setup.display()))
+    })?;
     start_watched(&setup, &setup_arguments(&setup.with_extension("log")), START_WATCH).map_err(|e| {
         let _ = std::fs::remove_file(&setup);
         Failure::Apply(e)
@@ -657,6 +660,18 @@ mod tests {
         assert_eq!(split_after_setup(args(&[AFTER_SETUP])), (args(&[]), true));
         assert_eq!(split_after_setup(args(&[AFTER_SETUP, "--host", "x"])), (args(&["--host", "x"]), true));
         assert!(!install_running(true), "the setup's own start always goes on");
+    }
+
+    #[test]
+    fn a_setup_that_cannot_take_its_name_leaves_no_file() {
+        let dir = folder("rename");
+        let part = dir.join("download.part");
+        std::fs::write(&part, b"setup").unwrap();
+        let name = "nightjar-desktop-9.0.0-windows-x86_64-setup.exe";
+        std::fs::create_dir(dir.join(name)).unwrap();
+        let asset = Asset { name: name.into(), url: String::new(), digest: String::new(), size: 5 };
+        assert!(matches!(run_setup(&part, &asset), Err(Failure::Apply(_))));
+        assert!(!part.exists());
     }
 
     #[test]

@@ -465,7 +465,8 @@ impl Launcher {
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
                         ui.label(RichText::new(game.as_str()).font(semibold(text::SECTION)));
-                        ui.label(RichText::new(trf("Starting on {} in {}", &[&pc, &left])).color(ON_SURFACE_VARIANT));
+                        let line = if *left == 0 { trf("Starting on {}", &[&pc]) } else { trf("Starting on {} in {}", &[&pc, &left]) };
+                        ui.label(RichText::new(line).color(ON_SURFACE_VARIANT));
                         dialog_buttons(ui, |ui| {
                             // The start is the default: a press of A or Enter here stops it.
                             let cancel = quiet_button(ui, "Cancel");

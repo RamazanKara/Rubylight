@@ -31,7 +31,8 @@ enum Phase {
     /// The PIN screen or a dialog from before comes first.
     Hold,
     Counting { until: Instant },
-    Starting { wake_asked: bool, apps_asked: bool, since: Instant },
+    /// `shown`: the dialog with its Cancel stands in front, except during a wake, which has its own.
+    Starting { wake_asked: bool, apps_asked: bool, since: Instant, shown: bool },
     /// The launch was asked for: the stream comes, or a prompt or the PIN stands in front of it.
     Launched,
     Streaming { since: Instant },
@@ -73,7 +74,7 @@ pub struct Seen {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Step {
     Wait,
-    /// Show the countdown with this many seconds left.
+    /// Show the countdown with this many seconds left; 0 once it ran out and the start is under way.
     Count(u64),
     /// The countdown ran out: the guard is armed from here.
     Begin,
@@ -117,7 +118,7 @@ impl Run {
                     return Step::Over { disarm: false };
                 }
                 if now >= until {
-                    self.phase = Phase::Starting { wake_asked: false, apps_asked: false, since: now };
+                    self.phase = Phase::Starting { wake_asked: false, apps_asked: false, since: now, shown: true };
                     return Step::Begin;
                 }
                 Step::Count((until - now).as_millis().div_ceil(1000) as u64)
@@ -150,8 +151,12 @@ impl Run {
     }
 
     fn starting(&mut self, seen: &Seen, now: Instant) -> Step {
-        let Phase::Starting { wake_asked, apps_asked, since } = self.phase else { return Step::Wait };
+        let Phase::Starting { wake_asked, apps_asked, since, shown } = self.phase else { return Step::Wait };
         let pc = self.target.pc.clone();
+        // The player got there first: this run must not start a game on top of it.
+        if seen.busy || seen.streaming {
+            return Step::Over { disarm: true };
+        }
         if seen.message {
             return Step::Failed(None);
         }
@@ -160,8 +165,12 @@ impl Run {
         };
         if seen.waking {
             // The wake has its own limit and its own message.
-            self.phase = Phase::Starting { wake_asked, apps_asked, since: now };
+            self.phase = Phase::Starting { wake_asked, apps_asked, since: now, shown };
             return Step::Wait;
+        }
+        // Cancel, B, Back or Escape while the PC answers and its list loads.
+        if shown && !seen.countdown {
+            return Step::Over { disarm: true };
         }
         let late = now.saturating_duration_since(since) > START_LIMIT;
         let in_time = |step: Step| if late { Step::Failed(Some(trf("{} did not answer in time.", &[&pc]))) } else { step };
@@ -175,20 +184,25 @@ impl Run {
                 Step::Over { disarm: true }
             }
             Reach::Offline if host.can_wake => {
-                self.phase = Phase::Starting { wake_asked: true, apps_asked, since: now };
+                self.phase = Phase::Starting { wake_asked: true, apps_asked, since: now, shown: false };
                 Step::Wake
             }
             Reach::Offline => Step::Failed(Some(trf("{} is offline and has no address to wake it at.", &[&pc]))),
             Reach::Online if !host.paired => Step::Failed(Some(trf("{} is not paired.", &[&pc]))),
+            Reach::Online if !shown => {
+                // Back from the wake: Cancel again for the rest of the way.
+                self.phase = Phase::Starting { wake_asked, apps_asked, since, shown: true };
+                Step::Count(0)
+            }
             Reach::Online => match &host.apps {
                 AppsSeen::NotLoaded if !apps_asked => {
-                    self.phase = Phase::Starting { wake_asked, apps_asked: true, since };
+                    self.phase = Phase::Starting { wake_asked, apps_asked: true, since, shown };
                     Step::LoadApps
                 }
                 AppsSeen::NotLoaded => in_time(Step::Wait),
                 AppsSeen::Loading => {
                     // A list that drops back to unloaded later is asked for again.
-                    self.phase = Phase::Starting { wake_asked, apps_asked: false, since };
+                    self.phase = Phase::Starting { wake_asked, apps_asked: false, since, shown };
                     in_time(Step::Wait)
                 }
                 AppsSeen::Failed(why) => Step::Failed(Some(trf("The app list could not be loaded. {}", &[why]))),
@@ -281,6 +295,12 @@ impl crate::App {
         state.armed = armed;
         if let Err(e) = self.store.save_open_play(&state) {
             eprintln!("nightjar: saving the automatic start failed: {e}");
+        }
+    }
+
+    fn close_countdown(&mut self) {
+        if matches!(self.launcher.dialog, Dialog::OpenPlay { .. }) {
+            self.launcher.dialog = Dialog::None;
         }
     }
 
@@ -392,13 +412,19 @@ impl crate::App {
                 }
             }
             Step::Begin => {
+                if let Dialog::OpenPlay { left, .. } = &mut self.launcher.dialog {
+                    *left = 0;
+                }
                 // Armed before anything can go wrong: only a good ending clears it.
-                self.launcher.dialog = Dialog::None;
                 self.open_play_armed(true);
             }
-            Step::Wake => self.command(Command::Wake(host)),
+            Step::Wake => {
+                self.close_countdown();
+                self.command(Command::Wake(host));
+            }
             Step::LoadApps => self.hosts.load_apps(host),
             Step::Start(app) => {
+                self.close_countdown();
                 let mut commands = Vec::new();
                 let dialog = match self.hosts.get(host) {
                     Some(h) => match &h.apps {
@@ -424,6 +450,7 @@ impl crate::App {
                 }
             }
             Step::Over { disarm } => {
+                self.close_countdown();
                 self.open_play.run = None;
                 if disarm {
                     self.open_play_armed(false);
@@ -447,6 +474,15 @@ mod tests {
 
     fn ready() -> Seen {
         Seen { no_dialog: true, identity: true, host: online(AppsSeen::Loaded(Some(7))), ..Seen::default() }
+    }
+
+    /// The dialog stands in front while the start is under way.
+    fn going() -> Seen {
+        Seen { countdown: true, no_dialog: false, ..ready() }
+    }
+
+    fn offline(can_wake: bool) -> Option<HostSeen> {
+        Some(HostSeen { reach: Reach::Offline, can_wake, paired: true, apps: AppsSeen::NotLoaded })
     }
 
     /// A run past its countdown.
@@ -482,7 +518,7 @@ mod tests {
     fn an_online_pc_starts_the_game_and_a_lasting_stream_disarms() {
         let now = Instant::now();
         let mut run = begun(now);
-        assert_eq!(run.next(&ready(), now), Step::Start(7));
+        assert_eq!(run.next(&going(), now), Step::Start(7));
         assert_eq!(run.next(&Seen { busy: true, ..ready() }, now), Step::Wait);
         let streaming = Seen { streaming: true, ..ready() };
         assert_eq!(run.next(&streaming, now), Step::Wait);
@@ -495,7 +531,7 @@ mod tests {
         let now = Instant::now();
         let start = |seen: &Seen| {
             let mut run = begun(now);
-            run.next(&ready(), now);
+            run.next(&going(), now);
             run.next(&Seen { streaming: true, ..ready() }, now);
             run.next(seen, now + Duration::from_secs(4))
         };
@@ -508,7 +544,7 @@ mod tests {
     fn a_failed_launch_ends_on_its_message_with_the_guard_armed() {
         let now = Instant::now();
         let mut run = begun(now);
-        run.next(&ready(), now);
+        run.next(&going(), now);
         assert_eq!(run.next(&Seen { message: true, no_dialog: false, ..ready() }, now), Step::Failed(None));
     }
 
@@ -516,7 +552,7 @@ mod tests {
     fn a_prompt_waits_and_its_cancel_is_the_players_doing() {
         let now = Instant::now();
         let mut run = begun(now);
-        run.next(&ready(), now);
+        run.next(&going(), now);
         assert_eq!(run.next(&Seen { no_dialog: false, ..ready() }, now), Step::Wait);
         assert_eq!(run.next(&ready(), now), Step::Over { disarm: true });
     }
@@ -525,37 +561,60 @@ mod tests {
     fn an_offline_pc_is_woken_and_then_started() {
         let now = Instant::now();
         let mut run = begun(now);
-        let offline = Seen { host: Some(HostSeen { reach: Reach::Offline, can_wake: true, paired: true, apps: AppsSeen::NotLoaded }), ..ready() };
-        assert_eq!(run.next(&offline, now), Step::Wake);
-        assert_eq!(run.next(&Seen { waking: true, ..offline.clone() }, now + Duration::from_secs(120)), Step::Wait, "the wake has its own limit");
-        assert_eq!(run.next(&Seen { host: online(AppsSeen::NotLoaded), ..ready() }, now + Duration::from_secs(120)), Step::LoadApps);
-        assert_eq!(run.next(&Seen { host: online(AppsSeen::Loading), ..ready() }, now + Duration::from_secs(121)), Step::Wait);
-        assert_eq!(run.next(&ready(), now + Duration::from_secs(122)), Step::Start(7));
+        assert_eq!(run.next(&Seen { host: offline(true), ..going() }, now), Step::Wake);
+        let away = Seen { host: offline(true), ..ready() };
+        assert_eq!(run.next(&Seen { waking: true, ..away }, now + Duration::from_secs(120)), Step::Wait, "the wake has its own limit");
+        assert_eq!(run.next(&Seen { host: online(AppsSeen::NotLoaded), ..ready() }, now + Duration::from_secs(120)), Step::Count(0), "Cancel again");
+        assert_eq!(run.next(&Seen { host: online(AppsSeen::NotLoaded), ..going() }, now + Duration::from_secs(120)), Step::LoadApps);
+        assert_eq!(run.next(&Seen { host: online(AppsSeen::Loading), ..going() }, now + Duration::from_secs(121)), Step::Wait);
+        assert_eq!(run.next(&going(), now + Duration::from_secs(122)), Step::Start(7));
     }
 
     #[test]
     fn a_wake_that_times_out_fails_on_its_message_and_a_stopped_one_is_the_players() {
         let now = Instant::now();
-        let offline = Seen { host: Some(HostSeen { reach: Reach::Offline, can_wake: true, paired: true, apps: AppsSeen::NotLoaded }), ..ready() };
+        let away = Seen { host: offline(true), ..ready() };
         let mut run = begun(now);
-        run.next(&offline, now);
-        assert_eq!(run.next(&Seen { message: true, ..offline.clone() }, now), Step::Failed(None));
+        run.next(&Seen { host: offline(true), ..going() }, now);
+        assert_eq!(run.next(&Seen { message: true, ..away.clone() }, now), Step::Failed(None));
         let mut run = begun(now);
-        run.next(&offline, now);
-        assert_eq!(run.next(&offline, now), Step::Over { disarm: true });
+        run.next(&Seen { host: offline(true), ..going() }, now);
+        assert_eq!(run.next(&away, now), Step::Over { disarm: true });
+    }
+
+    #[test]
+    fn the_player_can_still_say_no_while_the_list_loads() {
+        let now = Instant::now();
+        let mut run = begun(now);
+        assert_eq!(run.next(&Seen { host: online(AppsSeen::NotLoaded), ..going() }, now), Step::LoadApps);
+        let cancelled = Seen { host: online(AppsSeen::Loading), ..ready() };
+        assert_eq!(run.next(&cancelled, now), Step::Over { disarm: true }, "Cancel closed the dialog");
+    }
+
+    #[test]
+    fn a_game_the_player_started_meanwhile_ends_the_run() {
+        let now = Instant::now();
+        for (name, seen) in [
+            ("connecting to it", Seen { busy: true, ..going() }),
+            ("streaming it", Seen { streaming: true, ..ready() }),
+        ] {
+            let mut run = begun(now);
+            assert_eq!(run.next(&Seen { host: online(AppsSeen::Loading), ..going() }, now), Step::Wait);
+            assert_eq!(run.next(&seen, now), Step::Over { disarm: true }, "{name}");
+        }
     }
 
     #[test]
     fn what_cannot_start_says_why() {
         let now = Instant::now();
         let failed = |seen: Seen| matches!(begun(now).next(&seen, now), Step::Failed(Some(_)));
-        assert!(failed(Seen { host: None, ..ready() }), "the PC was removed");
-        assert!(failed(Seen { host: Some(HostSeen { reach: Reach::Offline, can_wake: false, paired: true, apps: AppsSeen::NotLoaded }), ..ready() }), "no address");
-        assert!(failed(Seen { host: Some(HostSeen { reach: Reach::Online, can_wake: true, paired: false, apps: AppsSeen::NotLoaded }), ..ready() }), "not paired");
-        assert!(failed(Seen { host: online(AppsSeen::Loaded(None)), ..ready() }), "not in the list");
-        assert!(failed(Seen { host: online(AppsSeen::Failed("x".into())), ..ready() }), "no list");
+        assert!(failed(Seen { host: None, ..going() }), "the PC was removed");
+        assert!(failed(Seen { host: offline(false), ..going() }), "no address");
+        assert!(failed(Seen { host: Some(HostSeen { reach: Reach::Online, can_wake: true, paired: false, apps: AppsSeen::NotLoaded }), ..going() }), "not paired");
+        assert!(failed(Seen { host: online(AppsSeen::Loaded(None)), ..going() }), "not in the list");
+        assert!(failed(Seen { host: online(AppsSeen::Failed("x".into())), ..going() }), "no list");
         let mut run = begun(now);
-        let unknown = Seen { host: Some(HostSeen { reach: Reach::Unknown, can_wake: true, paired: true, apps: AppsSeen::NotLoaded }), ..ready() };
+        let unknown = Seen { host: Some(HostSeen { reach: Reach::Unknown, can_wake: true, paired: true, apps: AppsSeen::NotLoaded }), ..going() };
         assert_eq!(run.next(&unknown, now), Step::Wait);
         assert!(matches!(run.next(&unknown, now + START_LIMIT + Duration::from_secs(10)), Step::Failed(Some(_))), "a PC that never answers");
     }

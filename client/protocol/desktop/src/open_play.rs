@@ -2,6 +2,8 @@
 //! own wake and launch, and the guard (`nightjar_policy::open_play`) that keeps a start which comes to
 //! nothing from trapping the player. Also runs the sign-in setting (`autostart`) off the UI thread.
 
+use std::fs::File;
+use std::path::Path;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -13,6 +15,7 @@ use crate::autostart;
 use crate::config::{OpenGame, OpenOnStart, Recent, Settings, Store};
 use crate::console;
 use crate::hosts::{Apps, Hosts, Reach};
+use crate::self_update;
 use crate::strings::{tr, trf};
 use crate::ui::{Command, Dialog, Launcher};
 
@@ -319,15 +322,69 @@ pub fn at_start(store: &Store, settings: &Settings, recents: &[Recent], launcher
     }
 }
 
+/// What the command line said about who started this copy.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Started {
+    pub at_sign_in: bool,
+    pub after_setup: bool,
+}
+
+/// Whether this start of Nightjar may start a game by itself. An update's restart and a second copy
+/// are not the player opening Nightjar, and a second copy must not touch what the first one runs.
+fn may_start_a_game(launcher_start: bool, after_setup: bool, stream_elsewhere: bool, window_elsewhere: bool) -> bool {
+    launcher_start && !after_setup && !stream_elsewhere && !window_elsewhere
+}
+
+/// This copy's claim on the config folder, held for as long as it runs; `Ok(None)` when another copy
+/// holds it. The system lets go of it however a copy ends, so a crash leaves nothing behind.
+#[cfg(windows)]
+fn claim_window(dir: &Path) -> std::io::Result<Option<File>> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const ERROR_SHARING_VIOLATION: i32 = 32;
+    match File::options().create(true).truncate(false).write(true).share_mode(0).open(dir.join("window.lock")) {
+        Ok(file) => Ok(Some(file)),
+        Err(e) if e.raw_os_error() == Some(ERROR_SHARING_VIOLATION) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(not(windows))]
+fn claim_window(dir: &Path) -> std::io::Result<Option<File>> {
+    use std::os::fd::AsRawFd;
+    let file = File::options().create(true).truncate(false).write(true).open(dir.join("window.lock"))?;
+    // SAFETY: the descriptor is open for the whole call.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+        return Ok(Some(file));
+    }
+    let e = std::io::Error::last_os_error();
+    if e.raw_os_error() == Some(libc::EWOULDBLOCK) {
+        Ok(None)
+    } else {
+        Err(e)
+    }
+}
+
 /// Sets up a start of Nightjar: decides the run and gives the settings page and game menu their state.
-pub fn at_launch(store: &Store, launcher: &mut Launcher, hosts: &Hosts, launcher_start: bool, at_sign_in: bool) -> OpenPlay {
+pub fn at_launch(store: &Store, launcher: &mut Launcher, hosts: &Hosts, launcher_start: bool, started: Started) -> OpenPlay {
+    let window = claim_window(store.dir());
+    let window_elsewhere = match &window {
+        Ok(claim) => claim.is_none(),
+        Err(e) => {
+            // No way to know it is alone, and starting a game unasked is the worse mistake.
+            eprintln!("nightjar: checking for another window failed: {e}");
+            true
+        }
+    };
+    let launcher_start = may_start_a_game(launcher_start, started.after_setup, self_update::mutex_exists(self_update::STREAM_MUTEX), window_elsewhere);
+    let at_sign_in = started.at_sign_in;
     let host_of = |unique: &str| {
         (!unique.is_empty()).then(|| hosts.list.iter().find(|h| h.record.unique_id == unique)).flatten().map(|h| (h.id, h.display_name().to_owned()))
     };
     let (run, notice) = at_start(store, &launcher.settings, &launcher.recents, launcher_start, host_of);
     let run = run.map(|run| Run { at_sign_in, ..run });
     let sign_in = autostart::system(store.dir());
-    let open_play = OpenPlay::new(run, notice, sign_in);
+    let mut open_play = OpenPlay::new(run, notice, sign_in);
+    open_play._window = window.ok().flatten();
     launcher.open_game = store.open_play().game;
     launcher.sign_in = open_play.sign_in_now();
     open_play
@@ -343,6 +400,8 @@ pub struct OpenPlay {
     pub sign_in: Option<Arc<dyn autostart::Writer>>,
     /// The sign-in setting being written: the value asked for and the writer's answer.
     pub sign_in_answer: Option<(bool, Receiver<Result<(), String>>)>,
+    /// Kept for its lock (`claim_window`).
+    _window: Option<File>,
 }
 
 impl OpenPlay {
@@ -837,6 +896,37 @@ mod tests {
         assert!(at_start(&store, &Settings::default(), &recents, true, known).0.is_none());
         assert!(at_start(&store, &last, &[], true, known).0.is_none(), "nothing played yet");
         assert!(at_start(&store, &last, &recents, true, |_| None).0.is_none(), "its PC is gone");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_a_copy_the_player_opened_alone_starts_a_game() {
+        assert!(may_start_a_game(true, false, false, false));
+        assert!(!may_start_a_game(false, false, false, false), "a command line");
+        assert!(!may_start_a_game(true, true, false, false), "an update's restart");
+        assert!(!may_start_a_game(true, false, true, false), "a stream in another copy");
+        assert!(!may_start_a_game(true, false, false, true), "another window");
+    }
+
+    #[test]
+    fn a_second_copy_leaves_the_guard_of_the_first_alone() {
+        let (store, dir) = store("second");
+        let settings = Settings { open_on_start: OpenOnStart::Last, ..Settings::default() };
+        store.save_open_play(&crate::config::OpenPlayState { game: None, armed: true }).unwrap();
+        let (run, notice) = at_start(&store, &settings, &[recent()], may_start_a_game(true, false, false, true), known);
+        assert!(run.is_none() && notice.is_none());
+        assert!(store.open_play().armed, "the first copy's start is still under way");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_one_copy_holds_the_window_until_it_ends() {
+        let (store, dir) = store("window");
+        let first = claim_window(store.dir()).unwrap();
+        assert!(first.is_some());
+        assert!(claim_window(store.dir()).unwrap().is_none(), "the second copy sees the first");
+        drop(first);
+        assert!(claim_window(store.dir()).unwrap().is_some(), "it ended");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

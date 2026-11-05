@@ -91,10 +91,12 @@ pub enum Feature {
     /// microphone and nothing else. Known only after [`HostCapabilities::with_native`], and
     /// only for a device with the launch permission.
     MicOnly,
+    /// Moving the running game's stream to this device (`POST /session/continue-here`).
+    ContinueHere,
 }
 
 impl Feature {
-    pub const ALL: [Feature; 44] = [
+    pub const ALL: [Feature; 45] = [
         Feature::Permissions,
         Feature::OtpPairing,
         Feature::Clipboard,
@@ -139,6 +141,7 @@ impl Feature {
         Feature::SharedFolders,
         Feature::Coop,
         Feature::MicOnly,
+        Feature::ContinueHere,
     ];
 }
 
@@ -269,6 +272,7 @@ pub struct Evidence {
     pub coop_offered: bool,
     /// `session.mic_only` in the native features, with the launch permission.
     pub mic_only_offered: bool,
+    pub continue_here_offered: bool,
 }
 
 /// A host's capabilities. [`HostCapabilities::UNKNOWN`] is a host never reached.
@@ -833,6 +837,7 @@ impl Evidence {
             // returns to its own slot; each session says why it cannot take a free one.
             Feature::Coop => self.native_feature(self.coop_offered, None),
             Feature::MicOnly => self.native_feature(self.mic_only_offered, None),
+            Feature::ContinueHere => self.native_feature(self.continue_here_offered, None),
         }
     }
 
@@ -909,6 +914,9 @@ impl HostCapabilities {
         evidence.coop_offered = listed("coop");
         // Starting one takes the launch permission, so it is offered only with that.
         evidence.mic_only_offered = listed("session.mic_only") && native.capabilities.permissions.launch;
+        // The host refuses a press without View and Launch.
+        let permissions = &native.capabilities.permissions;
+        evidence.continue_here_offered = listed("session.continue_here") && permissions.view && permissions.launch;
         Self::from_evidence(evidence)
     }
 
@@ -1085,6 +1093,7 @@ mod tests {
             Feature::SharedFolders,
             Feature::Coop,
             Feature::MicOnly,
+            Feature::ContinueHere,
         ] {
             assert_eq!(caps.availability(feature), Availability::Unknown, "{feature:?}");
         }

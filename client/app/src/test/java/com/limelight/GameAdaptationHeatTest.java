@@ -9,14 +9,21 @@ import static org.junit.Assert.assertTrue;
 public class GameAdaptationHeatTest {
     @Test
     public void thermalProtectionOffChangesNothing() {
-        assertFalse(GameAdaptation.heatChangesStream(false, true, true));
-        assertFalse(GameAdaptation.heatChangesStream(false, false, false));
+        assertFalse(GameAdaptation.heatEasesLoad(false, true, true));
+        assertFalse(GameAdaptation.heatEasesLoad(false, false, false));
+        assertFalse(GameAdaptation.heatHoldsBitrate(false, true));
     }
 
     @Test
     public void thermalProtectionNeedsAController() {
-        assertFalse(GameAdaptation.heatChangesStream(true, false, false));
-        assertTrue(GameAdaptation.heatChangesStream(true, true, false));
-        assertTrue(GameAdaptation.heatChangesStream(true, false, true));
+        assertFalse(GameAdaptation.heatEasesLoad(true, false, false));
+        assertTrue(GameAdaptation.heatEasesLoad(true, true, false));
+        assertTrue(GameAdaptation.heatEasesLoad(true, false, true));
+    }
+
+    @Test
+    public void onlyABitrateControllerHasABitrateToHold() {
+        assertTrue(GameAdaptation.heatHoldsBitrate(true, true));
+        assertFalse(GameAdaptation.heatHoldsBitrate(true, false));
     }
 }

@@ -44,8 +44,8 @@ final class GameAdaptation {
     final Runnable sampleStreamHealth = new Runnable() {
         @Override public void run() {
             if (!game.connected || game.decoderRenderer == null || game.app.getRole() == NvApp.Role.INPUT_ONLY) return;
-            game.decoderRenderer.setHeatChangesStream(heatChangesStream(
-                    game.prefConfig.thermalProtection, isAdaptiveBitrateEnabled(), game.adaptiveQuality != null));
+            game.decoderRenderer.setHeatEffects(heatHoldsBitrate(game.prefConfig.thermalProtection, isAdaptiveBitrateEnabled()),
+                    heatEasesLoad(game.prefConfig.thermalProtection, isAdaptiveBitrateEnabled(), game.adaptiveQuality != null));
             game.decoderRenderer.setStreamBitrateKbps(game.currentBitrate == 0 ? game.prefConfig.bitrate : game.currentBitrate);
             if (game.foreground && !game.hostActionInProgress) {
                 // A hanging decoder holds the locks this sample reads for seconds: never on the main thread.
@@ -120,8 +120,13 @@ final class GameAdaptation {
                 game.decoderRenderer.getThermalLevel());
     }
 
+    /** Warm stops a bitrate controller from raising it. Automatic quality has no bitrate to hold. */
+    static boolean heatHoldsBitrate(boolean thermalProtection, boolean adaptiveBitrate) {
+        return thermalProtection && adaptiveBitrate;
+    }
+
     /** Heat acts only through Thermal protection and a controller that follows it: automatic bitrate or quality. */
-    static boolean heatChangesStream(boolean thermalProtection, boolean adaptiveBitrate, boolean adaptiveQuality) {
+    static boolean heatEasesLoad(boolean thermalProtection, boolean adaptiveBitrate, boolean adaptiveQuality) {
         return thermalProtection && (adaptiveBitrate || adaptiveQuality);
     }
 

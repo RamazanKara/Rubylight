@@ -224,111 +224,6 @@ fn an_unreal_games_handler_starts_it_in_a_window() {
     );
 }
 
-/// #59: a game kept without hooks before Nucleus' DLL was a way gets to try
-/// it: its handler has the DLL once its window's title is kept, for that
-/// window, until it is given up. The file keeps every record through that.
-#[test]
-fn a_game_past_the_hooks_gets_nucleus_dll_once_its_title_is_kept() {
-    let nucleus = tempfile::tempdir().unwrap();
-    let setup = Setup::new(r"D:\Games\Black Flag\ACBlackFlag.exe", "Black Flag", None);
-    let exe = setup.exe_path.as_str();
-    let file = nucleus.path().join("handlers").join(setup.file());
-    std::fs::write(
-        nucleus.path().join("Rubylight-injection.json"),
-        r#"{"Games": {"d:\\games\\black flag\\acblackflag.exe": "none", "d:\\other.exe": "stealth"}}"#,
-    )
-    .unwrap();
-    let handler = || {
-        write_own(nucleus.path(), &setup).unwrap();
-        std::fs::read_to_string(&file).unwrap()
-    };
-    assert_eq!(inject_for(nucleus.path(), exe).unwrap(), Inject::None);
-    assert!(beside_kept(nucleus.path(), exe).unwrap());
-    assert!(!handler().contains("Game.Hook.CustomDllEnabled = true;"));
-
-    keep_title(nucleus.path(), exe, "Assassin's Creed (TM)").unwrap();
-    assert_eq!(inject_for(nucleus.path(), exe).unwrap(), Inject::Beside);
-    let text = handler();
-    assert!(
-        text.contains("Game.Hook.CustomDllEnabled = true;"),
-        "{text}"
-    );
-    assert!(text.contains(r"Assassin's Creed \\(TM\\)"), "{text}");
-
-    assert_eq!(note_exit(nucleus.path(), exe).unwrap(), 1);
-    assert_eq!(note_exit(nucleus.path(), &exe.to_uppercase()).unwrap(), 2);
-    clear_exits(nucleus.path(), exe).unwrap();
-    assert_eq!(note_exit(nucleus.path(), exe).unwrap(), 1);
-
-    assert_eq!(refuse_inject(nucleus.path(), exe).unwrap(), Inject::None);
-    assert_eq!(inject_for(nucleus.path(), exe).unwrap(), Inject::None);
-    assert!(!beside_kept(nucleus.path(), exe).unwrap());
-    assert!(beside_tried(nucleus.path(), exe).unwrap());
-    assert!(!handler().contains("Game.Hook.CustomDllEnabled = true;"));
-    assert_eq!(
-        inject_for(nucleus.path(), r"D:\other.exe").unwrap(),
-        Inject::Stealth,
-        "the other game's way stays"
-    );
-    assert!(!beside_tried(nucleus.path(), r"D:\other.exe").unwrap());
-    // The title is kept through it.
-    assert_eq!(
-        title_for(nucleus.path(), exe).unwrap().as_deref(),
-        Some("Assassin's Creed (TM)")
-    );
-}
-
-/// #59: Nucleus' DLL and its settings leave the game's folder, what Nucleus
-/// moved aside for it comes back, and any other DLL of those names stays:
-/// the game would load them when played on the PC too.
-#[test]
-fn nucleus_dll_is_taken_out_of_the_games_folder() {
-    let game = tempfile::tempdir().unwrap();
-    let at = |name: &str| game.path().join(name);
-    let nucleus_dll = format!("MZ..{}Regex..", generic::BESIDE_MARK);
-    // Nothing to take: it stays as it is.
-    std::fs::write(at("xinput1_3.dll"), "the game's own").unwrap();
-    std::fs::write(at("ncoop.ini"), "the game's own").unwrap();
-    assert!(clear_beside(game.path()).unwrap().is_empty());
-    assert_eq!(
-        std::fs::read_to_string(at("xinput1_3.dll")).unwrap(),
-        "the game's own"
-    );
-    assert!(at("ncoop.ini").exists());
-    // As Nucleus leaves it when it did not get to its end.
-    std::fs::rename(at("xinput1_3.dll"), at("xinput1_3_NUCLEUS_BACKUP.dll")).unwrap();
-    std::fs::write(at("xinput1_3.dll"), &nucleus_dll).unwrap();
-    std::fs::write(at("xinput1_4.dll"), &nucleus_dll).unwrap();
-    std::fs::write(at("xinput9_1_0.dll"), "another program's").unwrap();
-    std::fs::write(at("ncoop_NUCLEUS_BACKUP.ini"), "settings").unwrap();
-    assert_eq!(
-        clear_beside(game.path()).unwrap(),
-        [
-            "xinput1_3.dll",
-            "xinput1_4.dll",
-            "ncoop.ini",
-            "ncoop_NUCLEUS_BACKUP.ini"
-        ]
-    );
-    assert_eq!(
-        std::fs::read_to_string(at("xinput1_3.dll")).unwrap(),
-        "the game's own"
-    );
-    assert_eq!(
-        std::fs::read_to_string(at("xinput9_1_0.dll")).unwrap(),
-        "another program's"
-    );
-    for gone in [
-        "xinput1_3_NUCLEUS_BACKUP.dll",
-        "xinput1_4.dll",
-        "ncoop.ini",
-        "ncoop_NUCLEUS_BACKUP.ini",
-    ] {
-        assert!(!at(gone).exists(), "{gone}");
-    }
-    assert!(clear_beside(game.path()).unwrap().is_empty());
-}
-
 /// #59: a game that refused the way ProtoInput's hooks were injected
 /// gets a handler with the next way at its next start, down to none,
 /// also after the host restarts (the file in the host's Nucleus folder
@@ -356,7 +251,7 @@ fn a_game_that_refused_the_hooks_gets_the_next_way_down_to_none() {
         inject_for(nucleus.path(), &setup.exe_path).unwrap(),
         Inject::Runtime
     );
-    for next in [Inject::Startup, Inject::Stealth, Inject::Beside] {
+    for next in [Inject::Startup, Inject::Stealth, Inject::None] {
         // By its path, in any case.
         let exe = match next {
             Inject::Stealth => setup.exe_path.to_uppercase(),
@@ -365,21 +260,14 @@ fn a_game_that_refused_the_hooks_gets_the_next_way_down_to_none() {
         assert_eq!(refuse_inject(nucleus.path(), &exe).unwrap(), next);
         let text = std::fs::read_to_string(&kept).unwrap();
         assert_eq!(text.matches("acblackflag.exe").count(), 1, "{text}");
-        // Nucleus' DLL waits for the title of the game's window.
-        let way = match next {
-            Inject::Beside => Inject::None,
-            way => way,
-        };
-        assert_eq!(inject_for(nucleus.path(), &setup.exe_path).unwrap(), way);
-        written(way);
+        assert_eq!(inject_for(nucleus.path(), &setup.exe_path).unwrap(), next);
+        written(next);
     }
     // None is the last.
-    for _ in 0..2 {
-        assert_eq!(
-            refuse_inject(nucleus.path(), &setup.exe_path).unwrap(),
-            Inject::None
-        );
-    }
+    assert_eq!(
+        refuse_inject(nucleus.path(), &setup.exe_path).unwrap(),
+        Inject::None
+    );
     write_own(nucleus.path(), &other).unwrap();
     let other_text =
         std::fs::read_to_string(nucleus.path().join("handlers").join(other.file())).unwrap();

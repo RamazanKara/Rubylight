@@ -659,65 +659,6 @@ impl Desktop for Win32 {
     fn forced_aslr(&mut self, pid: u32) -> Result<bool> {
         forced_aslr(pid)
     }
-    fn title(&mut self, window: u64) -> Option<String> {
-        let mut text = [0u16; 256];
-        // SAFETY: a live buffer; a closed window gives no text. Another
-        // program's window answers from Windows' copy, without a message.
-        let length = unsafe { GetWindowTextW(hwnd(window), &mut text) };
-        (length > 0).then(|| String::from_utf16_lossy(&text[..length as usize]))
-    }
-    fn modules(&mut self, pid: u32) -> Result<Vec<String>> {
-        modules(pid)
-    }
-    fn clear_beside(&mut self, game: &std::path::Path) -> Result<Vec<String>> {
-        use anyhow::Context;
-        let token = crate::user_folder::user_token().context("finding the signed-in user")?;
-        let _user = crate::user_folder::Impersonation::begin(token.as_ref())
-            .context("acting as the signed-in user")?;
-        super::files::clear_beside(game)
-    }
-}
-
-/// The paths of the modules process `pid` has loaded, a 32-bit process's too.
-fn modules(pid: u32) -> Result<Vec<String>> {
-    use anyhow::Context;
-    use std::os::windows::io::{AsRawHandle, FromRawHandle};
-    use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, MODULEENTRY32W, Module32FirstW, Module32NextW, TH32CS_SNAPMODULE,
-        TH32CS_SNAPMODULE32,
-    };
-    let listing = || format!("listing process {pid}'s modules");
-    // Windows asks to try again while the process loads a module.
-    let mut tries = 0;
-    let snapshot = loop {
-        // SAFETY: takes plain values and returns a new handle.
-        match unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid) } {
-            Ok(snapshot) => break snapshot,
-            Err(error) if error.code() == ERROR_BAD_LENGTH.to_hresult() && tries < 8 => tries += 1,
-            Err(error) => return Err(error).with_context(listing),
-        }
-    };
-    let mut entry = MODULEENTRY32W {
-        dwSize: std::mem::size_of::<MODULEENTRY32W>() as u32,
-        ..Default::default()
-    };
-    let mut modules = Vec::new();
-    // SAFETY: the newly opened handle has one owner; `entry` is a live struct
-    // of the size it says, and Windows ends its path with a NUL.
-    unsafe {
-        let snapshot = OwnedHandle::from_raw_handle(snapshot.0);
-        let snapshot = HANDLE(snapshot.as_raw_handle());
-        Module32FirstW(snapshot, &mut entry).with_context(listing)?;
-        loop {
-            let path = &entry.szExePath;
-            let length = path.iter().position(|&c| c == 0).unwrap_or(path.len());
-            modules.push(String::from_utf16_lossy(&path[..length]));
-            if Module32NextW(snapshot, &mut entry).is_err() {
-                break;
-            }
-        }
-    }
-    Ok(modules)
 }
 
 /// Whether Windows forces process `pid` to load its images at random

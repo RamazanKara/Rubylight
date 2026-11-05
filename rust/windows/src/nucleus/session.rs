@@ -58,15 +58,6 @@ const FAILED_PASSES: u32 = 8;
 /// its hooks: one Nucleus fails to inject into as it starts it is ended
 /// before the box shows (#59).
 const REFUSAL_GRACE: Duration = Duration::from_secs(2);
-
-/// Exits in a row before its window that give up Nucleus' input DLL beside a
-/// game ([`generic::Inject::Beside`]): Black Flag also exited so without any
-/// hooks, on 2 of 3 starts (#59).
-const BESIDE_EXITS: u64 = 4;
-
-/// Titles of a game's window kept per session: one that keeps changing (a
-/// frame counter) has none to find the window by.
-const TITLES_KEPT: u8 = 4;
 /// What a game says in its own message box when Windows forces it to load
 /// its images at random addresses (Exploit protection's "Force
 /// randomization for images"), and waits there, its window up and black.
@@ -290,17 +281,6 @@ struct Runner {
     /// the PC.
     to_front: bool,
     fronted: BTreeSet<u64>,
-    /// The game's folder, while its handler has Nucleus Co-op put its input
-    /// DLL there ([`Inject::Beside`]): taken out as the session ends, should
-    /// Nucleus not do it.
-    beside: Option<PathBuf>,
-    /// Whether the game was looked through for that DLL
-    /// ([`Self::check_beside`]).
-    beside_checked: bool,
-    /// For a game at that way, DLL or not yet: how many more titles of its
-    /// window are kept, and the last ([`Self::learn_title`]).
-    titles_left: u8,
-    last_title: Option<String>,
 }
 
 impl Runner {
@@ -354,13 +334,13 @@ impl Runner {
             if self.own_game.is_some() && injecting && !running {
                 self.exited_at.get_or_insert((slot, now));
             } else {
-                return Some(self.exited(slot, now));
+                return Some(self.exited(slot));
             }
         }
         if let Some((slot, at)) = self.exited_at
             && now >= at + REFUSAL_GRACE
         {
-            return Some(self.exited(slot, now));
+            return Some(self.exited(slot));
         }
         *self.shared.roots.lock().unwrap() = pass.roots.clone();
         if let Some(instances) = &self.instances {
@@ -373,8 +353,6 @@ impl Runner {
             self.deadline = now + START_TIMEOUT;
         }
         self.windows = pass.windows.clone();
-        self.learn_title(&pass.windows);
-        self.check_beside(now, &pass.trees);
         if self.to_front
             && let Some(&Some(window)) = pass.windows.first()
             && !self.fronted.contains(&window)
@@ -417,11 +395,10 @@ impl Runner {
             if let Some(code) = code {
                 self.exited = true;
                 if !running && roots == 0 {
-                    let why = format!(
+                    return Some(End::Failed(format!(
                         "Nucleus Co-op exited with code {code} before starting {}",
                         self.title
-                    );
-                    return Some(End::Failed(self.failed_beside(why, now)));
+                    )));
                 }
                 tracing::warn!(
                     code,
@@ -483,8 +460,7 @@ impl Runner {
         }
         self.failed = 0;
         if !running && now >= self.deadline {
-            let why = self.timeout();
-            return Some(End::Failed(self.failed_beside(why, now)));
+            return Some(End::Failed(self.timeout()));
         }
         None
     }
@@ -604,7 +580,7 @@ impl Runner {
             self.title
         );
         match files::refuse_inject(folder, exe) {
-            Ok(Inject::Beside | Inject::None) => {
+            Ok(Inject::None) => {
                 format!("{refused}: start the stream again, and Rubylight starts it without them")
             }
             Ok(_) => format!(
@@ -617,138 +593,9 @@ impl Runner {
     }
 
     /// Player `slot`'s instance exited.
-    fn exited(&mut self, slot: usize, now: Instant) -> End {
+    fn exited(&mut self, slot: usize) -> End {
         let why = format!("Player {}'s instance of {} exited", slot + 1, self.title);
-        let why = self.failed_beside(why, now);
         self.failure(why)
-    }
-
-    /// The game ended or never started, maybe for Nucleus Co-op's input DLL
-    /// beside it. A game that doesn't take such hooks ends soon after its
-    /// window shows, as Black Flag did half a minute after ProtoInput's
-    /// (#59), so the DLL is given up at once. Before a window, the same game
-    /// also exits without any hooks, and Nucleus can't start it from a folder
-    /// it can't write the DLL to, so [`BESIDE_EXITS`] of those in a row give
-    /// it up. Past the time it took those, the game was simply left.
-    fn failed_beside(&self, why: String, now: Instant) -> String {
-        let (Some(_), Some((folder, exe))) = (&self.beside, &self.own_game) else {
-            return why;
-        };
-        let give_up = match self.inject_by {
-            Some(by) => now < by,
-            None => match files::note_exit(folder, exe) {
-                Ok(exits) => exits >= BESIDE_EXITS,
-                Err(error) => {
-                    tracing::warn!(
-                        exe,
-                        "Nucleus Co-op: the game's exit with the input DLL could not be counted: {error:#}"
-                    );
-                    false
-                }
-            },
-        };
-        if !give_up {
-            return why;
-        }
-        match files::refuse_inject(folder, exe) {
-            Ok(_) => format!(
-                "{why}, with Nucleus Co-op's input DLL beside it: start the stream again, and Rubylight starts it without the DLL"
-            ),
-            Err(error) => format!(
-                "{why}, with Nucleus Co-op's input DLL beside it; Rubylight could not keep that for its next start: {error:#}"
-            ),
-        }
-    }
-
-    /// Keep the title of the game's window for the handler of its next
-    /// start, which Nucleus' DLL finds the window by. A title may change as
-    /// the game loads, so the last stands.
-    fn learn_title(&mut self, windows: &[Option<u64>]) {
-        if self.titles_left == 0 {
-            return;
-        }
-        let (Some((folder, exe)), Some(&Some(window))) = (&self.own_game, windows.first()) else {
-            return;
-        };
-        let title = self.desktop.title(window);
-        let Some(title) = title.filter(|title| !title.trim().is_empty()) else {
-            return;
-        };
-        if self.last_title.as_ref() == Some(&title) {
-            return;
-        }
-        self.titles_left -= 1;
-        match files::keep_title(folder, exe, &title) {
-            Ok(()) => tracing::info!(
-                title,
-                "Nucleus Co-op: the game's window title kept for its input DLL"
-            ),
-            Err(error) => tracing::warn!(
-                title,
-                "Nucleus Co-op: the game's window title could not be kept for its input DLL: {error:#}"
-            ),
-        }
-        self.last_title = Some(title);
-    }
-
-    /// When Nucleus may no longer inject ([`Self::inject_by`]), the game has
-    /// loaded what it reads a pad with. Without Nucleus' DLL by then it reads
-    /// one another way, which the DLL doesn't serve: its window comes to the
-    /// front as without hooks, and the DLL is given up. Whether it could not
-    /// be read says nothing, so the way is kept.
-    fn check_beside(&mut self, now: Instant, trees: &[BTreeSet<Identity>]) {
-        if self.beside.is_none() || self.beside_checked || self.inject_by.is_none_or(|by| now < by)
-        {
-            return;
-        }
-        self.beside_checked = true;
-        let Some((folder, exe)) = self.own_game.clone() else {
-            return;
-        };
-        let mut modules = Vec::new();
-        let mut unread = None;
-        for process in trees.iter().flatten() {
-            match self.desktop.modules(process.pid) {
-                Ok(found) => modules.extend(found),
-                Err(error) => unread = Some(error),
-            }
-        }
-        // What says how the game reads a pad, for the log.
-        let pads: Vec<&String> = modules
-            .iter()
-            .filter(|module| {
-                let module = module.to_lowercase();
-                ["xinput", "gameinput", "dinput"]
-                    .iter()
-                    .any(|pad| module.contains(pad))
-            })
-            .collect();
-        if generic::beside_loaded(&modules) {
-            tracing::info!(?pads, "Nucleus Co-op: the game loaded its input DLL");
-            if let Err(error) = files::clear_exits(&folder, &exe) {
-                tracing::warn!(
-                    exe,
-                    "Nucleus Co-op: the game's exits with the input DLL could not be cleared: {error:#}"
-                );
-            }
-        } else if let Some(error) = unread {
-            tracing::warn!(
-                ?pads,
-                "Nucleus Co-op: whether the game loaded its input DLL could not be read: {error:#}"
-            );
-        } else if !modules.is_empty() {
-            tracing::warn!(
-                ?pads,
-                "Nucleus Co-op: the game did not load its input DLL, so it reads its controller another way: it takes the controller only while its window is in front on the PC, where Rubylight now puts it unless someone uses the PC, and its next start runs without the DLL"
-            );
-            if let Err(error) = files::refuse_inject(&folder, &exe) {
-                tracing::warn!(
-                    exe,
-                    "Nucleus Co-op: the game's input DLL could not be given up: {error:#}"
-                );
-            }
-            self.to_front = true;
-        }
     }
 
     /// A pass that could not look at the desktop: the session ends after
@@ -994,15 +841,6 @@ impl Runner {
         if let Some(told) = &self.instances {
             told.stopped();
         }
-        // The game no longer holds it, and Nucleus had its chance.
-        if let Some(game) = &self.beside {
-            clear_beside(self.desktop.as_mut(), game);
-        }
-        tracing::info!(
-            title = self.title,
-            moved = self.keeper.moved(),
-            "Nucleus Co-op: the times the session moved the game's window"
-        );
         // Nucleus sets them as it starts each instance: back once all stopped.
         if let Some(layers) = &mut self.layers {
             layers.restore();
@@ -1112,50 +950,21 @@ pub const UNHOOKED: &str = "nucleus_unhooked";
 /// What the player should know when Rubylight's own handler starts the game
 /// without ProtoInput's hooks, because it refused every way (#59).
 fn unhooked(start: &Start) -> Result<Option<String>> {
-    if !start.handler.own {
+    if !start.handler.own || files::inject_for(start.folder, start.exe_path)? != Inject::None {
         return Ok(None);
     }
-    let title = start.title;
-    let refused = format!("{title} refused every way Nucleus Co-op injects its input hooks");
-    let without = format!(
-        "{refused}, so it runs without them: a keyboard, mouse or pad on the PC reaches it too, and it takes the controller only while its window is in front on the PC, where Rubylight puts it as it opens unless someone uses the PC. If the game pauses when it is not in front, the picture stops too"
-    );
-    Ok(match files::inject_for(start.folder, start.exe_path)? {
-        Inject::Beside => Some(format!(
-            "{refused}, so it runs with Nucleus Co-op's input DLL in its folder instead, so that it keeps taking the controller when it is not in front on the PC. A keyboard, mouse or pad on the PC can reach it too"
-        )),
-        Inject::None if files::beside_kept(start.folder, start.exe_path)? => Some(format!(
-            "{without}. This start notes the game's window: the next one tries Nucleus Co-op's input DLL, so that it keeps taking the controller when it is not in front"
-        )),
-        Inject::None => Some(without),
-        _ => None,
-    })
+    Ok(Some(format!(
+        "{} refused every way Nucleus Co-op injects its input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too, and it takes the controller only while its window is in front on the PC, where Rubylight puts it as it opens unless someone uses the PC. If the game pauses when it is not in front, the picture stops too",
+        start.title
+    )))
 }
 
 /// Whether the game's window is brought to the front as it shows: a
-/// one-player game without ProtoInput's hooks or Nucleus' DLL ([`unhooked`]),
-/// which takes its pad only there. A co-op session's windows share the
-/// screen, and a game with either takes its pad anywhere.
+/// one-player game without ProtoInput's hooks ([`unhooked`]), which takes
+/// its pad only there. A co-op session's windows share the screen, and a
+/// hooked game takes its pad anywhere.
 fn brought_to_front(start: &Start) -> Result<bool> {
-    Ok(start.players == 1
-        && start.handler.own
-        && files::inject_for(start.folder, start.exe_path)? == Inject::None)
-}
-
-/// Take Nucleus' DLL out of the game's folder `game` ([`Desktop::clear_beside`]).
-fn clear_beside(desktop: &mut dyn Desktop, game: &Path) {
-    match desktop.clear_beside(game) {
-        Ok(cleared) if cleared.is_empty() => {}
-        Ok(cleared) => tracing::info!(
-            game = %game.display(),
-            ?cleared,
-            "Nucleus Co-op left its input DLL in the game's folder, so Rubylight took it out"
-        ),
-        Err(error) => tracing::warn!(
-            game = %game.display(),
-            "Nucleus Co-op's input DLL could not be taken out of the game's folder, and the game loads it when played on the PC too, until a next stream takes it out or xinput1_3.dll, xinput1_4.dll, xinput9_1_0.dll and ncoop.ini are deleted there: {error:#}"
-        ),
-    }
+    Ok(start.players == 1 && unhooked(start)?.is_some())
 }
 
 /// Start a session on the PC: virtual Xbox pads, XInput, the user's desktop
@@ -1321,17 +1130,6 @@ fn begin(
         .into_iter()
         .map(|shown| shown.window)
         .collect();
-    // A session the host didn't live to end may have left Nucleus' DLL, which
-    // Nucleus would now move aside as the game's own.
-    if start.handler.own
-        && files::beside_tried(start.folder, start.exe_path)?
-        && let Some(game) = game_folder(start.exe_path)
-    {
-        clear_beside(desktop.as_mut(), &game);
-    }
-    let beside =
-        start.handler.own && files::inject_for(start.folder, start.exe_path)? == Inject::Beside;
-    let learning = start.handler.own && files::beside_kept(start.folder, start.exe_path)?;
     let nucleus = launcher.launch(
         folder,
         &start.handler.guid,
@@ -1390,10 +1188,6 @@ fn begin(
         instances: start.instances.clone(),
         to_front: brought_to_front(start)?,
         fronted: BTreeSet::new(),
-        beside: game_folder(start.exe_path).filter(|_| beside),
-        beside_checked: false,
-        titles_left: if learning { TITLES_KEPT } else { 0 },
-        last_title: None,
     };
     let (stop, stopped) = mpsc::channel();
     // Should the thread not start, dropping the runner ends Nucleus' job.

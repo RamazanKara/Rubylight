@@ -7,14 +7,14 @@ package com.limelight.binding.video;
  * {@link #INTERVAL_MS}. Any keyframe restarts the wait; a request starts it again too, so a request
  * that goes unanswered is not repeated on every frame.
  *
- * Not thread safe: only the thread that submits decode units touches it.
+ * Only the thread that submits decode units changes it; {@link #requests} may be read from another.
  */
 final class KeyframeSafetyNet {
     static final long INTERVAL_MS = 10_000;
 
     private boolean waiting;
     private long lastMs;
-    private int requests;
+    private volatile int requests;
 
     /** A keyframe reached the decoder. Before the first one there is nothing to refresh. */
     void onKeyframe(long nowMs) {

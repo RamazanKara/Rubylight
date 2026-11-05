@@ -3618,6 +3618,82 @@ fn home_groups_by_collection_only_when_the_pc_names_any() {
     assert_eq!(f.l.settings.home_group, HomeGroup::None, "no Collection to step through");
 }
 
+/// A game in several rows is a card of its own in each: focus comes back to the one it left, and
+/// moving between them counts as moving, so the new one scrolls into view.
+#[test]
+fn a_game_in_two_rows_has_a_focus_key_in_each() {
+    let mut f = store_mix();
+    f.size = vec2(1280.0, 2400.0);
+    in_collections(&mut f, &[("install-0", &["VR", "Couch"])]);
+    f.l.settings.home_group = HomeGroup::Collection;
+    f.settle();
+    let game = "game:steam:0";
+    let of_game: Vec<String> = f.l.cards.iter().filter(|(_, g)| g == game).map(|(key, _)| key.clone()).collect();
+    assert_eq!(of_game, [format!("row:collection:couch:game:{game}"), format!("row:collection:vr:game:{game}")]);
+    f.l.restore_key = Some(of_game[1].clone());
+    f.settle();
+    assert_eq!(f.l.focused_key.as_ref(), Some(&of_game[1]), "the second card, not the first");
+    assert!(f.l.restore_key.is_none());
+    f.press(Key::ArrowUp);
+    assert_eq!(f.l.focused_key.as_ref(), Some(&of_game[0]), "up to the same game in the row above");
+}
+
+/// Hide moves the focus to the next card of another game, as Unstar does, past the game's other
+/// cards; the last one's goes to the one before it.
+#[test]
+fn hiding_a_game_from_its_menu_focuses_the_next_card() {
+    let mut f = home_with_stores(&[("Alpha", "steam", true), ("Beta", "steam", true)]);
+    f.l.restore_key = Some("row:store:steam:game:game:steam:0".to_owned());
+    f.settle();
+    f.press(Key::F2);
+    assert!(shows(&f, "Hide game"), "{:?}", f.drawn);
+    // Down past Game details and the star to Hide game, as a controller does.
+    f.press(Key::ArrowDown);
+    f.press(Key::ArrowDown);
+    let commands = f.frame(crate::gui::tap(Key::Enter).to_vec());
+    let Some(Command::SetHidden { games, hidden: true }) = commands.into_iter().find(|c| matches!(c, Command::SetHidden { .. })) else {
+        panic!("no SetHidden");
+    };
+    assert!(crate::config::set_hidden(&mut f.l.hidden_games, games, true));
+    f.settle();
+    assert!(f.no_dialog());
+    assert_eq!(f.l.focused_key.as_deref(), Some("row:store:steam:game:game:steam:1"), "Beta has the focus");
+    assert!(f.ctx.memory(|m| m.focused()).is_some(), "something holds the focus");
+
+    let cards = |keys: &[(&str, &str)]| -> Vec<(String, String)> { keys.iter().map(|(k, g)| ((*k).to_owned(), (*g).to_owned())).collect() };
+    let shown = cards(&[("couch:a", "a"), ("couch:b", "b"), ("vr:a", "a"), ("vr:c", "c")]);
+    assert_eq!(library::card_neighbour(&shown, "couch:a").as_deref(), Some("couch:b"));
+    assert_eq!(library::card_neighbour(&shown, "couch:b").as_deref(), Some("vr:a"));
+    assert_eq!(library::card_neighbour(&shown, "vr:a").as_deref(), Some("vr:c"));
+    assert_eq!(library::card_neighbour(&shown, "vr:c").as_deref(), Some("vr:a"), "the last: the one before");
+    assert_eq!(library::card_neighbour(&cards(&[("x:a", "a"), ("y:a", "a")]), "y:a"), None, "nothing else");
+    assert_eq!(library::card_neighbour(&shown, "gone"), None);
+}
+
+/// A running game stays under Continue playing when hidden, off the library's rows, and its card's
+/// menu shows it again: hiding must not lose the way back to it.
+#[test]
+fn a_running_hidden_game_stays_under_continue_playing_and_can_be_shown_again() {
+    let mut f = home_with_stores(&[("Alpha", "steam", true), ("Beta", "steam", true)]);
+    f.hosts.list[0].native.library.as_mut().unwrap().games[0].running = true;
+    let id = f.hosts.list[0].id;
+    let keys = {
+        let sources: Vec<crate::console::Source> = f.hosts.list.iter().map(crate::console::Source::of).collect();
+        crate::console::hide_keys(&sources, id, 1000)
+    };
+    assert_eq!(keys.len(), 1);
+    f.l.hidden_games = keys;
+    f.settle();
+    assert!(shows(&f, "Continue playing"), "{:?}", f.drawn);
+    assert_eq!(f.drawn.iter().filter(|t| *t == "Alpha").count(), 1, "only its Continue playing card: {:?}", f.drawn);
+    let card = f.placed.iter().find(|(t, r, _)| t == "Alpha" && r.center().y > 80.0).map(|p| p.1).expect("Alpha's card");
+    f.click_at(card.center(), egui::PointerButton::Secondary);
+    let show = f.placed.iter().find(|(t, ..)| t == "Show game").map(|p| p.1).expect("Show game in the menu");
+    let commands = f.click_at(show.center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::SetHidden { hidden: false, .. })));
+    assert_eq!(f.l.focused_key.as_deref(), Some(format!("continue:{id}:1000").as_str()), "its card stays");
+}
+
 /// Hide on a card's menu takes the game off Home on this device; All games has it under Hidden,
 /// where the same menu brings it back.
 #[test]

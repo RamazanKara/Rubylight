@@ -93,7 +93,7 @@ impl Updates {
         let copy = self_update::current();
         if !enabled || !copy.checks() { return Self::default(); }
         let agent = format!("Nightjar/{} ({})", crate::VERSION, if cfg!(windows) { "Windows" } else { "Linux" });
-        let net: Arc<dyn Transport> = Arc::new(Native { agent });
+        let net: Arc<dyn Transport> = Arc::new(Native::new(agent));
         let steps = Steps::for_copy(copy, net.clone());
         Self::begin(copy.clone(), net, steps, crate::VERSION, online, wake)
     }
@@ -417,7 +417,7 @@ mod tests {
     #[test]
     #[ignore = "asks GitHub over the network"]
     fn asks_github() {
-        let net = Native { agent: "Nightjar/test".into() };
+        let net = Native::new("Nightjar/test".into());
         let json = check(&net, &CopyKind::Installed, "0.0.1", || true).unwrap().unwrap();
         assert!(json.url.starts_with("https://github.com/RamazanKara/nightjar/"), "{json:?}");
         assert!(json.asset.as_ref().is_ok_and(|a| a.size > 0 && a.digest.len() == 64), "{json:?}");
@@ -429,7 +429,7 @@ mod tests {
     #[test]
     #[ignore = "downloads from GitHub over the network"]
     fn downloads_the_real_setup() {
-        let net = Native { agent: "Nightjar/test".into() };
+        let net = Native::new("Nightjar/test".into());
         let asset = check(&net, &CopyKind::Installed, "0.0.1", || true).unwrap().unwrap().asset.unwrap();
         let part = folder("real").join("setup.part");
         let progress = Progress { cancel: AtomicBool::new(false), received: AtomicU64::new(0), wake: Arc::new(|| {}) };
@@ -572,7 +572,7 @@ mod tests {
     }
 
     fn native() -> Arc<dyn Transport> {
-        Arc::new(Native { agent: "Nightjar/test".into() })
+        Arc::new(Native::new("Nightjar/test".into()))
     }
 
     fn notice(asset: Result<Asset, Failure>, steps: Option<Steps>) -> Updates {
@@ -717,6 +717,22 @@ mod tests {
             assert!(Instant::now() < deadline, "{what}");
             std::thread::sleep(Duration::from_millis(2));
         }
+    }
+
+    #[test]
+    fn a_server_that_goes_silent_fails_the_download() {
+        let bytes = body();
+        // Kept until the end: the reply never goes on.
+        let (reply, _release) = held_reply(&bytes);
+        let fixture = Fixture::start(move |_, _| reply.clone());
+        let installer = Installer::new("silent");
+        let net: Arc<dyn Transport> = Arc::new(Native { agent: "Nightjar/test".into(), read_timeout: Duration::from_millis(300) });
+        let mut updates = notice(Ok(asset_at(fixture.url("/setup"), &bytes)), Some(installer.steps(net, local)));
+        updates.update_now();
+        assert!(!finish(&mut updates), "Nightjar stays open");
+        assert!(matches!(updates.failure, Some(Failure::Network(_))), "{:?}", updates.failure);
+        assert_eq!(installer.parts(), 0);
+        assert!(installer.ran().is_empty());
     }
 
     #[test]

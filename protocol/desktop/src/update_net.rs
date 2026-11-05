@@ -3,6 +3,7 @@
 //! Windows (the system's proxy settings and certificate store, nothing bundled), ureq elsewhere.
 
 use std::io::Read;
+use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Url {
@@ -61,6 +62,14 @@ pub trait Transport: Send + Sync {
 
 pub struct Native {
     pub agent: String,
+    /// How long a body may stay silent before the transfer fails.
+    pub read_timeout: Duration,
+}
+
+impl Native {
+    pub fn new(agent: String) -> Self {
+        Self { agent, read_timeout: Duration::from_secs(15) }
+    }
 }
 
 #[cfg(windows)]
@@ -76,7 +85,7 @@ impl Transport for Native {
         // SAFETY: WinHTTP calls on handles owned here; strings and buffers outlive the calls.
         unsafe {
             let session = open(WinHttpOpen(&HSTRING::from(self.agent.as_str()), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, PCWSTR::null(), PCWSTR::null(), 0), "WinHttpOpen")?;
-            WinHttpSetTimeouts(session.0, 10_000, 10_000, 15_000, 15_000).map_err(|e| format!("timeouts: {e}"))?;
+            WinHttpSetTimeouts(session.0, 10_000, 10_000, 15_000, self.read_timeout.as_millis() as i32).map_err(|e| format!("timeouts: {e}"))?;
             let connection = open(WinHttpConnect(session.0, &HSTRING::from(url.host.as_str()), url.port, 0), "connect")?;
             let flags = if url.secure { WINHTTP_FLAG_SECURE } else { WINHTTP_OPEN_REQUEST_FLAGS(0) };
             let request = open(WinHttpOpenRequest(connection.0, &HSTRING::from("GET"), &HSTRING::from(url.path.as_str()), PCWSTR::null(), PCWSTR::null(), std::ptr::null(), flags), "request")?;
@@ -141,8 +150,6 @@ impl Read for Body {
 #[cfg(not(windows))]
 impl Transport for Native {
     fn get(&self, url: &Url, api: bool) -> Result<Response, String> {
-        use std::time::Duration;
-
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .max_redirects(0)
             .max_redirects_will_error(false)
@@ -150,6 +157,7 @@ impl Transport for Native {
             .user_agent(self.agent.as_str())
             .timeout_connect(Some(Duration::from_secs(10)))
             .timeout_recv_response(Some(Duration::from_secs(15)))
+            .timeout_per_read(Some(self.read_timeout))
             .build()
             .into();
         let address = format!("{}://{}:{}{}", if url.secure { "https" } else { "http" }, url.host, url.port, url.path);

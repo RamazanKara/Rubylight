@@ -45,8 +45,10 @@ fn parse(text: &str) -> Option<([u64; 3], Option<&str>)> {
 }
 
 /// Whether `tag` is a stable release newer than `current`. A pre-release build is older than its
-/// own final version, as in SemVer.
+/// own final version, as in SemVer. A tag is digits and dots only: it becomes a file name and an
+/// address, and `v9.9.9+a/b` would read as 9.9.9.
 pub fn newer_stable(tag: &str, current: &str) -> bool {
+    if !tag.strip_prefix('v').unwrap_or(tag).bytes().all(|b| b.is_ascii_digit() || b == b'.') { return false; }
     let (Some((latest, None)), Some((running, pre))) = (parse(tag), parse(current)) else { return false };
     latest > running || (latest == running && pre.is_some())
 }
@@ -353,6 +355,11 @@ mod tests {
         assert!(!newer_stable("v4.1.0", "a local build"));
         assert!(newer_stable("v4.1", "4.0.0"), "a two-part tag reads as .0");
         assert!(!newer_stable("v4.1.0.2", "4.0.0"));
+        for odd in ["v9.9.9+a/b", "9.9.9+build", "v9.9.9/..", " v9.9.9"] {
+            assert!(!newer_stable(odd, "4.0.0"), "{odd}");
+            assert_eq!(offer(&answer(odd, false, false, ""), "4.0.0", &CopyKind::Installed), Ok(None), "{odd}");
+        }
+        assert!(newer_stable("v4.1.0", "4.0.0+local"), "only the tag is held to this");
     }
 
     const SETUP: &str = "nightjar-desktop-4.1.0-windows-x86_64-setup.exe";

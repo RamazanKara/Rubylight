@@ -73,11 +73,15 @@ public final class ContinueHereGate {
         return answer.get();
     }
 
-    /** Whether this start could ask: only a plain stream of a game. A co-op seat, recovery or Input-only never does. */
+    /**
+     * Whether this start could ask: only a plain stream of a game. A co-op seat, recovery or Input-only never does, and
+     * nor does an automatic start: it has already stopped for a game elsewhere, and its page is gone by the time of an answer.
+     */
     @VisibleForTesting
     static boolean plainStart(NvApp app, boolean smallStreamInputOnly, String source) {
         return !smallStreamInputOnly && app.getControl() == NvApp.Control.NONE && app.getRole() == NvApp.Role.STREAM
-                && !LaunchSource.COOP_JOIN.equals(source) && !LaunchSource.RECOVERY.equals(source);
+                && !LaunchSource.COOP_JOIN.equals(source) && !LaunchSource.RECOVERY.equals(source)
+                && !LaunchSource.OPEN_PLAY.equals(source);
     }
 
     /** Whether {@code move} asks about starting {@code app}. */

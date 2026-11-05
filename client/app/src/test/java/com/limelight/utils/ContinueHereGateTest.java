@@ -44,6 +44,8 @@ public class ContinueHereGateTest {
         assertFalse(ContinueHereGate.plainStart(game(7), true, LaunchSource.LIBRARY_TAP));
         assertFalse(ContinueHereGate.plainStart(game(7), false, LaunchSource.COOP_JOIN));
         assertFalse(ContinueHereGate.plainStart(game(7), false, LaunchSource.RECOVERY));
+        assertFalse("its page finishes at once, which would drop the start",
+                ContinueHereGate.plainStart(game(7), false, LaunchSource.OPEN_PLAY));
         // Another game, nobody else, a host without the feature.
         assertFalse(ContinueHereGate.asks(true, true, StreamMoveFixtures.playing("Phone", 8), game(7)));
         assertFalse(ContinueHereGate.asks(true, true, StreamMoveFixtures.playing(null, 7), game(7)));

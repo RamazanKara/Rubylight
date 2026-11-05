@@ -306,6 +306,26 @@ public class KeyframeSafetyNetTest {
         assertTrue("requests " + sim.counts.requests(), sim.counts.requests() <= 3 + 300 / 30);
     }
 
+    // Climbs of 12 s every 45 s: each start's repair would use up the gap, and the end's would land up to 22 s
+    // late. Once backed off only the end asks, right after the climb.
+    @Test
+    public void repeatedClimbsEndOnARepairOnTime() {
+        Sim sim = new Sim();
+        sim.calmBaseline();
+        long start = sim.nowMs;
+        int cycles = 8;
+        sim.run(cycles * 45_000L, at -> at % 45_000 < 12_000 ? 20 : 3);
+        assertEquals(cycles, sim.counts.climbs);
+        assertEquals("only the first start asks", 1, sim.counts.climbRepairs);
+        assertEquals("every end asks", cycles, sim.counts.climbEndRepairs);
+        for (int i = 0; i < cycles; i++) {
+            long endMs = start + i * 45_000L + 12_000;
+            long repairMs = sim.climbRepairsAtMs.get(i + 1);
+            assertTrue("cycle " + i + ": " + (repairMs - endMs) + " ms after the climb",
+                    repairMs >= endMs && repairMs < endMs + 2_000);
+        }
+    }
+
     private static Sim movedUntilTheGapsAreLong() {
         Sim sim = new Sim();
         sim.calmBaseline();
@@ -381,6 +401,48 @@ public class KeyframeSafetyNetTest {
         assertEquals(2, sim.counts.climbs);
     }
 
+    // Twice a settled 12 ms is 24 ms, so 20 ms, over the 16.7 ms a frame has, would be no climb.
+    @Test
+    public void anOverrunAfterSettlingIsAClimb() {
+        Sim sim = new Sim();
+        sim.steady(9_000, 1.5f);
+        sim.steady(70_000, 12);
+        assertEquals(1, sim.counts.settledClimbs);
+        sim.steady(3_000, 12);
+        assertEquals(1, sim.counts.climbs);
+        sim.steady(3_000, 20);
+        assertEquals(2, sim.counts.climbs);
+    }
+
+    @Test
+    public void anOverrunFromAHighBaselineIsAClimbAt120Fps() {
+        Sim sim = new Sim(FPS_120, 8);
+        sim.steady(9_000, 5);
+        // Under the 10 ms of twice the baseline, over the 8.3 ms a frame has and 4 ms over the baseline.
+        sim.steady(3_000, 9.5f);
+        assertEquals(1, sim.counts.climbs);
+    }
+
+    @Test
+    public void aSettledLevelStillMovesInsideTheFrameWithoutAClimb() {
+        Sim sim = new Sim();
+        sim.steady(9_000, 1.5f);
+        sim.steady(70_000, 12);
+        sim.run(120_000, at -> at % 3000 < 1500 ? 15 : 12);
+        assertEquals(1, sim.counts.climbs);
+    }
+
+    @Test
+    public void aSettledLevelMovingPastTheFrameIsNoStorm() {
+        Sim sim = new Sim();
+        sim.steady(9_000, 1.5f);
+        sim.steady(70_000, 12);
+        int before = sim.counts.requests();
+        sim.run(300_000, at -> at % 3000 < 1500 ? 18 : 12);
+        assertTrue("climbs " + sim.counts.climbs, sim.counts.climbs > 50);
+        assertTrue("requests " + (sim.counts.requests() - before), sim.counts.requests() - before <= 3 + 300 / 30);
+    }
+
     @Test
     public void aLevelThatFallsAfterSettlingAsksForNothing() {
         Sim sim = new Sim();
@@ -416,6 +478,21 @@ public class KeyframeSafetyNetTest {
         sim.buckets(8, 3);
         assertEquals(1, sim.counts.climbEndRepairs);
         assertEquals(1, sim.counts.climbs);
+    }
+
+    @Test
+    public void aSpikeOnTheBucketThatStartsAClimbIsNoPeak() {
+        Sim sim = new Sim();
+        sim.buckets(36, 3);
+        // Four buckets are under the second's hold, the fifth ends it.
+        sim.buckets(4, 10);
+        sim.buckets(1, 60);
+        assertEquals(1, sim.counts.climbs);
+        // With 60 ms as the peak the way back down would be 31.5 ms, so 10 ms would read as the climb's end.
+        sim.buckets(12, 10);
+        assertEquals(0, sim.counts.climbEndRepairs);
+        sim.buckets(8, 3);
+        assertEquals(1, sim.counts.climbEndRepairs);
     }
 
     @Test
@@ -484,8 +561,11 @@ public class KeyframeSafetyNetTest {
     public void calmIsAQuarterOfAFramesShareOfTheBitrate() {
         assertEquals(32_812, KeyframeSafetyNet.quietFrameBytes(63_000, FPS_60));
         assertEquals(16_406, KeyframeSafetyNet.quietFrameBytes(63_000, FPS_120));
-        assertEquals(65_625, KeyframeSafetyNet.quietFrameBytes(63_000, FPS_30));
+        assertEquals(62_500, KeyframeSafetyNet.quietFrameBytes(60_000, FPS_30));
         assertEquals(5_208, KeyframeSafetyNet.quietFrameBytes(10_000, FPS_60));
+        assertEquals("the cap", 64 * 1024, KeyframeSafetyNet.quietFrameBytes(160_000, FPS_60));
+        assertEquals("the cap", 64 * 1024, KeyframeSafetyNet.quietFrameBytes(300_000, FPS_60));
+        assertEquals("the cap", 64 * 1024, KeyframeSafetyNet.quietFrameBytes(63_000, 24_000));
         assertEquals("no bitrate", 0, KeyframeSafetyNet.quietFrameBytes(0, FPS_60));
         assertEquals("no frame rate", 0, KeyframeSafetyNet.quietFrameBytes(63_000, 0));
     }
@@ -520,11 +600,34 @@ public class KeyframeSafetyNetTest {
 
     @Test
     public void aHighBitrateCallsLargerFramesCalm() {
+        // Over 63 Mbps' 32 KB and under the cap. It used to prove 150 Mbps' whole share, about 78 KB; the
+        // 64 KiB cap now ends that, since a share of a high bitrate called moderate motion calm.
         Sim sim = new Sim();
         sim.bitrateKbps = 150_000;
         sim.frameBytes = 60 * 1024;
         sim.steady(10_500, 3);
         assertEquals(1, sim.counts.quietRepairs);
+    }
+
+    @Test
+    public void realMotionAtAHighBitrateIsNotCalm() {
+        assertFullMotionIsNotCalm(FPS_60, 16, 160_000, 70 * 1024);
+        assertFullMotionIsNotCalm(FPS_60, 16, 300_000, 130 * 1024);
+    }
+
+    @Test
+    public void realMotionAt24FpsIsNotCalmAndACalmPictureIs() {
+        assertFullMotionIsNotCalm(24_000, 42, 63_000, 70 * 1024);
+        Sim sim = new Sim(24_000, 42);
+        sim.frameBytes = 30 * 1024;
+        sim.steady(10_500, 3);
+        assertEquals(1, sim.counts.quietRepairs);
+    }
+
+    @Test
+    public void aClimbAt24FpsGoesByItsLongerFrame() {
+        assertEquals("under 20.8 ms", 0, climbsAt(24_000, 42, 18));
+        assertEquals(1, climbsAt(24_000, 42, 25));
     }
 
     @Test

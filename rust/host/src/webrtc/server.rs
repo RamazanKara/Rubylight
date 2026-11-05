@@ -209,7 +209,7 @@ struct Peer {
     this_pc: bool,
 }
 
-/// Logs refused peers, but not every one of a scan.
+/// Keeps a repeating warning, such as refused peers of a scan, to one line in ten seconds.
 pub(crate) struct Throttle {
     last: Option<Instant>,
     skipped: u32,
@@ -223,8 +223,8 @@ impl Throttle {
         }
     }
 
-    /// Whether to log a refusal now, at most once in ten seconds; with how many were skipped
-    /// since the last one logged.
+    /// Whether to log now, at most once in ten seconds; with how many were skipped since the last
+    /// one logged.
     pub(crate) fn allow(&mut self) -> Option<u32> {
         let now = Instant::now();
         if self
@@ -530,16 +530,24 @@ struct Connection {
     streaming: Option<Streaming>,
     /// The session actor, started with the first session request.
     session: Option<Commands>,
-    /// This connection's page has said why its peer connection failed ([`client_line_is_loud`]).
+    /// This connection's page has said why this session's peer connection failed
+    /// ([`client_line_is_loud`]).
     reported_failure: bool,
 }
 
-/// Whether a `client-log` line goes in a default log; the others are for debugging. A page's report
-/// that its peer connection failed has what the host can't see, the reason and the browser, and a
-/// client gets one such line per connection.
-fn client_line_is_loud(line: &str, reported: &mut bool) -> bool {
-    line.starts_with("connection failed:") && !std::mem::replace(reported, true)
+/// Whether a `client-log` line goes in a default log, with how many were kept out of it since the
+/// last that went in; the others are for debugging. A page's report that its peer connection failed
+/// has what the host can't see, the reason and the browser. A connection gets one such line per
+/// session, and a paired page reconnecting in a loop gets no more than `throttle` lets through.
+fn client_line_is_loud(line: &str, reported: &mut bool, throttle: &mut Throttle) -> Option<u32> {
+    if !line.starts_with("connection failed:") || std::mem::replace(reported, true) {
+        return None;
+    }
+    throttle.allow()
 }
+
+/// The host-wide limit on the failures pages report ([`client_line_is_loud`]).
+static CLIENT_FAILURES: std::sync::Mutex<Throttle> = std::sync::Mutex::new(Throttle::new());
 
 struct Streaming {
     media: Arc<Media>,
@@ -842,28 +850,35 @@ impl Connection {
                 app_id,
                 video,
                 audio,
-            } => self.command(
-                kind,
-                Command::Start(Request {
-                    app_id,
-                    video,
-                    audio,
-                }),
-                out,
-            ),
+            } => {
+                // The Stream page tries again on the same socket.
+                self.reported_failure = false;
+                self.command(
+                    kind,
+                    Command::Start(Request {
+                        app_id,
+                        video,
+                        audio,
+                    }),
+                    out,
+                )
+            }
             ClientMessage::SwitchSession {
                 app_id,
                 video,
                 audio,
-            } => self.command(
-                kind,
-                Command::Switch(Request {
-                    app_id,
-                    video,
-                    audio,
-                }),
-                out,
-            ),
+            } => {
+                self.reported_failure = false;
+                self.command(
+                    kind,
+                    Command::Switch(Request {
+                        app_id,
+                        video,
+                        audio,
+                    }),
+                    out,
+                )
+            }
             ClientMessage::StopSession => match &self.session {
                 Some(session) => {
                     session.send(Command::Stop);
@@ -892,10 +907,14 @@ impl Connection {
             ClientMessage::ClientLog { lines } => {
                 let name = self.client.as_ref().map_or("", |c| c.name.as_str());
                 for line in lines {
-                    if client_line_is_loud(&line, &mut self.reported_failure) {
-                        tracing::warn!(device = name, "WebRTC client: {line}");
-                    } else {
-                        tracing::debug!(device = name, "WebRTC client: {line}");
+                    let loud = client_line_is_loud(
+                        &line,
+                        &mut self.reported_failure,
+                        &mut CLIENT_FAILURES.lock().unwrap(),
+                    );
+                    match loud {
+                        Some(more) => tracing::warn!(device = name, more, "WebRTC client: {line}"),
+                        None => tracing::debug!(device = name, "WebRTC client: {line}"),
                     }
                 }
             }
@@ -1311,18 +1330,78 @@ pub(crate) mod tests {
     };
 
     #[test]
-    fn a_pages_connection_failure_reaches_a_default_log_once_per_connection() {
+    fn a_pages_connection_failure_reaches_a_default_log_once_per_session() {
+        let mut throttle = Throttle::new();
         let mut reported = false;
-        assert!(!client_line_is_loud("decoder started", &mut reported));
+        assert_eq!(
+            client_line_is_loud("decoder started", &mut reported, &mut throttle),
+            None
+        );
         assert!(!reported);
-        assert!(client_line_is_loud(
-            "connection failed: no-answer, offered 192.168.4.69:8001, Firefox/159.0",
-            &mut reported
-        ));
-        assert!(!client_line_is_loud(
-            "connection failed: the same page again",
-            &mut reported
-        ));
+        assert_eq!(
+            client_line_is_loud(
+                "connection failed: no-answer, offered 192.168.4.69:8001, Firefox/159.0",
+                &mut reported,
+                &mut throttle
+            ),
+            Some(0)
+        );
+        // The limit is past: the same session still says it once.
+        throttle.last = Some(Instant::now() - Duration::from_secs(11));
+        assert_eq!(
+            client_line_is_loud(
+                "connection failed: the same page again",
+                &mut reported,
+                &mut throttle
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn a_page_reconnecting_in_a_loop_writes_one_warning_in_ten_seconds() {
+        let mut throttle = Throttle::new();
+        let failure = |throttle: &mut Throttle| {
+            // Every reconnect is a new connection, whose flag is clear.
+            client_line_is_loud("connection failed: no-answer", &mut false, throttle)
+        };
+        assert_eq!(failure(&mut throttle), Some(0));
+        assert_eq!(failure(&mut throttle), None);
+        assert_eq!(failure(&mut throttle), None);
+        throttle.last = Some(Instant::now() - Duration::from_secs(11));
+        assert_eq!(failure(&mut throttle), Some(2));
+    }
+
+    #[tokio::test]
+    async fn a_page_that_tries_again_on_its_socket_can_report_its_failure_again() {
+        let f = Fixture::new();
+        let h = f.host.clone();
+        let peer = Peer {
+            address: ([192, 168, 1, 9], 5000).into(),
+            local: ([192, 168, 1, 2], 8000).into(),
+            this_pc: false,
+        };
+        let Registered {
+            id,
+            closed: _closed,
+        } = h.webrtc.open(peer.address.ip()).unwrap();
+        let mut state = Connection::new(h.clone(), Limits::default(), peer, id);
+        let device = h.webrtc.console_device(&h, "owner").unwrap();
+        state.client = Some(Authenticated {
+            client_id: device.webrtc().unwrap().0.to_owned(),
+            name: device.name.clone(),
+        });
+        let mut out = Vec::new();
+        let failure =
+            json!({"version":2,"type":"client-log","lines":["connection failed: no-try"]});
+        let settings = r#""appId":"0","video":{"width":1920,"height":1080,"fps":60,"codec":"hevc","bitrateKbps":20000,"hdr":false},"audio":{"channels":2}"#;
+        for kind in ["start-session", "switch-session"] {
+            state.handle(&failure.to_string(), &mut out).await;
+            assert!(state.reported_failure, "{out:?}");
+            let again = format!(r#"{{"version":2,"type":"{kind}",{settings}}}"#);
+            state.handle(&again, &mut out).await;
+            assert!(!state.reported_failure, "{kind}: {out:?}");
+        }
     }
 
     #[test]

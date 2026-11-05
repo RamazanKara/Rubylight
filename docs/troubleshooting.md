@@ -92,7 +92,7 @@ The picture and sound reach a browser over UDP, on a port of their own (`webrtc_
 | "...reached the PC, but the encrypted connection to it failed" | The PC answered and the DTLS handshake failed, or hadn't finished 30 seconds later. Try again. If it keeps failing, antivirus or a firewall that inspects traffic may be in the way. |
 | "The connection to the PC was lost" | The stream had connected and then stopped getting through. Check the network between the device and the PC. |
 
-In the host log, `WebRTC offer's host candidate` and `guest offer's host candidate` give the address that was offered, `connection failed:` gives what the Stream page saw and the browser, and `the stream ended before its media connected` gives how many datagrams reached the media port. Zero datagrams means they never reached the host.
+In the host log, `WebRTC offer's host candidate` and `guest offer's host candidate` give the address that was offered, `connection failed:` gives what the Stream page saw and the browser (one line per attempt, at most one in 10 seconds across the host), and `the stream ended before its media connected` gives how many datagrams reached the media port. Zero datagrams means they never reached the host.
 
 ## The stream disconnects after a second with "os error 10035"
 

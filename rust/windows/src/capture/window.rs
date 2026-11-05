@@ -12,7 +12,7 @@ use windows::Win32::{
     Graphics::Gdi::{
         GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MONITORINFOEXW, MonitorFromWindow,
     },
-    UI::WindowsAndMessaging::{GetWindowThreadProcessId, IsIconic, IsWindow},
+    UI::WindowsAndMessaging::{GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible},
 };
 
 pub(super) const PREFIX: &str = "window:";
@@ -143,6 +143,17 @@ pub(super) fn check(window: usize) -> Result<()> {
     }
 }
 
+/// [`check`] while a capture waits for its first frame, where a hidden window fails too:
+/// a game replacing its splash window as the capture opens leaves one that sends no frame
+/// and no word of closing, and the wait would use up the whole helper start (#59).
+pub(super) fn check_awaited(window: usize) -> Result<()> {
+    check(window)?;
+    // SAFETY: The call only reads the handle; a stale one makes it return false.
+    let shown = unsafe { IsWindowVisible(HWND(window as *mut _)).as_bool() };
+    ensure!(shown, "the game window is hidden (window {window:#x})");
+    Ok(())
+}
+
 /// The display that shows most of the window, such as `\\.\DISPLAY1`.
 pub(super) fn display_of(window: usize) -> Result<String> {
     let mut info = MONITORINFOEXW {
@@ -220,6 +231,46 @@ pub(super) fn frame(pool: (i32, i32), content: (i32, i32), surface: (i32, i32)) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_window_that_will_send_no_frame_ends_the_wait_for_its_first() -> Result<()> {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, DestroyWindow, SW_SHOWNOACTIVATE, ShowWindow, WINDOW_EX_STYLE,
+            WS_POPUP,
+        };
+        // SAFETY: The class and title are static NUL-terminated literals; no other pointers.
+        let window = unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                windows::core::w!("STATIC"),
+                windows::core::w!("Rubylight capture test"),
+                WS_POPUP,
+                0,
+                0,
+                64,
+                64,
+                None,
+                None,
+                None,
+                None,
+            )
+        }?;
+        let handle = window.0 as usize;
+        let error = check_awaited(handle).unwrap_err().to_string();
+        assert!(error.starts_with("the game window is hidden"), "{error}");
+        // The usual check still passes it, as the capture's other uses need.
+        check(handle)?;
+        // SAFETY: The window was created on this thread above.
+        unsafe {
+            let _ = ShowWindow(window, SW_SHOWNOACTIVATE);
+        }
+        check_awaited(handle)?;
+        // SAFETY: The window was created on this thread above.
+        unsafe { DestroyWindow(window)? };
+        let error = check_awaited(handle).unwrap_err().to_string();
+        assert!(error.starts_with("the game window closed"), "{error}");
+        Ok(())
+    }
 
     #[test]
     fn window_targets_parse_and_print_back() {

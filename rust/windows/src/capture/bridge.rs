@@ -929,6 +929,9 @@ fn worker(pipe: &Pipe) -> Result<()> {
             );
             return Ok(());
         }
+        if let Some(window) = window {
+            super::window::check_awaited(window)?;
+        }
         ensure!(
             Instant::now() < deadline,
             "Windows Graphics Capture produced no initial frame"

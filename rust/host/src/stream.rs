@@ -126,8 +126,9 @@ fn reopen_on(
         ReopenOn::Wait
     }
 }
-/// How long a stream waits for its capture to start.
-const CAPTURE_START_WAIT: Duration = Duration::from_secs(10);
+/// How long a stream waits for its capture to start: a game window's try that
+/// used up its whole WGC helper start can be followed by another (#59).
+const CAPTURE_START_WAIT: Duration = Duration::from_secs(12);
 /// What a try of a game window's capture takes beyond its WGC helper's start.
 const WINDOW_OPEN_MARGIN: Duration = Duration::from_secs(1);
 /// Whether a game window's first capture, whose stream began waiting for it

@@ -835,7 +835,15 @@ fn a_game_windows_capture_is_tried_again_only_within_the_streams_wait() {
         - RECOVERY_RETRY
         - butterpollo_windows::capture::WGC_START_TIMEOUT
         - WINDOW_OPEN_MARGIN;
-    assert_eq!(last, Duration::from_millis(3850));
+    assert_eq!(last, Duration::from_millis(5850));
+    // A try that waited out its whole helper start on a window the game replaced meanwhile
+    // still gets another, on the new window (#59).
+    assert!(
+        butterpollo_windows::capture::WGC_START_TIMEOUT
+            + Duration::from_millis(500)
+            + RECOVERY_RETRY
+            < last
+    );
     assert!(window_open_again(started, &stop, at(0)));
     assert!(window_open_again(started, &stop, started + last));
     assert!(!window_open_again(

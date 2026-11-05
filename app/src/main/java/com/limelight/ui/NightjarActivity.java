@@ -6,6 +6,9 @@ import android.preference.PreferenceManager;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.limelight.preferences.LinkGate;
+import com.limelight.preferences.PairLinkActivity;
+
 /** Applies appearance before views or restored fragments are created, including on deep links. */
 public abstract class NightjarActivity extends AppCompatActivity {
     @Override
@@ -74,6 +77,7 @@ public abstract class NightjarActivity extends AppCompatActivity {
         shoulderStepping = false;
         refreshAppearance();
         hideBarsOnForcedTelevision();
+        if (!(this instanceof PairLinkActivity)) LinkGate.showWaiting(this);
     }
 
     /** A TV has no system bars; the forced TV layout on a handheld fills the screen the same way. */

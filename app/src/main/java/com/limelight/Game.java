@@ -921,6 +921,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     protected void onStart() {
         super.onStart();
+        // Stopping this screen stops the stream, so a pairing link waits as long as it is up.
+        com.limelight.preferences.LinkGate.hold(this);
         if (adaptiveLayout != null) adaptiveLayout.start();
     }
 
@@ -988,6 +990,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         super.onStop();
         // Home, or the screen going off; a finishing screen has been through finish or is handing off.
         if (!isFinishing() && !isChangingConfigurations()) streamConnection.playerLeft();
+        com.limelight.preferences.LinkGate.release(this, this);
         if (adaptiveLayout != null) adaptiveLayout.stop();
         streamRecovery.rememberStreamForResume(true);
 

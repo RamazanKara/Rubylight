@@ -287,8 +287,7 @@
             android:label="@string/qr_scan_title" />
         <activity
             android:name=".preferences.AddComputerManually"
-            android:exported="true"
-            android:launchMode="singleTask"
+            android:exported="false"
             android:theme="@style/AppTheme"
             android:resizeableActivity="true"
             android:windowSoftInputMode="stateVisible|adjustResize"
@@ -297,8 +296,23 @@
             android:label="@string/title_add_pc">
             <meta-data android:name="WindowManagerPreference:FreeformWindowSize" android:value="system-default" />
             <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation" android:value="landscape" />
-
-            <!-- A pairing link from a browser or a QR reader; the screen asks before it pairs. -->
+        </activity>
+        <!--
+            A pairing link from a browser or a QR reader. A task of its own, over whatever runs, so the app's task and
+            a stream in it stay as they are; the question leaves no trace, because the link holds a PIN and passphrase.
+        -->
+        <activity
+            android:name=".preferences.PairLinkActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/PairLinkTheme"
+            android:resizeableActivity="true"
+            android:enableOnBackInvokedCallback="true"
+            android:configChanges="mcc|mnc|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|orientation|screenSize|smallestScreenSize|layoutDirection"
+            android:label="@string/pair_pairing_title">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
 

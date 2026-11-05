@@ -261,6 +261,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile long lastVideoFrameTimeMs;
     // Set when a decoder is configured; null except on the decoders of erratum 23 in low latency.
     private volatile KeyframeSafetyNet keyframeSafetyNet;
+    private volatile InputSpacer inputSpacer;
+    // What those did this stream, across decoder restarts; null while there has been none.
+    private volatile KeyframeSafetyNet.Counts repairCounts;
+    private volatile int hottestThermalLevel = ThermalMonitor.NORMAL;
     private final InputStallLine inputStalls = new InputStallLine();
     // For this stream's row in the problem report; a negative start is no stream to report.
     private long streamStartMs = -1;
@@ -370,6 +374,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             bitrateWindowStartBytes = bytes;
             wireWindowStartBytes = wireBytes;
             thermalLevel = thermalMonitor.level();
+            hottestThermalLevel = Math.max(hottestThermalLevel, thermalLevel);
             // Forced max clocks on a hot phone only bring on harder throttling (with Thermal protection on).
             if (ThermalMonitor.forAdaptation(prefs.thermalProtection, thermalLevel) == ThermalMonitor.HOT &&
                     pyroWaveRenderer.hasMaxClocks()) {
@@ -2381,11 +2386,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             LimeLog.info("Using codec " + selectedDecoderInfo.getName() + " for hardware decoding " + format.getString(MediaFormat.KEY_MIME));
             activeDecoderName = selectedDecoderInfo.getName();
             debt.watchDisplay(DecoderQueuePolicy.watchesDisplayQueue(activeDecoderName));
-            keyframeSafetyNet = MediaCodecHelper.runsCorruptingLowLatency(format.getString(MediaFormat.KEY_MIME),
-                    activeDecoderName, prefs.codecLowLatency, prefs.hevcLowLatency()) ? new KeyframeSafetyNet() : null;
-            if (keyframeSafetyNet != null) {
-                LimeLog.info("Asking for a keyframe when none came for " + KeyframeSafetyNet.INTERVAL_MS + " ms");
-            }
+            startLowLatencyRepairs(format, activeDecoderName);
             configured = true;
         } catch (IllegalArgumentException e) {
             noteConfigureError(selectedDecoderInfo, format, e);
@@ -2410,6 +2411,20 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
         }
         return configured;
+    }
+
+    // Judged by the flag this decoder got: a retry after a rejected configure has none, whatever the setting.
+    private void startLowLatencyRepairs(MediaFormat format, String decoderName) {
+        if (!MediaCodecHelper.asksForAndroidLowLatency(format) || !MediaCodecHelper.corruptsInLowLatency(decoderName)) {
+            keyframeSafetyNet = null;
+            inputSpacer = null;
+            return;
+        }
+        if (repairCounts == null) repairCounts = new KeyframeSafetyNet.Counts();
+        keyframeSafetyNet = new KeyframeSafetyNet(repairCounts);
+        inputSpacer = new InputSpacer();
+        LimeLog.info("Decoder " + decoderName + " in Android low latency: keyframes on a decode latency climb," +
+                " on a calm picture and at least every " + KeyframeSafetyNet.LIMIT_MS / 1000 + " s, frames spaced");
     }
 
     /** Why the last setup() failed, or null. Stage failures from the decoder carry only a code. */
@@ -2543,8 +2558,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             // A Dolby Vision decoder that refuses every try falls back to HEVC or AV1 below instead of throwing.
             if (tryConfigureDecoder(selectedDecoderInfo, mediaFormat,
                     !newFormat && upscaler == null && throwOnCodecError && !dolbyVision)) {
-                boolean androidLowLatency = mediaFormat.containsKey(MediaFormat.KEY_LOW_LATENCY) &&
-                        mediaFormat.getInteger(MediaFormat.KEY_LOW_LATENCY) != 0;
+                boolean androidLowLatency = MediaCodecHelper.asksForAndroidLowLatency(mediaFormat);
                 outputBufferQueueLimit = DecoderQueuePolicy.outputLimit(selectedDecoderInfo.getName(),
                         androidLowLatency && MediaCodecHelper.decoderSupportsAndroidRLowLatency(selectedDecoderInfo, mimeType),
                         prefs.dropLateFrames, tryNumber != 0 || codecRecoveryAttempts != 0);
@@ -3343,6 +3357,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return milliHz >= 1000 ? 1_000_000_000_000L / milliHz : FramePacingPolicy.frameIntervalNs(streamFrameRateMilliHz);
     }
 
+    /** The output at index just left the decoder: its timing, and the climb watch of erratum 23. */
+    private void noteDecoderOutput(int index, long ptsUs, long outputNs) {
+        frameLatencyStats.onDecoderOutput(index, ptsUs, outputNs);
+        KeyframeSafetyNet safetyNet = keyframeSafetyNet;
+        if (safetyNet == null) return;
+        safetyNet.onDecodeLatency(SystemClock.uptimeMillis(), frameLatencyStats.getInputToOutputNs(index) / 1_000_000f);
+        String event = safetyNet.takeEvent();
+        if (event != null) LimeLog.info(event);
+    }
+
     /** Feeds the residency governor with the output at index and logs the queue it saw. */
     private void noteResidency(int index) {
         long excessNs = residency.onOutput(frameLatencyStats.getInputToOutputNs(index), System.nanoTime());
@@ -3420,7 +3444,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
             if (newer < 0) return false;
             long nowNs = System.nanoTime();
-            frameLatencyStats.onDecoderOutput(newer, info.presentationTimeUs, nowNs);
+            noteDecoderOutput(newer, info.presentationTimeUs, nowNs);
             frameLatencyStats.onDropReason(heldIndex, reason);
             frameLatencyStats.onOutputReleased(heldIndex, nowNs, false,
                     reportsRenderTimes());
@@ -3480,7 +3504,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                 // This separate elapsed clock includes scheduling/suspend delays;
                                 // frame timestamps and ADPF durations keep their existing clock.
                                 long outputDrainStartNs = SystemClock.elapsedRealtimeNanos();
-                                frameLatencyStats.onDecoderOutput(outIndex, info.presentationTimeUs, workStartNs);
+                                noteDecoderOutput(outIndex, info.presentationTimeUs, workStartNs);
                                 long ptsUs = info.presentationTimeUs;
 
                                 numFramesOut++;
@@ -3557,7 +3581,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         streamFrameRateMilliHz) &&
                 wantsCatchUp(lastIndex, drained, scheduled) &&
                 (outIndex = videoDecoder.dequeueOutputBuffer(info, 0)) >= 0) {
-            frameLatencyStats.onDecoderOutput(outIndex, info.presentationTimeUs, System.nanoTime());
+            noteDecoderOutput(outIndex, info.presentationTimeUs, System.nanoTime());
             frameLatencyStats.onDropReason(lastIndex, catchUpReason);
             frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), false,
                     reportsRenderTimes());
@@ -3598,7 +3622,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             int newer = videoDecoder.dequeueOutputBuffer(info, DecoderQueuePolicy.Debt.WAIT_US);
             if (newer >= 0) {
                 long nowNs = System.nanoTime();
-                frameLatencyStats.onDecoderOutput(newer, info.presentationTimeUs, nowNs);
+                noteDecoderOutput(newer, info.presentationTimeUs, nowNs);
                 frameLatencyStats.onDropReason(lastIndex, "debt");
                 frameLatencyStats.onOutputReleased(lastIndex, nowNs, false, reportsRenderTimes());
                 videoDecoder.releaseOutputBuffer(lastIndex, false);
@@ -3987,25 +4011,34 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         total.add(globalVideoStats);
         total.add(activeWindowVideoStats);
         KeyframeSafetyNet safetyNet = keyframeSafetyNet;
+        KeyframeSafetyNet.Counts repairs = repairCounts;
         MediaFormat output = outputFormat;
         boolean rfi = refFrameInvalidationActive;
+        boolean lowLatency = configuredFormat != null && MediaCodecHelper.asksForAndroidLowLatency(configuredFormat);
         RecentStreams.add(Instant.ofEpochMilli(startMs).truncatedTo(ChronoUnit.SECONDS) + " " +
                 (SystemClock.uptimeMillis() - streamStartUptimeMs) / 1000 + " s" +
                 " | " + (pyroWave ? "PyroWave" : activeDecoderName + " " + configuredMime()) +
                 " | " + initialWidth + "x" + initialHeight + " " + refreshRate + " fps" +
                 " HDR " + onOff(Boolean.TRUE.equals(currentHdrMode)) +
                 " | engine " + (prefs.rustEngine ? "new" : "classic") +
-                " | low latency " + onOff(prefs.codecLowLatency) + ", vendor " + onOff(prefs.vendorLowLatency) +
+                " | low latency " + onOff(lowLatency) + ", vendor " + onOff(prefs.vendorLowLatency) +
                 ", hints " + onOff(prefs.phonePerformanceHints) + ", RFI " + onOff(rfi) +
                 ", keyframe net " + onOff(safetyNet != null) +
                 " | frames in " + numFramesIn + " out " + numFramesOut + " rendered " + total.totalFramesRendered +
                 " lost " + total.framesLost + " in " + total.frameLossEvents + " events" +
                 " | decode avg " + getAverageDecoderLatency() + " ms" +
                 " | keyframes " + keyframesReceived + ", largest " + largestKeyframeBytes + " B" +
-                ", net requests " + (safetyNet != null ? safetyNet.requests() : 0) +
+                (repairs != null ? " | " + repairs.describe() : "") +
                 " | input waits " + inputStalls.total() + ", worst " + inputStalls.totalMaxMs() + " ms" +
                 ", input buffer " + inputBufferBytes + " B" +
-                " | output " + (output == null ? "none" : outputDescription(output)));
+                " | output " + (output == null ? "none" : outputDescription(output)) +
+                " | hottest " + thermalName(hottestThermalLevel) + ", thermal protection " + onOff(prefs.thermalProtection));
+        repairCounts = null;
+        hottestThermalLevel = ThermalMonitor.NORMAL;
+    }
+
+    private static String thermalName(int level) {
+        return level == ThermalMonitor.HOT ? "hot" : level == ThermalMonitor.WARM ? "warm" : "normal";
     }
 
     private String configuredMime() {
@@ -4476,10 +4509,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         lastVideoFrameTimeMs = SystemClock.uptimeMillis();
         long enqueueTimeNs = receiveTimeNs + (enqueueTimeUs - receiveTimeUs) * 1000;
+        KeyframeSafetyNet safetyNet = keyframeSafetyNet;
 
         if (lastFrameNumber == 0) {
             activeWindowVideoStats.measurementStartTimestamp = SystemClock.uptimeMillis();
-        } else if (frameNumber != lastFrameNumber && frameNumber != lastFrameNumber + 1) {
+        } else if (frameNumber != lastFrameNumber && frameNumber != lastFrameNumber + 1 &&
+                // The frames dropped while waiting for the keyframe the net asked for were no network loss.
+                !(safetyNet != null && frameType == MoonBridge.FRAME_TYPE_IDR &&
+                        safetyNet.takeAnsweredGap(frameNumber - lastFrameNumber - 1))) {
             // We can receive the same "frame" multiple times if it's an IDR frame.
             // In that case, each frame start NALU is submitted independently.
             activeWindowVideoStats.framesLost += frameNumber - lastFrameNumber - 1;
@@ -4488,7 +4525,6 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         // Reset CSD data for each IDR frame
-        KeyframeSafetyNet safetyNet = keyframeSafetyNet;
         if (lastFrameNumber != frameNumber && frameType == MoonBridge.FRAME_TYPE_IDR) {
             vpsBuffers.clear();
             spsBuffers.clear();
@@ -4668,6 +4704,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
         }
 
+        holdForInputSpacing();
+
         // Before queuing: the decoder may hand the frame back before queueInputBuffer returns.
         if (hostFrameTimes || trackContentRate) hostFrameClock.onQueued(timestampUs, presentationTimeUs);
         if (!queueNextInputBuffer(timestampUs, codecFlags, frameNumber, receiveTimeNs, enqueueTimeNs, frameHostProcessingLatency,
@@ -4675,12 +4713,40 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             return MoonBridge.DR_NEED_IDR;
         }
 
-        // This frame is queued and decodes; only the frames in flight until the keyframe are dropped.
-        if (safetyNet != null && frameType != MoonBridge.FRAME_TYPE_IDR && safetyNet.due(lastVideoFrameTimeMs)) {
-            return MoonBridge.DR_NEED_IDR;
+        if (safetyNet != null && frameType != MoonBridge.FRAME_TYPE_IDR) {
+            safetyNet.onFrame(decodeUnitLength);
+            // This frame is queued and decodes; only the frames in flight until the keyframe are dropped.
+            if (safetyNet.due(lastVideoFrameTimeMs)) return MoonBridge.DR_NEED_IDR;
         }
 
         return MoonBridge.DR_OK;
+    }
+
+    /**
+     * Erratum 23 in low latency: waits until the frame is no longer right behind the previous input. This
+     * thread may be the one receiving packets; see InputSpacer for why the wait is safe there. It is short
+     * and bounded, a stop or a codec recovery skips it, and it is measured before the frame's decode time.
+     */
+    private void holdForInputSpacing() {
+        InputSpacer spacer = inputSpacer;
+        KeyframeSafetyNet.Counts counts = repairCounts;
+        if (spacer == null || counts == null) return;
+        long nowNs = System.nanoTime();
+        long holdNs = stopping || codecRecoveryType.get() != CR_RECOVERY_TYPE_NONE ? 0 :
+                spacer.holdNs(nowNs, streamFrameRateMilliHz);
+        if (holdNs > 0) {
+            try {
+                Thread.sleep(holdNs / 1_000_000, (int) (holdNs % 1_000_000));
+            } catch (InterruptedException e) {
+                // Restores the status for whoever stops this thread; the frame goes in now.
+                Thread.currentThread().interrupt();
+            }
+            long heldNs = System.nanoTime() - nowNs;
+            nowNs += heldNs;
+            counts.heldFrames++;
+            counts.heldNs += heldNs;
+        }
+        spacer.onInput(nowNs);
     }
 
     /** Closes the second-long statistics window the overlay and health samples read, and opens the next. */

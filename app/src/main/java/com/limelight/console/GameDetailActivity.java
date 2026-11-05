@@ -13,6 +13,7 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.VisibleForTesting;
+import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.ContextCompat;
 
 import com.google.android.material.button.MaterialButton;
@@ -25,8 +26,10 @@ import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.wol.WakeOnLanSender;
+import com.limelight.pin.PinGate;
 import com.limelight.ui.AppTheme;
 import com.limelight.ui.BackdropView;
+import com.limelight.ui.NavigationDialogBuilder;
 import com.limelight.ui.NightjarActivity;
 import com.limelight.ui.ShellBar;
 import com.limelight.ui.TopAppBar;
@@ -50,8 +53,15 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     public static final String EXTRA_APP_ID = "com.limelight.console.APP_ID";
     public static final String EXTRA_TITLE = "com.limelight.console.TITLE";
     public static final String EXTRA_HOST_NAME = "com.limelight.console.HOST_NAME";
+    /** "When Nightjar opens": the page counts down and starts the game by itself (see {@link OpenPlay}). */
+    static final String EXTRA_OPEN_PLAY = "com.limelight.console.OPEN_PLAY";
 
     private static final long DEBOUNCE_MS = 250;
+    /** How long an automatic start waits for the page to load; a wake that follows has its own limit. */
+    private static final long AUTO_LOAD_LIMIT_MS = 45_000;
+
+    /** An automatic start: waiting for the PIN screen to clear, counting down, then going to the game. */
+    private enum Auto { OFF, WAITING, COUNTING, GOING }
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
@@ -74,6 +84,15 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     /** Waking an offline PC to play: the wait, and the Play that follows once the PC answers and the page is fresh. */
     private HostWaker waker;
     private boolean playWhenReady;
+    private Auto auto = Auto.OFF;
+    private AlertDialog countdown;
+    private long countdownEnd;
+    /** The page has loaded once, and the automatic start has acted on it. */
+    private boolean loaded;
+    private boolean autoActed;
+    private final Runnable countdownTick = this::tickCountdown;
+    private final Runnable autoLoadLimit = () ->
+            autoFailed(WakeFeedback.failed(this, hostNameExtra, R.string.error_pc_offline, null));
 
     private View loading;
     private ImageView cover;
@@ -109,7 +128,11 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
 
     /** Starts the stream; the debug demo overrides this so no stream is opened. */
     protected void play(NvApp app, ComputerDetails computer) {
-        ServerHelper.doStart(this, app, computer, feed.binder(), LaunchSource.CONSOLE_PLAY);
+        boolean automatic = auto == Auto.GOING;
+        endAuto();
+        ServerHelper.doStart(this, app, computer, feed.binder(), automatic ? LaunchSource.OPEN_PLAY : LaunchSource.CONSOLE_PLAY);
+        // The stream's end lands on Home, not on this page.
+        if (automatic) finish();
     }
 
     /** Sends the wake packets to an offline host (off the UI thread); the debug demo and tests override this. */
@@ -192,6 +215,98 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
 
         feed = new HostFeed(this, this);
         feed.bind();
+        // Only the start that opened this page: a page recreated later does nothing by itself.
+        if (state == null && getIntent().getBooleanExtra(EXTRA_OPEN_PLAY, false)) auto = Auto.WAITING;
+    }
+
+    /** The 3 seconds in which the player can still say no, naming the game and the PC. */
+    private void startCountdown() {
+        auto = Auto.COUNTING;
+        countdownEnd = SystemClock.elapsedRealtime() + OpenPlayModel.timing()[0];
+        countdown = new NavigationDialogBuilder(this)
+                .setTitle(titleExtra)
+                .setMessage(countdownText())
+                .setNegativeButton(android.R.string.cancel, (dialog, which) -> cancelCountdown())
+                .setOnCancelListener(dialog -> cancelCountdown())
+                .show();
+        countdown.getButton(AlertDialog.BUTTON_NEGATIVE).requestFocus();
+        handler.postDelayed(countdownTick, 100);
+    }
+
+    private String countdownText() {
+        long left = Math.max(0, countdownEnd - SystemClock.elapsedRealtime());
+        return getString(R.string.open_play_countdown, hostNameExtra, (int) ((left + 999) / 1000));
+    }
+
+    private void tickCountdown() {
+        if (auto != Auto.COUNTING) return;
+        if (SystemClock.elapsedRealtime() < countdownEnd) {
+            countdown.setMessage(countdownText());
+            handler.postDelayed(countdownTick, 100);
+            return;
+        }
+        countdown.dismiss();
+        countdown = null;
+        auto = Auto.GOING;
+        // Armed before anything can go wrong: only a good ending clears it.
+        OpenPlay.arm(this);
+        if (loaded) {
+            actOnAuto();
+        } else {
+            handler.postDelayed(autoLoadLimit, AUTO_LOAD_LIMIT_MS);
+        }
+    }
+
+    /** The countdown is over without a start; the guard stays as it was. */
+    private void stopCountdown() {
+        handler.removeCallbacks(countdownTick);
+        if (countdown != null) {
+            countdown.dismiss();
+            countdown = null;
+        }
+        auto = Auto.OFF;
+    }
+
+    /** Cancel, B, Back or Escape: Home, or the list of PCs where that is the first screen. */
+    private void cancelCountdown() {
+        stopCountdown();
+        finish();
+    }
+
+    /** The page is loaded and the countdown over: wake the PC, or start the game. */
+    private void actOnAuto() {
+        autoActed = true;
+        handler.removeCallbacks(autoLoadLimit);
+        GameDetailModel m = model;
+        if (wakeable(m)) {
+            wakeAndPlay();
+        } else if (m.canStart()) {
+            onPlay();
+        } else {
+            autoFailed(WakeFeedback.failed(this, m.hostName, m.canWake() ? R.string.wol_no_mac : R.string.error_pc_offline, null));
+        }
+    }
+
+    /** The automatic part is over; what follows is the page's usual behaviour. */
+    private void endAuto() {
+        auto = Auto.OFF;
+        handler.removeCallbacks(autoLoadLimit);
+    }
+
+    /** An automatic start failed and says so: the player lands on Home, and the guard stays armed. */
+    private void autoFailed(AlertDialog said) {
+        if (auto != Auto.GOING) return;
+        endAuto();
+        if (said == null) {
+            finish();
+        } else {
+            said.setOnDismissListener(dialog -> finish());
+        }
+    }
+
+    /** The usual feedback, ending an automatic start: it does not offer to try again, it goes to Home. */
+    private void wakeFailed(int message, Runnable retry) {
+        autoFailed(WakeFeedback.failed(this, model.hostName, message, auto == Auto.GOING ? null : retry));
     }
 
     /**
@@ -226,11 +341,19 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         // The game may have started or ended while the stream was in front.
         loadedSignature = null;
         scheduleReload();
+        if (auto == Auto.WAITING && !PinGate.needsPinForApp(this)) startCountdown();
     }
 
     @Override
     protected void onPause() {
         shown = false;
+        if (auto == Auto.COUNTING) {
+            stopCountdown();
+        } else if (auto == Auto.GOING) {
+            // Leaving the page during the start, the wake's wait for one, is the player's choice.
+            endAuto();
+            OpenPlay.disarm(this);
+        }
         // The feed stops polling with the screen, so a wait could not see the PC come up: it ends here.
         cancelWake();
         if (feed != null) {
@@ -357,13 +480,16 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             render(next, computer);
             if (done) {
                 loading.setVisibility(View.GONE);
-                if (playWhenReady && (waker == null || !waker.isWaiting())) {
+                loaded = true;
+                if (auto == Auto.GOING && !autoActed) {
+                    actOnAuto();
+                } else if (playWhenReady && (waker == null || !waker.isWaiting())) {
                     // The PC woke and the page is fresh from it: the Play that started the wait carries on, once.
                     playWhenReady = false;
                     if (next.canStart()) {
                         onPlay();
                     } else {
-                        WakeFeedback.failed(this, next.hostName, R.string.error_pc_offline, null);
+                        wakeFailed(R.string.error_pc_offline, null);
                     }
                 }
             }
@@ -558,17 +684,19 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             return;
         }
         if (computer == null) {
-            WakeFeedback.failed(this, model.hostName, R.string.error_pc_offline, null);
+            wakeFailed(R.string.error_pc_offline, null);
             return;
         }
         if (computer.state == ComputerDetails.State.ONLINE) {
             // It woke by itself since the page was drawn: refresh, then the second press plays.
+            // An automatic start has no second press: it plays once the page is fresh.
+            playWhenReady = auto == Auto.GOING;
             loadedSignature = null;
             scheduleReload();
             return;
         }
         if (!HostWaker.canWake(this, computer)) {
-            WakeFeedback.failed(this, model.hostName, R.string.wol_no_mac, null);
+            wakeFailed(R.string.wol_no_mac, null);
             return;
         }
         if (waker == null) {
@@ -580,8 +708,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                         // The service is gone, so the page cannot reload or start anything: say so, start nothing.
                         playWhenReady = false;
                         rerender();
-                        WakeFeedback.failed(GameDetailActivity.this, model.hostName, R.string.error_manager_not_running,
-                                null);
+                        wakeFailed(R.string.error_manager_not_running, null);
                         return;
                     }
                     // Reload at once: the page needs the PC's library and its running game before it plays.
@@ -594,15 +721,15 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                 public void onTimedOut() {
                     playWhenReady = false;
                     rerender();
-                    WakeFeedback.timedOut(GameDetailActivity.this, model.hostName, GameDetailActivity.this::wakeAndPlay);
+                    autoFailed(WakeFeedback.timedOut(GameDetailActivity.this, model.hostName,
+                            auto == Auto.GOING ? null : GameDetailActivity.this::wakeAndPlay));
                 }
 
                 @Override
                 public void onSendFailed(IOException error) {
                     playWhenReady = false;
                     rerender();
-                    WakeFeedback.failed(GameDetailActivity.this, model.hostName, R.string.wol_fail,
-                            GameDetailActivity.this::wakeAndPlay);
+                    wakeFailed(R.string.wol_fail, GameDetailActivity.this::wakeAndPlay);
                 }
             });
         }
@@ -649,12 +776,12 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             return;
         }
         if (computer == null) {
-            WakeFeedback.failed(this, model.hostName, R.string.error_pc_offline, null);
+            wakeFailed(R.string.error_pc_offline, null);
             return;
         }
         if (feed.binder() == null) {
             // The computer manager service is not connected yet: say so instead of ignoring the press.
-            WakeFeedback.failed(this, model.hostName, R.string.error_manager_not_running, null);
+            wakeFailed(R.string.error_manager_not_running, null);
             return;
         }
         NvApp app = app();
@@ -664,6 +791,11 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         if (plan.kind == PlayPlan.Kind.START) {
             play(app, computer);
             return;
+        }
+        if (auto == Auto.GOING) {
+            // Another game runs there: the player decides now, so this is no longer an automatic start.
+            endAuto();
+            OpenPlay.disarm(this);
         }
         // A host that confirms replacement asks the player itself; elsewhere the client asks, then closes the game.
         NvApp running = plan.runningApp();

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_open_on_start">Nightjar açıldığında</string>
+    <string name="summary_open_on_start">Bilgisayarlarınız veya bir oyuna 3 saniyelik geri sayım.</string>
+    <string name="open_play_menu">Nightjar başlayınca bunu aç</string>
+    <string name="open_play_menu_stop">Nightjar başlayınca bunu açma</string>
+    <string name="open_play_countdown">%1$s üzerinde %2$d içinde başlıyor</string>
+    <string name="open_play_skipped">%1$s geçen sefer başlamadı, bu yüzden Nightjar her zamanki gibi açıldı.</string>
+    <string name="open_play_chosen">Nightjar başlayınca %1$s açılır</string>
+    <string name="open_play_continue">%1$s devam et</string>
+    <string-array name="open_on_start_names">
+        <item>Bilgisayarlarımı göster</item>
+        <item>Son oyunuma devam et</item>
+        <item>Seçilen bir oyun</item>
+    </string-array>
+</resources>

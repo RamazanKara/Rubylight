@@ -780,7 +780,14 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this)
                 .setTitle(card.title)
                 .setItems(new CharSequence[]{getString(remove ? R.string.console_favourite_remove
-                        : R.string.console_favourite_add)}, (dialog, which) -> setFavourite(card, !remove))
+                        : R.string.console_favourite_add), OpenPlay.menuLabel(this, card.hostUuid, card.appId)},
+                        (dialog, which) -> {
+                            if (which == 0) {
+                                setFavourite(card, !remove);
+                            } else {
+                                OpenPlay.toggle(this, card.hostUuid, card.hostName, card.appId, card.title);
+                            }
+                        })
                 .setNegativeButton(android.R.string.cancel, null).create());
     }
 

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_open_on_start">Nightjar 開啟時</string>
+    <string name="summary_open_on_start">你的電腦，或倒數 3 秒進入遊戲。</string>
+    <string name="open_play_menu">Nightjar 啟動時開啟</string>
+    <string name="open_play_menu_stop">Nightjar 啟動時不再開啟</string>
+    <string name="open_play_countdown">%2$d 秒後在 %1$s 上啟動</string>
+    <string name="open_play_skipped">%1$s 上次未能啟動，因此 Nightjar 照常開啟。</string>
+    <string name="open_play_chosen">Nightjar 啟動時將開啟 %1$s</string>
+    <string name="open_play_continue">繼續 %1$s</string>
+    <string-array name="open_on_start_names">
+        <item>顯示我的電腦</item>
+        <item>繼續上次的遊戲</item>
+        <item>選定的遊戲</item>
+    </string-array>
+</resources>

@@ -1,0 +1,249 @@
+package com.limelight.console;
+
+import static com.limelight.nativeapi.NativeApiFixtures.game;
+import static com.limelight.nativeapi.NativeApiFixtures.library;
+import static com.limelight.nativeapi.NativeApiFixtures.nativeHost;
+import static com.limelight.nativeapi.NativeApiFixtures.ok;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.robolectric.Shadows.shadowOf;
+
+import android.app.Application;
+import android.app.Dialog;
+import android.content.Context;
+import android.content.Intent;
+import android.os.Bundle;
+import android.os.Looper;
+import android.preference.PreferenceManager;
+import android.view.KeyEvent;
+import android.widget.TextView;
+
+import androidx.appcompat.app.AlertDialog;
+
+import com.limelight.PcViewLifecycleTest;
+import com.limelight.computers.ComputerManagerListener;
+import com.limelight.computers.ComputerManagerService;
+import com.limelight.nativeapi.NativeApiFixtures;
+import com.limelight.nvstream.http.ComputerDetails;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
+import org.junit.runner.RunWith;
+import org.robolectric.Robolectric;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
+import org.robolectric.android.controller.ActivityController;
+import org.robolectric.annotation.Config;
+import org.robolectric.shadows.ShadowDialog;
+import org.robolectric.util.ReflectionHelpers;
+
+import java.util.Collections;
+import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
+
+/** The automatic start on a game's page: the countdown, its ways out, and what each ending leaves the guard as. */
+@RunWith(RobolectricTestRunner.class)
+@Config(sdk = 28, application = Application.class, shadows = PcViewLifecycleTest.NoNativeMoonBridge.class,
+        instrumentedPackages = "com.limelight.nvstream.jni")
+public class GameDetailOpenPlayTest {
+    @Rule public TemporaryFolder temporary = new TemporaryFolder();
+
+    private Context context;
+    private ConsoleRig rig;
+    private ActivityController<GameDetailWakeTest.Detail> controller;
+    private GameDetailWakeTest.Detail screen;
+    private HostFeed feed;
+
+    @Before
+    public void setUp() throws Exception {
+        context = RuntimeEnvironment.getApplication();
+        PreferenceManager.getDefaultSharedPreferences(context).edit().clear().commit();
+        OpenPlayModel.use(request -> "{\"ok\":{\"countdown_ms\":3000,\"settled_ms\":10000}}");
+        OpenPlay.disarm(context);
+        GameDetailWakeTest.Detail.woken.clear();
+        GameDetailWakeTest.Detail.played.clear();
+        ShadowDialog.reset();
+    }
+
+    @After
+    public void tearDown() {
+        OpenPlayModel.use(null);
+        GameDetailWakeTest.Detail.repository = null;
+    }
+
+    private void open(boolean online, String mac, Bundle state) throws Exception {
+        rig = new ConsoleRig(temporary.newFolder());
+        rig.transport.reply("tower", "library", ok(library("r", game("t-portal", 11, "Portal", "steam:400", false))));
+        rig.transport.reply("tower", "session", ok(NativeApiFixtures.IDLE));
+        rig.repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", true)));
+        GameDetailWakeTest.Detail.repository = rig.repository;
+        Intent intent = new Intent(context, GameDetailWakeTest.Detail.class)
+                .putExtra(GameDetailActivity.EXTRA_HOST_UUID, "tower")
+                .putExtra(GameDetailActivity.EXTRA_APP_ID, 11)
+                .putExtra(GameDetailActivity.EXTRA_TITLE, "Portal")
+                .putExtra(GameDetailActivity.EXTRA_HOST_NAME, "Tower")
+                .putExtra(GameDetailActivity.EXTRA_OPEN_PLAY, true);
+        controller = Robolectric.buildActivity(GameDetailWakeTest.Detail.class, intent);
+        controller = state == null ? controller.setup() : controller.setup(state);
+        controller.visible();
+        screen = controller.get();
+        feed = ReflectionHelpers.getField(screen, "feed");
+        ReflectionHelpers.setField(feed, "binder", binder());
+        ComputerDetails tower = nativeHost("tower", "Tower", online);
+        tower.macAddress = mac;
+        feed.update(tower);
+    }
+
+    private static ComputerManagerService.ComputerManagerBinder binder() {
+        return new ComputerManagerService().new ComputerManagerBinder() {
+            @Override public boolean isPersistent() { return false; }
+            @Override public void startPolling(ComputerManagerListener listener) { }
+            @Override public void stopPolling() { }
+            @Override public void renameComputer(String uuid, String alias) { }
+            @Override public void removeComputer(ComputerDetails computer) { }
+            @Override public void invalidateStateForComputer(String uuid) { }
+            @Override public String getUniqueId() { return "unique"; }
+            @Override public void waitForPollingStopped() { }
+        };
+    }
+
+    private static void pass(long ms) {
+        shadowOf(Looper.getMainLooper()).idleFor(ms, TimeUnit.MILLISECONDS);
+    }
+
+    private static void await(BooleanSupplier done) throws Exception {
+        long end = System.currentTimeMillis() + 5000;
+        while (!done.getAsBoolean() && System.currentTimeMillis() < end) {
+            pass(50);
+            Thread.sleep(20);
+        }
+        assertTrue("in time", done.getAsBoolean());
+    }
+
+    private static AlertDialog shown() {
+        Dialog dialog = ShadowDialog.getLatestDialog();
+        assertTrue("a dialog is up", dialog != null && dialog.isShowing());
+        return (AlertDialog) dialog;
+    }
+
+    @Test
+    public void theCountdownNamesTheGameAndThePcWithCancelFocused() throws Exception {
+        open(true, null, null);
+        AlertDialog dialog = shown();
+        assertEquals("Starting on Tower in 3", ((TextView) dialog.findViewById(android.R.id.message)).getText().toString());
+        assertTrue("Cancel takes the first press", dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isFocused());
+        pass(1200);
+        assertEquals("Starting on Tower in 2", ((TextView) dialog.findViewById(android.R.id.message)).getText().toString());
+    }
+
+    @Test
+    public void cancelClosesThePageAndStartsNothingWithTheGuardUntouched() throws Exception {
+        open(true, null, null);
+        shown().getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+        pass(100);
+        assertTrue(screen.isFinishing());
+        pass(5000);
+        assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
+        assertFalse(OpenPlay.armed(context));
+    }
+
+    @Test
+    public void backAndBAndEscapeCancelToo() throws Exception {
+        for (int key : new int[] {KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_ESCAPE}) {
+            ShadowDialog.reset();
+            open(true, null, null);
+            AlertDialog dialog = shown();
+            dialog.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, key));
+            dialog.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, key));
+            pass(100);
+            assertTrue("key " + key, screen.isFinishing());
+            assertFalse("key " + key, dialog.isShowing());
+        }
+        pass(5000);
+        assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
+    }
+
+    @Test
+    public void anOnlinePcStartsTheGameWithTheGuardArmedUntilTheStreamClearsIt() throws Exception {
+        open(true, null, null);
+        pass(2000);
+        assertTrue("not before the countdown ends", GameDetailWakeTest.Detail.played.isEmpty());
+        assertFalse(OpenPlay.armed(context));
+        pass(1100);
+        assertTrue(OpenPlay.armed(context));
+        await(() -> !GameDetailWakeTest.Detail.played.isEmpty());
+        assertEquals("Portal", GameDetailWakeTest.Detail.played.get(0));
+        assertEquals("once", 1, GameDetailWakeTest.Detail.played.size());
+        assertTrue(OpenPlay.armed(context));
+    }
+
+    @Test
+    public void anOfflinePcIsWokenBeforeTheGame() throws Exception {
+        open(false, "00:11:22:33:44:55", null);
+        pass(3100);
+        await(() -> !GameDetailWakeTest.Detail.woken.isEmpty());
+        assertEquals("tower", GameDetailWakeTest.Detail.woken.get(0));
+        assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
+    }
+
+    @Test
+    public void leavingThePageDuringTheWakeIsThePlayersChoice() throws Exception {
+        open(false, "00:11:22:33:44:55", null);
+        pass(3100);
+        await(() -> !GameDetailWakeTest.Detail.woken.isEmpty());
+        assertTrue(OpenPlay.armed(context));
+        controller.pause();
+        assertFalse(OpenPlay.armed(context));
+    }
+
+    @Test
+    public void aFailedStartSaysSoLandsOnHomeAndKeepsTheGuardArmed() throws Exception {
+        open(false, null, null);
+        Dialog countdown = shown();
+        pass(3100);
+        assertTrue(OpenPlay.armed(context));
+        await(() -> ShadowDialog.getLatestDialog() != countdown && ShadowDialog.getLatestDialog().isShowing());
+        assertFalse("the page stays until the message is read", screen.isFinishing());
+        shown().getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        pass(100);
+        assertTrue(screen.isFinishing());
+        assertTrue(OpenPlay.armed(context));
+        assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
+    }
+
+    @Test
+    public void aRecreatedPageDoesNothingByItself() throws Exception {
+        open(true, null, new Bundle());
+        assertNull(ShadowDialog.getLatestDialog());
+        pass(5000);
+        assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
+        assertFalse(OpenPlay.armed(context));
+    }
+
+    @Test
+    public void theAppPinComesFirstAndTheFullCountdownFollowsIt() throws Exception {
+        com.limelight.pin.PinGate.resetForTests();
+        com.limelight.pin.PinStore store = new com.limelight.pin.PinStore(context);
+        store.setPin(new byte[] {1, 2, 3, 4});
+        store.setMode(com.limelight.pin.PinStore.Mode.APP);
+        try {
+            open(true, null, null);
+            assertNull("no countdown behind the PIN", ShadowDialog.getLatestDialog());
+            pass(5000);
+            assertFalse(OpenPlay.armed(context));
+            assertTrue(GameDetailWakeTest.Detail.played.isEmpty());
+
+            com.limelight.pin.PinGate.unlockApp();
+            controller.pause().resume();
+            assertEquals("Starting on Tower in 3", ((TextView) shown().findViewById(android.R.id.message)).getText().toString());
+        } finally {
+            store.removePin();
+            com.limelight.pin.PinGate.resetForTests();
+        }
+    }
+}

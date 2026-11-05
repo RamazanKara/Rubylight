@@ -711,6 +711,7 @@ final class GameConnection {
     }
 
     void stopConnection() {
+        if (openPlaySettled != null) game.bitrateHandler.removeCallbacks(openPlaySettled);
         game.adaptation.stopFoundationAbr();
         game.touchInput.releaseDesktopInput();
         if (game.trackpadPointer != null) game.trackpadPointer.stopMomentum();
@@ -1114,12 +1115,19 @@ final class GameConnection {
         });
     }
 
+    /** An automatic start's stream clears the guard once it lasted (OpenPlay); removed if it stops first. */
+    private Runnable openPlaySettled;
+
     void connectionStarted() {
         game.runOnUiThread(new Runnable() {
             @Override
             public void run() {
                 if (!game.connecting || game.isFinishing() || game.isDestroyed()) {
                     return;
+                }
+                if (com.limelight.console.OpenPlay.isAutoStart(game.getIntent())) {
+                    if (openPlaySettled != null) game.bitrateHandler.removeCallbacks(openPlaySettled);
+                    openPlaySettled = com.limelight.console.OpenPlay.settleAfter(game, game.bitrateHandler);
                 }
                 if (game.spinner != null) {
                     game.spinner.dismiss();

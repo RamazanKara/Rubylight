@@ -1039,8 +1039,10 @@ public class NvConnection {
                     return launchNotRunningApp(h, context);
                 } else if (context.streamConfig.isNeverReplace()) {
                     // However old the look that let this start go on (a poll, a PIN in between): no tap, no quit.
+                    // Its one message closes the screen, with no failure dialog after it.
                     context.connListener.automaticStartStopped();
-                    context.connListener.displayMessage(appContext.getString(R.string.open_play_other_device, details.name));
+                    context.launchActionCompleted = true;
+                    context.connListener.launchActionCompleted(appContext.getString(R.string.open_play_other_device, details.name));
                     return false;
                 } else {
                     return quitAndLaunch(h, context);

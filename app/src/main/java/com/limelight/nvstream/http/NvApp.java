@@ -19,6 +19,7 @@ public class NvApp {
     private boolean initialized;
     private boolean hdrSupported;
     private String appUuid = "";
+    private String stableId = "";
     private int hostIndex = Integer.MAX_VALUE;
     private String artVersion = "";
     private boolean monitorResume;
@@ -68,6 +69,16 @@ public class NvApp {
 
     public String getAppUuid() {
         return appUuid;
+    }
+
+    /** What the host's library calls the game; stays on this device, as the PC's own list may not know it. */
+    public void setStableId(String stableId) {
+        this.stableId = stableId == null ? "" : stableId;
+    }
+
+    /** What to remember the game by: the library's name for it, else its UUID, which may be empty. */
+    public String getStableId() {
+        return stableId.isEmpty() ? appUuid : stableId;
     }
 
     /**

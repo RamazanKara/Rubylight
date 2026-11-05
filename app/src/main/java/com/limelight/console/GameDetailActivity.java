@@ -832,6 +832,8 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             // It woke by itself since the page was drawn: refresh, then the second press plays.
             // An automatic start has no second press: it plays once the page is fresh.
             playWhenReady = auto == Auto.GOING;
+            // No wake to time this: without a limit, a read that never comes back would leave it waiting for good.
+            if (auto == Auto.GOING) startAutoLimit();
             modelLive = false;
             loadedSignature = null;
             scheduleReload();
@@ -854,6 +856,8 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                         return;
                     }
                     // Reload at once: the page needs the PC's library and its running game before it plays.
+                    // The wake's limit ended with the wake; a read that never comes back needs its own.
+                    if (auto == Auto.GOING) startAutoLimit();
                     modelLive = false;
                     loadedSignature = null;
                     handler.removeCallbacks(reload);

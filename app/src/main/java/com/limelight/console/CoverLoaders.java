@@ -44,6 +44,7 @@ final class CoverLoaders {
         NvApp app = new NvApp(title, appId, source != null && source.hdrSupported);
         if (source != null) {
             app.setAppUuid(source.appUuid);
+            app.setStableId(source.stableId());
             app.setArtVersion(source.coverVersion == null ? "" : source.coverVersion);
         }
         return app;

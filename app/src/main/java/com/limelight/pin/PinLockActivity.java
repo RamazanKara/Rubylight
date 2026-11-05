@@ -76,7 +76,7 @@ public class PinLockActivity extends NightjarActivity {
             // The "Continue playing" entry is made when the stream really starts, not when the PIN is asked for.
             intent.putExtra(EXTRA_RECENT_HOST, computer.uuid).putExtra(EXTRA_RECENT_HOST_NAME, computer.name)
                     .putExtra(EXTRA_RECENT_APP_ID, app.getAppId()).putExtra(EXTRA_RECENT_TITLE, app.getAppName())
-                    .putExtra(EXTRA_RECENT_STABLE_ID, app.getAppUuid());
+                    .putExtra(EXTRA_RECENT_STABLE_ID, app.getStableId());
         }
         return intent;
     }

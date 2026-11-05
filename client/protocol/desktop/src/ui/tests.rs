@@ -911,6 +911,10 @@ fn assert_fits(f: &Frames, what: &str, whole_height: bool) {
             assert!(rect.top() >= -1.0 && rect.bottom() <= screen.bottom() + 1.0, "{what}: {text:?} leaves the window: {rect:?} in {screen:?}");
         }
     }
+    if whole_height {
+        let past = areas_past_window(&f.ctx, screen);
+        assert!(past.is_empty(), "{what}: its area leaves the window: {past:?} in {screen:?}");
+    }
 }
 
 /// The label of a tall row scrolled out of its list is laid out but never seen, and its list's
@@ -920,13 +924,40 @@ fn must_stay_in_window(rect: Rect, clip: Rect, screen: Rect) -> bool {
     rect.intersects(clip) || clip.bottom() >= screen.bottom() - 1.0
 }
 
+/// A dialog's whole area, whatever part of it reached the screen: egui doesn't paint a button
+/// outside the clip, so one wholly below the window never shows up among the drawn text.
+fn areas_past_window(ctx: &egui::Context, screen: Rect) -> Vec<Rect> {
+    ctx.memory(|m| {
+        m.areas()
+            .visible_layer_ids()
+            .into_iter()
+            .filter_map(|layer| m.area_rect(layer.id))
+            .filter(|area| area.top() < -1.0 || area.bottom() > screen.bottom() + 1.0)
+            .collect()
+    })
+}
+
 #[test]
-fn a_button_wholly_below_the_window_does_not_fit_but_a_row_scrolled_out_of_its_list_does() {
-    let screen = Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 720.0));
-    let below = Rect::from_min_size(Pos2::new(100.0, 800.0), vec2(80.0, 30.0));
-    assert!(must_stay_in_window(below, screen, screen), "a dialog that doesn't scroll");
-    let list = Rect::from_min_max(Pos2::new(0.0, 100.0), Pos2::new(1280.0, 600.0));
-    assert!(!must_stay_in_window(below, list, screen), "a list that ends above the edge");
+fn a_dialog_whose_button_is_wholly_below_the_window_does_not_fit() {
+    let screen = Rect::from_min_size(Pos2::ZERO, vec2(853.0, 480.0));
+    for (rows, fits) in [(2, true), (12, false)] {
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+        let mut button = Rect::NOTHING;
+        for _ in 0..4 {
+            let mut output = ctx.run_ui(raw.clone(), |ui| {
+                egui::Modal::new(egui::Id::new("dialog")).show(ui.ctx(), |ui| {
+                    for row in 0..rows {
+                        ui.label(format!("Row {row}"));
+                        ui.add_space(100.0);
+                    }
+                    button = ui.button("Last").rect;
+                });
+            });
+            output.textures_delta.clear();
+        }
+        assert_eq!(areas_past_window(&ctx, screen).is_empty(), fits, "{rows} rows, button {button:?}");
+    }
 }
 
 #[test]

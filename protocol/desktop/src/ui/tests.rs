@@ -98,27 +98,26 @@ fn the_game_another_device_plays_is_matched_by_id_and_install_id() {
         r#"{"device":"Phone","app":{"install_id":"game-a","app_id":7,"title":"Game"}}"#,
     ).unwrap();
     let app = |id, uuid: &str| nightjar_core::http::App { uuid: uuid.into(), ..game(id) };
-    assert!(super::library::plays_this_game(Some(&app(7, "game-a")), 7, false, &playing));
-    assert!(!super::library::plays_this_game(Some(&app(7, "game-b")), 7, false, &playing), "the id was given to another game");
-    assert!(super::library::plays_this_game(Some(&app(9, "game-a")), 9, false, &playing), "the game has a new id");
-    assert!(super::library::plays_this_game(Some(&app(7, "")), 7, false, &playing), "no install id: the id decides");
-    assert!(super::library::plays_this_game(None, 7, false, &playing));
-    assert!(!super::library::plays_this_game(None, 8, false, &playing));
+    assert!(super::library::plays_this_game(Some(&app(7, "game-a")), 7, &playing));
+    assert!(!super::library::plays_this_game(Some(&app(7, "game-b")), 7, &playing), "the id was given to another game");
+    assert!(super::library::plays_this_game(Some(&app(9, "game-a")), 9, &playing), "the game has a new id");
+    assert!(super::library::plays_this_game(Some(&app(7, "")), 7, &playing), "no install id: the id decides");
+    assert!(super::library::plays_this_game(None, 7, &playing));
+    assert!(!super::library::plays_this_game(None, 8, &playing));
 }
 
 #[test]
-fn a_resume_through_a_tile_of_the_running_game_is_the_game_another_device_plays() {
+fn a_tile_of_the_running_game_is_the_game_another_device_plays() {
     use nightjar_core::http::AppControl;
     let playing: nightjar_core::http::PlayingOn = serde_json::from_str(
         r#"{"device":"Phone","app":{"install_id":"game-a","app_id":7,"title":"Game"}}"#,
     ).unwrap();
     let tile = |control| nightjar_core::http::App { control, uuid: "tile".into(), ..game(9) };
-    assert!(super::library::plays_this_game(Some(&tile(AppControl::Resume)), 9, true, &playing));
-    assert!(super::library::plays_this_game(Some(&tile(AppControl::RunningGame)), 9, true, &playing));
-    assert!(!super::library::plays_this_game(Some(&tile(AppControl::Resume)), 9, false, &playing), "only a resume");
-    assert!(!super::library::plays_this_game(Some(&tile(AppControl::Terminate)), 9, true, &playing));
+    assert!(super::library::plays_this_game(Some(&tile(AppControl::Resume)), 9, &playing));
+    assert!(super::library::plays_this_game(Some(&tile(AppControl::RunningGame)), 9, &playing));
+    assert!(!super::library::plays_this_game(Some(&tile(AppControl::Terminate)), 9, &playing));
     let other = nightjar_core::http::App { uuid: "game-b".into(), ..game(9) };
-    assert!(!super::library::plays_this_game(Some(&other), 9, true, &playing), "a game of its own is not this one");
+    assert!(!super::library::plays_this_game(Some(&other), 9, &playing), "a game of its own is not this one");
 }
 
 #[test]

@@ -107,6 +107,7 @@ public class HostCapabilitiesContractTest {
             case HARDWARE_METRICS_OFF: return "hardware_metrics_off";
             case SLEEP_PERMISSION: return "sleep_permission";
             case RESTART_SHUTDOWN_PERMISSION: return "restart_shutdown_permission";
+            case PAIRING_APPROVE_PERMISSION: return "pairing_approve_permission";
             case FILE_PERMISSION: return "file_permission";
             case USB_PERMISSION: return "usb_permission";
             case FOLDER_PERMISSION: return "folder_permission";

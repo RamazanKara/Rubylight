@@ -1355,6 +1355,7 @@ sudo sysctl -w net.core.rmem_max={}", "Bộ đệm nhận: hệ thống chỉ c�
     ("Restart PC", "Khởi động lại PC"),
     ("Shut down PC", "Tắt PC"),
     ("Update the PC's host", "Cập nhật host của PC"),
+    ("Needs Approve new devices on the host's Devices page.", "Cần “Approve new devices” ở trang Devices của máy chủ."),
     ("Pair another device", "Ghép nối thiết bị khác"),
     ("{} wants to pair", "{} muốn ghép nối"),
     ("{} devices want to pair", "{} thiết bị muốn ghép nối"),

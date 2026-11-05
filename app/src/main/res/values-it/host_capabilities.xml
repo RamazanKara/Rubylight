@@ -30,6 +30,7 @@
     <string name="host_feature_reason_hardware_metrics_off">Attiva le metriche hardware nelle impostazioni dell’host</string>
     <string name="host_feature_reason_sleep_permission">Questo dispositivo non è autorizzato a sospendere il PC</string>
     <string name="host_feature_reason_restart_shutdown_permission">Questo dispositivo non può riavviare o spegnere il PC</string>
+    <string name="host_feature_reason_pairing_approve_permission">Richiede “Approve new devices” in Devices dell’host</string>
     <string name="host_feature_reason_file_permission">Nessun accesso ai file: consentilo nell’interfaccia web</string>
     <string name="host_feature_reason_usb_permission">Nessun dispositivo USB: consentilo nell’interfaccia web</string>
     <string name="host_feature_reason_folder_permission">Nessuna cartella condivisa: consentila nell’interfaccia web</string>

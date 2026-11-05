@@ -907,7 +907,8 @@ fn assert_fits(f: &Frames, what: &str, whole_height: bool) {
             rect.left() >= clip.left() - 1.0 && rect.right() <= clip.right() + 1.0 && rect.right() <= screen.right() + 1.0,
             "{what}: {text:?} runs past its edge: text {rect:?}, clip {clip:?}, window {screen:?}"
         );
-        if whole_height {
+        // The label of a tall row scrolled mostly out of its list is laid out but never seen.
+        if whole_height && rect.intersects(*clip) {
             assert!(rect.top() >= -1.0 && rect.bottom() <= screen.bottom() + 1.0, "{what}: {text:?} leaves the window: {rect:?} in {screen:?}");
         }
     }
@@ -1453,6 +1454,7 @@ fn every_option_is_reachable_with_the_keyboard() {
             HostOption::Sleep => host.sleep_option() == Some(Ok(())),
             HostOption::RestartPc => host.pc_power_option(PcPower::Restart) == Some(Ok(())),
             HostOption::ShutDownPc => host.pc_power_option(PcPower::ShutDown) == Some(Ok(())),
+            HostOption::PairAnother => host.pair_another_option() == Some(Ok(())),
             _ => true,
         });
         for (n, option) in reachable.enumerate() {
@@ -2026,13 +2028,19 @@ fn tv_request(id: &str) -> nightjar_core::http::PairingRequest {
 }
 
 #[test]
-fn pair_another_device_needs_the_capability_and_host_control() {
+fn pair_another_device_is_listed_where_offered_and_says_what_it_needs() {
     let f = every_state().into_iter().find(|s| s.name == "paired").unwrap().frames();
     assert!(!host_options(&f.hosts.list[0]).contains(&HostOption::PairAnother), "an older host");
-    let f = approving_frames(false);
-    assert!(!host_options(&f.hosts.list[0]).contains(&HostOption::PairAnother), "no Host control");
+    let mut f = approving_frames(false);
+    assert!(host_options(&f.hosts.list[0]).contains(&HostOption::PairAnother), "no permission");
+    assert_eq!(f.hosts.list[0].pair_another_option(), Some(Err(crate::hosts::PAIRING_NOT_ALLOWED)));
+    assert!(tr(crate::hosts::PAIRING_NOT_ALLOWED).contains("Approve new devices"));
+    assert!(!f.hosts.list[0].may_approve_pairing());
+    // The permission alone is enough, as Host control is.
+    f.hosts.list[0].native.capabilities.as_mut().unwrap().files.pairing_approve = true;
+    assert_eq!(f.hosts.list[0].pair_another_option(), Some(Ok(())));
     let mut f = approving_frames(true);
-    assert!(host_options(&f.hosts.list[0]).contains(&HostOption::PairAnother));
+    assert_eq!(f.hosts.list[0].pair_another_option(), Some(Ok(())));
     // Requests read before Host control went away are not offered.
     f.hosts.list[0].native.pairing_requests = vec![tv_request("a1")];
     assert_eq!(f.hosts.list[0].waiting_to_pair().len(), 1);

@@ -1355,6 +1355,7 @@ sudo sysctl -w net.core.rmem_max={}", "Búfer de recepción: el sistema concedi�
     ("Restart PC", "Reiniciar PC"),
     ("Shut down PC", "Apagar PC"),
     ("Update the PC's host", "Actualizar el host del PC"),
+    ("Needs Approve new devices on the host's Devices page.", "Requiere «Approve new devices» en Devices del host."),
     ("Pair another device", "Emparejar otro dispositivo"),
     ("{} wants to pair", "{} quiere emparejarse"),
     ("{} devices want to pair", "{} dispositivos quieren emparejarse"),

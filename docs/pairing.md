@@ -9,7 +9,7 @@ Each Nightjar installation pairs with a PC's host once. Pairing exchanges certif
 | [PIN](#pin-flow) | Every Moonlight-compatible host | Nightjar shows a PIN; you enter it on the host |
 | [One-time PIN](#host-generated-one-time-pin) | Hosts with one-time PINs, such as Apollo, Vibepollo and Rubylight | The host shows a PIN and passphrase; you enter them in Nightjar |
 | [QR code or pairing link](#pair-with-a-qr-code) | Hosts with QR pairing (Rubylight 3.0) | You scan the host's code, or open or paste its link |
-| [From a paired device](#approve-from-a-paired-device) | Rubylight with `pairing.approve` | The new device shows a PIN; you enter it on a paired device with Host control |
+| [From a paired device](#approve-from-a-paired-device) | Rubylight with `pairing.approve` | The new device shows a PIN; you enter it on a paired device with Approve new devices |
 
 ## Find the PC
 
@@ -35,9 +35,9 @@ A TV or console can pair without a walk to the PC. Select the PC on the new devi
 2. Select the request, compare the address with the new device, and enter its PIN. A controller works: every digit is a button, and the digit keys of a keyboard work too.
 3. Choose **Approve**, or **Deny** to end the request. Backing out leaves it waiting.
 
-The new device gets what a PIN entered on the PC gives by default, Play, and never more than the approving device holds. Host control and shared folders are not passed on. Three wrong PINs end the requests from that device for five minutes; the PC's own Devices page can still pair it. The PC shows a toast for every approval, and logs and sends a webhook naming both devices.
+The new device gets what a PIN entered on the PC gives by default, Play, and never more than the approving device holds. Host control, Approve new devices and shared folders are not passed on. Three wrong PINs end the requests from that device for five minutes; the PC's own Devices page can still pair it. The PC shows a toast for every approval, and logs and sends a webhook naming both devices.
 
-This needs **Host control** on the approving device. No device holds it until it is turned on in the host's web UI (**Devices** → device → **Other**), the first paired one included; without it, Home shows no requests and the options don't list the entry.
+This needs **Approve new devices** on the approving device, or Host control. The first device paired on a host has it; any other gets it in the host's web UI (**Devices** → device → **Other**), and devices paired before a host had it stay as they were. It allows approving and nothing else. Without it, Home shows no requests, and **Pair another device** in the PC's options is dimmed and names the permission and the Devices page.
 
 ## Host-generated one-time PIN
 
@@ -98,7 +98,7 @@ Apollo, Vibepollo, Rubylight and other hosts with per-device permissions set the
 | Read clipboard | Request text from the PC. |
 | Server commands | Run a command configured by the host's administrator. |
 
-A Rubylight 3.0 host adds permissions for its extensions: **Host control** (closing games and changing Radeon settings, see [the session menu](console.md#session-and-graphics)), **Upload files** and **Download files**, shared folders, USB forwarding, and **Can join co-op games** (see [sharing](sharing.md) and [Join co-op](console.md#join-co-op)). When an action needs a permission the device lacks, Nightjar names it and points to the Devices page of the host's web UI.
+A Rubylight 3.0 host adds permissions for its extensions: **Host control** (closing games and changing Radeon settings, see [the session menu](console.md#session-and-graphics)), **Approve new devices** (see [above](#approve-from-a-paired-device)), **Upload files** and **Download files**, shared folders, USB forwarding, and **Can join co-op games** (see [sharing](sharing.md) and [Join co-op](console.md#join-co-op)). When an action needs a permission the device lacks, Nightjar names it and points to the Devices page of the host's web UI.
 
 For normal play, grant list, view, launch and the input permissions you use. A device with view permission only can watch without controlling.
 

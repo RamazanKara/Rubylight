@@ -1355,6 +1355,7 @@ sudo sysctl -w net.core.rmem_max={}", "Alma arabelleği: sistem istenen {1} KiB'
     ("Restart PC", "PC'yi yeniden başlat"),
     ("Shut down PC", "PC'yi kapat"),
     ("Update the PC's host", "PC'nin hostunu güncelle"),
+    ("Needs Approve new devices on the host's Devices page.", "Hostun Devices sayfasında “Approve new devices” gerekir."),
     ("Pair another device", "Başka bir cihaz eşle"),
     ("{} wants to pair", "{} eşleşmek istiyor"),
     ("{} devices want to pair", "{} cihaz eşleşmek istiyor"),

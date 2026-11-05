@@ -1355,6 +1355,7 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("Restart PC", "PC 다시 시작"),
     ("Shut down PC", "PC 종료"),
     ("Update the PC's host", "PC의 호스트 업데이트"),
+    ("Needs Approve new devices on the host's Devices page.", "호스트의 Devices 페이지에서 “Approve new devices”가 필요합니다."),
     ("Pair another device", "다른 기기 페어링"),
     ("{} wants to pair", "{}에서 페어링을 요청합니다"),
     ("{} devices want to pair", "기기 {}대가 페어링을 요청합니다"),

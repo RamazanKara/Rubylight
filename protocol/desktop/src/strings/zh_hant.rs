@@ -1355,6 +1355,7 @@ sudo sysctl -w net.core.rmem_max={}", "接收緩衝區：系統只分配了所�
     ("Restart PC", "重新啟動電腦"),
     ("Shut down PC", "關閉電腦"),
     ("Update the PC's host", "更新電腦的主機"),
+    ("Needs Approve new devices on the host's Devices page.", "需要在主機的 Devices 頁面開啟「Approve new devices」。"),
     ("Pair another device", "配對其他裝置"),
     ("{} wants to pair", "{} 要求配對"),
     ("{} devices want to pair", "{} 台裝置要求配對"),

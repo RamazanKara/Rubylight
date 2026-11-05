@@ -41,26 +41,41 @@ public class KeyframeSafetyNetLoopTest {
     public static class OutputCodec extends ShadowMediaCodec {
         static MediaCodecDecoderRenderer renderer;
         static FrameLatencyStats stats;
-        static int nextFrame;
+        static int nextOutput;
+        static int nextTick;
+        // Past the calm, this many 20 ms outputs are already waiting behind each output of the grid, which
+        // stays at 3 ms: the climb is only in what the catch-up drain takes.
+        static int catchUpOutputs;
+        static int waiting;
         static long originNs;
 
+        private static int output(MediaCodec.BufferInfo info, int latencyMs) {
+            int frame = nextOutput++;
+            info.presentationTimeUs = frame + 1;
+            // Bookkeeping stays in its ordinary nanoTime domain, as in MediaCodecDrainBudgetTest.
+            long inputNs = System.nanoTime() - latencyMs * 1_000_000L;
+            stats.onDecoderInput(frame, info.presentationTimeUs, inputNs, inputNs, inputNs, (char) 0);
+            return frame;
+        }
+
         @Implementation public int dequeueOutputBuffer(MediaCodec.BufferInfo info, long timeoutUs) {
-            if (nextFrame >= FRAMES) {
+            if (waiting > 0) {
+                waiting--;
+                return output(info, 20);
+            }
+            if (nextTick >= FRAMES) {
                 ReflectionHelpers.setField(renderer, "stopping", true);
                 return MediaCodec.INFO_TRY_AGAIN_LATER;
             }
-            long readyNs = originNs + nextFrame * PERIOD_NS;
+            long readyNs = originNs + nextTick * PERIOD_NS;
             long nowNs = SystemClock.elapsedRealtimeNanos();
             if (nowNs < readyNs) {
                 if (timeoutUs == 0) return MediaCodec.INFO_TRY_AGAIN_LATER;
                 ShadowSystemClock.advanceBy(Duration.ofNanos(readyNs - nowNs));
             }
-            int frame = nextFrame++;
-            info.presentationTimeUs = frame + 1;
-            // Bookkeeping stays in its ordinary nanoTime domain, as in MediaCodecDrainBudgetTest.
-            long inputNs = System.nanoTime() - (frame < CALM_FRAMES ? 3 : 20) * 1_000_000L;
-            stats.onDecoderInput(frame, info.presentationTimeUs, inputNs, inputNs, inputNs, (char) 0);
-            return frame;
+            int tick = nextTick++;
+            if (tick >= CALM_FRAMES) waiting = catchUpOutputs;
+            return output(info, tick >= CALM_FRAMES && catchUpOutputs == 0 ? 20 : 3);
         }
 
         @Implementation public void releaseOutputBuffer(int index, boolean render) {}
@@ -69,6 +84,16 @@ public class KeyframeSafetyNetLoopTest {
 
     @Test
     public void aClimbInTheDecodersOutputsIsSeen() throws Exception {
+        runAndExpectOneClimb(0);
+    }
+
+    // Latency pacing, the default, drops what the catch-up drain replaces; those outputs count too.
+    @Test
+    public void aClimbInWhatTheCatchUpDrainTakesIsSeen() throws Exception {
+        runAndExpectOneClimb(3);
+    }
+
+    private static void runAndExpectOneClimb(int catchUpOutputs) throws Exception {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             ShadowSystemClock.advanceBy(Duration.ofSeconds(2));
             ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
@@ -83,7 +108,10 @@ public class KeyframeSafetyNetLoopTest {
             ReflectionHelpers.setField(renderer, "keyframeSafetyNet", new KeyframeSafetyNet(counts));
             OutputCodec.renderer = renderer;
             OutputCodec.stats = ReflectionHelpers.getField(renderer, "frameLatencyStats");
-            OutputCodec.nextFrame = 0;
+            OutputCodec.nextOutput = 0;
+            OutputCodec.nextTick = 0;
+            OutputCodec.catchUpOutputs = catchUpOutputs;
+            OutputCodec.waiting = 0;
             OutputCodec.originNs = SystemClock.elapsedRealtimeNanos();
             MediaCodec codec = MediaCodec.createDecoderByType("video/hevc");
             try {

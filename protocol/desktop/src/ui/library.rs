@@ -921,6 +921,14 @@ pub fn join_target(known: Option<&nightjar_core::http::App>, app: i32, playing: 
     }
 }
 
+/// What the prompt about another device's game starts when answered, app and resume: a tile that
+/// only names a way to reach the game resumes the game itself, since the stream refuses a resume of
+/// anything but the app the PC runs.
+pub fn asked_start(known: Option<&nightjar_core::http::App>, app: i32, resume: bool, playing: Option<&nightjar_core::http::PlayingOn>) -> (i32, bool) {
+    let target = join_target(known, app, playing);
+    (target, resume || target != app)
+}
+
 /// The same game by its install id where both sides have one, as a stream's resume decides it: an
 /// id alone can have been given to another game since the list was read. A tile that only names a
 /// way to reach the game (a stream's Resume or Running Game) means whatever runs, as `join_target`

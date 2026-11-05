@@ -764,12 +764,16 @@ pub fn classic_app(apps: &[(i32, &str)], install_id: &str, app_id: u32) -> Optio
 }
 
 /// The same for a game saved earlier, which nothing on screen vouches for: an app id may belong to another
-/// game by now, so a saved install id the list lacks means the game is not listed.
+/// game by now, so a saved install id the list lacks means the game is not listed. Only an entry with no UUID of
+/// its own goes by the app id: the library names a game without one by a UUID from its name, and the list by nothing.
 pub fn saved_classic_app(apps: &[(i32, &str)], install_id: &str, app_id: u32) -> Option<i32> {
     if install_id.is_empty() {
         return classic_app(apps, install_id, app_id);
     }
-    apps.iter().find(|(_, uuid)| !uuid.is_empty() && uuid.eq_ignore_ascii_case(install_id)).map(|(id, _)| *id)
+    apps.iter()
+        .find(|(_, uuid)| !uuid.is_empty() && uuid.eq_ignore_ascii_case(install_id))
+        .or_else(|| apps.iter().find(|(id, uuid)| uuid.is_empty() && *id as u32 == app_id))
+        .map(|(id, _)| *id)
 }
 
 #[cfg(test)]
@@ -1261,11 +1265,12 @@ mod tests {
     }
 
     #[test]
-    fn a_saved_game_whose_install_id_is_gone_is_not_listed_whatever_has_its_app_id_now() {
+    fn a_saved_game_whose_install_id_is_gone_is_not_listed_unless_its_entry_has_no_uuid() {
         let apps = [(11, ""), (12, "C6F1A9A4-4B51-5F43-9D0B-7A2B1C2D3E4F"), (13, "another-game")];
         assert_eq!(saved_classic_app(&apps, "c6f1a9a4-4b51-5f43-9d0b-7a2b1c2d3e4f", 99), Some(12));
         assert_eq!(saved_classic_app(&apps, "gone", 13), None);
-        assert_eq!(saved_classic_app(&apps, "gone", 11), None);
+        assert_eq!(saved_classic_app(&apps, "gone", 11), Some(11), "the entry has no UUID to tell it by");
+        assert_eq!(saved_classic_app(&apps, "gone", 99), None);
         assert_eq!(saved_classic_app(&apps, "", 13), Some(13), "saved without one: the app id is all there is");
     }
 

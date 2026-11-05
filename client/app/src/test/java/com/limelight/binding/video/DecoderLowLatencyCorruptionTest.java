@@ -70,15 +70,20 @@ public class DecoderLowLatencyCorruptionTest {
         ShadowMediaCodecList.addCodec(decoder("c2." + vendor + ".av1.decoder", "video/av01"));
     }
 
-    private static MediaCodecInfo decoder(String name, String mime) {
+    private static MediaCodecInfo decoder(String name, String mime, int... profiles) {
         Map<String, List<String>> parameters = ReflectionHelpers.getStaticField(
                 MediaCodecHelper.class, "vendorParameterCache");
         parameters.put(name, Arrays.asList("vendor.low-latency.enable"));
         MediaFormat capabilities = MediaFormat.createVideoFormat(mime, 3840, 2160);
         capabilities.setFeatureEnabled(CodecCapabilities.FEATURE_LowLatency, true);
+        CodecProfileLevel[] levels = new CodecProfileLevel[profiles.length];
+        for (int i = 0; i < profiles.length; i++) {
+            levels[i] = new CodecProfileLevel();
+            levels[i].profile = profiles[i];
+        }
         return MediaCodecInfoBuilder.newBuilder().setName(name).setIsHardwareAccelerated(true).setCapabilities(
                 CodecCapabilitiesBuilder.newBuilder().setMediaFormat(capabilities)
-                        .setProfileLevels(new CodecProfileLevel[0])
+                        .setProfileLevels(levels)
                         .setColorFormats(new int[] {CodecCapabilities.COLOR_FormatYUV420Flexible}).build()).build();
     }
 
@@ -147,6 +152,47 @@ public class DecoderLowLatencyCorruptionTest {
                 MoonBridge.CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC) != 0);
         assertTrue((capabilities(PreferenceConfiguration.FormatOption.FORCE_AV1, true) &
                 MoonBridge.CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1) != 0);
+    }
+
+    @Test
+    public void aDolbyVisionDecoderOfTheModelTakesItsBaseCodecsRfiToo() {
+        ShadowBuild.setModel(MODEL);
+        decoders("acme");
+        String dolbyVision = "c2.mtk.dolby-vision.decoder";
+        MediaCodecDecoderRenderer renderer = rendererWithDolbyVision(dolbyVision);
+        assertFalse("runs on its own decoder", ReflectionHelpers.<Boolean>getField(renderer, "refFrameInvalidationHevc"));
+        assertFalse(ReflectionHelpers.<Boolean>getField(renderer, "refFrameInvalidationAv1"));
+    }
+
+    @Test
+    public void aDolbyVisionDecoderOfAnotherModelTakesNothing() {
+        ShadowBuild.setModel("AFTMM");
+        decoders("acme");
+        MediaCodecDecoderRenderer renderer = rendererWithDolbyVision("c2.mtk.dolby-vision.decoder");
+        assertTrue(ReflectionHelpers.<Boolean>getField(renderer, "refFrameInvalidationHevc"));
+        assertTrue(ReflectionHelpers.<Boolean>getField(renderer, "refFrameInvalidationAv1"));
+    }
+
+    @Test
+    public void aFormatAsksForTheModeOnlyWithTheFlagSet() {
+        MediaFormat format = MediaFormat.createVideoFormat("video/hevc", 3840, 2160);
+        assertFalse(MediaCodecHelper.asksForAndroidLowLatency(format));
+        format.setInteger(MediaFormat.KEY_LOW_LATENCY, 0);
+        assertFalse(MediaCodecHelper.asksForAndroidLowLatency(format));
+        format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1);
+        assertTrue(MediaCodecHelper.asksForAndroidLowLatency(format));
+    }
+
+    private MediaCodecDecoderRenderer rendererWithDolbyVision(String decoderName) {
+        ShadowMediaCodecList.addCodec(decoder(decoderName, HdrFormatPolicy.MIME_DOLBY_VISION,
+                CodecProfileLevel.DolbyVisionProfileDvheSt, CodecProfileLevel.DolbyVisionProfileDvav110));
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
+        prefs.width = 3840;
+        prefs.height = 2160;
+        prefs.codecLowLatency = true;
+        prefs.vendorLowLatency = true;
+        return new MediaCodecDecoderRenderer(activity.get(), prefs, null, 0, false, /* requestedHdr */ true, "", null);
     }
 
     @Test

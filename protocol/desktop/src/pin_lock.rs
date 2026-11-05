@@ -785,6 +785,12 @@ impl PinGate {
         self.grant = Some((key.to_owned(), store.elapsed()));
     }
 
+    /// The start a grant was left for will not come (Continue here's press failed, or a launch
+    /// was busy): it must not open the next start, whichever that is.
+    pub fn forget_grant(&mut self) {
+        self.grant = None;
+    }
+
     /// The PIN was entered (or has just been set): the app stays open until it is left for the grace time.
     pub fn unlock_app(&mut self) {
         self.unlocked_app = true;
@@ -1133,6 +1139,20 @@ mod tests {
         assert!(!gate.locks_stream(&store, "pc"), "and asking did not use it up");
         assert!(!gate.needs_pin_for_stream(&store, "pc"), "the stream after the press does not ask again");
         assert!(gate.locks_stream(&store, "pc"), "the next press asks again");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_press_that_failed_leaves_no_grant() {
+        let (store, _clock, dir) = store("grant-forgotten");
+        store.set_pin_with(b"1234", 1_000).unwrap();
+        store.set_mode(Mode::Streams);
+        let mut gate = PinGate::new(&store);
+        gate.grant(&store, "pc");
+        assert!(!gate.locks_stream(&store, "pc"));
+        gate.forget_grant();
+        assert!(gate.locks_stream(&store, "pc"), "the next start asks");
+        assert!(gate.needs_pin_for_stream(&store, "pc"));
         let _ = std::fs::remove_dir_all(dir);
     }
 

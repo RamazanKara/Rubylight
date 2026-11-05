@@ -149,6 +149,11 @@ impl PinLock {
         self.gate.locks_stream(&self.store, key)
     }
 
+    /// See [`crate::pin_lock::PinGate::forget_grant`].
+    pub fn forget_grant(&mut self) {
+        self.gate.forget_grant();
+    }
+
     /// Asks for the PIN to start a stream under `key` (`pc` names the PC). Under the app lock its
     /// screen asks already, and unlocking the app lets the start go on.
     pub fn ask_for_stream(&mut self, key: &str, pc: &str) {

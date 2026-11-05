@@ -534,6 +534,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Now playing on {}", "Şimdi {} üzerinde oynanıyor"),
     ("Now playing on another device", "Şimdi başka bir cihazda oynanıyor"),
     ("Could not continue here", "Burada devam edilemedi"),
+    ("The game came back to this device", "Oyun bu cihaza geri döndü"),
     ("Could not end the session", "Oturum bitirilemedi"),
     ("The session action failed", "Oturum işlemi başarısız oldu"),
     ("The PC action failed", "Bilgisayar işlemi başarısız oldu"),

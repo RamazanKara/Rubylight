@@ -486,7 +486,7 @@ mod tests {
         }
         fn stream_move(&self) -> Result<StreamMove, Error> {
             self.note("stream move");
-            Ok(serde_json::from_str(r#"{"moved_to":{"device":"TV","since_unix_ms":5}}"#).unwrap())
+            Ok(serde_json::from_str(r#"{"moved_to":{"device":"TV","since_unix_ms":5},"owns_game":true}"#).unwrap())
         }
         fn continue_here(&self) -> Result<Session, Error> {
             self.note("continue here");
@@ -795,6 +795,7 @@ mod tests {
         let fake = Fake::default();
         let reply = parse(&execute(&fake, "session_move", ""));
         assert_eq!(reply["ok"]["moved_to"]["device"], "TV");
+        assert_eq!(reply["ok"]["owns_game"], true);
         let reply = parse(&execute(&fake, "session_continue_here", ""));
         assert_eq!(reply["ok"]["revision"], 4);
         assert_eq!(fake.calls.lock().unwrap().last().unwrap(), "continue here");

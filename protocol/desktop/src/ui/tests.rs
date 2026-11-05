@@ -45,6 +45,33 @@ fn an_answer_that_arrives_by_itself_waits_for_the_open_dialog() {
 }
 
 #[test]
+fn a_prompt_that_said_the_game_moved_says_it_came_back() {
+    let mut l = launcher(true, true);
+    assert_eq!(l.moved_prompt(), None);
+    l.ask_after(Dialog::NowPlaying { host: 1, app: 7, device: "TV".into() });
+    assert_eq!(l.moved_prompt(), Some((1, 7)));
+    // Another PC's or game's answer changes nothing.
+    l.game_came_back(2, 7);
+    l.game_came_back(1, 8);
+    assert!(matches!(l.dialog, Dialog::NowPlaying { .. }));
+    l.focus_dialog = false;
+    l.game_came_back(1, 7);
+    assert!(matches!(l.dialog, Dialog::GameCameBack { host: 1, app: 7 }));
+    assert!(l.focus_dialog, "the new question gets the focus");
+    assert_eq!(l.moved_prompt(), None, "nothing left to watch");
+
+    // One that still waits behind another dialog changes in its place, and takes nothing away.
+    l.dialog = Dialog::Message { title: "Stream".into(), body: "failed".into() };
+    l.ask_after(Dialog::NowPlaying { host: 1, app: 7, device: "TV".into() });
+    assert_eq!(l.moved_prompt(), Some((1, 7)));
+    l.game_came_back(1, 7);
+    assert!(matches!(l.dialog, Dialog::Message { .. }));
+    l.dialog = Dialog::None;
+    assert!(l.next_queued());
+    assert!(matches!(l.dialog, Dialog::GameCameBack { .. }));
+}
+
+#[test]
 fn the_game_another_device_plays_is_matched_by_id_and_install_id() {
     let playing: nightjar_core::http::PlayingOn = serde_json::from_str(
         r#"{"device":"Phone","app":{"install_id":"game-a","app_id":7,"title":"Game"}}"#,
@@ -907,6 +934,7 @@ fn at_150_percent_in_german_a_1280x720_window_clips_no_button() {
             Dialog::ConfirmReplace { app: "Another long game title".into(), running: "A game with a rather long title".into() },
             Dialog::ContinueHere { host: id, app: 7, resume: true, name: "A game with a rather long title".into(), device: "A long name for a phone".into() },
             Dialog::NowPlaying { host: id, app: 7, device: "A long name for a television".into() },
+            Dialog::GameCameBack { host: id, app: 7 },
             Dialog::PairError { host: id, body: "PIN rejected. Generate a new one-time PIN in your host's web UI and check the passphrase.".into(), one_time: true },
             Dialog::Message { title: "Network test failed".into(), body: "The PC did not answer.".into() },
             Dialog::ConfirmSleep { host: id, ask: 1, name: "A long name for a gaming PC".into(), offer: None },

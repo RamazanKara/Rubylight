@@ -24,6 +24,13 @@ pub fn recovers(transient: bool, moved: bool) -> bool {
     transient && !moved
 }
 
+/// Whether a prompt saying the stream moved turns into "the game came back": the PC no longer says
+/// it moved and this device owns the game again, so its press failed. A note that ran out with the
+/// game on the other device, or a game that ended, is no reason to offer anything.
+pub fn came_back(moved: bool, owns: bool) -> bool {
+    !moved && owns
+}
+
 pub(crate) fn traced(args: &Value) -> Result<Box<dyn Subject>, String> {
     if !args.is_null() {
         return Err("static policy: new must be null".into());
@@ -48,6 +55,10 @@ impl Subject for Traced {
                 let a = Args::new(args, 2)?;
                 Ok(recovers(a.flag(0)?, a.flag(1)?).into())
             }
+            "came_back" => {
+                let a = Args::new(args, 2)?;
+                Ok(came_back(a.flag(0)?, a.flag(1)?).into())
+            }
             other => Err(format!("unknown method {other}")),
         }
     }
@@ -63,6 +74,14 @@ mod tests {
         assert!(!recovers(false, true));
         assert!(recovers(true, false));
         assert!(!recovers(false, false));
+    }
+
+    #[test]
+    fn only_a_game_this_device_owns_again_came_back() {
+        assert!(came_back(false, true));
+        assert!(!came_back(true, true));
+        assert!(!came_back(false, false));
+        assert!(!came_back(true, false));
     }
 
     #[test]

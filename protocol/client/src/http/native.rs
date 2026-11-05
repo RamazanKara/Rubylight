@@ -52,6 +52,9 @@ pub struct StreamMove {
     pub playing_on: Option<PlayingOn>,
     #[serde(default)]
     pub moved_to: Option<MovedTo>,
+    /// The running game is this device's.
+    #[serde(default)]
+    pub owns_game: bool,
 }
 use std::time::Duration;
 

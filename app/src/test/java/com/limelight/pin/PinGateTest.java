@@ -121,6 +121,17 @@ public class PinGateTest {
     }
 
     @Test
+    public void askingForAPressLeavesTheGrantToTheStreamAfterIt() {
+        lock(PinStore.Mode.STREAMS);
+        assertTrue(PinGate.streamLocked(app, PC));
+        PinGate.grant(PC);
+        assertFalse(PinGate.streamLocked(app, PC));
+        assertFalse("not used up", PinGate.streamLocked(app, PC));
+        assertFalse("the stream after the press does not ask again", PinGate.needsPinForStream(app, PC));
+        assertTrue("the next press asks", PinGate.streamLocked(app, PC));
+    }
+
+    @Test
     public void aGrantForOnePcDoesNotOpenAnother() {
         lock(PinStore.Mode.STREAMS);
         PinGate.grant(OTHER);

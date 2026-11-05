@@ -168,6 +168,56 @@ public class PinEntryPointsTest {
         assertTrue(screen.get().isFinishing());
     }
 
+    // ---- What runs only after the PIN: Continue here's press ----
+
+    @Test
+    public void withoutALockThePressRunsAtOnce() {
+        store.setMode(PinStore.Mode.OFF);
+        Activity from = Robolectric.buildActivity(HelpTopicsActivity.class).create().get();
+        java.util.concurrent.atomic.AtomicInteger pressed = new java.util.concurrent.atomic.AtomicInteger();
+        PinLockActivity.runAfterPin(from, PC, "Desk", pressed::incrementAndGet);
+        assertEquals(1, pressed.get());
+        assertNull("no PIN screen", nextStarted(from));
+    }
+
+    @Test
+    public void thePressWaitsForTheRightPinAndTheStreamAfterItDoesNotAskAgain() {
+        store.setMode(PinStore.Mode.STREAMS);
+        Activity from = Robolectric.buildActivity(HelpTopicsActivity.class).create().get();
+        java.util.concurrent.atomic.AtomicInteger pressed = new java.util.concurrent.atomic.AtomicInteger();
+        PinLockActivity.runAfterPin(from, PC, "Desk", pressed::incrementAndGet);
+        assertEquals("the press waits for the PIN", 0, pressed.get());
+
+        Intent pin = nextStarted(from);
+        assertEquals(PinLockActivity.class.getName(), pin.getComponent().getClassName());
+        ActivityController<PinLockActivity> screen = Robolectric.buildActivity(PinLockActivity.class, pin).setup();
+        type(screen.get(), "1357");
+        assertEquals("a wrong PIN presses nothing", 0, pressed.get());
+        type(screen.get(), PIN);
+        assertEquals(1, pressed.get());
+        assertTrue(screen.get().isFinishing());
+        assertFalse("the stream start after the press uses the PIN's grant", PinGate.needsPinForStream(app, PC));
+        assertTrue(PinGate.needsPinForStream(app, PC));
+    }
+
+    @Test
+    public void aCancelledPinPressesNothingThenOrLater() {
+        store.setMode(PinStore.Mode.STREAMS);
+        Activity from = Robolectric.buildActivity(HelpTopicsActivity.class).create().get();
+        java.util.concurrent.atomic.AtomicInteger pressed = new java.util.concurrent.atomic.AtomicInteger();
+        PinLockActivity.runAfterPin(from, PC, "Desk", pressed::incrementAndGet);
+        Intent pin = nextStarted(from);
+        ActivityController<PinLockActivity> screen = Robolectric.buildActivity(PinLockActivity.class, pin).setup();
+        screen.get().findViewById(com.limelight.R.id.pin_cancel).performClick();
+        assertTrue(screen.get().isFinishing());
+
+        // A later plain start's PIN does not run what was cancelled.
+        startStream(from);
+        ActivityController<PinLockActivity> next = Robolectric.buildActivity(PinLockActivity.class, nextStarted(from)).setup();
+        type(next.get(), PIN);
+        assertEquals(0, pressed.get());
+    }
+
     private static java.util.List<com.limelight.nativeapi.RecentsStore.Recent> recents(Context context) {
         return new com.limelight.nativeapi.PreferencesRecentsStore(context).load();
     }

@@ -88,6 +88,13 @@ public final class PinGate {
         return needed;
     }
 
+    /** The same answer without using up a grant: Continue here's press asks this, and the start after it uses the grant. */
+    public static synchronized boolean streamLocked(Context context, String uuid) {
+        PinStore store = new PinStore(context);
+        return streamNeeded(store.hasPin(), store.mode(), store.pcs(), uuid, unlockedApp,
+                grantValid(uuid, SystemClock.elapsedRealtime()));
+    }
+
     private static boolean grantValid(String uuid, long now) {
         return grantUuid != null && uuid != null && grantUuid.equalsIgnoreCase(uuid)
                 && now - grantAt >= 0 && now - grantAt < GRANT_MS;

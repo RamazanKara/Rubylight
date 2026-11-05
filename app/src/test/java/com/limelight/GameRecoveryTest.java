@@ -484,6 +484,97 @@ public class GameRecoveryTest {
         }
     }
 
+    /** A connection on a PC that says the stream moved to {@code device}, and notes whether a recovery was to follow. */
+    private static MuteConnection movedTo(String device, java.util.List<Boolean> asked) {
+        return new MuteConnection() {
+            @Override public String streamMovedTo(boolean recoveryFollows) {
+                asked.add(recoveryFollows);
+                return recoveryFollows ? null : device;
+            }
+        };
+    }
+
+    private static void assertMovedPrompt(Game game, String title) {
+        assertFalse("the moved stream stays on its prompt", game.isFinishing());
+        assertTrue(ReflectionHelpers.getField(game, "displayedFailureDialog"));
+        assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
+        android.app.Dialog prompt = ReflectionHelpers.getField(game, "streamMenu");
+        assertNotNull(prompt);
+        android.widget.TextView text = prompt.findViewById(androidx.appcompat.R.id.alertTitle);
+        assertEquals(title, text.getText().toString());
+        assertNull("nothing reconnects", org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aLostConnectionThatRecoversDoesNotWaitForTheMoveRead() {
+        for (int error : new int[] {-1, MoonBridge.ML_ERROR_NO_VIDEO_TRAFFIC}) {
+            Game game = establishedGame();
+            java.util.List<Boolean> asked = new java.util.ArrayList<>();
+            ReflectionHelpers.setField(game, "conn", movedTo("TV", asked));
+            try {
+                game.connectionTerminated(error);
+                assertEquals("told that a recovery follows, so it does not read", java.util.List.of(true), asked);
+                assertNotNull(ReflectionHelpers.getField(game.streamRecovery, "pendingRecoveryIntent"));
+            } finally {
+                cleanupRecovery(game);
+            }
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aMediaTimeoutWithoutRecoveryShowsTheMove() {
+        for (int error : new int[] {-100, -101, -102, -1}) {
+            Game game = establishedGame();
+            PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+            prefs.autoReconnect = false;
+            java.util.List<Boolean> asked = new java.util.ArrayList<>();
+            ReflectionHelpers.setField(game, "conn", movedTo("TV", asked));
+            try {
+                game.connectionTerminated(error);
+                assertEquals(java.util.List.of(false), asked);
+                assertMovedPrompt(game, game.getString(R.string.continue_here_now_playing, "TV"));
+            } finally {
+                cleanupRecovery(game);
+            }
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aGracefulEndOfAStreamKeptForResumingShowsTheMove() {
+        Game game = establishedGame();
+        ReflectionHelpers.setField(game, "conn", movedTo("TV", new java.util.ArrayList<>()));
+        try {
+            game.onPause();
+            game.onStop();
+            assertNotNull(ReflectionHelpers.getField(game, "stoppedStreamResumeIntent"));
+            game.connectionTerminated(MoonBridge.ML_ERROR_GRACEFUL_TERMINATION);
+            assertNull("it never resumes", ReflectionHelpers.getField(game, "stoppedStreamResumeIntent"));
+            assertMovedPrompt(game, game.getString(R.string.continue_here_now_playing, "TV"));
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aResumeThatFindsTheMoveShowsThePromptAndNotAStartupError() {
+        for (String device : new String[] {"TV", ""}) {
+            Game game = establishedGame();
+            try {
+                game.streamMoved(device);
+                game.stageFailed("Game", 0, 0);
+                assertMovedPrompt(game, device.isEmpty()
+                        ? game.getString(R.string.continue_here_now_playing_elsewhere)
+                        : game.getString(R.string.continue_here_now_playing, device));
+            } finally {
+                cleanupRecovery(game);
+            }
+        }
+    }
+
     @Test
     @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
     public void explicitHostFailuresNeverBecomeGracefulExitsEvenWhenTheHostIsIdle() {

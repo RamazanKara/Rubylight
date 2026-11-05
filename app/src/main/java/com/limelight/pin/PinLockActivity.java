@@ -1,5 +1,6 @@
 package com.limelight.pin;
 
+import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
@@ -50,6 +51,7 @@ public class PinLockActivity extends NightjarActivity {
     static final String EXTRA_PC_NAME = "pin_pc_name";
     static final String EXTRA_PC_UUID = "pin_pc_uuid";
     private static final String EXTRA_STARTS_APP = "pin_starts_app";
+    private static final String EXTRA_RUNS_AFTER = "pin_runs_after";
     private static final String EXTRA_RECENT_HOST = "pin_recent_host";
     private static final String EXTRA_RECENT_HOST_NAME = "pin_recent_host_name";
     private static final String EXTRA_RECENT_APP_ID = "pin_recent_app_id";
@@ -66,6 +68,23 @@ public class PinLockActivity extends NightjarActivity {
     /** Covers the app until the PIN is entered; Back closes the app. */
     public static Intent forApp(Context context) {
         return base(context, Purpose.APP).addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION);
+    }
+
+    /** What {@link #runAfterPin} waits to run. Lost with the process, and then nothing was done without the PIN. */
+    private static Runnable afterPin;
+
+    /**
+     * Runs {@code then}, on the UI thread, once the PIN for streaming on {@code uuid} was entered; at once when none is
+     * asked for. A stream start right after it does not ask again: the PIN leaves it a grant.
+     */
+    public static void runAfterPin(Activity parent, String uuid, String pcName, Runnable then) {
+        if (!PinGate.streamLocked(parent, uuid)) {
+            then.run();
+            return;
+        }
+        afterPin = then;
+        parent.startActivity(base(parent, Purpose.STREAM).putExtra(EXTRA_RUNS_AFTER, true)
+                .putExtra(EXTRA_PC_UUID, uuid).putExtra(EXTRA_PC_NAME, pcName));
     }
 
     /** Asks before {@code next}, the stream's start, runs. */
@@ -439,6 +458,7 @@ public class PinLockActivity extends NightjarActivity {
     private void unlocked() {
         if (isFinishing()) return;
         Intent next = purpose == Purpose.STREAM || purpose == Purpose.TRAMPOLINE ? nextIntent() : null;
+        Runnable then = null;
         PinGate.clearScreen(this);
         switch (purpose) {
             case APP:
@@ -448,6 +468,11 @@ public class PinLockActivity extends NightjarActivity {
                 // The PIN also opened the app if the lock was the app lock.
                 if (store.mode() == PinStore.Mode.APP) PinGate.unlockApp();
                 recordRecent();
+                if (getIntent().getBooleanExtra(EXTRA_RUNS_AFTER, false)) {
+                    PinGate.grant(getIntent().getStringExtra(EXTRA_PC_UUID));
+                    then = afterPin;
+                    afterPin = null;
+                }
                 break;
             case TRAMPOLINE:
                 if (store.mode() == PinStore.Mode.APP) PinGate.unlockApp();
@@ -464,6 +489,7 @@ public class PinLockActivity extends NightjarActivity {
         }
         if (next != null) startActivity(next);
         finish();
+        if (then != null) then.run();
     }
 
     @SuppressWarnings("deprecation")
@@ -474,6 +500,7 @@ public class PinLockActivity extends NightjarActivity {
     /** Leaves without the PIN: the app closes, anything else just goes back. */
     private void leave() {
         PinGate.clearScreen(this);
+        if (getIntent().getBooleanExtra(EXTRA_RUNS_AFTER, false)) afterPin = null;
         if (purpose == Purpose.APP) {
             finishAffinity();
         } else {

@@ -32,6 +32,7 @@ import com.limelight.nvstream.http.LaunchConfirmation;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.jni.MoonBridge;
+import com.limelight.pin.PinGate;
 import com.limelight.preferences.GlPreferences;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.LegacyKeyboardInsets;
@@ -811,6 +812,14 @@ final class GameConnection {
         return report.toString();
     }
 
+    /** The device a resume found the stream on, read on the connection's thread before the stage fails. */
+    private volatile String movedAwayTo;
+
+    void streamMoved(String device) {
+        LimeLog.info("The resume stopped: the stream moved to " + device);
+        movedAwayTo = device;
+    }
+
     void stageFailed(final String stage, final int portFlags, final int errorCode) {
         LimeLog.info("Stream failed");
         streamFailed = true;
@@ -828,6 +837,17 @@ final class GameConnection {
             @Override
             public void run() {
                 if (game.isFinishing() || game.isDestroyed()) {
+                    return;
+                }
+                final String movedTo = movedAwayTo;
+                if (movedTo != null) {
+                    if (game.spinner != null) {
+                        game.spinner.dismiss();
+                        game.spinner = null;
+                    }
+                    game.displayedFailureDialog = true;
+                    stopConnection();
+                    showMovedPrompt(movedTo, game.conn != null ? game.conn.nativeApiClient() : null);
                     return;
                 }
                 // Once per session: the replacement starts without full chroma. A refusal in a session
@@ -903,10 +923,13 @@ final class GameConnection {
         final int errorCode = exitRequested || endedSession ?
                 MoonBridge.ML_ERROR_GRACEFUL_TERMINATION : reportedErrorCode;
         if (endedSession) LimeLog.info("Connection terminated: the PC ended the previous session");
-        // Another device pressed Continue here: this stream must not come back.
+        // Another device pressed Continue here: this stream must not come back. A stream that reconnects does not wait
+        // for the answer here, on a link that may be dead: its resume stops at the running-game check and asks there.
         final boolean mayHaveMoved = !exitRequested && game.conn != null && (reportedErrorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION
-                || StreamRecoveryPolicy.transportTermination(reportedErrorCode));
-        final String movedTo = mayHaveMoved ? game.conn.streamMovedTo() : null;
+                || StreamRecoveryPolicy.transientTermination(reportedErrorCode));
+        final boolean recoveryFollows = game.prefConfig != null && game.prefConfig.autoReconnect
+                && StreamRecoveryPolicy.recoversTermination(errorCode, game.streamRecovery.videoStarted());
+        final String movedTo = mayHaveMoved ? game.conn.streamMovedTo(recoveryFollows) : null;
         final NativeApiClient moveClient = movedTo != null ? game.conn.nativeApiClient() : null;
         if (movedTo != null) LimeLog.info("Connection terminated: the stream moved to " + movedTo);
         // The PC's own words for a failure it ended the stream on, where it says them.
@@ -933,6 +956,11 @@ final class GameConnection {
                 if (errorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION && game.stoppedStreamResumeIntent != null) {
                     // The PC ended a session that leaving the stream kept for resuming.
                     game.stoppedStreamResumeIntent = null;
+                    if (movedTo != null) {
+                        game.displayedFailureDialog = true;
+                        showMovedPrompt(movedTo, moveClient);
+                        return;
+                    }
                     game.finish();
                     return;
                 }
@@ -1284,13 +1312,16 @@ final class GameConnection {
         });
     }
 
-    /** "Now playing on X" with OK and, on a PC this device may ask, Continue here. */
+    /**
+     * "Now playing on X" with OK and, on a PC this device may ask, Continue here. Under the PIN lock only OK: the stream
+     * screen has no way back from the PIN screen, so taking the stream back goes through the library, which asks.
+     */
     private void showMovedPrompt(String device, NativeApiClient client) {
         NavigationDialogBuilder builder = new NavigationDialogBuilder(game);
-        builder.setTitle(game.getString(R.string.continue_here_now_playing, device))
+        builder.setTitle(NvConnection.movedMessage(game, device))
                 .setCancelable(false)
                 .setPositiveButton(android.R.string.ok, (dialog, which) -> game.finish());
-        if (client != null) {
+        if (client != null && !PinGate.streamLocked(game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID))) {
             builder.setNegativeButton(R.string.continue_here_action, (dialog, which) -> takeStreamBack(client));
         }
         game.menuActions.showStreamDialog(builder.create());

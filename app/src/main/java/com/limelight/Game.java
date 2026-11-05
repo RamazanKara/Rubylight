@@ -1410,6 +1410,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     @Override
+    public void streamMoved(String device) {
+        streamConnection.streamMoved(device);
+    }
+
+    @Override
     public void launchConfirmationRequired(LaunchConfirmation confirmation) {
         streamConnection.launchConfirmationRequired(confirmation);
     }

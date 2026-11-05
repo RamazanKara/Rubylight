@@ -423,8 +423,12 @@ fn installed(game: &Game) -> bool {
 
 /// Whether the PC's session runs or holds a game (not idle, stopping or unknown).
 pub(crate) fn active(session: &Session) -> bool {
+    live(session) && session.app.is_some()
+}
+
+/// Whether a session is under way, whoever's. The host does not name another device's app to this one.
+pub(crate) fn live(session: &Session) -> bool {
     matches!(session.state, State::Preparing | State::Launching | State::Streaming | State::Suspended)
-        && session.app.is_some()
 }
 
 /// The same store id. An empty id (a host that sent none) matches nothing, not everything.

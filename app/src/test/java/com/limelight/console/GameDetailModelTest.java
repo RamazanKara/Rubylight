@@ -69,6 +69,16 @@ public class GameDetailModelTest {
     }
 
     @Test
+    public void anotherDevicesSessionCountsThoughTheHostKeepsItsAppToItself() throws Exception {
+        assertTrue(GameDetailModel.of(tower(session("streaming", "other_device", "null", "[]"), true),
+                "tower", 11, "x", "y", true, true, true).playingElsewhere);
+        assertFalse(GameDetailModel.of(tower(session("idle", "other_device", "null", "[]"), false),
+                "tower", 11, "x", "y", true, true, true).playingElsewhere);
+        assertFalse(GameDetailModel.of(tower(running("streaming", 11, "Portal"), true),
+                "tower", 11, "x", "y", true, true, true).playingElsewhere);
+    }
+
+    @Test
     public void aGameNotInstalledOnTheHostCannotBeStartedAndSaysWhy() throws Exception {
         GameDetailModel model = GameDetailModel.of(towerWith(",\"installed\":false", NativeApiFixtures.IDLE),
                 "tower", 11, "x", "y", true, true, true);

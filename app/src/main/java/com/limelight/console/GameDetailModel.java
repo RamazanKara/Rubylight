@@ -163,7 +163,7 @@ public final class GameDetailModel {
                 source != null ? source.title : fallbackTitle, appId, source, state, hostOnline, end, otherRunning,
                 otherRunning == null ? 0 : otherRunningId, otherRunning == null ? null : otherRunningSource,
                 host != null && (host.status == ConsoleSnapshot.Status.LIVE || host.status == ConsoleSnapshot.Status.CLASSIC),
-                hostOnline && session != null && session.isActive() && session.owner == NativeSession.Owner.OTHER_DEVICE,
+                hostOnline && session != null && session.heldByOtherDevice(),
                 hostOnline && nativeHost && session == null && (host == null || host.status != ConsoleSnapshot.Status.CLASSIC));
     }
 }

@@ -133,8 +133,17 @@ public final class NativeSession {
 
     /** Whether a session holds a game the user can come back to: streaming, suspended or on its way. */
     public boolean isActive() {
-        return app != null && (state == State.STREAMING || state == State.SUSPENDED
-                || state == State.LAUNCHING || state == State.PREPARING);
+        return app != null && live();
+    }
+
+    /** Whether another device has a session. The host does not name its app to this device, so {@link #app} is null. */
+    public boolean heldByOtherDevice() {
+        return owner == Owner.OTHER_DEVICE && live();
+    }
+
+    private boolean live() {
+        return state == State.STREAMING || state == State.SUSPENDED
+                || state == State.LAUNCHING || state == State.PREPARING;
     }
 
     private static <E extends Enum<E>> E parse(Class<E> type, String wire, E fallback) {

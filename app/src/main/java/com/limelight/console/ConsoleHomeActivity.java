@@ -510,7 +510,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         waitingToPair = waiting;
         pairingBanner.setVisibility(waiting.isEmpty() ? View.GONE : View.VISIBLE);
         if (waiting.size() == 1) {
-            pairingBanner.setText(getString(R.string.pairing_wants_to_pair, waiting.get(0).request.name));
+            pairingBanner.setText(getString(R.string.pairing_wants_to_pair, waiting.get(0).shownName()));
         } else if (!waiting.isEmpty()) {
             pairingBanner.setText(getString(R.string.pairing_many_want_to_pair, waiting.size()));
         }

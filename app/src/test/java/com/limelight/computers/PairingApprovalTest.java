@@ -320,6 +320,27 @@ public class PairingApprovalTest {
         Shadows.shadowOf(Looper.getMainLooper()).idle();
     }
 
+    private static PairingWatch.Waiting named(String name) {
+        return new PairingWatch.Waiting(pc("pc"), new NativePairing.Request("a1", name, "192.168.4.116", 3));
+    }
+
+    @Test
+    public void aNameCannotTurnTheAddressBesideIt() {
+        for (String control : new String[] {"‮", "‫", "⁦", "⁧", "‏", "؜", " "}) {
+            String shown = named("TV" + control + "611.4.861.291").shownName();
+            assertFalse(shown, shown.contains(control));
+            assertTrue(shown, shown.contains("TV611.4.861.291"));
+        }
+    }
+
+    @Test
+    public void aNameKeepsItsEmojiAndAHebrewNameIsClosedOffFromTheAddress() {
+        assertTrue(named("👩‍💻 TV").shownName().contains("‍"));
+        String hebrew = named("טלוויזיה").shownName();
+        assertTrue(hebrew, hebrew.contains("טלוויזיה"));
+        assertTrue("wrapped: " + hebrew, hebrew.length() > 7);
+    }
+
     @Test
     public void theAddressStandsOutInThePinDialog() {
         try (ActivityController<ToolbarIconTintTest.Screen> controller =

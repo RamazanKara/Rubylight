@@ -779,8 +779,14 @@ impl Launcher {
                         // The one part of the request the device can't choose, first in every language.
                         two_rows(ui, trf("From {0}, for {1}", &[&address, &pc]), semibold(text::BODY));
                         ui.add_space(space::S);
-                        let shown = if *busy { trf("Waiting for {}…", &[&name]) } else { pin.clone() };
-                        ui.add(egui::Label::new(RichText::new(shown).font(semibold(text::SECTION))).truncate());
+                        let shown = if *busy {
+                            trf("Waiting for {}…", &[&name])
+                        } else if pin.is_empty() {
+                            PIN_SLOTS.to_owned()
+                        } else {
+                            pin.clone()
+                        };
+                        ui.vertical_centered(|ui| ui.add(egui::Label::new(RichText::new(shown).font(semibold(text::SECTION))).truncate()));
                         let mut filled = false;
                         ui.add_enabled_ui(!*busy, |ui| {
                             filled = pin_pad(ui, pin, focus_first, &mut focused);
@@ -1969,11 +1975,14 @@ fn two_rows(ui: &mut Ui, shown: String, font_id: egui::FontId) -> Response {
     ui.label(job)
 }
 
+/// What the PIN line shows before the first digit: how many it takes.
+const PIN_SLOTS: &str = "– – – –";
+
 /// The digit pad of a PIN, for a controller or the mouse; the keyboard's digits work beside it.
 /// True when this frame's digit filled the PIN.
 fn pin_pad(ui: &mut Ui, pin: &mut String, focus_first: bool, focused: &mut bool) -> bool {
     const LENGTH: usize = 4;
-    const KEY: Size = Size { height: Size::CONTROL.height, pad: 26.0, radius: Size::CONTROL.radius, font: Size::CONTROL.font };
+    const KEY_WIDTH: f32 = 84.0;
     let before = pin.len();
     let enabled = ui.is_enabled();
     if enabled {
@@ -1988,7 +1997,7 @@ fn pin_pad(ui: &mut Ui, pin: &mut String, focus_first: bool, focused: &mut bool)
     }
     let row = |ui: &mut Ui, digits: &[char], pin: &mut String, focused: &mut bool| {
         for digit in digits {
-            let key = button(ui, None, digit.encode_utf8(&mut [0; 4]), Tone::Quiet, KEY);
+            let key = button_at_least(ui, None, None, digit.encode_utf8(&mut [0; 4]), None, Tone::Quiet, Size::CONTROL, KEY_WIDTH);
             if focus_first && *digit == '1' {
                 key.request_focus();
                 *focused = true;
@@ -1998,11 +2007,17 @@ fn pin_pad(ui: &mut Ui, pin: &mut String, focus_first: bool, focused: &mut bool)
             }
         }
     };
+    // In the middle of the dialog, as its PIN line is. A row starts at the same place with or without its last key.
+    let indent = ((ui.available_width() - KEY_WIDTH * 3.0 - ui.spacing().item_spacing.x * 2.0) / 2.0).max(0.0);
     for digits in [['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9']] {
-        ui.horizontal(|ui| row(ui, &digits, pin, focused));
+        ui.horizontal(|ui| {
+            ui.add_space(indent);
+            row(ui, &digits, pin, focused);
+        });
     }
     ui.horizontal(|ui| {
-        let erase = button(ui, Some(Icon::Back), "", Tone::Quiet, KEY).on_hover_text(tr("Delete digit"));
+        ui.add_space(indent);
+        let erase = button_at_least(ui, None, Some(Icon::Back), "", None, Tone::Quiet, Size::CONTROL, KEY_WIDTH).on_hover_text(tr("Delete digit"));
         if erase.clicked() {
             pin.pop();
         }

@@ -136,6 +136,12 @@ pub(crate) fn button(ui: &mut Ui, icon: Option<Icon>, words: &str, tone: Tone, s
 /// `id` the button is that one wherever it lands in its row, so the focus stays on it when the
 /// buttons before it change; without, it is known by its place.
 pub(crate) fn button_with(ui: &mut Ui, id: Option<egui::Id>, icon: Option<Icon>, words: &str, count: Option<usize>, tone: Tone, size: Size) -> Response {
+    button_at_least(ui, id, icon, words, count, tone, size, 0.0)
+}
+
+/// [`button_with`] at least `min_width` wide, its content in the middle: the keys of a pad line up.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn button_at_least(ui: &mut Ui, id: Option<egui::Id>, icon: Option<Icon>, words: &str, count: Option<usize>, tone: Tone, size: Size, min_width: f32) -> Response {
     let (hovered, pressed) = match id {
         Some(id) => ui.ctx().read_response(id).map_or((false, false), |r| (r.hovered() || r.has_focus(), r.is_pointer_button_down_on())),
         None => last_state(ui),
@@ -150,7 +156,8 @@ pub(crate) fn button_with(ui: &mut Ui, id: Option<egui::Id>, icon: Option<Icon>,
     let icon_w = if icon.is_some() { 18.0 + if words.is_empty() { 0.0 } else { 8.0 } } else { 0.0 };
     let count_w = count.as_ref().map_or(0.0, |c| 6.0 + c.size().x);
     let pad = if words.is_empty() { (size.height - 18.0) / 2.0 } else { size.pad };
-    let width = pad * 2.0 + icon_w + galley.size().x + count_w;
+    let content = icon_w + galley.size().x + count_w;
+    let width = (pad * 2.0 + content).max(min_width);
     let (rect, response) = match id {
         Some(id) => {
             let (_, rect) = ui.allocate_space(vec2(width, size.height));
@@ -163,7 +170,7 @@ pub(crate) fn button_with(ui: &mut Ui, id: Option<egui::Id>, icon: Option<Icon>,
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
         painter.rect(rect, CornerRadius::same(size.radius), fill, control_stroke(), StrokeKind::Inside);
-        let mut x = rect.left() + pad;
+        let mut x = rect.center().x - content / 2.0;
         if let Some(icon) = icon {
             let icon_ink = if tone == Tone::Current { *MOON } else { ink };
             icons::paint(painter, icon, Rect::from_center_size(Pos2::new(x + 9.0, rect.center().y), Vec2::splat(18.0)), icon_ink);

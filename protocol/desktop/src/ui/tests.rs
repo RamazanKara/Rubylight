@@ -2150,6 +2150,21 @@ fn an_empty_request_list_says_what_to_do_on_the_new_device() {
 }
 
 #[test]
+fn the_pin_pad_is_an_even_grid_under_its_pin_line() {
+    let mut f = approving_frames(true);
+    f.hosts.list[0].native.pairing_requests = vec![tv_request("a1")];
+    f.l.dialog = dialogs::approve_dialog(&f.hosts.list[0], &f.hosts.list[0].native.pairing_requests[0].clone());
+    f.settle();
+    let at = |text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1.center()).unwrap_or_else(|| panic!("{text}"));
+    for (a, b) in [("1", "4"), ("4", "7"), ("2", "5"), ("5", "8"), ("8", "0"), ("3", "6"), ("6", "9")] {
+        assert!((at(a).x - at(b).x).abs() < 1.0, "{a} above {b}");
+    }
+    let (left, right) = (at("2").x - at("1").x, at("3").x - at("2").x);
+    assert!((left - right).abs() < 1.0, "even columns: {left} and {right}");
+    assert!((at("– – – –").x - at("2").x).abs() < 1.0, "the PIN line sits over the middle column");
+}
+
+#[test]
 fn the_pin_dialog_works_with_a_controller_and_with_the_keyboard() {
     let mut f = approving_frames(true);
     let id = f.hosts.list[0].id;

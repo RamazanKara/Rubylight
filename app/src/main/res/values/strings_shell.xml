@@ -36,6 +36,7 @@
     <string name="pairing_pin_from">From %1$s, for %2$s</string>
     <string name="pairing_request_row">%1$s · %2$s · %3$s</string>
     <string name="pairing_pin_erase">Delete digit</string>
+    <string name="pairing_pin_slots" translatable="false">– – – –</string>
     <string name="pairing_waiting_for">Waiting for %1$s…</string>
     <string name="pairing_approved">%1$s is paired</string>
     <string name="pairing_none_waiting">On the new device, select %1$s in Nightjar or Moonlight.</string>

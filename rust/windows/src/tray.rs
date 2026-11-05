@@ -230,7 +230,7 @@ unsafe extern "system" fn window(
             if message == WM_APP + 1 {
                 match (lparam.0 & 0xffff) as u32 {
                     NIN_BALLOONUSERCLICK => {
-                        let (action, held) = NOTICES.lock().unwrap().clicked();
+                        let (action, held) = NOTICES.lock().unwrap().clicked(Instant::now());
                         match action {
                             Some(NoticeAction::EnterPin) => {
                                 let _ = (*state).sender.send(Action::EnterPin);

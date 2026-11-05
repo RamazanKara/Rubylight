@@ -1370,6 +1370,7 @@ impl App {
                 }
             }
             Command::Launch { host, app, resume } => self.read_then_start(host, app, resume, false),
+            Command::LaunchUnasked { host, app, resume } => self.launch(host, app, resume, LaunchKind::Stream, LaunchFrom::Launcher),
             Command::StreamTooAfterFailedMove { host, app } => self.read_then_start(host, app, true, true),
             Command::StreamHereToo { host, app, resume } => self.launch(host, app, resume, LaunchKind::stream_here_too(resume), LaunchFrom::Launcher),
             // The press ends another device's stream: the PIN comes before it, not at the start after it.
@@ -1641,7 +1642,7 @@ impl App {
             Command::AddHost(text) => self.add_entry(&text),
             Command::PairLink(link) => self.pair_link(*link),
             Command::AddFromClipboard => match gui::clipboard_text() {
-                Some(text) if text.trim().starts_with(rubylight_protocol::pairing_uri::PREFIX) => self.add_entry(&text),
+                Some(text) if rubylight_protocol::pairing_uri::PairingUri::is_link(text.trim()) => self.add_entry(&text),
                 _ => self.launcher.message(tr("No pairing link to paste"), tr(hosts::CLIPBOARD_NO_LINK)),
             },
             Command::Unpair(host) => {

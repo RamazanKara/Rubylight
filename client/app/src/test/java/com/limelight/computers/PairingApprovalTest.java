@@ -13,6 +13,7 @@ import android.text.style.StyleSpan;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
@@ -417,6 +418,41 @@ public class PairingApprovalTest {
             assertTrue(transcript.errors.isEmpty());
             assertEquals(1, transcript.changed);
             assertFalse(dialog.isShowing());
+        }
+    }
+
+    @Test
+    public void thePinLineShowsFourSlotsUntilTheFirstDigit() {
+        try (ActivityController<ToolbarIconTintTest.Screen> controller =
+                     Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+            Transcript transcript = new Transcript();
+            AlertDialog dialog = dialogs(controller.get(), transcript).showPin(tv(), client(transcript, ""));
+            idle();
+            TextView value = dialog.findViewById(R.id.pairing_pin_value);
+            assertEquals("", value.getText().toString());
+            assertEquals("\u2013 \u2013 \u2013 \u2013", value.getHint().toString());
+            digit(dialog, 1).performClick();
+            assertEquals("1", value.getText().toString());
+            dialog.dismiss();
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "land")
+    public void inLandscapeWhoAndThePinSitBesideAWholePad() {
+        try (ActivityController<ToolbarIconTintTest.Screen> controller =
+                     Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+            Transcript transcript = new Transcript();
+            AlertDialog dialog = dialogs(controller.get(), transcript).showPin(tv(), client(transcript, ""));
+            idle();
+            ViewGroup pad = dialog.findViewById(R.id.pairing_pin_pad);
+            assertEquals(11, pad.getChildCount());
+            assertEquals(LinearLayout.HORIZONTAL, ((LinearLayout) pad.getParent()).getOrientation());
+            TextView value = dialog.findViewById(R.id.pairing_pin_value);
+            assertEquals("\u2013 \u2013 \u2013 \u2013", value.getHint().toString());
+            digit(dialog, 1).performClick();
+            assertEquals("1", value.getText().toString());
+            dialog.dismiss();
         }
     }
 

@@ -145,6 +145,27 @@ async fn the_new_device_never_gets_more_than_its_approver_holds() {
 }
 
 #[tokio::test]
+async fn an_approver_with_nothing_of_play_is_refused_and_stores_no_dead_device() {
+    let f = Fixture::new();
+    // Host control and file transfer: it may reach the route, with no Play bit to give.
+    let approver = other_device(&f, 0x0001_0000, true);
+    let (_, id) = asking(&f, "TV").await;
+    approve(&f, &approver, &id, "1234")
+        .await
+        .assert_error(403, "permission_required");
+    assert!(f.host.pins.lock().unwrap().contains_key(&id));
+    assert!(f.host.approvals.lock().unwrap().is_idle());
+    let state = f.host.paired.read().unwrap();
+    let refused = pairing::capped(
+        &state,
+        Some("other-device"),
+        PLAY_DEVICE_PERMISSION,
+        Default::default(),
+    );
+    assert!(refused.is_err_and(|e| e.is::<pairing::ApproverRevoked>()));
+}
+
+#[tokio::test]
 async fn an_approver_kept_out_of_coop_cannot_hand_it_on() {
     let f = Fixture::new();
     let approver = other_device(&f, u32::MAX, true);

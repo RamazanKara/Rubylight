@@ -166,6 +166,10 @@ pub(crate) fn capped(
         .find(|c| c.uuid == uuid && c.may_approve_pairing())
         .ok_or(ApproverRevoked)?;
     let perm = perm & approver.perm;
+    // The approver's bits may have gone during the handshake: no dead device.
+    if perm == 0 {
+        return Err(ApproverRevoked.into());
+    }
     // Only the console hands this one on.
     extra.remove(PAIRING_APPROVE_KEY);
     // The default follows Launch apps, so it takes an explicit false.
@@ -300,7 +304,12 @@ fn send_pin(
         }
         None
     } else {
-        Some(PLAY_DEVICE_PERMISSION & client.perm)
+        // Nothing of Play to hand on would store a device that can't connect.
+        let play = PLAY_DEVICE_PERMISSION & client.perm;
+        if play == 0 {
+            return Err(permission_required("List applications and View streams"));
+        }
+        Some(play)
     };
     let (outcome, receiver) = oneshot::channel();
     approvals(h).running.insert(

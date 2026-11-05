@@ -123,6 +123,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private boolean refFrameInvalidationHevc10, refFrameInvalidationAv110;
     private byte optimalSlicesPerFrame10;
     private boolean refFrameInvalidationActive;
+    // Erratum 23 on the Dolby Vision decoders, and whether the launch's capabilities gave up RFI for one:
+    // the host was told so, whichever decoder the stream ends up on.
+    private boolean dolbyVisionCorrupts;
+    private boolean dolbyVisionAv1Corrupts;
+    private volatile boolean dolbyVisionTookRfi;
     private int initialWidth, initialHeight;
     // Why the last setup() failed, for the stream dialog; null when it did not. The last codec
     // exception stays here too, because configure() is retried and only the final one matters.
@@ -1453,15 +1458,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         // Erratum 23 with Android's low-latency mode turned back on: one reference and no long-term
         // ones, so a lost frame recovers with a keyframe. With the mode off these decoders keep RFI.
-        // A Dolby Vision stream runs on its own decoder and mime, but declares its base codec's RFI.
-        // No short circuit: each decoder this applies to says so in the log.
         if (runsCorruptingLowLatency(avcDecoder, "video/avc")) refFrameInvalidationAvc = false;
-        if (runsCorruptingLowLatency(hevcDecoder, "video/hevc") |
-                runsCorruptingLowLatency(dolbyVisionDecoder, HdrFormatPolicy.MIME_DOLBY_VISION)) refFrameInvalidationHevc = false;
+        if (runsCorruptingLowLatency(hevcDecoder, "video/hevc")) refFrameInvalidationHevc = false;
         if (runsCorruptingLowLatency(tenBitHevcDecoder(), "video/hevc")) refFrameInvalidationHevc10 = false;
-        if (runsCorruptingLowLatency(av1Decoder, "video/av01") |
-                runsCorruptingLowLatency(dolbyVisionAv1Decoder, HdrFormatPolicy.MIME_DOLBY_VISION)) refFrameInvalidationAv1 = false;
+        if (runsCorruptingLowLatency(av1Decoder, "video/av01")) refFrameInvalidationAv1 = false;
         if (runsCorruptingLowLatency(tenBitAv1Decoder(), "video/av01")) refFrameInvalidationAv110 = false;
+        // A Dolby Vision stream runs on its own decoder and mime, but declares its base codec's RFI.
+        // Only that stream gives it up, in getCapabilities: the base codec's own decoder may have no flag.
+        dolbyVisionCorrupts = runsCorruptingLowLatency(dolbyVisionDecoder, HdrFormatPolicy.MIME_DOLBY_VISION);
+        dolbyVisionAv1Corrupts = runsCorruptingLowLatency(dolbyVisionAv1Decoder, HdrFormatPolicy.MIME_DOLBY_VISION);
     }
 
     private boolean runsCorruptingLowLatency(MediaCodecInfo decoder, String mimeType) {
@@ -2516,7 +2521,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 return -2;
             }
 
-            refFrameInvalidationActive = tenBitSdr(videoFormat) ? refFrameInvalidationHevc10 : refFrameInvalidationHevc;
+            refFrameInvalidationActive = !dolbyVisionTookRfi &&
+                    (tenBitSdr(videoFormat) ? refFrameInvalidationHevc10 : refFrameInvalidationHevc);
         }
         else if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0) {
             mimeType = "video/av01";
@@ -2535,7 +2541,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 return -2;
             }
 
-            refFrameInvalidationActive = tenBitSdr(videoFormat) ? refFrameInvalidationAv110 : refFrameInvalidationAv1;
+            refFrameInvalidationActive = !dolbyVisionTookRfi &&
+                    (tenBitSdr(videoFormat) ? refFrameInvalidationAv110 : refFrameInvalidationAv1);
         }
         else {
             // Unknown format
@@ -5093,6 +5100,18 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     @Override
     public int getCapabilities(int negotiatedFormat) {
         return capabilitiesFor(negotiatedFormat);
+    }
+
+    /** With the HDR format picked for the launch: erratum 23 on its Dolby Vision decoder takes this stream's RFI. */
+    @Override
+    public int getCapabilities(int negotiatedFormat, int hdrFormat) {
+        int capabilities = capabilitiesFor(negotiatedFormat);
+        boolean hevc = dolbyVisionCorrupts && (hdrFormat & HdrFormatPolicy.DOLBY_VISION_HEVC) != 0;
+        boolean av1 = dolbyVisionAv1Corrupts && (hdrFormat & HdrFormatPolicy.DOLBY_VISION_AV1) != 0;
+        if (hevc) capabilities &= ~MoonBridge.CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC;
+        if (av1) capabilities &= ~MoonBridge.CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1;
+        dolbyVisionTookRfi = hevc || av1;
+        return capabilities;
     }
 
     private int capabilitiesFor(int format) {

@@ -151,8 +151,11 @@ impl Updates {
         let (net, allow, part, shared, size) = (steps.net.clone(), steps.allow, steps.part(), progress.clone(), asset.size);
         let spawned = std::thread::Builder::new().name("update-download".into()).spawn(move || {
             let result = self_update::download(&*net, allow, &asset, &part, &shared).map(|()| part);
-            // Nobody waits any more: Cancel arrived after the last check.
-            if let Err(std::sync::mpsc::SendError(Ok(part))) = send.send(result) { let _ = std::fs::remove_file(part); }
+            // Nobody waits any more: Cancel arrived after the last check. cancel() sets the flag
+            // before it looks in the channel, so one of the two always sees the file.
+            let part = result.as_ref().ok().cloned();
+            let unwanted = send.send(result).is_err() || shared.cancel.load(Ordering::SeqCst);
+            if let (true, Some(part)) = (unwanted, part) { let _ = std::fs::remove_file(part); }
             wake();
         });
         match spawned {
@@ -166,7 +169,12 @@ impl Updates {
 
     /// Cancel was clicked, or a stream is starting: the thread drops its file at its next chunk.
     fn cancel(&mut self) {
-        if let Some(job) = self.job.take() { job.progress.cancel.store(true, Ordering::Relaxed); }
+        let Some(job) = self.job.take() else { return };
+        job.progress.cancel.store(true, Ordering::SeqCst);
+        // The download may have finished just before: its file has no other owner now.
+        if let Ok(Ok(part)) = job.done.try_recv() {
+            if let Err(e) = std::fs::remove_file(&part) { eprintln!("nightjar: update: leftover {}: {e}", part.display()); }
+        }
     }
 
     /// Takes in what the threads finished. True when Nightjar should exit now for the update.
@@ -765,9 +773,9 @@ mod tests {
         let mut updates = notice(Ok(asset_at(fixture.url("/setup"), &bytes)), Some(installer.steps(native(), local)));
         updates.update_now();
         // The download may end before the stream's first pass of the main loop; step isn't called
-        // until after that pass.
+        // until after that pass. The thread is done when only the job and this test hold this.
         let progress = updates.job.as_ref().unwrap().progress.clone();
-        wait_until("no progress", || progress.received.load(Ordering::Relaxed) == bytes.len() as u64);
+        wait_until("the download never ended", || Arc::strong_count(&progress) == 2);
         updates.hold(true);
         assert!(!updates.step());
         wait_until("the file stays", || installer.parts() == 0);

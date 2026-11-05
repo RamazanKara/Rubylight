@@ -663,8 +663,9 @@ public class MediaCodecHelper {
     }
 
     // The one Fire TV of erratum 23: its MediaTek decoders can corrupt the picture in Android's
-    // low-latency mode. Only this exact model; other Fire TVs with these decoders show no such thing.
-    private static final String LOW_LATENCY_CORRUPTION_MODEL = "AFTNE4E43F";
+    // low-latency mode. Only this exact model, the only one reported with it. A TCL C6K, no Fire TV
+    // but with the same MediaTek AV1 decoder name, showed none in about 50 AV1 HDR starts.
+    public static final String LOW_LATENCY_CORRUPTION_MODEL = "AFTNE4E43F";
 
     /**
      * Whether this decoder is one of those of erratum 23. Other models return false without looking
@@ -685,6 +686,11 @@ public class MediaCodecHelper {
     public static boolean runsCorruptingLowLatency(String mimeType, String decoderName, boolean lowLatency, int hevcLowLatencyMode) {
         return lowLatency && corruptsInLowLatency(decoderName) &&
                 !omitsHevcLowLatencyFlags(mimeType, decoderName, hevcLowLatencyMode);
+    }
+
+    /** Whether this format carries Android's low-latency flag; a retry after a rejected configure may not. */
+    public static boolean asksForAndroidLowLatency(MediaFormat format) {
+        return format.containsKey(MediaFormat.KEY_LOW_LATENCY) && format.getInteger(MediaFormat.KEY_LOW_LATENCY) != 0;
     }
 
     /** Whether this device has a decoder of {@link #corruptsInLowLatency}. Other models list no codecs. */

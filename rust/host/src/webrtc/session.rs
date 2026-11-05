@@ -398,13 +398,15 @@ impl Commands {
 }
 
 /// Run the session actor of one signalling connection. Its replies arrive on `out`. `peer` is the
-/// signalling peer and `local` the address it connected to, which the media socket binds.
+/// signalling peer and `local` the address it connected to, which the media socket binds. `this_pc`
+/// says the browser runs on this PC ([`crate::network::browser_on_this_pc`]).
 pub fn spawn(
     h: Shared,
     media: Arc<Media>,
     client_id: String,
     peer: SocketAddr,
     local: IpAddr,
+    this_pc: bool,
     out: UnboundedSender<ServerMessage>,
 ) -> Commands {
     let (commands, inbox) = unbounded_channel();
@@ -414,6 +416,7 @@ pub fn spawn(
         client_id,
         peer,
         local,
+        this_pc,
         inbox,
         out,
         live: None,
@@ -470,6 +473,7 @@ struct Actor {
     client_id: String,
     peer: SocketAddr,
     local: IpAddr,
+    this_pc: bool,
     inbox: UnboundedReceiver<Command>,
     out: UnboundedSender<ServerMessage>,
     live: Option<Live>,
@@ -908,7 +912,7 @@ impl Actor {
         let request = WebRtcLaunch {
             client,
             peer: self.peer.ip(),
-            this_pc: crate::network::peer_is_this_pc(self.peer.ip(), self.local),
+            this_pc: self.this_pc,
             app_id,
             width: settings.width,
             height: settings.height,
@@ -1078,7 +1082,7 @@ impl Actor {
             }
         };
         let local = socket.local_addr().context("reading the media address")?;
-        tracing::info!(media = %local, signalled = %self.local, peer = %self.peer, "WebRTC offer's host candidate");
+        tracing::info!(media = %local, signalled = %self.local, peer = %self.peer, this_pc = self.this_pc, "WebRTC offer's host candidate");
         let spec = OfferSpec {
             video: VideoMode {
                 codec: match settings.codec {

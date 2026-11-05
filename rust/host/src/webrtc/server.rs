@@ -205,6 +205,8 @@ struct Context {
 struct Peer {
     address: SocketAddr,
     local: SocketAddr,
+    /// The browser runs on this PC ([`crate::network::browser_on_this_pc`]).
+    this_pc: bool,
 }
 
 /// Logs refused peers, but not every one of a scan.
@@ -325,7 +327,12 @@ async fn accept(
             continue;
         };
         let local = SocketAddr::new(local.ip().to_canonical(), local.port());
-        let router = router.clone().layer(Extension(Peer { address, local }));
+        // Whether the browser is on this PC is read from its request, in `upgrade`.
+        let router = router.clone().layer(Extension(Peer {
+            address,
+            local,
+            this_pc: false,
+        }));
         tokio::spawn(async move {
             let _permit = permit;
             // HTTP/1 only: the WebSocket upgrade needs it, and the version
@@ -355,8 +362,13 @@ async fn accept(
 async fn upgrade(
     State(context): State<Context>,
     Extension(peer): Extension<Peer>,
+    headers: axum::http::HeaderMap,
     socket: WebSocketUpgrade,
 ) -> Response {
+    let peer = Peer {
+        this_pc: crate::network::browser_on_this_pc(peer.address, peer.local, &headers),
+        ..peer
+    };
     socket
         .max_message_size(MAX_MESSAGE)
         .max_frame_size(MAX_MESSAGE)
@@ -397,6 +409,8 @@ pub struct ConsoleSignIn {
     pub name: String,
     pub peer: SocketAddr,
     pub local: SocketAddr,
+    /// The browser runs on this PC ([`crate::network::browser_on_this_pc`]).
+    pub this_pc: bool,
     /// Whether the console sign-in that opened the socket still holds (not signed out, not
     /// expired). The connection closes with "signed out" once it does not.
     pub signed_in: SignedIn,
@@ -429,6 +443,7 @@ impl Console {
         let peer = Peer {
             address: SocketAddr::new(sign_in.peer.ip().to_canonical(), sign_in.peer.port()),
             local: SocketAddr::new(sign_in.local.ip().to_canonical(), sign_in.local.port()),
+            this_pc: sign_in.this_pc,
         };
         socket
             .protocols([CONSOLE_PROTOCOL])
@@ -455,6 +470,7 @@ impl Console {
         socket: WebSocketUpgrade,
         peer: SocketAddr,
         local: SocketAddr,
+        headers: &axum::http::HeaderMap,
     ) -> Response {
         if let Some(reason) = crate::network::play_refused(peer, local) {
             tracing::warn!(%peer, %local, reason, "play socket refused");
@@ -464,6 +480,7 @@ impl Console {
         let peer = Peer {
             address: SocketAddr::new(peer.ip().to_canonical(), peer.port()),
             local: SocketAddr::new(local.ip().to_canonical(), local.port()),
+            this_pc: crate::network::browser_on_this_pc(peer, local, headers),
         };
         socket
             .protocols([PLAY_PROTOCOL])
@@ -903,6 +920,7 @@ impl Connection {
                 client.client_id.clone(),
                 self.peer.address,
                 self.peer.local.ip(),
+                self.peer.this_pc,
                 streaming.replies.clone(),
             )
         });
@@ -1909,6 +1927,7 @@ pub(crate) mod tests {
         let peer = Peer {
             address: ([192, 168, 1, 9], 5000).into(),
             local: ([192, 168, 1, 2], 8000).into(),
+            this_pc: false,
         };
         let ip = peer.address.ip();
         // A connection with a pairing request, as a TV waiting for its PIN has.
@@ -2143,6 +2162,7 @@ pub(crate) mod tests {
         let peer = Peer {
             address: ([192, 168, 1, 9], 5000).into(),
             local: ([192, 168, 1, 2], 8000).into(),
+            this_pc: false,
         };
         let Registered {
             id,

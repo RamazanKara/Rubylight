@@ -1773,7 +1773,7 @@ fn launch_size(args: &Args, config: &Config) -> Result<(u32, u32)> {
 pub(crate) struct WebRtcLaunch {
     pub client: Client,
     pub peer: std::net::IpAddr,
-    /// The browser runs on this PC ([`crate::network::peer_is_this_pc`]).
+    /// The browser runs on this PC ([`crate::network::browser_on_this_pc`]).
     pub this_pc: bool,
     pub app_id: u32,
     pub width: u32,

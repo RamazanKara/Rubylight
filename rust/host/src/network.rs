@@ -1,5 +1,6 @@
 use crate::state::Shared;
 use anyhow::Result;
+use axum::http::{HeaderMap, Uri, header, uri::Authority};
 use butterpollo_core::config::{Config, Ports};
 use igd_next::{
     PortMappingProtocol as Protocol,
@@ -19,9 +20,74 @@ mod upnp;
 
 /// Whether a connection from `peer` to `local` comes from this PC: over loopback, or to one of
 /// this PC's own addresses, which it then comes from too.
-pub fn peer_is_this_pc(peer: IpAddr, local: IpAddr) -> bool {
+fn peer_is_this_pc(peer: IpAddr, local: IpAddr) -> bool {
     let peer = peer.to_canonical();
     peer.is_loopback() || peer == local.to_canonical()
+}
+
+/// Whether the browser behind this request runs on this PC. The address can only say it might:
+/// nginx, cloudflared, `tailscale serve`, `ssh -L` and `netsh portproxy` on this PC all connect
+/// from here for a browser anywhere. So the request's headers can take it back. They only ever
+/// restore the stricter behaviour, so a browser that sends them gains nothing.
+///
+/// What adds no header and shows the browser the same address and port still can't be told apart:
+/// `ssh -L 47990:localhost:47990`, or a raw port proxy on the same port, opened at `localhost`.
+pub fn browser_on_this_pc(peer: SocketAddr, local: SocketAddr, headers: &HeaderMap) -> bool {
+    peer_is_this_pc(peer.ip(), local.ip())
+        && !request_names_elsewhere(
+            headers,
+            local,
+            butterpollo_windows::net::host_name().as_deref(),
+        )
+}
+
+/// Whether a request connected to `local` shows it came through something: a proxy's own header, a
+/// `Host` at another port than the one it connected to, or a `Host` or `Origin` that isn't this PC.
+/// A browser on this PC that opened the page at the PC's network address connects to that address,
+/// so it names `local`. A missing header says nothing. The `Origin`'s port isn't compared: a page
+/// may signal to another port than it came from.
+fn request_names_elsewhere(headers: &HeaderMap, local: SocketAddr, pc_name: Option<&str>) -> bool {
+    let forwarded = headers
+        .keys()
+        .any(|name| name == "forwarded" || name.as_str().starts_with("x-forwarded-"));
+    let host_elsewhere = headers.get_all(header::HOST).iter().any(|host| {
+        let authority = host.to_str().ok();
+        let authority = authority.and_then(|host| host.parse::<Authority>().ok());
+        !authority.is_some_and(|authority| {
+            authority.port_u16().is_none_or(|port| port == local.port())
+                && names_this_pc(authority.host(), local.ip(), pc_name)
+        })
+    });
+    let origin_elsewhere = headers.get_all(header::ORIGIN).iter().any(|origin| {
+        let origin = origin.to_str().ok();
+        let origin = origin.and_then(|origin| origin.parse::<Uri>().ok());
+        !origin
+            .as_ref()
+            .and_then(Uri::host)
+            .is_some_and(|host| names_this_pc(host, local.ip(), pc_name))
+    });
+    forwarded || host_elsewhere || origin_elsewhere
+}
+
+/// Whether a request's host names this PC: loopback, the address the connection reached, or the
+/// PC's own name. A longer name (`pc.tailnet.ts.net`, a domain's) may be a proxy's, so it doesn't
+/// count, and such a stream keeps the configured layout.
+fn names_this_pc(host: &str, local: IpAddr, pc_name: Option<&str>) -> bool {
+    let host = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    if let Ok(address) = host.parse::<IpAddr>() {
+        let address = address.to_canonical();
+        return address.is_loopback() || address == local.to_canonical();
+    }
+    host == "localhost"
+        || host.ends_with(".localhost")
+        || pc_name.is_some_and(|name| {
+            let name = name.to_ascii_lowercase();
+            host == name || host.strip_suffix(".local") == Some(name.as_str())
+        })
 }
 
 /// The address a WebRTC stream's media socket binds and offers: the one the browser's signalling
@@ -715,6 +781,140 @@ mod tests {
         assert!(peer_is_this_pc(lan, lan));
         assert!(peer_is_this_pc("::ffff:192.168.4.69".parse().unwrap(), lan));
         assert!(!peer_is_this_pc("192.168.4.10".parse().unwrap(), lan));
+    }
+    fn request(pairs: &[(&'static str, &str)]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for (name, value) in pairs {
+            headers.append(*name, value.parse().unwrap());
+        }
+        headers
+    }
+    #[test]
+    fn a_browser_on_this_pc_names_this_pc_however_it_opened_the_console() {
+        let loopback: SocketAddr = "127.0.0.1:47990".parse().unwrap();
+        let v6: SocketAddr = "[::1]:47990".parse().unwrap();
+        let lan: SocketAddr = "192.168.4.69:47990".parse().unwrap();
+        let tailnet: SocketAddr = "100.90.1.2:47990".parse().unwrap();
+        for (local, host, origin) in [
+            (loopback, "127.0.0.1:47990", "https://127.0.0.1:47990"),
+            (loopback, "localhost:47990", "https://localhost:47990"),
+            (loopback, "LOCALHOST:47990", "https://Localhost:47990"),
+            (
+                loopback,
+                "console.localhost:47990",
+                "https://console.localhost:47990",
+            ),
+            (loopback, "127.0.0.1", "https://127.0.0.1"),
+            (v6, "[::1]:47990", "https://[::1]:47990"),
+            // At the PC's network address the connection reaches that address.
+            (lan, "192.168.4.69:47990", "https://192.168.4.69:47990"),
+            (tailnet, "100.90.1.2:47990", "https://100.90.1.2:47990"),
+            (lan, "gaming-pc:47990", "https://Gaming-PC:47990"),
+            (
+                lan,
+                "gaming-pc.local:47990",
+                "https://gaming-pc.local:47990",
+            ),
+            // A page may signal to another port than its own.
+            (loopback, "127.0.0.1:47990", "https://127.0.0.1:47991"),
+        ] {
+            let headers = request(&[("host", host), ("origin", origin)]);
+            assert!(
+                !request_names_elsewhere(&headers, local, Some("GAMING-PC")),
+                "{host} {origin} on {local}"
+            );
+        }
+        assert!(!request_names_elsewhere(
+            &HeaderMap::new(),
+            loopback,
+            Some("GAMING-PC")
+        ));
+    }
+    #[test]
+    fn a_proxy_on_this_pc_is_not_a_browser_on_this_pc() {
+        let loopback: SocketAddr = "127.0.0.1:47990".parse().unwrap();
+        let lan: SocketAddr = "192.168.4.69:47990".parse().unwrap();
+        let this_pc = [
+            ("host", "127.0.0.1:47990"),
+            ("origin", "https://127.0.0.1:47990"),
+        ];
+        for (name, value) in [
+            // What nginx, cloudflared and `tailscale serve` add, whatever else they keep.
+            ("x-forwarded-for", "203.0.113.7"),
+            ("x-forwarded-proto", "https"),
+            ("x-forwarded-host", "console.example.com"),
+            ("forwarded", "for=203.0.113.7"),
+        ] {
+            let mut pairs = this_pc.to_vec();
+            pairs.push((name, value));
+            assert!(
+                request_names_elsewhere(&request(&pairs), loopback, Some("GAMING-PC")),
+                "{name}"
+            );
+        }
+        for (local, host, origin) in [
+            // nginx passes the name on, or the browser's Origin at least.
+            (
+                loopback,
+                "console.example.com",
+                "https://console.example.com",
+            ),
+            (loopback, "127.0.0.1:47990", "https://console.example.com"),
+            (loopback, "127.0.0.1:47990", "https://pc.tailnet.ts.net"),
+            // A longer name of this PC may be a proxy's.
+            (
+                loopback,
+                "gaming-pc.example.com",
+                "https://gaming-pc.example.com",
+            ),
+            // `ssh -L 9000:localhost:47990`, opened on the far side as localhost.
+            (loopback, "localhost:9000", "https://localhost:9000"),
+            // `netsh portproxy` from the network address to loopback, or to another port.
+            (loopback, "192.168.4.69:47990", "https://192.168.4.69:47990"),
+            (lan, "192.168.4.69:8443", "https://192.168.4.69:8443"),
+            // Another address than the connection reached.
+            (lan, "192.168.4.70:47990", "https://192.168.4.70:47990"),
+            // No address at all.
+            (loopback, "127.0.0.1:47990", "null"),
+        ] {
+            let headers = request(&[("host", host), ("origin", origin)]);
+            assert!(
+                request_names_elsewhere(&headers, local, Some("GAMING-PC")),
+                "{host} {origin} on {local}"
+            );
+        }
+        // docs/webrtc.md: nothing in this request differs from a browser's on this PC.
+        let same_port = request(&[
+            ("host", "localhost:47990"),
+            ("origin", "https://localhost:47990"),
+        ]);
+        assert!(!request_names_elsewhere(
+            &same_port,
+            loopback,
+            Some("GAMING-PC")
+        ));
+    }
+    #[test]
+    fn the_address_and_the_headers_both_have_to_say_this_pc() {
+        let peer: SocketAddr = "127.0.0.1:50000".parse().unwrap();
+        let loopback: SocketAddr = "127.0.0.1:47990".parse().unwrap();
+        let lan: SocketAddr = "192.168.4.69:47990".parse().unwrap();
+        let clean = request(&[("host", "127.0.0.1:47990")]);
+        assert!(browser_on_this_pc(peer, loopback, &clean));
+        let proxied = request(&[
+            ("host", "127.0.0.1:47990"),
+            ("x-forwarded-for", "203.0.113.7"),
+        ]);
+        assert!(!browser_on_this_pc(peer, loopback, &proxied));
+        // Clean headers grant nothing to a browser elsewhere.
+        let elsewhere: SocketAddr = "192.168.4.10:50000".parse().unwrap();
+        let named = request(&[("host", "192.168.4.69:47990")]);
+        assert!(!browser_on_this_pc(elsewhere, lan, &named));
+        assert!(browser_on_this_pc(
+            "192.168.4.69:50000".parse().unwrap(),
+            lan,
+            &named
+        ));
     }
     #[test]
     fn lan_defaults_and_explicit_binding_keep_legacy_semantics() {

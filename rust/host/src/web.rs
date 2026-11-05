@@ -509,6 +509,11 @@ async fn webrtc_signal(
             name: device.name.clone(),
             peer: connection.peer,
             local: connection.local,
+            this_pc: crate::network::browser_on_this_pc(
+                connection.peer,
+                connection.local,
+                &headers,
+            ),
             signed_in: Box::new(move || {
                 watched.web_sessions.lock().unwrap().values().any(|s| {
                     s.refresh_expires > Instant::now()
@@ -665,7 +670,13 @@ async fn play_signal(
         Ok(upgrade) => upgrade,
         Err(rejection) => return rejection.into_response(),
     };
-    console.play(h.clone(), upgrade, connection.peer, connection.local)
+    console.play(
+        h.clone(),
+        upgrade,
+        connection.peer,
+        connection.local,
+        &headers,
+    )
 }
 /// The guest page: its own build of the web app (`dist/guest`), and nothing of the console's.
 async fn guest_page(State(h): State<Shared>, method: Method, uri: axum::http::Uri) -> Response {

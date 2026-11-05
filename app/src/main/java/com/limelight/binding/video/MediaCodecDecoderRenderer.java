@@ -314,7 +314,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private final PyroWaveSubmissionTiming pyroWaveSubmissionTiming = new PyroWaveSubmissionTiming();
     private ThermalMonitor thermalMonitor;
     private volatile int thermalLevel = ThermalMonitor.NORMAL;
-    private volatile boolean heatChangesStream;
+    // What heat does to this stream, for the overlay: bitrate held when warm, load eased when hot.
+    private volatile boolean heatHoldsBitrate;
+    private volatile boolean heatEasesLoad;
+    private volatile boolean clocksEasedByHeat;
     // MoonBridge.getVideoReceiveBufferInfo's answer, for the report; -1 unknown.
     private volatile long videoReceiveBuffer = -1;
 
@@ -387,6 +390,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (ThermalMonitor.forAdaptation(prefs.thermalProtection, thermalLevel) == ThermalMonitor.HOT &&
                     pyroWaveRenderer.hasMaxClocks()) {
                 pyroWaveRenderer.restoreClocks();
+                clocksEasedByHeat = true;
                 updateDecoderDiagnostics();
             }
             pyroWaveRenderer.pollRenderedFrames(frameLatencyStats);
@@ -641,9 +645,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return thermalLevel;
     }
 
-    /** Whether heat is changing this stream right now: Thermal protection is on and a controller follows it. */
-    public void setHeatChangesStream(boolean changes) {
-        heatChangesStream = changes;
+    /** What Thermal protection and this stream's controllers would do: hold the bitrate when warm, ease the load when hot. */
+    public void setHeatEffects(boolean holdsBitrate, boolean easesLoad) {
+        heatHoldsBitrate = holdsBitrate;
+        heatEasesLoad = easesLoad;
     }
 
     /** The bitrate the stream is asked to carry now; it moves with automatic bitrate. */
@@ -667,17 +672,19 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     private String thermalStats() {
         float headroom = thermalMonitor.headroom();
-        return context.getString(R.string.perf_overlay_thermal, context.getString(thermalState(thermalLevel, heatChangesStream))) +
+        int state = thermalState(thermalLevel, heatHoldsBitrate, heatEasesLoad || clocksEasedByHeat);
+        return context.getString(R.string.perf_overlay_thermal, context.getString(state)) +
                 (headroom >= 0 ? String.format(Locale.US, " (%.2f)", headroom) : "");
     }
 
-    // The overlay names what heat does to the stream only when it does something.
-    static int thermalState(int level, boolean changesStream) {
+    // The overlay names what heat does to the stream only when it does something: warm holds the
+    // bitrate of a bitrate controller, while quality has no bitrate to hold; hot eases any load it can.
+    static int thermalState(int level, boolean holdsBitrate, boolean easesLoad) {
         if (level == ThermalMonitor.HOT) {
-            return changesStream ? R.string.perf_overlay_thermal_hot_easing : R.string.perf_overlay_thermal_hot;
+            return easesLoad ? R.string.perf_overlay_thermal_hot_easing : R.string.perf_overlay_thermal_hot;
         }
         if (level == ThermalMonitor.WARM) {
-            return changesStream ? R.string.perf_overlay_thermal_warm_holding : R.string.perf_overlay_thermal_warm;
+            return holdsBitrate ? R.string.perf_overlay_thermal_warm_holding : R.string.perf_overlay_thermal_warm;
         }
         return R.string.perf_overlay_thermal_normal;
     }

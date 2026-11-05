@@ -202,6 +202,10 @@ struct App {
     pin_pending: Option<PinPending>,
     /// Selecting a game waits for the PC to say who plays it.
     select_read: bool,
+    /// A read for an open "Now playing on ..." is under way.
+    move_watching: bool,
+    /// How many more such reads the prompt may start.
+    move_watch_reads: u32,
     /// This launch's update check (Windows); command-line and test streams make none.
     updates: update_check::Updates,
     open_play: open_play::OpenPlay,
@@ -660,6 +664,8 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         color_probed: None,
         pin_pending: None,
         select_read: false,
+        move_watching: false,
+        move_watch_reads: 0,
         title_bar: *theme::NIGHT,
     };
     match identity {
@@ -1153,8 +1159,12 @@ impl App {
                     };
                     self.launcher.message(title, e);
                 }
-                // Nothing changed on the PC: the game keeps running and the prompt says why not.
-                HostEvent::ContinueHere { result: Err(e), .. } => self.launcher.message(tr("Could not continue here"), e),
+                // Nothing changed on the PC: the game keeps running and the prompt says why not. No
+                // stream follows to use the PIN's grant.
+                HostEvent::ContinueHere { result: Err(e), .. } => {
+                    self.forget_pin_grant();
+                    self.launcher.message(tr("Could not continue here"), e);
+                }
                 HostEvent::ContinueHere { id, app, result: Ok(()) } => self.launch(id, app, true, LaunchKind::Stream, LaunchFrom::Launcher),
                 HostEvent::SelectRead { id, app, resume, read } => {
                     self.select_read = false;
@@ -1170,7 +1180,23 @@ impl App {
                 }
                 HostEvent::StreamMoved { id, app, device: Some(device) } if self.streaming.is_none() && self.connecting.is_none() => {
                     eprintln!("nightjar: the stream moved to {device}");
-                    self.launcher.ask_after(Dialog::NowPlaying { host: id, app, device });
+                    self.show_moved(id, app, device);
+                }
+                HostEvent::MoveWatched { id, app, read } => {
+                    self.move_watching = false;
+                    match read {
+                        // Still moved, as far as the PC says.
+                        Ok(read) if read.moved_to.is_some() => {}
+                        Ok(read) => {
+                            self.move_watch_reads = 0;
+                            if nightjar_policy::continue_here::came_back(false, read.owns_game) {
+                                eprintln!("nightjar: the move failed; the game is this device's again");
+                                self.launcher.game_came_back(id, app);
+                            }
+                        }
+                        Err(e) => eprintln!("nightjar: could not ask the PC whether the move failed: {e}"),
+                    }
+                    self.watch_moved_prompt();
                 }
                 HostEvent::Action { result: Err(e), .. } => self.launcher.message(tr("The PC action failed"), e),
                 _ => {}
@@ -1219,7 +1245,7 @@ impl App {
                         match failed {
                             ConnectFailed::Message(e) => self.launcher.message(tr("The stream could not start"), e),
                             ConnectFailed::ConfirmReplace(plan) => self.ask_replace(plan),
-                            ConnectFailed::Moved { host, app, device } => self.launcher.ask_after(Dialog::NowPlaying { host, app, device }),
+                            ConnectFailed::Moved { host, app, device } => self.show_moved(host, app, device),
                         }
                     }
                 }
@@ -1821,13 +1847,42 @@ impl App {
     fn launch(&mut self, host_id: u64, app_id: i32, resume: bool, kind: LaunchKind, from: LaunchFrom) {
         let busy = self.connecting.is_some() || self.network_launch.is_some();
         eprintln!("nightjar: {}{}", launch_line(from, app_id, resume, busy), kind.log_suffix());
-        if busy { return; }
+        if busy {
+            // A grant left for this start is not used by it.
+            self.forget_pin_grant();
+            return;
+        }
         // The quit-and-start prompt's start was let through with its quit.
         if from != LaunchFrom::Replace && self.pin_holds(host_id, PinPending::Launch { host: host_id, app: app_id, resume, kind, from }) {
             return;
         }
         self.network_launch = Some((host_id, app_id, resume, kind));
         self.network_query = Some(network::query(self.waker.clone()));
+    }
+
+    fn forget_pin_grant(&mut self) {
+        if let Some(pin) = self.launcher.pin.as_mut() {
+            pin.forget_grant();
+        }
+    }
+
+    /// "Now playing on ...", watched while it is open: a move that fails gives the game back to
+    /// this device, which has a minute to come back before close-on-disconnect applies.
+    fn show_moved(&mut self, host: u64, app: i32, device: String) {
+        self.launcher.ask_after(Dialog::NowPlaying { host, app, device });
+        self.move_watch_reads = hosts::MOVE_WATCH_READS;
+        self.watch_moved_prompt();
+    }
+
+    /// The next read for the open prompt. None once it closed, or it has asked enough.
+    fn watch_moved_prompt(&mut self) {
+        if self.move_watching || self.move_watch_reads == 0 {
+            return;
+        }
+        if let Some((host, app)) = self.launcher.moved_prompt() {
+            self.move_watch_reads -= 1;
+            self.move_watching = self.hosts.watch_stream_move(host, app);
+        }
     }
 
     /// Whether the PIN lock holds a stream start on `host` back; it then asks for the PIN and

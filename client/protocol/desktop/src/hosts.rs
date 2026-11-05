@@ -319,6 +319,10 @@ pub const PC_POWER_BUSY: &str = en("The PC cannot do this right now. Close games
 
 /// How long selecting a game waits to learn who plays it, before it starts the stream as it always did.
 const SELECT_READ_WAIT: Duration = Duration::from_millis(1500);
+/// How often an open "Now playing on ..." asks the PC whether the move failed.
+const MOVE_WATCH_EVERY: Duration = Duration::from_secs(3);
+/// How many times it asks: past the two minutes the PC keeps its note, even one that never answers.
+pub const MOVE_WATCH_READS: u32 = 50;
 
 /// `work`'s answer, or an error when it takes longer than `wait`. It then ends on its own.
 fn within<T: Send + 'static>(wait: Duration, work: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
@@ -386,6 +390,11 @@ pub enum Event {
         app: i32,
         /// The device the stream moved to; None when it did not, or the PC could not say.
         device: Option<String>,
+    },
+    MoveWatched {
+        id: u64,
+        app: i32,
+        read: Result<StreamMove, String>,
     },
     ContinueHere {
         id: u64,
@@ -1523,6 +1532,23 @@ impl Hosts {
         });
     }
 
+    /// While "Now playing on ..." is open: reads the PC once after [`MOVE_WATCH_EVERY`], off the UI
+    /// thread, and answers with [`Event::MoveWatched`]. The next read is the answer's to start, so
+    /// a closed prompt ends this. False when it cannot ask, and no answer comes.
+    pub fn watch_stream_move(&mut self, id: u64, app: i32) -> bool {
+        let (Some(identity), Some(host)) = (self.identity.clone(), self.get(id)) else {
+            return false;
+        };
+        let record = host.connect_record();
+        self.spawn("stream-move-watch", move || {
+            std::thread::sleep(MOVE_WATCH_EVERY);
+            let read = client_for(&identity, &record, &record.address)
+                .and_then(|client| client.stream_move().map_err(|e| describe(&e)));
+            Some(Event::MoveWatched { id, app, read })
+        });
+        true
+    }
+
     /// Selecting a game on a PC that offers the move: reads who plays it now, off the UI thread and
     /// for at most [`SELECT_READ_WAIT`], and answers with [`Event::SelectRead`]. False when it cannot
     /// ask, and no answer comes.
@@ -1872,6 +1898,7 @@ impl Hosts {
                 event @ Event::PcPower { .. } => out.push(event),
                 event @ Event::SelectRead { .. } => out.push(event),
                 event @ Event::StreamMoved { .. } => out.push(event),
+                event @ Event::MoveWatched { .. } => out.push(event),
                 event @ Event::ContinueHere { .. } => out.push(event),
                 Event::HostUpdate { id, name, result } => {
                     if matches!(result, Ok(UpdateStep::Back(_))) {

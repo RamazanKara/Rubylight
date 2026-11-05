@@ -534,6 +534,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Now playing on {}", "Đang chơi trên {}"),
     ("Now playing on another device", "Đang chơi trên thiết bị khác"),
     ("Could not continue here", "Không thể tiếp tục tại đây"),
+    ("The game came back to this device", "Trò chơi đã quay lại thiết bị này"),
     ("Could not end the session", "Không thể kết thúc phiên"),
     ("The session action failed", "Thao tác phiên thất bại"),
     ("The PC action failed", "Thao tác PC thất bại"),

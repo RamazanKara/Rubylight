@@ -1001,6 +1001,30 @@ impl Launcher {
                         });
                     });
             }
+            Dialog::GameCameBack { host, app } => {
+                let (host, app) = (*host, *app);
+                egui::Modal::new(Id::unique("game-came-back"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new(tr("The game came back to this device")).font(semibold(text::SECTION)));
+                        dialog_buttons(ui, |ui| {
+                            let resume = primary_button(ui, "Resume");
+                            if focus_first {
+                                resume.request_focus();
+                                focused = true;
+                            }
+                            // The start asks for the PIN where the lock covers this PC, and asks
+                            // again who plays: the game may have moved on since.
+                            if resume.clicked() {
+                                commands.push(Command::Launch { host, app, resume: true });
+                                close = true;
+                            }
+                            if quiet_button(ui, "OK").clicked() { close = true; }
+                        });
+                    });
+            }
             Dialog::ConfirmAction { host, app, name } => {
                 egui::Modal::new(Id::unique("host-action"))
                     .frame(frame)

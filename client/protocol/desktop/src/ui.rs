@@ -226,6 +226,8 @@ pub enum Dialog {
     ContinueHere { host: u64, app: i32, resume: bool, name: String, device: String },
     /// This device's stream moved to `device`.
     NowPlaying { host: u64, app: i32, device: String },
+    /// The move failed while "Now playing on ..." was open: the game is this device's again.
+    GameCameBack { host: u64, app: i32 },
     ConfirmClose { host: u64, name: String },
     ProfileName { id: Option<u64>, name: String, settings: Overrides, error: Option<String> },
     DeleteProfile { id: u64, name: String },
@@ -689,6 +691,25 @@ impl Launcher {
             self.ask(dialog);
         } else {
             self.queued.push_back(dialog);
+        }
+    }
+
+    /// The "Now playing on ..." that is open or waits, if any.
+    pub fn moved_prompt(&self) -> Option<(u64, i32)> {
+        std::iter::once(&self.dialog).chain(&self.queued).find_map(|dialog| match dialog {
+            Dialog::NowPlaying { host, app, .. } => Some((*host, *app)),
+            _ => None,
+        })
+    }
+
+    /// The PC gave the game back: what said it moved now says that, and offers to resume it.
+    pub fn game_came_back(&mut self, host: u64, app: i32) {
+        let said = |dialog: &Dialog| matches!(dialog, Dialog::NowPlaying { host: h, app: a, .. } if (*h, *a) == (host, app));
+        if said(&self.dialog) {
+            self.ask(Dialog::GameCameBack { host, app });
+        }
+        for dialog in self.queued.iter_mut().filter(|dialog| said(dialog)) {
+            *dialog = Dialog::GameCameBack { host, app };
         }
     }
 

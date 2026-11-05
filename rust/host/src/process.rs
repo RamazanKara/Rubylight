@@ -310,6 +310,23 @@ impl RunningApp {
             &owned, &processes,
         ))
     }
+    /// Whether the app is the desktop: it starts nothing, so every stream of it
+    /// shows its own display.
+    pub fn is_desktop(&self) -> bool {
+        !self.launches && !self.has_game_process()
+    }
+    fn has_game_process(&self) -> bool {
+        self.steam.is_some() || self.playnite.is_some() || self.child.is_some()
+    }
+    /// The processes whose windows may come back after a display's departure
+    /// minimised them. None for a background game, whose windows stay out of the
+    /// PC's way, or an app with no game process to name (Desktop, a detached command).
+    pub fn departure_windows(&self) -> Result<std::collections::BTreeSet<u32>> {
+        if self.background || !self.has_game_process() {
+            return Ok(Default::default());
+        }
+        self.window_processes()
+    }
     /// The verified game processes (pid → creation time) and this session's
     /// process list.
     fn game_processes(
@@ -1894,6 +1911,38 @@ mod tests {
         assert!(app.observe_foreground(20, "player.exe").is_none());
         // Another program under that id is.
         assert!(app.observe_foreground(20, "other.exe").is_some());
+    }
+    #[test]
+    fn a_display_leaving_brings_back_only_a_game_with_processes_to_name() {
+        // Desktop or a detached command: nothing to bring back, and no error to log.
+        let desktop = RunningApp::with_environment(&App::desktop(), BTreeMap::new()).unwrap();
+        assert!(desktop.is_desktop());
+        assert!(desktop.departure_windows().unwrap().is_empty());
+        let mut detached = RunningApp::with_environment(&App::desktop(), BTreeMap::new()).unwrap();
+        detached.launches = true;
+        assert!(!detached.is_desktop());
+        assert!(detached.departure_windows().unwrap().is_empty());
+        // A game Steam follows, this test's own process standing in for it: its
+        // windows may come back, but not a background game's. It is never dropped:
+        // stopping the app would end this test's own process.
+        let me = std::process::id();
+        let started = butterpollo_windows::process::processes()
+            .unwrap()
+            .into_iter()
+            .find(|process| process.pid == me)
+            .unwrap()
+            .started;
+        let mut game = std::mem::ManuallyDrop::new(
+            RunningApp::with_environment(&App::desktop(), BTreeMap::new()).unwrap(),
+        );
+        let mut tracker =
+            butterpollo_core::steam::Tracker::new(&[], "C:\\not-a-game", Duration::ZERO);
+        tracker.tracked.insert(me, started);
+        game.steam = Some(tracker);
+        assert!(!game.is_desktop());
+        assert!(game.departure_windows().unwrap().contains(&me));
+        game.background = true;
+        assert!(game.departure_windows().unwrap().is_empty());
     }
     #[test]
     fn a_foreground_check_for_a_replaced_app_is_not_applied_to_its_successor() {

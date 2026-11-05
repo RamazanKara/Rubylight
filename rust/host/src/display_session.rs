@@ -381,6 +381,37 @@ impl ModeReport {
     }
 }
 
+/// Start the wait for Windows to settle when a display left another stream's layout
+/// since this stream last looked (`seen`).
+fn notice_departure(
+    seen: &mut u64,
+    departures: u64,
+    watch: &mut butterpollo_core::display_policy::LayoutWatch,
+    now: std::time::Instant,
+) {
+    if departures != *seen {
+        *seen = departures;
+        watch.display_left(now);
+    }
+}
+/// Lay the displays out again after a display left, with what stays on: the remote
+/// monitors, and what the watch leaves on for the rest of the stream. A failure stays
+/// due for the next try.
+fn lay_out_after_departure(
+    watch: &mut butterpollo_core::display_policy::LayoutWatch,
+    mut retained: Vec<String>,
+    now: std::time::Instant,
+    reapply: impl FnOnce(&[String]) -> Result<()>,
+) -> Result<()> {
+    retained.extend(watch.kept().iter().cloned());
+    if let Err(error) = reapply(&retained) {
+        watch.failed(now);
+        return Err(error);
+    }
+    watch.departure_handled();
+    Ok(())
+}
+
 /// A display recovery's steps after the heartbeat brought the display back.
 /// The layout and HDR profile are retried each second until they apply. The
 /// stream's mode is set once per recovery, after the layout: a mode Windows
@@ -1061,21 +1092,26 @@ impl Prepared {
         fed.map(|_| ())
     }
     /// The game on a display that was removed is minimised by Windows, and the
-    /// stream that goes on would show the desktop. Off this thread: finding the
-    /// game's processes takes a process list and the running app's lock.
+    /// stream that goes on would show the desktop. Only what that minimised: a
+    /// window minimised before it, or long after, is the user's doing. Off this
+    /// thread: finding the game's processes takes a process list and the running
+    /// app's lock.
     fn bring_back_game(&self) {
         let Some(host) = self.host.upgrade() else {
             return;
         };
+        let Some(before) = display_arrangement::minimized_before_departure() else {
+            return;
+        };
         std::thread::spawn(move || {
             let processes = match host.current_app.lock().unwrap().as_ref() {
-                Some(app) => app.window_processes(),
+                Some(app) => app.departure_windows(),
                 None => return,
             };
             match processes {
                 Ok(processes) => {
                     for pid in processes {
-                        if butterpollo_windows::lossless::restore_minimized(pid) {
+                        if butterpollo_windows::lossless::restore_minimized(pid, &before) {
                             tracing::info!(
                                 pid,
                                 "brought back the game's window Windows minimised when a display left"
@@ -1116,19 +1152,18 @@ impl Prepared {
         let Some(arrangement) = &self._arrangement else {
             return Ok(());
         };
-        let departures = display_arrangement::departures();
-        if departures != self.departures {
-            self.departures = departures;
-            self.layout_watch.display_left(now);
-        }
+        notice_departure(
+            &mut self.departures,
+            display_arrangement::departures(),
+            &mut self.layout_watch,
+            now,
+        );
         if self.layout_watch.departure_due(now) {
             tracing::info!(output = %self.output, "another stream's display left; laying this stream's displays out again");
-            let retained = self.remote_monitors();
-            if let Err(error) = arrangement.reapply(&self.output, &retained) {
-                self.layout_watch.failed(now);
-                return Err(error);
-            }
-            self.layout_watch.departure_handled();
+            let monitors = self.remote_monitors();
+            lay_out_after_departure(&mut self.layout_watch, monitors, now, |retained| {
+                arrangement.reapply(&self.output, retained)
+            })?;
             if let Some(display) = &self.display {
                 display.apply_virtual_mode("after a display left");
             }

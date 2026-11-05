@@ -159,16 +159,52 @@ pub fn minimize(pid: u32) {
         }
     }
 }
-/// Bring back `pid`'s minimised windows, the last one in front; true when one
-/// was minimised. Windows minimises what sits on a display that is removed.
-pub fn restore_minimized(pid: u32) -> bool {
-    let minimized: Vec<_> = windows_of(pid)
+/// The top-level windows minimised now, by handle.
+pub fn minimized_windows() -> std::collections::BTreeSet<isize> {
+    unsafe extern "system" fn visit(window: HWND, data: LPARAM) -> windows::core::BOOL {
+        // SAFETY: EnumWindows passes the set from minimized_windows as `data`, which outlives the
+        // enumeration and is not otherwise used during it. IsIconic takes the handle by value.
+        unsafe {
+            let found = &mut *(data.0 as *mut std::collections::BTreeSet<isize>);
+            if IsIconic(window).as_bool() {
+                found.insert(window.0 as isize);
+            }
+            windows::core::BOOL(1)
+        }
+    }
+    let mut found = std::collections::BTreeSet::new();
+    // SAFETY: `found` outlives the synchronous EnumWindows call that fills it through `visit`.
+    unsafe {
+        let _ = EnumWindows(
+            Some(visit),
+            LPARAM((&mut found as *mut std::collections::BTreeSet<isize>) as isize),
+        );
+    }
+    found
+}
+/// The minimised windows that were not minimised `before` a display left.
+fn newly_minimized(
+    windows: impl IntoIterator<Item = isize>,
+    minimized: impl Fn(isize) -> bool,
+    before: &std::collections::BTreeSet<isize>,
+) -> Vec<isize> {
+    windows
         .into_iter()
+        .filter(|window| !before.contains(window) && minimized(*window))
+        .collect()
+}
+/// Bring back `pid`'s windows that a display's departure minimised, the last one
+/// in front; true when there was one. Windows minimises what sits on a display
+/// that is removed; a window already minimised `before` that was the user's doing.
+pub fn restore_minimized(pid: u32, before: &std::collections::BTreeSet<isize>) -> bool {
+    let minimized = newly_minimized(
+        windows_of(pid).into_iter().map(|window| window.0 as isize),
         // SAFETY: IsIconic only takes a window handle by value; a stale handle just fails.
-        .filter(|window| unsafe { IsIconic(*window).as_bool() })
-        .collect();
+        |window| unsafe { IsIconic(HWND(window as _)).as_bool() },
+        before,
+    );
     for window in &minimized {
-        to_front_quietly(*window);
+        to_front_quietly(HWND(*window as _));
     }
     !minimized.is_empty()
 }
@@ -235,4 +271,15 @@ pub fn press(modifiers: &[u16], code: u16) -> bool {
     inputs.push(key(code, true));
     inputs.extend(modifiers.iter().rev().map(|m| key(*m, true)));
     send(&inputs)
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn a_window_minimised_before_a_display_left_stays_down() {
+        let before = [1, 2].into_iter().collect();
+        // 1: the user's, before; 3: the departure's; 4: never minimised; 2 is gone.
+        let minimized = |window| window == 1 || window == 3;
+        assert_eq!(newly_minimized([1, 3, 4], minimized, &before), [3]);
+    }
 }

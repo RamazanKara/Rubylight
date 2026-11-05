@@ -54,10 +54,144 @@ fn a_display_the_layout_switched_off_is_still_watched_after_another_display_left
     assert!(desired[0].active);
     assert_eq!(desired.len(), 1);
 }
+/// A layout that saves its entry, as the first stream's virtual display leaves it.
+fn saving_state(first: &str) -> State {
+    let mut state = State {
+        persisted: persist(Arrangement::Exclusive, true),
+        ..Default::default()
+    };
+    add_owner(&mut state, first, true);
+    state
+}
+/// Lay out as `apply` ends: true when the layout was saved.
+fn saves(state: &mut State, leaving: Option<&str>) -> bool {
+    let saved = std::cell::Cell::new(false);
+    settle_layout(state, Vec::new(), leaving, || {
+        saved.set(true);
+        Ok(())
+    });
+    saved.get()
+}
 #[test]
 fn a_layout_without_a_display_on_its_way_out_is_not_saved_under_its_entry() {
-    assert!(!saves_layout(Some("a")));
-    assert!(saves_layout(None));
+    let mut state = saving_state("a");
+    add_owner(&mut state, "b", true);
+    assert!(!saves(&mut state, Some("a")));
+    assert!(saves(&mut state, None));
+}
+#[test]
+fn a_remote_monitor_left_alone_saves_no_entry_that_keeps_the_monitors_off() {
+    // A exclusive beside remote monitor M.
+    let mut state = saving_state("a");
+    add_owner(&mut state, "m", false);
+    assert!(saves(&mut state, None));
+    // A ends. Saved now, {P, m} would have P off, and Windows recalls it when
+    // C's display goes while M's retained display stays.
+    assert_eq!(
+        release_owner(&mut state, "a"),
+        Released {
+            left: true,
+            saved: true
+        }
+    );
+    assert!(!saves(&mut state, None));
+    // C arrives: its entry, {P, c, m}, is saved, and put back when it ends.
+    add_owner(&mut state, "c", true);
+    assert!(saves(&mut state, None));
+    assert!(!release_owner(&mut state, "m").saved);
+    assert!(saves(&mut state, None));
+    assert!(release_owner(&mut state, "c").saved);
+    assert!(!saves(&mut state, None));
+}
+#[test]
+fn a_physical_display_left_alone_never_writes_the_users_own_entry() {
+    let mut state = saving_state("a");
+    add_owner(&mut state, "p2", false);
+    release_owner(&mut state, "a");
+    assert!(!saves(&mut state, None));
+    // Its end puts nothing back either: the entry for the user's displays is theirs.
+    assert_eq!(
+        release_owner(&mut state, "p2"),
+        Released {
+            left: true,
+            saved: false
+        }
+    );
+}
+#[test]
+fn a_stream_sharing_a_display_keeps_its_entry_until_the_last_lease() {
+    let mut state = saving_state("a");
+    state.owners[0].1 += 1;
+    assert!(!release_owner(&mut state, "a").left);
+    assert!(saves(&mut state, None));
+    assert!(release_owner(&mut state, "a").left);
+    assert!(state.owners.is_empty());
+    assert!(!saves(&mut state, None));
+}
+#[test]
+fn a_layout_that_saves_nothing_does_not_start_to_for_a_later_virtual_display() {
+    let mut state = State::default();
+    add_owner(&mut state, "m", false);
+    add_owner(&mut state, "c", true);
+    assert!(!saves(&mut state, None));
+    assert!(!release_owner(&mut state, "c").saved);
+}
+#[test]
+fn a_display_that_could_not_be_laid_out_is_no_owner_and_saves_nothing() {
+    let mut state = saving_state("a");
+    add_owner(&mut state, "b", true);
+    remove_added_owner(&mut state, "b");
+    assert_eq!(state.owners, [("a".to_owned(), 1)]);
+    assert_eq!(state.persists_for, ["a"]);
+}
+#[test]
+fn a_display_leaving_a_layout_the_user_changed_lays_nothing_out_again() {
+    let mut state = State {
+        applied: vec![node("a", true, true), node("phys", true, false)],
+        ..Default::default()
+    };
+    let before = departures();
+    let mut applied = false;
+    display_left(&mut state, "a", false, |_| {
+        applied = true;
+        Ok(())
+    })
+    .unwrap();
+    // Win+P or a primary picked in Windows stays, now and after Windows settles.
+    assert!(!applied);
+    assert_eq!(departures(), before);
+    assert!(!state.applied[0].active);
+    assert!(state.applied[1].active);
+    // Still as applied: laid out now, and again once Windows has settled.
+    display_left(&mut state, "a", true, |_| {
+        applied = true;
+        Ok(())
+    })
+    .unwrap();
+    assert!(applied);
+    assert_eq!(departures(), before + 1);
+    assert!(minimized_before_departure().is_some());
+}
+#[test]
+fn only_a_recent_departure_explains_a_minimised_window() {
+    let start = std::time::Instant::now();
+    let windows = |ids: &[isize]| {
+        ids.iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let mut last = None;
+    note_departure(&mut last, start, || windows(&[1]));
+    assert_eq!(recent_departure(&last, start), Some(&windows(&[1])));
+    // A second display soon after: what the first minimised was not the user's doing.
+    let soon = start + std::time::Duration::from_secs(1);
+    note_departure(&mut last, soon, || windows(&[1, 2]));
+    assert_eq!(recent_departure(&last, soon), Some(&windows(&[1])));
+    // A stream that was paused meanwhile comes back too late to tell.
+    let late = start + DEPARTURE_RECENT;
+    assert_eq!(recent_departure(&last, late), None);
+    note_departure(&mut last, late, || windows(&[3]));
+    assert_eq!(recent_departure(&last, late), Some(&windows(&[3])));
 }
 #[test]
 fn a_display_arriving_beside_a_stream_is_on_with_it_and_what_it_keeps() {

@@ -19,6 +19,10 @@ struct State {
     retained: Vec<String>,
     /// The layout is saved to the Windows display database (see `persist`).
     persisted: bool,
+    /// The owners that layout is saved for: virtual displays made for streaming.
+    /// A remote monitor or a physical display among the owners has none, and
+    /// without one a save would change an entry nothing puts back.
+    persists_for: Vec<String>,
 }
 fn state() -> &'static Mutex<State> {
     static STATE: OnceLock<Mutex<State>> = OnceLock::new();
@@ -185,6 +189,36 @@ static DEPARTURES: AtomicU64 = AtomicU64::new(0);
 pub fn departures() -> u64 {
     DEPARTURES.load(Ordering::Relaxed)
 }
+/// When a display last left, with the windows minimised just before.
+type Departure = (std::time::Instant, std::collections::BTreeSet<isize>);
+static LAST_DEPARTURE: Mutex<Option<Departure>> = Mutex::new(None);
+/// How long after a display left a window minimised since is put down to it:
+/// later, the user is as likely to have done it.
+const DEPARTURE_RECENT: std::time::Duration = std::time::Duration::from_secs(10);
+/// Note a display leaving. One that follows another soon after keeps the first
+/// reading: a window the first one minimised was not the user's doing.
+fn note_departure(
+    last: &mut Option<Departure>,
+    now: std::time::Instant,
+    minimized: impl FnOnce() -> std::collections::BTreeSet<isize>,
+) {
+    if recent_departure(last, now).is_none() {
+        *last = Some((now, minimized()));
+    }
+}
+fn recent_departure(
+    last: &Option<Departure>,
+    now: std::time::Instant,
+) -> Option<&std::collections::BTreeSet<isize>> {
+    last.as_ref()
+        .filter(|(at, _)| now.saturating_duration_since(*at) < DEPARTURE_RECENT)
+        .map(|(_, minimized)| minimized)
+}
+/// The windows that were minimised before a display left, while that departure
+/// is recent: any other minimised window is its doing. None after that.
+pub fn minimized_before_departure() -> Option<std::collections::BTreeSet<isize>> {
+    recent_departure(&LAST_DEPARTURE.lock().unwrap(), std::time::Instant::now()).cloned()
+}
 /// The streams' displays that are not on (a snapshot lists only the ones that are).
 fn targets_off(nodes: &[Node], targets: &[String]) -> Vec<String> {
     targets
@@ -250,18 +284,67 @@ fn apply(state: &mut State, arrangement: Arrangement, leaving: Option<&str>) -> 
             .map(|n| (n.device_id.clone(), n.desired_position))
             .collect(),
     )?;
-    state.applied = desired;
-    if saves_layout(leaving) {
-        save_layout(state);
-    }
+    settle_layout(state, desired, leaving, Topology::save_current);
     Ok(())
 }
-/// A display on its way out is still connected, so saving now would file the
-/// layout without it under the entry for both displays, and Windows would
-/// recall that the next time they meet: the first stream's display off when the
-/// second one arrives. Nothing puts that entry back at the end of the stream.
-fn saves_layout(leaving: Option<&str>) -> bool {
-    leaving.is_none()
+/// Record the layout just applied, and save it for Windows to recall if it may be.
+fn settle_layout(
+    state: &mut State,
+    desired: Vec<Node>,
+    leaving: Option<&str>,
+    save: impl FnOnce() -> Result<()>,
+) {
+    state.applied = desired;
+    if saves_layout(state, leaving)
+        && let Err(error) = save()
+    {
+        tracing::warn!(error = %format!("{error:#}"), "saving the stream layout for Windows to recall failed");
+    }
+}
+/// Whether the layout just applied is saved. A display on its way out is still
+/// connected, so saving now would file the layout without it under the entry for
+/// both displays, and Windows would recall that the next time they meet: the first
+/// stream's display off when the second one arrives. Nothing puts that entry back
+/// at the end of the stream. Nor is it saved once no virtual display it persists
+/// for is left: the entry would be for the user's displays, or for those and a
+/// remote monitor's, with the user's off, and Windows would recall it when the
+/// next stream's display goes.
+fn saves_layout(state: &State, leaving: Option<&str>) -> bool {
+    leaving.is_none() && state.persisted && !state.persists_for.is_empty()
+}
+/// A new display joins the owners: its entry is saved if it is a virtual display
+/// on a layout that saves one.
+fn add_owner(state: &mut State, target: &str, virtual_target: bool) {
+    state.owners.push((target.to_owned(), 1));
+    if state.persisted && virtual_target {
+        state.persists_for.push(target.to_owned());
+    }
+}
+/// Undo [`add_owner`]: the layout with that display could not be applied.
+fn remove_added_owner(state: &mut State, target: &str) {
+    state.owners.retain(|(t, _)| t != target);
+    state.persists_for.retain(|id| id != target);
+}
+/// One lease on `target` ended. `left`: it was the display's last, and the display
+/// is no longer an owner. `saved`: the layout was saved for it, so its end has an
+/// entry to put back.
+#[derive(Debug, PartialEq)]
+struct Released {
+    left: bool,
+    saved: bool,
+}
+fn release_owner(state: &mut State, target: &str) -> Released {
+    let saved = state.persisted && state.persists_for.iter().any(|id| id == target);
+    let mut left = false;
+    if let Some(index) = state.owners.iter().position(|(t, _)| t == target) {
+        state.owners[index].1 -= 1;
+        if state.owners[index].1 == 0 {
+            state.owners.remove(index);
+            state.persists_for.retain(|id| id != target);
+            left = true;
+        }
+    }
+    Released { left, saved }
 }
 /// A virtual display arrived beside the running streams' on a layout that keeps
 /// its entry in the Windows display database. Settle that entry now, before
@@ -297,13 +380,6 @@ fn arrived_layout(owners: &[(String, usize)], retained: &[String], device_id: &s
 /// back when the last stream ends (`forget_saved_layout`).
 fn persist(arrangement: Arrangement, virtual_target: bool) -> bool {
     virtual_target && arrangement == Arrangement::Exclusive
-}
-fn save_layout(state: &State) {
-    if state.persisted
-        && let Err(error) = Topology::save_current()
-    {
-        tracing::warn!(error = %format!("{error:#}"), "saving the stream layout for Windows to recall failed");
-    }
 }
 /// Put back the database entry a stream saved: the user's displays on with
 /// the virtual display beside them, as Windows lays out a new display.
@@ -354,6 +430,30 @@ fn original_layout(mut snapshot: Snapshot, target: &str) -> Snapshot {
     }
     snapshot
 }
+/// A stream's display left while others go on. A layout still as it was applied
+/// is laid out without it, and again once Windows has settled ([`departures`]).
+/// Any other layout is the user's (Win+P, a primary picked in Windows), which
+/// neither may override: only stop expecting this display.
+fn display_left(
+    state: &mut State,
+    target: &str,
+    as_applied: bool,
+    apply: impl FnOnce(&mut State) -> Result<()>,
+) -> Result<()> {
+    if !as_applied {
+        for node in state.applied.iter_mut().filter(|n| n.device_id == target) {
+            node.active = false;
+        }
+        return Ok(());
+    }
+    note_departure(
+        &mut LAST_DEPARTURE.lock().unwrap(),
+        std::time::Instant::now(),
+        crate::lossless::minimized_windows,
+    );
+    DEPARTURES.fetch_add(1, Ordering::Relaxed);
+    apply(state)
+}
 pub struct Lease {
     arrangement: Arrangement,
     /// The streamed display; a recreated virtual display may change identity.
@@ -400,14 +500,14 @@ impl Lease {
                     target: Mutex::new(target_id),
                 });
             }
-            state.owners.push((target_id.clone(), 1));
+            add_owner(&mut state, &target_id, virtual_target);
             let added: Vec<_> = retained
                 .into_iter()
                 .filter(|id| !state.retained.contains(id))
                 .collect();
             state.retained.extend(added.iter().cloned());
             if let Err(error) = apply(&mut state, owned, None) {
-                state.owners.pop();
+                remove_added_owner(&mut state, &target_id);
                 state.retained.retain(|id| !added.contains(id));
                 return Err(error);
             }
@@ -475,14 +575,15 @@ impl Lease {
             return Err(error);
         }
         state.before = Some(before);
-        state.applied = desired;
         state.users = 1;
         state.key = format!("{arrangement:?}:{target_id}");
-        state.owners = vec![(target_id.clone(), 1)];
+        state.owners.clear();
+        state.persists_for.clear();
+        state.persisted = persist(arrangement, virtual_target);
+        add_owner(&mut state, &target_id, virtual_target);
         state.arrangement = Some(arrangement);
         state.retained = retained;
-        state.persisted = persist(arrangement, virtual_target);
-        save_layout(&state);
+        settle_layout(&mut state, desired, None, Topology::save_current);
         Ok(Self {
             arrangement,
             target: Mutex::new(target_id),
@@ -518,6 +619,9 @@ impl Lease {
             for owner in state.owners.iter_mut().filter(|(t, _)| *t == *owned) {
                 owner.0 = target.device_id.clone();
             }
+            for id in state.persists_for.iter_mut().filter(|id| **id == *owned) {
+                *id = target.device_id.clone();
+            }
             *owned = target.device_id.clone();
         }
         for id in monitors
@@ -537,28 +641,15 @@ impl Drop for Lease {
         let mut state = state().lock().unwrap();
         let target = self.target.lock().unwrap().clone();
         state.users -= 1;
-        let mut left = false;
-        if let Some(index) = state.owners.iter().position(|(t, _)| *t == target) {
-            state.owners[index].1 -= 1;
-            if state.owners[index].1 == 0 {
-                state.owners.remove(index);
-                left = true;
-            }
-        }
+        let Released { left, saved } = release_owner(&mut state, &target);
         if state.users != 0 {
             // Other streams continue: lay out their displays without this one.
             if left {
-                DEPARTURES.fetch_add(1, Ordering::Relaxed);
                 let arrangement = state.arrangement.unwrap_or(self.arrangement);
-                let result = if unchanged(&state.applied).unwrap_or(false) {
-                    apply(&mut state, arrangement, Some(&target))
-                } else {
-                    // The user changed the layout; only stop expecting this display.
-                    for node in state.applied.iter_mut().filter(|n| n.device_id == target) {
-                        node.active = false;
-                    }
-                    Ok(())
-                };
+                let as_applied = unchanged(&state.applied).unwrap_or(false);
+                let result = display_left(&mut state, &target, as_applied, |state| {
+                    apply(state, arrangement, Some(&target))
+                });
                 if let Err(error) = result {
                     tracing::warn!(%error, "display arrangement update for the remaining streams failed");
                 }
@@ -573,7 +664,7 @@ impl Drop for Lease {
                 state.before.as_ref().is_some_and(|before| {
                     disabled_original_displays(&before.nodes, &state.applied)
                 }) || settled(|| unchanged(&state.applied))?;
-            if state.persisted
+            if saved
                 && let Some(before) = &state.before
                 && let Err(error) = settled(|| forget_saved_layout(before, &target))
             {
@@ -588,6 +679,7 @@ impl Drop for Lease {
             tracing::warn!(error = %format!("{error:#}"), "display arrangement restoration remains pending");
         }
         state.persisted = false;
+        state.persists_for.clear();
         state.before = None;
         state.applied.clear();
         state.key.clear();

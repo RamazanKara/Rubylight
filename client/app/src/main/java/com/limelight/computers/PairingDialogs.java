@@ -1,6 +1,7 @@
 package com.limelight.computers;
 
 import android.app.Activity;
+import android.content.res.Configuration;
 import android.graphics.Typeface;
 import android.text.SpannableString;
 import android.text.Spanned;
@@ -120,7 +121,14 @@ final class PairingDialogs {
         final GridLayout pad = content.findViewById(R.id.pairing_pin_pad);
         final StringBuilder pin = new StringBuilder();
 
-        final AlertDialog dialog = new NavigationDialogBuilder(activity)
+        NavigationDialogBuilder builder = new NavigationDialogBuilder(activity);
+        // Material leaves 80dp above and below a dialog, more than a handheld in landscape can spare from the pad's rows.
+        if (activity.getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            int inset = activity.getResources().getDimensionPixelSize(R.dimen.space_l);
+            builder.setBackgroundInsetTop(inset);
+            builder.setBackgroundInsetBottom(inset);
+        }
+        final AlertDialog dialog = builder
                 .setTitle(activity.getString(R.string.pairing_wants_to_pair, waiting.shownName()))
                 .setView(content)
                 .setNegativeButton(R.string.pairing_deny, null)

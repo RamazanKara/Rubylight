@@ -728,6 +728,72 @@ async fn a_note_that_runs_out_or_a_game_that_ended_does_not_read_as_coming_back(
 }
 
 #[tokio::test]
+async fn a_late_stream_leaves_a_first_device_that_came_back_its_game_and_tells_one_that_did_not() {
+    let expired = |s: &Setup, phone: Arc<Session>| {
+        s.host()
+            .sessions
+            .lock()
+            .unwrap()
+            .active
+            .remove(&phone.launch.id);
+        drop(phone);
+        s.host().moves.expire_claim();
+        s.host().settle_move();
+    };
+    // It came back, and its stream is down for a moment just as the late one comes.
+    let s = Setup::new();
+    let phone = s.streaming();
+    let (tv, tv_connection) = device(&s, "tv", "TV", ALL);
+    press(&s, &tv_connection).await.session();
+    expired(&s, phone);
+    let back = s.stream_as(s.client.clone());
+    s.host().settle_move();
+    s.host()
+        .sessions
+        .lock()
+        .unwrap()
+        .active
+        .remove(&back.launch.id);
+    drop(back);
+    let stream = s.stream_as(tv);
+    s.host().settle_move();
+    assert_eq!(game_owner(&s), s.client.uuid);
+    let read = s.get("/session").await.session();
+    assert!(read.moved_to.is_none() && read.owns_game);
+    drop(stream);
+
+    // Its Resume is on its way: what a launch does before anything is running.
+    let s = Setup::new();
+    let phone = s.streaming();
+    let (tv, tv_connection) = device(&s, "tv", "TV", ALL);
+    press(&s, &tv_connection).await.session();
+    expired(&s, phone);
+    s.host().moves.forget(&s.client.uuid);
+    let stream = s.stream_as(tv);
+    s.host().settle_move();
+    assert_eq!(game_owner(&s), s.client.uuid);
+    drop(stream);
+
+    // It stayed away: the game goes, and it reads where to.
+    let s = Setup::new();
+    let phone = s.streaming();
+    let (tv, tv_connection) = device(&s, "tv", "TV", ALL);
+    press(&s, &tv_connection).await.session();
+    expired(&s, phone);
+    assert!(s.get("/session").await.session().moved_to.is_none());
+    let stream = s.stream_as(tv.clone());
+    s.host().settle_move();
+    assert_eq!(game_owner(&s), tv.uuid);
+    let read = s.get("/session").await.session();
+    assert_eq!(read.moved_to.expect("told").device, "TV");
+    assert!(!read.owns_game);
+    // That note ends with the game, as any other.
+    *s.host().current_app.lock().unwrap() = None;
+    assert!(s.get("/session").await.session().moved_to.is_none());
+    drop(stream);
+}
+
+#[tokio::test]
 async fn a_stream_that_arrives_after_the_press_expired_takes_the_game() {
     let expired = |s: &Setup, phone: Arc<Session>| {
         s.host()

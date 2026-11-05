@@ -84,9 +84,14 @@ struct Back {
 
 /// A press that ended before its stream came. If it still comes, the displays it displaced go
 /// as they would have on time.
+#[derive(Clone)]
 struct Late {
     to: String,
+    name: String,
     previous_owner: String,
+    /// It streamed or started launching since: the game is not taken from it any more, also if
+    /// its stream is down for a moment when the late one comes.
+    owner_returned: bool,
     generation: String,
     displaced: BTreeSet<String>,
     at: Instant,
@@ -129,13 +134,12 @@ impl Moves {
         inner.release.remove(device);
         if let Some(late) = &mut inner.late {
             late.displaced.remove(device);
+            late.owner_returned |= late.previous_owner == device;
         }
     }
     fn begin(&self, claim: Claim) {
         let mut inner = locked(&self.0);
-        let since_unix_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |since| since.as_millis() as u64);
+        let since_unix_ms = unix_ms();
         for device in &claim.displaced {
             inner.notes.insert(
                 device.clone(),
@@ -201,6 +205,12 @@ impl Moves {
             note.at = Instant::now() - MOVED_KEPT;
         }
     }
+}
+
+fn unix_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_millis() as u64)
 }
 
 /// A stream launch by the device that pressed: refused, it ends the press at once.
@@ -492,7 +502,9 @@ impl Host {
         });
         inner.late = Some(Late {
             to: claim.to,
+            name: claim.name,
             previous_owner: claim.previous_owner,
+            owner_returned: false,
             generation: claim.generation,
             displaced: claim.displaced,
             at: now,
@@ -500,39 +512,57 @@ impl Host {
     }
     /// The stream of a press that ended without it comes after all: the displays that press
     /// would have released go, instead of waiting out a grace that can last hours, and the game
-    /// is that device's, so its own recovery finds it. Not when the previous owner came back
-    /// first: this stream then runs beside that one.
+    /// is that device's, so its own recovery finds it, and the previous owner reads where it went.
+    /// Not once the previous owner came back: this stream then runs beside that one, since a game
+    /// only moves from a device that returned when someone presses Continue here.
     fn settle_late_arrival(&self) {
         let generation = locked(&self.current_app)
             .as_ref()
             .map(|app| app.generation.clone());
-        let late = {
+        let Some(mut late) = ({
             let mut inner = locked(&self.moves.0);
             inner.late = inner.late.take().filter(|late| {
                 Some(&late.generation) == generation.as_ref() && late.at.elapsed() < MOVED_KEPT
             });
-            inner.late.as_ref().map(|late| {
-                (
-                    late.to.clone(),
-                    late.previous_owner.clone(),
-                    late.displaced.clone(),
-                )
-            })
-        };
-        let Some((to, previous_owner, displaced)) = late else {
+            inner.late.clone()
+        }) else {
             return;
         };
-        let streams = locked(&self.sessions).plain_streams();
-        if !streams.contains_key(&to) {
+        let arrived = {
+            let sessions = locked(&self.sessions);
+            late.owner_returned |= sessions.plain_streams().contains_key(&late.previous_owner)
+                || sessions.plain_launches().contains_key(&late.previous_owner);
+            sessions.plain_streams().contains_key(&late.to)
+        };
+        if !arrived {
+            if late.owner_returned
+                && let Some(kept) = locked(&self.moves.0).late.as_mut()
+            {
+                kept.owner_returned = true;
+            }
             return;
         }
-        self.release_displaced(&displaced);
         locked(&self.moves.0).late = None;
+        self.release_displaced(&late.displaced);
+        if late.owner_returned || late.previous_owner == late.to {
+            return;
+        }
         if let Some(app) = locked(&self.current_app)
             .as_mut()
-            .filter(|app| app.owner == previous_owner && !streams.contains_key(&previous_owner))
+            .filter(|app| app.owner == late.previous_owner)
         {
-            app.owner = to;
+            app.owner = late.to;
+        } else {
+            return;
         }
+        locked(&self.moves.0).notes.insert(
+            late.previous_owner,
+            Note {
+                device: late.name,
+                generation: late.generation,
+                since_unix_ms: unix_ms(),
+                at: Instant::now(),
+            },
+        );
     }
 }

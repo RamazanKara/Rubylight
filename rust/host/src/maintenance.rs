@@ -282,9 +282,16 @@ pub fn golden_status(h: &Shared, compare: bool) -> Result<Value> {
         json!({"status":true,"exists":snapshot.is_some(),"snapshot_version":snapshot.as_ref().map(|s|s.version),"latest_snapshot_version":1,"has_layout":snapshot.is_some(),"needs_layout_upgrade":false,"out_of_date":false,"comparison_available":compare,"current_mismatch_reason":if mismatch {"display_configuration_changed"} else {""},"restore_failure_count":0,"restore_status_reason":""}),
     )
 }
+/// A stream's end can still be at work on the displays once its teardown is over: a saved
+/// baseline read then can miss the monitor for good, and one restored then is undone.
+const DISPLAYS_SETTLING: &str =
+    "the last stream's display layout is still going back; try again in a few seconds";
 pub fn capture_golden(h: &Shared) -> Result<Value> {
     if h.sessions.lock().unwrap().owns_capture() || !h.monitors.lock().unwrap().is_empty() {
         bail!("disconnect all streams and remote monitors before capturing a baseline");
+    }
+    if crate::display_session::displays_settling() {
+        bail!(DISPLAYS_SETTLING);
     }
     butterpollo_core::state::write_json(
         &h.directory.join("display-baseline-rust.json"),
@@ -299,6 +306,9 @@ pub fn capture_golden(h: &Shared) -> Result<Value> {
 pub fn restore_golden(h: &Shared) -> Result<Value> {
     if h.sessions.lock().unwrap().owns_capture() || !h.monitors.lock().unwrap().is_empty() {
         bail!("disconnect all streams and remote monitors before restoring a baseline");
+    }
+    if crate::display_session::displays_settling() {
+        bail!(DISPLAYS_SETTLING);
     }
     let snapshot = baseline(h)?.context("saved display baseline is unavailable")?;
     snapshot.restore_excluding(&display_exclusions(&h.config.read().unwrap())?)?;
@@ -457,6 +467,20 @@ pub fn integration_status(h: &Shared) -> Value {
 mod tests {
     use super::*;
     use butterpollo_core::config::Config;
+
+    #[test]
+    fn a_baseline_is_not_read_or_restored_while_a_streams_end_is_at_work_on_the_displays() {
+        use crate::display_session::tests::DISPLAYS_SETTLING;
+        let f = crate::state::test_support::Fixture::new();
+        DISPLAYS_SETTLING.with(|settling| settling.set(true));
+        let captured = capture_golden(&f.host);
+        let restored = restore_golden(&f.host);
+        DISPLAYS_SETTLING.with(|settling| settling.set(false));
+        // Read now it could miss the monitor, and it would stay that way.
+        assert!(format!("{:#}", captured.unwrap_err()).contains("still going back"));
+        assert!(!f.host.directory.join("display-baseline-rust.json").exists());
+        assert!(format!("{:#}", restored.unwrap_err()).contains("still going back"));
+    }
 
     #[test]
     fn consecutive_failed_checks_are_counted_and_a_success_resets_them() {

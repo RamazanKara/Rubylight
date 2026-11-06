@@ -105,6 +105,12 @@ fn reset_persistence(
             "end every stream and quit the running app before resetting display persistence; a launch, teardown or controller session may still be in progress"
         );
     };
+    // With the launch gate held, so no stream can begin and end a new one meanwhile.
+    if crate::display_session::displays_settling() {
+        anyhow::bail!(
+            "the last stream's display layout is still going back; try again in a few seconds"
+        );
+    }
     reset()?;
     Ok(json!({"status":true}))
 }
@@ -141,6 +147,13 @@ mod tests {
         );
         assert!(reset_persistence(&f.host, reset).is_err());
         f.host.monitors.lock().unwrap().clear();
+        // A stream's end still at work on the displays, its teardown long over.
+        crate::display_session::tests::DISPLAYS_SETTLING.with(|settling| settling.set(true));
+        let settling = reset_persistence(&f.host, reset);
+        crate::display_session::tests::DISPLAYS_SETTLING.with(|settling| settling.set(false));
+        assert!(format!("{:#}", settling.unwrap_err()).contains("still going back"));
+        // Not holding the launch gate past its answer.
+        assert!(f.host.launch_transition.try_lock().is_ok());
         assert_eq!(resets.get(), 0);
         assert_eq!(reset_persistence(&f.host, reset).unwrap()["status"], true);
         assert_eq!(resets.get(), 1);

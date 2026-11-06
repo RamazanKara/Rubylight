@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.view.FrameMetrics;
 import android.view.Window;
 
@@ -12,12 +13,12 @@ import androidx.core.content.res.ResourcesCompat;
 
 import com.limelight.R;
 
-import java.util.Arrays;
-
 /**
- * Watches the first {@code tier.probe.frames} real frames a live tier draws. A p90 above {@code tier.probe.p90BudgetFraction}
- * of the frame budget steps the screen down one tier, and the verdict is kept for this app version. Idle screens draw
- * nothing and count nothing, so the probe simply finishes on a later scroll, or the next time.
+ * Watches the first {@code tier.probe.frames} real frames a live tier draws once its screen has settled. A p90 above
+ * {@code tier.probe.p90BudgetFraction} of the frame budget steps the screen down one tier, and the verdict is kept for
+ * this app version. It stops as soon as enough slow frames have decided that p90, so a slow device leaves a slow tier
+ * within the first moves. Idle screens draw nothing and count nothing, so the probe simply finishes on a later scroll,
+ * or the next time.
  */
 @RequiresApi(Build.VERSION_CODES.N)
 public final class GlassProbe implements Window.OnFrameMetricsAvailableListener {
@@ -26,21 +27,39 @@ public final class GlassProbe implements Window.OnFrameMetricsAvailableListener 
         void stepDownTo(GlassTier tier);
     }
 
+    /**
+     * What a screen draws as it opens says nothing of how it moves: on a first launch those frames compile the shaders,
+     * and all of them fit in under a second at 120 Hz.
+     */
+    static final long SETTLE_MILLIS = 2000;
+    /**
+     * A frame counts as slow only if it also came this late against the budget. A 120 Hz handheld whose render thread
+     * idles at low clocks runs 6-7 ms of work for frames that all land on time, and the design asks for the display rate.
+     */
+    static final float LATE_FRACTION = 1.25f;
+
     private final Activity activity;
     private final GlassTier tier;
     private final Verdict verdict;
-    private final long[] frames;
+    private final int frames;
     private final float budgetFraction;
     private final Handler main = new Handler(Looper.getMainLooper());
+    private final long started = SystemClock.uptimeMillis();
+    private final long allowed;
+    private final long budget;
     private int count;
+    private int slow;
     private boolean done;
 
     private GlassProbe(Activity activity, GlassTier tier, Verdict verdict) {
         this.activity = activity;
         this.tier = tier;
         this.verdict = verdict;
-        frames = new long[activity.getResources().getInteger(R.integer.nj_tier_probe_frames)];
+        frames = activity.getResources().getInteger(R.integer.nj_tier_probe_frames);
         budgetFraction = ResourcesCompat.getFloat(activity.getResources(), R.dimen.nj_tier_probe_p90_budget_fraction);
+        float refresh = activity.getWindowManager().getDefaultDisplay().getRefreshRate();
+        budget = (long) (1e9f / Math.max(refresh, 1f));
+        allowed = (long) (budget * budgetFraction);
     }
 
     /** Starts watching, unless this tier has nothing to probe or this app version already has its verdict. */
@@ -69,14 +88,14 @@ public final class GlassProbe implements Window.OnFrameMetricsAvailableListener 
     @Override
     public void onFrameMetricsAvailable(Window window, FrameMetrics metrics, int dropCount) {
         if (done || metrics.getMetric(FrameMetrics.FIRST_DRAW_FRAME) == 1) return;
-        frames[count++] = work(metrics);
-        if (count < frames.length) return;
+        if (!settled(started, SystemClock.uptimeMillis())) return;
+        if (slow(work(metrics), metrics.getMetric(FrameMetrics.TOTAL_DURATION), allowed, budget)) slow++;
+        count++;
+        boolean fail = slow >= slowFramesToFail(frames);
+        if (!fail && count < frames) return;
         stop();
-        float refresh = activity.getWindowManager().getDefaultDisplay().getRefreshRate();
-        long budget = (long) (1e9f / Math.max(refresh, 1f));
+        com.limelight.LimeLog.info("Glass probe at " + tier + ": " + (fail ? "steps down" : "keeps it") + " after " + count + " frames, " + slow + " slow");
         // Removing the listener during its own callback is not allowed on every version: finish on the next turn.
-        boolean fail = failed(frames, budget, budgetFraction);
-        com.limelight.LimeLog.info("Glass probe at " + tier + ": " + (fail ? "steps down" : "keeps it"));
         main.post(() -> {
             GlassTier next = fail ? tier.stepDown() : tier;
             GlassTier.remember(activity, next);
@@ -95,11 +114,18 @@ public final class GlassProbe implements Window.OnFrameMetricsAvailableListener 
         return cpu;
     }
 
-    /** Whether the frames' 90th percentile is over the allowed part of the budget. */
-    static boolean failed(long[] frames, long budgetNanos, float fraction) {
-        long[] sorted = frames.clone();
-        Arrays.sort(sorted);
-        int index = Math.min(sorted.length - 1, (int) Math.ceil(sorted.length * 0.9) - 1);
-        return sorted[index] > budgetNanos * fraction;
+    /** Whether a frame was over its share of the budget in work and also late on screen. */
+    static boolean slow(long work, long total, long allowed, long budget) {
+        return work > allowed && total > budget * LATE_FRACTION;
+    }
+
+    /** How many slow frames put the 90th percentile of {@code frames} frames over the line. */
+    static int slowFramesToFail(int frames) {
+        return frames - Math.min(frames - 1, (int) Math.ceil(frames * 0.9) - 1);
+    }
+
+    /** Whether a screen opened at {@code started} has settled by {@code now}. */
+    static boolean settled(long started, long now) {
+        return now - started >= SETTLE_MILLIS;
     }
 }

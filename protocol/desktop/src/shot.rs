@@ -7,8 +7,10 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use egui::epaint::{ClippedPrimitive, ImageData, Primitive, TextureId};
-use egui::{Color32, Pos2, TexturesDelta};
+use egui::epaint::{ClippedPrimitive, ImageData, Mesh, TextureId};
+use egui::{Color32, Pos2, Rect, TexturesDelta};
+
+use crate::live_glass::{level_size, Glass, Stage, LEVELS, LIVE_BACKDROP};
 
 struct Texture {
     size: [usize; 2],
@@ -31,6 +33,19 @@ impl Texture {
         let (x0, y0) = (x0 as isize, y0 as isize);
         let [a, b, c, d] = [self.texel(x0, y0), self.texel(x0 + 1, y0), self.texel(x0, y0 + 1), self.texel(x0 + 1, y0 + 1)];
         std::array::from_fn(|i| (a[i] * (1.0 - fx) + b[i] * fx) * (1.0 - fy) + (c[i] * (1.0 - fx) + d[i] * fx) * fy)
+    }
+
+    /// This texture drawn over a whole target of `size`.
+    fn resampled(&self, size: [usize; 2]) -> Self {
+        let mut pixels = Vec::with_capacity(size[0] * size[1]);
+        for y in 0..size[1] {
+            for x in 0..size[0] {
+                let uv = Pos2::new((x as f32 + 0.5) / size[0] as f32, (y as f32 + 0.5) / size[1] as f32);
+                let [r, g, b, a] = self.sample(uv).map(|v| (v * 255.0).round() as u8);
+                pixels.push(Color32::from_rgba_premultiplied(r, g, b, a));
+            }
+        }
+        Self { size, pixels }
     }
 }
 
@@ -69,22 +84,46 @@ impl Canvas {
         }
     }
 
+    /// Walks the frame as the app does: with a boundary, the content goes through the same chain
+    /// and the chrome samples its output.
     pub fn paint(&mut self, primitives: &[ClippedPrimitive], pixels_per_point: f32) {
-        for clipped in primitives {
-            let Primitive::Mesh(mesh) = &clipped.primitive else { continue };
-            let Some(texture) = self.textures.get(&mesh.texture_id) else { continue };
-            let clip = clipped.clip_rect;
-            let clip = [
-                (clip.min.x * pixels_per_point).round().max(0.0) as usize,
-                (clip.min.y * pixels_per_point).round().max(0.0) as usize,
-                ((clip.max.x * pixels_per_point).round().max(0.0) as usize).min(self.width),
-                ((clip.max.y * pixels_per_point).round().max(0.0) as usize).min(self.height),
-            ];
-            for tri in mesh.indices.chunks_exact(3) {
-                let v = [0, 1, 2].map(|k| mesh.vertices[tri[k] as usize]);
-                fill_triangle(&mut self.pixels, self.width, clip, texture, v, pixels_per_point);
-            }
+        let mut glass = Glass::live();
+        glass.paint(&mut Page { canvas: self, ppp: pixels_per_point }, primitives, true);
+    }
+
+    fn draw(&mut self, clip: Rect, mesh: &Mesh, ppp: f32) {
+        let Some(texture) = self.textures.get(&mesh.texture_id) else { return };
+        let clip = [
+            (clip.min.x * ppp).round().max(0.0) as usize,
+            (clip.min.y * ppp).round().max(0.0) as usize,
+            ((clip.max.x * ppp).round().max(0.0) as usize).min(self.width),
+            ((clip.max.y * ppp).round().max(0.0) as usize).min(self.height),
+        ];
+        for tri in mesh.indices.chunks_exact(3) {
+            let v = [0, 1, 2].map(|k| mesh.vertices[tri[k] as usize]);
+            fill_triangle(&mut self.pixels, self.width, clip, texture, v, ppp);
         }
+    }
+
+    /// The chain's passes on the CPU: each level samples the one before it bilinearly over its
+    /// whole area, as the GPU's full-target quads do.
+    fn blur(&self) -> Texture {
+        let scene = Texture {
+            size: [self.width, self.height],
+            pixels: self.pixels.iter().map(|p| {
+                let [r, g, b, a] = p.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8);
+                Color32::from_rgba_premultiplied(r, g, b, a)
+            }).collect(),
+        };
+        LEVELS.iter().fold(scene, |from, &div| {
+            let (w, h) = level_size((self.width as i32, self.height as i32), div);
+            from.resampled([w as usize, h as usize])
+        })
+    }
+
+    /// One pixel, for tests that read what was painted.
+    pub fn pixel(&self, x: usize, y: usize) -> [f32; 4] {
+        self.pixels[y * self.width + x]
     }
 
     pub fn save(&self, path: &Path) {
@@ -97,6 +136,41 @@ impl Canvas {
             .expect("the buffer fits the size")
             .save(path)
             .expect("the screenshot is written");
+    }
+}
+
+/// The canvas as glass's stage. Content lands on the page itself, which is also what the scene's
+/// copy to the screen ends in; the chain reads it from there.
+struct Page<'a> {
+    canvas: &'a mut Canvas,
+    ppp: f32,
+}
+
+impl Stage for Page<'_> {
+    fn size(&self) -> (i32, i32) {
+        (self.canvas.width as i32, self.canvas.height as i32)
+    }
+
+    fn mesh(&mut self, clip: Rect, mesh: &Mesh) {
+        self.canvas.draw(clip, mesh, self.ppp);
+    }
+
+    fn targets_work(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn begin_scene(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn end_scene(&mut self, _timed: bool) -> Result<Option<f32>, String> {
+        let output = self.canvas.blur();
+        self.canvas.textures.insert(LIVE_BACKDROP, output);
+        Ok(None)
+    }
+
+    fn release(&mut self) {
+        self.canvas.textures.remove(&LIVE_BACKDROP);
     }
 }
 

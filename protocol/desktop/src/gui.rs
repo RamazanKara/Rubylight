@@ -6,8 +6,10 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::time::{Duration, Instant};
 
-use egui::{epaint::Primitive, Event, Key, Modifiers, PointerButton, Pos2, Rect, TextureId, Vec2};
+use egui::{Event, Key, Modifiers, PointerButton, Pos2, Rect, TextureId, Vec2};
 use sdl3_sys::everything::*;
+
+use crate::live_glass::{self, Chain, Glass, Stage, Tier, LIVE_BACKDROP};
 
 pub struct Gui {
     pub ctx: egui::Context,
@@ -27,6 +29,12 @@ pub struct Gui {
     /// When the last pass ran and when egui wants the next one (see [`Self::repaint_in`]).
     ran: Instant,
     repaint_delay: Duration,
+    /// Which tier glass lands on, and the render targets of its live blur.
+    glass: Glass,
+    chain: Chain,
+    /// The tier the context holds, so a stream's frames do not write it again.
+    tier_set: Option<Tier>,
+    no_output_said: bool,
 }
 
 /// The system clipboard's text, or None when it holds none.
@@ -70,7 +78,7 @@ impl Scale {
     }
 }
 
-fn premultiplied_blend() -> SDL_BlendMode {
+pub(crate) fn premultiplied_blend() -> SDL_BlendMode {
     SDL_ComposeCustomBlendMode(
         SDL_BLENDFACTOR_ONE,
         SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
@@ -202,6 +210,32 @@ impl Gui {
             readable: true,
             ran: Instant::now(),
             repaint_delay: Duration::MAX,
+            glass: Glass::new(live_glass::forced_by(std::env::var("NIGHTJAR_GLASS").ok().as_deref())),
+            chain: Chain::default(),
+            tier_set: None,
+            no_output_said: false,
+        }
+    }
+
+    /// The display's refresh rate: live glass has to fit its frame.
+    pub fn set_refresh(&mut self, hz: f32) {
+        self.glass.set_refresh(hz);
+    }
+
+    /// Whether the coming frames draw over a stream's video. Stream frames call this first thing,
+    /// also those that draw nothing else: from then on there is no chain and no live glass.
+    pub fn set_over_video(&mut self, over_video: bool) {
+        if self.glass.set_over_video(over_video) {
+            self.chain.release();
+        }
+    }
+
+    /// Tells this pass's glass its tier.
+    fn prepare_glass(&mut self) {
+        let tier = self.glass.pass_tier();
+        if self.tier_set != Some(tier) {
+            self.tier_set = Some(tier);
+            live_glass::set_tier(&self.ctx, tier);
         }
     }
 
@@ -314,6 +348,15 @@ impl Gui {
                     if let Some(a11y) = &mut self.a11y { a11y.focus(false); }
                     self.events.push(Event::WindowFocused(false));
                 }
+                SDL_EVENT_RENDER_TARGETS_RESET => {
+                    self.glass.invalidate();
+                    return false;
+                }
+                SDL_EVENT_RENDER_DEVICE_RESET | SDL_EVENT_RENDER_DEVICE_LOST => {
+                    self.glass.invalidate();
+                    self.chain.release();
+                    return false;
+                }
                 _ => return false,
             }
         }
@@ -359,6 +402,7 @@ impl Gui {
                 },
             );
         }
+        self.prepare_glass();
         self.ran = Instant::now();
         let output = self.ctx.run_ui(input, ui);
         self.note_repaint(&output);
@@ -418,8 +462,10 @@ impl Gui {
         }
     }
 
-    /// Uploads texture changes, draws the shapes and frees textures egui dropped.
+    /// Uploads texture changes, draws the shapes and frees textures egui dropped. Glass decides
+    /// the order: see [`Glass::paint`].
     pub fn paint(&mut self, renderer: *mut SDL_Renderer, mut output: egui::FullOutput) {
+        let textures_changed = !output.textures_delta.set.is_empty();
         for (id, deltas) in output.textures_delta.set.drain() {
             for delta in deltas {
                 self.set_texture(renderer, id, &delta);
@@ -427,60 +473,20 @@ impl Gui {
         }
         let ppp = output.pixels_per_point;
         let primitives = self.ctx.tessellate(std::mem::take(&mut output.shapes), ppp);
-        for primitive in primitives {
-            let Primitive::Mesh(mesh) = &primitive.primitive else {
-                continue;
-            };
-            let Some(&texture) = self.textures.get(&mesh.texture_id) else {
-                continue;
-            };
-            if mesh.indices.is_empty() {
-                continue;
-            }
-            let clip = primitive.clip_rect;
-            let rect = SDL_Rect {
-                x: (clip.min.x * ppp).round() as i32,
-                y: (clip.min.y * ppp).round() as i32,
-                w: ((clip.max.x - clip.min.x) * ppp).round() as i32,
-                h: ((clip.max.y - clip.min.y) * ppp).round() as i32,
-            };
-            if rect.w <= 0 || rect.h <= 0 {
-                continue;
-            }
-            self.xy.clear();
-            self.colors.clear();
-            for v in &mesh.vertices {
-                self.xy.push(v.pos.x * ppp);
-                self.xy.push(v.pos.y * ppp);
-                let [r, g, b, a] = v.color.to_array();
-                self.colors.push(SDL_FColor {
-                    r: f32::from(r) / 255.0,
-                    g: f32::from(g) / 255.0,
-                    b: f32::from(b) / 255.0,
-                    a: f32::from(a) / 255.0,
-                });
-            }
-            let stride = std::mem::size_of::<egui::epaint::Vertex>() as i32;
-            let uv = &mesh.vertices[0].uv.x as *const f32;
-            // SAFETY: the arrays hold `vertices.len()` entries; uv points into the vertex
-            // array with the vertex stride; indices are u32.
-            unsafe {
-                SDL_SetRenderClipRect(renderer, &rect);
-                SDL_RenderGeometryRaw(
-                    renderer,
-                    texture,
-                    self.xy.as_ptr(),
-                    8,
-                    self.colors.as_ptr(),
-                    std::mem::size_of::<SDL_FColor>() as i32,
-                    uv,
-                    stride,
-                    mesh.vertices.len() as i32,
-                    mesh.indices.as_ptr().cast(),
-                    mesh.indices.len() as i32,
-                    4,
-                );
-            }
+        let mut stage = SdlStage {
+            renderer,
+            ppp,
+            textures: &self.textures,
+            xy: &mut self.xy,
+            colors: &mut self.colors,
+            chain: &mut self.chain,
+            no_output_said: &mut self.no_output_said,
+        };
+        self.glass.paint(&mut stage, &primitives, textures_changed);
+        self.glass.settle(&mut stage);
+        if self.glass.take_changed() {
+            // Laid out for the old tier; one more pass lands on the new one, then idle again.
+            self.repaint_delay = Duration::ZERO;
         }
         // SAFETY: a live renderer.
         unsafe { SDL_SetRenderClipRect(renderer, std::ptr::null()) };
@@ -539,6 +545,7 @@ impl Gui {
     pub fn destroy(&mut self) {
         // The subclassing adapter comes off the window before the window goes.
         self.a11y = None;
+        self.chain.release();
         for (_, texture) in self.textures.drain() {
             // SAFETY: textures we created.
             unsafe { SDL_DestroyTexture(texture) };
@@ -547,6 +554,105 @@ impl Gui {
             // SAFETY: cursors we created.
             unsafe { SDL_DestroyCursor(cursor) };
         }
+    }
+}
+
+/// A frame's meshes on the renderer that shows the video.
+struct SdlStage<'a> {
+    renderer: *mut SDL_Renderer,
+    ppp: f32,
+    textures: &'a HashMap<TextureId, *mut SDL_Texture>,
+    xy: &'a mut Vec<f32>,
+    colors: &'a mut Vec<SDL_FColor>,
+    chain: &'a mut Chain,
+    no_output_said: &'a mut bool,
+}
+
+impl Stage for SdlStage<'_> {
+    fn size(&self) -> (i32, i32) {
+        let (mut w, mut h) = (0, 0);
+        // SAFETY: a live renderer and two live integers.
+        unsafe { SDL_GetCurrentRenderOutputSize(self.renderer, &mut w, &mut h) };
+        (w, h)
+    }
+
+    fn mesh(&mut self, clip: Rect, mesh: &egui::epaint::Mesh) {
+        let ppp = self.ppp;
+        let texture = match self.textures.get(&mesh.texture_id) {
+            Some(&texture) => texture,
+            None if mesh.texture_id == LIVE_BACKDROP => {
+                let Some(output) = self.chain.output() else {
+                    if !std::mem::replace(self.no_output_said, true) {
+                        eprintln!("nightjar: glass sampled the live backdrop with no chain output: a surface without a boundary, or a chain that failed");
+                    }
+                    return;
+                };
+                output
+            }
+            None => return,
+        };
+        if mesh.indices.is_empty() {
+            return;
+        }
+        let rect = SDL_Rect {
+            x: (clip.min.x * ppp).round() as i32,
+            y: (clip.min.y * ppp).round() as i32,
+            w: ((clip.max.x - clip.min.x) * ppp).round() as i32,
+            h: ((clip.max.y - clip.min.y) * ppp).round() as i32,
+        };
+        if rect.w <= 0 || rect.h <= 0 {
+            return;
+        }
+        self.xy.clear();
+        self.colors.clear();
+        for v in &mesh.vertices {
+            self.xy.push(v.pos.x * ppp);
+            self.xy.push(v.pos.y * ppp);
+            let [r, g, b, a] = v.color.to_array();
+            self.colors.push(SDL_FColor {
+                r: f32::from(r) / 255.0,
+                g: f32::from(g) / 255.0,
+                b: f32::from(b) / 255.0,
+                a: f32::from(a) / 255.0,
+            });
+        }
+        let stride = std::mem::size_of::<egui::epaint::Vertex>() as i32;
+        let uv = &mesh.vertices[0].uv.x as *const f32;
+        // SAFETY: the arrays hold `vertices.len()` entries; uv points into the vertex
+        // array with the vertex stride; indices are u32.
+        unsafe {
+            SDL_SetRenderClipRect(self.renderer, &rect);
+            SDL_RenderGeometryRaw(
+                self.renderer,
+                texture,
+                self.xy.as_ptr(),
+                8,
+                self.colors.as_ptr(),
+                std::mem::size_of::<SDL_FColor>() as i32,
+                uv,
+                stride,
+                mesh.vertices.len() as i32,
+                mesh.indices.as_ptr().cast(),
+                mesh.indices.len() as i32,
+                4,
+            );
+        }
+    }
+
+    fn targets_work(&mut self) -> Result<(), String> {
+        Chain::check(self.renderer)
+    }
+
+    fn begin_scene(&mut self) -> Result<(), String> {
+        self.chain.begin(self.renderer)
+    }
+
+    fn end_scene(&mut self, timed: bool) -> Result<Option<f32>, String> {
+        self.chain.run(self.renderer, timed)
+    }
+
+    fn release(&mut self) {
+        self.chain.release();
     }
 }
 
@@ -619,6 +725,102 @@ mod tests {
         assert_eq!(gui.repaint_in(Duration::ZERO), Some(Duration::ZERO), "an animation's next frame is due now");
         let wait = gui.repaint_in(Duration::from_millis(500)).expect("still asked for");
         assert!(wait > Duration::from_millis(400), "but no sooner than a refresh after the last pass: {wait:?}");
+    }
+
+    /// A settled pass over chrome through the same steps as `run`, without a window.
+    fn glass_pass(gui: &mut Gui, n: u32) -> Vec<egui::epaint::ClippedPrimitive> {
+        gui.prepare_glass();
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0))),
+            time: Some(1.0 + f64::from(n) * 0.1),
+            ..Default::default()
+        };
+        gui.ran = Instant::now();
+        let mut output = gui.ctx.run_ui(input, |ui| {
+            let bar = Rect::from_min_size(Pos2::new(20.0, 20.0), Vec2::new(300.0, 48.0));
+            ui.painter().rect_filled(ui.max_rect(), 0.0, egui::Color32::RED);
+            crate::ui::glass::boundary(ui.painter(), vec![bar]);
+            let mut shapes = Vec::new();
+            crate::ui::glass::surface(&mut shapes, ui.ctx(), bar, 24.0, crate::ui::glass::Material::Chrome);
+            ui.painter().extend(shapes);
+        });
+        output.textures_delta.clear();
+        gui.note_repaint(&output);
+        gui.ctx.tessellate(std::mem::take(&mut output.shapes), output.pixels_per_point)
+    }
+
+    fn has_boundary(primitives: &[egui::epaint::ClippedPrimitive]) -> bool {
+        live_glass::find_boundary(primitives).is_some()
+    }
+
+    /// Records whether a frame ran the chain.
+    #[derive(Default)]
+    struct Counted { chains: u32, meshes: u32 }
+
+    impl Stage for Counted {
+        fn size(&self) -> (i32, i32) { (400, 300) }
+        fn mesh(&mut self, _: Rect, _: &egui::epaint::Mesh) { self.meshes += 1; }
+        fn targets_work(&mut self) -> Result<(), String> { Ok(()) }
+        fn begin_scene(&mut self) -> Result<(), String> { self.chains += 1; Ok(()) }
+        fn end_scene(&mut self, _: bool) -> Result<Option<f32>, String> { Ok(None) }
+        fn release(&mut self) {}
+    }
+
+    #[test]
+    fn live_glass_leaves_an_idle_launcher_idle() {
+        crate::theme::own_palette();
+        let mut gui = Gui::new();
+        gui.glass = Glass::new(None);
+        let mut stage = Counted::default();
+        gui.glass.settle(&mut stage);
+        assert!(gui.glass.take_changed(), "the targets work: live from the next pass");
+        for n in 0..6 {
+            glass_pass(&mut gui, n);
+        }
+        assert_eq!(live_glass::tier(&gui.ctx), Tier::Live);
+        assert_eq!(gui.repaint_in(Duration::ZERO), None, "the boundary and the glass ask for no frames");
+        let frame = glass_pass(&mut gui, 6);
+        assert!(has_boundary(&frame));
+        gui.glass.paint(&mut stage, &frame, false);
+        gui.glass.settle(&mut stage);
+        assert_eq!(stage.chains, 1);
+        assert!(!gui.glass.take_changed(), "a chain that ran asks for no frame either");
+        let frame = glass_pass(&mut gui, 7);
+        gui.glass.paint(&mut stage, &frame, false);
+        assert_eq!(stage.chains, 1, "nothing changed, no chain");
+        assert_eq!(gui.repaint_in(Duration::ZERO), None);
+    }
+
+    #[test]
+    fn a_streams_frames_lay_out_no_boundary_and_run_no_chain() {
+        crate::theme::own_palette();
+        let mut gui = Gui::new();
+        gui.glass = Glass::new(None);
+        let mut stage = Counted::default();
+        gui.glass.settle(&mut stage);
+        assert!(has_boundary(&glass_pass(&mut gui, 0)), "the launcher, live");
+        gui.set_over_video(true);
+        let frame = glass_pass(&mut gui, 1);
+        assert_eq!(live_glass::tier(&gui.ctx), Tier::Baked);
+        assert!(!has_boundary(&frame));
+        let live_mesh = |p: &egui::epaint::ClippedPrimitive| matches!(&p.primitive, egui::epaint::Primitive::Mesh(m) if m.texture_id == LIVE_BACKDROP);
+        assert!(!frame.iter().any(live_mesh), "nothing samples the chain");
+        gui.glass.paint(&mut stage, &frame, true);
+        assert_eq!(stage.chains, 0);
+        assert_eq!(stage.meshes as usize, frame.len());
+        gui.set_over_video(false);
+        assert!(has_boundary(&glass_pass(&mut gui, 2)), "back on the launcher");
+    }
+
+    /// `draw_overlay` returns early while nothing shows, so this has to come before its first return.
+    #[test]
+    fn a_streams_every_frame_says_it_is_over_video_before_anything_else() {
+        let main = include_str!("main.rs");
+        let overlay = &main[main.find("fn draw_overlay(").expect("draw_overlay")..];
+        let said = overlay.find("gui.set_over_video(true)").expect("the stream's frames say so");
+        assert!(said < overlay.find("return false").expect("the early return"));
+        let launcher = &main[main.find("self.gui.set_readable(true)").expect("the launcher's frame")..];
+        assert!(launcher.find("self.gui.set_over_video(false)").expect("the launcher's frames say so") < launcher.find("self.gui.run(").expect("its pass"));
     }
 
     #[test]

@@ -24,4 +24,30 @@
     <!-- The interface's two weights: a font resource where Figtree covers the language, else the system face. -->
     <attr name="nightjarFace" format="string|reference" />
     <attr name="nightjarFaceStrong" format="string|reference" />
+    <declare-styleable name="GlassSurface">
+        <!-- A recipe of the design tokens: chrome, panel, menu or chip. -->
+        <attr name="glassMaterial" format="string" />
+        <!-- Corner radius; left out, the shape is a capsule. -->
+        <attr name="glassRadius" format="dimension" />
+    </declare-styleable>
+    <declare-styleable name="GlassButton">
+        <!-- Solid moon, for Play. -->
+        <attr name="glassMoon" format="boolean" />
+    </declare-styleable>
+    <!-- The glass colours that differ between the looks. The themes point them at the design tokens. -->
+    <attr name="glassCanvas" format="color" />
+    <attr name="glassPlaceholder" format="color" />
+    <attr name="glassSelectedFill" format="color" />
+    <attr name="glassSelectedRim" format="color" />
+    <attr name="glassOnSelected" format="color" />
+    <attr name="glassControlFill" format="color" />
+    <attr name="glassControlRim" format="color" />
+    <attr name="glassGroupOnArt" format="color" />
+    <attr name="glassGroupRim" format="color" />
+    <attr name="glassSeparator" format="color" />
+    <attr name="glassRing" format="color" />
+    <attr name="glassRingOnMoon" format="color" />
+    <attr name="glassGap" format="color" />
+    <attr name="glassHalo" format="color" />
+    <attr name="glassOk" format="color" />
 </resources>

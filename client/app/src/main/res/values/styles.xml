@@ -7,6 +7,21 @@
         ThemePaletteTest checks that they match.
     -->
     <style name="Base.Theme.Nightjar" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="glassCanvas">@color/glass_canvas</item>
+        <item name="glassPlaceholder">@color/glass_placeholder</item>
+        <item name="glassSelectedFill">@color/glass_selectedfill</item>
+        <item name="glassSelectedRim">@color/glass_selectedrim</item>
+        <item name="glassOnSelected">@color/glass_onselected</item>
+        <item name="glassControlFill">@color/glass_controlfill</item>
+        <item name="glassControlRim">@color/glass_controlrim</item>
+        <item name="glassGroupOnArt">@color/glass_grouponart</item>
+        <item name="glassGroupRim">@color/glass_grouprim</item>
+        <item name="glassSeparator">@color/glass_separator</item>
+        <item name="glassRing">@color/glass_ring</item>
+        <item name="glassRingOnMoon">@color/glass_ringonmoon</item>
+        <item name="glassGap">@color/glass_gap</item>
+        <item name="glassHalo">@color/glass_halo</item>
+        <item name="glassOk">@color/glass_ok</item>
         <item name="nightjarFace">sans-serif</item>
         <item name="nightjarFaceStrong">sans-serif-medium</item>
         <item name="android:windowActionBar">false</item>
@@ -132,6 +147,21 @@
         palette, whatever the system theme, so nothing light flashes over a game.
     -->
     <style name="Theme.Nightjar.Stream" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="glassCanvas">@color/night_glass_canvas</item>
+        <item name="glassPlaceholder">@color/night_glass_placeholder</item>
+        <item name="glassSelectedFill">@color/night_glass_selectedfill</item>
+        <item name="glassSelectedRim">@color/night_glass_selectedrim</item>
+        <item name="glassOnSelected">@color/night_glass_onselected</item>
+        <item name="glassControlFill">@color/night_glass_controlfill</item>
+        <item name="glassControlRim">@color/night_glass_controlrim</item>
+        <item name="glassGroupOnArt">@color/night_glass_grouponart</item>
+        <item name="glassGroupRim">@color/night_glass_grouprim</item>
+        <item name="glassSeparator">@color/night_glass_separator</item>
+        <item name="glassRing">@color/night_glass_ring</item>
+        <item name="glassRingOnMoon">@color/night_glass_ringonmoon</item>
+        <item name="glassGap">@color/night_glass_gap</item>
+        <item name="glassHalo">@color/night_glass_halo</item>
+        <item name="glassOk">@color/night_glass_ok</item>
         <item name="nightjarFace">sans-serif</item>
         <item name="nightjarFaceStrong">sans-serif-medium</item>
         <item name="android:windowActionBar">false</item>
@@ -247,6 +277,8 @@
 
     <!-- Full black surfaces, with the readable night palette even when the system is light. -->
     <style name="OledBlackTheme" parent="Theme.Nightjar.Stream">
+        <item name="glassCanvas">@color/nj_oled_tint_fade</item>
+        <item name="glassPlaceholder">@color/nj_oled_cover_placeholder</item>
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:colorBackground">@android:color/black</item>
         <item name="colorSurface">@android:color/black</item>
@@ -273,11 +305,30 @@
     <style name="ThemeOverlay.Nightjar.Figtree" parent="">
         <item name="nightjarFace">@font/figtree</item>
         <item name="nightjarFaceStrong">@font/figtree_600</item>
+        <!-- Not android:fontFamily on the theme: a TextView reads that after its text appearance, and every strong
+             heading would come out regular. Text with no appearance of its own gets the face through this one. -->
+        <item name="android:textViewStyle">@style/Widget.Nightjar.FigtreeText</item>
+    </style>
+    <style name="Widget.Nightjar.FigtreeText" parent="android:Widget.TextView">
+        <item name="android:textAppearance">@style/TextAppearance.Nightjar.FigtreeOnly</item>
+    </style>
+    <style name="TextAppearance.Nightjar.FigtreeOnly" parent="">
         <item name="android:fontFamily">@font/figtree</item>
         <item name="fontFamily">@font/figtree</item>
     </style>
 
     <style name="ThemeOverlay.Nightjar.HighContrast" parent="">
+        <item name="glassCanvas">@color/nj_hc_color_night</item>
+        <item name="glassSelectedFill">@color/nj_hc_color_moon</item>
+        <item name="glassSelectedRim">@color/nj_hc_color_moon</item>
+        <item name="glassOnSelected">@color/nj_hc_color_on_moon</item>
+        <item name="glassControlFill">@color/nj_glass_chrome_solid_fill</item>
+        <item name="glassControlRim">@color/nj_hc_color_rim</item>
+        <item name="glassGroupOnArt">@color/nj_glass_chrome_solid_fill</item>
+        <item name="glassGroupRim">@color/nj_hc_color_rim</item>
+        <item name="glassRing">@color/nj_hc_focus_ring_color</item>
+        <item name="glassHalo">@color/nj_hc_focus_halo_color</item>
+        <item name="glassOk">@color/nj_hc_color_ok</item>
         <item name="colorPrimary">@color/nj_hc_color_moon</item>
         <item name="colorOnPrimary">@color/nj_hc_color_on_moon</item>
         <item name="colorOnSurface">@color/nj_hc_color_label</item>

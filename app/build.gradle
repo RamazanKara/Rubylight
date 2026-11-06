@@ -457,7 +457,7 @@ def rustAbis = project.hasProperty('abiFilters') ?
 def buildRustEngine = tasks.register('buildRustEngine', CargoAndroidBuild) {
     def protocol = rootProject.file('protocol')
     sources.from(fileTree(protocol) {
-        include '**/*.rs', '**/Cargo.toml', 'Cargo.lock'
+        include '**/*.rs', '**/Cargo.toml', 'Cargo.lock', '.cargo/config.toml'
         exclude '**/target/**'
     })
     sources.from(fileTree('src/main/jni/moonlight-core/opus') { include '*/libopus.a' })

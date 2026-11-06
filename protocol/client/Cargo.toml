@@ -36,6 +36,10 @@ socket2 = "0.5"
 [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
 libc = "0.2"
 
+[lints.rust]
+# Set in protocol/.cargo/config.toml for aarch64 and checked in src/crypto.rs.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(aes_armv8)', 'cfg(polyval_armv8)'] }
+
 [dev-dependencies]
 # The Rubylight host's protocol code, for interop tests (control, input, SDP, DESCRIBE, pairing).
 butterpollo-core = { version = "3.0.0-alpha.1", git = "https://github.com/RamazanKara/Rubylight", rev = "682aa119bc181d94652b65009f471eb5015e3c8a", package = "butterpollo-core" }

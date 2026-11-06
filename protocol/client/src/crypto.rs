@@ -5,6 +5,13 @@
 //! Ported from moonlight-common-c's `PlatformCrypto.c` and the IV rules in `ControlStream.c`
 //! (GPL-3.0, Cameron Gutman and contributors).
 
+// Without these the `aes` and `polyval` crates never use the ARMv8 crypto instructions, even on
+// the phones that ask the host for encrypted video because they have them.
+#[cfg(all(target_arch = "aarch64", not(all(aes_armv8, polyval_armv8))))]
+compile_error!(
+    "aarch64 builds need --cfg aes_armv8 --cfg polyval_armv8: run cargo from protocol/, whose .cargo/config.toml sets them"
+);
+
 use aes_gcm::aead::consts::U16;
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::aead::{AeadInPlace, KeyInit};

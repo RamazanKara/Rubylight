@@ -493,6 +493,71 @@ fn the_entry_a_stream_puts_back_has_the_users_displays_as_they_had_them() {
     // Nothing to save for a display that is off.
     assert!(entry_layout(&before, &[node("vdd", false, false)], "vdd").is_err());
 }
+/// Run [`put_entry_back`] with the stream's display as `current` has it: the steps
+/// taken, in order, and its result.
+fn entry_steps(
+    current: Result<Vec<Node>>,
+    restored: Result<()>,
+) -> (Vec<&'static str>, Result<()>) {
+    let steps = std::cell::RefCell::new(Vec::new());
+    let before = snapshot(vec![node("monitor", true, true)]);
+    let result = put_entry_back(
+        &before,
+        "vdd",
+        |ids| {
+            assert_eq!(ids, ["monitor", "vdd"]);
+            steps.borrow_mut().push("on");
+            Ok(())
+        },
+        || current,
+        |layout| {
+            assert!(
+                layout
+                    .nodes
+                    .iter()
+                    .any(|n| n.device_id == "vdd" && n.active)
+            );
+            steps.borrow_mut().push("restore");
+            restored
+        },
+        || {
+            steps.borrow_mut().push("save");
+            Ok(())
+        },
+    );
+    (steps.into_inner(), result)
+}
+#[test]
+fn a_stream_display_that_is_gone_saves_no_entry_for_the_users_displays() {
+    // A driver reset: `set_active` dropped it and switched on the monitor at
+    // Windows' timing. That is not what to file for the monitor alone.
+    let (steps, result) = entry_steps(Ok(vec![node("monitor", true, false)]), Ok(()));
+    assert_eq!(steps, ["on"]);
+    assert!(result.is_err());
+    let (steps, result) = entry_steps(
+        Ok(vec![
+            node("monitor", true, false),
+            node("vdd", false, false),
+        ]),
+        Ok(()),
+    );
+    assert_eq!(steps, ["on"]);
+    assert!(result.is_err());
+    // A read that fails says nothing of it either: `settled` tries again.
+    let (steps, result) = entry_steps(Err(anyhow::anyhow!("pending")), Ok(()));
+    assert_eq!(steps, ["on"]);
+    assert!(result.is_err());
+}
+#[test]
+fn the_stream_displays_entry_is_saved_after_its_layout_and_even_if_that_only_partly_went_back() {
+    let on = || vec![node("monitor", true, false), node("vdd", true, true)];
+    let (steps, result) = entry_steps(Ok(on()), Ok(()));
+    assert_eq!(steps, ["on", "restore", "save"]);
+    assert!(result.is_ok());
+    let (steps, result) = entry_steps(Ok(on()), Err(anyhow::anyhow!("mode refused")));
+    assert_eq!(steps, ["on", "restore", "save"]);
+    assert!(result.is_err());
+}
 #[test]
 fn what_windows_recalled_after_a_display_left_goes_back_to_the_layout_it_left() {
     let mut monitor = node("monitor", true, true);

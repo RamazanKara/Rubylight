@@ -404,6 +404,29 @@ fn persist(arrangement: Arrangement, virtual_target: bool) -> bool {
 /// (60 Hz on a 120 Hz monitor), and every later stream that keeps it on is handed
 /// that entry.
 fn forget_saved_layout(before: &Snapshot, target: &str) -> Result<()> {
+    put_entry_back(
+        before,
+        target,
+        Topology::set_active,
+        || Ok(Snapshot::capture()?.nodes),
+        Snapshot::restore,
+        Topology::save_current,
+    )
+}
+/// The steps of [`forget_saved_layout`]. `set_active` drops a display with no path
+/// left (a driver reset, a lost device) and switches on the rest at Windows' timing.
+/// With the stream's display gone, what is connected is the user's displays alone:
+/// saved now, that timing is what Windows recalls when a later virtual display
+/// leaves, and it then reads as the user's own. So nothing is saved unless that
+/// display is on.
+fn put_entry_back(
+    before: &Snapshot,
+    target: &str,
+    set_active: impl FnOnce(&[String]) -> Result<()>,
+    current: impl FnOnce() -> Result<Vec<Node>>,
+    restore: impl FnOnce(&Snapshot) -> Result<()>,
+    save: impl FnOnce() -> Result<()>,
+) -> Result<()> {
     let mut ids: Vec<_> = before
         .nodes
         .iter()
@@ -411,12 +434,12 @@ fn forget_saved_layout(before: &Snapshot, target: &str) -> Result<()> {
         .map(|n| n.device_id.clone())
         .collect();
     ids.push(target.to_owned());
-    Topology::set_active(&ids)?;
-    let laid_out = Snapshot::capture()
-        .and_then(|current| entry_layout(before, &current.nodes, target))
-        .and_then(|layout| layout.restore());
-    // A layout that only partly went back still beats the entry with them off.
-    Topology::save_current()?;
+    set_active(&ids)?;
+    let layout = entry_layout(before, &current()?, target)?;
+    let laid_out = restore(&layout);
+    // A layout that only partly went back still beats the entry with them off,
+    // and this entry is the stream's display's own.
+    save()?;
     laid_out
 }
 /// `before` with the virtual display `target`, as it is in `current`, beside it.

@@ -2,13 +2,19 @@
 //! draws and collects [`Command`]s; `main.rs` carries them out.
 
 mod cards;
+#[allow(dead_code, reason = "generated: every token is listed, the pages use them as they are redesigned")]
+pub(crate) mod design_tokens;
 mod dialogs;
+#[allow(dead_code, reason = "glass foundation: the pages start using it in the next change")]
+pub(crate) mod glass;
 mod icons;
 pub mod files;
 mod help;
 mod library;
 mod pages;
 mod settings;
+#[allow(dead_code, reason = "glass foundation: the pages start using it in the next change")]
+mod spring;
 mod widgets;
 
 use egui::{

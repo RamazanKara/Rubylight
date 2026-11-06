@@ -130,6 +130,9 @@ pub struct Host {
     pub info: Option<ServerInfo>,
     pub apps: Apps,
     pub art: HashMap<i32, Art>,
+    /// Each cover's ambient, baked with it on the art thread: what the backdrop cross-fades to
+    /// (`glass::CrossFade`) and baked glass samples. None while the cover loads, or without one.
+    pub ambient: HashMap<i32, egui::TextureHandle>,
     /// The cover version each `art` entry was asked for (empty for classic box art).
     art_versions: HashMap<i32, String>,
     pub native: Native,
@@ -408,6 +411,7 @@ pub enum Event {
         app: i32,
         version: String,
         image: Option<egui::ColorImage>,
+        ambient: Option<egui::ColorImage>,
     },
     Native {
         id: u64,
@@ -968,6 +972,7 @@ impl Hosts {
             info: None,
             apps: Apps::NotLoaded,
             art: HashMap::new(),
+            ambient: HashMap::new(),
             art_versions: HashMap::new(),
             native: Native::default(),
             native_epoch: 0,
@@ -1487,6 +1492,7 @@ impl Hosts {
         host.record.server_certificate = None;
         host.apps = Apps::NotLoaded;
         host.art.clear();
+        host.ambient.clear();
         host.art_versions.clear();
         host.native = Native::default();
         host.native_epoch += 1;
@@ -1738,6 +1744,7 @@ impl Hosts {
         };
         if host.art_versions.get(&app).is_some_and(|old| old != version) {
             host.art.remove(&app);
+            host.ambient.remove(&app);
         }
         if host.art.contains_key(&app) {
             return;
@@ -1769,8 +1776,8 @@ impl Hosts {
                 }
                 Some(bytes)
             });
-            let image = art_image(bytes);
-            Some(Event::Art { id, app, version, image })
+            let (image, ambient) = art_and_ambient(bytes);
+            Some(Event::Art { id, app, version, image, ambient })
         });
     }
 
@@ -1899,8 +1906,16 @@ impl Hosts {
                         };
                     }
                 }
-                Event::Art { id, app, version, image } => {
+                Event::Art { id, app, version, image, ambient } => {
                     if let Some(host) = self.get_mut(id).filter(|h| h.art_versions.get(&app) == Some(&version)) {
+                        match ambient {
+                            Some(ambient) => {
+                                host.ambient.insert(app, ctx.load_texture(format!("ambient-{id}-{app}"), ambient, egui::TextureOptions::LINEAR));
+                            }
+                            None => {
+                                host.ambient.remove(&app);
+                            }
+                        }
                         let art = match image {
                             Some(image) => Art::Ready(ctx.load_texture(
                                 format!("art-{id}-{app}"),
@@ -2336,6 +2351,13 @@ fn completed_action(control: AppControl, error: &nightjar_core::http::Error) -> 
 /// An app's cover from its box art bytes. A host's grey placeholder is no cover, so the card shows the title.
 fn art_image(bytes: Option<Vec<u8>>) -> Option<egui::ColorImage> {
     bytes.filter(|b| !nightjar_core::http::is_placeholder_box_art(b)).and_then(|b| decode_image(&b))
+}
+
+/// A cover and its ambient, both off the UI thread: the first draw only uploads two finished images.
+fn art_and_ambient(bytes: Option<Vec<u8>>) -> (Option<egui::ColorImage>, Option<egui::ColorImage>) {
+    let image = art_image(bytes);
+    let ambient = image.as_ref().map(crate::ambient::bake);
+    (image, ambient)
 }
 
 fn decode_image(bytes: &[u8]) -> Option<egui::ColorImage> {
@@ -2785,6 +2807,50 @@ pub(crate) mod tests {
         assert_eq!(hosts.list.len(), 1, "one PC, as before");
         assert_eq!(hosts.list[0].record.address, "203.0.113.9");
         assert_eq!(hosts.list[0].record.server_certificate.as_deref(), Some(PEM));
+    }
+
+    /// A small PNG of one colour, as a host's box art arrives.
+    fn png(color: [u8; 3]) -> Vec<u8> {
+        let image = image::RgbImage::from_pixel(30, 40, image::Rgb(color));
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut bytes, image::ImageFormat::Png).expect("a PNG");
+        bytes.into_inner()
+    }
+
+    #[test]
+    fn a_cover_arrives_with_its_ambient_already_baked() {
+        let (image, ambient) = art_and_ambient(Some(png([200, 20, 20])));
+        assert_eq!(image.expect("the cover").size, [30, 40]);
+        let ambient = ambient.expect("baked with the cover, off the UI thread");
+        assert_eq!(ambient, crate::ambient::bake(&decode_image(&png([200, 20, 20])).expect("the cover")));
+        assert_eq!(art_and_ambient(None), (None, None), "no cover, no ambient");
+        assert_eq!(art_and_ambient(Some(b"not an image".to_vec())), (None, None));
+    }
+
+    #[test]
+    fn the_ambient_lands_with_its_cover_and_goes_with_it() {
+        let ctx = egui::Context::default();
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        hosts.list[0].art_versions.insert(7, "v1".into());
+        let art = |version: &str, color: Option<[u8; 3]>| {
+            let (image, ambient) = art_and_ambient(color.map(png));
+            Event::Art { id, app: 7, version: version.into(), image, ambient }
+        };
+        hosts.sender.send(art("v1", Some([20, 200, 20]))).expect("the channel");
+        hosts.drain(&ctx);
+        assert!(hosts.list[0].ambient.contains_key(&7));
+        assert!(matches!(hosts.list[0].art.get(&7), Some(Art::Ready(_))));
+
+        hosts.sender.send(art("old", None)).expect("the channel");
+        hosts.drain(&ctx);
+        assert!(hosts.list[0].ambient.contains_key(&7), "an answer for an older cover changes nothing");
+
+        hosts.sender.send(art("v1", None)).expect("the channel");
+        hosts.drain(&ctx);
+        assert!(!hosts.list[0].ambient.contains_key(&7), "no cover any more, no ambient of it");
+        let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
+        output.textures_delta.clear();
     }
 
     #[test]

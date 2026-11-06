@@ -122,6 +122,44 @@ pub fn fingerprint(primitives: &[ClippedPrimitive], regions: &[Rect]) -> u64 {
     hash.finish()
 }
 
+/// A hash of a whole frame at a scale and size: equal prints look the same on screen, as long as no
+/// texture changed under them.
+pub fn frame_print(primitives: &[ClippedPrimitive], ppp: f32, size: (i32, i32)) -> u64 {
+    let mut hash = std::collections::hash_map::DefaultHasher::new();
+    hash.write_u32(ppp.to_bits());
+    hash.write_i32(size.0);
+    hash.write_i32(size.1);
+    for clipped in primitives {
+        for edge in [clipped.clip_rect.min, clipped.clip_rect.max] {
+            hash.write_u32(edge.x.to_bits());
+            hash.write_u32(edge.y.to_bits());
+        }
+        let Primitive::Mesh(mesh) = &clipped.primitive else {
+            continue;
+        };
+        match mesh.texture_id {
+            TextureId::Managed(id) | TextureId::User(id) => hash.write_u64(id),
+        }
+        for index in &mesh.indices {
+            hash.write_u32(*index);
+        }
+        for vertex in &mesh.vertices {
+            hash.write_u32(vertex.pos.x.to_bits());
+            hash.write_u32(vertex.pos.y.to_bits());
+            hash.write_u32(vertex.uv.x.to_bits());
+            hash.write_u32(vertex.uv.y.to_bits());
+            hash.write(&vertex.color.to_array());
+        }
+    }
+    hash.finish()
+}
+
+/// Whether a launcher frame has to reach the window: what it shows is not what is on screen, a
+/// texture changed, or the window itself did.
+pub fn frame_differs(on_screen: Option<u64>, print: u64, must_draw: bool, textures: bool) -> bool {
+    must_draw || textures || on_screen != Some(print)
+}
+
 /// What the probe of the first chain runs decided.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Verdict {

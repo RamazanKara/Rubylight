@@ -213,6 +213,8 @@ struct App {
     open_play: open_play::OpenPlay,
     /// The background the title bar was last given (High contrast turns it black).
     title_bar: egui::Color32,
+    /// The window changed since the last launcher frame: it needs one, whatever egui paints.
+    window_changed: bool,
 }
 
 fn display_of(window: *mut SDL_Window) -> Display {
@@ -292,6 +294,13 @@ fn log_display(window: *mut SDL_Window, display: Display) {
 
 /// When this process entered `main`, for the launch line.
 static LAUNCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+/// The events after which the window has to be drawn even if egui paints the same: it moved, was
+/// resized, exposed or restored, or the renderer lost what it held.
+fn window_needs_a_frame(kind: SDL_EventType) -> bool {
+    (SDL_EVENT_WINDOW_FIRST.0..=SDL_EVENT_WINDOW_LAST.0).contains(&kind.0)
+        || matches!(kind, SDL_EVENT_RENDER_TARGETS_RESET | SDL_EVENT_RENDER_DEVICE_RESET | SDL_EVENT_RENDER_DEVICE_LOST)
+}
 
 /// The launch line, once: the launcher's first frame is on the screen.
 fn first_frame_line(already: &std::sync::atomic::AtomicBool, since: Option<std::time::Duration>) -> Option<String> {
@@ -680,6 +689,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         select_read: false,
         move_watch: Default::default(),
         title_bar: *theme::NIGHT,
+        window_changed: true,
     };
     match identity {
         Some(identity) => {
@@ -946,6 +956,8 @@ impl App {
 
     fn handle_launcher_event(&mut self, event: &SDL_Event) {
         self.track_visibility(event);
+        // SAFETY: reading the event type.
+        self.window_changed |= window_needs_a_frame(SDL_EventType(unsafe { event.r#type }));
         // SAFETY: SDL cursor calls on the main thread.
         match self.pointer.input(pointer_input(event)) {
             Some(true) => unsafe { SDL_ShowCursor(); },
@@ -1335,18 +1347,21 @@ impl App {
             self.title_bar = *theme::NIGHT;
             sdl::blend_title_bar(self.window, self.title_bar, *theme::ON_SURFACE);
         }
+        let renderer = self.renderer;
+        let must_draw = std::mem::take(&mut self.window_changed) || self.screenshot_requested;
         // SAFETY: drawing on the live renderer.
-        unsafe {
-            SDL_SetRenderDrawColor(self.renderer, 0x14, 0x16, 0x1F, 255);
-            SDL_RenderClear(self.renderer);
-        }
-        self.gui.paint(self.renderer, output);
-        self.take_screenshot("launcher");
-        // SAFETY: a live renderer.
-        unsafe { SDL_RenderPresent(self.renderer) };
-        static FIRST_FRAME_SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-        if let Some(line) = first_frame_line(&FIRST_FRAME_SAID, LAUNCH.get().map(|at| at.elapsed())) {
-            eprintln!("{line}");
+        let drew = self.gui.paint_if_changed(renderer, output, must_draw, || unsafe {
+            SDL_SetRenderDrawColor(renderer, 0x14, 0x16, 0x1F, 255);
+            SDL_RenderClear(renderer);
+        });
+        if drew {
+            self.take_screenshot("launcher");
+            // SAFETY: a live renderer.
+            unsafe { SDL_RenderPresent(self.renderer) };
+            static FIRST_FRAME_SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            if let Some(line) = first_frame_line(&FIRST_FRAME_SAID, LAUNCH.get().map(|at| at.elapsed())) {
+                eprintln!("{line}");
+            }
         }
         for command in commands {
             self.command(command);
@@ -3422,7 +3437,18 @@ mod shot;
 
 #[cfg(test)]
 mod tests {
-    use super::first_frame_line;
+    use super::{first_frame_line, window_needs_a_frame};
+
+    /// A launcher at rest presents nothing, but what the window itself lost has to come back.
+    #[test]
+    fn the_window_changing_asks_for_a_frame_and_a_worker_or_the_pointer_does_not() {
+        for kind in [SDL_EVENT_WINDOW_EXPOSED, SDL_EVENT_WINDOW_RESIZED, SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED, SDL_EVENT_WINDOW_RESTORED, SDL_EVENT_RENDER_TARGETS_RESET, SDL_EVENT_RENDER_DEVICE_LOST] {
+            assert!(window_needs_a_frame(kind), "{}", kind.0);
+        }
+        for kind in [SDL_EVENT_MOUSE_MOTION, SDL_EVENT_USER, SDL_EVENT_KEY_DOWN] {
+            assert!(!window_needs_a_frame(kind), "{}", kind.0);
+        }
+    }
 
     #[test]
     fn the_launch_line_comes_once_with_the_time() {

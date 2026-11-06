@@ -471,7 +471,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         NvApp app = CoverLoaders.appOf(m.title, m.appId, m.source);
         ComputerDetails from = CoverLoaders.coverHost(shownComputer, m.source);
         backdrop.focus(HomeAmbience.gameKey(hostUuid, appId, titleExtra), covers.peek(from, app),
-                covers.lacksArt(from, app), false);
+                covers.lacksArt(from, app), m.title, false);
     }
 
     @Override

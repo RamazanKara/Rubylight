@@ -100,6 +100,24 @@ public class BackdropViewTest {
     }
 
     @Test
+    public void aGameWithNoArtGivesTheAmbientItsTilesGradientNotThePlainCanvas() {
+        layOut();
+        backdrop.setCanvasColor(0xFF000000);
+        Bitmap[] toGlass = new Bitmap[1];
+        backdrop.setAmbientListener((bitmap, animate) -> toGlass[0] = bitmap);
+        backdrop.focus("tile", null, true, "Lunar Base", false);
+        pass(1000);
+        int w = toGlass[0].getWidth();
+        assertTrue("the gradient reached the ambient", brightness(toGlass[0].getPixel(w / 2, 0)) > 60);
+
+        // A PC or an All tile asks with no title: the canvas, as before.
+        toGlass[0] = null;
+        backdrop.focus("host", null, true, false);
+        pass(1000);
+        assertEquals(0, brightness(toGlass[0].getPixel(w / 2, 0)));
+    }
+
+    @Test
     public void aDimStaysOverTheArtAloneSoTheFadeIsPaintedThen() {
         layOut();
         backdrop.setFade(0xFF000000, new float[] {0f, 1f}, new float[] {0f, 1f});

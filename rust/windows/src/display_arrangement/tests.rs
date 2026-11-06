@@ -1178,6 +1178,13 @@ fn a_layout_without_the_display_at_its_origin_begins_there_with_what_is_left() {
     assert_eq!(places(&["tv".to_owned()]), [("tv".to_owned(), 0)]);
     assert_eq!(places(&["monitor".to_owned()]), [("monitor".to_owned(), 0)]);
     assert!(places(&[]).is_empty());
+    // A display left of the primary is no reason to move anything.
+    let mut left = node("left", true, false);
+    left.desired_position = Position { x: -1920, y: 0 };
+    let before = snapshot(vec![node("monitor", true, true), left]);
+    let layout = present_layout(&before, &["monitor", "left"].map(String::from));
+    assert_eq!(layout.nodes[1].desired_position.x, -1920);
+    assert_eq!(layout.nodes[0].desired_position.x, 0);
 }
 #[test]
 fn a_lease_ending_clears_what_it_followed() {

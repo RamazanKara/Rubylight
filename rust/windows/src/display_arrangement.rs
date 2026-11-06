@@ -162,13 +162,19 @@ fn restored_active(nodes: &mut Vec<Node>, node: &Node) {
     }
 }
 /// `nodes` with the displays `kept` that are on in `current` on as well: they are held
-/// by someone else, and a layout going back must leave them.
+/// by someone else, and a layout going back must leave them. To its right: where one is
+/// now belongs to what is on now: in this layout that can be a gap, or on another display.
 fn with_kept(mut nodes: Vec<Node>, current: &[Node], kept: &[String]) -> Vec<Node> {
     for node in current
         .iter()
         .filter(|n| n.active && kept.contains(&n.device_id))
     {
-        restored_active(&mut nodes, node);
+        if !nodes
+            .iter()
+            .any(|n| n.active && n.device_id == node.device_id)
+        {
+            nodes = butterpollo_core::display_policy::beside_the_users(&nodes, node);
+        }
     }
     nodes
 }
@@ -645,6 +651,12 @@ fn recall_to_undo(
 /// does move the primary or switches them off applies that afterwards.
 pub fn undo_recall_for_remote_monitor(before: &Snapshot, output: &str) -> Result<()> {
     let state = state().lock().unwrap();
+    let pending = if state.users == 0 {
+        crate::display_recovery::pending_arrangement()?
+    } else {
+        None
+    };
+    let before = remote_monitor_baseline(state.users, pending.as_ref(), before);
     let Some(saves) = remote_monitor_repair(
         &state,
         &before.nodes,
@@ -662,6 +674,16 @@ pub fn undo_recall_for_remote_monitor(before: &Snapshot, output: &str) -> Result
         "Windows recalled a saved layout over the other displays for a remote monitor's display; putting it back"
     );
     forget_saved_layout(before, &target, saves)
+}
+/// The layout a remote monitor's arrival goes by: the one from just before it, unless a
+/// stopped watch left the user's: with their monitor away what was on then can be what
+/// Windows lit, and an entry saved from that would light it for later streams.
+fn remote_monitor_baseline<'a>(
+    users: usize,
+    pending: Option<&'a Snapshot>,
+    before: &'a Snapshot,
+) -> &'a Snapshot {
+    pending.filter(|_| users == 0).unwrap_or(before)
 }
 /// Whether a remote monitor's arrival needs a repair, and if so whether it saves.
 /// It is judged by the layout the streams hold; with none held, by one that leaves

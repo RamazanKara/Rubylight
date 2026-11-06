@@ -751,7 +751,7 @@ fn a_pending_baseline_keeps_a_remote_monitor_that_arrived_since_on() {
         .collect();
     // In a layout that goes back, the leased one stays on. The stray and the stream's
     // aren't taken in, and a retained display that isn't on has no node to take.
-    assert_eq!(on, ["monitor", "old", "rm"]);
+    assert_eq!(on, ["monitor", "rm", "old"]);
     assert_eq!(before.nodes.len(), 3);
     // With nothing pending the layout is the one found or the one from before the display.
     let found = first_baseline(None, None, &current, "v", &retained, false);
@@ -931,6 +931,54 @@ fn laying_out_around_a_returned_monitor_keeps_what_others_hold_on() {
     let nodes = with_kept(vec![node("monitor", true, true)], &current, &keep);
     let on: Vec<_> = nodes.iter().map(|n| n.device_id.as_str()).collect();
     assert_eq!(on, ["monitor", "a", "b", "rm"]);
+}
+#[test]
+fn a_display_kept_in_a_layout_going_back_goes_to_its_right_and_not_where_it_is_now() {
+    // Measured: a remote monitor beside what Windows lit, a TV 3840 wide: in a layout with
+    // the user's monitor, 2560 wide, that is a gap.
+    let mut monitor = node("monitor", true, true);
+    monitor.mode.width = 2560;
+    let mut rm = node("rm", true, false);
+    rm.mode.width = 1280;
+    rm.desired_position = Position { x: 3840, y: 0 };
+    let mut held = node("held", true, false);
+    held.mode.width = 1280;
+    held.desired_position = Position { x: 7000, y: 0 };
+    let mut there = held.clone();
+    there.desired_position = Position { x: 2560, y: 0 };
+    let keep = ["rm", "held"].map(String::from);
+    let nodes = with_kept(vec![monitor.clone(), there], &[rm.clone(), held], &keep);
+    let place = |id: &str| {
+        let node = nodes.iter().find(|n| n.device_id == id).unwrap();
+        (node.desired_position.x, node.primary)
+    };
+    assert_eq!(place("monitor"), (0, true));
+    // Already on in the layout: it stays where the layout has it.
+    assert_eq!(place("held"), (2560, false));
+    assert_eq!(place("rm"), (3840, false));
+    // Off in the layout: where it was doesn't count either.
+    let mut off = rm.clone();
+    off.active = false;
+    off.desired_position = Position { x: 9000, y: 0 };
+    let nodes = with_kept(vec![monitor, off], &[rm], &keep);
+    let rm = nodes.iter().find(|n| n.device_id == "rm").unwrap();
+    assert!(rm.active);
+    assert_eq!(rm.desired_position.x, 2560);
+    assert_eq!(nodes.len(), 2);
+}
+#[test]
+fn a_remote_monitor_in_the_gap_goes_by_the_users_layout_and_not_what_windows_lit() {
+    let lit = snapshot(vec![node("tv", true, true)]);
+    let users = snapshot(vec![node("monitor", true, true)]);
+    let by = |count, pending| {
+        remote_monitor_baseline(count, pending, &lit).nodes[0]
+            .device_id
+            .clone()
+    };
+    assert_eq!(by(0, Some(&users)), "monitor");
+    // Nothing left: the layout from just before it. A lease held: its own entry is no news.
+    assert_eq!(by(0, None), "tv");
+    assert_eq!(by(1, Some(&users)), "tv");
 }
 #[test]
 fn a_lease_ending_clears_what_it_followed() {

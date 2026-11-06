@@ -155,7 +155,7 @@
     <item name="nj_sheet_detent_medium" type="dimen" format="float">0.64</item>
     <item name="nj_sheet_detent_large" type="dimen" format="float">0.94</item>
     <item name="nj_sheet_backdrop_scale" type="dimen" format="float">0.93</item>
-    <item name="nj_sheet_backdrop_brightness" type="dimen" format="float">0.55</item>
+    <item name="nj_sheet_backdrop_brightness" type="dimen" format="float">0.72</item>
     <integer name="nj_tier_probe_frames">60</integer>
     <item name="nj_tier_probe_p90_budget_fraction" type="dimen" format="float">0.7</item>
     <integer name="nj_tier_baked_thumb_w">96</integer>
@@ -478,4 +478,274 @@
     <dimen name="nj_cover_shadow_blur">26dp</dimen>
     <color name="nj_cover_placeholder">#1E202B</color>
     <item name="nj_cover_aspect" type="dimen" format="float">0.6667</item>
+    <color name="nj_color_canvas">#14161F</color>
+    <color name="nj_color_moon_ink">#F2A93B</color>
+    <color name="nj_color_offline">#8D90A0</color>
+    <color name="nj_sky_top">#191C2B</color>
+    <color name="nj_sky_mid">#14161F</color>
+    <color name="nj_sky_bottom">#101219</color>
+    <color name="nj_sky_glow">#8CF2A93B</color>
+    <color name="nj_sky_ring">#17F4EFE6</color>
+    <color name="nj_focus_gap_color">#EB0B0D12</color>
+    <color name="nj_tint_track_fill">#29FFFFFF</color>
+    <color name="nj_tint_seg_on_fill">#33FFFFFF</color>
+    <color name="nj_tint_group_on_sky_fill">#13FFFFFF</color>
+    <color name="nj_tint_fade">#14161F</color>
+    <item name="nj_tile_title_scale" type="dimen" format="float">0.16</item>
+    <item name="nj_tile_title_min_scale" type="dimen" format="float">0.125</item>
+    <item name="nj_tile_inset_scale" type="dimen" format="float">0.1</item>
+    <item name="nj_tile_disc_scale" type="dimen" format="float">0.62</item>
+    <item name="nj_tile_disc_alpha" type="dimen" format="float">0.1</item>
+    <color name="nj_tile_pair0_top">#5B2A86</color>
+    <color name="nj_tile_pair0_bottom">#2A1450</color>
+    <color name="nj_tile_pair1_top">#3A3FA8</color>
+    <color name="nj_tile_pair1_bottom">#191C5A</color>
+    <color name="nj_tile_pair2_top">#0F6C8C</color>
+    <color name="nj_tile_pair2_bottom">#08344F</color>
+    <color name="nj_tile_pair3_top">#0E7068</color>
+    <color name="nj_tile_pair3_bottom">#07403F</color>
+    <color name="nj_tile_pair4_top">#2A6E3E</color>
+    <color name="nj_tile_pair4_bottom">#143F2B</color>
+    <color name="nj_tile_pair5_top">#566620</color>
+    <color name="nj_tile_pair5_bottom">#2C3A12</color>
+    <color name="nj_tile_pair6_top">#A4451C</color>
+    <color name="nj_tile_pair6_bottom">#5A1E12</color>
+    <color name="nj_tile_pair7_top">#A82E58</color>
+    <color name="nj_tile_pair7_bottom">#5A1236</color>
+    <color name="nj_tile_pair8_top">#8C2A4A</color>
+    <color name="nj_tile_pair8_bottom">#3E1026</color>
+    <color name="nj_tile_pair9_top">#44536E</color>
+    <color name="nj_tile_pair9_bottom">#1E2638</color>
+    <color name="nj_tile_pair10_top">#6E3FB0</color>
+    <color name="nj_tile_pair10_bottom">#2E1A66</color>
+    <color name="nj_tile_pair11_top">#A0403C</color>
+    <color name="nj_tile_pair11_bottom">#4A1A3C</color>
+    <color name="nj_day_color_canvas">#F6F7FB</color>
+    <color name="nj_day_color_canvas_tv">#EEF0F6</color>
+    <color name="nj_day_color_night">#F6F7FB</color>
+    <color name="nj_day_color_paper">#1A1C22</color>
+    <color name="nj_day_color_label">#1A1C22</color>
+    <color name="nj_day_color_label_secondary">#3D404D</color>
+    <color name="nj_day_color_on_selected">#5A3A00</color>
+    <color name="nj_day_color_moon_ink">#845500</color>
+    <color name="nj_day_color_ok">#1D6B39</color>
+    <color name="nj_day_color_warn">#7A5200</color>
+    <color name="nj_day_color_error">#BA1A1A</color>
+    <color name="nj_day_color_danger_fill">#BA1A1A</color>
+    <color name="nj_day_color_on_danger_fill">#FFFFFF</color>
+    <color name="nj_day_color_offline">#6B6F7E</color>
+    <color name="nj_day_color_scrim">#521A1C22</color>
+    <color name="nj_day_color_page_dim">#331A1C22</color>
+    <color name="nj_day_sky_top">#FFE7C2</color>
+    <color name="nj_day_sky_mid">#FBF3EA</color>
+    <color name="nj_day_sky_bottom">#F1F3FA</color>
+    <color name="nj_day_sky_glow">#99FFB54A</color>
+    <color name="nj_day_sky_ring">#2E845500</color>
+    <color name="nj_day_focus_ring_color">#A86400</color>
+    <color name="nj_day_focus_ring_color_on_moon">#1A1C22</color>
+    <color name="nj_day_focus_gap_color">#FFFFFF</color>
+    <color name="nj_day_focus_halo_color">#99F2A93B</color>
+    <color name="nj_day_focus_fill_lift">#66FFFFFF</color>
+    <item name="nj_day_focus_neighbour_alpha" type="dimen" format="float">0.72</item>
+    <color name="nj_day_hover_fill_lift">#0F1A1C22</color>
+    <color name="nj_day_press_fill_lift">#1A1A1C22</color>
+    <color name="nj_day_tint_group_fill">#99FFFFFF</color>
+    <color name="nj_day_tint_group_rim_top">#F2FFFFFF</color>
+    <color name="nj_day_tint_group_rim_mid">#66FFFFFF</color>
+    <color name="nj_day_tint_group_rim_bottom">#1A1A1C22</color>
+    <color name="nj_day_tint_control_fill">#121A1C22</color>
+    <color name="nj_day_tint_control_rim_top">#B3FFFFFF</color>
+    <color name="nj_day_tint_control_rim_mid">#081A1C22</color>
+    <color name="nj_day_tint_control_rim_bottom">#1A1A1C22</color>
+    <color name="nj_day_tint_selected_fill">#E6FFD18A</color>
+    <color name="nj_day_tint_selected_rim_top">#CCFFFFFF</color>
+    <color name="nj_day_tint_group_on_art_fill">#80FFFFFF</color>
+    <color name="nj_day_tint_group_on_sky_fill">#B3FFFFFF</color>
+    <color name="nj_day_tint_separator">#1A1A1C22</color>
+    <color name="nj_day_tint_track_fill">#261A1C22</color>
+    <color name="nj_day_tint_seg_on_fill">#FFFFFF</color>
+    <color name="nj_day_tint_fade">#F6F7FB</color>
+    <color name="nj_day_play_glow">#59E08F22</color>
+    <color name="nj_day_play_rim_bottom">#66A9650F</color>
+    <color name="nj_day_cover_rim_top">#73FFFFFF</color>
+    <color name="nj_day_cover_rim_bottom">#1F1A1C22</color>
+    <color name="nj_day_cover_shadow">#4D2A2E4A</color>
+    <dimen name="nj_day_cover_shadow_y">12dp</dimen>
+    <dimen name="nj_day_cover_shadow_blur">28dp</dimen>
+    <color name="nj_day_cover_placeholder">#E4E6EE</color>
+    <item name="nj_day_ambient_text_zone_min_luma" type="dimen" format="float">0.5</item>
+    <item name="nj_day_ambient_saturate" type="dimen" format="float">1.5</item>
+    <item name="nj_day_sheet_backdrop_brightness" type="dimen" format="float">0.94</item>
+    <color name="nj_oled_color_canvas">#000000</color>
+    <color name="nj_oled_color_canvas_tv">#000000</color>
+    <color name="nj_oled_color_night">#000000</color>
+    <color name="nj_oled_sky_top">#000000</color>
+    <color name="nj_oled_sky_mid">#000000</color>
+    <color name="nj_oled_sky_bottom">#000000</color>
+    <color name="nj_oled_tint_group_fill">#14FFFFFF</color>
+    <color name="nj_oled_tint_group_on_sky_fill">#17FFFFFF</color>
+    <color name="nj_oled_tint_fade">#000000</color>
+    <color name="nj_oled_cover_placeholder">#16171C</color>
+    <dimen name="nj_day_glass_chrome_lens_blur">26dp</dimen>
+    <item name="nj_day_glass_chrome_lens_saturate" type="dimen" format="float">1.9</item>
+    <item name="nj_day_glass_chrome_lens_brightness" type="dimen" format="float">1.1</item>
+    <color name="nj_day_glass_chrome_lens_fill">#B3FFFFFF</color>
+    <color name="nj_day_glass_chrome_lens_sheen_top">#66FFFFFF</color>
+    <item name="nj_day_glass_chrome_lens_sheen_end" type="dimen" format="float">0.5</item>
+    <color name="nj_day_glass_chrome_lens_rim_top">#F2FFFFFF</color>
+    <color name="nj_day_glass_chrome_lens_rim_mid">#59FFFFFF</color>
+    <color name="nj_day_glass_chrome_lens_rim_bottom">#A6FFFFFF</color>
+    <dimen name="nj_day_glass_chrome_lens_rim_width">1dp</dimen>
+    <color name="nj_day_glass_chrome_lens_hairline">#1A1A1C22</color>
+    <color name="nj_day_glass_chrome_lens_shadow_color">#382A2E4A</color>
+    <dimen name="nj_day_glass_chrome_lens_shadow_y">12dp</dimen>
+    <dimen name="nj_day_glass_chrome_lens_shadow_blur">36dp</dimen>
+    <dimen name="nj_day_glass_chrome_lens_lens_width">3dp</dimen>
+    <dimen name="nj_day_glass_chrome_lens_lens_blur">2dp</dimen>
+    <item name="nj_day_glass_chrome_lens_lens_saturate" type="dimen" format="float">1.5</item>
+    <item name="nj_day_glass_chrome_lens_lens_brightness" type="dimen" format="float">1.06</item>
+    <dimen name="nj_day_glass_chrome_live_blur">26dp</dimen>
+    <item name="nj_day_glass_chrome_live_saturate" type="dimen" format="float">1.9</item>
+    <item name="nj_day_glass_chrome_live_brightness" type="dimen" format="float">1.1</item>
+    <color name="nj_day_glass_chrome_live_fill">#B3FFFFFF</color>
+    <color name="nj_day_glass_chrome_live_sheen_top">#66FFFFFF</color>
+    <item name="nj_day_glass_chrome_live_sheen_end" type="dimen" format="float">0.5</item>
+    <color name="nj_day_glass_chrome_live_rim_top">#F2FFFFFF</color>
+    <color name="nj_day_glass_chrome_live_rim_mid">#59FFFFFF</color>
+    <color name="nj_day_glass_chrome_live_rim_bottom">#A6FFFFFF</color>
+    <dimen name="nj_day_glass_chrome_live_rim_width">1dp</dimen>
+    <color name="nj_day_glass_chrome_live_hairline">#1A1A1C22</color>
+    <color name="nj_day_glass_chrome_live_shadow_color">#382A2E4A</color>
+    <dimen name="nj_day_glass_chrome_live_shadow_y">12dp</dimen>
+    <dimen name="nj_day_glass_chrome_live_shadow_blur">36dp</dimen>
+    <dimen name="nj_day_glass_chrome_live_lens_width">0dp</dimen>
+    <dimen name="nj_day_glass_chrome_live_lens_blur">0dp</dimen>
+    <item name="nj_day_glass_chrome_live_lens_saturate" type="dimen" format="float">1.0</item>
+    <item name="nj_day_glass_chrome_live_lens_brightness" type="dimen" format="float">1.0</item>
+    <dimen name="nj_day_glass_chrome_baked_blur">0dp</dimen>
+    <item name="nj_day_glass_chrome_baked_saturate" type="dimen" format="float">1.0</item>
+    <item name="nj_day_glass_chrome_baked_brightness" type="dimen" format="float">1.1</item>
+    <color name="nj_day_glass_chrome_baked_fill">#B3FFFFFF</color>
+    <color name="nj_day_glass_chrome_baked_sheen_top">#66FFFFFF</color>
+    <item name="nj_day_glass_chrome_baked_sheen_end" type="dimen" format="float">0.5</item>
+    <color name="nj_day_glass_chrome_baked_rim_top">#F2FFFFFF</color>
+    <color name="nj_day_glass_chrome_baked_rim_mid">#59FFFFFF</color>
+    <color name="nj_day_glass_chrome_baked_rim_bottom">#A6FFFFFF</color>
+    <dimen name="nj_day_glass_chrome_baked_rim_width">1dp</dimen>
+    <color name="nj_day_glass_chrome_baked_hairline">#1A1A1C22</color>
+    <color name="nj_day_glass_chrome_baked_shadow_color">#382A2E4A</color>
+    <dimen name="nj_day_glass_chrome_baked_shadow_y">12dp</dimen>
+    <dimen name="nj_day_glass_chrome_baked_shadow_blur">36dp</dimen>
+    <dimen name="nj_day_glass_chrome_baked_lens_width">0dp</dimen>
+    <dimen name="nj_day_glass_chrome_baked_lens_blur">0dp</dimen>
+    <item name="nj_day_glass_chrome_baked_lens_saturate" type="dimen" format="float">1.0</item>
+    <item name="nj_day_glass_chrome_baked_lens_brightness" type="dimen" format="float">1.0</item>
+    <dimen name="nj_day_glass_panel_lens_blur">38dp</dimen>
+    <item name="nj_day_glass_panel_lens_saturate" type="dimen" format="float">1.8</item>
+    <item name="nj_day_glass_panel_lens_brightness" type="dimen" format="float">1.1</item>
+    <color name="nj_day_glass_panel_lens_fill">#C7FFFFFF</color>
+    <color name="nj_day_glass_panel_lens_sheen_top">#4DFFFFFF</color>
+    <item name="nj_day_glass_panel_lens_sheen_end" type="dimen" format="float">0.14</item>
+    <color name="nj_day_glass_panel_lens_rim_top">#F2FFFFFF</color>
+    <color name="nj_day_glass_panel_lens_rim_mid">#59FFFFFF</color>
+    <color name="nj_day_glass_panel_lens_rim_bottom">#A6FFFFFF</color>
+    <dimen name="nj_day_glass_panel_lens_rim_width">1dp</dimen>
+    <color name="nj_day_glass_panel_lens_hairline">#1A1A1C22</color>
+    <color name="nj_day_glass_panel_lens_shadow_color">#472A2E4A</color>
+    <dimen name="nj_day_glass_panel_lens_shadow_y">18dp</dimen>
+    <dimen name="nj_day_glass_panel_lens_shadow_blur">60dp</dimen>
+    <dimen name="nj_day_glass_panel_lens_lens_width">3dp</dimen>
+    <dimen name="nj_day_glass_panel_lens_lens_blur">2dp</dimen>
+    <item name="nj_day_glass_panel_lens_lens_saturate" type="dimen" format="float">1.4</item>
+    <item name="nj_day_glass_panel_lens_lens_brightness" type="dimen" format="float">1.05</item>
+    <dimen name="nj_day_glass_panel_live_blur">38dp</dimen>
+    <item name="nj_day_glass_panel_live_saturate" type="dimen" format="float">1.8</item>
+    <item name="nj_day_glass_panel_live_brightness" type="dimen" format="float">1.1</item>
+    <color name="nj_day_glass_panel_live_fill">#C7FFFFFF</color>
+    <color name="nj_day_glass_panel_live_sheen_top">#4DFFFFFF</color>
+    <item name="nj_day_glass_panel_live_sheen_end" type="dimen" format="float">0.14</item>
+    <color name="nj_day_glass_panel_live_rim_top">#F2FFFFFF</color>
+    <color name="nj_day_glass_panel_live_rim_mid">#59FFFFFF</color>
+    <color name="nj_day_glass_panel_live_rim_bottom">#A6FFFFFF</color>
+    <dimen name="nj_day_glass_panel_live_rim_width">1dp</dimen>
+    <color name="nj_day_glass_panel_live_hairline">#1A1A1C22</color>
+    <color name="nj_day_glass_panel_live_shadow_color">#472A2E4A</color>
+    <dimen name="nj_day_glass_panel_live_shadow_y">18dp</dimen>
+    <dimen name="nj_day_glass_panel_live_shadow_blur">60dp</dimen>
+    <dimen name="nj_day_glass_panel_live_lens_width">0dp</dimen>
+    <dimen name="nj_day_glass_panel_live_lens_blur">0dp</dimen>
+    <item name="nj_day_glass_panel_live_lens_saturate" type="dimen" format="float">1.0</item>
+    <item name="nj_day_glass_panel_live_lens_brightness" type="dimen" format="float">1.0</item>
+    <dimen name="nj_day_glass_panel_baked_blur">0dp</dimen>
+    <item name="nj_day_glass_panel_baked_saturate" type="dimen" format="float">1.0</item>
+    <item name="nj_day_glass_panel_baked_brightness" type="dimen" format="float">1.1</item>
+    <color name="nj_day_glass_panel_baked_fill">#C7FFFFFF</color>
+    <color name="nj_day_glass_panel_baked_sheen_top">#4DFFFFFF</color>
+    <item name="nj_day_glass_panel_baked_sheen_end" type="dimen" format="float">0.14</item>
+    <color name="nj_day_glass_panel_baked_rim_top">#F2FFFFFF</color>
+    <color name="nj_day_glass_panel_baked_rim_mid">#59FFFFFF</color>
+    <color name="nj_day_glass_panel_baked_rim_bottom">#A6FFFFFF</color>
+    <dimen name="nj_day_glass_panel_baked_rim_width">1dp</dimen>
+    <color name="nj_day_glass_panel_baked_hairline">#1A1A1C22</color>
+    <color name="nj_day_glass_panel_baked_shadow_color">#472A2E4A</color>
+    <dimen name="nj_day_glass_panel_baked_shadow_y">18dp</dimen>
+    <dimen name="nj_day_glass_panel_baked_shadow_blur">60dp</dimen>
+    <dimen name="nj_day_glass_panel_baked_lens_width">0dp</dimen>
+    <dimen name="nj_day_glass_panel_baked_lens_blur">0dp</dimen>
+    <item name="nj_day_glass_panel_baked_lens_saturate" type="dimen" format="float">1.0</item>
+    <item name="nj_day_glass_panel_baked_lens_brightness" type="dimen" format="float">1.0</item>
+    <dimen name="nj_day_glass_chip_lens_blur">10dp</dimen>
+    <item name="nj_day_glass_chip_lens_saturate" type="dimen" format="float">1.6</item>
+    <item name="nj_day_glass_chip_lens_brightness" type="dimen" format="float">1.1</item>
+    <color name="nj_day_glass_chip_lens_fill">#B3FFFFFF</color>
+    <color name="nj_day_glass_chip_lens_sheen_top">#40FFFFFF</color>
+    <item name="nj_day_glass_chip_lens_sheen_end" type="dimen" format="float">0.5</item>
+    <color name="nj_day_glass_chip_lens_rim_top">#F2FFFFFF</color>
+    <color name="nj_day_glass_chip_lens_rim_mid">#59FFFFFF</color>
+    <color name="nj_day_glass_chip_lens_rim_bottom">#A6FFFFFF</color>
+    <dimen name="nj_day_glass_chip_lens_rim_width">1dp</dimen>
+    <color name="nj_day_glass_chip_lens_hairline">#1A1A1C22</color>
+    <color name="nj_day_glass_chip_lens_shadow_color">#292A2E4A</color>
+    <dimen name="nj_day_glass_chip_lens_shadow_y">3dp</dimen>
+    <dimen name="nj_day_glass_chip_lens_shadow_blur">10dp</dimen>
+    <dimen name="nj_day_glass_chip_lens_lens_width">0dp</dimen>
+    <dimen name="nj_day_glass_chip_lens_lens_blur">0dp</dimen>
+    <item name="nj_day_glass_chip_lens_lens_saturate" type="dimen" format="float">1.0</item>
+    <item name="nj_day_glass_chip_lens_lens_brightness" type="dimen" format="float">1.0</item>
+    <dimen name="nj_day_glass_chip_live_blur">10dp</dimen>
+    <item name="nj_day_glass_chip_live_saturate" type="dimen" format="float">1.6</item>
+    <item name="nj_day_glass_chip_live_brightness" type="dimen" format="float">1.1</item>
+    <color name="nj_day_glass_chip_live_fill">#B3FFFFFF</color>
+    <color name="nj_day_glass_chip_live_sheen_top">#40FFFFFF</color>
+    <item name="nj_day_glass_chip_live_sheen_end" type="dimen" format="float">0.5</item>
+    <color name="nj_day_glass_chip_live_rim_top">#F2FFFFFF</color>
+    <color name="nj_day_glass_chip_live_rim_mid">#59FFFFFF</color>
+    <color name="nj_day_glass_chip_live_rim_bottom">#A6FFFFFF</color>
+    <dimen name="nj_day_glass_chip_live_rim_width">1dp</dimen>
+    <color name="nj_day_glass_chip_live_hairline">#1A1A1C22</color>
+    <color name="nj_day_glass_chip_live_shadow_color">#292A2E4A</color>
+    <dimen name="nj_day_glass_chip_live_shadow_y">3dp</dimen>
+    <dimen name="nj_day_glass_chip_live_shadow_blur">10dp</dimen>
+    <dimen name="nj_day_glass_chip_live_lens_width">0dp</dimen>
+    <dimen name="nj_day_glass_chip_live_lens_blur">0dp</dimen>
+    <item name="nj_day_glass_chip_live_lens_saturate" type="dimen" format="float">1.0</item>
+    <item name="nj_day_glass_chip_live_lens_brightness" type="dimen" format="float">1.0</item>
+    <dimen name="nj_day_glass_chip_baked_blur">0dp</dimen>
+    <item name="nj_day_glass_chip_baked_saturate" type="dimen" format="float">1.0</item>
+    <item name="nj_day_glass_chip_baked_brightness" type="dimen" format="float">1.1</item>
+    <color name="nj_day_glass_chip_baked_fill">#B3FFFFFF</color>
+    <color name="nj_day_glass_chip_baked_sheen_top">#40FFFFFF</color>
+    <item name="nj_day_glass_chip_baked_sheen_end" type="dimen" format="float">0.5</item>
+    <color name="nj_day_glass_chip_baked_rim_top">#F2FFFFFF</color>
+    <color name="nj_day_glass_chip_baked_rim_mid">#59FFFFFF</color>
+    <color name="nj_day_glass_chip_baked_rim_bottom">#A6FFFFFF</color>
+    <dimen name="nj_day_glass_chip_baked_rim_width">1dp</dimen>
+    <color name="nj_day_glass_chip_baked_hairline">#1A1A1C22</color>
+    <color name="nj_day_glass_chip_baked_shadow_color">#292A2E4A</color>
+    <dimen name="nj_day_glass_chip_baked_shadow_y">3dp</dimen>
+    <dimen name="nj_day_glass_chip_baked_shadow_blur">10dp</dimen>
+    <dimen name="nj_day_glass_chip_baked_lens_width">0dp</dimen>
+    <dimen name="nj_day_glass_chip_baked_lens_blur">0dp</dimen>
+    <item name="nj_day_glass_chip_baked_lens_saturate" type="dimen" format="float">1.0</item>
+    <item name="nj_day_glass_chip_baked_lens_brightness" type="dimen" format="float">1.0</item>
 </resources>

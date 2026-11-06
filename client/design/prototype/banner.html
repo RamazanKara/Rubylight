@@ -1,0 +1,18 @@
+<!doctype html><meta charset="utf-8"><title>Nightjar banner</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="glass.css"><script src="lib.js"></script><body><script>
+// README and site banner: same mark, same words as today, now in the family.
+const fan = [['ocean-explorer', 664, 50, -7], ['space-sim', 808, 24, -2.5], ['racing-game', 952, 32, 2.5], ['ember-keep', 1096, 60, 7]];
+mount(`
+${nightSky({ x: 1040, y: 60, r: 120, w: 1280, h: 400 })}
+<div style="position:absolute;left:0;top:0;bottom:0;width:640px;background:linear-gradient(90deg,#14161f 40%,rgba(20,22,31,0))"></div>
+${fan.map(([n, x, y, r]) => cover(n, { style: `position:absolute;left:${x}px;top:${y}px;width:170px;transform:rotate(${r}deg);box-shadow:0 24px 50px rgba(0,0,0,.6)` })).join('')}
+<div style="position:absolute;left:56px;top:0;bottom:0;display:flex;align-items:center;gap:26px">
+  <div style="filter:drop-shadow(0 0 44px rgba(242,169,59,.5))">${mark(122)}</div>
+  <div>
+    <div style="font:600 78px/82px Figtree;letter-spacing:-2px;color:var(--color-paper)">Nightjar</div>
+    <div style="font:400 20px/28px Figtree;color:var(--color-labelSecondary);margin-top:6px">Low-latency game streaming from your PC</div>
+  </div>
+</div>
+${glass('chrome', { style: 'position:absolute;left:800px;bottom:24px;border-radius:30px;height:60px;width:360px;z-index:5' }, `<div style="display:flex;align-items:center;gap:12px;height:60px;padding:0 8px 0 22px;font:600 17px/22px Figtree"><span class="dot"></span>Racing Game<button class="play" style="height:44px;padding:0 20px;margin-left:auto;font-size:16px">${icon('play', 18)}Resume</button></div>`)}
+`, { w: 1280, h: 400 });
+</script></body>

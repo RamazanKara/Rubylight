@@ -1,0 +1,24 @@
+<!doctype html><meta charset="utf-8"><title>Nightjar TV apps</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="glass.css"><script src="lib.js"></script><body><script>
+const APPS = [[null, 'Desktop'], ['racing-game', 'Racing Game'], [null, 'Big Picture'], ['ocean-explorer', 'Ocean Explorer'], [null, 'Photo Frame'], ['open-world', 'Open World'], ['retro-arcade', 'Retro Arcade'], [null, 'Game Launcher'], [null, 'Media Center'], ['space-sim', 'Space Sim'], ['ember-keep', 'Ember Keep'], [null, 'Karaoke Night'], ['music-studio', 'Music Studio'], ['frostline', 'Frostline'], [null, 'Arcade Box']];
+let focus = Number(Q.get('focus') || 2);
+function draw() {
+  const [fid, fname] = APPS[focus];
+  mount(`
+  ${fid ? ambient(fid, { bg: 'var(--color-canvasTv)', fade: 'linear-gradient(180deg,rgba(11,13,18,0),rgba(11,13,18,0) 34%,rgba(11,13,18,.7) 72%,rgba(11,13,18,.92))' })
+    : `<div class="ambient" style="--bg:var(--color-canvasTv)"><div style="position:absolute;inset:0;background:${pairGradient(fname)};opacity:${DAY ? 0.22 : 0.85}"></div><div class="fade" style="background:${themeFade('linear-gradient(180deg,rgba(11,13,18,0),rgba(11,13,18,.2) 34%,rgba(11,13,18,.72) 72%,rgba(11,13,18,.92))')}"></div></div>`}
+  <div style="position:absolute;left:48px;right:48px;top:30px;display:flex;align-items:center;gap:10px;z-index:6">
+    ${capsuleNav(1, { h: 52 })}<div style="flex:1"></div>${pcCapsule('Studio PC', 52)}${roundGlass('search', 52)}
+  </div>
+  <div style="position:absolute;left:48px;top:108px;right:48px;z-index:2">
+    <div class="t-hero" style="font-size:60px;line-height:66px">${fname}</div>
+    <div style="display:flex;gap:18px;align-items:center;margin-top:12px">${hint('go', 'Play')}${hint('alt', 'More')}</div>
+  </div>
+  <div style="position:absolute;left:48px;right:48px;top:236px;display:grid;grid-template-columns:repeat(7,148px);gap:20px 24px">
+    ${APPS.map(([n, name], i) => app(n, name, { w: 148, cls: i === focus ? 'fx' : 'dim', style: i === focus ? 'transform:scale(var(--focus-scaleCoverTv));z-index:4' : '', badge: name === 'Racing Game' ? runningBadge : '' })).join('')}
+  </div>
+  `, { w: 1280, h: 720, zoom: 1.5, tv: true });
+}
+draw();
+addEventListener('keydown', (e) => { if (e.key === 'ArrowRight') focus = Math.min(APPS.length - 1, focus + 1); else if (e.key === 'ArrowLeft') focus = Math.max(0, focus - 1); else if (e.key === 'ArrowDown') focus = Math.min(APPS.length - 1, focus + 7); else if (e.key === 'ArrowUp') focus = Math.max(0, focus - 7); else return; draw(); });
+</script></body>

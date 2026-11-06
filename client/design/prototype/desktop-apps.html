@@ -1,0 +1,25 @@
+<!doctype html><meta charset="utf-8"><title>Nightjar desktop apps</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="glass.css"><script src="lib.js"></script><body><script>
+const APPS = [[null, 'Desktop'], ['racing-game', 'Racing Game'], [null, 'Big Picture'], ['ocean-explorer', 'Ocean Explorer'], [null, 'Photo Frame'], ['open-world', 'Open World'], ['retro-arcade', 'Retro Arcade'], [null, 'Game Launcher'], [null, 'Media Center'], ['space-sim', 'Space Sim'], ['ember-keep', 'Ember Keep'], [null, 'Karaoke Night'], ['music-studio', 'Music Studio'], ['frostline', 'Frostline'], ['night-courier', 'Night Courier'], [null, 'Retro Games'], ['ashfall', 'Ashfall'], [null, 'Arcade Box'], ['harvest-valley', 'Harvest Valley'], ['brightwater', 'Brightwater'], ['deep-field', 'Deep Field']];
+mount(`
+${ambient('racing-game', { fade: 'linear-gradient(180deg,rgba(14,12,20,0),rgba(14,12,20,.12) 12%,rgba(16,16,24,.92) 40%,#12141c 56%)' })}
+<div style="position:absolute;left:48px;right:48px;top:20px;display:flex;align-items:center;gap:14px;z-index:6">
+  <div style="display:flex;align-items:center;gap:10px;font:600 19px/24px Figtree;margin-right:6px">${mark(30)}Nightjar</div>
+  ${capsuleNav(1, { h: 48 })}
+  <div style="flex:1"></div>
+  ${glass('chrome', { style: 'border-radius:24px;height:48px;width:220px' }, `<div class="sec" style="height:48px;display:flex;align-items:center;gap:9px;padding:0 16px;font:400 15px/20px Figtree">${icon('search', 19)}Search<span style="margin-left:auto;font-size:12px;opacity:.75" class="num">Ctrl K</span></div>`)}
+  ${pcCapsule('Studio PC', 48)}
+</div>
+<div style="position:absolute;left:48px;right:48px;top:88px;display:flex;align-items:center;gap:14px">
+  ${glass('chrome', { style: 'width:44px;height:44px;border-radius:50%;flex:none' }, `<button class="press" style="width:44px;height:44px;display:grid;place-items:center;border-radius:50%">${icon('back', 20)}</button>`)}
+  <div><div class="t-large" style="font-size:30px;line-height:36px">Studio PC</div></div>
+  <div style="flex:1"></div>
+  <span class="chip tint"><span class="dot"></span>Racing Game</span>
+  <button class="play press" style="height:48px;padding:0 24px;font-size:16px">${icon('play', 19)}Resume</button>
+  <button class="ctl press" style="height:48px">${icon('power', 18)}Quit game</button>
+</div>
+<div style="position:absolute;left:48px;right:48px;top:158px;display:grid;grid-template-columns:repeat(7,155px);gap:18px 16px">
+  ${APPS.map(([n, name], i) => app(n, name, { w: 155, style: i === 2 ? 'transform:translateY(-3px) scale(1.03);box-shadow:0 18px 40px rgba(0,0,0,.6)' : '', badge: name === 'Racing Game' ? runningBadge : '' })).join('')}
+</div>
+`, { w: 1280, h: 800 });
+</script></body>

@@ -1,0 +1,15 @@
+<!doctype html><meta charset="utf-8"><title>Nightjar phone apps</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="glass.css"><script src="lib.js"></script><body><script>
+// A host with no library API: its app list as a grid. No captions: art carries its title, and so does the no-art tile.
+const APPS = [[null, 'Desktop'], ['racing-game', 'Racing Game'], [null, 'Big Picture'], ['ocean-explorer', 'Ocean Explorer'], [null, 'Photo Frame'], ['open-world', 'Open World'], [null, 'Game Launcher'], ['retro-arcade', 'Retro Arcade'], [null, 'Media Center'], ['space-sim', 'Space Sim'], [null, 'Karaoke Night'], ['ember-keep', 'Ember Keep']];
+mount(`
+${ambient('racing-game', { fade: 'linear-gradient(180deg,rgba(14,14,22,.1),rgba(14,14,22,.4) 16%,rgba(20,22,31,.94) 46%,#14161f 60%)' })}
+${statusBar()}
+<div style="position:absolute;left:16px;right:16px;top:38px;display:flex;gap:10px;align-items:center;z-index:7">${roundGlass('back')}${pcCapsule('Studio PC')}<div style="flex:1"></div>${roundGlass('search')}</div>
+<div style="position:absolute;left:16px;right:16px;top:102px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+  ${APPS.map(([n, name]) => app(n, name, { w: 118, badge: name === 'Racing Game' ? runningBadge : '' })).join('')}
+</div>
+${glass('chrome', { style: 'position:absolute;left:16px;right:16px;bottom:94px;border-radius:30px;height:60px;z-index:8' }, `<div style="display:flex;align-items:center;gap:12px;height:60px;padding:0 8px 0 20px;font:600 17px/22px Figtree"><span class="dot"></span>Racing Game<button class="play press" style="height:44px;padding:0 20px;margin-left:auto;font-size:16px">${icon('play', 18)}Resume</button></div>`)}
+${tabBar(1)}
+`, { w: 412, h: 915 });
+</script></body>

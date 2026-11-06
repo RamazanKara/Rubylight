@@ -1,0 +1,36 @@
+<!doctype html><meta charset="utf-8"><title>Nightjar phone settings</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="glass.css"><script src="lib.js"></script><body><script>
+const cats = ['Video', 'Display and image', 'Controls', 'Audio', 'Streaming', 'App', 'Debug'];
+mount(`
+${nightSky({ x: 316, y: 76, r: 38 })}
+${statusBar()}
+<div style="position:absolute;left:20px;top:64px" class="t-large">Settings</div>
+<div style="position:absolute;left:0;right:0;top:120px;height:52px;overflow:hidden;z-index:4">
+  <div style="display:flex;gap:8px;padding:0 16px;width:900px">
+    ${cats.map((c, i) => glass('chip', { style: 'border-radius:22px;height:44px;flex:none' }, `<button class="press" style="height:44px;padding:0 16px;font:600 15px/20px Figtree;border-radius:22px;${i === 0 ? 'color:var(--color-onSelected);background:var(--tint-selected-fill)' : ''}">${c}</button>`)).join('')}
+  </div>
+</div>
+<div style="position:absolute;left:16px;right:16px;top:180px">
+  <div class="group">
+    ${row('Resolution', { ic: 'video', val: 'This screen', chev: true })}
+    ${row('Frame rate', { ic: 'bars', val: '120 FPS', chev: true })}
+    ${row('HDR', { ic: 'display', right: sw(true) })}
+  </div>
+  <div class="group" style="margin-top:14px">
+    ${row('Automatic bitrate', { sub: '80 Mbps now', right: sw(false) })}
+    <div class="row" style="display:block;padding:12px 16px 10px">
+      <div style="display:flex;justify-content:space-between"><span class="t-body" style="font-weight:600">Bitrate</span><span class="t-body sec num">80 Mbps</span></div>
+      ${slider(58)}
+    </div>
+    ${row('Codec', { val: 'Automatic', chev: true })}
+  </div>
+  <div class="hdr" style="margin:22px 4px 10px"><span class="t-section">Touch</span></div>
+  <div class="group">
+    <div class="row" style="display:block;padding:12px"><div>${seg(['Trackpad', 'Direct', 'Controller'], 0)}</div></div>
+    ${row('Vibration', { right: sw(true) })}
+    ${row('On-screen controller', { val: 'Automatic', chev: true })}
+  </div>
+</div>
+${tabBar(2)}
+`, { w: 412, h: 915 });
+</script></body>

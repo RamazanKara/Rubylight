@@ -3451,6 +3451,27 @@ fn demo_covers_decode_and_none_repeats() {
     }
 }
 
+/// The showcase library. Store keys as a host sends them (console.rs names them). Ten Steam games
+/// overflow a row at both sizes, so Steam's ends in its All tile; one Epic game is not installed.
+const POLISH_GAMES: [(&str, &str); 19] = [
+    ("Desktop", ""), ("Racing Game", "steam"), ("Open World", "steam"), ("Space Sim", "microsoft"), ("Puzzle Night", "gog"),
+    ("Retro Arcade", "steam"), ("Strategy", "battlenet"), ("Music Studio", "steam"), ("Ocean Explorer", "steam"), ("Skybound", "steam"),
+    ("Ashfall", "microsoft"), ("Brightwater", "steam"), ("Cinder Road", "steam"), ("Deep Field", "steam"), ("Ember Keep", "steam"),
+    ("Frostline", "epic"), ("Glass Harbor", "battlenet"), ("Hollow Peak", "epic"), ("Iron Tide", ""),
+];
+
+/// A showcase game shows art/N.jpg of its own place in the demo library, so no game wears another's
+/// cover and none stays empty: its title must be the one the demo keeps at that place.
+#[test]
+fn showcase_games_sit_at_their_own_covers_place() {
+    let java = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/src/debug/java/com/limelight/demo/DemoConsole.java")).expect("the demo library");
+    let library = java.split("LIBRARY = {").nth(1).expect("the list").split("};").next().expect("its end");
+    let demo: Vec<&str> = library.lines().filter_map(|line| line.trim().strip_prefix("{\"")?.split('"').next()).collect();
+    for (n, (title, _)) in POLISH_GAMES.iter().enumerate() {
+        assert_eq!(Some(title), demo.get(n), "place {n}");
+    }
+}
+
 /// Every main page and state as a first-time and a returning user meet them, at 1280x800 (150 %)
 /// and 1920x1080: `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop polish_screenshots -- --ignored`.
 #[test]
@@ -3460,16 +3481,7 @@ fn polish_screenshots() {
     let Some(dir) = std::env::var_os("NIGHTJAR_SHOTS").map(std::path::PathBuf::from) else { return };
     std::fs::create_dir_all(&dir).expect("the folder for the screenshots");
     let only = std::env::var("NIGHTJAR_SHOTS_ONLY").unwrap_or_default();
-    // Store keys as a host sends them (console.rs names them). Ten Steam games overflow a row at
-    // both sizes, so Steam's ends in its All tile; one Epic game is not installed. The first ten
-    // have the demo covers, which carry their titles; the rest sort after them and show the
-    // placeholder, so each row starts as a real library looks.
-    let titles = [
-        ("Desktop", ""), ("Racing Game", "steam"), ("Open World", "steam"), ("Space Sim", "microsoft"), ("Puzzle Night", "gog"),
-        ("Retro Arcade", "steam"), ("Strategy", "battlenet"), ("Music Studio", "steam"), ("Ocean Explorer", "steam"), ("Skybound", "steam"),
-        ("Trail Runner", "microsoft"), ("Star Courier", "steam"), ("Tiny Tactics", "steam"), ("Wild Frontier", "steam"), ("Zen Garden", "steam"),
-        ("Frost Peak", "epic"), ("Tavern Duel", "battlenet"), ("Wayfarer", "epic"), ("Steam Big Picture", ""),
-    ];
+    let titles = POLISH_GAMES;
     for (width, height, ppp) in [(1280.0, 800.0, 1.5), (1920.0, 1080.0, 1.0)] {
         let size = format!("{}x{}", width as u32, height as u32);
         let fresh = |records: Vec<HostRecord>, home: bool| {
@@ -3518,9 +3530,9 @@ fn polish_screenshots() {
                 title: (*title).into(),
                 game_id: (!store.is_empty()).then(|| format!("{store}:{n}")),
                 store: (!store.is_empty()).then(|| Store { source: (*store).into(), id: n.to_string(), name: String::new() }),
-                installed: Some(*title != "Frost Peak"),
+                installed: Some(*title != "Frostline"),
                 running: n == 1,
-                artwork: Artwork { cover: (n < 10).then(|| format!("/cover/{n}")), version: "1".into() },
+                artwork: Artwork { cover: Some(format!("/cover/{n}")), version: "1".into() },
             })
             .collect();
         let apps: Vec<nightjar_core::http::App> = games
@@ -3533,7 +3545,7 @@ fn polish_screenshots() {
             pc.info = Some(files::tests::native_answer());
             pc.native.library = Some(Library { revision: "r1".into(), games });
             pc.apps = Apps::Loaded(apps.clone());
-            for (n, app) in apps.iter().enumerate().take(10) {
+            for (n, app) in apps.iter().enumerate() {
                 pc.art.insert(app.id, demo_art(&f.ctx, n));
             }
         }
@@ -3632,7 +3644,7 @@ fn polish_screenshots() {
         shoot(&mut f, "game-running");
         f.l.go(Screen::Game { host: pc, app: 1002 });
         shoot(&mut f, "game");
-        // Frost Peak, which the PC has not installed: no Play.
+        // Frostline, which the PC has not installed: no Play.
         f.l.go(Screen::Game { host: pc, app: 1015 });
         shoot(&mut f, "game-not-installed");
         f.l.go(Screen::Hosts);

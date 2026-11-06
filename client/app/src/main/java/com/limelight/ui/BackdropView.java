@@ -24,7 +24,8 @@ import java.util.concurrent.TimeUnit;
 /**
  * The ambient behind a screen: the game in focus, its cover baked by {@link BackdropBlur}, full bleed. Two ImageViews
  * take turns, so a change is a crossfade over {@code motion.ambient.ms}. A vertical gradient to the screen's canvas is
- * drawn over them in one paint, so it costs no extra view.
+ * baked into the bitmaps they show, so resting costs one opaque full-screen draw; it is painted over them only when the
+ * view's size was not known at the bake, or with a dim, which goes over the art and not the canvas.
  *
  * <p>It is asked for a backdrop with {@link #focus} on every selection change and only acts on the last ask: the
  * change starts {@link #SETTLE_MS} after the selection settles, {@link #FAST_SETTLE_MS} while a key is held, so a run
@@ -54,7 +55,7 @@ public class BackdropView extends FrameLayout {
 
     private final ImageView back;
     private final ImageView front;
-    private final LruCache<String, Bitmap> cache = new LruCache<>(CACHE_ENTRIES);
+    private final LruCache<String, Baked> cache = new LruCache<>(CACHE_ENTRIES);
     private final Handler handler = new Handler(Looper.getMainLooper());
     private Executor executor = WORKER;
 
@@ -72,7 +73,9 @@ public class BackdropView extends FrameLayout {
     private final android.view.ViewTreeObserver.OnGlobalLayoutListener aligner = this::align;
     private int request;
     private int changes;
-    private Bitmap shown;
+    private Baked shown;
+    private Baked incoming;
+    private boolean dimmed;
     private AnimatorSet transition;
     private Runnable onCovered;
     private final Runnable apply = this::applyWanted;
@@ -88,6 +91,25 @@ public class BackdropView extends FrameLayout {
         front.setVisibility(GONE);
         setFocusable(false);
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+    }
+
+    /** An ambient: as the bake made it, which is what glass samples, and as the layers show it. */
+    private static final class Baked {
+        final Bitmap raw;
+        final Bitmap show;
+        final int forWidth;
+        final int forHeight;
+
+        Baked(Bitmap raw, Bitmap show, int forWidth, int forHeight) {
+            this.raw = raw;
+            this.show = show;
+            this.forWidth = forWidth;
+            this.forHeight = forHeight;
+        }
+
+        boolean hasFade() {
+            return show != raw;
+        }
     }
 
     private ImageView newLayer() {
@@ -140,12 +162,28 @@ public class BackdropView extends FrameLayout {
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
         if (fadePaint != null) fadePaint.setShader(null);
+        // Rare, and few pixels: rebaked right here, so the fade never lands in the wrong place.
+        if (shown != null && transition == null && (shown.forWidth != w || shown.forHeight != h)) {
+            shown = bakeFor(shown.raw, w, h, fadeColors, fadeStops, dimmed);
+            back.setImageBitmap(shown.show);
+        }
+    }
+
+    /** The fade goes into the bitmap when there is one, the size is known and no dim has to stay under it. */
+    private static Baked bakeFor(Bitmap raw, int w, int h, int[] colors, float[] stops, boolean dimmed) {
+        boolean bake = colors != null && w > 0 && h > 0 && !dimmed;
+        return new Baked(raw, bake ? BackdropBlur.faded(raw, colors, stops, w, h) : raw, w, h);
+    }
+
+    /** Whether the fade still has to be painted over the layers; for tests too. */
+    boolean paintsFade() {
+        return fadePaint != null && (shown == null ? incoming != null && !incoming.hasFade() : !shown.hasFade());
     }
 
     @Override
     protected void dispatchDraw(android.graphics.Canvas canvas) {
         super.dispatchDraw(canvas);
-        if (fadePaint == null || getHeight() == 0) return;
+        if (!paintsFade() || getHeight() == 0) return;
         if (fadePaint.getShader() == null) {
             fadePaint.setShader(new android.graphics.LinearGradient(0, 0, 0, getHeight(), fadeColors, fadeStops,
                     android.graphics.Shader.TileMode.CLAMP));
@@ -160,7 +198,7 @@ public class BackdropView extends FrameLayout {
 
     public void setAmbientListener(AmbientListener listener) {
         ambientListener = listener;
-        if (listener != null && shown != null) listener.onAmbient(shown, false);
+        if (listener != null && shown != null) listener.onAmbient(shown.raw, false);
     }
 
     /** High contrast dims the backdrop further, as a multiply on the layers, not another layer on top. */
@@ -169,6 +207,7 @@ public class BackdropView extends FrameLayout {
                 0xFF000000 | (Math.round(brightness * 255) * 0x010101), 0);
         back.setColorFilter(filter);
         front.setColorFilter(filter);
+        dimmed = filter != null;
     }
 
     /** Called once, when the backdrop first covers the whole window, so the window's own background can go. */
@@ -216,10 +255,11 @@ public class BackdropView extends FrameLayout {
         if (key == null || last == null || bitmap == null || !last.startsWith(key + "@")) return false;
         handler.removeCallbacks(apply);
         endTransition();
-        cache.put(last, bitmap);
+        Baked baked = bakeFor(bitmap, getWidth(), getHeight(), fadeColors, fadeStops, dimmed);
+        cache.put(last, baked);
         shownKey = last;
-        back.setImageBitmap(bitmap);
-        shown = bitmap;
+        back.setImageBitmap(baked.show);
+        shown = baked;
         if (ambientListener != null) ambientListener.onAmbient(bitmap, false);
         covered();
         return true;
@@ -239,17 +279,23 @@ public class BackdropView extends FrameLayout {
         }
         String key = cacheKey(wantedKey, wantedCover);
         if (key.equals(shownKey)) return;
-        Bitmap cached = cache.get(key);
+        Baked cached = cache.get(key);
         int id = ++request;
-        if (cached != null) {
+        int w = getWidth();
+        int h = getHeight();
+        if (cached != null && cached.forWidth == w && cached.forHeight == h) {
             display(key, cached);
             return;
         }
         Bitmap cover = wantedCover;
         boolean bakeDay = day;
         boolean bakePortrait = portrait;
+        int[] colors = fadeColors;
+        float[] stops = fadeStops;
+        boolean dim = dimmed;
         executor.execute(() -> {
-            Bitmap made = BackdropBlur.make(cover, canvas, bakeDay, bakePortrait);
+            Bitmap raw = cached != null ? cached.raw : BackdropBlur.make(cover, canvas, bakeDay, bakePortrait);
+            Baked made = bakeFor(raw, w, h, colors, stops, dim);
             handler.post(() -> {
                 cache.put(key, made);
                 // A newer request, even one still waiting out its settle time, has the say.
@@ -262,22 +308,23 @@ public class BackdropView extends FrameLayout {
         return cover == null ? key + "@canvas" : key + "@" + System.identityHashCode(cover);
     }
 
-    private void display(String key, Bitmap bitmap) {
+    private void display(String key, Baked baked) {
         shownKey = key;
         handoffKey = key;
-        handoffBitmap = bitmap;
+        handoffBitmap = baked.raw;
         changes++;
         endTransition();
         boolean cut = Motion.reduced(getContext()) || getWindowToken() == null;
-        if (ambientListener != null) ambientListener.onAmbient(bitmap, !cut);
+        if (ambientListener != null) ambientListener.onAmbient(baked.raw, !cut);
         if (cut) {
-            back.setImageBitmap(bitmap);
-            shown = bitmap;
+            back.setImageBitmap(baked.show);
+            shown = baked;
             covered();
             return;
         }
         boolean first = shown == null;
-        front.setImageBitmap(bitmap);
+        incoming = baked;
+        front.setImageBitmap(baked.show);
         front.setAlpha(0f);
         front.setVisibility(VISIBLE);
         ObjectAnimator fade = ObjectAnimator.ofFloat(front, View.ALPHA, 0f, 1f);
@@ -296,16 +343,17 @@ public class BackdropView extends FrameLayout {
             @Override public void onAnimationEnd(Animator animation) {
                 if (cancelled) return;
                 transition = null;
-                commit(bitmap);
+                commit(baked);
             }
         });
         set.start();
     }
 
     /** The incoming layer becomes the resting one, and the front layer is free for the next change. */
-    private void commit(Bitmap bitmap) {
-        back.setImageBitmap(bitmap);
-        shown = bitmap;
+    private void commit(Baked baked) {
+        back.setImageBitmap(baked.show);
+        shown = baked;
+        incoming = null;
         front.setVisibility(GONE);
         front.setImageDrawable(null);
         covered();
@@ -317,9 +365,8 @@ public class BackdropView extends FrameLayout {
         AnimatorSet running = transition;
         transition = null;
         running.cancel();
-        if (front.getDrawable() instanceof android.graphics.drawable.BitmapDrawable) {
-            Bitmap target = ((android.graphics.drawable.BitmapDrawable) front.getDrawable()).getBitmap();
-            commit(target);
+        if (incoming != null) {
+            commit(incoming);
         } else {
             front.setVisibility(GONE);
         }

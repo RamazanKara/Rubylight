@@ -60,6 +60,51 @@ public final class BackdropBlur {
         return opaque(pixels, width, height);
     }
 
+    /**
+     * The ambient with a vertical fade already in it, so a full-screen gradient need not be blended over it on every
+     * frame. The fade is smooth and the bitmap is scaled up with filtering, so its low resolution does not show.
+     *
+     * @param fadeColors the fade's colour at each stop, with its alpha
+     * @param fadeStops where each colour lies, as a fraction of the view's height
+     * @param viewWidth the view that shows the bitmap centre-cropped
+     * @param viewHeight its height
+     * @return a new opaque bitmap of the same size
+     */
+    static Bitmap faded(Bitmap ambient, int[] fadeColors, float[] fadeStops, int viewWidth, int viewHeight) {
+        int width = ambient.getWidth();
+        int height = ambient.getHeight();
+        int[] pixels = new int[width * height];
+        ambient.getPixels(pixels, 0, width, 0, 0, width, height);
+        float scale = Math.max(viewWidth / (float) width, viewHeight / (float) height);
+        float top = (viewHeight - height * scale) / 2f;
+        for (int y = 0; y < height; y++) {
+            float at = ((y + 0.5f) * scale + top) / viewHeight;
+            int fade = fadeAt(fadeColors, fadeStops, at);
+            float alpha = (fade >>> 24) / 255f;
+            for (int x = 0; x < width; x++) {
+                int c = pixels[y * width + x];
+                int r = Math.round(((c >> 16) & 0xFF) * (1f - alpha) + ((fade >> 16) & 0xFF) * alpha);
+                int g = Math.round(((c >> 8) & 0xFF) * (1f - alpha) + ((fade >> 8) & 0xFF) * alpha);
+                int b = Math.round((c & 0xFF) * (1f - alpha) + (fade & 0xFF) * alpha);
+                pixels[y * width + x] = 0xFF000000 | r << 16 | g << 8 | b;
+            }
+        }
+        return opaque(pixels, width, height);
+    }
+
+    /** The colour of a gradient between stops, with the same RGB throughout, at this fraction. */
+    static int fadeAt(int[] colors, float[] stops, float at) {
+        if (at <= stops[0]) return colors[0];
+        for (int i = 1; i < stops.length; i++) {
+            if (at <= stops[i]) {
+                float t = (at - stops[i - 1]) / (stops[i] - stops[i - 1]);
+                int a = Math.round((colors[i - 1] >>> 24) + ((colors[i] >>> 24) - (colors[i - 1] >>> 24)) * t);
+                return a << 24 | (colors[i] & 0xFFFFFF);
+            }
+        }
+        return colors[colors.length - 1];
+    }
+
     /** Saturation lifted, yellows turned toward orange, luminance held to {@link #MAX_LUMA}. */
     static int bakeNight(int color, float[] hsv) {
         android.graphics.Color.colorToHSV(color, hsv);

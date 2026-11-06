@@ -600,9 +600,11 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         }
     }
     #[cfg(not(feature = "demo-library"))]
-    let mut hosts = Hosts::new(store.hosts(), waker.clone());
+    let records = store.hosts();
     #[cfg(feature = "demo-library")]
-    let mut hosts = Hosts::without_discovery(ui::demo::records(), waker.clone());
+    let records = ui::demo::records();
+    // The demo library looks for nobody.
+    let mut hosts = if cfg!(feature = "demo-library") { Hosts::without_discovery(records, waker.clone()) } else { Hosts::new(records, waker.clone()) };
     let cli = match launch {
         Some(_) if std::env::var_os("NIGHTJAR_AUTOSTREAM").is_some() => {
             return Err("--host and NIGHTJAR_AUTOSTREAM both ask for a stream; give one".into());

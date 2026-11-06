@@ -33,6 +33,11 @@ impl Monitor {
     pub fn is_rubylight(&self) -> bool {
         is_rubylight_monitor(&self.monitor_device_path)
     }
+    /// Whether this is known to be a physical display. A display whose path can't
+    /// be read for the moment, as while it comes or goes, could be either.
+    pub fn is_known_physical(&self) -> bool {
+        is_physical_monitor(&self.monitor_device_path)
+    }
 }
 
 fn monitor_edid(path: &str) -> Vec<u8> {
@@ -155,6 +160,10 @@ pub(super) fn is_rubylight_monitor(path: &str) -> bool {
         && parts[1]
             .get(..3)
             .is_some_and(|maker| maker.eq_ignore_ascii_case("RBY"))
+}
+/// Whether a monitor device path can be read and names another maker's display.
+pub(super) fn is_physical_monitor(path: &str) -> bool {
+    path.split('#').count() >= 3 && !is_rubylight_monitor(path)
 }
 fn monitor_id(path: &str) -> String {
     static IDS: std::sync::LazyLock<

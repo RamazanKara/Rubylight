@@ -173,6 +173,37 @@ fn keep_switched_off(desired: &mut Vec<Node>, applied: &[Node]) {
         }
     }
 }
+/// The layout for the first stream's display. Windows can have switched the user's
+/// displays off already, recalling the entry an earlier exclusive stream left, and a
+/// layout composed from what is on then would not know them ([`keep_switched_off`]).
+/// Exclusive only: under the others a display that is off has nothing to come back from.
+fn first_layout(
+    arrangement: Arrangement,
+    current: &[Node],
+    target: &str,
+    retained: &[String],
+    before: &[Node],
+    virtual_target: bool,
+) -> Result<Vec<Node>> {
+    let mut desired = if virtual_target {
+        arrangement.compose_after_hotplug(current, target, retained, before)?
+    } else {
+        arrangement.compose(current, target, retained)?
+    };
+    if arrangement == Arrangement::Exclusive {
+        let off: Vec<Node> = before
+            .iter()
+            .filter(|n| n.active && !retained.contains(&n.device_id))
+            .map(|n| Node {
+                active: false,
+                primary: false,
+                ..n.clone()
+            })
+            .collect();
+        keep_switched_off(&mut desired, &off);
+    }
+    Ok(desired)
+}
 /// How many streams' displays have left a layout other streams still hold.
 static DEPARTURES: AtomicU64 = AtomicU64::new(0);
 /// Compare it to see that a display left while this stream goes on.
@@ -245,7 +276,8 @@ fn apply(state: &mut State, arrangement: Arrangement, leaving: Option<&str>) -> 
         Topology::set_active(&ids.into_iter().collect::<Vec<_>>())?;
         current = Snapshot::capture()?;
     }
-    let (mut desired, arriving) = compose_around_arrivals(state, arrangement, &current.nodes)?;
+    let (mut desired, arriving) =
+        compose_around_arrivals(state, arrangement, &current.nodes, &physical_displays()?)?;
     if let Some(leaving) = leaving {
         let was_active = state.before.as_ref().is_some_and(|before| {
             before
@@ -278,15 +310,27 @@ fn apply(state: &mut State, arrangement: Arrangement, leaving: Option<&str>) -> 
     settle_layout(state, desired, leaving, &arriving, Topology::save_current);
     Ok(())
 }
-/// The displays on now that the held layout has no place for: one on its way to a
-/// stream's lease, a remote monitor's not retained yet, one the user just switched
-/// on. The streams' heartbeats lay out outside the launch that brings them, and a
-/// running stream must never lose its display to that.
-fn arriving_displays(state: &State, current: &[Node]) -> Vec<String> {
+/// The connected displays known to be physical (see [`arriving_displays`]).
+fn physical_displays() -> Result<Vec<String>> {
+    Ok(Topology::query_all()?
+        .monitors()
+        .into_iter()
+        .filter(|m| m.is_known_physical())
+        .map(|m| m.device_id)
+        .collect())
+}
+/// The virtual displays on now that the held layout has no place for: one on its way
+/// to a stream's lease, a remote monitor's not retained yet. The streams' heartbeats
+/// lay out outside the launch that brings them, and a running stream must never lose
+/// its display to that. A `physical` display is no such arrival: on with no place in
+/// the layout, it is what Windows recalled when a display left (a TV that was off
+/// before the stream), and the layout decides about it like any other.
+fn arriving_displays(state: &State, current: &[Node], physical: &[String]) -> Vec<String> {
     current
         .iter()
         .filter(|n| {
             n.active
+                && !physical.contains(&n.device_id)
                 && !state.applied.iter().any(|a| a.device_id == n.device_id)
                 && !state.owners.iter().any(|(id, _)| *id == n.device_id)
                 && !state.retained.contains(&n.device_id)
@@ -299,9 +343,10 @@ fn compose_around_arrivals(
     state: &State,
     arrangement: Arrangement,
     current: &[Node],
+    physical: &[String],
 ) -> Result<(Vec<Node>, Vec<String>)> {
     let targets: Vec<_> = state.owners.iter().map(|(t, _)| t.clone()).collect();
-    let arriving = arriving_displays(state, current);
+    let arriving = arriving_displays(state, current, physical);
     let mut keep = state.retained.clone();
     keep.extend(arriving.iter().cloned());
     let desired = arrangement.compose_all_after_hotplug(
@@ -628,6 +673,7 @@ fn departure_repair(
     arrangement: Arrangement,
     current: &[Node],
     connected: &[String],
+    physical: &[String],
 ) -> Option<DepartureRepair> {
     if state.persisted {
         return None;
@@ -649,7 +695,7 @@ fn departure_repair(
         .map(|n| n.device_id.clone())
         .collect();
     Some(DepartureRepair {
-        keep_on: arriving_displays(state, current),
+        keep_on: arriving_displays(state, current, physical),
         saves: repair_saves(state) && active_ids(current) == on,
         on,
     })
@@ -659,7 +705,13 @@ fn departure_repair(
 /// one of them off or at another mode: put it back, and save it so that it stays.
 fn undo_recall_after_departure(state: &State, arrangement: Arrangement) -> Result<()> {
     let current = Snapshot::capture()?.nodes;
-    let Some(repair) = departure_repair(state, arrangement, &current, &connected()?) else {
+    let Some(repair) = departure_repair(
+        state,
+        arrangement,
+        &current,
+        &connected()?,
+        &physical_displays()?,
+    ) else {
         return Ok(());
     };
     tracing::info!(
@@ -896,16 +948,14 @@ impl Lease {
                 }
             }
         }
-        let desired = if virtual_target {
-            arrangement.compose_after_hotplug(
-                &current.nodes,
-                &target_id,
-                &retained,
-                &before.nodes,
-            )?
-        } else {
-            arrangement.compose(&current.nodes, &target_id, &retained)?
-        };
+        let desired = first_layout(
+            arrangement,
+            &current.nodes,
+            &target_id,
+            &retained,
+            &before.nodes,
+            virtual_target,
+        )?;
         crate::display_recovery::arrangement(Some((before.clone(), desired.clone())))?;
         let apply = (|| -> Result<()> {
             let ids = active_ids(&desired);

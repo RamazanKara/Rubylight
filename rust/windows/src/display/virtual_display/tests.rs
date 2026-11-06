@@ -1127,6 +1127,14 @@ fn virtual_monitor_paths_name_the_driver_target_in_their_uid() {
     );
 }
 #[test]
+fn a_monitor_path_says_physical_only_when_it_can_be_read() {
+    use super::super::topology::is_physical_monitor;
+    let path = r"\\?\DISPLAY#SAM7456#5&1b2c3d&0&UID516#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}";
+    assert!(is_physical_monitor(path));
+    assert!(!is_physical_monitor(&path.replace("SAM7456", "RBY0001")));
+    assert!(!is_physical_monitor(""), "unreadable for the moment");
+}
+#[test]
 fn the_failure_says_what_switching_the_display_on_came_to() {
     assert_eq!(
         not_active(false, "not tried"),

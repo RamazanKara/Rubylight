@@ -54,6 +54,44 @@ fn a_display_the_layout_switched_off_is_still_watched_after_another_display_left
     assert!(desired[0].active);
     assert_eq!(desired.len(), 1);
 }
+#[test]
+fn a_first_exclusive_layout_knows_the_monitor_windows_already_switched_off() {
+    // Windows recalled the entry an earlier stream left: the virtual display alone
+    // when the layout is composed, the monitor already off.
+    let before = [node("monitor", true, true)];
+    let current = [node("a", true, true)];
+    let desired = first_layout(Arrangement::Exclusive, &current, "a", &[], &before, true).unwrap();
+    let monitor = desired.iter().find(|n| n.device_id == "monitor").unwrap();
+    assert!(!monitor.active && !monitor.primary);
+    // So its coming back is seen, and it is no arrival to leave on.
+    assert_eq!(
+        butterpollo_core::display_policy::switched_back_on(
+            &before,
+            &desired,
+            &["monitor".to_owned(), "a".to_owned()],
+        ),
+        ["monitor"]
+    );
+    let mut state = holding(Arrangement::Exclusive, desired, true);
+    state.owners = vec![("a".to_owned(), 1)];
+    let on = [node("monitor", true, false), node("a", true, true)];
+    assert!(arriving_displays(&state, &on, &[]).is_empty());
+    // A display the stream keeps on is not one to switch off.
+    let retained = ["monitor".to_owned()];
+    let kept = first_layout(
+        Arrangement::Exclusive,
+        &current,
+        "a",
+        &retained,
+        &before,
+        true,
+    )
+    .unwrap();
+    assert!(!kept.iter().any(|n| n.device_id == "monitor"));
+    // Nor does a layout that leaves the others on: one that is off stays no concern.
+    let extended = first_layout(Arrangement::Extended, &current, "a", &[], &before, true).unwrap();
+    assert!(!extended.iter().any(|n| n.device_id == "monitor"));
+}
 /// A layout that saves its entry, as the first stream's virtual display leaves it.
 fn saving_state(first: &str) -> State {
     let mut state = State {
@@ -531,6 +569,7 @@ fn a_layout_that_keeps_its_displays_apart_saves_no_entry() {
             arrangement,
             &[node("monitor", true, true), node("a", true, false)],
             &connected,
+            &[],
         )
         .unwrap();
         assert!(!repair.saves, "{arrangement:?}");
@@ -772,16 +811,82 @@ fn a_display_on_its_way_to_a_stream_stays_on_through_a_departures_repair() {
         node("a", true, false),
         node("c", true, false),
     ];
-    let repair = departure_repair(&state, Arrangement::Extended, &current, &connected).unwrap();
+    let repair =
+        departure_repair(&state, Arrangement::Extended, &current, &connected, &[]).unwrap();
     assert_eq!(repair.keep_on, ["c"]);
     assert!(!repair.saves, "the entry is the arriving display's to save");
+}
+#[test]
+fn a_physical_display_windows_recalled_is_not_an_arriving_display() {
+    // Exclusive, a display just left: Windows recalled an entry with the TV on, which
+    // was off before the stream and so in no layout, while C's display is on its way.
+    let mut state = holding(
+        Arrangement::Exclusive,
+        vec![node("monitor", false, false), node("a", true, true)],
+        true,
+    );
+    state.owners = vec![("a".to_owned(), 1)];
+    state.persists_for = vec!["a".to_owned()];
+    let physical = ["monitor", "tv"].map(String::from);
+    let current = [
+        node("tv", true, false),
+        node("a", true, true),
+        node("c", true, false),
+    ];
+    // C stays on, the TV doesn't: left on it would stay on for the stream's life.
+    assert_eq!(arriving_displays(&state, &current, &physical), ["c"]);
+    let (desired, arriving) =
+        compose_around_arrivals(&state, Arrangement::Exclusive, &current, &physical).unwrap();
+    assert_eq!(arriving, ["c"]);
+    let on = |id: &str| desired.iter().any(|n| n.device_id == id && n.active);
+    assert!(on("a") && on("c"));
+    assert!(!on("tv"));
+    // With no virtual display arriving, what the pass lays out is saved: the entry no
+    // longer has the TV on when Windows next recalls it.
+    let current = [node("tv", true, false), node("a", true, true)];
+    let (desired, arriving) =
+        compose_around_arrivals(&state, Arrangement::Exclusive, &current, &physical).unwrap();
+    assert!(arriving.is_empty());
+    let saved = std::cell::Cell::new(false);
+    settle_layout(&mut state, desired, None, &arriving, || {
+        saved.set(true);
+        Ok(())
+    });
+    assert!(saved.get());
+    // A display whose path can't be read for the moment isn't known to be physical,
+    // and might be a stream's: it stays on.
+    let current = [node("noid", true, false), node("a", true, true)];
+    state.applied = vec![node("a", true, true)];
+    assert_eq!(arriving_displays(&state, &current, &physical), ["noid"]);
+}
+#[test]
+fn a_repair_leaves_a_virtual_display_on_and_not_a_physical_one() {
+    let state = left_by_a_departure();
+    let connected = ["monitor", "a", "c", "tv"].map(String::from);
+    let current = [
+        at_60("monitor", true),
+        node("a", true, false),
+        node("c", true, false),
+        node("tv", true, false),
+    ];
+    let physical = ["monitor", "tv"].map(String::from);
+    let repair = departure_repair(
+        &state,
+        Arrangement::Extended,
+        &current,
+        &connected,
+        &physical,
+    )
+    .unwrap();
+    assert_eq!(repair.keep_on, ["c"]);
 }
 #[test]
 fn only_a_repair_that_finds_the_same_displays_on_is_saved() {
     let state = left_by_a_departure();
     let connected = ["monitor", "a"].map(String::from);
-    let run =
-        |current: &[Node]| departure_repair(&state, Arrangement::Extended, current, &connected);
+    let run = |current: &[Node]| {
+        departure_repair(&state, Arrangement::Extended, current, &connected, &[])
+    };
     // Windows retimed the monitor: put back, and the entry healed.
     let repair = run(&[at_60("monitor", true), node("a", true, false)]).unwrap();
     assert!(repair.saves && repair.keep_on.is_empty());
@@ -808,6 +913,7 @@ fn only_a_repair_that_finds_the_same_displays_on_is_saved() {
         Arrangement::Extended,
         &[at_60("monitor", true), node("a", true, false)],
         &connected,
+        &[],
     )
     .unwrap();
     assert!(repair.saves);
@@ -820,6 +926,7 @@ fn only_a_repair_that_finds_the_same_displays_on_is_saved() {
             Arrangement::Exclusive,
             &[at_60("monitor", true), node("a", true, false)],
             &connected,
+            &[],
         ),
         None
     );
@@ -838,6 +945,7 @@ fn a_departures_repair_under_a_layout_with_the_monitor_off_saves_nothing() {
         Arrangement::Exclusive,
         &[node("a", true, true), at_60("kept", false)],
         &connected,
+        &[],
     )
     .unwrap();
     assert!(!repair.saves);
@@ -859,7 +967,7 @@ fn a_layout_lays_out_around_what_is_arriving_and_keeps_it_out_of_its_record() {
         node("c", true, false),
     ];
     let (desired, arriving) =
-        compose_around_arrivals(&state, Arrangement::Exclusive, &current).unwrap();
+        compose_around_arrivals(&state, Arrangement::Exclusive, &current, &[]).unwrap();
     assert_eq!(arriving, ["c"]);
     let on = |id: &str| desired.iter().any(|n| n.device_id == id && n.active);
     assert!(on("a") && on("c"));
@@ -872,13 +980,13 @@ fn a_layout_lays_out_around_what_is_arriving_and_keeps_it_out_of_its_record() {
     assert!(!saved.get(), "C's own layout saves the entry with it in");
     assert!(!state.applied.iter().any(|n| n.device_id == "c"));
     // So it still counts as arriving at the next pass, and no less on.
-    assert_eq!(arriving_displays(&state, &current), ["c"]);
+    assert_eq!(arriving_displays(&state, &current, &[]), ["c"]);
     // Once C holds a lease it is no longer arriving, nor is a retained display.
     add_owner(&mut state, "c", true);
-    assert!(arriving_displays(&state, &current).is_empty());
+    assert!(arriving_displays(&state, &current, &[]).is_empty());
     state.owners.pop();
     state.retained.push("c".to_owned());
-    assert!(arriving_displays(&state, &current).is_empty());
+    assert!(arriving_displays(&state, &current, &[]).is_empty());
 }
 #[test]
 fn what_windows_recalled_after_a_display_left_goes_back_to_the_layout_it_left() {

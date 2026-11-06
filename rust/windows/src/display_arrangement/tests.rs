@@ -398,6 +398,19 @@ fn a_stop_during_a_write_ends_the_writes_after_it() {
     assert_eq!(*writes.lock().unwrap(), ["entry", "layout"]);
 }
 #[test]
+fn a_stop_ends_a_watchs_wait_at_once() {
+    let stop = Arc::new(WatchStop::default());
+    let waiting = {
+        let stop = stop.clone();
+        std::thread::spawn(move || stop.wait(std::time::Duration::from_secs(30)))
+    };
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let stopping = std::time::Instant::now();
+    stop.stop();
+    assert!(waiting.join().unwrap());
+    assert!(stopping.elapsed() < STOP_BOUND, "{:?}", stopping.elapsed());
+}
+#[test]
 fn a_watch_that_starts_ends_the_one_before_it() {
     let watcher = WakeWatcher::new();
     let writes = Writes::default();

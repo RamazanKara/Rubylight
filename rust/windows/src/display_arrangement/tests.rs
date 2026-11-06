@@ -1076,13 +1076,19 @@ fn a_pass_for_a_returned_display_only_places_what_a_stream_set() {
 #[test]
 fn a_repair_goes_once_and_the_stream_gets_its_layout_anyway() {
     let (repairs, layouts) = (std::cell::Cell::new(0), std::cell::Cell::new(0));
-    let go = |repaired: &mut bool, wrong, laid_out: bool| {
+    // `repair`: what the repair answers this go, `None` when it gets through.
+    let told = AtomicU64::new(0);
+    let go = |state: &mut WakeRepair, wrong, repair: Option<&str>, laid_out: bool| {
         pass_after_wake(
-            repaired,
+            state,
             wrong,
+            &told,
             || {
                 repairs.set(repairs.get() + 1);
-                anyhow::bail!("a monitor refusing its mode")
+                match repair {
+                    Some(answer) => Err(anyhow::anyhow!("{answer}")),
+                    None => Ok(()),
+                }
             },
             || {
                 layouts.set(layouts.get() + 1);
@@ -1094,25 +1100,109 @@ fn a_repair_goes_once_and_the_stream_gets_its_layout_anyway() {
             },
         )
     };
-    let passes = wake_layouts();
-    let mut repaired = false;
-    let failure = go(&mut repaired, true, true).unwrap();
-    assert!(failure.unwrap().contains("refusing"));
+    const REFUSED: &str = "display layout restored except a monitor's mode";
+    let mut state = WakeRepair::default();
+    let failure = go(&mut state, true, Some(REFUSED), true).unwrap();
+    assert!(failure.unwrap().contains("a monitor's mode"));
     assert_eq!((repairs.get(), layouts.get()), (1, 1));
-    assert!(wake_layouts() > passes);
     // Still wrong at the layout's next try: no second pass on the running stream.
-    assert_eq!(go(&mut repaired, true, true).unwrap(), None);
+    assert_eq!(go(&mut state, true, None, true).unwrap(), None);
     assert_eq!((repairs.get(), layouts.get()), (1, 2));
     // A layout that failed is tried again, the repair not.
-    let mut repaired = false;
-    assert!(go(&mut repaired, true, false).is_err());
-    assert_eq!(go(&mut repaired, true, true).unwrap(), None);
+    let mut state = WakeRepair::default();
+    assert!(go(&mut state, true, None, false).is_err());
+    assert_eq!(go(&mut state, true, None, true).unwrap(), None);
     assert_eq!((repairs.get(), layouts.get()), (2, 4));
     // Nothing wrong: the layout alone, and a later wrong still gets its one repair.
-    let mut repaired = false;
-    assert_eq!(go(&mut repaired, false, true).unwrap(), None);
-    assert!(!repaired);
+    let mut state = WakeRepair::default();
+    assert_eq!(go(&mut state, false, None, true).unwrap(), None);
+    assert!(!state.done);
     assert_eq!(repairs.get(), 2);
+    assert_eq!(
+        (go(&mut state, true, None, true).unwrap(), state.done),
+        (None, true)
+    );
+    assert_eq!(repairs.get(), 3);
+}
+#[test]
+fn a_repair_that_failed_for_now_is_tried_again_before_any_layout() {
+    let (repairs, layouts) = (std::cell::Cell::new(0), std::cell::Cell::new(0));
+    let told = AtomicU64::new(0);
+    let mut state = WakeRepair::default();
+    let pass = pass_after_wake(
+        &mut state,
+        true,
+        &told,
+        || {
+            repairs.set(repairs.get() + 1);
+            anyhow::bail!("a layout change is pending")
+        },
+        || {
+            layouts.set(layouts.get() + 1);
+            Ok(())
+        },
+    );
+    // An error, so the follow goes again. The layout would compose from what is on, with
+    // the monitor off and what Windows lit on, and end the follow there.
+    assert!(pass.unwrap_err().to_string().contains("pending"));
+    assert_eq!((repairs.get(), layouts.get()), (1, 0));
+    assert!(!state.done);
+    assert_eq!(told.load(Ordering::Relaxed), 0);
+    let pass = pass_after_wake(
+        &mut state,
+        true,
+        &told,
+        || {
+            repairs.set(repairs.get() + 1);
+            Ok(())
+        },
+        || {
+            layouts.set(layouts.get() + 1);
+            Ok(())
+        },
+    );
+    assert_eq!(pass.unwrap(), None);
+    assert_eq!((repairs.get(), layouts.get()), (2, 1));
+    assert!(state.done);
+}
+#[test]
+fn what_a_display_refused_reaches_the_card_though_the_layout_took_another_go() {
+    let told = AtomicU64::new(0);
+    let refused = || -> Result<()> { anyhow::bail!("display layout restored except a mode") };
+    let mut state = WakeRepair::default();
+    let pending = || anyhow::bail!("pending");
+    assert!(pass_after_wake(&mut state, true, &told, refused, pending).is_err());
+    assert!(state.done);
+    let failure = pass_after_wake(
+        &mut state,
+        true,
+        &told,
+        || panic!("no second pass"),
+        || Ok(()),
+    )
+    .unwrap();
+    assert!(failure.unwrap().contains("a mode"));
+}
+#[test]
+fn the_streams_hear_of_a_repair_when_its_layout_is_through() {
+    let told = AtomicU64::new(0);
+    let heard = || told.load(Ordering::Relaxed);
+    let mut state = WakeRepair::default();
+    // Each stream reapplies its mode when it hears; a layout still to come can recall it.
+    let pending = || anyhow::bail!("pending");
+    assert!(pass_after_wake(&mut state, true, &told, || Ok(()), pending).is_err());
+    assert_eq!(heard(), 0);
+    pass_after_wake(&mut state, true, &told, || Ok(()), || Ok(())).unwrap();
+    assert_eq!(heard(), 1);
+    // A repair a display refused can have moved things just the same.
+    let mut state = WakeRepair::default();
+    let refused = || -> Result<()> { anyhow::bail!("display layout restored except a mode") };
+    pass_after_wake(&mut state, true, &told, refused, || Ok(())).unwrap();
+    assert_eq!(heard(), 2);
+    // No repair, nothing to hear.
+    let mut state = WakeRepair::default();
+    pass_after_wake(&mut state, false, &told, || Ok(()), || Ok(())).unwrap();
+    assert_eq!(heard(), 2);
 }
 #[test]
 fn only_a_stream_joining_while_a_cut_watch_is_at_work_counts_as_after_it() {

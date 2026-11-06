@@ -1258,10 +1258,18 @@ struct WakeFollow {
     started: std::time::Instant,
     looks: WakeLooks,
     tries: usize,
-    /// The displays have been put back once ([`pass_after_wake`]).
-    repaired: bool,
+    repair: WakeRepair,
     done: bool,
     failed_strays: bool,
+}
+/// How the repair of a returned display's layout went, across the layout's tries
+/// ([`pass_after_wake`]).
+#[derive(Debug, Default)]
+struct WakeRepair {
+    /// The displays have been put back: no second pass on a running stream.
+    done: bool,
+    /// What a display refused, until the layout gets through and the card can say it.
+    refused: Option<String>,
 }
 /// Whether a stream joining a layout came while a stopped watch's display is still looked
 /// for. Once that is done, what is on is as anyone's.
@@ -1296,7 +1304,7 @@ fn wake_follow(
         started: std::time::Instant::now(),
         looks,
         tries: 0,
-        repaired: false,
+        repair: WakeRepair::default(),
         done: false,
         failed_strays: false,
     })
@@ -1391,20 +1399,40 @@ fn layout_around_streams(before: Snapshot, current: &[Node], keep: &[String]) ->
     }
     layout
 }
-/// One go at a returned display's layout. The repair runs once however many goes the layout
-/// takes: a monitor refusing its saved mode or HDR gets no more passes on a running stream,
-/// and the stream gets its layout anyway. What comes back is a failed repair, for its card.
+/// One go at a returned display's layout. A repair that got through runs once however many
+/// goes the layout takes, and so does one a display refused (its saved mode or HDR): that
+/// monitor gets no more passes on a running stream, and the stream gets its layout anyway.
+/// Any other failed repair is an error, tried again as a layout is: a change pending just
+/// as the monitor came back must not leave it dark for the rest of the stream.
+///
+/// A layout laid out after a repair is what can have recalled a stream's mode, whichever
+/// go it took, so that is when `layouts`, which the streams read, moves. What comes back is
+/// what a display refused, for the card.
 fn pass_after_wake(
-    repaired: &mut bool,
+    state: &mut WakeRepair,
     wrong: bool,
+    layouts: &AtomicU64,
     repair: impl FnOnce() -> Result<()>,
     lay_out: impl FnOnce() -> Result<()>,
 ) -> Result<Option<String>> {
-    let due = wrong && !std::mem::replace(repaired, true);
-    if due {
-        WAKE_LAYOUTS.fetch_add(1, Ordering::Relaxed);
+    if wrong && !state.done {
+        match repair() {
+            Ok(()) => state.done = true,
+            Err(error) if crate::display::restore_was_refused(&error) => {
+                state.done = true;
+                state.refused = Some(failed_repair(
+                    "putting back the displays Windows recalled failed",
+                    error,
+                ));
+            }
+            Err(error) => return Err(error),
+        }
     }
-    repair_then_lay_out(|| if due { repair() } else { Ok(()) }, lay_out)
+    lay_out()?;
+    if state.done {
+        layouts.fetch_add(1, Ordering::Relaxed);
+    }
+    Ok(state.refused.take())
 }
 /// The woken display stayed or returned: the layout the stream planned, with it at its
 /// mode. What is right already isn't written, so this is one layout pass at most. Whether
@@ -1439,11 +1467,15 @@ fn lay_out_after_wake(
     );
     // Saved as any repair is but for the woken display, which the layout never had off.
     let saves = !isolated(state) && !arrives;
-    let was_repaired = state.following.as_ref().is_some_and(|f| f.repaired);
-    let mut repaired = was_repaired;
+    let mut repair = state
+        .following
+        .as_mut()
+        .map(|f| std::mem::take(&mut f.repair))
+        .unwrap_or_default();
     let pass = pass_after_wake(
-        &mut repaired,
+        &mut repair,
         wrong,
+        &WAKE_LAYOUTS,
         || {
             tracing::info!(
                 "a display a stopped watch was waiting for is back; putting back the layout around the stream"
@@ -1453,10 +1485,11 @@ fn lay_out_after_wake(
         },
         || apply(state, arrangement, None),
     );
+    let put_back = repair.done;
     if let Some(follow) = state.following.as_mut() {
-        follow.repaired = repaired;
+        follow.repair = repair;
     }
-    Ok((repaired && !was_repaired, pass?))
+    Ok((put_back, pass?))
 }
 /// The user's displays to watch at a stream's end: the ones it wakes, if Windows could
 /// switch on something else with the stream's display gone. With nothing else to switch

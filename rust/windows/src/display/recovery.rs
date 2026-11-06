@@ -325,10 +325,19 @@ impl Snapshot {
             }
         }
         if !failures.is_empty() {
-            bail!("display layout restored except {}", failures.join("; "));
+            bail!("{RESTORED_EXCEPT} {}", failures.join("; "));
         }
         Ok(())
     }
+}
+
+const RESTORED_EXCEPT: &str = "display layout restored except";
+
+/// The layout went back and a display refused part of it, its saved mode or HDR say. Asked
+/// again it answers the same. Any other failure, a layout change pending or a read at the
+/// wrong moment, can pass on the next try.
+pub(crate) fn restore_was_refused(error: &anyhow::Error) -> bool {
+    format!("{error:#}").contains(RESTORED_EXCEPT)
 }
 
 type PositionChanges = std::collections::BTreeMap<

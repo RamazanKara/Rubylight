@@ -39,7 +39,12 @@ const SETUP_MUTEX: &str = "Local\\NightjarSetup";
 /// What the setup starts Nightjar with when it ends, so that isn't taken for a launch during the install.
 const AFTER_SETUP: &str = "--after-setup";
 /// How long a started program gets to fail at once. After this it runs, and Nightjar can go.
+#[cfg(not(test))]
 const START_WATCH: Duration = Duration::from_secs(1);
+/// A freshly copied program takes 0.7 s to end here on an idle machine: scanned first. In a full
+/// run that passed the second above and the test saw a setup still going.
+#[cfg(test)]
+const START_WATCH: Duration = Duration::from_secs(30);
 /// How long a started setup can take to hold SETUP_MUTEX.
 const SETUP_STARTING: Duration = Duration::from_secs(10);
 /// The entry the setup writes for its AppId (nightjar.iss): per user, so under HKCU.

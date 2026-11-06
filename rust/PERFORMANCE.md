@@ -67,6 +67,44 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
 
+## November 6: Nightjar desktop's video scheduling on Windows (left as it was)
+
+Two changes from the `nj-sched` branch: raised stream threads on Windows (P) and video submitted from the receive thread with D3D11VA (direct). Neither landed. Release builds in loopback against a 3.7.0 test host: Nightjar desktop in a 960x540 corner window over the motion probe with noise, Vsync pacing, 45 s per run with the first 5 s discarded, two runs per arm in ABBA order, pooled. HEVC 1080p60 at 30 Mbps, AV1 1080p120 at 50 Mbps, and the HEVC leg again with one spinning Python process per logical CPU. Times in ms from the client's timing CSV; queue wait is the wait before the decoder, receive to present runs from the frame's arrival to its present.
+
+Ryzen 7 8845HS laptop with a 780M, A = main, D = direct alone:
+
+| Leg | Arm | Queue wait p50 / p95 / p99 | Decode p50 / p95 / p99 | Receive to present p50 / p95 / p99 / p99.9 / max | Lost | Replaced |
+| --- | --- | --- | --- | --- | ---: | ---: |
+| AV1 120 | A | 0.020 / 0.105 / 1.292 | 4.814 / 7.927 / 8.833 | 14.286 / 16.765 / 18.339 / 21.520 / 26.51 | 99 | 154 |
+| AV1 120 | D | 0.009 / 0.031 / 0.038 | 6.390 / 8.265 / 9.550 | 14.856 / 16.653 / 18.114 / 23.720 / 26.17 | 74 | 176 |
+| HEVC 60 | A | 0.024 / 0.048 / 0.062 | 0.212 / 0.369 / 0.426 | 0.939 / 2.487 / 4.269 / 7.329 / 9.73 | 0 | 41 |
+| HEVC 60 | D | 0.010 / 0.026 / 0.038 | 0.209 / 0.360 / 0.417 | 0.894 / 2.726 / 5.935 / 8.164 / 9.12 | 0 | 39 |
+| HEVC 60 busy | A | 0.021 / 0.046 / 0.061 | 0.199 / 0.320 / 0.400 | 0.807 / 2.415 / 4.235 / 5.538 / 7.21 | 0 | 23 |
+| HEVC 60 busy | D | 0.012 / 0.029 / 0.045 | 0.201 / 0.322 / 0.397 | 0.795 / 2.362 / 4.001 / 6.408 / 9.21 | 0 | 25 |
+
+RX 7900 XT PC, A = main, B = direct plus P, P = raised threads alone:
+
+| Set | Leg | Arm | Queue wait p50 / p95 / p99 | Decode p50 / p95 / p99 | Receive to present p50 / p95 / p99 / p99.9 / max | Lost | Replaced |
+| --- | --- | --- | --- | --- | --- | ---: | ---: |
+| 1 | AV1 120 | A | 0.014 / 0.018 / 0.028 | 0.133 / 0.173 / 0.205 | 0.446 / 0.518 / 0.558 / 0.632 / 0.96 | 0 | 11 |
+| 1 | AV1 120 | B | 0.003 / 0.004 / 0.005 | 0.132 / 0.175 / 0.209 | 0.434 / 0.511 / 0.572 / 0.729 / 1.72 | 0 | 12 |
+| 1 | HEVC 60 | A | 0.014 / 0.017 / 0.027 | 0.167 / 0.203 / 0.233 | 0.508 / 0.586 / 0.677 / 0.915 / 1.06 | 0 | 3 |
+| 1 | HEVC 60 | B | 0.004 / 0.005 / 0.007 | 0.162 / 0.203 / 0.241 | 0.520 / 0.605 / 0.654 / 0.801 / 0.91 | 0 | 4 |
+| 1 | HEVC 60 busy | A | 0.012 / 0.013 / 0.015 | 0.172 / 0.191 / 0.216 | 0.546 / 0.608 / 0.666 / 1.487 / 2.92 | 1 | 5 |
+| 1 | HEVC 60 busy | B | 0.004 / 0.005 / 0.005 | 0.168 / 0.187 / 0.199 | 0.534 / 0.580 / 0.617 / 0.729 / 1.55 | 0 | 4 |
+| 2 | AV1 120 | A | 0.014 / 0.023 / 0.029 | 0.135 / 0.178 / 0.219 | 0.453 / 0.525 / 0.574 / 0.658 / 0.72 | 0 | 11 |
+| 2 | AV1 120 | P | 0.014 / 0.023 / 0.030 | 0.134 / 0.177 / 0.209 | 0.455 / 0.522 / 0.566 / 0.672 / 0.81 | 0 | 12 |
+| 2 | HEVC 60 | A | 0.014 / 0.018 / 0.028 | 0.161 / 0.189 / 0.215 | 0.505 / 0.571 / 0.612 / 0.667 / 0.73 | 0 | 4 |
+| 2 | HEVC 60 | P | 0.014 / 0.019 / 0.028 | 0.164 / 0.205 / 0.232 | 0.523 / 0.601 / 0.668 / 0.807 / 1.44 | 0 | 4 |
+| 2 | HEVC 60 busy | A | 0.013 / 0.015 / 0.017 | 0.190 / 0.224 / 0.300 | 0.585 / 0.669 / 0.729 / 1.169 / 1.70 | 0 | 6 |
+| 2 | HEVC 60 busy | P | 0.013 / 0.015 / 0.017 | 0.185 / 0.210 / 0.295 | 0.577 / 0.656 / 0.723 / 0.791 / 1.57 | 0 | 6 |
+| 3 | HEVC 60 | A | 0.014 / 0.017 / 0.027 | 0.160 / 0.182 / 0.207 | 0.497 / 0.561 / 0.618 / 0.744 / 0.85 | 0 | 4 |
+| 3 | HEVC 60 | P | 0.014 / 0.019 / 0.028 | 0.162 / 0.192 / 0.220 | 0.510 / 0.579 / 0.615 / 0.677 / 0.88 | 0 | 4 |
+
+**Raised threads: dropped.** Under full CPU load receive to present improved by 0.008 at p50 and 0.013 at p95, and AV1 did not change, but idle HEVC read worse in both sets (p50 +0.018 and +0.013, p95 +0.030 and +0.018, decode p95 +0.016 and +0.010). Windows threads stay at normal priority.
+
+**Direct submit: dropped.** Queue wait fell in every leg on both machines, and AV1's queue p99 on the laptop fell from 1.29 to 0.04. What the viewer gets is receive to present, and that got worse where it counts: AV1 on the laptop +0.57 at p50 in both runs (14.24 and 14.33 against 14.87 and 14.84) with decode p50 +1.58, and idle HEVC +0.24 at p95 and +1.67 at p99, also in both runs (p99 3.63 and 4.87 against 6.07 and 5.63). Only the busy leg improved through p99, and its p99.9 read worse. The baseline's queue wait was also far shorter than the branch assumed: 14 to 24 µs a frame at p50 is all there was to win. Raw runs: `C:\src\butterpollo-release\unified\njsched` for the PC (`results-batch1.jsonl`, `results-batch2-priority.jsonl`, `results-batch3-priority-hevc.jsonl`), its `laptop` folder for the laptop.
+
 ## November 3: browser guests share the owner's encode
 
 Release build on the dev PC (`webrtc_bench_guest_fan_out`, `cargo test -p butterpollo --release -- --ignored`), the owner's frame from the encoder's hand-off to "ready to packetize":

@@ -513,6 +513,7 @@ androidComponents {
 dependencies {
     implementation 'androidx.window:window-java:1.4.0'
     implementation 'androidx.window:window-core:1.4.0'
+    implementation 'androidx.dynamicanimation:dynamicanimation:1.1.0'
     implementation('com.google.android.material:material:1.13.0') {
         // OkHttp already supplies the merged Kotlin 2.2 JVM standard library.
         exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'

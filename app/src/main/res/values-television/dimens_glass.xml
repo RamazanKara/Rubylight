@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="glass_cover_radius">11dp</dimen>
+    <dimen name="glass_ring_width">3dp</dimen>
+    <dimen name="glass_ring_gap">2.25dp</dimen>
+    <dimen name="glass_halo_blur">30dp</dimen>
+    <dimen name="glass_status_disc">18dp</dimen>
+    <dimen name="glass_status_dot">7dp</dimen>
+    <dimen name="glass_edge">36dp</dimen>
+    <dimen name="glass_capsule">40dp</dimen>
+</resources>

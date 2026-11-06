@@ -175,6 +175,14 @@ public final class AdaptiveLayout {
         if (margin > 0 && root instanceof android.view.ViewGroup) ((android.view.ViewGroup) root).setClipToPadding(false);
         int width = root.getWidth();
         int height = root.getHeight();
+        // A screen with glass runs edge to edge: its host lays the chrome and lists out in the safe area.
+        GlassHost glass = root instanceof android.view.ViewGroup && ((android.view.ViewGroup) root).getChildAt(0) instanceof GlassHost
+                ? (GlassHost) ((android.view.ViewGroup) root).getChildAt(0) : null;
+        if (glass != null && fold == null) {
+            root.setPadding(0, 0, 0, 0);
+            glass.setSafeArea(insets.left, insets.top, insets.right, insets.bottom);
+            return;
+        }
         if (fold == null || width == 0 || height == 0) {
             // The safe area alone needs no frame, so the first inset dispatch already gets it right.
             root.setPadding(insets.left + margin, insets.top + margin, insets.right + margin, insets.bottom + margin);

@@ -7,6 +7,8 @@
         ThemePaletteTest checks that they match.
     -->
     <style name="Base.Theme.Nightjar" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="nightjarFace">sans-serif</item>
+        <item name="nightjarFaceStrong">sans-serif-medium</item>
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>
 
@@ -130,6 +132,8 @@
         palette, whatever the system theme, so nothing light flashes over a game.
     -->
     <style name="Theme.Nightjar.Stream" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="nightjarFace">sans-serif</item>
+        <item name="nightjarFaceStrong">sans-serif-medium</item>
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>
 
@@ -264,7 +268,19 @@
         and focus rings get thicker. AppTheme.apply layers this over OledBlackTheme, so surfaces are black.
         ContrastTest holds body text to 7:1 and focus rings to 3:1.
     -->
+    <!-- Figtree on the app's own screens, in the languages it covers (AppTheme.applyOverlays). The stream's menu
+         never gets it. -->
+    <style name="ThemeOverlay.Nightjar.Figtree" parent="">
+        <item name="nightjarFace">@font/figtree</item>
+        <item name="nightjarFaceStrong">@font/figtree_600</item>
+        <item name="android:fontFamily">@font/figtree</item>
+        <item name="fontFamily">@font/figtree</item>
+    </style>
+
     <style name="ThemeOverlay.Nightjar.HighContrast" parent="">
+        <item name="colorPrimary">@color/nj_hc_color_moon</item>
+        <item name="colorOnPrimary">@color/nj_hc_color_on_moon</item>
+        <item name="colorOnSurface">@color/nj_hc_color_label</item>
         <item name="colorOnSurfaceVariant">?attr/colorOnSurface</item>
         <item name="colorOutline">?attr/colorOnSurface</item>
         <item name="colorOutlineVariant">?attr/colorOnSurface</item>

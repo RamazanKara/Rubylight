@@ -224,4 +224,14 @@ public class AppThemeTest {
             controller.pause().stop().destroy();
         }
     }
+
+    @org.junit.Test
+    public void figtreeIsLeftOutWhereItLacksTheLanguagesLetters() {
+        for (String language : new String[] {"pl", "tr", "vi", "ru", "uk", "ja", "ko", "zh"}) {
+            org.junit.Assert.assertFalse(language, AppTheme.figtreeCovers(new java.util.Locale(language)));
+        }
+        for (String language : new String[] {"en", "de", "fr", "es", "it", "pt"}) {
+            org.junit.Assert.assertTrue(language, AppTheme.figtreeCovers(new java.util.Locale(language)));
+        }
+    }
 }

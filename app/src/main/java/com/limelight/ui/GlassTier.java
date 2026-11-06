@@ -24,6 +24,8 @@ public enum GlassTier {
 
     private static final String FILE = "glass_tier";
     private static final String OVERRIDE = "debug_override";
+    /** The demo's sources, also in a not-debuggable build made for frame-time A/Bs. */
+    private static final boolean DEMO = "debug".equals(BuildConfig.BUILD_TYPE);
 
     /** One tier down, as a failed frame probe steps. */
     public GlassTier stepDown() {
@@ -47,7 +49,7 @@ public enum GlassTier {
     public static GlassTier land(Context context) {
         Context app = context.getApplicationContext();
         SharedPreferences prefs = app.getSharedPreferences(FILE, Context.MODE_PRIVATE);
-        if (BuildConfig.DEBUG) {
+        if (DEMO) {
             GlassTier forced = parse(prefs.getString(OVERRIDE, null));
             if (forced != null) return forced;
         }
@@ -63,7 +65,7 @@ public enum GlassTier {
     /** Whether a probe's verdict for this app version is already kept. A forced tier is never probed. */
     public static boolean probed(Context context) {
         SharedPreferences prefs = context.getApplicationContext().getSharedPreferences(FILE, Context.MODE_PRIVATE);
-        return prefs.contains(versionKey()) || (BuildConfig.DEBUG && prefs.contains(OVERRIDE));
+        return prefs.contains(versionKey()) || (DEMO && prefs.contains(OVERRIDE));
     }
 
     /** Keeps the probe's verdict for this app version. */

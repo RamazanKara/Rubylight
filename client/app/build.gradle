@@ -193,6 +193,8 @@ android {
         debug {
             // -PdebugIdSuffix=.n5 installs a side-by-side debug copy; the default stays ".debug".
             applicationIdSuffix project.findProperty("debugIdSuffix") ?: ".debug"
+            // -PdebugNotDebuggable keeps the debug sources (the demo) but runs at a user's speed, for frame-time A/Bs.
+            debuggable !project.hasProperty("debugNotDebuggable")
             resValue "string", "app_label", "${brandName} (Debug)"
             resValue "string", "app_label_root", "${brandName} (Root Debug)"
         }

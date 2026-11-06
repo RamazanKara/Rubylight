@@ -72,6 +72,7 @@ public final class DemoLauncherActivity extends Activity {
             return;
         }
         // The demo screens that are not NightjarActivities have no setting to read; they follow the wrapper.
+        DemoFocusLatency.wanted = getIntent().getBooleanExtra("focusLatency", false);
         DemoContext.forceTelevision = getIntent().getBooleanExtra("tv", false) || AppTheme.UI_MODE_TV.equals(ui);
         DemoFixtures.smallTiles = getIntent().getBooleanExtra("small", true);
         DemoFixtures.roleTiles = getIntent().getBooleanExtra("roles", false);

@@ -614,6 +614,40 @@ fn holding(arrangement: Arrangement, applied: Vec<Node>, persisted: bool) -> Sta
     add_owner(&mut state, "r1", persisted);
     state
 }
+#[test]
+fn a_repair_that_failed_still_lays_out_and_comes_back_for_the_card() {
+    let laid_out = std::cell::Cell::new(false);
+    let lay_out = || {
+        laid_out.set(true);
+        Ok(())
+    };
+    let failure = repair_then_lay_out(
+        || Err(anyhow::anyhow!("refused").context("putting it back")),
+        lay_out,
+    )
+    .unwrap();
+    assert_eq!(failure.as_deref(), Some("putting it back: refused"));
+    assert!(laid_out.get());
+    // A repair that went through has nothing to say.
+    assert_eq!(repair_then_lay_out(|| Ok(()), || Ok(())).unwrap(), None);
+    // A layout that failed stays an error: the watch tries again.
+    assert!(repair_then_lay_out(|| Ok(()), || anyhow::bail!("no")).is_err());
+    assert!(repair_then_lay_out(|| anyhow::bail!("refused"), || anyhow::bail!("no")).is_err());
+    // The repair comes first: the layout then lays out what it put back.
+    let order = std::cell::RefCell::new(Vec::new());
+    repair_then_lay_out(
+        || {
+            order.borrow_mut().push("repair");
+            Ok(())
+        },
+        || {
+            order.borrow_mut().push("lay out");
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(*order.borrow(), ["repair", "lay out"]);
+}
 fn exclusive_lease() -> State {
     holding(
         Arrangement::Exclusive,

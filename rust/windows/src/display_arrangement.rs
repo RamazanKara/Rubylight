@@ -740,6 +740,29 @@ pub struct Lease {
     arrangement: Arrangement,
     /// The streamed display; a recreated virtual display may change identity.
     target: Mutex<String>,
+    /// Why what Windows recalled when this stream's display arrived could not be put back.
+    repair_failure: Option<String>,
+}
+/// Log a repair that failed, and return what the stream's card says about it.
+fn failed_repair(what: &str, error: anyhow::Error) -> String {
+    let error = format!("{error:#}");
+    tracing::warn!(error = %error, "{what}");
+    error
+}
+/// Repair what Windows recalled, then lay out. A repair that failed doesn't stop the layout;
+/// it comes back for the stream's card. A layout that failed stays due for the next try.
+fn repair_then_lay_out(
+    repair: impl FnOnce() -> Result<()>,
+    lay_out: impl FnOnce() -> Result<()>,
+) -> Result<Option<String>> {
+    let failure = repair().err().map(|error| {
+        failed_repair(
+            "putting back the displays another stream's display left failed",
+            error,
+        )
+    });
+    lay_out()?;
+    Ok(failure)
 }
 impl Lease {
     pub fn exclusive(&self) -> bool {
@@ -748,6 +771,10 @@ impl Lease {
     /// The layout in force for this stream: the running streams', if it joined them.
     pub fn arrangement(&self) -> Arrangement {
         self.arrangement
+    }
+    /// Why what Windows recalled when this stream's display arrived could not be put back.
+    pub fn repair_failure(&self) -> Option<&str> {
+        self.repair_failure.as_deref()
     }
     /// `virtual_target`: the streamed display is a virtual display made for
     /// streaming, so the user's own layout does not include it. `original`:
@@ -784,10 +811,12 @@ impl Lease {
                 return Ok(Self {
                     arrangement: owned,
                     target: Mutex::new(target_id),
+                    repair_failure: None,
                 });
             }
             // The displays that are on now can hold an entry a stream on another
             // layout left: the monitor off, or at another mode.
+            let mut repair_failure = None;
             if virtual_target
                 && let Some(original) = &original
                 && recall_to_undo(
@@ -801,10 +830,11 @@ impl Lease {
                 tracing::info!(
                     "Windows recalled a saved layout over the other displays for a second stream's display; putting it back"
                 );
-                if let Err(error) = forget_saved_layout(original, &target_id, repair_saves(&state))
-                {
-                    tracing::warn!(error = %format!("{error:#}"), "putting back the saved display layout failed");
-                }
+                repair_failure = forget_saved_layout(original, &target_id, repair_saves(&state))
+                    .err()
+                    .map(|error| {
+                        failed_repair("putting back the saved display layout failed", error)
+                    });
             }
             add_owner(&mut state, &target_id, virtual_target);
             let added: Vec<_> = retained
@@ -821,6 +851,7 @@ impl Lease {
             return Ok(Self {
                 arrangement: owned,
                 target: Mutex::new(target_id),
+                repair_failure,
             });
         }
         let mut current = Snapshot::capture()?;
@@ -836,6 +867,7 @@ impl Lease {
         // wrong, left the user's displays off, at another mode or no longer primary
         // whenever this virtual display arrives. Put it back, unless this stream
         // saves its own.
+        let mut repair_failure = None;
         if virtual_target
             && recall_to_undo(
                 persist(arrangement, virtual_target),
@@ -852,7 +884,10 @@ impl Lease {
             {
                 Ok(recaptured) => current = recaptured,
                 Err(error) => {
-                    tracing::warn!(error = %format!("{error:#}"), "putting back the saved display layout failed");
+                    repair_failure = Some(failed_repair(
+                        "putting back the saved display layout failed",
+                        error,
+                    ));
                 }
             }
         }
@@ -900,6 +935,7 @@ impl Lease {
         Ok(Self {
             arrangement,
             target: Mutex::new(target_id),
+            repair_failure,
         })
     }
     /// Displays this stream's layout switched off that Windows has switched
@@ -953,15 +989,19 @@ impl Lease {
     /// undone first ([`departure_repair`]). That can also undo the user's change in
     /// the same seconds, which is then not saved; a change before the display left
     /// counts no departure.
-    pub fn reapply_after_departure(&self, output: &str, retained: &[String]) -> Result<()> {
-        {
-            let state = state().lock().unwrap();
-            let arrangement = state.arrangement.unwrap_or(self.arrangement);
-            if let Err(error) = undo_recall_after_departure(&state, arrangement) {
-                tracing::warn!(error = %format!("{error:#}"), "putting back the displays another stream's display left failed");
-            }
-        }
-        self.reapply(output, retained)
+    pub fn reapply_after_departure(
+        &self,
+        output: &str,
+        retained: &[String],
+    ) -> Result<Option<String>> {
+        repair_then_lay_out(
+            || {
+                let state = state().lock().unwrap();
+                let arrangement = state.arrangement.unwrap_or(self.arrangement);
+                undo_recall_after_departure(&state, arrangement)
+            },
+            || self.reapply(output, retained),
+        )
     }
 }
 impl Drop for Lease {

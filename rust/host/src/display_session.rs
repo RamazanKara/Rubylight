@@ -499,6 +499,12 @@ struct ModeReportState {
     shared: bool,
     /// The exclusive layout stopped switching a display off because it kept coming back.
     kept_on: bool,
+    /// Why what Windows recalled when this stream's display arrived could not be put back.
+    /// Nothing repairs it later: a repair after a departure only compares with what is on.
+    unrepaired_at_start: Option<String>,
+    /// Why what Windows recalled when a display left could not be put back, until a repair
+    /// after a later departure goes through.
+    unrepaired: Option<String>,
 }
 impl ModeReportState {
     fn report(&self) {
@@ -532,6 +538,10 @@ impl ModeReportState {
         } else {
             self.warnings.clear("display_kept_on");
         }
+        match self.unrepaired.as_ref().or(self.unrepaired_at_start.as_ref()) {
+            Some(error) => self.warnings.set("display_repair", format!("Windows recalled a saved display layout over your displays and it could not be put back ({error}), so a monitor can stay off or at another refresh rate. Check Windows display settings and reconnect.")),
+            None => self.warnings.clear("display_repair"),
+        }
     }
 }
 impl ModeReport {
@@ -544,7 +554,21 @@ impl ModeReport {
             unfollowed: None,
             shared: false,
             kept_on: false,
+            unrepaired_at_start: None,
+            unrepaired: None,
         })))
+    }
+    /// What Windows recalled when this stream's display arrived could not be put back.
+    fn unrepaired_at_start(&self, failure: Option<&str>) {
+        let mut state = self.0.lock().unwrap();
+        state.unrepaired_at_start = failure.map(str::to_owned);
+        state.report();
+    }
+    /// How putting back what Windows recalled when a display left went.
+    fn repaired(&self, failure: Option<String>) {
+        let mut state = self.0.lock().unwrap();
+        state.unrepaired = failure;
+        state.report();
     }
     /// The layout leaves a display that keeps coming back on for the rest of the stream.
     fn keep_on(&self) {
@@ -615,11 +639,13 @@ fn departure_unsettled(
 /// 60 Hz for the rest of the stream. The repair comes first then.
 fn reapply_settling(
     unsettled: bool,
+    report: &ModeReport,
     reapply: impl FnOnce() -> Result<()>,
-    after_departure: impl FnOnce() -> Result<()>,
+    after_departure: impl FnOnce() -> Result<Option<String>>,
 ) -> Result<()> {
     if unsettled {
-        after_departure()
+        report.repaired(after_departure()?);
+        Ok(())
     } else {
         reapply()
     }
@@ -631,18 +657,22 @@ fn brings_back_game(remote_monitor: bool, active: bool) -> bool {
     !remote_monitor && active
 }
 /// Lay the displays out again after a display left, with what stays on: the remote
-/// monitors, and what the watch leaves on for the rest of the stream. A failure stays
-/// due for the next try.
+/// monitors, and what the watch leaves on for the rest of the stream. A failed layout stays
+/// due for the next try; a repair that failed goes on the stream's card.
 fn lay_out_after_departure(
     watch: &mut butterpollo_core::display_policy::LayoutWatch,
     mut retained: Vec<String>,
     now: std::time::Instant,
-    reapply: impl FnOnce(&[String]) -> Result<()>,
+    report: &ModeReport,
+    reapply: impl FnOnce(&[String]) -> Result<Option<String>>,
 ) -> Result<()> {
     retained.extend(watch.kept().iter().cloned());
-    if let Err(error) = reapply(&retained) {
-        watch.failed(now);
-        return Err(error);
+    match reapply(&retained) {
+        Ok(failure) => report.repaired(failure),
+        Err(error) => {
+            watch.failed(now);
+            return Err(error);
+        }
     }
     watch.departure_handled();
     Ok(())
@@ -1393,6 +1423,7 @@ impl Prepared {
                 display_arrangement::departures(),
                 &self.layout_watch,
             ),
+            &self.mode_report,
             || arrangement.reapply(&self.output, &retained),
             || arrangement.reapply_after_departure(&self.output, &retained),
         )
@@ -1433,9 +1464,13 @@ impl Prepared {
         if self.layout_watch.departure_due(now) {
             tracing::info!(output = %self.output, "another stream's display left; laying this stream's displays out again");
             let monitors = self.remote_monitors();
-            lay_out_after_departure(&mut self.layout_watch, monitors, now, |retained| {
-                arrangement.reapply_after_departure(&self.output, retained)
-            })?;
+            lay_out_after_departure(
+                &mut self.layout_watch,
+                monitors,
+                now,
+                &self.mode_report,
+                |retained| arrangement.reapply_after_departure(&self.output, retained),
+            )?;
             if let Some(display) = &self.display {
                 display.apply_virtual_mode("after a display left");
             }
@@ -1710,6 +1745,7 @@ impl Prepared {
                 h,
                 &launch.client.uuid,
                 stream,
+                &launch.warnings,
             )?)
         } else {
             None
@@ -2004,6 +2040,11 @@ impl Prepared {
         };
         let mut mode_report =
             ModeReport::new(launch.warnings.clone(), requested, stream.fps_millihz());
+        mode_report.unrepaired_at_start(
+            arrangement
+                .as_ref()
+                .and_then(|lease| lease.repair_failure()),
+        );
         if virtual_mode && shares {
             mode_report = mode_report.shared();
         }

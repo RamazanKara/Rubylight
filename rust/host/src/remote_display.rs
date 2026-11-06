@@ -2,7 +2,7 @@ use crate::state::Shared;
 use anyhow::{Context, Result, bail};
 use butterpollo_core::{
     rtsp::Negotiated,
-    session::Role,
+    session::{Role, Warnings},
     topology::{Kind, Layout, Node},
 };
 use butterpollo_windows::{
@@ -96,7 +96,20 @@ pub fn save(h: &Shared, value: &Value) -> Result<Value> {
     *state = document;
     Ok(json!({"status":true,"applies_on_next_activation":true,"layout":next}))
 }
-pub fn activate(h: &Shared, client: &str, config: &Negotiated) -> Result<Arc<Retained>> {
+/// What a remote monitor's arrival changed stays changed: the launch's card says so.
+fn report_repair(warnings: &Warnings, result: Result<()>) {
+    if let Err(error) = result {
+        let error = format!("{error:#}");
+        tracing::warn!(error = %error, "putting back the displays a remote monitor's arrival changed failed");
+        warnings.set("display_monitor_repair", format!("Windows recalled a saved display layout when the remote monitor arrived and it could not be put back ({error}), so a monitor can stay off or at another refresh rate. Check Windows display settings and reconnect."));
+    }
+}
+pub fn activate(
+    h: &Shared,
+    client: &str,
+    config: &Negotiated,
+    warnings: &Warnings,
+) -> Result<Arc<Retained>> {
     let mut monitors = h.monitors.lock().unwrap();
     if let Some(existing) = monitors.get(client) {
         if existing.mode
@@ -162,11 +175,11 @@ pub fn activate(h: &Shared, client: &str, config: &Negotiated) -> Result<Arc<Ret
     )?);
     monitors.insert(client.into(), lease.clone());
     drop(monitors);
-    if let Some(before) = &before
-        && let Err(error) =
-            display_arrangement::undo_recall_for_remote_monitor(before, &lease.current_output())
-    {
-        tracing::warn!(error = %format!("{error:#}"), "putting back the displays a remote monitor's arrival changed failed");
+    if let Some(before) = &before {
+        report_repair(
+            warnings,
+            display_arrangement::undo_recall_for_remote_monitor(before, &lease.current_output()),
+        );
     }
     let result = (|| -> Result<()> { display::apply_layout(&layout(h)?.compose(&nodes(h)?)?) })();
     if let Err(error) = result {
@@ -217,3 +230,6 @@ pub fn disconnect(h: &Shared, client: Option<&str>) {
         tracing::warn!(%error,"remote display topology restoration failed");
     }
 }
+
+#[cfg(test)]
+mod tests;

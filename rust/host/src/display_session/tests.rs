@@ -358,34 +358,65 @@ fn a_display_that_left_lays_out_again_with_what_the_watch_keeps_on() {
     now += LayoutWatch::DEPARTURE_SETTLE;
     assert!(watch.departure_due(now));
     // A failed attempt stays due, and the watch waits before it looks again.
-    let error = lay_out_after_departure(&mut watch, Vec::new(), now, |_| anyhow::bail!("no"));
+    let warnings = Arc::new(Warnings::default());
+    let report = ModeReport::new(warnings.clone(), (None, None, None), 60_000);
+    let error = lay_out_after_departure(&mut watch, Vec::new(), now, &report, |_| {
+        anyhow::bail!("no")
+    });
     assert!(error.is_err());
     assert!(watch.departure_due(now));
     assert!(!watch.due(now));
+    assert!(codes(&warnings).is_empty());
     // The kept display stays on beside the remote monitors.
     let mut asked = Vec::new();
-    lay_out_after_departure(&mut watch, vec!["monitor".into()], now, |retained| {
-        asked = retained.to_vec();
-        Ok(())
-    })
+    lay_out_after_departure(
+        &mut watch,
+        vec!["monitor".into()],
+        now,
+        &report,
+        |retained| {
+            asked = retained.to_vec();
+            Ok(None)
+        },
+    )
     .unwrap();
     assert_eq!(asked, ["monitor", "tv"]);
     assert!(!watch.departure_due(now));
+    assert!(codes(&warnings).is_empty());
+    // A layout that went through after a repair that did not: nothing to try again, and the
+    // card says so.
+    watch.display_left(now);
+    now += LayoutWatch::DEPARTURE_SETTLE;
+    lay_out_after_departure(&mut watch, Vec::new(), now, &report, |_| {
+        Ok(Some("refused".into()))
+    })
+    .unwrap();
+    assert!(!watch.departure_due(now));
+    assert_eq!(codes(&warnings), ["display_repair"]);
+    assert!(warnings.snapshot()[0].message.contains("refused"));
+    // The next departure's repair goes through.
+    watch.display_left(now);
+    now += LayoutWatch::DEPARTURE_SETTLE;
+    lay_out_after_departure(&mut watch, Vec::new(), now, &report, |_| Ok(None)).unwrap();
+    assert!(codes(&warnings).is_empty());
 }
 #[test]
 fn a_resume_after_a_display_left_repairs_before_it_records_the_layout() {
     use butterpollo_core::display_policy::LayoutWatch;
+    let warnings = Arc::new(Warnings::default());
+    let report = ModeReport::new(warnings.clone(), (None, None, None), 60_000);
     let chosen = |unsettled| {
         let ran = std::cell::Cell::new("nothing");
         reapply_settling(
             unsettled,
+            &report,
             || {
                 ran.set("reapply");
                 Ok(())
             },
             || {
                 ran.set("repair");
-                Ok(())
+                Ok(None)
             },
         )
         .unwrap();
@@ -404,7 +435,12 @@ fn a_resume_after_a_display_left_repairs_before_it_records_the_layout() {
     watch.departure_handled();
     assert_eq!(chosen(departure_unsettled(4, 4, &watch)), "reapply");
     // A refused layout still fails the resume.
-    assert!(reapply_settling(true, || Ok(()), || anyhow::bail!("refused")).is_err());
+    assert!(reapply_settling(true, &report, || Ok(()), || anyhow::bail!("refused")).is_err());
+    assert!(codes(&warnings).is_empty());
+    // A repair that failed under a layout that went through: the resume goes on, and says so.
+    reapply_settling(true, &report, || Ok(()), || Ok(Some("no entry".into()))).unwrap();
+    assert_eq!(codes(&warnings), ["display_repair"]);
+    assert!(warnings.snapshot()[0].message.contains("no entry"));
 }
 #[test]
 fn the_configured_scale_reaches_every_stream_display_including_remote_monitors() {
@@ -2385,6 +2421,34 @@ fn a_monitor_left_on_after_repeated_returns_says_so_on_the_card() {
     let second = Arc::new(Warnings::default());
     report.attach(second.clone());
     assert_eq!(codes(&second), ["display_kept_on"]);
+}
+
+#[test]
+fn a_repair_that_failed_says_so_on_the_card_of_the_launch_in_progress() {
+    let first = Arc::new(Warnings::default());
+    let report = ModeReport::new(first.clone(), (None, None, None), 60_000);
+    report.unrepaired_at_start(None);
+    assert!(codes(&first).is_empty());
+    // At the start of the stream.
+    report.unrepaired_at_start(Some("the entry is gone"));
+    assert_eq!(codes(&first), ["display_repair"]);
+    assert!(first.snapshot()[0].message.contains("the entry is gone"));
+    // A later mode finding keeps it; a resumed launch sees it on its own card.
+    report.publish(Ok((1920, 1080, 60_000, false)));
+    assert_eq!(codes(&first), ["display_repair"]);
+    let second = Arc::new(Warnings::default());
+    report.attach(second.clone());
+    assert_eq!(codes(&second), ["display_repair"]);
+    // A repair after a departure going through says nothing about the display's arrival.
+    report.repaired(None);
+    assert_eq!(codes(&second), ["display_repair"]);
+    // After a departure, when the start was fine: a later repair clears it.
+    let third = Arc::new(Warnings::default());
+    let report = ModeReport::new(third.clone(), (None, None, None), 60_000);
+    report.repaired(Some("refused".into()));
+    assert_eq!(codes(&third), ["display_repair"]);
+    report.repaired(None);
+    assert!(codes(&third).is_empty());
 }
 
 #[test]

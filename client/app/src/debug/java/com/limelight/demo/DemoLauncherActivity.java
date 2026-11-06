@@ -35,9 +35,12 @@ public final class DemoLauncherActivity extends Activity {
         // "--es glass baked" (lens, live, baked, solid) forces the glass tier; "--es glass auto" lands it as a device would.
         String glass = getIntent().getStringExtra("glass");
         if (glass != null) com.limelight.ui.GlassTier.force(this, "auto".equals(glass) ? null : com.limelight.ui.GlassTier.valueOf(glass.toUpperCase(java.util.Locale.ROOT)));
-        // "--es look oled" or "contrast" sets that appearance for this run, "--ez reduced true" reduces motion.
+        // "--es look day", "dark", "oled" or "contrast" sets that appearance for this run, "--ez reduced true" reduces motion.
+        // Day and dark take the system's setting out of the picture: the Theme setting's System would follow the device.
         String look = getIntent().getStringExtra("look");
+        DemoContext.forceNight = DemoContext.nightOf(look);
         android.preference.PreferenceManager.getDefaultSharedPreferences(this).edit()
+                .putBoolean(AppTheme.ALWAYS_DARK, "dark".equals(look))
                 .putBoolean(AppTheme.OLED_BLACK, "oled".equals(look))
                 .putBoolean(AppTheme.HIGH_CONTRAST, "contrast".equals(look))
                 .putString(com.limelight.ui.Motion.REDUCE_MOTION, getIntent().getBooleanExtra("reduced", false)

@@ -4307,6 +4307,55 @@ fn a_launcher_at_rest_paints_the_same_frame_whenever_it_wakes() {
     assert!(frame_differs(Some(shown), print(&mut f), false, false), "a hover is a new frame");
 }
 
+/// The driver reaches every page of the demo library, on what `fill` puts there and with no dialog
+/// in the way: README, store and trailer captures depend on it.
+#[test]
+fn the_demo_library_reaches_every_page() {
+    use super::demo::{self, Page};
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut l = launcher(true, false);
+    let mut hosts = Hosts::without_discovery(demo::records(), Arc::new(|| {}));
+    demo::fill(&mut hosts, &mut l, &ctx);
+    let mut f = Frames::over(ctx, l, hosts);
+    f.settle();
+    assert_eq!(f.l.screen, Screen::Home);
+    assert_eq!(f.hosts.list[0].native.library.as_ref().expect("the library").games.len(), 36);
+    assert!(f.hosts.identity().is_none(), "no identity: nothing can ask a PC");
+    let pc = f.hosts.list[0].id;
+    for (name, page) in Page::ALL {
+        let waker: crate::hosts::Waker = Arc::new(|| {});
+        let command = { let Frames { l, hosts, .. } = &mut f; l.demo_page(page, hosts, waker) };
+        if let Some(Command::ProfileSettings(id)) = command {
+            f.l.go(Screen::ProfileSettings(id));
+        }
+        for _ in 0..4 {
+            f.settle();
+        }
+        let expected = match page {
+            Page::Home => Screen::Home,
+            Page::AllGames | Page::Search => Screen::AllGames,
+            Page::Game => Screen::Game { host: pc, app: 1002 },
+            Page::Pcs => Screen::Hosts,
+            Page::Apps => Screen::Apps(pc),
+            Page::Pc => Screen::HostDetails(pc),
+            Page::Files => Screen::Files(pc),
+            Page::Settings => Screen::Settings,
+            Page::PcSettings => Screen::HostSettings(pc),
+            Page::GameSettings => Screen::AppSettings(pc),
+            Page::Profiles => Screen::Profiles,
+            Page::ProfileSettings => Screen::ProfileSettings(1),
+            Page::Controllers => Screen::Controllers,
+            Page::Shortcuts => Screen::Shortcuts,
+            Page::Hotkeys => Screen::StreamHotkeys,
+            Page::Help => Screen::Help,
+        };
+        assert_eq!(f.l.screen, expected, "{name}");
+        assert!(f.no_dialog(), "{name} opens with nothing over it");
+    }
+}
+
 /// The hero is what runs, else what ran last, else the library's first installed game.
 #[test]
 fn the_hero_is_the_running_game_then_the_last_played_then_the_first_installed() {

@@ -492,6 +492,12 @@ impl Gui {
     /// The launcher's frame: drawn only when it differs from what the window shows, or `must_draw`
     /// (the window itself changed). `clear` runs just before drawing. False when nothing was
     /// drawn: the caller presents nothing, so a launcher at rest uses no GPU however often it wakes.
+    /// The next frame runs the blur chain again, as a moving frame does.
+    #[cfg(feature = "demo-library")]
+    pub fn redo_glass(&mut self) {
+        self.glass.invalidate();
+    }
+
     pub fn paint_if_changed(&mut self, renderer: *mut SDL_Renderer, mut output: egui::FullOutput, must_draw: bool, clear: impl FnOnce()) -> bool {
         let ppp = output.pixels_per_point;
         let primitives = self.ctx.tessellate(std::mem::take(&mut output.shapes), ppp);

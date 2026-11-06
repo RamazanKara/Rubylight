@@ -1,0 +1,404 @@
+//! The Android demo's 36-game library for the real launcher on the real SDL path, for captures of
+//! the README, the stores and the trailer. No network and no host: the PCs are records with their
+//! answers filled in, and no client identity exists, so nothing can ask anybody. Built with the
+//! `demo-library` feature only (and for tests); a default build holds none of this.
+
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use nightjar_core::http::native_api::library::{Artwork, Game, Library, Store};
+use nightjar_core::http::{App, AppControl, Error, FileError, FileList, NativeCapabilities, RemoteFile, ServerInfo, TransferCancel, Uploaded};
+
+use super::files::{FileHost, Page as FilesPage};
+use super::{Command, Launcher, Screen};
+use crate::config::{Favourite, HostRecord, Profile, Recent};
+use crate::hosts::{Apps, Art, Hosts, Reach, Waker};
+
+/// Title, store, installed, days since last played: `DemoConsole.LIBRARY` in the Android demo.
+pub(crate) const GAMES: [(&str, Option<&str>, bool, Option<u64>); 36] = [
+    ("Desktop", None, true, None),
+    ("Racing Game", Some("steam"), true, None),
+    ("Open World", Some("steam"), true, Some(1)),
+    ("Space Sim", Some("epic"), true, Some(2)),
+    ("Puzzle Night", Some("gog"), true, None),
+    ("Retro Arcade", Some("steam"), true, None),
+    ("Strategy", Some("microsoft"), true, None),
+    ("Music Studio", None, true, None),
+    ("Ocean Explorer", Some("epic"), true, None),
+    ("Skybound", Some("steam"), true, None),
+    ("Ashfall", Some("steam"), true, None),
+    ("Brightwater", Some("steam"), true, Some(4)),
+    ("Cinder Road", Some("steam"), false, None),
+    ("Deep Field", Some("steam"), true, None),
+    ("Ember Keep", Some("steam"), true, None),
+    ("Frostline", Some("steam"), true, None),
+    ("Glass Harbor", Some("steam"), false, None),
+    ("Hollow Peak", Some("steam"), true, None),
+    ("Iron Tide", Some("steam"), true, None),
+    ("Jade Circuit", Some("steam"), true, None),
+    ("Kite Season", Some("steam"), true, None),
+    ("Lantern Row", Some("steam"), false, None),
+    ("Moss and Stone", Some("steam"), true, None),
+    ("Night Courier", Some("steam"), true, None),
+    ("Orbit Garden", Some("steam"), true, None),
+    ("Paper Fleet", Some("steam"), true, None),
+    ("Quiet Engine", Some("steam"), false, None),
+    ("Red Mesa", Some("steam"), true, None),
+    ("Salt Flats Rally", Some("steam"), true, None),
+    ("Tidebreaker", Some("epic"), true, Some(6)),
+    ("Under Ice", Some("epic"), false, None),
+    ("Vector Bloom", Some("epic"), true, None),
+    ("Wild Meridian", Some("gog"), true, Some(9)),
+    ("Xeno Farm", Some("gog"), false, None),
+    ("Yard Sale Hero", Some("microsoft"), true, None),
+    ("Zero Gravity Golf", Some("microsoft"), true, None),
+];
+
+macro_rules! covers {
+    ($($n:literal),* $(,)?) => {
+        [$(include_bytes!(concat!("../../../../app/src/debug/assets/demo/art/", $n, ".jpg")) as &[u8]),*]
+    };
+}
+
+/// Each game's cover, at its place in [`GAMES`].
+pub(crate) const COVERS: [&[u8]; 36] = covers!(
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
+    "30", "31", "32", "33", "34", "35", "36",
+);
+
+const RUNNING: usize = 1;
+const PLAYED_GAME: u32 = 1002;
+const FIRST_APP: u32 = 1000;
+const PROFILE: u64 = 1;
+pub(crate) const PAD: &str = "054c:0ce6";
+
+/// The PCs: the library's, one asleep, one not paired yet.
+pub(crate) fn records() -> Vec<HostRecord> {
+    let pc = |name: &str, address: &str, paired: bool, mac: bool| HostRecord {
+        unique_id: format!("demo-{name}"),
+        name: name.into(),
+        address: address.into(),
+        server_certificate: paired.then(|| "demo".into()),
+        mac: mac.then(|| "00:1a:2b:3c:4d:5e".into()),
+        manual: true,
+        ..Default::default()
+    };
+    vec![pc("Living Room PC", "192.0.2.10", true, true), pc("Studio PC", "192.0.2.11", true, true), pc("Office PC", "192.0.2.12", false, false)]
+}
+
+fn answer(paired: bool, running: i32) -> ServerInfo {
+    let xml = format!(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?><root status_code=\"200\"><hostname>PC</hostname><uniqueid>uid</uniqueid><HttpsPort>47984</HttpsPort>\
+         <ExternalPort>47989</ExternalPort><PairStatus>{}</PairStatus><currentgame>{running}</currentgame><state>SUNSHINE_SERVER_{}</state>\
+         <RustHostVersion>3.0.0</RustHostVersion><NativeApiVersion>1</NativeApiVersion></root>",
+        u8::from(paired),
+        if running == 0 { "FREE" } else { "BUSY" },
+    );
+    ServerInfo::parse(&xml, 47989).expect("the demo answer parses")
+}
+
+/// Puts the library, its covers, what was played and a profile where the real answers land.
+pub(crate) fn fill(hosts: &mut Hosts, launcher: &mut Launcher, ctx: &egui::Context) {
+    let games: Vec<Game> = GAMES
+        .iter()
+        .enumerate()
+        .map(|(n, (title, store, installed, _))| Game {
+            install_id: format!("install-{n}"),
+            app_id: FIRST_APP + n as u32,
+            title: (*title).into(),
+            game_id: store.map(|store| format!("{store}:{n}")),
+            store: store.map(|store| Store { source: store.into(), id: n.to_string(), name: String::new() }),
+            installed: Some(*installed),
+            running: n == RUNNING,
+            artwork: Artwork { cover: Some(format!("/cover/{n}")), version: "1".into() },
+        })
+        .collect();
+    let apps: Vec<App> = games
+        .iter()
+        .map(|g| App {
+            name: g.title.clone(),
+            id: g.app_id as i32,
+            hdr_supported: false,
+            uuid: g.install_id.clone(),
+            host_index: None,
+            art_version: String::new(),
+            control: AppControl::None,
+            monitor_resume: false,
+        })
+        .collect();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let library_host = hosts.list[0].record.unique_id.clone();
+    launcher.recents = GAMES
+        .iter()
+        .enumerate()
+        .filter_map(|(n, (title, _, _, days))| {
+            days.map(|days| Recent { host: library_host.clone(), install_id: format!("install-{n}"), app_id: FIRST_APP + n as u32, title: (*title).into(), at: now - days * 86_400 })
+        })
+        .collect();
+    launcher.favourites = [8usize, 31]
+        .into_iter()
+        .map(|n| Favourite { host: library_host.clone(), install_id: format!("install-{n}"), app_id: FIRST_APP + n as u32, title: GAMES[n].0.into() })
+        .collect();
+    for (name, chord) in [("Task Manager", "Ctrl+Shift+Esc"), ("Game Bar", "Win+G"), ("Next window", "Alt+Tab"), ("Close window", "Alt+F4"), ("Fullscreen", "F11"), ("Desktop", "Win+D"), ("Screenshot", "Win+PrintScreen")] {
+        if let Err(why) = crate::shortcuts::save(&mut launcher.shortcuts, None, name, chord) {
+            eprintln!("nightjar: demo shortcut {name}: {why}");
+        }
+    }
+    launcher.profiles.entries = vec![Profile { id: PROFILE, name: "Couch".into(), settings: Default::default() }];
+    let pc = &mut hosts.list[0];
+    pc.reach = Reach::Online;
+    pc.info = Some(answer(true, FIRST_APP as i32 + RUNNING as i32));
+    pc.native.library = Some(Library { revision: "demo".into(), games });
+    pc.apps = Apps::Loaded(apps.clone());
+    for (n, app) in apps.iter().enumerate() {
+        let image = image::load_from_memory(COVERS[n]).expect("a demo cover").to_rgba8();
+        let image = egui::ColorImage::from_rgba_unmultiplied([image.width() as usize, image.height() as usize], &image);
+        pc.ambient.insert(app.id, ctx.load_texture(format!("demo-ambient-{n}"), crate::ambient::bake(&image), egui::TextureOptions::LINEAR));
+        pc.art.insert(app.id, Art::Ready(ctx.load_texture(format!("demo-cover-{n}"), image, egui::TextureOptions::LINEAR)));
+    }
+    hosts.list[1].reach = Reach::Offline;
+    hosts.list[2].reach = Reach::Online;
+    hosts.list[2].info = Some(answer(false, 0));
+    launcher.identity_ready = true;
+    launcher.settings.console_home = true;
+    launcher.go(Screen::Home);
+}
+
+/// The Files page's answers, so that page opens with no PC behind it.
+struct DemoFiles;
+
+impl FileHost for DemoFiles {
+    fn capabilities(&self) -> Result<NativeCapabilities, Error> {
+        Ok(serde_json::from_str(
+            "{\"api_version\":1,\"host\":{\"name\":\"PC\",\"version\":\"3.0.0\",\"unique_id\":\"uid\"},\"features\":[\"files.upload\",\"files.download\"],\
+             \"permissions\":{\"list\":true,\"view\":true,\"launch\":true,\"host_control\":false,\"file_upload\":true,\"file_download\":true}}",
+        )
+        .expect("the demo capabilities parse"))
+    }
+
+    fn list(&self) -> Result<FileList, FileError> {
+        let file = |name: &str, size: u64, modified_unix_ms: u64| RemoteFile { name: name.into(), size, modified_unix_ms };
+        Ok(FileList {
+            folder: "C:\\Users\\Player\\Downloads\\Rubylight".into(),
+            free_bytes: 412_000_000_000,
+            max_file_bytes: 8_000_000_000,
+            files: vec![file("Salt Flats lap.mp4", 482_000_000, 1_761_300_000_000), file("Night Courier save.zip", 12_400_000, 1_761_200_000_000), file("Controller layout.png", 860_000, 1_761_100_000_000)],
+        })
+    }
+
+    fn upload(&self, _: &str, _: &mut dyn Read, _: u64, _: &mut dyn FnMut(u64, u64), _: &TransferCancel) -> Result<Uploaded, FileError> {
+        Err(FileError::Local(std::io::Error::other("the demo library has no PC to send to")))
+    }
+
+    fn download(&self, _: &str, _: u64, _: &Path, _: &mut dyn FnMut(u64, u64), _: &TransferCancel) -> Result<u64, FileError> {
+        Err(FileError::Local(std::io::Error::other("the demo library has no PC to fetch from")))
+    }
+}
+
+/// Every page the driver can open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Page {
+    Home,
+    AllGames,
+    Game,
+    Pcs,
+    Apps,
+    Pc,
+    Files,
+    Settings,
+    PcSettings,
+    GameSettings,
+    Profiles,
+    ProfileSettings,
+    Controllers,
+    Shortcuts,
+    Hotkeys,
+    Help,
+    Search,
+}
+
+impl Page {
+    pub(crate) const ALL: [(&'static str, Page); 17] = [
+        ("home", Page::Home),
+        ("all-games", Page::AllGames),
+        ("game", Page::Game),
+        ("pcs", Page::Pcs),
+        ("apps", Page::Apps),
+        ("pc", Page::Pc),
+        ("files", Page::Files),
+        ("settings", Page::Settings),
+        ("pc-settings", Page::PcSettings),
+        ("game-settings", Page::GameSettings),
+        ("profiles", Page::Profiles),
+        ("profile-settings", Page::ProfileSettings),
+        ("controllers", Page::Controllers),
+        ("shortcuts", Page::Shortcuts),
+        ("hotkeys", Page::Hotkeys),
+        ("help", Page::Help),
+        ("search", Page::Search),
+    ];
+}
+
+/// One line from the driver on stdin.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Step {
+    Go(Page),
+    Zoom(u32),
+    Size(i32, i32),
+    Pointer(f32, f32),
+    /// One wheel event, in points.
+    Wheel(f32),
+    /// A wheel event on each of the next `frames` frames.
+    Scroll { frames: u32, delta: f32 },
+    Key(egui::Key),
+    /// Saves the next frame. `chain`: with the blur chain run again, as on a moving frame.
+    Capture { chain: bool, path: PathBuf },
+    Contrast(bool),
+    /// Writes the frames presented so far.
+    Stats(PathBuf),
+    Quit,
+}
+
+/// Reads a driver line. What it can't read is said loudly by the caller.
+pub(crate) fn parse(line: &str) -> Result<Step, String> {
+    let line = line.trim();
+    let (word, rest) = line.split_once(' ').unwrap_or((line, ""));
+    let rest = rest.trim();
+    let number = |text: &str| text.parse::<f32>().map_err(|_| format!("{line:?}: {text:?} is no number"));
+    let pair = || rest.split_once(' ').map(|(a, b)| (a, b.trim())).ok_or_else(|| format!("{line:?}: two values"));
+    let path = || if rest.is_empty() { Err(format!("{line:?}: a path")) } else { Ok(PathBuf::from(rest)) };
+    Ok(match word {
+        "go" => Step::Go(Page::ALL.iter().find(|(name, _)| *name == rest).map(|(_, page)| *page).ok_or_else(|| format!("{line:?}: no such page"))?),
+        "zoom" => Step::Zoom(number(rest)? as u32),
+        "size" => {
+            let (w, h) = pair()?;
+            Step::Size(number(w)? as i32, number(h)? as i32)
+        }
+        "pointer" => {
+            let (x, y) = pair()?;
+            Step::Pointer(number(x)?, number(y)?)
+        }
+        "wheel" => Step::Wheel(number(rest)?),
+        "scroll" => {
+            let (frames, delta) = pair()?;
+            Step::Scroll { frames: number(frames)? as u32, delta: number(delta)? }
+        }
+        "key" => Step::Key(egui::Key::from_name(rest).ok_or_else(|| format!("{line:?}: no such key"))?),
+        "capture" => match rest.strip_prefix("chain ") {
+            Some(chained) => Step::Capture { chain: true, path: PathBuf::from(chained.trim()) },
+            None => Step::Capture { chain: false, path: path()? },
+        },
+        "contrast" => Step::Contrast(rest == "on"),
+        "stats" => Step::Stats(path()?),
+        "quit" => Step::Quit,
+        _ => return Err(format!("{line:?}: no such step")),
+    })
+}
+
+impl Launcher {
+    /// Opens a page the way its own control does. A page main.rs opens comes back as its command.
+    pub(crate) fn demo_page(&mut self, page: Page, hosts: &Hosts, waker: Waker) -> Option<Command> {
+        let pc = &hosts.list[0];
+        let id = pc.id;
+        match page {
+            Page::Home => self.go(Screen::Home),
+            Page::AllGames => self.go(Screen::AllGames),
+            Page::Game => self.go(Screen::Game { host: id, app: PLAYED_GAME }),
+            Page::Pcs => self.go(Screen::Hosts),
+            Page::Apps => self.go(Screen::Apps(id)),
+            Page::Pc => self.go(Screen::HostDetails(id)),
+            Page::Files => {
+                let base = pc.info.as_ref().map_or(nightjar_core::http::HostCapabilities::UNKNOWN, |i| i.capabilities.clone());
+                self.files.page = Some(FilesPage::new(id, Arc::new(DemoFiles), base, Ok(std::env::temp_dir()), waker));
+                self.open(Screen::Files(id));
+            }
+            Page::Settings => self.go(Screen::Settings),
+            Page::PcSettings => self.open_host_settings(id, pc),
+            Page::GameSettings => {
+                if let Apps::Loaded(apps) = &pc.apps {
+                    self.open_app_settings(id, pc, apps[(PLAYED_GAME - FIRST_APP) as usize].clone());
+                }
+            }
+            Page::Profiles => self.go(Screen::Profiles),
+            Page::ProfileSettings => return Some(Command::ProfileSettings(PROFILE)),
+            Page::Controllers => {
+                self.controller_key = PAD.into();
+                self.controller_mapping = crate::gamepad::Mapping { name: "DualSense Wireless Controller".into(), ..Default::default() };
+                self.go(Screen::Controllers);
+            }
+            Page::Shortcuts => self.go(Screen::Shortcuts),
+            Page::Hotkeys => self.go(Screen::StreamHotkeys),
+            Page::Help => self.go(Screen::Help),
+            Page::Search => {
+                self.go(Screen::Home);
+                self.open_search();
+                self.library_query = "ocean".into();
+            }
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The real launcher's library is the one the Android demo, the README and the covers share:
+    /// `art/N.jpg` carries the title of place N.
+    #[test]
+    fn the_demo_library_is_the_android_demos_library() {
+        let java = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/src/debug/java/com/limelight/demo/DemoConsole.java")).expect("the demo library");
+        let library = java.split("LIBRARY = {").nth(1).expect("the list").split("};").next().expect("its end");
+        let lines: Vec<&str> = library.lines().map(str::trim).filter(|line| line.starts_with("{\"")).collect();
+        for (n, (title, store, installed, played)) in GAMES.iter().enumerate() {
+            let fields: Vec<&str> = lines[n].trim_matches(|c| "{},".contains(c)).split(", ").collect();
+            assert_eq!(fields[0].trim_matches('"'), *title, "place {n}");
+            assert_eq!(fields[1], store.map_or("null".to_string(), |s| format!("\"{s}\"")), "{title}'s store");
+            assert_eq!(fields[2] == "\"1\"", *installed, "{title} installed");
+            assert_eq!(fields[3] != "null", played.is_some(), "{title} played");
+        }
+    }
+
+    #[test]
+    fn every_cover_is_a_picture_of_its_own() {
+        let mut seen = std::collections::HashSet::new();
+        for (n, cover) in COVERS.iter().enumerate() {
+            image::load_from_memory(cover).expect("a JPEG");
+            assert!(seen.insert(*cover), "cover {} repeats another", n + 1);
+        }
+    }
+
+    /// The demo stays out of what ships: the feature is off unless asked for by name.
+    #[test]
+    fn the_demo_library_is_not_a_default_feature() {
+        let manifest: &str = include_str!("../../Cargo.toml");
+        assert!(manifest.lines().any(|line| line.trim() == "default = []"), "no default features");
+        assert!(manifest.lines().any(|line| line.trim() == "demo-library = []"), "the feature adds no dependency");
+        for workflow in [".github/workflows/nightjar-android.yml"] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..").join(workflow);
+            if let Ok(text) = std::fs::read_to_string(path) {
+                assert!(!text.contains("--all-features") && !text.contains("demo-library"), "{workflow} builds the demo");
+            }
+        }
+    }
+
+    #[test]
+    fn the_driver_reads_each_step_and_refuses_the_rest() {
+        assert_eq!(parse("go all-games"), Ok(Step::Go(Page::AllGames)));
+        assert_eq!(parse("zoom 150"), Ok(Step::Zoom(150)));
+        assert_eq!(parse("size 1280 800"), Ok(Step::Size(1280, 800)));
+        assert_eq!(parse("pointer 640.5 400"), Ok(Step::Pointer(640.5, 400.0)));
+        assert_eq!(parse("wheel -120"), Ok(Step::Wheel(-120.0)));
+        assert_eq!(parse("scroll 80 -6"), Ok(Step::Scroll { frames: 80, delta: -6.0 }));
+        assert_eq!(parse("key ArrowDown"), Ok(Step::Key(egui::Key::ArrowDown)));
+        assert_eq!(parse("capture C:\\a b\\c.png"), Ok(Step::Capture { chain: false, path: "C:\\a b\\c.png".into() }));
+        assert_eq!(parse("capture chain C:\\a b\\c.png"), Ok(Step::Capture { chain: true, path: "C:\\a b\\c.png".into() }));
+        assert_eq!(parse("contrast on"), Ok(Step::Contrast(true)));
+        assert_eq!(parse("stats C:\\s.txt"), Ok(Step::Stats("C:\\s.txt".into())));
+        assert_eq!(parse("quit"), Ok(Step::Quit));
+        for bad in ["go nowhere", "zoom big", "size 1280", "key Nope", "capture", "fly"] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
+    }
+}

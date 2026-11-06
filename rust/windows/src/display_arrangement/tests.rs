@@ -683,6 +683,37 @@ fn the_displays_count_as_settling_while_a_watch_works_or_left_work() {
     }
     assert!(!watcher.settling());
 }
+#[test]
+fn a_watch_that_takes_over_leaves_nothing_of_the_one_it_stopped() {
+    let watcher = WakeWatcher::new();
+    let writes = Writes::default();
+    let (display, _) = FakeDisplay::new();
+    assert!(start_slow_watch(&watcher, &writes, display, Ok(())));
+    assert_eq!(
+        watcher.start(watched_left(), |_| false),
+        WatchStart::Started
+    );
+    while watcher
+        .0
+        .lock()
+        .unwrap()
+        .running
+        .as_ref()
+        .is_some_and(|w| !w.thread.is_finished())
+    {
+        std::thread::yield_now();
+    }
+    assert!(!watcher.settling());
+    watcher.hold_off();
+    assert!(watcher.release().is_none());
+}
+#[test]
+fn several_woken_displays_are_listed_only_when_each_one_is() {
+    let woken = ["a", "b"].map(String::from);
+    assert!(all_listed(&woken, &["a", "b", "tv"].map(String::from)));
+    assert!(!all_listed(&woken, &["a".to_owned()]));
+    assert!(!all_listed(&woken, &[]));
+}
 fn at_hz(id: &str, active: bool, primary: bool, refresh_hz: f64) -> Node {
     let mut node = node(id, active, primary);
     node.mode.refresh_hz = refresh_hz;
@@ -697,7 +728,7 @@ fn a_layout_is_back_only_with_the_monitor_on_at_its_mode_and_nothing_else_lit() 
     let back = |current: &[Node], connected: &[String], keep: &[String]| {
         layout_is_back(&before, current, connected, &both, keep)
     };
-    assert!(back(&[monitor.clone()], &both, &[]));
+    assert!(back(std::slice::from_ref(&monitor), &both, &[]));
     // What Windows lit with the monitor away and then left on.
     assert!(!back(
         &[monitor.clone(), at_hz("tv", true, false, 60.)],
@@ -956,6 +987,10 @@ fn a_display_kept_in_a_layout_going_back_goes_to_its_right_and_not_where_it_is_n
     // Already on in the layout: it stays where the layout has it.
     assert_eq!(place("held"), (2560, false));
     assert_eq!(place("rm"), (3840, false));
+    // Off now: it isn't on to keep.
+    let mut gone = rm.clone();
+    gone.active = false;
+    assert_eq!(with_kept(vec![monitor.clone()], &[gone], &keep).len(), 1);
     // Off in the layout: where it was doesn't count either.
     let mut off = rm.clone();
     off.active = false;

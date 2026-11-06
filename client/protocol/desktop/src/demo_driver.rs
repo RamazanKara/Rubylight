@@ -28,16 +28,24 @@ pub fn require_sandbox() -> Result<(), String> {
 
 pub fn start(waker: Waker) -> Driver {
     let (sender, steps) = channel();
-    let _ = std::thread::Builder::new().name("demo-driver".into()).spawn(move || {
-        for line in std::io::stdin().lock().lines() {
-            let Ok(line) = line else { return };
-            if sender.send(line).is_err() {
-                return;
+    let _ = std::thread::Builder::new()
+        .name("demo-driver".into())
+        .spawn(move || {
+            for line in std::io::stdin().lock().lines() {
+                let Ok(line) = line else { return };
+                if sender.send(line).is_err() {
+                    return;
+                }
+                waker();
             }
-            waker();
-        }
-    });
-    Driver { steps, scroll_left: 0, scroll_delta: 0.0, capture: None, presents: 0 }
+        });
+    Driver {
+        steps,
+        scroll_left: 0,
+        scroll_delta: 0.0,
+        capture: None,
+        presents: 0,
+    }
 }
 
 impl App {
@@ -72,7 +80,10 @@ impl App {
     fn demo_step(&mut self, step: Step) {
         match step {
             Step::Go(page) => {
-                if let Some(command) = self.launcher.demo_page(page, &self.hosts, self.waker.clone()) {
+                if let Some(command) =
+                    self.launcher
+                        .demo_page(page, &self.hosts, self.waker.clone())
+                {
                     self.command(command);
                 }
             }
@@ -89,7 +100,13 @@ impl App {
             }
             Step::Key(key) => {
                 for pressed in [true, false] {
-                    self.gui.push(egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::NONE });
+                    self.gui.push(egui::Event::Key {
+                        key,
+                        physical_key: None,
+                        pressed,
+                        repeat: false,
+                        modifiers: egui::Modifiers::NONE,
+                    });
                 }
             }
             Step::Capture { chain, path } => {
@@ -101,7 +118,8 @@ impl App {
             }
             Step::Contrast(on) => self.launcher.settings.high_contrast = on,
             Step::Stats(path) => {
-                if let Err(e) = std::fs::write(&path, format!("presents={}\n", self.demo.presents)) {
+                if let Err(e) = std::fs::write(&path, format!("presents={}\n", self.demo.presents))
+                {
                     eprintln!("nightjar: demo driver: {}: {e}", path.display());
                 }
             }

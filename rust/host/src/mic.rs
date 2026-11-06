@@ -99,6 +99,8 @@ struct Speaker {
     heard: Instant,
     started: Instant,
     stats: Stats,
+    /// How evenly its packets arrive, for the log.
+    gaps: butterpollo_core::arrival_gaps::ArrivalGaps,
 }
 struct Receiver {
     h: Shared,
@@ -220,12 +222,24 @@ impl Receiver {
                 heard: Instant::now(),
                 started: Instant::now(),
                 stats: Stats::default(),
+                gaps: Default::default(),
             });
         }
         self.counters.accepted.fetch_add(1, Ordering::Relaxed);
         let speaker = self.speaker.as_mut().unwrap();
         speaker.heard = Instant::now();
         speaker.stats.packets += 1;
+        if let Some(window) = speaker.gaps.note(speaker.heard) {
+            tracing::info!(
+                client = %speaker.session.launch.client.name,
+                packets = window.arrivals,
+                gaps_25_50 = window.gaps_25_50,
+                gaps_50_plus = window.gaps_50_plus,
+                pauses = window.pauses,
+                max_gap_ms = window.max_gap_ms,
+                "microphone arrivals"
+            );
+        }
         let arrival = speaker.sequencer.arrive(packet.sequence);
         if arrival == Arrival::Late {
             speaker.stats.late += 1;

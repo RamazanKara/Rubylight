@@ -18,6 +18,7 @@
 pub mod adaptive_bitrate;
 pub mod adaptive_fec;
 pub mod adaptive_pacing;
+pub mod arrival_gaps;
 pub mod audio;
 pub mod audio_cadence;
 pub mod audio_defaults;

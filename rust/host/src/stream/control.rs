@@ -360,6 +360,8 @@ impl Media {
                                     // survives the worker moving to teardown.
                                     session: sessions.active.get(&l.id).cloned(),
                                     inputs: vec![],
+                                    pointer_gaps: Default::default(),
+                                    inject_max: Duration::ZERO,
                                     denied: 0,
                                     steam_attributes_refused: false,
                                     controller_audio: [0; 16],
@@ -969,6 +971,26 @@ impl Media {
                                         {
                                             s.launch.warnings.set("input_steam_input", hint);
                                         }
+                                        if matches!(
+                                            event,
+                                            input::Input::Relative { .. }
+                                                | input::Input::Absolute { .. }
+                                        ) && let Some(window) =
+                                            p.pointer_gaps.note(Instant::now())
+                                        {
+                                            tracing::info!(
+                                                client = %s.launch.client.name,
+                                                moves = window.arrivals,
+                                                gaps_25_50 = window.gaps_25_50,
+                                                gaps_50_plus = window.gaps_50_plus,
+                                                pauses = window.pauses,
+                                                max_gap_ms = window.max_gap_ms,
+                                                inject_max_ms = std::mem::take(&mut p.inject_max)
+                                                    .as_secs_f32()
+                                                    * 1000.,
+                                                "pointer arrivals"
+                                            );
+                                        }
                                         if !queue_input(&mut p.inputs, event) {
                                             // Warnings::set logs it as well.
                                             s.launch.warnings.set("input_overflow", INPUT_OVERFLOW);
@@ -1408,12 +1430,14 @@ impl Media {
                         }
                     }
                     // The couch menu takes what it needs; the game gets the rest.
+                    let injecting = Instant::now();
                     let batch = crate::couch_menu::apply_batch(
                         &mut p.couch,
                         p.injector.as_mut(),
                         &mut p.inputs,
-                        Instant::now(),
+                        injecting,
                     );
+                    p.inject_max = p.inject_max.max(injecting.elapsed());
                     if let Some(reason) = batch.refused {
                         tracing::warn!(client = %s.launch.client.name, "{reason}");
                         s.launch.warnings.event(
@@ -1649,6 +1673,10 @@ pub(super) struct ControlPeer {
     input_released: bool,
     session: Option<Arc<Session>>,
     inputs: Vec<input::Input>,
+    /// How evenly its pointer moves arrive, for the log.
+    pointer_gaps: butterpollo_core::arrival_gaps::ArrivalGaps,
+    /// The longest injection pass since the last "pointer arrivals" line.
+    inject_max: Duration,
     /// Input permissions this device lacked and was warned about.
     denied: u32,
     /// Whether this device was warned about refused Steam Controller attributes.

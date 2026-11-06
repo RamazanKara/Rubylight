@@ -1,9 +1,9 @@
 //! Removing Rubylight. Settings and drivers stay unless asked otherwise,
 //! except Rubylight's own display driver.
 use crate::{
-    detect::{self, SERVICE, UNINSTALL},
+    detect::{self, UNINSTALL},
     install::{
-        FIREWALL_RULE, HOST_PROCESSES, LEGACY_FIREWALL_RULE, legacy_start_menu_link, profile,
+        FIREWALL_RULE, LEGACY_FIREWALL_RULE, OWN_PROCESSES, legacy_start_menu_link, profile,
         start_menu_link,
     },
     log::line,
@@ -96,6 +96,17 @@ fn is_package(folder: &Path) -> bool {
             .any(|entry| entry.path.eq_ignore_ascii_case("butterpollo.exe"))
     })
 }
+/// Why --remove-drivers leaves these drivers in a side-by-side installation.
+const SHARED_DRIVERS_KEPT: &str = "The virtual gamepad driver and libvirtualdisplay stay installed, as another host on this PC may use them. Rubylight's own display driver was removed.";
+/// Whether to stop and whether to delete the service named Rubylight's, whose
+/// program this is: another host may hold the name, and then it is left alone.
+fn service_steps(program: Option<&Path>, install: &Path) -> (bool, bool) {
+    let ours = program.filter(|program| detect::our_service(program));
+    (
+        ours.is_some(),
+        ours.is_some_and(|program| program.starts_with(install)),
+    )
+}
 /// Remove Rubylight; the notes are problems the user must see, though the
 /// removal itself went through.
 pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
@@ -104,10 +115,15 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
     };
     line(format!("uninstalling from {}", install.display()));
     progress.set("Stopping Rubylight…");
-    let _ = system::stop_service(SERVICE);
-    system::kill(&HOST_PROCESSES[..4]);
-    if system::service_program(SERVICE).is_some_and(|p| p.starts_with(&install)) {
-        system::delete_service(SERVICE)?;
+    let side_by_side = detect::side_by_side();
+    let service = detect::service();
+    let (stop, delete) = service_steps(system::service_program(service).as_deref(), &install);
+    if stop {
+        let _ = system::stop_service(service);
+    }
+    system::kill(&OWN_PROCESSES);
+    if delete {
+        system::delete_service(service)?;
     }
     system::firewall_remove(FIREWALL_RULE);
     system::firewall_remove(LEGACY_FIREWALL_RULE);
@@ -166,7 +182,10 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
             result,
         ));
     }
-    if options.remove_drivers {
+    if options.remove_drivers && side_by_side {
+        line(format!("note: {SHARED_DRIVERS_KEPT}"));
+        notes.push(SHARED_DRIVERS_KEPT.to_owned());
+    } else if options.remove_drivers {
         progress.set("Removing the virtual drivers…");
         for (script, name, args) in [
             (
@@ -215,6 +234,7 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
     let _ = std::fs::remove_file(start_menu_link());
     let _ = std::fs::remove_file(legacy_start_menu_link());
     system::delete_key(HKEY_LOCAL_MACHINE, &format!("{UNINSTALL}\\Butterpollo"));
+    detect::forget_service();
     let touched = remove_package(&install);
     remove_leftover_folders(&install, &touched);
     if options.factory_reset {
@@ -965,6 +985,37 @@ fn files_in(folder: &Path) -> std::io::Result<Vec<PathBuf>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_rubylights_own_service_is_stopped_or_deleted() {
+        let install = Path::new(r"C:\Program Files\Rubylight");
+        let ours = install.join("butterpollo-service.exe");
+        assert_eq!(service_steps(Some(&ours), install), (true, true));
+        // Rubylight's program in another folder is stopped, as before, and
+        // stays registered.
+        let elsewhere = Path::new(r"D:\Other\butterpollo-service.exe");
+        assert_eq!(service_steps(Some(elsewhere), install), (true, false));
+        // Another host's ApolloService is neither, wherever it is.
+        let theirs = Path::new(r"C:\Program Files\Vibepollo\tools\sunshinesvc.exe");
+        assert_eq!(service_steps(Some(theirs), install), (false, false));
+        let inside = install.join("tools").join("sunshinesvc.exe");
+        assert_eq!(service_steps(Some(&inside), install), (false, false));
+        assert_eq!(service_steps(None, install), (false, false));
+    }
+    #[test]
+    fn side_by_side_removing_drivers_keeps_what_another_host_may_use() {
+        assert!(SHARED_DRIVERS_KEPT.contains("gamepad"));
+        assert!(SHARED_DRIVERS_KEPT.contains("libvirtualdisplay"));
+        let code = include_str!("uninstall.rs");
+        assert!(code.contains(
+            "if options.remove_drivers && side_by_side {\n        line(format!(\"note: {SHARED_DRIVERS_KEPT}\"));"
+        ));
+        assert!(code.contains(
+            "} else if options.remove_drivers {\n        progress.set(\"Removing the virtual drivers…\");"
+        ));
+        // The record goes with the rest of the registration, or a later
+        // normal installation would look side by side.
+        assert!(code.contains("detect::forget_service();"));
+    }
     fn write(path: &Path, text: &str) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, text).unwrap();

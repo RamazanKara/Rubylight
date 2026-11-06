@@ -696,7 +696,9 @@ pub fn switched_back_on(before: &[Node], applied: &[Node], active: &[String]) ->
 /// displays can have one of them off, at another mode, or (`keeps_primary`) no
 /// longer primary. `before`: the layout as it should be; `active`: the displays on
 /// now; `streams`: the streams' own displays, which are laid out anyway and whose
-/// mode the stream sets. A display no longer connected is not counted.
+/// mode the stream sets. A display no longer connected is not counted. With no
+/// display reading as primary the primary is unknown (the read failed, as it can
+/// during a hotplug), which is no sign of a recall.
 pub fn recalled_over(
     before: &[Node],
     active: &[Node],
@@ -704,6 +706,7 @@ pub fn recalled_over(
     streams: &[String],
     keeps_primary: bool,
 ) -> bool {
+    let keeps_primary = keeps_primary && active.iter().any(|n| n.active && n.primary);
     before
         .iter()
         .filter(|b| b.active && connected.contains(&b.device_id) && !streams.contains(&b.device_id))

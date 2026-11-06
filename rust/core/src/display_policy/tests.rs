@@ -558,8 +558,16 @@ fn a_recalled_layout_is_seen_in_a_display_off_at_another_mode_or_no_longer_prima
     shorter.mode.height = 720;
     assert!(recalled(shorter, true));
     // The primary moved: that counts only for a layout that keeps it.
-    assert!(recalled(node("monitor", 1280), true));
-    assert!(!recalled(node("monitor", 1280), false));
+    let moved = [node("monitor", 1280), node("vdd", 0)];
+    assert!(recalled_over(&before, &moved, &connected, &[], true));
+    assert!(!recalled_over(&before, &moved, &connected, &[], false));
+    // No display reads as primary when the read failed (DXGI during a hotplug): that
+    // says nothing of a recall, and a live stream isn't flashed for it.
+    assert!(!recalled(node("monitor", 1280), true));
+    // The mode is read apart from that, and still counts.
+    let mut unread = node("monitor", 1280);
+    unread.mode.refresh_hz = 30.;
+    assert!(recalled(unread, true));
     // Off, or listed as off.
     assert!(recalled_over(
         &before,

@@ -7,6 +7,8 @@ thread_local! {
     pub(crate) static WAKE_WATCH_HOLDS: Cell<usize> = const { Cell::new(0) };
     /// Makes this thread's [`displays_settling`] answer true.
     pub(crate) static DISPLAYS_SETTLING: Cell<bool> = const { Cell::new(false) };
+    /// Makes this thread's streams ones whose layout took up what a stopped watch left.
+    pub(crate) static BEGAN_AS_A_MONITOR_WOKE: Cell<bool> = const { Cell::new(false) };
 }
 #[test]
 fn a_stream_being_prepared_stops_the_watch_before_anything_else() {
@@ -2312,6 +2314,17 @@ fn extended_under(in_force: Arrangement, prepared: &mut Prepared, launch: &Launc
         Some(Arrangement::Extended),
         Some(in_force),
     );
+}
+
+#[test]
+fn a_stream_that_began_as_a_monitor_woke_learns_nothing_from_how_it_ends() {
+    // Its display alone with the monitor away reads just like the user's "Show only on 2".
+    let alone = || learned_alone(|p, l| extended_under(Arrangement::Extended, p, l));
+    assert_eq!(alone(), Some(serde_json::json!("exclusive")));
+    BEGAN_AS_A_MONITOR_WOKE.with(|began| began.set(true));
+    let learned = alone();
+    BEGAN_AS_A_MONITOR_WOKE.with(|began| began.set(false));
+    assert_eq!(learned, None);
 }
 
 #[test]

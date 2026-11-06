@@ -33,11 +33,7 @@ impl Prepared {
             return;
         }
         // The stream's display alone with the monitor still away is no one's choice either.
-        if self
-            ._arrangement
-            .as_ref()
-            .is_some_and(display_arrangement::Lease::after_cut_watch)
-        {
+        if self.began_as_a_monitor_woke() {
             tracing::debug!(output = %self.output, "this stream began as a monitor woke; not learning the layout it ended with");
             return;
         }
@@ -77,6 +73,15 @@ impl Prepared {
         if let Err(error) = paired.save(&h.paired_path) {
             tracing::warn!(%error, "the device's display layout could not be saved");
         }
+    }
+    fn began_as_a_monitor_woke(&self) -> bool {
+        #[cfg(test)]
+        if super::tests::BEGAN_AS_A_MONITOR_WOKE.with(std::cell::Cell::get) {
+            return true;
+        }
+        self._arrangement
+            .as_ref()
+            .is_some_and(display_arrangement::Lease::after_cut_watch)
     }
     /// The resolution the stream sets on its own virtual display and the one
     /// Windows shows.

@@ -16,15 +16,31 @@ public final class DemoContext extends ContextWrapper {
     /** Set by the launcher's "--ez tv true": a handheld lays its screens out as a TV does, so a real GPU can measure them. */
     static boolean forceTelevision;
 
+    /**
+     * Set by the launcher's "--es look day" and "--es look dark": the system's night setting this run sees, so day can be
+     * looked at on a device whose system is dark. {@link Configuration#UI_MODE_NIGHT_UNDEFINED} keeps the device's own.
+     */
+    static int forceNight = Configuration.UI_MODE_NIGHT_UNDEFINED;
+
     public DemoContext(Context base) {
-        super(forceTelevision ? television(base) : base);
+        super(forced(base));
     }
 
-    private static Context television(Context base) {
-        Configuration configuration = new Configuration(base.getResources().getConfiguration());
-        if ((configuration.uiMode & Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION) return base;
-        configuration.uiMode = (configuration.uiMode & ~Configuration.UI_MODE_TYPE_MASK) | Configuration.UI_MODE_TYPE_TELEVISION;
+    private static Context forced(Context base) {
+        Configuration own = base.getResources().getConfiguration();
+        int uiMode = own.uiMode;
+        if (forceTelevision) uiMode = (uiMode & ~Configuration.UI_MODE_TYPE_MASK) | Configuration.UI_MODE_TYPE_TELEVISION;
+        if (forceNight != Configuration.UI_MODE_NIGHT_UNDEFINED) uiMode = (uiMode & ~Configuration.UI_MODE_NIGHT_MASK) | forceNight;
+        if (uiMode == own.uiMode) return base;
+        Configuration configuration = new Configuration(own);
+        configuration.uiMode = uiMode;
         return base.createConfigurationContext(configuration);
+    }
+
+    /** What "--es look ..." asks of the system's night setting. */
+    static int nightOf(String look) {
+        return "day".equals(look) ? Configuration.UI_MODE_NIGHT_NO
+                : "dark".equals(look) ? Configuration.UI_MODE_NIGHT_YES : Configuration.UI_MODE_NIGHT_UNDEFINED;
     }
 
     @Override public Context getApplicationContext() {

@@ -236,6 +236,13 @@ enum Landing {
     Baked,
 }
 
+/// What the chain may take on a screen of this rate: a frame, but never less than one at 120 Hz. A
+/// fast screen losing a frame now and then while the launcher scrolls is not seen; live glass going
+/// for good is.
+fn chain_budget_ms(hz: f32) -> f32 {
+    (1000.0 / hz).max(1000.0 / 120.0)
+}
+
 /// `NIGHTJAR_GLASS=baked|live`: holds the tier for an A/B run. `live` keeps a chain over budget.
 pub fn forced_by(value: Option<&str>) -> Option<Tier> {
     match value? {
@@ -293,7 +300,7 @@ impl Glass {
     /// One display refresh, what the probe measures the chain against.
     pub fn set_refresh(&mut self, hz: f32) {
         if hz > 0.0 {
-            self.budget_ms = 1000.0 / hz;
+            self.budget_ms = chain_budget_ms(hz);
         }
     }
 
@@ -1095,6 +1102,14 @@ mod tests {
             matches!(verdict, Some(Verdict::Holds { .. })),
             "{verdict:?}"
         );
+    }
+
+    #[test]
+    fn a_fast_screen_keeps_live_glass_for_a_chain_at_120_hz() {
+        assert!((chain_budget_ms(60.0) - 16.67).abs() < 0.01);
+        assert!((chain_budget_ms(120.0) - 8.33).abs() < 0.01);
+        assert!((chain_budget_ms(240.0) - 8.33).abs() < 0.01);
+        assert!((chain_budget_ms(540.0) - 8.33).abs() < 0.01);
     }
 
     #[test]

@@ -403,15 +403,33 @@ fn persist(arrangement: Arrangement, virtual_target: bool) -> bool {
 /// stay primary and a monitor Windows switches on gets Windows' choice of timing
 /// (60 Hz on a 120 Hz monitor), and every later stream that keeps it on is handed
 /// that entry.
-fn forget_saved_layout(before: &Snapshot, target: &str) -> Result<()> {
+fn forget_saved_layout(before: &Snapshot, target: &str, saves: bool) -> Result<()> {
     put_entry_back(
         before,
         target,
         Topology::set_active,
         || Ok(Snapshot::capture()?.nodes),
         Snapshot::restore,
-        Topology::save_current,
+        || {
+            if saves {
+                Topology::save_current()
+            } else {
+                Ok(())
+            }
+        },
     )
+}
+/// Whether a repair while streams hold a layout may save what it put back. The entry
+/// is for the displays connected now. Saved while the held layout keeps a display of
+/// the user's off, it has that display off, and unless the layout saves its own
+/// ([`saves_layout`]) nothing takes that back: Windows recalls it when a later
+/// virtual display leaves, and the monitor stays dark.
+fn repair_saves(state: &State) -> bool {
+    saves_layout(state, None)
+        || !state
+            .before
+            .as_ref()
+            .is_some_and(|before| disabled_original_displays(&before.nodes, &state.applied))
 }
 /// The steps of [`forget_saved_layout`]. `set_active` drops a display with no path
 /// left (a driver reset, a lost device) and switches on the rest at Windows' timing.
@@ -478,15 +496,15 @@ fn recall_to_undo(
 /// look after them, so what Windows recalled for it is undone here. A layout that
 /// does move the primary or switches them off applies that afterwards.
 pub fn undo_recall_for_remote_monitor(before: &Snapshot, output: &str) -> Result<()> {
-    if !recall_to_undo(
-        false,
-        Arrangement::Extended,
+    let state = state().lock().unwrap();
+    let Some(saves) = remote_monitor_repair(
+        &state,
         &before.nodes,
         &Snapshot::capture()?.nodes,
         &connected()?,
-    ) {
+    ) else {
         return Ok(());
-    }
+    };
     let target = crate::display::monitors()?
         .into_iter()
         .find(|m| m.matches(output))
@@ -495,7 +513,26 @@ pub fn undo_recall_for_remote_monitor(before: &Snapshot, output: &str) -> Result
     tracing::info!(
         "Windows recalled a saved layout over the other displays for a remote monitor's display; putting it back"
     );
-    forget_saved_layout(before, &target)
+    forget_saved_layout(before, &target, saves)
+}
+/// Whether a remote monitor's arrival needs a repair, and if so whether it saves.
+/// It is judged by the layout the streams hold; with none held, by one that leaves
+/// the others alone, as its own applies afterwards.
+fn remote_monitor_repair(
+    state: &State,
+    before: &[Node],
+    current: &[Node],
+    connected: &[String],
+) -> Option<bool> {
+    let held = state.arrangement.filter(|_| state.users != 0);
+    recall_to_undo(
+        false,
+        held.unwrap_or(Arrangement::Extended),
+        before,
+        current,
+        connected,
+    )
+    .then(|| repair_saves(state))
 }
 /// The layout that puts back what Windows recalled once another stream's display
 /// has gone: `applied`, the layout from when it left, with what else is on as it is.
@@ -530,7 +567,10 @@ fn undo_recall_after_departure(state: &State, arrangement: Arrangement) -> Resul
         "Windows recalled a saved layout over the other displays when a stream's display left; putting it back"
     );
     after_departure(&state.applied, state.before.as_ref()).restore()?;
-    Topology::save_current()
+    if repair_saves(state) {
+        Topology::save_current()?;
+    }
+    Ok(())
 }
 /// Retry while Windows is still applying another change, such as a virtual
 /// display being removed: reading its mode fails until the change settles.
@@ -660,7 +700,8 @@ impl Lease {
                 tracing::info!(
                     "Windows recalled a saved layout over the other displays for a second stream's display; putting it back"
                 );
-                if let Err(error) = forget_saved_layout(original, &target_id) {
+                if let Err(error) = forget_saved_layout(original, &target_id, repair_saves(&state))
+                {
                     tracing::warn!(error = %format!("{error:#}"), "putting back the saved display layout failed");
                 }
             }
@@ -706,7 +747,8 @@ impl Lease {
             tracing::info!(
                 "Windows recalled a saved layout over the user's displays for the virtual display; putting it back"
             );
-            match forget_saved_layout(&before, &target_id).and_then(|()| Snapshot::capture()) {
+            match forget_saved_layout(&before, &target_id, true).and_then(|()| Snapshot::capture())
+            {
                 Ok(recaptured) => current = recaptured,
                 Err(error) => {
                     tracing::warn!(error = %format!("{error:#}"), "putting back the saved display layout failed");
@@ -850,7 +892,7 @@ impl Drop for Lease {
                 }) || settled(|| unchanged(&state.applied))?;
             if saved
                 && let Some(before) = &state.before
-                && let Err(error) = settled(|| forget_saved_layout(before, &target))
+                && let Err(error) = settled(|| forget_saved_layout(before, &target, true))
             {
                 tracing::warn!(error = %format!("{error:#}"), "putting back the saved display layout failed");
             }

@@ -558,6 +558,89 @@ fn the_stream_displays_entry_is_saved_after_its_layout_and_even_if_that_only_par
     assert_eq!(steps, ["on", "restore", "save"]);
     assert!(result.is_err());
 }
+/// Streams holding `arrangement`: the monitor on before them, `applied` now.
+fn holding(arrangement: Arrangement, applied: Vec<Node>, persisted: bool) -> State {
+    let mut state = State {
+        users: 1,
+        arrangement: Some(arrangement),
+        before: Some(snapshot(vec![node("monitor", true, true)])),
+        applied,
+        persisted,
+        ..Default::default()
+    };
+    add_owner(&mut state, "r1", persisted);
+    state
+}
+fn exclusive_lease() -> State {
+    holding(
+        Arrangement::Exclusive,
+        vec![node("monitor", false, false), node("r1", true, true)],
+        false,
+    )
+}
+#[test]
+fn a_repair_under_a_layout_that_keeps_the_monitor_off_saves_no_entry_with_it_off() {
+    // A remote monitor's exclusive lease, or a physical display's: nothing puts an
+    // entry back, so saved it would keep the monitor dark on a later layout.
+    assert!(!repair_saves(&exclusive_lease()));
+    // A layout that leaves the monitor on saves what the repair put back.
+    let extended = holding(
+        Arrangement::Extended,
+        vec![node("monitor", true, true), node("r1", true, false)],
+        false,
+    );
+    assert!(repair_saves(&extended));
+    // One that saves its own has its end to put that entry back.
+    let saving = holding(
+        Arrangement::Exclusive,
+        vec![node("monitor", false, false), node("r1", true, true)],
+        true,
+    );
+    assert!(repair_saves(&saving));
+    // Nothing held: the entry is for the user's displays as they are.
+    assert!(repair_saves(&State::default()));
+}
+#[test]
+fn a_second_remote_monitor_under_an_exclusive_lease_is_judged_by_that_lease() {
+    let state = exclusive_lease();
+    let connected = ["monitor", "r1", "r2"].map(String::from);
+    let before = [node("r1", true, true)];
+    // The arrival made the monitor primary: exclusive has no primary to keep, and
+    // its own layout puts that right.
+    let moved = [
+        node("monitor", true, true),
+        node("r1", true, false),
+        node("r2", true, false),
+    ];
+    assert_eq!(
+        remote_monitor_repair(&state, &before, &moved, &connected),
+        None
+    );
+    // The arrival retimed R1: repaired, and not saved with the monitor off.
+    let mut slow = node("r1", true, true);
+    slow.mode.refresh_hz = 30.;
+    let retimed = [slow, node("r2", true, false)];
+    assert_eq!(
+        remote_monitor_repair(&state, &before, &retimed, &connected),
+        Some(false)
+    );
+    // No lease: the extended check, and the entry is the user's as they had it.
+    let idle = State::default();
+    let before = [node("monitor", true, true)];
+    let recalled = [node("monitor", true, false), node("r2", true, true)];
+    assert_eq!(
+        remote_monitor_repair(&idle, &before, &recalled, &connected),
+        Some(true)
+    );
+    // A lease that ended is none.
+    let mut ended = exclusive_lease();
+    ended.users = 0;
+    ended.before = None;
+    assert_eq!(
+        remote_monitor_repair(&ended, &before, &recalled, &connected),
+        Some(true)
+    );
+}
 #[test]
 fn what_windows_recalled_after_a_display_left_goes_back_to_the_layout_it_left() {
     let mut monitor = node("monitor", true, true);

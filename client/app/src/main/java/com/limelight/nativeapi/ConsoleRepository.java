@@ -62,6 +62,8 @@ public final class ConsoleRepository {
     private final Map<String, List<String>> features = new java.util.concurrent.ConcurrentHashMap<>();
     /** When the capabilities call of a host last failed; it is not asked again until {@link #FEATURES_RETRY_MS} later. */
     private final Map<String, Long> featuresFailedAtMs = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Each host's session as last read, for the snapshots from storage that come between two reads. */
+    private final Map<String, NativeSession> sessions = new java.util.concurrent.ConcurrentHashMap<>();
     static final long FEATURES_RETRY_MS = 5 * 60 * 1000L;
 
     public ConsoleRepository(NativeApiTransport transport, EndpointFactory endpoints, LibraryCache cache,
@@ -284,6 +286,7 @@ public final class ConsoleRepository {
 
     private ConsoleSnapshot.Host nativeHost(ComputerDetails computer, boolean network) {
         NativeApiException failure = null;
+        if (network) sessions.remove(computer.uuid);
         if (network && computer.state == ComputerDetails.State.ONLINE) {
             HostEndpoint endpoint = endpoints.endpoint(computer);
             if (endpoint != null) {
@@ -300,6 +303,7 @@ public final class ConsoleRepository {
                         // Home still has the library; Continue playing just lacks this host's session.
                         LimeLog.info("No session from " + computer.name + ": " + e.getMessage());
                     }
+                    if (session != null) sessions.put(computer.uuid, session);
                     return new ConsoleSnapshot.Host(computer.uuid, computer.displayName(), ConsoleSnapshot.Status.LIVE, now,
                             null, session, sourcesOf(computer, library), new HashSet<>(features));
                 } catch (NativeApiException e) {
@@ -313,8 +317,11 @@ public final class ConsoleRepository {
         if (stored != null) {
             try {
                 NativeLibrary library = NativeLibrary.parse(new JSONObject(stored.libraryJson));
+                // A snapshot from storage knows what the last read of a PC that still answers said runs there: without
+                // it the next poll, which only repaints from storage, would take the running game off Home.
+                NativeSession lastRead = computer.state == ComputerDetails.State.ONLINE ? sessions.get(computer.uuid) : null;
                 return new ConsoleSnapshot.Host(computer.uuid, computer.displayName(), ConsoleSnapshot.Status.CACHED,
-                        stored.fetchedAtMs, failure, null, sourcesOf(computer, library), new HashSet<>(stored.features));
+                        stored.fetchedAtMs, failure, lastRead, sourcesOf(computer, library), new HashSet<>(stored.features));
             } catch (JSONException e) {
                 LimeLog.warning("Unreadable cached library of " + computer.name + ": " + e.getMessage());
             }

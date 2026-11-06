@@ -8,11 +8,10 @@
     android:background="@drawable/glass_row" android:defaultFocusHighlightEnabled="false"
     android:descendantFocusability="blocksDescendants">
     <com.limelight.ui.CoverFrame android:id="@+id/console_cover_frame" android:layout_width="28dp" android:layout_height="42dp"
-        android:background="?attr/glassPlaceholder" android:outlineProvider="background">
+        android:background="@drawable/glass_thumb" android:outlineProvider="background">
         <com.limelight.ui.PosterImageView android:id="@+id/console_cover" android:layout_width="match_parent" android:layout_height="match_parent"
             android:scaleType="centerCrop" android:importantForAccessibility="no" />
-        <TextView android:id="@+id/console_cover_text" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"
-            android:importantForAccessibility="no" />
+        <com.limelight.ui.NoArtTile android:id="@+id/console_cover_text" android:layout_width="match_parent" android:layout_height="match_parent" android:visibility="gone" android:importantForAccessibility="no" />
         <com.limelight.ui.StatusDisc android:id="@+id/console_badge" android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:visibility="gone" android:importantForAccessibility="no" />
     </com.limelight.ui.CoverFrame>

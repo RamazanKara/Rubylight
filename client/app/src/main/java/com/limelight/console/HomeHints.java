@@ -57,6 +57,8 @@ final class HomeHints {
         boolean shown = text != null;
         if (shown) view.setText(text);
         view.setVisibility(shown ? View.VISIBLE : View.GONE);
+        // A hero's refresh changes the word during a layout pass, whose request can get lost: the line would keep its old width.
+        if (shown && view.isInLayout()) view.post(view::requestLayout);
     }
 
     /** The line with its keys drawn as key caps; null when there is nothing to say on this source. */

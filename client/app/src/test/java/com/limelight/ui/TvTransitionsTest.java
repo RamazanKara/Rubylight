@@ -232,9 +232,12 @@ public class TvTransitionsTest {
     public void homeClipsNeitherTheListNorItsRowsSoTheFocusGlowIsKept() throws Exception {
         Element layout = parse("src/main/res/layout/activity_console_home.xml");
         NodeList lists = layout.getElementsByTagName("androidx.recyclerview.widget.RecyclerView");
-        assertEquals(1, lists.getLength());
+        // Home's list and the search's results keep the glow alike.
+        assertEquals(2, lists.getLength());
         Element list = (Element) lists.item(0);
+        assertEquals("@+id/console_list", list.getAttribute("android:id"));
         assertEquals("false", list.getAttribute("android:clipChildren"));
+        assertEquals("false", ((Element) lists.item(1)).getAttribute("android:clipChildren"));
         assertEquals("false", ((Element) list.getParentNode()).getAttribute("android:clipChildren"));
     }
 }

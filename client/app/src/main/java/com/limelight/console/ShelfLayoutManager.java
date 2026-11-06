@@ -37,6 +37,8 @@ final class ShelfLayoutManager extends LinearLayoutManager {
     private final Interpolator interpolator;
     private RowFocus rowFocus;
     private RecyclerView attached;
+    /** The hero's carousel: the focused cover goes to the middle of the strip, not one short of its end. */
+    private boolean centred;
 
     /** A manager for one shelf's cards when {@code orientation} is horizontal, for the shelves when it is vertical. */
     ShelfLayoutManager(Context context, int orientation, BooleanSupplier instant) {
@@ -45,6 +47,10 @@ final class ShelfLayoutManager extends LinearLayoutManager {
         this.instant = instant;
         this.interpolator = android.view.animation.AnimationUtils.loadInterpolator(context, R.interpolator.tv_std);
         if (cards) setInitialPrefetchItemCount(7);
+    }
+
+    void setCentred(boolean centred) {
+        this.centred = centred;
     }
 
     void setRowFocus(RowFocus rowFocus) {
@@ -79,6 +85,7 @@ final class ShelfLayoutManager extends LinearLayoutManager {
 
     /** How far the list scrolls for a card that has just taken focus: the keyline of a shelf, the snap of a list of shelves. */
     int shiftFor(View child, int start, int end) {
+        if (centred) return (child.getLeft() + child.getRight()) / 2 - (start + end) / 2;
         return cards ? cardShift(child.getLeft(), child.getRight(), start, end) : child.getTop() - start;
     }
 

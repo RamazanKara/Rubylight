@@ -129,6 +129,16 @@ public final class DemoConsoleHome extends ConsoleHomeActivity {
         return null;
     }
 
+    @Override protected void play(com.limelight.nvstream.http.NvApp app, com.limelight.nvstream.http.ComputerDetails computer,
+                                  String source) {
+        startActivity(new Intent(this, DemoGameActivity.class).putExtra("state", "compact"));
+    }
+
+    @Override protected void end(com.limelight.nvstream.http.NvApp app, com.limelight.nvstream.http.ComputerDetails computer, Runnable onComplete) {
+        runOnUiThread(() -> Toast.makeText(this, R.string.demo_offline, Toast.LENGTH_SHORT).show());
+        if (onComplete != null) onComplete.run();
+    }
+
     @Override protected Class<? extends GameDetailActivity> detailActivity() {
         return DemoGameDetail.class;
     }

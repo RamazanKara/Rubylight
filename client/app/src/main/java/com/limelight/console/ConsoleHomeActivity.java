@@ -32,6 +32,7 @@ import com.limelight.preferences.HostStreamSettings;
 import com.limelight.ui.ActionSheet;
 import com.limelight.ui.AppTheme;
 import com.limelight.ui.BackdropView;
+import com.limelight.ui.InputSource;
 import com.limelight.ui.Motion;
 import com.limelight.ui.NightjarActivity;
 import com.limelight.ui.ShellBar;
@@ -85,6 +86,9 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     private RecyclerView list;
     private HomeAmbience ambience;
     private HomeChrome chrome;
+    private HomeHints hints;
+    private HomeSearch search;
+    private ShelfAdapter.Env searchEnv;
     private View loading;
     private View empty;
     private volatile ConsoleRepository repository;
@@ -193,6 +197,26 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                 startActivity(new Intent(ConsoleHomeActivity.this, allGamesActivity())
                         .putExtra(AllGamesActivity.EXTRA_FILTER, filter));
             }
+
+            @Override
+            public void onHeroPlay(HomeModel.GameCard card) {
+                playHero(card);
+            }
+
+            @Override
+            public void onHeroQuit(HomeModel.GameCard card) {
+                quitHero(card);
+            }
+
+            @Override
+            public void onHeroShown(HomeModel.GameCard card) {
+                if (ambience != null) ambience.refresh(new ShelfAdapter.Item(card.key, card, null));
+            }
+
+            @Override
+            public void onHeroFocus(CharSequence go) {
+                if (go != null && hints != null) hints.onFocus(go, getString(R.string.console_hint_options));
+            }
         };
         view = HomeView.read(PreferenceManager.getDefaultSharedPreferences(this), isTelevision());
         if (view.layout == HomeView.Layout.ROWS) {
@@ -203,12 +227,30 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         chrome = new HomeChrome(this, list, view.layout == HomeView.Layout.ROWS);
         setUpAmbience();
         setUpViewButton();
-        View.OnClickListener search = v -> startActivity(new Intent(this, allGamesActivity()));
+        setUpSearch(listener);
+        feed.bind();
+    }
+
+    /** Search on the page where the layout has the field; a TV's opens All games. */
+    private void setUpSearch(ConsoleHomeAdapter.Listener listener) {
+        searchEnv = new ShelfAdapter.Env(this, covers, feed::host, listener);
+        search = HomeSearch.of(this, searchEnv, () -> model, () -> {
+            if (hints != null) hints.onFocus(null, null);
+        }, () -> {
+            if (chrome.form() == com.limelight.ui.GlassForm.PHONE) {
+                findViewById(R.id.home_bottom_row).setVisibility(View.VISIBLE);
+                findViewById(R.id.home_foot_fade).setVisibility(View.VISIBLE);
+            }
+        });
+        chrome.setSearch(search);
+        View.OnClickListener open = v -> {
+            if (search != null) search.open(v);
+            else startActivity(new Intent(this, allGamesActivity()));
+        };
         for (int id : new int[] {R.id.home_search, R.id.home_search_top}) {
             View button = findViewById(id);
-            if (button != null) button.setOnClickListener(search);
+            if (button != null) button.setOnClickListener(open);
         }
-        feed.bind();
     }
 
     /** By the window's type; every layout has the backdrop now. */
@@ -411,6 +453,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         shelves.setGroup(view.group);
         shelves.setCardScale(view.size.scale);
         shelves.setTelevision(isTelevision());
+        shelves.setHeroes(!isTelevision());
         list.setAdapter(shelves);
     }
 
@@ -431,20 +474,61 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         backdrop.setOnCovered(() -> getWindow().setBackgroundDrawable(null));
         java.util.function.BooleanSupplier fast = shelves != null ? shelves::isFastTravel : adapter::isFastTravel;
         ambience = new HomeAmbience(this, backdrop, hero, feed::host, () -> covers, fast);
-        ambience.setGamepad(com.limelight.ui.StreamMenuHint.hasGamepad());
+        InputSource start = InputSource.last() != null ? InputSource.last() : isTelevision()
+                ? (com.limelight.ui.StreamMenuHint.hasGamepad() ? InputSource.PAD : InputSource.REMOTE) : InputSource.NONE;
+        ambience.setInput(start, 0);
+        hints = new HomeHints(this, findViewById(R.id.home_hints), start);
+        ShelfAdapter.FocusListener focus = (shelf, item, card) -> {
+            hints.onFocus(HomeAmbience.goWord(this, item.host == null), item.all != null ? null : getString(R.string.console_hint_options));
+            // The hero's own lines leave the ambient on the hero's game.
+            if (!HomeHero.SHELF.equals(shelf)) ambience.onCardFocus(shelf, item, card);
+        };
         if (shelves != null) {
-            shelves.setFocusListener(ambience);
+            shelves.setFocusListener(focus);
         } else {
-            adapter.setFocusListener(ambience);
+            adapter.setFocusListener(focus);
         }
+        list.getViewTreeObserver().addOnTouchModeChangeListener(touch -> {
+            if (touch || hints.source() != InputSource.NONE) return;
+            onInput(InputSource.leavingTouch(com.limelight.ui.StreamMenuHint.hasGamepad(),
+                    getResources().getConfiguration().keyboard == android.content.res.Configuration.KEYBOARD_QWERTY), 0);
+        });
+        // Focus on the chrome has nothing for the hints to say.
+        list.getViewTreeObserver().addOnGlobalFocusChangeListener((before, now) -> {
+            if (now == null || !isInList(now)) hints.onFocus(null, null);
+        });
     }
 
-    /** The hero's key hints follow the last key: a gamepad's A and X, or a remote's OK and Menu. */
+    private boolean isInList(View view) {
+        for (android.view.ViewParent up = view.getParent(); up != null; up = up.getParent()) {
+            if (up == list) return true;
+        }
+        return false;
+    }
+
+    /** The last input names the keys in the hints: on the next input, with no animation. */
+    private void onInput(InputSource source, int vendor) {
+        if (source == null) return;
+        InputSource.remember(source);
+        if (ambience != null) ambience.setInput(source, vendor);
+        if (hints != null) hints.onInput(source, vendor);
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(android.view.MotionEvent event) {
+        if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) onInput(InputSource.of(event), 0);
+        return super.dispatchTouchEvent(event);
+    }
+
+    @Override
+    public boolean dispatchGenericMotionEvent(android.view.MotionEvent event) {
+        onInput(InputSource.of(event), event.getDevice() == null ? 0 : event.getDevice().getVendorId());
+        return super.dispatchGenericMotionEvent(event);
+    }
+
     @Override
     public boolean dispatchKeyEvent(android.view.KeyEvent event) {
-        if (ambience != null && event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
-            ambience.setGamepad(fromGamepad(event));
-        }
+        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) onInput(InputSource.of(event), InputSource.vendorOf(event));
         // Up from the top of the list goes to the current tab of the shell bar, whatever the focus search would pick
         // (View, at the bar's end, included).
         // On a phone the tabs are at the foot: Up from the top card stays in the top row.
@@ -453,13 +537,6 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             return true;
         }
         return super.dispatchKeyEvent(event);
-    }
-
-    static boolean fromGamepad(android.view.KeyEvent event) {
-        // A pad's D-pad and sticks often arrive as SOURCE_JOYSTICK keys, without the gamepad bit.
-        int source = event.getSource();
-        return (source & android.view.InputDevice.SOURCE_GAMEPAD) == android.view.InputDevice.SOURCE_GAMEPAD
-                || (source & android.view.InputDevice.SOURCE_JOYSTICK) == android.view.InputDevice.SOURCE_JOYSTICK;
     }
 
     @Override
@@ -567,6 +644,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             repository = createRepository(uniqueId);
             covers = new CoverLoaders(this, uniqueId, COVER_WIDTH_DP);
             if (ambience != null) covers.setArtListener(ambience::onArt);
+            if (searchEnv != null) searchEnv.covers = covers;
             if (shelves != null) {
                 shelves.setCovers(covers);
             } else {
@@ -618,6 +696,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             this.model = model;
             showHostCapsule(model);
             submitKeepingFocus(model);
+            if (search != null) search.onModel();
             // While a saved PC has yet to answer, an empty Home is still loading, not "No PCs yet".
             boolean waiting = model.isEmpty() && noHosts && feed.waiting();
             if (done && !waiting) {
@@ -626,7 +705,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             // "No hosts" waits until the hosts had time to answer, so it does not flash on every start.
             boolean showEmpty = model.isEmpty() && noHosts && settled && !waiting;
             empty.setVisibility(showEmpty ? View.VISIBLE : View.GONE);
-            list.setVisibility(showEmpty ? View.INVISIBLE : View.VISIBLE);
+            if (search == null || !search.isOpen()) list.setVisibility(showEmpty ? View.INVISIBLE : View.VISIBLE);
             focusFirstCard(showEmpty);
         });
     }
@@ -660,6 +739,19 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                     grid.scrollToPosition(first);
                     focusPending = true;
                 }
+            });
+            return;
+        }
+        ShelfAdapter.Item hero = shelves.heroItem();
+        if (hero != null) {
+            // The hero's game holds the ambient until focus goes elsewhere, and a key starts on its Play.
+            if (ambience != null && shelves.focusedCard(list) == null) ambience.refresh(hero);
+            if (list.isInTouchMode()) return;
+            focusPending = false;
+            list.post(() -> {
+                View play = shelves.heroPlay(list);
+                if (play != null) play.requestFocus();
+                else focusPending = true;
             });
             return;
         }
@@ -701,6 +793,46 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             return;
         }
         GameOpener.open(opener, worker, card);
+    }
+
+    /** Starts or resumes the game from the hero; a game that needs its page first opens that. */
+    private void playHero(HomeModel.GameCard card) {
+        ComputerDetails host = feed.host(card.hostUuid);
+        if (HomeHero.opensPage(card, host)) {
+            openGame(card);
+            return;
+        }
+        if (feed.binder() == null) {
+            hostActions.showError(host.displayName(), getString(R.string.error_manager_not_running), null);
+            return;
+        }
+        play(CoverLoaders.appOf(card.title, card.appId, card.source), host,
+                card.badge == HomeModel.Badge.NONE ? LaunchSource.CONSOLE_PLAY : LaunchSource.CONSOLE_RESUME);
+    }
+
+    /** Asks, then ends the game on its PC; Home reads the PC again once that answered. */
+    private void quitHero(HomeModel.GameCard card) {
+        ComputerDetails host = feed.host(card.hostUuid);
+        if (host == null) return;
+        if (feed.binder() == null) {
+            hostActions.showError(host.displayName(), getString(R.string.error_manager_not_running), null);
+            return;
+        }
+        UiHelper.displayQuitConfirmationDialog(this, () -> end(CoverLoaders.appOf(card.title, card.appId, card.source), host, () ->
+                handler.post(() -> {
+                    refreshedSignature = null;
+                    scheduleReload();
+                })), null);
+    }
+
+    /** Starts the stream; the debug demo overrides this so no stream is opened. */
+    protected void play(com.limelight.nvstream.http.NvApp app, ComputerDetails computer, String source) {
+        ServerHelper.doStart(this, app, computer, feed.binder(), source);
+    }
+
+    /** Ends the game on the host, then calls {@code onComplete} on any thread. */
+    protected void end(com.limelight.nvstream.http.NvApp app, ComputerDetails computer, Runnable onComplete) {
+        ServerHelper.doQuit(this, computer, app, feed.binder(), onComplete);
     }
 
     private void openGameOn(String hostUuid, int appId, String title, String hostName) {
@@ -841,18 +973,27 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         boolean hide = !card.sourceHidden();
         CharSequence hiding = getString(hide ? R.string.applist_menu_hide_app : R.string.applist_menu_show_app);
         CharSequence openPlay = OpenPlay.menuLabel(this, card.hostUuid, card.appId);
+        List<CharSequence> labels = new java.util.ArrayList<>();
+        List<Runnable> actions = new java.util.ArrayList<>();
+        // A phone's hero has room for one button, Play: Quit game is here, on Hold OK and Y too.
+        if (card.badge == HomeModel.Badge.RUNNING && !OfflineLook.allAway(card.hostUuids, feed::host)) {
+            ComputerDetails host = feed.host(card.hostUuid);
+            if (host != null && host.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
+                labels.add(getString(R.string.applist_menu_quit));
+                actions.add(() -> quitHero(card));
+            }
+        }
+        labels.add(star);
+        actions.add(() -> setFavourite(card, !remove));
+        labels.add(openPlay);
+        actions.add(() -> OpenPlay.toggle(this, card.hostUuid, card.hostName, card.appId, card.source != null ? card.source.stableId() : "", card.title));
+        if (!copies.isEmpty()) {
+            labels.add(hiding);
+            actions.add(() -> setHidden(copies, hide));
+        }
         UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this)
                 .setTitle(card.title)
-                .setItems(copies.isEmpty() ? new CharSequence[]{star, openPlay}
-                        : new CharSequence[]{star, openPlay, hiding}, (dialog, which) -> {
-                    if (which == 0) {
-                        setFavourite(card, !remove);
-                    } else if (which == 1) {
-                        OpenPlay.toggle(this, card.hostUuid, card.hostName, card.appId, card.source != null ? card.source.stableId() : "", card.title);
-                    } else {
-                        setHidden(copies, hide);
-                    }
-                })
+                .setItems(labels.toArray(new CharSequence[0]), (dialog, which) -> actions.get(which).run())
                 .setNegativeButton(android.R.string.cancel, null).create());
     }
 
@@ -948,7 +1089,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     }
 
     /** The PC's options, the same list as on the PCs screen (only for PCs this device is paired with). */
-    /** The PC capsule names the host that answers, else the first; several hosts open the list of PCs. */
+    /** The PC capsule names the host that answers, else the first; one host opens its options, several a sheet of them. */
     private void showHostCapsule(HomeModel model) {
         if (chrome == null) return;
         HomeModel.HostCard shown = null;
@@ -958,8 +1099,31 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         final HomeModel.HostCard only = model.hosts.size() == 1 ? shown : null;
         chrome.showHost(shown, v -> {
             if (only != null) showHostOptions(only);
-            else openHosts();
+            else showHostSheet();
         });
+    }
+
+    /** The PCs behind the capsule, each with whether it answers; one opens its options, and Back leaves the capsule in focus. */
+    private void showHostSheet() {
+        if (hostMenu != null) return;
+        ActionSheet sheet = new ActionSheet(this, getString(R.string.console_section_hosts));
+        hostMenu = sheet;
+        sheet.setOnDismissListener(dialog -> {
+            if (hostMenu == sheet) hostMenu = null;
+        });
+        for (HomeModel.HostCard card : model.hosts) {
+            com.google.android.material.button.MaterialButton row = sheet.addAction(R.drawable.ic_glass_pcs, card.name,
+                    ShelfAdapter.CardHolder.hostLine(this, card));
+            row.setIconTint(android.content.res.ColorStateList.valueOf(card.online
+                    ? com.google.android.material.color.MaterialColors.getColor(row, R.attr.glassOk)
+                    : com.google.android.material.color.MaterialColors.getColor(row, com.google.android.material.R.attr.colorOnSurfaceVariant)));
+            row.setOnClickListener(v -> {
+                sheet.dismiss();
+                hostMenu = null;
+                showHostOptions(card);
+            });
+        }
+        sheet.show();
     }
 
     private void showHostOptions(HomeModel.HostCard card) {

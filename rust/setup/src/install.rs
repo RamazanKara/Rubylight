@@ -380,6 +380,7 @@ fn install_with(
     line(format!("found: {found:#?}"));
     let side_by_side = found.side_by_side(options.side_by_side)?;
     let service = if side_by_side {
+        refuse_foreign_service(system::service_program(host_service::SIDE_BY_SIDE).as_deref())?;
         host_service::SIDE_BY_SIDE
     } else {
         host_service::DEFAULT
@@ -1175,6 +1176,18 @@ fn outside_other_hosts(found: &detect::Found, install: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+/// Side by side runs as `RubylightService`. Another program's service of that
+/// name is not Rubylight's to stop or point elsewhere; `program` is what it runs.
+fn refuse_foreign_service(program: Option<&Path>) -> Result<()> {
+    match program {
+        Some(program) if !detect::our_service(program) => bail!(
+            "A service named {} already exists and runs {}, which is not Rubylight. Setup does not stop or change it, and Rubylight needs that name to install side by side. Remove that service, then run setup again. Nothing has been changed.",
+            host_service::SIDE_BY_SIDE,
+            program.display()
+        ),
+        _ => Ok(()),
+    }
 }
 fn profile_empty(profile: &Path) -> Result<bool> {
     match std::fs::read_dir(profile) {
@@ -2405,6 +2418,7 @@ mod tests {
         let guard = at("outside_other_hosts(&found, &install)?;");
         assert!(guard < at("if let Target::Move(old) = &target {"));
         assert!(guard > at("let updating = target == Target::InPlace;"));
+        assert!(at("refuse_foreign_service(") < at("prepare_profile(&profile"));
     }
     #[test]
     fn side_by_side_stays_out_of_a_folder_a_host_knows_only_by_its_service() -> Result<()> {
@@ -2428,6 +2442,21 @@ mod tests {
         };
         outside_other_hosts(&gone, &dir.path().join("gone"))?;
         Ok(())
+    }
+    #[test]
+    fn another_programs_rubylight_service_is_refused() {
+        refuse_foreign_service(None).unwrap();
+        refuse_foreign_service(Some(Path::new(
+            r"C:\Program Files\Rubylight\butterpollo-service.exe",
+        )))
+        .unwrap();
+        let refused = format!(
+            "{:#}",
+            refuse_foreign_service(Some(Path::new(r"C:\Other\other.exe"))).unwrap_err()
+        );
+        assert!(refused.contains("RubylightService"), "{refused}");
+        assert!(refused.contains(r"C:\Other\other.exe"), "{refused}");
+        assert!(refused.contains("Nothing has been changed"), "{refused}");
     }
     /// Setup's rollback must not start or stop the other host: it only ever
     /// acts on Rubylight's own service, whatever else runs.

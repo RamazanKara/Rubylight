@@ -66,4 +66,7 @@
     <string name="console_wake_timeout">%1$s ist nicht rechtzeitig aufgewacht. Prüfe, ob Wake-on-LAN eingerichtet ist, und versuche es erneut.</string>
     <string name="console_choose_pc">Auf welchem PC spielen?</string>
     <string name="console_badge_asleep">PC im Ruhezustand</string>
+    <string name="pc_status_online">Online</string>
+    <string name="pc_status_not_paired">Nicht gekoppelt</string>
+    <string name="pc_action_wake">Aufwecken</string>
 </resources>

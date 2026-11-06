@@ -87,6 +87,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     private HomeAmbience ambience;
     private HomeChrome chrome;
     private HomeHints hints;
+    private HostSheet hostSheet;
     private HomeSearch search;
     private ShelfAdapter.Env searchEnv;
     private View loading;
@@ -1089,13 +1090,18 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     }
 
     /** The PC's options, the same list as on the PCs screen (only for PCs this device is paired with). */
-    /** The PC capsule names the host that answers, else the first; one host opens its options, several a sheet of them. */
-    private void showHostCapsule(HomeModel model) {
-        if (chrome == null) return;
+    private static HomeModel.HostCard capsuleHost(HomeModel model) {
         HomeModel.HostCard shown = null;
         for (HomeModel.HostCard card : model.hosts) {
             if (shown == null || (card.online && !shown.online)) shown = card;
         }
+        return shown;
+    }
+
+    /** The PC capsule names the host that answers, else the first; one host opens its options, several a sheet of them. */
+    private void showHostCapsule(HomeModel model) {
+        if (chrome == null) return;
+        HomeModel.HostCard shown = capsuleHost(model);
         final HomeModel.HostCard only = model.hosts.size() == 1 ? shown : null;
         chrome.showHost(shown, v -> {
             if (only != null) showHostOptions(only);
@@ -1103,27 +1109,19 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         });
     }
 
-    /** The PCs behind the capsule, each with whether it answers; one opens its options, and Back leaves the capsule in focus. */
+    /** The PCs behind the capsule in glass, each with what it is doing; one opens its options, and Back leaves the capsule in focus. */
     private void showHostSheet() {
         if (hostMenu != null) return;
-        ActionSheet sheet = new ActionSheet(this, getString(R.string.console_section_hosts));
-        hostMenu = sheet;
-        sheet.setOnDismissListener(dialog -> {
-            if (hostMenu == sheet) hostMenu = null;
-        });
-        for (HomeModel.HostCard card : model.hosts) {
-            com.google.android.material.button.MaterialButton row = sheet.addAction(R.drawable.ic_glass_pcs, card.name,
-                    ShelfAdapter.CardHolder.hostLine(this, card));
-            row.setIconTint(android.content.res.ColorStateList.valueOf(card.online
-                    ? com.google.android.material.color.MaterialColors.getColor(row, R.attr.glassOk)
-                    : com.google.android.material.color.MaterialColors.getColor(row, com.google.android.material.R.attr.colorOnSurfaceVariant)));
-            row.setOnClickListener(v -> {
-                sheet.dismiss();
-                hostMenu = null;
-                showHostOptions(card);
-            });
+        if (hostSheet == null) {
+            hostSheet = HostSheet.attach(this, findViewById(R.id.glass_host), findViewById(R.id.home_pc));
         }
-        sheet.show();
+        if (hostSheet.isOpen()) return;
+        java.util.List<HostSheet.Row> rows = new java.util.ArrayList<>();
+        HomeModel.HostCard current = chrome == null ? null : capsuleHost(model);
+        for (HomeModel.HostCard card : model.hosts) {
+            rows.add(HostSheet.rowOf(this, card, feed.host(card.uuid), runningGameOf(card.uuid), card == current));
+        }
+        hostSheet.show(rows, this::showHostOptions);
     }
 
     private void showHostOptions(HomeModel.HostCard card) {

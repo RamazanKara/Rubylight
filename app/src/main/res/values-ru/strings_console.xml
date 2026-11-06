@@ -72,4 +72,7 @@
     <string name="console_wake_timeout">%1$s не проснулся вовремя. Проверьте, что Wake-on-LAN настроен, и попробуйте снова.</string>
     <string name="console_choose_pc">На каком ПК играть?</string>
     <string name="console_badge_asleep">ПК в спящем режиме</string>
+    <string name="pc_status_online">В сети</string>
+    <string name="pc_status_not_paired">Не сопряжён</string>
+    <string name="pc_action_wake">Разбудить</string>
 </resources>

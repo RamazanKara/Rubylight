@@ -71,4 +71,7 @@
     <string name="console_wake_timeout">%1$s did not wake up in time. Check that Wake-on-LAN is set up, then try again.</string>
     <string name="console_choose_pc">Play on which PC?</string>
     <string name="console_badge_asleep">PC asleep</string>
+    <string name="pc_status_online">Online</string>
+    <string name="pc_status_not_paired">Not paired</string>
+    <string name="pc_action_wake">Wake</string>
 </resources>

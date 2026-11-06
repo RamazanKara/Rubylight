@@ -66,4 +66,7 @@
     <string name="console_wake_timeout">%1$s zamanında uyanmadı. Wake-on-LAN’ın kurulu olduğunu denetleyip yeniden deneyin.</string>
     <string name="console_choose_pc">Hangi bilgisayarda oynansın?</string>
     <string name="console_badge_asleep">Bilgisayar uykuda</string>
+    <string name="pc_status_online">Çevrimiçi</string>
+    <string name="pc_status_not_paired">Eşlenmedi</string>
+    <string name="pc_action_wake">Uyandır</string>
 </resources>

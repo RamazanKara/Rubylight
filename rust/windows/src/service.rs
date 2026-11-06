@@ -6,8 +6,21 @@
 
 use anyhow::Result;
 
-/// The service's name, as in rust/service/src/supervisor.rs.
-pub const NAME: &str = "ApolloService";
+/// The service's name in a normal installation, as in
+/// rust/service/src/supervisor.rs.
+pub const NAME: &str = butterpollo_core::host_service::DEFAULT;
+/// The service this PC's Rubylight runs as, which setup recorded.
+pub fn name() -> &'static str {
+    use butterpollo_core::host_service;
+    host_service::from_record(
+        crate::steam::registry_string(
+            windows::Win32::System::Registry::HKEY_LOCAL_MACHINE,
+            host_service::KEY,
+            host_service::VALUE,
+        )
+        .as_deref(),
+    )
+}
 /// The exit code with which the host asks the service to start it again at
 /// once, as in rust/service/src/supervisor.rs.
 pub const RESTART_EXIT_CODE: u32 = 75;
@@ -122,6 +135,14 @@ fn nucleus_settings_left(
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// A side-by-side installation's launcher must not query or start
+    /// `ApolloService`, which is the other host's there.
+    #[test]
+    fn the_launcher_asks_for_the_recorded_service() {
+        let launcher = include_str!("launcher.rs");
+        assert!(!launcher.contains("service::NAME"));
+        assert_eq!(launcher.matches("crate::service::name()").count(), 2);
+    }
     #[test]
     fn nucleus_settings_are_put_back_only_with_neither_nucleus_nor_a_session() {
         use butterpollo_core::nucleus::profile::Forced;

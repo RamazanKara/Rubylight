@@ -4,7 +4,9 @@ param(
     [string]$ConfigSource
 )
 $ErrorActionPreference = 'Stop'
-$name = 'ApolloService'
+# The service setup recorded for a side-by-side installation (rust/core/src/host_service.rs).
+$name = (Get-ItemProperty 'HKLM:\SOFTWARE\Rubylight' -Name ServiceName -ErrorAction SilentlyContinue).ServiceName
+if ($name -ne 'RubylightService') { $name = 'ApolloService' }
 $executable = Join-Path $PSScriptRoot 'butterpollo-service.exe'
 $config = Join-Path $env:PROGRAMDATA 'Butterpollo\config'
 $service = Get-CimInstance Win32_Service -Filter "Name='$name'"
@@ -17,7 +19,7 @@ if (!$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if ($service) {
     $expected = '"' + [IO.Path]::GetFullPath($executable) + '"'
     if (!$service.PathName.StartsWith($expected, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "ApolloService belongs to another installation ($($service.PathName)). This script will not replace or stop it."
+        throw "$name belongs to another installation ($($service.PathName)). This script will not replace or stop it."
     }
 }
 switch ($Action) {

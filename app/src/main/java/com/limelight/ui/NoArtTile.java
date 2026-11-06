@@ -15,6 +15,7 @@ import android.view.Gravity;
 
 import androidx.appcompat.widget.AppCompatTextView;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.res.ResourcesCompat;
 import androidx.core.widget.TextViewCompat;
 
 import com.limelight.R;
@@ -68,10 +69,10 @@ public class NoArtTile extends AppCompatTextView {
     public NoArtTile(Context context, AttributeSet attrs) {
         super(context, attrs);
         Resources res = context.getResources();
-        titleScale = res.getFloat(R.dimen.nj_tile_title_scale);
-        titleMinScale = res.getFloat(R.dimen.nj_tile_title_min_scale);
-        insetScale = res.getFloat(R.dimen.nj_tile_inset_scale);
-        discScale = res.getFloat(R.dimen.nj_tile_disc_scale);
+        titleScale = ResourcesCompat.getFloat(res, R.dimen.nj_tile_title_scale);
+        titleMinScale = ResourcesCompat.getFloat(res, R.dimen.nj_tile_title_min_scale);
+        insetScale = ResourcesCompat.getFloat(res, R.dimen.nj_tile_inset_scale);
+        discScale = ResourcesCompat.getFloat(res, R.dimen.nj_tile_disc_scale);
         disc.setColor(discColor(context));
         TextViewCompat.setTextAppearance(this, R.style.TextAppearance_Nightjar_Title);
         setTextColor(Color.WHITE);
@@ -124,7 +125,7 @@ public class NoArtTile extends AppCompatTextView {
 
     /** White at the token's strength, for the disc here and on a PC's screen. */
     public static int discColor(Context context) {
-        float alpha = context.getResources().getFloat(R.dimen.nj_tile_disc_alpha);
+        float alpha = ResourcesCompat.getFloat(context.getResources(), R.dimen.nj_tile_disc_alpha);
         return (Math.round(alpha * 255f) << 24) | 0xFFFFFF;
     }
 

@@ -1178,6 +1178,7 @@ fn test_prepared(host: &Shared) -> Prepared {
         recovery: Recovery::new(),
         layout_watch: Default::default(),
         departures: 0,
+        wake_layouts: 0,
         console_session: None,
         hold_layout_while_paused: false,
         mode_report: ModeReport::new(Arc::new(Warnings::default()), (None, None, None), 60_000),
@@ -2230,6 +2231,7 @@ fn a_faster_stream_request_keeps_only_a_display_that_can_follow_it() {
         recovery: Recovery::new(),
         layout_watch: Default::default(),
         departures: 0,
+        wake_layouts: 0,
         console_session: None,
         hold_layout_while_paused: false,
         mode_report: ModeReport::new(Arc::new(Warnings::default()), (None, None, None), 60_000),
@@ -2316,6 +2318,14 @@ fn extended_under(in_force: Arrangement, prepared: &mut Prepared, launch: &Launc
     );
 }
 
+#[test]
+fn every_stream_sees_a_monitors_return_had_displays_put_back_once() {
+    let (mut one, mut other) = (3, 3);
+    assert!(!wake_layout_passed(&mut one, 3));
+    assert!(wake_layout_passed(&mut one, 4));
+    assert!(!wake_layout_passed(&mut one, 4));
+    assert!(wake_layout_passed(&mut other, 4));
+}
 #[test]
 fn a_stream_that_began_as_a_monitor_woke_learns_nothing_from_how_it_ends() {
     // Its display alone with the monitor away reads just like the user's "Show only on 2".

@@ -255,6 +255,13 @@ static DEPARTURES: AtomicU64 = AtomicU64::new(0);
 pub fn departures() -> u64 {
     DEPARTURES.load(Ordering::Relaxed)
 }
+/// How many times a monitor's return had displays put back ([`lay_out_after_wake`]).
+static WAKE_LAYOUTS: AtomicU64 = AtomicU64::new(0);
+/// Compare it to see that this happened while this stream goes on: one heartbeat does it,
+/// and it can have recalled the mode of any stream's display.
+pub fn wake_layouts() -> u64 {
+    WAKE_LAYOUTS.load(Ordering::Relaxed)
+}
 /// When a display last left, with the windows minimised just before.
 type Departure = (std::time::Instant, std::collections::BTreeSet<isize>);
 static LAST_DEPARTURE: Mutex<Option<Departure>> = Mutex::new(None);
@@ -650,13 +657,16 @@ fn recall_to_undo(
 /// look after them, so what Windows recalled for it is undone here. A layout that
 /// does move the primary or switches them off applies that afterwards.
 pub fn undo_recall_for_remote_monitor(before: &Snapshot, output: &str) -> Result<()> {
+    // Before the lock: stopping a watch holds the watcher across a wait for a thread that
+    // wants this one.
+    let settling = wake_watch_settling();
     let state = state().lock().unwrap();
-    let pending = if state.users == 0 {
+    let pending = if state.users == 0 && settling {
         crate::display_recovery::pending_arrangement()?
     } else {
         None
     };
-    let before = remote_monitor_baseline(state.users, pending.as_ref(), before);
+    let before = remote_monitor_baseline(state.users, settling, pending.as_ref(), before);
     let Some(saves) = remote_monitor_repair(
         &state,
         &before.nodes,
@@ -677,13 +687,16 @@ pub fn undo_recall_for_remote_monitor(before: &Snapshot, output: &str) -> Result
 }
 /// The layout a remote monitor's arrival goes by: the one from just before it, unless a
 /// stopped watch left the user's: with their monitor away what was on then can be what
-/// Windows lit, and an entry saved from that would light it for later streams.
+/// Windows lit, and an entry saved from that would light it for later streams. Only while
+/// that is at work (`settling`): an entry stuck since then knows nothing of what the user
+/// changed after it, and this repair saves.
 fn remote_monitor_baseline<'a>(
     users: usize,
+    settling: bool,
     pending: Option<&'a Snapshot>,
     before: &'a Snapshot,
 ) -> &'a Snapshot {
-    pending.filter(|_| users == 0).unwrap_or(before)
+    pending.filter(|_| users == 0 && settling).unwrap_or(before)
 }
 /// Whether a remote monitor's arrival needs a repair, and if so whether it saves.
 /// It is judged by the layout the streams hold; with none held, by one that leaves
@@ -1109,8 +1122,8 @@ fn strays_off_saves(before: &[Node], on: &[String], connected: &[String]) -> boo
 }
 /// Windows recalled the entry for what is connected while a woken display is away, and
 /// that can have a display on that was off before the stream, such as a TV. Off again,
-/// and saved so that the entry no longer has it on.
-fn switch_off_strays(before: &[Node], keep: &[String]) -> Result<()> {
+/// and saved so that the entry no longer has it on, if it `saves`.
+fn switch_off_strays(before: &[Node], keep: &[String], saves: bool) -> Result<()> {
     let active: Vec<_> = Topology::query()?
         .monitors()
         .into_iter()
@@ -1122,7 +1135,7 @@ fn switch_off_strays(before: &[Node], keep: &[String]) -> Result<()> {
     }
     tracing::info!(displays = ?off, "Windows switched on a display the user's layout doesn't have while their monitor is away; switching it off");
     Topology::set_active(&on)?;
-    if strays_off_saves(before, &on, &connected()?) {
+    if saves && strays_off_saves(before, &on, &connected()?) {
         Topology::save_current()?;
     }
     Ok(())
@@ -1145,17 +1158,37 @@ fn layout_is_back(
 fn put_left_layout_back(before: &Snapshot) -> Result<()> {
     let leased = crate::display::leased_displays();
     let current = Snapshot::capture()?.nodes;
+    let connected = connected()?;
     if layout_is_back(
         &before.nodes,
         &current,
-        &connected()?,
+        &connected,
         &physical_displays()?,
         &leased,
     ) {
         return Ok(());
     }
     tracing::info!("putting the user's layout back after a stream's end was cut short");
-    before.restore_excluding(&leased)
+    present_layout(before, &connected).restore_excluding(&leased)
+}
+/// `before` for what is `connected`, for when a watch is done waiting. With the display at
+/// the origin gone for good, the others would have nothing there, which Windows refuses
+/// (invalid parameter) for as long as it is gone, and the journal entry would sit.
+fn present_layout(before: &Snapshot, connected: &[String]) -> Snapshot {
+    let mut layout = before.clone();
+    layout.nodes.retain(|n| connected.contains(&n.device_id));
+    let on = || layout.nodes.iter().filter(|n| n.active);
+    let at_origin = on().any(|n| (n.desired_position.x, n.desired_position.y) == (0, 0));
+    let first = on()
+        .map(|n| (n.desired_position.x, n.desired_position.y))
+        .min();
+    if let Some((x, y)) = first.filter(|_| !at_origin) {
+        for node in &mut layout.nodes {
+            node.desired_position.x = node.desired_position.x.saturating_sub(x);
+            node.desired_position.y = node.desired_position.y.saturating_sub(y);
+        }
+    }
+    layout
 }
 /// The watch's last part with no lease to take it up, the stream's display gone: a launch
 /// that failed or took no lease (a configured window, a physical stream with no layout)
@@ -1207,7 +1240,7 @@ fn start_left_watch(left: LeftWatch) {
                 job,
                 stop,
                 connected,
-                || switch_off_strays(&before.nodes, &crate::display::leased_displays()),
+                || switch_off_strays(&before.nodes, &crate::display::leased_displays(), true),
                 || put_left_layout_back(&before),
                 || crate::display_recovery::arrangement(None),
             )
@@ -1219,15 +1252,21 @@ fn start_left_watch(left: LeftWatch) {
 /// that display, what Windows lit in its place stays on, and the display may stay dark. So
 /// its heartbeat looks on, as the watch did ([`Lease::follow_wake`]). Under an exclusive
 /// layout there is nothing to do: everything else is off, and comes back as any recall.
-/// It stays until the lease's end, for [`Lease::after_cut_watch`].
 #[derive(Debug)]
 struct WakeFollow {
     woken: Vec<String>,
     started: std::time::Instant,
     looks: WakeLooks,
     tries: usize,
+    /// The displays have been put back once ([`pass_after_wake`]).
+    repaired: bool,
     done: bool,
     failed_strays: bool,
+}
+/// Whether a stream joining a layout came while a stopped watch's display is still looked
+/// for. Once that is done, what is on is as anyone's.
+fn joins_a_cut_watch(following: Option<&WakeFollow>) -> bool {
+    following.is_some_and(|f| !f.done)
 }
 /// Follow up on a pending layout: the displays of `before` others don't hold, some of them
 /// away (not `connected`) already, as a lease starts.
@@ -1257,6 +1296,7 @@ fn wake_follow(
         started: std::time::Instant::now(),
         looks,
         tries: 0,
+        repaired: false,
         done: false,
         failed_strays: false,
     })
@@ -1314,42 +1354,109 @@ fn wake_layout_wrong(
         keeps_primary,
     ) || !strays(before, &active, physical, keep).0.is_empty()
 }
+/// What a pass for a returned display leaves on beside the streams: what they and launches
+/// and remote monitors (`leased`) hold, and what is on its way to one. And whether anything
+/// is: then what is on is no entry to save ([`DepartureRepair::saves`]).
+fn beside_the_streams(
+    state: &State,
+    current: &[Node],
+    physical: &[String],
+    leased: &[String],
+) -> (Vec<String>, bool) {
+    let arriving = arriving_displays(state, current, physical);
+    let arrives = !arriving.is_empty();
+    let mut keep: Vec<_> = state.owners.iter().map(|(t, _)| t.clone()).collect();
+    keep.extend(state.retained.iter().cloned());
+    keep.extend(leased.iter().cloned());
+    keep.extend(arriving);
+    (keep, arrives)
+}
+/// The user's layout around what is kept on, of which only the place is its business. HDR,
+/// scale, rotation and mode there are what the streams set, not to be undone mid-stream.
+/// Not excluded from the restore: left where it is, it can be where the user's monitor goes.
+fn layout_around_streams(before: Snapshot, current: &[Node], keep: &[String]) -> Snapshot {
+    let mut layout = Snapshot {
+        nodes: with_kept(before.nodes, current, keep),
+        ..before
+    };
+    for id in keep {
+        layout.hdr.remove(id);
+        layout.scale.remove(id);
+        layout.rotation.remove(id);
+        let now = current.iter().find(|n| n.active && n.device_id == *id);
+        let node = layout.nodes.iter_mut().find(|n| n.device_id == *id);
+        if let (Some(node), Some(now)) = (node, now) {
+            node.mode = now.mode.clone();
+        }
+    }
+    layout
+}
+/// One go at a returned display's layout. The repair runs once however many goes the layout
+/// takes: a monitor refusing its saved mode or HDR gets no more passes on a running stream,
+/// and the stream gets its layout anyway. What comes back is a failed repair, for its card.
+fn pass_after_wake(
+    repaired: &mut bool,
+    wrong: bool,
+    repair: impl FnOnce() -> Result<()>,
+    lay_out: impl FnOnce() -> Result<()>,
+) -> Result<Option<String>> {
+    let due = wrong && !std::mem::replace(repaired, true);
+    if due {
+        WAKE_LAYOUTS.fetch_add(1, Ordering::Relaxed);
+    }
+    repair_then_lay_out(|| if due { repair() } else { Ok(()) }, lay_out)
+}
 /// The woken display stayed or returned: the layout the stream planned, with it at its
-/// mode. What is right already isn't written, so this is one layout pass at most. True
-/// when the displays had to be put back.
-fn lay_out_after_wake(state: &mut State, arrangement: Arrangement) -> Result<bool> {
+/// mode. What is right already isn't written, so this is one layout pass at most. Whether
+/// the displays were put back, and what came of that if it failed.
+fn lay_out_after_wake(
+    state: &mut State,
+    arrangement: Arrangement,
+) -> Result<(bool, Option<String>)> {
     let Some(before) = state.before.clone() else {
-        return Ok(false);
+        return Ok((false, None));
     };
     let targets: Vec<_> = state.owners.iter().map(|(t, _)| t.clone()).collect();
     let Some(target) = targets.first() else {
-        return Ok(false);
+        return Ok((false, None));
     };
-    let mut keep = targets.clone();
-    keep.extend(state.retained.iter().cloned());
     let current = Snapshot::capture()?.nodes;
+    let physical = physical_displays()?;
+    let (keep, arrives) = beside_the_streams(
+        state,
+        &current,
+        &physical,
+        &crate::display::leased_displays(),
+    );
     let wrong = wake_layout_wrong(
         &before.nodes,
         &current,
         &connected()?,
-        &physical_displays()?,
+        &physical,
         &targets,
         &keep,
         arrangement.keeps_primary(),
     );
-    if wrong {
-        tracing::info!(
-            "a display a stopped watch was waiting for is back; putting back the layout around the stream"
-        );
-        let layout = Snapshot {
-            nodes: with_kept(before.nodes, &current, &keep),
-            ..before
-        };
-        // Saved as any repair is but for the woken display, which the layout never had off.
-        forget_saved_layout(&layout, target, !isolated(state))?;
+    // Saved as any repair is but for the woken display, which the layout never had off.
+    let saves = !isolated(state) && !arrives;
+    let was_repaired = state.following.as_ref().is_some_and(|f| f.repaired);
+    let mut repaired = was_repaired;
+    let pass = pass_after_wake(
+        &mut repaired,
+        wrong,
+        || {
+            tracing::info!(
+                "a display a stopped watch was waiting for is back; putting back the layout around the stream"
+            );
+            let layout = layout_around_streams(before, &current, &keep);
+            forget_saved_layout(&layout, target, saves)
+        },
+        || apply(state, arrangement, None),
+    );
+    if let Some(follow) = state.following.as_mut() {
+        follow.repaired = repaired;
     }
-    apply(state, arrangement, None)?;
-    Ok(wrong)
+    Ok((repaired && !was_repaired, pass?))
 }
 /// The user's displays to watch at a stream's end: the ones it wakes, if Windows could
 /// switch on something else with the stream's display gone. With nothing else to switch
@@ -1539,9 +1646,9 @@ fn start_wake_watch(
                 end,
                 stop,
                 connected,
-                || switch_off_strays(&before.nodes, &[]),
+                || switch_off_strays(&before.nodes, &[], true),
                 || forget_saved_layout(&before, &target, true),
-                || before.restore(),
+                || connected().and_then(|c| present_layout(&before, &c).restore()),
                 || crate::display_recovery::arrangement(None),
             );
             drop(remains);
@@ -1640,6 +1747,8 @@ pub struct Lease {
     repair_failure: Option<String>,
     /// What goes after the lease ([`Lease::end`]).
     remains: Mutex<Option<Box<dyn Send>>>,
+    /// See [`Lease::after_cut_watch`].
+    after_cut: bool,
 }
 /// Log a repair that failed, and return what the stream's card says about it.
 fn failed_repair(what: &str, error: anyhow::Error) -> String {
@@ -1653,12 +1762,9 @@ fn repair_then_lay_out(
     repair: impl FnOnce() -> Result<()>,
     lay_out: impl FnOnce() -> Result<()>,
 ) -> Result<Option<String>> {
-    let failure = repair().err().map(|error| {
-        failed_repair(
-            "putting back the displays another stream's display left failed",
-            error,
-        )
-    });
+    let failure = repair()
+        .err()
+        .map(|error| failed_repair("putting back the displays Windows recalled failed", error));
     lay_out()?;
     Ok(failure)
 }
@@ -1699,6 +1805,7 @@ impl Lease {
             .collect();
         if state.users != 0 {
             // Another stream owns the layout: join it rather than refuse.
+            let after_cut = joins_a_cut_watch(state.following.as_ref());
             let owned = state.arrangement.unwrap_or(arrangement);
             if owned != arrangement {
                 tracing::info!(requested = ?arrangement, active = ?owned, "joining the display arrangement of the running streams");
@@ -1711,6 +1818,7 @@ impl Lease {
                     target: Mutex::new(target_id),
                     repair_failure: None,
                     remains: Mutex::default(),
+                    after_cut,
                 });
             }
             // The displays that are on now can hold an entry a stream on another
@@ -1752,6 +1860,7 @@ impl Lease {
                 target: Mutex::new(target_id),
                 repair_failure,
                 remains: Mutex::default(),
+                after_cut,
             });
         }
         let mut current = Snapshot::capture()?;
@@ -1810,7 +1919,7 @@ impl Lease {
             // around it. An exclusive layout takes it off by itself.
             let mut keep = retained.clone();
             keep.push(target_id.clone());
-            match switch_off_strays(&before.nodes, &keep).and_then(|()| Snapshot::capture()) {
+            match switch_off_strays(&before.nodes, &keep, true).and_then(|()| Snapshot::capture()) {
                 Ok(recaptured) => current = recaptured,
                 Err(error) => {
                     repair_failure = Some(failed_repair(
@@ -1852,6 +1961,7 @@ impl Lease {
             }
             return Err(error);
         }
+        let after_cut = following.is_some();
         state.following = following;
         state.before = Some(before);
         state.users = 1;
@@ -1868,6 +1978,7 @@ impl Lease {
             target: Mutex::new(target_id),
             repair_failure,
             remains: Mutex::default(),
+            after_cut,
         })
     }
     /// End the lease, and with it what `remains` of the stream: its display above all,
@@ -1890,10 +2001,18 @@ impl Lease {
         match step {
             FollowStep::Nothing => Ok(false),
             FollowStep::SwitchOffStrays => {
-                let mut keep: Vec<_> = state.owners.iter().map(|(t, _)| t.clone()).collect();
-                keep.extend(state.retained.iter().cloned());
                 let before = state.before.as_ref().map_or(&[][..], |b| &b.nodes);
-                if let Err(error) = switch_off_strays(before, &keep)
+                let switched = Snapshot::capture().and_then(|current| {
+                    let (keep, arrives) = beside_the_streams(
+                        state,
+                        &current.nodes,
+                        &physical_displays()?,
+                        &crate::display::leased_displays(),
+                    );
+                    switch_off_strays(before, &keep, !arrives)
+                });
+                let follow = state.following.as_mut().expect("checked above");
+                if let Err(error) = switched
                     && !std::mem::replace(&mut follow.failed_strays, true)
                 {
                     tracing::warn!(error = %format!("{error:#}"), "switching off a display Windows recalled while the user's monitor is away failed");
@@ -1905,9 +2024,12 @@ impl Lease {
                 let result = lay_out_after_wake(state, arrangement);
                 let follow = state.following.as_mut().expect("checked above");
                 match result {
-                    Ok(wrong) => {
+                    Ok((put_back, failure)) => {
                         follow.tried(true);
-                        Ok(wrong)
+                        match failure {
+                            Some(failure) => Err(anyhow::anyhow!(failure)),
+                            None => Ok(put_back),
+                        }
                     }
                     Err(error) if follow.tried(false) => {
                         tracing::debug!(error = %format!("{error:#}"), "display layout change pending; retrying");
@@ -1918,10 +2040,11 @@ impl Lease {
             }
         }
     }
-    /// This layout took up what a stopped watch left: what is on can have been up to Windows
-    /// at any time in it, a monitor away for one. Nobody chose that.
+    /// This stream took up what a stopped watch left, or joined while that was at work: what
+    /// is on can have been up to Windows at any time in it, a monitor away for one. Nobody
+    /// chose that. One joining later has a layout like any other.
     pub fn after_cut_watch(&self) -> bool {
-        state().lock().unwrap().following.is_some()
+        self.after_cut
     }
     /// Displays this stream's layout switched off that Windows has switched
     /// back on, such as when an exclusive-fullscreen game loses focus and
@@ -2051,10 +2174,7 @@ impl Drop for Lease {
             }
             return;
         }
-        let watch = end_layout(&state, &target, saved).unwrap_or_else(|error| {
-            tracing::warn!(error = %format!("{error:#}"), "display arrangement restoration remains pending");
-            None
-        });
+        let ended = end_layout(&state, &target, saved);
         let before = state.before.take();
         state.persisted = false;
         state.persists_for.clear();
@@ -2065,8 +2185,49 @@ impl Drop for Lease {
         state.retained.clear();
         state.following = None;
         drop(state);
-        if let (Some(end), Some(before)) = (watch, before) {
-            start_wake_watch(before, target, end, remains.take());
+        match what_an_end_leaves(ended, before, &target, &crate::display::leased_displays()) {
+            EndLeaves::Nothing => {}
+            EndLeaves::Watch(before, end) => {
+                start_wake_watch(before, target, end, remains.take());
+            }
+            EndLeaves::Left(left) => start_left_watch(left),
+        }
+    }
+}
+/// What the last lease's end leaves to a thread.
+enum EndLeaves {
+    Nothing,
+    Watch(Snapshot, WakeEnd),
+    Left(LeftWatch),
+}
+/// An end that failed goes to a watch as a cut one does ([`left_watch`]). What fails is a
+/// display of the layout dropping as this switched it on: the others alone with nothing at
+/// the origin, Windows answers invalid parameter until it returns. The journal entry must
+/// not sit until the next stream takes it for a baseline, so the layout goes back then.
+fn what_an_end_leaves(
+    ended: Result<Option<WakeEnd>>,
+    before: Option<Snapshot>,
+    target: &str,
+    held: &[String],
+) -> EndLeaves {
+    match (ended, before) {
+        (Ok(Some(end)), Some(before)) => EndLeaves::Watch(before, end),
+        (Ok(_), _) => EndLeaves::Nothing,
+        (Err(error), Some(before)) => {
+            tracing::warn!(error = %format!("{error:#}"), "the user's layout did not go back at a stream's end; trying again once its displays stayed or returned");
+            EndLeaves::Left(LeftWatch {
+                woken: before
+                    .nodes
+                    .iter()
+                    .filter(|n| n.active && n.device_id != target && !held.contains(&n.device_id))
+                    .map(|n| n.device_id.clone())
+                    .collect(),
+                restore: true,
+            })
+        }
+        (Err(error), None) => {
+            tracing::warn!(error = %format!("{error:#}"), "display arrangement restoration remains pending");
+            EndLeaves::Nothing
         }
     }
 }

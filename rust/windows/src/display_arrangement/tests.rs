@@ -1005,15 +1005,179 @@ fn a_display_kept_in_a_layout_going_back_goes_to_its_right_and_not_where_it_is_n
 fn a_remote_monitor_in_the_gap_goes_by_the_users_layout_and_not_what_windows_lit() {
     let lit = snapshot(vec![node("tv", true, true)]);
     let users = snapshot(vec![node("monitor", true, true)]);
-    let by = |count, pending| {
-        remote_monitor_baseline(count, pending, &lit).nodes[0]
+    let by = |count, settling, pending| {
+        remote_monitor_baseline(count, settling, pending, &lit).nodes[0]
             .device_id
             .clone()
     };
-    assert_eq!(by(0, Some(&users)), "monitor");
+    assert_eq!(by(0, true, Some(&users)), "monitor");
     // Nothing left: the layout from just before it. A lease held: its own entry is no news.
-    assert_eq!(by(0, None), "tv");
-    assert_eq!(by(1, Some(&users)), "tv");
+    assert_eq!(by(0, true, None), "tv");
+    assert_eq!(by(1, true, Some(&users)), "tv");
+    // An entry stuck long since, with nothing at work: what is on is the user's by now.
+    assert_eq!(by(0, false, Some(&users)), "tv");
+}
+#[test]
+fn a_pass_for_a_returned_display_leaves_what_arrives_or_is_leased_and_saves_nothing_then() {
+    let state = State {
+        owners: vec![("v".to_owned(), 1)],
+        retained: vec!["rm".to_owned()],
+        applied: vec![node("v", true, true), node("monitor", true, false)],
+        ..State::default()
+    };
+    let physical = ["monitor", "c", "tv"].map(String::from);
+    let current = [
+        node("v", true, true),
+        node("v2", true, false),
+        node("c", true, false),
+    ];
+    let (keep, arrives) = beside_the_streams(&state, &current, &physical, &["c".to_owned()]);
+    assert!(arrives);
+    for id in ["v", "rm", "v2", "c"] {
+        assert!(keep.iter().any(|k| k == id), "{id}");
+    }
+    // The layout the pass switches on has them, and a TV Windows lit is still no one's.
+    let layout =
+        layout_around_streams(snapshot(vec![node("monitor", true, true)]), &current, &keep);
+    let on: Vec<_> = layout.nodes.iter().map(|n| n.device_id.as_str()).collect();
+    assert_eq!(on, ["monitor", "v", "v2", "c"]);
+    let current = [node("v", true, true), node("tv", true, false)];
+    let (keep, arrives) = beside_the_streams(&state, &current, &physical, &[]);
+    assert!(!arrives);
+    assert!(!keep.iter().any(|k| k == "tv"));
+}
+#[test]
+fn a_pass_for_a_returned_display_only_places_what_a_stream_set() {
+    let mut before = snapshot(vec![
+        at_hz("stream", true, true, 60.),
+        at_hz("monitor", true, false, 120.),
+    ]);
+    before.hdr.insert("stream".to_owned(), false);
+    before.hdr.insert("monitor".to_owned(), true);
+    before.scale.insert("stream".to_owned(), 100);
+    before.scale.insert("monitor".to_owned(), 125);
+    before.rotation.insert("stream".to_owned(), 0);
+    before.rotation.insert("monitor".to_owned(), 90);
+    let current = [at_hz("stream", true, false, 144.)];
+    let layout = layout_around_streams(before, &current, &["stream".to_owned()]);
+    assert!(!layout.hdr.contains_key("stream"));
+    assert_eq!(layout.hdr.get("monitor"), Some(&true));
+    assert!(!layout.scale.contains_key("stream"));
+    assert_eq!(layout.scale.get("monitor"), Some(&125));
+    assert!(!layout.rotation.contains_key("stream"));
+    assert!(layout.rotation.contains_key("monitor"));
+    let hz = |id: &str| {
+        let node = layout.nodes.iter().find(|n| n.device_id == id).unwrap();
+        node.mode.refresh_hz
+    };
+    assert_eq!(hz("stream"), 144.);
+    assert_eq!(hz("monitor"), 120.);
+}
+#[test]
+fn a_repair_goes_once_and_the_stream_gets_its_layout_anyway() {
+    let (repairs, layouts) = (std::cell::Cell::new(0), std::cell::Cell::new(0));
+    let go = |repaired: &mut bool, wrong, laid_out: bool| {
+        pass_after_wake(
+            repaired,
+            wrong,
+            || {
+                repairs.set(repairs.get() + 1);
+                anyhow::bail!("a monitor refusing its mode")
+            },
+            || {
+                layouts.set(layouts.get() + 1);
+                if laid_out {
+                    Ok(())
+                } else {
+                    anyhow::bail!("pending")
+                }
+            },
+        )
+    };
+    let passes = wake_layouts();
+    let mut repaired = false;
+    let failure = go(&mut repaired, true, true).unwrap();
+    assert!(failure.unwrap().contains("refusing"));
+    assert_eq!((repairs.get(), layouts.get()), (1, 1));
+    assert!(wake_layouts() > passes);
+    // Still wrong at the layout's next try: no second pass on the running stream.
+    assert_eq!(go(&mut repaired, true, true).unwrap(), None);
+    assert_eq!((repairs.get(), layouts.get()), (1, 2));
+    // A layout that failed is tried again, the repair not.
+    let mut repaired = false;
+    assert!(go(&mut repaired, true, false).is_err());
+    assert_eq!(go(&mut repaired, true, true).unwrap(), None);
+    assert_eq!((repairs.get(), layouts.get()), (2, 4));
+    // Nothing wrong: the layout alone, and a later wrong still gets its one repair.
+    let mut repaired = false;
+    assert_eq!(go(&mut repaired, false, true).unwrap(), None);
+    assert!(!repaired);
+    assert_eq!(repairs.get(), 2);
+}
+#[test]
+fn only_a_stream_joining_while_a_cut_watch_is_at_work_counts_as_after_it() {
+    assert!(!joins_a_cut_watch(None));
+    let before = [node("monitor", true, true)];
+    let mut follow = wake_follow(Arrangement::Extended, &before, &[], "a", &[]).unwrap();
+    assert!(joins_a_cut_watch(Some(&follow)));
+    follow.done = true;
+    assert!(!joins_a_cut_watch(Some(&follow)));
+}
+#[test]
+fn an_end_that_failed_goes_to_a_watch_over_the_users_displays() {
+    let before = snapshot(vec![
+        node("monitor", true, true),
+        node("rm", true, false),
+        node("held", true, false),
+        node("off", false, false),
+    ]);
+    let held = ["held".to_owned()];
+    let refused = || Err(anyhow::anyhow!("invalid parameter"));
+    let left = what_an_end_leaves(refused(), Some(before.clone()), "rm", &held);
+    let EndLeaves::Left(left) = left else {
+        panic!("an end that failed goes to a watch");
+    };
+    assert_eq!(left.woken, ["monitor"]);
+    assert!(left.restore);
+    assert!(matches!(
+        what_an_end_leaves(refused(), None, "rm", &held),
+        EndLeaves::Nothing
+    ));
+    assert!(matches!(
+        what_an_end_leaves(Ok(None), Some(before.clone()), "rm", &held),
+        EndLeaves::Nothing
+    ));
+    let end = WakeEnd {
+        woken: Vec::new(),
+        restore: false,
+        first: Ok(()),
+        restored: Ok(()),
+    };
+    assert!(matches!(
+        what_an_end_leaves(Ok(Some(end)), Some(before), "rm", &held),
+        EndLeaves::Watch(..)
+    ));
+}
+#[test]
+fn a_layout_without_the_display_at_its_origin_begins_there_with_what_is_left() {
+    let mut tv = node("tv", true, false);
+    tv.desired_position = Position { x: 2560, y: 0 };
+    let before = snapshot(vec![node("monitor", true, true), tv]);
+    let places = |connected: &[String]| -> Vec<(String, i32)> {
+        present_layout(&before, connected)
+            .nodes
+            .iter()
+            .map(|n| (n.device_id.clone(), n.desired_position.x))
+            .collect()
+    };
+    let both = ["monitor", "tv"].map(String::from);
+    assert_eq!(
+        places(&both),
+        [("monitor".to_owned(), 0), ("tv".to_owned(), 2560)]
+    );
+    assert_eq!(places(&["tv".to_owned()]), [("tv".to_owned(), 0)]);
+    assert_eq!(places(&["monitor".to_owned()]), [("monitor".to_owned(), 0)]);
+    assert!(places(&[]).is_empty());
 }
 #[test]
 fn a_lease_ending_clears_what_it_followed() {
@@ -1030,6 +1194,7 @@ fn a_lease_ending_clears_what_it_followed() {
         target: Mutex::new("a".to_owned()),
         repair_failure: None,
         remains: Mutex::default(),
+        after_cut: true,
     };
     assert!(lease.after_cut_watch());
     drop(lease);
@@ -1253,6 +1418,7 @@ fn a_lease_that_ends_beside_others_drops_what_remains_of_it_without_its_lock() {
         target: Mutex::new("a".to_owned()),
         repair_failure: None,
         remains: Mutex::default(),
+        after_cut: false,
     };
     lease.end(Remains(flag.clone()));
     assert!(gone(&flag));

@@ -611,6 +611,11 @@ impl ModeReport {
     }
 }
 
+/// Whether a monitor's return had displays put back since this stream last looked (`seen`).
+fn wake_layout_passed(seen: &mut u64, now: u64) -> bool {
+    std::mem::replace(seen, now) != now
+}
+
 /// Start the wait for Windows to settle when a display left another stream's layout
 /// since this stream last looked (`seen`).
 fn notice_departure(
@@ -1124,6 +1129,8 @@ pub struct Prepared {
     layout_watch: butterpollo_core::display_policy::LayoutWatch,
     /// [`display_arrangement::departures`] when this stream last looked.
     departures: u64,
+    /// [`display_arrangement::wake_layouts`] when this stream last looked.
+    wake_layouts: u64,
     /// The console session at the last layout check.
     console_session: Option<u32>,
     /// Keep switching the physical monitors of an exclusive layout off while
@@ -1279,6 +1286,7 @@ impl Prepared {
             recovery: Recovery::new(),
             layout_watch: Default::default(),
             departures: display_arrangement::departures(),
+            wake_layouts: display_arrangement::wake_layouts(),
             console_session: None,
             // A game window holds no layout to keep while paused.
             hold_layout_while_paused: false,
@@ -1482,13 +1490,14 @@ impl Prepared {
         // A monitor this stream's launch cut short: back, it gets the layout planned.
         match arrangement.follow_wake() {
             Ok(false) => {}
-            Ok(true) => {
-                self.mode_report.repaired(None);
-                if let Some(display) = &self.display {
-                    display.apply_virtual_mode("after a monitor returned");
-                }
-            }
+            Ok(true) => self.mode_report.repaired(None),
             Err(error) => self.mode_report.repaired(Some(failed_wake_layout(error))),
+        }
+        // Any stream's heartbeat can have run that, and every stream's mode can have suffered.
+        if wake_layout_passed(&mut self.wake_layouts, display_arrangement::wake_layouts())
+            && let Some(display) = &self.display
+        {
+            display.apply_virtual_mode("after a monitor returned");
         }
         // Windows recalls its own layout after the lock screen, a UAC prompt
         // or a session switch: a display back on then is not coming back.
@@ -2130,6 +2139,7 @@ impl Prepared {
                 recovery: Recovery::new(),
                 layout_watch: Default::default(),
                 departures: display_arrangement::departures(),
+                wake_layouts: display_arrangement::wake_layouts(),
                 console_session: None,
                 hold_layout_while_paused,
                 mode_report,

@@ -584,6 +584,7 @@ impl Topology {
     ) -> Result<()> {
         let monitors = self.monitors();
         let mut moved = false;
+        let mut placed = Vec::new();
         for monitor in monitors {
             let Some(position) = positions.get(&monitor.device_id) else {
                 continue;
@@ -607,6 +608,7 @@ impl Topology {
                     };
                     // SAFETY: The mode type was checked as SOURCE before reading its sourceMode position.
                     let current = unsafe { source.Anonymous.sourceMode.position };
+                    placed.push((monitor.device_id.clone(), next.x, next.y));
                     if (current.x, current.y) != (next.x, next.y) {
                         source.Anonymous.sourceMode.position = next;
                         moved = true;
@@ -620,6 +622,7 @@ impl Topology {
             return Ok(());
         }
         self.restore()
+            .with_context(|| format!("placing {placed:?}"))
     }
     pub fn query() -> Result<Self> {
         Self::query_with_flags(QDC_ONLY_ACTIVE_PATHS)

@@ -4274,6 +4274,39 @@ fn home_at_rest_asks_for_no_more_frames() {
     assert!(!f.ctx.has_requested_repaint(), "nor after the focus has landed");
 }
 
+/// The launcher wakes for workers and timers with nothing new to show: the frame comes out the same,
+/// so nothing is presented. Whatever does change it, a hover here, is a different frame.
+#[test]
+fn a_launcher_at_rest_paints_the_same_frame_whenever_it_wakes() {
+    use crate::live_glass::{frame_differs, frame_print};
+    let mut f = store_mix();
+    for art in f.hosts.list[0].native.library.as_ref().expect("a library").games.iter().map(|g| g.app_id as i32).collect::<Vec<_>>() {
+        f.hosts.list[0].art.insert(art, Art::Missing);
+    }
+    for _ in 0..12 {
+        f.settle();
+    }
+    let print = |f: &mut Frames| {
+        f.frame(Vec::new());
+        let shapes = std::mem::take(&mut f.shapes);
+        let primitives = f.ctx.tessellate(shapes, 1.0);
+        frame_print(&primitives, 1.0, (1280, 800))
+    };
+    let shown = print(&mut f);
+    for _ in 0..8 {
+        let again = print(&mut f);
+        assert!(!frame_differs(Some(shown), again, false, false), "an idle wake draws nothing");
+    }
+    assert!(frame_differs(None, shown, false, false), "the first frame after a stream's is drawn");
+    assert!(frame_differs(Some(shown), shown, true, false), "so is one the window asked for");
+    assert!(frame_differs(Some(shown), shown, false, true), "and one with a new texture");
+    f.frame(vec![egui::Event::PointerMoved(Pos2::new(600.0, 44.0))]);
+    for _ in 0..6 {
+        f.settle();
+    }
+    assert!(frame_differs(Some(shown), print(&mut f), false, false), "a hover is a new frame");
+}
+
 /// The hero is what runs, else what ran last, else the library's first installed game.
 #[test]
 fn the_hero_is_the_running_game_then_the_last_played_then_the_first_installed() {

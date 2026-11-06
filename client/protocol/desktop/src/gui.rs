@@ -35,6 +35,8 @@ pub struct Gui {
     /// The tier the context holds, so a stream's frames do not write it again.
     tier_set: Option<Tier>,
     no_output_said: bool,
+    /// The print of what the window shows; None after a frame that was not the launcher's.
+    on_screen: Option<u64>,
 }
 
 /// The system clipboard's text, or None when it holds none.
@@ -229,6 +231,7 @@ impl Gui {
             chain: Chain::default(),
             tier_set: None,
             no_output_said: false,
+            on_screen: None,
         }
     }
 
@@ -480,6 +483,33 @@ impl Gui {
     /// Uploads texture changes, draws the shapes and frees textures egui dropped. Glass decides
     /// the order: see [`Glass::paint`].
     pub fn paint(&mut self, renderer: *mut SDL_Renderer, mut output: egui::FullOutput) {
+        self.on_screen = None;
+        let ppp = output.pixels_per_point;
+        let primitives = self.ctx.tessellate(std::mem::take(&mut output.shapes), ppp);
+        self.paint_tessellated(renderer, output, &primitives);
+    }
+
+    /// The launcher's frame: drawn only when it differs from what the window shows, or `must_draw`
+    /// (the window itself changed). `clear` runs just before drawing. False when nothing was
+    /// drawn: the caller presents nothing, so a launcher at rest uses no GPU however often it wakes.
+    pub fn paint_if_changed(&mut self, renderer: *mut SDL_Renderer, mut output: egui::FullOutput, must_draw: bool, clear: impl FnOnce()) -> bool {
+        let ppp = output.pixels_per_point;
+        let primitives = self.ctx.tessellate(std::mem::take(&mut output.shapes), ppp);
+        let (mut w, mut h) = (0, 0);
+        // SAFETY: a live renderer and two live integers.
+        unsafe { SDL_GetCurrentRenderOutputSize(renderer, &mut w, &mut h) };
+        let print = live_glass::frame_print(&primitives, ppp, (w, h));
+        let textures = !output.textures_delta.is_empty();
+        if !live_glass::frame_differs(self.on_screen, print, must_draw, textures) {
+            return false;
+        }
+        self.on_screen = Some(print);
+        clear();
+        self.paint_tessellated(renderer, output, &primitives);
+        true
+    }
+
+    fn paint_tessellated(&mut self, renderer: *mut SDL_Renderer, mut output: egui::FullOutput, primitives: &[egui::ClippedPrimitive]) {
         let textures_changed = !output.textures_delta.set.is_empty();
         for (id, deltas) in output.textures_delta.set.drain() {
             for delta in deltas {
@@ -487,7 +517,6 @@ impl Gui {
             }
         }
         let ppp = output.pixels_per_point;
-        let primitives = self.ctx.tessellate(std::mem::take(&mut output.shapes), ppp);
         let mut stage = SdlStage {
             renderer,
             ppp,
@@ -497,7 +526,7 @@ impl Gui {
             chain: &mut self.chain,
             no_output_said: &mut self.no_output_said,
         };
-        self.glass.paint(&mut stage, &primitives, textures_changed);
+        self.glass.paint(&mut stage, primitives, textures_changed);
         self.glass.settle(&mut stage);
         if self.glass.take_changed() {
             // Laid out for the old tier; one more pass lands on the new one, then idle again.

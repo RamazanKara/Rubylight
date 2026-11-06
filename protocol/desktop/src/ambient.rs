@@ -72,36 +72,20 @@ fn grade(rgb: [f32; 3]) -> [f32; 3] {
     linear.map(|c| to_srgb(c * scale).clamp(0.0, 1.0))
 }
 
-/// The part of `size` a cover's slot shows: the middle, cut to the slot's shape as the cover itself
-/// is drawn. The ambient is the colour of what is on the screen; a wide box art's sides are not.
-fn shown_part([w, h]: [usize; 2]) -> ([usize; 2], [usize; 2]) {
-    let aspect = t::COVER_ASPECT;
-    if (w as f32) > (h as f32) * aspect {
-        let shown = (((h as f32) * aspect).round() as usize).clamp(1, w);
-        ([(w - shown) / 2, 0], [shown, h])
-    } else {
-        let shown = (((w as f32) / aspect).round() as usize).clamp(1, h);
-        ([0, (h - shown) / 2], [w, shown])
-    }
-}
-
-/// The area average of the shown part of `cover` over each cell of a `SIZE` thumbnail: all of it,
-/// squashed.
+/// The area average of `cover` over each cell of a `SIZE` thumbnail: all of the cover, squashed.
 fn squash(cover: &ColorImage) -> Vec<[f32; 3]> {
-    let [full_w, full_h] = cover.size;
+    let [w, h] = cover.size;
     let [tw, th] = SIZE;
     let mut out = vec![[0.0f32; 3]; tw * th];
-    if full_w == 0 || full_h == 0 {
+    if w == 0 || h == 0 {
         return out;
     }
-    let ([left, top], [w, h]) = shown_part(cover.size);
-    let pixel = |x: usize, y: usize| cover.pixels[(top + y) * full_w + left + x];
     let mut counts = vec![0u32; tw * th];
     for y in 0..h {
         let ty = y * th / h;
         for x in 0..w {
             let at = ty * tw + x * tw / w;
-            let c = pixel(x, y);
+            let c = cover.pixels[y * w + x];
             out[at][0] += f32::from(c.r());
             out[at][1] += f32::from(c.g());
             out[at][2] += f32::from(c.b());
@@ -113,7 +97,7 @@ fn squash(cover: &ColorImage) -> Vec<[f32; 3]> {
         for tx in 0..tw {
             let at = ty * tw + tx;
             if counts[at] == 0 {
-                let c = pixel(tx * w / tw, ty * h / th);
+                let c = cover.pixels[(ty * h / th) * w + tx * w / tw];
                 out[at] = [f32::from(c.r()), f32::from(c.g()), f32::from(c.b())];
                 counts[at] = 1;
             }
@@ -295,53 +279,6 @@ mod tests {
         let (top, bottom) = (out.pixels[48], out.pixels[96 * 53 + 48]);
         assert!(top.r() > top.b(), "{top:?}");
         assert!(bottom.b() > bottom.r(), "{bottom:?}");
-    }
-
-    /// A landscape box art with dark purple sides, shown in a 2:3 slot that cuts them off: the
-    /// ambient is the rose of what shows, not a hot magenta from the sides nobody sees.
-    #[test]
-    fn a_wide_cover_bakes_only_what_its_slot_shows() {
-        let rose = Color32::from_rgb(200, 110, 120);
-        let side = Color32::from_rgb(60, 0, 90);
-        let (w, h) = (920usize, 430usize);
-        let ([left, _], [shown, _]) = shown_part([w, h]);
-        let mut wide = ColorImage::filled([w, h], side);
-        for y in 0..h {
-            for x in left..left + shown {
-                wide.pixels[y * w + x] = rose;
-            }
-        }
-        let alone = bake(&ColorImage::filled([shown, h], rose));
-        let baked = bake(&wide);
-        for (a, b) in baked.pixels.iter().zip(&alone.pixels) {
-            assert!(
-                (i32::from(a.g()) - i32::from(b.g())).abs() <= 2
-                    && (i32::from(a.b()) - i32::from(b.b())).abs() <= 2,
-                "{a:?} {b:?}"
-            );
-        }
-    }
-
-    /// The same for a cover taller than its slot: the top and bottom it cuts are not the ambient.
-    #[test]
-    fn a_tall_cover_bakes_only_what_its_slot_shows() {
-        let (w, h) = (300usize, 900usize);
-        let mut tall = ColorImage::filled([w, h], Color32::from_rgb(0, 0, 120));
-        for y in 225..675 {
-            for x in 0..w {
-                tall.pixels[y * w + x] = Color32::from_rgb(120, 40, 40);
-            }
-        }
-        let c = bake(&tall).pixels[48];
-        assert!(c.r() > c.b() * 2, "{c:?}");
-    }
-
-    #[test]
-    fn a_two_by_three_cover_is_used_whole() {
-        assert_eq!(shown_part([600, 900]), ([0, 0], [600, 900]));
-        assert_eq!(shown_part([2, 3]), ([0, 0], [2, 3]));
-        assert_eq!(shown_part([900, 900]).1, [600, 900]);
-        assert_eq!(shown_part([1, 1]).1, [1, 1]);
     }
 
     #[test]

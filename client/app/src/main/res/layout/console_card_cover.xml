@@ -5,8 +5,7 @@
     android:layout_width="match_parent" android:layout_height="wrap_content"
     android:layout_margin="@dimen/space_s" android:focusable="true" android:clickable="true"
     android:defaultFocusHighlightEnabled="false" android:descendantFocusability="blocksDescendants">
-    <FrameLayout android:id="@+id/console_cover_frame" android:layout_width="match_parent" android:layout_height="160dp"
-        android:background="?attr/glassPlaceholder">
+    <com.limelight.ui.CoverFrame android:id="@+id/console_cover_frame" android:layout_width="match_parent" android:layout_height="160dp">
             <com.limelight.ui.PosterImageView android:id="@+id/console_cover" android:layout_width="match_parent" android:layout_height="match_parent"
                 android:scaleType="centerCrop" android:importantForAccessibility="no" />
             <TextView android:id="@+id/console_cover_text" android:layout_width="match_parent" android:layout_height="match_parent"
@@ -32,7 +31,7 @@
             <TextView android:id="@+id/console_store" style="@style/Widget.Nightjar.CardChip"
                 android:layout_gravity="bottom|start" android:layout_margin="@dimen/space_s"
                 android:visibility="gone" />
-    </FrameLayout>
+    </com.limelight.ui.CoverFrame>
     <com.limelight.ui.MarqueeLabel android:id="@+id/console_title" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:layout_marginTop="@dimen/space_s" android:paddingStart="2dp" android:paddingEnd="2dp"
         android:maxLines="1" android:ellipsize="end"

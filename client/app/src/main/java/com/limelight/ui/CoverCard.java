@@ -33,8 +33,19 @@ public class CoverCard extends LinearLayout {
         private CoverCard focused;
 
         private void set(CoverCard card) {
+            CoverCard before = focused;
             focused = card;
-            for (CoverCard other : cards) other.applyDim();
+            if ((before == null) != (card == null)) {
+                for (CoverCard other : cards) other.applyDim();
+            } else if (before != null) {
+                before.applyDim();
+                card.applyDim();
+            }
+        }
+
+        /** Focus left this card and no other cover took it. */
+        private void release(CoverCard card) {
+            if (focused == card && !card.isFocused()) set(null);
         }
 
         /** No art to dim while nothing is focused. */
@@ -58,6 +69,9 @@ public class CoverCard extends LinearLayout {
     private final RectF rect = new RectF();
     private final Runnable invalidator = this::invalidate;
     private Group group;
+    private final Runnable releaser = () -> {
+        if (group != null) group.release(this);
+    };
     private BooleanSupplier instant = () -> false;
     private int shaderW;
     private int shaderH;
@@ -122,6 +136,13 @@ public class CoverCard extends LinearLayout {
         frame.setClipToOutline(true);
     }
 
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        removeCallbacks(releaser);
+        releaser.run();
+    }
+
     private void applyDim() {
         if (frame != null) frame.setAlpha(group != null && group.dims(this) ? dimAlpha : 1f);
     }
@@ -135,8 +156,9 @@ public class CoverCard extends LinearLayout {
     protected void onFocusChanged(boolean gainFocus, int direction, android.graphics.Rect previously) {
         super.onFocusChanged(gainFocus, direction, previously);
         if (group != null) {
+            // A move between covers loses focus here before the next one gains it: on the next turn, if at all.
             if (gainFocus) group.set(this);
-            else if (group.focused == this) group.set(null);
+            else if (group.focused == this) post(releaser);
         }
         retarget();
         invalidate();

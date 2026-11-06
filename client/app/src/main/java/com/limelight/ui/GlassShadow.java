@@ -32,6 +32,8 @@ public final class GlassShadow {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     /** The mask is half size: a blur has no detail to lose. */
     private static final int SCALE = 2;
+    /** Where the blur stops, in sigmas: what lies further is under 3 levels in 255 but a third of the pixels filled. */
+    static final float REACH_SIGMAS = 2.25f;
 
     private final Bitmap mask;
     /** Reach of the blur past the shape, in view pixels. */
@@ -73,7 +75,7 @@ public final class GlassShadow {
     private static GlassShadow bake(int radius, int blur) {
         // A CSS blur radius is twice the Gaussian's sigma; BlurMaskFilter's radius is sigma / 0.57735.
         float sigma = blur / 2f;
-        int reach = (int) Math.ceil(sigma * 3f);
+        int reach = reachFor(blur);
         int corner = reach + radius + 1;
         int size = (corner * 2 + SCALE * 2) / SCALE;
         Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ALPHA_8);
@@ -85,6 +87,11 @@ public final class GlassShadow {
         float shapeRadius = radius / (float) SCALE;
         canvas.drawRoundRect(new RectF(inset, inset, size - inset, size - inset), shapeRadius, shapeRadius, paint);
         return new GlassShadow(bitmap, reach, corner);
+    }
+
+    /** Past this many pixels a blur (a CSS blur radius) is cut off. */
+    static int reachFor(float blur) {
+        return (int) Math.ceil(blur / 2f * REACH_SIGMAS);
     }
 
     /** How far the blur reaches past the shape. */

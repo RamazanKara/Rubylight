@@ -88,7 +88,7 @@ public final class LibraryAmbience implements Choreographer.FrameCallback {
     }
 
     private void askBackdrop(AppView.AppObject app, boolean fast) {
-        if (backdrop != null && adapter != null) backdrop.focus(String.valueOf(app.app.getAppId()), adapter.coverOf(app), adapter.lacksArt(app), fast);
+        if (backdrop != null && adapter != null) backdrop.focus(String.valueOf(app.app.getAppId()), adapter.coverOf(app), adapter.lacksArt(app), app.app.getAppName(), fast);
     }
 
     /** The grid has no games to select (a search with no match, a host with none). */

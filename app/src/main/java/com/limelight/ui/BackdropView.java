@@ -236,6 +236,15 @@ public class BackdropView extends FrameLayout {
      * canvas. Takes effect {@link #SETTLE_MS} after the last call, or {@link #FAST_SETTLE_MS} when {@code fast}.
      */
     public void focus(String key, Bitmap cover, boolean noArt, boolean fast) {
+        focus(key, cover, noArt, null, fast);
+    }
+
+    /**
+     * Like {@link #focus(String, Bitmap, boolean, boolean)} for a game called {@code title}: with no art its tile's gradient
+     * is what the blur reads, where a cover would give the ambient.
+     */
+    public void focus(String key, Bitmap cover, boolean noArt, String title, boolean fast) {
+        if (cover == null && noArt && title != null) cover = NoArtTile.ambientSource(getContext(), title);
         wantedKey = key;
         wantedCover = cover;
         wantedNoArt = noArt;

@@ -726,6 +726,157 @@ fn undo_recall_after_departure(state: &State, arrangement: Arrangement) -> Resul
     }
     Ok(())
 }
+/// How long after a user's display is switched on a drop off the list is put down to
+/// its waking. Measured: 0.3 to 1.6 s.
+const WAKE_WATCH: std::time::Duration = std::time::Duration::from_secs(3);
+/// How long a display that dropped gets to return. Measured: 3.1 to 6.0 s.
+const WAKE_RETURN: std::time::Duration = std::time::Duration::from_secs(10);
+const WAKE_POLL: std::time::Duration = std::time::Duration::from_millis(100);
+/// What a display switched on after the stream did ([`watch_wake`]).
+#[derive(Debug, PartialEq)]
+enum Wake {
+    Stayed,
+    CameBack,
+    StayedAway,
+}
+/// The user's displays that are connected and off: switching them on wakes them. None
+/// without the stream's own display, as no display is left to hold the layout then.
+fn displays_to_wake(
+    before: &[Node],
+    active: &[Node],
+    connected: &[String],
+    target: &str,
+) -> Vec<String> {
+    if !connected.iter().any(|id| id == target) {
+        return Vec::new();
+    }
+    let on_now = |id: &String| active.iter().any(|a| a.active && a.device_id == *id);
+    before
+        .iter()
+        .filter(|n| {
+            n.active
+                && n.device_id != target
+                && connected.contains(&n.device_id)
+                && !on_now(&n.device_id)
+        })
+        .map(|n| n.device_id.clone())
+        .collect()
+}
+/// Watch `woken`, just switched on. A monitor that slept for want of a signal can show
+/// a picture, drop off the list about a second later and return 3 to 6 s after that.
+/// `away` runs at each look while one is gone. `read` failing means Windows is still
+/// applying a change, which says nothing about them.
+fn watch_wake(
+    woken: &[String],
+    mut read: impl FnMut() -> Result<Vec<String>>,
+    mut elapsed: impl FnMut() -> std::time::Duration,
+    mut sleep: impl FnMut(),
+    mut away: impl FnMut(),
+) -> Wake {
+    let mut gone_since = None;
+    loop {
+        let now = elapsed();
+        let present = read().ok().map(|c| woken.iter().all(|id| c.contains(id)));
+        match (gone_since, present) {
+            (None, Some(false)) => gone_since = Some(now),
+            (Some(_), Some(true)) => return Wake::CameBack,
+            _ => {}
+        }
+        match gone_since {
+            None if now >= WAKE_WATCH => return Wake::Stayed,
+            Some(at) if now.saturating_sub(at) >= WAKE_RETURN => return Wake::StayedAway,
+            Some(_) => away(),
+            None => {}
+        }
+        sleep();
+    }
+}
+/// What is on that the user's layout doesn't have, known physical (a stream's virtual
+/// display is never one of them), and what stays on without it.
+fn strays(before: &[Node], active: &[String], physical: &[String]) -> (Vec<String>, Vec<String>) {
+    active.iter().cloned().partition(|id| {
+        physical.contains(id) && !before.iter().any(|n| n.active && n.device_id == *id)
+    })
+}
+/// Windows recalled the entry for what is connected while a woken display is away, and
+/// that can have a display on that was off before the stream, such as a TV. Off again,
+/// and saved so that the entry no longer has it on.
+fn switch_off_strays(before: &[Node]) -> Result<()> {
+    let active: Vec<_> = Topology::query()?
+        .monitors()
+        .into_iter()
+        .map(|m| m.device_id)
+        .collect();
+    let (off, on) = strays(before, &active, &physical_displays()?);
+    if off.is_empty() || on.is_empty() {
+        return Ok(());
+    }
+    tracing::info!(displays = ?off, "Windows switched on a display the user's layout doesn't have while their monitor is away; switching it off");
+    Topology::set_active(&on)?;
+    Topology::save_current()
+}
+/// [`forget_saved_layout`] for a stream's end, when it can wake the user's displays. The
+/// stream's display stays on until they have shown they stay: gone with one of them
+/// away, what is left connected can be a TV that was off, which Windows then switches on
+/// alone. One that dropped gets its entry and layout again when it returns: the first
+/// try may have ended halfway, and an entry saved while it was gone isn't its entry.
+fn put_back_through_wake(before: &Snapshot, target: &str) -> Result<()> {
+    let woken = settled(|| {
+        Ok(displays_to_wake(
+            &before.nodes,
+            &Snapshot::capture()?.nodes,
+            &connected()?,
+            target,
+        ))
+    })
+    .unwrap_or_else(|error| {
+        tracing::warn!(error = %format!("{error:#}"), "reading the displays at a stream's end failed; not watching them wake");
+        Vec::new()
+    });
+    let mut failed_away = false;
+    through_wake(
+        &woken,
+        || forget_saved_layout(before, target, true),
+        || {
+            let start = std::time::Instant::now();
+            watch_wake(
+                &woken,
+                connected,
+                || start.elapsed(),
+                || std::thread::sleep(WAKE_POLL),
+                || {
+                    if let Err(error) = switch_off_strays(&before.nodes)
+                        && !std::mem::replace(&mut failed_away, true)
+                    {
+                        tracing::warn!(error = %format!("{error:#}"), "switching off a display Windows recalled while the user's monitor is away failed");
+                    }
+                },
+            )
+        },
+    )
+}
+/// The steps of [`put_back_through_wake`]: nothing to wake, the usual retries.
+fn through_wake(
+    woken: &[String],
+    mut put_back: impl FnMut() -> Result<()>,
+    watch: impl FnOnce() -> Wake,
+) -> Result<()> {
+    if woken.is_empty() {
+        return settled(put_back);
+    }
+    let first = put_back();
+    match watch() {
+        Wake::Stayed => first.or_else(|_| settled(put_back)),
+        Wake::CameBack => {
+            tracing::info!(displays = ?woken, "a display dropped off the list when it woke and came back; putting its layout back");
+            settled(put_back)
+        }
+        Wake::StayedAway => {
+            tracing::warn!(displays = ?woken, "a display dropped off the list when it woke and did not come back in time");
+            first
+        }
+    }
+}
 /// Retry while Windows is still applying another change, such as a virtual
 /// display being removed: reading its mode fails until the change settles.
 fn settled<T>(mut attempt: impl FnMut() -> Result<T>) -> Result<T> {
@@ -1089,7 +1240,7 @@ impl Drop for Lease {
                 }) || settled(|| unchanged(&state.applied))?;
             if saved
                 && let Some(before) = &state.before
-                && let Err(error) = settled(|| forget_saved_layout(before, &target, true))
+                && let Err(error) = put_back_through_wake(before, &target)
             {
                 tracing::warn!(error = %format!("{error:#}"), "putting back the saved display layout failed");
             }

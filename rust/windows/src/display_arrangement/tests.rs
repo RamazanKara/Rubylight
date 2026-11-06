@@ -55,6 +55,154 @@ fn a_display_the_layout_switched_off_is_still_watched_after_another_display_left
     assert_eq!(desired.len(), 1);
 }
 #[test]
+fn a_stream_end_wakes_only_the_users_displays_that_are_off_and_connected() {
+    let before = [
+        node("monitor", true, true),
+        node("unplugged", true, false),
+        node("dormant", false, false),
+        node("a", true, false),
+    ];
+    let connected = ["monitor", "dormant", "a"].map(String::from);
+    let stream_only = [node("a", true, true)];
+    assert_eq!(
+        displays_to_wake(&before, &stream_only, &connected, "a"),
+        ["monitor"]
+    );
+    // On already, as when the layout left it on: nothing wakes, and the end doesn't wait.
+    let both = [node("a", true, true), node("monitor", true, false)];
+    assert!(displays_to_wake(&before, &both, &connected, "a").is_empty());
+    // With the stream's display gone there is nothing to hold the layout with.
+    let no_stream = ["monitor", "dormant"].map(String::from);
+    assert!(displays_to_wake(&before, &[], &no_stream, "a").is_empty());
+}
+/// [`watch_wake`] on a clock that a sleep moves on: what it decided, how often it looked
+/// after the display that is away, and when.
+fn watched(
+    connected_at: impl Fn(std::time::Duration) -> Result<Vec<String>>,
+) -> (Wake, usize, std::time::Duration) {
+    let now = std::cell::Cell::new(std::time::Duration::ZERO);
+    let mut away = 0;
+    let wake = watch_wake(
+        &["monitor".to_owned()],
+        || connected_at(now.get()),
+        || now.get(),
+        || now.set(now.get() + WAKE_POLL),
+        || away += 1,
+    );
+    (wake, away, now.get())
+}
+fn listed(monitor: bool) -> Vec<String> {
+    let mut ids = vec!["a".to_owned(), "tv".to_owned()];
+    if monitor {
+        ids.push("monitor".to_owned());
+    }
+    ids
+}
+#[test]
+fn a_woken_display_that_stays_ends_the_watch_at_its_end() {
+    let (wake, away, at) = watched(|_| Ok(listed(true)));
+    assert_eq!(wake, Wake::Stayed);
+    assert_eq!(away, 0);
+    assert_eq!(at, WAKE_WATCH);
+}
+#[test]
+fn a_woken_display_that_drops_is_waited_for_until_it_returns() {
+    use std::time::Duration;
+    // The monitor measured: gone a second after it came on, back about 3.2 s later.
+    let (wake, away, at) = watched(|now| {
+        Ok(listed(
+            !(Duration::from_secs(1)..Duration::from_millis(4200)).contains(&now),
+        ))
+    });
+    assert_eq!(wake, Wake::CameBack);
+    assert!(away > 0, "what Windows recalls meanwhile is looked after");
+    assert_eq!(at, Duration::from_millis(4200));
+    // Past the end of the watch too: the wait is for the return, not the watch.
+    assert!(at > WAKE_WATCH);
+}
+#[test]
+fn a_woken_display_that_never_returns_ends_the_wait_loudly() {
+    use std::time::Duration;
+    let (wake, _, at) = watched(|now| Ok(listed(now < Duration::from_secs(1))));
+    assert_eq!(wake, Wake::StayedAway);
+    assert_eq!(at, Duration::from_secs(1) + WAKE_RETURN);
+}
+#[test]
+fn a_read_that_fails_says_nothing_of_a_woken_display() {
+    use std::time::Duration;
+    // Windows is still applying the change: neither a drop nor a return.
+    let (wake, away, _) = watched(|now| {
+        if now < Duration::from_secs(1) {
+            anyhow::bail!("pending")
+        }
+        Ok(listed(true))
+    });
+    assert_eq!((wake, away), (Wake::Stayed, 0));
+    let (wake, _, at) = watched(|now| {
+        if now < Duration::from_secs(1) {
+            Ok(listed(true))
+        } else if now < Duration::from_secs(2) {
+            Ok(listed(false))
+        } else if now < Duration::from_secs(3) {
+            anyhow::bail!("pending")
+        } else {
+            Ok(listed(true))
+        }
+    });
+    assert_eq!(wake, Wake::CameBack);
+    assert_eq!(at, Duration::from_secs(3));
+}
+#[test]
+fn a_display_that_came_back_gets_its_layout_again() {
+    let run = |woken: &[String], first_fails: bool, wake: Wake| {
+        let tries = std::cell::Cell::new(0);
+        let result = through_wake(
+            woken,
+            || {
+                tries.set(tries.get() + 1);
+                if first_fails && tries.get() == 1 {
+                    anyhow::bail!("the monitor left halfway");
+                }
+                Ok(())
+            },
+            || wake,
+        );
+        (tries.get(), result.is_ok())
+    };
+    let woken = ["monitor".to_owned()];
+    // The first try went well but the display dropped: its entry may be for the rest.
+    assert_eq!(run(&woken, false, Wake::CameBack), (2, true));
+    assert_eq!(run(&woken, true, Wake::CameBack), (2, true));
+    assert_eq!(run(&woken, false, Wake::Stayed), (1, true));
+    // Still applying some other change: tried again as before.
+    assert_eq!(run(&woken, true, Wake::Stayed), (2, true));
+    // Gone for good: no more tries, and what the first came to.
+    assert_eq!(run(&woken, false, Wake::StayedAway), (1, true));
+    assert_eq!(run(&woken, true, Wake::StayedAway), (1, false));
+    // Nothing woken, nothing watched.
+    let tries = std::cell::Cell::new(0);
+    through_wake(
+        &[],
+        || {
+            tries.set(tries.get() + 1);
+            Ok(())
+        },
+        || panic!("nothing to watch"),
+    )
+    .unwrap();
+    assert_eq!(tries.get(), 1);
+}
+#[test]
+fn only_a_physical_display_off_before_the_stream_is_switched_off_while_the_monitor_is_away() {
+    let before = [node("monitor", true, true), node("second", true, false)];
+    let active = ["a", "c", "second", "tv"].map(String::from);
+    // `noid` isn't known to be physical: it can be a stream's, and stays.
+    let physical = ["monitor", "second", "tv"].map(String::from);
+    let (off, on) = strays(&before, &active, &physical);
+    assert_eq!(off, ["tv"]);
+    assert_eq!(on, ["a", "c", "second"]);
+}
+#[test]
 fn a_first_exclusive_layout_knows_the_monitor_windows_already_switched_off() {
     // Windows recalled the entry an earlier stream left: the virtual display alone
     // when the layout is composed, the monitor already off.

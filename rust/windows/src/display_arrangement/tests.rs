@@ -66,7 +66,7 @@ fn saving_state(first: &str) -> State {
 /// Lay out as `apply` ends: true when the layout was saved.
 fn saves(state: &mut State, leaving: Option<&str>) -> bool {
     let saved = std::cell::Cell::new(false);
-    settle_layout(state, Vec::new(), leaving, || {
+    settle_layout(state, Vec::new(), leaving, &[], || {
         saved.set(true);
         Ok(())
     });
@@ -640,6 +640,139 @@ fn a_second_remote_monitor_under_an_exclusive_lease_is_judged_by_that_lease() {
         remote_monitor_repair(&ended, &before, &recalled, &connected),
         Some(true)
     );
+}
+/// Extended, stream `a` on beside the monitor at 120 Hz, as B's display left them.
+fn left_by_a_departure() -> State {
+    let mut monitor = node("monitor", true, true);
+    monitor.mode.refresh_hz = 120.;
+    let mut state = holding(
+        Arrangement::Extended,
+        vec![monitor, node("a", true, false)],
+        false,
+    );
+    state.owners = vec![("a".to_owned(), 1)];
+    state
+}
+fn at_60(id: &str, primary: bool) -> Node {
+    node(id, true, primary)
+}
+#[test]
+fn a_display_on_its_way_to_a_stream_stays_on_through_a_departures_repair() {
+    let state = left_by_a_departure();
+    let connected = ["monitor", "a", "c"].map(String::from);
+    // C launched in the settle window: its display is on, and in no layout yet.
+    let current = [
+        at_60("monitor", true),
+        node("a", true, false),
+        node("c", true, false),
+    ];
+    let repair = departure_repair(&state, Arrangement::Extended, &current, &connected).unwrap();
+    assert_eq!(repair.keep_on, ["c"]);
+    assert!(!repair.saves, "the entry is the arriving display's to save");
+}
+#[test]
+fn only_a_repair_that_finds_the_same_displays_on_is_saved() {
+    let state = left_by_a_departure();
+    let connected = ["monitor", "a"].map(String::from);
+    let run =
+        |current: &[Node]| departure_repair(&state, Arrangement::Extended, current, &connected);
+    // Windows retimed the monitor: put back, and the entry healed.
+    let repair = run(&[at_60("monitor", true), node("a", true, false)]).unwrap();
+    assert!(repair.saves && repair.keep_on.is_empty());
+    assert_eq!(
+        repair.on.iter().map(String::as_str).collect::<Vec<_>>(),
+        ["a", "monitor"]
+    );
+    // The monitor is off: Windows' entry or the user's Win+P, which can't be told
+    // apart. On again, and not filed as if the user's choice was known.
+    let repair = run(&[node("a", true, true)]).unwrap();
+    assert!(!repair.saves);
+    assert!(repair.on.contains("monitor"));
+    // As it was left: nothing to do.
+    let mut same = node("monitor", true, true);
+    same.mode.refresh_hz = 120.;
+    assert_eq!(run(&[same, node("a", true, false)]), None);
+    // A display gone since is no change in what is on.
+    let mut tv = node("tv", true, false);
+    tv.desired_position = Position { x: 1920, y: 0 };
+    let mut with_tv = left_by_a_departure();
+    with_tv.applied.push(tv);
+    let repair = departure_repair(
+        &with_tv,
+        Arrangement::Extended,
+        &[at_60("monitor", true), node("a", true, false)],
+        &connected,
+    )
+    .unwrap();
+    assert!(repair.saves);
+    // A layout that saves its own entry has nothing to repair here.
+    let mut saving = left_by_a_departure();
+    saving.persisted = true;
+    assert_eq!(
+        departure_repair(
+            &saving,
+            Arrangement::Exclusive,
+            &[at_60("monitor", true), node("a", true, false)],
+            &connected,
+        ),
+        None
+    );
+}
+#[test]
+fn a_departures_repair_under_a_layout_with_the_monitor_off_saves_nothing() {
+    let mut state = left_by_a_departure();
+    state.applied = vec![node("monitor", false, false), node("a", true, true)];
+    // A second display the layout keeps on, retimed: that is what gets repaired.
+    let mut kept = node("kept", true, false);
+    kept.mode.refresh_hz = 120.;
+    state.applied.push(kept);
+    let connected = ["monitor", "a", "kept"].map(String::from);
+    let repair = departure_repair(
+        &state,
+        Arrangement::Exclusive,
+        &[node("a", true, true), at_60("kept", false)],
+        &connected,
+    )
+    .unwrap();
+    assert!(!repair.saves);
+}
+#[test]
+fn a_layout_lays_out_around_what_is_arriving_and_keeps_it_out_of_its_record() {
+    // Exclusive, B just left, A stays: the monitor came back on, and C's display is
+    // on its way. Switching it off now fails C's launch.
+    let mut state = holding(
+        Arrangement::Exclusive,
+        vec![node("monitor", false, false), node("a", true, true)],
+        true,
+    );
+    state.owners = vec![("a".to_owned(), 1)];
+    state.persists_for = vec!["a".to_owned()];
+    let current = [
+        node("monitor", true, false),
+        node("a", true, true),
+        node("c", true, false),
+    ];
+    let (desired, arriving) =
+        compose_around_arrivals(&state, Arrangement::Exclusive, &current).unwrap();
+    assert_eq!(arriving, ["c"]);
+    let on = |id: &str| desired.iter().any(|n| n.device_id == id && n.active);
+    assert!(on("a") && on("c"));
+    assert!(!on("monitor"));
+    let saved = std::cell::Cell::new(false);
+    settle_layout(&mut state, desired.clone(), None, &arriving, || {
+        saved.set(true);
+        Ok(())
+    });
+    assert!(!saved.get(), "C's own layout saves the entry with it in");
+    assert!(!state.applied.iter().any(|n| n.device_id == "c"));
+    // So it still counts as arriving at the next pass, and no less on.
+    assert_eq!(arriving_displays(&state, &current), ["c"]);
+    // Once C holds a lease it is no longer arriving, nor is a retained display.
+    add_owner(&mut state, "c", true);
+    assert!(arriving_displays(&state, &current).is_empty());
+    state.owners.pop();
+    state.retained.push("c".to_owned());
+    assert!(arriving_displays(&state, &current).is_empty());
 }
 #[test]
 fn what_windows_recalled_after_a_display_left_goes_back_to_the_layout_it_left() {

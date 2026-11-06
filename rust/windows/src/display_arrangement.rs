@@ -245,12 +245,7 @@ fn apply(state: &mut State, arrangement: Arrangement, leaving: Option<&str>) -> 
         Topology::set_active(&ids.into_iter().collect::<Vec<_>>())?;
         current = Snapshot::capture()?;
     }
-    let mut desired = arrangement.compose_all_after_hotplug(
-        &current.nodes,
-        &targets,
-        &state.retained,
-        state.before.as_ref().map_or(&[], |before| &before.nodes),
-    )?;
+    let (mut desired, arriving) = compose_around_arrivals(state, arrangement, &current.nodes)?;
     if let Some(leaving) = leaving {
         let was_active = state.before.as_ref().is_some_and(|before| {
             before
@@ -280,18 +275,57 @@ fn apply(state: &mut State, arrangement: Arrangement, leaving: Option<&str>) -> 
             .map(|n| (n.device_id.clone(), n.desired_position))
             .collect(),
     )?;
-    settle_layout(state, desired, leaving, Topology::save_current);
+    settle_layout(state, desired, leaving, &arriving, Topology::save_current);
     Ok(())
 }
+/// The displays on now that the held layout has no place for: one on its way to a
+/// stream's lease, a remote monitor's not retained yet, one the user just switched
+/// on. The streams' heartbeats lay out outside the launch that brings them, and a
+/// running stream must never lose its display to that.
+fn arriving_displays(state: &State, current: &[Node]) -> Vec<String> {
+    current
+        .iter()
+        .filter(|n| {
+            n.active
+                && !state.applied.iter().any(|a| a.device_id == n.device_id)
+                && !state.owners.iter().any(|(id, _)| *id == n.device_id)
+                && !state.retained.contains(&n.device_id)
+        })
+        .map(|n| n.device_id.clone())
+        .collect()
+}
+/// The layout for the current owners with what is arriving left on, and what that is.
+fn compose_around_arrivals(
+    state: &State,
+    arrangement: Arrangement,
+    current: &[Node],
+) -> Result<(Vec<Node>, Vec<String>)> {
+    let targets: Vec<_> = state.owners.iter().map(|(t, _)| t.clone()).collect();
+    let arriving = arriving_displays(state, current);
+    let mut keep = state.retained.clone();
+    keep.extend(arriving.iter().cloned());
+    let desired = arrangement.compose_all_after_hotplug(
+        current,
+        &targets,
+        &keep,
+        state.before.as_ref().map_or(&[], |before| &before.nodes),
+    )?;
+    Ok((desired, arriving))
+}
 /// Record the layout just applied, and save it for Windows to recall if it may be.
+/// What is `arriving` stays out of the record, as it is still arriving the next time
+/// this lays out, and nothing is saved while it does: its own layout does that.
 fn settle_layout(
     state: &mut State,
-    desired: Vec<Node>,
+    mut desired: Vec<Node>,
     leaving: Option<&str>,
+    arriving: &[String],
     save: impl FnOnce() -> Result<()>,
 ) {
+    desired.retain(|n| !arriving.contains(&n.device_id));
     state.applied = desired;
-    if saves_layout(state, leaving)
+    if arriving.is_empty()
+        && saves_layout(state, leaving)
         && let Err(error) = save()
     {
         tracing::warn!(error = %format!("{error:#}"), "saving the stream layout for Windows to recall failed");
@@ -546,28 +580,68 @@ fn after_departure(applied: &[Node], before: Option<&Snapshot>) -> Snapshot {
         rotation: Default::default(),
     }
 }
-/// Another stream's display has gone and Windows has recalled its entry for the
-/// displays that remain. On a layout that keeps the others on, that entry can have
-/// one of them off or at another mode: put it back, and save it so that it stays.
-fn undo_recall_after_departure(state: &State, arrangement: Arrangement) -> Result<()> {
+/// What putting back the layout a display left takes.
+#[derive(Debug, PartialEq)]
+struct DepartureRepair {
+    /// See [`arriving_displays`]: the repair leaves these on.
+    keep_on: Vec<String>,
+    /// What the layout has on, of what is connected.
+    on: std::collections::BTreeSet<String>,
+    /// Whether to save it. Not when what is on differs from that layout: this can't
+    /// tell Windows switching a monitor off from the user's Win+P in the same seconds,
+    /// and what is arriving has its entry saved with its own layout. The first stream
+    /// on such an entry repairs it.
+    saves: bool,
+}
+/// Whether what is on now is what Windows recalled over the layout a display left, and
+/// what putting that back takes. None on a layout that saves its own entry.
+fn departure_repair(
+    state: &State,
+    arrangement: Arrangement,
+    current: &[Node],
+    connected: &[String],
+) -> Option<DepartureRepair> {
     if state.persisted {
-        return Ok(());
+        return None;
     }
     let targets: Vec<_> = state.owners.iter().map(|(t, _)| t.clone()).collect();
     if !butterpollo_core::display_policy::recalled_over(
         &state.applied,
-        &Snapshot::capture()?.nodes,
-        &connected()?,
+        current,
+        connected,
         &targets,
         arrangement.keeps_primary(),
     ) {
-        return Ok(());
+        return None;
     }
+    let on: std::collections::BTreeSet<String> = state
+        .applied
+        .iter()
+        .filter(|n| n.active && connected.contains(&n.device_id))
+        .map(|n| n.device_id.clone())
+        .collect();
+    Some(DepartureRepair {
+        keep_on: arriving_displays(state, current),
+        saves: repair_saves(state) && active_ids(current) == on,
+        on,
+    })
+}
+/// Another stream's display has gone and Windows has recalled its entry for the
+/// displays that remain. On a layout that keeps the others on, that entry can have
+/// one of them off or at another mode: put it back, and save it so that it stays.
+fn undo_recall_after_departure(state: &State, arrangement: Arrangement) -> Result<()> {
+    let current = Snapshot::capture()?.nodes;
+    let Some(repair) = departure_repair(state, arrangement, &current, &connected()?) else {
+        return Ok(());
+    };
     tracing::info!(
+        keep_on = ?repair.keep_on,
+        saves = repair.saves,
         "Windows recalled a saved layout over the other displays when a stream's display left; putting it back"
     );
-    after_departure(&state.applied, state.before.as_ref()).restore()?;
-    if repair_saves(state) {
+    after_departure(&state.applied, state.before.as_ref()).restore_excluding(&repair.keep_on)?;
+    // Not if anything else changed while it went back.
+    if repair.saves && active_ids(&Snapshot::capture()?.nodes) == repair.on {
         Topology::save_current()?;
     }
     Ok(())
@@ -795,7 +869,7 @@ impl Lease {
         add_owner(&mut state, &target_id, virtual_target);
         state.arrangement = Some(arrangement);
         state.retained = retained;
-        settle_layout(&mut state, desired, None, Topology::save_current);
+        settle_layout(&mut state, desired, None, &[], Topology::save_current);
         Ok(Self {
             arrangement,
             target: Mutex::new(target_id),
@@ -849,7 +923,8 @@ impl Lease {
     }
     /// [`Self::reapply`] once another stream's display has left and Windows has
     /// settled ([`departures`]). What it recalled for the displays that remain is
-    /// undone first: nobody else can have changed them, as a layout the user changed
+    /// undone first ([`departure_repair`]). That can also undo the user's change in
+    /// the same seconds, which is then not saved; a change before the display left
     /// counts no departure.
     pub fn reapply_after_departure(&self, output: &str, retained: &[String]) -> Result<()> {
         {

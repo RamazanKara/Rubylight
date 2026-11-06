@@ -6,7 +6,10 @@
 use std::sync::Arc;
 
 use egui::epaint::{Mesh, PaintCallback, Vertex, WHITE_UV};
-use egui::{pos2, vec2, Color32, Context, Id, Painter, Pos2, Rect, Shape, TextureId, Ui, Vec2};
+use egui::{
+    pos2, vec2, Color32, Context, Id, Painter, Pos2, Rect, Shape, TextureHandle, TextureId, Ui,
+    Vec2,
+};
 
 pub use crate::live_glass::{tier, Boundary, Tier, LIVE_BACKDROP};
 
@@ -18,6 +21,8 @@ use crate::theme::high_contrast;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Material {
     Chrome,
+    Panel,
+    Menu,
     Chip,
 }
 
@@ -66,6 +71,24 @@ pub fn recipe(material: Material, tier: Tier) -> Recipe {
         (Material::Chrome, Tier::Solid) => {
             recipe!(GLASS_CHROME_SOLID_BRIGHTNESS GLASS_CHROME_SOLID_FILL GLASS_CHROME_SOLID_SHEEN_TOP GLASS_CHROME_SOLID_SHEEN_END GLASS_CHROME_SOLID_RIM_TOP GLASS_CHROME_SOLID_RIM_MID GLASS_CHROME_SOLID_RIM_BOTTOM GLASS_CHROME_SOLID_RIM_WIDTH GLASS_CHROME_SOLID_SHADOW_COLOR GLASS_CHROME_SOLID_SHADOW_Y GLASS_CHROME_SOLID_SHADOW_BLUR)
         }
+        (Material::Panel, Tier::Live) => {
+            recipe!(GLASS_PANEL_LIVE_BRIGHTNESS GLASS_PANEL_LIVE_FILL GLASS_PANEL_LIVE_SHEEN_TOP GLASS_PANEL_LIVE_SHEEN_END GLASS_PANEL_LIVE_RIM_TOP GLASS_PANEL_LIVE_RIM_MID GLASS_PANEL_LIVE_RIM_BOTTOM GLASS_PANEL_LIVE_RIM_WIDTH GLASS_PANEL_LIVE_SHADOW_COLOR GLASS_PANEL_LIVE_SHADOW_Y GLASS_PANEL_LIVE_SHADOW_BLUR)
+        }
+        (Material::Panel, Tier::Baked) => {
+            recipe!(GLASS_PANEL_BAKED_BRIGHTNESS GLASS_PANEL_BAKED_FILL GLASS_PANEL_BAKED_SHEEN_TOP GLASS_PANEL_BAKED_SHEEN_END GLASS_PANEL_BAKED_RIM_TOP GLASS_PANEL_BAKED_RIM_MID GLASS_PANEL_BAKED_RIM_BOTTOM GLASS_PANEL_BAKED_RIM_WIDTH GLASS_PANEL_BAKED_SHADOW_COLOR GLASS_PANEL_BAKED_SHADOW_Y GLASS_PANEL_BAKED_SHADOW_BLUR)
+        }
+        (Material::Panel, Tier::Solid) => {
+            recipe!(GLASS_PANEL_SOLID_BRIGHTNESS GLASS_PANEL_SOLID_FILL GLASS_PANEL_SOLID_SHEEN_TOP GLASS_PANEL_SOLID_SHEEN_END GLASS_PANEL_SOLID_RIM_TOP GLASS_PANEL_SOLID_RIM_MID GLASS_PANEL_SOLID_RIM_BOTTOM GLASS_PANEL_SOLID_RIM_WIDTH GLASS_PANEL_SOLID_SHADOW_COLOR GLASS_PANEL_SOLID_SHADOW_Y GLASS_PANEL_SOLID_SHADOW_BLUR)
+        }
+        (Material::Menu, Tier::Live) => {
+            recipe!(GLASS_MENU_LIVE_BRIGHTNESS GLASS_MENU_LIVE_FILL GLASS_MENU_LIVE_SHEEN_TOP GLASS_MENU_LIVE_SHEEN_END GLASS_MENU_LIVE_RIM_TOP GLASS_MENU_LIVE_RIM_MID GLASS_MENU_LIVE_RIM_BOTTOM GLASS_MENU_LIVE_RIM_WIDTH GLASS_MENU_LIVE_SHADOW_COLOR GLASS_MENU_LIVE_SHADOW_Y GLASS_MENU_LIVE_SHADOW_BLUR)
+        }
+        (Material::Menu, Tier::Baked) => {
+            recipe!(GLASS_MENU_BAKED_BRIGHTNESS GLASS_MENU_BAKED_FILL GLASS_MENU_BAKED_SHEEN_TOP GLASS_MENU_BAKED_SHEEN_END GLASS_MENU_BAKED_RIM_TOP GLASS_MENU_BAKED_RIM_MID GLASS_MENU_BAKED_RIM_BOTTOM GLASS_MENU_BAKED_RIM_WIDTH GLASS_MENU_BAKED_SHADOW_COLOR GLASS_MENU_BAKED_SHADOW_Y GLASS_MENU_BAKED_SHADOW_BLUR)
+        }
+        (Material::Menu, Tier::Solid) => {
+            recipe!(GLASS_MENU_SOLID_BRIGHTNESS GLASS_MENU_SOLID_FILL GLASS_MENU_SOLID_SHEEN_TOP GLASS_MENU_SOLID_SHEEN_END GLASS_MENU_SOLID_RIM_TOP GLASS_MENU_SOLID_RIM_MID GLASS_MENU_SOLID_RIM_BOTTOM GLASS_MENU_SOLID_RIM_WIDTH GLASS_MENU_SOLID_SHADOW_COLOR GLASS_MENU_SOLID_SHADOW_Y GLASS_MENU_SOLID_SHADOW_BLUR)
+        }
         (Material::Chip, Tier::Live) => {
             recipe!(GLASS_CHIP_LIVE_BRIGHTNESS GLASS_CHIP_LIVE_FILL GLASS_CHIP_LIVE_SHEEN_TOP GLASS_CHIP_LIVE_SHEEN_END GLASS_CHIP_LIVE_RIM_TOP GLASS_CHIP_LIVE_RIM_MID GLASS_CHIP_LIVE_RIM_BOTTOM GLASS_CHIP_LIVE_RIM_WIDTH GLASS_CHIP_LIVE_SHADOW_COLOR GLASS_CHIP_LIVE_SHADOW_Y GLASS_CHIP_LIVE_SHADOW_BLUR)
         }
@@ -91,6 +114,58 @@ pub struct Layer {
 pub struct Backdrop {
     pub base: Option<Layer>,
     pub top: Option<Layer>,
+}
+
+/// The ambient cross-fade baked glass samples and the backdrop paints: show a texture (`Host.ambient`)
+/// and take this frame's [`Backdrop`]. Frames are asked for only while it runs.
+#[derive(Default)]
+pub struct CrossFade {
+    current: Option<(u64, TextureHandle)>,
+    previous: Option<TextureHandle>,
+    started: f64,
+}
+
+impl CrossFade {
+    /// Fades to `texture`, unless `key` already shows.
+    pub fn show(&mut self, ctx: &Context, key: u64, texture: TextureHandle) {
+        if self.current.as_ref().is_some_and(|(k, _)| *k == key) {
+            return;
+        }
+        self.previous = self.current.take().map(|(_, t)| t);
+        self.current = Some((key, texture));
+        self.started = ctx.input(|i| i.time);
+    }
+
+    /// This frame's layers, covering `area` of the screen; also hands them to glass.
+    pub fn backdrop(&mut self, ctx: &Context, area: Rect) -> Backdrop {
+        let ms = if spring::motion(ctx) {
+            t::MOTION_AMBIENT_MS
+        } else {
+            t::REDUCED_AMBIENT_MS
+        };
+        let along = if ms == 0 {
+            1.0
+        } else {
+            let elapsed = (ctx.input(|i| i.time) - self.started) as f32 * 1000.0;
+            (elapsed / ms as f32).clamp(0.0, 1.0)
+        };
+        if along < 1.0 {
+            ctx.request_repaint();
+        } else {
+            self.previous = None;
+        }
+        let layer = |texture: &TextureHandle, alpha| Layer {
+            texture: texture.id(),
+            alpha,
+            area,
+        };
+        let backdrop = Backdrop {
+            base: self.previous.as_ref().map(|p| layer(p, 1.0)),
+            top: self.current.as_ref().map(|(_, c)| layer(c, along)),
+        };
+        set_backdrop(ctx, backdrop);
+        backdrop
+    }
 }
 
 fn backdrop_id() -> Id {
@@ -541,6 +616,7 @@ pub fn soft(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, blur: f32, 
 
 /// The focus language of every page: a dark gap, a thick ring, a warm halo behind them. High
 /// contrast: a thicker ring, no halo. `on_moon`: the paper ring that reads against the Play button.
+/// Push it before the focused thing's own shapes: the halo fills its whole rectangle.
 pub fn focus(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, on_moon: bool) {
     let high = high_contrast();
     let (ring, width, gap) = if high {
@@ -909,7 +985,12 @@ mod tests {
     #[test]
     fn a_white_backdrop_stays_dark_enough_for_text_at_every_material() {
         // The spec's worst case: white x brightness x (1 - fill alpha) + fill.
-        for material in [Material::Chrome, Material::Chip] {
+        for material in [
+            Material::Chrome,
+            Material::Panel,
+            Material::Menu,
+            Material::Chip,
+        ] {
             for tier in [Tier::Live, Tier::Baked] {
                 let r = recipe(material, tier);
                 let through = r.brightness * (1.0 - f32::from(r.fill.a()) / 255.0)

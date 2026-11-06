@@ -7,6 +7,8 @@ pub(crate) mod design_tokens;
 mod dialogs;
 #[allow(dead_code, reason = "glass foundation: the pages start using it in the next change")]
 pub(crate) mod glass;
+#[cfg(test)]
+mod glass_shots;
 mod icons;
 pub mod files;
 mod help;

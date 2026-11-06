@@ -1,7 +1,6 @@
 package com.limelight.console;
 
 import android.content.Context;
-import android.text.format.DateUtils;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -58,8 +57,7 @@ abstract class HomeHeroViews {
     static CharSequence lineOf(Context context, HomeModel.GameCard card, long now) {
         if (card.lastPlayed != null && card.lastPlayed > 0) {
             // The host's time is in seconds.
-            return DateUtils.getRelativeTimeSpanString(card.lastPlayed * 1000L, now, DateUtils.DAY_IN_MILLIS,
-                    DateUtils.FORMAT_ABBREV_RELATIVE);
+            return PlayedWhen.of(context, card.lastPlayed * 1000L, now);
         }
         return ShelfAdapter.CardHolder.whereOf(context, card);
     }
@@ -165,9 +163,12 @@ abstract class HomeHeroViews {
         @Override
         void show(HomeHero next, String key, boolean animate) {
             boolean first = hero == null;
+            HomeModel.GameCard before = game;
             hero = next;
             int position = next.indexOf(key);
             write(next.games.get(position));
+            // A game that came to the hero under a refresh brings its ambient with it.
+            if (!animate && before != null && !before.key.equals(game.key)) listener.onHeroShown(game);
             carousel.forget();
             if (animate) {
                 scrollTo(position);
@@ -178,6 +179,31 @@ abstract class HomeHeroViews {
             if (first || there == null || Math.abs((there.getLeft() + there.getRight()) / 2 - cards.getWidth() / 2) > carousel.pitch() / 2) {
                 cards.stopScroll();
                 layout.scrollToPositionWithOffset(position, 0);
+            }
+        }
+    }
+
+    /** The hairlines between a panel's lines: from the covers' left edge to the panel's right, as a group's rows are. */
+    static final class PanelLines extends RecyclerView.ItemDecoration {
+        private final android.graphics.Paint line = new android.graphics.Paint();
+        private final int start;
+
+        PanelLines(Context context) {
+            line.setColor(com.google.android.material.color.MaterialColors.getColor(context, R.attr.glassSeparator, 0));
+            android.content.res.Resources res = context.getResources();
+            line.setStrokeWidth(Math.max(1f, res.getDisplayMetrics().density * .75f));
+            start = Math.round(12 * res.getDisplayMetrics().density);
+        }
+
+        @Override
+        public void onDraw(android.graphics.Canvas canvas, RecyclerView parent, RecyclerView.State state) {
+            boolean rtl = parent.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
+            int count = parent.getChildCount();
+            for (int i = 0; i < count; i++) {
+                View row = parent.getChildAt(i);
+                if (parent.getChildAdapterPosition(row) <= 0) continue;
+                float y = row.getTop() + row.getTranslationY();
+                canvas.drawLine(rtl ? 0 : start, y, rtl ? parent.getWidth() - start : parent.getWidth(), y, line);
             }
         }
     }
@@ -253,6 +279,8 @@ abstract class HomeHeroViews {
             boolean changed = shownKey != null && !shownKey.equals(card.key);
             game = card;
             shownKey = card.key;
+            // A game that came to the hero under a refresh brings its ambient with it.
+            if (changed && !animate) listener.onHeroShown(card);
             ComputerDetails host = hosts.apply(card.hostUuid);
             CoverLoaders loaders = covers.get();
             if (loaders != null) {

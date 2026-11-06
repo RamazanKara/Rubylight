@@ -56,6 +56,15 @@ final class HomeHero {
         return null;
     }
 
+    /**
+     * The game to show after a refresh. A game that newly leads takes the hero: it has just started running, or the first read
+     * of the PC found it, and it is what the screen is for. Otherwise the hero stays where the person left it.
+     */
+    String shownAfterRefresh(String shown, String lastLead) {
+        String lead = games.get(0).key;
+        return lead.equals(lastLead) ? shown : lead;
+    }
+
     int indexOf(String key) {
         for (int i = 0; key != null && i < games.size(); i++) {
             if (games.get(i).key.equals(key)) return i;

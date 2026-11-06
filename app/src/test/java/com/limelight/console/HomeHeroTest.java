@@ -45,6 +45,22 @@ public class HomeHeroTest {
     }
 
     @Test
+    public void aGameThatNewlyLeadsTakesTheHeroAndAPersonsChoiceOtherwiseStays() {
+        HomeModel.GameCard racing = card("Racing", HomeModel.Badge.RUNNING, null);
+        HomeModel.GameCard world = card("World", HomeModel.Badge.NONE, 1L);
+        HomeModel.GameCard ocean = card("Ocean", HomeModel.Badge.NONE, 2L);
+        HomeHero stored = new HomeHero(Arrays.asList(world, ocean), HomeHero.Source.CONTINUE);
+        assertEquals("the first show", world.key, stored.shownAfterRefresh(null, null));
+
+        // The first read of the PC finds a running game: it comes to the hero though World was showing.
+        HomeHero read = new HomeHero(Arrays.asList(racing, world, ocean), HomeHero.Source.CONTINUE);
+        assertEquals(racing.key, read.shownAfterRefresh(world.key, world.key));
+
+        // The person moved to Ocean: the next refresh with the same lead leaves it there.
+        assertEquals(ocean.key, read.shownAfterRefresh(ocean.key, racing.key));
+    }
+
+    @Test
     public void aPcThatDoesNotAnswerOpensTheGamesPageInsteadOfStarting() {
         assertTrue("no such PC", HomeHero.opensPage(card("A", HomeModel.Badge.NONE, null), null));
         ComputerDetails asleep = new ComputerDetails();
@@ -87,9 +103,9 @@ public class HomeHeroTest {
     @Test
     public void aPanelLineReadsTheHostsSeconds() {
         long now = 1_761_300_000_000L;
-        String line = HomeHeroViews.lineOf(context, card("A", HomeModel.Badge.NONE, now / 1000 - 3 * 86_400), now).toString();
+        String line = HomeHeroViews.lineOf(context, card("A", HomeModel.Badge.NONE, now / 1000 - 40 * 86_400), now).toString();
         assertFalse(line, line.contains("1970"));
-        assertTrue(line, line.contains("3"));
+        assertTrue(line, line.contains("2025"));
     }
 
     @Test

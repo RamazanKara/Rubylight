@@ -134,6 +134,8 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
     private HomeHero hero;
     /** The game the hero shows, kept across a refresh. */
     private String heroKey;
+    /** The game that led the hero's list at the last refresh. */
+    private String heroLead;
 
     ConsoleHomeAdapter(Context context, CoverLoaders covers, Function<String, ComputerDetails> hosts, Listener listener) {
         env = new ShelfAdapter.Env(context, covers, hosts, listener);
@@ -324,8 +326,9 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
     }
 
     private void addHero() {
-        HomeModel.GameCard shown = hero.games.get(hero.indexOf(heroKey));
+        HomeModel.GameCard shown = hero.games.get(hero.indexOf(hero.shownAfterRefresh(heroKey, heroLead)));
         heroKey = shown.key;
+        heroLead = hero.games.get(0).key;
         boolean phone = form == com.limelight.ui.GlassForm.PHONE;
         // The handheld shows its game large and the others beside it.
         List<HomeModel.GameCard> cards = phone ? new ArrayList<>(hero.games) : panelCards(hero, shown);
@@ -594,6 +597,7 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
             layout.setRecycleChildrenOnDetach(true);
             layout.setItemPrefetchEnabled(true);
             cards.setLayoutManager(layout);
+            if (type == HERO_WIDE) cards.addItemDecoration(new HomeHeroViews.PanelLines(view.getContext()));
             hero = type == HERO_PHONE ? HomeHeroViews.phone(view, cards, layout, adapter, listener, ConsoleHomeAdapter.this::onCarouselMiddle)
                     : type == HERO_WIDE ? HomeHeroViews.wide(view, env.context, listener, () -> heroEnv.covers, env.hosts) : null;
             if (type == ROW && form == com.limelight.ui.GlassForm.HANDHELD) {

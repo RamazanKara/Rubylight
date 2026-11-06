@@ -31,7 +31,11 @@ public class CoverFrame extends FrameLayout {
     @Override
     protected void onFinishInflate() {
         super.onFinishInflate();
-        if (getBackground() != null) return;
+        if (getBackground() != null) {
+            // A frame shaped by its own background (a small cover in a panel) rounds its art with it.
+            setClipToOutline(true);
+            return;
+        }
         View art = findViewById(R.id.console_cover);
         int placeholder = MaterialColors.getColor(this, R.attr.glassPlaceholder);
         if (art instanceof PosterImageView) ((PosterImageView) art).setPlaceholder(placeholder);

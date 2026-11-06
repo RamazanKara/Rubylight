@@ -84,6 +84,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     private CoverLoaders covers;
     private RecyclerView list;
     private HomeAmbience ambience;
+    private HomeChrome chrome;
     private View loading;
     private View empty;
     private volatile ConsoleRepository repository;
@@ -199,16 +200,20 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         } else {
             setUpGrid(listener);
         }
-        if (isTelevision()) {
-            setUpAmbience();
-        }
+        chrome = new HomeChrome(this, list, view.layout == HomeView.Layout.ROWS);
+        setUpAmbience();
         setUpViewButton();
+        View.OnClickListener search = v -> startActivity(new Intent(this, allGamesActivity()));
+        for (int id : new int[] {R.id.home_search, R.id.home_search_top}) {
+            View button = findViewById(id);
+            if (button != null) button.setOnClickListener(search);
+        }
         feed.bind();
     }
 
-    /** The TV layout has the backdrop behind the shelves; the phone layout is the plain grid. */
+    /** By the window's type; every layout has the backdrop now. */
     private boolean isTelevision() {
-        return findViewById(R.id.home_backdrop) != null;
+        return com.limelight.ui.GlassForm.of(this) == com.limelight.ui.GlassForm.TELEVISION;
     }
 
     /**
@@ -225,7 +230,14 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             last.setNextFocusRightId(R.id.console_view);
             button.setNextFocusLeftId(last.getId());
         }
-        button.setNextFocusRightId(R.id.console_view);
+        View search = findViewById(R.id.home_search);
+        if (isTelevision() && search != null) {
+            button.setNextFocusRightId(R.id.home_search);
+            search.setNextFocusLeftId(R.id.console_view);
+            search.setNextFocusRightId(R.id.home_search);
+        } else {
+            button.setNextFocusRightId(R.id.console_view);
+        }
     }
 
     /** For tests and the demo's captures: the view Home shows. */
@@ -405,7 +417,9 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     private void setUpAmbience() {
         BackdropView backdrop = findViewById(R.id.home_backdrop);
         View hero = findViewById(R.id.home_hero);
-        int canvas = AppTheme.tvCanvas(this);
+        int canvas = isTelevision() ? AppTheme.tvCanvas(this)
+                : com.google.android.material.color.MaterialColors.getColor(backdrop, R.attr.glassCanvas);
+        chrome.setUpBackdrop(backdrop, canvas);
         // The window shows the canvas until the first backdrop covers it, then stops painting under it.
         getWindow().setBackgroundDrawable(new ColorDrawable(canvas));
         // The TV's safe-area padding sits on the content view, which would otherwise clip the backdrop that reaches past it.
@@ -431,7 +445,9 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         }
         // Up from the top of the list goes to the current tab of the shell bar, whatever the focus search would pick
         // (View, at the bar's end, included).
-        if (com.limelight.ui.ShellFocus.upToCurrentTab(this, event, list, findViewById(R.id.console_view))) {
+        // On a phone the tabs are at the foot: Up from the top card stays in the top row.
+        if (chrome != null && chrome.form() != com.limelight.ui.GlassForm.PHONE
+                && com.limelight.ui.ShellFocus.upToCurrentTab(this, event, list, findViewById(R.id.console_view))) {
             return true;
         }
         return super.dispatchKeyEvent(event);
@@ -481,6 +497,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         feed.unbind();
         worker.shutdownNow();
         starWorker.shutdownNow();
+        if (chrome != null) chrome.destroy();
         if (ambience != null) {
             ambience.destroy();
         }
@@ -597,6 +614,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                 return;
             }
             this.model = model;
+            showHostCapsule(model);
             submitKeepingFocus(model);
             // While a saved PC has yet to answer, an empty Home is still loading, not "No PCs yet".
             boolean waiting = model.isEmpty() && noHosts && feed.waiting();
@@ -928,6 +946,20 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     }
 
     /** The PC's options, the same list as on the PCs screen (only for PCs this device is paired with). */
+    /** The PC capsule names the host that answers, else the first; several hosts open the list of PCs. */
+    private void showHostCapsule(HomeModel model) {
+        if (chrome == null) return;
+        HomeModel.HostCard shown = null;
+        for (HomeModel.HostCard card : model.hosts) {
+            if (shown == null || (card.online && !shown.online)) shown = card;
+        }
+        final HomeModel.HostCard only = model.hosts.size() == 1 ? shown : null;
+        chrome.showHost(shown, v -> {
+            if (only != null) showHostOptions(only);
+            else openHosts();
+        });
+    }
+
     private void showHostOptions(HomeModel.HostCard card) {
         ComputerDetails details = feed.host(card.uuid);
         if (hostMenu != null || details == null) {

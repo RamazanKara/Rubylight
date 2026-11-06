@@ -1,16 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One shelf of Home on TV: a small heading over a row of posters that peeks at the next one past the keyline. -->
+<!-- One shelf of Home on TV: a heading over a row of posters. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"
-    android:clipChildren="false" android:clipToPadding="false">
-    <TextView android:id="@+id/shelf_title" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
-        android:paddingTop="@dimen/space_m" android:paddingBottom="@dimen/space_xs"
-        android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="?attr/colorOnSurfaceVariant"
-        android:accessibilityHeading="true" />
+    android:clipChildren="false" android:clipToPadding="false" android:paddingBottom="10dp">
+    <LinearLayout android:id="@+id/shelf_head" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="48dp" android:paddingEnd="48dp" android:paddingBottom="2dp">
+        <TextView android:id="@+id/shelf_title" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:maxLines="1" android:ellipsize="end" android:textSize="15sp" android:lineHeight="20sp"
+            android:fontFamily="?attr/nightjarFaceStrong" android:textColor="?attr/colorOnSurface"
+            android:accessibilityHeading="true" />
+        <TextView android:id="@+id/shelf_count" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginStart="6dp" android:textSize="13sp" android:fontFamily="?attr/nightjarFace"
+            android:textColor="?attr/colorOnSurfaceVariant" android:importantForAccessibility="no" />
+        <ImageView android:id="@+id/shelf_more" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"
+            android:importantForAccessibility="no" />
+    </LinearLayout>
     <androidx.recyclerview.widget.RecyclerView android:id="@+id/shelf_cards"
         android:layout_width="match_parent" android:layout_height="wrap_content"
         android:clipToPadding="false" android:clipChildren="false" android:overScrollMode="never"
-        android:paddingEnd="@dimen/shelf_keyline" android:focusable="false"
+        android:paddingStart="40dp" android:paddingEnd="@dimen/shelf_keyline" android:focusable="false"
         android:descendantFocusability="afterDescendants" />
 </LinearLayout>

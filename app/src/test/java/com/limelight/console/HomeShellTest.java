@@ -293,8 +293,9 @@ public class HomeShellTest {
         assertHeadingsAndCardsStartUnderTheFirstTab();
     }
 
-    /** The shell bar's first tab, the section headings' text and the cards' edges all sit on the screen gutter. */
+    /** In the grid the section headings' text and the cards' edges sit on the screen gutter. */
     private void assertHeadingsAndCardsStartUnderTheFirstTab() throws Exception {
+        chooseGrid();
         ActivityController<Home> controller = home();
         try {
             Home home = controller.get();
@@ -304,9 +305,7 @@ public class HomeShellTest {
             root.measure(View.MeasureSpec.makeMeasureSpec(metrics.widthPixels, View.MeasureSpec.EXACTLY),
                     View.MeasureSpec.makeMeasureSpec(metrics.heightPixels, View.MeasureSpec.EXACTLY));
             root.layout(0, 0, metrics.widthPixels, metrics.heightPixels);
-            int tab = leftIn(root, home.findViewById(R.id.shell_home));
-            assertEquals("the first tab is on the gutter",
-                    home.getResources().getDimensionPixelSize(R.dimen.screen_gutter), tab);
+            int tab = home.getResources().getDimensionPixelSize(R.dimen.screen_gutter);
             RecyclerView list = home.findViewById(R.id.console_list);
             int headings = 0;
             int firstCard = Integer.MAX_VALUE;
@@ -675,6 +674,7 @@ public class HomeShellTest {
 
     @Test
     public void onAPhoneWithAGamepadTheDpadReachesTheShellBarFromTheTopCardAndBack() throws Exception {
+        chooseGrid();
         ActivityController<Home> controller = home();
         try {
             Home home = controller.get();
@@ -684,8 +684,8 @@ public class HomeShellTest {
             RecyclerView.ViewHolder top = list(home).findViewHolderForAdapterPosition(adapter.initialFocus());
             assertNotNull(top);
             View above = focusAfter(home, top.itemView, View.FOCUS_UP);
-            assertNotNull("up from the first card reaches the bar", above);
-            assertTrue("a button of the bar", isInside(home.findViewById(R.id.shell_bar), above));
+            assertNotNull("up from the first card reaches the top row", above);
+            assertTrue("a control of the top row (the tabs are at the foot)", isInside(home.findViewById(R.id.home_top_row), above));
             View below = focusAfter(home, above, View.FOCUS_DOWN);
             assertNotNull("down from the bar reaches a card", below);
             assertTrue("a card of the list", isInside(list(home), below));
@@ -712,7 +712,7 @@ public class HomeShellTest {
             }
             View now = home.getWindow().getDecorView().findFocus();
             assertNotNull("focus after step " + i + " from " + at, now);
-            if (isInside(home.findViewById(R.id.shell_bar), now)) return now;
+            if (isInside(home.findViewById(R.id.home_top_row), now)) return now;
             // A press may only scroll the list to the header above the first row; the next one moves on.
             if (now == at && ++stuck > 2) return at;
             if (now != at) stuck = 0;
@@ -723,6 +723,7 @@ public class HomeShellTest {
 
     @Test
     public void onAPhoneUpFromALongLibraryReachesTheShellBar() throws Exception {
+        chooseGrid();
         ActivityController<Home> controller = home();
         try {
             Home home = controller.get();
@@ -736,7 +737,7 @@ public class HomeShellTest {
             assertTrue(holder.itemView.requestFocus());
             View end = walkUp(home, holder.itemView, 40);
             assertNotNull("focus does not get stuck", end);
-            assertTrue("ends on the current tab of the bar, not on " + end, end == home.findViewById(R.id.shell_home));
+            assertTrue("ends in the top row (the tabs are at the foot), not on " + end, isInside(home.findViewById(R.id.home_top_row), end));
         } finally {
             controller.pause().stop().destroy();
         }
@@ -1003,6 +1004,12 @@ public class HomeShellTest {
         } finally {
             controller.pause().stop().destroy();
         }
+    }
+
+    /** Shelves are the default now; these tests are about the grid, which stays a choice. */
+    private static void chooseGrid() {
+        new HomeView(HomeView.Layout.GRID, HomeView.Group.NONE, HomeView.Size.MEDIUM)
+                .save(PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()));
     }
 
     private static RecyclerView list(Home home) {

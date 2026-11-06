@@ -61,6 +61,9 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | D3D11 4:2:0 fallback | [October 12 single-pass conversion](#october-12-single-pass-d3d11-420-conversion) |
 | Real laptop client over Wi-Fi | [2.2.9 current receiver](PERFORMANCE_WORK.md#real-wi-fi-hardware-receiver-streams-october-12) · [Render to received, rc.24](PERFORMANCE_WORK.md#october-8-real-client-picture-age-over-wi-fi-rc24-laptop) |
 | Other Sunshine hosts | [Vibepollo 2.0 baseline](#against-vibepollo-20) · [rc.24 on the same GPU](PERFORMANCE_WORK.md#rc24-against-vibepollo-20-on-the-same-gpu) |
+| Android video decryption with the phone's AES instructions | [November 6, Android video decryption](#november-6-android-video-decryption-with-the-phones-aes-instructions) |
+| Nightjar desktop's video scheduling on Windows, not landed | [November 6, video scheduling](#november-6-nightjar-desktops-video-scheduling-on-windows-left-as-it-was) |
+| Automatic pacing that stays under a rate that lost, not landed | [November 6, automatic pacing](#november-6-automatic-pacing-that-stays-under-a-rate-that-lost-left-as-it-was) |
 | WGC capture and pacing | [Guarded comparisons](#guarded-ab-stress-and-compatibility-checks) |
 | Native HEVC / AV1 HDR | [2.2.9 headline streams](#native-virtual-hdr-results-october-12) · [Final rc.10 pixels and repeat runs](#final-native-virtual-hdr-pixels-excluding-physical-panel-calibration) |
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
@@ -121,6 +124,90 @@ RX 7900 XT PC, A = main, B = direct plus P, P = raised threads alone:
 **Raised threads: dropped.** Under full CPU load receive to present improved by 0.008 at p50 and 0.013 at p95, and AV1 did not change, but idle HEVC read worse in both sets (p50 +0.018 and +0.013, p95 +0.030 and +0.018, decode p95 +0.016 and +0.010). Windows threads stay at normal priority.
 
 **Direct submit: dropped.** Queue wait fell in every leg on both machines, and AV1's queue p99 on the laptop fell from 1.29 to 0.04. What the viewer gets is receive to present, and that got worse where it counts: AV1 on the laptop +0.57 at p50 in both runs (14.24 and 14.33 against 14.87 and 14.84) with decode p50 +1.58, and idle HEVC +0.24 at p95 and +1.67 at p99, also in both runs (p99 3.63 and 4.87 against 6.07 and 5.63). Only the busy leg improved through p99, and its p99.9 read worse. The baseline's queue wait was also far shorter than the branch assumed: 14 to 24 µs a frame at p50 is all there was to win. Raw runs: `C:\src\butterpollo-release\unified\njsched` for the PC (`results-batch1.jsonl`, `results-batch2-priority.jsonl`, `results-batch3-priority-hevc.jsonl`), its `laptop` folder for the laptop.
+
+## November 6: automatic pacing that stays under a rate that lost (left as it was)
+
+On main the rate steps ×1.125 up past a link, halves on loss, then climbs back past the link, so it keeps causing its own loss. The `hw-pacing` branch tried to end that, and it did not land: a loss cut capped the climb at 3/4 of the rate that lost and a try above the cap waited 60 s, doubling up to 300 s, in steps of 5 to 40%. A lone failed probe kept the old hold and set no cap; a substantial loss or a second failure near the same rate capped. Failed frames cut too: three keyframes in 15 s, or for ordinary frames three in one sample, or ten in the window at 1 in 90 or worse. Cuts within 5 s counted as one incident, and a new route cleared the cap. Nothing changed before the first loss. On a wired client only `host_adaptive_pacing = true` moves the pace (`automatic_pacing=true client_wireless=false`); without it the client gets a fixed 800 Mbps cap.
+
+**Dropped: the final build does not earn its place.** No gain on a healthy link or a stray loss, a gain at 30 Mbit that costs 0.6 ms of send and receive to present, nothing at 40 Mbit, and worse at 150 Mbit. The earlier build below gained at 40 Mbit from the wired PC, at 1 to 3.4 ms more send; the final build has not been run on limited links from that PC. Against 3.7.0, aabb blocks, 60 s per run, 720p60 clip in a window, Nightjar desktop on the NUC with software decode, limits as `tc tbf` with a 16 kB queue on the NUC's incoming video only. Build is `675e9dbcf`, and `0e4d19738` for the 30 Mbit leg, both on the 3.7.0 commit `69570d87b` and kept as local ref `hwpacing-measured`. Not measured: Wi-Fi clients and PyroWave in A/B (one smoke each on the Retroid; a PyroWave stream logged no pacing changes), a real fast link, and limited links from the RX 7900 XT, which stopped being available mid-run. The limited and no-limit legs ran from the Radeon 780M laptop instead, which is on Wi-Fi: its ceiling follows the bitrate, so at a 40 Mbit limit the pace sits at 38 and never overshoots, which is why 30 Mbit was added. Raw runs: `C:\src\butterpollo-release\unified\hwpacing\lap-nuc` and `...\nuc`, analysis `hwpacing_an.py` beside them.
+
+Laptop host, after the first 10 s, per-run means except where noted. Send, present-to-sent, arrival and receive-to-present are medians of the run values (range for the last two):
+
+| Limit, target | Build | Runs | Unrecovered frames (per run) | Recovered frames | Missing packets | Keyframe requests | Link steps down | Mean pace, Mbps | Dropped at the limit, whole stream | Send ms | Present-to-sent ms | Arrival p50 ms | Receive to present ms |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| HEVC 30 Mbit, 25 Mbps | 3.7.0 | 4 | 3.0 (0, 0, 0, 12) | 30.8 | 119 | 3.0 | 0.2 | 34 | 241 | 13.61 | 22.01 | 4.01 (3.49-4.09) | 21.76 (19.64-22.14) |
+| | final | 4 | 1.2 (0, 0, 0, 5) | 5.8 | 32 | 1.2 | 0.2 | 30 | 162 | 14.22 | 22.51 | 3.77 (3.56-3.93) | 22.34 (19.43-22.37) |
+| HEVC 40 Mbit, 25 Mbps | 3.7.0 | 4 | 0.8 (0, 0, 2, 1) | 2.0 | 14 | 0.5 | 0 | 37 | 18 | 11.61 | 19.73 | 3.65 (3.45-4.11) | 19.31 (19.26-20.06) |
+| | final | 4 | 11.0 (44, 0, 0, 0) | 2.8 | 120 | 3.8 | 0.5 | 34 | 284 | 11.52 | 19.52 | 3.66 (3.49-4.70) | 19.34 (19.26-21.76) |
+| AV1 40 Mbit, 25 Mbps | 3.7.0 | 4 | 0 | 1.2 | 4 | 0 | 0 | 38 | 6 | 11.61 | 19.59 | 3.42 (3.10-3.55) | 25.20 (23.72-25.56) |
+| | final | 4 | 0 | 0.2 | 1 | 0 | 0 | 38 | 4 | 11.42 | 19.30 | 3.35 (3.22-3.71) | 25.16 (24.11-26.01) |
+| HEVC 150 Mbit, 100 Mbps | 3.7.0 | 4 | 6.2 (9, 9, 4, 3) | 84.2 | 232 | 6.2 | 0 | 120 | 376 | 4.22 | 12.37 | 3.03 (2.87-3.19) | 14.66 (14.63-15.44) |
+| | final | 4 | 7.5 (4, 10, 10, 6) | 107.8 | 306 | 7.5 | 1.0 | 112 | 502 | 5.13 | 13.23 | 3.11 (2.91-3.41) | 15.26 (14.42-15.47) |
+| No limit, 65 Mbps | 3.7.0 | 4 | 0 | 41.0 | 42 | 0 | 0 | 102 | n/a | 5.42 | 13.38 | 2.97 (2.87-3.10) | 15.55 (15.54-15.57) |
+| | final | 4 | 0 | 31.0 | 31 | 0 | 0 | 102 | n/a | 5.42 | 13.42 | 3.08 (2.92-3.26) | 15.57 (15.53-15.86) |
+
+At 30 Mbit the cap was set in three of four runs, and missing packets and recovered frames fell by about three quarters. Lost frames over the whole stream did not fall (5.8 to 6.2): the opening ramp still overshoots before any cap exists, and in the first 10 s the final build lost 5.0 frames per run against 2.8. At 40 Mbit the median run shows no loss in either build; one final-build run took a burst of 1131 drops at the limit, lost 44 frames and capped at 14 Mbps, and whether the cap prolonged that is not known. At 150 Mbit no run set a cap, yet the final build sent 0.9 ms slower, dropped more and stepped the bitrate down once per run after the first 10 s, against never. The 65 Mbps leg is not a fast link: the laptop's ceiling held the pace at 102.
+
+Stray loss on a fast link, RX 7900 XT over wired Ethernet, HEVC 65 Mbps with no rate limit, loss on the NUC's incoming video only, 25 s into the stream, pace over the next 30 s:
+
+| Loss | Runs per build | Packets dropped | Pace after, both builds | Cuts and caps, both builds | Present-to-sent ms, 3.7.0 / final | Arrival p50 ms, 3.7.0 / final |
+|---|---|---|---|---|---|---|
+| 1.5% for 200 ms | 4 | 4 to 15 | 800 Mbps throughout | 0 | 7.08 / 6.95 | 4.86 / 4.59 |
+| 100% for 40 ms | 4 | 112 to 168 | 800 Mbps throughout | 0 | 7.14 / 7.16 | 4.73 / 4.76 |
+| 100% for 80 ms | 2 | 223 to 278 | 800 Mbps throughout | 0 | 6.87 / 6.91 | 4.47 / 4.52 |
+
+3.7.0 did not cut on these either, so here the false-alarm case has nothing to fix. The 80 ms leg stopped at two runs per build.
+
+The AV1 receive-to-present rise of 4 ms did not return: 25.20 against 25.16, with the pace equal in both builds, so it remains unexplained. AV1 sits about 6 ms above HEVC in both builds, with decode at 7.9 ms against 5.4 ms on the NUC's software decoder.
+
+**An earlier build.** Everything below is from `0d15aa194` on `hw-pacing`, before the false-alarm rules, and does not describe the final build.
+
+**The limits are scaled down.** Release builds on the RX 7900 XT with AMF, before (e5d3872ed) and after (0d15aa194), Nightjar desktop on the NUC over wired Ethernet with software decode, a 720p60 test clip, 60 s per run. The limit is `tc tbf` on the NUC's incoming video from the test host, with a 16 kB queue. 4K on a real 300 Mbps link stays unmeasured, and so do PyroWave and Wi-Fi clients, where the controller also runs. A 60 s run ends before a retry above the cap, so retries are covered by unit tests only. Successive streams alternate between ramping high and low in either build, for a reason not found, so runs are in aabb blocks.
+
+Whole stream, per-run means. Send and present-to-sent are mean/p95/p99 ms, host processing is `moonlight_host_ms` as logged:
+
+| Limit, target | Build | Runs | Packets dropped at the limit | Unrecovered frames | Recovered frames | Missing packets | Keyframe requests | Link steps down | Video kbps | Send ms | Present-to-sent ms | Host processing ms |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| HEVC 40 Mbit, 25 Mbps | before | 6 | 439 | 6.7 | 22.5 | 150 | 7.0 | 0.7 | 18189 | 7.09/8.27/14.86 | 14.08/22.65/34.94 | 0.55/0.77/1.61 |
+| | after | 6 | 158 | 4.5 | 10.0 | 93 | 5.0 | 0.5 | 18350 | 9.36/10.82/13.06 | 16.30/24.54/34.93 | 0.53/0.77/1.60 |
+| AV1 40 Mbit, 25 Mbps | before | 4 | 454 | 13.2 | 17.5 | 216 | 13.5 | 2.0 | 16284 | 5.50/7.21/11.23 | 12.93/26.09/32.95 | 0.73/1.03/1.10 |
+| | after | 4 | 184 | 4.0 | 11.2 | 86 | 4.8 | 1.0 | 18057 | 8.88/11.45/15.13 | 16.19/25.71/37.16 | 0.76/1.09/1.34 |
+| HEVC 100 Mbit, 65 Mbps | before | 4 | 268 | 8.5 | 25.8 | 191 | 9.0 | 0.8 | 47910 | 5.22/6.48/7.29 | 12.43/27.77/30.45 | 0.55/0.79/1.61 |
+| | after | 4 | 290 | 5.8 | 29.5 | 171 | 6.8 | 0.2 | 50036 | 6.39/7.33/8.27 | 13.41/24.62/31.26 | 0.55/0.79/1.60 |
+| HEVC 150 Mbit, 100 Mbps | before | 4 | 856 | 70.8 | 23.5 | 729 | 42.8 | 0.8 | 66554 | 6.68/7.57/8.48 | 13.47/29.08/31.36 | 0.59/0.78/1.44 |
+| | after | 4 | 475 | 11.5 | 56.2 | 361 | 12.5 | 0.8 | 65019 | 5.32/5.81/7.05 | 12.44/26.21/30.17 | 0.57/0.82/1.70 |
+| No limit, 65 Mbps | before | 6 | 0 | 0.2 | 0.2 | 4.0 | 1.2 | 0 | 50988 | 0.02/0.03/6.19 | 7.32/17.95/28.48 | 0.63/1.11/1.75 |
+| | after | 6 | 0 | 0.0 | 0.3 | 2.7 | 1.0 | 0 | 50988 | 0.02/0.03/6.12 | 7.33/19.78/28.59 | 0.59/0.82/1.79 |
+
+After the first 10 s, where the opening ramp (the same in both builds) is over:
+
+| Limit | Build | Unrecovered frames (per run) | Missing packets | Keyframe requests | Link steps down | Mean pace, Mbps |
+|---|---|---|---|---|---|---|
+| HEVC 40 Mbit | before | 4.5 (2, 4, 6, 5, 7, 3) | 105 | 4.3 | 0.3 | 56 |
+| | after | 0.2 (0, 0, 0, 0, 0, 1) | 13 | 0.2 | 0 | 46 |
+| AV1 40 Mbit | before | 7.0 (2, 11, 12, 3) | 102 | 7.0 | 1.0 | 72 |
+| | after | 0 (0, 0, 0, 0) | 3 | 0 | 0 | 44 |
+| HEVC 100 Mbit | before | 7.5 (7, 7, 7, 9) | 171 | 7.0 | 0.8 | 97 |
+| | after | 4.5 (2, 7, 6, 3) | 128 | 4.5 | 0.2 | 89 |
+| HEVC 150 Mbit | before | 49.5 (13, 178, 2, 5) | 405 | 31.5 | 0 | 98 |
+| | after | 7.0 (10, 3, 6, 9) | 249 | 7.0 | 0 | 95 |
+
+At no limit both builds show nothing after 10 s. The 150 Mbit gain rests on one run before the fix that sat at a 123 Mbps pace; without that run the two builds look the same there. Packets dropped at 100 Mbit did not fall.
+
+The cost on a limited link: host send and present-to-sent rise 1 to 3.4 ms at 40 and 100 Mbit because the pace is lower. `stage_send_queue_ms` barely moved (mean 0.04 in both, p99 1.71 to 0.44, 0.06 to 0.05, 0.32 to 1.44). Arrival at the client did not follow, since the link set delivery anyway. Client arrival against the run's fastest frames, and the client's receive-to-present median, in ms:
+
+| Limit | Arrival p50/p95, before | Arrival p50/p95, after | Receive to present, before | Receive to present, after |
+|---|---|---|---|---|
+| HEVC 40 Mbit | 3.31/13.37 | 3.46/13.72 | 17.33 | 18.22 |
+| AV1 40 Mbit | 3.18/14.80 | 3.37/13.47 | 16.75 | 20.71 |
+| HEVC 100 Mbit | 3.06/12.79 | 3.15/13.33 | 15.68 | 16.53 |
+| No limit | 2.87/12.60 | 2.89/12.69 | 12.22 | 12.34 |
+
+The AV1 receive-to-present rise of 4 ms is not explained. It may be the NUC's software decode with more bitrate held, which was not checked.
+
+On a clean link all runs of both builds took 18 steps to 800 Mbps, in 9.06 to 13.62 s before (mean 10.6) and 10.58 to 14.60 s after (mean 12.2). The code before the first loss is the same, so this is read as run-to-run spread, on six runs each.
+
+`simulate_policy`, five minutes with a keyframe every 4 s and after every failed frame, the cap alone against before, as lost frames/recovered frames/cuts: 70 Mbps 587/249/2 to 294/33/3, 100 Mbps 38/14/7 to 8/4/2, 150 Mbps 14/14/7 to 6/6/3, 300 Mbps 64/14/7 to 32/6/3, 1 Gbps identical (0 lost, 20 rises, 800 Mbps). On hardware the cap alone was not clearly better, which is why failed frames count too.
 
 ## November 3: browser guests share the owner's encode
 

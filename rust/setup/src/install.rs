@@ -2358,7 +2358,8 @@ mod tests {
     /// `remove_hosts`, the import by the side-by-side branch.
     #[test]
     fn a_full_installation_gates_each_removal_on_the_plan() {
-        let source = include_str!("install.rs");
+        // A Windows checkout may have CRLF line ends.
+        let source = include_str!("install.rs").replace("\r\n", "\n");
         let code = source
             .split("fn install_with(")
             .nth(1)

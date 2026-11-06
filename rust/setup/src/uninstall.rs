@@ -1005,7 +1005,8 @@ mod tests {
     fn side_by_side_removing_drivers_keeps_what_another_host_may_use() {
         assert!(SHARED_DRIVERS_KEPT.contains("gamepad"));
         assert!(SHARED_DRIVERS_KEPT.contains("libvirtualdisplay"));
-        let code = include_str!("uninstall.rs");
+        // A Windows checkout may have CRLF line ends.
+        let code = include_str!("uninstall.rs").replace("\r\n", "\n");
         assert!(code.contains(
             "if options.remove_drivers && side_by_side {\n        line(format!(\"note: {SHARED_DRIVERS_KEPT}\"));"
         ));

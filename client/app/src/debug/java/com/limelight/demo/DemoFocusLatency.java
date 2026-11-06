@@ -18,6 +18,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * one showing the move. A press that moved nothing (the end of a shelf) has no such frame and is not counted. Logs one
  * line per press under {@link #TAG}.
  */
+@android.annotation.SuppressLint("NewApi") // Built only when the caller has checked the API level.
 final class DemoFocusLatency implements Window.OnFrameMetricsAvailableListener {
     private static final String TAG = "NjLatency";
     private static final long MS = 1_000_000L;

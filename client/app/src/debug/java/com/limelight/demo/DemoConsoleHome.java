@@ -35,7 +35,7 @@ public final class DemoConsoleHome extends ConsoleHomeActivity {
     @Override protected void onStart() {
         super.onStart();
         // "--ez focusLatency true": scripts/home-speed.py reads D-pad press to moved-focus frame from logcat.
-        if (focusLatency == null && DemoFocusLatency.wanted) {
+        if (focusLatency == null && DemoFocusLatency.wanted && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
             focusLatency = new DemoFocusLatency(this);
         }
     }

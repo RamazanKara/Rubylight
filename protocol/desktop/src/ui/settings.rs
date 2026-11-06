@@ -160,6 +160,20 @@ impl Launcher {
         if matches!(self.dialog, Dialog::None) && ui.input(|i| i.modifiers.command && i.key_pressed(Key::F)) {
             ui.memory_mut(|m| m.request_focus(search_id()));
         }
+        // A changed search, typed or set, shows its results from the top, heading and all.
+        if self.settings_view.query != self.settings_view.shown_query {
+            self.settings_view.shown_query.clone_from(&self.settings_view.query);
+            self.settings_view.to_top = true;
+        }
+        let to_top = if std::mem::take(&mut self.settings_view.to_top) { ToTop::Now } else { self.chrome_to_top() };
+        let open = self.settings_view.section;
+        self.page_scrolled = page_scroll(ui, ("settings", open), to_top, |ui| self.settings_body(ui, view, &sections, layered, commands));
+    }
+
+    /// What scrolls on a settings page. The side list stays in its place below the chrome while the
+    /// rows go by, for as long as the window has the room for all of it.
+    fn settings_body(&mut self, ui: &mut Ui, view: &View<'_>, sections: &[&'static str], layered: bool, commands: &mut Vec<Command>) {
+        self.header(ui, view, commands);
         if layered {
             self.layer_header(ui);
         } else if let Some(profile) = self.active_profile().map(|p| p.name.clone()) {
@@ -174,18 +188,27 @@ impl Launcher {
         let wide = ui.available_width() >= SIDE_LIST_FROM;
         let page = ui.available_rect_before_wrap();
         let mut entries: Vec<(&'static str, Id)> = Vec::new();
+        let mut side_bottom = page.top();
         let rows_rect = if wide {
-            let list = Rect::from_min_size(page.min, vec2(SIDE_LIST_W, page.height()));
+            let height_id = Id::unique("settings-side-height");
+            let height = ui.data(|d| d.get_temp::<f32>(height_id)).unwrap_or(0.0);
+            let view_top = ui.clip_rect().top() + chrome::PAGE_TOP;
+            let fits = height <= ui.clip_rect().bottom() - view_top;
+            let top = if fits { page.top().max(view_top) } else { page.top() };
+            let list = Rect::from_min_max(Pos2::new(page.left(), top), Pos2::new(page.left() + SIDE_LIST_W, page.bottom()));
             let mut side = ui.new_child(UiBuilder::new().id_salt("settings-sections").max_rect(list).layout(Layout::top_down(Align::Min)));
             self.search_field(&mut side);
             side.add_space(space::M);
-            entries = self.section_list(&mut side, &sections, layered);
+            entries = self.section_list(&mut side, sections, layered);
+            let drawn = side.min_rect().height();
+            ui.data_mut(|d| d.insert_temp(height_id, drawn));
+            side_bottom = page.top() + drawn;
             Rect::from_min_max(Pos2::new(page.left() + SIDE_LIST_W + space::XL, page.top()), page.max)
         } else {
             self.search_field(ui);
             ui.add_space(space::S);
             ui.horizontal_wrapped(|ui| {
-                for name in &sections {
+                for name in sections {
                     let current = !self.settings_view.searching() && self.settings_view.section == *name;
                     let chip = section_chip(ui, name, current);
                     entries.push((*name, chip.id));
@@ -201,6 +224,9 @@ impl Launcher {
         let mut column = ui.new_child(UiBuilder::new().id_salt("settings-rows").max_rect(rows_rect).layout(Layout::top_down(Align::Min)));
         let screen = self.screen;
         self.settings_rows(&mut column, view, commands);
+        // Neither child moved the page along: the rows and the list are what it holds.
+        let bottom = column.min_rect().bottom().max(side_bottom);
+        ui.advance_cursor_after_rect(Rect::from_min_max(page.min, Pos2::new(page.right(), bottom)));
         if self.screen == screen {
             if std::mem::take(&mut self.settings_view.focus_rows) {
                 if let Some(&(_, entry)) = entries.iter().find(|&&(name, _)| name == self.settings_view.section) {
@@ -397,7 +423,7 @@ impl Launcher {
         entries
     }
 
-    /// The open section's rows, or every row the search finds, in a scrolling column.
+    /// The open section's rows, or every row the search finds.
     fn settings_rows(&mut self, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>) {
         let display = self.display;
         let tearing = self.tearing_supported;
@@ -444,22 +470,8 @@ impl Launcher {
         let confirm_reset = &mut self.settings_view.confirm_reset;
         let s = if layered { &mut self.edit_settings } else { &mut self.settings };
         let before = s.clone();
-        let mut area = egui::ScrollArea::vertical().id_salt(("settings", open)).auto_shrink(false).content_margin(Margin::same(6));
-        // A changed search, typed or set, shows its results from the top, heading and all.
-        if self.settings_view.query != self.settings_view.shown_query {
-            self.settings_view.shown_query.clone_from(&self.settings_view.query);
-            self.settings_view.to_top = true;
-        }
-        if std::mem::take(&mut self.settings_view.to_top) {
-            area = area.vertical_scroll_offset(0.0);
-        }
-        // Room for focus rings at the column's edges.
-        let rect = ui.available_rect_before_wrap();
-        let rect = Rect::from_min_max(rect.min - vec2(6.0, 6.0), rect.max + vec2(6.0, 0.0));
         let (mut reset_all, mut clear_search) = (false, false);
-        ui.scope_builder(UiBuilder::new().max_rect(rect), |ui| area.show(ui, |ui| {
-            // The D-pad walks the rows down past the window's edge: the row it reaches scrolls in.
-            crate::gui::follow_focus_here(ui, ("settings", open));
+        {
             if searching {
                 ui.label(RichText::new(trf("Results for “{}”", &[&self.settings_view.query.trim()])).font(semibold(text::SECTION)).color(PAPER));
             } else {
@@ -1173,7 +1185,7 @@ impl Launcher {
                 clear_search = no_results(ui, self.settings_view.query.trim());
             }
             ui.add_space(space::XL);
-        }));
+        }
         if clear_search {
             self.settings_view.query.clear();
             self.settings_view.to_top = true;

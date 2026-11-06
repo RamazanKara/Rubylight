@@ -24,7 +24,7 @@ use nightjar_core::http::{
     RemoteFile, TransferCancel, Uploaded,
 };
 
-use super::{primary_button, quiet_button, scroll, section, spinner, text_button, Command, Launcher, Screen, View};
+use super::{primary_button, quiet_button, section, spinner, text_button, Command, Launcher, Screen, View};
 use crate::hosts::{client_for, Host, Reach, Waker};
 use crate::strings::{en, tr, trf};
 use crate::theme::*;
@@ -567,134 +567,132 @@ impl Launcher {
         let folder = page.folder.as_ref().ok().cloned();
         let may_send = page.may(Feature::FileUpload);
         let may_download = page.may(Feature::FileDownload) && folder.is_some();
-        scroll(ui, "files", |ui| {
-            ui.label(RichText::new(tr("Leaving this page cancels the transfers that have not finished. A transfer tried again starts from its first byte.")).color(ON_SURFACE_VARIANT));
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                let send = ui.add_enabled_ui(may_send && !page.choosing, |ui| primary_button(ui, "Send files…")).inner;
-                self.focus_item(&send, "files-send", true);
-                if send.clicked() {
-                    commands.push(Command::ChooseFiles);
-                }
-                let again = ui.add_enabled_ui(page.access != Access::Checking, |ui| quiet_button(ui, "Check again")).inner;
-                self.focus_item(&again, "files-check", !may_send);
-                if again.clicked() {
-                    page.check_again();
-                }
-            });
-            match &page.access {
-                Access::Checking => {
-                    ui.horizontal(|ui| {
-                        spinner(ui, 10.0);
-                        ui.label(RichText::new(tr("Asking the PC…")).color(ON_SURFACE_VARIANT));
-                    });
-                }
-                Access::Failed(e) => {
-                    ui.label(RichText::new(trf("Could not ask the PC: {}", &[e])).color(ERROR));
-                }
-                Access::Known { upload, download } => {
-                    let both_off = upload.is_never() && download.is_never();
-                    let reasons = if both_off {
-                        vec![en("File transfer is off on this PC. Turn it on in the PC's web UI, under File transfer.")]
-                    } else {
-                        [refusal_text(*upload, true), refusal_text(*download, false)].into_iter().flatten().collect()
-                    };
-                    for reason in reasons {
-                        ui.label(RichText::new(tr(reason)).color(ERROR));
-                    }
-                }
+        ui.label(RichText::new(tr("Leaving this page cancels the transfers that have not finished. A transfer tried again starts from its first byte.")).color(ON_SURFACE_VARIANT));
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            let send = ui.add_enabled_ui(may_send && !page.choosing, |ui| primary_button(ui, "Send files…")).inner;
+            self.focus_item(&send, "files-send", true);
+            if send.clicked() {
+                commands.push(Command::ChooseFiles);
             }
-            if let Err(why) = &page.folder {
-                ui.label(RichText::new(why).color(ERROR));
+            let again = ui.add_enabled_ui(page.access != Access::Checking, |ui| quiet_button(ui, "Check again")).inner;
+            self.focus_item(&again, "files-check", !may_send);
+            if again.clicked() {
+                page.check_again();
             }
-            for notice in &page.notices {
-                ui.label(RichText::new(notice).color(ERROR));
-            }
-            if !page.notices.is_empty() && text_button(ui, "Dismiss").clicked() {
-                page.notices.clear();
-            }
-
-            if !page.transfers.items().is_empty() {
-                section(ui, "Transfers");
-                let mut act: Option<(u64, bool)> = None;
-                for transfer in page.transfers.items() {
-                    let failed = matches!(transfer.state, State::Failed { .. });
-                    let line = status(transfer, folder.as_deref());
-                    let id = transfer.id;
-                    let button = item(ui, &title(transfer), &line, if failed { *ERROR } else { *ON_SURFACE_VARIANT }, |ui| {
-                        if !transfer.state.is_finished() && !transfer.is_cancelling() {
-                            Some(quiet_button(ui, "Cancel"))
-                        } else if transfer.can_retry() {
-                            Some(quiet_button(ui, "Try again"))
-                        } else {
-                            None
-                        }
-                    });
-                    if let State::Failed { message, .. } = &transfer.state {
-                        ui.label(RichText::new(message).font(regular(text::CAPTION)).color(OUTLINE));
-                    }
-                    if let Some(fraction) = transfer.fraction().filter(|_| matches!(transfer.state, State::Running { .. })) {
-                        ui.add(egui::ProgressBar::new(fraction as f32).desired_height(4.0));
-                    }
-                    if let Some(button) = button {
-                        self.focus_item(&button, &format!("transfer-{id}"), false);
-                        if button.clicked() {
-                            act = Some((id, transfer.can_retry()));
-                        }
-                    }
-                }
-                match act {
-                    Some((id, true)) => page.retry(id),
-                    Some((id, false)) => page.cancel(id),
-                    None => {}
-                }
-                if page.transfers.items().iter().any(|t| t.state.is_finished()) {
-                    let clear = quiet_button(ui, "Clear finished");
-                    self.focus_item(&clear, "files-clear", false);
-                    if clear.clicked() {
-                        page.clear_finished();
-                    }
-                }
-            }
-
-            section(ui, "On the PC");
-            if page.listing.is_some() {
+        });
+        match &page.access {
+            Access::Checking => {
                 ui.horizontal(|ui| {
                     spinner(ui, 10.0);
-                    ui.label(RichText::new(tr("Reading the PC's folder…")).color(ON_SURFACE_VARIANT));
+                    ui.label(RichText::new(tr("Asking the PC…")).color(ON_SURFACE_VARIANT));
                 });
             }
-            let mut fetch = None;
-            match &page.list {
-                None => {}
-                Some(Err((problem, message))) => {
-                    ui.label(RichText::new(tr(problem_text(*problem))).color(ERROR));
+            Access::Failed(e) => {
+                ui.label(RichText::new(trf("Could not ask the PC: {}", &[e])).color(ERROR));
+            }
+            Access::Known { upload, download } => {
+                let both_off = upload.is_never() && download.is_never();
+                let reasons = if both_off {
+                    vec![en("File transfer is off on this PC. Turn it on in the PC's web UI, under File transfer.")]
+                } else {
+                    [refusal_text(*upload, true), refusal_text(*download, false)].into_iter().flatten().collect()
+                };
+                for reason in reasons {
+                    ui.label(RichText::new(tr(reason)).color(ERROR));
+                }
+            }
+        }
+        if let Err(why) = &page.folder {
+            ui.label(RichText::new(why).color(ERROR));
+        }
+        for notice in &page.notices {
+            ui.label(RichText::new(notice).color(ERROR));
+        }
+        if !page.notices.is_empty() && text_button(ui, "Dismiss").clicked() {
+            page.notices.clear();
+        }
+
+        if !page.transfers.items().is_empty() {
+            section(ui, "Transfers");
+            let mut act: Option<(u64, bool)> = None;
+            for transfer in page.transfers.items() {
+                let failed = matches!(transfer.state, State::Failed { .. });
+                let line = status(transfer, folder.as_deref());
+                let id = transfer.id;
+                let button = item(ui, &title(transfer), &line, if failed { *ERROR } else { *ON_SURFACE_VARIANT }, |ui| {
+                    if !transfer.state.is_finished() && !transfer.is_cancelling() {
+                        Some(quiet_button(ui, "Cancel"))
+                    } else if transfer.can_retry() {
+                        Some(quiet_button(ui, "Try again"))
+                    } else {
+                        None
+                    }
+                });
+                if let State::Failed { message, .. } = &transfer.state {
                     ui.label(RichText::new(message).font(regular(text::CAPTION)).color(OUTLINE));
                 }
-                Some(Ok(list)) => {
-                    ui.label(RichText::new(trf("{0} · {1} free", &[&list.folder, &size(list.free_bytes)])).color(ON_SURFACE_VARIANT));
-                    ui.add_space(4.0);
-                    if list.files.is_empty() && page.may(Feature::FileDownload) {
-                        ui.label(RichText::new(tr("No files in the PC's folder yet.")).color(ON_SURFACE_VARIANT));
+                if let Some(fraction) = transfer.fraction().filter(|_| matches!(transfer.state, State::Running { .. })) {
+                    ui.add(egui::ProgressBar::new(fraction as f32).desired_height(4.0));
+                }
+                if let Some(button) = button {
+                    self.focus_item(&button, &format!("transfer-{id}"), false);
+                    if button.clicked() {
+                        act = Some((id, transfer.can_retry()));
                     }
-                    for file in &list.files {
-                        let button = item(ui, &file.name, &size(file.size), *ON_SURFACE_VARIANT, |ui| {
-                            Some(ui.add_enabled_ui(may_download, |ui| quiet_button(ui, "Download")).inner)
-                        });
-                        if let Some(button) = button {
-                            self.focus_item(&button, &format!("file-{}", file.name), false);
-                            if button.clicked() {
-                                fetch = Some(file.clone());
-                            }
+                }
+            }
+            match act {
+                Some((id, true)) => page.retry(id),
+                Some((id, false)) => page.cancel(id),
+                None => {}
+            }
+            if page.transfers.items().iter().any(|t| t.state.is_finished()) {
+                let clear = quiet_button(ui, "Clear finished");
+                self.focus_item(&clear, "files-clear", false);
+                if clear.clicked() {
+                    page.clear_finished();
+                }
+            }
+        }
+
+        section(ui, "On the PC");
+        if page.listing.is_some() {
+            ui.horizontal(|ui| {
+                spinner(ui, 10.0);
+                ui.label(RichText::new(tr("Reading the PC's folder…")).color(ON_SURFACE_VARIANT));
+            });
+        }
+        let mut fetch = None;
+        match &page.list {
+            None => {}
+            Some(Err((problem, message))) => {
+                ui.label(RichText::new(tr(problem_text(*problem))).color(ERROR));
+                ui.label(RichText::new(message).font(regular(text::CAPTION)).color(OUTLINE));
+            }
+            Some(Ok(list)) => {
+                ui.label(RichText::new(trf("{0} · {1} free", &[&list.folder, &size(list.free_bytes)])).color(ON_SURFACE_VARIANT));
+                ui.add_space(4.0);
+                if list.files.is_empty() && page.may(Feature::FileDownload) {
+                    ui.label(RichText::new(tr("No files in the PC's folder yet.")).color(ON_SURFACE_VARIANT));
+                }
+                for file in &list.files {
+                    let button = item(ui, &file.name, &size(file.size), *ON_SURFACE_VARIANT, |ui| {
+                        Some(ui.add_enabled_ui(may_download, |ui| quiet_button(ui, "Download")).inner)
+                    });
+                    if let Some(button) = button {
+                        self.focus_item(&button, &format!("file-{}", file.name), false);
+                        if button.clicked() {
+                            fetch = Some(file.clone());
                         }
                     }
                 }
             }
-            if let Some(file) = fetch {
-                page.download(&file);
-            }
-            ui.add_space(12.0);
-        });
+        }
+        if let Some(file) = fetch {
+            page.download(&file);
+        }
+        ui.add_space(12.0);
     }
 }
 

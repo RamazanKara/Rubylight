@@ -54,38 +54,36 @@ impl Launcher {
             });
             return;
         }
-        scroll(ui, "hosts", |ui| {
-            let (columns, width) = card_grid(ui.available_width(), CARD_GAP);
-            for (row, chunk) in view.hosts.list.chunks(columns).enumerate() {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = CARD_GAP;
-                    for (i, host) in chunk.iter().enumerate() {
-                        let response = host_card(ui, host, None, width);
-                        let options = options_button(ui, response.rect, response.id.with("options"));
-                        let key = format!("host:{}", host.id);
-                        self.focus_item(&response, &key, row == 0 && i == 0);
-                        self.focus_item(&options, &format!("options:{}", host.id), false);
-                        if response.clicked() {
-                            host_clicked(host, self.settings.quick_resume, commands);
-                        }
-                        if let Some(anchor) = menu_request(ui, &response, Some(&options)) {
-                            self.open_menu(Dialog::HostOptions { host: host.id }, anchor, key);
-                        }
+        let (columns, width) = card_grid(ui.available_width(), CARD_GAP);
+        for (row, chunk) in view.hosts.list.chunks(columns).enumerate() {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = CARD_GAP;
+                for (i, host) in chunk.iter().enumerate() {
+                    let response = host_card(ui, host, None, width);
+                    let options = options_button(ui, response.rect, response.id.with("options"));
+                    let key = format!("host:{}", host.id);
+                    self.focus_item(&response, &key, row == 0 && i == 0);
+                    self.focus_item(&options, &format!("options:{}", host.id), false);
+                    if response.clicked() {
+                        host_clicked(host, self.settings.quick_resume, commands);
                     }
-                });
-                ui.add_space(CARD_GAP);
-            }
-            // A short list may not be all of them: say the search goes on and where help is.
-            if view.hosts.list.len() <= columns {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = space::S;
-                    ui.label(RichText::new(tr("Looking for other PCs on this network")).color(ON_SURFACE_VARIANT));
-                    let help = how_to_connect(ui, commands);
-                    self.focus_item(&help, "how-to-connect", false);
-                });
-            }
-            ui.add_space(space::L);
-        });
+                    if let Some(anchor) = menu_request(ui, &response, Some(&options)) {
+                        self.open_menu(Dialog::HostOptions { host: host.id }, anchor, key);
+                    }
+                }
+            });
+            ui.add_space(CARD_GAP);
+        }
+        // A short list may not be all of them: say the search goes on and where help is.
+        if view.hosts.list.len() <= columns {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = space::S;
+                ui.label(RichText::new(tr("Looking for other PCs on this network")).color(ON_SURFACE_VARIANT));
+                let help = how_to_connect(ui, commands);
+                self.focus_item(&help, "how-to-connect", false);
+            });
+        }
+        ui.add_space(space::L);
     }
 
     pub(super) fn apps(&mut self, ui: &mut Ui, view: &View<'_>, id: u64, commands: &mut Vec<Command>) {
@@ -114,50 +112,48 @@ impl Launcher {
                     ui.label(RichText::new(tr("This PC lists no apps.")).color(ON_SURFACE_VARIANT));
                     return;
                 }
-                scroll(ui, "apps", |ui| {
-                    ui.add_space(LIFT);
-                    let (columns, width) = grid(ui.available_width());
-                    // Hidden games stay out of the PC's list as off Home, unless asked for.
-                    let source = Source::of(host);
-                    let hides = |app: &nightjar_core::http::App| console::is_hidden(&source, &app.uuid, app.id as u32, &self.hidden_games);
-                    let any_hidden = apps.iter().any(hides);
-                    let shown: Vec<&nightjar_core::http::App> = apps.iter().filter(|app| self.show_hidden_apps || !hides(app)).collect();
-                    for (row, chunk) in shown.chunks(columns).enumerate() {
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = POSTER_GAP;
-                            for (i, app) in chunk.iter().enumerate() {
-                                let is_running = running.is_some_and(|r| app.matches_running_app(r, None));
-                                let art = shown_art(view, id, app.id as u32);
-                                let response = poster(ui, &app.name, art, if is_running { Badge::Running } else { Badge::None }, width);
-                                let first = if running.is_some() { is_running } else { row == 0 && i == 0 };
-                                let key = format!("app:{}", app.id);
-                                self.focus_card(&response, &key, &key, first);
-                                let image = Rect::from_min_size(response.rect.min, vec2(width, cover_height(width)));
-                                let dots = cover_dots(ui, &response, image);
-                                if response.clicked() {
-                                    if let Some(ask) = self.start_app(host, app, commands) {
-                                        self.ask(ask);
-                                    }
-                                }
-                                if let Some(anchor) = menu_request(ui, &response, dots.as_ref()) {
-                                    self.open_menu(Dialog::GameMenu { host: id, game: GameTarget::Classic { app: app.id } }, anchor, key);
+                ui.add_space(LIFT);
+                let (columns, width) = grid(ui.available_width());
+                // Hidden games stay out of the PC's list as off Home, unless asked for.
+                let source = Source::of(host);
+                let hides = |app: &nightjar_core::http::App| console::is_hidden(&source, &app.uuid, app.id as u32, &self.hidden_games);
+                let any_hidden = apps.iter().any(hides);
+                let shown: Vec<&nightjar_core::http::App> = apps.iter().filter(|app| self.show_hidden_apps || !hides(app)).collect();
+                for (row, chunk) in shown.chunks(columns).enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = POSTER_GAP;
+                        for (i, app) in chunk.iter().enumerate() {
+                            let is_running = running.is_some_and(|r| app.matches_running_app(r, None));
+                            let art = shown_art(view, id, app.id as u32);
+                            let response = poster(ui, &app.name, art, if is_running { Badge::Running } else { Badge::None }, width);
+                            let first = if running.is_some() { is_running } else { row == 0 && i == 0 };
+                            let key = format!("app:{}", app.id);
+                            self.focus_card(&response, &key, &key, first);
+                            let image = Rect::from_min_size(response.rect.min, vec2(width, cover_height(width)));
+                            let dots = cover_dots(ui, &response, image);
+                            if response.clicked() {
+                                if let Some(ask) = self.start_app(host, app, commands) {
+                                    self.ask(ask);
                                 }
                             }
-                        });
-                        ui.add_space(space::XS);
-                    }
-                    // A focused-but-unloaded first poster still gets focus next frame.
-                    if self.focus_screen && running.is_some() {
-                        self.focus_screen = false;
-                    }
-                    if any_hidden {
-                        let r = quiet_button(ui, if self.show_hidden_apps { tr("Hide hidden games") } else { tr("Show hidden games") });
-                        self.focus_item(&r, "show-hidden", shown.is_empty());
-                        if r.clicked() {
-                            self.show_hidden_apps = !self.show_hidden_apps;
+                            if let Some(anchor) = menu_request(ui, &response, dots.as_ref()) {
+                                self.open_menu(Dialog::GameMenu { host: id, game: GameTarget::Classic { app: app.id } }, anchor, key);
+                            }
                         }
+                    });
+                    ui.add_space(space::XS);
+                }
+                // A focused-but-unloaded first poster still gets focus next frame.
+                if self.focus_screen && running.is_some() {
+                    self.focus_screen = false;
+                }
+                if any_hidden {
+                    let r = quiet_button(ui, if self.show_hidden_apps { tr("Hide hidden games") } else { tr("Show hidden games") });
+                    self.focus_item(&r, "show-hidden", shown.is_empty());
+                    if r.clicked() {
+                        self.show_hidden_apps = !self.show_hidden_apps;
                     }
-                });
+                }
             }
         }
     }
@@ -245,21 +241,19 @@ impl Launcher {
             ui.label(RichText::new(tr("No games match this filter.")).color(ON_SURFACE_VARIANT));
             return;
         }
-        scroll(ui, "all-games", |ui| {
-            ui.add_space(LIFT);
-            let (columns, width) = grid(ui.available_width());
-            let mut first = true;
-            for line in shown.chunks(columns) {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = POSTER_GAP;
-                    for entry in line {
-                        self.library_cover(ui, view, None, entry, width, std::mem::take(&mut first), commands);
-                    }
-                });
-                ui.add_space(space::XS);
-            }
-            ui.add_space(space::L);
-        });
+        ui.add_space(LIFT);
+        let (columns, width) = grid(ui.available_width());
+        let mut first = true;
+        for line in shown.chunks(columns) {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = POSTER_GAP;
+                for entry in line {
+                    self.library_cover(ui, view, None, entry, width, std::mem::take(&mut first), commands);
+                }
+            });
+            ui.add_space(space::XS);
+        }
+        ui.add_space(space::L);
     }
 
     /// A game of the merged library as a line of the List layout; it opens and offers as its cover does.

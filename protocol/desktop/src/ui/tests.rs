@@ -2804,7 +2804,7 @@ fn settings_scroll_beside_their_column_on_a_wide_window() {
     assert!(top(&f) < before - 50.0, "the wheel beside the rows scrolls them: {before} to {}", top(&f));
 }
 
-/// A controller's mapping scrolls in the same column as settings: the wheel beside it scrolls it.
+/// A controller's mapping scrolls as settings do: the wheel beside it scrolls it.
 #[test]
 fn controller_mappings_scroll_beside_their_column() {
     let mut f = Frames::new(record("Desk", true, true), Reach::Online);
@@ -4254,6 +4254,194 @@ fn the_scrim_under_the_chrome_comes_with_scrolling() {
     let screen = Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 800.0));
     assert!(chrome::top_scrim(screen, 0.0).is_none());
     assert!(chrome::top_scrim(screen, 100.0).is_some());
+}
+
+/// The demo library in a window of this size, on Home.
+fn demo_frames(size: egui::Vec2) -> Frames {
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut l = launcher(true, false);
+    let mut hosts = Hosts::without_discovery(super::demo::records(), Arc::new(|| {}));
+    super::demo::fill(&mut hosts, &mut l, &ctx);
+    let mut f = Frames::over(ctx, l, hosts);
+    f.size = size;
+    f.settle();
+    f
+}
+
+fn demo_page(f: &mut Frames, page: super::demo::Page) {
+    let waker: crate::hosts::Waker = Arc::new(|| {});
+    let command = {
+        let Frames { l, hosts, .. } = &mut *f;
+        l.demo_page(page, hosts, waker)
+    };
+    if let Some(Command::ProfileSettings(id)) = command {
+        f.l.go(Screen::ProfileSettings(id));
+    }
+    f.settle();
+    f.settle();
+}
+
+fn wheel(f: &mut Frames, at: Pos2, points: f32) {
+    f.frame(vec![egui::Event::PointerMoved(at)]);
+    f.frame(vec![egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: vec2(0.0, points),
+        phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    for _ in 0..5 {
+        f.settle();
+    }
+}
+
+/// At 760 wide the Help tab ran under the search button. The tabs give way to what is on their right:
+/// first their padding, then their words, and each keeps its name for a screen reader and the pointer.
+#[test]
+fn the_tabs_never_run_under_the_search_button_in_a_narrow_window() {
+    for (width, worded) in [(1280.0, true), (900.0, true), (760.0, true), (506.0, false)] {
+        let mut f = demo_frames(vec2(width, 700.0));
+        f.settle();
+        let in_bar = |rect: &&Rect| rect.top() < 60.0;
+        let pc = f.placed.iter().filter(|(text, ..)| text.contains("Living Room PC")).map(|(_, rect, _)| rect).rfind(in_bar).copied().expect("the PC capsule");
+        let help = f.placed.iter().filter(|(text, ..)| text == "Help").map(|(_, rect, _)| rect).find(in_bar).copied();
+        assert_eq!(help.is_some(), worded, "{width}: the tabs' words");
+        if let Some(help) = help {
+            // The search button, its gaps and the PC capsule's own padding sit between them.
+            assert!(help.right() + 40.0 < pc.left(), "{width}: Help ends at {}, the PC's name starts at {}", help.right(), pc.left());
+        }
+    }
+    assert_eq!(super::chrome::nav_fit(&[50.0, 30.0, 60.0, 35.0], 1000.0), (18.0, true));
+    let (pad, worded) = super::chrome::nav_fit(&[50.0, 30.0, 60.0, 35.0], 400.0);
+    assert!(worded && (10.0..18.0).contains(&pad), "{pad}");
+    assert_eq!(super::chrome::nav_fit(&[50.0, 30.0, 60.0, 35.0], 250.0), (10.0, false));
+}
+
+/// Every page is one area the size of the window: what it holds moves up beneath the chrome and is
+/// cut only by the window's own edges, never at a line of its own below the chrome or above the
+/// bottom. The scrim that keeps the chrome legible comes with it, and it leaves again at the top.
+#[test]
+fn every_page_scrolls_whole_beneath_the_chrome() {
+    use super::demo::Page;
+    let size = vec2(1000.0, 300.0);
+    let mut f = demo_frames(size);
+    for (name, page) in Page::ALL {
+        demo_page(&mut f, page);
+        let before = f.placed.clone();
+        let opened = f.l.page_scrolled;
+        wheel(&mut f, Pos2::new(990.0, 280.0), -160.0);
+        // Files lists on a thread of its own, late on a busy machine; until then the page is short.
+        for _ in 0..200 {
+            if f.l.page_scrolled > opened + 50.0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+            wheel(&mut f, Pos2::new(990.0, 280.0), -160.0);
+        }
+        assert!(f.l.page_scrolled > opened + 50.0, "{name}: the wheel scrolls it from anywhere on the window");
+        let moved: Vec<_> = f.placed.iter().filter(|(text, rect, _)| before.iter().any(|(was, at, _)| was == text && at.top() > rect.top() + 50.0)).collect();
+        assert!(!moved.is_empty(), "{name}: the page's text moved");
+        // A card may clip its own words; the page's are cut by the window alone.
+        let window = |clip: &Rect| clip.top() <= 0.5 && clip.bottom() >= size.y - 0.5;
+        assert!(moved.iter().any(|(_, _, clip)| window(clip)), "{name}: a clip of its own: {:?}", moved.iter().map(|m| m.2).collect::<Vec<_>>());
+        assert!(chrome::top_scrim(Rect::from_min_size(Pos2::ZERO, size), f.l.page_scrolled).is_some(), "{name}: the scrim comes with scrolling");
+        wheel(&mut f, Pos2::new(990.0, 280.0), 4000.0);
+        assert!(f.l.page_scrolled < 0.5, "{name} comes back to its top");
+    }
+}
+
+/// The arrow keys walk a page past the window's edges and back: what they reach rests clear of the
+/// chrome, on any page, and coming back up ends at the top.
+#[test]
+fn the_arrow_keys_keep_the_focus_clear_of_the_chrome_on_every_long_page() {
+    use super::demo::Page;
+    let size = vec2(1280.0, 480.0);
+    for (name, page) in [("all-games", Page::AllGames), ("apps", Page::Apps), ("settings", Page::Settings), ("pc-settings", Page::PcSettings)] {
+        let mut f = demo_frames(size);
+        demo_page(&mut f, page);
+        let focused = |f: &Frames| {
+            let id = f.ctx.memory(|m| m.focused()).expect("something is focused");
+            (id, f.ctx.read_response(id).expect("the focused widget was drawn").rect)
+        };
+        // Down the rows of a settings page: the list beside them takes Right first.
+        if matches!(page, Page::Settings | Page::PcSettings) {
+            f.press(Key::ArrowRight);
+        }
+        let start = f.l.page_scrolled;
+        let mut walked = 0;
+        let mut last = focused(&f).0;
+        for _ in 0..14 {
+            f.press(Key::ArrowDown);
+            f.settle();
+            f.settle();
+            let (id, rect) = focused(&f);
+            if id == last {
+                continue;
+            }
+            last = id;
+            walked += 1;
+            assert!(rect.top() >= chrome::PAGE_TOP - 8.0, "{name}: {rect:?} rests beneath the chrome");
+            assert!(rect.bottom() <= size.y + 0.5, "{name}: {rect:?} runs off the window");
+        }
+        assert!(walked >= 3, "{name}: the focus walked: {walked}");
+        assert!(f.l.page_scrolled > start + 50.0, "{name}: the page followed it: {}", f.l.page_scrolled);
+        for _ in 0..20 {
+            f.press(Key::ArrowUp);
+            f.settle();
+            f.settle();
+            let (_, rect) = focused(&f);
+            assert!(rect.bottom() >= 0.0 && rect.top() <= size.y, "{name}: the focus stays on screen going up: {rect:?}");
+        }
+    }
+}
+
+/// On a wide window the sections stay put below the chrome while the rows go by, and a settings page
+/// with a header first lets them rise to that place. The list is not cut by the chrome.
+#[test]
+fn the_side_list_stays_below_the_chrome_while_the_rows_scroll() {
+    use super::demo::Page;
+    let mut f = demo_frames(vec2(1600.0, 700.0));
+    let top_of = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1.top()).unwrap_or_else(|| panic!("{text} is drawn"));
+    demo_page(&mut f, Page::Settings);
+    let (entry, row) = (top_of(&f, "Audio"), top_of(&f, "Codec"));
+    wheel(&mut f, Pos2::new(1500.0, 600.0), -200.0);
+    assert!(top_of(&f, "Codec") < row - 50.0, "the rows move");
+    assert!((top_of(&f, "Audio") - entry).abs() < 0.5, "the sections do not");
+    wheel(&mut f, Pos2::new(120.0, 680.0), 200.0);
+    assert!((top_of(&f, "Codec") - row).abs() < 0.5, "the wheel over the list scrolls the page too");
+
+    demo_page(&mut f, Page::PcSettings);
+    let entry = top_of(&f, "Audio");
+    wheel(&mut f, Pos2::new(1500.0, 600.0), -600.0);
+    let risen = top_of(&f, "Audio");
+    assert!(risen < entry, "under a header the list rises first: {entry} to {risen}");
+    let search_top = f.placed.iter().filter(|(t, ..)| t == "Audio").map(|p| p.1.top()).fold(f32::MAX, f32::min);
+    assert!(search_top >= chrome::PAGE_TOP, "and stops below the chrome: {search_top}");
+    // The window too short for the list: it goes with the page, or its end could never be seen.
+    let mut f = demo_frames(vec2(1600.0, 300.0));
+    demo_page(&mut f, Page::Settings);
+    f.settle();
+    let entry = top_of(&f, "Audio");
+    wheel(&mut f, Pos2::new(1500.0, 280.0), -100.0);
+    assert!(top_of(&f, "Audio") < entry - 50.0, "the short window's list scrolls");
+}
+
+/// Help's section chips land the section below the chrome, not beneath it.
+#[test]
+fn a_help_section_jump_lands_below_the_chrome() {
+    use super::demo::Page;
+    let mut f = demo_frames(vec2(1280.0, 480.0));
+    demo_page(&mut f, Page::Help);
+    let chip = f.placed.iter().find(|(t, ..)| t == "Sharing").map(|p| p.1.center()).expect("the Sharing chip");
+    f.click_at(chip, egui::PointerButton::Primary);
+    f.settle();
+    f.settle();
+    let tops: Vec<f32> = f.placed.iter().filter(|(t, ..)| t == "Sharing").map(|p| p.1.top()).collect();
+    assert!(f.l.page_scrolled > 50.0, "the page moved to it");
+    let heading = tops.iter().copied().fold(f32::MIN, f32::max);
+    assert!((chrome::PAGE_TOP - 1.0..chrome::PAGE_TOP + 24.0).contains(&heading), "the heading rests just below the chrome: {tops:?}");
 }
 
 /// Home at rest draws nothing more: springs and fades ask for frames only while they move.

@@ -23,6 +23,8 @@ struct State {
     /// A remote monitor or a physical display among the owners has none, and
     /// without one a save would change an entry nothing puts back.
     persists_for: Vec<String>,
+    /// This layout took up what a stopped watch left ([`WakeFollow`]).
+    following: Option<WakeFollow>,
 }
 fn state() -> &'static Mutex<State> {
     static STATE: OnceLock<Mutex<State>> = OnceLock::new();
@@ -145,15 +147,52 @@ fn retain_in(state: &mut State, current: &[Node], id: &str, on: bool) -> bool {
         None => state.applied.push(node.clone()),
     }
     if let Some(before) = &mut state.before {
-        match before.nodes.iter_mut().find(|n| n.device_id == id) {
-            Some(original) => original.active = true,
-            None => before.nodes.push(node.clone()),
-        }
+        restored_active(&mut before.nodes, node);
     }
     if !state.retained.iter().any(|r| r == id) {
         state.retained.push(id.to_owned());
     }
     true
+}
+/// `node` is on in the layout `nodes` goes back to.
+fn restored_active(nodes: &mut Vec<Node>, node: &Node) {
+    match nodes.iter_mut().find(|n| n.device_id == node.device_id) {
+        Some(original) => original.active = true,
+        None => nodes.push(node.clone()),
+    }
+}
+/// `nodes` with the displays `kept` that are on in `current` on as well: they are held
+/// by someone else, and a layout going back must leave them.
+fn with_kept(mut nodes: Vec<Node>, current: &[Node], kept: &[String]) -> Vec<Node> {
+    for node in current
+        .iter()
+        .filter(|n| n.active && kept.contains(&n.device_id))
+    {
+        restored_active(&mut nodes, node);
+    }
+    nodes
+}
+/// The layout a first lease goes back to. One an earlier stream left pending comes first,
+/// which knows nothing of a remote monitor that arrived since: `retain` has no layout to
+/// tell while no lease is held, and a restore would switch off a display still leased.
+fn first_baseline(
+    pending: Option<Snapshot>,
+    original: Option<Snapshot>,
+    current: &Snapshot,
+    target: &str,
+    retained: &[String],
+    virtual_target: bool,
+) -> Snapshot {
+    match pending {
+        Some(mut pending) => {
+            pending.nodes = with_kept(pending.nodes, &current.nodes, retained);
+            pending
+        }
+        None if virtual_target => {
+            original_layout(original.unwrap_or_else(|| current.clone()), target)
+        }
+        None => current.clone(),
+    }
 }
 fn connected() -> Result<Vec<String>> {
     Ok(Topology::query_all()?
@@ -510,15 +549,17 @@ fn repair_saves(state: &State) -> bool {
     if saves_layout(state, None) {
         return true;
     }
-    let isolated = matches!(
-        state.arrangement,
-        Some(Arrangement::Isolated | Arrangement::PrimaryIsolated)
-    );
-    !isolated
+    !isolated(state)
         && !state
             .before
             .as_ref()
             .is_some_and(|before| disabled_original_displays(&before.nodes, &state.applied))
+}
+fn isolated(state: &State) -> bool {
+    matches!(
+        state.arrangement,
+        Some(Arrangement::Isolated | Arrangement::PrimaryIsolated)
+    )
 }
 /// The steps of [`forget_saved_layout`]. `set_active` drops a display with no path
 /// left (a driver reset, a lost device) and switches on the rest at Windows' timing.
@@ -732,6 +773,9 @@ const WAKE_WATCH: std::time::Duration = std::time::Duration::from_secs(3);
 /// How long a display that dropped gets to return. Measured: 3.1 to 6.0 s.
 const WAKE_RETURN: std::time::Duration = std::time::Duration::from_secs(10);
 const WAKE_POLL: std::time::Duration = std::time::Duration::from_millis(100);
+/// How often a stream that took up a stopped watch's layout tries to lay it out once the
+/// woken display showed, one heartbeat apart ([`Lease::follow_wake`]).
+const FOLLOW_TRIES: usize = 8;
 /// What a display switched on after the stream did ([`watch_wake`]).
 #[derive(Debug, PartialEq)]
 enum Wake {
@@ -765,26 +809,51 @@ impl WatchStop {
             .0
     }
 }
+/// What a watch that did not finish leaves to the end of the holds ([`left_watch`]).
+#[derive(Clone, Debug, PartialEq)]
+struct LeftWatch {
+    woken: Vec<String>,
+    /// Whether the user's layout goes back ([`WakeEnd::restore`]).
+    restore: bool,
+}
+struct RunningWatch {
+    stop: Arc<WatchStop>,
+    /// Answers whether it was stopped before it finished.
+    thread: std::thread::JoinHandle<bool>,
+    left: LeftWatch,
+}
 struct Watches {
     /// Launches preparing a display: no watch starts, as what it would write can land
     /// on their layout.
     held_off: usize,
     /// The host is stopping: no watch starts again.
     closed: bool,
-    /// The thread answers whether it left a journal entry that can go ([`WakeWatcher::release`]).
-    running: Option<(Arc<WatchStop>, std::thread::JoinHandle<bool>)>,
-    journal_left: bool,
+    running: Option<RunningWatch>,
+    left: Option<LeftWatch>,
 }
 impl Watches {
     /// Stop the watch and wait for its thread, which then has dropped the stream's
-    /// display and writes nothing more. A thread that panicked left the entry too.
+    /// display and writes nothing more. A thread that panicked did not finish either.
     fn stop_running(&mut self) {
-        if let Some((stop, thread)) = self.running.take() {
+        if let Some(RunningWatch { stop, thread, left }) = self.running.take() {
             stop.stop();
-            self.journal_left |= thread.join().unwrap_or(true);
+            if thread.join().unwrap_or(true) {
+                self.left = Some(left);
+            }
         }
     }
 }
+/// How [`WakeWatcher::start`] went.
+#[derive(Debug, PartialEq)]
+enum WatchStart {
+    Started,
+    /// Not now: what it was to do is for the holds' end, or for the next start.
+    Refused,
+    /// No thread: nothing comes back for its journal entry.
+    NoThread,
+}
+/// The thread a watch runs on.
+type WatchThread = Box<dyn FnOnce() -> bool + Send>;
 /// The one watch that can run after a stream's end, off the threads that wait for that
 /// end. Its lock is held while it waits for the thread, so that whoever gets past a stop
 /// finds the display gone; the thread never takes this lock.
@@ -795,31 +864,51 @@ impl WakeWatcher {
             held_off: 0,
             closed: false,
             running: None,
-            journal_left: false,
+            left: None,
         }))
     }
-    /// Run `job` on its own thread; false when it may not, and it is dropped unrun. It
-    /// answers whether it left a journal entry that can go. Never call this holding the
-    /// arrangement's lock: a watch still running is waited for, and it may want that lock.
-    fn start(&self, job: impl FnOnce(&WatchStop) -> bool + Send + 'static) -> bool {
+    /// Run `job` on its own thread; when it may not, it is dropped unrun. It answers whether
+    /// it was stopped before it finished. Never call this holding the arrangement's lock:
+    /// a watch still running is waited for, and it may want that lock.
+    fn start(
+        &self,
+        left: LeftWatch,
+        job: impl FnOnce(&WatchStop) -> bool + Send + 'static,
+    ) -> WatchStart {
+        self.start_on(left, job, |thread| {
+            std::thread::Builder::new()
+                .name("wake-watch".into())
+                .spawn(thread)
+        })
+    }
+    fn start_on(
+        &self,
+        left: LeftWatch,
+        job: impl FnOnce(&WatchStop) -> bool + Send + 'static,
+        spawn: impl FnOnce(WatchThread) -> std::io::Result<std::thread::JoinHandle<bool>>,
+    ) -> WatchStart {
         let mut watches = self.0.lock().unwrap();
-        if watches.closed || watches.held_off != 0 {
-            return false;
+        if watches.closed {
+            return WatchStart::Refused;
+        }
+        if watches.held_off != 0 {
+            // Here and not by the caller: `job` goes once this lock has, and its display
+            // takes a while. The hold can end during that.
+            watches.left = Some(left);
+            return WatchStart::Refused;
         }
         watches.stop_running();
+        watches.left = None;
         let stop = Arc::new(WatchStop::default());
         let stops = stop.clone();
-        match std::thread::Builder::new()
-            .name("wake-watch".into())
-            .spawn(move || job(&stops))
-        {
+        match spawn(Box::new(move || job(&stops))) {
             Ok(thread) => {
-                watches.running = Some((stop, thread));
-                true
+                watches.running = Some(RunningWatch { stop, thread, left });
+                WatchStart::Started
             }
             Err(error) => {
                 tracing::warn!(%error, "the watch over a woken display could not start");
-                false
+                WatchStart::NoThread
             }
         }
     }
@@ -829,19 +918,15 @@ impl WakeWatcher {
         watches.held_off += 1;
         watches.stop_running();
     }
-    /// True for the last hold to end, when a watch held off or stopped left a journal
-    /// entry that a lease may have taken over: if none did, it is to go.
-    fn release(&self) -> bool {
+    /// For the last hold to end: what a watch held off or stopped left. No journal entry
+    /// goes on that alone ([`left_watch`]).
+    fn release(&self) -> Option<LeftWatch> {
         let mut watches = self.0.lock().unwrap();
         watches.held_off -= 1;
-        watches.held_off == 0 && std::mem::take(&mut watches.journal_left) && !watches.closed
-    }
-    /// A stream's end that a hold kept from starting its watch left its journal entry.
-    fn journal_left(&self) {
-        let mut watches = self.0.lock().unwrap();
-        if watches.held_off != 0 {
-            watches.journal_left = true;
+        if watches.held_off != 0 || watches.closed {
+            return None;
         }
+        watches.left.take()
     }
     /// For good: the host is stopping. What a stopped watch left stays in the journal,
     /// for the next start to put back.
@@ -849,6 +934,15 @@ impl WakeWatcher {
         let mut watches = self.0.lock().unwrap();
         watches.closed = true;
         watches.stop_running();
+    }
+    /// Whether a watch is at work, or left work for the holds' end.
+    fn settling(&self) -> bool {
+        let watches = self.0.lock().unwrap();
+        watches.left.is_some()
+            || watches
+                .running
+                .as_ref()
+                .is_some_and(|watch| !watch.thread.is_finished())
     }
 }
 static WAKE_WATCHER: WakeWatcher = WakeWatcher::new();
@@ -863,22 +957,20 @@ pub fn hold_off_wake_watch() -> WakeWatchOff {
 }
 impl Drop for WakeWatchOff {
     fn drop(&mut self) {
-        if !WAKE_WATCHER.release() {
-            return;
-        }
-        // No lease took up the layout the watch left, as a window's stream or a failed
-        // launch takes none: it must not turn up as the baseline of a stream much later.
-        let state = state().lock().unwrap();
-        if state.users == 0
-            && let Err(error) = crate::display_recovery::arrangement(None)
-        {
-            tracing::warn!(error = %format!("{error:#}"), "display arrangement journal cleanup failed");
+        if let Some(left) = WAKE_WATCHER.release() {
+            start_left_watch(left);
         }
     }
 }
 /// The host is stopping: no watch outlasts that, or starts.
 pub fn close_wake_watch() {
     WAKE_WATCHER.close();
+}
+/// Whether a stream's end is still at work on the displays, up to about 13 s after that
+/// end, though no stream or teardown shows it. What is on can be anything until then:
+/// a layout read now is nobody's, and one written now can be undone by it.
+pub fn wake_watch_settling() -> bool {
+    WAKE_WATCHER.settling()
 }
 /// The user's displays that are connected and off: switching them on wakes them. None
 /// without the stream's own display, as no display is left to hold the layout then.
@@ -925,49 +1017,317 @@ fn watch_wake(
     mut sleep: impl FnMut() -> bool,
     mut away: impl FnMut(),
 ) -> Wake {
-    let mut gone_since = None;
+    let mut looks = WakeLooks::default();
     loop {
         let now = elapsed();
-        let present = read().ok().map(|c| woken.iter().all(|id| c.contains(id)));
-        match (gone_since, present) {
-            (None, Some(false)) => gone_since = Some(now),
-            (Some(_), Some(true)) => return Wake::CameBack,
-            _ => {}
-        }
-        match gone_since {
-            None if now >= WAKE_WATCH => return Wake::Stayed,
-            Some(at) if now.saturating_sub(at) >= WAKE_RETURN => return Wake::StayedAway,
-            Some(_) => away(),
-            None => {}
+        let present = read().ok().map(|c| all_listed(woken, &c));
+        match looks.look(now, present) {
+            WakeLook::Done(wake) => return wake,
+            WakeLook::Away => away(),
+            WakeLook::Watching => {}
         }
         if sleep() {
             return Wake::Stopped;
         }
     }
 }
+fn all_listed(woken: &[String], connected: &[String]) -> bool {
+    woken.iter().all(|id| connected.contains(id))
+}
+/// What one look at the displays says.
+#[derive(Debug, PartialEq)]
+enum WakeLook {
+    Watching,
+    Away,
+    Done(Wake),
+}
+/// What the looks at a woken display have seen.
+#[derive(Debug, Default)]
+struct WakeLooks {
+    gone_since: Option<std::time::Duration>,
+}
+impl WakeLooks {
+    /// `present`: whether they are all listed; None when that can't be read.
+    fn look(&mut self, now: std::time::Duration, present: Option<bool>) -> WakeLook {
+        match (self.gone_since, present) {
+            (None, Some(false)) => self.gone_since = Some(now),
+            (Some(_), Some(true)) => return WakeLook::Done(Wake::CameBack),
+            _ => {}
+        }
+        match self.gone_since {
+            None if now >= WAKE_WATCH => WakeLook::Done(Wake::Stayed),
+            Some(at) if now.saturating_sub(at) >= WAKE_RETURN => WakeLook::Done(Wake::StayedAway),
+            Some(_) => WakeLook::Away,
+            None => WakeLook::Watching,
+        }
+    }
+}
 /// What is on that the user's layout doesn't have, known physical (a stream's virtual
-/// display is never one of them), and what stays on without it.
-fn strays(before: &[Node], active: &[String], physical: &[String]) -> (Vec<String>, Vec<String>) {
+/// display is never one of them), and what stays on without it. `keep`: what someone
+/// holds now, which a physical stream's display can be.
+fn strays(
+    before: &[Node],
+    active: &[String],
+    physical: &[String],
+    keep: &[String],
+) -> (Vec<String>, Vec<String>) {
     active.iter().cloned().partition(|id| {
-        physical.contains(id) && !before.iter().any(|n| n.active && n.device_id == *id)
+        physical.contains(id)
+            && !keep.contains(id)
+            && !before.iter().any(|n| n.active && n.device_id == *id)
     })
+}
+/// Whether the entry for what is connected may have only `on` on. Not with a display of
+/// the user's connected and off: Windows would recall that as their layout.
+fn strays_off_saves(before: &[Node], on: &[String], connected: &[String]) -> bool {
+    before
+        .iter()
+        .filter(|n| n.active && connected.contains(&n.device_id))
+        .all(|n| on.contains(&n.device_id))
 }
 /// Windows recalled the entry for what is connected while a woken display is away, and
 /// that can have a display on that was off before the stream, such as a TV. Off again,
 /// and saved so that the entry no longer has it on.
-fn switch_off_strays(before: &[Node]) -> Result<()> {
+fn switch_off_strays(before: &[Node], keep: &[String]) -> Result<()> {
     let active: Vec<_> = Topology::query()?
         .monitors()
         .into_iter()
         .map(|m| m.device_id)
         .collect();
-    let (off, on) = strays(before, &active, &physical_displays()?);
+    let (off, on) = strays(before, &active, &physical_displays()?, keep);
     if off.is_empty() || on.is_empty() {
         return Ok(());
     }
     tracing::info!(displays = ?off, "Windows switched on a display the user's layout doesn't have while their monitor is away; switching it off");
     Topology::set_active(&on)?;
-    Topology::save_current()
+    if strays_off_saves(before, &on, &connected()?) {
+        Topology::save_current()?;
+    }
+    Ok(())
+}
+/// Whether what is on is the user's layout again: each of their displays that is connected
+/// on at its mode, the primary theirs, nothing else physical on but what is held (`keep`).
+fn layout_is_back(
+    before: &[Node],
+    current: &[Node],
+    connected: &[String],
+    physical: &[String],
+    keep: &[String],
+) -> bool {
+    let active: Vec<_> = active_ids(current).into_iter().collect();
+    !butterpollo_core::display_policy::recalled_over(before, current, connected, &[], true)
+        && strays(before, &active, physical, keep).0.is_empty()
+}
+/// The user's layout, for what a stopped watch left. What is already right isn't touched,
+/// as applying a layout again can retime a display; what is held now stays.
+fn put_left_layout_back(before: &Snapshot) -> Result<()> {
+    let leased = crate::display::leased_displays();
+    let current = Snapshot::capture()?.nodes;
+    if layout_is_back(
+        &before.nodes,
+        &current,
+        &connected()?,
+        &physical_displays()?,
+        &leased,
+    ) {
+        return Ok(());
+    }
+    tracing::info!("putting the user's layout back after a stream's end was cut short");
+    before.restore_excluding(&leased)
+}
+/// The watch's last part with no lease to take it up, the stream's display gone: a launch
+/// that failed or took no lease (a configured window, a physical stream with no layout)
+/// cut it short, or a stream's end during a launch never got one. With the monitor away
+/// Windows can have lit what is left, so the layout goes back once it stayed or returned,
+/// and only that clears the journal. If that fails the entry stays, for the next stream
+/// or start. True when stopped before it finished: then the same goes for the next hold's
+/// end. This runs beside what follows: nothing here delays a launch's answer.
+fn left_watch(
+    left: LeftWatch,
+    stop: &WatchStop,
+    read: impl FnMut() -> Result<Vec<String>>,
+    switch_off: impl FnMut() -> Result<()>,
+    restore: impl FnMut() -> Result<()>,
+    forget: impl FnOnce() -> Result<()>,
+) -> bool {
+    run_wake_watch(
+        WakeEnd {
+            woken: left.woken,
+            restore: left.restore,
+            // No entry to put back with the stream's display gone, and whether the layout
+            // is right is read when it is time to look ([`put_left_layout_back`]).
+            first: Ok(()),
+            restored: Err(anyhow::anyhow!("a stopped watch left it")),
+        },
+        stop,
+        read,
+        switch_off,
+        || Ok(()),
+        restore,
+        forget,
+    )
+}
+/// Start [`left_watch`]. A lease that took the journal entry up has it from here on.
+fn start_left_watch(left: LeftWatch) {
+    let job = left.clone();
+    WAKE_WATCHER.start(left, move |stop| {
+        crate::input::on_input_desktop(move || {
+            let before = match watch_step(stop, crate::display_recovery::pending_arrangement) {
+                None => return stop.is_stopped(),
+                Some(Ok(Some(before))) => before,
+                Some(Ok(None)) => return false,
+                Some(Err(error)) => {
+                    tracing::warn!(error = %format!("{error:#}"), "display arrangement restoration remains pending");
+                    return false;
+                }
+            };
+            left_watch(
+                job,
+                stop,
+                connected,
+                || switch_off_strays(&before.nodes, &crate::display::leased_displays()),
+                || put_left_layout_back(&before),
+                || crate::display_recovery::arrangement(None),
+            )
+        })
+    });
+}
+/// What a non-exclusive stream does for what a stopped watch left. It took the layout over
+/// with the woken display perhaps still to drop, or away: then no layout it composes knows
+/// that display, what Windows lit in its place stays on, and the display may stay dark. So
+/// its heartbeat looks on, as the watch did ([`Lease::follow_wake`]). Under an exclusive
+/// layout there is nothing to do: everything else is off, and comes back as any recall.
+/// It stays until the lease's end, for [`Lease::after_cut_watch`].
+#[derive(Debug)]
+struct WakeFollow {
+    woken: Vec<String>,
+    started: std::time::Instant,
+    looks: WakeLooks,
+    tries: usize,
+    done: bool,
+    failed_strays: bool,
+}
+/// Follow up on a pending layout: the displays of `before` others don't hold, some of them
+/// away (not `connected`) already, as a lease starts.
+fn wake_follow(
+    arrangement: Arrangement,
+    before: &[Node],
+    connected: &[String],
+    target: &str,
+    retained: &[String],
+) -> Option<WakeFollow> {
+    if arrangement == Arrangement::Exclusive {
+        return None;
+    }
+    let woken: Vec<String> = before
+        .iter()
+        .filter(|n| n.active && n.device_id != target && !retained.contains(&n.device_id))
+        .map(|n| n.device_id.clone())
+        .collect();
+    if woken.is_empty() {
+        return None;
+    }
+    let looks = WakeLooks {
+        gone_since: (!all_listed(&woken, connected)).then_some(std::time::Duration::ZERO),
+    };
+    Some(WakeFollow {
+        woken,
+        started: std::time::Instant::now(),
+        looks,
+        tries: 0,
+        done: false,
+        failed_strays: false,
+    })
+}
+/// What a look at the woken display calls for.
+#[derive(Debug, PartialEq)]
+enum FollowStep {
+    Nothing,
+    SwitchOffStrays,
+    LayOut,
+}
+impl WakeFollow {
+    /// `now`: how long the stream's layout has been there.
+    fn step(&mut self, now: std::time::Duration, connected: Option<&[String]>) -> FollowStep {
+        if self.done {
+            return FollowStep::Nothing;
+        }
+        let present = connected.map(|c| all_listed(&self.woken, c));
+        match self.looks.look(now, present) {
+            WakeLook::Watching => FollowStep::Nothing,
+            WakeLook::Away => FollowStep::SwitchOffStrays,
+            WakeLook::Done(Wake::StayedAway) => {
+                tracing::warn!(displays = ?self.woken, "a display dropped off the list when it woke and did not come back in time");
+                self.done = true;
+                FollowStep::Nothing
+            }
+            WakeLook::Done(_) => FollowStep::LayOut,
+        }
+    }
+    /// One try at the layout has gone. True while there is another.
+    fn tried(&mut self, succeeded: bool) -> bool {
+        self.tries += 1;
+        self.done = succeeded || self.tries >= FOLLOW_TRIES;
+        !self.done
+    }
+}
+/// Whether the layout needs its displays put back before it is laid out: the woken display
+/// off, at another mode or (`keeps_primary`) no longer primary, or Windows lit something
+/// else. A monitor that came back as it was only has its place to get.
+fn wake_layout_wrong(
+    before: &[Node],
+    current: &[Node],
+    connected: &[String],
+    physical: &[String],
+    streams: &[String],
+    keep: &[String],
+    keeps_primary: bool,
+) -> bool {
+    let active: Vec<_> = active_ids(current).into_iter().collect();
+    butterpollo_core::display_policy::recalled_over(
+        before,
+        current,
+        connected,
+        streams,
+        keeps_primary,
+    ) || !strays(before, &active, physical, keep).0.is_empty()
+}
+/// The woken display stayed or returned: the layout the stream planned, with it at its
+/// mode. What is right already isn't written, so this is one layout pass at most. True
+/// when the displays had to be put back.
+fn lay_out_after_wake(state: &mut State, arrangement: Arrangement) -> Result<bool> {
+    let Some(before) = state.before.clone() else {
+        return Ok(false);
+    };
+    let targets: Vec<_> = state.owners.iter().map(|(t, _)| t.clone()).collect();
+    let Some(target) = targets.first() else {
+        return Ok(false);
+    };
+    let mut keep = targets.clone();
+    keep.extend(state.retained.iter().cloned());
+    let current = Snapshot::capture()?.nodes;
+    let wrong = wake_layout_wrong(
+        &before.nodes,
+        &current,
+        &connected()?,
+        &physical_displays()?,
+        &targets,
+        &keep,
+        arrangement.keeps_primary(),
+    );
+    if wrong {
+        tracing::info!(
+            "a display a stopped watch was waiting for is back; putting back the layout around the stream"
+        );
+        let layout = Snapshot {
+            nodes: with_kept(before.nodes, &current, &keep),
+            ..before
+        };
+        // Saved as any repair is but for the woken display, which the layout never had off.
+        forget_saved_layout(&layout, target, !isolated(state))?;
+    }
+    apply(state, arrangement, None)?;
+    Ok(wrong)
 }
 /// The user's displays to watch at a stream's end: the ones it wakes, if Windows could
 /// switch on something else with the stream's display gone. With nothing else to switch
@@ -1075,10 +1435,9 @@ fn after_wake(
     restore()
 }
 /// A watch's thread, its displays and journal behind the arguments. True when it was
-/// stopped with the user's layout put back: the journal entry it leaves can go then,
-/// unless a lease takes it up. Kept until the end otherwise: a host that dies during the
-/// watch has its next start put the layout back, and a stream that starts takes it as
-/// its baseline, as what is on by then can be what Windows lit.
+/// stopped before it finished ([`left_watch`]). The journal entry stays until the end: a
+/// host that dies during the watch has its next start put the layout back, and a stream
+/// that starts takes it as its baseline, as what is on by then can be what Windows lit.
 fn run_wake_watch(
     end: WakeEnd,
     stop: &WatchStop,
@@ -1094,7 +1453,6 @@ fn run_wake_watch(
         first,
         restored,
     } = end;
-    let layout_back = restored.is_ok();
     let start = std::time::Instant::now();
     let mut failed_away = false;
     let wake = watch_wake(
@@ -1136,7 +1494,7 @@ fn run_wake_watch(
         }
         None => {
             tracing::info!(displays = ?woken, "a launch or the host's stop ended the watch over a woken display");
-            layout_back
+            true
         }
     }
 }
@@ -1148,14 +1506,18 @@ fn start_wake_watch(
     remains: Option<Box<dyn Send>>,
 ) {
     let layout_back = end.restored.is_ok();
-    let started = WAKE_WATCHER.start(move |stop| {
+    let left = LeftWatch {
+        woken: end.woken.clone(),
+        restore: end.restore,
+    };
+    let start = WAKE_WATCHER.start(left, move |stop| {
         tracing::info!(displays = ?end.woken, "keeping the stream's display in the background until the woken display has stayed or returned");
         crate::input::on_input_desktop(move || {
             let left = run_wake_watch(
                 end,
                 stop,
                 connected,
-                || switch_off_strays(&before.nodes),
+                || switch_off_strays(&before.nodes, &[]),
                 || forget_saved_layout(&before, &target, true),
                 || before.restore(),
                 || crate::display_recovery::arrangement(None),
@@ -1164,9 +1526,20 @@ fn start_wake_watch(
             left
         })
     });
-    if !started && layout_back {
-        WAKE_WATCHER.journal_left();
+    if entry_goes_unwatched(&start, layout_back) {
+        let state = state().lock().unwrap();
+        if state.users == 0
+            && let Err(error) = crate::display_recovery::arrangement(None)
+        {
+            tracing::warn!(error = %format!("{error:#}"), "display arrangement journal cleanup failed");
+        }
     }
+}
+/// With no thread for its watch nothing comes back for a stream's journal entry, which
+/// would turn up as the baseline of a stream much later. It goes if the layout went back,
+/// as at an end with no watch; if not, it is what the next stream or start puts back.
+fn entry_goes_unwatched(start: &WatchStart, layout_back: bool) -> bool {
+    *start == WatchStart::NoThread && layout_back
 }
 /// How long Windows gets to settle between tries ([`settled`]).
 const SETTLE_RETRY: std::time::Duration = std::time::Duration::from_millis(250);
@@ -1360,13 +1733,16 @@ impl Lease {
             });
         }
         let mut current = Snapshot::capture()?;
-        let before = if let Some(pending) = crate::display_recovery::pending_arrangement()? {
-            pending
-        } else if virtual_target {
-            original_layout(original.unwrap_or_else(|| current.clone()), &target_id)
-        } else {
-            current.clone()
-        };
+        let pending = crate::display_recovery::pending_arrangement()?;
+        let was_pending = pending.is_some();
+        let before = first_baseline(
+            pending,
+            original,
+            &current,
+            &target_id,
+            &retained,
+            virtual_target,
+        );
         // A host that stopped without putting back the layout it saved for
         // Windows to recall (a crash, a power cut), or a version that put it back
         // wrong, left the user's displays off, at another mode or no longer primary
@@ -1396,6 +1772,32 @@ impl Lease {
                 }
             }
         }
+        let following = if was_pending {
+            wake_follow(
+                arrangement,
+                &before.nodes,
+                &connected()?,
+                &target_id,
+                &retained,
+            )
+        } else {
+            None
+        };
+        if following.is_some() {
+            // What Windows lit while the woken display is away, before anything is composed
+            // around it. An exclusive layout takes it off by itself.
+            let mut keep = retained.clone();
+            keep.push(target_id.clone());
+            match switch_off_strays(&before.nodes, &keep).and_then(|()| Snapshot::capture()) {
+                Ok(recaptured) => current = recaptured,
+                Err(error) => {
+                    repair_failure = Some(failed_repair(
+                        "switching off a display Windows recalled while the user's monitor is away failed",
+                        error,
+                    ));
+                }
+            }
+        }
         let desired = first_layout(
             arrangement,
             &current.nodes,
@@ -1420,11 +1822,15 @@ impl Lease {
         })();
         if let Err(error) = apply {
             // A pending recovery may have supplied an older, healthy baseline.
-            // Only restoring that baseline permits clearing its journal.
+            // Only restoring that baseline permits clearing its journal, and with a
+            // display of it away that isn't done: see `left_watch`.
             before.restore()?;
-            crate::display_recovery::arrangement(None)?;
+            if !was_pending || before.displays_connected() {
+                crate::display_recovery::arrangement(None)?;
+            }
             return Err(error);
         }
+        state.following = following;
         state.before = Some(before);
         state.users = 1;
         state.key = format!("{arrangement:?}:{target_id}");
@@ -1447,6 +1853,53 @@ impl Lease {
     /// That takes no one's time: this returns once the layout went back.
     pub fn end(self, remains: impl Send + 'static) {
         *self.remains.lock().unwrap() = Some(Box::new(remains));
+    }
+    /// One look on the heartbeat at a display a stopped watch was waiting for, on a layout
+    /// that took that up ([`WakeFollow`]). True when its return took a layout pass that can
+    /// have recalled the stream's display's mode. An error is the last try's.
+    pub fn follow_wake(&self) -> Result<bool> {
+        let mut guard = state().lock().unwrap();
+        let state = &mut *guard;
+        let Some(follow) = state.following.as_mut().filter(|f| !f.done) else {
+            return Ok(false);
+        };
+        let listed = connected().ok();
+        let step = follow.step(follow.started.elapsed(), listed.as_deref());
+        match step {
+            FollowStep::Nothing => Ok(false),
+            FollowStep::SwitchOffStrays => {
+                let mut keep: Vec<_> = state.owners.iter().map(|(t, _)| t.clone()).collect();
+                keep.extend(state.retained.iter().cloned());
+                let before = state.before.as_ref().map_or(&[][..], |b| &b.nodes);
+                if let Err(error) = switch_off_strays(before, &keep)
+                    && !std::mem::replace(&mut follow.failed_strays, true)
+                {
+                    tracing::warn!(error = %format!("{error:#}"), "switching off a display Windows recalled while the user's monitor is away failed");
+                }
+                Ok(false)
+            }
+            FollowStep::LayOut => {
+                let arrangement = state.arrangement.unwrap_or(self.arrangement);
+                let result = lay_out_after_wake(state, arrangement);
+                let follow = state.following.as_mut().expect("checked above");
+                match result {
+                    Ok(wrong) => {
+                        follow.tried(true);
+                        Ok(wrong)
+                    }
+                    Err(error) if follow.tried(false) => {
+                        tracing::debug!(error = %format!("{error:#}"), "display layout change pending; retrying");
+                        Ok(false)
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+        }
+    }
+    /// This layout took up what a stopped watch left: what is on can have been up to Windows
+    /// at any time in it, a monitor away for one. Nobody chose that.
+    pub fn after_cut_watch(&self) -> bool {
+        state().lock().unwrap().following.is_some()
     }
     /// Displays this stream's layout switched off that Windows has switched
     /// back on, such as when an exclusive-fullscreen game loses focus and
@@ -1588,6 +2041,7 @@ impl Drop for Lease {
         state.owners.clear();
         state.arrangement = None;
         state.retained.clear();
+        state.following = None;
         drop(state);
         if let (Some(end), Some(before)) = (watch, before) {
             start_wake_watch(before, target, end, remains.take());

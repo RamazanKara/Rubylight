@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A PC in the sheet: a status dot, its name and state, and a mark on the one Home shows. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal"
+    android:gravity="center_vertical" android:minHeight="60dp" android:paddingStart="14dp" android:paddingEnd="14dp"
+    android:paddingTop="8dp" android:paddingBottom="8dp" android:focusable="true" android:clickable="true"
+    android:background="@drawable/glass_row" android:defaultFocusHighlightEnabled="false">
+    <ImageView android:id="@+id/host_row_dot" android:layout_width="10dp" android:layout_height="10dp"
+        android:layout_marginEnd="14dp" android:importantForAccessibility="no" />
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+        <TextView android:id="@+id/host_row_name" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:maxLines="1" android:ellipsize="end" android:importantForAccessibility="no"
+            android:textAppearance="@style/TextAppearance.Nightjar.Label" android:textColor="?attr/colorOnSurface" />
+        <TextView android:id="@+id/host_row_status" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:maxLines="1" android:ellipsize="end" android:importantForAccessibility="no"
+            android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurfaceVariant" />
+    </LinearLayout>
+    <ImageView android:id="@+id/host_row_mark" android:layout_width="22dp" android:layout_height="22dp" android:layout_marginStart="10dp"
+        android:src="@drawable/ic_check" app:tint="?attr/colorPrimary" android:visibility="gone" android:importantForAccessibility="no" />
+</LinearLayout>

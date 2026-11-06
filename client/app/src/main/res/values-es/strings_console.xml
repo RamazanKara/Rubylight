@@ -69,4 +69,7 @@
     <string name="console_wake_timeout">%1$s no se despertó a tiempo. Comprueba que Wake-on-LAN está configurado e inténtalo de nuevo.</string>
     <string name="console_choose_pc">¿En qué PC quieres jugar?</string>
     <string name="console_badge_asleep">PC en reposo</string>
+    <string name="pc_status_online">En línea</string>
+    <string name="pc_status_not_paired">Sin vincular</string>
+    <string name="pc_action_wake">Activar</string>
 </resources>

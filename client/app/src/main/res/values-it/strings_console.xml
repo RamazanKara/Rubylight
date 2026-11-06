@@ -69,4 +69,7 @@
     <string name="console_wake_timeout">%1$s non si è riattivato in tempo. Controlla che Wake-on-LAN sia configurato e riprova.</string>
     <string name="console_choose_pc">Su quale PC vuoi giocare?</string>
     <string name="console_badge_asleep">PC in standby</string>
+    <string name="pc_status_online">Online</string>
+    <string name="pc_status_not_paired">Non associato</string>
+    <string name="pc_action_wake">Riattiva</string>
 </resources>

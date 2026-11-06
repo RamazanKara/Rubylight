@@ -404,9 +404,11 @@ pub struct Launcher {
     /// How far under the chrome this page's content scrolls: an item revealed rests below it.
     scroll_inset: f32,
     /// How far Home has scrolled, for the scrim under the chrome.
-    home_scroll: f32,
+    page_scrolled: f32,
     /// The focus went up into the chrome: Home goes back to its start beneath it.
-    home_to_top: bool,
+    page_to_top: bool,
+    /// Back was used on the page header this frame.
+    back_pressed: bool,
     /// The display's tearing support, for the VRR setting's note.
     pub tearing_supported: bool,
     /// The renderer's Direct3D 11 device, which the PyroWave GPU decoder's settings probe runs on.
@@ -500,8 +502,9 @@ impl Launcher {
             search_pushed: false,
             library_query: String::new(),
             scroll_inset: 0.0,
-            home_scroll: 0.0,
-            home_to_top: false,
+            page_scrolled: 0.0,
+            page_to_top: false,
+            back_pressed: false,
             tearing_supported: false,
             gpu_device: None,
             display,
@@ -999,33 +1002,44 @@ impl Launcher {
             self.focus_screen = false;
         }
         self.top_bar(&ctx, &view, logo, blocked, &mut commands);
-        self.scroll_inset = if self.screen == Screen::Home { chrome::PAGE_TOP } else { 0.0 };
+        // Every page scrolls whole beneath the chrome, so whatever is revealed rests below it.
+        self.scroll_inset = chrome::PAGE_TOP;
         ui.add_enabled_ui(!blocked, |ui| {
-            self.header(ui, &view, &mut commands);
             match self.screen {
                 Screen::Home => {
                     let data = home_data.take().unwrap_or_else(|| home::HomeData::gather(self, &sources));
                     self.home(ui, &view, &sources, data, &mut commands, logo)
                 }
-                Screen::AllGames => self.all_games(ui, &view, &mut commands),
-                Screen::Game { host, app } => self.game(ui, &view, host, app, &mut commands),
-                Screen::Hosts => self.hosts(ui, &view, &mut commands, logo),
-                Screen::Apps(id) => self.apps(ui, &view, id, &mut commands),
-                Screen::HostDetails(id) => self.host_details(ui, &view, id, &mut commands),
-                Screen::Files(id) => self.files_page(ui, &view, id, &mut commands),
-                Screen::Settings |Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.settings_page(ui, &view, &mut commands),
-                Screen::Profiles => self.profiles_page(ui, &mut commands),
-                Screen::Controllers => self.controllers_page(ui, view.pads, &mut commands),
-                Screen::Shortcuts => self.shortcuts_page(ui, &mut commands),
-                Screen::StreamHotkeys => self.stream_hotkeys_page(ui, &mut commands),
-                Screen::Help => self.help_page(ui, &view, &mut commands),
+                Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.settings_page(ui, &view, &mut commands),
+                screen => {
+                    let to_top = self.chrome_to_top();
+                    self.page_scrolled = page_scroll(ui, page_area(screen), to_top, |ui| {
+                        self.header(ui, &view, &mut commands);
+                        match screen {
+                            Screen::AllGames => self.all_games(ui, &view, &mut commands),
+                            Screen::Game { host, app } => self.game(ui, &view, host, app, &mut commands),
+                            Screen::Hosts => self.hosts(ui, &view, &mut commands, logo),
+                            Screen::Apps(id) => self.apps(ui, &view, id, &mut commands),
+                            Screen::HostDetails(id) => self.host_details(ui, &view, id, &mut commands),
+                            Screen::Files(id) => self.files_page(ui, &view, id, &mut commands),
+                            Screen::Profiles => self.profiles_page(ui, &mut commands),
+                            Screen::Controllers => self.controllers_page(ui, view.pads, &mut commands),
+                            Screen::Shortcuts => self.shortcuts_page(ui, &mut commands),
+                            Screen::StreamHotkeys => self.stream_hotkeys_page(ui, &mut commands),
+                            Screen::Help => self.help_page(ui, &view, &mut commands),
+                            Screen::Home | Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => {}
+                        }
+                    });
+                }
+            }
+            // Back, once the page it leaves is drawn: the next one starts in its own scroll area.
+            if std::mem::take(&mut self.back_pressed) {
+                self.back(&mut commands, false);
             }
             // What rose over its neighbours, under the chrome and whatever covers the page.
             glass::flush_deferred(ui);
-            if self.screen == Screen::Home {
-                if let Some(scrim) = chrome::top_scrim(full, self.home_scroll) {
-                    ui.painter().with_clip_rect(full).add(scrim);
-                }
+            if let Some(scrim) = chrome::top_scrim(full, self.page_scrolled) {
+                ui.painter().with_clip_rect(full).add(scrim);
             }
         });
         if blocked {
@@ -1049,6 +1063,15 @@ impl Launcher {
         }
         self.draw_toast(&ctx);
         commands
+    }
+
+    /// Focus that went up into the chrome brings the page back to its top.
+    fn chrome_to_top(&mut self) -> ToTop {
+        if std::mem::take(&mut self.page_to_top) {
+            ToTop::Glide
+        } else {
+            ToTop::No
+        }
     }
 
     /// What the page wants behind it: its game's ambient, the sky with its moon on a page of cards or
@@ -1100,7 +1123,7 @@ impl Launcher {
             // A screen reader tells it from the destination of the same name in the row above.
             back.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tr(said)));
             if back.clicked() {
-                self.back(commands, false);
+                self.back_pressed = true;
             }
             if !title.is_empty() {
                 ui.add_space(space::S);
@@ -1227,6 +1250,25 @@ pub fn inherited_from(pc: Option<&Overrides>, profile: Option<&crate::config::Pr
     let pc = pc.map(|o| (o.clone(), tr("Set for this PC").to_owned()));
     let profile = profile.map(|p| (p.settings.clone(), trf("From profile {}", &[&p.name])));
     pc.into_iter().chain(profile).collect()
+}
+
+/// Which scroll area a page keeps its place in. Each game has its own.
+fn page_area(screen: Screen) -> Id {
+    match screen {
+        Screen::Game { host, app } => Id::unique(("game", host, app)),
+        Screen::Home => Id::unique("home"),
+        Screen::AllGames => Id::unique("all-games"),
+        Screen::Hosts => Id::unique("hosts"),
+        Screen::Apps(_) => Id::unique("apps"),
+        Screen::HostDetails(_) => Id::unique("host-details"),
+        Screen::Files(_) => Id::unique("files"),
+        Screen::Profiles => Id::unique("profiles"),
+        Screen::Controllers => Id::unique("controller-mapping"),
+        Screen::Shortcuts => Id::unique("shortcuts"),
+        Screen::StreamHotkeys => Id::unique("stream-hotkeys"),
+        Screen::Help => Id::unique("help"),
+        Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => Id::unique("settings"),
+    }
 }
 
 #[cfg(test)]

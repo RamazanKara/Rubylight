@@ -17,7 +17,7 @@ impl Launcher {
             if quiet_button(ui, "Export…").clicked() { commands.push(Command::ExportShortcuts); }
         });
         ui.add_space(16.0);
-        scroll_column(ui, "shortcuts", SETTINGS_W, |ui| {
+        column(ui, SETTINGS_W, |ui| {
             for shortcut in &self.shortcuts.data {
                 row(ui, &shortcut.name, &shortcut.keys.join(" + "), |ui| {
                     ui.horizontal(|ui| {
@@ -44,7 +44,7 @@ impl Launcher {
     pub(super) fn stream_hotkeys_page(&mut self, ui: &mut Ui, commands: &mut Vec<Command>) {
         use crate::shortcuts::{self, Action, Chord};
         let mut focus = std::mem::take(&mut self.focus_screen);
-        scroll_column(ui, "stream-hotkeys", SETTINGS_W, |ui| {
+        column(ui, SETTINGS_W, |ui| {
             for bound in shortcuts::hotkeys() {
                 let Some(action) = Action::from_hotkey(bound.id) else { continue };
                 let keys = match (&bound.keys, bound.taken) {
@@ -111,7 +111,7 @@ impl Launcher {
             ui.checkbox(&mut self.controller_test, tr("Test input (pause controller navigation)"));
         });
         let mapping = &mut self.controller_mapping;
-        scroll_column(ui, "controller-mapping", SETTINGS_W, |ui| {
+        column(ui, SETTINGS_W, |ui| {
             if self.controller_test {
                 let connected: Vec<_> = pads.pads.iter().filter(|p| p.key == self.controller_key).collect();
                 if connected.is_empty() { ui.label(tr("This controller is disconnected.")); }
@@ -195,7 +195,7 @@ impl Launcher {
         }
         let state = self.remote.state_for(id).cloned();
         let running = state == Some(CheckState::Running);
-        scroll_column(ui, "host-details", SETTINGS_W, |ui| {
+        column(ui, SETTINGS_W, |ui| {
             ui.set_max_width(SETTINGS_W);
             section(ui, "Host");
             detail(ui, tr("Host software"), &software);
@@ -510,75 +510,73 @@ impl Launcher {
             self.focus_dialog = true;
         }
         ui.add_space(16.0);
-        scroll(ui, "profiles", |ui| {
-            section(ui, "Network choices");
-            ui.label(self.network.description(&self.profiles.home_wifi));
-            if self.network.link_mbps > 0 { ui.label(trf("Link speed: {} Mbps", &[&self.network.link_mbps])); }
-            let selected = self.profiles.selected(self.network.kind(&self.profiles.home_wifi));
-            let selected_name = selected.map(|id| self.profiles.entries.iter().find(|p| p.id == id)
-                .map_or(tr("Missing profile; main settings apply"), |p| p.name.as_str())).unwrap_or(tr("Main settings"));
-            ui.label(trf("Next stream: {}, then PC and game overrides.", &[&selected_name]));
-            row(ui, "Choose automatically", "Select a profile when a stream starts on this network.", |ui| toggle(ui, &mut self.profiles.automatic));
-            ui.add_enabled_ui(self.profiles.automatic, |ui| {
-                for (id, title, selected) in [("mobile-profile", en("Mobile or metered"), &mut self.profiles.mobile),
-                    ("home-profile", en("Home Wi-Fi"), &mut self.profiles.home), ("wifi-profile", en("Other Wi-Fi"), &mut self.profiles.wifi)] {
-                    let name = self.profiles.entries.iter().find(|p| Some(p.id) == *selected).map_or(tr("Active profile"), |p| p.name.as_str());
-                    row(ui, title, "An unset rule follows your active profile.", |ui| {
-                        egui::ComboBox::from_id_salt(id).selected_text(name).show_ui(ui, |ui| {
-                            ui.selectable_value(selected, None, tr("Active profile"));
-                            for profile in &self.profiles.entries { ui.selectable_value(selected, Some(profile.id), &profile.name); }
-                        }).response
-                    });
-                }
-                ui.label(tr("Home Wi-Fi names stay on this device. Names are case-sensitive."));
-                ui.horizontal(|ui| {
-                    ui.add(egui::TextEdit::singleline(&mut self.home_wifi_name).hint_text(tr("Wi-Fi name")).char_limit(32));
-                    let valid = !self.home_wifi_name.is_empty() && self.home_wifi_name.len() <= 32
-                        && !self.profiles.home_wifi.contains(&self.home_wifi_name) && self.profiles.home_wifi.len() < 50;
-                    if ui.add_enabled(valid, egui::Button::new(tr("Add"))).clicked() {
-                        self.profiles.home_wifi.push(std::mem::take(&mut self.home_wifi_name));
-                    }
-                    if let Some(ssid) = &self.network.ssid {
-                        if ui.add_enabled(!self.profiles.home_wifi.contains(ssid) && self.profiles.home_wifi.len() < 50, egui::Button::new(tr("Add current Wi-Fi"))).clicked() {
-                            self.profiles.home_wifi.push(ssid.clone());
-                        }
-                    }
-                });
-                self.profiles.home_wifi.retain(|name| {
-                    !ui.horizontal(|ui| { ui.label(name); text_button(ui, "Remove").clicked() }).inner
-                });
-            });
-            row(ui, "Mobile data bitrate limit", "Also applies to metered Wi-Fi or Ethernet, after all profile, PC and game overrides. 0 means no limit.", |ui| {
-                step_value(ui, &mut self.profiles.mobile_limit_kbps, 0..=500_000, 1000.0, |d| d.speed(100).suffix(" kbps"))
-            });
-            section(ui, "Saved profiles");
-            for profile in &self.profiles.entries {
-                ui.push_id(profile.id, |ui| {
-                    row(ui, &profile.name, if Some(profile.id) == self.profiles.active { en("Active for new streams") } else { en("Saved profile") }, |ui| {
-                        ui.horizontal(|ui| {
-                            if quiet_button(ui, "Edit").clicked() { commands.push(Command::ProfileSettings(profile.id)); }
-                            ui.menu_button(tr("More"), |ui| {
-                                if ui.button(tr("Rename")).clicked() {
-                                    self.dialog = Dialog::ProfileName { id: Some(profile.id), name: profile.name.clone(), settings: Overrides::default(), error: None };
-                                    self.focus_dialog = true;
-                                    ui.close();
-                                }
-                                if ui.button(tr("Duplicate")).clicked() {
-                                    self.dialog = Dialog::ProfileName { id: None, name: String::new(), settings: profile.settings.clone(), error: None };
-                                    self.focus_dialog = true;
-                                    ui.close();
-                                }
-                                if ui.button(tr("Delete")).clicked() {
-                                    self.dialog = Dialog::DeleteProfile { id: profile.id, name: profile.name.clone() };
-                                    self.focus_dialog = true;
-                                    ui.close();
-                                }
-                            }).response
-                        }).inner
-                    });
+        section(ui, "Network choices");
+        ui.label(self.network.description(&self.profiles.home_wifi));
+        if self.network.link_mbps > 0 { ui.label(trf("Link speed: {} Mbps", &[&self.network.link_mbps])); }
+        let selected = self.profiles.selected(self.network.kind(&self.profiles.home_wifi));
+        let selected_name = selected.map(|id| self.profiles.entries.iter().find(|p| p.id == id)
+            .map_or(tr("Missing profile; main settings apply"), |p| p.name.as_str())).unwrap_or(tr("Main settings"));
+        ui.label(trf("Next stream: {}, then PC and game overrides.", &[&selected_name]));
+        row(ui, "Choose automatically", "Select a profile when a stream starts on this network.", |ui| toggle(ui, &mut self.profiles.automatic));
+        ui.add_enabled_ui(self.profiles.automatic, |ui| {
+            for (id, title, selected) in [("mobile-profile", en("Mobile or metered"), &mut self.profiles.mobile),
+                ("home-profile", en("Home Wi-Fi"), &mut self.profiles.home), ("wifi-profile", en("Other Wi-Fi"), &mut self.profiles.wifi)] {
+                let name = self.profiles.entries.iter().find(|p| Some(p.id) == *selected).map_or(tr("Active profile"), |p| p.name.as_str());
+                row(ui, title, "An unset rule follows your active profile.", |ui| {
+                    egui::ComboBox::from_id_salt(id).selected_text(name).show_ui(ui, |ui| {
+                        ui.selectable_value(selected, None, tr("Active profile"));
+                        for profile in &self.profiles.entries { ui.selectable_value(selected, Some(profile.id), &profile.name); }
+                    }).response
                 });
             }
+            ui.label(tr("Home Wi-Fi names stay on this device. Names are case-sensitive."));
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut self.home_wifi_name).hint_text(tr("Wi-Fi name")).char_limit(32));
+                let valid = !self.home_wifi_name.is_empty() && self.home_wifi_name.len() <= 32
+                    && !self.profiles.home_wifi.contains(&self.home_wifi_name) && self.profiles.home_wifi.len() < 50;
+                if ui.add_enabled(valid, egui::Button::new(tr("Add"))).clicked() {
+                    self.profiles.home_wifi.push(std::mem::take(&mut self.home_wifi_name));
+                }
+                if let Some(ssid) = &self.network.ssid {
+                    if ui.add_enabled(!self.profiles.home_wifi.contains(ssid) && self.profiles.home_wifi.len() < 50, egui::Button::new(tr("Add current Wi-Fi"))).clicked() {
+                        self.profiles.home_wifi.push(ssid.clone());
+                    }
+                }
+            });
+            self.profiles.home_wifi.retain(|name| {
+                !ui.horizontal(|ui| { ui.label(name); text_button(ui, "Remove").clicked() }).inner
+            });
         });
+        row(ui, "Mobile data bitrate limit", "Also applies to metered Wi-Fi or Ethernet, after all profile, PC and game overrides. 0 means no limit.", |ui| {
+            step_value(ui, &mut self.profiles.mobile_limit_kbps, 0..=500_000, 1000.0, |d| d.speed(100).suffix(" kbps"))
+        });
+        section(ui, "Saved profiles");
+        for profile in &self.profiles.entries {
+            ui.push_id(profile.id, |ui| {
+                row(ui, &profile.name, if Some(profile.id) == self.profiles.active { en("Active for new streams") } else { en("Saved profile") }, |ui| {
+                    ui.horizontal(|ui| {
+                        if quiet_button(ui, "Edit").clicked() { commands.push(Command::ProfileSettings(profile.id)); }
+                        ui.menu_button(tr("More"), |ui| {
+                            if ui.button(tr("Rename")).clicked() {
+                                self.dialog = Dialog::ProfileName { id: Some(profile.id), name: profile.name.clone(), settings: Overrides::default(), error: None };
+                                self.focus_dialog = true;
+                                ui.close();
+                            }
+                            if ui.button(tr("Duplicate")).clicked() {
+                                self.dialog = Dialog::ProfileName { id: None, name: String::new(), settings: profile.settings.clone(), error: None };
+                                self.focus_dialog = true;
+                                ui.close();
+                            }
+                            if ui.button(tr("Delete")).clicked() {
+                                self.dialog = Dialog::DeleteProfile { id: profile.id, name: profile.name.clone() };
+                                self.focus_dialog = true;
+                                ui.close();
+                            }
+                        }).response
+                    }).inner
+                });
+            });
+        }
         if self.profiles != before_profiles { commands.push(Command::SaveProfiles); }
     }
 }

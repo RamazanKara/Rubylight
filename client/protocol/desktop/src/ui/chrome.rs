@@ -15,6 +15,8 @@ pub(super) const PAGE_TOP: f32 = 88.0;
 /// How far the page has scrolled when the scrim under the chrome is whole, and how dark it is.
 const SCRIM_FULL_AT: f32 = 40.0;
 const SCRIM_ALPHA: f32 = 0.88;
+/// The foot of the top bar's row.
+const SCRIM_HELD_TO: f32 = 68.0;
 const CAPSULE_GAP: f32 = 14.0;
 const SEARCH_W: f32 = 220.0;
 /// Below this window width the search field folds to its icon, below the second the wordmark goes.
@@ -24,6 +26,30 @@ const PC_NAME_MAX: f32 = 170.0;
 const TAB_FONT: f32 = 15.0;
 const SEARCH_ID: &str = "top-search";
 
+const NAV_PAD: f32 = 4.0;
+const NAV_ICON: f32 = 22.0;
+const NAV_ICON_GAP: f32 = 8.0;
+const TAB_PAD: f32 = 18.0;
+const TAB_PAD_LEAST: f32 = 10.0;
+
+/// How the tabs fit the room a window leaves them, given each one's word: their padding, and whether
+/// the words stay. The padding gives way first, then the words go, as the search field folds to its
+/// icon; the capsule never runs under what is to its right.
+pub(super) fn nav_fit(words: &[f32], room: f32) -> (f32, bool) {
+    let tabs = words.len().max(1) as f32;
+    let at_full = NAV_PAD * 2.0
+        + words
+            .iter()
+            .map(|word| TAB_PAD * 2.0 + NAV_ICON + NAV_ICON_GAP + word)
+            .sum::<f32>();
+    let pad = TAB_PAD - (at_full - room).max(0.0) / (2.0 * tabs);
+    if pad >= TAB_PAD_LEAST {
+        (pad, true)
+    } else {
+        (TAB_PAD_LEAST, false)
+    }
+}
+
 /// The page's left and right margin at a window width: as in the prototype at 1280, capped on very
 /// wide windows.
 pub(super) fn page_margin(width: f32) -> f32 {
@@ -31,7 +57,8 @@ pub(super) fn page_margin(width: f32) -> f32 {
 }
 
 /// Where the page passes beneath the chrome: it darkens as it goes, so the brand, which has no glass
-/// of its own, stays readable over a bright cover. Nothing at all with the page at its start.
+/// of its own, stays readable over a bright cover and over a line of words. It holds as far as the
+/// brand reaches and only then lets go. Nothing at all with the page at its start.
 pub(super) fn top_scrim(screen: Rect, scrolled: f32) -> Option<Shape> {
     let strength = (scrolled / SCRIM_FULL_AT).min(1.0);
     if strength <= 0.0 {
@@ -39,11 +66,10 @@ pub(super) fn top_scrim(screen: Rect, scrolled: f32) -> Option<Shape> {
     }
     let mut mesh = egui::epaint::Mesh::default();
     let bottom = screen.top() + PAGE_TOP + space::S;
+    let held = t::TINT_FADE.gamma_multiply(SCRIM_ALPHA * strength);
     for (y, color) in [
-        (
-            screen.top(),
-            t::TINT_FADE.gamma_multiply(SCRIM_ALPHA * strength),
-        ),
+        (screen.top(), held),
+        (screen.top() + SCRIM_HELD_TO, held),
         (bottom, Color32::TRANSPARENT),
     ] {
         for x in [screen.left(), screen.right()] {
@@ -54,7 +80,7 @@ pub(super) fn top_scrim(screen: Rect, scrolled: f32) -> Option<Shape> {
             });
         }
     }
-    mesh.indices.extend([0, 1, 3, 0, 3, 2]);
+    mesh.indices.extend([0, 1, 3, 0, 3, 2, 2, 3, 5, 2, 5, 4]);
     Some(Shape::mesh(mesh))
 }
 
@@ -143,9 +169,10 @@ impl Launcher {
                         paint_text(ui, x, bar.center().y, "Nightjar", semibold(19.0), *PAPER) + 6.0;
                 }
                 x += CAPSULE_GAP;
-                x = self.nav_capsule(ui, x, bar, sense, commands);
                 // The right end: the PC capsule, then the search field left of it.
                 let pc_w = self.pc_capsule_width(ui, view);
+                let nav_ends_by = bar.right() - pc_w - BAR_H - 2.0 * CAPSULE_GAP;
+                x = self.nav_capsule(ui, x, nav_ends_by, bar, sense, commands);
                 let pc =
                     Rect::from_min_max(pos2(bar.right() - pc_w, bar.top()), bar.right_bottom());
                 let folds = screen.width() < SEARCH_FOLDS_BELOW;
@@ -168,14 +195,14 @@ impl Launcher {
         &mut self,
         ui: &mut Ui,
         left: f32,
+        ends_by: f32,
         bar: Rect,
         sense: Sense,
         commands: &mut Vec<Command>,
     ) -> f32 {
-        const PAD: f32 = 4.0;
-        const TAB_PAD: f32 = 18.0;
-        const ICON: f32 = 22.0;
-        const ICON_GAP: f32 = 8.0;
+        const PAD: f32 = NAV_PAD;
+        const ICON: f32 = NAV_ICON;
+        const ICON_GAP: f32 = NAV_ICON_GAP;
         let marked = self.screen.destination();
         let offered = self.offered_destinations();
         let shown: Vec<(&str, Screen)> = DESTINATIONS
@@ -184,9 +211,16 @@ impl Launcher {
             .map(|(n, s)| (*n, *s))
             .collect();
         let font = semibold(TAB_FONT);
-        let widths: Vec<f32> = shown
+        let words: Vec<f32> = shown
             .iter()
-            .map(|(name, _)| TAB_PAD * 2.0 + ICON + ICON_GAP + measure(ui, tr(name), font.clone()))
+            .map(|(name, _)| measure(ui, tr(name), font.clone()))
+            .collect();
+        let (tab_pad, worded) = nav_fit(&words, ends_by - left);
+        let widths: Vec<f32> = words
+            .iter()
+            .map(|word| {
+                tab_pad * 2.0 + ICON + if worded { ICON_GAP + word } else { 0.0 }
+            })
             .collect();
         let capsule = Rect::from_min_size(
             pos2(left, bar.top()),
@@ -270,18 +304,22 @@ impl Launcher {
                 secondary()
             };
             let icon = Rect::from_min_size(
-                pos2(tab.left() + TAB_PAD, tab.center().y - ICON / 2.0),
+                pos2(tab.left() + tab_pad, tab.center().y - ICON / 2.0),
                 Vec2::splat(ICON),
             );
             icons::paint(ui.painter(), destination_icon(screen), icon, ink);
-            paint_text(
-                ui,
-                icon.right() + ICON_GAP,
-                tab.center().y,
-                tr(name),
-                font.clone(),
-                ink,
-            );
+            if worded {
+                paint_text(
+                    ui,
+                    icon.right() + ICON_GAP,
+                    tab.center().y,
+                    tr(name),
+                    font.clone(),
+                    ink,
+                );
+            } else {
+                response.clone().on_hover_text(tr(name));
+            }
             focus_ring(ui, tab, &response, r as u8);
             self.focus_chrome(&response, &format!("top-{}", name));
             if response.clicked() && self.screen != screen {
@@ -297,7 +335,7 @@ impl Launcher {
         // Focus moved by the arrow keys never reads as gained: a new key is what tells.
         if response.has_focus() && self.focused_key.as_deref() != Some(key) {
             self.focused_key = Some(key.to_owned());
-            self.home_to_top = true;
+            self.page_to_top = true;
         }
         if self.restore_key.as_deref() == Some(key) {
             self.restore_key = None;

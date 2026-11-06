@@ -192,13 +192,9 @@ fn holds(ui: &egui::Ui, response: &egui::Response) -> bool {
     content.x_range().contains(rect.center().x) && rect.center().y >= content.top()
 }
 
-/// [`follow_focus`] for a scroll area without a place of its own for the last focus: egui's memory
-/// keeps it under `area`, the scroll area's id salt. Call it first in the scroll area's content.
-pub fn follow_focus_here(ui: &mut egui::Ui, area: impl std::hash::Hash + std::fmt::Debug) {
-    follow_focus_under(ui, area, 0.0);
-}
-
-/// [`follow_focus_here`] for a scroll area whose content passes beneath `top_inset` points of chrome.
+/// [`follow_focus`] for a scroll area whose content passes beneath `top_inset` points of chrome,
+/// without a place of its own for the last focus: egui's memory keeps it under `area`, the scroll
+/// area's id salt. Call it first in the scroll area's content.
 pub fn follow_focus_under(ui: &mut egui::Ui, area: impl std::hash::Hash + std::fmt::Debug, top_inset: f32) {
     let key = egui::Id::unique(("follow-focus", area));
     let mut last = ui.data(|d| d.get_temp::<Option<egui::Id>>(key)).flatten();

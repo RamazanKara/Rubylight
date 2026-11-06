@@ -289,45 +289,51 @@ pub(super) fn spinner(ui: &mut Ui, radius: f32) {
     }
 }
 
-/// A vertical scroll area with room for focus rings at its edges.
-pub(super) fn scroll(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui)) {
-    let rect = ui.available_rect_before_wrap();
-    let rect = Rect::from_min_max(rect.min - vec2(6.0, 6.0), rect.max + vec2(6.0, 0.0));
-    ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
-        egui::ScrollArea::vertical()
-            .id_salt(id)
-            .auto_shrink(false)
-            .content_margin(Margin::same(6))
-            .show(ui, |ui| {
-                crate::gui::follow_focus_here(ui, id);
-                add(ui);
-            });
-    });
+/// What a page's scroll position does this frame.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ToTop {
+    No,
+    Glide,
+    Now,
 }
 
-/// [`scroll`] for a column of rows `width` wide: the scroll bar sits just right of the rows, not at
-/// the far edge of a wide window, and the wheel still scrolls the page from beside the column.
-pub(super) fn scroll_column(ui: &mut Ui, id: &str, width: f32, add: impl FnOnce(&mut Ui)) {
-    let page = ui.available_rect_before_wrap();
-    // The rows, their margin each side, and a gap the floating bar sits in.
-    let right = (page.left() + width + 6.0 + space::L).min(page.right() + 6.0);
-    let rect = Rect::from_min_max(page.min - vec2(6.0, 6.0), Pos2::new(right, page.bottom()));
-    let beside = Rect::from_min_max(Pos2::new(rect.right(), page.top()), page.max);
-    // Where the list was and how far it goes, from the last frame, for a wheel turned beside it.
-    let memory = Id::unique(("scroll-column", id));
-    let wheel = if beside.is_positive() && ui.rect_contains_pointer(beside) { ui.input(|i| i.smooth_scroll_delta.y) } else { 0.0 };
-    let mut area = egui::ScrollArea::vertical().id_salt(id).auto_shrink(false).content_margin(Margin::same(6));
-    if wheel != 0.0 {
-        if let Some((offset, end)) = ui.ctx().data(|d| d.get_temp::<(f32, f32)>(memory)) {
-            area = area.vertical_scroll_offset((offset - wheel).clamp(0.0, end));
+/// A page that scrolls whole: the area is the window, so what it holds passes beneath the chrome and
+/// runs out at the window's edges, and the wheel works anywhere on it. Only the words and covers keep
+/// the margin. Returns how far it has scrolled.
+pub(super) fn page_scroll(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debug + Copy, to_top: ToTop, add: impl FnOnce(&mut Ui)) -> f32 {
+    let full = ui.ctx().content_rect();
+    let margin = chrome::page_margin(full.width());
+    ui.scope_builder(egui::UiBuilder::new().max_rect(full), |ui| {
+        let mut area = egui::ScrollArea::vertical().id_salt(id).auto_shrink(false);
+        if to_top == ToTop::Now {
+            area = area.vertical_scroll_offset(0.0);
         }
-    }
-    let list = ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| area.show(ui, |ui| {
-        crate::gui::follow_focus_here(ui, id);
+        area.show(ui, |ui| {
+            crate::gui::follow_focus_under(ui, id, chrome::PAGE_TOP);
+            let page = ui.available_rect_before_wrap();
+            if to_top == ToTop::Glide {
+                ui.scroll_to_rect(Rect::from_min_size(page.min, Vec2::splat(1.0)), Some(Align::TOP));
+            }
+            let inside = Rect::from_min_max(Pos2::new(page.left() + margin, page.top()), Pos2::new(page.right() - margin, page.bottom()));
+            ui.scope_builder(egui::UiBuilder::new().max_rect(inside), |ui| {
+                ui.add_space(chrome::PAGE_TOP);
+                add(ui);
+                ui.add_space(space::XXL);
+            });
+        })
+        .state
+        .clamped_offset()
+        .y
+    })
+    .inner
+}
+
+/// A column of rows `width` wide in a page that scrolls whole.
+pub(super) fn column(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui)) {
+    ui.vertical(|ui| {
+        ui.set_max_width(width);
         add(ui);
-    })).inner;
-    let end = (list.content_size.y - list.inner_rect.height()).max(0.0);
-    ui.ctx().data_mut(|d| d.insert_temp(memory, (list.state.clamped_offset().y, end)));
+    });
 }
 
 /// Shades the edge of a scroll area that has more beyond it into `fill` (what it sits on), so a
@@ -373,7 +379,9 @@ pub(super) fn section(ui: &mut Ui, title: &str) {
 pub(super) fn section_at(ui: &mut Ui, title: &str, jump: &mut Option<&'static str>) {
     ui.add_space(14.0);
     if jump.is_some_and(|j| j == title) {
-        ui.scroll_to_cursor(Some(Align::TOP));
+        // It lands below the chrome, not beneath it.
+        let at = ui.cursor().top() - chrome::PAGE_TOP;
+        ui.scroll_to_rect(Rect::from_min_size(Pos2::new(ui.cursor().left(), at), Vec2::splat(1.0)), Some(Align::TOP));
         *jump = None;
     }
     ui.label(RichText::new(tr(title)).font(semibold(text::CARD_TITLE)).color(ON_SURFACE));

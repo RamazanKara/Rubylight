@@ -73,39 +73,37 @@ impl Launcher {
         let ctx = ui.ctx().clone();
         let jump_id = Id::unique("help-jump");
         let mut jump: Option<&'static str> = ctx.data(|d| d.get_temp(jump_id));
-        scroll(ui, "help", |ui| {
-            let width = ui.available_width();
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = vec2(space::S, space::S);
-                for (n, (name, section)) in SECTIONS.iter().enumerate() {
-                    let chip = chip(ui, name);
-                    self.focus_item(&chip, &format!("help-jump-{n}"), n == 0);
-                    if chip.clicked() {
-                        jump = Some(section);
-                    }
+        let width = ui.available_width();
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(space::S, space::S);
+            for (n, (name, section)) in SECTIONS.iter().enumerate() {
+                let chip = chip(ui, name);
+                self.focus_item(&chip, &format!("help-jump-{n}"), n == 0);
+                if chip.clicked() {
+                    jump = Some(section);
                 }
-            });
-            ui.add_space(space::S);
-
-            section_at(ui, "Getting started", &mut jump);
-            self.help_start(ui, width, view, commands);
-
-            section_at(ui, "Keyboard shortcuts", &mut jump);
-            self.help_keyboard(ui, width);
-
-            section_at(ui, "Controllers", &mut jump);
-            self.help_controller(ui, width, view);
-
-            section_at(ui, "Sharing", &mut jump);
-            self.help_sharing(ui, width);
-
-            section_at(ui, "Troubleshooting", &mut jump);
-            self.help_problems(ui, width, commands);
-
-            section_at(ui, "More help", &mut jump);
-            self.help_links(ui, commands);
-            ui.add_space(space::XL);
+            }
         });
+        ui.add_space(space::S);
+
+        section_at(ui, "Getting started", &mut jump);
+        self.help_start(ui, width, view, commands);
+
+        section_at(ui, "Keyboard shortcuts", &mut jump);
+        self.help_keyboard(ui, width);
+
+        section_at(ui, "Controllers", &mut jump);
+        self.help_controller(ui, width, view);
+
+        section_at(ui, "Sharing", &mut jump);
+        self.help_sharing(ui, width);
+
+        section_at(ui, "Troubleshooting", &mut jump);
+        self.help_problems(ui, width, commands);
+
+        section_at(ui, "More help", &mut jump);
+        self.help_links(ui, commands);
+        ui.add_space(space::XL);
         ctx.data_mut(|d| match jump {
             Some(section) => {
                 d.insert_temp(jump_id, section);

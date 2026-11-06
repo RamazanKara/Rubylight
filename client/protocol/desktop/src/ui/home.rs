@@ -2,7 +2,7 @@
 //! favourites, recents, the library's rows and the PCs. All of it scrolls beneath the chrome.
 
 use super::backdrop::Want;
-use super::chrome::{capsule_width, control_capsule, info_chip, play_button, play_width, PAGE_TOP};
+use super::chrome::{capsule_width, control_capsule, info_chip, play_button, play_width};
 use super::design_tokens as t;
 use super::glass;
 use super::*;
@@ -257,23 +257,10 @@ impl Launcher {
         }
         let spill = lines.split_off(lines.len().min(PANEL_LINES));
 
-        let full = ui.ctx().content_rect();
-        let margin = chrome::page_margin(full.width());
+        let to_top = self.chrome_to_top();
         let this = &mut *self;
         // The whole window scrolls, beneath the chrome; only the words and covers keep the margin.
-        ui.scope_builder(UiBuilder::new().max_rect(full), |ui| {
-            let output = egui::ScrollArea::vertical()
-                .id_salt("home")
-                .auto_shrink(false)
-                .show(ui, |ui| {
-                    crate::gui::follow_focus_under(ui, "home", PAGE_TOP);
-                    let page = ui.available_rect_before_wrap();
-                    if std::mem::take(&mut this.home_to_top) {
-                        ui.scroll_to_rect(Rect::from_min_size(page.min, Vec2::splat(1.0)), Some(egui::Align::TOP));
-                    }
-                    let inside = Rect::from_min_max(pos2(page.left() + margin, page.top()), pos2(page.right() - margin, page.bottom()));
-                    ui.scope_builder(UiBuilder::new().max_rect(inside), |ui| {
-                    ui.add_space(PAGE_TOP);
+        let scrolled = page_scroll(ui, "home", to_top, |ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
                     let mut first = true;
                     // A failed read stays on screen beside the last good data.
@@ -425,11 +412,8 @@ impl Launcher {
                             }
                         }
                     });
-                    ui.add_space(space::XXL);
-                    });
-                });
-            this.home_scroll = output.state.clamped_offset().y;
         });
+        self.page_scrolled = scrolled;
     }
 
     /// A shelf's heading. The first one on the page also holds Home's own actions at its right.

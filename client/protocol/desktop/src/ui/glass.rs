@@ -19,6 +19,7 @@ use crate::theme::high_contrast;
 
 /// A glass material of the spec.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code, reason = "menus and chips take their glass when their pages are redesigned")]
 pub enum Material {
     Chrome,
     Panel,
@@ -444,6 +445,12 @@ pub fn scaled_rect(rect: Rect, scale: f32) -> Rect {
     Rect::from_center_size(rect.center(), rect.size() * scale)
 }
 
+/// `rect` scaled up from the middle of its foot.
+pub fn risen_rect(rect: Rect, scale: f32) -> Rect {
+    let size = rect.size() * scale;
+    Rect::from_min_size(pos2(rect.center().x - size.x / 2.0, rect.bottom() - size.y), size)
+}
+
 /// A flat rounded fill.
 pub fn solid(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, color: Color32) {
     let mut mesh = Mesh::default();
@@ -501,7 +508,7 @@ pub fn rim(
 }
 
 /// The alpha of a rounded rectangle under a Gaussian, `blur` as CSS means it (sigma is half).
-fn bake_soft(size: Vec2, r: f32, blur: f32) -> egui::ColorImage {
+fn bake_soft(size: Vec2, r: f32, blur: f32, hollow: bool) -> egui::ColorImage {
     // Half resolution holds a blur this soft, and keeps the bake well under a millisecond each.
     let scale = if blur >= 8.0 { 0.5 } else { 1.0 };
     let pad = blur;
@@ -544,6 +551,8 @@ fn bake_soft(size: Vec2, r: f32, blur: f32) -> egui::ColorImage {
                 })
                 .sum::<f32>()
                 / total;
+            // A hollow shadow, as CSS's box-shadow: nothing under the shape itself.
+            let a = if hollow { a * (1.0 - alpha[y * w + x]) } else { a };
             let v = (a * 255.0).round() as u8;
             image.pixels[y * w + x] = Color32::from_rgba_premultiplied(v, v, v, v);
         }
@@ -554,6 +563,30 @@ fn bake_soft(size: Vec2, r: f32, blur: f32) -> egui::ColorImage {
 /// A blurred rounded shape, drawn as a nine-slice of a bake kept for its radius and blur. A shape
 /// too small for flat middles (a capsule under a wide blur) gets a bake of its own short side.
 pub fn soft(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, blur: f32, color: Color32) {
+    soft_shape(out, ctx, rect, r, blur, color, false);
+}
+
+/// [`soft`] with nothing under `rect` itself: a glow around a shape, in any order with its fill.
+pub fn soft_around(
+    out: &mut Vec<Shape>,
+    ctx: &Context,
+    rect: Rect,
+    r: f32,
+    blur: f32,
+    color: Color32,
+) {
+    soft_shape(out, ctx, rect, r, blur, color, true);
+}
+
+fn soft_shape(
+    out: &mut Vec<Shape>,
+    ctx: &Context,
+    rect: Rect,
+    r: f32,
+    blur: f32,
+    color: Color32,
+    hollow: bool,
+) {
     if blur <= 0.0 || color.a() == 0 || !rect.is_positive() {
         return;
     }
@@ -569,13 +602,14 @@ pub fn soft(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, blur: f32, 
         blur.round() as i32,
         baked.x as i32,
         baked.y as i32,
+        hollow,
     ));
     let texture = ctx
         .data(|d| d.get_temp::<egui::TextureHandle>(id))
         .unwrap_or_else(|| {
             let handle = ctx.load_texture(
                 "glass-soft",
-                bake_soft(baked, r.min(baked.x / 2.0).min(baked.y / 2.0), blur),
+                bake_soft(baked, r.min(baked.x / 2.0).min(baked.y / 2.0), blur, hollow),
                 egui::TextureOptions::LINEAR,
             );
             ctx.data_mut(|d| d.insert_temp(id, handle.clone()));
@@ -616,7 +650,7 @@ pub fn soft(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, blur: f32, 
 
 /// The focus language of every page: a dark gap, a thick ring, a warm halo behind them. High
 /// contrast: a thicker ring, no halo. `on_moon`: the paper ring that reads against the Play button.
-/// Push it before the focused thing's own shapes: the halo fills its whole rectangle.
+/// The halo stays outside the rectangle, so it goes before or after the focused thing's own shapes.
 pub fn focus(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, on_moon: bool) {
     let high = high_contrast();
     let (ring, width, gap) = if high {
@@ -635,8 +669,8 @@ pub fn focus(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, on_moon: b
         (t::FOCUS_RING_COLOR, t::FOCUS_RING_WIDTH, t::FOCUS_GAP)
     };
     if !high {
-        let spread = gap + width + 2.0;
-        soft(
+        let spread = gap + width;
+        soft_around(
             out,
             ctx,
             rect.expand(spread),
@@ -899,6 +933,16 @@ pub fn defer(ui: &Ui, shapes: Vec<Shape>) {
     });
 }
 
+/// [`defer`] for what has the focus: its halo may reach past the scroll area, whose edge would cut it
+/// straight. A focused thing has been scrolled into view, so nothing else shows over its neighbours.
+pub fn defer_focused(ui: &Ui, shapes: Vec<Shape>) {
+    let clip = ui.clip_rect().expand(t::FOCUS_HALO_BLUR + t::FOCUS_GAP + t::FOCUS_RING_WIDTH);
+    ui.ctx().data_mut(|d| {
+        d.get_temp_mut_or_default::<Vec<(Rect, Vec<Shape>)>>(deferred_id())
+            .push((clip, shapes))
+    });
+}
+
 /// Paints what was deferred, each in the clip it was asked for in.
 pub fn flush_deferred(ui: &Ui) {
     let deferred = ui.ctx().data_mut(|d| {
@@ -1002,7 +1046,7 @@ mod tests {
 
     #[test]
     fn a_shadow_bake_is_soft_and_a_nine_slice_stretches_only_its_middle() {
-        let image = bake_soft(vec2(74.0, 74.0), 24.0, 36.0);
+        let image = bake_soft(vec2(74.0, 74.0), 24.0, 36.0, false);
         let center = image.pixels[image.size[1] / 2 * image.size[0] + image.size[0] / 2].a();
         let corner = image.pixels[0].a();
         assert!(center > 200, "{center}");

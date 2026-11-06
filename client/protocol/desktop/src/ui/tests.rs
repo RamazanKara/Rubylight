@@ -1752,7 +1752,7 @@ fn settings_a_pc_kept_before_the_update_are_listed_once_and_reset_only_on_reques
 #[test]
 fn the_details_page_shows_shared_folders_and_co_op_once_the_native_read_offers_them() {
     use crate::hosts::tests::{info_lands, native_caps, native_info, native_lands, stock_info, NATIVE_EXTRAS};
-    let rows = |f: &Frames| [shows(f, "SHARED FOLDERS") && shows(f, "Browse"), shows(f, "CO-OP") && shows(f, "Show sessions")];
+    let rows = |f: &Frames| [shows(f, "Shared folders") && shows(f, "Browse"), shows(f, "Co-op") && shows(f, "Show sessions")];
     let mut f = Frames::with(record("uid", true, false), Reach::Online, Some(native_info()), Vec::new());
     f.size = vec2(1280.0, 12000.0);
     let id = f.hosts.list[0].id;
@@ -1784,7 +1784,7 @@ fn the_details_page_lists_co_op_sessions_only_where_the_pc_offers_them_and_joins
     let mut f = details(Reach::Online, "SUNSHINE_SERVER_FREE", native);
     f.size = vec2(1280.0, 12000.0);
     f.settle();
-    assert!(!shows(&f, "CO-OP"), "a PC that has not said it offers co-op shows none: {:?}", f.drawn);
+    assert!(!shows(&f, "Co-op"), "a PC that has not said it offers co-op shows none: {:?}", f.drawn);
     let offer = |f: &mut Frames, coop_offered: bool| {
         let info = f.hosts.list[0].info.as_mut().unwrap();
         let evidence = info.capabilities.evidence().unwrap().clone();
@@ -1792,9 +1792,9 @@ fn the_details_page_lists_co_op_sessions_only_where_the_pc_offers_them_and_joins
         f.settle();
     };
     offer(&mut f, false);
-    assert!(!shows(&f, "CO-OP"), "a PC without Nucleus Co-op shows none");
+    assert!(!shows(&f, "Co-op"), "a PC without Nucleus Co-op shows none");
     offer(&mut f, true);
-    assert!(shows(&f, "CO-OP") && shows(&f, "Show sessions"), "{:?}", f.drawn);
+    assert!(shows(&f, "Co-op") && shows(&f, "Show sessions"), "{:?}", f.drawn);
     let id = f.hosts.list[0].id;
     let commands = click_text(&mut f, "Show sessions");
     assert!(commands.iter().any(|c| matches!(c, Command::Coop(h) if *h == id)), "Show sessions opens the list");
@@ -2578,14 +2578,15 @@ fn header_stops(f: &mut Frames) -> Vec<Rect> {
 
 #[test]
 fn tab_walks_the_header_left_to_right_and_the_actions_sit_at_the_right_edge() {
-    // PCs: Home hides while there is no library; the destinations sit together beside the brand
-    // and Add PC, the page's action, at the right edge.
+    // PCs: Home hides while there is no library; the destinations sit together beside the brand,
+    // and the search and the PC capsule at the right edge. Add PC is the page's own, under them.
     let mut f = Frames::new(record("Paired", true, false), Reach::Online);
     let stops = header_stops(&mut f);
-    assert_eq!(stops.len(), 4, "PCs, Settings, Help and Add PC: {stops:?}");
-    assert!(stops.windows(2).all(|w| w[0].right() < w[1].left()), "in reading order: {stops:?}");
+    assert_eq!(stops.len(), 5, "PCs, Settings, Help, the search and the PC: {stops:?}");
+    assert!(stops.windows(2).all(|w| w[0].right() <= w[1].left()), "in reading order: {stops:?}");
     assert!(stops[1].right() < 640.0, "the destinations sit at the left: {stops:?}");
-    assert!(1280.0 - stops[3].right() < 80.0, "Add PC is at the right edge: {:?}", stops[3]);
+    assert!(1280.0 - stops[4].right() < 80.0, "the PC is at the right edge: {:?}", stops[4]);
+    assert!(shows(&f, "Add PC"), "{:?}", f.drawn);
     // Hit targets a finger or a pointer finds: no destination is shorter than 36 points.
     assert!(stops.iter().all(|r| r.height() >= 36.0), "{stops:?}");
 
@@ -2594,8 +2595,8 @@ fn tab_walks_the_header_left_to_right_and_the_actions_sit_at_the_right_edge() {
     f.l.go(Screen::Home);
     f.settle();
     let stops = header_stops(&mut f);
-    assert_eq!(stops.len(), 4, "Home, PCs, Settings and Help: {stops:?}");
-    assert!(stops.windows(2).all(|w| w[0].right() < w[1].left() && w[1].left() - w[0].right() < 12.0), "in reading order, together: {stops:?}");
+    assert_eq!(stops.len(), 6, "Home, PCs, Settings, Help, the search and the PC: {stops:?}");
+    assert!(stops[..4].windows(2).all(|w| w[0].right() <= w[1].left() && w[1].left() - w[0].right() < 12.0), "in reading order, together: {stops:?}");
 }
 
 /// The page shown marks its destination in the top bar, below the top level too: a PC's library
@@ -2619,7 +2620,7 @@ fn the_top_bar_marks_the_destination_of_the_page_shown() {
     let tab = |f: &Frames, name: &str| f.placed.iter().find(|(t, r, _)| t == name && r.center().y < 60.0).map(|p| p.1).expect(name);
     let pcs = tab(&f, "PCs");
     let settings = tab(&f, "Settings");
-    let filled = |f: &Frames, at: Rect| rects_filled(f, *SURFACE_HIGHEST).iter().any(|r| r.contains_rect(at));
+    let filled = |f: &Frames, at: Rect| meshes_holding(&f.shapes, design_tokens::TINT_SELECTED_FILL).iter().any(|r| r.contains_rect(at));
     assert!(filled(&f, pcs), "PCs is marked on a PC's page");
     assert!(!filled(&f, settings), "Settings is not");
 }
@@ -2671,7 +2672,7 @@ fn home_scrolls_to_the_game_the_arrow_keys_focus() {
             break;
         }
         seen.push(id);
-        assert!(rect.top() >= 0.0 && rect.bottom() <= 720.0, "row {step}: the focused game is on screen: {rect:?}");
+        assert!(rect.top() >= chrome::PAGE_TOP - 8.0 && rect.bottom() <= 720.0, "row {step}: the focused game is clear of the chrome: {rect:?}");
     }
     assert!(seen.len() >= 4, "the focus walked down past the first screen: {} rows", seen.len());
     for step in 0..seen.len() - 1 {
@@ -2680,7 +2681,17 @@ fn home_scrolls_to_the_game_the_arrow_keys_focus() {
         let (_, rect) = focused(&f);
         assert!(rect.top() >= 0.0 && rect.bottom() <= 720.0, "back up {step}: on screen: {rect:?}");
     }
-    assert_eq!(focused(&f).0, start, "back at the first game");
+    // Up from the top reaches the chrome; the page is back at its start under it.
+    for _ in 0..6 {
+        let (_, rect) = focused(&f);
+        if rect.top() < chrome::PAGE_TOP - 8.0 {
+            break;
+        }
+        f.press(Key::ArrowUp);
+        scrolled(&mut f);
+    }
+    let play = f.ctx.read_response(start).expect("Play is drawn").rect;
+    assert!(play.top() >= chrome::PAGE_TOP, "back at the top: {play:?}, focus on {:?}", focused(&f));
 }
 
 /// A cover with art names its game under it, focused or not, so a row reads at a glance; a cover
@@ -2689,7 +2700,8 @@ fn home_scrolls_to_the_game_the_arrow_keys_focus() {
 fn covers_name_the_game_inside_without_art_and_under_art_always() {
     let mut f = home_with_games(3);
     let count = |f: &Frames, title: &str| f.drawn.iter().filter(|t| *t == title).count();
-    assert_eq!((count(&f, "Game 00"), count(&f, "Game 01")), (1, 1), "without art each title shows once: {:?}", f.drawn);
+    // Game 00 is the hero: its name stands beside its cover, and its shelf leaves it out.
+    assert_eq!((count(&f, "Game 01"), count(&f, "Game 02")), (1, 1), "without art each title shows once: {:?}", f.drawn);
     let texture = f.ctx.load_texture("art", egui::ColorImage::new([3, 4], vec![Color32::GRAY; 12]), egui::TextureOptions::LINEAR);
     let pc = &mut f.hosts.list[0];
     for g in &mut pc.native.library.as_mut().expect("a library").games {
@@ -2697,12 +2709,13 @@ fn covers_name_the_game_inside_without_art_and_under_art_always() {
         pc.art.insert(g.app_id as i32, Art::Ready(texture.clone()));
     }
     f.settle();
-    assert_eq!((count(&f, "Game 00"), count(&f, "Game 01")), (1, 1), "every cover is named under its art: {:?}", f.drawn);
+    assert_eq!((count(&f, "Game 01"), count(&f, "Game 02")), (1, 1), "every cover is named under its art: {:?}", f.drawn);
     let under = |f: &Frames, title: &str| f.placed.iter().find(|(t, ..)| t == title).map(|p| p.1).expect(title);
     let before = under(&f, "Game 01");
+    f.press(Key::ArrowDown);
     f.press(Key::ArrowRight);
     f.settle();
-    assert_eq!((count(&f, "Game 00"), count(&f, "Game 01")), (1, 1), "focus moving names nothing twice: {:?}", f.drawn);
+    assert_eq!((count(&f, "Game 01"), count(&f, "Game 02")), (1, 1), "focus moving names nothing twice: {:?}", f.drawn);
     assert_eq!(under(&f, "Game 01").top(), before.top(), "the title stays put when its cover is focused and lifts");
 }
 
@@ -2750,9 +2763,9 @@ fn dialogs_put_the_primary_action_right_and_cancel_left_and_escape_cancels() {
         ("Remove PC", Dialog::ConfirmRemove { host: id, name: "Desk".into() }),
         ("Unpair", Dialog::ConfirmUnpair { host: id, name: "Desk".into() }),
         ("Add", Dialog::AddHost { text: String::new(), error: None }),
-        ("Close game", Dialog::ConfirmClose { host: id, name: "Game".into() }),
+        ("Quit game", Dialog::ConfirmClose { host: id, name: "Game".into() }),
     ];
-    let buttons = ["Save", "Remove PC", "Unpair", "Add", "Close game", "Paste link", "Cancel"];
+    let buttons = ["Save", "Remove PC", "Unpair", "Add", "Quit game", "Paste link", "Cancel"];
     for (primary, dialog) in dialogs {
         f.l.dialog = dialog;
         f.l.focus_dialog = true;
@@ -2771,7 +2784,7 @@ fn dialogs_put_the_primary_action_right_and_cancel_left_and_escape_cancels() {
 #[test]
 fn settings_scroll_beside_their_column_on_a_wide_window() {
     let mut f = Frames::new(record("Desk", true, true), Reach::Online);
-    f.size = vec2(1920.0, 1080.0);
+    f.size = vec2(1920.0, 640.0);
     f.l.go(Screen::Settings);
     f.settle();
     let top = |f: &Frames| f.placed.iter().find(|(t, ..)| t == "Codec").map(|p| p.1.top()).expect("the Codec row");
@@ -2795,12 +2808,12 @@ fn settings_scroll_beside_their_column_on_a_wide_window() {
 #[test]
 fn controller_mappings_scroll_beside_their_column() {
     let mut f = Frames::new(record("Desk", true, true), Reach::Online);
-    f.size = vec2(1920.0, 1080.0);
+    f.size = vec2(1920.0, 640.0);
     f.l.go(Screen::Controllers);
     f.l.controller_key = "pad".into();
     f.l.controller_mapping = crate::gamepad::Mapping { name: "Pad".into(), ..Default::default() };
     f.settle();
-    let top = |f: &Frames| f.placed.iter().find(|(t, ..)| t == "AXES").map(|p| p.1.top()).expect("the axes under Connect as");
+    let top = |f: &Frames| f.placed.iter().find(|(t, ..)| t == "Axes").map(|p| p.1.top()).expect("the axes under Connect as");
     let before = top(&f);
     f.frame(vec![egui::Event::PointerMoved(Pos2::new(1500.0, 600.0))]);
     f.frame(vec![egui::Event::MouseWheel {
@@ -2840,7 +2853,7 @@ fn the_game_page_says_its_state_in_a_chip_and_the_pc_on_its_own_line() {
     f.l.go(Screen::Game { host: pc, app: 1000 });
     f.settle();
     // The last of a text: the cover without art shows the title too, before the page does.
-    let at = |f: &Frames, text: &str| f.placed.iter().rfind(|(t, ..)| t == text).map(|p| p.1).unwrap_or_else(|| panic!("{text} in {:?}", f.drawn));
+    let at = |f: &Frames, text: &str| f.placed.iter().rfind(|(t, r, _)| t == text && r.top() > chrome::PAGE_TOP).map(|p| p.1).unwrap_or_else(|| panic!("{text} in {:?}", f.drawn));
     let (chip, title, line) = (at(&f, "Running"), at(&f, "Game 00"), at(&f, "Desk"));
     assert!(chip.bottom() <= title.top() && title.bottom() <= line.top(), "chip, title, PC: {chip:?} {title:?} {line:?}");
     assert!(!f.drawn.iter().any(|t| t.starts_with("Running on")), "{:?}", f.drawn);
@@ -3187,36 +3200,25 @@ fn a_pc_that_is_up_reads_green_and_amber_never_stands_for_a_state() {
     assert_ne!(*looks[4].2, *OK, "a PC still being checked is not shown as up");
 }
 
+/// Home on its own, gathered as the page does.
+fn draw_home(l: &mut Launcher, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>) {
+    let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
+    let data = home::HomeData::gather(l, &sources);
+    l.home(ui, view, &sources, data, commands, egui::TextureId::default());
+    glass::flush_deferred(ui);
+}
+
 #[test]
-fn the_running_badge_is_a_green_dot_and_white_words_on_the_scrim_that_fit() {
+fn a_running_cover_wears_a_green_dot_and_no_amber() {
     crate::theme::own_palette();
-    let ctx = egui::Context::default();
-    crate::theme::apply(&ctx);
-    let mut badge = Rect::NOTHING;
-    let mut words = 0.0;
-    let mut output = egui::FullOutput::default();
-    for n in 0..2 {
-        let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0))), time: Some(f64::from(n)), ..Default::default() };
-        output = ctx.run_ui(input, |ui| {
-            badge = running_badge(ui.painter(), pos2(20.0, 20.0));
-            words = ui.painter().layout_no_wrap(tr("Running").to_owned(), semibold(text::CAPTION), Color32::WHITE).size().x;
-        });
-        output.textures_delta.clear();
-    }
-    assert!(badge.width() >= words + space::S * 3.0, "the badge is {} wide for words {words} wide", badge.width());
-    assert_eq!(badge.height(), space::XL);
-    let mut fills = Vec::new();
-    for clipped in &output.shapes {
-        match &clipped.shape {
-            egui::Shape::Rect(r) => fills.push(r.fill),
-            egui::Shape::Circle(c) => fills.push(c.fill),
-            _ => {}
-        }
-    }
-    assert!(fills.contains(&SCRIM), "the badge sits on the scrim: {fills:?}");
-    assert!(fills.contains(&*OK), "with a green dot: {fills:?}");
-    assert!(!fills.contains(&*MOON), "and no amber fill: {fills:?}");
-    assert!(collect_all_text(&output.shapes).iter().any(|t| t == tr("Running")));
+    let mut out = Vec::new();
+    running_dot(&mut out, Rect::from_min_size(Pos2::ZERO, vec2(160.0, 240.0)));
+    let fills: Vec<Color32> = out.iter().filter_map(|shape| match shape {
+        egui::Shape::Circle(c) => Some(c.fill),
+        _ => None,
+    }).collect();
+    assert!(fills.contains(&*OK), "a green dot: {fills:?}");
+    assert!(!fills.contains(&*MOON), "and no amber: {fills:?}");
 }
 
 #[test]
@@ -3252,9 +3254,9 @@ fn a_switched_off_primary_button_is_grey_not_faded_amber() {
         let painted: Vec<Color32> = output
             .shapes
             .iter()
-            .filter_map(|clipped| match &clipped.shape {
-                egui::Shape::Rect(r) if r.fill.a() > 0 => Some(r.fill),
-                _ => None,
+            .flat_map(|clipped| match &clipped.shape {
+                egui::Shape::Mesh(mesh) => mesh.vertices.iter().map(|v| v.color).filter(|c| c.a() > 0).collect(),
+                _ => Vec::new(),
             })
             .collect();
         let amber = painted.iter().any(|&c| is_amber(c));
@@ -3264,13 +3266,20 @@ fn a_switched_off_primary_button_is_grey_not_faded_amber() {
     assert!(!fills[1].1 && !fills[1].2.is_empty(), "a switched-off Play is drawn, but not in amber: {:?}", fills[1].2);
 }
 
-/// Every text drawn in `shapes`.
-fn collect_all_text(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
-    let mut drawn = Vec::new();
-    for clipped in shapes {
-        collect_text(&clipped.shape, &mut drawn);
+/// The outlines of the glass meshes that hold `color`: glass paints meshes, not filled rects.
+fn meshes_holding(shapes: &[egui::epaint::ClippedShape], color: Color32) -> Vec<Rect> {
+    fn walk(shape: &egui::Shape, color: Color32, out: &mut Vec<Rect>) {
+        match shape {
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, color, out)),
+            egui::Shape::Mesh(mesh) if mesh.vertices.iter().any(|v| v.color == color) => out.push(mesh.calc_bounds()),
+            _ => {}
+        }
     }
-    drawn
+    let mut found = Vec::new();
+    for clipped in shapes {
+        walk(&clipped.shape, color, &mut found);
+    }
+    found
 }
 
 /// What each text shape shows on screen (a cut line ends in "…"), with where it landed.
@@ -3438,6 +3447,112 @@ fn demo_art(ctx: &egui::Context, n: usize) -> Art {
     Art::Ready(ctx.load_texture(format!("demo-art-{n}"), egui::ColorImage::from_rgba_unmultiplied(size, &image), egui::TextureOptions::LINEAR))
 }
 
+/// The glass Home on each tier and every other page once, beside the prototype:
+/// `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop --bin nightjar glass_page_screenshots --release -- --ignored`.
+#[test]
+#[ignore = "writes PNGs; set NIGHTJAR_SHOTS"]
+fn glass_page_screenshots() {
+    use crate::live_glass::Tier;
+    use nightjar_core::http::native_api::library::{Artwork, Game, Library, Store};
+    let Some(dir) = std::env::var_os("NIGHTJAR_SHOTS").map(std::path::PathBuf::from) else { return };
+    std::fs::create_dir_all(&dir).expect("the folder for the screenshots");
+    let library = |tier: Tier, ppp: f32, hero: usize, art_less: &[usize]| {
+        crate::theme::own_palette();
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::live_glass::set_tier(&ctx, tier);
+        let mut l = launcher(true, false);
+        l.identity_ready = true;
+        let records = vec![HostRecord { address: "192.0.2.10".into(), ..record("Living Room PC", true, true) }];
+        let hosts = Hosts::without_discovery(records, Arc::new(|| {}));
+        let mut f = Frames::over(ctx, l, hosts);
+        f.size = vec2(1280.0, 800.0);
+        f.native_ppp = ppp;
+        f.shots = true;
+        let games: Vec<Game> = POLISH_GAMES
+            .iter()
+            .enumerate()
+            .map(|(n, (title, store))| Game {
+                install_id: format!("install-{n}"),
+                app_id: 1000 + n as u32,
+                title: (*title).into(),
+                game_id: (!store.is_empty()).then(|| format!("{store}:{n}")),
+                store: (!store.is_empty()).then(|| Store { source: (*store).into(), id: n.to_string(), name: String::new() }),
+                installed: Some(true),
+                running: n == hero,
+                artwork: Artwork { cover: (!art_less.contains(&n)).then(|| format!("/cover/{n}")), version: "1".into() },
+            })
+            .collect();
+        let apps: Vec<nightjar_core::http::App> = games
+            .iter()
+            .map(|g| nightjar_core::http::App { name: g.title.clone(), uuid: g.install_id.clone(), ..game(g.app_id as i32) })
+            .collect();
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("the clock").as_secs();
+        let pc = &mut f.hosts.list[0];
+        pc.reach = Reach::Online;
+        pc.info = Some(files::tests::native_answer());
+        pc.native.library = Some(Library { revision: "r1".into(), games });
+        pc.apps = Apps::Loaded(apps.clone());
+        for (n, app) in apps.iter().enumerate() {
+            if art_less.contains(&n) {
+                pc.art.insert(app.id, Art::Missing);
+                continue;
+            }
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../app/src/debug/assets/demo/art/{}.jpg", n + 1));
+            let image = image::load_from_memory(&std::fs::read(&path).expect("the demo cover")).expect("a JPEG").to_rgba8();
+            let image = egui::ColorImage::from_rgba_unmultiplied([image.width() as usize, image.height() as usize], &image);
+            pc.ambient.insert(app.id, f.ctx.load_texture(format!("ambient-{n}"), crate::ambient::bake(&image), egui::TextureOptions::LINEAR));
+            pc.art.insert(app.id, Art::Ready(f.ctx.load_texture(format!("cover-{n}"), image, egui::TextureOptions::LINEAR)));
+        }
+        let uuid = f.hosts.list[0].record.unique_id.clone();
+        for (n, days) in [(2u32, 1u64), (8, 3), (3, 8)] {
+            f.l.recents.push(crate::config::Recent { host: uuid.clone(), install_id: format!("install-{n}"), app_id: 1000 + n, title: POLISH_GAMES[n as usize].0.into(), at: now - days * 86400 });
+        }
+        f.l.go(Screen::Home);
+        f
+    };
+    let at_rest = |f: &mut Frames| {
+        for _ in 0..16 {
+            f.settle();
+        }
+    };
+    for (name, tier, ppp) in [("home-live", Tier::Live, 1.0), ("home-baked", Tier::Baked, 1.0), ("home-solid", Tier::Solid, 1.0), ("home-150", Tier::Live, 1.5)] {
+        let mut f = library(tier, ppp, 1, &[]);
+        at_rest(&mut f);
+        f.shoot(&dir, name);
+    }
+    // A running game with no art, one on a shelf too: each game's own tile.
+    let mut f = library(Tier::Live, 1.0, 18, &[18, 11, 13]);
+    at_rest(&mut f);
+    f.shoot(&dir, "home-noart");
+    // Down to the shelves: the focused cover lifts.
+    let mut f = library(Tier::Live, 1.0, 1, &[]);
+    at_rest(&mut f);
+    for _ in 0..3 {
+        f.press(Key::ArrowDown);
+    }
+    at_rest(&mut f);
+    f.shoot(&dir, "home-focus-cover");
+    let pc = f.hosts.list[0].id;
+    for (name, screen) in [
+        ("pcs", Screen::Hosts),
+        ("settings", Screen::Settings),
+        ("help", Screen::Help),
+        ("all-games", Screen::AllGames),
+        ("game", Screen::Game { host: pc, app: 1002 }),
+        ("apps", Screen::Apps(pc)),
+    ] {
+        f.l.go(screen);
+        at_rest(&mut f);
+        f.shoot(&dir, name);
+    }
+    f.l.go(Screen::Home);
+    f.l.open_search();
+    f.l.library_query = "ocean".into();
+    at_rest(&mut f);
+    f.shoot(&dir, "search");
+}
+
 /// All 36 games of the Android demo's library have a cover of their own that this app's image
 /// decoder reads. Covers carry their titles, so one repeated would show the wrong name.
 #[test]
@@ -3562,7 +3677,7 @@ fn polish_screenshots() {
         // Home's View: its menu, then each layout, grouping and card size.
         f.l.go(Screen::Home);
         f.settle();
-        if let Some(view) = f.placed.iter().find(|(t, r, _)| t == "View" && r.center().y < 80.0).map(|p| p.1) {
+        if let Some(view) = f.placed.iter().find(|(t, ..)| t == "View").map(|p| p.1) {
             f.click_at(view.center(), egui::PointerButton::Primary);
             shoot(&mut f, "home-view-menu");
             f.press(Key::Escape);
@@ -3703,7 +3818,7 @@ fn polish_screenshots() {
                 let mut commands = Vec::new();
                 let output = f.ctx.run_ui(input, |ui| {
                     let view = View { hosts: &f.hosts, pads: &f.pads, connecting: None, waking: None };
-                    egui::CentralPanel::default().show(ui, |ui| f.l.home(ui, &view, &mut commands, egui::TextureId::default()));
+                    egui::CentralPanel::default().show(ui, |ui| draw_home(&mut f.l, ui, &view, &mut commands));
                 });
                 f.textures.append(output.textures_delta);
                 shapes = output.shapes;
@@ -3948,7 +4063,7 @@ fn home_groups_by_collection_only_when_the_pc_names_any() {
     let mut f = store_mix();
     f.size = vec2(1280.0, 2400.0);
     in_collections(&mut f, &[("install-0", &["VR", "Couch"]), ("install-12", &["Couch"])]);
-    let view = f.placed.iter().find(|(t, r, _)| t == "View" && r.center().y < 80.0).map(|p| p.1).expect("View in the top row");
+    let view = f.placed.iter().find(|(t, ..)| t == "View").map(|p| p.1).expect("View in the top row");
     f.click_at(view.center(), egui::PointerButton::Primary);
     let row = |f: &Frames, label: &str| f.placed.iter().find(|(t, ..)| t == label).map(|p| p.1).expect(label);
     for (next, says) in [(HomeGroup::Type, "Type"), (HomeGroup::Collection, "Collection")] {
@@ -4085,14 +4200,152 @@ fn a_running_hidden_game_stays_under_continue_playing_and_can_be_shown_again() {
     assert_eq!(keys.len(), 1);
     f.l.hidden_games = keys;
     f.settle();
-    assert!(shows(&f, "Continue playing"), "{:?}", f.drawn);
-    assert_eq!(f.drawn.iter().filter(|t| *t == "Alpha").count(), 1, "only its Continue playing card: {:?}", f.drawn);
-    let card = f.placed.iter().find(|(t, r, _)| t == "Alpha" && r.center().y > 80.0).map(|p| p.1).expect("Alpha's card");
+    // Running, it is Home's hero: hiding must not lose the way back to it.
+    assert!(shows(&f, "Alpha") && shows(&f, "Resume"), "{:?}", f.drawn);
+    let card = f.ctx.read_response(egui::Id::unique("hero-cover")).expect("the hero's cover").rect;
     f.click_at(card.center(), egui::PointerButton::Secondary);
     let show = f.placed.iter().find(|(t, ..)| t == "Show game").map(|p| p.1).expect("Show game in the menu");
     let commands = f.click_at(show.center(), egui::PointerButton::Primary);
     assert!(commands.iter().any(|c| matches!(c, Command::SetHidden { hidden: false, .. })));
-    assert_eq!(f.l.focused_key.as_deref(), Some(format!("continue:{id}:1000").as_str()), "its card stays");
+    assert!(f.l.focused_key.as_deref().is_some_and(|key| key.starts_with("hero-")), "the hero keeps the focus: {:?}", f.l.focused_key);
+    assert_eq!(id, f.hosts.list[0].id);
+    assert!(!shows(&f, "Close game"), "one word, Quit game: {:?}", f.drawn);
+}
+
+/// The hero's cover opens the same menu as a shelf's, with F2 from its buttons too, and the focus
+/// comes back to what asked.
+#[test]
+fn the_hero_opens_its_games_menu_and_gives_focus_back() {
+    let mut f = home_with_stores(&[("Alpha", "steam", true), ("Beta", "steam", true)]);
+    let cover = f.ctx.read_response(egui::Id::unique("hero-cover")).expect("the hero's cover").rect;
+    f.click_at(cover.center(), egui::PointerButton::Secondary);
+    assert!(shows(&f, "Hide game"), "{:?}", f.drawn);
+    f.press(Key::Escape);
+    let focused = f.ctx.memory(|m| m.focused()).expect("focus");
+    assert_eq!(focused, egui::Id::unique("hero-cover"));
+    let star = egui::Id::unique("hero-star");
+    f.ctx.memory_mut(|m| m.request_focus(star));
+    f.settle();
+    f.press(Key::F2);
+    assert!(matches!(f.l.dialog, Dialog::GameMenu { .. }), "F2 opens the game's menu");
+}
+
+/// A title's word is never cut in two on a tile: the size gives way.
+#[test]
+fn a_long_word_on_a_tile_stays_whole() {
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut out = Vec::new();
+    let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+        cover_shapes(ui, &mut out, Rect::from_min_size(Pos2::ZERO, vec2(155.0, 232.0)), 155.0, 16.0, "Brightwater", None, 1.0);
+    });
+    output.textures_delta.clear();
+    let rows: Vec<usize> = out.iter().filter_map(|shape| match shape {
+        egui::Shape::Text(text) => Some(text.galley.rows.len()),
+        _ => None,
+    }).collect();
+    assert_eq!(rows, [1], "one line");
+}
+
+/// The page darkens where it passes beneath the chrome, only once it has moved there.
+#[test]
+fn the_scrim_under_the_chrome_comes_with_scrolling() {
+    let screen = Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 800.0));
+    assert!(chrome::top_scrim(screen, 0.0).is_none());
+    assert!(chrome::top_scrim(screen, 100.0).is_some());
+}
+
+/// Home at rest draws nothing more: springs and fades ask for frames only while they move.
+#[test]
+fn home_at_rest_asks_for_no_more_frames() {
+    let mut f = store_mix();
+    for art in f.hosts.list[0].native.library.as_ref().expect("a library").games.iter().map(|g| g.app_id as i32).collect::<Vec<_>>() {
+        f.hosts.list[0].art.insert(art, Art::Missing);
+    }
+    for _ in 0..12 {
+        f.settle();
+    }
+    assert!(!f.ctx.has_requested_repaint(), "Home at rest asks for no frame");
+    f.press(Key::ArrowDown);
+    for _ in 0..12 {
+        f.settle();
+    }
+    assert!(!f.ctx.has_requested_repaint(), "nor after the focus has landed");
+}
+
+/// The hero is what runs, else what ran last, else the library's first installed game.
+#[test]
+fn the_hero_is_the_running_game_then_the_last_played_then_the_first_installed() {
+    let mut f = home_with_stores(&[("Alpha", "steam", false), ("Beta", "steam", true), ("Gamma", "steam", true)]);
+    let hero = |f: &Frames| f.l.hero.as_ref().map(|h| h.title.clone());
+    assert_eq!(hero(&f).as_deref(), Some("Beta"), "the first installed");
+    f.l.recents.push(crate::config::Recent { host: "Desk".into(), install_id: "install-2".into(), app_id: 1002, title: "Gamma".into(), at: 1000 });
+    f.settle();
+    assert_eq!(hero(&f).as_deref(), Some("Gamma"), "the last played");
+    f.hosts.list[0].native.library.as_mut().expect("a library").games[0].running = true;
+    f.settle();
+    assert_eq!(hero(&f).as_deref(), Some("Alpha"), "what runs");
+}
+
+/// Ctrl K opens the search on All games; the words narrow it; Escape takes both away and gives the
+/// focus back to what had it.
+#[test]
+fn the_search_filters_all_games_and_escape_goes_back() {
+    let mut f = store_mix();
+    let before = f.ctx.memory(|m| m.focused()).expect("focus on Home");
+    f.frame(vec![egui::Event::Key { key: Key::K, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND }]);
+    f.settle();
+    assert_eq!(f.l.screen, Screen::AllGames);
+    assert!(f.ctx.text_edit_focused(), "the field has the keys");
+    f.l.library_query = "fort".into();
+    f.settle();
+    assert!(shows(&f, "Fortnite") && !shows(&f, "Forza Horizon 5") && !shows(&f, "Diablo IV"), "{:?}", f.drawn);
+    f.press(Key::Escape);
+    assert_eq!(f.l.screen, Screen::Home, "a page opened for the search goes with it");
+    assert!(f.l.library_query.is_empty());
+    assert_eq!(f.ctx.memory(|m| m.focused()), Some(before), "the focus is back");
+}
+
+/// Into a game and back: Back lands on the cover it left.
+#[test]
+fn back_from_a_game_restores_the_focus_on_home() {
+    let mut f = store_mix();
+    let shelf = (0..6).find_map(|_| {
+        f.press(Key::ArrowDown);
+        let id = f.ctx.memory(|m| m.focused())?;
+        let rect = f.ctx.read_response(id)?.rect;
+        (rect.height() > 200.0 && rect.top() > 300.0).then_some(id)
+    });
+    let shelf = shelf.expect("a shelf's cover");
+    f.press(Key::Enter);
+    assert!(matches!(f.l.screen, Screen::Game { .. }), "{:?}", f.l.screen);
+    f.press(Key::Escape);
+    assert_eq!(f.l.screen, Screen::Home);
+    assert_eq!(f.ctx.memory(|m| m.focused()), Some(shelf));
+}
+
+/// Covers arriving change nothing's place: a cover's slot is the same with art, without, and while
+/// it is on its way.
+#[test]
+fn covers_arriving_move_nothing() {
+    let mut f = home_with_games(4);
+    let place = |f: &Frames| f.placed.iter().find(|(t, ..)| t == "PCs").map(|p| p.1.top());
+    let heading = |f: &Frames| f.placed.iter().filter(|(t, ..)| t == "Desk").map(|p| p.1.top()).fold(0.0, f32::max);
+    let loading = (place(&f), heading(&f));
+    let texture = f.ctx.load_texture("art", egui::ColorImage::new([3, 4], vec![Color32::GRAY; 12]), egui::TextureOptions::LINEAR);
+    let pc = &mut f.hosts.list[0];
+    for g in &mut pc.native.library.as_mut().expect("a library").games {
+        pc.art.insert(g.app_id as i32, Art::Ready(texture.clone()));
+    }
+    f.settle();
+    assert_eq!((place(&f), heading(&f)), loading, "art");
+    let pc = &mut f.hosts.list[0];
+    for g in &mut pc.native.library.as_mut().expect("a library").games {
+        pc.art.insert(g.app_id as i32, Art::Missing);
+    }
+    f.settle();
+    assert_eq!((place(&f), heading(&f)), loading, "tiles");
 }
 
 /// Hide on a card's menu takes the game off Home on this device; All games has it under Hidden,
@@ -4100,7 +4353,7 @@ fn a_running_hidden_game_stays_under_continue_playing_and_can_be_shown_again() {
 #[test]
 fn a_game_hides_from_home_and_shows_again_from_all_games() {
     let mut f = home_with_stores(&[("Alpha", "steam", true), ("Beta", "steam", true)]);
-    let card = f.placed.iter().find(|(t, r, _)| t == "Alpha" && r.center().y > 80.0).map(|p| p.1).expect("Alpha's card");
+    let card = f.placed.iter().find(|(t, r, _)| t == "Beta" && r.center().y > 80.0).map(|p| p.1).expect("Beta's card");
     f.click_at(card.center(), egui::PointerButton::Secondary);
     let hide = f.placed.iter().find(|(t, ..)| t == "Hide game").map(|p| p.1).expect("Hide game in the menu");
     let commands = f.click_at(hide.center(), egui::PointerButton::Primary);
@@ -4108,20 +4361,20 @@ fn a_game_hides_from_home_and_shows_again_from_all_games() {
         panic!("no SetHidden");
     };
     assert_eq!(games.len(), 1);
-    assert_eq!((games[0].host.as_str(), games[0].install_id.as_str()), ("Desk", "install-0"));
+    assert_eq!((games[0].host.as_str(), games[0].install_id.as_str()), ("Desk", "install-1"));
     assert!(crate::config::set_hidden(&mut f.l.hidden_games, games, true));
     f.settle();
     assert!(f.no_dialog());
-    assert!(!shows(&f, "Alpha") && shows(&f, "Beta"), "{:?}", f.drawn);
+    assert!(!shows(&f, "Beta") && shows(&f, "Alpha"), "{:?}", f.drawn);
 
     f.l.go(Screen::AllGames);
     f.settle();
     assert!(shows(&f, "Hidden 1") || shows(&f, "Hidden"), "{:?}", f.drawn);
-    assert!(!shows(&f, "Alpha"), "only under Hidden: {:?}", f.drawn);
+    assert!(!shows(&f, "Beta"), "only under Hidden: {:?}", f.drawn);
     f.l.library_filter = crate::console::LibraryFilter::Hidden;
     f.settle();
-    assert!(shows(&f, "Alpha") && !shows(&f, "Beta"), "{:?}", f.drawn);
-    let card = f.placed.iter().find(|(t, r, _)| t == "Alpha" && r.center().y > 80.0).map(|p| p.1).expect("Alpha's card");
+    assert!(shows(&f, "Beta") && !shows(&f, "Alpha"), "{:?}", f.drawn);
+    let card = f.placed.iter().find(|(t, r, _)| t == "Beta" && r.center().y > 80.0).map(|p| p.1).expect("Beta's card");
     f.click_at(card.center(), egui::PointerButton::Secondary);
     let show = f.placed.iter().find(|(t, ..)| t == "Show game").map(|p| p.1).expect("Show game in the menu");
     let commands = f.click_at(show.center(), egui::PointerButton::Primary);
@@ -4132,7 +4385,7 @@ fn a_game_hides_from_home_and_shows_again_from_all_games() {
     f.settle();
     assert!(f.l.hidden_games.is_empty());
     assert_eq!(f.l.library_filter, crate::console::LibraryFilter::All, "the empty Hidden chip gives way");
-    assert!(shows(&f, "Alpha"), "{:?}", f.drawn);
+    assert!(shows(&f, "Beta"), "{:?}", f.drawn);
 }
 
 /// Home has a row per store, largest first, each as wide as the window and ending in an All tile
@@ -4168,8 +4421,8 @@ fn home_shows_a_row_per_store_that_ends_in_an_all_tile() {
 #[test]
 fn at_one_column_a_long_row_is_its_all_tile() {
     let mut f = store_mix();
-    let column = vec2(180.0, 2400.0);
-    assert_eq!(grid(column.x).0, 1, "one column");
+    let column = vec2(210.0, 2400.0);
+    assert_eq!(grid(column.x - 2.0 * chrome::page_margin(column.x)).0, 1, "one column");
     let mut drawn = Vec::new();
     let mut tile = None;
     let mut clicked_at = None;
@@ -4190,7 +4443,7 @@ fn at_one_column_a_long_row_is_its_all_tile() {
         let mut commands = Vec::new();
         let mut output = f.ctx.run_ui(input, |ui| {
             let view = View { hosts: &f.hosts, pads: &f.pads, connecting: None, waking: None };
-            f.l.home(ui, &view, &mut commands, egui::TextureId::default());
+            draw_home(&mut f.l, ui, &view, &mut commands);
         });
         // Debug builds of epaint refuse to drop font textures nobody uploaded.
         output.textures_delta.clear();
@@ -4257,8 +4510,7 @@ fn all_games_filters_by_store_and_by_what_is_installed() {
     }
     // The chosen chip is the filled one.
     let installed = chip(&f, "Installed").unwrap();
-    let marked = [*MOON_CONTAINER, Tone::Selected.colors(true, false).0];
-    assert!(marked.iter().any(|fill| rects_filled(&f, *fill).iter().any(|r| r.contains_rect(installed))), "the chosen chip is marked");
+    assert!(meshes_holding(&f.shapes, design_tokens::TINT_SELECTED_FILL).iter().any(|r| r.contains_rect(installed)), "the chosen chip is marked");
     assert_eq!(f.l.library_filter, console::LibraryFilter::Installed);
 }
 
@@ -4278,16 +4530,17 @@ fn a_risen_covers_ring_is_not_cut_at_the_top_of_the_grid() {
                 f.settle();
             }
             let cover = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).expect("the first cover has focus").rect;
+            let color = if high { design_tokens::HC_FOCUS_RING_COLOR } else { design_tokens::FOCUS_RING_COLOR };
             let mut rings = Vec::new();
             for clipped in &f.shapes {
-                if let egui::Shape::Rect(r) = &clipped.shape {
-                    if r.stroke.color == *MOON && r.stroke.width > 0.0 {
-                        rings.push((r.rect.expand(r.stroke.width), clipped.clip_rect));
+                if let egui::Shape::Mesh(mesh) = &clipped.shape {
+                    if mesh.vertices.iter().any(|v| v.color == color) {
+                        rings.push((mesh.calc_bounds(), clipped.clip_rect));
                     }
                 }
             }
             let (ring, clip) = *rings.first().unwrap_or_else(|| panic!("{page}, {high}: a ring"));
-            assert!(ring.top() < cover.top() - FOCUS_GAP - 1.0, "{page}, {high}: the cover rose: {ring:?} for {cover:?}");
+            assert!(ring.top() < cover.top() - design_tokens::FOCUS_GAP - 1.0, "{page}, {high}: the cover rose: {ring:?} for {cover:?}");
             assert!(clip.contains_rect(ring), "{page}, {high}: the ring {ring:?} is cut by {clip:?}");
         }
     }
@@ -4310,40 +4563,25 @@ fn an_empty_filter_and_an_empty_library_say_so() {
     assert!(!shows(&f, "All") && !shows(&f, "No games match this filter."), "no chips: {:?}", f.drawn);
 }
 
-/// All games is reachable from Home's top row even when every row fits and no All tile shows:
-/// with the pointer, with Tab (after the destinations) and with the D-pad (Right from them). It
-/// opens on All, whatever chip was chosen last.
+/// All games is reachable over Home's first shelf even when every row fits and no All tile shows.
+/// It opens on All, whatever chip was chosen last.
 #[test]
 fn home_opens_all_games_from_its_top_row_when_every_row_fits() {
     let mut f = home_with_stores(&[("Portal", "steam", true), ("Celeste", "steam", true), ("Fortnite", "epic", true)]);
     f.l.library_filter = console::LibraryFilter::Store("epic".into());
     f.settle();
     assert!(!f.drawn.iter().any(|t| t.strip_prefix("All ").is_some_and(|n| n.parse::<usize>().is_ok())), "every row fits, no All tile: {:?}", f.drawn);
-    let stops = header_stops(&mut f);
-    assert_eq!(stops.len(), 6, "Home, PCs, Settings, Help, All games and View: {stops:?}");
-    let action = f.placed.iter().find(|(t, r, _)| t == "All games" && r.center().y < 80.0).map(|p| p.1).expect("All games in the top row");
-    let view = f.placed.iter().find(|(t, r, _)| t == "View" && r.center().y < 80.0).map(|p| p.1).expect("View in the top row");
-    assert!(stops[4].contains_rect(action), "the page's first action for Tab: {stops:?}");
-    assert!(stops[5].contains_rect(view) && 1280.0 - stops[5].right() < 80.0, "View last, at the right edge: {stops:?}");
-    // Right from the last destination, Help, lands on it.
-    let settings = f.placed.iter().find(|(t, r, _)| t == "Help" && r.center().y < 80.0).map(|p| p.1).unwrap();
-    let pill = (0..30).find_map(|_| {
-        f.press_with(Key::Tab, egui::Modifiers::SHIFT);
-        let id = f.ctx.memory(|m| m.focused())?;
-        f.ctx.read_response(id).filter(|r| r.rect.contains(settings.center())).map(|r| r.id)
-    });
-    assert!(pill.is_some(), "Shift+Tab reaches Help");
-    f.press(Key::ArrowRight);
-    let focused = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect).expect("focus");
-    assert!(focused.contains_rect(action), "Right from Help reaches All games: {focused:?}");
-    f.press(Key::Enter);
+    let action = f.placed.iter().find(|(t, ..)| t == "All games").map(|p| p.1).expect("All games over the first shelf");
+    let view = f.placed.iter().find(|(t, ..)| t == "View").map(|p| p.1).expect("View beside it");
+    assert!(action.right() <= view.left() && 1280.0 - view.right() < 80.0, "All games, then View, at the right edge: {action:?} {view:?}");
+    f.click_at(action.center(), egui::PointerButton::Primary);
     assert_eq!(f.l.screen, Screen::AllGames);
     assert_eq!(f.l.library_filter, console::LibraryFilter::All);
     assert!(shows(&f, "Portal") && shows(&f, "Fortnite"), "{:?}", f.drawn);
     // An empty library offers no way to an empty page, and nothing to view.
     let mut f = home_with_stores(&[]);
     f.settle();
-    assert!(!f.placed.iter().any(|(t, r, _)| (t == "All games" || t == "View") && r.center().y < 80.0), "{:?}", f.drawn);
+    assert!(!f.placed.iter().any(|(t, ..)| t == "All games" || t == "View"), "{:?}", f.drawn);
 }
 
 /// Home's View: a menu under its button whose rows step through the layout, grouping and card
@@ -4352,7 +4590,7 @@ fn home_opens_all_games_from_its_top_row_when_every_row_fits() {
 #[test]
 fn home_view_changes_layout_grouping_and_card_size_in_place() {
     let mut f = store_mix();
-    let view = f.placed.iter().find(|(t, r, _)| t == "View" && r.center().y < 80.0).map(|p| p.1).expect("View in the top row");
+    let view = f.placed.iter().find(|(t, ..)| t == "View").map(|p| p.1).expect("View in the top row");
     f.click_at(view.center(), egui::PointerButton::Primary);
     assert!(matches!(f.l.dialog, Dialog::HomeView), "the menu opens");
     for row in ["Layout", "Group by", "Card size", "Rows", "Store", "Medium"] {
@@ -4798,29 +5036,17 @@ fn hover_lightens_a_card_and_focus_adds_one_ring_without_resizing() {
     let mut f = Frames::new(record("Desk", true, true), Reach::Online);
     let (card, _) = f.card_and_dots();
     let card_id = f.ctx.memory(|m| m.focused()).unwrap();
-    let strokes = |f: &Frames| {
-        let mut found = Vec::new();
-        fn walk(shape: &egui::Shape, out: &mut Vec<(Rect, Color32)>) {
-            match shape {
-                egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, out)),
-                egui::Shape::Rect(r) if r.stroke.width > 0.0 => out.push((r.rect, r.stroke.color)),
-                _ => {}
-            }
-        }
-        for clipped in &f.shapes {
-            walk(&clipped.shape, &mut found);
-        }
-        found
-    };
-    // Focused (the first card has focus on arrival): one amber ring around it, with a gap.
-    let rings: Vec<Rect> = strokes(&f).into_iter().filter(|(r, c)| *c == *MOON && r.intersects(card)).map(|(r, _)| r).collect();
-    assert_eq!(rings.len(), 1, "one ring: {rings:?}");
-    assert!(rings[0].contains_rect(card) && rings[0] != card, "outside the card: {rings:?} around {card:?}");
+    let rings = |f: &Frames| -> Vec<Rect> { meshes_holding(&f.shapes, design_tokens::FOCUS_RING_COLOR).into_iter().filter(|r| r.intersects(card)).collect() };
+    // Focused (the first card has focus on arrival): one ring around it, with a gap.
+    let around = rings(&f);
+    assert_eq!(around.len(), 1, "one ring: {around:?}");
+    assert!(around[0].contains_rect(card) && around[0] != card, "outside the card: {around:?} around {card:?}");
     // Moved off and hovered: lighter, no outline of any colour, same rect.
+    let rest = meshes_holding(&f.shapes, design_tokens::HOVER_FILL_LIFT).len();
     f.ctx.memory_mut(|m| m.surrender_focus(m.focused().unwrap()));
     hover_card(&mut f, card);
-    assert!(strokes(&f).iter().all(|(r, _)| !r.intersects(card)), "no outline on hover: {:?}", strokes(&f));
-    assert!(rects_filled(&f, *SURFACE_HIGH).contains(&card), "the hovered card is one step lighter");
+    assert!(rings(&f).is_empty(), "no outline on hover: {:?}", rings(&f));
+    assert!(meshes_holding(&f.shapes, design_tokens::HOVER_FILL_LIFT).len() > rest, "the hovered card is one step lighter");
     assert_eq!(f.ctx.read_response(card_id).unwrap().rect, card, "the card did not move or grow");
 }
 

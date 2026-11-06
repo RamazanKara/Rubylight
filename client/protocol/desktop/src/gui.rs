@@ -156,6 +156,12 @@ pub fn tap(key: Key) -> [Event; 2] {
 /// does not do this itself, so on a gamepad the stream menu's lower rows took focus out of sight.
 /// Call it first in the scroll area's content, with the id it returned last time.
 pub fn follow_focus(ui: &mut egui::Ui, last: &mut Option<egui::Id>) {
+    follow_focus_inset(ui, last, 0.0);
+}
+
+/// [`follow_focus`] for content that scrolls beneath chrome: the widget comes to rest `top_inset`
+/// below the area's top edge.
+fn follow_focus_inset(ui: &mut egui::Ui, last: &mut Option<egui::Id>, top_inset: f32) {
     let focused = ui.ctx().memory(|m| m.focused());
     if focused == *last {
         return;
@@ -163,7 +169,7 @@ pub fn follow_focus(ui: &mut egui::Ui, last: &mut Option<egui::Id>) {
     *last = focused;
     if let Some(response) = focused.and_then(|id| ui.ctx().read_response(id)) {
         if holds(ui, &response) {
-            ui.scroll_to_rect(response.rect, None);
+            ui.scroll_to_rect(response.rect.with_min_y(response.rect.top() - top_inset), None);
         }
     }
 }
@@ -173,6 +179,10 @@ pub fn follow_focus(ui: &mut egui::Ui, last: &mut Option<egui::Id>) {
 /// area's view is another's. One out of sight (clipped away) is this area's when it lies in its
 /// content: that starts at the area's top edge less the scroll offset, nothing of it above or beside.
 fn holds(ui: &egui::Ui, response: &egui::Response) -> bool {
+    // Chrome floats in its own layer, over the area and out of its hands.
+    if response.layer_id != ui.layer_id() {
+        return false;
+    }
     if response.interact_rect.is_positive() {
         return ui.clip_rect().contains_rect(response.interact_rect);
     }
@@ -183,9 +193,14 @@ fn holds(ui: &egui::Ui, response: &egui::Response) -> bool {
 /// [`follow_focus`] for a scroll area without a place of its own for the last focus: egui's memory
 /// keeps it under `area`, the scroll area's id salt. Call it first in the scroll area's content.
 pub fn follow_focus_here(ui: &mut egui::Ui, area: impl std::hash::Hash + std::fmt::Debug) {
+    follow_focus_under(ui, area, 0.0);
+}
+
+/// [`follow_focus_here`] for a scroll area whose content passes beneath `top_inset` points of chrome.
+pub fn follow_focus_under(ui: &mut egui::Ui, area: impl std::hash::Hash + std::fmt::Debug, top_inset: f32) {
     let key = egui::Id::unique(("follow-focus", area));
     let mut last = ui.data(|d| d.get_temp::<Option<egui::Id>>(key)).flatten();
-    follow_focus(ui, &mut last);
+    follow_focus_inset(ui, &mut last, top_inset);
     ui.data_mut(|d| d.insert_temp(key, last));
 }
 

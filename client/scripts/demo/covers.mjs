@@ -354,16 +354,18 @@ scenes['retro-arcade'] = () => {
   };
   // Pixel stars.
   for (let i = 0; i < 60; i++) { const s = a.r() > 0.82 ? p : p / 2; a.rect(Math.floor(a.r() * 60) * p, Math.floor(a.r() * 44) * p, s, s, a.r() > 0.5 ? '#ffe36b' : '#7ef2ff', 0.8); }
-  // Pixel invader, big.
-  const inv = ['00100000100', '00010001000', '00111111100', '01101110110', '11111111111', '10111111101', '10100000101', '00011011000'];
-  const ip = 34; const ix = 300 - (11 * ip) / 2; const iy = 330;
+  // A pixel joystick, big: no sprite from any real game.
+  const stick = ['00000rrr00000', '0000rhrrr0000', '0000rrrrr0000', '00000rrr00000', '000000w000000', '000000w000000', '000000w000000', '00000ccc00000', '000ccccccc000', '00ccccccccc00'];
+  const ip = 32; const ix = 300 - (13 * ip) / 2; const iy = 330;
+  const stickColour = { r: '#ff5c8a', h: '#ffd5e2', w: '#fff6ea', c: a.lin([[iy / 900, '#7ef2ff'], [(iy + 10 * ip) / 900, '#37e0a8']]) };
   a.glow(300, iy + 130, 340, '#ff3fa4', 0.75);
-  inv.forEach((row, ry) => [...row].forEach((b, rx) => { if (b === '1') { a.rect(ix + rx * ip, iy + ry * ip, ip, ip, a.lin([[(iy) / 900, '#7ef2ff'], [(iy + 8 * ip) / 900, '#37e0a8']])); } }));
-  // Shots and blocks.
-  for (const [x, y] of [[300, 660], [300, 700], [300, 740]]) a.rect(x - 6, y, 12, 24, '#ffe36b');
-  const ship = ['00010000', '00111000', '01111100', '11111110'];
-  ship.forEach((row, ry) => [...row].forEach((b, rx) => { if (b === '1') a.rect(300 - 7 * 8 + rx * 16 - 0, 776 + ry * 16, 16, 16, '#fff6ea'); }));
-  for (const bx of [50, 450]) for (let i = 0; i < 5; i++) for (let j = 0; j < 3; j++) if (!(j === 2 && (i === 2))) a.rect(bx + i * 20, 730 + j * 20, 20, 20, '#ff5c8a');
+  stick.forEach((row, ry) => [...row].forEach((b, rx) => { if (b !== '0') a.rect(ix + rx * ip, iy + ry * ip, ip, ip, stickColour[b]); }));
+  // The control panel and its three buttons.
+  a.rect(40, 690, 520, 20, '#fff6ea', 0.85);
+  a.rect(40, 710, 520, 130, '#24093f');
+  for (const [bx, c] of [[150, '#ffe36b'], [300, '#7ef2ff'], [450, '#37e0a8']]) {
+    for (const [i, j] of [[1, 0], [0, 1], [1, 1], [2, 1], [1, 2]]) a.rect(bx - 36 + i * 24, 738 + j * 24, 24, 24, c);
+  }
   word('RETRO', 300 - (5 * 6 * 16 - 16) / 2, 70, 16, '#ffe36b', '#d6186d');
   word('ARCADE', 300 - (6 * 6 * 13 - 13) / 2, 202, 13, '#fff6ea', '#7a1fb0');
   // Scanlines.
@@ -1009,16 +1011,18 @@ scenes['yard-sale-hero'] = () => {
   }
   a.path(a.hill(680, [[10, 1.2, 1], [4, 3, 2]]), '#5eb54a');
   // The hero, hands on hips, cape out.
-  const k = '#1a2a6c';
-  a.path(poly([[272, 380], [150, 560], [176, 590], [282, 520]]), '#e4392e');
+  // A homemade outfit: a tracksuit, a bedsheet for a cape and a price tag for a badge.
+  const k = '#0e4a5c';
+  a.path(poly([[272, 380], [150, 560], [176, 590], [282, 520]]), '#7a3fd0');
   a.path('M258,380 C262,362 338,362 342,380 L332,490 L268,490 Z', k);
-  a.path(poly([[268, 490], [332, 490], [340, 640], [308, 640], [300, 530], [292, 640], [260, 640]]), '#28408c');
+  a.path(poly([[268, 490], [332, 490], [340, 640], [308, 640], [300, 530], [292, 640], [260, 640]]), '#13667a');
   a.path(poly([[258, 382], [226, 450], [270, 474], [274, 450], [256, 442], [276, 400]]), k);
   a.path(poly([[342, 382], [374, 450], [330, 474], [326, 450], [344, 442], [324, 400]]), k);
-  a.path(poly([[288, 408], [312, 408], [322, 424], [300, 452], [278, 424]]), '#ffc531');
+  a.path(poly([[282, 420], [306, 406], [322, 434], [298, 448]]), '#fff1c4');
+  a.circle(290, 423, 4, k);
   a.circle(300, 340, 30, '#ffd9b0');
-  a.path('M270,336 C270,300 330,300 330,336 L322,332 L278,332 Z', '#e4392e');
-  a.rect(250, 636, 50, 14, '#e4392e', 1, 6); a.rect(304, 636, 50, 14, '#e4392e', 1, 6);
+  a.path('M270,336 C270,300 330,300 330,336 L322,332 L278,332 Z', '#7a3fd0');
+  a.rect(250, 636, 50, 14, '#7a3fd0', 1, 6); a.rect(304, 636, 50, 14, '#7a3fd0', 1, 6);
   // The sale table.
   a.rect(40, 690, 520, 18, '#8a5a2a', 1, 4); a.rect(64, 708, 16, 92, '#5a3a1c'); a.rect(520, 708, 16, 92, '#5a3a1c');
   a.rect(70, 630, 90, 60, '#f4e6c8'); a.path(poly([[70, 630], [160, 630], [140, 612], [90, 612]]), '#d8c49c');

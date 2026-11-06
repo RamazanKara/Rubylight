@@ -394,6 +394,10 @@ fn install_with(
     } else {
         system::trusted_ancestors(&install)
             .map_err(|error| anyhow!("{error:#}; choose another installation folder"))?;
+        // A new folder or a move alike would write over the other host's files.
+        if side_by_side {
+            outside_other_hosts(&found, &install)?;
+        }
     }
     // The installed service identifies Rubylight's profile, even when its
     // folder is gone and setup installs in full.
@@ -478,7 +482,6 @@ fn install_with(
 
     // Previous hosts are only removed by a full installation.
     let previous = if side_by_side {
-        outside_other_hosts(&found, &install)?;
         None
     } else {
         migration_source(&found, &profile, &install)?
@@ -1145,25 +1148,28 @@ fn folder_inside(install: &Path, root: &Path) -> Result<bool> {
         .to_lowercase();
     Ok(install_path == root_path || install_path.starts_with(&format!("{root_path}\\")))
 }
-/// Side by side, no file of another host may be overwritten.
+/// Side by side, no file of another host may be overwritten, whether setup knows
+/// that host by its Apps entry or only by its service.
 fn outside_other_hosts(found: &detect::Found, install: &Path) -> Result<()> {
-    for product in found
+    let products = found
         .packages
         .iter()
         .chain(&found.legacy)
         .chain(&found.vibepollo_entries)
-    {
-        if let Some(root) = product
-            .location
-            .as_ref()
-            .and_then(|root| root.canonicalize().ok())
-        {
+        .filter_map(|product| Some((product.location.as_deref()?, product.name.clone())));
+    let services = found.other_service_folders.iter().map(|(service, folder)| {
+        (
+            folder.as_path(),
+            format!("the host behind the {service} service"),
+        )
+    });
+    for (root, host) in products.chain(services) {
+        if let Ok(root) = root.canonicalize() {
             let root = system::win32_path(&root)?;
             if folder_inside(install, &root)? {
                 bail!(
-                    "Choose an installation folder outside {}: {} stays installed there. Nothing has been changed.",
-                    root.display(),
-                    product.name
+                    "Choose an installation folder outside {}: {host} stays installed there. Nothing has been changed.",
+                    root.display()
                 );
             }
         }
@@ -2384,7 +2390,7 @@ mod tests {
             assert!(!code.contains(ungated), "{ungated}");
         }
         assert!(code.contains(
-            "let previous = if side_by_side {\n        outside_other_hosts(&found, &install)?;\n        None"
+            "let previous = if side_by_side {\n        None\n    } else {\n        migration_source("
         ));
         // Recorded before the service in both: an update heals a lost record,
         // and a new installation's driver steps read it.
@@ -2393,6 +2399,35 @@ mod tests {
                 .count(),
             2
         );
+        // Before anything is stopped or written, on every path but an update
+        // in place: a move returns early, and took the folder unchecked.
+        let at = |text: &str| code.find(text).unwrap_or_else(|| panic!("{text}"));
+        let guard = at("outside_other_hosts(&found, &install)?;");
+        assert!(guard < at("if let Target::Move(old) = &target {"));
+        assert!(guard > at("let updating = target == Target::InPlace;"));
+    }
+    #[test]
+    fn side_by_side_stays_out_of_a_folder_a_host_knows_only_by_its_service() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let host = dir.path().join("host");
+        std::fs::create_dir(&host)?;
+        let found = detect::Found {
+            other_service_folders: vec![("ApolloService", host.clone())],
+            ..Default::default()
+        };
+        for inside in [host.clone(), host.join("Rubylight")] {
+            let refused = format!("{:#}", outside_other_hosts(&found, &inside).unwrap_err());
+            assert!(refused.contains("ApolloService"), "{refused}");
+            assert!(refused.contains("Nothing has been changed"), "{refused}");
+        }
+        outside_other_hosts(&found, &dir.path().join("Rubylight"))?;
+        // A service whose folder is gone holds nothing to overwrite.
+        let gone = detect::Found {
+            other_service_folders: vec![("ApolloService", dir.path().join("gone"))],
+            ..Default::default()
+        };
+        outside_other_hosts(&gone, &dir.path().join("gone"))?;
+        Ok(())
     }
     /// Setup's rollback must not start or stop the other host: it only ever
     /// acts on Rubylight's own service, whatever else runs.

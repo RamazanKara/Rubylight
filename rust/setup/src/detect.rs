@@ -83,6 +83,15 @@ fn other_services(program: impl Fn(&str) -> Option<PathBuf>) -> Vec<&'static str
         .filter(|name| program(name).is_some_and(|p| !our_service(&p)))
         .collect()
 }
+/// Where the previous hosts' services that are not Rubylight's run from.
+fn other_service_folders(
+    program: impl Fn(&str) -> Option<PathBuf>,
+) -> Vec<(&'static str, PathBuf)> {
+    other_services(&program)
+        .into_iter()
+        .filter_map(|name| Some((name, program_folder(&program(name)?)?)))
+        .collect()
+}
 
 #[derive(Clone, Debug)]
 pub struct Product {
@@ -120,6 +129,8 @@ pub struct Found {
     pub service: &'static str,
     /// Previous hosts' services that are not Rubylight's.
     pub other_services: Vec<&'static str>,
+    /// Those services' folders, for a host known only by its service.
+    pub other_service_folders: Vec<(&'static str, PathBuf)>,
     /// Whether the profile carries side by side's mark.
     pub side_by_side_profile: bool,
 }
@@ -366,6 +377,7 @@ pub fn scan() -> Found {
     }
     found.service = self::service();
     found.other_services = other_services(service_program);
+    found.other_service_folders = other_service_folders(service_program);
     found.side_by_side_profile = side_by_side_profile();
     found.service_install = service_program(found.service)
         .filter(|p| our_service(p))
@@ -641,6 +653,18 @@ mod tests {
         assert!(keeps_other_hosts(host_service::DEFAULT, false, true));
         assert!(!keeps_other_hosts(host_service::DEFAULT, true, true));
         assert!(!keeps_other_hosts(host_service::DEFAULT, false, false));
+    }
+    #[test]
+    fn a_host_known_only_by_its_service_has_a_folder() {
+        let services = |name: &str| match name {
+            "ApolloService" => program(r"C:\Other\tools\sunshinesvc.exe"),
+            "SunshineService" => program(r"C:\Rubylight\butterpollo-service.exe"),
+            _ => None,
+        };
+        assert_eq!(
+            other_service_folders(services),
+            [("ApolloService", PathBuf::from(r"C:\Other"))]
+        );
     }
     /// Replace stays the default of existing upgrades. An installation stays
     /// what it is, whatever a later run asks.

@@ -18,35 +18,14 @@ pub const OLD_SERVICES: [&str; 5] = [
     "sunshinesvc",
     "ApolloSvc",
 ];
-/// Whether a service runs Rubylight's program. Another host may hold the name
-/// `ApolloService`; only this says it is Rubylight's to stop, change or delete.
-pub fn our_service(program: &Path) -> bool {
-    program
-        .file_name()
-        .is_some_and(|name| name.eq_ignore_ascii_case("butterpollo-service.exe"))
-}
+pub use host_service::our_service;
 /// The service this PC's Rubylight runs as.
 pub fn service() -> &'static str {
-    service_named(
+    host_service::service_named(
         system::registry_string(HKEY_LOCAL_MACHINE, host_service::KEY, host_service::VALUE)
             .as_deref(),
         service_program,
     )
-}
-/// A lost record must not turn a side-by-side installation into one that
-/// removes the host it was installed beside: its service still says what it is.
-fn service_named(
-    recorded: Option<&str>,
-    program: impl Fn(&str) -> Option<PathBuf>,
-) -> &'static str {
-    match host_service::from_record(recorded) {
-        host_service::DEFAULT
-            if program(host_service::SIDE_BY_SIDE).is_some_and(|p| our_service(&p)) =>
-        {
-            host_service::SIDE_BY_SIDE
-        }
-        named => named,
-    }
 }
 /// Whether this PC's Rubylight keeps other hosts: it never stops or removes
 /// them, nor the drivers they use.
@@ -584,24 +563,6 @@ mod tests {
             assert!(!code.contains("\"ApolloService\""));
             assert!(!code.contains("detect::SERVICE"));
         }
-    }
-    #[test]
-    fn the_record_or_rubylights_own_service_marks_side_by_side() {
-        let none = |_: &str| None;
-        assert_eq!(service_named(None, none), host_service::DEFAULT);
-        assert_eq!(
-            service_named(Some("RubylightService"), none),
-            host_service::SIDE_BY_SIDE
-        );
-        // The record lost: Rubylight's service still marks the installation.
-        let side = |name: &str| {
-            (name == host_service::SIDE_BY_SIDE)
-                .then(|| PathBuf::from(r"C:\Rubylight\butterpollo-service.exe"))
-        };
-        assert_eq!(service_named(None, side), host_service::SIDE_BY_SIDE);
-        // Someone else's service of that name says nothing.
-        let other = |_: &str| program(r"C:\Other\other.exe");
-        assert_eq!(service_named(None, other), host_service::DEFAULT);
     }
     /// Replace stays the default of existing upgrades. An installation stays
     /// what it is, whatever a later run asks.

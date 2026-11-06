@@ -1,6 +1,6 @@
 //! Windows facilities setup needs: elevation, commands, services, registry,
 //! processes, firewall rules, shortcuts and folder permissions.
-use crate::log::line;
+use crate::{host_service, log::line};
 use anyhow::{Context, Result, bail, ensure};
 use std::{
     io::Read,
@@ -342,15 +342,10 @@ fn open_service(name: &str) -> Option<ServiceHandle> {
 pub fn service_program(name: &str) -> Option<PathBuf> {
     let image = registry_string(
         HKEY_LOCAL_MACHINE,
-        &format!("SYSTEM\\CurrentControlSet\\Services\\{name}"),
-        "ImagePath",
+        &host_service::service_key(name),
+        host_service::IMAGE_PATH,
     )?;
-    let image = image.trim();
-    let program = match image.strip_prefix('"') {
-        Some(rest) => rest.split('"').next().unwrap_or(rest),
-        None => image.split(" -").next().unwrap_or(image).trim(),
-    };
-    Some(PathBuf::from(program))
+    Some(host_service::image_program(&image))
 }
 fn service_state(service: &ServiceHandle) -> Option<SERVICE_STATUS_CURRENT_STATE> {
     let mut status = SERVICE_STATUS::default();

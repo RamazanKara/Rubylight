@@ -6,7 +6,11 @@ param(
 $ErrorActionPreference = 'Stop'
 # The service setup recorded for a side-by-side installation (rust/core/src/host_service.rs).
 $name = (Get-ItemProperty 'HKLM:\SOFTWARE\Rubylight' -Name ServiceName -ErrorAction SilentlyContinue).ServiceName
-if ($name -ne 'RubylightService') { $name = 'ApolloService' }
+if ($name -ne 'RubylightService') {
+    # A lost record: Rubylight's own service still says what it is.
+    $own = Get-CimInstance Win32_Service -Filter "Name='RubylightService'"
+    $name = if ($own.PathName -like '*\butterpollo-service.exe*') { 'RubylightService' } else { 'ApolloService' }
+}
 $executable = Join-Path $PSScriptRoot 'butterpollo-service.exe'
 $config = Join-Path $env:PROGRAMDATA 'Butterpollo\config'
 $service = Get-CimInstance Win32_Service -Filter "Name='$name'"

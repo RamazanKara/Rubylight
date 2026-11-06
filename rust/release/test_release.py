@@ -723,6 +723,9 @@ class Signing(unittest.TestCase):
             self.assertIn("-ne 'RubylightService')", text, script)
             # The default only as the fallback, assigned once.
             self.assertEqual(text.count('ApolloService'), 1, script)
+        # The one that manages the service must not refuse over a lost record.
+        script = (ROOT / 'rust/service.ps1').read_text(encoding='utf-8')
+        self.assertIn(r"$own.PathName -like '*\butterpollo-service.exe*'", script)
         # The service stays as it is released: Windows ignores the name an
         # own-process service gives, so it runs under either.
         supervisor = (ROOT / 'rust/service/src/supervisor.rs').read_text(encoding='utf-8')

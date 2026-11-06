@@ -9,16 +9,22 @@ use anyhow::Result;
 /// The service's name in a normal installation, as in
 /// rust/service/src/supervisor.rs.
 pub const NAME: &str = butterpollo_core::host_service::DEFAULT;
-/// The service this PC's Rubylight runs as, which setup recorded.
+/// The service this PC's Rubylight runs as, which setup recorded; a lost record
+/// does not hand the launcher the other host's service.
 pub fn name() -> &'static str {
     use butterpollo_core::host_service;
-    host_service::from_record(
-        crate::steam::registry_string(
-            windows::Win32::System::Registry::HKEY_LOCAL_MACHINE,
-            host_service::KEY,
-            host_service::VALUE,
-        )
-        .as_deref(),
+    use windows::Win32::System::Registry::HKEY_LOCAL_MACHINE;
+    host_service::service_named(
+        crate::steam::registry_string(HKEY_LOCAL_MACHINE, host_service::KEY, host_service::VALUE)
+            .as_deref(),
+        |service| {
+            crate::steam::registry_string(
+                HKEY_LOCAL_MACHINE,
+                &host_service::service_key(service),
+                host_service::IMAGE_PATH,
+            )
+            .map(|image| host_service::image_program(&image))
+        },
     )
 }
 /// The exit code with which the host asks the service to start it again at
@@ -142,6 +148,17 @@ mod tests {
         let launcher = include_str!("launcher.rs");
         assert!(!launcher.contains("service::NAME"));
         assert_eq!(launcher.matches("crate::service::name()").count(), 2);
+    }
+    /// With the record lost, `name()` falls back as setup does: it reads what
+    /// the service runs, so nothing here can name the other host's service.
+    #[test]
+    fn the_launchers_name_survives_a_lost_record() {
+        let code = include_str!("service.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        assert!(code.contains("host_service::service_named("));
+        assert!(!code.contains("host_service::from_record("));
     }
     #[test]
     fn nucleus_settings_are_put_back_only_with_neither_nucleus_nor_a_session() {

@@ -239,6 +239,9 @@ fn main() {
                     let mut notes = Vec::new();
                     let mut restart_needed = false;
                     let folder = system::win32_path(&folder)?;
+                    // A lost or malformed record heals here too, for the
+                    // launcher and the scripts, as a reinstall's does.
+                    detect::record_service(detect::side_by_side())?;
                     // As a reinstall does. In-app updates never set the
                     // drivers up, so hosts updated from the console since
                     // rc.22 had none.
@@ -603,6 +606,17 @@ mod tests {
     use super::*;
     fn parse(args: &[&str]) -> Result<Arguments, String> {
         parse_arguments(args.iter().map(|arg| (*arg).to_owned()))
+    }
+    #[test]
+    fn an_update_rewrites_the_service_record_before_it_runs() {
+        let update = include_str!("main.rs")
+            .split("} else if args.update {")
+            .nth(1)
+            .unwrap();
+        let record = update
+            .find("detect::record_service(detect::side_by_side())?;")
+            .unwrap();
+        assert!(record < update.find("update::run(&folder").unwrap());
     }
     #[test]
     fn side_by_side_is_an_install_option_that_help_explains() {

@@ -18,6 +18,9 @@ public final class TouchArrivalWatch {
     static final int CHOPPY_GAPS = 5;
     /** The event log is short; one stream's lines stay a small part of it. */
     static final int MAX_LINES = 24;
+    /** Past this many lines they space out, so a hesitant first drag leaves some for a later episode. */
+    static final int FREE_LINES = 12;
+    static final long LATE_LINE_SPACING_MS = 60_000;
 
     private static final class Gaps {
         private long last = -1;
@@ -59,6 +62,7 @@ public final class TouchArrivalWatch {
     private boolean baselineDone;
     private boolean wasChoppy;
     private int lines;
+    private long lastLineMs;
 
     /** A touch sample's time, in the uptime milliseconds MotionEvent reports, history included. */
     public void sample(long sampleTimeMs) {
@@ -70,21 +74,23 @@ public final class TouchArrivalWatch {
         deliveries.note(nowMs);
         if (startedMs < 0) startedMs = nowMs;
         if (nowMs - startedMs < PERIOD_MS) return null;
-        String line = lineForSpan();
+        String line = lineForSpan(nowMs);
         startedMs = nowMs;
         samples.reset();
         deliveries.reset();
         return line;
     }
 
-    private String lineForSpan() {
+    private String lineForSpan(long nowMs) {
         boolean choppy = samples.choppy() || deliveries.choppy();
         boolean baseline = !baselineDone && samples.count >= BASELINE_SAMPLES;
         boolean recovered = wasChoppy && !choppy;
         if (baseline) baselineDone = true;
         wasChoppy = choppy;
         if ((!choppy && !baseline && !recovered) || lines >= MAX_LINES) return null;
+        if (lines >= FREE_LINES && nowMs - lastLineMs < LATE_LINE_SPACING_MS) return null;
         lines++;
+        lastLineMs = nowMs;
         return "Touch arrivals: " + samples.count + " samples (" + samples + ", " + samples.pauses + " pauses), " +
                 deliveries.count + " deliveries (" + deliveries + ")";
     }

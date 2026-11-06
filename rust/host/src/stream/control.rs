@@ -975,6 +975,8 @@ impl Media {
                                             event,
                                             input::Input::Relative { .. }
                                                 | input::Input::Absolute { .. }
+                                                | input::Input::Touch { .. }
+                                                | input::Input::Pen { .. }
                                         ) && let Some(window) =
                                             p.pointer_gaps.note(Instant::now())
                                         {

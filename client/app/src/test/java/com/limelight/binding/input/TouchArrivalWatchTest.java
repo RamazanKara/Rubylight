@@ -90,9 +90,25 @@ public class TouchArrivalWatchTest {
     @Test
     public void aStreamWritesABoundedNumberOfLines() {
         int lines = 0;
-        for (int i = 0; i < TouchArrivalWatch.MAX_LINES * 3; i++) {
+        for (int i = 0; i < TouchArrivalWatch.MAX_LINES * 20; i++) {
             if (drag(42) != null) lines++;
         }
         assertEquals(TouchArrivalWatch.MAX_LINES, lines);
+    }
+
+    @Test
+    public void aLongChoppyStretchLeavesLinesForALaterEpisode() {
+        int minutes = 3;
+        int lines = 0;
+        for (long i = 0; i < minutes * 60_000 / TouchArrivalWatch.PERIOD_MS; i++) {
+            if (drag(42) != null) lines++;
+        }
+        assertTrue("spans logged: " + lines, lines >= TouchArrivalWatch.FREE_LINES && lines < TouchArrivalWatch.MAX_LINES);
+        drag(8);
+        drag(8);
+        now += 10 * TouchArrivalWatch.LATE_LINE_SPACING_MS;
+        String first = drag(42);
+        String second = drag(42);
+        assertTrue("the next episode still gets a line", first != null || second != null);
     }
 }

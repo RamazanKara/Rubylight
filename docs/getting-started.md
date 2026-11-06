@@ -42,6 +42,8 @@ Releases up to 2.0.1 also carry a `butterpollo-setup-<version>.exe`, the same in
 
 Choose **Keep it and install alongside** in setup, or run `rubylight-setup-<version>.exe --quiet --side-by-side`, to try Rubylight while another host stays installed. Setup does not stop, change or uninstall that host: its services, packages, firewall rules, Start menu entries, HDR layers, profile and libvirtualdisplay (SudoVDA) stay as they are.
 
+This mode is experimental. Install, update, repair and uninstall were run on an AMD laptop beside a stand-in service holding `ApolloService` and the default port, not beside Vibepollo, Apollo or Sunshine themselves. Two hosts streaming at once, and controllers shared between them, have not been tested.
+
 - **Its own service and ports.** Rubylight runs as the `RubylightService` service with base port 48589, or the next of 48689, 48789, 48889, 48989 and 49089 whose whole range is free when setup runs. Its console is one port up, by default `https://localhost:48590`, and clients find it as **&lt;PC name&gt; (Rubylight)**.
 - **New settings.** Nothing is imported, so pair your devices again. An identity shared by two hosts would confuse clients. Rubylight settings left by an earlier uninstall move to a `config.previous-…` folder next to the profile, unless an earlier side-by-side installation made them.
 - **Add the PC with its port.** The result window shows the address, such as `192.168.1.20:48589`. In Moonlight or Nightjar, add that address: without the port, a client reaches whatever host uses the default one.

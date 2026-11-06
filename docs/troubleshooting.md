@@ -36,7 +36,7 @@ The default base port is `47989`; the console uses `47990`. A changed **Base por
 
 **Start Rubylight.exe** reopens the correct console when that profile is already running. If it reports another streaming host on the port, close that host or the second Rubylight instance, or give each instance [its own profile and ports](configuration.md#multiple-instances). Restarting another copy on the same port does not solve the conflict.
 
-For an installed host, check **Rubylight** in Windows Services. Its internal service name is `ApolloService`. If it is stopped, read `service.log` before starting it again. An update keeps the startup type you set for the service (Manual or Disabled stay as they are; setup does not start a disabled service), and **Start Rubylight.exe** offers to start a stopped service after a Windows permission prompt. The [log locations below](#logs-and-a-useful-report) distinguish service and portable profiles.
+For an installed host, check **Rubylight** in Windows Services. Its internal service name is `ApolloService`, or `RubylightService` when it is [installed alongside another host](getting-started.md#keep-another-host-and-install-alongside); that installation's console is at the port setup reported, by default `48590`. If it is stopped, read `service.log` before starting it again. An update keeps the startup type you set for the service (Manual or Disabled stay as they are; setup does not start a disabled service), and **Start Rubylight.exe** offers to start a stopped service after a Windows permission prompt. The [log locations below](#logs-and-a-useful-report) distinguish service and portable profiles.
 
 ## Setup rejects the profile folder's owner
 

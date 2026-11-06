@@ -40,7 +40,7 @@ This isolated base port uses web 48124, HTTPS 48118 and RTSP 48144. Standard Moo
 | Mode | Default profile | Service |
 | --- | --- | --- |
 | Portable / direct host | Existing `config` folder beside the executable (2.2.6 or later); otherwise `%LOCALAPPDATA%\ButterpolloRust\config` | Optional |
-| Installed package | `%PROGRAMDATA%\Butterpollo\config` | `ApolloService` for migration compatibility |
+| Installed package | `%PROGRAMDATA%\Butterpollo\config` | `ApolloService` for migration compatibility; `RubylightService` when setup installed alongside another host, recorded in `HKLM\SOFTWARE\Rubylight\ServiceName` |
 
 Without arguments, the host listens on all IPv4 interfaces with the console at `https://localhost:47990`. `address_family=both` enables dual-stack listeners; `bind_address` or `--bind` selects an interface. Running or building the host does not install a service. [service.ps1](service.ps1) manages a portable service installation and refuses to alter one belonging to another executable.
 

@@ -9,6 +9,8 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod a11y;
+#[allow(dead_code, reason = "glass foundation: the pages start using it in the next change")]
+mod ambient;
 mod autostart;
 mod autostream;
 mod cli;
@@ -29,6 +31,8 @@ mod handheld;
 mod host_page;
 mod hosts;
 mod keymap;
+#[allow(dead_code, reason = "glass foundation: the paint path starts using it in the next change")]
+mod live_glass;
 mod logfile;
 mod link_channel;
 mod logpipe;

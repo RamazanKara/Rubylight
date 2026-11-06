@@ -1,76 +1,81 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Home on TV: the backdrop of the focused game behind the shell bar, a hero that names it, and the shelves. -->
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="match_parent" android:layout_height="match_parent"
-    android:clipChildren="false" android:clipToPadding="false">
-    <com.limelight.ui.BackdropView android:id="@+id/home_backdrop"
-        android:layout_width="match_parent" android:layout_height="match_parent"
-        android:importantForAccessibility="no" />
-    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical"
-        android:clipChildren="false" android:clipToPadding="false"
-        android:paddingStart="@dimen/shell_overscan_horizontal" android:paddingEnd="@dimen/shell_overscan_horizontal"
-        android:paddingTop="@dimen/shell_overscan_vertical" android:paddingBottom="@dimen/space_s">
-        <!-- The screen's title is the shell bar's selected tab; the toolbar stays for the code that configures it. -->
-        <include android:id="@+id/console_toolbar" layout="@layout/view_top_app_bar" android:visibility="gone" />
-        <!-- The shell bar, and at its end View: how Home lays out its games (ConsoleHomeActivity). -->
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:orientation="horizontal" android:gravity="center_vertical"
+<!-- Home on TV: the ambient of the focused game, its title and key hints, the shelves, and the glass capsules on top. -->
+<com.limelight.ui.GlassHost xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto" android:id="@+id/glass_host"
+    android:layout_width="match_parent" android:layout_height="match_parent">
+    <FrameLayout android:id="@+id/home_content" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:clipChildren="false" android:clipToPadding="false">
+        <com.limelight.ui.BackdropView android:id="@+id/home_backdrop" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:importantForAccessibility="no" />
+        <LinearLayout android:id="@+id/home_hero" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:layout_marginTop="80dp" android:paddingStart="48dp" android:paddingEnd="48dp"
             android:clipChildren="false" android:clipToPadding="false">
-            <include layout="@layout/view_shell_bar" android:layout_width="0dp" android:layout_height="wrap_content"
-                android:layout_weight="1" />
-            <com.google.android.material.button.MaterialButton android:id="@+id/console_view" style="@style/Widget.Nightjar.ShellItem"
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:layout_marginTop="2dp" android:layout_marginBottom="@dimen/space_s" android:layout_marginEnd="@dimen/shell_inset"
-                android:text="@string/home_view" app:icon="@drawable/ic_tune" />
-        </LinearLayout>
-        <ProgressBar android:id="@+id/console_loading" style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent" android:layout_height="4dp" android:indeterminate="true" />
-        <com.google.android.material.button.MaterialButton android:id="@+id/home_pairing_banner"
-            style="?attr/nightjarButtonTonalStyle" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/space_xs" android:maxLines="1" android:ellipsize="end"
-            android:visibility="gone" app:icon="@drawable/ic_add" />
-        <!-- Read by the focus, never focused: a screen reader reads the card, which says the same. -->
-        <LinearLayout android:id="@+id/home_hero" android:layout_width="match_parent" android:layout_height="@dimen/hero_height"
-            android:orientation="vertical" android:gravity="bottom"
-            android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s" android:paddingBottom="@dimen/space_s"
-            android:importantForAccessibility="noHideDescendants">
             <TextView android:id="@+id/home_hero_meta" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:maxLines="1" android:ellipsize="end"
-                android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant" />
+                android:visibility="gone" />
             <TextView android:id="@+id/home_hero_title" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:maxLines="1" android:ellipsize="end"
-                android:textAppearance="@style/TextAppearance.Nightjar.Display" android:textColor="?attr/colorOnSurface" />
+                android:maxLines="1" android:ellipsize="end" android:textSize="45sp" android:lineHeight="50sp"
+                android:fontFamily="?attr/nightjarFaceStrong" android:letterSpacing="-0.02" android:textColor="@color/nj_color_label"
+                android:shadowColor="#66000000" android:shadowRadius="12" android:shadowDy="2" />
             <TextView android:id="@+id/home_hero_hints" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/space_xs" android:maxLines="1" android:ellipsize="end"
-                android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurfaceVariant" />
+                android:layout_marginTop="8dp" android:textSize="12sp" android:fontFamily="?attr/nightjarFaceStrong"
+                android:textColor="@color/nj_color_label" />
         </LinearLayout>
-        <!-- The list reaches 24 dp past the content on both sides, so a focused poster's ring and glow are not cut off there;
-             it clips at its top, where the shelves slide under the hero, and near the screen's edge, which is low enough for
-             the next shelf's heading to show whole. The bottom padding lets the last (short) shelf scroll up to the hero
-             instead of leaving the shelf above it showing. -->
-        <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
-            android:layout_marginStart="-24dp" android:layout_marginEnd="-24dp" android:clipChildren="true">
-            <androidx.recyclerview.widget.RecyclerView android:id="@+id/console_list"
-                android:layout_width="match_parent" android:layout_height="match_parent"
-                android:clipToPadding="false" android:clipChildren="false" android:overScrollMode="never"
-                android:paddingStart="24dp" android:paddingEnd="24dp"
-                android:paddingTop="@dimen/space_xs" android:paddingBottom="160dp" android:focusable="false"
-                android:descendantFocusability="afterDescendants" />
-            <LinearLayout android:id="@+id/console_empty" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_gravity="center" android:orientation="vertical" android:gravity="center_horizontal"
-                android:padding="@dimen/space_xl" android:visibility="gone">
-                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:gravity="center" android:text="@string/console_empty_title"
-                    android:textAppearance="@style/TextAppearance.Nightjar.ScreenTitle" />
-                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_m" android:gravity="center" android:text="@string/console_empty_body"
-                    android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurfaceVariant" />
-                <com.google.android.material.button.MaterialButton android:id="@+id/console_empty_hosts"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_xl" android:minHeight="@dimen/touch_target"
-                    android:text="@string/console_empty_open_hosts" app:icon="@drawable/ic_computer" />
+        <androidx.recyclerview.widget.RecyclerView android:id="@+id/console_list"
+            android:layout_width="match_parent" android:layout_height="match_parent" android:layout_marginTop="168dp"
+            android:clipToPadding="false" android:clipChildren="false" android:scrollbars="none"
+            android:focusable="false" android:descendantFocusability="afterDescendants" android:paddingBottom="160dp" />
+        <LinearLayout android:id="@+id/console_empty" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_gravity="center" android:orientation="vertical" android:gravity="center_horizontal"
+            android:padding="@dimen/space_xl" android:visibility="gone">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:gravity="center" android:text="@string/console_empty_title"
+                android:textAppearance="@style/TextAppearance.Nightjar.ScreenTitle" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_m" android:gravity="center" android:text="@string/console_empty_body"
+                android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurfaceVariant" />
+            <com.limelight.ui.GlassButton android:id="@+id/console_empty_hosts" style="@style/Widget.Nightjar.Glass.Play"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xl"
+                android:text="@string/console_empty_open_hosts" app:icon="@drawable/ic_glass_pcs" />
+        </LinearLayout>
+    </FrameLayout>
+    <include android:id="@+id/console_toolbar" layout="@layout/view_top_app_bar" android:visibility="gone" />
+    <ProgressBar android:id="@+id/console_loading" style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent" android:layout_height="3dp" android:indeterminate="true" />
+    <LinearLayout android:id="@+id/home_top_row" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical" android:clipChildren="false" android:clipToPadding="false"
+        android:layout_marginTop="27dp" android:layout_marginStart="48dp" android:layout_marginEnd="48dp">
+        <com.limelight.ui.GlassSurface android:id="@+id/home_tabs" android:layout_width="wrap_content" android:layout_height="@dimen/glass_capsule">
+            <include layout="@layout/view_shell_bar" android:layout_width="wrap_content" android:layout_height="match_parent" />
+        </com.limelight.ui.GlassSurface>
+        <Space android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" />
+        <com.limelight.ui.GlassSurface android:id="@+id/home_pc" android:layout_width="wrap_content" android:layout_height="@dimen/glass_capsule"
+            android:focusable="true" android:clickable="true" android:defaultFocusHighlightEnabled="false" android:visibility="gone">
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="match_parent" android:orientation="horizontal"
+                android:gravity="center_vertical" android:paddingStart="16dp" android:paddingEnd="14dp">
+                <View android:id="@+id/home_pc_dot" android:layout_width="9dp" android:layout_height="9dp" />
+                <TextView android:id="@+id/home_pc_name" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginStart="9dp" android:layout_marginEnd="6dp" android:maxLines="1" android:ellipsize="end" android:maxWidth="220dp"
+                    android:textAppearance="@style/TextAppearance.Nightjar.Glass.Capsule" android:textColor="?attr/colorOnSurface" />
+                <ImageView android:layout_width="17dp" android:layout_height="17dp" android:src="@drawable/ic_glass_down"
+                    android:importantForAccessibility="no" />
             </LinearLayout>
-        </FrameLayout>
+        </com.limelight.ui.GlassSurface>
+        <com.limelight.ui.GlassSurface android:id="@+id/console_view" android:layout_width="@dimen/glass_capsule" android:layout_height="@dimen/glass_capsule"
+            android:layout_marginStart="8dp" android:focusable="true" android:clickable="true" android:defaultFocusHighlightEnabled="false"
+            android:contentDescription="@string/home_view">
+            <ImageView android:layout_width="22dp" android:layout_height="22dp" android:layout_gravity="center"
+                android:src="@drawable/ic_glass_grid" android:importantForAccessibility="no" />
+        </com.limelight.ui.GlassSurface>
+        <com.limelight.ui.GlassSurface android:id="@+id/home_search" android:layout_width="@dimen/glass_capsule" android:layout_height="@dimen/glass_capsule"
+            android:layout_marginStart="8dp" android:focusable="true" android:clickable="true" android:defaultFocusHighlightEnabled="false"
+            android:contentDescription="@string/library_search">
+            <ImageView android:layout_width="22dp" android:layout_height="22dp" android:layout_gravity="center"
+                android:src="@drawable/ic_glass_search" android:importantForAccessibility="no" />
+        </com.limelight.ui.GlassSurface>
     </LinearLayout>
-</FrameLayout>
+    <com.google.android.material.button.MaterialButton android:id="@+id/home_pairing_banner"
+        style="?attr/nightjarButtonTonalStyle" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_gravity="end" android:layout_marginTop="72dp" android:layout_marginEnd="48dp" android:maxLines="1" android:ellipsize="end"
+        android:visibility="gone" app:icon="@drawable/ic_add" />
+</com.limelight.ui.GlassHost>

@@ -123,9 +123,10 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
     /** A game card's width against the usual one ({@link HomeView.Size}); the cover's height follows. */
     void setCardScale(float scale) {
         cardScale = scale;
-        int usual = env.context.getResources().getDimensionPixelSize(R.dimen.shelf_card_width);
+        boolean handheld = com.limelight.ui.GlassForm.of(env.context) == com.limelight.ui.GlassForm.HANDHELD;
+        int usual = env.context.getResources().getDimensionPixelSize(handheld ? R.dimen.shelf_card_width_handheld : R.dimen.shelf_card_width);
         // The usual size keeps the shelves' own width, as before the size could be chosen.
-        env.cardWidthPx = scale == 1f ? 0 : Math.round(usual * scale);
+        env.cardWidthPx = scale == 1f && !handheld ? 0 : Math.round(usual * scale);
         setCoverHeight(ShelfAdapter.coverHeight(env.context, television, env.cardWidthPx > 0 ? env.cardWidthPx : usual));
     }
 

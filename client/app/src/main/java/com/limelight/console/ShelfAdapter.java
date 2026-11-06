@@ -85,6 +85,8 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
         /** A game card's width where a grid sets it (All games); 0 keeps a shelf's width. */
         int cardWidthPx;
         FocusListener focus;
+        /** The covers that step back while one has focus. */
+        final com.limelight.ui.CoverCard.Group coverGroup = new com.limelight.ui.CoverCard.Group();
 
         Env(Context context, CoverLoaders covers, Function<String, ComputerDetails> hosts, ConsoleHomeAdapter.Listener listener) {
             this.context = context;
@@ -192,7 +194,7 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
     static int coverHeight(Context context, boolean television, int cardWidthPx) {
         int inset = context.getResources().getDimensionPixelSize(R.dimen.cover_inset);
         int width = cardWidthPx - 2 * inset;
-        return Math.max(1, television ? width * 3 / 2 : width * 4 / 3);
+        return Math.max(1, width * 3 / 2);
     }
 
     /** A card's width without its side margins, so the margins stay inside the slot it was given. */
@@ -310,6 +312,12 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
         void bindGame(String shelf, Item item) {
             HomeModel.GameCard card = item.game;
             Context context = env.context;
+            if (itemView instanceof com.limelight.ui.CoverCard) {
+                com.limelight.ui.CoverCard cover = (com.limelight.ui.CoverCard) itemView;
+                cover.setGroup(env.coverGroup);
+                cover.setInstant(() -> env.travel.isActive(SystemClock.uptimeMillis()));
+                cover.reset();
+            }
             setFrameHeight();
             image.setImageTintList(null);
             // Set once here, never animated: the art that loads later is drawn through it.
@@ -333,6 +341,7 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
             CharSequence state = away ? null : stateOf(context, card);
             badge.setText(state);
             badge.setVisibility(state == null ? View.GONE : View.VISIBLE);
+            badge.setActivated(state != null && card.badge == HomeModel.Badge.RUNNING);
             if (star != null) {
                 badge.setCompoundDrawablesRelativeWithIntrinsicBounds(
                         state != null && card.badge == HomeModel.Badge.RUNNING ? R.drawable.ic_live_dot : 0, 0, 0, 0);

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A row in a panel: amber ring on focus, a lift on hover or press. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape><corners android:radius="12dp" /><stroke android:width="3dp" android:color="?attr/glassRing" /></shape>
+    </item>
+    <item android:state_pressed="true">
+        <shape><corners android:radius="12dp" /><solid android:color="?attr/glassControlFill" /></shape>
+    </item>
+    <item android:state_hovered="true">
+        <shape><corners android:radius="12dp" /><solid android:color="?attr/glassControlFill" /></shape>
+    </item>
+    <item><shape><solid android:color="@android:color/transparent" /></shape></item>
+</selector>

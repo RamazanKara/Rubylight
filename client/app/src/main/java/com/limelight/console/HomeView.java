@@ -48,7 +48,7 @@ public final class HomeView {
     /** The look Home had before it could be changed: the phone's grid, the TV's shelves per store. */
     public static HomeView defaults(boolean television) {
         return television ? new HomeView(Layout.ROWS, Group.STORE, Size.MEDIUM)
-                : new HomeView(Layout.GRID, Group.NONE, Size.MEDIUM);
+                : new HomeView(Layout.ROWS, Group.STORE, Size.MEDIUM);
     }
 
     /** The stored view; a part never chosen, or a value this version does not know, keeps the device's default. */

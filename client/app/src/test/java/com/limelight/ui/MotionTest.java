@@ -189,7 +189,29 @@ public class MotionTest {
             float lift = 6 * controller.get().getResources().getDisplayMetrics().density;
             assertPosterFocus(controller.get(), R.layout.app_grid_item, 1.08f, lift);
             assertPosterFocus(controller.get(), R.layout.app_grid_item_small, 1.10f, lift);
-            assertPosterFocus(controller.get(), R.layout.console_card_cover, 1.08f, lift);
+        }
+    }
+
+    /** A cover on Home is a spring, not a state list: focus takes it to the token's scale, and a held key lands it now. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
+    public void aFocusedCoverSpringsToItsScaleAndBack() {
+        animatorScale(1f);
+        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit().clear().commit();
+        try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
+            android.view.ViewGroup parent = new android.widget.FrameLayout(controller.get());
+            android.view.View card = LayoutInflater.from(controller.get()).inflate(R.layout.console_card_cover, parent, false);
+            parent.addView(card);
+            parent.measure(android.view.View.MeasureSpec.makeMeasureSpec(400, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(600, android.view.View.MeasureSpec.EXACTLY));
+            parent.layout(0, 0, 400, 600);
+            assertTrue(card.requestFocus());
+            assertEquals("the press does not wait for the spring to arrive", 1f, card.getScaleX(), 0.001f);
+            Springs.finish(card);
+            assertEquals(1.12f, card.getScaleX(), 0.001f);
+            card.setPressed(true);
+            Springs.finish(card);
+            assertEquals(0.97f, card.getScaleX(), 0.001f);
         }
     }
 

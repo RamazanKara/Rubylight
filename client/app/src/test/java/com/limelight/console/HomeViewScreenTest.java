@@ -142,12 +142,12 @@ public class HomeViewScreenTest {
     }
 
     @Test
-    public void aPhoneKeepsItsGridOfOneLibrary() throws Exception {
+    public void aPhoneOpensOnShelvesByStore() throws Exception {
         HomeShellTest.Home home = home().get();
         assertEquals(HomeView.defaults(false), home.view());
         RecyclerView list = home.findViewById(R.id.console_list);
-        assertTrue(list.getLayoutManager() instanceof GridLayoutManager);
-        assertNull(ReflectionHelpers.getField(home, "shelves"));
+        assertFalse(list.getLayoutManager() instanceof GridLayoutManager);
+        assertNotNull(ReflectionHelpers.getField(home, "shelves"));
     }
 
     @Test
@@ -453,7 +453,7 @@ public class HomeViewScreenTest {
         ActivityController<HomeShellTest.Home> controller = home();
         HomeShellTest.Home home = controller.get();
         View button = home.findViewById(R.id.console_view);
-        assertEquals(home.getString(R.string.home_view), ((TextView) button).getText().toString());
+        assertEquals(home.getString(R.string.home_view), button.getContentDescription().toString());
         assertTrue(button.performClick());
         ActionSheet sheet = openSheet();
         assertNotNull(sheet);
@@ -471,8 +471,8 @@ public class HomeViewScreenTest {
         android.view.ViewGroup layouts = (android.view.ViewGroup) grid.getParent();
         assertEquals(java.util.Arrays.asList(0, 1, 2), java.util.Arrays.asList(layouts.indexOfChild(grid),
                 layouts.indexOfChild(lines), layouts.indexOfChild(rows)));
-        assertTrue(grid.isChecked());
-        assertFalse(rows.isChecked());
+        assertTrue(rows.isChecked());
+        assertFalse(grid.isChecked());
         // A list's lines have one size: Size goes while List is chosen, and comes back with the covers.
         View sizes = (View) button(content, home.getString(R.string.home_view_size_large)).getParent();
         assertEquals(View.VISIBLE, sizes.getVisibility());
@@ -491,10 +491,10 @@ public class HomeViewScreenTest {
         sheet.dismiss();
         shadowOf(Looper.getMainLooper()).idle();
         assertEquals("rows", prefs.getString(HomeView.KEY_LAYOUT, null));
-        assertEquals("none", prefs.getString(HomeView.KEY_GROUP, null));
+        assertEquals("store", prefs.getString(HomeView.KEY_GROUP, null));
         assertEquals("large", prefs.getString(HomeView.KEY_SIZE, null));
         HomeShellTest.Home rebuilt = controller.get();
-        assertEquals(new HomeView(HomeView.Layout.ROWS, HomeView.Group.NONE, HomeView.Size.LARGE), rebuilt.view());
+        assertEquals(new HomeView(HomeView.Layout.ROWS, HomeView.Group.STORE, HomeView.Size.LARGE), rebuilt.view());
         RecyclerView list = rebuilt.findViewById(R.id.console_list);
         assertTrue(list.getLayoutManager() instanceof ShelfLayoutManager);
     }

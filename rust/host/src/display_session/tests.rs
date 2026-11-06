@@ -373,6 +373,40 @@ fn a_display_that_left_lays_out_again_with_what_the_watch_keeps_on() {
     assert!(!watch.departure_due(now));
 }
 #[test]
+fn a_resume_after_a_display_left_repairs_before_it_records_the_layout() {
+    use butterpollo_core::display_policy::LayoutWatch;
+    let chosen = |unsettled| {
+        let ran = std::cell::Cell::new("nothing");
+        reapply_settling(
+            unsettled,
+            || {
+                ran.set("reapply");
+                Ok(())
+            },
+            || {
+                ran.set("repair");
+                Ok(())
+            },
+        )
+        .unwrap();
+        ran.get()
+    };
+    let now = std::time::Instant::now();
+    let mut watch = LayoutWatch::default();
+    // Nothing left during the pause.
+    assert_eq!(chosen(departure_unsettled(4, 4, &watch)), "reapply");
+    // A display left during it: without `dd_hold_layout_while_paused` the heartbeat
+    // never looked, and what is on now is what Windows recalled.
+    assert_eq!(chosen(departure_unsettled(3, 4, &watch)), "repair");
+    // It left just before the pause: seen, its repair still to come.
+    watch.display_left(now);
+    assert_eq!(chosen(departure_unsettled(4, 4, &watch)), "repair");
+    watch.departure_handled();
+    assert_eq!(chosen(departure_unsettled(4, 4, &watch)), "reapply");
+    // A refused layout still fails the resume.
+    assert!(reapply_settling(true, || Ok(()), || anyhow::bail!("refused")).is_err());
+}
+#[test]
 fn the_configured_scale_reaches_every_stream_display_including_remote_monitors() {
     let mut seen = None;
     let display = r"\\.\DISPLAY7";

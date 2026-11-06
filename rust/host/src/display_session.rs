@@ -609,6 +609,21 @@ fn departure_unsettled(
 ) -> bool {
     departures != seen || watch.departure_pending()
 }
+/// Lay the displays out for a resume or a recovery. A plain layout records what is on as the
+/// stream's, so with a departure `unsettled` (a paused stream misses its repair) what Windows
+/// recalled would become what the repair compares with, and the monitor would stay dark or at
+/// 60 Hz for the rest of the stream. The repair comes first then.
+fn reapply_settling(
+    unsettled: bool,
+    reapply: impl FnOnce() -> Result<()>,
+    after_departure: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    if unsettled {
+        after_departure()
+    } else {
+        reapply()
+    }
+}
 /// Whether a stream brings the game back after a display left. Not a remote monitor's,
 /// whose display is someone else's to look at, nor a paused one's, which may hold its
 /// layout but has nobody to show the game to.
@@ -930,7 +945,7 @@ impl Ready {
             let fed = prepared.display.as_mut().map_or(Ok(false), Guard::resume);
             prepared.finish_feed(fed)?;
             if let Some(arrangement) = &prepared._arrangement {
-                arrangement.reapply(&prepared.output, &prepared.remote_monitors())?;
+                prepared.lay_out_again(arrangement)?;
                 if let Some(display) = &prepared.display {
                     display.apply_virtual_mode("after resume layout");
                 }
@@ -1316,7 +1331,7 @@ impl Prepared {
                 butterpollo_windows::display::virtual_scale,
             )?;
             if let Some(arrangement) = &self._arrangement {
-                arrangement.reapply(&self.output, &self.remote_monitors())?;
+                self.lay_out_again(arrangement)?;
             }
             if self.recovery.take_mode() {
                 if let Some(display) = &self.display {
@@ -1367,6 +1382,20 @@ impl Prepared {
                 }
             }
         });
+    }
+    /// See [`reapply_settling`]. The heartbeat still lays out once more when its wait for
+    /// Windows ends: a recall can land after this, and the layout it compares with is right now.
+    fn lay_out_again(&self, arrangement: &display_arrangement::Lease) -> Result<()> {
+        let retained = self.remote_monitors();
+        reapply_settling(
+            departure_unsettled(
+                self.departures,
+                display_arrangement::departures(),
+                &self.layout_watch,
+            ),
+            || arrangement.reapply(&self.output, &retained),
+            || arrangement.reapply_after_departure(&self.output, &retained),
+        )
     }
     fn remote_monitors(&self) -> Vec<String> {
         self.host

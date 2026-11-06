@@ -3430,12 +3430,25 @@ fn page_screenshots() {
     f.shoot(&dir, &format!("{prefix}hosts-long-detail-desktop"));
 }
 
-/// The demo library's cover art (the same genre covers the Android demo and README use).
+/// The demo library's cover art (the same covers the Android demo and README use).
 fn demo_art(ctx: &egui::Context, n: usize) -> Art {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../app/src/debug/assets/demo/art/{}.png", n + 1));
-    let image = image::load_from_memory(&std::fs::read(&path).expect("the demo cover")).expect("a PNG").to_rgba8();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../app/src/debug/assets/demo/art/{}.jpg", n + 1));
+    let image = image::load_from_memory(&std::fs::read(&path).expect("the demo cover")).expect("a JPEG").to_rgba8();
     let size = [image.width() as usize, image.height() as usize];
     Art::Ready(ctx.load_texture(format!("demo-art-{n}"), egui::ColorImage::from_rgba_unmultiplied(size, &image), egui::TextureOptions::LINEAR))
+}
+
+/// All 36 games of the Android demo's library have a cover of their own that this app's image
+/// decoder reads. Covers carry their titles, so one repeated would show the wrong name.
+#[test]
+fn demo_covers_decode_and_none_repeats() {
+    let art = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/src/debug/assets/demo/art");
+    let mut seen = std::collections::HashSet::new();
+    for n in 1..=36 {
+        let bytes = std::fs::read(art.join(format!("{n}.jpg"))).expect("the demo cover");
+        image::load_from_memory(&bytes).expect("a JPEG");
+        assert!(seen.insert(bytes), "cover {n} repeats another");
+    }
 }
 
 /// Every main page and state as a first-time and a returning user meet them, at 1280x800 (150 %)

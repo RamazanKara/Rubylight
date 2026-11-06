@@ -31,7 +31,6 @@ mod handheld;
 mod host_page;
 mod hosts;
 mod keymap;
-#[allow(dead_code, reason = "glass foundation: the paint path starts using it in the next change")]
 mod live_glass;
 mod logfile;
 mod link_channel;
@@ -291,7 +290,28 @@ fn log_display(window: *mut SDL_Window, display: Display) {
     );
 }
 
+/// When this process entered `main`, for the launch line.
+static LAUNCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+/// The launch line, once: the launcher's first frame is on the screen.
+fn first_frame_line(already: &std::sync::atomic::AtomicBool, since: Option<std::time::Duration>) -> Option<String> {
+    let since = since?;
+    (!already.swap(true, std::sync::atomic::Ordering::Relaxed))
+        .then(|| format!("nightjar: launch to first frame {} ms", since.as_millis()))
+}
+
+#[cfg(test)]
+#[test]
+fn the_launch_line_comes_once_with_the_time() {
+    let said = std::sync::atomic::AtomicBool::new(false);
+    assert_eq!(first_frame_line(&said, None), None, "no start, no number");
+    let line = first_frame_line(&said, Some(std::time::Duration::from_millis(412)));
+    assert_eq!(line.as_deref(), Some("nightjar: launch to first frame 412 ms"));
+    assert_eq!(first_frame_line(&said, Some(std::time::Duration::from_secs(9))), None, "once");
+}
+
 fn main() {
+    LAUNCH.get_or_init(std::time::Instant::now);
     // Every request to a host says which Nightjar asks: `User-Agent: Nightjar/<version>`.
     nightjar_core::http::set_app_version(VERSION);
     // Package checks run without a window: `nightjar --check-pyrowave <report file>`.
@@ -535,6 +555,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     unsafe { SDL_ShowWindow(window) };
     theme::apply(&gui.ctx);
     let display = display_of(window);
+    gui.set_refresh(display.refresh_hz);
     shortcuts::set_hotkeys(store.hotkeys());
     let mut launcher = Launcher::new(settings.clone(), profiles, store.shortcuts(), display);
     launcher.recents = store.recents();
@@ -1302,6 +1323,7 @@ impl App {
         let pads = &self.pads;
         let updates = &mut self.updates;
         self.gui.set_readable(true);
+        self.gui.set_over_video(false);
         let output = self.gui.run(self.window, self.renderer, |ui| {
             updates.show(ui.ctx());
             commands = launcher.ui(
@@ -1332,6 +1354,10 @@ impl App {
         self.take_screenshot("launcher");
         // SAFETY: a live renderer.
         unsafe { SDL_RenderPresent(self.renderer) };
+        static FIRST_FRAME_SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if let Some(line) = first_frame_line(&FIRST_FRAME_SAID, LAUNCH.get().map(|at| at.elapsed())) {
+            eprintln!("{line}");
+        }
         for command in commands {
             self.command(command);
         }
@@ -2598,6 +2624,8 @@ const MENU_LIST: f32 = 190.0;
 /// The overlay and toasts, drawn with egui over the picture.
 /// Returns whether the user's shortcuts changed (saved or deleted in the stream menu) and want writing.
 fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Renderer, s: &mut Streaming, pads: &mut Gamepads, shortcuts: &mut shortcuts::Shortcuts) -> bool {
+    // Glass holds nothing while a stream plays, and draws no live blur over its video.
+    gui.set_over_video(true);
     // A stream started from the command line never drew the launcher, which loads these too.
     theme::fonts_for(&gui.ctx, strings::current());
     let mut shortcuts_changed = false;

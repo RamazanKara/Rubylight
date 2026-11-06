@@ -58,6 +58,8 @@ public class GlassButton extends MaterialButton {
         focusScale = reduced ? 1f : ResourcesCompat.getFloat(res, R.dimen.nj_focus_scale_control);
         pressScale = reduced ? 1f : 0.97f;
         focusRing = new FocusRing(this, moon);
+        // The ring is the focus: Android's own highlight would show as square corners behind the capsule.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) setDefaultFocusHighlightEnabled(false);
     }
 
     @Override

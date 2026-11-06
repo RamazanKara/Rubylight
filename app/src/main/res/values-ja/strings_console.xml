@@ -8,6 +8,7 @@
     <string name="console_hint_options">オプション</string>
     <string name="console_hint_open">開く</string>
     <string name="console_hint_key_ok">OK</string>
+    <string name="console_hint_key_hold_ok">OK長押し</string>
     <string name="console_hint_key_menu">メニュー</string>
     <string name="console_hint_line">%1$s %2$s    %3$s %4$s</string>
     <string name="console_favourite_add">お気に入りに追加</string>

@@ -12,6 +12,14 @@
             android:layout_width="match_parent" android:layout_height="match_parent"
             android:clipToPadding="false" android:clipChildren="false" android:scrollbars="none"
             android:focusable="false" android:descendantFocusability="afterDescendants" />
+        <androidx.recyclerview.widget.RecyclerView android:id="@+id/home_search_results"
+            android:layout_width="match_parent" android:layout_height="match_parent" android:visibility="gone"
+            android:clipToPadding="false" android:clipChildren="false" android:scrollbars="none"
+            android:focusable="false" android:descendantFocusability="afterDescendants" />
+        <TextView android:id="@+id/home_search_none" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_gravity="center" android:gravity="center" android:padding="@dimen/space_xl" android:visibility="gone"
+            android:text="@string/library_no_matches" android:textAppearance="@style/TextAppearance.Nightjar.Body"
+            android:textColor="?attr/colorOnSurfaceVariant" />
         <View android:id="@+id/home_foot_fade" android:layout_width="match_parent" android:layout_height="136dp"
             android:layout_gravity="bottom" android:importantForAccessibility="no" />
         <LinearLayout android:id="@+id/console_empty" android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -49,7 +57,7 @@
                     android:importantForAccessibility="no" />
             </LinearLayout>
         </com.limelight.ui.GlassSurface>
-        <Space android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" />
+        <Space android:id="@+id/home_top_spacer_end" android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" />
         <com.limelight.ui.GlassSurface android:id="@+id/console_view" android:layout_width="@dimen/glass_capsule" android:layout_height="@dimen/glass_capsule"
             android:layout_marginStart="8dp" android:focusable="true" android:clickable="true" android:defaultFocusHighlightEnabled="false"
             android:contentDescription="@string/home_view">
@@ -63,6 +71,29 @@
                 android:src="@drawable/ic_glass_search" android:importantForAccessibility="no" />
         </com.limelight.ui.GlassSurface>
     </LinearLayout>
+    <!-- Search on the page: takes the top row's place while it is open. -->
+    <com.limelight.ui.GlassSurface android:id="@+id/home_search_bar" android:layout_width="match_parent" android:layout_height="@dimen/glass_capsule"
+        android:visibility="gone">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="horizontal"
+            android:gravity="center_vertical" android:paddingStart="16dp" android:paddingEnd="6dp">
+            <ImageView android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_glass_search"
+                android:importantForAccessibility="no" />
+            <EditText android:id="@+id/home_search_field" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+                android:layout_marginStart="10dp" android:background="@null" android:hint="@string/library_search"
+                android:importantForAutofill="no" android:imeOptions="actionSearch|flagNoExtractUi" android:inputType="text|textNoSuggestions"
+                android:maxLines="1" android:textAppearance="@style/TextAppearance.Nightjar.Glass.Capsule"
+                android:textColor="?attr/colorOnSurface" android:textColorHint="?attr/colorOnSurfaceVariant" />
+            <ImageButton android:id="@+id/home_search_clear" android:layout_width="36dp" android:layout_height="36dp" android:padding="8dp"
+                android:background="?attr/selectableItemBackgroundBorderless" android:scaleType="fitCenter" android:src="@drawable/ic_close"
+                android:contentDescription="@string/library_clear_search" android:visibility="gone"
+                app:tint="?attr/colorOnSurfaceVariant" />
+        </LinearLayout>
+    </com.limelight.ui.GlassSurface>
+    <!-- The keys of what has focus, for the device in the hand; gone for touch and a mouse. -->
+    <TextView android:id="@+id/home_hints" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:gravity="center" android:paddingStart="8dp" android:paddingEnd="12dp" android:paddingTop="4dp" android:paddingBottom="4dp"
+        android:maxLines="1" android:visibility="gone" android:importantForAccessibility="no"
+        android:textAppearance="@style/TextAppearance.Nightjar.Glass.Hint" android:textColor="?attr/colorOnSurface" />
     <com.google.android.material.button.MaterialButton android:id="@+id/home_pairing_banner"
         style="?attr/nightjarButtonTonalStyle" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:layout_marginStart="16dp" android:layout_marginEnd="16dp" android:maxLines="1" android:ellipsize="end"

@@ -4,6 +4,9 @@
         <item name="android:textSize">@dimen/nj_type_section_size</item>
         <item name="lineHeight">@dimen/nj_type_section_line</item>
     </style>
+    <style name="TextAppearance.Nightjar.Glass.Hint" parent="TextAppearance.Nightjar.Label">
+        <item name="android:textSize">14sp</item>
+    </style>
     <style name="TextAppearance.Nightjar.Glass.Tab" parent="TextAppearance.Nightjar.Label">
         <item name="android:textSize">@dimen/nj_type_tab_size</item>
         <item name="lineHeight">@dimen/nj_type_tab_line</item>

@@ -34,6 +34,9 @@ final class HomeChrome {
     private static final float[] TV_STOPS = {0.34f, 0.72f, 1f};
     private static final float[] TV_ALPHAS = {0f, 0.7f, 0.92f};
     private static final float[] SOLID_ALPHAS = {1f, 1f, 1f};
+    /** The fade under the tab bar: where it lands on the canvas, on the design's stops. */
+    static final float[] FOOT_STOPS = {0f, 0.42f, 0.72f, 1f};
+    static final float[] FOOT_ALPHAS = {0f, 0.62f, 0.92f, 1f};
 
     private final Activity activity;
     private final GlassForm form;
@@ -46,6 +49,7 @@ final class HomeChrome {
     private final View pcDot;
     private final int listInset;
     private GlassProbe probe;
+    private HomeSearch search;
 
     HomeChrome(Activity activity, RecyclerView list, boolean shelves) {
         this.activity = activity;
@@ -78,6 +82,11 @@ final class HomeChrome {
 
     GlassForm form() {
         return form;
+    }
+
+    /** The search's results keep to the list's padding. */
+    void setSearch(HomeSearch search) {
+        this.search = search;
     }
 
     /** The backdrop bakes for this look and fades to the canvas where this layout's lists begin. */
@@ -124,8 +133,28 @@ final class HomeChrome {
             bottomRow.setVisibility(View.GONE);
             activity.findViewById(R.id.home_foot_fade).setVisibility(View.GONE);
             activity.findViewById(R.id.home_search_top).setVisibility(View.VISIBLE);
+            // The tabs at the start, the PC capsule at the end with search beside it.
+            ((LinearLayout.LayoutParams) activity.findViewById(R.id.home_top_spacer_start).getLayoutParams()).weight = 1f;
+            ((LinearLayout.LayoutParams) activity.findViewById(R.id.home_top_spacer_end).getLayoutParams()).weight = 0f;
         }
         styleTabs(activity, form);
+        keepRingUnclipped(activity.findViewById(R.id.shell_bar), activity.findViewById(R.id.shell_bar_items));
+    }
+
+    /**
+     * A focused tab's ring stands past the tab and the strip the tabs scroll in. It may leave that strip as long as the tabs
+     * fit, which is every window but a very narrow one; tabs that have to scroll stay inside it instead.
+     */
+    static void keepRingUnclipped(View bar, View items) {
+        if (!(bar instanceof ViewGroup) || items == null) return;
+        ViewGroup strip = (ViewGroup) bar;
+        strip.setClipChildren(false);
+        strip.setClipToPadding(false);
+        items.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> fitRing(strip, r - l));
+    }
+
+    static void fitRing(ViewGroup strip, int itemsWidth) {
+        strip.setClipChildren(itemsWidth > strip.getWidth());
     }
 
     /** The bar's buttons: icon over word in equal shares on a phone, icon beside word on the top capsule. */
@@ -171,11 +200,20 @@ final class HomeChrome {
         View fade = activity.findViewById(R.id.home_foot_fade);
         if (fade == null || fade.getVisibility() != View.VISIBLE) return;
         int canvas = MaterialColors.getColor(fade, R.attr.glassCanvas);
-        fade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {
-                ColorUtils.setAlphaComponent(canvas, 0),
-                ColorUtils.setAlphaComponent(canvas, 158),
-                ColorUtils.setAlphaComponent(canvas, 235),
-                canvas}));
+        int[] colors = footColors(canvas);
+        android.graphics.drawable.ShapeDrawable gradient = new android.graphics.drawable.ShapeDrawable(new android.graphics.drawable.shapes.RectShape());
+        gradient.setShaderFactory(new android.graphics.drawable.ShapeDrawable.ShaderFactory() {
+            @Override public android.graphics.Shader resize(int width, int height) {
+                return new android.graphics.LinearGradient(0, 0, 0, height, colors, FOOT_STOPS, android.graphics.Shader.TileMode.CLAMP);
+            }
+        });
+        fade.setBackground(gradient);
+    }
+
+    static int[] footColors(int canvas) {
+        int[] colors = new int[FOOT_ALPHAS.length];
+        for (int i = 0; i < colors.length; i++) colors[i] = ColorUtils.setAlphaComponent(canvas, Math.round(255 * FOOT_ALPHAS[i]));
+        return colors;
     }
 
     /** The lists run edge to edge under the chrome; their padding and the chrome keep the safe area. */
@@ -202,6 +240,43 @@ final class HomeChrome {
         int foot = handheld ? bottom + res.getDimensionPixelSize(R.dimen.space_xl)
                 : bottom + res.getDimensionPixelSize(R.dimen.nj_size_tab_bar_height) + 3 * res.getDimensionPixelSize(R.dimen.space_m);
         list.setPadding(left + listInset, rowTop + capsule + gap, right + listInset, foot);
+        View fade = activity.findViewById(R.id.home_foot_fade);
+        if (fade != null) {
+            // The bar floats above the safe area, and its 136 dp stand above that too.
+            ViewGroup.LayoutParams params = fade.getLayoutParams();
+            params.height = res.getDimensionPixelSize(R.dimen.home_foot_fade) + bottom;
+            fade.setLayoutParams(params);
+        }
+        placeSearch(left, right, rowTop, capsule, gap, foot, handheld);
+        placeHints(rowTop, capsule, bottom, handheld);
+    }
+
+    private void placeSearch(int left, int right, int rowTop, int capsule, int gap, int foot, boolean handheld) {
+        android.content.res.Resources res = activity.getResources();
+        int side = res.getDimensionPixelSize(handheld ? R.dimen.space_xl : R.dimen.glass_edge);
+        ViewGroup.MarginLayoutParams bar = (ViewGroup.MarginLayoutParams) activity.findViewById(R.id.home_search_bar).getLayoutParams();
+        bar.setMargins(left + side, rowTop, right + side, 0);
+        if (search == null) return;
+        // The covers line up under the field: each card stands in its slot by this much on every side.
+        int inset = res.getDimensionPixelSize(R.dimen.space_s);
+        search.setPadding(left + side - inset, rowTop + capsule + gap, right + side - inset, foot);
+    }
+
+    /** On a handheld the hints sit in the top row's open middle; on a phone just above the tab bar, on a chip over the art. */
+    private void placeHints(int rowTop, int capsule, int bottom, boolean handheld) {
+        android.content.res.Resources res = activity.getResources();
+        TextView hints = activity.findViewById(R.id.home_hints);
+        android.widget.FrameLayout.LayoutParams params = (android.widget.FrameLayout.LayoutParams) hints.getLayoutParams();
+        params.gravity = (handheld ? android.view.Gravity.TOP : android.view.Gravity.BOTTOM) | android.view.Gravity.CENTER_HORIZONTAL;
+        if (handheld) {
+            params.height = capsule;
+            params.topMargin = rowTop;
+        } else {
+            params.bottomMargin = bottom + res.getDimensionPixelSize(R.dimen.space_s) + res.getDimensionPixelSize(R.dimen.nj_size_tab_bar_height)
+                    + res.getDimensionPixelSize(R.dimen.space_s);
+            hints.setBackgroundResource(R.drawable.glass_chip);
+        }
+        hints.setLayoutParams(params);
     }
 
     /** For tests: which tier the host runs. */

@@ -9,4 +9,6 @@
     <!-- The phone list's side padding: with a heading's and a card's own space_s, its content starts on the screen gutter,
          where the shell bar's first tab is. -->
     <dimen name="home_list_inset">8dp</dimen>
+    <dimen name="home_head_handheld">36dp</dimen>
+    <dimen name="home_foot_fade">136dp</dimen>
 </resources>

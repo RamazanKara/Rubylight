@@ -38,6 +38,10 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
     static final int COVER_GAME = 0;
     static final int HOST = 1;
     static final int ALL_TILE = 2;
+    /** The carousel's large cover, no caption. */
+    static final int HERO_COVER = 3;
+    /** A line of the hero's Continue panel. */
+    static final int ROW_GAME = 4;
 
     /** One card of a shelf: a game, a host or a row's "All N" tile, found again across a refresh by its stable key. */
     static final class Item {
@@ -87,9 +91,18 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
         FocusListener focus;
         /** The covers that step back while one has focus. */
         final com.limelight.ui.CoverCard.Group coverGroup = new com.limelight.ui.CoverCard.Group();
+        /** A game's second line where a shelf says something else than where it is; null keeps that. */
+        Function<HomeModel.GameCard, CharSequence> line;
+        /** On a TV a poster has its store's mark. Elsewhere the row names the store and the art stays clear. */
+        final boolean marks;
+        /** On a handheld covers go without a caption: their art carries the title, as in the app grid. */
+        final boolean captions;
 
         Env(Context context, CoverLoaders covers, Function<String, ComputerDetails> hosts, ConsoleHomeAdapter.Listener listener) {
             this.context = context;
+            com.limelight.ui.GlassForm form = com.limelight.ui.GlassForm.of(context);
+            marks = form == com.limelight.ui.GlassForm.TELEVISION;
+            captions = form != com.limelight.ui.GlassForm.HANDHELD;
             this.covers = covers;
             this.hosts = hosts;
             this.listener = listener;
@@ -100,9 +113,16 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
     private String shelf = "";
     private List<Item> items = new ArrayList<>();
     private final Map<String, Long> ids = new HashMap<>();
+    /** The view type of this shelf's games. */
+    private final int gameType;
 
     ShelfAdapter(Env env) {
+        this(env, COVER_GAME);
+    }
+
+    ShelfAdapter(Env env, int gameType) {
         this.env = env;
+        this.gameType = gameType;
         setHasStableIds(true);
     }
 
@@ -130,7 +150,8 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
 
     @Override
     public int getItemViewType(int position) {
-        return items.get(position).type();
+        Item item = items.get(position);
+        return item.game != null ? gameType : item.type();
     }
 
     @Override
@@ -148,9 +169,15 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
     @Override
     public CardHolder onCreateViewHolder(@NonNull ViewGroup parent, int type) {
         LayoutInflater inflater = LayoutInflater.from(parent.getContext());
-        boolean cover = type == COVER_GAME;
-        int layout = cover ? R.layout.console_card_cover : type == ALL_TILE ? R.layout.console_card_all : R.layout.console_card_host;
+        boolean cover = type == COVER_GAME || type == HERO_COVER || type == ROW_GAME;
+        int layout = type == COVER_GAME ? R.layout.console_card_cover : type == HERO_COVER ? R.layout.console_card_hero
+                : type == ROW_GAME ? R.layout.console_card_row : type == ALL_TILE ? R.layout.console_card_all : R.layout.console_card_host;
         View view = inflater.inflate(layout, parent, false);
+        if (type == ROW_GAME) return new CardHolder(env, view, true, false);
+        if (type == HERO_COVER) {
+            float density = view.getResources().getDisplayMetrics().density;
+            ((com.limelight.ui.CoverCard) view).setShadow(60 * density, 26 * density);
+        }
         int width = type != HOST && env.cardWidthPx > 0 ? env.cardWidthPx
                 : view.getResources().getDimensionPixelSize(type == HOST ? R.dimen.shelf_host_width : R.dimen.shelf_card_width);
         // A card's width includes its inset: a phone card's margin (the TV poster draws its inset as padding) stays
@@ -334,8 +361,11 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
                         imageText);
             }
             String where = whereOf(context, card);
-            if (title != null) title.setText(card.title);
-            if (subtitle != null) subtitle.setText(where);
+            if (title != null) {
+                title.setText(card.title);
+                if (itemView instanceof com.limelight.ui.CoverCard) title.setVisibility(env.captions ? View.VISIBLE : View.GONE);
+            }
+            if (subtitle != null) subtitle.setText(env.line != null ? env.line.apply(card) : where);
             boolean away = OfflineLook.allAway(card.hostUuids, env.hosts);
             // A PC that is away runs nothing now, whatever its last answer said.
             CharSequence state = away ? null : stateOf(context, card);
@@ -368,8 +398,8 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
                 if (event.getAction() == KeyEvent.ACTION_DOWN && movesFocus(keyCode)) {
                     env.travel.onMove(event.getRepeatCount(), SystemClock.uptimeMillis());
                 }
-                if (keyCode == KeyEvent.KEYCODE_BUTTON_X || keyCode == KeyEvent.KEYCODE_MENU) {
-                    // X and Menu open the game's options (where it is starred), like a long press and like a PC's card.
+                if (keyCode == KeyEvent.KEYCODE_BUTTON_X || keyCode == KeyEvent.KEYCODE_MENU || com.limelight.ui.InputSource.isMoreKey(event)) {
+                    // Y, F, X and Menu open the game's options (where it is starred), like a long press (Hold OK) and like a PC's card.
                     if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) env.listener.onGameMenu(card);
                     return true;
                 }
@@ -387,6 +417,10 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
             store.setVisibility(label == null ? View.GONE : View.VISIBLE);
 
             android.content.res.Resources res = context.getResources();
+            if (!env.marks) {
+                storeMark.setVisibility(View.GONE);
+                return;
+            }
             int glyph = Stores.glyph(card.store());
             CharSequence name = glyph == 0 ? card.storeName() : null;
             int chip = res.getDimensionPixelSize(R.dimen.card_chip_height);
@@ -555,7 +589,7 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
          */
         private boolean onHostKey(HomeModel.HostCard card, int keyCode, KeyEvent event) {
             boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
-            if (keyCode == KeyEvent.KEYCODE_MENU || keyCode == KeyEvent.KEYCODE_BUTTON_X
+            if (keyCode == KeyEvent.KEYCODE_MENU || keyCode == KeyEvent.KEYCODE_BUTTON_X || com.limelight.ui.InputSource.isMoreKey(event)
                     || (keyCode == KeyEvent.KEYCODE_F10 && event.isShiftPressed())) {
                 markMore(false);
                 if (!down && !event.isCanceled()) {

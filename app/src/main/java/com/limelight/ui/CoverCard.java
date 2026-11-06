@@ -55,12 +55,14 @@ public class CoverCard extends LinearLayout {
     }
 
     private View frame;
+    private float restScale = 1f;
+    private float stepBack;
     private final float radius;
     private final Paint rim = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint sheen = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint shadowPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
-    private final float shadowBlur;
-    private final float shadowY;
+    private float shadowBlur;
+    private float shadowY;
     private final float dimAlpha;
     private final float focusScaleUsual;
     private float focusScale;
@@ -144,7 +146,31 @@ public class CoverCard extends LinearLayout {
     }
 
     private void applyDim() {
-        if (frame != null) frame.setAlpha(group != null && group.dims(this) ? dimAlpha : 1f);
+        if (frame != null) frame.setAlpha(group != null && group.dims(this) ? dimAlpha : 1f - stepBack * (1f - dimAlpha));
+    }
+
+    /**
+     * A carousel's place for this cover: its scale at rest and how far it stepped back, 0 to 1. A press and focus go on top
+     * of the scale; while pressed the spring keeps its own target and the next change takes this one up.
+     */
+    public void setRest(float scale, float back) {
+        if (scale == restScale && back == stepBack) return;
+        restScale = scale;
+        stepBack = back;
+        applyDim();
+        if (isPressed()) return;
+        Springs.finish(this);
+        float at = scale * (isFocused() ? focusScale : 1f);
+        setScaleX(at);
+        setScaleY(at);
+    }
+
+    /** The hero's deeper shadow; the look's own is kept where the look has none (high contrast). */
+    public void setShadow(float blur, float y) {
+        if (highContrast) return;
+        shadowBlur = blur;
+        shadowY = y;
+        invalidate();
     }
 
     @Override
@@ -179,7 +205,7 @@ public class CoverCard extends LinearLayout {
     }
 
     private void retarget() {
-        float target = isPressed() ? pressScale : isFocused() ? focusScale : 1f;
+        float target = restScale * (isPressed() ? pressScale : isFocused() ? focusScale : 1f);
         if (instant.getAsBoolean()) {
             Springs.scale(this, target, Springs.Kind.FOCUS);
             Springs.finish(this);
@@ -191,8 +217,8 @@ public class CoverCard extends LinearLayout {
     /** A card coming back from the recycled pool starts at rest. */
     public void reset() {
         Springs.finish(this);
-        setScaleX(isFocused() ? focusScale : 1f);
-        setScaleY(isFocused() ? focusScale : 1f);
+        setScaleX(restScale * (isFocused() ? focusScale : 1f));
+        setScaleY(restScale * (isFocused() ? focusScale : 1f));
         applyDim();
     }
 

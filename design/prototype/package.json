@@ -1,0 +1,13 @@
+{
+  "name": "nightjar-design-prototype",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node check-tokens.mjs",
+    "css": "node tokens-css.mjs",
+    "shoot": "node shoot.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "^1.65.0"
+  }
+}

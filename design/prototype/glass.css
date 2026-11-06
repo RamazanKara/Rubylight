@@ -1,0 +1,168 @@
+/* The Nightjar glass family. All numbers come from tokens.css (generated from client/design/tokens.json). */
+@font-face{font-family:Figtree;font-weight:400;src:url(../../protocol/desktop/assets/Figtree-400.ttf)}
+@font-face{font-family:Figtree;font-weight:600;src:url(../../protocol/desktop/assets/Figtree-600.ttf)}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{background:var(--color-canvas);color:var(--color-label);font:400 16px/22px Figtree,sans-serif;overflow:hidden;-webkit-font-smoothing:antialiased}
+#app{position:relative;overflow:hidden;background:var(--color-canvas);--pc-off:rgba(120,124,140,.22)}
+[data-theme="day"] #app{--pc-off:rgba(26,28,34,.1)}
+img{display:block}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;outline:none}
+
+/* Type */
+.t-hero{font:600 56px/60px Figtree;letter-spacing:-1.2px}
+.t-large{font:600 36px/42px Figtree;letter-spacing:-.6px}
+.t-title{font:600 26px/32px Figtree;letter-spacing:-.3px}
+.t-section{font:600 20px/26px Figtree;letter-spacing:-.1px}
+.t-head{font:600 17px/22px Figtree}
+.t-body{font:400 16px/22px Figtree}
+.t-sub{font:400 14px/19px Figtree}
+.t-cap{font:400 12px/16px Figtree;letter-spacing:.1px}
+.sec{color:var(--color-labelSecondary)}
+.num{font-feature-settings:"tnum"}
+.moon{color:var(--color-moonInk)}
+.ok{color:var(--color-ok)}
+
+/* Glass: the parent stays free of filters so blur, lens and rim are sibling layers. */
+.g{position:relative;display:block;border-radius:inherit;box-shadow:var(--sh)}
+.g>i{position:absolute;inset:0;border-radius:inherit;pointer-events:none;display:block}
+.g>.g-blur{background:var(--fill);-webkit-backdrop-filter:blur(var(--blur)) saturate(var(--sat)) brightness(var(--bri));backdrop-filter:blur(var(--blur)) saturate(var(--sat)) brightness(var(--bri));overflow:hidden}
+/* Edge lens: a band whose backdrop is less blurred and more saturated, so colour pools at the rim. */
+.g>.g-lens{padding:var(--lens-w);-webkit-backdrop-filter:blur(var(--lens-blur)) saturate(var(--lens-sat)) brightness(var(--lens-bri));backdrop-filter:blur(var(--lens-blur)) saturate(var(--lens-sat)) brightness(var(--lens-bri));
+  -webkit-mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)}
+.g>.g-sheen{background:linear-gradient(180deg,var(--sheen),transparent var(--sheen-end))}
+.g>.g-rim{padding:var(--rim-w);background:linear-gradient(168deg,var(--rim-t),var(--rim-m) 34%,var(--rim-m) 62%,var(--rim-b));
+  -webkit-mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)}
+.g>.g-c{position:relative;border-radius:inherit}
+/* Baked tier: the ambient is sampled in screen space (see lib.js), so no live content shows through. */
+[data-tier="baked"] .g>.g-blur,[data-tier="solid"] .g>.g-blur{-webkit-backdrop-filter:none;backdrop-filter:none}
+[data-tier="live"] .g>.g-lens,[data-tier="baked"] .g>.g-lens,[data-tier="solid"] .g>.g-lens{display:none}
+.g>.g-blur>.bake{position:absolute;max-width:none;z-index:-1}
+[data-tier="baked"] .g>.g-blur{background:none;isolation:isolate}
+[data-tier="baked"] .g>.g-blur::after{content:"";position:absolute;inset:0;background:var(--fill)}
+[data-tier="baked"] .g.scroll-free>.g-blur{background:var(--fill)}
+[data-tier="solid"] .g>.g-blur{background:var(--fill)}
+
+/* Tint materials: never blur. */
+.group,.ctl{position:relative;border-radius:var(--radius-group);background:var(--tint-group-fill)}
+.group::after,.ctl::after,.cover .lip{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;pointer-events:none;
+  background:linear-gradient(168deg,var(--tint-group-rimTop),var(--tint-group-rimMid) 40%,var(--tint-group-rimBottom));
+  -webkit-mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)}
+.ctl{background:var(--tint-control-fill);display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:0 20px;border-radius:999px;font:600 16px/22px Figtree;white-space:nowrap}
+.ctl::after{background:linear-gradient(168deg,var(--tint-control-rimTop),var(--tint-control-rimMid) 40%,var(--tint-control-rimBottom))}
+.ctl.round{width:48px;padding:0}
+[data-hc="1"] .group{background:var(--solid-group-fill);box-shadow:inset 0 0 0 1.5px var(--color-rim)}
+[data-hc="1"] .group::after,[data-hc="1"] .ctl::after{display:none}
+[data-hc="1"] .ctl{background:var(--solid-control-fill);box-shadow:inset 0 0 0 1.5px var(--color-rim)}
+
+/* Primary: the moon. Solid light, not glass: the one thing on the page that is lit from inside. */
+.play{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:10px;height:56px;padding:0 30px;border-radius:999px;font:600 18px/24px Figtree;color:var(--color-onMoon);white-space:nowrap;
+  background:linear-gradient(180deg,var(--play-fillTop),var(--play-fillBottom));box-shadow:0 8px 28px var(--play-glow),0 2px 6px rgba(0,0,0,.35)}
+.play::after{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(180deg,var(--play-rimTop),rgba(255,255,255,0) 45%,var(--play-rimBottom));
+  -webkit-mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)}
+[data-hc="1"] .play{background:var(--color-moon);box-shadow:none}
+[data-theme="day"] .play{box-shadow:0 8px 28px var(--play-glow),0 2px 6px rgba(42,46,74,.18)}
+
+/* One focus language: ring, gap, halo, small lift. fx is the forced state for screenshots. */
+.fx,:focus-visible{outline:none;box-shadow:0 0 0 var(--focus-gap) var(--focus-gapColor),0 0 0 calc(var(--focus-gap) + var(--focus-ringWidth)) var(--focus-ringColor),0 0 var(--focus-haloBlur) calc(var(--focus-gap) + var(--focus-ringWidth) + 2px) var(--focus-haloColor);z-index:3}
+.play.fx{box-shadow:0 0 0 var(--focus-gap) var(--focus-gapColor),0 0 0 calc(var(--focus-gap) + var(--focus-ringWidth)) var(--focus-ringColorOnMoon),0 0 40px 10px var(--focus-haloColor)}
+.tv{--focus-ringWidth:var(--focus-ringWidthTv);--focus-gap:var(--focus-gapTv);--focus-haloBlur:var(--focus-haloBlurTv)}
+
+/* Interaction: instant, spring where it moves. */
+.press{transition:transform 110ms cubic-bezier(.2,.9,.3,1),background-color 90ms linear}
+.press:hover{background-color:var(--hover-fillLift)}
+.press:active{transform:scale(var(--press-scale));transition-duration:40ms}
+[data-motion="reduce"] *{transition:none!important;animation:none!important}
+
+/* Cover */
+.cover{position:relative;border-radius:var(--radius-cover);flex:none;background:var(--cover-placeholder);box-shadow:0 var(--cover-shadowY) var(--cover-shadowBlur) var(--cover-shadow);aspect-ratio:2/3;transition:transform 180ms cubic-bezier(.3,1.25,.5,1)}
+.cover img{width:100%;height:100%;object-fit:cover;border-radius:inherit}
+.cover .lip{background:linear-gradient(168deg,var(--cover-rimTop),var(--cover-rimBottom) 30%,var(--cover-rimBottom))}
+.cover .sheen{position:absolute;inset:0;border-radius:inherit;background:linear-gradient(165deg,var(--cover-sheenTop),transparent 26%);pointer-events:none}
+.cover.dim img{filter:brightness(.72) saturate(.92)}
+[data-theme="day"] .cover.dim img{filter:none}
+[data-theme="day"] .cover.dim{opacity:var(--focus-neighbourAlpha)}
+.cover.fx{box-shadow:0 0 0 var(--focus-gap) var(--focus-gapColor),0 0 0 calc(var(--focus-gap) + var(--focus-ringWidth)) var(--focus-ringColor),0 0 var(--focus-haloBlur) calc(var(--focus-gap) + var(--focus-ringWidth) + 4px) var(--focus-haloColor),0 22px 44px var(--cover-shadow)}
+.cap{margin-top:8px;font:400 14px/19px Figtree;color:var(--color-labelSecondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Backdrops */
+.ambient{position:absolute;inset:0;overflow:hidden;background:var(--bg,var(--color-canvas))}
+.ambient>img{position:absolute;inset:-14%;width:128%;height:128%;object-fit:cover;filter:blur(22px)}
+.ambient>.fade{position:absolute;inset:0}
+.night{position:absolute;inset:0;overflow:hidden;background:linear-gradient(180deg,var(--sky-top),var(--sky-mid) 46%,var(--sky-bottom))}
+.night svg{position:absolute}
+
+/* High contrast is reduce transparency: no ambient, no sky, covers stay. */
+[data-hc="1"] .ambient{background:#000}
+[data-hc="1"] .ambient>img,[data-hc="1"] .ambient>.fade{display:none}
+[data-hc="1"] .night{background:#000}
+[data-hc="1"] .night svg>rect,[data-hc="1"] .night svg>circle:not(:last-child){display:none}
+
+/* Chips */
+.chip:not(.g){display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 13px;border-radius:999px;font:600 14px/19px Figtree;white-space:nowrap}
+.chip.tint{background:var(--tint-control-fill);box-shadow:inset 0 0 0 1px var(--tint-control-rimBottom)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--color-ok);box-shadow:0 0 8px var(--color-ok);flex:none}
+.dot.off{background:var(--color-offline);box-shadow:none}
+
+/* Tab bar and capsule nav */
+.tabs{display:flex;padding:var(--radius-tabInset);gap:0;height:100%}
+.tab{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;border-radius:999px;color:var(--color-labelSecondary);font:600 12px/15px Figtree;min-width:0;z-index:1}
+.tab.on{color:var(--color-onSelected)}
+.tabs .pill{position:absolute;top:var(--radius-tabInset);bottom:var(--radius-tabInset);border-radius:999px;background:var(--tint-selected-fill);box-shadow:inset 0 1px 0 var(--tint-selected-rimTop),inset 0 0 0 1px rgba(255,211,138,.14),0 2px 10px rgba(0,0,0,.25);transition:left 200ms cubic-bezier(.3,1.25,.5,1),width 200ms cubic-bezier(.3,1.25,.5,1)}
+.tab-h{flex-direction:row;gap:8px;padding:0 18px;font:600 15px/20px Figtree;flex:none}
+
+/* Rows */
+.row{position:relative;display:flex;align-items:center;gap:14px;min-height:58px;padding:9px 16px}
+.row+.row::before{content:"";position:absolute;left:16px;right:0;top:0;height:1px;background:var(--tint-separator)}
+.row.ico+.row.ico::before{left:60px}
+.row .ti{flex:1;min-width:0}
+.row .val{color:var(--color-labelSecondary);display:flex;align-items:center;gap:6px;white-space:nowrap}
+.row .tile{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--tint-control-fill);flex:none;box-shadow:inset 0 1px 0 var(--tint-control-rimTop)}
+[data-hc="1"] .row .tile{background:none;box-shadow:inset 0 0 0 1px var(--color-rim)}
+
+/* Switch */
+.sw{position:relative;width:52px;height:32px;border-radius:999px;background:var(--tint-track-fill);flex:none}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:26px;height:26px;border-radius:50%;background:linear-gradient(180deg,#fff,#dfe0e8);box-shadow:0 2px 6px rgba(0,0,0,.4);transition:left 170ms cubic-bezier(.3,1.35,.5,1)}
+.sw.on{background:linear-gradient(180deg,var(--play-fillTop),var(--play-fillBottom));box-shadow:0 0 14px rgba(242,169,59,.35)}
+.sw.on::after{left:23px}
+[data-hc="1"] .sw{background:#000;box-shadow:inset 0 0 0 2px var(--color-rim)}
+[data-hc="1"] .sw.on{background:var(--color-moon);box-shadow:none}
+
+/* Slider */
+.sl{position:relative;height:8px;border-radius:999px;background:var(--tint-track-fill);margin:13px 0}
+.sl>b{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:linear-gradient(90deg,var(--color-moonLo),var(--play-fillTop))}
+.sl>u{position:absolute;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;background:linear-gradient(180deg,#fff,#dfe0e8);box-shadow:0 2px 8px rgba(0,0,0,.45)}
+
+/* Segmented */
+.seg{position:relative;display:flex;height:42px;padding:3px;border-radius:999px;background:var(--tint-control-fill)}
+.seg>span{flex:1;display:flex;align-items:center;justify-content:center;border-radius:999px;font:600 14px/19px Figtree;color:var(--color-labelSecondary);white-space:nowrap;padding:0 12px}
+.seg>span.on{background:var(--tint-segOn-fill);color:var(--color-label);box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 2px 8px rgba(42,46,74,.18)}
+
+.shelf{display:flex;gap:14px}
+.hdr{display:flex;align-items:baseline;gap:8px}
+.hscroll{overflow:hidden}
+
+/* One soft fade under the floating bar: a gradient, no blur, so names never sit half hidden at rest. */
+.tabfade{position:absolute;left:0;right:0;bottom:0;height:136px;z-index:7;pointer-events:none;background:linear-gradient(180deg,transparent,color-mix(in srgb,var(--tint-fade) 62%,transparent) 42%,color-mix(in srgb,var(--tint-fade) 92%,transparent) 72%,var(--tint-fade))}
+
+/* The no-art tile: gradient, disc, title. */
+.cover.na{overflow:hidden}
+.cover.na img{display:none}
+.disc{position:absolute;display:block;border-radius:50%;background:#fff;opacity:var(--tile-discAlpha)}
+.na-t{position:absolute;color:#fff;font-weight:600;line-height:1.08;letter-spacing:-.01em;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;overflow-wrap:anywhere}
+.badge{position:absolute;right:7px;bottom:7px;width:22px;height:22px;border-radius:50%;background:#0e1017b8;display:grid;place-items:center}
+
+/* A PC: a small screen on a stand. */
+.pc{position:relative;overflow:hidden;display:grid;place-items:center;color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.2),0 6px 16px rgba(0,0,0,.28)}
+.pc img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 58%}
+.pc.offline{color:var(--color-labelSecondary);box-shadow:inset 0 0 0 1px var(--tint-control-rimBottom)}
+.pc.offline .disc{display:none}
+.pc-neck{margin:0 auto;background:var(--tint-track-fill)}
+.pc-base{margin:0 auto;border-radius:2px;background:var(--color-labelSecondary);opacity:.5}
+
+/* Button hints */
+.hint{display:inline-flex;align-items:center;gap:7px;font:600 15px/20px Figtree}
+.key{min-width:26px;height:26px;padding:0 6px;border-radius:13px;display:grid;place-items:center;background:var(--tint-control-fill);box-shadow:inset 0 1px 0 var(--tint-control-rimTop);font:600 13px/16px Figtree}
+.key.wide{padding:0 10px}
+
+.spin{animation:spin 2.4s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}

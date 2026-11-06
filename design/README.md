@@ -1,13 +1,27 @@
 # Nightjar design: moonlit glass
 
-The spec for the redesign. Numbers live in [tokens.json](tokens.json) (flat dotted keys; a generator emits Android XML, Rust constants and CSS). This file says how to build them. The prototype is in `drafts/nightjar-glass/prototype/` (`index.html` lists every screen; `?tier=lens|live|baked`, `?hc=1`, `?motion=reduce`, `?stress=1`, `?lang=de`). `drafts/nightjar-glass/mk-tokens.mjs` writes the tokens and fails on any contrast or spring miss.
+The spec for the redesign. Numbers live in [tokens.json](tokens.json), the single source (flat dotted keys). `python scripts/gen_design_tokens.py` from `client/` emits Android XML, Rust constants and CSS; `python scripts/test_gen_design_tokens.py` fails if they are stale. This file says how to build them.
+
+The prototype is in [prototype/](prototype/) (`index.html` lists every screen; `?theme=day|oled`, `?tier=lens|live|baked`, `?hc=1`, `?motion=reduce`, `?stress=1`, `?lang=de`, on TV `?input=remote|pad`). To run it, from `client/design/prototype`:
+
+```
+npm install
+node ../../scripts/demo/covers.mjs   # fixture covers into covers/ and frames/
+python ambient.py                    # bakes ambient/, night and day
+node tokens-css.mjs                  # tokens.css from tokens.json
+node check-tokens.mjs                # fails on any contrast or spring miss, writes nothing
+node shoot.mjs [name...]             # shots/
+python check-contrast.py             # measures the worst pixel in the shots
+```
+
+`shots/`, `covers/`, `frames/`, `ambient/`, `tokens.css` and `node_modules/` are generated and ignored. Figtree comes from `client/protocol/desktop/assets`.
 
 ## Principles
 
 1. **Amber is the only thing lit from inside.** The moon Play capsule is solid, never glass. Selection is a dark moon container (`tint.selected.fill`, text `color.onSelected`), focus is a moon ring. Nothing else in the app is amber.
 2. **Art goes edge to edge, chrome floats over it.** Glass is for chrome only: tab bar, capsules, sheet, dialog, menu. Art-less pages (PCs, Settings, Pair) get the night sky, moon and orbit rings.
 3. **No nested blur.** One blurred layer per surface. Groups, controls and selections inside glass are flat tints (`tint.*`), and never blur.
-4. **Text reads over a white cover in every tier.** 4.5:1 is a property of the recipe, not of the art: see below.
+4. **Text reads over the worst cover in every tier.** A white cover at night, a black cover by day. 4.5:1 is a property of the recipe, not of the art: see below.
 5. **Simple first.** No instruction sentences, no toggle for what is always right, one hover and focus language. The word "Experimental" appears nowhere.
 
 ## Glass recipe
@@ -38,11 +52,31 @@ The window is removed (not hidden) when the menu closes, and the frame after clo
 
 ### Ambient backdrop
 
-Baked once per cover, never per frame. Reference: `drafts/nightjar-glass/ambient.py`. Squash the **whole** cover to 96×54 (or 54×96 in portrait; hosts give 2:3 box art, no landscape art is assumed anywhere), Gaussian blur, saturate × `ambient.saturate`, hue-shift yellows (35-80°) toward 22° so they never dim to olive, then clamp each pixel's linear luminance to `ambient.textZoneMaxLuma`. A white cover comes out as a safe grey (82). Add ±1 LSB noise at bake: 96×54 stretched over a large dark panel can band.
+Baked once per cover, never per frame. Reference: `prototype/ambient.py`. Squash the **whole** cover to 96×54 (or 54×96 in portrait; hosts give 2:3 box art, no landscape art is assumed anywhere), Gaussian blur, saturate × `ambient.saturate`, hue-shift yellows (35-80°) toward 22° so they never dim to olive, then clamp each pixel's linear luminance to `ambient.textZoneMaxLuma`. A white cover comes out as a safe grey (82). Add ±1 LSB noise at bake: 96×54 stretched over a large dark panel can band.
 
 This replaces the current bake in `ui/BackdropBlur.java`. `BackdropBlurTest` changes with it: `A9ADBD` leaves the text list, and `aWhiteCoverStillShowsThroughBelowTheTextZone` goes away because a white cover is now a uniform clamp grey. Assert the clamp and the hue shift instead.
 
+## Themes
+
+Android keeps its theme setting: System (default), Dark, OLED black (`preferences/ThemeChoice.java`, `ui/AppTheme.java`, `res/values-notnight/colors.xml`). System follows the phone, so a phone in light mode gets **day**. Desktop is night only. Every themed key has an override with the same name under `day.*` or `oled.*`; a missing override means the night value.
+
+| Theme | Canvas | Glass | Worst backdrop | Picks |
+|---|---|---|---|---|
+| Night | `color.canvas`, night sky | `glass.*` | White cover | Dark, or System at night |
+| Day, "morning light" | `day.color.canvas`, dawn sky (`day.sky.*`), the moon becomes a low sun, no stars | `day.glass.*` | Black cover | System by day. Android only |
+| OLED | True black (`oled.color.*`, `oled.sky.*`), ambient fades to `oled.tint.fade` | `glass.*`, unchanged | White cover | OLED black. Android only |
+
+**Day glass.** Milky, lit from above, not an inverted night. The recipe order stays; the numbers change: brightness `day.glass.*.brightness` above 1, a stronger saturate so colour blooms through, white fill (`day.glass.<material>.<tier>.fill`, about 70% on chrome and chip, 78% on panel), white rim, a cool shadow, and one `hairline` so glass keeps its edge over white. Ink text (`day.color.label`, `day.color.labelSecondary`). Worst case `black` still gives 4.5:1 because the day ambient lifts it first.
+
+**Day ambient.** Same squash and blur, then saturate × `day.ambient.saturate` and mix each pixel toward white until its luminance reaches `day.ambient.textZoneMinLuma`. Black bakes to a soft grey (188), never to dark. `ambient.py` writes both.
+
+**Day accents.** Play stays the solid moon. Selection is a light amber (`day.tint.selected.fill`, text `day.color.onSelected`). Focus is a dark amber ring on a white gap with an amber halo; on Play the ring is ink. Neighbours on TV fade with `day.focus.neighbourAlpha` instead of dimming, because dimming muddies a light page. The page behind a sheet barely dims (`day.sheet.backdropBrightness`).
+
+**What does not change with theme.** Covers, the no-art tile and the Play gradient. The stream menu and stats stay night in every theme: a stream is usually dark and a white panel over it would glare. There is no `day.glass.menu`. High contrast is always black and wins over day, as `AppTheme.isOledBlack` does today.
+
 ## Navigation
+
+**Two ways in.** A host with the native library API (Rubylight) lands on Home. Every other host (Sunshine, Apollo and the rest) lands on the PC list and then the app grid, and a new user always starts on an empty PC list. These are full screens, as finished as Home. Home's top capsule and the app grid's use the same PC capsule, so the two paths feel like one app.
 
 | Form factor | Top level | Game page | Settings |
 |---|---|---|---|
@@ -57,31 +91,72 @@ One rule everywhere: Back closes the top layer and restores focus to what opened
 
 All have default, hover, focus, pressed and disabled, on `solid` too. Touch targets are at least `size.touchMin` (48 dp); TV sizes are the same dp at 1.5×.
 
-- **Tab bar**: `chrome`, height `size.tabBarHeight`. The selected pill springs (`motion.tabPill`) and stretches slightly toward the target. It travels as one layer so it never redraws the tabs' text.
+- **Tab bar**: `chrome`, height `size.tabBarHeight`. The selected pill springs (`motion.tabPill`) and stretches slightly toward the target. It travels as one layer so it never redraws the tabs' text. Under the bar, one 136 dp gradient to `tint.fade` (no blur, no extra surface) so names and art never sit half hidden at rest. Scrolling lists also end with bottom padding of bar height plus `space` so the last row clears it.
 - **Top capsule**: `chrome`, `size.topCapsuleHeight`. Status dot, PC name, chevron. Same pill as the tab bar.
-- **Cover card**: 2:3 fixed (`cover.aspect`), `radius.cover`, rim and top sheen, shadow. Status dot for the running game. Label below on phone, only on focus on TV.
+- **Cover card**: 2:3 fixed (`cover.aspect`), `radius.cover`, rim and top sheen, shadow. Status dot on a dark disc at the bottom right for the running game, clear of the logotype. Label below on phone, only on focus on TV. In the app grid there is no label: art carries its title and so does the no-art tile. The accessibility label stays.
+- **No-art tile**: see below. Same slot, rim, sheen and shadow as a cover.
+- **PC card**: a small screen on a stand (rounded rect, neck, base; a few filled shapes at run time), then name, status and one action. Flat `tint.groupOnSky`, never glass: the sky behind it has nothing to refract, and glass over it only reads as a dark box. See "PC states".
+- **Button hint**: a key cap plus the word, following the input device. See "Button hints".
 - **Play button**: solid `play.*` gradient, moon rim, soft glow, dark text. One per screen. Says Play, or Resume when running.
 - **Sheet**: `panel`, `radius.sheet`, grabber, drag between detents, flick to close. Scroll hands over to drag at the top edge.
 - **Grouped row**: `tint.group` (`tint.groupOnArt` on art), `size.rowHeight`, leading icon optional, value and chevron trailing. Separators inset past the icon. Long German labels wrap to two lines, values never truncate first.
 - **Switch, slider, segmented, chips**: tints only. Moon for on and filled, paper thumb. The slider shows its value at all times and steps with D-pad left and right.
 - **Dialog**: `panel`, centred, one primary action in moon; destructive uses `color.dangerFill`.
 - **Toast**: `chip`, top on phone and above the shelves on TV, one line, no action needed to dismiss.
-- **Stream menu**: `menu`, right side, 452 × 672 at 720p scale. Tile row, sliders, status rows, Disconnect and Quit at the bottom. Quit is the one red control.
+- **Stream menu**: `menu`, right side, 452 × 672 at 720p scale. Tile row, sliders, status rows, Disconnect and Quit game at the bottom. Quit game is the one red control.
 - **Stats overlay**: `stats.fill`, tabular numbers (`type.numbers`), label colour only. Never blurred.
 - **PIN pad**: `panel` sheet on phone, dialog elsewhere. Four digit slots, the next one focused, a 3×4 grid of `tint.control` capsules with scan-a-code at bottom left and delete at bottom right. The remote's digits and D-pad both work.
 
-Cover style: "night posters", drawn by code. Reference `drafts/nightjar-glass/covers.mjs`: layered silhouettes, gradient skies, one glow, grain, vignette, a logotype per game in Figtree only. Every primitive maps to Java2D, so `client/scripts/demo/GenerateAssets.java` can port them. Fixtures only (Racing Game, Ocean Explorer, Open World, Music Studio, Living-room PC). The same generator, seeded from a name hash, is the in-app cover for games with no art.
+**One word.** Ending a game is "Quit game" everywhere: sheet, TV page, desktop, stream menu, PC list (`applist_menu_quit`, German "Spiel beenden"). Never "Close game".
+
+Cover style: "night posters", drawn by code, fixtures only. Reference `client/scripts/demo/covers.mjs`: layered silhouettes, gradient skies, one glow, grain, vignette, a logotype per game in Figtree only. Every primitive maps to Java2D, so `client/scripts/demo/GenerateAssets.java` can port them. This generator does not ship in the app.
+
+### No-art tile
+
+What an app with no cover art shows, on Android (`Canvas`) and in egui (a gradient mesh, a circle, text). No browser, no procedural art, no decode, nothing cached. It must look like a decision, not a gap. Same in every theme.
+
+1. `h` = FNV-1a 32-bit over the title's lowercase UTF-8 bytes (offset `0x811C9DC5`, prime `0x01000193`, unsigned).
+2. Background: linear gradient at 165° from `tile.pair<N>.top` to `tile.pair<N>.bottom`, `N = h % 12`. All 12 pairs pass 4.5:1 with white text at their lightest point; `check-tokens.mjs` enforces it.
+3. Disc: one filled circle, white at `tile.discAlpha`, diameter `tile.discScale` × width, centre from `(h >>> 8) % 4` into `[.74,.62] [.26,.7] [.8,.42] [.5,.78]` (x × width, y × height).
+4. Title: white, Figtree 600, top left, inset `tile.insetScale` × width, size `tile.titleScale` × width, line height 1.08, tracking -0.01 em, up to 3 lines, then an ellipsis. If the longest word does not fit, drop once to `tile.titleMinScale` × width. Measure at run time; the prototype only estimates.
+5. Then the cover's own sheen, rim, radius and shadow.
+
+As a backdrop (TV app grid, connecting), a no-art app uses its gradient where a cover would use its ambient. Two titles can share a pair: 12 pairs and 4 disc positions make 48 looks, and the title tells them apart. Reference: `tile()` in `prototype/lib.js`.
 
 ## Focus and hover
 
 One language. **Focus**: `focus.ringColor` ring, dark gap, halo, small lift (`focus.scale*`), neighbours dim on TV (`focus.neighbourDim`). On the moon Play button the ring is paper (`focus.ringColorOnMoon`). **Hover** is the same step quieter: rim brightens, fill lifts, no ring. It has to read from across a room on a `baked` TV.
 
+### Button hints
+
+Hints show what the device in the hand really has. Take the source from the last `InputEvent` and its `InputDevice`; on desktop, the last SDL event. Never assume from form factor. Change on the next input, with no animation.
+
+| Last input | Go | More |
+|---|---|---|
+| Remote (D-pad, no gamepad buttons) | OK | Hold OK |
+| Gamepad | A, or the label that pad has | Y, likewise |
+| Keyboard | Enter | F |
+| Touch, mouse | No hints | No hints |
+
+A remote has no Y, so anything on Y must also open from Hold OK. `prototype/tv-home.html?input=remote|pad`, `variant-tv-home-pad.png`.
+
 ## States
 
 - **Loading**: covers keep their 2:3 slot with `cover.placeholder`, art fades in over `motion.coverIn.ms`, no layout jump, no spinner on Home. Ambient cross-fades over `motion.ambient.ms` and follows focus only once it rests.
-- **Empty**: no PCs shows the night sky with the moon and a single action, not a paragraph. A PC with no games shows one line and the desktop tile.
-- **Error**: loud, in words with an icon, in the place the action happened. Never a silent fallback.
-- **Offline PC**: stays listed with Wake if the host allows it, and its covers stay visible.
+- **First run**: no PCs. Sky, moon with one orbit dot moving while discovery runs, "Searching for PCs…" (`searching_pc`), one moon action, Add PC. No paragraph. A found PC rises in as a card with Pair as the one action, and the moon button steps down so there is still only one (`phone-first-run.png`, `phone-first-run-found.png`).
+- **PC states**: the PC glyph, the word and the action all say the same thing.
+
+  | State | Screen face | Line | Action |
+  |---|---|---|---|
+  | Running | The game's art | Green dot, game name | Resume, More |
+  | Online | Hash gradient plus disc (the tile's recipe, on the PC name) | Green dot, "Online, 12 ms" | Open, or tap the row |
+  | Offline | Dark with a crescent (`color.offline`) | Grey dot, "Offline" | Wake (`pcview_menu_send_wol`), when the PC has a saved MAC; its covers stay visible |
+  | Unpaired | Hash gradient with a lock | Lock, "Not paired" | Pair (`pcview_menu_pair_pc`), in moon-coloured text, no second moon |
+
+- **App grid**: 3 columns on phone, 7 on TV and desktop. Fixed slots, covers and no-art tiles side by side. A running app gets the status dot and a capsule above the tab bar with Resume. A PC with no apps shows one line and the Desktop tile.
+- **Connecting and launching**: one screen. The cover (or tile) sits in the middle of its ambient with the moon's orbit around it and one word: "Connecting" (`conn_establishing_title`), then "Starting" (`conn_starting`). The word changes when the protocol stage does; there is no fake progress bar. The orbit stops on the first decoded frame, with nothing held back for it. Cancel, or Back, stops it (`phone-connecting.png`, `phone-launching.png`).
+- **Error**: loud, in words with an icon, in the place the action happened. Never a silent fallback. A failed connection is a sheet over the page it came from, not a new page: "Connection Error" (`conn_error_title`), the app's real message (`early_termination_error` and friends) unshortened, a moon Try again, and Test the network as the second action (`phone-error.png`).
+- **New strings** for the builder: "Try again", a short "Wake" (the existing `pcview_menu_send_wol` says "Wake PC", too long for a row), "Test the network". All three need translations. Everything else above already exists in `res/values/strings.xml`.
 
 ## Motion
 
@@ -113,10 +188,11 @@ These files have Latin-1 only. pl, tr, vi, ru, uk, ja, ko, zh-CN and zh-TW miss 
 
 ## Public images
 
-`drafts/nightjar-glass/prototype/banner.html` is the README banner. All store and README shots come from fixtures. Public text never claims first, only, fastest or most beautiful.
+`prototype/banner.html` is the README banner. All store and README shots come from fixtures. Public text never claims first, only, fastest or most beautiful.
 
 ## Not exact, on purpose
 
 - True refraction exists only on API 33+ (band shader); desktop uses displaced UVs, everywhere else there is no band.
 - Desktop has no live saturation and no superellipse corners.
 - Cross-window blur has no colour filter, and devices or battery saver can refuse it.
+- Day has only been judged on screenshots so far, not on a real phone in daylight or a real TV panel. Judge `day.sheet.backdropBrightness` and the TV sun on hardware.

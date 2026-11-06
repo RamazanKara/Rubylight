@@ -1,0 +1,23 @@
+<!doctype html><meta charset="utf-8"><title>Nightjar connecting</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="glass.css"><script src="lib.js"></script><body><script>
+// Connecting and launching are one screen: the cover grows out of its card, the orbit runs until the first frame arrives.
+// stage=launch shows a game with no art, so the tile is proven here too.
+const launch = Q.get('stage') === 'launch';
+const n = launch ? null : 'racing-game'; const name = launch ? 'Big Picture' : 'Racing Game';
+mount(`
+${launch ? `<div class="ambient"><div style="position:absolute;inset:0;background:${pairGradient(name)};opacity:${DAY ? 0.22 : 0.9}"></div><div class="fade" style="background:${themeFade('linear-gradient(180deg,rgba(14,14,22,.05),rgba(14,14,22,.3) 44%,rgba(20,22,31,.94) 78%,#14161f)')}"></div></div>`
+    : ambient(n, { fade: 'linear-gradient(180deg,rgba(14,14,22,.05),rgba(14,14,22,.3) 44%,rgba(20,22,31,.94) 78%,#14161f)' })}
+${statusBar()}
+<div style="position:absolute;left:0;top:0;width:412px;height:915px">${orbit(186, { cx: 206, cy: 316, dur: 1.8 })}</div>
+<div style="position:absolute;left:101px;top:158px;width:210px">${app(n, name, { w: 210, style: 'box-shadow:0 26px 60px rgba(0,0,0,.6)' })}</div>
+<div style="position:absolute;left:24px;right:24px;top:548px;text-align:center">
+  <div class="t-title" style="font-size:30px;line-height:36px">${name}</div>
+  <div class="t-body sec" style="margin-top:6px">Living-room PC</div>
+  <div class="t-section" style="margin-top:26px;font-weight:600">${launch ? 'Starting' : 'Connecting'}</div>
+  <div class="t-sub sec" style="margin-top:2px">${launch ? '' : 'Starting connection'}</div>
+</div>
+<div style="position:absolute;left:0;right:0;bottom:48px;display:flex;justify-content:center">
+  ${glass('chrome', { style: 'border-radius:28px;height:56px' }, `<button class="press" style="height:56px;padding:0 34px;border-radius:28px;font:600 17px/22px Figtree">Cancel</button>`)}
+</div>
+`, { w: 412, h: 915 });
+</script></body>

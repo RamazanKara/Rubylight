@@ -1,0 +1,33 @@
+<!doctype html><meta charset="utf-8"><title>Nightjar TV PCs</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="glass.css"><script src="lib.js"></script><body><script>
+const PCS = [
+  { name: 'Living-room PC', state: 'online', art: 'racing-game', sub: 'Racing Game', go: 'Resume', alt: 'Quit game' },
+  { name: 'Studio PC', state: 'online', sub: 'Online, 12 ms', go: 'Open', alt: 'More' },
+  { name: 'Office PC', state: 'offline', sub: 'Offline', go: 'Wake', alt: 'More' },
+  { name: 'Game-room PC', state: 'unpaired', sub: 'Not paired', go: 'Pair', alt: 'More' },
+];
+let focus = Number(Q.get('focus') || 0);
+function draw() {
+  const f = PCS[focus];
+  mount(`
+  ${nightSky({ x: 1040, y: 150, r: 86, w: 1280, h: 720 })}
+  <div style="position:absolute;left:48px;right:48px;top:30px;display:flex;align-items:center;gap:10px;z-index:6">
+    ${capsuleNav(1, { h: 52 })}<div style="flex:1"></div>${roundGlass('plus', 52)}
+  </div>
+  <div style="position:absolute;left:48px;top:108px;right:300px">
+    <div class="t-hero" style="font-size:60px;line-height:66px">${f.name}</div>
+    <div style="display:flex;gap:18px;align-items:center;margin-top:12px">${hint('go', f.go)}${hint('alt', f.alt)}</div>
+  </div>
+  <div style="position:absolute;left:48px;right:48px;top:286px;display:flex;gap:20px">
+    ${PCS.map((p, i) => `<div class="group press ${i === focus ? 'fx' : ''}" style="flex:1;min-width:0;border-radius:var(--radius-panel);background:var(--tint-groupOnSky-fill);${i === focus ? 'transform:scale(var(--focus-scaleControl));z-index:3;' : ''}">
+      <div style="display:flex;flex-direction:column;align-items:center;padding:28px 16px 26px;${p.state === 'offline' && i !== focus ? 'opacity:.86' : ''}">
+        ${pcScreen(p.name, { state: p.state, w: 204, art: p.art })}
+        <div class="t-section" style="margin-top:20px;text-align:center;white-space:nowrap">${p.name}</div>
+        <div class="t-body ${p.state === 'online' ? '' : 'sec'} num" style="display:flex;align-items:center;gap:8px;margin-top:4px;white-space:nowrap">${p.state === 'online' ? '<span class="dot"></span>' : p.state === 'offline' ? '<span class="dot off"></span>' : icon('lock', 16)}${p.sub}</div>
+      </div></div>`).join('')}
+  </div>
+  `, { w: 1280, h: 720, zoom: 1.5, tv: true });
+}
+draw();
+addEventListener('keydown', (e) => { if (e.key === 'ArrowRight') focus = Math.min(PCS.length - 1, focus + 1); else if (e.key === 'ArrowLeft') focus = Math.max(0, focus - 1); else return; draw(); });
+</script></body>

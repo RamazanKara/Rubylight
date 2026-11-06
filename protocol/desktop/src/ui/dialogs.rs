@@ -1345,10 +1345,10 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
-                        ui.label(RichText::new(tr("Close the game on the PC?")).font(semibold(text::SECTION)));
-                        ui.label(RichText::new(trf("{} closes on the PC. Unsaved progress is lost.", &[&name])).color(ON_SURFACE_VARIANT));
+                        ui.label(RichText::new(tr("Quit the game on the PC?")).font(semibold(text::SECTION)));
+                        ui.label(RichText::new(trf("{} quits on the PC. Unsaved progress is lost.", &[&name])).color(ON_SURFACE_VARIANT));
                         dialog_buttons(ui, |ui| {
-                            let r = primary_button(ui, "Close game");
+                            let r = primary_button(ui, "Quit game");
                             if focus_first {
                                 r.request_focus();
                                 focused = true;

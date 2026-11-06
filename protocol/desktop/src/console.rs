@@ -330,15 +330,16 @@ impl LibraryRow<'_> {
         }
     }
 
-    /// The games shown in a line of `room` covers: all that fit, else one fewer and the "All N"
-    /// tile in the last place. Returns how many games to draw and whether the tile follows.
-    pub fn fit(&self, room: usize) -> (usize, bool) {
-        let room = room.max(1);
-        if self.games.len() <= room {
-            (self.games.len(), false)
-        } else {
-            (room - 1, true)
-        }
+}
+
+/// `games` shown in a line of `room` covers: all that fit, else one fewer and the "All N" tile in
+/// the last place. Returns how many games to draw and whether the tile follows.
+pub fn fit_row(games: usize, room: usize) -> (usize, bool) {
+    let room = room.max(1);
+    if games <= room {
+        (games, false)
+    } else {
+        (room - 1, true)
     }
 }
 
@@ -1317,10 +1318,10 @@ mod tests {
         let sources = [source(1, "A", true, Some(&lib), None)];
         let entries = merge_library(&sources);
         let steam = &library_rows(&entries)[0];
-        assert_eq!(steam.fit(3), (3, false), "three fit whole");
-        assert_eq!(steam.fit(8), (3, false));
-        assert_eq!(steam.fit(2), (1, true), "one game and the All tile");
-        assert_eq!(steam.fit(0), (0, true), "a window too narrow for two still shows the tile");
+        assert_eq!(fit_row(steam.games.len(), 3), (3, false), "three fit whole");
+        assert_eq!(fit_row(steam.games.len(), 8), (3, false));
+        assert_eq!(fit_row(steam.games.len(), 2), (1, true), "one game and the All tile");
+        assert_eq!(fit_row(steam.games.len(), 0), (0, true), "a window too narrow for two still shows the tile");
         assert!(library_filters(&[]).is_empty() && library_rows(&[]).is_empty());
     }
 

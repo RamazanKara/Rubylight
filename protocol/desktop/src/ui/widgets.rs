@@ -25,8 +25,8 @@ pub(crate) fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
     response
 }
 
-/// The focus ring: one amber ring a small gap outside the element, at its own rounding. Only focus
-/// draws it (hover lightens the fill instead, [`crate::theme::state_fill`]), and it sits outside the
+/// The focus language of every page: a dark gap, an amber ring and a warm halo outside the element,
+/// at its own rounding. Only focus draws it (hover lifts the fill instead), and it sits outside the
 /// element, so nothing resizes or moves when focus arrives.
 pub(crate) fn focus_ring(ui: &Ui, rect: Rect, response: &Response, radius: u8) {
     if response.has_focus() {
@@ -35,12 +35,21 @@ pub(crate) fn focus_ring(ui: &Ui, rect: Rect, response: &Response, radius: u8) {
 }
 
 pub(crate) fn paint_focus_ring(painter: &egui::Painter, rect: Rect, radius: u8) {
-    painter.rect_stroke(
-        rect.expand(FOCUS_GAP),
-        CornerRadius::same(radius.saturating_add(FOCUS_GAP as u8)),
-        Stroke::new(focus_ring_width(), MOON),
-        StrokeKind::Outside,
-    );
+    let mut shapes = Vec::new();
+    glass::focus(&mut shapes, painter.ctx(), rect, f32::from(radius), false);
+    painter.extend(shapes);
+}
+
+/// What a tinted surface or control takes under the pointer or while held: one lift for all of them.
+pub(super) fn lift_shapes(out: &mut Vec<egui::Shape>, ctx: &egui::Context, rect: Rect, r: f32, hovered: bool, pressed: bool) {
+    let lift = if pressed {
+        design_tokens::PRESS_FILL_LIFT
+    } else if hovered {
+        design_tokens::HOVER_FILL_LIFT
+    } else {
+        return;
+    };
+    glass::solid(out, ctx, rect, r, lift);
 }
 
 /// Whether the widget about to be added was hovered (or focused) and pressed last frame: how a
@@ -89,9 +98,8 @@ impl Tone {
                 };
                 (fill, *ON_MOON)
             }
-            Tone::Quiet | Tone::Current => surface(SURFACE_HIGHEST, ON_SURFACE),
-            Tone::Raised => surface(SURFACE_HIGH, ON_SURFACE),
-            Tone::Chip => surface(SURFACE, ON_SURFACE_VARIANT),
+            Tone::Quiet | Tone::Current | Tone::Raised => surface(SURFACE_HIGH, ON_SURFACE),
+            Tone::Chip => surface(SURFACE, ON_SURFACE),
             Tone::Plain => {
                 let fill = if pressed {
                     *SURFACE_HIGHEST
@@ -120,13 +128,14 @@ pub(crate) struct Size {
 }
 
 impl Size {
-    pub(crate) const CONTROL: Size = Size { height: CONTROL_HEIGHT, pad: 16.0, radius: radius::CONTROL, font: text::LABEL };
-    pub(crate) const HEADER: Size = Size { height: 40.0, pad: 14.0, radius: radius::CONTROL, font: text::LABEL };
+    pub(crate) const CONTROL: Size = Size { height: CONTROL_HEIGHT, pad: 16.0, radius: 22, font: text::LABEL };
+    pub(crate) const HEADER: Size = Size { height: 40.0, pad: 16.0, radius: 20, font: text::LABEL };
     pub(crate) const CHIP: Size = Size { height: 34.0, pad: 14.0, radius: 17, font: text::LABEL };
 }
 
-/// A button drawn the launcher's way: a fill that lightens on hover and press, never an outline
-/// (high contrast keeps its own), the focus ring outside it, an optional icon before the words.
+/// A button drawn the launcher's way: solid amber for the one main action, a tinted capsule with its
+/// rim for the rest, a lift on hover and press, the focus ring outside it, an optional icon before
+/// the words.
 /// The words are shown as given (translate them first).
 pub(crate) fn button(ui: &mut Ui, icon: Option<Icon>, words: &str, tone: Tone, size: Size) -> Response {
     button_with(ui, None, icon, words, None, tone, size)
@@ -169,7 +178,33 @@ pub(crate) fn button_at_least(ui: &mut Ui, id: Option<egui::Id>, icon: Option<Ic
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, words));
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
-        painter.rect(rect, CornerRadius::same(size.radius), fill, control_stroke(), StrokeKind::Inside);
+        let r = f32::from(size.radius);
+        let mut shapes = Vec::new();
+        let ctx = ui.ctx();
+        match tone {
+            Tone::Primary => {
+                glass::play(&mut shapes, ctx, rect, r);
+                lift_shapes(&mut shapes, ctx, rect, r, hovered && enabled, pressed && enabled);
+            }
+            Tone::Quiet | Tone::Raised | Tone::Current | Tone::Chip => {
+                glass::control(&mut shapes, ctx, rect, r);
+                lift_shapes(&mut shapes, ctx, rect, r, hovered && enabled, pressed && enabled);
+            }
+            Tone::Selected => {
+                if high_contrast() {
+                    glass::solid(&mut shapes, ctx, rect, r, fill);
+                    glass::rim(&mut shapes, ctx, rect, r, 1.5, &|_| design_tokens::HC_COLOR_RIM);
+                } else {
+                    glass::solid(&mut shapes, ctx, rect, r, design_tokens::TINT_SELECTED_FILL);
+                    let rim = glass::gradient(rect, 180.0, &[(0.0, design_tokens::TINT_SELECTED_RIM_TOP), (0.06, Color32::TRANSPARENT)]);
+                    glass::rim(&mut shapes, ctx, rect, r, 1.0, &rim);
+                }
+                lift_shapes(&mut shapes, ctx, rect, r, hovered && enabled, pressed && enabled);
+            }
+            // No fill until pointed at.
+            Tone::Plain => lift_shapes(&mut shapes, ctx, rect, r, hovered && enabled, pressed && enabled),
+        }
+        painter.extend(shapes);
         let mut x = rect.center().x - content / 2.0;
         if let Some(icon) = icon {
             let icon_ink = if tone == Tone::Current { *MOON } else { ink };
@@ -183,7 +218,11 @@ pub(crate) fn button_at_least(ui: &mut Ui, id: Option<egui::Id>, icon: Option<Ic
             painter.galley(Pos2::new(x, rect.center().y - count.size().y / 2.0), count, ink);
         }
     }
-    focus_ring(ui, rect, &response, size.radius);
+    if response.has_focus() {
+        let mut shapes = Vec::new();
+        glass::focus(&mut shapes, ui.ctx(), rect, f32::from(size.radius), tone == Tone::Primary);
+        ui.painter().extend(shapes);
+    }
     response
 }
 
@@ -330,15 +369,20 @@ pub(super) fn section(ui: &mut Ui, title: &str) {
     section_at(ui, title, &mut None);
 }
 
-/// A section heading; scrolls itself to the top when `jump` names it (a section chip was used).
+/// A section heading, white as every label (amber is the action's); scrolls itself to the top when `jump` names it (a section chip was used).
 pub(super) fn section_at(ui: &mut Ui, title: &str, jump: &mut Option<&'static str>) {
     ui.add_space(14.0);
     if jump.is_some_and(|j| j == title) {
         ui.scroll_to_cursor(Some(Align::TOP));
         *jump = None;
     }
-    ui.label(RichText::new(tr(title).to_uppercase()).font(semibold(text::CAPTION)).color(MOON));
+    ui.label(RichText::new(tr(title)).font(semibold(text::CARD_TITLE)).color(ON_SURFACE));
     ui.add_space(2.0);
+}
+
+/// What a group of rows or a card on the night sky is filled with: the sky shows through a little.
+pub(super) fn group_fill() -> Color32 {
+    if high_contrast() { *SURFACE } else { design_tokens::TINT_GROUP_ON_SKY_FILL }
 }
 
 /// A settings row: label and description on the left, the control on the right.
@@ -348,7 +392,8 @@ pub(super) fn row(ui: &mut Ui, label: &str, description: &str, control: impl FnO
     // The frame's margin comes on top of the width set inside it.
     let width = ui.available_width().min(SETTINGS_W) - 2.0 * 18.0;
     Frame::new()
-        .fill(*SURFACE)
+        .fill(group_fill())
+        .stroke(control_stroke())
         .corner_radius(CornerRadius::same(radius::CONTROL))
         .inner_margin(Margin::symmetric(18, 12))
         .show(ui, |ui| {

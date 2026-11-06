@@ -300,16 +300,6 @@ fn first_frame_line(already: &std::sync::atomic::AtomicBool, since: Option<std::
         .then(|| format!("nightjar: launch to first frame {} ms", since.as_millis()))
 }
 
-#[cfg(test)]
-#[test]
-fn the_launch_line_comes_once_with_the_time() {
-    let said = std::sync::atomic::AtomicBool::new(false);
-    assert_eq!(first_frame_line(&said, None), None, "no start, no number");
-    let line = first_frame_line(&said, Some(std::time::Duration::from_millis(412)));
-    assert_eq!(line.as_deref(), Some("nightjar: launch to first frame 412 ms"));
-    assert_eq!(first_frame_line(&said, Some(std::time::Duration::from_secs(9))), None, "once");
-}
-
 fn main() {
     LAUNCH.get_or_init(std::time::Instant::now);
     // Every request to a host says which Nightjar asks: `User-Agent: Nightjar/<version>`.
@@ -1701,6 +1691,11 @@ impl App {
             }
             Command::RequestArt { host, app, version } => self.hosts.request_art(host, app, &version, &self.store),
             Command::CloseGame(host) => self.hosts.session_action(host, ActionId::CloseGame),
+            Command::LoadApps(host) => {
+                if matches!(self.hosts.get(host).map(|h| &h.apps), Some(Apps::NotLoaded)) {
+                    self.hosts.load_apps(host);
+                }
+            }
             Command::OpenApps(host) => {
                 if !matches!(self.hosts.get(host).map(|h| &h.apps), Some(Apps::Loaded(_))) {
                     self.hosts.load_apps(host);
@@ -3427,6 +3422,17 @@ mod shot;
 
 #[cfg(test)]
 mod tests {
+    use super::first_frame_line;
+
+    #[test]
+    fn the_launch_line_comes_once_with_the_time() {
+        let said = std::sync::atomic::AtomicBool::new(false);
+        assert_eq!(first_frame_line(&said, None), None, "no start, no number");
+        let line = first_frame_line(&said, Some(std::time::Duration::from_millis(412)));
+        assert_eq!(line.as_deref(), Some("nightjar: launch to first frame 412 ms"));
+        assert_eq!(first_frame_line(&said, Some(std::time::Duration::from_secs(9))), None, "once");
+    }
+
     /// Stream here too on a resume joins; a PC that did not answer never does.
     #[test]
     fn who_plays_decides_how_a_start_goes_on() {

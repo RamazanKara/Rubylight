@@ -134,7 +134,7 @@ fn f1_opens_help_from_any_page_and_back_returns() {
     let mut page = Page::new(vec![record("Desk")]);
     page.press(egui::Key::F1);
     assert_eq!(page.l.screen, Screen::Help, "F1 on the PCs opens Help");
-    assert!(page.drawn.iter().any(|t| t == tr("Keyboard shortcuts").to_uppercase().as_str()), "the page draws its sections: {:?}", page.drawn);
+    assert!(page.drawn.iter().any(|t| t == tr("Keyboard shortcuts")), "the page draws its sections: {:?}", page.drawn);
     page.press(egui::Key::Escape);
     assert_eq!(page.l.screen, Screen::Hosts, "Back returns to the PCs");
 
@@ -343,7 +343,7 @@ fn the_page_reads_in_german() {
     page.l.switch(Screen::Help);
     page.size = vec2(1280.0, 9000.0);
     page.settle();
-    for word in ["TASTENKÜRZEL", "Stream-Steuerung", "Strg"] {
+    for word in ["Tastenkürzel", "Stream-Steuerung", "Strg"] {
         assert!(page.drawn.iter().any(|t| t.contains(word)), "{word} on the German page: {:?}", page.drawn);
     }
 }

@@ -9,6 +9,10 @@ use egui::{Color32, CornerRadius, Painter, Pos2, Rect, Shape, Stroke, StrokeKind
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Icon {
+    Search,
+    Down,
+    Gamepad,
+    StarOn,
     Play,
     Grid,
     Stop,
@@ -28,7 +32,6 @@ pub enum Icon {
     StarOff,
     Eye,
     EyeOff,
-    Home,
     Monitor,
     Gear,
     Plus,
@@ -59,6 +62,29 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
     let dot = |x: f32, y: f32, r: f32| painter.circle_filled(p(x, y), r * s, color);
     let ring = |x: f32, y: f32, r: f32| painter.circle_stroke(p(x, y), r * s, stroke);
     match icon {
+        Icon::Search => {
+            ring(10.8, 10.8, 6.4);
+            line(vec![p(15.6, 15.6), p(20.4, 20.4)]);
+        }
+        Icon::Down => {
+            line(vec![p(5.5, 9.5), p(12.0, 16.0), p(18.5, 9.5)]);
+        }
+        Icon::Gamepad => {
+            painter.rect_stroke(Rect::from_min_max(p(2.8, 7.0), p(21.2, 18.0)), CornerRadius::same((5.0 * s) as u8), stroke, StrokeKind::Middle);
+            line(vec![p(6.4, 12.5), p(10.2, 12.5)]);
+            line(vec![p(8.3, 10.6), p(8.3, 14.4)]);
+            dot(15.4, 14.0, 1.1);
+            dot(18.0, 11.2, 1.1);
+        }
+        Icon::StarOn => {
+            // Five kites from the middle: a star is not convex.
+            let at = star(&p);
+            let middle = p(12.0, 12.8);
+            for i in (0..10).step_by(2) {
+                let kite = vec![middle, at[(i + 9) % 10], at[i], at[(i + 1) % 10]];
+                painter.add(Shape::convex_polygon(kite, color, stroke));
+            }
+        }
         Icon::Play => {
             painter.add(Shape::convex_polygon(vec![p(7.5, 4.5), p(19.5, 12.0), p(7.5, 19.5)], color, Stroke::NONE));
         }
@@ -153,11 +179,6 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             if icon == Icon::EyeOff {
                 line(vec![p(3.5, 3.5), p(20.5, 20.5)]);
             }
-        }
-        Icon::Home => {
-            line(vec![p(3.5, 11.5), p(12.0, 4.0), p(20.5, 11.5)]);
-            line(vec![p(6.0, 9.5), p(6.0, 20.0), p(18.0, 20.0), p(18.0, 9.5)]);
-            line(vec![p(10.0, 20.0), p(10.0, 14.5), p(14.0, 14.5), p(14.0, 20.0)]);
         }
         Icon::Monitor => {
             painter.rect_stroke(
@@ -292,7 +313,11 @@ fn gear(p: &impl Fn(f32, f32) -> Pos2) -> Vec<Pos2> {
 mod tests {
     use super::*;
 
-    const ALL: [Icon; 23] = [
+    const ALL: [Icon; 26] = [
+        Icon::Search,
+        Icon::Down,
+        Icon::Gamepad,
+        Icon::StarOn,
         Icon::Play,
         Icon::Grid,
         Icon::Stop,
@@ -310,7 +335,6 @@ mod tests {
         Icon::Trash,
         Icon::Star,
         Icon::StarOff,
-        Icon::Home,
         Icon::Monitor,
         Icon::Gear,
         Icon::Plus,

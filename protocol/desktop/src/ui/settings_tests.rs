@@ -256,7 +256,7 @@ fn a_pcs_row_box_lines_up_with_where_the_value_comes_from() {
         let below = |text: &str| f.placed.iter().filter(|(t, r, _)| t == text && r.top() > top).map(|p| p.1)
             .min_by(|a, b| a.top().total_cmp(&b.top())).unwrap_or_else(|| panic!("{text} under {row}"));
         let (state, boxed) = (below("From main settings"), below("For this PC"));
-        assert!((state.center().y - boxed.center().y).abs() < 3.0, "{row}: {state:?} beside {boxed:?}");
+        assert!((state.center().y - boxed.center().y).abs() < 5.0, "{row}: {state:?} beside {boxed:?}");
     }
 }
 

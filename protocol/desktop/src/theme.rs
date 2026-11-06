@@ -8,6 +8,7 @@ use std::time::Instant;
 use egui::{Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, TextStyle};
 
 use crate::strings::Lang;
+use crate::ui::design_tokens as t;
 
 /// A colour role. The palette behind it is the normal night one or the high-contrast one, chosen
 /// by [`set_high_contrast`], so drawing code names a role and never a colour. It derefs to the
@@ -45,73 +46,78 @@ const fn rgb(hex: u32) -> Color32 {
     Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
 }
 
-// `palette.xml` night roles; the second colour is the high-contrast one: black surfaces, white
-// text, and no grey text at all (the variant and outline roles are on-surface).
+// The design's roles, from `tokens.json` through [`t`]; the second colour is the high-contrast one:
+// black surfaces, white text, and no grey text at all (the variant and outline roles are on-surface).
 roles! {
-    NIGHT: rgb(0x14161F), rgb(0x000000);
-    SURFACE_LOWEST: rgb(0x0E1017), rgb(0x000000);
-    SURFACE_LOW: rgb(0x1A1C26), rgb(0x0A0A0C);
-    SURFACE: rgb(0x1E202B), rgb(0x101114);
-    SURFACE_HIGH: rgb(0x282A36), rgb(0x1C1D22);
-    SURFACE_HIGHEST: rgb(0x333541), rgb(0x2A2C33);
+    NIGHT: t::COLOR_NIGHT, t::HC_COLOR_NIGHT;
+    SURFACE_LOWEST: t::COLOR_SURFACE_LOWEST, rgb(0x000000);
+    SURFACE_LOW: t::COLOR_SURFACE_LOW, rgb(0x0A0A0C);
+    SURFACE: t::COLOR_SURFACE, rgb(0x101114);
+    SURFACE_HIGH: t::COLOR_SURFACE_HIGH, rgb(0x1C1D22);
+    SURFACE_HIGHEST: t::COLOR_SURFACE_HIGHEST, rgb(0x2A2C33);
     // One step past the highest: a hovered or pressed control that already sits on SURFACE_HIGHEST.
-    SURFACE_BRIGHT: rgb(0x3D404D), rgb(0x383A42);
-    ON_SURFACE: rgb(0xE3E4EE), rgb(0xFFFFFF);
-    ON_SURFACE_VARIANT: rgb(0xC1C4D2), rgb(0xFFFFFF);
+    SURFACE_BRIGHT: t::COLOR_SURFACE_BRIGHT, rgb(0x383A42);
+    ON_SURFACE: t::COLOR_LABEL, t::HC_COLOR_LABEL;
+    ON_SURFACE_VARIANT: t::COLOR_LABEL_SECONDARY, t::HC_COLOR_LABEL_SECONDARY;
     // Text on hovered cards and buttons too (4.5:1 on SURFACE_HIGHEST), lighter than Android's.
     OUTLINE: rgb(0xA0A3B1), rgb(0xFFFFFF);
-    OUTLINE_VARIANT: rgb(0x3F4250), rgb(0xA8ABBA);
-    MOON: rgb(0xF2A93B), rgb(0xFFC555);
-    ON_MOON: rgb(0x2B1700), rgb(0x000000);
+    OUTLINE_VARIANT: rgb(0x3F4250), t::HC_COLOR_RIM;
+    MOON: t::COLOR_MOON, t::HC_COLOR_MOON;
+    ON_MOON: t::COLOR_ON_MOON, t::HC_COLOR_ON_MOON;
     MOON_CONTAINER: rgb(0x5C3E00), rgb(0x5C3E00);
-    ON_MOON_CONTAINER: rgb(0xFFDDB0), rgb(0xFFFFFF);
+    ON_MOON_CONTAINER: t::COLOR_ON_SELECTED, rgb(0xFFFFFF);
     TERTIARY: rgb(0xAFC8E9), rgb(0xCFE2FF);
-    ERROR: rgb(0xFFB4AB), rgb(0xFFCFC9);
-    // A failure that fills a shape (the console's --danger-soft) and its text.
-    ERROR_CONTAINER: rgb(0x93000A), rgb(0x93000A);
-    ON_ERROR_CONTAINER: rgb(0xFFDAD6), rgb(0xFFFFFF);
-    // Status (the console's --ok and --warn): up, ready, running; and something to look at. Warn is
-    // yellow because amber is the action, and it is never a filled shape: an icon and a word.
-    OK: rgb(0x5FD38D), rgb(0x7CF0A8);
-    WARN: rgb(0xF5D06B), rgb(0xFFE08A);
+    ERROR: t::COLOR_ERROR, t::HC_COLOR_ERROR;
+    // A failure that fills a shape and its text.
+    ERROR_CONTAINER: t::COLOR_DANGER_FILL, rgb(0x93000A);
+    ON_ERROR_CONTAINER: t::COLOR_ON_DANGER_FILL, rgb(0xFFFFFF);
+    // Status: up, ready, running; and something to look at. Warn is yellow because amber is the
+    // action, and it is never a filled shape: an icon and a word.
+    OK: t::COLOR_OK, t::HC_COLOR_OK;
+    WARN: t::COLOR_WARN, t::HC_COLOR_WARN;
     // The orbit rings of the site banner.
-    ORBIT: rgb(0x2A2D3A), rgb(0x2A2D3A);
+    ORBIT: t::COLOR_ORBIT, rgb(0x2A2D3A);
     // Paper white of the wordmark.
-    PAPER: rgb(0xF4EFE6), rgb(0xFFFFFF);
+    PAPER: t::COLOR_PAPER, rgb(0xFFFFFF);
 }
 
 /// What text over game art sits on (the console's --media-bg, Android's `tv_chip_scrim`), the same
 /// in every palette: white on it over a white frame is still 9:1.
-pub const SCRIM: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 184);
+pub const SCRIM: Color32 = t::COLOR_SCRIM;
 
-/// The console's 4-based spacing scale (`--space-1` to `--space-7`), in points.
-#[allow(dead_code, reason = "the whole console scale, so a new page picks a step instead of a literal")]
+/// The design's 4-based spacing scale, in points.
+#[allow(dead_code, reason = "the whole scale, so a new page picks a step instead of a literal")]
 pub mod space {
-    pub const XS: f32 = 4.0;
-    pub const S: f32 = 8.0;
-    pub const M: f32 = 12.0;
-    pub const L: f32 = 16.0;
-    pub const XL: f32 = 24.0;
-    pub const XXL: f32 = 32.0;
-    pub const XXXL: f32 = 48.0;
+    use crate::ui::design_tokens as t;
+    pub const XS: f32 = t::SPACE_XS;
+    pub const S: f32 = t::SPACE_S;
+    pub const M: f32 = t::SPACE_M;
+    pub const L: f32 = t::SPACE_L;
+    pub const XL: f32 = t::SPACE_XL;
+    pub const XXL: f32 = t::SPACE_XXL;
+    pub const XXXL: f32 = t::SPACE_XXXL;
 }
 
-/// The console's type scale, in points.
+/// The design's type scale, in points.
 pub mod text {
-    pub const TITLE: f32 = 28.0;
-    pub const SECTION: f32 = 22.0;
-    pub const CARD_TITLE: f32 = 18.0;
-    pub const BODY: f32 = 16.0;
-    pub const LABEL: f32 = 14.0;
-    pub const CAPTION: f32 = 13.0;
+    use crate::ui::design_tokens as t;
+    pub const LARGE_TITLE: f32 = t::TYPE_LARGE_TITLE_SIZE;
+    pub const TITLE: f32 = t::TYPE_TITLE_SIZE;
+    pub const SECTION: f32 = t::TYPE_SECTION_SIZE;
+    pub const CARD_TITLE: f32 = t::TYPE_HEADLINE_SIZE;
+    pub const BODY: f32 = t::TYPE_BODY_SIZE;
+    pub const LABEL: f32 = t::TYPE_SUB_SIZE;
+    pub const CAPTION: f32 = t::TYPE_CAPTION_SIZE;
 }
 
-/// The console's corners: chips, then buttons, fields and menus, then cards, panels and dialogs.
-#[allow(dead_code, reason = "the whole console scale, so a new page picks a step instead of a literal")]
+/// The design's corners: small tags and tiles, then buttons, fields and menus, then groups, cards
+/// and dialogs.
+#[allow(dead_code, reason = "the whole scale, so a new page picks a step instead of a literal")]
 pub mod radius {
-    pub const SMALL: u8 = 6;
-    pub const CONTROL: u8 = 10;
-    pub const PANEL: u8 = 12;
+    use crate::ui::design_tokens as t;
+    pub const SMALL: u8 = t::RADIUS_TILE as u8;
+    pub const CONTROL: u8 = t::RADIUS_CONTROL as u8;
+    pub const PANEL: u8 = t::RADIUS_GROUP as u8;
 }
 
 /// Height of primary actions and list rows (the console's --control-height); dense inline controls
@@ -157,11 +163,9 @@ pub fn own_palette() {
 /// The stroke of the focus ring: thick enough to find from across a room, thicker still in high
 /// contrast.
 pub fn focus_ring_width() -> f32 {
-    if high_contrast() { 3.5 } else { 2.0 }
+    if high_contrast() { t::HC_FOCUS_RING_WIDTH } else { t::FOCUS_RING_WIDTH }
 }
 
-/// The gap between an element and its focus ring, so the ring never touches the element's own fill.
-pub const FOCUS_GAP: f32 = 2.0;
 
 /// The surface ladder, darkest first. Hover lifts a surface one step, pressing two.
 const LADDER: [Role; 6] = [SURFACE_LOWEST, SURFACE_LOW, SURFACE, SURFACE_HIGH, SURFACE_HIGHEST, SURFACE_BRIGHT];
@@ -996,13 +1000,13 @@ mod tests {
         let size = |s: TextStyle| style.text_styles[&s].size;
         assert_eq!(
             [size(TextStyle::Heading), size(TextStyle::Body), size(TextStyle::Button), size(TextStyle::Small), size(TextStyle::Monospace)],
-            [28.0, 16.0, 14.0, 13.0, 13.0]
+            [26.0, 16.0, 14.0, 12.0, 12.0]
         );
         assert_eq!(style.spacing.item_spacing, egui::vec2(8.0, 8.0));
         assert_eq!(style.spacing.button_padding.x, 16.0);
-        assert_eq!(style.visuals.widgets.inactive.corner_radius, egui::CornerRadius::same(10));
-        assert_eq!(style.visuals.window_corner_radius, egui::CornerRadius::same(12));
-        assert_eq!(style.visuals.menu_corner_radius, egui::CornerRadius::same(10));
+        assert_eq!(style.visuals.widgets.inactive.corner_radius, egui::CornerRadius::same(16));
+        assert_eq!(style.visuals.window_corner_radius, egui::CornerRadius::same(22));
+        assert_eq!(style.visuals.menu_corner_radius, egui::CornerRadius::same(16));
         assert_eq!([space::XS, space::S, space::M, space::L, space::XL, space::XXL, space::XXXL], [4.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0]);
         assert_eq!(CONTROL_HEIGHT, 44.0);
     }

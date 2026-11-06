@@ -12,6 +12,12 @@ publish = false
 name = "nightjar"
 path = "src/main.rs"
 
+[features]
+default = []
+# The Android demo's 36 games on the real launcher with no network and no host, driven from stdin
+# for captures (ui/demo.rs). Never in a build that ships.
+demo-library = []
+
 [dependencies]
 nightjar-core = { path = "../client" }
 nightjar-policy = { path = "../policy" }

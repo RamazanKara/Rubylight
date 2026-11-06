@@ -1029,6 +1029,10 @@ impl Hosts {
     }
 
     fn spawn(&self, name: &str, work: impl FnOnce() -> Option<Event> + Send + 'static) {
+        // The demo library never reaches for a network, even by accident.
+        if cfg!(feature = "demo-library") {
+            return;
+        }
         let sender = self.sender.clone();
         let waker = self.waker.clone();
         let _ = std::thread::Builder::new()

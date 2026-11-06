@@ -18,6 +18,8 @@ mod clipboard;
 mod config;
 #[cfg(windows)]
 mod crash_dump;
+#[cfg(feature = "demo-library")]
+mod demo_driver;
 mod console;
 mod coop_page;
 mod folders_page;
@@ -186,6 +188,8 @@ struct App {
     next_network_check: Instant,
     /// A pairing link from the system, until the launcher can ask about it.
     links: Arc<link_channel::Inbox>,
+    #[cfg(feature = "demo-library")]
+    demo: demo_driver::Driver,
     waker: hosts::Waker,
     wake_event: u32,
     screenshot_dir: PathBuf,
@@ -482,6 +486,8 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
             return Err(format!("SDL could not start: {}", sdl::error()));
         }
     }
+    #[cfg(feature = "demo-library")]
+    demo_driver::require_sandbox()?;
     let store = Store::open().map_err(|e| format!("No config directory: {e}"))?;
     let settings = store.settings();
     let profiles = store.profiles();
@@ -588,12 +594,15 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     }
     // A frontend's start ends with its stream, and a link waiting behind it would be lost: the
     // link starts its own window then.
-    if launch.is_none() {
+    if launch.is_none() && !cfg!(feature = "demo-library") {
         if let Err(e) = link_channel::listen(links.clone(), waker.clone()) {
             eprintln!("nightjar: pairing links do not come to this window: {e}");
         }
     }
+    #[cfg(not(feature = "demo-library"))]
     let mut hosts = Hosts::new(store.hosts(), waker.clone());
+    #[cfg(feature = "demo-library")]
+    let mut hosts = Hosts::without_discovery(ui::demo::records(), waker.clone());
     let cli = match launch {
         Some(_) if std::env::var_os("NIGHTJAR_AUTOSTREAM").is_some() => {
             return Err("--host and NIGHTJAR_AUTOSTREAM both ask for a stream; give one".into());
@@ -609,13 +618,15 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
             launcher.go(Screen::Home);
         }
     }
+    #[cfg(feature = "demo-library")]
+    ui::demo::fill(&mut hosts, &mut launcher, &gui.ctx);
     // A stream started from the command line waits for the next ordinary start.
     if cli.is_none() && std::env::var_os("NIGHTJAR_AUTOSTREAM").is_none() && launcher.show_kept_settings_once(&hosts.list) {
         if let Err(e) = store.save_settings(&launcher.settings) {
             eprintln!("nightjar: saving settings failed: {e}");
         }
     }
-    let identity = match store.identity() {
+    let identity = match store.identity().filter(|_| !cfg!(feature = "demo-library")) {
         Some(saved) => match ClientIdentity::from_pem(saved.unique_id, &saved.certificate_pem, &saved.private_key_pem) {
             Ok(identity) => {
                 launcher.identity_ready = true;
@@ -635,7 +646,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     pads.mappings = mappings;
     pads.configure(&settings);
     let updates = update_check::Updates::start(
-        settings.check_updates && cli.is_none() && std::env::var_os("NIGHTJAR_AUTOSTREAM").is_none(),
+        settings.check_updates && !cfg!(feature = "demo-library") && cli.is_none() && std::env::var_os("NIGHTJAR_AUTOSTREAM").is_none(),
         waker.clone(),
     );
     let open_play = open_play::at_launch(
@@ -671,6 +682,8 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         network_launch: None,
         next_network_check: Instant::now(),
         links,
+        #[cfg(feature = "demo-library")]
+        demo: demo_driver::start(waker.clone()),
         waker,
         wake_event,
         screenshot_dir,
@@ -696,6 +709,8 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
             app.hosts.set_identity(Arc::new(identity));
             app.hosts.poll();
         }
+        // The demo library has no identity: without one nothing can ask a PC.
+        None if cfg!(feature = "demo-library") => {}
         None => {
             let (sender, receiver) = channel();
             let waker = app.waker.clone();
@@ -1030,6 +1045,8 @@ impl App {
         }
         self.repeat_navigation();
         self.open_waiting_link();
+        #[cfg(feature = "demo-library")]
+        self.demo_steps();
         let test_events: Vec<_> = self.network_test.as_ref().map(|test| test.events.try_iter().collect()).unwrap_or_default();
         for event in test_events {
             match event {
@@ -1319,6 +1336,8 @@ impl App {
                 pin.returned();
             }
         }
+        #[cfg(feature = "demo-library")]
+        let demo_scrolling = self.demo_scrolling();
         let mut commands = Vec::new();
         let launcher = &mut self.launcher;
         let hosts = &self.hosts;
@@ -1327,6 +1346,10 @@ impl App {
         self.gui.set_readable(true);
         self.gui.set_over_video(false);
         let output = self.gui.run(self.window, self.renderer, |ui| {
+            #[cfg(feature = "demo-library")]
+            if demo_scrolling {
+                ui.ctx().request_repaint();
+            }
             updates.show(ui.ctx());
             commands = launcher.ui(
                 ui,
@@ -1355,6 +1378,8 @@ impl App {
             SDL_RenderClear(renderer);
         });
         if drew {
+            #[cfg(feature = "demo-library")]
+            self.demo_drew();
             self.take_screenshot("launcher");
             // SAFETY: a live renderer.
             unsafe { SDL_RenderPresent(self.renderer) };

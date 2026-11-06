@@ -6,6 +6,8 @@ mod cards;
 mod chrome;
 #[allow(dead_code, reason = "generated: every token is listed, the pages use them as they are redesigned")]
 pub(crate) mod design_tokens;
+#[cfg(any(feature = "demo-library", test))]
+pub(crate) mod demo;
 mod dialogs;
 pub(crate) mod glass;
 mod icons;

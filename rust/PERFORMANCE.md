@@ -67,6 +67,23 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
 
+## November 6: Android video decryption with the phone's AES instructions
+
+Nightjar's Rust engine decrypted video in software on Android: RustCrypto's `aes` and `polyval` crates only compile their ARMv8 backends with `--cfg aes_armv8 --cfg polyval_armv8`, and the app was built without them. With the flags they detect the CPU at run time, and a `compile_error!` now keeps the Android build from losing them. It only matters where video is encrypted: the host's defaults encrypt it over the internet and not on a LAN.
+
+Bench on a Retroid Pocket 6, decrypting video packets: 162 to 634 MB/s, 8.6 to 2.2 µs per packet, 6.2 % to 1.6 % of a core at 80 Mbps.
+
+Live on the same device, a 3.7.0 host on the 780M laptop with `lan_encryption_mode = 2` and full-screen noise, AV1 1080p120 over Wi-Fi, 40 s per arm in ABBA order, thread CPU over the steady part of each arm. A = main, B = with the flags. CPU in % of one core.
+
+| Encoded | Arm | Sent Mbps | Receive thread | Whole app |
+| --- | --- | ---: | --- | --- |
+| 40 Mbps | A | 57.2, 57.3 | 8.5, 8.3 | 44.4, 42.8 |
+| 40 Mbps | B | 57.5, 57.6 | 5.4, 5.6 | 41.0, 41.0 |
+| 60 Mbps | A | 87.0, 87.0 | 13.2, 11.5 | 45.0, 46.9 |
+| 60 Mbps | B | 74.6, 87.5 | 11.5, 6.3 | 43.1, 41.4 |
+
+**Kept.** The receive thread's 2.9 points at 57 Mbps sent match the bench's prediction of 3.3. The 74.6 Mbps B run is not a steady comparison: link adaptation cut it from 47 to 40 Mbps halfway. The thread is identified by its share of the work, not by name (the JVM attach renames it). Without encryption the same arms read the same within noise, as they should. Raw runs: `C:\src\butterpollo-release\unified\aes-android\aes3`.
+
 ## November 6: Nightjar desktop's video scheduling on Windows (left as it was)
 
 Two changes from the `nj-sched` branch: raised stream threads on Windows (P) and video submitted from the receive thread with D3D11VA (direct). Neither landed. Release builds in loopback against a 3.7.0 test host: Nightjar desktop in a 960x540 corner window over the motion probe with noise, Vsync pacing, 45 s per run with the first 5 s discarded, two runs per arm in ABBA order, pooled. HEVC 1080p60 at 30 Mbps, AV1 1080p120 at 50 Mbps, and the HEVC leg again with one spinning Python process per logical CPU. Times in ms from the client's timing CSV; queue wait is the wait before the decoder, receive to present runs from the frame's arrival to its present.

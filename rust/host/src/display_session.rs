@@ -1479,6 +1479,17 @@ impl Prepared {
             }
             return Ok(());
         }
+        // A monitor this stream's launch cut short: back, it gets the layout planned.
+        match arrangement.follow_wake() {
+            Ok(false) => {}
+            Ok(true) => {
+                self.mode_report.repaired(None);
+                if let Some(display) = &self.display {
+                    display.apply_virtual_mode("after a monitor returned");
+                }
+            }
+            Err(error) => self.mode_report.repaired(Some(failed_wake_layout(error))),
+        }
         // Windows recalls its own layout after the lock screen, a UAC prompt
         // or a session switch: a display back on then is not coming back.
         let session = butterpollo_windows::process::console_session();
@@ -1985,8 +1996,12 @@ impl Prepared {
             .as_ref()
             .map(display_arrangement::Lease::arrangement);
         let expected = in_force.map_or(selection, |arrangement| arrangement.name());
+        // A monitor still on its way back leaves the stream's display alone for now, which
+        // says nothing of the layout.
         let layout_took = !virtual_layout
-            || arrangement.is_none()
+            || arrangement
+                .as_ref()
+                .is_none_or(display_arrangement::Lease::after_cut_watch)
             || butterpollo_windows::display::monitors()
                 .map(|monitors| {
                     let active: Vec<_> = monitors
@@ -2278,6 +2293,26 @@ pub fn retime(
             Err(error)
         }
     }
+}
+
+/// Log a layout that could not be put back once a monitor returned, and return what the
+/// stream's card says about it.
+fn failed_wake_layout(error: anyhow::Error) -> String {
+    let error = format!("{error:#}");
+    tracing::warn!(error = %error, "laying out the stream around a monitor that returned failed");
+    error
+}
+
+/// Whether a stream's end is still at work on the displays, though no stream or teardown
+/// shows it any more: what reads or writes the layout outside a launch waits for that.
+/// Unlike a launch's hold it doesn't cut that work short: with the monitor away that lights
+/// what Windows has left, which is what a read would then take for the user's layout.
+pub(crate) fn displays_settling() -> bool {
+    #[cfg(test)]
+    if tests::DISPLAYS_SETTLING.with(std::cell::Cell::get) {
+        return true;
+    }
+    display_arrangement::wake_watch_settling()
 }
 
 /// Every launch and re-prepare holds this: the end of the stream before it waits for

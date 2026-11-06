@@ -32,6 +32,15 @@ impl Prepared {
             tracing::debug!(output = %self.output, "a display has just left; not learning the layout the stream ended with");
             return;
         }
+        // The stream's display alone with the monitor still away is no one's choice either.
+        if self
+            ._arrangement
+            .as_ref()
+            .is_some_and(display_arrangement::Lease::after_cut_watch)
+        {
+            tracing::debug!(output = %self.output, "this stream began as a monitor woke; not learning the layout it ended with");
+            return;
+        }
         let active = match self.active_layout() {
             Ok(monitors) => monitors,
             Err(error) => {

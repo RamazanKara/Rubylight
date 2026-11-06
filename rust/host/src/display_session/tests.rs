@@ -5,6 +5,8 @@ use std::sync::mpsc;
 thread_local! {
     /// How often this thread held off the watch over a woken display.
     pub(crate) static WAKE_WATCH_HOLDS: Cell<usize> = const { Cell::new(0) };
+    /// Makes this thread's [`displays_settling`] answer true.
+    pub(crate) static DISPLAYS_SETTLING: Cell<bool> = const { Cell::new(false) };
 }
 #[test]
 fn a_stream_being_prepared_stops_the_watch_before_anything_else() {

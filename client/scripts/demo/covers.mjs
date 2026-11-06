@@ -104,12 +104,12 @@ class Art {
 const scenes = {};
 
 // ---------------------------------------------------------------- Racing: dusk highway, tail lights.
-// The landscape banner: clients crop it to the middle, so the title and the car stay inside that. The demo's running
-// game, so the title also starts below the Running badge in a tile's top corner.
+// The demo's running game, so every hero and the showcase images open on it: a full 2:3 cover, the title starting below
+// the Running badge in a tile's top corner.
 scenes['racing-game'] = () => {
-  const w = 920; const h = 430;
+  const w = 600; const h = 900;
   const a = new Art(w, h, 12);
-  const hz = h * 0.66;
+  const hz = h * 0.56;
   const hzF = hz / h;
   a.bg(a.lin([[0, '#14092c'], [hzF * 0.42, '#4b1160'], [hzF * 0.72, '#c5275c'], [hzF * 0.9, '#ff6d3a'], [hzF, '#ffc56b'], [1, '#ffc56b']]));
   a.stars(90, hz * 0.5, '#ffe9f4', 1.4);
@@ -153,7 +153,7 @@ scenes['racing-game'] = () => {
     a.path(`M${s[0] - s[2] * 0.012},${s[1]} L${s[0] + s[2] * 0.012},${s[1]} L${e[0] + e[2] * 0.012},${e[1]} L${e[0] - e[2] * 0.012},${e[1]} Z`, '#ffe9c7', 0.9);
   }
   // Car from behind: low wedge, tail-light bar.
-  const cs = u * 0.36; const cx = w * 0.5; const cy = h * 0.84;
+  const cs = u * 0.46; const cx = w * 0.5; const cy = h * 0.84;
   const X = (v) => (cx + v * cs).toFixed(1); const Y = (v) => (cy + v * cs).toFixed(1);
   a.add(`<ellipse cx="${cx}" cy="${Y(0.42)}" rx="${cs * 0.72}" ry="${cs * 0.08}" fill="#000" opacity=".75" ${a.blur(cs * 0.03)}/>`);
   a.rect(X(-0.54), Y(0.24), cs * 0.2, cs * 0.18, '#060409', 1, cs * 0.03);
@@ -165,7 +165,7 @@ scenes['racing-game'] = () => {
   a.add(`<rect x="${X(-0.56)}" y="${Y(0.01)}" width="${cs * 1.12}" height="${cs * 0.09}" fill="#ff2b4e" ${lb}/>`);
   a.rect(X(-0.5), Y(0.042), cs, cs * 0.018, '#ffd0c8', 1);
   a.rect(X(-0.16), Y(0.16), cs * 0.32, cs * 0.07, '#17101c', 1, cs * 0.012);
-  a.text(['RACING', 'GAME'], { x: w / 2 + 6, y: 106, size: 68, lead: 0.92, skew: -11, heavy: 2, track: -1, fill: '#fff6ea', anchor: 'middle' });
+  a.text(['RACING', 'GAME'], { x: 50, y: 150, size: 116, lead: 0.92, skew: -11, heavy: 2, track: -1, fill: '#fff6ea' });
   return a.finish();
 };
 
@@ -1060,7 +1060,7 @@ scenes['zero-gravity-golf'] = () => {
 // Pixels and the part of the 600x900 art to show, for covers that aren't 450x600 from the top of the art.
 // Fixtures display up to 382x509 (Large desktop tile at 150 %), and both clients crop to the middle.
 const SHAPES = {
-  'racing-game': { size: [920, 430], view: [0, 0, 920, 430] },
+  'racing-game': { size: [450, 675], view: [0, 0, 600, 900] },
   'open-world': { size: [480, 480], view: [0, 0, 600, 600] },
   'space-sim': { size: [450, 675], view: [0, 0, 600, 900] },
   'desktop': { top: 100 }, 'music-studio': { top: 100 }, 'retro-arcade': { top: 40 },

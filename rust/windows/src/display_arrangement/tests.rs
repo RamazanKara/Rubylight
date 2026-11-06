@@ -547,12 +547,16 @@ fn entry_steps(
     let result = put_entry_back(
         &before,
         "vdd",
+        || {
+            steps.borrow_mut().push("connected");
+            Ok(vec!["monitor".to_owned(), "vdd".to_owned()])
+        },
         |ids| {
             assert_eq!(ids, ["monitor", "vdd"]);
             steps.borrow_mut().push("on");
             Ok(())
         },
-        || current.map(|nodes| (nodes, vec!["monitor".to_owned(), "vdd".to_owned()])),
+        || current,
         |layout| {
             assert!(
                 layout
@@ -575,7 +579,7 @@ fn a_stream_display_that_is_gone_saves_no_entry_for_the_users_displays() {
     // A driver reset: `set_active` dropped it and switched on the monitor at
     // Windows' timing. That is not what to file for the monitor alone.
     let (steps, result) = entry_steps(Ok(vec![node("monitor", true, false)]), Ok(()));
-    assert_eq!(steps, ["on"]);
+    assert_eq!(steps, ["connected", "on"]);
     assert!(result.is_err());
     let (steps, result) = entry_steps(
         Ok(vec![
@@ -584,21 +588,46 @@ fn a_stream_display_that_is_gone_saves_no_entry_for_the_users_displays() {
         ]),
         Ok(()),
     );
-    assert_eq!(steps, ["on"]);
+    assert_eq!(steps, ["connected", "on"]);
     assert!(result.is_err());
     // A read that fails says nothing of it either: `settled` tries again.
     let (steps, result) = entry_steps(Err(anyhow::anyhow!("pending")), Ok(()));
-    assert_eq!(steps, ["on"]);
+    assert_eq!(steps, ["connected", "on"]);
     assert!(result.is_err());
+}
+#[test]
+fn a_monitor_dropping_off_the_list_as_it_comes_on_stays_in_its_entry() {
+    let connected = std::cell::RefCell::new(vec!["monitor".to_owned(), "vdd".to_owned()]);
+    let laid_out = std::cell::RefCell::new(Vec::new());
+    let before = snapshot(vec![node("monitor", true, true)]);
+    put_entry_back(
+        &before,
+        "vdd",
+        || Ok(connected.borrow().clone()),
+        |_| {
+            // A monitor off for a while comes up: for a moment Windows doesn't list it.
+            connected.borrow_mut().retain(|id| id != "monitor");
+            Ok(())
+        },
+        || Ok(vec![node("vdd", true, true)]),
+        |layout| {
+            let on = layout.nodes.iter().filter(|n| n.active);
+            *laid_out.borrow_mut() = on.map(|n| n.device_id.clone()).collect();
+            Ok(())
+        },
+        || Ok(()),
+    )
+    .unwrap();
+    assert_eq!(*laid_out.borrow(), ["monitor", "vdd"]);
 }
 #[test]
 fn the_stream_displays_entry_is_saved_after_its_layout_and_even_if_that_only_partly_went_back() {
     let on = || vec![node("monitor", true, false), node("vdd", true, true)];
     let (steps, result) = entry_steps(Ok(on()), Ok(()));
-    assert_eq!(steps, ["on", "restore", "save"]);
+    assert_eq!(steps, ["connected", "on", "restore", "save"]);
     assert!(result.is_ok());
     let (steps, result) = entry_steps(Ok(on()), Err(anyhow::anyhow!("mode refused")));
-    assert_eq!(steps, ["on", "restore", "save"]);
+    assert_eq!(steps, ["connected", "on", "restore", "save"]);
     assert!(result.is_err());
 }
 /// Streams holding `arrangement`: the monitor on before them, `applied` now.

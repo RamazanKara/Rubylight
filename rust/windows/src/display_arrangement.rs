@@ -441,8 +441,9 @@ fn forget_saved_layout(before: &Snapshot, target: &str, saves: bool) -> Result<(
     put_entry_back(
         before,
         target,
+        connected,
         Topology::set_active,
-        || Ok((Snapshot::capture()?.nodes, connected()?)),
+        || Ok(Snapshot::capture()?.nodes),
         Snapshot::restore,
         || {
             if saves {
@@ -479,15 +480,19 @@ fn repair_saves(state: &State) -> bool {
 /// With the stream's display gone, what is connected is the user's displays alone:
 /// saved now, that timing is what Windows recalls when a later virtual display
 /// leaves, and it then reads as the user's own. So nothing is saved unless that
-/// display is on.
+/// display is on. What is `connected` is read before anything switches on: a monitor
+/// coming up can drop off that list for a moment, and left out of the layout for it
+/// the layout would switch it off again.
 fn put_entry_back(
     before: &Snapshot,
     target: &str,
+    connected: impl FnOnce() -> Result<Vec<String>>,
     set_active: impl FnOnce(&[String]) -> Result<()>,
-    read: impl FnOnce() -> Result<(Vec<Node>, Vec<String>)>,
+    read: impl FnOnce() -> Result<Vec<Node>>,
     restore: impl FnOnce(&Snapshot) -> Result<()>,
     save: impl FnOnce() -> Result<()>,
 ) -> Result<()> {
+    let connected = connected()?;
     let mut ids: Vec<_> = before
         .nodes
         .iter()
@@ -496,7 +501,7 @@ fn put_entry_back(
         .collect();
     ids.push(target.to_owned());
     set_active(&ids)?;
-    let (current, connected) = read()?;
+    let current = read()?;
     let layout = entry_layout(before, &current, &connected, target)?;
     let laid_out = restore(&layout);
     // A layout that only partly went back still beats the entry with them off,

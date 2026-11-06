@@ -185,8 +185,8 @@ public final class HostSheet extends FrameLayout {
         boolean phone = form == GlassForm.PHONE;
         findViewById(R.id.host_sheet_grabber).setVisibility(phone ? VISIBLE : GONE);
         if (phone) {
-            android.view.WindowInsets insets = getRootWindowInsets();
-            int foot = insets == null ? 0 : insets.getSystemWindowInsetBottom();
+            androidx.core.view.WindowInsetsCompat insets = androidx.core.view.ViewCompat.getRootWindowInsets(this);
+            int foot = insets == null ? 0 : insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars()).bottom;
             int radius = res.getDimensionPixelSize(R.dimen.nj_radius_sheet);
             params.width = LayoutParams.MATCH_PARENT;
             params.gravity = Gravity.BOTTOM;

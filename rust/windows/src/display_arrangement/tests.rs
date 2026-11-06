@@ -86,7 +86,10 @@ fn watched(
         &["monitor".to_owned()],
         || connected_at(now.get()),
         || now.get(),
-        || now.set(now.get() + WAKE_POLL),
+        || {
+            now.set(now.get() + WAKE_POLL);
+            false
+        },
         || away += 1,
     );
     (wake, away, now.get())
@@ -154,43 +157,501 @@ fn a_read_that_fails_says_nothing_of_a_woken_display() {
 }
 #[test]
 fn a_display_that_came_back_gets_its_layout_again() {
-    let run = |woken: &[String], first_fails: bool, wake: Wake| {
-        let tries = std::cell::Cell::new(0);
-        let result = through_wake(
-            woken,
+    // (entry written again, layout written again, what came of the layout)
+    let run = |first_fails: bool, restored_fails: bool, wake: Wake| {
+        let (puts, restores) = (std::cell::Cell::new(0), std::cell::Cell::new(0));
+        let failed = |fails: bool| {
+            if fails {
+                anyhow::bail!("the monitor left halfway");
+            }
+            Ok(())
+        };
+        let result = after_wake(
+            &["monitor".to_owned()],
+            wake,
+            failed(first_fails),
+            failed(restored_fails),
             || {
-                tries.set(tries.get() + 1);
-                if first_fails && tries.get() == 1 {
-                    anyhow::bail!("the monitor left halfway");
-                }
-                Ok(())
+                puts.set(puts.get() + 1);
+                Some(Ok(()))
             },
-            || wake,
+            || {
+                restores.set(restores.get() + 1);
+                Some(Ok(()))
+            },
         );
-        (tries.get(), result.is_ok())
+        (puts.get(), restores.get(), result.map(|r| r.is_ok()))
     };
-    let woken = ["monitor".to_owned()];
     // The first try went well but the display dropped: its entry may be for the rest.
-    assert_eq!(run(&woken, false, Wake::CameBack), (2, true));
-    assert_eq!(run(&woken, true, Wake::CameBack), (2, true));
-    assert_eq!(run(&woken, false, Wake::Stayed), (1, true));
-    // Still applying some other change: tried again as before.
-    assert_eq!(run(&woken, true, Wake::Stayed), (2, true));
-    // Gone for good: no more tries, and what the first came to.
-    assert_eq!(run(&woken, false, Wake::StayedAway), (1, true));
-    assert_eq!(run(&woken, true, Wake::StayedAway), (1, false));
-    // Nothing woken, nothing watched.
-    let tries = std::cell::Cell::new(0);
-    through_wake(
-        &[],
+    assert_eq!(run(false, false, Wake::CameBack), (1, 1, Some(true)));
+    assert_eq!(run(true, true, Wake::CameBack), (1, 1, Some(true)));
+    // It stayed and all went well: nothing to write.
+    assert_eq!(run(false, false, Wake::Stayed), (0, 0, Some(true)));
+    // Still applying some other change: tried again, the entry only if that failed,
+    // and the layout after it either way, as the entry's try switches displays on.
+    assert_eq!(run(true, false, Wake::Stayed), (1, 1, Some(true)));
+    assert_eq!(run(false, true, Wake::Stayed), (0, 1, Some(true)));
+    // Gone for good: the entry is what the first try came to, and the layout has a last go.
+    assert_eq!(run(false, false, Wake::StayedAway), (0, 1, Some(true)));
+    assert_eq!(run(true, false, Wake::StayedAway), (0, 1, Some(true)));
+    // Stopped: nothing at all, whatever went before.
+    assert_eq!(run(true, true, Wake::Stopped), (0, 0, None));
+}
+#[test]
+fn a_write_stopped_halfway_through_its_steps_leaves_the_rest_unwritten() {
+    let restores = std::cell::Cell::new(0);
+    let result = after_wake(
+        &["monitor".to_owned()],
+        Wake::CameBack,
+        Ok(()),
+        Ok(()),
+        || None,
         || {
-            tries.set(tries.get() + 1);
+            restores.set(restores.get() + 1);
+            Some(Ok(()))
+        },
+    );
+    assert!(result.is_none());
+    assert_eq!(restores.get(), 0);
+    // A failed entry doesn't stop the layout: that is what the journal waits for.
+    let result = after_wake(
+        &["monitor".to_owned()],
+        Wake::CameBack,
+        Ok(()),
+        Ok(()),
+        || Some(Err(anyhow::anyhow!("still applying"))),
+        || Some(Err(anyhow::anyhow!("not back"))),
+    );
+    assert!(result.is_some_and(|r| r.is_err()));
+}
+/// Tests that lease or lock the arrangement's own state, which is the process's.
+static SHARED_STATE: Mutex<()> = Mutex::new(());
+/// Says so when dropped: a stream's display in a test.
+struct FakeDisplay(Arc<std::sync::atomic::AtomicBool>);
+impl FakeDisplay {
+    fn new() -> (Self, Arc<std::sync::atomic::AtomicBool>) {
+        let gone = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        (Self(gone.clone()), gone)
+    }
+}
+impl Drop for FakeDisplay {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+fn gone(flag: &std::sync::atomic::AtomicBool) -> bool {
+    flag.load(Ordering::SeqCst)
+}
+fn wake_end(first: Result<()>, restored: Result<()>) -> WakeEnd {
+    WakeEnd {
+        woken: vec!["monitor".to_owned()],
+        restore: true,
+        first,
+        restored,
+    }
+}
+/// What a watch wrote, in order.
+type Writes = Arc<Mutex<Vec<&'static str>>>;
+/// [`run_wake_watch`] with its writes noted and displays as `read` says.
+fn noted_watch(
+    end: WakeEnd,
+    stop: &WatchStop,
+    writes: &Writes,
+    read: impl FnMut() -> Result<Vec<String>>,
+) -> bool {
+    let note = |what: &'static str| {
+        let writes = writes.clone();
+        move || {
+            writes.lock().unwrap().push(what);
+            Ok(())
+        }
+    };
+    let forget = note("journal");
+    run_wake_watch(
+        end,
+        stop,
+        read,
+        note("strays"),
+        note("entry"),
+        note("layout"),
+        forget,
+    )
+}
+/// A slow watch on a monitor that is there, 3 s from anything happening, on `watcher`.
+fn start_slow_watch(
+    watcher: &WakeWatcher,
+    writes: &Writes,
+    display: FakeDisplay,
+    restored: Result<()>,
+) -> bool {
+    let writes = writes.clone();
+    watcher.start(move |stop| {
+        let left = noted_watch(wake_end(Ok(()), restored), stop, &writes, || {
+            Ok(listed(true))
+        });
+        drop(display);
+        left
+    })
+}
+/// Far under the watch, whose shortest run is `WAKE_WATCH`, and far over a stop's own
+/// cost when the machine is busy building.
+const STOP_BOUND: std::time::Duration = std::time::Duration::from_secs(1);
+#[test]
+fn a_launch_gets_past_a_slow_watch_at_once_and_it_writes_nothing() {
+    assert!(STOP_BOUND < WAKE_WATCH);
+    let watcher = WakeWatcher::new();
+    let writes = Writes::default();
+    let (display, display_gone) = FakeDisplay::new();
+    assert!(start_slow_watch(&watcher, &writes, display, Ok(())));
+    let launch = std::time::Instant::now();
+    watcher.hold_off();
+    assert!(launch.elapsed() < STOP_BOUND, "{:?}", launch.elapsed());
+    // Past the stop the stream's display is gone: a new one on its slot can't meet it.
+    assert!(gone(&display_gone));
+    assert!(writes.lock().unwrap().is_empty());
+    // The layout had gone back, so with no lease to take the journal entry over it goes.
+    assert!(watcher.release());
+}
+#[test]
+fn a_watch_stopped_as_the_monitor_returns_writes_nothing_and_keeps_its_journal_entry() {
+    let _shared = SHARED_STATE.lock().unwrap();
+    let stop = WatchStop::default();
+    let writes = Writes::default();
+    let looks = std::cell::Cell::new(0);
+    let left = noted_watch(wake_end(Ok(()), Ok(())), &stop, &writes, || {
+        looks.set(looks.get() + 1);
+        if looks.get() == 1 {
+            return Ok(listed(false));
+        }
+        // The return and the launch at the same moment: it writes for no one.
+        stop.stop();
+        Ok(listed(true))
+    });
+    assert!(left);
+    assert_eq!(looks.get(), 2);
+    // Only what it looked after while the monitor was away, before the stop.
+    assert_eq!(*writes.lock().unwrap(), ["strays"]);
+    // Stopped with the monitor away: that isn't looked after for anyone either.
+    let stop = WatchStop::default();
+    let writes = Writes::default();
+    let left = noted_watch(wake_end(Ok(()), Ok(())), &stop, &writes, || {
+        stop.stop();
+        Ok(listed(false))
+    });
+    assert!(left);
+    assert!(writes.lock().unwrap().is_empty());
+}
+#[test]
+fn a_stop_during_a_write_ends_the_writes_after_it() {
+    let _shared = SHARED_STATE.lock().unwrap();
+    let writes = Writes::default();
+    let looks = std::cell::Cell::new(0);
+    let read = || {
+        looks.set(looks.get() + 1);
+        Ok(listed(looks.get() % 2 == 0))
+    };
+    let note = |what: &'static str| writes.lock().unwrap().push(what);
+    let stop = WatchStop::default();
+    let left = run_wake_watch(
+        wake_end(Ok(()), Ok(())),
+        &stop,
+        read,
+        || Ok(()),
+        || {
+            note("entry");
+            stop.stop();
             Ok(())
         },
-        || panic!("nothing to watch"),
-    )
-    .unwrap();
+        || {
+            note("layout");
+            Ok(())
+        },
+        || {
+            note("journal");
+            Ok(())
+        },
+    );
+    assert!(left);
+    assert_eq!(*writes.lock().unwrap(), ["entry"]);
+    writes.lock().unwrap().clear();
+    let stop = WatchStop::default();
+    let left = run_wake_watch(
+        wake_end(Ok(()), Ok(())),
+        &stop,
+        read,
+        || Ok(()),
+        || {
+            note("entry");
+            Ok(())
+        },
+        || {
+            note("layout");
+            stop.stop();
+            Ok(())
+        },
+        || {
+            note("journal");
+            Ok(())
+        },
+    );
+    assert!(left);
+    assert_eq!(*writes.lock().unwrap(), ["entry", "layout"]);
+}
+#[test]
+fn a_watch_that_starts_ends_the_one_before_it() {
+    let watcher = WakeWatcher::new();
+    let writes = Writes::default();
+    let (first, first_gone) = FakeDisplay::new();
+    assert!(start_slow_watch(&watcher, &writes, first, Ok(())));
+    let (second, second_gone) = FakeDisplay::new();
+    let started = std::time::Instant::now();
+    assert!(start_slow_watch(&watcher, &writes, second, Ok(())));
+    assert!(started.elapsed() < STOP_BOUND, "{:?}", started.elapsed());
+    assert!(gone(&first_gone));
+    assert!(!gone(&second_gone));
+    watcher.close();
+    assert!(gone(&second_gone));
+    assert!(writes.lock().unwrap().is_empty());
+}
+#[test]
+fn a_watch_stopped_with_the_layout_not_back_leaves_its_journal_entry_pending() {
+    let watcher = WakeWatcher::new();
+    let writes = Writes::default();
+    let (display, _) = FakeDisplay::new();
+    assert!(start_slow_watch(
+        &watcher,
+        &writes,
+        display,
+        Err(anyhow::anyhow!("the monitor left halfway"))
+    ));
+    watcher.hold_off();
+    // As any restore that failed: for the next stream or start, so it is not cleared.
+    assert!(!watcher.release());
+}
+#[test]
+fn a_watch_left_alone_writes_after_the_return_and_only_then_clears_its_journal_entry() {
+    let _shared = SHARED_STATE.lock().unwrap();
+    let stop = WatchStop::default();
+    let writes = Writes::default();
+    let looks = std::cell::Cell::new(0);
+    let left = noted_watch(wake_end(Ok(()), Ok(())), &stop, &writes, || {
+        looks.set(looks.get() + 1);
+        Ok(listed(looks.get() != 1))
+    });
+    assert!(!left);
+    assert_eq!(
+        *writes.lock().unwrap(),
+        ["strays", "entry", "layout", "journal"]
+    );
+    // A layout that didn't go back keeps the journal entry, for the next start.
+    let writes = Writes::default();
+    looks.set(0);
+    let left = run_wake_watch(
+        wake_end(Ok(()), Ok(())),
+        &stop,
+        || {
+            looks.set(looks.get() + 1);
+            Ok(listed(looks.get() != 1))
+        },
+        || Ok(()),
+        || Ok(()),
+        || anyhow::bail!("not back"),
+        || {
+            writes.lock().unwrap().push("journal");
+            Ok(())
+        },
+    );
+    assert!(!left);
+    assert!(writes.lock().unwrap().is_empty());
+    // A layout the stream's end didn't owe stays out of it: the user changed it.
+    let writes = Writes::default();
+    looks.set(0);
+    let mut end = wake_end(Ok(()), Ok(()));
+    end.restore = false;
+    let left = noted_watch(end, &stop, &writes, || {
+        looks.set(looks.get() + 1);
+        Ok(listed(looks.get() != 1))
+    });
+    assert!(!left);
+    assert_eq!(*writes.lock().unwrap(), ["strays", "entry", "journal"]);
+}
+#[test]
+fn the_hosts_stop_ends_a_watch_for_good_and_keeps_its_journal_entry() {
+    let watcher = WakeWatcher::new();
+    let writes = Writes::default();
+    let (display, display_gone) = FakeDisplay::new();
+    assert!(start_slow_watch(&watcher, &writes, display, Ok(())));
+    let stopping = std::time::Instant::now();
+    watcher.close();
+    assert!(stopping.elapsed() < STOP_BOUND, "{:?}", stopping.elapsed());
+    assert!(gone(&display_gone));
+    assert!(writes.lock().unwrap().is_empty());
+    // Nothing starts from here on, a stream ending on the way out included, and a
+    // stream's end loses no time on it.
+    let (display, display_gone) = FakeDisplay::new();
+    assert!(!start_slow_watch(&watcher, &writes, display, Ok(())));
+    assert!(gone(&display_gone));
+    // The journal entry stays for the next start: nothing clears it, and a hold's end
+    // doesn't open the watcher again.
+    watcher.close();
+    watcher.hold_off();
+    assert!(!watcher.release());
+    let (display, _) = FakeDisplay::new();
+    assert!(!start_slow_watch(&watcher, &writes, display, Ok(())));
+}
+#[test]
+fn stopping_a_watch_again_or_with_none_running_is_safe() {
+    let watcher = WakeWatcher::new();
+    // None ever ran.
+    watcher.hold_off();
+    assert!(!watcher.release());
+    let writes = Writes::default();
+    let (display, _) = FakeDisplay::new();
+    assert!(start_slow_watch(&watcher, &writes, display, Ok(())));
+    // Two launches, the second while the first prepares: each gets past, and the entry
+    // is judged once, when the last ends.
+    watcher.hold_off();
+    watcher.hold_off();
+    assert!(!watcher.release());
+    assert!(watcher.release());
+    // Started again once they have ended, and a watch that finished is nothing to stop.
+    assert!(watcher.start(|_| false));
+    while watcher
+        .0
+        .lock()
+        .unwrap()
+        .running
+        .as_ref()
+        .is_some_and(|(_, t)| !t.is_finished())
+    {
+        std::thread::yield_now();
+    }
+    watcher.hold_off();
+    assert!(!watcher.release(), "it finished and left nothing");
+}
+#[test]
+fn a_stream_ending_during_a_launch_starts_no_watch() {
+    let watcher = WakeWatcher::new();
+    let writes = Writes::default();
+    watcher.hold_off();
+    let (display, display_gone) = FakeDisplay::new();
+    assert!(!start_slow_watch(&watcher, &writes, display, Ok(())));
+    // Its display goes at once, and the watch it did not get ran nothing.
+    assert!(gone(&display_gone));
+    assert!(watcher.0.lock().unwrap().running.is_none());
+    assert!(writes.lock().unwrap().is_empty());
+    watcher.journal_left();
+    assert!(watcher.release());
+    // Outside a hold nothing is left to clear: a later launch finds nothing to judge.
+    watcher.journal_left();
+    watcher.hold_off();
+    assert!(!watcher.release());
+}
+#[test]
+fn a_watch_writes_only_under_the_arrangements_lock_and_not_for_a_stream_that_began() {
+    let _shared = SHARED_STATE.lock().unwrap();
+    let stop = WatchStop::default();
+    let wrote = std::cell::Cell::new(0);
+    let write = || {
+        wrote.set(wrote.get() + 1);
+        // Held by the step, so no lease can begin in the middle of its write.
+        assert!(state().try_lock().is_err());
+        Ok(())
+    };
+    assert!(watch_step(&stop, write).is_some());
+    assert_eq!(wrote.get(), 1);
+    state().lock().unwrap().users = 1;
+    let began = watch_step(&stop, write);
+    state().lock().unwrap().users = 0;
+    assert!(began.is_none());
+    stop.stop();
+    assert!(watch_step(&stop, write).is_none());
+    assert_eq!(wrote.get(), 1);
+}
+#[test]
+fn a_watchs_retries_end_at_a_stop_and_try_again_otherwise() {
+    let _shared = SHARED_STATE.lock().unwrap();
+    let stop = WatchStop::default();
+    let tries = std::cell::Cell::new(0);
+    let result = settled_step(&stop, || {
+        tries.set(tries.get() + 1);
+        if tries.get() < 3 {
+            anyhow::bail!("still applying");
+        }
+        Ok(())
+    });
+    assert!(result.is_some_and(|r| r.is_ok()));
+    assert_eq!(tries.get(), 3);
+    // A stop during the wait between tries: no further try, and no wait for its end.
+    let tries = std::cell::Cell::new(0);
+    let started = std::time::Instant::now();
+    let result = settled_step(&stop, || -> Result<()> {
+        tries.set(tries.get() + 1);
+        stop.stop();
+        anyhow::bail!("still applying")
+    });
+    assert!(result.is_none());
     assert_eq!(tries.get(), 1);
+    assert!(started.elapsed() < SETTLE_RETRY);
+}
+#[test]
+fn only_a_display_outside_the_users_layout_makes_a_stream_end_watch() {
+    let before = [node("monitor", true, true), node("dormant", false, false)];
+    // A PC with its monitor and nothing else: nothing Windows could switch on instead.
+    let others = ["monitor".to_owned()];
+    assert!(displays_it_could_switch_on(&before, &others).is_empty());
+    // A TV that is off, listed or not in the layout from before the stream.
+    let others = ["monitor", "dormant", "tv"].map(String::from);
+    assert_eq!(
+        displays_it_could_switch_on(&before, &others),
+        ["dormant", "tv"]
+    );
+}
+#[test]
+fn a_pc_with_nothing_else_connected_watches_nothing_and_reads_no_further() {
+    let before = [node("monitor", true, true)];
+    let connected = ["monitor", "a"].map(String::from);
+    let others = ["monitor".to_owned()];
+    let unread = || -> Result<Vec<Node>> { panic!("nothing to protect, nothing to read") };
+    let watched = woken_to_watch(&before, unread, &connected, &others, "a").unwrap();
+    assert!(watched.is_empty());
+    // With a TV that is off the same end has the monitor to watch.
+    let connected = ["monitor", "tv", "a"].map(String::from);
+    let others = ["monitor", "tv"].map(String::from);
+    let active = || Ok(vec![node("a", true, true)]);
+    let watched = woken_to_watch(&before, active, &connected, &others, "a").unwrap();
+    assert_eq!(watched, ["monitor"]);
+}
+#[test]
+fn a_lease_that_ends_beside_others_drops_what_remains_of_it_without_its_lock() {
+    /// Removing a display takes a while: not with the arrangement's lock held, and only
+    /// once the lease has gone.
+    struct Remains(Arc<std::sync::atomic::AtomicBool>);
+    impl Drop for Remains {
+        fn drop(&mut self) {
+            assert_eq!(state().try_lock().map(|s| s.users).ok(), Some(1));
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+    let _shared = SHARED_STATE.lock().unwrap();
+    {
+        let mut state = state().lock().unwrap();
+        state.users = 2;
+        state.owners = vec![("a".to_owned(), 2)];
+    }
+    let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let lease = Lease {
+        arrangement: Arrangement::Exclusive,
+        target: Mutex::new("a".to_owned()),
+        repair_failure: None,
+        remains: Mutex::default(),
+    };
+    lease.end(Remains(flag.clone()));
+    assert!(gone(&flag));
+    let mut state = state().lock().unwrap();
+    assert_eq!(state.users, 1);
+    state.users = 0;
+    state.owners.clear();
 }
 #[test]
 fn only_a_physical_display_off_before_the_stream_is_switched_off_while_the_monitor_is_away() {

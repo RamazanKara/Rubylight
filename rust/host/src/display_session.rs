@@ -2133,10 +2133,17 @@ impl Drop for Prepared {
         // A stream ending while Windows is locked restores the layout too.
         butterpollo_windows::input::on_input_desktop(|| {
             self._profile.take();
-            self._arrangement.take();
-            self.display.take();
-            self._activation.take();
-            self._golden.take();
+            // In this order, after the layout: the display can outlast the end
+            // for as long as a monitor it woke needs it, and the rest with it.
+            let remains = (
+                self.display.take(),
+                self._activation.take(),
+                self._golden.take(),
+            );
+            match self._arrangement.take() {
+                Some(lease) => lease.end(remains),
+                None => drop(remains),
+            }
             self._retained.take();
             self._vulkan.take();
         });
@@ -2273,6 +2280,14 @@ pub fn retime(
     }
 }
 
+/// Every launch and re-prepare holds this: the end of the stream before it waits for
+/// nothing, and what is left of that end stops ([`display_arrangement::WakeWatchOff`]).
+pub(crate) fn hold_off_wake_watch() -> display_arrangement::WakeWatchOff {
+    #[cfg(test)]
+    tests::WAKE_WATCH_HOLDS.with(|holds| holds.set(holds.get() + 1));
+    display_arrangement::hold_off_wake_watch()
+}
+
 /// Prepare a stream's display. While Windows shows the lock or sign-in
 /// screen it allows display configuration only from that screen's desktop,
 /// so the work moves there (issue #6). If the virtual display or its layout
@@ -2284,6 +2299,7 @@ pub fn prepare_stream(
     stream: &Negotiated,
     config: &Config,
 ) -> Result<StreamPreparation> {
+    let _wake_watch = hold_off_wake_watch();
     if let Some(target) = configured_window(config)? {
         configured_window_open(&target)?;
         tracing::info!(target = %target, "streaming the configured window");

@@ -3,7 +3,7 @@ use crate::display::{Snapshot, Topology};
 use anyhow::{Result, bail};
 use butterpollo_core::{display_policy::Arrangement, topology::Node};
 use std::sync::{
-    Mutex, OnceLock,
+    Arc, Condvar, Mutex, OnceLock,
     atomic::{AtomicU64, Ordering},
 };
 #[derive(Default)]
@@ -738,6 +738,147 @@ enum Wake {
     Stayed,
     CameBack,
     StayedAway,
+    /// A launch or the host's stop ended the watch first: nothing more is known.
+    Stopped,
+}
+/// Tells a watch to stop, and wakes it from its wait.
+#[derive(Default)]
+struct WatchStop {
+    stopped: Mutex<bool>,
+    changed: Condvar,
+}
+impl WatchStop {
+    fn stop(&self) {
+        *self.stopped.lock().unwrap() = true;
+        self.changed.notify_all();
+    }
+    fn is_stopped(&self) -> bool {
+        *self.stopped.lock().unwrap()
+    }
+    /// Wait out `time`. True when stopped, as soon as that happens.
+    fn wait(&self, time: std::time::Duration) -> bool {
+        let stopped = self.stopped.lock().unwrap();
+        *self
+            .changed
+            .wait_timeout_while(stopped, time, |stopped| !*stopped)
+            .unwrap()
+            .0
+    }
+}
+struct Watches {
+    /// Launches preparing a display: no watch starts, as what it would write can land
+    /// on their layout.
+    held_off: usize,
+    /// The host is stopping: no watch starts again.
+    closed: bool,
+    /// The thread answers whether it left a journal entry that can go ([`WakeWatcher::release`]).
+    running: Option<(Arc<WatchStop>, std::thread::JoinHandle<bool>)>,
+    journal_left: bool,
+}
+impl Watches {
+    /// Stop the watch and wait for its thread, which then has dropped the stream's
+    /// display and writes nothing more. A thread that panicked left the entry too.
+    fn stop_running(&mut self) {
+        if let Some((stop, thread)) = self.running.take() {
+            stop.stop();
+            self.journal_left |= thread.join().unwrap_or(true);
+        }
+    }
+}
+/// The one watch that can run after a stream's end, off the threads that wait for that
+/// end. Its lock is held while it waits for the thread, so that whoever gets past a stop
+/// finds the display gone; the thread never takes this lock.
+struct WakeWatcher(Mutex<Watches>);
+impl WakeWatcher {
+    const fn new() -> Self {
+        Self(Mutex::new(Watches {
+            held_off: 0,
+            closed: false,
+            running: None,
+            journal_left: false,
+        }))
+    }
+    /// Run `job` on its own thread; false when it may not, and it is dropped unrun. It
+    /// answers whether it left a journal entry that can go. Never call this holding the
+    /// arrangement's lock: a watch still running is waited for, and it may want that lock.
+    fn start(&self, job: impl FnOnce(&WatchStop) -> bool + Send + 'static) -> bool {
+        let mut watches = self.0.lock().unwrap();
+        if watches.closed || watches.held_off != 0 {
+            return false;
+        }
+        watches.stop_running();
+        let stop = Arc::new(WatchStop::default());
+        let stops = stop.clone();
+        match std::thread::Builder::new()
+            .name("wake-watch".into())
+            .spawn(move || job(&stops))
+        {
+            Ok(thread) => {
+                watches.running = Some((stop, thread));
+                true
+            }
+            Err(error) => {
+                tracing::warn!(%error, "the watch over a woken display could not start");
+                false
+            }
+        }
+    }
+    /// No watch runs or starts until as many [`Self::release`]s.
+    fn hold_off(&self) {
+        let mut watches = self.0.lock().unwrap();
+        watches.held_off += 1;
+        watches.stop_running();
+    }
+    /// True for the last hold to end, when a watch held off or stopped left a journal
+    /// entry that a lease may have taken over: if none did, it is to go.
+    fn release(&self) -> bool {
+        let mut watches = self.0.lock().unwrap();
+        watches.held_off -= 1;
+        watches.held_off == 0 && std::mem::take(&mut watches.journal_left) && !watches.closed
+    }
+    /// A stream's end that a hold kept from starting its watch left its journal entry.
+    fn journal_left(&self) {
+        let mut watches = self.0.lock().unwrap();
+        if watches.held_off != 0 {
+            watches.journal_left = true;
+        }
+    }
+    /// For good: the host is stopping. What a stopped watch left stays in the journal,
+    /// for the next start to put back.
+    fn close(&self) {
+        let mut watches = self.0.lock().unwrap();
+        watches.closed = true;
+        watches.stop_running();
+    }
+}
+static WAKE_WATCHER: WakeWatcher = WakeWatcher::new();
+/// Holds off the watch over a woken display while a launch prepares a display: a running
+/// one drops the stream's display at once and writes nothing more, and none starts. Take
+/// it before anything looks at the displays: a watched display still reads as live.
+#[must_use]
+pub struct WakeWatchOff(());
+pub fn hold_off_wake_watch() -> WakeWatchOff {
+    WAKE_WATCHER.hold_off();
+    WakeWatchOff(())
+}
+impl Drop for WakeWatchOff {
+    fn drop(&mut self) {
+        if !WAKE_WATCHER.release() {
+            return;
+        }
+        // No lease took up the layout the watch left, as a window's stream or a failed
+        // launch takes none: it must not turn up as the baseline of a stream much later.
+        let state = state().lock().unwrap();
+        if state.users == 0
+            && let Err(error) = crate::display_recovery::arrangement(None)
+        {
+            tracing::warn!(error = %format!("{error:#}"), "display arrangement journal cleanup failed");
+        }
+    }
+}
+/// The host is stopping: no watch outlasts that, or starts.
+pub fn close_wake_watch() {
+    WAKE_WATCHER.close();
 }
 /// The user's displays that are connected and off: switching them on wakes them. None
 /// without the stream's own display, as no display is left to hold the layout then.
@@ -762,15 +903,26 @@ fn displays_to_wake(
         .map(|n| n.device_id.clone())
         .collect()
 }
+/// What Windows could switch on if the stream's display went while a woken display is
+/// away: `others`, what is connected besides Rubylight's displays, that isn't in the
+/// user's layout. A display whose path can't be read counts: being wrong costs a watch.
+fn displays_it_could_switch_on(before: &[Node], others: &[String]) -> Vec<String> {
+    others
+        .iter()
+        .filter(|id| !before.iter().any(|n| n.active && n.device_id == **id))
+        .cloned()
+        .collect()
+}
 /// Watch `woken`, just switched on. A monitor that slept for want of a signal can show
 /// a picture, drop off the list about a second later and return 3 to 6 s after that.
 /// `away` runs at each look while one is gone. `read` failing means Windows is still
-/// applying a change, which says nothing about them.
+/// applying a change, which says nothing about them. `sleep` answers true when the watch
+/// was stopped.
 fn watch_wake(
     woken: &[String],
     mut read: impl FnMut() -> Result<Vec<String>>,
     mut elapsed: impl FnMut() -> std::time::Duration,
-    mut sleep: impl FnMut(),
+    mut sleep: impl FnMut() -> bool,
     mut away: impl FnMut(),
 ) -> Wake {
     let mut gone_since = None;
@@ -788,7 +940,9 @@ fn watch_wake(
             Some(_) => away(),
             None => {}
         }
-        sleep();
+        if sleep() {
+            return Wake::Stopped;
+        }
     }
 }
 /// What is on that the user's layout doesn't have, known physical (a stream's virtual
@@ -815,68 +969,207 @@ fn switch_off_strays(before: &[Node]) -> Result<()> {
     Topology::set_active(&on)?;
     Topology::save_current()
 }
-/// [`forget_saved_layout`] for a stream's end, when it can wake the user's displays. The
-/// stream's display stays on until they have shown they stay: gone with one of them
-/// away, what is left connected can be a TV that was off, which Windows then switches on
-/// alone. One that dropped gets its entry and layout again when it returns: the first
-/// try may have ended halfway, and an entry saved while it was gone isn't its entry.
-fn put_back_through_wake(before: &Snapshot, target: &str) -> Result<()> {
-    let woken = settled(|| {
-        Ok(displays_to_wake(
+/// The user's displays to watch at a stream's end: the ones it wakes, if Windows could
+/// switch on something else with the stream's display gone. With nothing else to switch
+/// on there is nothing to protect, whatever a woken display does.
+fn woken_to_watch(
+    before: &[Node],
+    active: impl FnOnce() -> Result<Vec<Node>>,
+    connected: &[String],
+    others: &[String],
+    target: &str,
+) -> Result<Vec<String>> {
+    if displays_it_could_switch_on(before, others).is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(displays_to_wake(before, &active()?, connected, target))
+}
+/// [`woken_to_watch`] for what is connected now.
+fn displays_to_watch(before: &Snapshot, target: &str) -> Vec<String> {
+    settled(|| {
+        let monitors = Topology::query_all()?.monitors();
+        let others: Vec<String> = monitors
+            .iter()
+            .filter(|m| !m.is_rubylight())
+            .map(|m| m.device_id.clone())
+            .collect();
+        let connected: Vec<String> = monitors.into_iter().map(|m| m.device_id).collect();
+        woken_to_watch(
             &before.nodes,
-            &Snapshot::capture()?.nodes,
-            &connected()?,
+            || Ok(Snapshot::capture()?.nodes),
+            &connected,
+            &others,
             target,
-        ))
+        )
     })
     .unwrap_or_else(|error| {
         tracing::warn!(error = %format!("{error:#}"), "reading the displays at a stream's end failed; not watching them wake");
         Vec::new()
-    });
-    let mut failed_away = false;
-    through_wake(
-        &woken,
-        || forget_saved_layout(before, target, true),
-        || {
-            let start = std::time::Instant::now();
-            watch_wake(
-                &woken,
-                connected,
-                || start.elapsed(),
-                || std::thread::sleep(WAKE_POLL),
-                || {
-                    if let Err(error) = switch_off_strays(&before.nodes)
-                        && !std::mem::replace(&mut failed_away, true)
-                    {
-                        tracing::warn!(error = %format!("{error:#}"), "switching off a display Windows recalled while the user's monitor is away failed");
-                    }
-                },
-            )
-        },
-    )
+    })
 }
-/// The steps of [`put_back_through_wake`]: nothing to wake, the usual retries.
-fn through_wake(
-    woken: &[String],
-    mut put_back: impl FnMut() -> Result<()>,
-    watch: impl FnOnce() -> Wake,
-) -> Result<()> {
-    if woken.is_empty() {
-        return settled(put_back);
+/// What a stream's end leaves to its watch: the stream's display stays until `woken` have
+/// shown they stay. Gone with one of them away, what is left connected can be a TV that
+/// was off, which Windows then switches on alone. All this runs beside whatever comes
+/// next, and whatever comes next stops it first ([`WakeWatcher`]).
+struct WakeEnd {
+    woken: Vec<String>,
+    /// Whether the user's layout goes back after the entry.
+    restore: bool,
+    /// How the entry and that layout went at the stream's end.
+    first: Result<()>,
+    restored: Result<()>,
+}
+/// One write of a watch: under the arrangement's lock, and not once it was stopped or a
+/// lease began. None then, with nothing written.
+fn watch_step<T>(stop: &WatchStop, work: impl FnOnce() -> Result<T>) -> Option<Result<T>> {
+    let state = state().lock().unwrap();
+    if stop.is_stopped() || state.users != 0 {
+        return None;
     }
-    let first = put_back();
-    match watch() {
-        Wake::Stayed => first.or_else(|_| settled(put_back)),
+    Some(work())
+}
+/// [`settled`] for a watch's write ([`watch_step`]): a stop ends it at once.
+fn settled_step<T>(stop: &WatchStop, mut attempt: impl FnMut() -> Result<T>) -> Option<Result<T>> {
+    for _ in 0..3 {
+        match watch_step(stop, &mut attempt)? {
+            Ok(value) => return Some(Ok(value)),
+            Err(error) => {
+                tracing::debug!(error = %format!("{error:#}"), "display layout change pending; retrying");
+                if stop.wait(SETTLE_RETRY) {
+                    return None;
+                }
+            }
+        }
+    }
+    watch_step(stop, attempt)
+}
+/// The writes that follow the watch. One that dropped gets its entry and layout again
+/// when it returns: the first try may have ended halfway, and an entry saved while it
+/// was gone isn't its entry. What `put_back` and `restore` answer None to was stopped.
+/// What came of the user's layout, None if stopped.
+fn after_wake(
+    woken: &[String],
+    wake: Wake,
+    first: Result<()>,
+    restored: Result<()>,
+    mut put_back: impl FnMut() -> Option<Result<()>>,
+    mut restore: impl FnMut() -> Option<Result<()>>,
+) -> Option<Result<()>> {
+    let put = match wake {
+        Wake::Stopped => return None,
+        Wake::Stayed if first.is_ok() && restored.is_ok() => return Some(Ok(())),
+        Wake::Stayed if first.is_ok() => first,
+        Wake::Stayed => put_back()?,
         Wake::CameBack => {
             tracing::info!(displays = ?woken, "a display dropped off the list when it woke and came back; putting its layout back");
-            settled(put_back)
+            put_back()?
         }
         Wake::StayedAway => {
             tracing::warn!(displays = ?woken, "a display dropped off the list when it woke and did not come back in time");
             first
         }
+    };
+    if let Err(error) = put {
+        tracing::warn!(error = %format!("{error:#}"), "putting back the saved display layout failed");
+    }
+    restore()
+}
+/// A watch's thread, its displays and journal behind the arguments. True when it was
+/// stopped with the user's layout put back: the journal entry it leaves can go then,
+/// unless a lease takes it up. Kept until the end otherwise: a host that dies during the
+/// watch has its next start put the layout back, and a stream that starts takes it as
+/// its baseline, as what is on by then can be what Windows lit.
+fn run_wake_watch(
+    end: WakeEnd,
+    stop: &WatchStop,
+    read: impl FnMut() -> Result<Vec<String>>,
+    mut switch_off: impl FnMut() -> Result<()>,
+    mut put_back: impl FnMut() -> Result<()>,
+    mut restore: impl FnMut() -> Result<()>,
+    forget: impl FnOnce() -> Result<()>,
+) -> bool {
+    let WakeEnd {
+        woken,
+        restore: restore_due,
+        first,
+        restored,
+    } = end;
+    let layout_back = restored.is_ok();
+    let start = std::time::Instant::now();
+    let mut failed_away = false;
+    let wake = watch_wake(
+        &woken,
+        read,
+        || start.elapsed(),
+        || stop.wait(WAKE_POLL),
+        || {
+            if let Some(Err(error)) = watch_step(stop, &mut switch_off)
+                && !std::mem::replace(&mut failed_away, true)
+            {
+                tracing::warn!(error = %format!("{error:#}"), "switching off a display Windows recalled while the user's monitor is away failed");
+            }
+        },
+    );
+    let layout = after_wake(
+        &woken,
+        wake,
+        first,
+        restored,
+        || settled_step(stop, &mut put_back),
+        || {
+            if restore_due {
+                settled_step(stop, &mut restore)
+            } else {
+                Some(Ok(()))
+            }
+        },
+    );
+    let cleared = layout.and_then(|result| match result {
+        Ok(()) => watch_step(stop, forget),
+        Err(error) => Some(Err(error)),
+    });
+    match cleared {
+        Some(Ok(())) => false,
+        Some(Err(error)) => {
+            tracing::warn!(error = %format!("{error:#}"), "display arrangement restoration remains pending");
+            false
+        }
+        None => {
+            tracing::info!(displays = ?woken, "a launch or the host's stop ended the watch over a woken display");
+            layout_back
+        }
     }
 }
+/// Start the watch, which owns what `remains` of the stream: its display above all.
+fn start_wake_watch(
+    before: Snapshot,
+    target: String,
+    end: WakeEnd,
+    remains: Option<Box<dyn Send>>,
+) {
+    let layout_back = end.restored.is_ok();
+    let started = WAKE_WATCHER.start(move |stop| {
+        tracing::info!(displays = ?end.woken, "keeping the stream's display in the background until the woken display has stayed or returned");
+        crate::input::on_input_desktop(move || {
+            let left = run_wake_watch(
+                end,
+                stop,
+                connected,
+                || switch_off_strays(&before.nodes),
+                || forget_saved_layout(&before, &target, true),
+                || before.restore(),
+                || crate::display_recovery::arrangement(None),
+            );
+            drop(remains);
+            left
+        })
+    });
+    if !started && layout_back {
+        WAKE_WATCHER.journal_left();
+    }
+}
+/// How long Windows gets to settle between tries ([`settled`]).
+const SETTLE_RETRY: std::time::Duration = std::time::Duration::from_millis(250);
 /// Retry while Windows is still applying another change, such as a virtual
 /// display being removed: reading its mode fails until the change settles.
 fn settled<T>(mut attempt: impl FnMut() -> Result<T>) -> Result<T> {
@@ -885,7 +1178,7 @@ fn settled<T>(mut attempt: impl FnMut() -> Result<T>) -> Result<T> {
             Ok(value) => return Ok(value),
             Err(error) => {
                 tracing::debug!(error = %format!("{error:#}"), "display layout change pending; retrying");
-                std::thread::sleep(std::time::Duration::from_millis(250));
+                std::thread::sleep(SETTLE_RETRY);
             }
         }
     }
@@ -950,6 +1243,8 @@ pub struct Lease {
     target: Mutex<String>,
     /// Why what Windows recalled when this stream's display arrived could not be put back.
     repair_failure: Option<String>,
+    /// What goes after the lease ([`Lease::end`]).
+    remains: Mutex<Option<Box<dyn Send>>>,
 }
 /// Log a repair that failed, and return what the stream's card says about it.
 fn failed_repair(what: &str, error: anyhow::Error) -> String {
@@ -1020,6 +1315,7 @@ impl Lease {
                     arrangement: owned,
                     target: Mutex::new(target_id),
                     repair_failure: None,
+                    remains: Mutex::default(),
                 });
             }
             // The displays that are on now can hold an entry a stream on another
@@ -1060,6 +1356,7 @@ impl Lease {
                 arrangement: owned,
                 target: Mutex::new(target_id),
                 repair_failure,
+                remains: Mutex::default(),
             });
         }
         let mut current = Snapshot::capture()?;
@@ -1142,7 +1439,14 @@ impl Lease {
             arrangement,
             target: Mutex::new(target_id),
             repair_failure,
+            remains: Mutex::default(),
         })
+    }
+    /// End the lease, and with it what `remains` of the stream: its display above all,
+    /// which outlasts the lease only as long as the watch over a woken display needs it.
+    /// That takes no one's time: this returns once the layout went back.
+    pub fn end(self, remains: impl Send + 'static) {
+        *self.remains.lock().unwrap() = Some(Box::new(remains));
     }
     /// Displays this stream's layout switched off that Windows has switched
     /// back on, such as when an exclusive-fullscreen game loses focus and
@@ -1210,8 +1514,50 @@ impl Lease {
         )
     }
 }
+/// The last lease on a layout ended: put back the entry it `saved` and the user's layout.
+/// What to watch afterwards, in which case the journal entry stays for the watch to clear.
+fn end_layout(state: &State, target: &str, saved: bool) -> Result<Option<WakeEnd>> {
+    // Put the saved entry back even when the user changed the layout:
+    // Windows recalls the entry for the remaining displays anyway once
+    // the virtual display is removed.
+    let restore = state
+        .before
+        .as_ref()
+        .is_some_and(|before| disabled_original_displays(&before.nodes, &state.applied))
+        || settled(|| unchanged(&state.applied))?;
+    let Some(before) = state.before.as_ref() else {
+        crate::display_recovery::arrangement(None)?;
+        return Ok(None);
+    };
+    let woken = if saved {
+        displays_to_watch(before, target)
+    } else {
+        Vec::new()
+    };
+    if !woken.is_empty() {
+        // One try each: a display dropping now fails them, and the watch tries again.
+        let first = forget_saved_layout(before, target, true);
+        let restored = if restore { before.restore() } else { Ok(()) };
+        return Ok(Some(WakeEnd {
+            woken,
+            restore,
+            first,
+            restored,
+        }));
+    }
+    if saved && let Err(error) = settled(|| forget_saved_layout(before, target, true)) {
+        tracing::warn!(error = %format!("{error:#}"), "putting back the saved display layout failed");
+    }
+    if restore {
+        settled(|| before.restore())?;
+    }
+    crate::display_recovery::arrangement(None)?;
+    Ok(None)
+}
 impl Drop for Lease {
     fn drop(&mut self) {
+        // Declared before the lock, so dropped after it: removing a display takes a while.
+        let mut remains = self.remains.get_mut().unwrap().take();
         let mut state = state().lock().unwrap();
         let target = self.target.lock().unwrap().clone();
         state.users -= 1;
@@ -1230,36 +1576,22 @@ impl Drop for Lease {
             }
             return;
         }
-        let restored = (|| -> Result<()> {
-            // Put the saved entry back even when the user changed the layout:
-            // Windows recalls the entry for the remaining displays anyway once
-            // the virtual display is removed.
-            let restore =
-                state.before.as_ref().is_some_and(|before| {
-                    disabled_original_displays(&before.nodes, &state.applied)
-                }) || settled(|| unchanged(&state.applied))?;
-            if saved
-                && let Some(before) = &state.before
-                && let Err(error) = put_back_through_wake(before, &target)
-            {
-                tracing::warn!(error = %format!("{error:#}"), "putting back the saved display layout failed");
-            }
-            if restore && let Some(before) = &state.before {
-                settled(|| before.restore())?;
-            }
-            crate::display_recovery::arrangement(None)
-        })();
-        if let Err(error) = restored {
+        let watch = end_layout(&state, &target, saved).unwrap_or_else(|error| {
             tracing::warn!(error = %format!("{error:#}"), "display arrangement restoration remains pending");
-        }
+            None
+        });
+        let before = state.before.take();
         state.persisted = false;
         state.persists_for.clear();
-        state.before = None;
         state.applied.clear();
         state.key.clear();
         state.owners.clear();
         state.arrangement = None;
         state.retained.clear();
+        drop(state);
+        if let (Some(end), Some(before)) = (watch, before) {
+            start_wake_watch(before, target, end, remains.take());
+        }
     }
 }
 

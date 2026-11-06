@@ -585,6 +585,8 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
         _=runtime::maintain(h.clone(), stop_signal, actions, ports.web)=>Ok(())
     };
     h.stop.store(true, Ordering::Release);
+    // Nothing waits on a monitor's wake on the way out; the next start puts back what is left.
+    butterpollo_windows::display_arrangement::close_wake_watch();
     let canceled = h.sessions.lock().unwrap().request_stop(None);
     drop(canceled);
     let deadline = Instant::now() + Duration::from_secs(10);

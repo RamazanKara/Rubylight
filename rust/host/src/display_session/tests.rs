@@ -2,6 +2,25 @@ use super::*;
 use std::cell::Cell;
 use std::sync::mpsc;
 
+thread_local! {
+    /// How often this thread held off the watch over a woken display.
+    pub(crate) static WAKE_WATCH_HOLDS: Cell<usize> = const { Cell::new(0) };
+}
+#[test]
+fn a_stream_being_prepared_stops_the_watch_before_anything_else() {
+    use crate::state::test_support::Fixture;
+    let f = Fixture::new();
+    let launch = f.launch(f.client(u32::MAX), Role::Stream);
+    let mut config = Config::default();
+    // Refused at the first look at the settings, so nothing here touches a display.
+    config
+        .values
+        .insert("output_name".into(), "window:nonsense".into());
+    WAKE_WATCH_HOLDS.with(|holds| holds.set(0));
+    assert!(prepare_stream(&f.host, &launch, &Negotiated::default(), &config).is_err());
+    assert_eq!(WAKE_WATCH_HOLDS.with(Cell::get), 1);
+}
+
 #[test]
 fn stream_here_too_shares_the_display_the_game_is_on() {
     assert_eq!(

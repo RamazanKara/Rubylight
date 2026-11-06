@@ -2564,6 +2564,9 @@ fn prepare_launch_display(
     args: &Args,
     launch: &Launch,
 ) -> Result<crate::display_session::StreamPreparation> {
+    // First: a watched display still reads as live to what follows, and a kept
+    // display's resume or a co-op player's window prepares no stream of its own.
+    let _wake_watch = crate::display_session::hold_off_wake_watch();
     let config = crate::stream::effective_config(h, launch)?;
     let mode = args
         .get("mode")
@@ -3496,6 +3499,19 @@ mod tests {
         let other = launch_app_error(anyhow::anyhow!("remote input is disabled"));
         assert_eq!(other.to_string(), "remote input is disabled");
         assert!(other.downcast_ref::<LaunchFailure>().is_none());
+    }
+    #[test]
+    fn a_launch_stops_the_watch_before_it_looks_at_a_display() {
+        use crate::display_session::tests::WAKE_WATCH_HOLDS;
+        use crate::state::test_support::Fixture;
+        use butterpollo_core::session::Role;
+        let f = Fixture::new();
+        let launch = f.launch(f.client(u32::MAX), Role::Stream);
+        let args = super::Args::from([("mode".to_owned(), "not a mode".to_owned())]);
+        WAKE_WATCH_HOLDS.with(|holds| holds.set(0));
+        // Refused before any display: what a launch does first is all this reaches.
+        assert!(super::prepare_launch_display(&f.host, &args, &launch).is_err());
+        assert_eq!(WAKE_WATCH_HOLDS.with(std::cell::Cell::get), 1);
     }
     #[test]
     fn a_slow_teardown_blocks_the_next_launch_after_the_wait() {

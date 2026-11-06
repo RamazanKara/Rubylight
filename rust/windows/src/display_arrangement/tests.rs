@@ -476,7 +476,8 @@ fn the_entry_a_stream_puts_back_has_the_users_displays_as_they_had_them() {
     let mut vdd = node("vdd", true, true);
     vdd.mode.width = 1280;
     let current = [vdd, retimed];
-    let layout = entry_layout(&before, &current, "vdd").unwrap();
+    let connected = ["monitor", "vdd"].map(String::from);
+    let layout = entry_layout(&before, &current, &connected, "vdd").unwrap();
     let find = |id: &str| layout.nodes.iter().find(|n| n.device_id == id).unwrap();
     let monitor_now = find("monitor");
     assert_eq!(monitor_now.mode.refresh_hz, 120.);
@@ -491,7 +492,49 @@ fn the_entry_a_stream_puts_back_has_the_users_displays_as_they_had_them() {
     assert_eq!(layout.hdr, before.hdr);
     assert_eq!(layout.scale, before.scale);
     // Nothing to save for a display that is off.
-    assert!(entry_layout(&before, &[node("vdd", false, false)], "vdd").is_err());
+    assert!(entry_layout(&before, &[node("vdd", false, false)], &connected, "vdd").is_err());
+}
+#[test]
+fn a_display_that_is_gone_leaves_no_gap_in_the_entry() {
+    let mut monitor = node("monitor", true, true);
+    monitor.mode.width = 2560;
+    // A remote monitor that left during the stream: `retain_in` keeps its node on.
+    let mut gone = node("remote", true, false);
+    gone.desired_position = Position { x: 2560, y: 0 };
+    let before = snapshot(vec![monitor, gone]);
+    let current = [node("vdd", true, true)];
+    let connected = ["monitor", "vdd"].map(String::from);
+    let layout = entry_layout(&before, &current, &connected, "vdd").unwrap();
+    assert!(!layout.nodes.iter().any(|n| n.device_id == "remote"));
+    let vdd = layout.nodes.iter().find(|n| n.device_id == "vdd").unwrap();
+    assert_eq!(vdd.desired_position, Position { x: 2560, y: 0 });
+    // Still connected, it keeps its place and the entry goes beyond it.
+    let connected = ["monitor", "remote", "vdd"].map(String::from);
+    let layout = entry_layout(&before, &current, &connected, "vdd").unwrap();
+    let vdd = layout.nodes.iter().find(|n| n.device_id == "vdd").unwrap();
+    assert_eq!(vdd.desired_position, Position { x: 4480, y: 0 });
+}
+#[test]
+fn a_layout_that_keeps_its_displays_apart_saves_no_entry() {
+    for arrangement in [Arrangement::Isolated, Arrangement::PrimaryIsolated] {
+        let mut monitor = node("monitor", true, true);
+        monitor.mode.refresh_hz = 120.;
+        let mut apart = node("a", true, false);
+        apart.desired_position = Position { x: 64000, y: 64000 };
+        let mut state = holding(arrangement, vec![monitor, apart], false);
+        state.owners = vec![("a".to_owned(), 1)];
+        assert!(!repair_saves(&state), "{arrangement:?}");
+        // The repair at a departure still puts the monitor back, unsaved.
+        let connected = ["monitor", "a"].map(String::from);
+        let repair = departure_repair(
+            &state,
+            arrangement,
+            &[node("monitor", true, true), node("a", true, false)],
+            &connected,
+        )
+        .unwrap();
+        assert!(!repair.saves, "{arrangement:?}");
+    }
 }
 /// Run [`put_entry_back`] with the stream's display as `current` has it: the steps
 /// taken, in order, and its result.
@@ -509,7 +552,7 @@ fn entry_steps(
             steps.borrow_mut().push("on");
             Ok(())
         },
-        || current,
+        || current.map(|nodes| (nodes, vec!["monitor".to_owned(), "vdd".to_owned()])),
         |layout| {
             assert!(
                 layout

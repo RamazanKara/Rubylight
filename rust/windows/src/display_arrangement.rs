@@ -442,7 +442,7 @@ fn forget_saved_layout(before: &Snapshot, target: &str, saves: bool) -> Result<(
         before,
         target,
         Topology::set_active,
-        || Ok(Snapshot::capture()?.nodes),
+        || Ok((Snapshot::capture()?.nodes, connected()?)),
         Snapshot::restore,
         || {
             if saves {
@@ -457,10 +457,19 @@ fn forget_saved_layout(before: &Snapshot, target: &str, saves: bool) -> Result<(
 /// is for the displays connected now. Saved while the held layout keeps a display of
 /// the user's off, it has that display off, and unless the layout saves its own
 /// ([`saves_layout`]) nothing takes that back: Windows recalls it when a later
-/// virtual display leaves, and the monitor stays dark.
+/// virtual display leaves, and the monitor stays dark. An isolated layout saves
+/// nothing either: its displays are 64000 apart on purpose, which is no entry for
+/// Windows to hand a later stream.
 fn repair_saves(state: &State) -> bool {
-    saves_layout(state, None)
-        || !state
+    if saves_layout(state, None) {
+        return true;
+    }
+    let isolated = matches!(
+        state.arrangement,
+        Some(Arrangement::Isolated | Arrangement::PrimaryIsolated)
+    );
+    !isolated
+        && !state
             .before
             .as_ref()
             .is_some_and(|before| disabled_original_displays(&before.nodes, &state.applied))
@@ -475,7 +484,7 @@ fn put_entry_back(
     before: &Snapshot,
     target: &str,
     set_active: impl FnOnce(&[String]) -> Result<()>,
-    current: impl FnOnce() -> Result<Vec<Node>>,
+    read: impl FnOnce() -> Result<(Vec<Node>, Vec<String>)>,
     restore: impl FnOnce(&Snapshot) -> Result<()>,
     save: impl FnOnce() -> Result<()>,
 ) -> Result<()> {
@@ -487,21 +496,35 @@ fn put_entry_back(
         .collect();
     ids.push(target.to_owned());
     set_active(&ids)?;
-    let layout = entry_layout(before, &current()?, target)?;
+    let (current, connected) = read()?;
+    let layout = entry_layout(before, &current, &connected, target)?;
     let laid_out = restore(&layout);
     // A layout that only partly went back still beats the entry with them off,
     // and this entry is the stream's display's own.
     save()?;
     laid_out
 }
-/// `before` with the virtual display `target`, as it is in `current`, beside it.
-fn entry_layout(before: &Snapshot, current: &[Node], target: &str) -> Result<Snapshot> {
+/// `before` with the virtual display `target`, as it is in `current`, beside it. A
+/// display no longer `connected` has no place in it: `before` keeps a departed remote
+/// monitor's node, and the entry would have a gap where it was.
+fn entry_layout(
+    before: &Snapshot,
+    current: &[Node],
+    connected: &[String],
+    target: &str,
+) -> Result<Snapshot> {
     let target = current
         .iter()
         .find(|n| n.device_id == target && n.active)
         .ok_or_else(|| anyhow::anyhow!("the stream's display is off"))?;
+    let present: Vec<_> = before
+        .nodes
+        .iter()
+        .filter(|n| connected.contains(&n.device_id))
+        .cloned()
+        .collect();
     let mut layout = before.clone();
-    layout.nodes = butterpollo_core::display_policy::beside_the_users(&before.nodes, target);
+    layout.nodes = butterpollo_core::display_policy::beside_the_users(&present, target);
     Ok(layout)
 }
 /// Whether a virtual display's arrival handed a layout that keeps the other

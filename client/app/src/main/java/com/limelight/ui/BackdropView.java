@@ -12,12 +12,9 @@ import android.os.Looper;
 import android.util.AttributeSet;
 import android.util.LruCache;
 import android.view.View;
-import android.view.animation.AnimationUtils;
 import android.view.animation.LinearInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
-
-import com.limelight.R;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -25,8 +22,9 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
- * The ambient backdrop behind a TV screen: the focused game's cover, blurred and darkened (see {@link BackdropBlur}),
- * full bleed. Two ImageViews take turns, so a change is a crossfade with a short settle zoom on the incoming one.
+ * The ambient behind a screen: the game in focus, its cover baked by {@link BackdropBlur}, full bleed. Two ImageViews
+ * take turns, so a change is a crossfade over {@code motion.ambient.ms}. A vertical gradient to the screen's canvas is
+ * drawn over them in one paint, so it costs no extra view.
  *
  * <p>It is asked for a backdrop with {@link #focus} on every selection change and only acts on the last ask: the
  * change starts {@link #SETTLE_MS} after the selection settles, {@link #FAST_SETTLE_MS} while a key is held, so a run
@@ -44,10 +42,8 @@ public class BackdropView extends FrameLayout {
     public static final long SETTLE_MS = 90;
     /** And this long while the selection is moving fast (a held key). */
     public static final long FAST_SETTLE_MS = 250;
-    static final long FADE_MS = 280;
-    static final long FIRST_FADE_MS = 300;
-    static final long ZOOM_MS = 600;
-    static final float ZOOM_FROM = 1.04f;
+    static final long FADE_MS = 180;
+    static final long FIRST_FADE_MS = 180;
     private static final int CACHE_ENTRIES = 48;
     private static final LinearInterpolator LINEAR = new LinearInterpolator();
 
@@ -67,7 +63,12 @@ public class BackdropView extends FrameLayout {
     private Bitmap wantedCover;
     private boolean wantedNoArt;
     private String shownKey;
-    private android.view.animation.Interpolator settleInterpolator;
+    private boolean day;
+    private boolean portrait;
+    private android.graphics.Paint fadePaint;
+    private int[] fadeColors;
+    private float[] fadeStops;
+    private AmbientListener ambientListener;
     private final android.view.ViewTreeObserver.OnGlobalLayoutListener aligner = this::align;
     private int request;
     private int changes;
@@ -111,6 +112,55 @@ public class BackdropView extends FrameLayout {
     /** The screen's own colour: a game with no art gets it, and the blur fades into it. */
     public void setCanvasColor(int color) {
         canvas = color | 0xFF000000;
+    }
+
+    /** Which bake this screen wants: day or night, and portrait for a tall window. */
+    public void setBake(boolean day, boolean portrait) {
+        this.day = day;
+        this.portrait = portrait;
+    }
+
+    /**
+     * The fade to the canvas colour over the art: at each fraction of the height, how much of {@code color} shows.
+     * It reaches the foot of the window, where lists and glass sit on it.
+     */
+    public void setFade(int color, float[] stops, float[] alphas) {
+        fadeColors = new int[stops.length];
+        for (int i = 0; i < stops.length; i++) {
+            fadeColors[i] = (Math.round(alphas[i] * 255f) << 24) | (color & 0xFFFFFF);
+        }
+        fadeStops = stops;
+        if (fadePaint == null) fadePaint = new android.graphics.Paint();
+        fadePaint.setShader(null);
+        setWillNotDraw(false);
+        invalidate();
+    }
+
+    @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        if (fadePaint != null) fadePaint.setShader(null);
+    }
+
+    @Override
+    protected void dispatchDraw(android.graphics.Canvas canvas) {
+        super.dispatchDraw(canvas);
+        if (fadePaint == null || getHeight() == 0) return;
+        if (fadePaint.getShader() == null) {
+            fadePaint.setShader(new android.graphics.LinearGradient(0, 0, 0, getHeight(), fadeColors, fadeStops,
+                    android.graphics.Shader.TileMode.CLAMP));
+        }
+        canvas.drawRect(0, 0, getWidth(), getHeight(), fadePaint);
+    }
+
+    /** Told each new ambient as its fade starts, for the glass that samples it. */
+    public interface AmbientListener {
+        void onAmbient(Bitmap ambient, boolean animate);
+    }
+
+    public void setAmbientListener(AmbientListener listener) {
+        ambientListener = listener;
+        if (listener != null && shown != null) listener.onAmbient(shown, false);
     }
 
     /** High contrast dims the backdrop further, as a multiply on the layers, not another layer on top. */
@@ -170,6 +220,7 @@ public class BackdropView extends FrameLayout {
         shownKey = last;
         back.setImageBitmap(bitmap);
         shown = bitmap;
+        if (ambientListener != null) ambientListener.onAmbient(bitmap, false);
         covered();
         return true;
     }
@@ -195,8 +246,10 @@ public class BackdropView extends FrameLayout {
             return;
         }
         Bitmap cover = wantedCover;
+        boolean bakeDay = day;
+        boolean bakePortrait = portrait;
         executor.execute(() -> {
-            Bitmap made = BackdropBlur.make(cover, canvas);
+            Bitmap made = BackdropBlur.make(cover, canvas, bakeDay, bakePortrait);
             handler.post(() -> {
                 cache.put(key, made);
                 // A newer request, even one still waiting out its settle time, has the say.
@@ -215,7 +268,9 @@ public class BackdropView extends FrameLayout {
         handoffBitmap = bitmap;
         changes++;
         endTransition();
-        if (Motion.reduced(getContext()) || getWindowToken() == null) {
+        boolean cut = Motion.reduced(getContext()) || getWindowToken() == null;
+        if (ambientListener != null) ambientListener.onAmbient(bitmap, !cut);
+        if (cut) {
             back.setImageBitmap(bitmap);
             shown = bitmap;
             covered();
@@ -224,25 +279,12 @@ public class BackdropView extends FrameLayout {
         boolean first = shown == null;
         front.setImageBitmap(bitmap);
         front.setAlpha(0f);
-        front.setScaleX(first ? 1f : ZOOM_FROM);
-        front.setScaleY(first ? 1f : ZOOM_FROM);
         front.setVisibility(VISIBLE);
         ObjectAnimator fade = ObjectAnimator.ofFloat(front, View.ALPHA, 0f, 1f);
         fade.setDuration(first ? FIRST_FADE_MS : FADE_MS);
         fade.setInterpolator(LINEAR);
         AnimatorSet set = new AnimatorSet();
-        if (first) {
-            set.play(fade);
-        } else {
-            android.view.animation.Interpolator settle = settleInterpolator();
-            ObjectAnimator zoomX = ObjectAnimator.ofFloat(front, View.SCALE_X, ZOOM_FROM, 1f);
-            ObjectAnimator zoomY = ObjectAnimator.ofFloat(front, View.SCALE_Y, ZOOM_FROM, 1f);
-            zoomX.setDuration(ZOOM_MS);
-            zoomY.setDuration(ZOOM_MS);
-            zoomX.setInterpolator(settle);
-            zoomY.setInterpolator(settle);
-            set.playTogether(fade, zoomX, zoomY);
-        }
+        set.play(fade);
         transition = set;
         set.addListener(new AnimatorListenerAdapter() {
             private boolean cancelled;
@@ -339,10 +381,5 @@ public class BackdropView extends FrameLayout {
         getLocationInWindow(at);
         if (at[0] != 0) setTranslationX(getTranslationX() - at[0]);
         if (at[1] != 0) setTranslationY(getTranslationY() - at[1]);
-    }
-
-    private android.view.animation.Interpolator settleInterpolator() {
-        if (settleInterpolator == null) settleInterpolator = AnimationUtils.loadInterpolator(getContext(), R.interpolator.tv_emph_dec);
-        return settleInterpolator;
     }
 }

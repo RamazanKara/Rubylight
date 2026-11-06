@@ -144,7 +144,7 @@ public class BackdropViewTest {
         Bitmap first = ((BitmapDrawable) back().getDrawable()).getBitmap();
 
         backdrop.focus("b", cover(), false);
-        pass(BackdropView.SETTLE_MS + BackdropView.ZOOM_MS + 100);
+        pass(BackdropView.SETTLE_MS + BackdropView.FADE_MS + 100);
         assertEquals("the fade is over: the front layer is free", View.GONE, front().getVisibility());
         assertNull(front().getDrawable());
         assertEquals(1f, front().getScaleX(), 0f);
@@ -258,5 +258,5 @@ public class BackdropViewTest {
         assertEquals(1, page.changeCount());
     }
 
-    private static final long SETTLE_AND_FADE = BackdropView.SETTLE_MS + BackdropView.ZOOM_MS + 100;
+    private static final long SETTLE_AND_FADE = BackdropView.SETTLE_MS + BackdropView.FADE_MS + 100;
 }

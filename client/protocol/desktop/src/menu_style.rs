@@ -809,8 +809,8 @@ fn ").unwrap_or(main.len() - start)];
         use crate::strings::tr;
         crate::theme::own_palette();
         crate::theme::set_high_contrast(high_contrast);
-        let art = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/src/debug/assets/demo/art/3.png");
-        let art = image::load_from_memory(&std::fs::read(art).expect("the demo cover")).expect("a PNG").to_rgba8();
+        let art = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/src/debug/assets/demo/art/3.jpg");
+        let art = image::load_from_memory(&std::fs::read(art).expect("the demo cover")).expect("a JPEG").to_rgba8();
         let ctx = egui::Context::default();
         crate::theme::apply(&ctx);
         let picture = ctx.load_texture(

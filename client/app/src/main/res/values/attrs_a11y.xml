@@ -21,4 +21,7 @@
     <attr name="nightjarPosterFocusAnimatorSmall" format="reference" />
     <attr name="nightjarPosterRing" format="reference" />
     <attr name="nightjarPosterGlow" format="reference" />
+    <!-- The interface's two weights: a font resource where Figtree covers the language, else the system face. -->
+    <attr name="nightjarFace" format="string|reference" />
+    <attr name="nightjarFaceStrong" format="string|reference" />
 </resources>

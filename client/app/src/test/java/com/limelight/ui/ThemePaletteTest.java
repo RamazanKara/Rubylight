@@ -198,7 +198,7 @@ public class ThemePaletteTest {
     public void dayTokenPairsMeetTheirContrastFloors() {
         Context app = themed(R.style.AppTheme);
         assertEquals(0xFF1D6B39, res(app, R.color.status_ok));
-        assertEquals(0xFF6B5300, res(app, R.color.status_warn));
+        assertEquals(0xFF7A5200, res(app, R.color.status_warn));
         assertTokenPairs(app);
     }
 

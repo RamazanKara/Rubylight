@@ -4,8 +4,8 @@
     <style name="TextAppearance.Nightjar.Display" parent="TextAppearance.Material3.HeadlineLarge">
         <item name="android:textSize">36sp</item>
         <item name="lineHeight">44sp</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="fontFamily">sans-serif-medium</item>
+        <item name="android:fontFamily">?attr/nightjarFaceStrong</item>
+        <item name="fontFamily">?attr/nightjarFaceStrong</item>
         <item name="android:letterSpacing">0</item>
     </style>
 </resources>

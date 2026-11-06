@@ -25,6 +25,20 @@ public final class DemoConsoleHome extends ConsoleHomeActivity {
     }
 
     private boolean optionsOpened;
+    private DemoFocusLatency focusLatency;
+
+    @Override public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        if (focusLatency != null) focusLatency.onKey(event);
+        return super.dispatchKeyEvent(event);
+    }
+
+    @Override protected void onStart() {
+        super.onStart();
+        // "--ez focusLatency true": scripts/home-speed.py reads D-pad press to moved-focus frame from logcat.
+        if (focusLatency == null && DemoFocusLatency.wanted) {
+            focusLatency = new DemoFocusLatency(this);
+        }
+    }
 
     @Override protected void onResume() {
         super.onResume();

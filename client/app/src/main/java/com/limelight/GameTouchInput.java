@@ -1,6 +1,7 @@
 package com.limelight;
 
 import com.limelight.binding.input.MouseDeltaAccumulator;
+import com.limelight.binding.input.TouchArrivalWatch;
 import com.limelight.binding.input.touch.AbsoluteTouchContext;
 import com.limelight.binding.input.touch.PointerAcceleration;
 import com.limelight.binding.input.touch.RelativeTouchContext;
@@ -40,6 +41,7 @@ final class GameTouchInput {
         this.game = game;
     }
 
+    private final TouchArrivalWatch touchArrivals = new TouchArrivalWatch();
     private int lastButtonState = 0;
     private final MouseDeltaAccumulator mouseDeltaX = new MouseDeltaAccumulator();
     private final MouseDeltaAccumulator mouseDeltaY = new MouseDeltaAccumulator();
@@ -1243,6 +1245,7 @@ final class GameTouchInput {
 
     @SuppressLint("ClickableViewAccessibility")
     boolean onTouch(View view, MotionEvent event) {
+        noteTouchArrivals(event);
         game.keyboardInput.noteStreamPress(view, event);
         if (game.desktopGestures != null && game.desktopGestures.enabled() && game.foreground && game.connected && game.streamMenu == null) {
             MotionEvent relative = MotionEvent.obtain(event);
@@ -1266,6 +1269,18 @@ final class GameTouchInput {
         }
 
         return handleMotionEvent(view, event);
+    }
+
+    private void noteTouchArrivals(MotionEvent event) {
+        if (event.getActionMasked() != MotionEvent.ACTION_MOVE) return;
+        for (int i = 0; i < event.getHistorySize(); i++) touchArrivals.sample(event.getHistoricalEventTime(i));
+        touchArrivals.sample(event.getEventTime());
+        String line = touchArrivals.delivered(android.os.SystemClock.uptimeMillis());
+        if (line != null) {
+            android.view.Display display = game.videoOutput.getVideoDisplay();
+            LimeLog.info(line + ", display at " + display.getRefreshRate() + " Hz" +
+                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? " of " + display.getMode().getRefreshRate() + " Hz" : ""));
+        }
     }
 
     void updateGameTouchProfile() {

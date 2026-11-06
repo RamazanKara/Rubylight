@@ -70,6 +70,7 @@ final class HomeChrome {
     }
 
     /** The probe failed: run the lower tier now, and if that one is live too, probe it in turn. */
+    @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.N)
     private void stepDown(GlassTier lower) {
         host.setTier(lower);
         probe = GlassProbe.continueAt(activity, lower, this::stepDown);
@@ -109,7 +110,7 @@ final class HomeChrome {
     }
 
     void destroy() {
-        if (probe != null) probe.stop();
+        if (probe != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) probe.stop();
     }
 
     private void placeTabs() {

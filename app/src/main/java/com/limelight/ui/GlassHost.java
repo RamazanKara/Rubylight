@@ -161,7 +161,7 @@ public class GlassHost extends FrameLayout {
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
-        if (live != null) live.resize(w, h);
+        if (live != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) live.resize(w, h);
     }
 
     @Override

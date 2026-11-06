@@ -30,7 +30,24 @@ pub fn service() -> &'static str {
 /// Whether this PC's Rubylight keeps other hosts: it never stops or removes
 /// them, nor the drivers they use.
 pub fn side_by_side() -> bool {
-    service() == host_service::SIDE_BY_SIDE
+    let service = service();
+    keeps_other_hosts(
+        service,
+        service_program(service).is_some_and(|p| our_service(&p)),
+        side_by_side_profile(),
+    )
+}
+/// What says an installation keeps other hosts: the record or its service
+/// ([`service`]), else, with both lost, the mark in the profile side by side
+/// made. A Rubylight running as the default service is a normal one, whatever
+/// profile an earlier uninstall left it.
+fn keeps_other_hosts(service: &str, service_is_ours: bool, marked: bool) -> bool {
+    service == host_service::SIDE_BY_SIDE || (marked && !service_is_ours)
+}
+fn side_by_side_profile() -> bool {
+    crate::install::profile()
+        .join(crate::install::SIDE_BY_SIDE_MARK)
+        .is_file()
 }
 /// What an installation records about its service, before the service is
 /// registered, so the drivers' steps and every later run see the same.
@@ -103,11 +120,18 @@ pub struct Found {
     pub service: &'static str,
     /// Previous hosts' services that are not Rubylight's.
     pub other_services: Vec<&'static str>,
+    /// Whether the profile carries side by side's mark.
+    pub side_by_side_profile: bool,
 }
 impl Found {
     /// Whether a Rubylight is installed here that keeps other hosts.
     pub fn installed_side_by_side(&self) -> bool {
-        self.service == host_service::SIDE_BY_SIDE && self.current().is_some()
+        self.current().is_some()
+            && keeps_other_hosts(
+                self.service,
+                self.service_install.is_some(),
+                self.side_by_side_profile,
+            )
     }
     /// Whether this run installs side by side. `requested` is --side-by-side
     /// or the setup window's choice. An installation stays what it is: a
@@ -342,6 +366,7 @@ pub fn scan() -> Found {
     }
     found.service = self::service();
     found.other_services = other_services(service_program);
+    found.side_by_side_profile = side_by_side_profile();
     found.service_install = service_program(found.service)
         .filter(|p| our_service(p))
         .and_then(|p| p.parent().map(PathBuf::from));
@@ -563,6 +588,59 @@ mod tests {
             assert!(!code.contains("\"ApolloService\""));
             assert!(!code.contains("detect::SERVICE"));
         }
+    }
+    /// With the record and the service both lost, a quiet run must not take the
+    /// Apps entry for a normal installation and remove the host it was kept beside.
+    #[test]
+    fn the_profiles_mark_keeps_an_installation_side_by_side() {
+        let entry = || {
+            let mut ours = product("Rubylight", "Butterpollo");
+            ours.location = Some(PathBuf::from(r"C:\Program Files\Rubylight"));
+            ours
+        };
+        let lost = Found {
+            service: host_service::DEFAULT,
+            butterpollo: Some(entry()),
+            side_by_side_profile: true,
+            ..Default::default()
+        };
+        assert!(lost.installed_side_by_side());
+        assert!(lost.side_by_side(false).unwrap());
+        assert!(lost.side_by_side(true).unwrap());
+        // Without the mark, the Apps entry alone is a normal installation.
+        let unmarked = Found {
+            side_by_side_profile: false,
+            ..lost
+        };
+        assert!(!unmarked.side_by_side(false).unwrap());
+        assert!(unmarked.side_by_side(true).is_err());
+        // Rubylight running as the default service stays what it is, over a
+        // profile an earlier side-by-side installation left.
+        let normal = Found {
+            service: host_service::DEFAULT,
+            service_install: Some(PathBuf::from(r"C:\Program Files\Rubylight")),
+            butterpollo: Some(entry()),
+            side_by_side_profile: true,
+            ..Default::default()
+        };
+        assert!(!normal.installed_side_by_side());
+        assert!(!normal.side_by_side(false).unwrap());
+        // That profile with nothing installed: a new run still chooses.
+        let uninstalled = Found {
+            service: host_service::DEFAULT,
+            side_by_side_profile: true,
+            ..Default::default()
+        };
+        assert!(!uninstalled.side_by_side(false).unwrap());
+        assert!(uninstalled.side_by_side(true).unwrap());
+    }
+    #[test]
+    fn the_steps_that_keep_shared_drivers_read_the_mark_too() {
+        assert!(keeps_other_hosts(host_service::SIDE_BY_SIDE, true, false));
+        assert!(keeps_other_hosts(host_service::SIDE_BY_SIDE, false, false));
+        assert!(keeps_other_hosts(host_service::DEFAULT, false, true));
+        assert!(!keeps_other_hosts(host_service::DEFAULT, true, true));
+        assert!(!keeps_other_hosts(host_service::DEFAULT, false, false));
     }
     /// Replace stays the default of existing upgrades. An installation stays
     /// what it is, whatever a later run asks.

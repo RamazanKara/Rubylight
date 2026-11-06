@@ -189,7 +189,7 @@ fn side_by_side_conf(base: u16, pc: Option<&str>) -> String {
 /// Marks a profile that side by side made, so its identity was never imported
 /// from another host: it is kept when Rubylight is installed side by side again
 /// after an uninstall that kept its settings.
-const SIDE_BY_SIDE_MARK: &str = "side-by-side";
+pub(crate) const SIDE_BY_SIDE_MARK: &str = "side-by-side";
 /// Readies the profile of a side-by-side installation, which never takes
 /// settings or an identity from another host. An installed Rubylight's profile
 /// and one an earlier side-by-side installation left stay; a profile from

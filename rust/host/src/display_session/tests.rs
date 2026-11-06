@@ -1716,7 +1716,7 @@ fn a_browser_on_this_pc_teaches_its_device_no_layout() {
         prepared.output = r"\\.\DISPLAY9".into();
         prepared.virtual_layout = Some(planned.clone());
         prepared.inherited_layout = Some(configured);
-        prepared.layout_owner = layout_owner(&launch, true, monitors_kept);
+        prepared.layout_owner = layout_owner(&launch, true, monitors_kept, None, None);
         prepared.layout_snapshot = Some(windows_moved_the_primary());
         let limiter =
             limiter::Lease::acquire(&fixture.host.directory, &config, &prepared.framegen).unwrap();
@@ -2191,6 +2191,87 @@ fn vrr_negotiated_after_launch_requires_new_display_preparation() {
 
 fn codes(warnings: &Warnings) -> Vec<String> {
     warnings.snapshot().into_iter().map(|w| w.code).collect()
+}
+
+/// What a device keeps from a stream that planned `extended` and ends with only its own
+/// display on, as `set_up` has it.
+fn learned_alone(set_up: impl FnOnce(&mut Prepared, &Launch)) -> Option<serde_json::Value> {
+    let fixture = crate::state::test_support::Fixture::new();
+    let client = fixture.client(u32::MAX);
+    let config = Config::parse("dd_config_revert_delay=0").unwrap();
+    *fixture.host.config.write().unwrap() = config.clone();
+    let launch = fixture.launch(client, Role::Stream);
+    let mut prepared = test_prepared(&fixture.host);
+    prepared.output = r"\\.\DISPLAY9".into();
+    prepared.layout_snapshot = Some(vec![(prepared.output.clone(), true)]);
+    set_up(&mut prepared, &launch);
+    let limiter =
+        limiter::Lease::acquire(&fixture.host.directory, &config, &prepared.framegen).unwrap();
+    drop(Ready::prepare((prepared, limiter)).unwrap());
+    fixture.host.paired.read().unwrap().clients[0]
+        .extra
+        .get("virtual_display_layout")
+        .cloned()
+}
+fn extended_under(in_force: Arrangement, prepared: &mut Prepared, launch: &Launch) {
+    prepared.layout_owner = layout_owner(
+        launch,
+        true,
+        false,
+        Some(Arrangement::Extended),
+        Some(in_force),
+    );
+}
+
+#[test]
+fn a_stream_on_another_streams_layout_learns_nothing_from_how_that_ends() {
+    // A owned exclusive and left: B's display is alone, the monitor still off.
+    assert_eq!(
+        learned_alone(|p, l| extended_under(Arrangement::Exclusive, p, l)),
+        None
+    );
+    // A owned extended_primary: the same read would teach B that.
+    assert_eq!(
+        learned_alone(|p, l| {
+            extended_under(Arrangement::Primary, p, l);
+            p.layout_snapshot = Some(vec![(p.output.clone(), true), ("monitor".into(), false)]);
+        }),
+        None
+    );
+    // Issue 33: on its own layout, the user's "Show only on 2" is still learned.
+    assert_eq!(
+        learned_alone(|p, l| extended_under(Arrangement::Extended, p, l)),
+        Some(serde_json::json!("exclusive"))
+    );
+}
+
+#[test]
+fn a_layout_read_while_a_departure_is_unsettled_is_not_learned() {
+    // Another display left and this stream has not looked yet.
+    assert_eq!(
+        learned_alone(|p, l| {
+            extended_under(Arrangement::Extended, p, l);
+            p.departures = display_arrangement::departures().wrapping_add(1);
+        }),
+        None
+    );
+    // It looked, and the repair is still to come.
+    assert_eq!(
+        learned_alone(|p, l| {
+            extended_under(Arrangement::Extended, p, l);
+            p.layout_watch.display_left(std::time::Instant::now());
+        }),
+        None
+    );
+    // Once that ran, what the stream ends with is the user's again.
+    assert_eq!(
+        learned_alone(|p, l| {
+            extended_under(Arrangement::Extended, p, l);
+            p.layout_watch.display_left(std::time::Instant::now());
+            p.layout_watch.departure_handled();
+        }),
+        Some(serde_json::json!("exclusive"))
+    );
 }
 
 #[test]

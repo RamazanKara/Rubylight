@@ -365,8 +365,17 @@ fn layout_reason(monitors_kept: bool, configured: &str) -> Option<String> {
 /// fixed layout, or one Windows did not take. A layout [`browser_keeps_monitors`] ran in place of
 /// the setting says nothing about what the device wants, so nothing is learned from it either: it
 /// would keep the monitors on for later streams from elsewhere, which the user never chose.
-fn layout_owner(launch: &Launch, learnable: bool, monitors_kept: bool) -> Option<String> {
-    (launch.role == Role::Stream && learnable && !monitors_kept).then(|| launch.client.uuid.clone())
+/// Nor from a stream that joined others' layout (`in_force` is not its `planned`): what that
+/// does at the end, a first stream leaving with the monitor off, is nobody's choice for it.
+fn layout_owner(
+    launch: &Launch,
+    learnable: bool,
+    monitors_kept: bool,
+    planned: Option<Arrangement>,
+    in_force: Option<Arrangement>,
+) -> Option<String> {
+    (launch.role == Role::Stream && learnable && !monitors_kept && planned == in_force)
+        .then(|| launch.client.uuid.clone())
 }
 
 /// The virtual display layout of this launch.
@@ -590,6 +599,15 @@ fn notice_departure(
         *seen = departures;
         watch.display_left(now);
     }
+}
+/// Whether a display left that this stream has yet to lay the displays out again for. What is
+/// on until then can be what Windows recalled.
+fn departure_unsettled(
+    seen: u64,
+    departures: u64,
+    watch: &butterpollo_core::display_policy::LayoutWatch,
+) -> bool {
+    departures != seen || watch.departure_pending()
 }
 /// Whether a stream brings the game back after a display left. Not a remote monitor's,
 /// whose display is someone else's to look at, nor a paused one's, which may hold its
@@ -1896,7 +1914,12 @@ impl Prepared {
         // A layout Windows did not take is not one the user can be said to have chosen
         // at the end of the stream (issue #40: "extended" learned from an "extended +
         // primary" stream whose display never became primary, which then overrode every
-        // host setting).
+        // host setting). It is judged by the layout in force: a stream that joined others'
+        // takes theirs, whatever it planned.
+        let in_force = arrangement
+            .as_ref()
+            .map(display_arrangement::Lease::arrangement);
+        let expected = in_force.map_or(selection, |arrangement| arrangement.name());
         let layout_took = !virtual_layout
             || arrangement.is_none()
             || butterpollo_windows::display::monitors()
@@ -1906,19 +1929,19 @@ impl Prepared {
                         .map(|m| (m.display_name, m.primary))
                         .collect();
                     match butterpollo_core::display_policy::chosen_layout(
-                        selection, &output, &active,
+                        expected, &output, &active,
                     ) {
                         None => true,
                         Some(actual) => {
                             tracing::warn!(
                                 output = %output,
-                                planned = selection,
+                                planned = expected,
                                 actual,
                                 "Windows did not apply the virtual display layout"
                             );
                             launch.warnings.set(
                                 "display_layout",
-                                format!("Windows did not apply the {selection} display layout; the stream's display is {actual}. Check that no other display tool rearranges displays, then reconnect."),
+                                format!("Windows did not apply the {expected} display layout; the stream's display is {actual}. Check that no other display tool rearranges displays, then reconnect."),
                             );
                             false
                         }
@@ -1998,6 +2021,8 @@ impl Prepared {
                     launch,
                     virtual_mode && !background && client_display.is_none() && layout_took,
                     monitors_kept,
+                    parsed,
+                    in_force,
                 ),
                 client_display,
                 virtual_layout: virtual_layout.then(|| selection.to_owned()),

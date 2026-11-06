@@ -22,6 +22,16 @@ impl Prepared {
         let Some(h) = self.host.upgrade() else {
             return;
         };
+        // Another stream's display has just left and Windows' recall is not put back
+        // yet: what is on now is an entry from the database, nobody's choice.
+        if departure_unsettled(
+            self.departures,
+            display_arrangement::departures(),
+            &self.layout_watch,
+        ) {
+            tracing::debug!(output = %self.output, "a display has just left; not learning the layout the stream ended with");
+            return;
+        }
         let active = match self.active_layout() {
             Ok(monitors) => monitors,
             Err(error) => {

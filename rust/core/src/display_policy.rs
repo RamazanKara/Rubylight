@@ -850,6 +850,10 @@ impl LayoutWatch {
     pub fn departure_due(&self, now: std::time::Instant) -> bool {
         self.departure.is_some_and(|at| now >= at)
     }
+    /// Whether a display left and the displays are yet to be laid out again for it.
+    pub fn departure_pending(&self) -> bool {
+        self.departure.is_some()
+    }
     /// The displays were laid out again; a failed attempt keeps it due.
     pub fn departure_handled(&mut self) {
         self.departure = None;

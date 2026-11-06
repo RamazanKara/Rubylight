@@ -745,6 +745,10 @@ impl Lease {
     pub fn exclusive(&self) -> bool {
         self.arrangement == Arrangement::Exclusive
     }
+    /// The layout in force for this stream: the running streams', if it joined them.
+    pub fn arrangement(&self) -> Arrangement {
+        self.arrangement
+    }
     /// `virtual_target`: the streamed display is a virtual display made for
     /// streaming, so the user's own layout does not include it. `original`:
     /// the layout taken before that display was created; what Windows

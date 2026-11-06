@@ -1,0 +1,5 @@
+- Continue here moves a running game to this device in one press; Stream here too plays it on both.
+- Approve a new device from a paired one, and pair by opening a link.
+- Open straight into a game, for a TV or a handheld.
+- Group Home by Steam collections and Playnite categories.
+- On the Xiaomi FX Mini LED Fire TV, low-latency decoding starts off, because the picture could break into blocks.

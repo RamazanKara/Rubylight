@@ -17,6 +17,7 @@ use sdl3_sys::everything::*;
 
 use crate::hosts::Waker;
 use crate::media::{self, Codec, Hardware, Picture, Received};
+use crate::strings::trf;
 use super::playout::{Fed, Playout};
 use super::pyrowave::Failure;
 
@@ -944,22 +945,23 @@ impl Decoder {
         };
         let (opened, now) = match hardware {
             Ok(decoder) => {
-                let now = format!("decoding with {}", decoder.hardware.label());
+                let now = trf("{} cannot decode this stream. Now decoding with {}.", &[&refused.label(), &decoder.hardware.label()]);
                 (Ok(decoder), now)
             }
             Err(error) => {
                 eprintln!("nightjar: after {} refused the stream: {error}", refused.label());
-                (media::VideoDecoder::open(codec, Hardware::None, self.software_threads, false), "decoding in software".to_owned())
+                let now = trf("{} cannot decode this stream. Now decoding in software.", &[&refused.label()]);
+                (media::VideoDecoder::open(codec, Hardware::None, self.software_threads, false), now)
             }
         };
         self.decoder = None;
         match opened {
             Ok(decoder) => {
-                self.shared.notify(Notice::DecoderFallback(format!("{} cannot decode this stream; {now}", refused.label())));
+                self.shared.notify(Notice::DecoderFallback(now));
                 self.install(decoder, &setup);
             }
             Err(error) => {
-                self.shared.notify(Notice::DecoderFailed(format!("{} cannot decode this stream, and no other decoder opens: {error}", refused.label())));
+                self.shared.notify(Notice::DecoderFailed(trf("{} cannot decode this stream, and no other decoder opens: {}", &[&refused.label(), &error])));
             }
         }
     }
@@ -1989,6 +1991,23 @@ mod tests {
         assert!(backends_after(order.clone(), Hardware::Cuda).is_empty());
         assert!(backends_after(vec![Hardware::D3d11(gpu)], Hardware::D3d11(gpu)).is_empty(), "D3D11VA goes to software");
         assert!(backends_after(order, Hardware::None).is_empty());
+    }
+
+    /// A frame after which FFmpeg turns out to have taken the decoder to software renames it, says
+    /// so, opens the next decoder and asks for a key frame.
+    #[test]
+    fn a_refused_decoder_is_replaced_and_said_on_the_frame_that_shows_it() {
+        let (mut decoder, shared) = decoder();
+        let setup = VideoSetup { format: nightjar_core::sdp::VIDEO_FORMAT_H264, width: 128, height: 128, fps: 60, chroma_packing: 0, logical_width: 128, logical_height: 128, color_space: 1, color_range: 0 };
+        decoder.setup(&setup).unwrap();
+        assert!(notices(&shared).is_empty());
+        decoder.decoder.as_mut().expect("the software decoder").refuse();
+        assert_eq!(decoder.decode_frame(&Frame::default()), DecodeStatus::NeedIdr);
+        assert!(matches!(notices(&shared).as_slice(), [Notice::DecoderFallback(_)]), "the fallback is said");
+        assert_eq!(decoder.refused, [(Hardware::None, setup.format)]);
+        let replaced = decoder.decoder.as_ref().expect("a decoder after the refusal");
+        assert!(!replaced.refused(), "a new decoder, not the refused one");
+        assert!(lock(&shared.decoder_name).contains("refused"), "{}", lock(&shared.decoder_name));
     }
 
     /// A refused decoder replaced mid-stream by a backend that never asked for reference frame

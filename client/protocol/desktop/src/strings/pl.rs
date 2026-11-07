@@ -1405,4 +1405,7 @@ sudo sysctl -w net.core.rmem_max={}", "Bufor odbioru: system przydzielił {0} Ki
     ("Desktop", "Pulpit"),
     ("Searching for PCs…", "Wyszukiwanie komputerów…"),
     ("Can't search this network for PCs", "Nie można wyszukać komputerów w tej sieci"),
+    ("{} cannot decode this stream. Now decoding with {}.", "{0} nie może dekodować tego strumienia. Teraz dekoduje {1}."),
+    ("{} cannot decode this stream. Now decoding in software.", "{} nie może dekodować tego strumienia. Teraz dekodowanie programowe."),
+    ("{} cannot decode this stream, and no other decoder opens: {}", "{0} nie może dekodować tego strumienia i żaden inny dekoder się nie otwiera: {1}"),
 ];

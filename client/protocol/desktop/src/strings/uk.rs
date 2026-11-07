@@ -1405,4 +1405,7 @@ sudo sysctl -w net.core.rmem_max={}", "Буфер приймання: систе
     ("Desktop", "Робочий стіл"),
     ("Searching for PCs…", "Пошук ПК…"),
     ("Can't search this network for PCs", "Не вдається шукати ПК у цій мережі"),
+    ("{} cannot decode this stream. Now decoding with {}.", "{0} не може декодувати цей потік. Тепер декодує {1}."),
+    ("{} cannot decode this stream. Now decoding in software.", "{} не може декодувати цей потік. Тепер декодування програмне."),
+    ("{} cannot decode this stream, and no other decoder opens: {}", "{0} не може декодувати цей потік, і жоден інший декодер не відкривається: {1}"),
 ];

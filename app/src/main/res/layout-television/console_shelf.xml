@@ -11,7 +11,7 @@
             android:fontFamily="?attr/nightjarFaceStrong" android:textColor="?attr/colorOnSurface"
             android:accessibilityHeading="true" />
         <TextView android:id="@+id/shelf_count" android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:layout_marginStart="6dp" android:textSize="13sp" android:fontFamily="?attr/nightjarFace"
+            android:layout_marginStart="6dp" android:textSize="14sp" android:fontFamily="?attr/nightjarFace"
             android:textColor="?attr/colorOnSurfaceVariant" android:importantForAccessibility="no" />
         <ImageView android:id="@+id/shelf_more" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"
             android:importantForAccessibility="no" />

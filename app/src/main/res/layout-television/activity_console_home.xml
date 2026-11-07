@@ -17,7 +17,7 @@
                 android:fontFamily="?attr/nightjarFaceStrong" android:letterSpacing="-0.02" android:textColor="@color/nj_color_label"
                 android:shadowColor="#66000000" android:shadowRadius="12" android:shadowDy="2" />
             <TextView android:id="@+id/home_hero_hints" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="8dp" android:textSize="12sp" android:fontFamily="?attr/nightjarFaceStrong"
+                android:layout_marginTop="8dp" android:maxLines="1" android:ellipsize="end" android:textSize="14sp" android:fontFamily="?attr/nightjarFaceStrong"
                 android:textColor="@color/nj_color_label" />
         </LinearLayout>
         <androidx.recyclerview.widget.RecyclerView android:id="@+id/console_list"

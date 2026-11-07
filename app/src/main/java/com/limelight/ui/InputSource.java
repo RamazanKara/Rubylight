@@ -29,8 +29,12 @@ public enum InputSource {
         return source;
     }
 
-    /** The source of a key, or null for a key that says nothing about the hand (volume, power, the system's keys). */
+    /**
+     * The source of a key, or null for a key that says nothing about the hand: volume, power, the system's keys, and one with no
+     * source at all (a plain {@code adb shell input keyevent}), which must not take the hints away from the device in the hand.
+     */
     public static InputSource of(KeyEvent event) {
+        if (event.getSource() == InputDevice.SOURCE_UNKNOWN) return null;
         if (event.isSystem() && !isNavigation(event.getKeyCode())) return null;
         InputDevice device = event.getDevice();
         return of(event.getSource(), device == null ? InputDevice.KEYBOARD_TYPE_NONE : device.getKeyboardType());

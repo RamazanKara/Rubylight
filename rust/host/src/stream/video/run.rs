@@ -58,8 +58,7 @@ impl SessionThread<'_> {
         let vrr = s.config.vrr_low_latency;
         let arrival_pacing = vrr
             || butterpollo_core::stream_policy::Pacing::from_config(&c) == butterpollo_core::stream_policy::Pacing::Arrival;
-        let source_phase_eligible = vrr || c.boolean("frame_pacing_predictive", true);
-        let new_pacer = |rates: &butterpollo_core::reconfigure::Rates| {
+        let source_phase_eligible = vrr || c.boolean("frame_pacing_predictive", true);        let new_pacer = |rates: &butterpollo_core::reconfigure::Rates| {
             let predictive = c.boolean("frame_pacing_predictive", true);
             butterpollo_core::stream_policy::Pacer::new(Instant::now(), rates.period)
                 .with_static_period(rates.static_period)
@@ -936,7 +935,11 @@ impl SessionThread<'_> {
                 if !arrival_pacing && now < due {
                     AdmissionTrace::measure(&mut admission_trace, AdmissionWait::Grid, || -> Result<()> {
                     while Instant::now() < due {
-                        if encoder.as_ref().is_some_and(|e| recovery.pending(e)) {
+                        // A poll can block for the encoder's 1 ms query
+                        // timeout; close to the grid tick it would overshoot.
+                        if encoder.as_ref().is_some_and(|e| recovery.pending(e))
+                            && encoder_backlog::query_fits(Instant::now(), due)
+                        {
                             let poll_tick = Instant::now();
                             send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, poll_tick)?;
                             if encoder.as_ref().is_some_and(|e| recovery.pending(e)) {
@@ -1008,13 +1011,13 @@ impl SessionThread<'_> {
                     // A poll can block for the encoder's 1 ms query
                     // timeout; close to the claim it would overshoot.
                     if encoder.as_ref().is_some_and(|e| recovery.pending(e))
-                        && deadline.saturating_duration_since(Instant::now()) >= Duration::from_millis(1)
+                        && encoder_backlog::query_fits(Instant::now(), deadline)
                     {
                         send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, capture_tick)?;
                     }
                     let now = Instant::now();
                     let until = if encoder.as_ref().is_some_and(|e| recovery.pending(e))
-                        && deadline.saturating_duration_since(now) >= Duration::from_millis(1)
+                        && encoder_backlog::query_fits(now, deadline)
                     {
                         deadline.min(now + OUTPUT_POLL)
                     } else {

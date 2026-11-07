@@ -9,6 +9,12 @@ use std::time::{Duration, Instant};
 /// AMF's existing blocking QueryOutput allowance.
 pub const QUERY_TIMEOUT: Duration = Duration::from_millis(1);
 
+/// Whether a poll that can block for [`QUERY_TIMEOUT`] still returns by
+/// `deadline`; closer to it, the poll would overshoot the claim it precedes.
+pub fn query_fits(now: Instant, deadline: Instant) -> bool {
+    deadline.saturating_duration_since(now) >= QUERY_TIMEOUT
+}
+
 /// One picture encoding and another queued or being sent.
 pub const DEFAULT_LIMIT: usize = 2;
 /// The native AMF adapter's existing bound on retained input surfaces.
@@ -156,6 +162,19 @@ pub fn backpressure(encoding: usize, sending: usize, encoder_limit: usize) -> Ba
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_blocking_query_is_skipped_within_its_timeout_of_the_claim() {
+        let now = Instant::now();
+        assert!(query_fits(now, now + QUERY_TIMEOUT));
+        assert!(query_fits(now, now + Duration::from_millis(5)));
+        assert!(!query_fits(
+            now,
+            now + QUERY_TIMEOUT - Duration::from_micros(1)
+        ));
+        assert!(!query_fits(now, now));
+        assert!(!query_fits(now + Duration::from_millis(1), now));
+    }
 
     #[test]
     fn recovery_waits_for_output_without_permanently_stopping_a_depth_one_encoder() {

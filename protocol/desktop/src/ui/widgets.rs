@@ -434,11 +434,28 @@ pub(crate) fn page_scroll_from(ui: &mut Ui, id: impl std::hash::Hash + std::fmt:
                 ui.scroll_to_rect(Rect::from_min_size(page.min, Vec2::splat(1.0)), Some(Align::TOP));
             }
             let inside = Rect::from_min_max(Pos2::new(page.left() + margin, page.top()), Pos2::new(page.right() - margin, page.bottom()));
+            let placing = super::backdrop::placing(ui.ctx());
+            let layer = ui.layer_id();
+            let from = ui.ctx().graphics(|g| g.get(layer).map_or(0, |l| l.next_idx().0));
             ui.scope_builder(egui::UiBuilder::new().max_rect(inside), |ui| {
                 ui.add_space(top);
                 add(ui);
                 ui.add_space(space::XXL);
             });
+            // What the page drew, as it stands at its top, for the sky's moon to stand clear of.
+            if placing {
+                let down = Vec2::new(0.0, full.top() - page.top());
+                let rects = ui.ctx().graphics(|g| {
+                    g.get(layer).map_or_else(Vec::new, |l| {
+                        l.all_entries()
+                            .skip(from)
+                            .map(|c| c.shape.visual_bounding_rect().translate(down))
+                            .filter(|r| r.is_positive() && r.intersects(full))
+                            .collect()
+                    })
+                });
+                super::backdrop::hold_page(ui.ctx(), full, rects, down.y > 0.5);
+            }
         })
         .state
         .clamped_offset()
@@ -581,7 +598,7 @@ pub(crate) fn group_row(ui: &mut Ui, add: impl FnOnce(&mut Ui)) -> Rect {
     let run = RowRun { bottom: rect.bottom(), ..run };
     let group = Rect::from_min_max(Pos2::new(run.left, run.top), Pos2::new(run.right, run.bottom));
     let mut shapes = Vec::new();
-    pcs::canvas_on_moon(&mut shapes, ui.ctx(), group, f32::from(radius::PANEL), backdrop::Moon::High);
+    pcs::canvas_on_moon(&mut shapes, ui.ctx(), group, f32::from(radius::PANEL));
     glass::group(&mut shapes, ui.ctx(), group, f32::from(radius::PANEL), rows_fill());
     painter.set(run.background, egui::Shape::Vec(shapes));
     ui.data_mut(|d| d.insert_temp(run_id, run));

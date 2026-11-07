@@ -63,13 +63,14 @@ public class HostProcessingStatsTest {
         assertEquals(25f / 4 / 10, lastTwo.getHostProcessingMs(), 0.00001f);
     }
 
-    // submitDecodeUnit hands PyroWave frames to submitPyroWaveFrame, which returns twice, and the
+    // queueDecodeUnit hands PyroWave frames to submitPyroWaveFrame, which returns twice, and the
     // native renderer cannot run in a JVM test, so this pins the wiring: the count comes first.
     @Test
     public void pyroWaveFramesAreCountedBeforeTheBranchCanReturn() throws Exception {
         String source = new String(Files.readAllBytes(
                 Paths.get("src/main/java/com/limelight/binding/video/MediaCodecDecoderRenderer.java")), StandardCharsets.UTF_8);
-        int method = source.indexOf("public int submitDecodeUnit(");
+        // submitDecodeUnit only times queueDecodeUnit, which holds the frame path.
+        int method = source.indexOf("private int queueDecodeUnit(");
         assertTrue(method > 0);
         int branch = source.indexOf("if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {", method);
         assertTrue(branch > method);

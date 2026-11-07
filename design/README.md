@@ -179,7 +179,7 @@ Springs (mass 1), `motion.<name>.stiffness` and `.ratio`, all settle under 250 m
 | Covers | Appear with no layout jump |
 | Launch | No animation delays it |
 | Stream with no menu | Zero added layers or GPU work compared with today |
-| Scroll on `live` and `lens` | Holds the display rate on the probed device, or the tier steps down |
+| Scroll on `live` and `lens` | Holds the display rate on the probed device, or the tier steps down. The budget floors at 120 Hz: a faster screen keeps live glass while the chain fits a 120 Hz frame |
 
 ## Type
 

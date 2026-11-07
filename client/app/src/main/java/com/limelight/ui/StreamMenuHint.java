@@ -117,13 +117,17 @@ public final class StreamMenuHint {
         for (int id : InputDevice.getDeviceIds()) {
             InputDevice device = InputDevice.getDevice(id);
             if (device == null || device.isVirtual()) continue;
-            int sources = device.getSources();
-            if ((sources & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
-                    (sources & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK) {
-                return true;
-            }
+            if (isPad(device.getSources())) return true;
         }
         return false;
+    }
+
+    /**
+     * A real pad has axes. A TV's {@code virtual-search} claims the gamepad bit next to its keyboard and D-pad, with no remote
+     * behind it but the one in the hand.
+     */
+    static boolean isPad(int sources) {
+        return (sources & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK;
     }
 
     static boolean hasKeyboard() {

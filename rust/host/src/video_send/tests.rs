@@ -326,8 +326,10 @@ fn a_keyframe_waiting_for_the_sender_also_blocks_the_next_claim() {
         transmitting: false,
         transmitting_keyframe: false,
         transmitting_remaining: None,
+        recovery_lead: None,
         recycled: Vec::new(),
         streaming: false,
+        whole_open: false,
         next_wire_frame: 1,
         skipped: 0,
         error: None,
@@ -872,7 +874,7 @@ fn wait_prepared(sender: &Sender) -> std::sync::MutexGuard<'_, State> {
     let state = sender.slot.state.lock().unwrap();
     let (state, timeout) = sender
         .slot
-        .changed
+        .ready_changed
         .wait_timeout_while(state, WAIT, |s| s.ready.is_none())
         .unwrap();
     assert!(!timeout.timed_out(), "packetizer did not prepare a frame");
@@ -1404,7 +1406,7 @@ fn take_prepared(sender: &Sender) -> Prepared {
     let mut state = wait_prepared(sender);
     let prepared = state.ready.take().unwrap();
     drop(state);
-    sender.slot.changed.notify_all();
+    sender.slot.ready_changed.notify_all();
     prepared
 }
 
@@ -2063,4 +2065,162 @@ fn an_open_streamed_frame_counts_toward_the_claim_backlog_only() {
         .unwrap();
     assert!(!timeout.timed_out());
     assert_eq!(state.claim_backlog(None).unwrap(), 0);
+}
+
+/// A packetizer that sends whole frames block by block to an idle sender,
+/// drained by hand.
+fn early_sender(session: Arc<Session>) -> Sender {
+    Sender::packetizer_with(
+        session,
+        Instant::now(),
+        handoff(packetizer(None)),
+        false,
+        true,
+    )
+    .unwrap()
+}
+
+fn keyframe(shards: usize) -> Encoded {
+    Encoded {
+        idr: true,
+        frame_cap_bytes: None,
+        ..unit(butterpollo_windows::encoder::Unit::Whole, shards, 7)
+    }
+}
+
+/// Review 2026-11-07: the sender thread (031dc57e5) built every block of a
+/// whole frame before the first left. An idle sender gets each block as it
+/// is built, as parts of one frame that counts once in the backlog, and the
+/// first part carries the frame's wire bytes for the recovery estimate.
+#[test]
+fn an_idle_sender_gets_a_whole_frame_block_by_block() {
+    let fixture = crate::state::test_support::Fixture::new();
+    let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
+    let sender = early_sender(session);
+    submit_units(&sender, vec![keyframe(600)]);
+    let first = take_prepared(&sender);
+    assert_eq!(
+        (first.stream, first.whole, first.idr, first.wire_frame),
+        (
+            Some(Part {
+                first: true,
+                last: false
+            }),
+            true,
+            true,
+            1
+        )
+    );
+    let layout = first.packetizer.block_layout(600 * 1008);
+    assert!(layout.len() >= 3, "600 shards take three blocks or more");
+    assert_eq!(first.layout, vec![layout[0]]);
+    assert_eq!(first.counts, vec![layout[0].0 + layout[0].1]);
+    let packets: usize = layout.iter().map(|(data, parity)| data + parity).sum();
+    assert_eq!(
+        first.frame_wire_bytes,
+        Some(packets * (1040 + butterpollo_core::network_pacing::overhead(false)))
+    );
+    assert_eq!(first.blocks[0][0].len(), 1040);
+    // The paced sender sends block 0 while the packetizer hands over block 1
+    // and waits to hand over block 2: one frame in the backlog, not three.
+    sender.slot.state.lock().unwrap().transmitting = true;
+    {
+        let state = wait_prepared(&sender);
+        assert!(state.whole_open);
+        assert_eq!(state.backlog().unwrap(), 1);
+        assert_eq!(state.claim_backlog(None).unwrap(), 2, "a keyframe");
+    }
+    sender.slot.state.lock().unwrap().transmitting = false;
+    for (index, block) in layout.iter().enumerate().skip(1) {
+        let part = take_prepared(&sender);
+        assert_eq!(
+            (part.stream, part.frame_wire_bytes, part.counts),
+            (
+                Some(Part {
+                    first: false,
+                    last: index + 1 == layout.len()
+                }),
+                None,
+                vec![block.0 + block.1]
+            )
+        );
+    }
+    assert_eq!(sender.next_wire_frame().unwrap(), 2);
+    // A busy sender gets the next frame whole, which a keyframe can skip.
+    sender.slot.state.lock().unwrap().transmitting = true;
+    submit_units(&sender, vec![frame(2)]);
+    let whole = take_prepared(&sender);
+    assert_eq!(
+        (whole.stream, whole.whole, whole.frame_wire_bytes),
+        (None, true, None)
+    );
+}
+
+/// Every packet of a frame sent block by block reaches the client in order,
+/// and the frame is timed once, as a whole frame and not a streamed one.
+#[test]
+fn a_whole_frame_sent_block_by_block_arrives_whole_and_is_timed_once() {
+    let fixture = crate::state::test_support::Fixture::new();
+    let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
+    let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+    receiver.set_read_timeout(Some(WAIT)).unwrap();
+    // Slow enough that the receive buffer never overflows.
+    let mut config = fixture.host.config.read().unwrap().clone();
+    config
+        .values
+        .insert("pacing_max_bitrate_kbps".into(), "100000".into());
+    let sender = Sender::new(
+        Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap()),
+        session.clone(),
+        config,
+        fixture.host.clone(),
+        Instant::now() - Duration::from_millis(500),
+        handoff(packetizer(None)),
+    )
+    .unwrap();
+    let (sink, rows) = butterpollo_core::timing_record::channel(8);
+    *session.timing_record.write().unwrap() = Some(Arc::new(sink));
+    let now = Instant::now();
+    let mut claims = Claims::default();
+    claims.push(Claim {
+        key: now,
+        presented: now,
+        acquired: now,
+        published: now,
+        claimed: now,
+        submitted: now,
+    });
+    let mut picture = keyframe(600);
+    picture.presentation = Some(now);
+    sender
+        .submit_tick(
+            vec![picture],
+            receiver.local_addr().unwrap(),
+            Duration::ZERO,
+            &mut claims,
+            now,
+        )
+        .unwrap();
+    let mut buffer = [0; 2048];
+    let mut sequences = Vec::new();
+    while let Ok(len) = receiver.recv(&mut buffer) {
+        assert_eq!(len, 1040);
+        sequences.push(u16::from_be_bytes(buffer[2..4].try_into().unwrap()));
+        receiver
+            .set_read_timeout(Some(Duration::from_millis(500)))
+            .unwrap();
+    }
+    assert!(sequences.len() > 255, "more than block 0");
+    assert_eq!(
+        sequences.len() as u64,
+        session.stats.packets.load(Ordering::Relaxed)
+    );
+    for pair in sequences.windows(2) {
+        assert_eq!(pair[1], pair[0].wrapping_add(1));
+    }
+    let row = rows.recv_timeout(WAIT).unwrap();
+    assert_eq!(row.wire_frame, 1);
+    assert_eq!((row.first_unit_us, row.early_blocks), (None, None));
+    assert!(rows.try_recv().is_err());
+    assert_eq!(sender.next_wire_frame().unwrap(), 2);
 }

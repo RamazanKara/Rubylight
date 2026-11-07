@@ -26,7 +26,7 @@ impl Slot {
             let frame = {
                 let mut state = self.state.lock().unwrap();
                 while state.ready.is_none() && !holding && !self.stop.load(Ordering::Acquire) {
-                    state = self.changed.wait(state).unwrap();
+                    state = self.ready_changed.wait(state).unwrap();
                 }
                 if self.stop.load(Ordering::Acquire) {
                     return Ok(());
@@ -36,7 +36,8 @@ impl Slot {
                     state.transmitting = true;
                     state.transmitting_keyframe = frame.idr;
                     state.transmitting_remaining = None;
-                    self.changed.notify_all();
+                    // Room for the packetizer; the backlog is the same.
+                    self.ready_changed.notify_one();
                 }
                 frame
             };
@@ -54,11 +55,22 @@ impl Slot {
         }
     }
 
+    /// Wakes the stream thread only when the keyframe's remaining time
+    /// crosses its recovery lead, not after every batch.
     pub(super) fn recovery_progress(&self, remaining: Option<Duration>) {
         let mut state = self.state.lock().unwrap();
         if state.transmitting_keyframe {
+            let lead = state.recovery_lead;
+            let open = |remaining: Option<Duration>| {
+                remaining
+                    .zip(lead)
+                    .is_some_and(|(remaining, lead)| remaining <= lead)
+            };
+            let crossed = open(state.transmitting_remaining) != open(remaining);
             state.transmitting_remaining = remaining;
-            self.changed.notify_all();
+            if crossed {
+                self.changed.notify_all();
+            }
         }
     }
 }
@@ -82,6 +94,8 @@ struct Sending {
     frame_bytes: usize,
     wire_bytes: usize,
     remaining_wire_bytes: usize,
+    /// `remaining_wire_bytes` counted the whole frame with its first part.
+    frame_wire_known: bool,
     recovery_overlap_safe: bool,
     dropped: u64,
     before: WritableWaits,
@@ -183,6 +197,7 @@ impl Transport<'_> {
             frame_bytes: 0,
             wire_bytes: 0,
             remaining_wire_bytes: 0,
+            frame_wire_known: false,
             recovery_overlap_safe: true,
             dropped: self.batch.dropped,
             before: waits,
@@ -281,6 +296,9 @@ impl Transport<'_> {
         let s = Arc::clone(&self.s);
         let period = s.stream_mode().period();
         let peer = frame.peer;
+        // An IPv4 client on a dual-stack socket arrives IPv4-mapped: its
+        // packets carry IPv4 headers, which the pacer counts too.
+        let ipv6 = peer.ip().to_canonical().is_ipv6();
         let bps = cur.bps;
         let part_packets: usize = frame.counts.iter().sum();
         let part_bytes: usize = frame
@@ -289,11 +307,18 @@ impl Transport<'_> {
             .zip(&frame.counts)
             .map(|(block, count)| block[..*count].iter().map(Vec::len).sum::<usize>())
             .sum();
-        let part_wire = part_bytes + part_packets * network_pacing::overhead(peer.is_ipv6());
+        let part_wire = part_bytes + part_packets * network_pacing::overhead(ipv6);
         cur.packets += part_packets;
         cur.frame_bytes += part_bytes;
         cur.wire_bytes += part_wire;
-        cur.remaining_wire_bytes += part_wire;
+        // A whole frame sent block by block is counted whole from its first
+        // part: the estimate must not open admission while blocks are unbuilt.
+        if let Some(frame_wire) = frame.frame_wire_bytes {
+            cur.remaining_wire_bytes += frame_wire;
+            cur.frame_wire_known = true;
+        } else if !cur.frame_wire_known {
+            cur.remaining_wire_bytes += part_wire;
+        }
         if frame.stream.is_some() {
             for &(data, parity) in &frame.layout {
                 cur.lost.push_block(data, parity);
@@ -326,13 +351,13 @@ impl Transport<'_> {
                 let budget = network_pacing::batch_payload_limit(
                     bps,
                     remaining[0].len(),
-                    peer.is_ipv6(),
+                    ipv6,
                     self.batch_kb * 1024,
                 );
                 let count = Batch::count(remaining, budget);
                 let batch_wire_bytes = if frame.idr {
                     remaining[..count].iter().map(Vec::len).sum::<usize>()
-                        + count * network_pacing::overhead(peer.is_ipv6())
+                        + count * network_pacing::overhead(ipv6)
                 } else {
                     0
                 };
@@ -371,7 +396,7 @@ impl Transport<'_> {
                     finished,
                     bytes,
                     if bytes > 0 { count } else { 0 },
-                    peer.ip().to_canonical().is_ipv6(),
+                    ipv6,
                     bps,
                 );
                 if frame.idr {
@@ -530,7 +555,7 @@ impl Transport<'_> {
                 sent,
             );
             stamps.prepared = prepared;
-            if frame.stream.is_some() {
+            if frame.stream.is_some() && !frame.whole {
                 stamps = stamps.with_streamed(frame.polled, frame.early_blocks);
             }
             stamps

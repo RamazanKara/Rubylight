@@ -1,4 +1,5 @@
 //! Ordered conventional output with separate packetization and paced sending.
+mod early;
 pub(crate) mod link_watch;
 pub(crate) mod recovery;
 mod streamed;
@@ -79,6 +80,12 @@ struct Prepared {
     timestamp: u32,
     /// Set when this is one FEC block of a streamed frame, not a whole frame.
     stream: Option<Part>,
+    /// The encoder returned the frame whole, even when it goes out block by
+    /// block; false for a frame the encoder delivered in units.
+    whole: bool,
+    /// On the first part of a whole frame sent block by block: the frame's
+    /// wire bytes, which the keyframe recovery estimate counts from the start.
+    frame_wire_bytes: Option<usize>,
 }
 /// Where a block sits in a streamed frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -95,12 +102,18 @@ struct State {
     transmitting_keyframe: bool,
     /// Updated after actual send progress, never a wall-clock-only countdown.
     transmitting_remaining: Option<Duration>,
+    /// The stream thread's last recovery lead: send progress wakes it only
+    /// when the remaining time crosses it.
+    recovery_lead: Option<Duration>,
     recycled: Vec<Vec<PacketBlock>>,
     /// A streamed frame is open on the packetizer thread: some of its blocks
     /// may be out and the encoder still produces the rest. It counts toward
     /// the claim backlog only, so a new picture is not claimed (and aged)
     /// behind it, while recreation still waits just for what is queued.
     streaming: bool,
+    /// A whole frame goes to the paced sender block by block: it counts once,
+    /// though it is being packetized and sent at the same time.
+    whole_open: bool,
     next_wire_frame: u32,
     skipped: u32,
     error: Option<String>,
@@ -133,7 +146,8 @@ impl State {
         raw || prepared
     }
     fn recycle(&mut self, blocks: Vec<PacketBlock>) {
-        if self.recycled.len() < 2 {
+        // Two whole frames, or the four blocks of one sent block by block.
+        if self.recycled.len() < 4 {
             self.recycled.push(blocks);
         }
     }
@@ -141,10 +155,14 @@ impl State {
         if let Some(error) = &self.error {
             bail!("video sender stopped: {error}");
         }
-        Ok(usize::from(self.sending)
-            + usize::from(self.pending.is_some())
-            + usize::from(self.transmitting)
-            + usize::from(self.ready.is_some()))
+        let frame = if self.whole_open {
+            1
+        } else {
+            usize::from(self.sending)
+                + usize::from(self.transmitting)
+                + usize::from(self.ready.is_some())
+        };
+        Ok(frame + usize::from(self.pending.is_some()))
     }
     fn claim_backlog(&self, recovery_lead: Option<Duration>) -> Result<usize> {
         Ok(self.backlog()?
@@ -163,7 +181,12 @@ impl State {
 }
 struct Slot {
     state: Mutex<State>,
+    /// The pending slot and the backlog: the packetizer waits here for a
+    /// frame, the stream thread for room. The paced sender never does.
     changed: Condvar,
+    /// The prepared slot: the paced sender waits here for a frame, the
+    /// packetizer for room.
+    ready_changed: Condvar,
     stop: AtomicBool,
     stream_id: String,
 }
@@ -179,20 +202,23 @@ impl Slot {
         state.sending = false;
         state.sending_keyframe = false;
         state.streaming = false;
+        state.whole_open = false;
         state.transmitting = false;
         state.transmitting_keyframe = false;
         state.transmitting_remaining = None;
         self.changed.notify_all();
+        self.ready_changed.notify_all();
     }
     fn enqueue(&self, frame: Prepared) -> Result<()> {
         let mut state = self.state.lock().unwrap();
         while state.ready.is_some() && !self.stop.load(Ordering::Acquire) {
-            state = self.changed.wait(state).unwrap();
+            state = self.ready_changed.wait(state).unwrap();
         }
         state.backlog()?;
         if !self.stop.load(Ordering::Acquire) {
+            // The backlog does not shrink: the frame was counted as being sent.
             state.ready = Some(frame);
-            self.changed.notify_all();
+            self.ready_changed.notify_one();
         }
         Ok(())
     }
@@ -225,6 +251,13 @@ impl Slot {
         let _state = self.state.lock().unwrap();
         self.stop.store(true, Ordering::Release);
         self.changed.notify_all();
+        self.ready_changed.notify_all();
+    }
+    /// A frame was skipped from the pending or the prepared slot: room for
+    /// the stream thread, and for a packetizer waiting to hand over.
+    fn skipped(&self) {
+        self.changed.notify_all();
+        self.ready_changed.notify_one();
     }
 }
 /// Where the stream thread's own sends left off. A sender started after them
@@ -279,7 +312,9 @@ impl Sender {
         let jitter = handoff.send_jitter.take();
         let link = handoff.link.clone();
         let mmcss_only = c.boolean("video_send_mmcss_only", false);
-        let mut sender = Self::packetizer(s.clone(), start, handoff, mmcss_only)?;
+        let early_blocks = c.boolean("video_send_early_blocks", true);
+        let mut sender =
+            Self::packetizer_with(s.clone(), start, handoff, mmcss_only, early_blocks)?;
         let shared = sender.slot.clone();
         sender.transport = Some(thread::Builder::new().name("video-send".into()).spawn(
             move || {
@@ -293,11 +328,26 @@ impl Sender {
         Ok(sender)
     }
 
+    /// A packetizer that hands over whole frames only, for tests that take
+    /// its frames in place of a paced sender.
+    #[cfg(test)]
     fn packetizer(
         s: Arc<Session>,
         start: Instant,
         handoff: Handoff,
         mmcss_only: bool,
+    ) -> Result<Self> {
+        Self::packetizer_with(s, start, handoff, mmcss_only, false)
+    }
+
+    /// With `early_blocks`, a whole frame goes to an idle paced sender block
+    /// by block, each as it is built (`video_send_early_blocks`).
+    fn packetizer_with(
+        s: Arc<Session>,
+        start: Instant,
+        handoff: Handoff,
+        mmcss_only: bool,
+        early_blocks: bool,
     ) -> Result<Self> {
         let Handoff {
             mut packetizer,
@@ -366,13 +416,52 @@ impl Sender {
                 let layout = packetizer.block_layout(frame.bytes.len());
                 let fec_limited = packetizer.fec_limited(frame.bytes.len());
                 let wire = packetizer.clone();
-                let mut blocks = shared.state.lock().unwrap().recycled.pop().unwrap_or_default();
-                let mut counts = Vec::with_capacity(layout.len());
                 // Punktfunk's GameStream boundary: this loop's capture/encode
                 // tick through entry to packetization, before the paced sender.
                 // A backlog at this packetizer remains part of the measurement.
                 let packetized = Instant::now();
                 let processing = micros(packetized.saturating_duration_since(processing_started));
+                let details = |blocks, counts, layout, stream, frame_wire_bytes| Prepared {
+                    blocks, counts, layout, packetizer: wire.clone(), wire_frame, idr: frame.idr,
+                    after_invalidation: frame.after_invalidation, frame_cap_bytes: frame.frame_cap_bytes,
+                    cap_target_bytes: frame.frame_cap_target, reencoded: frame.reencoded, fec_limited,
+                    payload_bytes: frame.bytes.len(), peer, claimed, polled, last_polled: polled,
+                    early_blocks: 0, packetized,
+                    prepared: Instant::now(), latency: micros(encode), processing,
+                    age: micros(claimed.saturating_duration_since(captured)), claim, timestamp,
+                    stream, whole: true, frame_wire_bytes,
+                };
+                // An idle paced sender takes each block as it is built, as before the
+                // sender had its own thread (6772d4019); a busy one gets the whole frame,
+                // which a keyframe can still skip.
+                let early = early_blocks && {
+                    let mut state = shared.state.lock().unwrap();
+                    state.whole_open = state.ready.is_none() && !state.transmitting;
+                    state.whole_open
+                };
+                if early {
+                    let dropped = early::send(shared, &mut packetizer, &frame, timestamp, processing, &layout, peer, |blocks, counts, block, part, frame_wire_bytes| {
+                        details(blocks, counts, vec![block], Some(part), frame_wire_bytes)
+                    });
+                    shared.state.lock().unwrap().whole_open = false;
+                    if let Some(error) = dropped? {
+                        s.launch.warnings.event("network_frame", format!("Encoded video frame dropped ({error:#}); requesting a recovery frame. Lower bitrate or resolution to stay within Moonlight's packet limit."), butterpollo_core::session::EVENT_PERIOD);
+                        s.request_host_keyframe();
+                        return Ok(packetizer.frame);
+                    }
+                    if !frame.idr && fec_limited
+                        && fec_reported.is_none_or(|at: Instant| at.elapsed() >= Duration::from_secs(1))
+                    {
+                        fec_reported = Some(Instant::now());
+                        s.launch.warnings.event("network_fec", "FEC was reduced or omitted for large video frames because they exceed Moonlight's four-block limit. Packet loss in those frames is harder to recover; lower bitrate or resolution to keep full FEC protection.", butterpollo_core::session::EVENT_PERIOD);
+                    }
+                    tracing::trace!(target: "pacing", stream_id = %s.launch.id,
+                        frame = wire_frame, presentation = ?frame.presentation,
+                        "packetized picture block by block");
+                    return Ok(packetizer.frame);
+                }
+                let mut blocks = shared.state.lock().unwrap().recycled.pop().unwrap_or_default();
+                let mut counts = Vec::with_capacity(layout.len());
                 let prepared = (|| -> Result<()> {
                     let (_, mut next) = packetizer.conventional_blocks(
                         &frame.bytes, frame.idr, frame.after_invalidation, timestamp, processing,
@@ -402,16 +491,7 @@ impl Sender {
                 tracing::trace!(target: "pacing", stream_id = %s.launch.id,
                     frame = wire_frame, presentation = ?frame.presentation,
                     "packetized picture");
-                shared.enqueue(Prepared {
-                    blocks, counts, layout, packetizer: wire, wire_frame, idr: frame.idr,
-                    after_invalidation: frame.after_invalidation, frame_cap_bytes: frame.frame_cap_bytes,
-                    cap_target_bytes: frame.frame_cap_target, reencoded: frame.reencoded, fec_limited,
-                    payload_bytes: frame.bytes.len(), peer, claimed, polled, last_polled: polled,
-                    early_blocks: 0, packetized,
-                    prepared: Instant::now(), latency: micros(encode), processing,
-                    age: micros(claimed.saturating_duration_since(captured)), claim, timestamp,
-                    stream: None,
-                })?;
+                shared.enqueue(details(blocks, counts, layout, None, None))?;
                 Ok(packetizer.frame)
             })
         })?;
@@ -440,13 +520,16 @@ impl Sender {
                 transmitting: false,
                 transmitting_keyframe: false,
                 transmitting_remaining: None,
+                recovery_lead: None,
                 recycled: Vec::new(),
                 streaming: false,
+                whole_open: false,
                 next_wire_frame,
                 skipped: 0,
                 error: None,
             }),
             changed: Condvar::new(),
+            ready_changed: Condvar::new(),
             stop: AtomicBool::new(false),
             stream_id,
         });
@@ -503,6 +586,7 @@ impl Sender {
             // A keyframe goes out next, not after the frame waiting before it.
             if encoded.idr && state.skip_pending() {
                 tracing::debug!(stream_id=%self.slot.stream_id, "video frame queued before a keyframe skipped");
+                self.slot.skipped();
             }
             while state.pending.is_some() && !self.slot.stop.load(Ordering::Acquire) {
                 state = self.slot.changed.wait(state).unwrap();
@@ -533,7 +617,9 @@ impl Sender {
         self.slot.state.lock().unwrap().backlog()
     }
     pub fn claim_backlog(&self, recovery_lead: Option<Duration>) -> Result<usize> {
-        self.slot.state.lock().unwrap().claim_backlog(recovery_lead)
+        let mut state = self.slot.state.lock().unwrap();
+        state.recovery_lead = recovery_lead;
+        state.claim_backlog(recovery_lead)
     }
     pub fn wait_for_capacity(
         &self,
@@ -541,7 +627,8 @@ impl Sender {
         timeout: Duration,
         recovery_lead: Option<Duration>,
     ) -> Result<()> {
-        let state = self.slot.state.lock().unwrap();
+        let mut state = self.slot.state.lock().unwrap();
+        state.recovery_lead = recovery_lead;
         let (state, _) = self
             .slot
             .changed
@@ -563,7 +650,7 @@ impl Sender {
         state.backlog()?;
         if state.skip_pending() {
             tracing::debug!(stream_id=%self.slot.stream_id, "video frame queued before a keyframe request skipped");
-            self.slot.changed.notify_all();
+            self.slot.skipped();
         }
         state.backlog()
     }

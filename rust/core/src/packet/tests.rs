@@ -1123,7 +1123,7 @@ fn gfni_parity_matches_the_avx2_parity() {
     };
     for (data, parity, size) in [
         (1, 1, 40),
-        (5, 3, 31),
+        (5, 3, 47),
         (37, 7, 1072),
         (200, 55, 1040),
         (212, 43, 1440),
@@ -1140,5 +1140,44 @@ fn gfni_parity_matches_the_avx2_parity() {
         cauchy_encode_with::<32>(&mut with, data, parity, true).unwrap();
         cauchy_encode_with::<32>(&mut without, data, parity, false).unwrap();
         assert_eq!(with, without, "{data}+{parity} x {size}, offset 32");
+    }
+}
+
+/// The GFNI path's arithmetic, emulated in software on any CPU: parity built
+/// from the per-coefficient matrices matches the shipped parity, with and
+/// without the 32-byte offset.
+#[test]
+fn parity_from_the_gfni_matrices_matches_the_shipped_parity() {
+    let mut state = 0x2545_f491_4f6c_dd1du64;
+    let mut random = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state as u8
+    };
+    fn emulated<const OFFSET: usize>(shards: &mut [Vec<u8>], data: usize, parity: usize) {
+        let (source, dest) = shards.split_at_mut(data);
+        for (row, out) in dest.iter_mut().enumerate() {
+            out[OFFSET..].fill(0);
+            for (i, input) in source.iter().enumerate() {
+                let matrix = AFFINE[INVERSES[((parity + i) as u8 ^ row as u8) as usize] as usize];
+                for (out, &value) in out[OFFSET..].iter_mut().zip(&input[OFFSET..]) {
+                    *out ^= affine(matrix, value);
+                }
+            }
+        }
+    }
+    for (data, parity, size) in [(1, 1, 40), (5, 3, 47), (37, 7, 1072), (200, 55, 1040)] {
+        let shards: Vec<Vec<u8>> = (0..data + parity)
+            .map(|_| (0..size).map(|_| random()).collect())
+            .collect();
+        let (mut shipped, mut matrices) = (shards.clone(), shards.clone());
+        cauchy_encode_with::<0>(&mut shipped, data, parity, false).unwrap();
+        emulated::<0>(&mut matrices, data, parity);
+        assert_eq!(matrices, shipped, "{data}+{parity} x {size}");
+        let (mut shipped, mut matrices) = (shards.clone(), shards);
+        cauchy_encode_with::<32>(&mut shipped, data, parity, false).unwrap();
+        emulated::<32>(&mut matrices, data, parity);
+        assert_eq!(matrices, shipped, "{data}+{parity} x {size}, offset 32");
     }
 }

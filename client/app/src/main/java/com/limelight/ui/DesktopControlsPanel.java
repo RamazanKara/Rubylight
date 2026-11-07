@@ -671,7 +671,7 @@ public class DesktopControlsPanel extends LinearLayout {
     }
 
     private void confirmReset() {
-        resetDialog = new NavigationDialogBuilder(getContext()).setTitle(R.string.desktop_controls_reset_title)
+        resetDialog = new NavigationDialogBuilder(getContext()).startOnCancel().setTitle(R.string.desktop_controls_reset_title)
                 .setMessage(R.string.desktop_controls_reset_message)
                 .setPositiveButton(R.string.desktop_controls_reset, (dialog, which) -> {
                     config = new DesktopControlsConfig();

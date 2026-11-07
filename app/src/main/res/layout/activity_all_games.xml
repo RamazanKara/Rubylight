@@ -44,7 +44,7 @@
     <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
         android:layout_marginStart="-24dp" android:layout_marginEnd="-24dp" android:layout_marginTop="@dimen/space_xs"
         android:clipChildren="true">
-        <androidx.recyclerview.widget.RecyclerView android:id="@+id/all_games_grid"
+        <com.limelight.console.TopFadeRecyclerView android:id="@+id/all_games_grid"
             android:layout_width="match_parent" android:layout_height="match_parent"
             android:clipToPadding="false" android:clipChildren="false" android:overScrollMode="never"
             android:paddingStart="24dp" android:paddingEnd="24dp" android:paddingTop="@dimen/space_m"

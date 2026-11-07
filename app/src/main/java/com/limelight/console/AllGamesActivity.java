@@ -130,6 +130,8 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
             com.limelight.ui.NightSkyView sky = findViewById(R.id.all_games_sky);
             sky.setMoonShown(false);
             sky.setVisibility(View.VISIBLE);
+            // Edge to edge, not inset by the TV margin as a lighter frame.
+            sky.bleedPastPadding();
             // Rows scrolling up fade out under the heading and filters instead of stopping on a hard edge.
             View grid = findViewById(R.id.all_games_grid);
             grid.setVerticalFadingEdgeEnabled(true);

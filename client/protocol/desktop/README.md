@@ -224,6 +224,7 @@ The launcher and the stream share one SDL3 window and one `SDL_Renderer`. egui i
 | `NIGHTJAR_D3D11_PASS`, `NIGHTJAR_D3D11_BIND`, `NIGHTJAR_DMABUF`, `NIGHTJAR_VRR_CHECK`, `NIGHTJAR_VRR_SYNC` | A/B switches for the presentation paths described above. |
 | `NIGHTJAR_VULKAN_VIDEO` | Linux: `1` tries Vulkan video first and picks the GPU renderer for it, `0` leaves Vulkan video out, and the GPU renderer's device is made without its video extensions. |
 | `NIGHTJAR_VULKAN_VIDEO_GPU_FIRST`, `NIGHTJAR_DESKTOP_RFI`, `NIGHTJAR_DESKTOP_SLICES` | A/B switches, on unless `0`: Vulkan video before VA-API on the GPU renderer, reference frame invalidation, slices per frame for software decoding. |
+| `NIGHTJAR_VULKAN_RFI` | A/B switch, off unless `1`: Vulkan video decoding asks for reference frame invalidation too. |
 
 All are off unless set, but for the A/B switches that say otherwise.
 

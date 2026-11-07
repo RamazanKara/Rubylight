@@ -293,6 +293,7 @@ pub fn skips_instead_of_waiting(mode: PacingMode, frame_pacing: FramePacing, fra
 
 /// What a present that never waits behind the last picture did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(windows), allow(dead_code))] // Only Windows has this present.
 pub enum NoWait {
     Shown,
     /// The last picture has not reached the display: this one was not presented, and the back

@@ -101,6 +101,7 @@
 #define VK_OPTIONAL_DEVICE_FUNCTIONS(X) \
     X(vkSetHdrMetadataEXT) \
     X(vkGetPastPresentationTimingGOOGLE) \
+    X(vkImportSemaphoreFdKHR) \
     X(vkWaitSemaphores) \
     X(vkGetFenceStatus) \
     X(vkCreateQueryPool) \

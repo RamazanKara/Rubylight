@@ -93,7 +93,10 @@ impl Base {
         Self {
             decodable: BASE_FORMATS,
             reason: String::new(),
-            backends: BASE_FIXTURES.iter().map(|&(format, ..)| (format, media::Hardware::None)).collect(),
+            backends: BASE_FIXTURES
+                .iter()
+                .map(|&(format, ..)| (format, media::Hardware::None))
+                .collect(),
         }
     }
 }
@@ -106,7 +109,11 @@ pub fn probe_base(hardware: media::Hardware) -> Base {
     if hardware == media::Hardware::None {
         return Base::software();
     }
-    let mut base = Base { decodable: 0, reason: String::new(), backends: Vec::new() };
+    let mut base = Base {
+        decodable: 0,
+        reason: String::new(),
+        backends: Vec::new(),
+    };
     let mut failures = Vec::new();
     for (format, codec, name, data) in BASE_FIXTURES {
         let pictures = media::Pictures {
@@ -178,7 +185,8 @@ fn decode(
     // An asynchronous decoder (V4L2 M2M) says "no picture yet" while the driver decodes: asked
     // again for up to a quarter second.
     let mut received = decoder.receive();
-    for _ in 0..if decoder.asynchronous() { 125 } else { 0 } {
+    let tries = if decoder.asynchronous() { 125 } else { 0 };
+    for _ in 0..tries {
         if !matches!(received, media::Received::None) {
             break;
         }

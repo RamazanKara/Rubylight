@@ -87,6 +87,13 @@ struct Prepared {
     /// wire bytes, which the keyframe recovery estimate counts from the start.
     frame_wire_bytes: Option<usize>,
 }
+impl Prepared {
+    /// A later block of a whole frame sent block by block: the frame is
+    /// already counted, and its keyframe already timed, from its first.
+    fn continues_whole(&self) -> bool {
+        self.whole && self.stream.is_some_and(|part| !part.first)
+    }
+}
 /// Where a block sits in a streamed frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Part {
@@ -160,7 +167,11 @@ impl State {
         } else {
             usize::from(self.sending)
                 + usize::from(self.transmitting)
-                + usize::from(self.ready.is_some())
+                + usize::from(
+                    self.ready
+                        .as_ref()
+                        .is_some_and(|f| !(self.transmitting && f.continues_whole())),
+                )
         };
         Ok(frame + usize::from(self.pending.is_some()))
     }
@@ -175,7 +186,10 @@ impl State {
                             .zip(recovery_lead)
                             .is_some_and(|(remaining, lead)| remaining <= lead))
                     || self.pending.as_ref().is_some_and(|f| f.encoded.idr)
-                    || self.ready.as_ref().is_some_and(|f| f.idr),
+                    || self
+                        .ready
+                        .as_ref()
+                        .is_some_and(|f| f.idr && !f.continues_whole()),
             ))
     }
 }
@@ -244,8 +258,23 @@ impl Slot {
             state.next_wire_frame = next_wire_frame;
             state.sending = false;
             state.sending_keyframe = false;
+            // With `sending`: the frame's blocks are all queued or out, and it
+            // still counts once.
+            state.whole_open = false;
             self.changed.notify_all();
         }
+    }
+    /// The packetizer gave up a whole frame part way through its blocks. A
+    /// frame given up while the sender waits for its next block is no longer
+    /// a keyframe in flight; one whose block is being sent ends with it.
+    fn abandon_whole(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.whole_open = false;
+        if !state.transmitting && state.ready.is_none() {
+            state.transmitting_keyframe = false;
+            state.transmitting_remaining = None;
+        }
+        self.changed.notify_all();
     }
     fn stop(&self) {
         let _state = self.state.lock().unwrap();
@@ -443,8 +472,8 @@ impl Sender {
                     let dropped = early::send(shared, &mut packetizer, &frame, timestamp, processing, &layout, peer, |blocks, counts, block, part, frame_wire_bytes| {
                         details(blocks, counts, vec![block], Some(part), frame_wire_bytes)
                     });
-                    shared.state.lock().unwrap().whole_open = false;
                     if let Some(error) = dropped? {
+                        shared.abandon_whole();
                         s.launch.warnings.event("network_frame", format!("Encoded video frame dropped ({error:#}); requesting a recovery frame. Lower bitrate or resolution to stay within Moonlight's packet limit."), butterpollo_core::session::EVENT_PERIOD);
                         s.request_host_keyframe();
                         return Ok(packetizer.frame);

@@ -2224,3 +2224,149 @@ fn a_whole_frame_sent_block_by_block_arrives_whole_and_is_timed_once() {
     assert!(rows.try_recv().is_err());
     assert_eq!(sender.next_wire_frame().unwrap(), 2);
 }
+
+/// Review 2026-11-07: a keyframe sent block by block closed admission at
+/// every block boundary, and the packetizer's claim held it closed until the
+/// last block was queued. From its first part the remaining-time estimate
+/// decides, across all of its parts.
+#[test]
+fn a_keyframe_sent_block_by_block_opens_admission_at_its_lead_across_parts() {
+    let fixture = crate::state::test_support::Fixture::new();
+    let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
+    let sender = early_sender(session);
+    let lead = Some(Duration::from_millis(4));
+    sender.claim_backlog(lead).unwrap();
+    submit_units(&sender, vec![keyframe(600)]);
+    let slot = &sender.slot;
+    let mut seen = Vec::new();
+    slot.transmit(|frame| {
+        let Some(frame) = frame else {
+            return Ok(false);
+        };
+        let part = frame.stream.unwrap();
+        {
+            let state = slot.state.lock().unwrap();
+            seen.push((
+                part.first,
+                state.backlog().unwrap(),
+                state.claim_backlog(lead).unwrap(),
+            ));
+        }
+        if part.first {
+            assert!(slot.recovery_progress(Some(Duration::from_millis(1))));
+        }
+        if part.last {
+            slot.stop();
+        }
+        Ok(false)
+    })
+    .unwrap();
+    assert!(seen.len() >= 3, "600 shards take three blocks or more");
+    assert_eq!(seen[0], (true, 1, 2), "closed until the estimate");
+    for &later in &seen[1..] {
+        assert_eq!(later, (false, 1, 1), "open at the lead");
+    }
+}
+
+/// Keyframe progress wakes the stream thread when the remaining time
+/// crosses its lead, either way, and not on the batches in between.
+#[test]
+fn recovery_progress_stays_quiet_until_the_lead_is_crossed() {
+    let fixture = crate::state::test_support::Fixture::new();
+    let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
+    let sender = early_sender(session);
+    let ms = |ms| Some(Duration::from_millis(ms));
+    sender.claim_backlog(ms(4)).unwrap();
+    assert!(
+        !sender.slot.recovery_progress(ms(1)),
+        "no keyframe in flight"
+    );
+    sender.slot.state.lock().unwrap().transmitting_keyframe = true;
+    let woke: Vec<_> = [ms(10), ms(6), ms(5), ms(4), ms(3), ms(1), None, ms(9)]
+        .into_iter()
+        .map(|remaining| sender.slot.recovery_progress(remaining))
+        .collect();
+    assert_eq!(woke, [false, false, false, true, false, false, true, false]);
+}
+
+/// The estimate counts a whole frame sent block by block once, from its
+/// first part; a streamed frame part by part.
+#[test]
+fn the_recovery_estimate_counts_a_whole_frame_from_its_first_part() {
+    use super::transport::count_remaining;
+    let whole = count_remaining((0, false), 1_000, Some(3_000));
+    assert_eq!(whole, (3_000, true));
+    assert_eq!(count_remaining(whole, 1_000, None), (3_000, true));
+    let streamed = count_remaining((0, false), 1_000, None);
+    assert_eq!(streamed, (1_000, false));
+    assert_eq!(count_remaining(streamed, 1_200, None), (2_200, false));
+}
+
+/// A block that does not match the frame's layout gives up the frame after
+/// its first block went out: the error comes back, the rest is not queued,
+/// its buffers are recycled, and a sender waiting for the next block no
+/// longer holds a keyframe in flight.
+#[test]
+fn a_whole_frame_given_up_part_way_queues_no_more_blocks() {
+    let fixture = crate::state::test_support::Fixture::new();
+    let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
+    let sender = early_sender(session);
+    let slot = &sender.slot;
+    let picture = keyframe(600);
+    let mut wire = packetizer(None);
+    let mut layout = wire.block_layout(picture.bytes.len());
+    assert!(layout.len() >= 3);
+    layout[1].1 += 1;
+    let template = wire.clone();
+    let now = Instant::now();
+    let make = |blocks, counts, block, part, frame_wire_bytes| Prepared {
+        blocks,
+        counts,
+        layout: vec![block],
+        packetizer: template.clone(),
+        wire_frame: 1,
+        idr: true,
+        after_invalidation: false,
+        frame_cap_bytes: None,
+        cap_target_bytes: None,
+        reencoded: false,
+        fec_limited: false,
+        payload_bytes: picture.bytes.len(),
+        peer: peer(),
+        claimed: now,
+        polled: now,
+        last_polled: now,
+        early_blocks: 0,
+        packetized: now,
+        prepared: now,
+        latency: 0,
+        processing: 0,
+        age: 0,
+        claim: None,
+        timestamp: 0,
+        stream: Some(part),
+        whole: true,
+        frame_wire_bytes,
+    };
+    let dropped = std::thread::scope(|scope| {
+        let send = scope
+            .spawn(|| early::send(slot, &mut wire, &picture, 0, 0, &layout, peer(), make).unwrap());
+        // The sender takes block 0 and waits for block 1.
+        let first = take_prepared(&sender);
+        assert!(first.stream.unwrap().first);
+        let mut state = slot.state.lock().unwrap();
+        state.whole_open = true;
+        state.transmitting_keyframe = true;
+        state.transmitting_remaining = Some(Duration::from_millis(1));
+        drop(state);
+        send.join().unwrap()
+    });
+    let error = dropped.expect("the frame was given up");
+    assert!(format!("{error:#}").contains("block layout"), "{error:#}");
+    slot.abandon_whole();
+    let state = slot.state.lock().unwrap();
+    assert!(state.ready.is_none());
+    assert!(!state.whole_open && !state.transmitting_keyframe);
+    assert_eq!(state.transmitting_remaining, None);
+    assert_eq!(state.recycled.len(), 1, "block 1's buffers");
+}

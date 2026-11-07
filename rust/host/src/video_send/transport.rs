@@ -20,7 +20,10 @@ impl Slot {
     /// Hands each prepared frame to `send`. While its last call returned true
     /// (it holds datagrams to release later), it is also called with `None`
     /// whenever no frame is ready, and waits a little there itself.
-    fn transmit(&self, mut send: impl FnMut(Option<&Prepared>) -> Result<bool>) -> Result<()> {
+    pub(super) fn transmit(
+        &self,
+        mut send: impl FnMut(Option<&Prepared>) -> Result<bool>,
+    ) -> Result<()> {
         let mut holding = false;
         loop {
             let frame = {
@@ -35,7 +38,20 @@ impl Slot {
                 if let Some(frame) = &frame {
                     state.transmitting = true;
                     state.transmitting_keyframe = frame.idr;
-                    state.transmitting_remaining = None;
+                    // A whole frame sent block by block stays one keyframe in
+                    // flight: its first part counts all of it, so from there the
+                    // remaining time stands in for the packetizer still building it.
+                    if !frame.continues_whole() {
+                        state.transmitting_remaining = None;
+                    }
+                    // Only while the packetizer is still on this frame: once it
+                    // closed, `sending_keyframe` may be the next frame's.
+                    if frame.whole
+                        && frame.stream.is_some_and(|part| part.first)
+                        && state.whole_open
+                    {
+                        state.sending_keyframe = false;
+                    }
                     // Room for the packetizer; the backlog is the same.
                     self.ready_changed.notify_one();
                 }
@@ -48,16 +64,23 @@ impl Slot {
             holding = send(Some(&frame))?;
             let mut state = self.state.lock().unwrap();
             state.transmitting = false;
-            state.transmitting_keyframe = false;
-            state.transmitting_remaining = None;
+            // More blocks of the whole frame follow: it stays in flight.
+            let more = frame.whole
+                && frame.stream.is_some_and(|part| !part.last)
+                && (state.whole_open || state.ready.is_some());
+            if !more {
+                state.transmitting_keyframe = false;
+                state.transmitting_remaining = None;
+            }
             state.recycle(frame.blocks);
             self.changed.notify_all();
         }
     }
 
     /// Wakes the stream thread only when the keyframe's remaining time
-    /// crosses its recovery lead, not after every batch.
-    pub(super) fn recovery_progress(&self, remaining: Option<Duration>) {
+    /// crosses its recovery lead, not after every batch. Returns whether it
+    /// did.
+    pub(super) fn recovery_progress(&self, remaining: Option<Duration>) -> bool {
         let mut state = self.state.lock().unwrap();
         if state.transmitting_keyframe {
             let lead = state.recovery_lead;
@@ -71,7 +94,9 @@ impl Slot {
             if crossed {
                 self.changed.notify_all();
             }
+            return crossed;
         }
+        false
     }
 }
 
@@ -110,6 +135,23 @@ struct Sending {
     given_up: bool,
     abandoned: usize,
     sent_packets: usize,
+}
+
+/// Add a part to the bytes the keyframe recovery estimate waits for, and
+/// whether the frame's own size was counted. A whole frame sent block by
+/// block is counted whole from its first part (`frame_wire`): the estimate
+/// must not open admission while blocks are unbuilt, nor count its later
+/// parts again.
+pub(super) fn count_remaining(
+    (remaining, known): (usize, bool),
+    part_wire: usize,
+    frame_wire: Option<usize>,
+) -> (usize, bool) {
+    match frame_wire {
+        Some(frame_wire) => (remaining + frame_wire, true),
+        None if known => (remaining, true),
+        None => (remaining + part_wire, false),
+    }
 }
 
 struct Transport<'a> {
@@ -311,14 +353,11 @@ impl Transport<'_> {
         cur.packets += part_packets;
         cur.frame_bytes += part_bytes;
         cur.wire_bytes += part_wire;
-        // A whole frame sent block by block is counted whole from its first
-        // part: the estimate must not open admission while blocks are unbuilt.
-        if let Some(frame_wire) = frame.frame_wire_bytes {
-            cur.remaining_wire_bytes += frame_wire;
-            cur.frame_wire_known = true;
-        } else if !cur.frame_wire_known {
-            cur.remaining_wire_bytes += part_wire;
-        }
+        (cur.remaining_wire_bytes, cur.frame_wire_known) = count_remaining(
+            (cur.remaining_wire_bytes, cur.frame_wire_known),
+            part_wire,
+            frame.frame_wire_bytes,
+        );
         if frame.stream.is_some() {
             for &(data, parity) in &frame.layout {
                 cur.lost.push_block(data, parity);

@@ -48,6 +48,16 @@ use crate::stream::pyrowave_sdk::zero_copy::{
 /// A/B runs on machines with VAAPI); set to 0, it is not tried.
 pub const ENVIRONMENT: &str = "NIGHTJAR_VULKAN_VIDEO";
 
+/// Set to 0, a stream on the GPU renderer tries VAAPI before Vulkan video again (A/B runs);
+/// otherwise Vulkan video goes first there, its pictures drawn without the trip through memory
+/// that VAAPI's take to the GPU renderer.
+pub const GPU_FIRST_ENVIRONMENT: &str = "NIGHTJAR_VULKAN_VIDEO_GPU_FIRST";
+
+/// What `GPU_FIRST_ENVIRONMENT` asks for: Vulkan video first on the GPU renderer, unless 0.
+pub fn gpu_first(value: Option<&std::ffi::OsStr>) -> bool {
+    value.and_then(|value| value.to_str()) != Some("0")
+}
+
 /// What `ENVIRONMENT` asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Choice {

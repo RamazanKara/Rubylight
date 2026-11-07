@@ -46,7 +46,7 @@ pub(super) struct RtpQueue {
     received_oos_data: bool,
 
     packet_size: usize,
-    rfi: bool,
+    pub(super) rfi: bool,
     fec_supported: bool,
     records: bool,
     /// Records go to the depacketizer as their packets arrive instead of when the frame

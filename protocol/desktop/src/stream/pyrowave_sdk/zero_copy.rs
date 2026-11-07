@@ -226,8 +226,15 @@ pub fn plan(devices: &[DeviceCaps]) -> Result<Features, String> {
 /// The Vulkan video extensions the renderer should ask for, or why it should not ask, apart from
 /// PyroWave's `plan`: every device SDL could pick needs Vulkan 1.3 and `Features::video`, and the
 /// extensions asked for are the ones they all have, so none is refused for them, if they decode a
-/// codec.
+/// codec; and the DMA-BUF import extensions VAAPI's pictures are mapped with, if they all have
+/// them (`crate::vulkan_video::VaapiMap`).
 pub fn plan_video(devices: &[DeviceCaps]) -> Result<crate::vulkan_video::Extensions, String> {
+    plan_video_for(devices, crate::vulkan_video::Extensions::wanted(true, true))
+}
+
+/// `plan_video` for the `wanted` extensions (`Extensions::wanted`): the video ones that decode a
+/// codec and the import ones, those that are wanted.
+pub fn plan_video_for(devices: &[DeviceCaps], wanted: crate::vulkan_video::Extensions) -> Result<crate::vulkan_video::Extensions, String> {
     let best = devices.iter().map(|device| rank(device.kind)).max().ok_or("Vulkan lists no devices")?;
     let mut video = crate::vulkan_video::Extensions(u32::MAX);
     for device in devices.iter().filter(|device| rank(device.kind) == best) {
@@ -241,17 +248,22 @@ pub fn plan_video(devices: &[DeviceCaps]) -> Result<crate::vulkan_video::Extensi
         }
         video = video.and(device.video);
     }
-    let usable = video.usable();
-    if usable.is_empty() {
-        return Err("the Vulkan devices SDL picks from lack the video decoding extensions".into());
+    let video = video.and(wanted);
+    let (usable, mapping) = (video.usable(), video.mapping());
+    if usable.is_empty() && mapping.is_empty() {
+        return Err(if wanted.mapping().is_empty() {
+            "the Vulkan devices SDL picks from lack the video decoding extensions".into()
+        } else {
+            "the Vulkan devices SDL picks from lack the video decoding extensions and the DMA-BUF import ones".into()
+        });
     }
-    Ok(usable)
+    Ok(crate::vulkan_video::Extensions(usable.0 | mapping.0))
 }
 
 /// The video extensions the GPU renderer's request would ask for (`plan_video` of the devices the
 /// loader lists), or why Vulkan video cannot be used.
 pub fn video_devices() -> Result<crate::vulkan_video::Extensions, String> {
-    plan_video(&query_devices()?)
+    plan_video_for(&query_devices()?, crate::vulkan_video::Extensions::wanted(true, false))
 }
 
 /// The Vulkan devices the loader lists, as `plan` reads them.
@@ -308,7 +320,13 @@ impl RendererRequest {
     /// for without the other, the reason for a missing one in the log.
     pub fn new(pyrowave: bool, video: bool) -> Result<Box<Self>, String> {
         let devices = query_devices()?;
-        let (features, video) = Self::halves(pyrowave.then(|| plan(&devices)), video.then(|| plan_video(&devices)))?;
+        // The video extensions unless NIGHTJAR_VULKAN_VIDEO=0, the import ones unless VAAPI's
+        // pictures are not to be mapped.
+        let wanted = crate::vulkan_video::Extensions::wanted(
+            crate::vulkan_video::Choice::from_environment() != crate::vulkan_video::Choice::Off,
+            crate::vulkan_video::map_switched_on(std::env::var_os(crate::vulkan_video::MAP_ENVIRONMENT).as_deref()),
+        );
+        let (features, video) = Self::halves(pyrowave.then(|| plan(&devices)), video.then(|| plan_video_for(&devices, wanted)))?;
         let mut chain = Chain::new();
         chain.enable(features);
         let extensions = video.names().iter().map(|name| name.as_ptr()).collect();
@@ -353,8 +371,8 @@ impl RendererRequest {
         self.features
     }
 
-    /// The Vulkan video extensions asked for; with any, the renderer also asks SDL for its decode
-    /// queues (`crate::vulkan_video::DECODE_QUEUES_PROPERTY`).
+    /// The Vulkan video and DMA-BUF import extensions asked for; with video ones, the renderer
+    /// also asks SDL for its decode queues (`crate::vulkan_video::DECODE_QUEUES_PROPERTY`).
     pub fn video(&self) -> crate::vulkan_video::Extensions {
         self.video
     }
@@ -765,6 +783,14 @@ mod tests {
         assert_eq!(plan_video(&[with_video("queues only", discrete, 0b00011)]), none, "queues without a codec");
         assert_eq!(plan_video(&[with_video("a", discrete, 0b11111), with_video("b", discrete, 0b11100)]), none, "b has no queues");
         assert_eq!(plan_video(&[]), Err("Vulkan lists no devices".into()));
+        // The DMA-BUF import extensions are asked for when every candidate has them, apart from
+        // video decoding (nightjar#80: no Vulkan AV1 decoding, VAAPI pictures mapped instead).
+        let import = Extensions(0b111 << 5);
+        assert_eq!(plan_video(&[with_video("RADV", discrete, import.0)]), Ok(import));
+        assert_eq!(plan_video(&[with_video("RADV", discrete, 0b1111_1111)]), Ok(Extensions(0b1111_1111)));
+        assert_eq!(plan_video(&[with_video("a", discrete, 0b1111_1111), with_video("b", discrete, 0b0111_1111)]), Ok(Extensions(0b1_1111)), "b cannot import");
+        assert_eq!(plan_video_for(&[with_video("RADV", discrete, 0b1111_1111)], Extensions::wanted(false, true)), Ok(import), "NIGHTJAR_VULKAN_VIDEO=0");
+        assert!(plan_video_for(&[with_video("RADV", discrete, import.0)], Extensions::wanted(true, false)).is_err(), "Vulkan video alone needs the video ones");
         // Apart from PyroWave: a device without its subgroup operations and features decodes video
         // with synchronization2 and timeline semaphores alone, and not without them.
         let narrow = DeviceCaps { subgroup_ops: vk::SubgroupFeatureFlags::BASIC, supported: Features::video(), ..rtx.clone() };

@@ -127,6 +127,7 @@ pub fn probe_base(hardware: media::Hardware, wanted: u32) -> Base {
             chroma444: false,
             packed: false,
             waiting: 0,
+            vaapi_node: None,
         };
         match decode(hardware, pictures, codec, data) {
             Ok((_, backend)) => {
@@ -159,6 +160,7 @@ pub fn probe(
             chroma444: yuv444,
             packed: false,
             waiting: 0,
+            vaapi_node: None,
         };
         match decode(hardware, pictures, codec, data)
             .and_then(|(info, _)| drawable(&info, yuv444, &planes))

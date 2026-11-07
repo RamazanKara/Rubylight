@@ -551,7 +551,7 @@ pub fn create_renderer_for(window: *mut SDL_Window, gpu: bool, pyrowave: bool, v
             Ok(mut request) => {
                 let video = request.video();
                 // The request outlives the call, which copies what it needs of it.
-                let renderer = make_renderer(window, gpu, request.options(), !video.is_empty());
+                let renderer = make_renderer(window, gpu, request.options(), !video.usable().is_empty());
                 // SAFETY: A live renderer made with the request.
                 if !renderer.is_null() && unsafe { request.mark(renderer) } {
                     return renderer;

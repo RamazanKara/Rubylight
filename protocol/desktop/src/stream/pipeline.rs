@@ -913,13 +913,40 @@ impl Decoder {
             chroma444: setup.format & VIDEO_FORMAT_MASK_YUV444 != 0,
             packed: setup.chroma_packing != 0,
             waiting: self.pool_waiting,
+            vaapi_node: self.vaapi_node(setup),
         }
+    }
+
+    /// The GPU renderer's render node, for VAAPI to open on the GPU its pictures are mapped to
+    /// (`media::VideoDecoder::map_to_vulkan`): with the renderer's SDL GPU device, unpacked
+    /// pictures and `NIGHTJAR_VAAPI_VULKAN_MAP` not 0. Why it is not known goes to the log.
+    fn vaapi_node(&self, setup: &VideoSetup) -> Option<u32> {
+        #[cfg(unix)]
+        if let Hardware::Auto(gpu) = self.hardware {
+            let switched_on = crate::vulkan_video::map_switched_on(std::env::var_os(crate::vulkan_video::MAP_ENVIRONMENT).as_deref());
+            if !gpu.is_null() && setup.chroma_packing == 0 && switched_on {
+                // SAFETY: The renderer keeps its device alive until the decoder has stopped.
+                match unsafe { crate::vulkan_video::render_minor(gpu.cast()) } {
+                    Ok(minor) => return Some(minor),
+                    Err(why) => crate::vulkan_video::note(&format!("VAAPI opens on the default device: {why}")),
+                }
+            }
+        }
+        let _ = setup;
+        None
     }
 
     /// Makes `decoder` the stream's FFmpeg decoder.
     fn install(&mut self, mut decoder: media::VideoDecoder, setup: &VideoSetup) {
         if exports_dmabuf(self.dmabuf, setup) && decoder.export_dmabuf() {
             eprintln!("nightjar: VAAPI pictures go to the renderer as DMA-BUFs");
+        } else {
+            #[cfg(unix)]
+            if let Hardware::Auto(gpu) = self.hardware {
+                if !gpu.is_null() && setup.chroma_packing == 0 {
+                    decoder.map_to_vulkan(gpu);
+                }
+            }
         }
         // The overlay's decoder name, in the log for runs nobody watches.
         eprintln!("nightjar: video decoder {}", decoder.name);

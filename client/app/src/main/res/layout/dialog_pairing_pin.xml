@@ -9,10 +9,8 @@
         android:paddingTop="@dimen/space_s" android:paddingBottom="@dimen/space_s">
         <TextView android:id="@+id/pairing_pin_from" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurface" />
-        <TextView android:id="@+id/pairing_pin_value" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/space_m" android:gravity="center" android:textDirection="ltr"
-            android:minHeight="@dimen/touch_target" android:maxLines="2" android:ellipsize="end" android:hint="@string/pairing_pin_slots"
-            android:textAppearance="@style/TextAppearance.Nightjar.ScreenTitle" android:textColor="?attr/colorOnSurface" />
+        <com.limelight.ui.PinSlots android:id="@+id/pairing_pin_value" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_m" />
         <GridLayout android:id="@+id/pairing_pin_pad" android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_s" android:columnCount="3" android:layoutDirection="ltr" />
     </LinearLayout>

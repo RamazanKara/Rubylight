@@ -54,9 +54,4 @@
     <string name="pin_key_delete">Delete</string>
     <string name="pin_key_confirm">Confirm</string>
     <string name="pin_dots_description">%1$d of %2$d digits entered</string>
-    <string name="pin_hint">Up and Down choose a row. Left, Select and Right press its keys.</string>
-    <string name="pin_row_1">Row 1: 1, 2, 3</string>
-    <string name="pin_row_2">Row 2: 4, 5, 6</string>
-    <string name="pin_row_3">Row 3: 7, 8, 9</string>
-    <string name="pin_row_4">Row 4: Delete, 0, Confirm</string>
 </resources>

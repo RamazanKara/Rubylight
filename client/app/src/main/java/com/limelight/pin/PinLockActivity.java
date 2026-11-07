@@ -10,7 +10,6 @@ import android.os.Looper;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.View;
-import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -150,16 +149,13 @@ public class PinLockActivity extends NightjarActivity {
     private byte[] first;
     private boolean busy;
     private int dotCount;
-    private int row;
-    private boolean ringVisible;
+    private boolean confirmReady;
     private long lockedUntilElapsed;
 
     private TextView title;
     private TextView subtitle;
     private TextView status;
-    private View hint;
-    private LinearLayout dots;
-    private final View[] rows = new View[PinKeys.ROWS.length];
+    private com.limelight.ui.PinSlots dots;
     private final MaterialButton[] keys = new MaterialButton[12];
     private ExecutorService worker;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -183,22 +179,14 @@ public class PinLockActivity extends NightjarActivity {
         title = findViewById(R.id.pin_title);
         subtitle = findViewById(R.id.pin_subtitle);
         status = findViewById(R.id.pin_status);
-        hint = findViewById(R.id.pin_hint);
         dots = findViewById(R.id.pin_dots);
-        rows[0] = findViewById(R.id.pin_row_0);
-        rows[1] = findViewById(R.id.pin_row_1);
-        rows[2] = findViewById(R.id.pin_row_2);
-        rows[3] = findViewById(R.id.pin_row_3);
-        for (int i = 0; i < rows.length; i++) {
-            rows[i].setContentDescription(getString(new int[] {R.string.pin_row_1, R.string.pin_row_2,
-                    R.string.pin_row_3, R.string.pin_row_4}[i]));
-        }
         dotCount = purpose == Purpose.SET || !store.hasPin() ? PinStore.MAX_DIGITS : store.pinLength();
-        buildDots();
+        dots.setRange(Math.min(PinStore.MIN_DIGITS, dotCount), dotCount);
+        placePanel();
         buildKeys();
 
         MaterialButton cancel = findViewById(R.id.pin_cancel);
-        cancel.setText(purpose == Purpose.APP ? R.string.pin_close_app : R.string.pin_cancel);
+        cancel.setContentDescription(getString(purpose == Purpose.APP ? R.string.pin_close_app : R.string.pin_cancel));
         cancel.setOnClickListener(v -> leave());
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
@@ -206,10 +194,8 @@ public class PinLockActivity extends NightjarActivity {
             }
         });
 
-        ringVisible = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK)
-                == Configuration.UI_MODE_TYPE_TELEVISION;
         render();
-        updateRows();
+        keys[1].requestFocus();
         UiHelper.notifyNewRootView(this);
         if (purpose != Purpose.SET && !store.hasPin()) {
             // The PIN went away since this screen was asked for: nothing is left to check.
@@ -247,19 +233,29 @@ public class PinLockActivity extends NightjarActivity {
 
     // ---- Views ----
 
-    private void buildDots() {
-        int size = getResources().getDimensionPixelSize(R.dimen.pin_dot_size);
-        int gap = getResources().getDimensionPixelSize(R.dimen.space_s);
-        dots.removeAllViews();
-        for (int i = 0; i < dotCount; i++) {
-            View dot = new View(this);
-            dot.setBackgroundResource(R.drawable.pin_dot);
-            dot.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(size, size);
-            params.setMarginStart(gap / 2);
-            params.setMarginEnd(gap / 2);
-            dots.addView(dot, params);
+    /** A sheet along the bottom of a phone held upright; a panel in the middle on anything else, with the sky around it. */
+    private void placePanel() {
+        View panel = findViewById(R.id.pin_panel);
+        Configuration config = getResources().getConfiguration();
+        boolean sheet = config.orientation != Configuration.ORIENTATION_LANDSCAPE && config.smallestScreenWidthDp < 600;
+        panel.setBackground(sheet ? com.limelight.ui.GlassPanelDrawable.sheet(this) : com.limelight.ui.GlassPanelDrawable.dialog(this));
+        // The moon stands above a sheet; a panel in the middle would cover half of it.
+        ((com.limelight.ui.NightSkyView) findViewById(R.id.pin_sky)).setMoonShown(sheet);
+        if (!sheet && config.orientation != Configuration.ORIENTATION_LANDSCAPE) {
+            android.widget.FrameLayout.LayoutParams params = (android.widget.FrameLayout.LayoutParams) panel.getLayoutParams();
+            params.width = getResources().getDimensionPixelSize(R.dimen.content_max_width);
+            params.gravity = android.view.Gravity.CENTER;
         }
+        com.limelight.ui.NightSkyView sky = findViewById(R.id.pin_sky);
+        // The sky runs under the system bars. A sheet stands on the screen's edge and lifts its keys above the bar; a panel in the
+        // middle stays clear of them all.
+        ((com.limelight.ui.GlassHost) findViewById(R.id.pin_root)).setSafeAreaListener((left, top, right, bottom) -> {
+            sky.setSafeTop(top);
+            android.widget.FrameLayout.LayoutParams params = (android.widget.FrameLayout.LayoutParams) panel.getLayoutParams();
+            panel.setPadding(sheet ? left : 0, 0, sheet ? right : 0, sheet ? bottom : 0);
+            params.setMargins(sheet ? 0 : left, top, sheet ? 0 : right, sheet ? 0 : bottom);
+            panel.setLayoutParams(params);
+        });
     }
 
     private void buildKeys() {
@@ -272,35 +268,35 @@ public class PinLockActivity extends NightjarActivity {
             if (i < 10) {
                 final int digit = i;
                 key.setText(String.format(Locale.getDefault(), "%d", digit));
-                key.setOnClickListener(v -> touched(() -> type(digit)));
+                key.setOnClickListener(v -> type(digit));
             } else {
                 boolean delete = i == 10;
                 key.setIcon(getDrawable(delete ? R.drawable.ic_backspace : R.drawable.ic_check));
                 key.setIconSize(iconSize);
                 key.setIconPadding(0);
                 key.setIconGravity(MaterialButton.ICON_GRAVITY_TEXT_START);
-                key.setOnClickListener(v -> touched(delete ? this::delete : this::submit));
+                key.setContentDescription(getString(delete ? R.string.pin_key_delete : R.string.pin_key_confirm));
+                key.setOnClickListener(v -> {
+                    if (delete) delete();
+                    else submit();
+                });
             }
         }
     }
 
-    /** A touch on the pad: the row highlight is for remotes, so it goes away. */
-    private void touched(Runnable action) {
-        if (ringVisible) {
-            ringVisible = false;
-            updateRows();
-        }
-        action.run();
-    }
-
-    private void updateRows() {
-        for (int i = 0; i < rows.length; i++) rows[i].setActivated(ringVisible && i == row);
-        hint.setVisibility(ringVisible ? View.VISIBLE : View.GONE);
-    }
-
     private void updateDots() {
-        for (int i = 0; i < dots.getChildCount(); i++) dots.getChildAt(i).setActivated(i < count);
+        dots.showMasked(count);
         dots.setContentDescription(getString(R.string.pin_dots_description, count, dotCount));
+        // A new PIN has no known length: the check is the way on once it is long enough, so it takes the moon.
+        boolean ready = purpose == Purpose.SET && count >= PinStore.MIN_DIGITS;
+        if (ready != confirmReady) {
+            confirmReady = ready;
+            MaterialButton confirm = keys[11];
+            confirm.setBackgroundResource(ready ? R.drawable.dialog_button_moon : R.drawable.dialog_button_control);
+            confirm.setIconTint(android.content.res.ColorStateList.valueOf(ready
+                    ? androidx.core.content.ContextCompat.getColor(this, R.color.nj_color_on_moon)
+                    : MaterialColors.getColor(confirm, com.google.android.material.R.attr.colorOnSurface)));
+        }
     }
 
     private void render() {
@@ -520,7 +516,7 @@ public class PinLockActivity extends NightjarActivity {
 
     /** Back and the pad's B button take back the last digit if a remote is typing, and leave otherwise. */
     private void back() {
-        if (ringVisible && count > 0 && inputAllowed()) {
+        if (!getWindow().getDecorView().isInTouchMode() && count > 0 && inputAllowed()) {
             delete();
         } else {
             leave();
@@ -538,30 +534,12 @@ public class PinLockActivity extends NightjarActivity {
         }
         PinKeys.Action action = PinKeys.of(event.getKeyCode(), keyboard);
         if (action.kind == PinKeys.Kind.NONE) return super.dispatchKeyEvent(event);
-        if (event.getAction() == KeyEvent.ACTION_DOWN) {
-            boolean moves = action.kind == PinKeys.Kind.ROW_UP || action.kind == PinKeys.Kind.ROW_DOWN;
-            if (event.getRepeatCount() == 0 || moves) perform(action);
-        }
+        if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) perform(action);
         return true;
     }
 
     private void perform(PinKeys.Action action) {
         switch (action.kind) {
-            case ROW_UP:
-            case ROW_DOWN:
-                ringVisible = true;
-                row = PinKeys.moveRow(row, action.kind == PinKeys.Kind.ROW_DOWN);
-                updateRows();
-                rows[row].announceForAccessibility(rows[row].getContentDescription());
-                break;
-            case CELL:
-                ringVisible = true;
-                updateRows();
-                int cell = PinKeys.cell(row, action.value);
-                if (cell == PinKeys.DELETE) delete();
-                else if (cell == PinKeys.CONFIRM) submit();
-                else type(cell);
-                break;
             case DIGIT:
                 type(action.value);
                 break;

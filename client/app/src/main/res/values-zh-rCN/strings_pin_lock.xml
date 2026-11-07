@@ -48,9 +48,4 @@
     <string name="pin_key_delete">删除</string>
     <string name="pin_key_confirm">确认</string>
     <string name="pin_dots_description">已输入 %1$d / %2$d 位</string>
-    <string name="pin_hint">上、下选择一行；左、确定、右按下该行的按键。</string>
-    <string name="pin_row_1">第 1 行：1, 2, 3</string>
-    <string name="pin_row_2">第 2 行：4, 5, 6</string>
-    <string name="pin_row_3">第 3 行：7, 8, 9</string>
-    <string name="pin_row_4">第 4 行：删除, 0, 确认</string>
 </resources>

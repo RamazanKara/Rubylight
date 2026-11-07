@@ -563,6 +563,28 @@ public class AppViewLifecycleTest {
         }
     }
 
+    /**
+     * On the real TV the scrolled grid's top row stopped on a hard line under the title: its fade was 14 dp. Rows fade out
+     * under the title over All games' length, from the grid's own top edge.
+     */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionScrolledRowsFadeUnderTheTitleAsOnAllGames() throws Exception {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.UUID_EXTRA, "running-host").putExtra(AppView.NAME_EXTRA, "PC");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup().visible();
+        try {
+            Library screen = controller.get();
+            android.widget.GridView grid = libraryWithRunningGame(screen, "sunshine-serverinfo.xml");
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            assertTrue(grid.isVerticalFadingEdgeEnabled());
+            assertEquals(screen.getResources().getDimensionPixelSize(R.dimen.all_games_fade), grid.getVerticalFadingEdgeLength());
+            assertFalse("the fade starts at the grid's edge, past its padding", grid.getClipToPadding());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     /** The tabs were installed again after the chrome styled them: larger words, another width, stacked on PCs and inline here. */
     @Test
     @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")

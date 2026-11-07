@@ -3,6 +3,8 @@
     <dimen name="app_grid_spacing">0dp</dimen>
     <dimen name="app_tile_gap">18dp</dimen>
     <dimen name="app_grid_top">20dp</dimen>
+    <!-- Scrolled rows fade out under the title over All games' length, not stop on a hard line. -->
+    <dimen name="app_grid_fade">@dimen/all_games_fade</dimen>
     <dimen name="grid_padding_top">16dp</dimen>
     <dimen name="grid_padding_bottom">32dp</dimen>
     <dimen name="settings_section_padding">8dp</dimen>

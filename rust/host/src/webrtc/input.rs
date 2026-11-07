@@ -1402,7 +1402,13 @@ pub fn spawn(h: Shared) -> Result<InputHandle> {
     });
     std::thread::Builder::new()
         .name("webrtc-input".into())
-        .spawn(move || run(queues, make))
+        .spawn(move || {
+            // The control thread's priority: it injects every input. Test
+            // workers must not boost their priority or register a Windows task.
+            #[cfg(not(test))]
+            let _priority = butterpollo_windows::capture::Priority::input();
+            run(queues, make)
+        })
         .context("starting the WebRTC input worker")?;
     Ok(handle)
 }

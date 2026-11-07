@@ -229,6 +229,11 @@ struct Shared<D> {
     late: Duration,
 }
 
+/// Runs first on each of an [`Export`]'s threads; what it returns lives as
+/// long as the thread. The Windows host raises their priority with it, as it
+/// does its other input threads: the core stays OS-independent.
+pub type ThreadStart = fn() -> Box<dyn std::any::Any>;
+
 /// One device served on `127.0.0.1` at [`Export::port`] under [`BUS_ID`].
 /// A client that disconnects may attach again. Dropping it disconnects the
 /// client and stops the server.
@@ -242,11 +247,20 @@ impl<D: Device> Export<D> {
     /// `period` while the client waits for one, and at once after
     /// [`Export::changed`].
     pub fn listen(device: D, period: Duration) -> io::Result<Self> {
-        Self::listen_with(device, period, crate::haptics::MAX_AGE)
+        Self::listen_started(device, period, || Box::new(()))
     }
-    /// As [`Export::listen`], playing the audio of OUT transfers that complete at most `late`
-    /// after they were due.
-    fn listen_with(device: D, period: Duration, late: Duration) -> io::Result<Self> {
+    /// As [`Export::listen`], with `start` run first on the server's threads.
+    pub fn listen_started(device: D, period: Duration, start: ThreadStart) -> io::Result<Self> {
+        Self::listen_with(device, period, crate::haptics::MAX_AGE, start)
+    }
+    /// As [`Export::listen_started`], playing the audio of OUT transfers that complete at most
+    /// `late` after they were due.
+    fn listen_with(
+        device: D,
+        period: Duration,
+        late: Duration,
+        start: ThreadStart,
+    ) -> io::Result<Self> {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
         listener.set_nonblocking(true)?;
         let port = listener.local_addr()?.port();
@@ -264,12 +278,18 @@ impl<D: Device> Export<D> {
         threads.push(
             std::thread::Builder::new()
                 .name("usbip-accept".into())
-                .spawn(move || accept_clients(&accept, &listener))?,
+                .spawn(move || {
+                    let _started = start();
+                    accept_clients(&accept, &listener)
+                })?,
         );
         let tick = shared.clone();
         let ticker = std::thread::Builder::new()
             .name("usbip-reports".into())
-            .spawn(move || report(&tick));
+            .spawn(move || {
+                let _started = start();
+                report(&tick)
+            });
         let mut export = Self {
             shared,
             port,
@@ -751,6 +771,29 @@ mod tests {
     use crate::steam_deck::{REPORT_PERIOD, SteamDeck};
 
     #[test]
+    fn the_start_hook_runs_first_on_both_server_threads() {
+        static STARTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        fn record() -> Box<dyn std::any::Any> {
+            let name = std::thread::current().name().unwrap_or_default().to_owned();
+            STARTED.lock().unwrap().push(name);
+            Box::new(())
+        }
+        let export = Export::listen_started(SteamDeck::new("TEST"), REPORT_PERIOD, record).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while STARTED.lock().unwrap().len() < 2 {
+            assert!(
+                Instant::now() < deadline,
+                "a server thread skipped the hook"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        drop(export);
+        let mut started = STARTED.lock().unwrap().clone();
+        started.sort();
+        assert_eq!(started, ["usbip-accept", "usbip-reports"]);
+    }
+
+    #[test]
     fn dropping_an_idle_export_does_not_need_a_loopback_connection() {
         for idle in [Duration::ZERO, READ_SLICE * 2] {
             let mut export = Export::listen(SteamDeck::new("TEST"), REPORT_PERIOD).unwrap();
@@ -774,7 +817,9 @@ mod tests {
         pad.capabilities(crate::haptics::CAPABILITY);
         // A loaded machine can wake the report thread more than `MAX_AGE` late, and `listen`
         // then drops the audio as stale. This test is about the descriptors and the PCM.
-        let export = Export::listen_with(pad, REPORT_PERIOD, Duration::from_secs(60)).unwrap();
+        let export =
+            Export::listen_with(pad, REPORT_PERIOD, Duration::from_secs(60), || Box::new(()))
+                .unwrap();
         let mut client = TcpStream::connect((Ipv4Addr::LOCALHOST, export.port())).unwrap();
         client
             .set_read_timeout(Some(Duration::from_secs(5)))

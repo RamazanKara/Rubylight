@@ -407,6 +407,8 @@ impl Encoder {
                 unit_held: false,
                 unit_idr_reported: false,
                 focus: Default::default(),
+                prediction: output::Prediction::new(options.amd_output_prediction()),
+                output_thread: None,
             };
             // Before any property: AMF refuses an oversize FrameSize with a bare
             // AMF_OUT_OF_RANGE, which would read as a driver problem.
@@ -629,6 +631,11 @@ impl Encoder {
                 .observe(e.read(rate_control::frame_cap_name(e.codec)));
             e.dynamic = e.enable_dynamic(options);
             e.log_effective();
+            if options.amd_output_thread() {
+                // The component is initialized, and `Encoder::drop` joins the
+                // thread before it terminates the component.
+                e.output_thread = Some(output_thread::OutputThread::for_component(e.component)?);
+            }
             Ok(e)
         }
     }

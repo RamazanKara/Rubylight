@@ -108,6 +108,29 @@ fn default_order_is_byte_for_byte_what_it_was() {
     assert_eq!(got, GOLDEN);
 }
 
+#[test]
+fn a_reused_buffer_frames_the_same_bytes_in_either_order() {
+    let mut reused = vec![0xaa; 3_000_000];
+    for &(w, h, c, seed, big) in &FIXTURES {
+        let frame = synthetic(w, h, c, seed, big);
+        for (payload, rows) in [
+            (aligned_payload(PACKET), false),
+            (aligned_payload(PACKET), true),
+            (0, false),
+        ] {
+            let limit = max_frame_bytes(PACKET, true);
+            let address = reused.as_ptr();
+            reused = record_frame_into(&frame, payload, limit, rows, reused).unwrap();
+            assert_eq!(
+                reused,
+                record_frame_with(&frame, payload, limit, rows).unwrap()
+            );
+            // Big enough already: written in place, not reallocated.
+            assert_eq!(reused.as_ptr(), address);
+        }
+    }
+}
+
 const PACKET: usize = 1392;
 
 fn framed(frame: &[u8], rows: bool) -> Vec<u8> {

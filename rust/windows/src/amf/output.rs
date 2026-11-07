@@ -9,6 +9,42 @@ pub(super) fn output_is_idr(picture_type: Option<i64>, requested_idr: bool) -> b
     // frames ahead, or continue an earlier encoder's frame numbering.
     picture_type.map_or(requested_idr, |kind| kind == 0)
 }
+/// `amd_output_prediction`: when the oldest frame in flight can first be
+/// done, from the fastest encode seen, and the queries skipped before then.
+pub(super) struct Prediction {
+    enabled: bool,
+    /// The fastest acceptance-to-output time of any frame.
+    fastest: Option<Duration>,
+    /// Queries skipped, for the stall snapshot.
+    pub(super) skipped: u64,
+}
+impl Prediction {
+    pub(super) fn new(enabled: bool) -> Self {
+        Self {
+            enabled,
+            fastest: None,
+            skipped: 0,
+        }
+    }
+    /// A frame came out `took` after AMF accepted it.
+    pub(super) fn observe(&mut self, took: Duration) {
+        self.fastest = Some(self.fastest.map_or(took, |fastest| fastest.min(took)));
+    }
+    /// The oldest frame's earliest finish, when on and it applies (whole
+    /// frames queried on the stream thread).
+    pub(super) fn predicted(&self, oldest: Option<Instant>, applies: bool) -> Option<Instant> {
+        if !self.enabled || !applies {
+            return None;
+        }
+        encoder_backlog::predicted_output(oldest?, self.fastest)
+    }
+    /// Whether a query now is skipped, counting it.
+    pub(super) fn skips(&mut self, now: Instant, predicted: Option<Instant>) -> bool {
+        let skips = encoder_backlog::skips_query(now, predicted);
+        self.skipped += u64::from(skips);
+        skips
+    }
+}
 impl Encoder {
     fn expire_unreturned(&mut self) {
         // A submission the driver never answers would otherwise keep every
@@ -30,7 +66,46 @@ impl Encoder {
             self.recover = true;
         }
     }
+    /// Finished output. With `amd_output_prediction` a query the oldest frame
+    /// cannot answer yet is skipped: it would only block for its timeout.
     pub fn poll(&mut self) -> Result<Vec<Encoded>> {
+        let predicted = self.predicted_output();
+        if self.prediction.skips(Instant::now(), predicted) {
+            if let Some(input) = &mut self.compute {
+                input.converter.release_completed();
+            }
+            return Ok(vec![]);
+        }
+        self.poll_now()
+    }
+    /// When the oldest frame in flight can first be done, with
+    /// `amd_output_prediction` on and whole frames returned.
+    fn predicted_output(&self) -> Option<Instant> {
+        let whole = self.slice_blocks == 0 && self.unit_log.is_none();
+        self.prediction.predicted(
+            self.in_flight.front().map(|oldest| oldest.accepted),
+            whole && self.output_thread.is_none(),
+        )
+    }
+    /// When a poll is next worth making, with `amd_output_prediction`: the
+    /// caller's output poll waits until then.
+    pub fn output_due(&self) -> Option<Instant> {
+        self.predicted_output().map(encoder_backlog::query_due)
+    }
+    /// With `amd_output_thread`, an event set while its output is queued, to
+    /// end the caller's wait for output; `None` while nothing is in flight.
+    pub fn output_event(&self) -> Option<&crate::timing::Signal> {
+        self.output_thread
+            .as_ref()
+            .filter(|_| !self.in_flight.is_empty())
+            .map(|thread| thread.event())
+    }
+    /// QueryOutput blocks on the stream thread, without the output thread.
+    pub fn poll_blocks(&self) -> bool {
+        self.output_thread.is_none()
+    }
+    /// A query now, for waits that need capacity back.
+    pub(super) fn poll_now(&mut self) -> Result<Vec<Encoded>> {
         // A unit of a joined frame leaves nothing to hand on: ask again at
         // once for the frame's next unit instead of after the caller's wait.
         loop {
@@ -55,12 +130,24 @@ impl Encoder {
             // asking for the next one still in flight would hold it for the
             // timeout. Callers poll again while frames are pending.
             if self.in_flight.is_empty() {
+                if let Some(thread) = &self.output_thread {
+                    thread.want(false);
+                    thread.check_idle()?;
+                }
                 return Ok(output);
             }
-            let mut data = ptr::null_mut();
-            let code = timed("AMF QueryOutput", || {
-                ((*(*self.component).pVtbl).QueryOutput.unwrap())(self.component, &mut data)
-            });
+            let (code, data) = match &self.output_thread {
+                // Its queue answers at once; empty, it reads as a query that
+                // found nothing.
+                Some(thread) => thread.next(),
+                None => {
+                    let mut data = ptr::null_mut();
+                    let code = timed("AMF QueryOutput", || {
+                        ((*(*self.component).pVtbl).QueryOutput.unwrap())(self.component, &mut data)
+                    });
+                    (code, data)
+                }
+            };
             self.last_query = Some(code);
             if code == AMF_RESULT_AMF_REPEAT
                 || code == AMF_RESULT_AMF_EOF
@@ -129,7 +216,7 @@ impl Encoder {
                 1 => "HevcOutputDataType",
                 _ => "Av1OutputFrameType",
             };
-            let _ = (v.GetProperty.unwrap())(buffer, to_wide(prop).as_ptr(), &mut picture);
+            let _ = (v.GetProperty.unwrap())(buffer, static_wide(prop).as_ptr(), &mut picture);
             self.focus_feedback(buffer, pts, last);
             if size > 64 * 1024 * 1024 || raw.is_null() {
                 (v.Release.unwrap())(buffer);
@@ -169,7 +256,7 @@ impl Encoder {
                 }
             }
             let Some(sent) = self.repaired(
-                std::slice::from_raw_parts(raw, size as usize),
+                std::slice::from_raw_parts(raw, size),
                 skipped,
                 idr && requested_idr,
             ) else {
@@ -293,7 +380,11 @@ impl Encoder {
                     frame_cap_bytes,
                     idr,
                 );
-                (spliced.unwrap_or_else(|| sent.into_owned()), cap)
+                let owned = || match sent {
+                    std::borrow::Cow::Borrowed(bytes) => crate::frame_pool::copy(bytes),
+                    std::borrow::Cow::Owned(bytes) => bytes,
+                };
+                (spliced.unwrap_or_else(owned), cap)
             };
             (v.Release.unwrap())(buffer);
             self.frame_completed(timing, !bytes.is_empty());
@@ -339,7 +430,7 @@ impl Encoder {
                 _ => "AV1OutputBufferType",
             };
             let mut value: AMFVariantStruct = std::mem::zeroed();
-            ((v.GetProperty.unwrap())(buffer, to_wide(name).as_ptr(), &mut value)
+            ((v.GetProperty.unwrap())(buffer, static_wide(name).as_ptr(), &mut value)
                 == AMF_RESULT_AMF_OK
                 && value.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64)
                 .then_some(value.__bindgen_anon_1.int64Value)
@@ -350,6 +441,8 @@ impl Encoder {
         if let Some((accepted, preparation)) = timing.filter(|_| produced) {
             let previous = self.backlog.limit();
             let now = Instant::now();
+            self.prediction
+                .observe(now.saturating_duration_since(accepted));
             self.backlog
                 .completed(now, now.duration_since(accepted), preparation);
             if self.backlog.limit() != previous {
@@ -469,5 +562,56 @@ pub(super) fn unreturned_notice(probe: bool, pts: Option<i64>) -> Unreturned {
         Unreturned::Warning(format!(
             "AMF returned no output for frame {pts:?} within two seconds; dropping it and requesting a keyframe. You may see a pause; lower game GPU load or update the AMD driver if this repeats."
         ))
+    }
+}
+
+#[cfg(test)]
+mod prediction_tests {
+    use super::*;
+
+    /// `Encoder::poll`'s choice around a fake query: true when it queried.
+    fn poll(prediction: &mut Prediction, now: Instant, oldest: Instant, applies: bool) -> bool {
+        let predicted = prediction.predicted(Some(oldest), applies);
+        !prediction.skips(now, predicted)
+    }
+
+    #[test]
+    fn a_query_the_oldest_frame_cannot_answer_is_skipped_only_when_on() {
+        let accepted = Instant::now();
+        let mut off = Prediction::new(false);
+        off.observe(Duration::from_millis(4));
+        assert!(poll(&mut off, accepted, accepted, true));
+        let mut on = Prediction::new(true);
+        assert!(
+            poll(&mut on, accepted, accepted, true),
+            "nothing measured yet"
+        );
+        on.observe(Duration::from_millis(5));
+        on.observe(Duration::from_millis(4));
+        assert!(!poll(&mut on, accepted, accepted, true));
+        assert!(!poll(
+            &mut on,
+            accepted + Duration::from_millis(2),
+            accepted,
+            true
+        ));
+        assert_eq!(on.skipped, 2);
+        // Within the margin of the fastest finish, and past it, it queries.
+        assert!(poll(
+            &mut on,
+            accepted + Duration::from_millis(3),
+            accepted,
+            true
+        ));
+        assert!(poll(
+            &mut on,
+            accepted + Duration::from_millis(9),
+            accepted,
+            true
+        ));
+        // Slice output, the unit probe and the output thread always query.
+        assert!(poll(&mut on, accepted, accepted, false));
+        assert_eq!(on.predicted(None, true), None, "nothing in flight");
+        assert_eq!(on.skipped, 2);
     }
 }

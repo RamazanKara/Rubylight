@@ -57,6 +57,8 @@ impl SessionThread<'_> {
         #[cfg(test)]
         drop(fixture_preparation);
         drop(com);
+        // The encoders' reused frame buffers go with the stream that used them.
+        butterpollo_windows::frame_pool::clear();
         if s.launch.role == Role::RemoteMonitor
             && h.config
                 .read()

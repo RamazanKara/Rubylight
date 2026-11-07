@@ -201,7 +201,8 @@ impl Slots {
 }
 
 struct Texture {
-    texture: ID3D11Texture2D,
+    /// Shared with each image lent from it, without an allocation per frame.
+    texture: Arc<ID3D11Texture2D>,
     mutex: IDXGIKeyedMutex,
 }
 
@@ -511,7 +512,7 @@ impl Session {
             }
             textures.push(Texture {
                 mutex: texture.cast()?,
-                texture,
+                texture: Arc::new(texture),
             });
         }
         tracing::info!(
@@ -729,7 +730,7 @@ impl Session {
             acquired: Instant::now(),
             published: Instant::now(),
             gpu: self.gpu.clone(),
-            texture: Arc::new(texture.texture.clone()),
+            texture: texture.texture.clone(),
             ready: Some(ready),
             lease: Some(Arc::new(Lease {
                 slot,
@@ -982,7 +983,7 @@ fn worker(pipe: &Pipe) -> Result<()> {
             }
             textures.push(Texture {
                 mutex: texture.cast()?,
-                texture,
+                texture: Arc::new(texture),
             });
             handles.push(handle);
         }
@@ -1053,7 +1054,7 @@ fn worker(pipe: &Pipe) -> Result<()> {
                         // SAFETY: Both textures live on `gpu.device`, and this process holds
                         // `texture`'s keyed mutex (key 0).
                         unsafe {
-                            gpu.context.CopyResource(&texture.texture, &source);
+                            gpu.context.CopyResource(&*texture.texture, &source);
                         }
                     }
                     Ok(())

@@ -86,6 +86,12 @@ impl Signal {
     pub(crate) fn raw(&self) -> HANDLE {
         self.0
     }
+    /// Whether the event is set, without waiting.
+    pub(crate) fn is_set(&self) -> bool {
+        // SAFETY: `self.0` is the event this Signal owns, open until Drop; a
+        // zero timeout only reads its state.
+        unsafe { WaitForSingleObject(self.0, 0) == WAIT_OBJECT_0 }
+    }
     /// Reset while holding the protected capture-image lock, before waiting.
     pub fn reset(&self) -> Result<()> {
         // SAFETY: `self.0` is the event this Signal owns, open until Drop.
@@ -119,7 +125,7 @@ impl Timer {
         }
     }
     pub fn until(&self, deadline: Instant) {
-        if self.wait_until(deadline, None, arm_timer).is_err() {
+        if self.wait_until(deadline, &[], arm_timer).is_err() {
             // A failed kernel wait must not turn a busy media worker into a spin loop.
             std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
         }
@@ -170,14 +176,45 @@ impl Timer {
     /// Wait for capture or the precise encoder/static-frame deadline, without
     /// a coarse condition-variable timeout or a polling/spinning thread.
     pub fn until_or_signal(&self, deadline: Instant, signal: &Signal) -> Result<bool> {
-        self.wait_until(deadline, Some(signal), arm_timer)
+        self.wait_until(deadline, &[signal], arm_timer)
     }
+    /// Wait for `signal`, `extra` (such as an encoder's output event) or the
+    /// deadline; true when either event ended the wait.
+    pub fn until_or_signals(
+        &self,
+        deadline: Instant,
+        signal: &Signal,
+        extra: Option<&Signal>,
+    ) -> Result<bool> {
+        match extra {
+            Some(extra) => self.wait_until(deadline, &[signal, extra], arm_timer),
+            None => self.wait_until(deadline, &[signal], arm_timer),
+        }
+    }
+    /// A deadline wait that `event`, when there is one, ends early.
+    pub fn until_or_event(&self, deadline: Instant, event: Option<&Signal>) -> Result<bool> {
+        match event {
+            Some(event) => self.wait_until(deadline, &[event], arm_timer),
+            None => {
+                self.until(deadline);
+                Ok(false)
+            }
+        }
+    }
+    /// Waits for the first of `signals` (lower indices win a tie) or the
+    /// deadline; true when a signal ended the wait.
     fn wait_until(
         &self,
         deadline: Instant,
-        signal: Option<&Signal>,
+        signals: &[&Signal],
         arm: impl Fn(HANDLE, &i64) -> windows::core::Result<()>,
     ) -> Result<bool> {
+        let mut handles = [HANDLE::default(); 3];
+        for (handle, signal) in handles.iter_mut().zip(signals) {
+            *handle = signal.0;
+        }
+        anyhow::ensure!(signals.len() < handles.len(), "too many wait signals");
+        let count = signals.len();
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
@@ -190,30 +227,28 @@ impl Timer {
                 .div_ceil(1_000_000)
                 .min(u128::from(u32::MAX - 1)) as u32;
             let armed = arm(self.0, &ticks).is_ok();
-            // SAFETY: Every handle stays open for its owner's borrow. Signal comes first so a
+            // SAFETY: Every handle stays open for its owner's borrow. Signals come first so a
             // simultaneous deadline and recovery notification preserves the notification.
             let result = unsafe {
-                match (armed, signal) {
-                    (true, Some(signal)) => {
-                        WaitForMultipleObjects(&[signal.0, self.0], false, timeout)
+                match (armed, count) {
+                    (true, _) => {
+                        handles[count] = self.0;
+                        WaitForMultipleObjects(&handles[..=count], false, timeout)
                     }
-                    (true, None) => WaitForSingleObject(self.0, timeout),
                     // A timer unavailable after creation must still allow capture/recovery to
                     // interrupt its fallback wait; do not replace this with an ordinary sleep.
-                    (false, Some(signal)) => WaitForSingleObject(signal.0, timeout),
-                    (false, None) => {
+                    (false, 1..) => WaitForMultipleObjects(&handles[..count], false, timeout),
+                    (false, 0) => {
                         std::thread::sleep(remaining);
                         WAIT_TIMEOUT
                     }
                 }
             };
-            if signal.is_some() && result == WAIT_OBJECT_0 {
+            // WAIT_OBJECT_0 is 0: the first `count` results are the signals.
+            if result.0 < WAIT_OBJECT_0.0 + count as u32 {
                 return Ok(true);
             }
-            if result != WAIT_TIMEOUT
-                && result != WAIT_OBJECT_0
-                && !(armed && signal.is_some() && result.0 == WAIT_OBJECT_0.0 + 1)
-            {
+            if result != WAIT_TIMEOUT && !(armed && result.0 == WAIT_OBJECT_0.0 + count as u32) {
                 return Err(windows::core::Error::from_thread().into());
             }
             // Recheck the monotonic deadline after an early timer or bounded timeout.

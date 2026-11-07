@@ -59,7 +59,8 @@ impl SessionThread<'_> {
         let arrival_pacing = vrr
             || butterpollo_core::stream_policy::Pacing::from_config(&c) == butterpollo_core::stream_policy::Pacing::Arrival;
         let source_phase_eligible = vrr || c.boolean("frame_pacing_predictive", true);
-        let new_pacer = |rates: &butterpollo_core::reconfigure::Rates| {
+        // Read once: the setting is the session's, and a lookup a frame costs.
+        let direct_encoder_input = c.boolean("wgc_direct_encoder_input", true);        let new_pacer = |rates: &butterpollo_core::reconfigure::Rates| {
             let predictive = c.boolean("frame_pacing_predictive", true);
             butterpollo_core::stream_policy::Pacer::new(Instant::now(), rates.period)
                 .with_static_period(rates.static_period)
@@ -140,6 +141,7 @@ impl SessionThread<'_> {
         let mut packets = Vec::new();
         let trace_send = tracing::enabled!(target: "pacing", tracing::Level::TRACE);
         let mut admission_trace = trace_send.then(AdmissionTrace::default);
+        recovery.queries = trace_send.then(Vec::new);
         let mut trace_attempt = 0_u64;
         batch.waits = trace_send.then(Default::default);
         let mut network_pacer = butterpollo_core::network_pacing::Pacer::new(Instant::now());
@@ -941,14 +943,19 @@ impl SessionThread<'_> {
                 if !arrival_pacing && now < due {
                     AdmissionTrace::measure(&mut admission_trace, AdmissionWait::Grid, || -> Result<()> {
                     while Instant::now() < due {
-                        if encoder.as_ref().is_some_and(|e| recovery.pending(e)) {
+                        // A poll can block for the encoder's 1 ms query
+                        // timeout; close to the grid tick it would overshoot.
+                        if encoder.as_ref().is_some_and(|e| recovery.pending(e))
+                            && poll_fits(encoder.as_ref(), Instant::now(), due)
+                        {
                             let poll_tick = Instant::now();
                             send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, poll_tick)?;
                             if encoder.as_ref().is_some_and(|e| recovery.pending(e)) {
-                                timer.until(
-                                    (Instant::now() + OUTPUT_POLL)
+                                timer.until_or_event(
+                                    next_output_poll(encoder.as_ref(), Instant::now())
                                         .min(due),
-                                );
+                                    encoder.as_ref().and_then(Encoder::output_event),
+                                )?;
                             }
                         } else {
                             timer.until(due);
@@ -1013,15 +1020,15 @@ impl SessionThread<'_> {
                     // A poll can block for the encoder's 1 ms query
                     // timeout; close to the claim it would overshoot.
                     if encoder.as_ref().is_some_and(|e| recovery.pending(e))
-                        && deadline.saturating_duration_since(Instant::now()) >= Duration::from_millis(1)
+                        && poll_fits(encoder.as_ref(), Instant::now(), deadline)
                     {
                         send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, capture_tick)?;
                     }
                     let now = Instant::now();
                     let until = if encoder.as_ref().is_some_and(|e| recovery.pending(e))
-                        && deadline.saturating_duration_since(now) >= Duration::from_millis(1)
+                        && poll_fits(encoder.as_ref(), now, deadline)
                     {
-                        deadline.min(now + OUTPUT_POLL)
+                        deadline.min(next_output_poll(encoder.as_ref(), now))
                     } else {
                         deadline
                     };
@@ -1030,7 +1037,7 @@ impl SessionThread<'_> {
                     if until == deadline {
                         latest.wait_if_current_precise(&timer, &capture_wake, &image, until)?;
                     } else {
-                        latest.wait_if_current(&timer, &capture_wake, &image, until)?;
+                        latest.wait_if_current_or(&timer, &capture_wake, &image, until, encoder.as_ref().and_then(Encoder::output_event))?;
                     }
                     Ok(())
                     })?;
@@ -1063,8 +1070,10 @@ impl SessionThread<'_> {
                 {
                     AdmissionTrace::measure(&mut admission_trace, AdmissionWait::Repeat, || -> Result<()> {
                     if encoder.as_ref().is_some_and(|e| recovery.pending(e)) { send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, capture_tick)?; }
-                    let wait = if encoder.as_ref().is_some_and(|e| recovery.pending(e)) { OUTPUT_POLL } else { period };
-                    latest.wait_if_current(&timer, &capture_wake, &image, Instant::now() + wait.min(reencode_at.saturating_duration_since(Instant::now())))?;
+                    let pending = encoder.as_ref().is_some_and(|e| recovery.pending(e));
+                    let wait = if pending { next_output_poll(encoder.as_ref(), Instant::now()).saturating_duration_since(Instant::now()) } else { period };
+                    let output = encoder.as_ref().filter(|_| pending).and_then(Encoder::output_event);
+                    latest.wait_if_current_or(&timer, &capture_wake, &image, Instant::now() + wait.min(reencode_at.saturating_duration_since(Instant::now())), output)?;
                     Ok(())
                     })?;
                     continue;
@@ -1112,7 +1121,11 @@ impl SessionThread<'_> {
                     // silent gets longer each time.
                     AdmissionTrace::measure(&mut admission_trace, AdmissionWait::Encoder, || -> Result<()> {
                         if let Some(output) = recovery.poll_full(&mut encoder, &s.launch.warnings, Instant::now)? {
+                            let idle = output.is_empty();
                             send_frames(output, peer, Duration::ZERO, latest, capture_tick)?;
+                            if idle {
+                                wait_for_output(&timer, &recovery, encoder.as_ref())?;
+                            }
                         }
                         Ok(())
                     })?;
@@ -1241,6 +1254,10 @@ impl SessionThread<'_> {
                         _ => (begin, latest.picture_interval(), None),
                     };
                     let (capture_id, selected_is_latest, latest_capture_id) = latest.trace_selection(&image);
+                    let query = recovery.queries.as_ref().map_or_else(QueryTrace::default, |queries| QueryTrace::new(queries, image.published));
+                    if let Some(queries) = recovery.queries.as_mut() {
+                        queries.clear();
+                    }
                     tracing::trace!(
                         target: "pacing",
                         capture_id,
@@ -1270,6 +1287,10 @@ impl SessionThread<'_> {
                         encoder_pressure_us = admission.micros(AdmissionWait::Encoder),
                         sender_pressure_us = admission.micros(AdmissionWait::Sender),
                         admission_passes = ?admission.passes,
+                        output_polls = query.queries,
+                        output_poll_us = query.query_us,
+                        published_in_poll = query.published_in_query,
+                        poll_held_us = query.held_us,
                         "claim"
                     );
                     *admission = AdmissionTrace::default();
@@ -1406,7 +1427,7 @@ impl SessionThread<'_> {
                     crate::soak_fault::check("encoder failure")?;
                     #[cfg(debug_assertions)]
                     crate::soak_fault::check("DXGI_ERROR_DEVICE_REMOVED")?;
-                    Ok(if c.boolean("wgc_direct_encoder_input", true) {                                    active.encode_gpu(&presented_image, idr, bitrate)?
+                    Ok(if direct_encoder_input {                                    active.encode_gpu(&presented_image, idr, bitrate)?
                     } else {
                         active.encode(
                             &presented_image.readback(&mut staging)?,

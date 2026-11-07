@@ -10,19 +10,20 @@ pub(crate) mod gpu;
 mod intra_refresh;
 mod metadata;
 mod output;
+mod output_thread;
 mod properties;
 mod rate_control;
 mod submit;
 mod units;
 
-use crate::text::to_wide;
+use crate::text::{static_wide, to_wide};
 use crate::{
     amf_abi::*,
     capture::{Device, GpuImage, Image},
     encoder::{Encoded, Unit},
 };
 use anyhow::{Context, Result, bail};
-use butterpollo_core::encoder_backlog::{AMF_SURFACE_LIMIT, AmfBacklog, QUERY_TIMEOUT};
+use butterpollo_core::encoder_backlog::{self, AMF_SURFACE_LIMIT, AmfBacklog, QUERY_TIMEOUT};
 use butterpollo_core::encoder_policy::KeyframeCapScale;
 #[cfg(test)]
 use create::{OutputRange, guard_smart_access_video, transfer_characteristic};
@@ -266,6 +267,11 @@ pub struct Encoder {
     unit_idr_reported: bool,
     /// Encoder focus: the ROI map and its counters.
     focus: focus::State,
+    /// `amd_output_prediction`: `poll` skips a query the oldest frame
+    /// cannot answer yet.
+    prediction: output::Prediction,
+    /// `amd_output_thread`: QueryOutput runs on a thread of its own.
+    output_thread: Option<output_thread::OutputThread>,
 }
 /// One output buffer from QueryOutput: a frame, or with slice/tile output one
 /// slice or tile of it.
@@ -328,6 +334,7 @@ impl Encoder {
             submit_result = result_name(self.last_submit),
             query_result = result_name(self.last_query),
             input_full = self.input_full,
+            skipped_queries = self.prediction.skipped,
             in_flight = self.in_flight.len(),
             retained = self.ownership.retained(),
             oldest_pts = ?oldest.map(|s| s.pts),
@@ -402,6 +409,8 @@ fn scale_rate_control(value: i64, applied_kbps: u32, requested_kbps: u32) -> i64
 }
 impl Drop for Encoder {
     fn drop(&mut self) {
+        // Its last query returns before the component terminates.
+        self.output_thread.take();
         // Destroy the converter before its context and dynamically loaded runtime.
         self.gpu_convert.take();
         self.graphics_stats.take();

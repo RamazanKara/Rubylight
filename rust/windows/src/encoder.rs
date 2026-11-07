@@ -38,6 +38,13 @@ pub struct Encoded {
     pub latency: Option<std::time::Duration>,
     pub presentation: Option<std::time::Instant>,
 }
+/// A large frame's buffer goes back to the encoders' pool
+/// ([`crate::frame_pool`]) when the sender is done with it.
+impl Drop for Encoded {
+    fn drop(&mut self) {
+        crate::frame_pool::give(std::mem::take(&mut self.bytes));
+    }
+}
 
 /// A stream size the encoder cannot take: no driver update or sign in helps,
 /// a lower resolution on the device does.
@@ -397,6 +404,32 @@ impl Encoder {
             Self::Amf(e) => e.pending(),
             Self::Nvenc(e) => e.pending(),
             Self::Pyrowave(_) => false,
+        }
+    }
+    /// An event that ends a wait for output as soon as the oldest frame is
+    /// done (`nvenc_output_event`, `amd_output_thread`), armed by this call. `None` keeps the
+    /// caller's output poll; with an event that poll stays the wait's bound.
+    pub fn output_event(&self) -> Option<&crate::timing::Signal> {
+        match self {
+            Self::Amf(e) => e.output_event(),
+            Self::Nvenc(e) => e.output_event(),
+            Self::Pyrowave(_) => None,
+        }
+    }
+    /// A poll can wait in the driver: AMF's QueryOutput blocks for its
+    /// timeout unless `amd_output_thread` queries; the others return at once.
+    pub fn poll_blocks(&self) -> bool {
+        match self {
+            Self::Amf(e) => e.poll_blocks(),
+            Self::Nvenc(_) | Self::Pyrowave(_) => false,
+        }
+    }
+    /// The earliest a poll can find output (`amd_output_prediction`); the
+    /// caller's next output poll waits for it. `None` polls as before.
+    pub fn output_due(&self) -> Option<std::time::Instant> {
+        match self {
+            Self::Amf(e) => e.output_due(),
+            Self::Nvenc(_) | Self::Pyrowave(_) => None,
         }
     }
     /// When the encoder accepted the input of the last encode call, after

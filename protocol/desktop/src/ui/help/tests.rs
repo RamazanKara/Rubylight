@@ -414,3 +414,15 @@ fn help_screenshots() {
         }
     }
 }
+
+/// Cards stand on the sky in the settings rows' glass, and the old surface ladder stays out.
+#[test]
+fn help_is_glass_on_the_sky() {
+    let source = include_str!("../help.rs");
+    let code = source.split("#[cfg(test)]").next().expect("the page");
+    for old in [".fill(*SURFACE", "*SURFACE_HIGH", "OUTLINE_VARIANT"] {
+        assert!(!code.contains(old), "{old} is the old look");
+    }
+    assert!(code.contains("glass::group("), "a card is a group");
+    assert!(code.contains("glass::control("), "an icon sits on a tinted disc");
+}

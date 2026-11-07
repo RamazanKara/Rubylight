@@ -37,8 +37,8 @@ try {
             'landscape-statistics' = 'statistics' }).GetEnumerator()) {
         if ($Only -and $shot.Key -notin $Only) { continue }
         Open-DemoState $(if ($shot.Value -eq 'menu') { 'compact' } else { $shot.Value })
-        # The stream menu scrolled to its Quality and Host sections, as in the video's stream menu shot.
-        if ($shot.Value -eq 'menu') { Open-StreamMenu; Show-StreamMenuSections }
+        # The stream menu as it opens: the stream on one side, the quick tiles and the bitrate slider on the other.
+        if ($shot.Value -eq 'menu') { Open-StreamMenu }
         Start-Sleep -Milliseconds 3500
         $path = Join-Path $output "$($shot.Key).png"
         $null = Invoke-Adb @('shell', 'screencap', '-p', "$remote/still.png")

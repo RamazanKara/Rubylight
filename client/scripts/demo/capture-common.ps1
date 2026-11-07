@@ -166,8 +166,8 @@ function Open-DemoState([string]$State) {
             Start-Sleep -Milliseconds 700
         }
         'controller' { $null = Find-Ui 'Demo wireless controller' }
-        # Living-room PC's settings: the Save bar is at the bottom of the screen whatever the app language.
-        'pc-settings' { $null = Find-Ui "${package}:id/host_profile_save"; Start-Sleep -Milliseconds 700 }
+        # Living-room PC's settings: found by the page's Back button whatever the app language (Save shows only after a change).
+        'pc-settings' { $null = Find-Ui "${package}:id/host_profile_back"; Start-Sleep -Milliseconds 700 }
         { $script:settingsSections.ContainsKey($_) } {
             $null = Find-Ui $script:labels['Presets']
             Tap-Ui $script:labels[$script:settingsSections[$State]] -Scroll
@@ -261,7 +261,7 @@ function Open-StreamMenu {
     for ($attempt = 0; $attempt -lt 3; $attempt++) {
         $null = Invoke-Adb @('shell', 'input', 'keyevent', 'KEYCODE_BACK')
         Start-Sleep -Milliseconds 900
-        if ((Get-Ui).SelectSingleNode("//node[@resource-id='${package}:id/action_sheet_close']")) {
+        if ((Get-Ui).SelectSingleNode("//node[@resource-id='${package}:id/stream_menu_close']")) {
             Start-Sleep -Milliseconds 500
             return
         }

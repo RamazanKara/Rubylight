@@ -215,8 +215,8 @@ Java_com_limelight_nvstream_jni_MoonBridge_cGetControlSilenceMs(JNIEnv *env, jcl
 }
 
 JNIEXPORT void JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_cEndStream(JNIEnv *env, jclass clazz, jint errorCode) {
-    LiEndStream(errorCode);
+Java_com_limelight_nvstream_jni_MoonBridge_cEndStreamHostGone(JNIEnv *env, jclass clazz) {
+    LiEndStream(-108); // MoonBridge.CLIENT_ERROR_HOST_GONE
 }
 
 JNIEXPORT jlong JNICALL

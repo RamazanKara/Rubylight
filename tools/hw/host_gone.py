@@ -159,6 +159,10 @@ def run(args):
             now = focus()
             if not trace or trace[-1][1] != now:
                 trace.append((round(time.time() - t0, 2), now))
+            # The answer is in: the stream ended and the app is back on its own screen.
+            if args.event in ('kill', 'stop', 'path') and 'Game' not in now and trace[-1][0] > 0.5:
+                time.sleep(1)  # The message fades in.
+                break
             time.sleep(0.25)
         result['focus_trace'] = trace
         (OUT / f'{tag}-end.png').write_bytes(fec.adb('exec-out', 'screencap', '-p', binary=True))

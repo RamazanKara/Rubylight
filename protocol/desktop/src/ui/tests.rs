@@ -1131,7 +1131,7 @@ fn fades(f: &Frames) -> Vec<Rect> {
     for clipped in &f.shapes {
         if let egui::Shape::Mesh(mesh) = &clipped.shape {
             let colours: Vec<Color32> = mesh.vertices.iter().map(|v| v.color).collect();
-            if colours.contains(&*SURFACE_HIGH) && colours.contains(&Color32::TRANSPARENT) {
+            if (colours.contains(&*SURFACE_HIGH) || colours.contains(&dialogs::MENU_FADE)) && colours.contains(&Color32::TRANSPARENT) {
                 found.push(Rect::from_points(&mesh.vertices.iter().map(|v| v.pos).collect::<Vec<_>>()));
             }
         }
@@ -2171,7 +2171,7 @@ fn the_pin_pad_is_an_even_grid_under_its_pin_line() {
     }
     let (left, right) = (at("2").x - at("1").x, at("3").x - at("2").x);
     assert!((left - right).abs() < 1.0, "even columns: {left} and {right}");
-    assert!((at("– – – –").x - at("2").x).abs() < 1.0, "the PIN line sits over the middle column");
+    assert!((at("2").x - f.size.x / 2.0).abs() < 1.0, "the middle column is the dialog's middle, as its slots are");
 }
 
 #[test]
@@ -3135,7 +3135,7 @@ fn a_short_pc_list_says_the_search_goes_on_and_links_how_to_connect() {
 
 /// The pairing PIN is what the dialog is for: large, bold digits in the amber accent.
 #[test]
-fn the_pairing_pin_is_large_bold_and_amber() {
+fn the_pairing_pin_is_large_and_bold_in_its_slots() {
     fn digits(shape: &egui::Shape, out: &mut Vec<(String, egui::FontId, Color32)>) {
         match shape {
             egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| digits(s, out)),
@@ -3163,7 +3163,7 @@ fn the_pairing_pin_is_large_bold_and_amber() {
     let digit = |d: &str| f.placed.iter().find(|(t, ..)| t == d).map(|p| p.1.center().x).expect("the digit");
     let middle = (digit("4") + digit("1")) / 2.0;
     assert!((middle - (left + 220.0)).abs() < 2.0, "the PIN is centred: {middle} in {left}..{}", left + 440.0);
-    assert!(pin.iter().all(|(_, font, color)| font.size >= 40.0 && *font == semibold(font.size) && *color == Color32::from(MOON)), "{pin:?}");
+    assert!(pin.iter().all(|(_, font, color)| font.size >= 36.0 && *font == semibold(font.size) && *color == Color32::from(ON_SURFACE)), "{pin:?}");
 }
 
 /// Home's card for a PC to pair says only that, whole: no "Games not loaded yet" cut short after it.
@@ -4926,7 +4926,7 @@ fn every_page_scrolls_whole_beneath_the_chrome() {
     use super::demo::Page;
     let size = vec2(1000.0, 300.0);
     let mut f = demo_frames(size);
-    for (name, page) in Page::ALL {
+    for (name, page) in Page::ALL.into_iter().filter(|(_, page)| !page.covers_the_page()) {
         demo_page(&mut f, page);
         let before = f.placed.clone();
         let opened = f.l.page_scrolled;
@@ -5125,7 +5125,7 @@ fn the_demo_library_reaches_every_page() {
             Page::Home => Screen::Home,
             Page::AllGames | Page::Search => Screen::AllGames,
             Page::Game => Screen::Game { host: pc, app: 1002 },
-            Page::Pcs | Page::FirstRun | Page::FirstRunFound => Screen::Hosts,
+            Page::Pcs | Page::FirstRun | Page::FirstRunFound | Page::Dialog(_) | Page::PinStream | Page::PinChoose => Screen::Hosts,
             Page::Apps => Screen::Apps(pc),
             Page::AppsEmpty => Screen::Apps(f.hosts.list[1].id),
             Page::Pc => Screen::HostDetails(pc),
@@ -5141,7 +5141,7 @@ fn the_demo_library_reaches_every_page() {
             Page::Help => Screen::Help,
         };
         assert_eq!(f.l.screen, expected, "{name}");
-        assert!(f.no_dialog(), "{name} opens with nothing over it");
+        assert!(page.covers_the_page() || f.no_dialog(), "{name} opens with nothing over it");
     }
 }
 
@@ -6293,3 +6293,121 @@ fn a_bad_link_from_outside_is_refused_without_repeating_it() {
 
 #[path = "settings_tests.rs"]
 mod settings_tests;
+
+/// What a screen reader is told is on screen, with where.
+fn read_out(f: &Frames) -> Vec<(String, egui::accesskit::Rect)> {
+    f.access.as_ref().unwrap().nodes.iter().filter_map(|(_, n)| Some((n.label().or(n.value())?.to_owned(), n.bounds()?))).collect()
+}
+
+#[test]
+fn only_what_cant_be_taken_back_is_red() {
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    let host = f.hosts.list[0].id;
+    // A dialog is still fading in on the last frame: red by its hue, not its exact value.
+    let red = |f: &Frames| {
+        fn walk(shape: &egui::Shape, out: &mut usize) {
+            match shape {
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, out)),
+                egui::Shape::Mesh(mesh) if mesh.vertices.iter().any(|v| v.color.r() > 0x60 && v.color.g() == 0 && v.color.b() < 0x20 && v.color.a() > 0x80) => *out += 1,
+                _ => {}
+            }
+        }
+        let mut count = 0;
+        f.shapes.iter().for_each(|c| walk(&c.shape, &mut count));
+        count
+    };
+    for dialog in [
+        Dialog::ConfirmRemove { host, name: "PC".into() },
+        Dialog::ConfirmUnpair { host, name: "PC".into() },
+        Dialog::ConfirmClose { host, name: "Racing Game".into() },
+    ] {
+        f.l.dialog = dialog;
+        f.settle();
+        assert_eq!(red(&f), 1, "the one red control");
+    }
+    f.l.dialog = Dialog::Rename { host, text: "PC".into() };
+    f.settle();
+    assert_eq!(red(&f), 0, "renaming costs nothing");
+}
+
+#[test]
+fn a_dialog_stands_on_the_panels_glass_and_not_a_flat_card() {
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    let host = f.hosts.list[0].id;
+    f.l.dialog = Dialog::Rename { host, text: "PC".into() };
+    f.settle();
+    let flat = rects_filled(&f, *SURFACE_HIGH);
+    assert!(flat.iter().all(|r| r.width() < 300.0), "no opaque card behind it: {flat:?}");
+    let label = f.placed.iter().find(|(text, ..)| text == "Rename PC").expect("the dialog's words").1;
+    fn walk(shape: &egui::Shape, out: &mut Vec<Rect>) {
+        match shape {
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, out)),
+            egui::Shape::Mesh(mesh) => out.push(mesh.calc_bounds()),
+            _ => {}
+        }
+    }
+    let mut meshes = Vec::new();
+    f.shapes.iter().for_each(|c| walk(&c.shape, &mut meshes));
+    assert!(meshes.iter().any(|r| r.contains_rect(label) && r.width() < f.size.x), "a mesh of the panel's size is behind its words, whole: {meshes:?}");
+}
+
+#[test]
+fn the_pc_menu_says_what_the_pc_page_says() {
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    let host = f.hosts.list[0].id;
+    f.l.dialog = Dialog::HostOptions { host };
+    f.settle();
+    assert!(shows(&f, "Online"), "its status under its name");
+    assert!(!shows(&f, "Paired"), "being paired is not news");
+}
+
+#[test]
+fn the_pin_screen_has_its_keys_in_the_window_delete_at_the_bottom_right() {
+    let dir = std::env::temp_dir().join(format!("nightjar-pin-keys-{}", std::process::id()));
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    f.ctx.enable_accesskit();
+    for size in [vec2(1280.0, 720.0), vec2(720.0, 480.0)] {
+        f.size = size;
+        f.l.pin = Some(crate::pin_ui::PinLock::demo(&dir, false, "Desk"));
+        f.settle();
+        let read = read_out(&f);
+        let at = |name: &str| read.iter().find(|(said, _)| said == name).unwrap_or_else(|| panic!("{name} in {read:?}")).1;
+        let (zero, delete, confirm, one) = (at("0"), at("Delete"), at("Confirm"), at("1"));
+        assert!(delete.x0 > zero.x0 && confirm.x0 < zero.x0, "Confirm, 0, Delete");
+        assert!((delete.y0 - zero.y0).abs() < 1.0 && one.y0 < zero.y0, "the bottom row");
+        assert!(delete.y1 <= f64::from(size.y) && one.y0 >= 0.0, "all of the pad shows at {size:?}");
+        assert!(delete.x1 - delete.x0 > 44.0, "a key to hit at {size:?}");
+    }
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn a_pin_screen_counts_digits_and_never_says_one() {
+    let dir = std::env::temp_dir().join(format!("nightjar-pin-said-{}", std::process::id()));
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    f.ctx.enable_accesskit();
+    f.l.pin = Some(crate::pin_ui::PinLock::demo(&dir, false, "Desk"));
+    f.settle();
+    f.frame(vec![egui::Event::Key { key: Key::Num7, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }]);
+    f.settle();
+    let said: Vec<String> = read_out(&f).into_iter().map(|(said, _)| said).collect();
+    assert!(said.iter().any(|s| s == "1 of 4 digits entered"), "{said:?}");
+    assert!(f.placed.iter().all(|(text, ..)| !text.contains('*')), "a dot, no character, in a slot");
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn a_dialogs_buttons_sit_right_under_it_in_a_short_window() {
+    let mut f = approving_frames(true);
+    f.size = vec2(853.0, 480.0);
+    f.hosts.list[0].native.pairing_requests = vec![tv_request("a1")];
+    f.l.dialog = dialogs::approve_dialog(&f.hosts.list[0], &f.hosts.list[0].native.pairing_requests[0].clone());
+    f.settle();
+    let at = |text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1).unwrap_or_else(|| panic!("{text}"));
+    assert!(at("Cancel").top() - at("0").bottom() < 60.0, "no empty row above the buttons: {:?} under {:?}", at("Cancel"), at("0"));
+    assert!(at("Cancel").bottom() < 480.0, "in the window");
+}

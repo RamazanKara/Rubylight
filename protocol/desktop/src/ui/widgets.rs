@@ -94,6 +94,8 @@ pub(crate) enum Tone {
     Selected,
     /// The top bar's destination of the page shown: raised, its icon amber.
     Current,
+    /// The action that can't be taken back (Remove PC, Quit game): the one red control.
+    Danger,
 }
 
 impl Tone {
@@ -127,6 +129,8 @@ impl Tone {
                 let fill = if hovered || pressed { tint(*MOON_CONTAINER, *MOON, 0.14) } else { *MOON_CONTAINER };
                 (fill, *ON_MOON_CONTAINER)
             }
+            Tone::Danger if high_contrast() => (*state_fill(SURFACE_HIGH, hovered, pressed), *ERROR),
+            Tone::Danger => (design_tokens::COLOR_DANGER_FILL, design_tokens::COLOR_ON_DANGER_FILL),
         }
     }
 }
@@ -169,8 +173,8 @@ pub(crate) fn button_at_least(ui: &mut Ui, id: Option<egui::Id>, icon: Option<Ic
     };
     let enabled = ui.is_enabled();
     // A switched-off primary action (Play for a game the PC lacks) goes grey, so faded amber
-    // never reads as something to press.
-    let tone = if enabled || tone != Tone::Primary { tone } else { Tone::Raised };
+    // never reads as something to press. Red the same.
+    let tone = if enabled || !matches!(tone, Tone::Primary | Tone::Danger) { tone } else { Tone::Raised };
     let (fill, ink) = tone.colors(hovered && enabled, pressed && enabled);
     let galley = ui.painter().layout_no_wrap(words.to_owned(), semibold(size.font), ink);
     let count = count.map(|n| ui.painter().layout_no_wrap(n.to_string(), regular(size.font), ink.gamma_multiply(0.72)));
@@ -215,6 +219,17 @@ pub(crate) fn button_at_least(ui: &mut Ui, id: Option<egui::Id>, icon: Option<Ic
             }
             // No fill until pointed at.
             Tone::Plain => lift_shapes(&mut shapes, ctx, rect, r, hovered && enabled, pressed && enabled),
+            Tone::Danger => {
+                if high_contrast() {
+                    glass::control(&mut shapes, ctx, rect, r);
+                    glass::rim(&mut shapes, ctx, rect, r, 1.5, &|_| *ERROR);
+                } else {
+                    glass::solid(&mut shapes, ctx, rect, r, fill);
+                    let rim = glass::gradient(rect, 180.0, &[(0.0, design_tokens::TINT_CONTROL_RIM_TOP), (0.4, Color32::TRANSPARENT)]);
+                    glass::rim(&mut shapes, ctx, rect, r, 1.0, &rim);
+                }
+                lift_shapes(&mut shapes, ctx, rect, r, hovered && enabled, pressed && enabled);
+            }
         }
         painter.extend(shapes);
         let mut x = rect.center().x - content / 2.0;
@@ -244,6 +259,88 @@ pub(crate) fn primary_button(ui: &mut Ui, text: &str) -> Response {
 
 pub(crate) fn quiet_button(ui: &mut Ui, text: &str) -> Response {
     button(ui, None, tr(text), Tone::Quiet, Size::CONTROL)
+}
+
+pub(crate) fn danger_button(ui: &mut Ui, text: &str) -> Response {
+    button(ui, None, tr(text), Tone::Danger, Size::CONTROL)
+}
+
+/// A dialog's frame: the panel's glass behind `add`, as wide as `add` makes it, with its margin.
+/// Over a stream its menu has its own ([`crate::menu_style`]).
+pub(crate) const DIALOG_MARGIN: f32 = 28.0;
+
+/// What the page under a dialog is dimmed by.
+const DIALOG_SCRIM: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 150);
+
+/// A dialog: centred on a dimmed page, on the panel's glass. Everything that interrupts the page
+/// comes through here, so they are one surface.
+pub(crate) fn modal(ctx: &egui::Context, name: &str, add: impl FnOnce(&mut Ui)) {
+    egui::Modal::new(egui::Id::unique(name))
+        .frame(egui::Frame::new().inner_margin(egui::Margin::same(DIALOG_MARGIN as i8)))
+        .backdrop_color(DIALOG_SCRIM)
+        .show(ctx, |ui| glass_behind(ui, glass::Material::Panel, design_tokens::RADIUS_PANEL, DIALOG_MARGIN, add));
+}
+
+/// Draws `add` with a glass `material` under it, sized to what it drew, `margin` around that.
+pub(crate) fn glass_behind<R>(ui: &mut Ui, material: glass::Material, radius: f32, margin: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let place = ui.painter().add(egui::Shape::Noop);
+    let inner = add(ui);
+    let mut out = Vec::new();
+    glass::surface(&mut out, ui.ctx(), ui.min_rect().expand(margin), radius, material);
+    ui.painter().set(place, egui::Shape::Vec(out));
+    inner
+}
+
+/// The size of a PIN's slot and the gap between slots.
+const PIN_SLOT: Vec2 = vec2(64.0, 76.0);
+const PIN_SLOT_GAP: f32 = 12.0;
+
+/// A PIN's slots: `digits` so far (a dot for each while `hidden`), the next one focused, narrower
+/// when eight must fit. A screen reader hears the count, never a digit of a hidden PIN.
+pub(crate) fn pin_slots(ui: &mut Ui, digits: &[char], count: usize, hidden: bool, tallest: f32, said: &str) {
+    let room = ui.available_width();
+    let gaps = PIN_SLOT_GAP * (count.max(1) - 1) as f32;
+    let width = PIN_SLOT.x.min((room - gaps) / count.max(1) as f32);
+    let scale = width / PIN_SLOT.x;
+    let size = vec2(width, (PIN_SLOT.y * scale.max(0.75)).min(tallest));
+    let (row, response) = ui.allocate_exact_size(vec2(room, size.y), Sense::hover());
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, said));
+    let left = row.center().x - (width * count as f32 + gaps) / 2.0;
+    let r = 20.0 * scale;
+    let mut out = Vec::new();
+    let ctx = ui.ctx();
+    for n in 0..count {
+        let slot = Rect::from_min_size(Pos2::new(left + n as f32 * (width + PIN_SLOT_GAP), row.top()), size);
+        if n == digits.len() {
+            glass::focus(&mut out, ctx, slot, r, false);
+        }
+        glass::control(&mut out, ctx, slot, r);
+        match digits.get(n) {
+            Some(_) if hidden => out.push(egui::Shape::circle_filled(slot.center(), 8.0 * scale, *ON_SURFACE)),
+            Some(digit) => {
+                let galley = ui.painter().layout_no_wrap(digit.to_string(), semibold(36.0 * scale), *ON_SURFACE);
+                out.push(egui::Shape::galley(slot.center() - galley.size() / 2.0, galley, *ON_SURFACE));
+            }
+            None => {}
+        }
+    }
+    ui.painter().extend(out);
+}
+
+/// A key of a PIN's pad: a tinted capsule, an icon or a digit in its middle, known to a screen
+/// reader by `said`.
+pub(crate) fn pin_key(ui: &mut Ui, icon: Option<Icon>, words: &str, said: &str, tone: Tone, size: Vec2) -> Response {
+    let radius = (size.y / 2.0) as u8;
+    let look = Size { height: size.y, pad: 0.0, radius, font: 24.0 };
+    let response = button_at_least(ui, None, icon, words, None, tone, look, size.x);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), said));
+    response
+}
+
+/// A round icon button in a corner of a surface (a sheet's close): `rect` is its place.
+pub(crate) fn round_button(ui: &mut Ui, rect: Rect, icon: Icon, said: &str) -> Response {
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)));
+    pin_key(&mut child, Some(icon), "", said, Tone::Quiet, rect.size()).on_hover_text(said)
 }
 
 pub(super) fn text_button(ui: &mut Ui, text: &str) -> Response {

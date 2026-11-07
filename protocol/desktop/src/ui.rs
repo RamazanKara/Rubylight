@@ -43,9 +43,9 @@ use dialogs::*;
 pub use dialogs::moves_in_hotkey_dialog;
 pub use library::{asked_start, join_target, playing_elsewhere, policy_role, running_name};
 use library::*;
-pub(crate) use widgets::{focus_ring, focus_ring_around, name_for_readers, primary_button, quiet_button, toggle};
+pub(crate) use widgets::{focus_ring, focus_ring_around, glass_behind, name_for_readers, pin_key, pin_slots, primary_button, quiet_button, round_button, toggle, Tone, DIALOG_MARGIN};
 use widgets::*;
-use icons::Icon;
+pub(crate) use icons::Icon;
 
 /// Where Nightjar's guides live, the pages Android's help opens.
 pub const GUIDES: &str = "https://github.com/RamazanKara/nightjar/blob/main/docs/";
@@ -968,6 +968,9 @@ impl Launcher {
         // above run under them, so a check, transfer or join in flight still ends or is cancelled.
         if let Some(pin) = &mut self.pin {
             let pcs: Vec<(String, String)> = view.hosts.list.iter().map(|h| (h.record.unique_id.clone(), h.display_name().to_owned())).collect();
+            if pin.pad_up() {
+                ui.painter().extend(self.ambient.paint(&ctx, backdrop::Want::Sky(backdrop::Moon::High)));
+            }
             if pin.ui(ui, &pcs, &mut commands) {
                 return commands;
             }

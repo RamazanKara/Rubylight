@@ -547,8 +547,9 @@ pub(crate) mod tests {
 
     /// Helpers that translate their text arguments themselves, and how many of the arguments
     /// after the prefix are text: call sites pass the English literal.
-    const HELPERS: [(&str, usize); 13] = [
+    const HELPERS: [(&str, usize); 14] = [
         ("quiet_button(ui, ", 1),
+        ("danger_button(ui, ", 1),
         ("rows.section(ui, ", 1),
         ("rows.group(ui, ", 1),
         ("primary_button(ui, ", 1),

@@ -768,6 +768,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile int numFramesIn;
     private volatile int numFramesOut;
     private volatile int decoderDepthBase;
+    // debug.nightjar.submit_adpf: the submit thread's CPU time goes into the renderer's ADPF report.
+    private volatile boolean submitHints;
+    private final DecoderPerformanceHints.SubmitWork submitWork = new DecoderPerformanceHints.SubmitWork();
 
     /** The decoder for 10-bit HEVC streams: the one chosen for 10-bit SDR, else the usual one. */
     private MediaCodecInfo tenBitHevcDecoder() {
@@ -2680,6 +2683,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             this.maxDecodeHeight = this.expectedHeight = this.streamHeight = height;
             this.videoFormat = format;
             this.refreshRate = redrawRate;
+            // PyroWave has its own session on its submit path.
+            this.submitHints = prefs.phonePerformanceHints && (format & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0 &&
+                    MediaCodecHelper.debugSwitch(DecoderPerformanceHints.SUBMIT_SWITCH, false);
             if (streamStartMs < 0) {
                 streamStartMs = System.currentTimeMillis();
                 streamStartUptimeMs = SystemClock.uptimeMillis();
@@ -2817,6 +2823,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 frameLatencyStats.discardPending("codec_reset");
                 // Frames inside the codec are gone; the scheduler counts from here.
                 decoderDepthBase = numFramesIn - numFramesOut;
+                submitWork.reset();
                 debt.reset();
                 if (hostFrameTimes) {
                     hostFrameClock.reset();
@@ -3581,7 +3588,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             if (workStartNs != 0) {
                                 // Report the complete handoff once, after presenting. Reporting each
                                 // discarded output adds work while we are trying to leave catch-up.
-                                performanceHints.reportWorkDuration(Debug.threadCpuTimeNanos() - workCpuStartNs, refreshRate);
+                                long workCpuNs = Debug.threadCpuTimeNanos() - workCpuStartNs;
+                                if (submitHints) {
+                                    // The submissions since the last report are this frame's work too.
+                                    performanceHints.setSubmitThread(submitWork.threadId());
+                                    workCpuNs += submitWork.take();
+                                }
+                                performanceHints.reportWorkDuration(workCpuNs, refreshRate);
                             }
                             checkUpscaling();
                             doCodecRecoveryIfRequired(CR_FLAG_RENDER_THREAD);
@@ -4545,9 +4558,27 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         window.totalHostProcessingLatency += frameHostProcessingLatency;
     }
 
-    @SuppressWarnings("deprecation")
     @Override
     public int submitDecodeUnit(byte[] decodeUnitData, int decodeUnitLength, int decodeUnitType,
+                                int frameNumber, int frameType, char frameHostProcessingLatency,
+                                long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs,
+                                long presentationTimeUs) {
+        if (!submitHints) {
+            return queueDecodeUnit(decodeUnitData, decodeUnitLength, decodeUnitType, frameNumber, frameType,
+                    frameHostProcessingLatency, receiveTimeUs, enqueueTimeUs, receiveTimeNs, presentationTimeUs);
+        }
+        // The renderer thread reports this thread's CPU time with its hand-off; see SubmitWork.
+        long cpuStartNs = Debug.threadCpuTimeNanos();
+        try {
+            return queueDecodeUnit(decodeUnitData, decodeUnitLength, decodeUnitType, frameNumber, frameType,
+                    frameHostProcessingLatency, receiveTimeUs, enqueueTimeUs, receiveTimeNs, presentationTimeUs);
+        } finally {
+            submitWork.add(Process.myTid(), Debug.threadCpuTimeNanos() - cpuStartNs);
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private int queueDecodeUnit(byte[] decodeUnitData, int decodeUnitLength, int decodeUnitType,
                                 int frameNumber, int frameType, char frameHostProcessingLatency,
                                 long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs,
                                 long presentationTimeUs) {

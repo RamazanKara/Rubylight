@@ -2662,8 +2662,6 @@ fn nav_key(action: Action) -> Option<egui::Key> {
         Action::Select => Some(egui::Key::Enter),
         Action::Back => Some(egui::Key::Escape),
         Action::Options => Some(egui::Key::F2),
-        // Y takes the star off a favourite, as Delete does (ui/cards.rs).
-        Action::Unstar => Some(egui::Key::F3),
         _ => None,
     }
 }

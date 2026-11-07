@@ -83,7 +83,7 @@ pub(super) fn dots_rect(shown: Rect, badge: Badge) -> Rect {
 }
 
 /// The ⋮ over a cover while it is pointed at or focused: for the pointer only (the keyboard and
-/// controller open the menu with F2 or X), so it adds no stop for focus. It stays on the risen cover.
+/// controller open the menu with F2, Y or X), so it adds no stop for focus. It stays on the risen cover.
 pub(super) fn cover_dots(ui: &mut Ui, cover: &Response, image: Rect, badge: Badge) -> Option<Response> {
     let id = cover.id.with("options");
     let shown = ui.ctx().data(|d| d.get_temp::<Rect>(cover.id.with("shown"))).unwrap_or(image);
@@ -108,7 +108,7 @@ pub(super) fn cover_dots(ui: &mut Ui, cover: &Response, image: Rect, badge: Badg
 }
 
 /// Where a menu asked for on a card opens, if one was: under its ⋮ when that was clicked, at the
-/// pointer for a right-click, beside the card for F2, Shift+F10 or the controller's X.
+/// pointer for a right-click, beside the card for F2, Shift+F10 or the controller's Y or X.
 pub(super) fn menu_request(ui: &Ui, card: &Response, dots: Option<&Response>) -> Option<Anchor> {
     if let Some(dots) = dots.filter(|d| d.clicked()) {
         return Some(Anchor::Below(dots.rect));
@@ -328,11 +328,9 @@ pub(super) fn paint_cover(ui: &Ui, image: Rect, name: &str, art: Option<&Art>, r
     ui.painter().extend(shapes);
 }
 
-/// Delete, or Y on a gamepad (mapped to F3), takes the star off the focused favourite.
+/// Delete takes the star off the focused favourite.
 pub(super) fn unstar_pressed(ui: &Ui) -> bool {
-    ui.input_mut(|i| {
-        i.consume_key(egui::Modifiers::NONE, egui::Key::Delete) | i.consume_key(egui::Modifiers::NONE, egui::Key::F3)
-    })
+    ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete))
 }
 
 /// What a cover says over its art.

@@ -722,8 +722,7 @@ pub const PAD: &[PadBinding] = &[
     pad(Action::Move, Scope::Launcher, Press::Any(&[Button::DPad, Button::LeftStick])),
     pad(Action::Select, Scope::Launcher, Press::Any(&[Button::South])),
     pad(Action::Back, Scope::Launcher, Press::Any(&[Button::East, Button::Back])),
-    pad(Action::Options, Scope::Launcher, Press::Any(&[Button::West])),
-    pad(Action::Unstar, Scope::Launcher, Press::Any(&[Button::North])),
+    pad(Action::Options, Scope::Launcher, Press::Any(&[Button::North, Button::West])),
     pad(Action::OpenSettings, Scope::Launcher, Press::Any(&[Button::Start])),
     pad(Action::PreviousTab, Scope::Launcher, Press::Any(&[Button::LeftShoulder])),
     pad(Action::NextTab, Scope::Launcher, Press::Any(&[Button::RightShoulder])),
@@ -933,7 +932,9 @@ mod tests {
         assert_eq!(pad_action(Button::East, true), Some(Action::Select));
         assert_eq!(pad_action(Button::Back, true), Some(Action::Back));
         assert_eq!(pad_action(Button::West, false), Some(Action::Options));
-        assert_eq!(pad_action(Button::North, false), Some(Action::Unstar));
+        assert_eq!(pad_action(Button::North, false), Some(Action::Options), "as on Android, and the hints name it");
+        assert!(PAD.iter().all(|b| b.action != Action::Unstar), "favourites go through the options");
+        assert!(KEYS.iter().any(|b| b.action == Action::Unstar), "the keyboard keeps Delete");
         assert_eq!(pad_action(Button::Start, false), Some(Action::OpenSettings));
         assert_eq!(pad_action(Button::LeftShoulder, false), Some(Action::PreviousTab));
         assert_eq!(pad_action(Button::RightShoulder, true), Some(Action::NextTab));

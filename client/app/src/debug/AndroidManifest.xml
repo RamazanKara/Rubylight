@@ -17,6 +17,7 @@
             </intent-filter>
         </activity-alias>
         <activity android:name="com.limelight.demo.DemoPcView" android:exported="false" />
+        <activity android:name="com.limelight.demo.DemoConnecting" android:exported="false" android:theme="@style/StreamTheme" />
         <activity android:name="com.limelight.demo.DemoAppView" android:exported="false" />
         <activity android:name="com.limelight.demo.DemoConsoleHome" android:exported="false" />
         <activity android:name="com.limelight.demo.DemoGameDetail" android:exported="false" />

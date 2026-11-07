@@ -45,7 +45,6 @@ import com.limelight.utils.NetworkGrace;
 import com.limelight.utils.LaunchSource;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.ShortcutHelper;
-import com.limelight.utils.SpinnerDialog;
 import com.limelight.utils.UiHelper;
 import android.app.Activity;
 import androidx.appcompat.app.AlertDialog;
@@ -132,8 +131,7 @@ final class GameConnection {
         game.setContentView(R.layout.activity_game);
 
         // Start the spinner
-        game.spinner = SpinnerDialog.displayDialog(game, game.getResources().getString(R.string.conn_establishing_title),
-                game.getResources().getString(R.string.conn_establishing_msg), true);
+        game.spinner = showConnecting(game.getString(R.string.conn_establishing_msg));
 
         // Read the stream preferences
         // Profiles, PC and game values are read once here and never change during the stream. A
@@ -711,12 +709,42 @@ final class GameConnection {
         game.stagedExit.onDisplayChanged(SystemClock.uptimeMillis());
     }
 
+    /** The connecting screen of this stream's game, its cover read off the main thread; cancelling ends the stream. */
+    com.limelight.ui.ConnectingScreen showConnecting(String detail) {
+        android.content.Intent intent = game.getIntent();
+        com.limelight.ui.ConnectingScreen screen = com.limelight.ui.ConnectingScreen.show(game, intent.getStringExtra(Game.EXTRA_APP_NAME),
+                intent.getStringExtra(Game.EXTRA_PC_NAME), game.getString(R.string.conn_establishing_title), detail, game::finish);
+        if (screen == null) return null;
+        if (connectingCover != null) {
+            screen.showCover(connectingCover);
+            return screen;
+        }
+        String uuid = intent.getStringExtra(Game.EXTRA_PC_UUID);
+        String art = intent.getStringExtra(Game.EXTRA_APP_ART_KEY);
+        if (uuid == null || art == null) return screen;
+        new Thread(() -> {
+            java.io.File file = new com.limelight.grid.assets.DiskAssetLoader(game).getFile(uuid, art);
+            android.graphics.Bitmap cover = file.exists() ? android.graphics.BitmapFactory.decodeFile(file.getPath()) : null;
+            if (cover == null) return;
+            connectingCover = cover;
+            screen.showCover(cover);
+        }, "Connecting cover").start();
+        return screen;
+    }
+
+    android.graphics.Bitmap connectingCover() {
+        return connectingCover;
+    }
+
+    private volatile android.graphics.Bitmap connectingCover;
+
     void stageStarting(final String stage) {
         game.runOnUiThread(new Runnable() {
             @Override
             public void run() {
                 if (game.spinner != null) {
-                    game.spinner.setMessage(game.getResources().getString(R.string.conn_starting) + " " + stage);
+                    // The word follows the protocol's stage; the failure message names a stage that fails.
+                    game.spinner.setStage(game.getResources().getString(R.string.conn_starting));
                 }
             }
         });
@@ -1540,8 +1568,7 @@ final class GameConnection {
                     .setMessage(launchConfirmationMessage(confirmation))
                     .setPositiveButton(R.string.launch_confirm, (dialog, which) -> {
                         confirmation.confirm(LaunchConfirmation.nowMs());
-                        game.spinner = SpinnerDialog.displayDialog(game, game.getString(R.string.conn_establishing_title),
-                                game.getString(R.string.conn_establishing_msg), true);
+                        game.spinner = showConnecting(game.getString(R.string.conn_establishing_msg));
                     })
                     .setNegativeButton(android.R.string.cancel, (dialog, which) -> {
                         confirmation.cancel();

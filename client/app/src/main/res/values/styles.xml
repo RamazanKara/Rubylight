@@ -267,6 +267,16 @@
     <!-- Stream activity theme (Game and the debug stream fixtures). -->
     <style name="StreamTheme" parent="Theme.Nightjar.Stream" />
 
+    <!-- The window of connecting and a failed connection: the whole screen, no animation in front of the stream. -->
+    <style name="ConnectingScreen" parent="Theme.Nightjar.Stream">
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/night_glass_canvas</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
+
     <!-- The night palette's dark grey surfaces even when the system is light, as on most TVs. -->
     <style name="DarkTheme" parent="Theme.Nightjar.Stream">
         <item name="android:windowBackground">@color/night_surface</item>

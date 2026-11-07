@@ -128,7 +128,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     SharedPreferences tombstonePrefs;
 
     NvConnection conn;
-    SpinnerDialog spinner;
+    com.limelight.ui.ConnectingScreen spinner;
     boolean displayedFailureDialog = false;
     boolean connecting = false;
     volatile boolean connected = false;
@@ -558,6 +558,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     public static final String EXTRA_APP_NAME = "AppName";
     public static final String EXTRA_APP_ID = "AppId";
     public static final String EXTRA_APP_UUID = "AppUuid";
+    /** The cover's name in the art cache, for the connecting screen. */
+    public static final String EXTRA_APP_ART_KEY = "AppArtKey";
     public static final String EXTRA_MONITOR_RESUME = "MonitorResume";
     public static final String EXTRA_SMALL_STREAM_INPUT_ONLY = "SmallStreamInputOnly";
     public static final String EXTRA_UNIQUEID = "UniqueId";
@@ -874,6 +876,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         ((android.hardware.display.DisplayManager) getSystemService(DISPLAY_SERVICE))
                 .unregisterDisplayListener(inputDisplayListener);
+        if (spinner != null) { spinner.dismiss(); spinner = null; }
         SpinnerDialog.closeDialogs(this);
         Dialog.closeDialogs(this);
         getWindow().getDecorView().removeCallbacks(hideSystemUi);
@@ -998,6 +1001,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             streamMenu.dismiss();
         }
 
+        if (spinner != null) { spinner.dismiss(); spinner = null; }
         SpinnerDialog.closeDialogs(this);
         Dialog.closeDialogs(Game.this);
 

@@ -233,11 +233,13 @@ public class TvTransitionsTest {
         Element layout = parse("src/main/res/layout/activity_console_home.xml");
         NodeList lists = layout.getElementsByTagName("androidx.recyclerview.widget.RecyclerView");
         // Home's list and the search's results keep the glow alike.
-        assertEquals(2, lists.getLength());
+        assertEquals(1, lists.getLength());
         Element list = (Element) lists.item(0);
         assertEquals("@+id/console_list", list.getAttribute("android:id"));
         assertEquals("false", list.getAttribute("android:clipChildren"));
-        assertEquals("false", ((Element) lists.item(1)).getAttribute("android:clipChildren"));
+        NodeList results = layout.getElementsByTagName("com.limelight.console.SearchResultsView");
+        assertEquals(1, results.getLength());
+        assertEquals("false", ((Element) results.item(0)).getAttribute("android:clipChildren"));
         assertEquals("false", ((Element) list.getParentNode()).getAttribute("android:clipChildren"));
     }
 }

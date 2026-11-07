@@ -621,18 +621,12 @@ fn soft_shape(
             handle
         });
     let pad = blur;
-    let xs = [
-        rect.left() - pad,
-        rect.left() + baked.x / 2.0,
-        rect.right() - baked.x / 2.0,
-        rect.right() + pad,
-    ];
-    let ys = [
-        rect.top() - pad,
-        rect.top() + baked.y / 2.0,
-        rect.bottom() - baked.y / 2.0,
-        rect.bottom() + pad,
-    ];
+    let (mid_x, mid_y) = (
+        slice_middle(rect.x_range(), baked.x),
+        slice_middle(rect.y_range(), baked.y),
+    );
+    let xs = [rect.left() - pad, mid_x.0, mid_x.1, rect.right() + pad];
+    let ys = [rect.top() - pad, mid_y.0, mid_y.1, rect.bottom() + pad];
     let (us, vs) = ([0.0, 0.5, 0.5, 1.0], [0.0, 0.5, 0.5, 1.0]);
     let mut mesh = Mesh::with_texture(texture.id());
     for j in 0..4 {
@@ -651,6 +645,17 @@ fn soft_shape(
         }
     }
     out.push(Shape::mesh(mesh));
+}
+
+/// Where a nine-slice's stretching middle runs along one side. A side that rounded up for its bake
+/// is shorter than the bake: its two halves meet at the centre and never overlap, since an overlap
+/// paints the blur twice and shows as a bright line out to the bake's edge.
+fn slice_middle(side: egui::Rangef, baked: f32) -> (f32, f32) {
+    if side.span() >= baked {
+        (side.min + baked / 2.0, side.max - baked / 2.0)
+    } else {
+        (side.center(), side.center())
+    }
 }
 
 /// The focus language of every page: a dark gap, a thick ring, a warm halo behind them. High
@@ -1108,6 +1113,42 @@ mod tests {
             assert_eq!(mesh.vertices.len(), 16);
             assert_eq!(mesh.vertices[1].uv.x, 0.5);
             assert_eq!(mesh.vertices[2].uv.x, 0.5);
+        });
+    }
+
+    /// A side that rounds up for its bake (a capsule 67.6 high at a fractional scale) once made the
+    /// two halves overlap: a bright line either side of a wide focused button.
+    #[test]
+    fn a_nine_slice_never_overlaps_its_halves_on_a_fractional_side() {
+        in_frame(|ctx| {
+            for height in [40.0, 67.4, 67.5, 67.6, 67.75, 68.0] {
+                for width in [20.3, 20.7, 432.6] {
+                    let mut out = Vec::new();
+                    let rect = Rect::from_min_size(pos2(50.25, 50.25), vec2(width, height));
+                    soft_around(&mut out, ctx, rect, 34.0, 26.0, t::FOCUS_HALO_COLOR);
+                    let Some(Shape::Mesh(mesh)) = out.first() else {
+                        panic!("a mesh")
+                    };
+                    let x = |i: usize| mesh.vertices[i].pos.x;
+                    let y = |row: usize| mesh.vertices[row * 4].pos.y;
+                    assert!(
+                        x(0) < x(1) && x(1) <= x(2) && x(2) < x(3),
+                        "{width}x{height}: {} {} {} {}",
+                        x(0),
+                        x(1),
+                        x(2),
+                        x(3)
+                    );
+                    assert!(
+                        y(0) < y(1) && y(1) <= y(2) && y(2) < y(3),
+                        "{width}x{height}: {} {} {} {}",
+                        y(0),
+                        y(1),
+                        y(2),
+                        y(3)
+                    );
+                }
+            }
         });
     }
 

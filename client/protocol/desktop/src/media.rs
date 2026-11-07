@@ -694,6 +694,12 @@ impl VideoDecoder {
         Some(&self.name)
     }
 
+    /// Has the decoder act as one FFmpeg took to software, for the tests of what follows.
+    #[cfg(test)]
+    pub fn refuse(&mut self) {
+        self.refused = true;
+    }
+
     /// Whether pictures come out of it on their own time, not the frame they were sent with: the
     /// V4L2 M2M decoders answer "no picture yet" while the driver still takes input.
     pub fn asynchronous(&self) -> bool {

@@ -8,10 +8,11 @@ use std::sync::{Mutex, MutexGuard, TryLockError};
 
 use jni::objects::{GlobalRef, JShortArray};
 
+use nightjar_core::sdp::VIDEO_FORMAT_MASK_PYROWAVE;
 use nightjar_core::session::{
     self, AudioRenderer, AudioSetup, DecodeStatus, VideoDecoder, VideoSetup,
 };
-use nightjar_core::video::{BufferType, Frame};
+use nightjar_core::video::{BufferType, Frame, FrameBuffer};
 use rubylight_protocol::pyrowave::PACKET_FRAME_END;
 
 use crate::bridge::{self, byte_array, Bridge};
@@ -27,6 +28,8 @@ pub struct Video {
     capacity: usize,
     /// PyroWave records frames reach the renderer as their packets arrive (early record push).
     early: bool,
+    /// Picture data goes to Java in place, as a direct buffer ([`direct_hand_off`]).
+    direct: bool,
     chunks: ChunkBatch,
 }
 
@@ -37,6 +40,7 @@ impl Video {
             buffer: None,
             capacity: 0,
             early,
+            direct: false,
             chunks: ChunkBatch::default(),
         }
     }
@@ -107,6 +111,50 @@ impl ChunkBatch {
     }
 }
 
+/// Whether a stream of `format` hands its picture data to Java in place, as a direct buffer the
+/// renderer reads during the call, instead of copying it into a Java array first. PyroWave reads
+/// it in native code, which saves both copies (Java's array and the renderer's own); it is on
+/// unless `debug.nightjar.pyro_direct` is 0. MediaCodec copies it straight into the codec's input
+/// buffer, one copy fewer; that is off unless `debug.nightjar.codec_direct` is 1, as it came out
+/// with the 3.2.3 decode reverts.
+fn direct_hand_off(format: u32, pyro_direct: &str, codec_direct: &str) -> bool {
+    if format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
+        pyro_direct != "0"
+    } else {
+        codec_direct == "1"
+    }
+}
+
+/// The range of the frame's picture data, when its picture buffers lie back to back.
+fn contiguous_picture(buffers: &[FrameBuffer]) -> Option<std::ops::Range<usize>> {
+    let mut range: Option<std::ops::Range<usize>> = None;
+    for buffer in buffers {
+        if buffer.kind != BufferType::PicData {
+            continue;
+        }
+        range = match range {
+            None => Some(buffer.range.clone()),
+            Some(r) if r.end == buffer.range.start => Some(r.start..buffer.range.end),
+            Some(_) => return None,
+        };
+    }
+    range.filter(|r| !r.is_empty())
+}
+
+/// The Java array a frame needs: all of it, or with its picture in place only the largest
+/// parameter set, which still goes through the array.
+fn array_bytes(buffers: &[FrameBuffer], total: usize, picture_in_place: bool) -> usize {
+    if !picture_in_place {
+        return total;
+    }
+    buffers
+        .iter()
+        .filter(|b| b.kind != BufferType::PicData)
+        .map(|b| b.range.len())
+        .max()
+        .unwrap_or(0)
+}
+
 /// CLOCK_MONOTONIC nanoseconds of a time on the session's microsecond clock.
 fn monotonic_ns_of(session_us: u64) -> i64 {
     let age_us = session::now_us().saturating_sub(session_us) as i64;
@@ -146,6 +194,19 @@ impl VideoDecoder for Video {
             Some(Ok(buffer)) => {
                 self.buffer = Some(buffer);
                 self.capacity = 32768;
+                self.direct = direct_hand_off(
+                    setup.format,
+                    &platform::system_property(c"debug.nightjar.pyro_direct"),
+                    &platform::system_property(c"debug.nightjar.codec_direct"),
+                );
+                platform::info(&format!(
+                    "Picture data goes to the renderer {}",
+                    if self.direct {
+                        "in place"
+                    } else {
+                        "through a Java array"
+                    }
+                ));
                 Ok(())
             }
             Some(Err(code)) => Err(code),
@@ -162,7 +223,14 @@ impl VideoDecoder for Video {
         self.flush_chunks();
         let b = self.bridge;
         let receive_ns = monotonic_ns_of(frame.receive_time_us);
-        let needed = frame.data().len();
+        // Picture data in one piece goes to Java in place, as a direct buffer over the frame
+        // that is only valid during the call; split picture data takes the array as before.
+        let picture = if self.direct {
+            contiguous_picture(frame.buffers())
+        } else {
+            None
+        };
+        let needed = array_bytes(frame.buffers(), frame.data().len(), picture.is_some());
         let status = b.with_env(|env| {
             if needed > self.capacity || self.buffer.is_none() {
                 let array = env.new_byte_array(needed as i32)?;
@@ -189,8 +257,10 @@ impl VideoDecoder for Video {
             let mut offset = 0;
             for (kind, bytes) in frame.buffer_slices() {
                 if kind == BufferType::PicData {
-                    env.set_byte_array_region(array, offset as i32, bridge::jbytes(bytes))?;
-                    offset += bytes.len();
+                    if picture.is_none() {
+                        env.set_byte_array_region(array, offset as i32, bridge::jbytes(bytes))?;
+                        offset += bytes.len();
+                    }
                 } else {
                     // Parameter sets go to the decoder on their own, from the buffer's start.
                     env.set_byte_array_region(array, 0, bridge::jbytes(bytes))?;
@@ -200,7 +270,28 @@ impl VideoDecoder for Video {
                     }
                 }
             }
-            Ok(submit(env, offset, BUFFER_TYPE_PICDATA))
+            let Some(picture) = picture else {
+                return Ok(submit(env, offset, BUFFER_TYPE_PICDATA));
+            };
+            let bytes = &frame.data()[picture];
+            // SAFETY: Java only reads the buffer, and only until the call returns (the
+            // contract of bridgeDrSubmitDirectDecodeUnit); `frame` outlives the call, and the
+            // local reference goes with with_env's frame.
+            let direct =
+                unsafe { env.new_direct_byte_buffer(bytes.as_ptr().cast_mut(), bytes.len())? };
+            let args = [
+                bridge::object(&direct),
+                bridge::int(bytes.len() as i32),
+                bridge::int(BUFFER_TYPE_PICDATA),
+                bridge::int(frame.number as i32),
+                bridge::int(frame.frame_type as i32),
+                jni::objects::JValue::Char(frame.host_processing_latency).as_jni(),
+                bridge::long(frame.receive_time_us as i64),
+                bridge::long(frame.enqueue_time_us as i64),
+                bridge::long(receive_ns),
+                bridge::long(frame.presentation_time_us as i64),
+            ];
+            Ok(b.int(env, b.m.dr_submit_direct, &args).unwrap_or(DR_OK))
         });
         if status == DR_OK {
             DecodeStatus::Ok
@@ -554,6 +645,78 @@ mod tests {
             out.extend_from_slice(payload);
         }
         out
+    }
+
+    fn buffer(kind: BufferType, range: std::ops::Range<usize>) -> FrameBuffer {
+        FrameBuffer { kind, range }
+    }
+
+    #[test]
+    fn pyrowave_hands_off_in_place_by_default_and_mediacodec_only_when_asked() {
+        use nightjar_core::sdp::{
+            VIDEO_FORMAT_AV1_MAIN8, VIDEO_FORMAT_H265, VIDEO_FORMAT_PYROWAVE,
+            VIDEO_FORMAT_PYROWAVE_MAIN10_444,
+        };
+        assert!(direct_hand_off(VIDEO_FORMAT_PYROWAVE_MAIN10_444, "", ""));
+        // Unset properties read as empty.
+        assert!(direct_hand_off(VIDEO_FORMAT_PYROWAVE, "", ""));
+        assert!(!direct_hand_off(VIDEO_FORMAT_PYROWAVE, "0", "1"));
+        assert!(!direct_hand_off(VIDEO_FORMAT_H265, "", ""));
+        assert!(!direct_hand_off(VIDEO_FORMAT_AV1_MAIN8, "1", "0"));
+        assert!(direct_hand_off(VIDEO_FORMAT_H265, "0", "1"));
+        assert!(direct_hand_off(VIDEO_FORMAT_AV1_MAIN8, "", "1"));
+    }
+
+    #[test]
+    fn only_picture_data_in_one_piece_goes_in_place() {
+        use BufferType::{PicData, Pps, Sps, Vps};
+        // A PyroWave or AV1 frame: one picture buffer, the whole frame.
+        assert_eq!(contiguous_picture(&[buffer(PicData, 0..900)]), Some(0..900));
+        // An HEVC key frame: parameter sets first, then picture slices back to back.
+        let idr = [
+            buffer(Vps, 0..24),
+            buffer(Sps, 24..64),
+            buffer(Pps, 64..72),
+            buffer(PicData, 72..500),
+            buffer(PicData, 500..1200),
+        ];
+        assert_eq!(contiguous_picture(&idr), Some(72..1200));
+        // With its picture in place the array only carries the largest parameter set.
+        assert_eq!(array_bytes(&idr, 1200, true), 40);
+        assert_eq!(array_bytes(&idr, 1200, false), 1200);
+        assert_eq!(array_bytes(&[buffer(PicData, 0..900)], 900, true), 0);
+        // Picture data split by a parameter set keeps the array, which joins it.
+        let split = [
+            buffer(PicData, 0..100),
+            buffer(Sps, 100..120),
+            buffer(PicData, 120..300),
+        ];
+        assert_eq!(contiguous_picture(&split), None);
+        // No picture data, or none of it, has nothing to hand over.
+        assert_eq!(contiguous_picture(&[buffer(Sps, 0..20)]), None);
+        assert_eq!(contiguous_picture(&[buffer(PicData, 40..40)]), None);
+    }
+
+    #[test]
+    fn early_push_finishes_a_frame_handed_over_in_place() {
+        // The in-place picture of a records frame is its envelope, byte for byte, so early push
+        // finishes it as it did the array's copy.
+        let packets = records_frame(40, 1400);
+        let data = envelope(&packets);
+        let picture = contiguous_picture(&[buffer(BufferType::PicData, 0..data.len())]).unwrap();
+        let mut records = Records::default();
+        let mut early = EarlyPush::default();
+        let mut batch = ChunkBatch::default();
+        for (i, (flags, payload)) in packets.iter().enumerate() {
+            if batch.push(i == 0, *flags, payload) {
+                early.chunks(&mut records, &batch.bytes, batch.first, |_| true);
+                batch.clear();
+            }
+        }
+        assert_eq!(
+            early.finish(&mut records, &data[picture], |_| true),
+            Finish::Done
+        );
     }
 
     #[test]

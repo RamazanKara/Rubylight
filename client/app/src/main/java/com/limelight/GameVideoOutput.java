@@ -380,6 +380,23 @@ final class GameVideoOutput {
         launchPanel = PreferenceConfiguration.nativeResolution(game);
     }
 
+    // What the decoder's maximum covers from the start (see StreamResizePolicy.coveringSize), after
+    // startInWindowShape: the turned launch size with Rotate on a host that shapes the stream, and
+    // on a foldable (hinge sensor) streaming its own resolution, the panels its display lists.
+    int[] coveringStreamSize() {
+        boolean turns = StreamOrientation.followsRotation(game.streamOrientation, game.hostShapesStream);
+        int[][] panels = null;
+        if (game.nativeResolutionStream && game.externalPresentation == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                game.getPackageManager().hasSystemFeature(PackageManager.FEATURE_SENSOR_HINGE_ANGLE)) {
+            Display.Mode[] modes = getVideoDisplay().getSupportedModes();
+            panels = new int[modes.length][];
+            for (int i = 0; i < modes.length; i++) {
+                panels[i] = new int[] {modes[i].getPhysicalWidth(), modes[i].getPhysicalHeight()};
+            }
+        }
+        return StreamResizePolicy.coveringSize(launchWidth, launchHeight, turns, panels);
+    }
+
     @TargetApi(Build.VERSION_CODES.O)
     PictureInPictureParams getPictureInPictureParams(boolean autoEnter) {
         int[] ratio = PictureInPicturePolicy.aspectRatio(game.prefConfig.width, game.prefConfig.height);

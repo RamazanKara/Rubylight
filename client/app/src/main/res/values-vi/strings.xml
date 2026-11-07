@@ -90,6 +90,7 @@
     <string name="perf_overlay_renderingfps">Đã kết xuất: %1$.2f FPS</string>
     <string name="perf_overlay_hostprocessinglatency">Máy chủ tối thiểu/tối đa/trung bình: %1$.1f/%2$.1f/%3$.1f ms</string>
     <string name="perf_overlay_netdrops">Mất khung hình do mạng: %1$.2f%%</string>
+    <string name="perf_overlay_decoder_drops">Khung hình bộ giải mã bỏ qua: %1$d, bộ giải mã bị chậm</string>
     <string name="perf_overlay_netlatency">Mạng: %1$d ms (±%2$d ms)</string>
     <string name="perf_overlay_dectime">Thời gian giải mã: %1$.2f ms</string>
     <string name="applist_connect_msg">Đang kết nối với PC…</string>

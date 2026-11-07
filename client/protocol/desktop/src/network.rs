@@ -281,12 +281,102 @@ fn interface_toward(ip: IpAddr) -> Option<Interface> {
     })
 }
 
+/// The interface among `(name, address)` pairs that holds `local`. An IPv4 address and its
+/// v4-mapped IPv6 form (`::ffff:a.b.c.d`) are the same address either way round.
+#[cfg_attr(windows, allow(dead_code))]
+fn interface_of_address<'a>(local: IpAddr, addresses: impl IntoIterator<Item = (&'a str, IpAddr)>) -> Option<&'a str> {
+    let canonical = |ip: IpAddr| match ip {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
+        v4 => v4,
+    };
+    let local = canonical(local);
+    addresses.into_iter().find(|(_, address)| canonical(*address) == local).map(|(name, _)| name)
+}
+
+/// Every interface address, from `getifaddrs`.
+#[cfg(not(windows))]
+fn interface_addresses() -> Result<Vec<(String, IpAddr)>, String> {
+    let mut head: *mut libc::ifaddrs = std::ptr::null_mut();
+    if unsafe { libc::getifaddrs(&mut head) } != 0 {
+        return Err(format!("getifaddrs failed: {}", std::io::Error::last_os_error()));
+    }
+    let mut found = Vec::new();
+    let mut entry = head;
+    while !entry.is_null() {
+        // SAFETY: getifaddrs returned a list that stays valid until freeifaddrs below.
+        let ifa = unsafe { &*entry };
+        entry = ifa.ifa_next;
+        if ifa.ifa_addr.is_null() || ifa.ifa_name.is_null() {
+            continue;
+        }
+        let address = match i32::from(unsafe { (*ifa.ifa_addr).sa_family }) {
+            libc::AF_INET => {
+                let sin = unsafe { &*(ifa.ifa_addr as *const libc::sockaddr_in) };
+                IpAddr::V4(Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr)))
+            }
+            libc::AF_INET6 => {
+                let sin6 = unsafe { &*(ifa.ifa_addr as *const libc::sockaddr_in6) };
+                IpAddr::V6(Ipv6Addr::from(sin6.sin6_addr.s6_addr))
+            }
+            _ => continue,
+        };
+        let name = unsafe { std::ffi::CStr::from_ptr(ifa.ifa_name) }.to_string_lossy().into_owned();
+        found.push((name, address));
+    }
+    unsafe { libc::freeifaddrs(head) };
+    Ok(found)
+}
+
+/// The interface the system routes traffic for `ip` over, in-process: the local address of a UDP
+/// socket connected toward it (which sends nothing) and the interface holding that address. Needs
+/// no `ip` binary, which the Flatpak runtime does not ship, and no system bus.
+#[cfg(not(windows))]
+fn interface_name_toward(ip: IpAddr) -> Result<String, String> {
+    let local = local_toward(SocketAddr::new(ip, 9)).ok_or("no local address toward it")?;
+    let addresses = interface_addresses()?;
+    interface_of_address(local, addresses.iter().map(|(name, address)| (name.as_str(), *address)))
+        .map(str::to_owned)
+        .ok_or_else(|| format!("no interface holds {local}"))
+}
+
+/// The interface toward `ip` from `ip -o route get`, for when the in-process lookup failed.
+#[cfg(not(windows))]
+fn route_dev_from_ip_command(ip: IpAddr) -> Result<String, String> {
+    let output = std::process::Command::new("ip")
+        .args(["-o", "route", "get", &ip.to_string()])
+        .output()
+        .map_err(|e| format!("`ip` did not run: {e}"))?;
+    if !output.status.success() {
+        return Err(format!("`ip route get` failed: {}", String::from_utf8_lossy(&output.stderr).trim()));
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    parse_route_dev(&text).map(str::to_owned).ok_or_else(|| format!("`ip route get` named no interface: {}", text.trim()))
+}
+
 #[cfg(not(windows))]
 fn interface_toward(ip: IpAddr) -> Option<Interface> {
-    let output = std::process::Command::new("ip").args(["-o", "route", "get", &ip.to_string()]).output().ok()?;
-    if !output.status.success() { return None; }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let name = parse_route_dev(&text)?;
+    let name = match interface_name_toward(ip) {
+        Ok(name) => {
+            eprintln!("nightjar: route to {ip}: {name}, from the socket's local address");
+            name
+        }
+        Err(why) => match route_dev_from_ip_command(ip) {
+            Ok(name) => {
+                eprintln!("nightjar: route to {ip}: {name}, from `ip route get` ({why})");
+                name
+            }
+            Err(fallback) => {
+                eprintln!("nightjar: route to {ip} unknown: {why}; {fallback}");
+                return None;
+            }
+        },
+    };
+    Some(interface_of_sysfs(&name))
+}
+
+/// The interface `name` as sysfs describes it.
+#[cfg(not(windows))]
+fn interface_of_sysfs(name: &str) -> Interface {
     let base = format!("/sys/class/net/{name}");
     let read = |file: &str| std::fs::read_to_string(format!("{base}/{file}")).ok();
     let devtype = read("uevent").and_then(|uevent| {
@@ -301,7 +391,7 @@ fn interface_toward(ip: IpAddr) -> Option<Interface> {
     let flags = read("flags").and_then(|t| u32::from_str_radix(t.trim().trim_start_matches("0x"), 16).ok());
     let mac = read("address");
     let vpn = vpn_of_sysfs(arphrd, mtu, flags, mac.as_deref().map(str::trim), name);
-    Some(Interface { medium, link_mbps: mbps, vpn })
+    Interface { medium, link_mbps: mbps, vpn }
 }
 
 /// Client roaming: one look at the network the stream runs on. The route toward the host (the
@@ -675,6 +765,40 @@ mod tests {
         assert_eq!(parse_route_dev("1.2.3.4 dev"), None);
         assert_eq!(parse_route_dev("1.2.3.4 dev bad/name"), None);
         assert_eq!(parse_route_dev("1.2.3.4 dev 0123456789abcdef"), None);
+    }
+
+    // Regression: Flatpak has no `ip`, so every route read as "wired or unknown" (nightjar#80).
+    #[test]
+    fn the_local_address_finds_its_interface() {
+        let addresses = [
+            ("lo", IpAddr::from([127, 0, 0, 1])),
+            ("lo", "::1".parse().unwrap()),
+            ("eth0", IpAddr::from([192, 168, 1, 20])),
+            ("wlan0", IpAddr::from([10, 0, 0, 7])),
+            ("wlan0", "fe80::1234".parse().unwrap()),
+            ("wg0", "fd00::2".parse().unwrap()),
+        ];
+        let find = |local: &str| interface_of_address(local.parse().unwrap(), addresses);
+        assert_eq!(find("192.168.1.20"), Some("eth0"));
+        assert_eq!(find("10.0.0.7"), Some("wlan0"));
+        assert_eq!(find("fe80::1234"), Some("wlan0"));
+        assert_eq!(find("fd00::2"), Some("wg0"));
+        assert_eq!(find("::1"), Some("lo"));
+        // A dual-stack socket's v4-mapped address is the IPv4 one, and the other way round.
+        assert_eq!(find("::ffff:192.168.1.20"), Some("eth0"));
+        let mapped: IpAddr = "::ffff:192.168.1.20".parse().unwrap();
+        assert_eq!(interface_of_address(IpAddr::from([192, 168, 1, 20]), [("eth0", mapped)]), Some("eth0"));
+        assert_eq!(find("192.168.1.21"), None);
+        assert_eq!(find("::"), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_pc_on_this_machine_is_reached_over_loopback_which_does_not_tell() {
+        assert_eq!(interface_name_toward(IpAddr::from([127, 0, 0, 1])).as_deref(), Ok("lo"));
+        let lo = interface_toward(IpAddr::from([127, 0, 0, 1])).expect("loopback is readable");
+        assert_eq!(lo.medium, Medium::Other);
+        assert!(!lo.vpn);
     }
 
     #[test]

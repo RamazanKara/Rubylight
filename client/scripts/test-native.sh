@@ -14,7 +14,7 @@ patches=()
 for name in bughunt-stream.patch bughunt-input.patch controller-haptics.patch host-termination.patch \
     disconnect-intercept.patch control-payload.patch control-teardown.patch host-timing.patch network-grace.patch \
     cursor-shape.patch network-grace-input.patch pyrowave-link-hints.patch video-recv-buffer.patch clock-sync.patch \
-    prefix-sei.patch fec-report.patch wire-bytes.patch surround-714.patch socket-dscp.patch host-gone.patch; do
+    prefix-sei.patch fec-report.patch wire-bytes.patch surround-714.patch socket-dscp.patch host-gone.patch decoder-drops.patch; do
     patches+=("$(pwd)/$core/patches/$name")
 done
 if [ ! -f "$common/src/Limelight.h" ]; then
@@ -40,13 +40,13 @@ sanitize=(-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame
 for mode in plain sanitized; do
     extra=()
     if [ "$mode" = sanitized ]; then extra=("${sanitize[@]}"); fi
-    for test in pyrowave_schedule pyrowave_present_timing pyrowave_presentation pyrowave_device_path vulkan_output_format vulkan_hdr10plus window_dataspace; do
+    for test in pyrowave_schedule pyrowave_present_timing pyrowave_presentation pyrowave_device_path pyrowave_image_hold vulkan_output_format vulkan_decoder_fence vulkan_hdr10plus window_dataspace; do
         c++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic "${extra[@]}" \
             "$tests/${test}_test.cpp" -o "$out/$test-$mode"
         "$out/$test-$mode"
         echo "$test ($mode): passed"
     done
-    for test in aaudio_queue control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags input_only_ping surround_params; do
+    for test in aaudio_queue control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags input_only_ping surround_params stream_thread_priority; do
         cc "${flags[@]}" "${extra[@]}" -fno-builtin "$tests/${test}_test.c" -o "$out/$test-$mode"
     done
     cc "${flags[@]}" "${extra[@]}" -c "$tests/control_packet_types_test.c" -o "$out/control_packet_types-$mode.o"
@@ -77,7 +77,7 @@ for mode in plain sanitized; do
         "$common/src/PlatformSockets.c" -lpthread -o "$out/input_only_ping_thread-$mode"
     cc "${flags[@]}" "${extra[@]}" "$tests/socket_dscp_test.c" "$common/src/Platform.c" \
         "$common/src/PlatformSockets.c" -lpthread -o "$out/socket_dscp-$mode"
-    for test in aaudio_queue aaudio_output control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags rtsp_duplicate audio_reorder video_shutdown pyrowave_depacketizer control_termination enet_termination network_grace control_send microphone_packet input_queue input_contact input_only_ping input_only_ping_thread surround_params socket_dscp; do
+    for test in aaudio_queue aaudio_output control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags rtsp_duplicate audio_reorder video_shutdown pyrowave_depacketizer control_termination enet_termination network_grace control_send microphone_packet input_queue input_contact input_only_ping input_only_ping_thread surround_params socket_dscp stream_thread_priority; do
         "$out/$test-$mode"
         echo "$test ($mode): passed"
     done

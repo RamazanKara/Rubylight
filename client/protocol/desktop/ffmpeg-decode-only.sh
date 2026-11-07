@@ -4,7 +4,7 @@
 #   protocol/desktop/ffmpeg-decode-only.sh <ffmpeg source dir> <prefix>
 #
 # Windows: run it in an MSYS2 UCRT64 shell (gcc, make, nasm, pkgconf, mingw-w64-ucrt-x86_64-dav1d).
-# Linux: gcc, make, nasm, pkg-config, libdav1d-dev, libva-dev, libffmpeg-nvenc-dev and
+# Linux: gcc, make, nasm, pkg-config, libdav1d-dev, libva-dev, libdrm-dev, libffmpeg-nvenc-dev and
 # libvulkan-dev 1.3.277 or newer (Debian and Ubuntu names; nv-codec-headers and vulkan-headers
 # elsewhere). Where dav1d or the NVIDIA or Vulkan headers are older than FFmpeg 8 accepts
 # (Ubuntu 22.04), ffmpeg-deps-linux.sh builds or installs them into a prefix: put its
@@ -34,8 +34,10 @@ if [[ $(uname -s) == Linux ]]; then
   # Vulkan and NVDEC need only headers at build time and load the driver's libraries when they
   # run (the Vulkan loader comes from the renderer), so nothing nonfree is linked and machines
   # without them lose nothing.
+  # libdrm: VAAPI pictures map to DRM PRIME and from there into the GPU renderer's Vulkan device
+  # (av_hwframe_map; without it the map is ENOSYS and every picture goes through memory).
   platform=(
-    --enable-vaapi
+    --enable-vaapi --enable-libdrm
     --enable-hwaccel=h264_vaapi,hevc_vaapi,av1_vaapi
     --enable-vulkan
     --enable-hwaccel=h264_vulkan,hevc_vulkan,av1_vulkan
@@ -94,6 +96,9 @@ Built $built by protocol/desktop/ffmpeg-decode-only.sh of the Nightjar repositor
 EOF
 
 if [[ -n $linux ]]; then
+  # The VAAPI to Vulkan mapping needs libavutil built with libdrm; under --disable-autodetect
+  # nothing else would notice a configure line that lost --enable-libdrm.
+  readelf -d "$prefix/lib/libavutil.so" | grep -q 'NEEDED.*\[libdrm\.so' || { echo "libavutil.so does not link libdrm (apt install libdrm-dev)" >&2; exit 1; }
   cp "$here"/ffmpeg-patches/*.patch "$prefix/licenses-ffmpeg/"
   for lib in "$prefix"/lib/lib*.so.*.*; do
     readelf -d "$lib" | grep -Eq '(RPATH|RUNPATH).*\[\$ORIGIN\]' || { echo "${lib##*/} has no run path \$ORIGIN" >&2; exit 1; }

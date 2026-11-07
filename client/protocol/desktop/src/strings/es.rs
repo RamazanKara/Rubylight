@@ -1405,4 +1405,7 @@ sudo sysctl -w net.core.rmem_max={}", "Búfer de recepción: el sistema concedi�
     ("Desktop", "Escritorio"),
     ("Searching for PCs…", "Buscando PCs…"),
     ("Can't search this network for PCs", "No se puede buscar PCs en esta red"),
+    ("{} cannot decode this stream. Now decoding with {}.", "{0} no puede decodificar esta transmisión. Ahora decodifica {1}."),
+    ("{} cannot decode this stream. Now decoding in software.", "{} no puede decodificar esta transmisión. Ahora se decodifica por software."),
+    ("{} cannot decode this stream, and no other decoder opens: {}", "{0} no puede decodificar esta transmisión y ningún otro decodificador se abre: {1}"),
 ];

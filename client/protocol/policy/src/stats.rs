@@ -160,12 +160,16 @@ impl RecentP95 {
         let mut all: Vec<u32> = self.previous.iter().chain(&self.current).copied().collect();
         std::mem::swap(&mut self.previous, &mut self.current);
         self.current.clear();
-        if all.is_empty() {
-            return None;
-        }
-        all.sort_unstable();
-        let rank = (all.len() * 95).div_ceil(100);
-        Some(all[rank - 1] as f32 / 1000.0)
+        p95_ms(&mut all)
+    }
+
+    /// [`tick`](Self::tick), but no more than this tick's own p95, and `None` when this tick has
+    /// no sample: a spike counts in the tick it fell in, not again in the next one. Sustained
+    /// slowness is in both ticks and counts in each.
+    pub fn tick_once(&mut self) -> Option<f32> {
+        let own = p95_ms(&mut self.current.clone());
+        let both = self.tick();
+        own.zip(both).map(|(own, both)| own.min(both))
     }
 
     /// Forgets every sample, as when the stream changes mode.
@@ -173,6 +177,16 @@ impl RecentP95 {
         self.previous.clear();
         self.current.clear();
     }
+}
+
+/// The nearest-rank p95 of `values` (microseconds) in ms, `None` without any.
+fn p95_ms(values: &mut [u32]) -> Option<f32> {
+    if values.is_empty() {
+        return None;
+    }
+    values.sort_unstable();
+    let rank = (values.len() * 95).div_ceil(100);
+    Some(values[rank - 1] as f32 / 1000.0)
 }
 
 #[cfg(test)]
@@ -198,6 +212,32 @@ mod tests {
         assert_eq!(p95.tick(), Some(20.0));
         assert!(!p95.has_samples());
         assert_eq!(p95.tick(), None);
+    }
+
+    // Regression (nightjar#80): one startup spike in the two-tick window gave two HOST votes.
+    #[test]
+    fn tick_once_counts_a_spike_in_its_own_tick_only() {
+        let mut p95 = RecentP95::default();
+        for _ in 0..99 {
+            p95.push(3_000);
+        }
+        p95.push(80_000);
+        for _ in 0..19 {
+            p95.push(80_000);
+        }
+        assert_eq!(p95.tick_once(), Some(80.0), "the spike's own tick");
+        for _ in 0..100 {
+            p95.push(3_000);
+        }
+        assert_eq!(p95.tick_once(), Some(3.0), "not again in the next tick");
+        assert_eq!(p95.tick_once(), None, "a tick without samples says nothing");
+        // Sustained: in every tick.
+        for _ in 0..2 {
+            for _ in 0..100 {
+                p95.push(40_000);
+            }
+            assert_eq!(p95.tick_once(), Some(40.0));
+        }
     }
 
     #[test]

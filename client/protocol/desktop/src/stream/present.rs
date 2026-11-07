@@ -532,6 +532,8 @@ pub struct Pacer {
     frame_us: u64,
     /// The FPS limit's last present slot.
     last_slot_us: Option<u64>,
+    /// Frames waiting in the decode queue as the next picture is accepted.
+    decode_queue: usize,
 }
 
 impl Pacer {
@@ -552,7 +554,16 @@ impl Pacer {
             frame_pacing: FramePacing::Latency,
             frame_us: frame_us(60),
             last_slot_us: None,
+            decode_queue: 0,
         }
+    }
+
+    /// How many frames wait in the decode queue now. Once it stays non-empty frame after frame,
+    /// the decoder is behind: PC's frame times show each picture as soon as it is ready and do
+    /// not learn its lateness, which is the backlog's. A network burst is paced as usual
+    /// (`PresentClock::schedule_queued`).
+    pub fn set_decode_queue(&mut self, queued: usize) {
+        self.decode_queue = queued;
     }
 
     /// The frame pacing setting and the stream's frame rate, for V-Sync.
@@ -591,7 +602,7 @@ impl Pacer {
     pub fn accept(&mut self, decoded: Decoded) {
         let (present_us, hold_us, late) = match self.mode {
             PacingMode::HostTimes => {
-                let s = self.clock.schedule(decoded.rtp, decoded.ready_us);
+                let s = self.clock.schedule_queued(decoded.rtp, decoded.ready_us, self.decode_queue);
                 (s.present_us, s.hold_us, s.late)
             }
             _ if self.paced(FramePacing::CapFps) => {
@@ -3077,6 +3088,47 @@ pub(crate) mod tests {
             SDL_DestroyWindow(window);
             SDL_Quit();
         }
+    }
+
+    // Regression (nightjar#80): PC's frame times held pictures by the lateness a decoder behind
+    // the stream made, up to the longest hold.
+    #[test]
+    fn host_times_show_a_picture_at_once_while_the_decoder_is_behind() {
+        let mut pacer = Pacer::new(PacingMode::HostTimes, 0);
+        let mut reference = pacer.clock.clone();
+        let mut ready = 0;
+        let mut accept = |pacer: &mut Pacer, queued: usize| {
+            ready += 10_000;
+            let rtp = (ready * 9 / 100) as u32;
+            let mut picture = decoded(ready);
+            picture.rtp = rtp;
+            pacer.set_decode_queue(queued);
+            pacer.accept(picture);
+            let last = crate::stream::pipeline::lock(&pacer.pending).back().map(|p| (p.present_us, p.hold_us));
+            (rtp, ready, last.unwrap())
+        };
+        // Review of nightjar#80: a network burst of three frames leaves the queue non-empty for
+        // two of them; they are paced as usual.
+        for queued in [2, 1, 0] {
+            let (rtp, ready, got) = accept(&mut pacer, queued);
+            let s = reference.schedule(rtp, ready);
+            assert_eq!(got, (s.present_us, s.hold_us), "burst frame with {queued} queued");
+        }
+        // A decoder that cannot keep up keeps the queue non-empty: after a few frames each
+        // picture is shown as soon as it is ready and its lateness is not learnt.
+        for i in 1..=12 {
+            let (rtp, ready, got) = accept(&mut pacer, 3);
+            let s = if i < rubylight_protocol::present_clock::BEHIND_AFTER_FRAMES {
+                reference.schedule(rtp, ready)
+            } else {
+                reference.schedule_behind(rtp, ready)
+            };
+            assert_eq!(got, (s.present_us, s.hold_us), "backlog frame {i}");
+        }
+        // Caught up: scheduled as before.
+        let (rtp, ready, got) = accept(&mut pacer, 0);
+        let s = reference.schedule(rtp, ready);
+        assert_eq!(got, (s.present_us, s.hold_us));
     }
 
     #[test]

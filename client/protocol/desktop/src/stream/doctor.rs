@@ -23,7 +23,13 @@ pub struct Doctor {
     late: LateFrames,
     /// The video socket's receive buffer, as asked and as the OS granted it.
     pub receive_buffer: Option<ReceiveBuffer>,
+    /// The first tick's time: ticks within [`WARMUP_MS`] of it are not evidence.
+    first_ms: Option<u64>,
 }
+
+/// The stream's first seconds hold one-off spikes (the first key frame, a switch to HDR or
+/// fullscreen) that are no bottleneck: their ticks are left out of the report.
+const WARMUP_MS: u64 = 2_000;
 
 impl Doctor {
     /// A decoded frame: its RTP timestamp, the frame header's host processing time (0.1 ms, 0
@@ -50,17 +56,22 @@ impl Doctor {
 
     /// Fills the tick's host and display p95 over the last two ticks, then starts the next one.
     /// As on Android, the host is judged by its present to last packet sent while it reports
-    /// that, otherwise by the header's processing time.
+    /// that, otherwise by the header's processing time. A spike counts in its own tick only
+    /// (`RecentP95::tick_once`): in both ticks of the window it gave two votes, a finding alone.
     pub fn timings(&mut self, tick: &mut Stats) {
         tick.host_includes_send = self.sent.has_samples();
-        let (sent, header) = (self.sent.tick(), self.header.tick());
+        let (sent, header) = (self.sent.tick_once(), self.header.tick_once());
         tick.host_p95_ms = if tick.host_includes_send { sent } else { header };
-        tick.display_p95_ms = self.display.tick();
+        tick.display_p95_ms = self.display.tick_once();
         tick.late_frames = Some(self.late.tick());
     }
 
+    /// One stats tick, from [`WARMUP_MS`] after the first on.
     pub fn add(&mut self, tick: &Stats) {
-        self.health.add(tick);
+        let first = *self.first_ms.get_or_insert(tick.now_ms);
+        if tick.now_ms.saturating_sub(first) >= WARMUP_MS {
+            self.health.add(tick);
+        }
     }
 
     pub fn report(&mut self, now_ms: u64) -> Report {
@@ -290,10 +301,10 @@ mod tests {
         let mut second = Stats::default();
         doctor.timings(&mut second);
         assert_eq!((second.host_p95_ms, second.host_includes_send), (Some(12.0), true));
-        assert_eq!(second.display_p95_ms, Some(5.0), "the previous tick still counts");
+        assert_eq!(second.display_p95_ms, None, "a spike counts in its own tick only");
         let mut third = Stats::default();
         doctor.timings(&mut third);
-        assert_eq!((third.host_p95_ms, third.host_includes_send), (Some(12.0), true), "reports from the last two ticks");
+        assert_eq!((third.host_p95_ms, third.host_includes_send), (None, true), "reports from the last two ticks, counted once");
         let mut fourth = Stats::default();
         doctor.timings(&mut fourth);
         assert_eq!((fourth.host_p95_ms, fourth.host_includes_send, fourth.display_p95_ms), (None, false, None));
@@ -303,12 +314,13 @@ mod tests {
     fn a_lossy_stream_reports_the_network_and_offers_the_trial() {
         set(Lang::En);
         let mut doctor = Doctor::default();
-        for n in 1..=5 {
+        // The first two seconds are warm-up.
+        for n in 1..=7 {
             let mut stats = tick(n * 1000, 6.0);
             doctor.timings(&mut stats);
             doctor.add(&stats);
         }
-        let report = doctor.report(5000);
+        let report = doctor.report(7000);
         assert_eq!(report.findings, [Finding::Network]);
         assert!(report.can_suggest_bitrate());
         assert_eq!(doctor.trial.offer(true, 20_000, true, false, false), TrialOffer::Try);
@@ -318,6 +330,30 @@ mod tests {
         assert!(text.contains("Frame loss: 6.0 %\nDecode: 2.0 ms\nHost processing p95: no data yet ms"), "{text}");
         assert_eq!(summary(&report).as_deref(), Some(text.as_str()));
         assert!(log_line(&report).starts_with("NETWORK over 5 samples, worst loss 6.0 %"));
+    }
+
+    // Regression (nightjar#80): one startup spike (first key frame, HDR switch) made a HOST
+    // finding alone, from a warm-up tick and from the two-tick window counting it twice.
+    #[test]
+    fn one_startup_spike_is_no_host_finding() {
+        let mut doctor = Doctor::default();
+        let run = |doctor: &mut Doctor, spike_at: u64| {
+            for n in 1..=8u64 {
+                for _ in 0..60 {
+                    doctor.shown(if n == spike_at { 700 } else { 30 }, 1_000, 3_000);
+                }
+                let mut stats = tick(n * 1000, 0.0);
+                doctor.timings(&mut stats);
+                doctor.add(&stats);
+            }
+            doctor.report(8000)
+        };
+        let warm_up = run(&mut doctor, 1);
+        assert!(warm_up.findings.is_empty(), "{warm_up:?}");
+        assert!(warm_up.worst_host_p95_ms < 16.0, "the warm-up spike is no evidence: {warm_up:?}");
+        let later = run(&mut Doctor::default(), 4);
+        assert!(!later.findings.contains(&Finding::Host), "one spike is one vote: {later:?}");
+        assert_eq!(later.worst_host_p95_ms, 70.0);
     }
 
     #[test]
@@ -339,10 +375,10 @@ mod tests {
     fn a_clean_stream_has_no_summary_after_it() {
         set(Lang::En);
         let mut doctor = Doctor::default();
-        for n in 1..=5 {
+        for n in 1..=7 {
             doctor.add(&tick(n * 1000, 0.0));
         }
-        let report = doctor.report(5000);
+        let report = doctor.report(7000);
         assert!(report.findings.is_empty());
         assert_eq!(summary(&report), None);
         assert!(report_text(&report).contains("No repeated bottleneck"));
@@ -355,10 +391,10 @@ mod tests {
     fn the_report_reads_in_german_with_decimal_commas() {
         set(Lang::De);
         let mut doctor = Doctor::default();
-        for n in 1..=5 {
+        for n in 1..=7 {
             doctor.add(&Stats { host_p95_ms: Some(30.0), host_includes_send: true, ..tick(n * 1000, 2.5) });
         }
-        let text = report_text(&doctor.report(5000));
+        let text = report_text(&doctor.report(7000));
         assert!(text.contains("Bildverlust: 2,5 %"), "{text}");
         assert!(text.contains("Host bis Netzwerk p95: 30,0 ms"), "{text}");
         assert!(text.contains("PC: langsamere Verarbeitungszeiten"), "{text}");

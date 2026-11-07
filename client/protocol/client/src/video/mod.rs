@@ -232,8 +232,10 @@ pub trait VideoSink {
     /// makes the receiver call [`VideoSink::flush_frames`], drop its state and request a key
     /// frame, as the C core does when its 15-frame queue overflows.
     fn frame(&mut self, frame: Frame) -> Result<(), Frame>;
-    /// Discard every queued frame that has not reached the decoder.
-    fn flush_frames(&mut self) {}
+    /// Discard every queued frame that has not reached the decoder, returning how many.
+    fn flush_frames(&mut self) -> usize {
+        0
+    }
     fn signal(&mut self, signal: VideoSignal);
     /// One packet of the records envelope of the frame being assembled, in order, as soon as
     /// it is in the envelope (only with [`VideoConfig::early_chunks`]). `first` starts a new
@@ -263,8 +265,10 @@ impl VideoSink for Vec<VideoEvent> {
         Ok(())
     }
 
-    fn flush_frames(&mut self) {
+    fn flush_frames(&mut self) -> usize {
+        let before = self.len();
         self.retain(|event| !matches!(event, VideoEvent::Frame(_)));
+        before - self.len()
     }
 
     fn signal(&mut self, signal: VideoSignal) {
@@ -295,8 +299,14 @@ pub struct VideoStats {
     pub decrypt_failures: u64,
     /// Frames handed to the sink.
     pub frames_completed: u64,
-    /// Times the depacketizer dropped its frame state (each lost or skipped frame).
+    /// Times the depacketizer dropped its frame state (each lost or skipped frame), except
+    /// [`VideoStats::decoder_drops`]: network loss only.
     pub frame_drops: u64,
+    /// Frames dropped because the decode queue overflowed: the overflowing frame, the queued
+    /// frames flushed with it and every whole frame dropped while waiting for the key frame it
+    /// requested. Local, not network loss; a frame lost or abandoned meanwhile stays in
+    /// [`VideoStats::frame_drops`].
+    pub decoder_drops: u64,
 }
 
 /// A packet waiting in the RTP queue. The buffer holds `packet_size + 16` bytes.
@@ -502,6 +512,19 @@ impl VideoReceiver {
     /// sink's queued frames, drops the frame in progress at its end and requests a key frame.
     pub fn request_decoder_refresh(&mut self, sink: &mut impl VideoSink) {
         self.depacketizer.request_decoder_refresh(sink);
+    }
+
+    /// From now on every loss waits for a key frame and asks for one, as without RFI: the
+    /// decoder that negotiated RFI was replaced by one that never asked for it.
+    pub fn recover_with_idr_only(&mut self) {
+        self.depacketizer.require_idr();
+        self.queue.rfi = false;
+    }
+
+    /// Whether losses still recover with reference frame invalidation (`recover_with_idr_only`).
+    #[cfg(test)]
+    pub(crate) fn rfi_recovery(&self) -> bool {
+        self.queue.rfi
     }
 
     /// The host display's HDR mode from the control stream; frames report it and use BT.2020

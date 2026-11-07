@@ -1405,4 +1405,7 @@ sudo sysctl -w net.core.rmem_max={}", "Bộ đệm nhận: hệ thống chỉ c�
     ("Desktop", "Màn hình nền"),
     ("Searching for PCs…", "Đang tìm PC…"),
     ("Can't search this network for PCs", "Không thể tìm PC trên mạng này"),
+    ("{} cannot decode this stream. Now decoding with {}.", "{0} không thể giải mã luồng này. Hiện giải mã bằng {1}."),
+    ("{} cannot decode this stream. Now decoding in software.", "{} không thể giải mã luồng này. Hiện giải mã bằng phần mềm."),
+    ("{} cannot decode this stream, and no other decoder opens: {}", "{0} không thể giải mã luồng này và không bộ giải mã nào khác mở được: {1}"),
 ];

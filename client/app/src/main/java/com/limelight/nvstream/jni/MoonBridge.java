@@ -8,6 +8,7 @@ import com.limelight.nvstream.av.audio.AudioRenderer;
 import com.limelight.nvstream.av.video.HostTimingReport;
 import com.limelight.nvstream.av.video.VideoDecoderRenderer;
 
+import java.nio.ByteBuffer;
 import java.util.function.BooleanSupplier;
 
 public class MoonBridge {
@@ -273,6 +274,21 @@ public class MoonBridge {
                                                long presentationTimeUs) {
         if (videoRenderer != null) {
             return videoRenderer.submitDecodeUnit(decodeUnitData, decodeUnitLength,
+                    decodeUnitType, frameNumber, frameType, frameHostProcessingLatency, receiveTimeUs, enqueueTimeUs, receiveTimeNs,
+                    presentationTimeUs);
+        }
+        else {
+            return DR_OK;
+        }
+    }
+
+    // The Rust engine's picture data in place; see VideoDecoderRenderer.submitDirectDecodeUnit.
+    public static int bridgeDrSubmitDirectDecodeUnit(ByteBuffer decodeUnitData, int decodeUnitLength, int decodeUnitType,
+                                                     int frameNumber, int frameType, char frameHostProcessingLatency,
+                                                     long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs,
+                                                     long presentationTimeUs) {
+        if (videoRenderer != null) {
+            return videoRenderer.submitDirectDecodeUnit(decodeUnitData, decodeUnitLength,
                     decodeUnitType, frameNumber, frameType, frameHostProcessingLatency, receiveTimeUs, enqueueTimeUs, receiveTimeNs,
                     presentationTimeUs);
         }
@@ -846,6 +862,13 @@ public class MoonBridge {
         return rustStream ? RustBridge.getPendingVideoFrames() : cGetPendingVideoFrames();
     }
     private static native int cGetPendingVideoFrames();
+
+    // Frames the engine dropped because its decode queue overflowed (the overflowing frame and those
+    // dropped until the key frame it asked for), since the stream started: local, not network loss.
+    public static long getDecoderDrops() {
+        return rustStream ? RustBridge.getDecoderDrops() : cGetDecoderDrops();
+    }
+    private static native long cGetDecoderDrops();
 
     public static native int testClientConnectivity(String testServerHostName, int referencePort, int testFlags);
 

@@ -110,6 +110,7 @@ final class RustBridge {
 
     static native long audioConcealer();
     static native int getPendingVideoFrames();
+    static native long getDecoderDrops();
     static native long getEstimatedRttInfo();
     static native long getWireBytesReceived();
     static native long getVideoReceiveBufferInfo();

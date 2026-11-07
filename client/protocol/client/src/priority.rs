@@ -1,7 +1,8 @@
 //! Socket and thread priorities, as moonlight-common-c and Nightjar's `latency.c` set them.
 //!
-//! Three layers, all Linux and Android only (elsewhere they do nothing) except the control
-//! socket's marking, which Windows gets through qWAVE:
+//! Three socket layers, all Linux and Android only (elsewhere they do nothing) except the
+//! control socket's marking, which Windows gets through qWAVE, and the thread priorities, which
+//! Windows gets through `SetThreadPriority` ([`thread_level`]):
 //!
 //! - Socket QoS (`setSocketQos` in `PlatformSockets.c`) is always on: the audio and microphone
 //!   sockets get `SO_PRIORITY` 6 and the video socket 5, a local queue hint. They also get DSCP
@@ -15,12 +16,23 @@
 //!   sockets of the stream (the RTSP connection) and raises the receive, audio decode and
 //!   control threads to nice -4.
 //! - The queued video decode thread is always raised to nice -8 (`THREAD_PRIORITY_URGENT_DISPLAY`),
-//!   or -4 when that is refused, as the PyroWave submission thread is.
+//!   or -4 when that is refused, as the PyroWave submission thread is. With direct submission
+//!   the receive thread runs the decoder, so it gets that level instead of -4 when "prioritize
+//!   stream traffic" is on.
+//! - Windows raises the same threads with "prioritize stream traffic" on: the decoding thread
+//!   to `THREAD_PRIORITY_HIGHEST`, the others to `THREAD_PRIORITY_ABOVE_NORMAL`.
+//! - A Linux process that may not lower its nice value (Flatpak, an unprivileged desktop) asks
+//!   the desktop portal and then RealtimeKit over D-Bus instead ([`raise_current_thread`]).
+//! - The decode priority switch ([`decode_priority_switch`], default on) turns the direct
+//!   submission level and everything Windows does off, for A/B runs.
 //!
 //! The option is a plain argument, never process-global state, so two sessions in one
 //! process do not affect each other.
 
 use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
+use std::time::Duration;
 
 /// `SO_PRIORITY` of the sockets that carry audio and video, and of the others with
 /// "prioritize stream traffic" on.
@@ -277,9 +289,15 @@ mod qwave {
                 // SAFETY: the documented signatures of these qWAVE exports.
                 unsafe {
                     Ok(Qwave {
-                        create: std::mem::transmute::<*mut c_void, CreateHandle>(find(b"QOSCreateHandle\0")?),
-                        close: std::mem::transmute::<*mut c_void, CloseHandle>(find(b"QOSCloseHandle\0")?),
-                        add: std::mem::transmute::<*mut c_void, AddSocketToFlow>(find(b"QOSAddSocketToFlow\0")?),
+                        create: std::mem::transmute::<*mut c_void, CreateHandle>(find(
+                            b"QOSCreateHandle\0",
+                        )?),
+                        close: std::mem::transmute::<*mut c_void, CloseHandle>(find(
+                            b"QOSCloseHandle\0",
+                        )?),
+                        add: std::mem::transmute::<*mut c_void, AddSocketToFlow>(find(
+                            b"QOSAddSocketToFlow\0",
+                        )?),
                         remove: std::mem::transmute::<*mut c_void, RemoveSocketFromFlow>(find(
                             b"QOSRemoveSocketFromFlow\0",
                         )?),
@@ -368,20 +386,548 @@ mod qwave {
     }
 }
 
-/// Raises the calling thread to [`THREAD_NICE`] when "prioritize stream traffic" is on. On
-/// Linux `setpriority(PRIO_PROCESS, 0)` is the calling thread only.
-pub fn prioritize_current_thread(network_priority: bool) -> io::Result<()> {
-    if !network_priority {
-        return Ok(());
-    }
-    set_thread_nice(THREAD_NICE)
+/// The environment variable that turns the decode priority off on the desktop when set to `0`.
+pub const DECODE_PRIORITY_ENV: &str = "NIGHTJAR_DECODE_PRIORITY";
+/// The Android system property that does the same (`adb shell setprop
+/// debug.nightjar.decode_priority 0`), as the classic engine's `latency.c` reads it.
+pub const DECODE_PRIORITY_PROPERTY: &str = "debug.nightjar.decode_priority";
+/// `THREAD_PRIORITY_ABOVE_NORMAL`: the Windows level of [`ThreadLevel::Stream`].
+pub const WINDOWS_STREAM_PRIORITY: i32 = 1;
+/// `THREAD_PRIORITY_HIGHEST`: the Windows level of [`ThreadLevel::Decode`].
+pub const WINDOWS_DECODE_PRIORITY: i32 = 2;
+
+/// A session thread, as far as its priority goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StreamThread {
+    /// VideoRecv; with direct submission it also runs the decoder.
+    VideoReceive { direct_submit: bool },
+    /// The queued VideoDec thread (no direct submission), which also submits PyroWave frames.
+    VideoDecode,
+    /// AudioRecv, AudioDec and ControlRecv.
+    Other,
 }
 
-/// Raises the calling video decode thread to [`DECODE_NICE`], or [`DECODE_FALLBACK_NICE`]
-/// when that is refused. Independent of "prioritize stream traffic": the decoder sits on the
-/// frame's critical path, as the PyroWave submission thread does.
-pub fn prioritize_decode_thread() -> io::Result<()> {
-    set_thread_nice(DECODE_NICE).or_else(|_| set_thread_nice(DECODE_FALLBACK_NICE))
+/// How far a session thread is raised.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThreadLevel {
+    /// Left where the OS put it.
+    Normal,
+    /// [`THREAD_NICE`]; [`WINDOWS_STREAM_PRIORITY`] on Windows.
+    Stream,
+    /// [`DECODE_NICE`], or [`DECODE_FALLBACK_NICE`] when that is refused;
+    /// [`WINDOWS_DECODE_PRIORITY`] on Windows.
+    Decode,
+}
+
+/// The level of `thread` with "prioritize stream traffic" (`network_priority`) and the decode
+/// priority switch ([`decode_priority_switch`]) as given.
+pub fn thread_level(
+    thread: StreamThread,
+    network_priority: bool,
+    decode_priority: bool,
+) -> ThreadLevel {
+    thread_level_on(thread, network_priority, decode_priority, cfg!(windows))
+}
+
+fn thread_level_on(
+    thread: StreamThread,
+    network_priority: bool,
+    decode_priority: bool,
+    windows: bool,
+) -> ThreadLevel {
+    // Windows raised no session thread before the switch: off keeps it that way, for A/B runs.
+    if windows && !decode_priority {
+        return ThreadLevel::Normal;
+    }
+    match thread {
+        // Linux and Android always raised the queued decode thread; Windows only with
+        // "prioritize stream traffic" on.
+        StreamThread::VideoDecode if network_priority || !windows => ThreadLevel::Decode,
+        // With direct submission the receive thread runs the decoder, so it gets the decoder's
+        // level.
+        StreamThread::VideoReceive {
+            direct_submit: true,
+        } if network_priority && decode_priority => ThreadLevel::Decode,
+        StreamThread::VideoReceive { .. } | StreamThread::Other if network_priority => {
+            ThreadLevel::Stream
+        }
+        _ => ThreadLevel::Normal,
+    }
+}
+
+/// The decode priority switch: on unless [`DECODE_PRIORITY_ENV`] (desktop) or
+/// [`DECODE_PRIORITY_PROPERTY`] (Android) is `0`.
+pub fn decode_priority_switch() -> bool {
+    #[cfg(target_os = "android")]
+    let value = android_property(DECODE_PRIORITY_PROPERTY);
+    #[cfg(not(target_os = "android"))]
+    let value = std::env::var(DECODE_PRIORITY_ENV).ok();
+    switch_on(value.as_deref())
+}
+
+/// `0` turns a switch off; anything else, or nothing, leaves it on.
+fn switch_on(value: Option<&str>) -> bool {
+    value.map(str::trim) != Some("0")
+}
+
+#[cfg(target_os = "android")]
+fn android_property(name: &str) -> Option<String> {
+    let name = std::ffi::CString::new(name).ok()?;
+    let mut value = [0 as libc::c_char; libc::PROP_VALUE_MAX as usize];
+    // SAFETY: a NUL-terminated name and a buffer of PROP_VALUE_MAX bytes, as the call requires.
+    let length = unsafe { libc::__system_property_get(name.as_ptr(), value.as_mut_ptr()) };
+    if length <= 0 {
+        return None;
+    }
+    // SAFETY: the call NUL-terminates what it wrote into the buffer.
+    let value = unsafe { std::ffi::CStr::from_ptr(value.as_ptr()) };
+    Some(value.to_string_lossy().into_owned())
+}
+
+/// The `SetThreadPriority` value of `level`, or `None` to leave the thread alone.
+pub fn windows_thread_priority(level: ThreadLevel) -> Option<i32> {
+    match level {
+        ThreadLevel::Normal => None,
+        ThreadLevel::Stream => Some(WINDOWS_STREAM_PRIORITY),
+        ThreadLevel::Decode => Some(WINDOWS_DECODE_PRIORITY),
+    }
+}
+
+/// What raised a thread.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RaisedBy {
+    /// `setpriority` on Linux and Android, `SetThreadPriority` on Windows.
+    Os,
+    /// xdg-desktop-portal's `org.freedesktop.portal.Realtime` on the session bus, which works
+    /// inside Flatpak.
+    Portal,
+    /// `org.freedesktop.RealtimeKit1` on the system bus.
+    RealtimeKit,
+}
+
+impl std::fmt::Display for RaisedBy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            RaisedBy::Os if cfg!(windows) => "SetThreadPriority",
+            RaisedBy::Os => "setpriority",
+            RaisedBy::Portal => "the desktop portal",
+            RaisedBy::RealtimeKit => "RealtimeKit",
+        })
+    }
+}
+
+/// A raised thread: by what, and to which nice value (Windows: thread priority).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Raised {
+    pub by: RaisedBy,
+    pub value: i32,
+}
+
+impl std::fmt::Display for Raised {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = if cfg!(windows) { "priority" } else { "nice" };
+        write!(f, "{kind} {} by {}", self.value, self.by)
+    }
+}
+
+/// Raises the calling thread to `level`; `None` when the level leaves it alone. On Linux
+/// `setpriority(PRIO_PROCESS, 0)` is the calling thread only, and a process without the right to
+/// lower its nice value (a Flatpak, any unprivileged desktop) asks the desktop portal and then
+/// RealtimeKit instead ([`raise_nice_with`]). On Windows a relative `SetThreadPriority`, which
+/// needs no undoing when the thread ends (MMCSS would, and it throttles the other network traffic
+/// while a task is registered). Called once per thread, as it starts.
+pub fn raise_current_thread(level: ThreadLevel) -> io::Result<Option<Raised>> {
+    #[cfg(windows)]
+    let result = match windows_thread_priority(level) {
+        None => Ok(None),
+        Some(value) => windows_thread::set_current(value).map(|()| {
+            Some(Raised {
+                by: RaisedBy::Os,
+                value,
+            })
+        }),
+    };
+    #[cfg(not(windows))]
+    let result = {
+        let (nice, fallback) = match level {
+            ThreadLevel::Normal => return Ok(None),
+            ThreadLevel::Stream => (THREAD_NICE, None),
+            ThreadLevel::Decode => (DECODE_NICE, Some(DECODE_FALLBACK_NICE)),
+        };
+        // The id of this thread, not the helper's that asks the services.
+        let tid = current_thread_id();
+        #[cfg(target_os = "linux")]
+        let ask = |nice| {
+            realtime::broker()?
+                .run(SERVICE_BUDGET, move || {
+                    ask_services(nice, tid, realtime::services())
+                })
+                .and_then(|raised| raised)
+        };
+        // Android apps have no D-Bus: setpriority only.
+        #[cfg(not(target_os = "linux"))]
+        let ask = |_| {
+            let _ = tid;
+            Err(Vec::new())
+        };
+        raise_nice_with(nice, fallback, set_thread_nice, ask).map(Some)
+    };
+    result
+}
+
+/// A D-Bus service that raises a thread of an unprivileged process: the desktop portal's
+/// `org.freedesktop.portal.Realtime` or `org.freedesktop.RealtimeKit1`.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) trait RealtimeService {
+    /// The service's `MinNiceLevel` property: the lowest nice value it grants.
+    fn min_nice_level(&self) -> Result<i32, String>;
+    /// `MakeThreadHighPriorityWithPID` (portal) or `MakeThreadHighPriority` (RealtimeKit).
+    fn make_thread_high_priority(&self, tid: u64, nice: i32) -> Result<(), String>;
+}
+
+/// `nice` clamped to a service's `MinNiceLevel`; `None` when that is no raise at all.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn clamp_nice(nice: i32, min_nice_level: i32) -> Option<i32> {
+    let nice = nice.max(min_nice_level);
+    (nice < 0).then_some(nice)
+}
+
+/// The longest a stream thread's start waits on the D-Bus services, all of them together.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const SERVICE_BUDGET: Duration = Duration::from_millis(500);
+
+/// Tries `set_nice(nice)`, then `set_nice(fallback)`, then, only when the kernel refused for lack
+/// of privilege (EPERM, EACCES), `ask(nice)` ([`ask_services`] behind a [`Broker`] on Linux).
+/// The error lists every reason.
+#[cfg_attr(windows, allow(dead_code))]
+fn raise_nice_with(
+    nice: i32,
+    fallback: Option<i32>,
+    set_nice: impl Fn(i32) -> io::Result<()>,
+    ask: impl FnOnce(i32) -> Result<Raised, Vec<String>>,
+) -> io::Result<Raised> {
+    let refused = match set_nice(nice) {
+        Ok(()) => {
+            return Ok(Raised {
+                by: RaisedBy::Os,
+                value: nice,
+            })
+        }
+        Err(e) => e,
+    };
+    if let Some(value) = fallback.filter(|&value| set_nice(value).is_ok()) {
+        return Ok(Raised {
+            by: RaisedBy::Os,
+            value,
+        });
+    }
+    if refused.kind() != io::ErrorKind::PermissionDenied {
+        return Err(refused);
+    }
+    match ask(nice) {
+        Ok(raised) => Ok(raised),
+        Err(reasons) => {
+            let reasons = std::iter::once(format!("setpriority: {refused}")).chain(reasons);
+            Err(io::Error::new(
+                refused.kind(),
+                reasons.collect::<Vec<_>>().join("; "),
+            ))
+        }
+    }
+}
+
+/// A service as [`ask_services`] takes it: what it is, its process-wide "gone" flag, and the
+/// service or why it could not be opened.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+type ServiceEntry<'a> = (
+    RaisedBy,
+    &'a AtomicBool,
+    Result<&'a dyn RealtimeService, String>,
+);
+
+/// Asks each service in turn to raise thread `tid` to `nice` clamped to its `MinNiceLevel`; a
+/// service is opened only when the one before it failed. A service that can't be reached, has
+/// no `MinNiceLevel` or grants no raise sets its "gone" flag and is skipped from then on, for the
+/// whole process. A refused call is per thread and is not remembered.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn ask_services<'a>(
+    nice: i32,
+    tid: u64,
+    services: impl IntoIterator<Item = ServiceEntry<'a>>,
+) -> Result<Raised, Vec<String>> {
+    let mut reasons = Vec::new();
+    for (by, gone, service) in services {
+        if gone.load(Ordering::Acquire) {
+            reasons.push(format!("{by}: skipped, it failed for an earlier thread"));
+            continue;
+        }
+        let raised = service.map_err(|e| (e, true)).and_then(|service| {
+            let min = service.min_nice_level().map_err(|e| (e, true))?;
+            let value = clamp_nice(nice, min)
+                .ok_or_else(|| (format!("grants no raise (MinNiceLevel {min})"), true))?;
+            service
+                .make_thread_high_priority(tid, value)
+                .map_err(|e| (e, false))?;
+            Ok(value)
+        });
+        match raised {
+            Ok(value) => return Ok(Raised { by, value }),
+            Err((e, remember)) => {
+                if remember {
+                    gone.store(true, Ordering::Release);
+                }
+                reasons.push(format!("{by}: {e}"));
+            }
+        }
+    }
+    Err(reasons)
+}
+
+/// A job for the [`Broker`]'s helper thread.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+type BrokerJob = Box<dyn FnOnce() + Send>;
+
+/// Runs the D-Bus part of a raise on one helper thread, so a bus that hangs (connecting
+/// included, which zbus has no timeout for) costs a stream thread at most the budget. After one
+/// job ran out of time every later one is refused at once: the helper may still be stuck in it.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+struct Broker {
+    jobs: mpsc::Sender<BrokerJob>,
+    stuck: AtomicBool,
+}
+
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+impl Broker {
+    fn new() -> io::Result<Self> {
+        let (jobs, queue) = mpsc::channel::<BrokerJob>();
+        std::thread::Builder::new()
+            .name("RealtimeAsk".into())
+            .spawn(move || queue.into_iter().for_each(|job| job()))?;
+        Ok(Self {
+            jobs,
+            stuck: AtomicBool::new(false),
+        })
+    }
+
+    /// `job`'s result, or why there is none within `budget`.
+    fn run<T: Send + 'static>(
+        &self,
+        budget: Duration,
+        job: impl FnOnce() -> T + Send + 'static,
+    ) -> Result<T, Vec<String>> {
+        if self.stuck.load(Ordering::Acquire) {
+            return Err(vec![
+                "D-Bus: skipped, an earlier thread got no answer in time".into(),
+            ]);
+        }
+        let (answer, wait) = mpsc::sync_channel(1);
+        let abandoned = Arc::new(AtomicBool::new(false));
+        let skip = abandoned.clone();
+        let job: BrokerJob = Box::new(move || {
+            // A job queued behind one that ran out of time has nobody waiting for it any more.
+            if !skip.load(Ordering::Acquire) {
+                let _ = answer.send(job());
+            }
+        });
+        if self.jobs.send(job).is_err() {
+            return Err(vec!["D-Bus: the helper thread is gone".into()]);
+        }
+        match wait.recv_timeout(budget) {
+            Ok(value) => Ok(value),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                abandoned.store(true, Ordering::Release);
+                self.stuck.store(true, Ordering::Release);
+                Err(vec![format!(
+                    "D-Bus: no answer within {} ms",
+                    budget.as_millis()
+                )])
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                Err(vec!["D-Bus: the helper thread failed".into()])
+            }
+        }
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn current_thread_id() -> u64 {
+    // SAFETY: gettid takes no arguments and cannot fail.
+    unsafe { libc::syscall(libc::SYS_gettid) as u64 }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
+fn current_thread_id() -> u64 {
+    0
+}
+
+/// The D-Bus services behind [`ask_services`]: one connection per bus, opened on the broker's
+/// helper thread when a thread first needs it, and kept (a failure too).
+#[cfg(target_os = "linux")]
+mod realtime {
+    use super::{Broker, RaisedBy, RealtimeService, ServiceEntry};
+    use std::sync::atomic::AtomicBool;
+    use std::sync::OnceLock;
+    use std::time::Duration;
+    use zbus::blocking::{connection::Builder, Connection};
+
+    /// Per method call, so a portal that doesn't answer still leaves RealtimeKit time within
+    /// [`super::SERVICE_BUDGET`].
+    const TIMEOUT: Duration = Duration::from_millis(200);
+
+    /// The process's one broker; Err when its helper thread could not start.
+    pub(super) fn broker() -> Result<&'static Broker, Vec<String>> {
+        static BROKER: OnceLock<Result<Broker, String>> = OnceLock::new();
+        BROKER
+            .get_or_init(|| Broker::new().map_err(|e| format!("D-Bus helper thread: {e}")))
+            .as_ref()
+            .map_err(|e| vec![e.clone()])
+    }
+
+    /// The portal, then RealtimeKit, each with its process-wide "gone" flag; opened lazily.
+    pub(super) fn services() -> impl Iterator<Item = ServiceEntry<'static>> {
+        static PORTAL_GONE: AtomicBool = AtomicBool::new(false);
+        static REALTIME_KIT_GONE: AtomicBool = AtomicBool::new(false);
+        [
+            (RaisedBy::Portal, &PORTAL_GONE),
+            (RaisedBy::RealtimeKit, &REALTIME_KIT_GONE),
+        ]
+        .into_iter()
+        .map(|(by, gone)| (by, gone, service(by)))
+    }
+
+    struct Service {
+        connection: Connection,
+        destination: &'static str,
+        path: &'static str,
+        interface: &'static str,
+        /// The portal's call takes the process id; RealtimeKit's takes it from the bus.
+        with_pid: bool,
+    }
+
+    impl RealtimeService for Service {
+        fn min_nice_level(&self) -> Result<i32, String> {
+            let reply = self
+                .connection
+                .call_method(
+                    Some(self.destination),
+                    self.path,
+                    Some("org.freedesktop.DBus.Properties"),
+                    "Get",
+                    &(self.interface, "MinNiceLevel"),
+                )
+                .map_err(|e| e.to_string())?;
+            let value: zbus::zvariant::OwnedValue =
+                reply.body().deserialize().map_err(|e| e.to_string())?;
+            i32::try_from(value).map_err(|e| e.to_string())
+        }
+
+        fn make_thread_high_priority(&self, tid: u64, nice: i32) -> Result<(), String> {
+            // getpid and gettid as seen inside a Flatpak sandbox are what the portal takes: it
+            // maps them to the host's ids itself, which SDL relies on too (SDL_threadprio.c).
+            let result = if self.with_pid {
+                let pid = u64::from(std::process::id());
+                self.connection.call_method(
+                    Some(self.destination),
+                    self.path,
+                    Some(self.interface),
+                    "MakeThreadHighPriorityWithPID",
+                    &(pid, tid, nice),
+                )
+            } else {
+                self.connection.call_method(
+                    Some(self.destination),
+                    self.path,
+                    Some(self.interface),
+                    "MakeThreadHighPriority",
+                    &(tid, nice),
+                )
+            };
+            result.map(drop).map_err(|e| e.to_string())
+        }
+    }
+
+    fn service(by: RaisedBy) -> Result<&'static dyn RealtimeService, String> {
+        static PORTAL: OnceLock<Result<Service, String>> = OnceLock::new();
+        static REALTIME_KIT: OnceLock<Result<Service, String>> = OnceLock::new();
+        let service = match by {
+            RaisedBy::Portal => PORTAL.get_or_init(|| {
+                open(
+                    true,
+                    "org.freedesktop.portal.Desktop",
+                    "/org/freedesktop/portal/desktop",
+                    "org.freedesktop.portal.Realtime",
+                    true,
+                )
+            }),
+            RaisedBy::RealtimeKit => REALTIME_KIT.get_or_init(|| {
+                open(
+                    false,
+                    "org.freedesktop.RealtimeKit1",
+                    "/org/freedesktop/RealtimeKit1",
+                    "org.freedesktop.RealtimeKit1",
+                    false,
+                )
+            }),
+            RaisedBy::Os => return Err("not a D-Bus service".into()),
+        };
+        match service {
+            Ok(service) => Ok(service),
+            Err(e) => Err(e.clone()),
+        }
+    }
+
+    fn open(
+        session: bool,
+        destination: &'static str,
+        path: &'static str,
+        interface: &'static str,
+        with_pid: bool,
+    ) -> Result<Service, String> {
+        let builder = if session {
+            Builder::session()
+        } else {
+            Builder::system()
+        };
+        let connection = builder
+            .and_then(|builder| builder.method_timeout(TIMEOUT).build())
+            .map_err(|e| format!("{} bus: {e}", if session { "session" } else { "system" }))?;
+        Ok(Service {
+            connection,
+            destination,
+            path,
+            interface,
+            with_pid,
+        })
+    }
+}
+
+#[cfg(windows)]
+mod windows_thread {
+    use std::io;
+
+    // Handles as isize, as the receive bench declares GetCurrentThread.
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetCurrentThread() -> isize;
+        fn SetThreadPriority(thread: isize, priority: i32) -> i32;
+        #[cfg(test)]
+        fn GetThreadPriority(thread: isize) -> i32;
+    }
+
+    pub(super) fn set_current(priority: i32) -> io::Result<()> {
+        // SAFETY: the calling thread's pseudo handle, which needs no closing.
+        if unsafe { SetThreadPriority(GetCurrentThread(), priority) } == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn current() -> i32 {
+        // SAFETY: the calling thread's pseudo handle.
+        unsafe { GetThreadPriority(GetCurrentThread()) }
+    }
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -394,7 +940,7 @@ fn set_thread_nice(nice: i32) -> io::Result<()> {
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
+#[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
 fn set_thread_nice(_nice: i32) -> io::Result<()> {
     Ok(())
 }
@@ -429,10 +975,16 @@ pub(crate) mod tests {
     fn media_sockets_are_marked() {
         let audio = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         mark_media_socket(&audio, Qos::Audio, false).unwrap();
-        assert_eq!(read_option(&audio, libc::IPPROTO_IP, libc::IP_TOS), AUDIO_TOS);
+        assert_eq!(
+            read_option(&audio, libc::IPPROTO_IP, libc::IP_TOS),
+            AUDIO_TOS
+        );
         let video = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         mark_media_socket(&video, Qos::Video, false).unwrap();
-        assert_eq!(read_option(&video, libc::IPPROTO_IP, libc::IP_TOS), VIDEO_TOS);
+        assert_eq!(
+            read_option(&video, libc::IPPROTO_IP, libc::IP_TOS),
+            VIDEO_TOS
+        );
         let plain = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         mark_media_socket(&plain, Qos::BestEffort, false).unwrap();
         assert_eq!(read_option(&plain, libc::IPPROTO_IP, libc::IP_TOS), 0);
@@ -448,6 +1000,341 @@ pub(crate) mod tests {
     #[test]
     fn the_control_tos_is_expedited_forwarding_with_ect1() {
         assert_eq!(CONTROL_TOS, 0xB9);
+    }
+
+    const QUEUED: StreamThread = StreamThread::VideoReceive {
+        direct_submit: false,
+    };
+    const DIRECT: StreamThread = StreamThread::VideoReceive {
+        direct_submit: true,
+    };
+
+    #[test]
+    fn a_direct_submission_receive_thread_gets_the_decode_level() {
+        for windows in [false, true] {
+            assert_eq!(
+                thread_level_on(DIRECT, true, true, windows),
+                ThreadLevel::Decode
+            );
+            assert_eq!(
+                thread_level_on(QUEUED, true, true, windows),
+                ThreadLevel::Stream
+            );
+            assert_eq!(
+                thread_level_on(StreamThread::VideoDecode, true, true, windows),
+                ThreadLevel::Decode
+            );
+            assert_eq!(
+                thread_level_on(StreamThread::Other, true, true, windows),
+                ThreadLevel::Stream
+            );
+        }
+    }
+
+    #[test]
+    fn stream_priority_off_raises_only_the_queued_decoder_off_windows() {
+        for thread in [DIRECT, QUEUED, StreamThread::Other] {
+            for windows in [false, true] {
+                assert_eq!(
+                    thread_level_on(thread, false, true, windows),
+                    ThreadLevel::Normal
+                );
+            }
+        }
+        // As before the switch: Linux and Android always raised the queued decode thread.
+        assert_eq!(
+            thread_level_on(StreamThread::VideoDecode, false, true, false),
+            ThreadLevel::Decode
+        );
+        assert_eq!(
+            thread_level_on(StreamThread::VideoDecode, false, true, true),
+            ThreadLevel::Normal
+        );
+    }
+
+    #[test]
+    fn the_switch_off_restores_the_old_levels() {
+        // Linux and Android: the receive thread is back at the stream level even when it decodes.
+        assert_eq!(
+            thread_level_on(DIRECT, true, false, false),
+            ThreadLevel::Stream
+        );
+        assert_eq!(
+            thread_level_on(QUEUED, true, false, false),
+            ThreadLevel::Stream
+        );
+        assert_eq!(
+            thread_level_on(StreamThread::VideoDecode, true, false, false),
+            ThreadLevel::Decode
+        );
+        assert_eq!(
+            thread_level_on(StreamThread::Other, true, false, false),
+            ThreadLevel::Stream
+        );
+        // Windows raised nothing.
+        for thread in [
+            DIRECT,
+            QUEUED,
+            StreamThread::VideoDecode,
+            StreamThread::Other,
+        ] {
+            assert_eq!(
+                thread_level_on(thread, true, false, true),
+                ThreadLevel::Normal
+            );
+        }
+    }
+
+    #[test]
+    fn windows_raises_decoding_highest_and_the_rest_above_normal() {
+        assert_eq!(windows_thread_priority(ThreadLevel::Normal), None);
+        assert_eq!(windows_thread_priority(ThreadLevel::Stream), Some(1));
+        assert_eq!(windows_thread_priority(ThreadLevel::Decode), Some(2));
+    }
+
+    #[test]
+    fn only_zero_turns_the_switch_off() {
+        assert!(switch_on(None));
+        assert!(switch_on(Some("")));
+        assert!(switch_on(Some("1")));
+        assert!(!switch_on(Some("0")));
+        assert!(!switch_on(Some(" 0\n")));
+    }
+
+    /// A fake portal or RealtimeKit that records its calls.
+    struct FakeService {
+        min_nice_level: Result<i32, String>,
+        answer: Result<(), String>,
+        calls: std::cell::RefCell<Vec<(u64, i32)>>,
+        min_nice_reads: std::cell::Cell<u32>,
+    }
+
+    impl FakeService {
+        fn new(min_nice_level: Result<i32, String>, answer: Result<(), String>) -> Self {
+            Self {
+                min_nice_level,
+                answer,
+                calls: Default::default(),
+                min_nice_reads: Default::default(),
+            }
+        }
+    }
+
+    impl RealtimeService for FakeService {
+        fn min_nice_level(&self) -> Result<i32, String> {
+            self.min_nice_reads.set(self.min_nice_reads.get() + 1);
+            self.min_nice_level.clone()
+        }
+
+        fn make_thread_high_priority(&self, tid: u64, nice: i32) -> Result<(), String> {
+            self.calls.borrow_mut().push((tid, nice));
+            self.answer.clone()
+        }
+    }
+
+    fn denied(_: i32) -> io::Result<()> {
+        Err(io::Error::from(io::ErrorKind::PermissionDenied))
+    }
+
+    fn raise_through(
+        set_nice: impl Fn(i32) -> io::Result<()>,
+        portal: Result<&dyn RealtimeService, String>,
+        kit: Result<&dyn RealtimeService, String>,
+    ) -> io::Result<Raised> {
+        let gone = [AtomicBool::new(false), AtomicBool::new(false)];
+        raise_nice_with(DECODE_NICE, Some(DECODE_FALLBACK_NICE), set_nice, |nice| {
+            let services = [
+                (RaisedBy::Portal, &gone[0], portal),
+                (RaisedBy::RealtimeKit, &gone[1], kit),
+            ];
+            ask_services(nice, 42, services)
+        })
+    }
+
+    #[test]
+    fn a_service_that_failed_is_skipped_by_later_threads() {
+        let gone = [AtomicBool::new(false), AtomicBool::new(false)];
+        let unreadable = FakeService::new(Err("ServiceUnknown".into()), Ok(()));
+        let refusing = FakeService::new(Ok(-15), Err("AccessDenied".into()));
+        for _ in 0..2 {
+            let services = [
+                (
+                    RaisedBy::Portal,
+                    &gone[0],
+                    Ok(&unreadable as &dyn RealtimeService),
+                ),
+                (
+                    RaisedBy::RealtimeKit,
+                    &gone[1],
+                    Ok(&refusing as &dyn RealtimeService),
+                ),
+            ];
+            assert!(ask_services(DECODE_NICE, 42, services).is_err());
+        }
+        // The missing portal was asked once; RealtimeKit refused a thread, which is per thread.
+        assert_eq!(unreadable.min_nice_reads.get(), 1);
+        assert_eq!(refusing.calls.borrow().len(), 2);
+        // A bus that could not be reached is remembered as well.
+        let gone = AtomicBool::new(false);
+        for _ in 0..2 {
+            let services = [(
+                RaisedBy::Portal,
+                &gone,
+                Err("session bus: none".to_string()),
+            )];
+            let reasons = ask_services(DECODE_NICE, 42, services).unwrap_err();
+            assert_eq!(reasons.len(), 1);
+        }
+        assert!(gone.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn a_hung_bus_costs_a_thread_at_most_the_budget_once() {
+        let broker = Broker::new().unwrap();
+        let budget = Duration::from_millis(100);
+        // A connect that never returns: the job waits on a channel nobody sends to.
+        let (release, hung) = mpsc::channel::<()>();
+        let start = std::time::Instant::now();
+        let reasons = broker
+            .run(budget, move || {
+                let _ = hung.recv();
+            })
+            .unwrap_err();
+        let waited = start.elapsed();
+        assert!(waited < budget + Duration::from_millis(400), "{waited:?}");
+        assert!(
+            reasons[0].contains("no answer within 100 ms"),
+            "{reasons:?}"
+        );
+        // The next thread is refused at once and its job never runs.
+        let ran = Arc::new(AtomicBool::new(false));
+        let job_ran = ran.clone();
+        let start = std::time::Instant::now();
+        assert!(broker
+            .run(budget, move || job_ran.store(true, Ordering::Release))
+            .is_err());
+        assert!(start.elapsed() < Duration::from_millis(50));
+        drop(release);
+        assert!(!ran.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn a_broker_answers_within_the_budget() {
+        let broker = Broker::new().unwrap();
+        assert_eq!(broker.run(SERVICE_BUDGET, || 7).unwrap(), 7);
+        assert_eq!(broker.run(SERVICE_BUDGET, || 8).unwrap(), 8);
+    }
+
+    #[test]
+    fn setpriority_comes_first_and_no_service_is_asked() {
+        let portal = FakeService::new(Ok(-15), Ok(()));
+        let raised = raise_through(|_| Ok(()), Ok(&portal), Err("unused".into())).unwrap();
+        assert_eq!((raised.by, raised.value), (RaisedBy::Os, DECODE_NICE));
+        // A kernel that allows -4 but not -8 (RLIMIT_NICE) keeps the old fallback.
+        let raised = raise_through(
+            |nice| {
+                if nice == DECODE_NICE {
+                    denied(nice)
+                } else {
+                    Ok(())
+                }
+            },
+            Ok(&portal),
+            Err("unused".into()),
+        )
+        .unwrap();
+        assert_eq!(
+            (raised.by, raised.value),
+            (RaisedBy::Os, DECODE_FALLBACK_NICE)
+        );
+        assert!(portal.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_refused_setpriority_asks_the_portal_then_realtimekit() {
+        let portal = FakeService::new(Ok(-15), Ok(()));
+        let kit = FakeService::new(Ok(-15), Ok(()));
+        let raised = raise_through(denied, Ok(&portal), Ok(&kit)).unwrap();
+        assert_eq!((raised.by, raised.value), (RaisedBy::Portal, DECODE_NICE));
+        assert_eq!(*portal.calls.borrow(), [(42, DECODE_NICE)]);
+        assert!(kit.calls.borrow().is_empty());
+
+        let refusing = FakeService::new(Ok(-15), Err("AccessDenied".into()));
+        let raised = raise_through(denied, Ok(&refusing), Ok(&kit)).unwrap();
+        assert_eq!(
+            (raised.by, raised.value),
+            (RaisedBy::RealtimeKit, DECODE_NICE)
+        );
+        // No session bus (or no portal) at all.
+        let raised = raise_through(denied, Err("session bus: none".into()), Ok(&kit)).unwrap();
+        assert_eq!(raised.by, RaisedBy::RealtimeKit);
+        assert_eq!(raised.to_string(), "nice -8 by RealtimeKit");
+    }
+
+    #[test]
+    fn a_service_raise_is_clamped_to_its_min_nice_level() {
+        assert_eq!(clamp_nice(-8, -15), Some(-8));
+        assert_eq!(clamp_nice(-8, -5), Some(-5));
+        assert_eq!(clamp_nice(-8, 0), None);
+        let portal = FakeService::new(Ok(-5), Ok(()));
+        let raised = raise_through(denied, Ok(&portal), Err("unused".into())).unwrap();
+        assert_eq!((raised.by, raised.value), (RaisedBy::Portal, -5));
+        assert_eq!(*portal.calls.borrow(), [(42, -5)]);
+        // A service that grants nothing is skipped without a call.
+        let stingy = FakeService::new(Ok(0), Ok(()));
+        let kit = FakeService::new(Ok(-11), Ok(()));
+        let raised = raise_through(denied, Ok(&stingy), Ok(&kit)).unwrap();
+        assert_eq!((raised.by, raised.value), (RaisedBy::RealtimeKit, -8));
+        assert!(stingy.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn every_reason_is_said_when_nothing_raises() {
+        let unreadable = FakeService::new(Err("UnknownProperty".into()), Ok(()));
+        let e = raise_through(denied, Ok(&unreadable), Err("system bus: none".into())).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::PermissionDenied);
+        let message = e.to_string();
+        for part in [
+            "setpriority:",
+            "the desktop portal: UnknownProperty",
+            "RealtimeKit: system bus: none",
+        ] {
+            assert!(message.contains(part), "{message}");
+        }
+        assert!(unreadable.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn only_a_privilege_refusal_asks_a_service() {
+        let portal = FakeService::new(Ok(-15), Ok(()));
+        let e = raise_through(
+            |_| Err(io::Error::from(io::ErrorKind::InvalidInput)),
+            Ok(&portal),
+            Err("unused".into()),
+        )
+        .unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidInput);
+        assert!(portal.calls.borrow().is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_thread_takes_its_level() {
+        let levels = std::thread::spawn(|| {
+            let before = windows_thread::current();
+            raise_current_thread(ThreadLevel::Normal).unwrap();
+            let normal = windows_thread::current();
+            raise_current_thread(ThreadLevel::Stream).unwrap();
+            let stream = windows_thread::current();
+            raise_current_thread(ThreadLevel::Decode).unwrap();
+            (before, normal, stream, windows_thread::current())
+        })
+        .join()
+        .unwrap();
+        assert_eq!(
+            levels,
+            (0, 0, WINDOWS_STREAM_PRIORITY, WINDOWS_DECODE_PRIORITY)
+        );
     }
 
     // Windows ignores IP_TOS: the control socket is marked by joining a qWAVE control flow, once

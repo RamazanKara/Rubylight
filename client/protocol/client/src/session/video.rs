@@ -253,8 +253,8 @@ impl VideoSink for Sink<'_> {
         Ok(())
     }
 
-    fn flush_frames(&mut self) {
-        drop(self.shared.queue.flush());
+    fn flush_frames(&mut self) -> usize {
+        self.shared.queue.flush().len()
     }
 
     fn signal(&mut self, signal: VideoSignal) {
@@ -377,9 +377,13 @@ impl VideoStream {
         let receive_shared = shared.clone();
         let receive_stop = stop.clone();
         let receive_session = session.clone();
+        let direct_submit = start.direct_submit;
+        if !session.decode_priority {
+            session.log("Decode priority is off for this stream (switch set to 0)");
+        }
         stream.receive = Some(std::thread::Builder::new().name("VideoRecv".into()).spawn(
             move || {
-                receive_session.prioritize_thread();
+                receive_session.prioritize_receive_thread(direct_submit);
                 receive_thread(
                     socket,
                     next_socket,
@@ -538,6 +542,9 @@ fn receive_thread(
                         if std::mem::take(&mut d.decoded_key_frame) {
                             receiver.frame_decoded(FrameType::Idr);
                         }
+                        if !d.decoder.recovers_with_rfi() {
+                            receiver.recover_with_idr_only();
+                        }
                         if std::mem::take(&mut d.need_refresh) {
                             let mut sink = Sink {
                                 shared: &shared,
@@ -611,6 +618,9 @@ fn decode_loop(
                         receiver.frame_decoded(FrameType::Idr);
                     }
                 }
+            }
+            if !decoder.recovers_with_rfi() {
+                receiver.recover_with_idr_only();
             }
             receiver.recycle(frame);
         }
@@ -804,6 +814,7 @@ mod tests {
         seen: mpsc::Sender<Seen>,
         envelope: Vec<u8>,
         status: DecodeStatus,
+        rfi: bool,
     }
 
     impl Recorder {
@@ -812,6 +823,7 @@ mod tests {
                 seen,
                 envelope: Vec::new(),
                 status: DecodeStatus::Ok,
+                rfi: true,
             }
         }
     }
@@ -846,6 +858,10 @@ mod tests {
                 })
                 .unwrap();
             std::mem::replace(&mut self.status, DecodeStatus::Ok)
+        }
+
+        fn recovers_with_rfi(&self) -> bool {
+            self.rfi
         }
     }
 
@@ -1008,5 +1024,25 @@ mod tests {
         let seen = running.finish();
         assert!(matches!(seen.last(), Some(Seen::Frame { whole: true, .. })), "{seen:?}");
         assert_eq!(shared.counters.need_idr.load(Ordering::Relaxed), 1);
+    }
+
+    /// A decoder replaced mid-stream by one that never asked for reference frame invalidation
+    /// has the rest of the stream recover with key frames; one that did keeps RFI.
+    #[test]
+    fn a_decoder_without_rfi_turns_the_receivers_rfi_recovery_off() {
+        for rfi in [true, false] {
+            let mut config = crate::video::tests::config(0x01_0000);
+            (config.pyrowave_records, config.early_chunks, config.rfi) = (true, true, true);
+            let shared = Arc::new(VideoShared::new(VideoReceiver::new(config)));
+            assert!(lock(&shared.receiver).rfi_recovery());
+            let (tx, rx) = mpsc::channel();
+            let mut recorder = Recorder::new(tx);
+            recorder.rfi = rfi;
+            let running = Running::start(&shared, recorder, rx);
+            feed(&shared, &flat(Blocks::new().frame(&[8, 6], 1)));
+            let seen = running.finish();
+            assert_eq!(frames_seen(&seen).len(), 1, "{seen:?}");
+            assert_eq!(lock(&shared.receiver).rfi_recovery(), rfi, "decoder with rfi {rfi}");
+        }
     }
 }

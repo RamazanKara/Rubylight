@@ -17,7 +17,4 @@
     <string name="library_offline">Bu bilgisayar çevrimdışı. Kayıtlı kitaplığınız hâlâ burada. Oynamak için yeniden bağlanın.</string>
     <string name="library_hidden_notice">Oyun kitaplığınızdan gizlendi</string>
     <string name="library_undo">Geri al</string>
-    <string name="library_discovery_title">Oyunlarınız bu ekranda</string>
-    <string name="library_discovery_body">Bilgisayarınızı açın ve Apollo, Rubylight veya Sunshine gibi yayın sunucusunu başlatın. Aynı ağdaki bilgisayarlar burada otomatik olarak görünür.</string>
-    <string name="library_discovery_hint">Farklı bir ağda mısınız? Bilgisayarınızı adresiyle ekleyin.</string>
 </resources>

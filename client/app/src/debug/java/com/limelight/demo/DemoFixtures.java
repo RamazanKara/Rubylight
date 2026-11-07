@@ -66,9 +66,12 @@ public final class DemoFixtures {
 
     /** "--ez fourth true": one more PC, online and paired with nothing running, so the PCs page shows all its states. */
     public static boolean fourthPc;
+    /** "--ez nopcs true": first run, no PC known yet. */
+    public static boolean noPcs;
 
     public static List<ComputerDetails> computers() {
         List<ComputerDetails> computers = new ArrayList<>();
+        if (noPcs) return computers;
         String[] names = fourthPc ? new String[] {"Living-room PC", "Studio PC", "Laptop", "Office PC"} : new String[] {"Living-room PC", "Studio PC", "Laptop"};
         for (int i = 0; i < names.length; i++) {
             ComputerDetails pc = new ComputerDetails();

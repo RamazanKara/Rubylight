@@ -36,6 +36,11 @@
         <attr name="glassLink" format="boolean" />
     </declare-styleable>
     <!-- The glass colours that differ between the looks. The themes point them at the design tokens. -->
+    <declare-styleable name="OrbitView">
+        <!-- Draws the moon and the bird in the middle, for a page with nothing of its own to put there. -->
+        <attr name="orbitMoon" format="boolean" />
+        <attr name="orbitRingsStart" format="float" />
+    </declare-styleable>
     <attr name="glassCanvas" format="color" />
     <attr name="glassPlaceholder" format="color" />
     <attr name="glassSelectedFill" format="color" />

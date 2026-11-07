@@ -17,7 +17,4 @@
     <string name="library_offline">Цей ПК не в мережі. Збережена бібліотека нікуди не зникла. Підключіться знову, щоб грати.</string>
     <string name="library_hidden_notice">Гру приховано з бібліотеки</string>
     <string name="library_undo">Скасувати</string>
-    <string name="library_discovery_title">Ваші ігри на цьому екрані</string>
-    <string name="library_discovery_body">Увімкніть ПК і запустіть на ньому хост для трансляції, наприклад Apollo, Rubylight або Sunshine. ПК у тій самій мережі з’являться тут автоматично.</string>
-    <string name="library_discovery_hint">В іншій мережі? Додайте ПК за адресою.</string>
 </resources>

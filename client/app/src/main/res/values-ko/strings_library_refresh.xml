@@ -17,7 +17,4 @@
     <string name="library_offline">이 PC는 오프라인입니다. 저장된 라이브러리는 그대로 있습니다. 플레이하려면 다시 연결하세요.</string>
     <string name="library_hidden_notice">라이브러리에서 게임을 숨겼습니다</string>
     <string name="library_undo">실행취소</string>
-    <string name="library_discovery_title">내 게임을 이 화면에서</string>
-    <string name="library_discovery_body">PC를 켜고 Apollo, Rubylight, Sunshine 같은 스트리밍 호스트를 실행하세요. 같은 네트워크에 있는 PC가 여기에 자동으로 표시됩니다.</string>
-    <string name="library_discovery_hint">다른 네트워크에 있나요? 주소로 PC를 추가하세요.</string>
 </resources>

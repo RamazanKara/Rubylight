@@ -38,33 +38,27 @@
                         android:layout_marginStart="@dimen/space_xxl"
                         android:text="@string/discovery_connect_help" />
                 </LinearLayout>
+                <!-- First run: the moon, one word, one moon action. -->
                 <ScrollView android:id="@+id/no_pc_found_layout" android:layout_width="match_parent"
-                    android:layout_height="match_parent" android:fillViewport="true" android:clipToPadding="false"
-                    android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter"
-                    android:paddingTop="@dimen/space_l" android:paddingBottom="@dimen/space_l">
-                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center">
-                        <com.google.android.material.card.MaterialCardView style="@style/LibraryCard"
-                            android:layout_width="match_parent" android:layout_height="wrap_content">
-                            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                                android:orientation="vertical" android:padding="@dimen/space_xl">
-                                <TextView android:id="@+id/discovery_message" android:layout_width="match_parent" android:layout_height="wrap_content"
-                                    android:text="@string/library_discovery_title" android:textAppearance="@style/TextAppearance.Nightjar.ScreenTitle" />
-                                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                                    android:layout_marginTop="@dimen/space_l" android:text="@string/library_discovery_body"
-                                    android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurfaceVariant" />
-                                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                                    android:layout_marginTop="@dimen/space_l" android:text="@string/library_discovery_hint"
-                                    android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurfaceVariant" />
-                                <com.google.android.material.button.MaterialButton android:id="@+id/discovery_add"
-                                    android:nextFocusDown="@+id/discovery_help" android:nextFocusForward="@id/discovery_help"
-                                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                                    android:layout_marginTop="@dimen/space_xl" android:minHeight="@dimen/touch_target" android:text="@string/title_add_pc" app:icon="@drawable/ic_add" />
-                                <com.google.android.material.button.MaterialButton android:id="@+id/discovery_help"
-                                    android:nextFocusUp="@id/discovery_add" android:accessibilityTraversalAfter="@id/discovery_add"
-                                    style="@style/Widget.Nightjar.Button.Text" android:layout_width="match_parent" android:layout_height="wrap_content"
-                                    android:layout_marginTop="@dimen/space_s" android:minHeight="@dimen/touch_target" android:text="@string/discovery_connect_help" />
-                            </LinearLayout>
-                        </com.google.android.material.card.MaterialCardView>
+                    android:layout_height="match_parent" android:fillViewport="true" android:clipToPadding="false" android:clipChildren="false"
+                    android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter" android:scrollbars="none">
+                    <LinearLayout android:id="@+id/first_run" android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="vertical" android:gravity="center" android:clipChildren="false" android:clipToPadding="false">
+                        <com.limelight.ui.OrbitView android:id="@+id/first_run_orbit" android:layout_width="300dp" android:layout_height="300dp"
+                            app:orbitMoon="true" android:importantForAccessibility="no" />
+                        <TextView android:id="@+id/discovery_message" android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:gravity="center" android:text="@string/searching_pc" android:accessibilityLiveRegion="polite"
+                            android:textAppearance="@style/TextAppearance.Nightjar.Glass.Size17" android:textColor="?attr/colorOnSurface" />
+                        <com.limelight.ui.GlassButton android:id="@+id/discovery_add"
+                            style="@style/Widget.Nightjar.Glass.Play" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:nextFocusDown="@+id/discovery_help" android:nextFocusForward="@id/discovery_help"
+                            android:layout_marginTop="@dimen/space_l" android:minWidth="147dp" android:minHeight="48dp"
+                            android:paddingStart="24dp" android:paddingEnd="24dp" app:iconSize="20dp" app:iconPadding="8dp"
+                            android:text="@string/title_add_pc" app:icon="@drawable/ic_glass_plus" />
+                        <com.limelight.ui.GlassButton android:id="@+id/discovery_help"
+                            style="@style/Widget.Nightjar.Glass.Link" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:nextFocusUp="@id/discovery_add" android:accessibilityTraversalAfter="@id/discovery_add"
+                            android:layout_marginTop="@dimen/space_s" android:text="@string/discovery_connect_help" />
                     </LinearLayout>
                 </ScrollView>
             </FrameLayout>

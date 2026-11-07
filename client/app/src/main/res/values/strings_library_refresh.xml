@@ -16,7 +16,4 @@
     <string name="library_offline">This PC is offline. Your saved library is still here. Reconnect to play.</string>
     <string name="library_hidden_notice">Game hidden from your library</string>
     <string name="library_undo">Undo</string>
-    <string name="library_discovery_title">Your games, on this screen</string>
-    <string name="library_discovery_body">Turn on your PC and start its streaming host, such as Apollo, Rubylight or Sunshine. PCs on the same network appear here automatically.</string>
-    <string name="library_discovery_hint">On a different network? Add your PC by address.</string>
 </resources>

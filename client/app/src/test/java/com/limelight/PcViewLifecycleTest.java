@@ -1121,6 +1121,34 @@ public class PcViewLifecycleTest {
         }
     }
 
+    /** First run's one action offers what the page's + offers: the address, or the code a host shows. */
+    @Test
+    public void theFirstRunActionOffersWhatPlusOffers() {
+        Application application = RuntimeEnvironment.getApplication();
+        GlPreferences gl = GlPreferences.readPreferences(application);
+        gl.savedFingerprint = Build.FINGERPRINT;
+        gl.glRenderer = "Test renderer";
+        gl.writePreferences();
+        application.getSharedPreferences("FirstRun", 0).edit().putBoolean("pairing_guide_shown", true).commit();
+        Shadows.shadowOf(application.getPackageManager()).setSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY, true);
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class).setup();
+        try {
+            Library screen = controller.get();
+            assertEquals(android.view.View.VISIBLE, screen.findViewById(R.id.no_pc_found_layout).getVisibility());
+            assertTrue("the moon's dot goes round while discovery runs",
+                    screen.<com.limelight.ui.OrbitView>findViewById(R.id.first_run_orbit).isTurning() || !screen.findViewById(R.id.first_run_orbit).isShown());
+            screen.findViewById(R.id.discovery_add).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            android.app.Dialog sheet = ShadowDialog.getLatestDialog();
+            assertTrue("a sheet, not straight to the address page", sheet instanceof com.limelight.ui.ActionSheet);
+            assertTrue(sheet.isShowing());
+            assertNull(Shadows.shadowOf(screen).getNextStartedActivity());
+            sheet.dismiss();
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     @Test
     public void resizingKeepsTheLibraryViewsAndKeyboardFocus() {
         Application application = RuntimeEnvironment.getApplication();

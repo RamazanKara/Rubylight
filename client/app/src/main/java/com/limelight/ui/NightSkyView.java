@@ -43,6 +43,7 @@ public class NightSkyView extends View {
     private float moonY;
     private float moonR;
     private int safeTop;
+    private boolean moonShown = true;
 
     public NightSkyView(Context context) {
         this(context, null);
@@ -179,20 +180,35 @@ public class NightSkyView extends View {
         paint(canvas, w, h);
     }
 
+    private void paintStars(Canvas canvas, int w) {
+        float field = STAR_FIELD_DP * density * (form == GlassForm.PHONE ? 1f : 1.5f);
+        for (float[] s : stars) {
+            star.setAlpha(Math.round((.12f + s[3] * .5f) * 255f));
+            canvas.drawCircle(s[0] * w, s[1] * field, (.4f + s[2] * .9f) * density, star);
+        }
+    }
+
+    /** First run has its own moon in the middle of the page: the sky keeps only its stars. */
+    public void setMoonShown(boolean shown) {
+        moonShown = shown;
+    }
+
+    public boolean isMoonShown() {
+        return moonShown;
+    }
+
     private void paint(Canvas canvas, int w, int h) {
         canvas.drawRect(0, 0, w, h, fill);
+        if (!moonShown) {
+            if (look != AppTheme.Look.DAY && look != AppTheme.Look.HIGH_CONTRAST) paintStars(canvas, w);
+            return;
+        }
         if (look == AppTheme.Look.HIGH_CONTRAST) {
             canvas.drawCircle(moonX, moonY, moonR, moon);
             return;
         }
         canvas.drawRect(0, 0, w, h, glow);
-        if (look != AppTheme.Look.DAY) {
-            float field = STAR_FIELD_DP * density * (form == GlassForm.PHONE ? 1f : 1.5f);
-            for (float[] s : stars) {
-                star.setAlpha(Math.round((.12f + s[3] * .5f) * 255f));
-                canvas.drawCircle(s[0] * w, s[1] * field, (.4f + s[2] * .9f) * density, star);
-            }
-        }
+        if (look != AppTheme.Look.DAY) paintStars(canvas, w);
         for (float at : RING_AT) canvas.drawCircle(moonX, moonY, moonR * at, ring);
         canvas.drawCircle(moonX, moonY, moonR, moon);
     }

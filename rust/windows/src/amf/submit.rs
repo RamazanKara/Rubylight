@@ -243,6 +243,9 @@ impl Encoder {
                 // release notification instead of spinning on that empty poll.
                 self.ownership
                     .wait_below(AMF_SURFACE_LIMIT, remaining.min(QUERY_TIMEOUT));
+            } else if let Some(thread) = &self.output_thread {
+                // The output thread waits in the driver; wait for what it queues.
+                thread.wait(remaining.min(QUERY_TIMEOUT));
             } else {
                 // Some drivers ignore QueryTimeout or return REPEAT early.
                 // Bound those retries too, without extending a real driver wait.
@@ -317,6 +320,9 @@ impl Encoder {
                 _converted: cut._converted.clone(),
                 _converted12: None,
             });
+            if let Some(thread) = &self.output_thread {
+                thread.want(true);
+            }
             self.references.accepted(frame, &plan);
             self.focus.keyframe_out();
             self.reencoded_cuts += 1;
@@ -434,11 +440,17 @@ impl Encoder {
                 self.preparing = true;
                 let polled = self.poll_now();
                 self.preparing = false;
-                output.extend(polled?);
+                let polled = polled?;
+                let nothing = polled.is_empty();
+                output.extend(polled);
                 if Instant::now() >= deadline {
                     bail!("AMF GPU input queue failed to drain");
                 }
-                std::thread::yield_now();
+                match &self.output_thread {
+                    // A query that blocked used to pace this loop.
+                    Some(thread) if nothing => thread.wait(QUERY_TIMEOUT),
+                    _ => std::thread::yield_now(),
+                }
             }
             // Compute keeps the capture until conversion completes; graphics
             // still retains it until the encoder returns its output.
@@ -461,6 +473,9 @@ impl Encoder {
                 _converted12: converted12,
             });
             self.backlog.submitted();
+            if let Some(thread) = &self.output_thread {
+                thread.want(true);
+            }
             self.references.accepted(self.index as u64 + 1, &plan);
             self.index += 1;
             // Before the poll, so the frame it returns carries the newest

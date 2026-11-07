@@ -407,12 +407,13 @@ impl Encoder {
         }
     }
     /// An event that ends a wait for output as soon as the oldest frame is
-    /// done (`nvenc_output_event`), armed by this call. `None` keeps the
+    /// done (`nvenc_output_event`, `amd_output_thread`), armed by this call. `None` keeps the
     /// caller's output poll; with an event that poll stays the wait's bound.
     pub fn output_event(&self) -> Option<&crate::timing::Signal> {
         match self {
-            Self::Amf(_) | Self::Pyrowave(_) => None,
+            Self::Amf(e) => e.output_event(),
             Self::Nvenc(e) => e.output_event(),
+            Self::Pyrowave(_) => None,
         }
     }
     /// The earliest a poll can find output (`amd_output_prediction`); the

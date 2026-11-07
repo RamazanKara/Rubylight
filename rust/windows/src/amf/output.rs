@@ -45,7 +45,11 @@ impl Encoder {
     /// When the oldest frame in flight can first be done, with
     /// `amd_output_prediction` on and whole frames returned.
     fn predicted_output(&self) -> Option<Instant> {
-        if !self.output_prediction || self.slice_blocks > 0 || self.unit_log.is_some() {
+        if !self.output_prediction
+            || self.slice_blocks > 0
+            || self.unit_log.is_some()
+            || self.output_thread.is_some()
+        {
             return None;
         }
         let oldest = self.in_flight.front()?;
@@ -55,6 +59,14 @@ impl Encoder {
     /// caller's output poll waits until then.
     pub fn output_due(&self) -> Option<Instant> {
         self.predicted_output().map(encoder_backlog::query_due)
+    }
+    /// With `amd_output_thread`, an event set while its output is queued, to
+    /// end the caller's wait for output; `None` while nothing is in flight.
+    pub fn output_event(&self) -> Option<&crate::timing::Signal> {
+        self.output_thread
+            .as_ref()
+            .filter(|_| !self.in_flight.is_empty())
+            .map(|thread| thread.event())
     }
     /// A query now, for waits that need capacity back.
     pub(super) fn poll_now(&mut self) -> Result<Vec<Encoded>> {
@@ -82,12 +94,25 @@ impl Encoder {
             // asking for the next one still in flight would hold it for the
             // timeout. Callers poll again while frames are pending.
             if self.in_flight.is_empty() {
+                if let Some(thread) = &self.output_thread {
+                    thread.want(false);
+                }
                 return Ok(output);
             }
-            let mut data = ptr::null_mut();
-            let code = timed("AMF QueryOutput", || {
-                ((*(*self.component).pVtbl).QueryOutput.unwrap())(self.component, &mut data)
-            });
+            let (code, data) = match &self.output_thread {
+                // Its queue answers at once; empty, it reads as a query that
+                // found nothing.
+                Some(thread) => thread
+                    .take()
+                    .unwrap_or((AMF_RESULT_AMF_REPEAT, ptr::null_mut())),
+                None => {
+                    let mut data = ptr::null_mut();
+                    let code = timed("AMF QueryOutput", || {
+                        ((*(*self.component).pVtbl).QueryOutput.unwrap())(self.component, &mut data)
+                    });
+                    (code, data)
+                }
+            };
             self.last_query = Some(code);
             if code == AMF_RESULT_AMF_REPEAT
                 || code == AMF_RESULT_AMF_EOF
@@ -196,7 +221,7 @@ impl Encoder {
                 }
             }
             let Some(sent) = self.repaired(
-                std::slice::from_raw_parts(raw, size as usize),
+                std::slice::from_raw_parts(raw, size),
                 skipped,
                 idr && requested_idr,
             ) else {

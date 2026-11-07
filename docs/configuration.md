@@ -60,6 +60,9 @@ These keys are read from the configuration file (`sunshine.conf` in the profile 
 | `video_slice_delivery` | `auto` | Sends H.264 and HEVC P-frames in 2 or 4 FEC blocks as their slices leave the encoder; `auto` uses 4 for pictures of 4K size. See [Capture and video](#capture-and-video). |
 | `webrtc_pacing`, `webrtc_rtx` | `true` | Send pacing and retransmission for the WebRTC server. |
 | `webrtc_loss_permille` | `0` | Drops WebRTC video packets on purpose, in thousandths, for tests. Leave it at 0. |
+| `amd_output_prediction` | `false` | AMF skips an output query while its oldest frame cannot be done yet, judged by the fastest encode it has returned, instead of waiting up to 1 ms in it. Not measured yet; leave it off. |
+| `amd_output_thread` | `false` | AMF's output query runs on a thread of its own, so the stream thread never waits in it. Overrides `amd_output_prediction`. Not measured yet; leave it off. |
+| `nvenc_output_event` | `true` | NVENC on a D3D12 device wakes the stream as each frame is written instead of on its next 100 µs output poll. `false` goes back to the poll alone. |
 
 Webhooks have their own console page; see [Webhooks](webhooks.md).
 

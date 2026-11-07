@@ -10,6 +10,7 @@ pub(crate) mod gpu;
 mod intra_refresh;
 mod metadata;
 mod output;
+mod output_thread;
 mod properties;
 mod rate_control;
 mod submit;
@@ -273,6 +274,8 @@ pub struct Encoder {
     fastest_output: Option<Duration>,
     /// Queries `amd_output_prediction` skipped, for the stall snapshot.
     skipped_queries: u64,
+    /// `amd_output_thread`: QueryOutput runs on a thread of its own.
+    output_thread: Option<output_thread::OutputThread>,
 }
 /// One output buffer from QueryOutput: a frame, or with slice/tile output one
 /// slice or tile of it.
@@ -410,6 +413,8 @@ fn scale_rate_control(value: i64, applied_kbps: u32, requested_kbps: u32) -> i64
 }
 impl Drop for Encoder {
     fn drop(&mut self) {
+        // Its last query returns before the component terminates.
+        self.output_thread.take();
         // Destroy the converter before its context and dynamically loaded runtime.
         self.gpu_convert.take();
         self.graphics_stats.take();

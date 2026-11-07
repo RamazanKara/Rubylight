@@ -370,6 +370,184 @@ pub struct Decoder {
     lost: bool,
     /// Pictures from a hardware pool that may wait for the presenter ([`pool_waiting`]).
     pool_waiting: usize,
+    /// The times of the frames sent to the FFmpeg decoder whose pictures have not come out, in
+    /// order: an asynchronous decoder's picture belongs to an earlier frame than the one sent.
+    in_flight: VecDeque<InFlight>,
+    /// The FFmpeg decoder made a picture since it was opened: from then on a frame without one
+    /// is a decode failure (synchronous decoders).
+    pictured: bool,
+    /// The backends FFmpeg took to software for a stream format (`VideoSetup::format`), left
+    /// out when the decoder is opened again for it.
+    refused: Vec<(Hardware, u32)>,
+}
+
+/// The times of a frame sent to the FFmpeg decoder, for its picture.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct InFlight {
+    number: u32,
+    receive_us: u64,
+    enqueue_us: u64,
+    input_us: u64,
+    host_latency: u16,
+}
+
+/// More frames in flight than any decoder holds: the oldest are frames that made no picture.
+const IN_FLIGHT_LIMIT: usize = 32;
+
+/// The times of the frame `number` from `in_flight`, dropping those of earlier frames, which
+/// made no picture; none when it is not there (then the picture is taken for the latest frame's).
+fn take_in_flight(in_flight: &mut VecDeque<InFlight>, number: u32) -> Option<InFlight> {
+    while let Some(front) = in_flight.front() {
+        // Frame numbers wrap: an earlier frame is less than half the range behind.
+        let behind = number.wrapping_sub(front.number) as i32;
+        if behind < 0 {
+            return None;
+        }
+        let front = in_flight.pop_front()?;
+        if behind == 0 {
+            return Some(front);
+        }
+    }
+    None
+}
+
+/// What the FFmpeg part of `decode_frame` needs of a decoder, so that a fake one stands in for
+/// it in the tests.
+trait PictureDecoder {
+    type Picture: DecodedPicture;
+    fn send(&mut self, data: &[u8], pts: i64) -> i32;
+    fn receive(&mut self) -> Received<Self::Picture>;
+    fn asynchronous(&self) -> bool;
+}
+
+trait DecodedPicture {
+    fn pts(&self) -> i64;
+    fn corrupt(&self) -> bool;
+}
+
+impl PictureDecoder for media::VideoDecoder {
+    type Picture = media::Frame;
+    fn send(&mut self, data: &[u8], pts: i64) -> i32 {
+        media::VideoDecoder::send(self, data, pts)
+    }
+    fn receive(&mut self) -> Received {
+        media::VideoDecoder::receive(self)
+    }
+    fn asynchronous(&self) -> bool {
+        media::VideoDecoder::asynchronous(self)
+    }
+}
+
+impl DecodedPicture for media::Frame {
+    fn pts(&self) -> i64 {
+        self.info().pts
+    }
+    fn corrupt(&self) -> bool {
+        media::Frame::corrupt(self)
+    }
+}
+
+/// What one frame did in the FFmpeg decoder ([`feed`]).
+#[derive(Debug, Default, PartialEq)]
+struct Fed {
+    /// The decoder did not take the frame, after its ready pictures were read on EAGAIN.
+    refused: bool,
+    /// `avcodec_receive_frame` failed.
+    failed: bool,
+    /// Pictures that came out, this frame's or (asynchronous decoders) earlier ones'.
+    pictures: u32,
+    /// Of them, pictures FFmpeg flagged as damaged.
+    corrupt: u32,
+    /// This frame's own picture came out.
+    own: bool,
+}
+
+/// How often an asynchronous decoder is asked again for the picture of the frame just sent.
+const ASYNC_POLL_US: u64 = 250;
+
+/// How long an asynchronous decoder is waited for: half a frame at `fps_millihz`, so the wait
+/// never holds up the next frame, and no more than 8 ms.
+fn async_wait_us(fps_millihz: u32) -> u64 {
+    (500_000_000 / u64::from(fps_millihz.max(1))).min(8_000)
+}
+
+/// Sends a frame (`pts`, its number in the top 32 bits) to `decoder` and hands each picture that
+/// comes out to `picture`. A decoder that says EAGAIN has its ready pictures read and gets the
+/// frame again. An asynchronous decoder (V4L2 M2M) is asked again every [`ASYNC_POLL_US`]
+/// (`poll` waits that long), for up to `wait_us`, until this frame's picture comes out, as
+/// moonlight-qt's decode loop does; what is still in flight then comes out with a later frame.
+fn feed<D: PictureDecoder>(
+    decoder: &mut D,
+    data: &[u8],
+    pts: i64,
+    wait_us: u64,
+    mut poll: impl FnMut(),
+    mut picture: impl FnMut(D::Picture),
+) -> Fed {
+    let number = (pts >> 32) as u32;
+    let polls = if decoder.asynchronous() { wait_us / ASYNC_POLL_US } else { 0 };
+    let mut fed = Fed::default();
+    let mut receive = |decoder: &mut D, fed: &mut Fed, done: &dyn Fn(&Fed) -> bool| {
+        let mut polls = polls;
+        loop {
+            match decoder.receive() {
+                Received::Frame(out) => {
+                    // Frame numbers wrap: this frame's picture or a later one.
+                    fed.own |= number.wrapping_sub((out.pts() >> 32) as u32) as i32 <= 0;
+                    fed.corrupt += u32::from(out.corrupt());
+                    fed.pictures += 1;
+                    picture(out);
+                }
+                Received::None if polls > 0 && !done(fed) => {
+                    polls -= 1;
+                    poll();
+                }
+                Received::None => return,
+                Received::Error => {
+                    fed.failed = true;
+                    return;
+                }
+            }
+        }
+    };
+    let mut status = decoder.send(data, pts);
+    if status == media::AGAIN {
+        // Output first: what is ready goes on (one picture at least from an asynchronous
+        // decoder, whose input queue is full), then the frame again.
+        receive(decoder, &mut fed, &|fed| fed.pictures > 0);
+        if fed.failed {
+            return fed;
+        }
+        status = decoder.send(data, pts);
+    }
+    if status < 0 {
+        fed.refused = true;
+        return fed;
+    }
+    receive(decoder, &mut fed, &|fed| fed.own);
+    fed
+}
+
+/// What a frame `fed` to a decoder costs the stream. A synchronous decoder (every one but V4L2
+/// M2M) makes the picture of each frame it is sent, so once it has made one (`steady`), a frame
+/// without a picture failed as much as a damaged picture did: the stream has no periodic key
+/// frames, and without recovery the damage stays. An asynchronous one's pictures come later.
+fn frame_status(fed: &Fed, asynchronous: bool, steady: bool) -> DecodeStatus {
+    let damaged = !asynchronous && (fed.corrupt > 0 || (steady && fed.pictures == 0));
+    if fed.refused || fed.failed || damaged {
+        DecodeStatus::NeedIdr
+    } else {
+        DecodeStatus::Ok
+    }
+}
+
+/// The backends of `order` after `refused`, which FFmpeg took to software: none when it is not
+/// in the order.
+fn backends_after(order: Vec<Hardware>, refused: Hardware) -> Vec<Hardware> {
+    match order.iter().position(|&backend| backend == refused) {
+        Some(at) => order[at + 1..].to_vec(),
+        None => Vec::new(),
+    }
 }
 
 /// How long frames may fail with no picture between before the decoder is taken for broken.
@@ -461,6 +639,9 @@ impl Decoder {
             failing: Failing::default(),
             lost: false,
             pool_waiting: media::EXTRA_HW_FRAMES as usize - 2,
+            in_flight: VecDeque::new(),
+            pictured: false,
+            refused: Vec::new(),
         }
     }
 
@@ -574,6 +755,21 @@ fn exports_dmabuf(presenter_imports: bool, setup: &VideoSetup) -> bool {
         && setup.chroma_packing == 0
 }
 
+fn codec_of(setup: &VideoSetup) -> Codec {
+    if setup.format & VIDEO_FORMAT_MASK_AV1 != 0 {
+        Codec::Av1
+    } else if setup.format & VIDEO_FORMAT_MASK_H265 != 0 {
+        Codec::Hevc
+    } else {
+        Codec::H264
+    }
+}
+
+/// Each backend that does not open is logged as the next one is tried.
+fn log_unavailable(backend: Hardware, error: &str) {
+    eprintln!("nightjar: {} decoding is unavailable: {error}", backend.label());
+}
+
 /// The SDK's decoder (on the renderer's adapter on Windows), with a plane set per picture that can be waiting.
 fn gpu_pyrowave(device: GpuDevice, setup: &VideoSetup, slots: usize) -> Result<super::pyrowave::Pyrowave, String> {
     #[cfg(windows)]
@@ -633,29 +829,15 @@ impl VideoDecoder for Decoder {
             ));
             return Err(-1);
         }
-        let codec = if setup.format & VIDEO_FORMAT_MASK_AV1 != 0 {
-            Codec::Av1
-        } else if setup.format & VIDEO_FORMAT_MASK_H265 != 0 {
-            Codec::Hevc
-        } else {
-            Codec::H264
-        };
+        let codec = codec_of(setup);
         let opened = match self.hardware {
             Hardware::None => {
                 media::VideoDecoder::open(codec, Hardware::None, self.software_threads, false)
             }
-            // Each backend that does not open is logged as the next one is tried.
             hardware => {
-                let failed = |backend: Hardware, error: &str| {
-                    eprintln!("nightjar: {} decoding is unavailable: {error}", backend.label());
-                };
-                let pictures = media::Pictures {
-                    ten_bit: setup.format & VIDEO_FORMAT_MASK_10BIT != 0,
-                    chroma444: setup.format & VIDEO_FORMAT_MASK_YUV444 != 0,
-                    packed: setup.chroma_packing != 0,
-                    waiting: self.pool_waiting,
-                };
-                media::VideoDecoder::open_first(codec, pictures, hardware, setup.chroma_packing != 0, failed).or_else(|e| {
+                // Backends FFmpeg took to software for this stream before are not tried again.
+                let order = hardware.order().into_iter().filter(|&backend| !self.refused.contains(&(backend, setup.format))).collect();
+                media::VideoDecoder::open_any(codec, self.pictures(setup), order, setup.chroma_packing != 0, log_unavailable).or_else(|e| {
                     if setup.chroma_packing != 0 {
                         return Err(e);
                     }
@@ -667,14 +849,8 @@ impl VideoDecoder for Decoder {
             }
         };
         match opened {
-            Ok(mut decoder) => {
-                if exports_dmabuf(self.dmabuf, setup) && decoder.export_dmabuf() {
-                    eprintln!("nightjar: VAAPI pictures go to the renderer as DMA-BUFs");
-                }
-                // The overlay's decoder name, in the log for runs nobody watches.
-                eprintln!("nightjar: video decoder {}", decoder.name);
-                *lock(&self.shared.decoder_name) = decoder.name.clone();
-                self.decoder = Some(decoder);
+            Ok(decoder) => {
+                self.install(decoder, setup);
                 Ok(())
             }
             Err(e) => {
@@ -710,6 +886,7 @@ impl VideoDecoder for Decoder {
     fn cleanup(&mut self) {
         lock(&self.shared.frames).clear();
         self.decoder = None;
+        self.in_flight.clear();
         if let Some(summary) = self.pyrowave.as_ref().and_then(|decoder| decoder.stage_summary()) {
             eprintln!("nightjar: PyroWave decode stages {summary}");
         }
@@ -718,6 +895,64 @@ impl VideoDecoder for Decoder {
 }
 
 impl Decoder {
+    fn pictures(&self, setup: &VideoSetup) -> media::Pictures {
+        media::Pictures {
+            ten_bit: setup.format & VIDEO_FORMAT_MASK_10BIT != 0,
+            chroma444: setup.format & VIDEO_FORMAT_MASK_YUV444 != 0,
+            packed: setup.chroma_packing != 0,
+            waiting: self.pool_waiting,
+        }
+    }
+
+    /// Makes `decoder` the stream's FFmpeg decoder.
+    fn install(&mut self, mut decoder: media::VideoDecoder, setup: &VideoSetup) {
+        if exports_dmabuf(self.dmabuf, setup) && decoder.export_dmabuf() {
+            eprintln!("nightjar: VAAPI pictures go to the renderer as DMA-BUFs");
+        }
+        // The overlay's decoder name, in the log for runs nobody watches.
+        eprintln!("nightjar: video decoder {}", decoder.name);
+        *lock(&self.shared.decoder_name) = decoder.name.clone();
+        self.decoder = Some(decoder);
+        self.in_flight.clear();
+        self.pictured = false;
+    }
+
+    /// FFmpeg took the `refused` backend to software (`media::VideoDecoder::refused`): says so,
+    /// and opens the next backend of the order that opens, or the software decoder after them,
+    /// so the stream never decodes in software under a hardware decoder's name, nor fails every
+    /// frame (AV1) while another decoder could decode it.
+    fn replace_refused(&mut self, refused: Hardware) {
+        let setup = self.setup.expect("decoder setup precedes frames");
+        self.refused.push((refused, setup.format));
+        let codec = codec_of(&setup);
+        let rest = backends_after(self.hardware.order(), refused);
+        let hardware = if rest.is_empty() {
+            Err("no other hardware decoder".to_owned())
+        } else {
+            media::VideoDecoder::open_any(codec, self.pictures(&setup), rest, false, log_unavailable)
+        };
+        let (opened, now) = match hardware {
+            Ok(decoder) => {
+                let now = format!("decoding with {}", decoder.hardware.label());
+                (Ok(decoder), now)
+            }
+            Err(error) => {
+                eprintln!("nightjar: after {} refused the stream: {error}", refused.label());
+                (media::VideoDecoder::open(codec, Hardware::None, self.software_threads, false), "decoding in software".to_owned())
+            }
+        };
+        self.decoder = None;
+        match opened {
+            Ok(decoder) => {
+                self.shared.notify(Notice::DecoderFallback(format!("{} cannot decode this stream; {now}", refused.label())));
+                self.install(decoder, &setup);
+            }
+            Err(error) => {
+                self.shared.notify(Notice::DecoderFailed(format!("{} cannot decode this stream, and no other decoder opens: {error}", refused.label())));
+            }
+        }
+    }
+
     /// Decodes `frame`, PyroWave or FFmpeg, and queues its picture for the presenter.
     fn decode_frame(&mut self, frame: &Frame) -> DecodeStatus {
         self.shared.counters.count_host_latency(frame.host_processing_latency);
@@ -761,60 +996,77 @@ impl Decoder {
         };
         let started = session::now_us();
         let pts = (i64::from(frame.number) << 32) | i64::from(frame.rtp_timestamp);
-        if decoder.send(frame.data(), pts) < 0 {
-            self.shared.counters.decode_errors.fetch_add(1, Ordering::Relaxed);
-            return DecodeStatus::NeedIdr;
+        let sent = InFlight {
+            number: frame.number,
+            receive_us: frame.receive_time_us,
+            enqueue_us: frame.enqueue_time_us,
+            input_us: started,
+            host_latency: frame.host_processing_latency,
+        };
+        if self.in_flight.len() >= IN_FLIGHT_LIMIT {
+            self.in_flight.pop_front();
         }
-        let mut status = DecodeStatus::Ok;
-        loop {
-            match decoder.receive() {
-                Received::Frame(picture) => {
-                    if let Some(name) = decoder.renamed() {
-                        *lock(&self.shared.decoder_name) = name.to_owned();
-                        self.shared.notify(Notice::DecoderFallback("Vulkan video cannot decode this stream; decoding in software".into()));
-                    }
-                    let ready = session::now_us();
-                    let pts = picture.info().pts;
-                    let counters = &self.shared.counters;
-                    counters.decoded.fetch_add(1, Ordering::Relaxed);
-                    counters
-                        .decode_us_total
-                        .fetch_add(ready.saturating_sub(started), Ordering::Relaxed);
-                    let mut timing = lock(&self.shared.decode_window);
-                    if timing.samples == 0 { timing.first_us = ready; }
-                    timing.last_us = ready;
-                    timing.samples += 1;
-                    timing.queue_us += started.saturating_sub(frame.enqueue_time_us);
-                    let budget_us = 2_000_000_000 / u64::from(self.shared.fps_millihz.load(Ordering::Relaxed).max(1));
-                    timing.late += u32::from(ready.saturating_sub(frame.enqueue_time_us) >= budget_us);
-                    drop(timing);
-                    let pooled = decoder.pooled();
-                    let decoded = Decoded {
-                        picture: Picture::Frame(picture),
-                        setup: self.setup.expect("decoder setup precedes frames"),
-                        rtp: pts as u32,
-                        number: frame.number,
-                        receive_us: frame.receive_time_us,
-                        enqueue_us: frame.enqueue_time_us,
-                        input_us: started,
-                        ready_us: ready,
-                        host_latency: frame.host_processing_latency,
-                        early: 0,
-                        first_block_us: 0,
-                        race: Default::default(),
-                        bands: Vec::new(),
-                        race_seq: 0,
-                        visible: None,
-                    };
-                    if pooled { self.shared.queue_pooled(decoded, self.pool_waiting) } else { self.shared.queue(decoded) }
-                }
-                Received::None => break,
-                Received::Error => {
-                    self.shared.counters.decode_errors.fetch_add(1, Ordering::Relaxed);
-                    status = DecodeStatus::NeedIdr;
-                    break;
-                }
+        self.in_flight.push_back(sent);
+        let setup = self.setup.expect("decoder setup precedes frames");
+        let asynchronous = decoder.asynchronous();
+        // Pictures before the first of a refused decoder are its pool's; the first is in memory
+        // and goes to the queue's pool limit too, which only evicts sooner.
+        let pooled = decoder.pooled();
+        let fps_millihz = self.shared.fps_millihz.load(Ordering::Relaxed).max(1);
+        let (shared, in_flight, pool_waiting) = (&self.shared, &mut self.in_flight, self.pool_waiting);
+        let fed = feed(decoder, frame.data(), pts, async_wait_us(fps_millihz),
+            || std::thread::sleep(std::time::Duration::from_micros(ASYNC_POLL_US)),
+            |picture| {
+                let ready = session::now_us();
+                // An asynchronous decoder's picture is an earlier frame's: its own times, by pts.
+                let pts = picture.info().pts;
+                let own = take_in_flight(in_flight, (pts >> 32) as u32).unwrap_or(sent);
+                let counters = &shared.counters;
+                counters.decoded.fetch_add(1, Ordering::Relaxed);
+                counters.decode_us_total.fetch_add(ready.saturating_sub(own.input_us), Ordering::Relaxed);
+                let mut timing = lock(&shared.decode_window);
+                if timing.samples == 0 { timing.first_us = ready; }
+                timing.last_us = ready;
+                timing.samples += 1;
+                timing.queue_us += own.input_us.saturating_sub(own.enqueue_us);
+                let budget_us = 2_000_000_000 / u64::from(fps_millihz);
+                timing.late += u32::from(ready.saturating_sub(own.enqueue_us) >= budget_us);
+                drop(timing);
+                let decoded = Decoded {
+                    picture: Picture::Frame(picture),
+                    setup,
+                    rtp: pts as u32,
+                    number: own.number,
+                    receive_us: own.receive_us,
+                    enqueue_us: own.enqueue_us,
+                    input_us: own.input_us,
+                    ready_us: ready,
+                    host_latency: own.host_latency,
+                    early: 0,
+                    first_block_us: 0,
+                    race: Default::default(),
+                    bands: Vec::new(),
+                    race_seq: 0,
+                    visible: None,
+                };
+                if pooled { shared.queue_pooled(decoded, pool_waiting) } else { shared.queue(decoded) }
+            });
+        let status = frame_status(&fed, asynchronous, self.pictured);
+        self.pictured |= fed.pictures > 0;
+        if status == DecodeStatus::NeedIdr {
+            self.shared.counters.decode_errors.fetch_add(1, Ordering::Relaxed);
+            if !(fed.refused || fed.failed) {
+                eprintln!("nightjar: frame {} {}; asking for a key frame", frame.number,
+                    if fed.corrupt > 0 { "decoded damaged" } else { "made no picture" });
             }
+        }
+        // FFmpeg took a hardware decoder to software: said, and the next decoder opened, which
+        // starts from a key frame.
+        let backend = decoder.hardware;
+        if let Some(name) = decoder.renamed().map(str::to_owned) {
+            *lock(&self.shared.decoder_name) = name;
+            self.replace_refused(backend);
+            return DecodeStatus::NeedIdr;
         }
         status
     }
@@ -1536,5 +1788,174 @@ mod tests {
         assert!(matches!(notices.as_slice(), [Notice::DecoderFailed(text)] if text.contains("PyroWave GPU decoding is unavailable")));
         #[cfg(unix)]
         assert!(matches!(notices.as_slice(), [Notice::DecoderFailed(text)] if text.contains("libpyrowave-shared.so not found")), "the reason is the missing library");
+    }
+
+    /// A fake FFmpeg decoder. Synchronous, each frame's picture comes out at the first receive
+    /// after its send; asynchronous, as FFmpeg's V4L2 M2M decoder: a frame's picture is ready
+    /// only after `ready_after` more receives (the driver's decode time), "no picture yet" until
+    /// then, and with `queue` frames in the driver a send says EAGAIN.
+    struct FakeDecoder {
+        asynchronous: bool,
+        ready_after: u32,
+        queue: usize,
+        /// Sent frames: pts and receives left before the picture is ready.
+        pending: VecDeque<(i64, u32)>,
+        /// Frames that make no picture, and frames whose picture is damaged.
+        missing: Vec<u32>,
+        corrupt: Vec<u32>,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct FakePicture(i64, bool);
+
+    impl DecodedPicture for FakePicture {
+        fn pts(&self) -> i64 { self.0 }
+        fn corrupt(&self) -> bool { self.1 }
+    }
+
+    impl FakeDecoder {
+        fn synchronous() -> Self {
+            Self { asynchronous: false, ready_after: 0, queue: usize::MAX, pending: VecDeque::new(), missing: Vec::new(), corrupt: Vec::new() }
+        }
+        fn v4l2(ready_after: u32, queue: usize) -> Self {
+            Self { asynchronous: true, ready_after, queue, ..Self::synchronous() }
+        }
+    }
+
+    impl PictureDecoder for FakeDecoder {
+        type Picture = FakePicture;
+        fn send(&mut self, _: &[u8], pts: i64) -> i32 {
+            if self.pending.len() >= self.queue {
+                return media::AGAIN;
+            }
+            if !self.missing.contains(&((pts >> 32) as u32)) {
+                self.pending.push_back((pts, self.ready_after));
+            }
+            0
+        }
+        fn receive(&mut self) -> Received<FakePicture> {
+            let Some((pts, left)) = self.pending.front_mut() else { return Received::None };
+            if *left > 0 {
+                *left -= 1;
+                return Received::None;
+            }
+            let pts = *pts;
+            self.pending.pop_front();
+            Received::Frame(FakePicture(pts, self.corrupt.contains(&((pts >> 32) as u32))))
+        }
+        fn asynchronous(&self) -> bool { self.asynchronous }
+    }
+
+    fn pts(number: u32) -> i64 {
+        (i64::from(number) << 32) | i64::from(number * 1500)
+    }
+
+    /// Feeds frame `number` with `wait_us`, returning what it did, the pictures that came out and
+    /// how often it waited.
+    fn feed_frame(decoder: &mut FakeDecoder, number: u32, wait_us: u64) -> (Fed, Vec<FakePicture>, u32) {
+        let (mut pictures, mut polls) = (Vec::new(), 0);
+        let fed = feed(decoder, &[0; 4], pts(number), wait_us, || polls += 1, |picture| pictures.push(picture));
+        (fed, pictures, polls)
+    }
+
+    #[test]
+    fn an_asynchronous_decoder_hands_over_each_frames_picture_with_that_frame_not_the_next() {
+        // Without waiting, V4L2 M2M's picture of frame N came out only at frame N+1's send.
+        let mut late = FakeDecoder::v4l2(3, 4);
+        let (fed, pictures, _) = feed_frame(&mut late, 1, 0);
+        assert!(pictures.is_empty() && !fed.own);
+        let (_, pictures, _) = feed_frame(&mut late, 2, 0);
+        assert!(pictures.is_empty(), "nothing is ready at the next send either without asking again");
+        // Asked again while the frame is in flight, the picture comes out with its own frame.
+        let mut decoder = FakeDecoder::v4l2(3, 4);
+        for number in 1..=5 {
+            let (fed, pictures, polls) = feed_frame(&mut decoder, number, async_wait_us(60_000));
+            assert_eq!(pictures, [FakePicture(pts(number), false)], "frame {number}");
+            assert!(fed.own && polls == 3, "frame {number}: {fed:?}, {polls} polls");
+            assert_eq!(frame_status(&fed, true, true), DecodeStatus::Ok);
+        }
+    }
+
+    #[test]
+    fn an_asynchronous_decoder_is_waited_for_no_longer_than_its_bound_and_the_picture_comes_later() {
+        let mut decoder = FakeDecoder::v4l2(1_000, 4);
+        let wait_us = async_wait_us(60_000);
+        let (fed, pictures, polls) = feed_frame(&mut decoder, 1, wait_us);
+        assert!(pictures.is_empty() && u64::from(polls) == wait_us / ASYNC_POLL_US);
+        // In flight is not a failure for an asynchronous decoder.
+        assert_eq!(frame_status(&fed, true, true), DecodeStatus::Ok);
+        // Half a frame, never more than 8 ms.
+        assert_eq!(async_wait_us(60_000), 8_000);
+        assert_eq!(async_wait_us(120_000), 4_166);
+        assert_eq!(async_wait_us(240_000), 2_083);
+    }
+
+    #[test]
+    fn eagain_on_send_reads_the_ready_pictures_and_sends_the_frame_again_without_asking_for_a_key_frame() {
+        // The driver takes one frame: the next send says EAGAIN until its picture is read.
+        let mut decoder = FakeDecoder::v4l2(2, 1);
+        let (_, pictures, _) = feed_frame(&mut decoder, 1, 0);
+        assert!(pictures.is_empty());
+        let (fed, pictures, _) = feed_frame(&mut decoder, 2, async_wait_us(60_000));
+        assert!(!fed.refused && !fed.failed, "{fed:?}");
+        assert_eq!(pictures, [FakePicture(pts(1), false), FakePicture(pts(2), false)]);
+        assert_eq!(frame_status(&fed, true, true), DecodeStatus::Ok);
+        // A synchronous decoder that says EAGAIN gets the frame again after its pictures are read.
+        let mut decoder = FakeDecoder { queue: 1, ..FakeDecoder::synchronous() };
+        decoder.pending.push_back((pts(1), 0));
+        let (fed, pictures, polls) = feed_frame(&mut decoder, 2, 8_000);
+        assert_eq!(pictures, [FakePicture(pts(1), false), FakePicture(pts(2), false)]);
+        assert_eq!((fed.refused, polls), (false, 0), "a synchronous decoder is never waited for");
+    }
+
+    #[test]
+    fn a_synchronous_frame_without_a_picture_or_with_a_damaged_one_asks_for_recovery() {
+        let mut decoder = FakeDecoder::synchronous();
+        decoder.missing = vec![1, 3];
+        decoder.corrupt = vec![4];
+        // Before the decoder's first picture a frame without one is not a failure.
+        let (fed, _, _) = feed_frame(&mut decoder, 1, 0);
+        assert_eq!(frame_status(&fed, false, false), DecodeStatus::Ok);
+        let (fed, pictures, _) = feed_frame(&mut decoder, 2, 0);
+        assert_eq!((pictures.len(), frame_status(&fed, false, false)), (1, DecodeStatus::Ok));
+        let (fed, pictures, _) = feed_frame(&mut decoder, 3, 0);
+        assert!(pictures.is_empty());
+        assert_eq!(frame_status(&fed, false, true), DecodeStatus::NeedIdr, "steady, a frame made no picture");
+        let (fed, pictures, _) = feed_frame(&mut decoder, 4, 0);
+        assert_eq!(pictures, [FakePicture(pts(4), true)], "the damaged picture is still shown");
+        assert_eq!(frame_status(&fed, false, true), DecodeStatus::NeedIdr);
+        let (fed, _, _) = feed_frame(&mut decoder, 5, 0);
+        assert_eq!(frame_status(&fed, false, true), DecodeStatus::Ok);
+        // The asynchronous decoder's frames are not judged that way.
+        assert_eq!(frame_status(&Fed { corrupt: 1, pictures: 1, ..Fed::default() }, true, true), DecodeStatus::Ok);
+        // Failures stay failures for both.
+        for asynchronous in [false, true] {
+            assert_eq!(frame_status(&Fed { refused: true, ..Fed::default() }, asynchronous, false), DecodeStatus::NeedIdr);
+            assert_eq!(frame_status(&Fed { failed: true, pictures: 1, ..Fed::default() }, asynchronous, false), DecodeStatus::NeedIdr);
+        }
+    }
+
+    #[test]
+    fn a_picture_takes_the_times_of_its_own_frame_and_drops_those_of_frames_without_one() {
+        let times = |number: u32| InFlight { number, receive_us: u64::from(number) * 10, enqueue_us: 0, input_us: 0, host_latency: 0 };
+        let mut in_flight: VecDeque<_> = [7, 8, 9].map(times).into();
+        assert_eq!(take_in_flight(&mut in_flight, 8), Some(times(8)));
+        assert_eq!(in_flight, [times(9)], "frame 7 made no picture and its times are dropped");
+        assert_eq!(take_in_flight(&mut in_flight, 6), None, "an earlier frame's picture keeps the later times");
+        assert_eq!(in_flight.len(), 1);
+        // Across the frame number's wrap.
+        let mut in_flight: VecDeque<_> = [u32::MAX - 1, u32::MAX, 0, 1].map(times).into();
+        assert_eq!(take_in_flight(&mut in_flight, 0), Some(times(0)));
+        assert_eq!(in_flight, [times(1)]);
+    }
+
+    #[test]
+    fn a_refused_backend_goes_on_with_the_ones_after_it() {
+        let gpu = std::ptr::dangling_mut::<c_void>();
+        let order = vec![Hardware::Vulkan(gpu), Hardware::Vaapi, Hardware::V4l2m2m, Hardware::Cuda];
+        assert_eq!(backends_after(order.clone(), Hardware::Vulkan(gpu)), [Hardware::Vaapi, Hardware::V4l2m2m, Hardware::Cuda]);
+        assert!(backends_after(order.clone(), Hardware::Cuda).is_empty());
+        assert!(backends_after(vec![Hardware::D3d11(gpu)], Hardware::D3d11(gpu)).is_empty(), "D3D11VA goes to software");
+        assert!(backends_after(order, Hardware::None).is_empty());
     }
 }

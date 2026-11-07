@@ -1267,7 +1267,7 @@ impl Launcher {
         let mut used = 0.0;
         if let Screen::Apps(id) = self.screen {
             if let Some(host) = view.hosts.get(id) {
-                used = self.running_actions(ui, host, commands);
+                used = self.apps_head(ui, host, commands);
             }
         }
         if (used - self.header_width).abs() > 0.5 {

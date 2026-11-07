@@ -967,7 +967,9 @@ fn assert_fits(f: &Frames, what: &str, whole_height: bool) {
 /// clip ends above the window's edge. A clip that reaches the edge scrolls nothing away: text
 /// past it is cut off, even when none of it shows.
 fn must_stay_in_window(rect: Rect, clip: Rect, screen: Rect) -> bool {
-    rect.intersects(clip) || clip.bottom() >= screen.bottom() - 1.0
+    // Wholly under the window's edge is a page's scrolled-off rest; a dialog's own is caught by
+    // `areas_past_window`.
+    rect.top() < screen.bottom() && (rect.intersects(clip) || clip.bottom() >= screen.bottom() - 1.0)
 }
 
 /// A dialog's whole area, whatever part of it reached the screen: egui doesn't paint a button
@@ -3843,7 +3845,7 @@ fn a_running_app_offers_resume_and_quit_game_beside_its_name() {
     let at = |f: &Frames, word: &str| f.placed.iter().find(|(t, ..)| t == word).map(|p| p.1).unwrap();
     let (resume, quit) = (at(&f, "Resume"), at(&f, "Quit game"));
     assert!(resume.right() < quit.left(), "{resume:?} {quit:?}");
-    assert!(1280.0 - quit.right() < 80.0, "at the right edge: {quit:?}");
+    assert!(1280.0 - quit.right() < 140.0, "at the right edge, by the round Refresh: {quit:?}");
     // The row does not grow for them: what runs does not move the grid.
     let top = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).expect("the running cover has focus").rect.top();
     let idle = app_grid(5, 0);
@@ -3871,10 +3873,13 @@ fn a_narrow_window_lets_the_running_name_go_before_the_title() {
 }
 
 #[test]
-fn a_running_app_the_list_does_not_know_offers_only_quit_game() {
+fn a_running_app_the_list_does_not_know_can_be_resumed_too() {
     let mut f = app_grid(5, 99);
     f.settle();
-    assert!(!shows(&f, "Resume") && shows(&f, "Quit game") && shows(&f, "The running app"), "{:?}", f.drawn);
+    assert!(shows(&f, "Resume") && shows(&f, "Quit game") && shows(&f, "The running app"), "{:?}", f.drawn);
+    let resume = f.placed.iter().find(|(t, ..)| t == "Resume").map(|p| p.1).expect("Resume");
+    let commands = f.click_at(resume.center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::Launch { app: 99, resume: true, .. })), "the game itself, not a control tile");
 }
 
 #[test]
@@ -6937,6 +6942,49 @@ fn homes_play_says_what_stops_it_and_recovers() {
             assert!(commands.iter().any(|c| matches!(c, Command::Launch { app: 1000, .. })), "{screen}: it plays again");
         }
     }
+}
+
+/// A PC's page with a list has a round Refresh in its head, by keyboard too; it spins and keeps the
+/// focus while it reads, and leaves room for what a running game offers.
+#[test]
+fn a_list_has_a_round_refresh_in_its_head() {
+    let square = |f: &Frames| {
+        f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).map(|r| r.rect).filter(|r| (r.width() - r.height()).abs() < 1.0 && r.height() == 48.0)
+    };
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 0)), vec![game(7)]);
+    let id = f.hosts.list[0].id;
+    f.l.go(Screen::Apps(id));
+    f.settle();
+    let mut tabs = 0;
+    while square(&f).is_none() {
+        f.press(Key::Tab);
+        tabs += 1;
+        assert!(tabs < 12, "Tab reaches it");
+    }
+    let at = square(&f).expect("it");
+    assert!(at.right() > f.size.x - 120.0 && at.top() < 200.0, "the head's right: {at:?}");
+    assert!(f.press(Key::Enter).iter().any(|c| matches!(c, Command::Refresh(host) if *host == id)));
+    f.hosts.list[0].apps = Apps::Loading;
+    f.settle();
+    assert_eq!(library::head_refresh(&f.hosts.list[0], None), Some(true));
+    assert_eq!(square(&f), Some(at), "it keeps the focus while it spins");
+    assert!(!f.press(Key::Enter).iter().any(|c| matches!(c, Command::Refresh(_))), "one read at a time");
+    f.hosts.list[0].apps = Apps::Loaded(vec![game(7)]);
+    f.settle();
+    assert_eq!(square(&f), Some(at));
+    assert_eq!(library::head_refresh(&f.hosts.list[0], None), Some(false));
+    // Beside what a running game offers.
+    f.hosts.list[0].info = Some(answer(true, 7));
+    f.settle();
+    let quit = f.placed.iter().find(|(t, ..)| t == "Quit game").map(|p| p.1).expect("Quit game");
+    assert!(quit.right() < at.left(), "{quit:?} {at:?}");
+    // No list, no second Refresh: the page's middle has it.
+    f.hosts.list[0].apps = Apps::Loaded(Vec::new());
+    assert_eq!(library::head_refresh(&f.hosts.list[0], None), None);
+    f.hosts.list[0].apps = Apps::Failed("no".into());
+    assert_eq!(library::head_refresh(&f.hosts.list[0], None), None);
+    f.hosts.list[0].apps = Apps::Loading;
+    assert_eq!(library::head_refresh(&f.hosts.list[0], Some(id)), None, "the empty page's own at work");
 }
 
 /// A waiting Play holds while a dialog is open: no stream starts under it and no typed text goes.

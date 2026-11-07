@@ -272,7 +272,7 @@ pub fn bitrate_slider(ui: &mut egui::Ui, value: &mut u32, enabled: bool) -> bool
     let response = ui.horizontal(|ui| {
         ui.add_space(crate::menu_style::PAD);
         ui.label(tr("Bitrate"));
-        ui.add_enabled_ui(enabled, |ui| crate::theme::slider(ui, &mut at, 0.0..=f64::from(positions()), 1.0,
+        ui.add_enabled_ui(enabled, |ui| crate::theme::slider(ui, &mut at, 0.0..=f64::from(positions()), 1.0, |at| label(kbps(at)),
             |rail| rail.step_by(1.0),
             |field| field.speed(0.25).custom_formatter(|at, _| label(kbps(at))).custom_parser(|text| parse(text).map(position)))).inner
     }).inner;

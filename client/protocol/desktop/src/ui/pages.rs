@@ -144,10 +144,10 @@ impl Launcher {
                 }).response
             });
             row(ui, "Stick dead zone", "Ignore small movements near the center, then scale smoothly to full travel.", |ui| {
-                slider(ui, &mut mapping.deadzone, 0..=50, 1.0, |rail| rail, |field| field.suffix("%"))
+                slider(ui, &mut mapping.deadzone, 0..=50, 1.0, percent, |rail| rail, |field| field.suffix("%"))
             });
             row(ui, "Trigger dead zone", "Ignore light trigger presses, then scale smoothly to full travel. Raise it if a resting trigger presses by itself.", |ui| {
-                slider(ui, &mut mapping.trigger_deadzone, 0..=MAX_TRIGGER_DEADZONE, 1.0, |rail| rail, |field| field.suffix("%"))
+                slider(ui, &mut mapping.trigger_deadzone, 0..=MAX_TRIGGER_DEADZONE, 1.0, percent, |rail| rail, |field| field.suffix("%"))
             });
             section(ui, "Axes");
             for (i, name) in AXIS_NAMES.iter().enumerate() {

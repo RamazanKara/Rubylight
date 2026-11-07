@@ -159,6 +159,8 @@ async fn rate_changes_set_the_bitrate_and_queue_the_rate() -> Result<()> {
         .unwrap()
         .values
         .insert("stream_reconfigure".into(), "false".into());
+    // As a save does: the control thread makes its configuration again only then.
+    h.h.config_version.fetch_add(1, Ordering::Release);
     client.send_control(RATE_CHANGE_MESSAGE_TYPE, &ask(5, 0, 30_000));
     let disabled = answer(&client, 5).await;
     assert_eq!(

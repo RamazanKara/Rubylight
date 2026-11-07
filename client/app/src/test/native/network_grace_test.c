@@ -228,6 +228,25 @@ static void run(const char* name, int gracePeriodMs, int silenceMs, int expected
     enet_host_destroy(host);
 }
 
+// What the watch for a PC that is gone reads and calls (HostLossWatch).
+static void hostSilence(void) {
+    CHECK(LiGetControlSilenceMs() == 0);
+    ENetAddress address;
+    ENetHost* host = createHost(&address);
+    ENetPeer* hostPeer = connectClient(host, &address);
+    (void)hostPeer;
+    PltSleepMs(300);
+    CHECK(LiGetControlSilenceMs() >= 200);
+    int before = reports;
+    LiEndStream(-108);
+    CHECK(reports == before + 1 && reportedReason == -108);
+    enet_host_destroy(client);
+    client = NULL;
+    peer = NULL;
+    CHECK(LiGetControlSilenceMs() == 0);
+    enet_host_destroy(host);
+}
+
 int main(void) {
     CHECK(enet_initialize() == 0);
     CHECK(PltCreateMutex(&enetMutex) == 0);
@@ -249,6 +268,7 @@ int main(void) {
     LiSetNetworkGracePeriodMs(CONTROL_PEER_TIMEOUT_MS + 1);
     CHECK(controlPeerTimeoutMs() == CONTROL_PEER_TIMEOUT_MS + 1);
 
+    hostSilence();
     run("no grace period: a silence longer than the default timeout ends the stream",
         0, 2500, -1, CONTROL_PEER_TIMEOUT_MS - 100, 2400, false, false);
     run("grace period: the same silence is ridden out and the host's exit still arrives",

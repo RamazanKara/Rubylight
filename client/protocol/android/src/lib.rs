@@ -207,6 +207,62 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_interruptConne
 
 /// The default network changed while a stream runs (`NvConnection`'s network callback):
 /// `MoonBridge.NETWORK_CARRIES_ON` (0), `NETWORK_ROAMED` (1) or `NETWORK_CANNOT_CONTINUE` (2).
+/// How long the host has been silent on the control stream, in milliseconds.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_getControlSilenceMs(
+    _: JNIEnv,
+    _: JClass,
+) -> jlong {
+    engine::with_session(0, |s| s.host_silence().as_millis() as jlong)
+}
+
+/// Ends the running session because the PC is gone (`HostLossWatch`): reported once.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_endStreamHostGone(
+    _: JNIEnv,
+    _: JClass,
+) {
+    engine::with_session((), |s| s.end_host_gone());
+}
+
+/// One step of [`nightjar_core::host_loss::Detector`] for `HostLossWatch`, which runs it over both
+/// engines: blocks for one round during a silence. Returns the detector's next state, or -1 when
+/// the PC is gone. `gateway` may be null; an address that does not parse proves nothing.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_hostLossStep(
+    mut env: JNIEnv,
+    _: JClass,
+    silence_ms: jlong,
+    host: JString,
+    port: jint,
+    gateway: JString,
+    state: jint,
+) -> jint {
+    use nightjar_core::host_loss::{probe_round, Detector};
+    let mut detector = Detector::from_state(state);
+    let silence = std::time::Duration::from_millis(silence_ms.max(0) as u64);
+    if !detector.wants_round(silence) {
+        return detector.state();
+    }
+    let mut address = |text: &JString| -> Option<std::net::IpAddr> {
+        if text.is_null() {
+            return None;
+        }
+        env.get_string(text).ok().and_then(|text| String::from(text).parse().ok())
+    };
+    let Some(host) = address(&host) else {
+        return 0;
+    };
+    let gateway = address(&gateway);
+    let started = std::time::Instant::now();
+    let round = probe_round(std::net::SocketAddr::new(host, port as u16), gateway);
+    if detector.step(silence + started.elapsed(), round) {
+        -1
+    } else {
+        detector.state()
+    }
+}
+
 #[no_mangle]
 pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_networkChanged(
     _: JNIEnv,

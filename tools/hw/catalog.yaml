@@ -402,6 +402,19 @@ cases:
     output: '{{out}}\results.jsonl, {{out}}\<arm>-<Mbps>m-<rep>-host.log, -latency.csv (Nightjar frame log), -mid.png (overlay)'
     note: 'fec_wifi_ab.py takes GPU-LOCK, then RETROID-LOCK, per run and streams from an isolated host on 192.168.4.69:48463 (nj-e2e-host, profile C:\tests\nj-fec-wifi) with the motion probe covering the monitor; `fec_wifi_ab.py setup` once pairs that profile with the device''s "njrf" computer entry, no PIN. 2026-11-01 FAIL for Auto (3.1.0 host, Nightjar 4.1.0 njrf build, Wi-Fi 7 at -43 to -46 dBm): Host 0 unrecovered, 0 frames lost, no extra IDR in 6 runs; Auto 6 unrecovered blocks, 14 frames lost, 6 extra IDR requests in 5 of 6 runs, freezes 0 both, host processing +0.03/+0.06 ms. Auto dropped parity to 0 % on a clean link, and a late packet in a block without parity cost a frame. Rerun with the 10 % floor (nj-fec-auto), 150 Mbps, H A A H: PASS, both arms 0 lost, 0 unrecovered, 0 frames lost, no extra IDR, no freezes, host processing +0.18 ms, Auto sent 17 % less; under loss it still fails (net-fec-auto-nuc), so Host stays the default (rust/PERFORMANCE.md)'
 
+  - id: nj-host-gone
+    device: retroid
+    title: Time until Nightjar says a stopped PC is gone, and that a Wi-Fi dropout or a stalled host does not end the stream
+    command: |
+      & {{python}} tools\hw\host_gone.py run --event kill --tag kill
+      & {{python}} tools\hw\host_gone.py run --event stop --tag stop
+      & {{python}} tools\hw\host_gone.py run --event wifi --hold 8 --tag wifi8
+      & {{python}} tools\hw\host_gone.py run --event suspend --hold 6 --tag suspend6
+    preconditions: [idle, isolated-ports]
+    pass: kill and stop end with the message in about 5 s or less; the stream survives wifi and suspend
+    output: '{{out}}\results.jsonl under unified\nj-host-gone'
+    note: 'Takes GPU-LOCK and RETROID-LOCK per run, host and pairing as nj-fec-wifi (fec_wifi_ab.py setup once).'
+
   - id: usb-forward-flash-drive
     device: desktop
     title: USB forwarding (Experimental), the STORE N GO flash drive from Nightjar desktop to an isolated host on this PC

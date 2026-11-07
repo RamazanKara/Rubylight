@@ -210,7 +210,7 @@ fn swapchain_takes_hdr(renderer: *mut SDL_Renderer) -> bool {
         )
         .cast();
         if device.is_null() {
-            return true;
+            return crate::handheld::renderer_takes_hdr(cfg!(windows), false, false);
         }
         let window = SDL_GetRenderWindow(renderer);
         let format = SDL_GetGPUSwapchainTextureFormat(device, window);
@@ -619,8 +619,17 @@ fn make_renderer(window: *mut SDL_Window, gpu: bool, vulkan: *mut SDL_GPUVulkanO
             renderer = SDL_CreateRendererWithProperties(props);
         }
         if renderer.is_null() && !cfg!(windows) && gpu && vulkan.is_null() {
+            let why = error();
             SDL_ClearProperty(props, SDL_PROP_RENDERER_CREATE_NAME_STRING);
             renderer = SDL_CreateRendererWithProperties(props);
+            if !renderer.is_null() {
+                eprintln!("nightjar: the GPU renderer could not be made ({why}), so Nightjar draws with {:?}: no HDR, PyroWave GPU decoding or shader passes", renderer_name(renderer));
+            }
+        }
+        // Linux without the GPU renderer: no `hdr_output` decision, so an HDR stream's refusal
+        // names the renderer instead of the compositor.
+        if !cfg!(windows) && !renderer.is_null() && renderer_name(renderer) != "gpu" {
+            *OUTPUT.lock().unwrap_or_else(|e| e.into_inner()) = Some(Err(crate::handheld::SdrReason::NoGpuRenderer));
         }
         SDL_DestroyProperties(props);
         renderer

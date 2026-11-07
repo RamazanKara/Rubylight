@@ -377,9 +377,13 @@ impl VideoStream {
         let receive_shared = shared.clone();
         let receive_stop = stop.clone();
         let receive_session = session.clone();
+        let direct_submit = start.direct_submit;
+        if !session.decode_priority {
+            session.log("Decode priority is off for this stream (switch set to 0)");
+        }
         stream.receive = Some(std::thread::Builder::new().name("VideoRecv".into()).spawn(
             move || {
-                receive_session.prioritize_thread();
+                receive_session.prioritize_receive_thread(direct_submit);
                 receive_thread(
                     socket,
                     next_socket,

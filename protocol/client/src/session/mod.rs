@@ -349,6 +349,8 @@ pub(crate) struct Shared {
     start_gate: Mutex<StartGate>,
     /// "Prioritize stream traffic" ([`SessionConfig::network_priority`]).
     network_priority: bool,
+    /// The decode priority switch ([`priority::decode_priority_switch`]), read once per session.
+    decode_priority: bool,
     /// Bytes of every video and audio datagram received, FEC parity included: what the stream
     /// takes on the wire ([`Session::wire_bytes`]).
     wire_bytes: AtomicU64,
@@ -378,6 +380,7 @@ impl Shared {
             terminated: AtomicBool::new(false),
             start_gate: Mutex::new(StartGate::Starting(None)),
             network_priority,
+            decode_priority: priority::decode_priority_switch(),
             wire_bytes: AtomicU64::new(0),
             host_watch: Mutex::new(None),
         }
@@ -466,18 +469,26 @@ impl Shared {
     /// Raises the calling session thread when "prioritize stream traffic" is on, and says so
     /// in the log if the OS refuses.
     pub(crate) fn prioritize_thread(&self) {
-        if let Err(e) = priority::prioritize_current_thread(self.network_priority) {
-            self.warn(&format!(
-                "Could not raise the priority of {}: {e}",
-                std::thread::current().name().unwrap_or("a stream thread")
-            ));
-        }
+        self.raise_thread(priority::StreamThread::Other);
+    }
+
+    /// Raises the video receive thread: to the decoder's level when it runs the decoder.
+    pub(crate) fn prioritize_receive_thread(&self, direct_submit: bool) {
+        self.raise_thread(priority::StreamThread::VideoReceive { direct_submit });
     }
 
     /// Raises the queued video decode thread; a refusal is logged, not fatal.
     pub(crate) fn prioritize_decode_thread(&self) {
-        if let Err(e) = priority::prioritize_decode_thread() {
-            self.warn(&format!("Could not raise the priority of VideoDec: {e}"));
+        self.raise_thread(priority::StreamThread::VideoDecode);
+    }
+
+    fn raise_thread(&self, thread: priority::StreamThread) {
+        let level = priority::thread_level(thread, self.network_priority, self.decode_priority);
+        if let Err(e) = priority::raise_current_thread(level) {
+            self.warn(&format!(
+                "Could not raise the priority of {}: {e}",
+                std::thread::current().name().unwrap_or("a stream thread")
+            ));
         }
     }
 }

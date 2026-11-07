@@ -1020,6 +1020,7 @@ public class StreamSettings extends NightjarActivity {
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
+        if (recreatingForForm()) return;
 
         // Window resizes (split screen, freeform) cross the two-pane width without recreating the activity.
         if (getResources().getBoolean(R.bool.settings_two_pane) != twoPane) {

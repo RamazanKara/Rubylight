@@ -386,6 +386,7 @@ pub enum Icon {
     Plus,
     More,
     Back,
+    Leave,
 }
 
 /// Draws `icon` centred in `rect` in `color`.
@@ -530,6 +531,11 @@ pub fn icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color32) {
         Icon::Back => {
             line(&[p(6.5, 0.0), p(-6.0, 0.0)]);
             line(&[p(-1.0, -5.0), p(-6.0, 0.0), p(-1.0, 5.0)]);
+        }
+        Icon::Leave => {
+            line(&[p(-1.0, -7.0), p(-7.0, -7.0), p(-7.0, 7.0), p(-1.0, 7.0)]);
+            line(&[p(-2.5, 0.0), p(7.5, 0.0)]);
+            line(&[p(3.5, -4.0), p(7.5, 0.0), p(3.5, 4.0)]);
         }
         Icon::More => {
             for x in [-5.5, 0.0, 5.5] {

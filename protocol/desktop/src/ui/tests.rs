@@ -5125,7 +5125,7 @@ fn the_demo_library_reaches_every_page() {
             Page::Home => Screen::Home,
             Page::AllGames | Page::Search => Screen::AllGames,
             Page::Game => Screen::Game { host: pc, app: 1002 },
-            Page::Pcs | Page::FirstRun | Page::FirstRunFound | Page::Dialog(_) | Page::PinStream | Page::PinChoose | Page::PinPage(_) => Screen::Hosts,
+            Page::Pcs | Page::FirstRun | Page::FirstRunFound | Page::Dialog(_) | Page::PinStream | Page::PinChoose | Page::PinPage(_) | Page::StreamMenu(_) => Screen::Hosts,
             Page::Apps => Screen::Apps(pc),
             Page::AppsEmpty => Screen::Apps(f.hosts.list[1].id),
             Page::Pc => Screen::HostDetails(pc),

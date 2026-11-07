@@ -87,6 +87,8 @@ pub struct Injector {
     key_sources: BTreeMap<u32, u32>,
     buttons: BTreeSet<u8>,
     touches: BTreeMap<u32, POINTER_TOUCH_INFO>,
+    /// The pass's touch moves not yet injected, by client id: they go out in one frame.
+    touch_moves: BTreeMap<u32, POINTER_TOUCH_INFO>,
     /// Touches on their way to mouse input, with a mouse or trackpad touch profile.
     touch_profile: butterpollo_core::touch_profile::TouchProfile,
     touch_device: Option<HSYNTHETICPOINTERDEVICE>,
@@ -256,6 +258,7 @@ impl Injector {
             key_sources: BTreeMap::new(),
             buttons: BTreeSet::new(),
             touches: BTreeMap::new(),
+            touch_moves: BTreeMap::new(),
             touch_profile: Default::default(),
             touch_device: None,
             pen_device: None,
@@ -507,6 +510,9 @@ impl Injector {
                 self.pending.errors.push(error);
             }
         }
+        if let Err(error) = self.flush_touch_moves() {
+            self.pending.errors.push(error);
+        }
         self.flush();
         std::mem::take(&mut self.pending.errors)
     }
@@ -516,6 +522,12 @@ impl Injector {
             return Ok(());
         }
         use Event::*;
+        // Touch moves held back go out before anything that follows them.
+        if !matches!(e, Touch { event: 3, .. })
+            && let Err(error) = self.flush_touch_moves()
+        {
+            self.pending.errors.push(error);
+        }
         if let Touch {
             event, id, x, y, ..
         } = *e

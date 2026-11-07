@@ -63,6 +63,73 @@ fn a_refused_move_keeps_the_last_accepted_position_for_release() {
     assert!(touches.is_empty());
 }
 #[test]
+fn a_pinch_moves_every_finger_in_one_frame_at_its_latest_position() {
+    let mut touches = BTreeMap::new();
+    for (id, x) in [(1, 10), (2, 90)] {
+        let down = touch_frame(&touches, id, 1, POINT { x, y: 50 }).unwrap();
+        submit_touch(&mut touches, id, down, 1, |_| Ok(())).unwrap();
+    }
+    // A, B, A, B in one pass: one frame with both fingers where they ended.
+    let mut moves = BTreeMap::new();
+    for (id, x) in [(1, 20), (2, 80), (1, 30), (2, 70)] {
+        moves.insert(
+            id,
+            touch_frame(&touches, id, 3, POINT { x, y: 50 }).unwrap(),
+        );
+    }
+    let mut frames = Vec::new();
+    submit_touch_moves(&mut touches, moves, |contacts| {
+        frames.push(xs(contacts));
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(frames, [vec![30, 70]]);
+    assert_eq!(touches[&1].pointerInfo.ptPixelLocation.x, 30);
+    assert_eq!(touches[&2].pointerInfo.ptPixelLocation.x, 70);
+    assert_eq!(
+        touches[&1].pointerInfo.pointerFlags & POINTER_FLAG_DOWN,
+        POINTER_FLAG_NONE
+    );
+    // A refused frame moves no finger, so a release lifts where Windows saw it.
+    let mut refused = BTreeMap::new();
+    refused.insert(
+        1,
+        touch_frame(&touches, 1, 3, POINT { x: 5, y: 5 }).unwrap(),
+    );
+    assert!(submit_touch_moves(&mut touches, refused, |_| bail!("busy")).is_err());
+    assert_eq!(touches[&1].pointerInfo.ptPixelLocation.x, 30);
+    // One finger: the same frame a lone move always made.
+    let one = touch_frame(&touches, 2, 3, POINT { x: 60, y: 50 }).unwrap();
+    let mut single = Vec::new();
+    let mut alone = touches.clone();
+    submit_touch(&mut alone, 2, one, 3, |contacts| {
+        single = xs(contacts);
+        Ok(())
+    })
+    .unwrap();
+    let mut batched = Vec::new();
+    submit_touch_moves(&mut touches, BTreeMap::from([(2, one)]), |contacts| {
+        batched = xs(contacts);
+        Ok(())
+    })
+    .unwrap();
+    single.sort_unstable();
+    batched.sort_unstable();
+    assert_eq!(single, batched);
+    assert_eq!(
+        alone[&2].pointerInfo.pointerFlags,
+        touches[&2].pointerInfo.pointerFlags
+    );
+}
+/// Each contact's horizontal position in a touch frame.
+fn xs(contacts: &[POINTER_TYPE_INFO]) -> Vec<i32> {
+    contacts
+        .iter()
+        // SAFETY: Every frame these tests send holds touch input.
+        .map(|c| unsafe { c.Anonymous.touchInfo.pointerInfo.ptPixelLocation.x })
+        .collect()
+}
+#[test]
 fn failed_batch_cancellation_attempts_every_contact_and_clears_state() {
     let mut touches = BTreeMap::new();
     for id in 1..=3 {

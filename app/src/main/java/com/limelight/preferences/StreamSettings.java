@@ -1168,6 +1168,16 @@ public class StreamSettings extends NightjarActivity {
         return false;
     }
 
+    /** Whether the first focus may be taken from this view: nothing holds it, or only the bars do, which the window gave it to. */
+    static boolean yieldsFirstFocus(android.app.Activity activity, View owner) {
+        if (owner == null) return true;
+        for (int id : new int[] {R.id.settings_toolbar, R.id.settings_chrome}) {
+            View bar = activity.findViewById(id);
+            if (bar instanceof ViewGroup && isWithin((ViewGroup) bar, owner)) return true;
+        }
+        return false;
+    }
+
     private static void stylePreferenceList(View view, android.app.Activity activity, boolean contentPane) {
         ListView list = GroupedListView.adopt(view);
         com.limelight.ui.UiNavigation.bindPreferencesWhenReady(list);
@@ -1184,9 +1194,7 @@ public class StreamSettings extends NightjarActivity {
                     return;
                 }
                 View owner = activity.findViewById(android.R.id.content).findFocus();
-                View toolbar = activity.findViewById(R.id.settings_toolbar);
-                boolean onToolbar = owner != null && toolbar instanceof ViewGroup && isWithin((ViewGroup) toolbar, owner);
-                if (!list.hasFocus() && (owner == null || onToolbar) && list.isAttachedToWindow()) list.requestFocus();
+                if (!list.hasFocus() && yieldsFirstFocus(activity, owner) && list.isAttachedToWindow()) list.requestFocus();
             });
         }
         list.setDivider(null);

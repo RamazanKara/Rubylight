@@ -608,16 +608,19 @@ final class GameMenuActions {
     }
 
     private void confirmHostExit(int title, int message, Runnable exit) {
-        androidx.appcompat.app.AlertDialog dialog = new NavigationDialogBuilder(game).startOnCancel().setTitle(title)
+        showStreamDialog(hostExitDialog(game, title, message, () -> game.streamMenuAction = exit));
+    }
+
+    /**
+     * The confirm for an action that ends the session or the game on the PC: the red of Home's confirms, not the moon (an
+     * error-coloured label on the moon was unreadable).
+     */
+    static AlertDialog hostExitDialog(Context context, int title, int message, Runnable onConfirm) {
+        AlertDialog dialog = new NavigationDialogBuilder(context).startOnCancel().setTitle(title)
                 .setMessage(message).setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(title, (prompt, which) -> game.streamMenuAction = exit).create();
-        showStreamDialog(dialog);
-        // The action ends the session or the game on the PC: its button carries the same error colour as the menu item.
-        android.widget.Button confirm = dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE);
-        if (confirm != null) {
-            confirm.setTextColor(com.google.android.material.color.MaterialColors.getColor(confirm,
-                    androidx.appcompat.R.attr.colorError));
-        }
+                .setPositiveButton(title, (prompt, which) -> onConfirm.run()).create();
+        com.limelight.utils.UiHelper.markDestructive(dialog);
+        return dialog;
     }
 
     /** Closes the game on the PC (the native Close game, or Quit app on a host without the API) and leaves. */

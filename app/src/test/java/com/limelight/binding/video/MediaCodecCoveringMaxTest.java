@@ -58,28 +58,28 @@ public class MediaCodecCoveringMaxTest {
                 MediaCodecDecoderRenderer.upFrontMax(3840, 2160, new int[] {4320, 4320}, 2, 2, ANY, false));
     }
 
+    // initializeDecoder needs a real codec ladder, so this pins the wiring: off unless
+    // debug.nightjar.covering_max is 1, only decoders with adaptive playback get the covering, and
+    // it stays through the low-latency ladder (no extra cycle for a decoder that takes a later
+    // try); only when every try failed does the ladder run again at the stream's own maximum.
     @Test
-    public void theSwitchDefaultsOn() {
-        assertEquals("covering_max", MediaCodecDecoderRenderer.COVERING_SWITCH);
-    }
-
-    // initializeDecoder needs a real codec ladder, so this pins the wiring: only decoders with
-    // adaptive playback get the covering, and a refusal retries the same try at the stream's
-    // maximum instead of throwing or giving up on the decoder.
-    @Test
-    public void aRefusedCoveringMaximumRetriesAtTheStreamsOwn() throws Exception {
+    public void aCoveringMaximumIsOffByDefaultAndOnlyAWhollyRefusedLadderDropsIt() throws Exception {
         String source = new String(Files.readAllBytes(
                 Paths.get("src/main/java/com/limelight/binding/video/MediaCodecDecoderRenderer.java")), StandardCharsets.UTF_8);
-        assertTrue(source.contains("MediaCodecHelper.debugSwitch(COVERING_SWITCH, true)"));
+        assertEquals("covering_max", MediaCodecDecoderRenderer.COVERING_SWITCH);
+        assertTrue("off by default", source.contains("MediaCodecHelper.debugSwitch(COVERING_SWITCH, false)"));
         assertTrue(source.contains("if (adaptivePlayback && coveringSize != null && !coveringRefused"));
         assertTrue("a try with the covering never throws",
                 source.contains("throwOnCodecError && !dolbyVision && !coveringApplied)"));
-        int retry = source.indexOf("if (coveringApplied) {");
-        int giveUp = source.indexOf("if (!newFormat) {", retry);
-        assertTrue("the retry comes before the ladder gives up", retry > 0 && giveUp > retry);
-        String block = source.substring(retry, giveUp);
+        int lastTry = source.indexOf("if (!newFormat) {\n                if (coveringApplied) {");
+        assertTrue("the fallback runs only once the ladder is out of tries", lastTry > 0);
+        assertEquals("no fallback on an earlier try", lastTry + "if (!newFormat) {\n                ".length(),
+                source.indexOf("if (coveringApplied) {"));
+        String block = source.substring(lastTry, source.indexOf("continue;", lastTry));
         assertTrue(block.contains("maxDecodeWidth = streamMax[0];"));
         assertTrue(block.contains("coveringRefused = true;"));
-        assertTrue(block.contains("tryNumber--;"));
+        assertTrue("the whole ladder again, from try 0", block.contains("tryNumber = -1;"));
+        assertTrue("before the Dolby Vision and upscaler fallbacks",
+                source.indexOf("if (dolbyVision) {", lastTry) > lastTry + block.length());
     }
 }

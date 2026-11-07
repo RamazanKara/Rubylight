@@ -117,7 +117,8 @@ final class PairingDialogs {
         final NativePairing.Request request = waiting.request;
         View content = activity.getLayoutInflater().inflate(R.layout.dialog_pairing_pin, null);
         ((TextView) content.findViewById(R.id.pairing_pin_from)).setText(from(waiting));
-        final TextView value = content.findViewById(R.id.pairing_pin_value);
+        final com.limelight.ui.PinSlots value = content.findViewById(R.id.pairing_pin_value);
+        value.show("");
         final GridLayout pad = content.findViewById(R.id.pairing_pin_pad);
         final StringBuilder pin = new StringBuilder();
 
@@ -153,17 +154,20 @@ final class PairingDialogs {
         for (int digit = 1; digit <= 9; digit++) {
             addDigit(dialog, pad, pin, value, digit);
         }
+        // Delete at the end of the last row, as on every pad of ours; nothing stands at its start here.
+        pad.addView(new android.widget.Space(pad.getContext()));
+        addDigit(dialog, pad, pin, value, 0);
         MaterialButton erase = padButton(pad);
         erase.setIconResource(R.drawable.ic_backspace);
+        erase.setIconGravity(MaterialButton.ICON_GRAVITY_TEXT_START);
         erase.setIconPadding(0);
         erase.setContentDescription(activity.getString(R.string.pairing_pin_erase));
         erase.setOnClickListener(v -> eraseDigit(dialog, pad, pin, value));
-        addDigit(dialog, pad, pin, value, 0);
 
         dialog.setOnShowListener(shown -> {
             View approve = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
             approve.setEnabled(false);
-            approve.setOnClickListener(v -> approve(dialog, pad, waiting, client, pin.toString(), value));
+            approve.setOnClickListener(v -> approve(dialog, pad, waiting, client, pin.toString(), content.findViewById(R.id.pairing_pin_from)));
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v -> deny(dialog, pad, waiting, client));
             pad.getChildAt(0).requestFocus();
         });
@@ -195,7 +199,7 @@ final class PairingDialogs {
     }
 
     private MaterialButton padButton(GridLayout pad) {
-        MaterialButton button = new MaterialButton(pad.getContext(), null, R.attr.nightjarButtonTonalStyle);
+        MaterialButton button = new MaterialButton(pad.getContext(), null, R.attr.nightjarPinKeyStyle);
         GridLayout.LayoutParams params = new GridLayout.LayoutParams();
         int margin = activity.getResources().getDimensionPixelSize(R.dimen.space_xs);
         params.setMargins(margin, margin, margin, margin);
@@ -205,19 +209,19 @@ final class PairingDialogs {
         return button;
     }
 
-    private void addDigit(AlertDialog dialog, GridLayout pad, StringBuilder pin, TextView value, int digit) {
+    private void addDigit(AlertDialog dialog, GridLayout pad, StringBuilder pin, com.limelight.ui.PinSlots value, int digit) {
         MaterialButton button = padButton(pad);
         button.setText(String.valueOf(digit));
         button.setOnClickListener(v -> typeDigit(dialog, pad, pin, value, digit));
     }
 
-    private void typeDigit(AlertDialog dialog, ViewGroup pad, StringBuilder pin, TextView value, int digit) {
+    private void typeDigit(AlertDialog dialog, ViewGroup pad, StringBuilder pin, com.limelight.ui.PinSlots value, int digit) {
         // A pad that is off means the host is answering; keys reach this too.
         if (pin.length() >= PIN_LENGTH || !pad.getChildAt(0).isEnabled()) {
             return;
         }
         pin.append(digit);
-        value.setText(pin);
+        value.show(pin);
         if (pin.length() == PIN_LENGTH) {
             View approve = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
             approve.setEnabled(true);
@@ -225,12 +229,12 @@ final class PairingDialogs {
         }
     }
 
-    private void eraseDigit(AlertDialog dialog, ViewGroup pad, StringBuilder pin, TextView value) {
+    private void eraseDigit(AlertDialog dialog, ViewGroup pad, StringBuilder pin, com.limelight.ui.PinSlots value) {
         if (pin.length() == 0 || !pad.getChildAt(0).isEnabled()) {
             return;
         }
         pin.setLength(pin.length() - 1);
-        value.setText(pin);
+        value.show(pin);
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
     }
 
@@ -245,10 +249,10 @@ final class PairingDialogs {
     }
 
     private void approve(AlertDialog dialog, ViewGroup pad, PairingWatch.Waiting waiting, SleepFlow.Client client,
-                         String pin, TextView value) {
+                         String pin, TextView line) {
         final String name = waiting.shownName();
         setBusy(dialog, pad);
-        value.setText(activity.getString(R.string.pairing_waiting_for, name));
+        line.setText(activity.getString(R.string.pairing_waiting_for, name));
         worker.execute(() -> {
             NativeApiException failure = null;
             String paired = null;

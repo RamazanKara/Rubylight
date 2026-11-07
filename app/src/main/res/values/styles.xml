@@ -117,6 +117,7 @@
         <item name="nightjarButtonRestStroke">@android:color/transparent</item>
         <item name="nightjarCardFocusAnimator">@animator/tv_card_focus</item>
         <item name="nightjarControlFocusAnimator">@animator/tv_control_focus</item>
+        <item name="nightjarPinKeyStyle">@style/NightjarPinKey</item>
         <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus</item>
         <item name="nightjarPosterRing">@drawable/tv_poster_ring</item>
         <item name="nightjarPosterGlow">@drawable/tv_focus_glow_fade</item>
@@ -255,6 +256,7 @@
         <item name="nightjarButtonRestStroke">@android:color/transparent</item>
         <item name="nightjarCardFocusAnimator">@animator/tv_card_focus</item>
         <item name="nightjarControlFocusAnimator">@animator/tv_control_focus</item>
+        <item name="nightjarPinKeyStyle">@style/NightjarPinKey</item>
         <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus</item>
         <item name="nightjarPosterRing">@drawable/tv_poster_ring</item>
         <item name="nightjarPosterGlow">@drawable/tv_focus_glow_fade</item>
@@ -483,6 +485,22 @@
         <item name="android:fontFamily">?attr/nightjarFaceStrong</item>
         <item name="fontFamily">?attr/nightjarFaceStrong</item>
         <item name="android:stateListAnimator">?attr/nightjarControlFocusAnimator</item>
+    </style>
+
+    <!-- A key of a PIN pad: a capsule in the control tint, with the dialogs' one focus ring. -->
+    <style name="NightjarPinKey" parent="Widget.Material3.Button">
+        <item name="android:background">@drawable/dialog_button_control</item>
+        <item name="backgroundTint">@null</item>
+        <item name="rippleColor">@null</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+        <item name="iconTint">?attr/colorOnSurface</item>
+        <item name="android:textAppearance">@style/TextAppearance.Nightjar.PinKey</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:padding">0dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:minHeight">@dimen/touch_target</item>
+        <item name="android:stateListAnimator">@null</item>
     </style>
 
     <!-- The dialog's one primary action. -->

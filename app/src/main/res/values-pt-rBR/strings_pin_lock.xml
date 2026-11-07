@@ -49,9 +49,4 @@
     <string name="pin_key_delete">Apagar</string>
     <string name="pin_key_confirm">Confirmar</string>
     <string name="pin_dots_description">%1$d de %2$d dígitos digitados</string>
-    <string name="pin_hint">Para cima e para baixo escolhem uma linha. Esquerda, OK e direita pressionam as teclas dela.</string>
-    <string name="pin_row_1">Linha 1: 1, 2, 3</string>
-    <string name="pin_row_2">Linha 2: 4, 5, 6</string>
-    <string name="pin_row_3">Linha 3: 7, 8, 9</string>
-    <string name="pin_row_4">Linha 4: Apagar, 0, Confirmar</string>
 </resources>

@@ -49,9 +49,4 @@
     <string name="pin_key_delete">Borrar</string>
     <string name="pin_key_confirm">Confirmar</string>
     <string name="pin_dots_description">%1$d de %2$d dígitos introducidos</string>
-    <string name="pin_hint">Arriba y Abajo eligen una fila. Izquierda, Aceptar y Derecha pulsan sus teclas.</string>
-    <string name="pin_row_1">Fila 1: 1, 2, 3</string>
-    <string name="pin_row_2">Fila 2: 4, 5, 6</string>
-    <string name="pin_row_3">Fila 3: 7, 8, 9</string>
-    <string name="pin_row_4">Fila 4: Borrar, 0, Confirmar</string>
 </resources>

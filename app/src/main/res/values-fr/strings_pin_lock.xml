@@ -49,9 +49,4 @@
     <string name="pin_key_delete">Effacer</string>
     <string name="pin_key_confirm">Confirmer</string>
     <string name="pin_dots_description">%1$d chiffre(s) sur %2$d saisi(s)</string>
-    <string name="pin_hint">Haut et Bas choisissent une rangée. Gauche, OK et Droite appuient sur ses touches.</string>
-    <string name="pin_row_1">Rangée 1 : 1, 2, 3</string>
-    <string name="pin_row_2">Rangée 2 : 4, 5, 6</string>
-    <string name="pin_row_3">Rangée 3 : 7, 8, 9</string>
-    <string name="pin_row_4">Rangée 4 : Effacer, 0, Confirmer</string>
 </resources>

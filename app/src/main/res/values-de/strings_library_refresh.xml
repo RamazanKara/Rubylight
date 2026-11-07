@@ -16,4 +16,12 @@
     <string name="library_offline">Dieser PC ist offline. Deine gespeicherte Bibliothek ist noch da. Stelle die Verbindung zum Spielen wieder her.</string>
     <string name="library_hidden_notice">Spiel aus der Bibliothek ausgeblendet</string>
     <string name="library_undo">Rückgängig</string>
+    <plurals name="library_results">
+        <item quantity="one">%1$d von %2$d Spiel</item>
+        <item quantity="other">%1$d von %2$d Spielen</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="one">%1$d Spiel · einschließlich ausgeblendeter</item>
+        <item quantity="other">%1$d Spiele · einschließlich ausgeblendeter</item>
+    </plurals>
 </resources>

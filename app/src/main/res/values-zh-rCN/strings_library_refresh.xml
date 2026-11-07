@@ -17,4 +17,10 @@
     <string name="library_offline">此电脑处于离线状态。你保存的游戏库仍在此处。重新连接后即可开始玩。</string>
     <string name="library_hidden_notice">已从游戏库中隐藏游戏</string>
     <string name="library_undo">撤消</string>
+    <plurals name="library_results">
+        <item quantity="other">%2$d 个游戏中的 %1$d 个</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="other">%1$d 个游戏 · 包括隐藏的游戏</item>
+    </plurals>
 </resources>

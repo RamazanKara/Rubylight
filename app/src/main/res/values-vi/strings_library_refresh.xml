@@ -17,4 +17,10 @@
     <string name="library_offline">PC này đang ngoại tuyến. Thư viện đã lưu của bạn vẫn còn đây. Hãy kết nối lại để chơi.</string>
     <string name="library_hidden_notice">Đã ẩn trò chơi khỏi thư viện</string>
     <string name="library_undo">Hoàn tác</string>
+    <plurals name="library_results">
+        <item quantity="other">%1$d/%2$d trò chơi</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="other">%1$d trò chơi · gồm cả trò chơi đã ẩn</item>
+    </plurals>
 </resources>

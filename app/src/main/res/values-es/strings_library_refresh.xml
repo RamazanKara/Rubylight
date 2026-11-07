@@ -17,4 +17,14 @@
     <string name="library_offline">Este PC no está conectado. Tu biblioteca guardada sigue aquí. Vuelve a conectarte para jugar.</string>
     <string name="library_hidden_notice">Juego ocultado de tu biblioteca</string>
     <string name="library_undo">Deshacer</string>
+    <plurals name="library_results">
+        <item quantity="one">%1$d de %2$d juego</item>
+        <item quantity="many">%1$d de %2$d juegos</item>
+        <item quantity="other">%1$d de %2$d juegos</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="one">%1$d juego · incluidos los ocultos</item>
+        <item quantity="many">%1$d juegos · incluidos los ocultos</item>
+        <item quantity="other">%1$d juegos · incluidos los ocultos</item>
+    </plurals>
 </resources>

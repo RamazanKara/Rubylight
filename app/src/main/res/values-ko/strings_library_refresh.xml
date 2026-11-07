@@ -17,4 +17,10 @@
     <string name="library_offline">이 PC는 오프라인입니다. 저장된 라이브러리는 그대로 있습니다. 플레이하려면 다시 연결하세요.</string>
     <string name="library_hidden_notice">라이브러리에서 게임을 숨겼습니다</string>
     <string name="library_undo">실행취소</string>
+    <plurals name="library_results">
+        <item quantity="other">게임 %2$d개 중 %1$d개</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="other">게임 %1$d개 · 숨긴 게임 포함</item>
+    </plurals>
 </resources>

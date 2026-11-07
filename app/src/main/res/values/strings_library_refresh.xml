@@ -16,4 +16,12 @@
     <string name="library_offline">This PC is offline. Your saved library is still here. Reconnect to play.</string>
     <string name="library_hidden_notice">Game hidden from your library</string>
     <string name="library_undo">Undo</string>
+    <plurals name="library_results">
+        <item quantity="one">%1$d of %2$d game</item>
+        <item quantity="other">%1$d of %2$d games</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="one">%1$d game · including hidden</item>
+        <item quantity="other">%1$d games · including hidden</item>
+    </plurals>
 </resources>

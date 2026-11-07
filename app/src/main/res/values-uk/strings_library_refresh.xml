@@ -17,4 +17,16 @@
     <string name="library_offline">Цей ПК не в мережі. Збережена бібліотека нікуди не зникла. Підключіться знову, щоб грати.</string>
     <string name="library_hidden_notice">Гру приховано з бібліотеки</string>
     <string name="library_undo">Скасувати</string>
+    <plurals name="library_results">
+        <item quantity="one">Ігор: %1$d з %2$d</item>
+        <item quantity="few">Ігор: %1$d з %2$d</item>
+        <item quantity="many">Ігор: %1$d з %2$d</item>
+        <item quantity="other">Ігор: %1$d з %2$d</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="one">%1$d гра · разом із прихованими</item>
+        <item quantity="few">%1$d гри · разом із прихованими</item>
+        <item quantity="many">%1$d ігор · разом із прихованими</item>
+        <item quantity="other">%1$d гри · разом із прихованими</item>
+    </plurals>
 </resources>

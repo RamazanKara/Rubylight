@@ -119,6 +119,8 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             scheduleReload();
         }
         @Override public void onWakeSent(ComputerDetails computer) { }
+        // A form change waited for the wake; asked once the wake's end is done, as on the PCs page.
+        @Override public void onWakeEnded(ComputerDetails computer) { followFormSoon(); }
         @Override public void pausePolling() { feed.pause(); }
         @Override public void resumePolling() { if (shown) feed.resume(); }
         @Override public void pairingChanged() {
@@ -162,7 +164,8 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     /** A pairing, a wake or a game being added keeps this screen until it is done; it then follows the form. */
     @Override
     protected boolean holdsForm() {
-        return hostActions.isPairing() || hostActions.isWaking() || wake.isWaiting() || !adding.isEmpty();
+        return hostActions.isPairing() || hostActions.isWaking() || hostActions.isShowingError() || wake.isWaiting()
+                || !adding.isEmpty();
     }
 
     @Override
@@ -997,6 +1000,8 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         @Override public void onAdded() {
             refreshedSignature = null;
             scheduleReload();
+            // A form change waited for the add.
+            followFormSoon();
         }
     };
 

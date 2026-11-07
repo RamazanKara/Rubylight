@@ -102,8 +102,9 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
                 row.wakeSentAt = 0;
                 pcGridAdapter.notifyDataSetChanged();
             }
-            // A form change waited for the wake.
-            followForm();
+            // A form change waited for the wake. Not at once: a wake moved to another PC ends this one first, and a
+            // timeout's error dialog comes right after (its dismissal gives the window focus back, which asks again).
+            followFormSoon();
         }
         @Override public void pausePolling() { stopComputerUpdates(false); }
         @Override public void resumePolling() { startComputerUpdates(); }
@@ -241,10 +242,10 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         return true;
     }
 
-    /** A pairing or a wake keeps this screen until it is done; it then follows the form. */
+    /** A pairing, a wake or a failure's dialog keeps this screen until it is done; it then follows the form. */
     @Override
     protected boolean holdsForm() {
-        return hostActions.isPairing() || hostActions.isWaking();
+        return hostActions.isPairing() || hostActions.isWaking() || hostActions.isShowingError();
     }
 
     @Override

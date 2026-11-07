@@ -1450,6 +1450,17 @@ public final class HostActions {
             builder.setNegativeButton(android.R.string.cancel, null)
                     .setPositiveButton(R.string.pair_try_again, (dialog, which) -> retry.run());
         }
-        builder.show();
+        AlertDialog shown = builder.show();
+        errorDialog = shown;
+        shown.setOnDismissListener(ignored -> {
+            if (errorDialog == shown) errorDialog = null;
+        });
+    }
+
+    private AlertDialog errorDialog;
+
+    /** Whether a failure's dialog from here is on the screen: the screen must not be laid out again under it. */
+    public boolean isShowingError() {
+        return errorDialog != null && errorDialog.isShowing();
     }
 }

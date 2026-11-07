@@ -474,21 +474,23 @@ fn async_wait_us(fps_millihz: u32) -> u64 {
 /// Sends a frame (`pts`, its number in the top 32 bits) to `decoder` and hands each picture that
 /// comes out to `picture`. A decoder that says EAGAIN has its ready pictures read and gets the
 /// frame again. An asynchronous decoder (V4L2 M2M) is asked again every [`ASYNC_POLL_US`]
-/// (`poll` waits that long), for up to `wait_us`, until this frame's picture comes out, as
-/// moonlight-qt's decode loop does; what is still in flight then comes out with a later frame.
+/// (`poll` waits that long) until this frame's picture comes out, as moonlight-qt's decode loop
+/// does, until `wait_us` after the send by `elapsed_us` (microseconds since the call), one
+/// deadline for reading after EAGAIN and for the frame's own picture; what is still in flight
+/// then comes out with a later frame.
 fn feed<D: PictureDecoder>(
     decoder: &mut D,
     data: &[u8],
     pts: i64,
     wait_us: u64,
+    elapsed_us: impl Fn() -> u64,
     mut poll: impl FnMut(),
     mut picture: impl FnMut(D::Picture),
 ) -> FedFrame {
     let number = (pts >> 32) as u32;
-    let polls = if decoder.asynchronous() { wait_us / ASYNC_POLL_US } else { 0 };
+    let asynchronous = decoder.asynchronous();
     let mut fed = FedFrame::default();
     let mut receive = |decoder: &mut D, fed: &mut FedFrame, done: &dyn Fn(&FedFrame) -> bool| {
-        let mut polls = polls;
         loop {
             match decoder.receive() {
                 Received::Frame(out) => {
@@ -498,10 +500,7 @@ fn feed<D: PictureDecoder>(
                     fed.pictures += 1;
                     picture(out);
                 }
-                Received::None if polls > 0 && !done(fed) => {
-                    polls -= 1;
-                    poll();
-                }
+                Received::None if asynchronous && !done(fed) && elapsed_us() < wait_us => poll(),
                 Received::None => return,
                 Received::Error => {
                     fed.failed = true;
@@ -1026,7 +1025,9 @@ impl Decoder {
         let pooled = decoder.pooled();
         let fps_millihz = self.shared.fps_millihz.load(Ordering::Relaxed).max(1);
         let (shared, in_flight, pool_waiting) = (&self.shared, &mut self.in_flight, self.pool_waiting);
+        let sent_at = std::time::Instant::now();
         let fed = feed(decoder, frame.data(), pts, async_wait_us(fps_millihz),
+            || sent_at.elapsed().as_micros() as u64,
             || std::thread::sleep(std::time::Duration::from_micros(ASYNC_POLL_US)),
             |picture| {
                 let ready = session::now_us();
@@ -1866,11 +1867,12 @@ mod tests {
     }
 
     /// Feeds frame `number` with `wait_us`, returning what it did, the pictures that came out and
-    /// how often it waited.
+    /// how often it waited. Each wait takes [`ASYNC_POLL_US`], everything else no time.
     fn feed_frame(decoder: &mut FakeDecoder, number: u32, wait_us: u64) -> (FedFrame, Vec<FakePicture>, u32) {
-        let (mut pictures, mut polls) = (Vec::new(), 0);
-        let fed = feed(decoder, &[0; 4], pts(number), wait_us, || polls += 1, |picture| pictures.push(picture));
-        (fed, pictures, polls)
+        let (mut pictures, polls) = (Vec::new(), std::cell::Cell::new(0u32));
+        let fed = feed(decoder, &[0; 4], pts(number), wait_us, || u64::from(polls.get()) * ASYNC_POLL_US,
+            || polls.set(polls.get() + 1), |picture| pictures.push(picture));
+        (fed, pictures, polls.get())
     }
 
     #[test]
@@ -1903,6 +1905,21 @@ mod tests {
         assert_eq!(async_wait_us(60_000), 8_000);
         assert_eq!(async_wait_us(120_000), 4_166);
         assert_eq!(async_wait_us(240_000), 2_083);
+    }
+
+    /// Reading after EAGAIN and waiting for the frame's own picture each had the whole wait, so
+    /// a frame could hold the decoder thread for twice its bound.
+    #[test]
+    fn reading_after_eagain_and_waiting_for_the_picture_share_one_deadline() {
+        // The driver takes one frame and needs 20 polls (5 ms) for each.
+        let mut decoder = FakeDecoder::v4l2(20, 1);
+        let wait_us = async_wait_us(60_000);
+        feed_frame(&mut decoder, 1, 0);
+        let (fed, pictures, polls) = feed_frame(&mut decoder, 2, wait_us);
+        assert_eq!(pictures, [FakePicture(pts(1), false)], "frame 1's picture after EAGAIN");
+        assert!(!fed.own && !fed.refused && !fed.failed, "{fed:?}");
+        assert_eq!(u64::from(polls), wait_us / ASYNC_POLL_US, "8 ms in all, not 5 ms and then 8 more");
+        assert_eq!(frame_status(&fed, true, true), DecodeStatus::Ok);
     }
 
     #[test]

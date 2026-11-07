@@ -269,6 +269,10 @@ public final class HostSheet extends FrameLayout {
         open = false;
         back.setEnabled(false);
         hideBehind(false);
+        // Under a finger the rows held the keys while it was open: closed, they give them back to the page.
+        rows.setFocusable(false);
+        rows.setFocusableInTouchMode(false);
+        firstRow = null;
         if (anchor != null && !isInTouchMode()) anchor.requestFocus();
         if (onClosed != null) onClosed.run();
         scrim.animate().cancel();

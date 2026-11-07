@@ -116,6 +116,25 @@ public class HostSheetTest {
         assertFalse(sheet.isOpen());
     }
 
+    /** Under a finger the rows hold the keys while it is open; closed, they must give them back. */
+    @Test
+    public void closingLeavesNoFocusBehindInTheRows() {
+        View[] anchor = new View[1];
+        ActivityController<Screen> controller = screen(anchor);
+        List<HomeModel.HostCard> picked = new ArrayList<>();
+        List<HostSheet.Row> rows = Arrays.asList(new HostSheet.Row(card("A", true), "Online", R.drawable.status_dot_ok, true));
+        HostSheet sheet = open(controller, anchor[0], rows, picked);
+        View list = org.robolectric.util.ReflectionHelpers.getField(sheet, "rows");
+        org.robolectric.util.ReflectionHelpers.setField(sheet, "firstRow", list);
+        list.setFocusable(true);
+        list.setFocusableInTouchMode(true);
+
+        sheet.close();
+        assertFalse(list.isFocusable());
+        assertFalse(list.isFocusableInTouchMode());
+        assertTrue("no row held on to", org.robolectric.util.ReflectionHelpers.getField(sheet, "firstRow") == null);
+    }
+
     @Test
     public void backClosesItAndATapOutsideToo() {
         View[] anchor = new View[1];

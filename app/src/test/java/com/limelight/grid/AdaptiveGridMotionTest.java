@@ -177,6 +177,22 @@ public class AdaptiveGridMotionTest {
         }
     }
 
+    /** The list's next pass hands out other views for the same places: the rise lived on the old ones, and every card popped in. */
+    @Test
+    public void aPassOfTheListDuringTheRiseKeepsItGoing() {
+        open(3000);
+        grid.playEnter();
+        grid.getViewTreeObserver().dispatchOnPreDraw();
+        ((android.widget.BaseAdapter) grid.getAdapter()).notifyDataSetChanged();
+        layout();
+        assertEquals("still to come", 0f, grid.getChildAt(0).getAlpha(), 0.05f);
+        assertTrue("and below", grid.getChildAt(0).getTranslationY() > 0f);
+        pass(1000);
+        layout();
+        assertEquals(1f, grid.getChildAt(0).getAlpha(), 0f);
+        assertEquals(0f, grid.getChildAt(0).getTranslationY(), 0f);
+    }
+
     @Test
     public void aKeyEndsTheRiseAtOnce() {
         open(3000);

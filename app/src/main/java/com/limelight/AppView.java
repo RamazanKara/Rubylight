@@ -710,6 +710,13 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
         ambience.setLine(this::focusLine);
     }
 
+    /** The first time the grid holds games: a PC's cached list reaches the adapter before the grid exists, a fresh one after. */
+    private void playEnterOnce(View grid) {
+        if (enterPlayed || !(grid instanceof AdaptiveGridView)) return;
+        enterPlayed = true;
+        ((AdaptiveGridView) grid).playEnter();
+    }
+
     private void updateLibraryState() {
         if (librarySearch == null) return;
         int visible = appGridAdapter == null ? 0 : appGridAdapter.getCount();
@@ -718,11 +725,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
                 ambience.clear();
             } else {
                 ambience.refresh();
-                View grid = findViewById(R.id.fragmentView);
-                if (!enterPlayed && grid instanceof AdaptiveGridView) {
-                    enterPlayed = true;
-                    ((AdaptiveGridView) grid).playEnter();
-                }
+                playEnterOnce(findViewById(R.id.fragmentView));
             }
         }
         placeFoot();
@@ -1325,6 +1328,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
         }
         listView.setAdapter(appGridAdapter);
         if (ambience != null) ambience.bind(listView, appGridAdapter);
+        if (appGridAdapter.getCount() > 0) playEnterOnce(listView);
         listView.setOnItemClickListener(new OnItemClickListener() {
             @Override
             public void onItemClick(AdapterView<?> arg0, View arg1, int pos,

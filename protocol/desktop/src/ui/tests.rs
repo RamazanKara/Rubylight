@@ -4025,23 +4025,35 @@ fn a_menu_rows_ring_and_glow_end_before_the_list_cuts_them() {
     }
 }
 
-/// The Help and Settings cards read the same on the sky's moon as the PCs' cards do: the disc's sharp
-/// edge ran through a card's words. The moon now stands clear of them, so a card meets it only as
-/// the page scrolls: its canvas follows the moon where it really stands, and none goes elsewhere.
+/// The cards and rows read the same on the sky's moon as the PCs' cards do: the disc's sharp edge
+/// ran through a card's words. The moon stands clear of them at the page's top, so a card meets it
+/// as the page scrolls: there it gets its canvas, which follows the moon where it really stands and
+/// goes nowhere else.
 #[test]
 fn a_card_on_the_moon_has_canvas_under_its_words() {
     let canvas = design_tokens::COLOR_CANVAS.gamma_multiply(0.8);
-    for screen in [Screen::Help, Screen::Settings] {
-        let (mut f, _) = three_pcs();
-        f.l.go(screen);
+    for (window, zoom) in [(vec2(1280.0, 800.0), 100), (vec2(1100.0, 650.0), 100), (vec2(1280.0, 800.0), 150)] {
+        let mut f = four_pcs();
+        f.l.settings.ui_zoom = zoom;
+        f.size = window;
+        f.l.go(Screen::Profiles);
         f.settle();
-        let disc = backdrop::disc_of(&f.ctx);
-        for (mesh, _) in meshes_drawn(&f) {
-            if mesh.vertices.iter().any(|v| v.color == canvas) {
-                let bounds = mesh.calc_bounds();
-                assert!(disc.is_some_and(|(center, r)| bounds.distance_to_pos(center) < r), "{screen:?}: canvas at {bounds:?}, away from the moon {disc:?}");
+        let what = format!("Profiles at {window:?}, {zoom} %");
+        let (center, r) = backdrop::disc_of(&f.ctx).unwrap_or_else(|| panic!("{what}: the moon stands beside the rows"));
+        let mut on_moon = 0;
+        for _ in 0..40 {
+            f.frame(vec![egui::Event::PointerMoved((f.size / 2.0).to_pos2())]);
+            f.frame(vec![egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -30.0), phase: egui::TouchPhase::Move, source: egui::MouseWheelSource::Unknown, modifiers: egui::Modifiers::NONE }]);
+            assert_eq!(backdrop::disc_of(&f.ctx), Some((center, r)), "{what}: the moon holds still as the page scrolls");
+            for (mesh, clip) in meshes_drawn(&f) {
+                if mesh.vertices.iter().any(|v| v.color == canvas) {
+                    let bounds = mesh.calc_bounds().intersect(clip);
+                    assert!(bounds.distance_to_pos(center) < r, "{what}: canvas at {bounds:?}, away from the moon at {center:?}, r {r}");
+                    on_moon += 1;
+                }
             }
         }
+        assert!(on_moon > 0, "{what}: rows scrolled over the moon get their canvas");
     }
 }
 
@@ -7147,11 +7159,13 @@ fn a_control_tile_with_the_running_id_is_never_what_resume_runs() {
 /// The moon stands in open sky: never under a card, chip, row or title and never cut by one, on
 /// every page that draws it, in the default window at 150 % (where it sat under the PCs' cards and
 /// on Settings' last chip), a large window, the smallest one and 150 % in German. Where a page
-/// leaves no sky the moon steps back; a large window keeps it on the PCs and Settings.
+/// leaves no sky the moon steps back; a large window keeps it on the PCs and Settings. Every kind
+/// of shape counts: meshes, rectangles, circles, paths and words.
 #[test]
 fn the_moon_stands_clear_of_every_card_and_chip() {
     let pages = [Screen::Hosts, Screen::Settings, Screen::Help, Screen::Profiles, Screen::Controllers, Screen::Shortcuts, Screen::StreamHotkeys];
     let windows = [(vec2(1280.0, 800.0), 150, false), (vec2(1280.0, 800.0), 100, false), (vec2(1920.0, 1080.0), 100, false), (vec2(720.0, 490.0), 100, false), (vec2(1280.0, 800.0), 150, true)];
+    let mut kinds = std::collections::BTreeSet::new();
     for (window, zoom, german) in windows {
         for page in pages {
             let mut f = four_pcs();
@@ -7159,49 +7173,299 @@ fn the_moon_stands_clear_of_every_card_and_chip() {
             if german {
                 f.l.settings.language = crate::config::Language::German;
             }
-            f.size = window / (zoom as f32 / 100.0);
+            f.size = window;
             f.l.go(page);
             f.settle();
-            f.settle();
             let what = format!("{page:?} at {window:?}, {zoom} %{}", if german { ", German" } else { "" });
-            let screen = Rect::from_min_size(Pos2::ZERO, f.size);
-            // Scrolling moves the page, not the moon: egui does not paint what scrolled away, and the
-            // moon came into that room over the rows.
-            let still = |f: &mut Frames| {
-                let at_top = backdrop::disc_of(&f.ctx);
-                f.scroll_to_end();
-                f.settle();
-                assert_eq!(backdrop::disc_of(&f.ctx), at_top, "{what}: the moon holds still as the page scrolls");
-            };
-            let Some((center, r)) = backdrop::disc_of(&f.ctx) else {
+            if backdrop::disc_of(&f.ctx).is_none() {
                 assert!(window.x < 1920.0 || !matches!(page, Screen::Hosts | Screen::Settings), "{what}: a large window has sky for the moon");
-                still(&mut f);
-                continue;
-            };
-            assert!(screen.contains_rect(Rect::from_center_size(center, Vec2::splat(r * 2.0))), "{what}: the moon is whole in the window");
-            let mut held: Vec<(String, Rect)> = f.placed.iter().filter(|(t, ..)| !t.trim().is_empty()).map(|(t, rect, clip)| (t.clone(), rect.intersect(*clip))).collect();
-            for (mesh, clip) in meshes_drawn(&f) {
-                let bounds = mesh.calc_bounds().intersect(clip);
-                // The sky, the page colour and the veil run the window's width; the moon is itself;
-                // the chrome's soft shade falls from the window's top.
-                if bounds.width() >= screen.width() - 1.0 || (bounds.center() - center).length() < 2.0 || bounds.top() <= screen.top() {
-                    continue;
-                }
-                held.push(("a shape".into(), bounds));
             }
-            for (name, rect) in held {
-                if rect.is_positive() && rect.intersects(screen) {
-                    assert!(rect.distance_to_pos(center) >= r, "{what}: the moon at {center:?}, r {r}, meets {name} at {rect:?}");
+            kinds.extend(assert_moon_clear(&f, &what));
+        }
+    }
+    for kind in ["mesh", "rect", "circle", "path", "text"] {
+        assert!(kinds.contains(kind), "a {kind} was checked: {kinds:?}");
+    }
+}
+
+/// From a game's ambient to the sky the moon fades in with it; nothing pops in at full, the fade
+/// runs to its end and the moon stands in one place all along.
+#[test]
+fn from_art_to_the_sky_the_moon_fades_in_with_it() {
+    for (window, zoom, page) in [(vec2(1280.0, 800.0), 100, Screen::Hosts), (vec2(1280.0, 800.0), 150, Screen::Profiles), (vec2(1280.0, 800.0), 150, Screen::Hosts)] {
+        let mut f = home_with_games(2);
+        let pc = f.hosts.list[0].id;
+        f.hosts.list[0].apps = Apps::Loaded(vec![nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) }]);
+        f.hosts.list[0].art.insert(1000, Art::Missing);
+        f.l.settings.ui_zoom = zoom;
+        f.size = window;
+        f.l.go(Screen::Game { host: pc, app: 1000 });
+        f.settle();
+        f.settle();
+        let what = format!("{page:?} at {window:?}, {zoom} %");
+        assert!(f.l.ambient.shows_art() && backdrop::painted(&f.ctx).moons.is_empty(), "{what}: the game's tile shows");
+        f.l.go(page);
+        let frames = follow_the_fade(&mut f, &what, false);
+        let first = &frames[0];
+        assert!(first.fading && first.along < 0.35, "{what}: the sky fades in from the art: {first:?}");
+        let discs: std::collections::HashSet<_> = frames.iter().flat_map(|p| p.moons.iter().map(|(d, _)| (d.0.x.to_bits(), d.0.y.to_bits(), d.1.to_bits()))).collect();
+        assert!(discs.len() <= 1, "{what}: one moon in one place: {frames:?}");
+        assert_moon_clear(&f, &what);
+    }
+}
+
+/// From one page's sky to the next the old moon fades out where it stood as the new one fades in
+/// where it stands: none pops in or out at full, and the sky's fade is never cut short.
+#[test]
+fn from_sky_to_sky_the_moons_cross_fade() {
+    let pairs = [(Screen::Settings, Screen::Help), (Screen::Profiles, Screen::Hosts), (Screen::Hosts, Screen::Profiles), (Screen::Profiles, Screen::Controllers), (Screen::Hosts, Screen::Settings), (Screen::StreamHotkeys, Screen::Profiles)];
+    let windows = [(vec2(1280.0, 800.0), 150), (vec2(1280.0, 800.0), 100), (vec2(1100.0, 650.0), 100)];
+    let mut moved = 0;
+    for (window, zoom) in windows {
+        for (from, to) in pairs {
+            let mut f = four_pcs();
+            f.l.settings.ui_zoom = zoom;
+            f.size = window;
+            f.l.go(from);
+            f.settle();
+            let before = backdrop::disc_of(&f.ctx);
+            f.l.go(to);
+            let what = format!("{from:?} to {to:?} at {window:?}, {zoom} %");
+            follow_the_fade(&mut f, &what, false);
+            let after = backdrop::disc_of(&f.ctx);
+            if before.is_some() && after.is_some() && before != after {
+                moved += 1;
+            }
+            assert_moon_clear(&f, &what);
+        }
+    }
+    assert!(moved > 0, "some page change moves the moon");
+}
+
+/// Pointing at or focusing what stands nearest the moon moves nothing: a card's lift shadow and a
+/// focus halo are no cards, and the moon neither moves nor fades.
+#[test]
+fn hover_and_focus_by_the_moon_leave_it_where_it_stands() {
+    let pages = [Screen::Hosts, Screen::Profiles, Screen::Settings, Screen::Controllers];
+    // The PCs at 1200x560 and 1020x600: the moon stands its gap below a card, within its lift shadow.
+    let windows = [(vec2(1200.0, 560.0), 100), (vec2(1020.0, 600.0), 100), (vec2(1280.0, 800.0), 100), (vec2(1100.0, 650.0), 100), (vec2(1280.0, 800.0), 150), (vec2(1600.0, 900.0), 125)];
+    let mut reached = 0;
+    for (window, zoom) in windows {
+        for page in pages {
+            let mut f = four_pcs();
+            f.l.settings.ui_zoom = zoom;
+            f.size = window;
+            f.l.go(page);
+            f.settle();
+            let Some((center, r)) = backdrop::disc_of(&f.ctx) else { continue };
+            let screen = Rect::from_min_size(Pos2::ZERO, f.size);
+            // What can be pointed at near the moon, but the chrome and the scroll bar.
+            let mut near: Vec<egui::WidgetRect> = f.ctx.viewport(|v| {
+                v.prev_pass.widgets.layers().flat_map(|(_, w)| w.iter().copied()).filter(|w| w.sense.senses_click() && w.rect.top() >= chrome::PAGE_TOP && w.rect.height() < screen.height() * 0.8 && w.rect.distance_to_pos(center) < r + 80.0).collect()
+            });
+            near.sort_by(|a, b| a.rect.distance_to_pos(center).total_cmp(&b.rect.distance_to_pos(center)));
+            near.truncate(4);
+            for widget in near {
+                let what = format!("{page:?} at {window:?}, {zoom} %, by {:?}", widget.rect);
+                let soft = glass::soft_textures(&f.ctx);
+                let reaches = |f: &Frames| meshes_drawn(f).iter().any(|(m, _)| soft.contains(&m.texture_id) && m.calc_bounds().distance_to_pos(center) < r);
+                let calm = |f: &Frames, how: &str| {
+                    assert_eq!(backdrop::disc_of(&f.ctx), Some((center, r)), "{what}: {how} moves the moon");
+                    let painted = backdrop::painted(&f.ctx);
+                    assert!(!painted.fading && painted.moons == vec![((center, r), 1.0)], "{what}: {how} fades the moon: {painted:?}");
+                };
+                f.frame(vec![egui::Event::PointerMoved(widget.rect.center())]);
+                for _ in 0..3 {
+                    f.settle();
+                    reached += usize::from(reaches(&f));
+                    calm(&f, "pointing");
+                }
+                f.frame(vec![egui::Event::PointerGone]);
+                f.settle();
+                if widget.sense.is_focusable() {
+                    f.ctx.memory_mut(|m| m.request_focus(widget.id));
+                    for _ in 0..3 {
+                        f.settle();
+                        reached += usize::from(reaches(&f));
+                        if backdrop::disc_of(&f.ctx) == Some((center, r)) {
+                            calm(&f, "the focus");
+                        } else {
+                            panic!("{what}: the focus moves the moon to {:?}", backdrop::disc_of(&f.ctx));
+                        }
+                    }
+                    f.ctx.memory_mut(|m| m.surrender_focus(widget.id));
+                    f.settle();
                 }
             }
-            still(&mut f);
+        }
+    }
+    assert!(reached > 0, "a shadow or halo reached the moon somewhere, and it stayed");
+}
+
+/// A window resized or zoomed shows no moon from before: the frame it changes in, the moon already
+/// stands clear and whole in the new window, or has stepped back.
+#[test]
+fn a_resized_or_zoomed_window_shows_no_stale_moon() {
+    for page in [Screen::Hosts, Screen::Profiles, Screen::Controllers, Screen::Settings] {
+        let mut f = four_pcs();
+        f.size = vec2(1280.0, 800.0);
+        f.l.go(page);
+        f.settle();
+        // A window drag changes the size; a zoom changes the points the next frame.
+        let steps = [(vec2(1100.0, 650.0), 100), (vec2(1100.0, 650.0), 150), (vec2(1280.0, 800.0), 150), (vec2(1920.0, 1080.0), 150), (vec2(1920.0, 1080.0), 100), (vec2(720.0, 490.0), 100), (vec2(1280.0, 800.0), 100), (vec2(1280.0, 800.0), 125)];
+        for (window, zoom) in steps {
+            if zoom != f.l.settings.ui_zoom {
+                f.l.settings.ui_zoom = zoom;
+                f.frame(Vec::new());
+            }
+            let (before, last) = (backdrop::disc_of(&f.ctx), backdrop::painted(&f.ctx));
+            f.size = window;
+            f.frame(Vec::new());
+            let what = format!("{page:?} the frame it went to {window:?}, {zoom} %");
+            assert_moon_clear(&f, &what);
+            let disc = backdrop::disc_of(&f.ctx);
+            if let (Some(_), Some(now)) = (before, disc) {
+                assert_eq!(backdrop::painted(&f.ctx).moons, vec![(now, 1.0)], "{what}: one moon that moves, at full");
+            } else {
+                // It steps back or comes back: it fades.
+                fade_step(&last, &backdrop::painted(&f.ctx), &what, 0, false);
+            }
+            // As the page settles in the new window it may move on, never fade out and in.
+            follow_the_fade(&mut f, &what, true);
+            f.settle();
+            assert_moon_clear(&f, &what);
         }
     }
 }
 
+/// A page first seen scrolled (here: the window changed size while it was) could not show what
+/// scrolled away; its moon keeps out of that, so it stays put when the page goes back to its top.
+#[test]
+fn a_page_first_seen_scrolled_keeps_its_moon_at_the_top() {
+    let mut placed = 0;
+    // Ten PCs: rows scroll away above, and the last row leaves sky on the right.
+    for (page, more) in [(Screen::Profiles, 0), (Screen::Hosts, 0), (Screen::Hosts, 6), (Screen::Settings, 0), (Screen::Help, 0), (Screen::Controllers, 0)] {
+        for (first, then) in [(vec2(1280.0, 800.0), vec2(1100.0, 650.0)), (vec2(1100.0, 650.0), vec2(1280.0, 800.0)), (vec2(1280.0, 800.0), vec2(1920.0, 1080.0)), (vec2(853.0, 533.0), vec2(1000.0, 800.0))] {
+            let mut f = pcs_more(more);
+            f.size = first;
+            f.l.go(page);
+            f.settle();
+            f.scroll_to_end();
+            f.size = then;
+            f.settle();
+            let what = format!("{page:?} scrolled at {first:?}, then {then:?}");
+            let disc = backdrop::disc_of(&f.ctx);
+            placed += usize::from(disc.is_some());
+            f.frame(vec![egui::Event::PointerMoved((f.size / 2.0).to_pos2())]);
+            f.frame(vec![egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: vec2(0.0, 1000.0), phase: egui::TouchPhase::Move, source: egui::MouseWheelSource::Unknown, modifiers: egui::Modifiers::NONE }]);
+            for _ in 0..10 {
+                f.settle();
+            }
+            assert_eq!(backdrop::disc_of(&f.ctx), disc, "{what}: back at the top the moon stays");
+            assert_moon_clear(&f, &what);
+        }
+    }
+    assert!(placed > 0, "some page first seen scrolled has a moon");
+}
+
+/// Steps frames until the sky's fade ends, checking each against the one before: a moon that comes
+/// starts faint, one that goes leaves faint, one that stays changes by a frame's step at most, and
+/// the fade only runs forward.
+fn follow_the_fade(f: &mut Frames, what: &str, moves: bool) -> Vec<backdrop::Painted> {
+    let mut last = backdrop::painted(&f.ctx);
+    let mut frames = Vec::new();
+    for n in 0..12 {
+        f.frame(Vec::new());
+        let now = backdrop::painted(&f.ctx);
+        fade_step(&last, &now, what, n, moves);
+        frames.push(now.clone());
+        last = now;
+    }
+    assert!(!last.fading, "{what}: the fade ends");
+    frames
+}
+
+/// One frame of [`follow_the_fade`]. A moon still fading that moves on its page (its first frame
+/// laid out a little differently) goes on fading where it stands: one that goes and one that comes
+/// alike are one moon. With `moves` a moon at full may move too: the window changed size.
+fn fade_step(last: &backdrop::Painted, now: &backdrop::Painted, what: &str, n: usize, moves: bool) {
+    let step = 0.35;
+    let mut gone: Vec<_> = last.moons.iter().filter(|(d, _)| !now.moons.iter().any(|(e, _)| e == d)).collect();
+    for (disc, alpha) in &now.moons {
+        match last.moons.iter().find(|(d, _)| d == disc) {
+            Some((_, was)) => assert!((alpha - was).abs() <= step, "{what}, frame {n}: the moon at {disc:?} jumps from {was} to {alpha}: {last:?} then {now:?}"),
+            None if *alpha <= step => {}
+            None => {
+                let moved = gone.iter().position(|(_, was)| (alpha - was).abs() <= step && (moves || *alpha < 1.0));
+                let moved = moved.unwrap_or_else(|| panic!("{what}, frame {n}: a moon at {disc:?} comes in at {alpha}: {last:?} then {now:?}"));
+                gone.remove(moved);
+            }
+        }
+    }
+    for (disc, was) in gone {
+        assert!(*was <= step, "{what}, frame {n}: the moon at {disc:?} goes at {was}");
+    }
+    if last.fading && now.fading {
+        assert!(now.along >= last.along, "{what}, frame {n}: the fade starts over: {last:?} then {now:?}");
+    }
+}
+
+/// Asserts the moon this frame is whole in the window and clear of everything the page drew, and
+/// says which kinds of shape it checked.
+fn assert_moon_clear(f: &Frames, what: &str) -> Vec<&'static str> {
+    let Some((center, r)) = backdrop::disc_of(&f.ctx) else {
+        return Vec::new();
+    };
+    let screen = f.ctx.content_rect();
+    assert!(screen.contains_rect(Rect::from_center_size(center, Vec2::splat(r * 2.0))), "{what}: the moon at {center:?}, r {r}, is whole in the window");
+    let mut kinds = Vec::new();
+    for (kind, rect) in page_shapes(f) {
+        if rect.is_positive() && rect.intersects(screen) {
+            assert!(rect.distance_to_pos(center) >= r, "{what}: the moon at {center:?}, r {r}, meets a {kind} at {rect:?}");
+            kinds.push(kind);
+        }
+    }
+    kinds
+}
+
+/// Every shape the last frame drew but the backdrop's own, as laid out within its clip: the sky,
+/// the page colour and the veil run the window's width, the chrome's soft shade falls from the
+/// window's top, and blurred shadows and halos are no cards.
+fn page_shapes(f: &Frames) -> Vec<(&'static str, Rect)> {
+    fn walk(shape: &egui::Shape, clip: Rect, soft: &glass::SoftTextures, out: &mut Vec<(&'static str, Rect)>) {
+        let (kind, rect) = match shape {
+            egui::Shape::Vec(shapes) => return shapes.iter().for_each(|s| walk(s, clip, soft, out)),
+            egui::Shape::Mesh(mesh) if soft.contains(&mesh.texture_id) => return,
+            egui::Shape::Mesh(mesh) => ("mesh", mesh.calc_bounds()),
+            egui::Shape::Rect(rect) => ("rect", rect.rect),
+            egui::Shape::Circle(circle) => ("circle", Rect::from_center_size(circle.center, Vec2::splat(circle.radius * 2.0))),
+            egui::Shape::Path(path) => ("path", Rect::from_points(&path.points)),
+            egui::Shape::Text(text) => ("text", text.visual_bounding_rect()),
+            egui::Shape::Noop => return,
+            other => ("shape", other.visual_bounding_rect()),
+        };
+        out.push((kind, rect.intersect(clip)));
+    }
+    let screen = f.ctx.content_rect();
+    let soft = glass::soft_textures(&f.ctx);
+    let backdrop = |shape: &egui::Shape| matches!(shape, egui::Shape::Vec(s) if matches!(s.first(), Some(egui::Shape::Rect(r)) if r.rect.min == Pos2::ZERO && r.fill == design_tokens::COLOR_CANVAS));
+    let mut out = Vec::new();
+    for clipped in f.shapes.iter().filter(|c| !backdrop(&c.shape)) {
+        walk(&clipped.shape, clipped.clip_rect, &soft, &mut out);
+    }
+    out.retain(|(_, rect)| rect.width() < screen.width() - 1.0 && rect.top() > screen.top());
+    out
+}
+
 /// The demo's PCs page: one running a game, one online, one asleep and one not paired.
 fn four_pcs() -> Frames {
+    pcs_more(0)
+}
+
+/// [`four_pcs`] and `more` paired PCs after them.
+fn pcs_more(more: usize) -> Frames {
     let mut records = vec![record("Living Room PC", true, true), record("Studio PC", true, true), record("Office PC", true, true), record("Game Room PC", false, false)];
+    records.extend((0..more).map(|n| record(&format!("PC {n}"), true, false)));
     for (n, record) in records.iter_mut().enumerate() {
         record.address = format!("192.0.2.{}", 80 + n);
     }
@@ -7217,3 +7481,6 @@ fn four_pcs() -> Frames {
     hosts.list[0].apps = Apps::Loaded(vec![game(1)]);
     Frames::over(ctx, l, hosts)
 }
+
+
+

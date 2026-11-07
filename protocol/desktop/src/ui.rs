@@ -1036,10 +1036,13 @@ impl Launcher {
             self.go(Screen::Hosts);
         }
         let want = self.page_backdrop(&view, &sources);
-        // The moon stands clear of what this page held when last drawn.
+        // The backdrop goes under the page but is painted once the page is drawn: its moon stands
+        // clear of what this page holds, in the same frame.
         self.ambient.set_page(&ctx, self.screen);
         self.ambient.set_orbit(self.screen == Screen::Hosts && first_run::first_run_of(view.hosts).is_some() && view.hosts.discovering);
-        ui.painter().extend(self.ambient.paint(&ctx, want));
+        self.ambient.prepare(&ctx, want);
+        let under = ui.painter().clone();
+        let backdrop_slot = under.add(egui::Shape::Noop);
         let margin = chrome::page_margin(full.width());
         let content = Rect::from_min_max(
             Pos2::new(full.left() + margin, full.top() + chrome::PAGE_TOP),
@@ -1096,6 +1099,7 @@ impl Launcher {
             self.paint_brand(&ctx, brand, logo);
             // What rose over its neighbours, under the chrome and whatever covers the page.
             glass::flush_deferred(ui);
+            under.set(backdrop_slot, egui::Shape::Vec(self.ambient.finish(&ctx)));
             let veil = self.ambient.veil(&ctx, full, chrome::brand_rect(full), self.page_scrolled);
             ui.painter().with_clip_rect(full).extend(veil);
         });

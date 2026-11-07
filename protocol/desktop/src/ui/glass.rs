@@ -131,9 +131,34 @@ impl CrossFade {
         if self.current.as_ref().is_some_and(|(k, _)| *k == key) {
             return;
         }
-        self.previous = self.current.take().map(|(_, t)| t);
+        let now = ctx.input(|i| i.time);
+        // A second change in the frame the fade started changes its mind: the fade still runs from
+        // what showed, not from what never did.
+        if self.current.is_none() || self.started != now {
+            self.previous = self.current.take().map(|(_, t)| t);
+        }
         self.current = Some((key, texture));
-        self.started = ctx.input(|i| i.time);
+        self.started = now;
+    }
+
+    /// Puts `texture` in the place of what fades in, the fade going on as it was.
+    pub fn swap(&mut self, key: u64, texture: TextureHandle) {
+        self.current = Some((key, texture));
+    }
+
+    /// Whether a fade still runs.
+    pub fn running(&self, ctx: &Context) -> bool {
+        self.along(ctx) < 1.0
+    }
+
+    fn along(&self, ctx: &Context) -> f32 {
+        let ms = ambient_ms(ctx);
+        if ms == 0 {
+            1.0
+        } else {
+            let elapsed = (ctx.input(|i| i.time) - self.started) as f32 * 1000.0;
+            (elapsed / ms as f32).clamp(0.0, 1.0)
+        }
     }
 
     /// The layers [`Self::backdrop`] handed out this frame.
@@ -143,17 +168,7 @@ impl CrossFade {
 
     /// This frame's layers, covering `area` of the screen; also hands them to glass.
     pub fn backdrop(&mut self, ctx: &Context, area: Rect) -> Backdrop {
-        let ms = if spring::motion(ctx) {
-            t::MOTION_AMBIENT_MS
-        } else {
-            t::REDUCED_AMBIENT_MS
-        };
-        let along = if ms == 0 {
-            1.0
-        } else {
-            let elapsed = (ctx.input(|i| i.time) - self.started) as f32 * 1000.0;
-            (elapsed / ms as f32).clamp(0.0, 1.0)
-        };
+        let along = self.along(ctx);
         if along < 1.0 {
             ctx.request_repaint();
         } else {
@@ -170,6 +185,15 @@ impl CrossFade {
         };
         set_backdrop(ctx, backdrop);
         backdrop
+    }
+}
+
+/// How long the ambient takes to fade, none with reduced motion.
+pub fn ambient_ms(ctx: &Context) -> u32 {
+    if spring::motion(ctx) {
+        t::MOTION_AMBIENT_MS
+    } else {
+        t::REDUCED_AMBIENT_MS
     }
 }
 
@@ -602,6 +626,18 @@ fn window_resizing(ctx: &Context) -> bool {
     }
 }
 
+/// The bakes [`soft`] and [`soft_around`] draw with: shadows and halos, not what a page lays out.
+pub type SoftTextures = Arc<std::collections::HashSet<TextureId>>;
+
+fn soft_textures_id() -> Id {
+    Id::unique("nightjar-soft-textures")
+}
+
+/// Every texture a blurred shape was drawn with so far.
+pub fn soft_textures(ctx: &Context) -> SoftTextures {
+    ctx.data(|d| d.get_temp(soft_textures_id())).unwrap_or_default()
+}
+
 fn soft_shape(
     out: &mut Vec<Shape>,
     ctx: &Context,
@@ -652,6 +688,8 @@ fn soft_shape(
                     ctx.data_mut(|d| {
                         d.insert_temp(id, handle.clone());
                         d.insert_temp(latest_id, (handle.clone(), baked));
+                        let soft = d.get_temp_mut_or_default::<SoftTextures>(soft_textures_id());
+                        Arc::make_mut(soft).insert(handle.id());
                     });
                     (handle, baked)
                 }
@@ -1053,6 +1091,11 @@ pub fn defer_focused(ui: &Ui, shapes: Vec<Shape>) {
         d.get_temp_mut_or_default::<Vec<(Rect, Vec<Shape>)>>(deferred_id())
             .push((clip, shapes))
     });
+}
+
+/// What is deferred so far, left in place.
+pub fn deferred(ctx: &Context) -> Vec<(Rect, Vec<Shape>)> {
+    ctx.data(|d| d.get_temp(deferred_id())).unwrap_or_default()
 }
 
 /// What is deferred so far, taken away, for a test to look at.

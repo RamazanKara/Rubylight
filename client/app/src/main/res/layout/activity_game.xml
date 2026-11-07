@@ -53,19 +53,41 @@
         android:preferKeepClear="true"
         android:visibility="gone">
 
-        <TextView
-            android:id="@+id/performanceOverlay"
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:gravity="start"
-            android:textAppearance="@style/TextAppearance.Nightjar.Mono"
-            android:textColor="@android:color/white"
-            android:shadowColor="#FF000000"
-            android:shadowRadius="2"
-            android:lineSpacingExtra="1dp"
-            android:maxWidth="440dp"
-            android:paddingHorizontal="8dp"
-            android:paddingVertical="4dp" />
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/performanceOverlay"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="start"
+                android:textAppearance="@style/TextAppearance.Nightjar.Mono"
+                android:textColor="@android:color/white"
+                android:shadowColor="#FF000000"
+                android:shadowRadius="2"
+                android:lineSpacingExtra="1dp"
+                android:maxWidth="@dimen/stream_overlay_column"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="4dp" />
+
+            <!-- Where nothing can scroll the overlay (a TV's remote goes to the PC), the rest of its text. -->
+            <TextView
+                android:id="@+id/performanceOverlayColumn2"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="start"
+                android:textAppearance="@style/TextAppearance.Nightjar.Mono"
+                android:textColor="@android:color/white"
+                android:shadowColor="#FF000000"
+                android:shadowRadius="2"
+                android:lineSpacingExtra="1dp"
+                android:maxWidth="@dimen/stream_overlay_column"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="4dp"
+                android:visibility="gone" />
+        </LinearLayout>
     </ScrollView>
 
     <!-- Shown once, on the first stream: how to open the stream menu with this device's inputs. -->

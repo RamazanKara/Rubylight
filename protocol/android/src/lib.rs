@@ -256,51 +256,22 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_getHostAddress
 }
 
 /// [`nightjar_core::host_loss::after_goodbye`] for `HostLossWatch`: one round's verdict after
-/// the host's goodbye, as [`nightjar_core::host_loss::Goodbye::code`]. `pings` is 1 or 0 for the
-/// PC's answer to the round's ping, -1 when there was none.
+/// the host's goodbye, as [`nightjar_core::host_loss::Goodbye::code`].
 #[no_mangle]
 pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_hostLossAfterGoodbye(
     _: JNIEnv,
     _: JClass,
-    pinged_at_start: jboolean,
     on_link: jboolean,
     round: jint,
-    pings: jint,
-    closed_before: jboolean,
     waited_ms: jlong,
 ) -> jint {
-    host_loss_after_goodbye(pinged_at_start == JNI_TRUE, on_link == JNI_TRUE, round, pings, closed_before == JNI_TRUE, waited_ms)
+    host_loss_after_goodbye(on_link == JNI_TRUE, round, waited_ms)
 }
 
-fn host_loss_after_goodbye(pinged_at_start: bool, on_link: bool, round: jint, pings: jint, closed_before: bool, waited_ms: jlong) -> jint {
+fn host_loss_after_goodbye(on_link: bool, round: jint, waited_ms: jlong) -> jint {
     use nightjar_core::host_loss::{after_goodbye, Round};
-    let pings = match pings {
-        1 => Some(true),
-        0 => Some(false),
-        _ => None,
-    };
     let waited = std::time::Duration::from_millis(waited_ms.max(0) as u64);
-    after_goodbye(pinged_at_start, on_link, Round::from_code(round), pings, closed_before, waited).code()
-}
-
-/// One ICMP echo to `host` through an unprivileged datagram socket: 1 answered, 0 not, -1 when
-/// this device may not ping that way (the app then asks `InetAddress.isReachable`).
-#[no_mangle]
-pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_hostLossPing(
-    mut env: JNIEnv,
-    _: JClass,
-    host: JString,
-    timeout_ms: jint,
-) -> jint {
-    let Some(host) = java_address(&mut env, &host) else {
-        return -1;
-    };
-    let timeout = std::time::Duration::from_millis(timeout_ms.max(1) as u64);
-    match nightjar_core::host_loss::ping(host, timeout) {
-        Ok(true) => 1,
-        Ok(false) => 0,
-        Err(_) => -1,
-    }
+    after_goodbye(on_link, Round::from_code(round), waited).code()
 }
 
 /// The default network changed while a stream runs (`NvConnection`'s network callback):
@@ -1129,31 +1100,28 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_usbList(
 #[cfg(test)]
 mod host_loss_tests {
     use super::host_loss_after_goodbye;
-    use nightjar_core::host_loss::{Goodbye, Round, RESTART_GRACE};
+    use nightjar_core::host_loss::{Goodbye, Round, HOST_EXIT_WINDOW, QUIET_LINK_WAIT};
 
-    const GRACE_MS: i64 = RESTART_GRACE.as_millis() as i64;
+    const EXIT_MS: i64 = HOST_EXIT_WINDOW.as_millis() as i64;
+    const QUIET_MS: i64 = QUIET_LINK_WAIT.as_millis() as i64;
 
     #[test]
     fn the_codes_from_java_reach_the_shared_verdict() {
-        let silent = Round::SilentLinkUp.code();
-        assert_eq!(host_loss_after_goodbye(true, true, silent, 0, false, 0), Goodbye::Gone.code());
-        assert_eq!(host_loss_after_goodbye(true, true, silent, 1, false, 0), Goodbye::Wait.code());
-        assert_eq!(host_loss_after_goodbye(true, true, silent, 1, true, GRACE_MS), Goodbye::Gone.code());
-        assert_eq!(host_loss_after_goodbye(true, true, Round::Answered.code(), 1, true, 900), Goodbye::Back.code());
-        assert_eq!(host_loss_after_goodbye(true, true, Round::Refused.code(), 1, false, 0), Goodbye::Wait.code());
+        assert_eq!(host_loss_after_goodbye(true, Round::SilentLinkUp.code(), 0), Goodbye::Gone.code());
+        assert_eq!(host_loss_after_goodbye(true, Round::Refused.code(), 0), Goodbye::Gone.code());
+        assert_eq!(host_loss_after_goodbye(true, Round::Answered.code(), 0), Goodbye::Wait.code());
+        assert_eq!(host_loss_after_goodbye(true, Round::Answered.code(), EXIT_MS), Goodbye::Unknown.code());
     }
 
     #[test]
     fn what_java_cannot_tell_is_the_old_behaviour() {
-        let silent = Round::SilentLinkUp.code();
-        // No ping asked (-1), an unknown round code, a PC off the link, no first ping.
-        assert_eq!(host_loss_after_goodbye(true, true, silent, -1, false, 0), Goodbye::Unknown.code());
+        // A PC off the link.
+        assert_eq!(host_loss_after_goodbye(false, Round::SilentLinkUp.code(), 0), Goodbye::Unknown.code());
         // An unknown round code reads as a quiet link: another round, then the old behaviour.
-        assert_eq!(host_loss_after_goodbye(true, true, 99, 0, false, 0), Goodbye::Wait.code());
-        assert_eq!(host_loss_after_goodbye(true, true, 99, 0, false, GRACE_MS + 2000), Goodbye::Unknown.code());
-        assert_eq!(host_loss_after_goodbye(true, false, silent, 0, false, 0), Goodbye::Unknown.code());
-        assert_eq!(host_loss_after_goodbye(false, true, silent, 0, false, 0), Goodbye::Unknown.code());
+        assert_eq!(host_loss_after_goodbye(true, 99, 0), Goodbye::Wait.code());
+        assert_eq!(host_loss_after_goodbye(true, 99, QUIET_MS), Goodbye::Unknown.code());
         // A negative wait from a clock step is no wait.
-        assert_eq!(host_loss_after_goodbye(true, true, silent, 1, true, -5), Goodbye::Wait.code());
+        assert_eq!(host_loss_after_goodbye(true, Round::Answered.code(), -5), Goodbye::Wait.code());
     }
 }
+

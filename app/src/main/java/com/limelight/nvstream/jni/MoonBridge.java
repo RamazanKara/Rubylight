@@ -81,7 +81,7 @@ public class MoonBridge {
     public static final int CLIENT_ERROR_PACKED_444_REFUSED = -106;
     // This device's own code, never sent by a PC: the video decoder failed and recovering it did not help
     public static final int CLIENT_ERROR_DECODER = -107;
-    // This device's own code, never sent by a PC: the PC said goodbye and shut down, or its host did not come back (HostLossWatch)
+    // This device's own code, never sent by a PC: the PC said goodbye and closed its server: it shuts down or its host stopped (HostLossWatch)
     public static final int CLIENT_ERROR_HOST_GONE = -108;
 
     public static final int ML_PORT_INDEX_TCP_47984 = 0;
@@ -872,14 +872,9 @@ public class MoonBridge {
         return RustBridge.hostLossRound(host, port, gateway);
     }
 
-    /** nightjar_core::host_loss::after_goodbye: one round's verdict after the host's goodbye, as its code; pings is 1, 0 or -1 (not asked). */
-    public static int hostLossAfterGoodbye(boolean pingedAtStart, boolean onLink, int round, int pings, boolean closedBefore, long waitedMs) {
-        return RustBridge.hostLossAfterGoodbye(pingedAtStart, onLink, round, pings, closedBefore, waitedMs);
-    }
-
-    /** One ICMP echo through a datagram socket: 1 answered, 0 not, -1 when this device may not ping that way. */
-    public static int hostLossPing(String host, int timeoutMs) {
-        return RustBridge.hostLossPing(host, timeoutMs);
+    /** nightjar_core::host_loss::after_goodbye: one round's verdict after the host's goodbye, as its code. */
+    public static int hostLossAfterGoodbye(boolean onLink, int round, long waitedMs) {
+        return RustBridge.hostLossAfterGoodbye(onLink, round, waitedMs);
     }
 
     public static boolean hostLossAvailable() {

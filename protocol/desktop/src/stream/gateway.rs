@@ -1,6 +1,6 @@
-//! This device's gateway, while the PC is on the same link, and a ping toward the PC: what tells a
-//! PC that is gone from a dropout or a restarting host ([`nightjar_core::host_loss`]). A PC behind a
-//! router, a tunnel or over IPv6 gets no gateway, and then only the connection's timeout can say.
+//! This device's gateway, while the PC is on the same link: what tells a PC whose server closed
+//! after its goodbye from a dropout on this side ([`nightjar_core::host_loss`]). A PC behind a
+//! router, a tunnel or over IPv6 gets no gateway, and then the old behaviour decides.
 
 use std::net::{IpAddr, Ipv4Addr};
 
@@ -33,61 +33,6 @@ fn default_gateway() -> Option<Ipv4Addr> {
         return None;
     }
     Some(Ipv4Addr::from(row.dwForwardNextHop.to_ne_bytes()))
-}
-
-/// This platform's ping toward the PC ([`nightjar_core::host_loss::Pinger`]).
-#[cfg(windows)]
-pub fn pinger() -> nightjar_core::host_loss::Pinger {
-    std::sync::Arc::new(|ip, timeout| match ip {
-        IpAddr::V4(ip) => icmp_echo(ip, timeout),
-        IpAddr::V6(_) => None,
-    })
-}
-
-#[cfg(not(windows))]
-pub fn pinger() -> nightjar_core::host_loss::Pinger {
-    nightjar_core::host_loss::system_pinger()
-}
-
-/// One ICMP echo through `IcmpSendEcho`, which needs no privileges: whether `ip` answered, None
-/// when the ping could not go out.
-#[cfg(windows)]
-fn icmp_echo(ip: Ipv4Addr, timeout: std::time::Duration) -> Option<bool> {
-    use windows::Win32::NetworkManagement::IpHelper::{IcmpCloseHandle, IcmpCreateFile, IcmpSendEcho, ICMP_ECHO_REPLY};
-    const PAYLOAD: &[u8] = b"nightjar";
-    // Room for one reply, its payload and the ICMP error an unanswered echo may bring.
-    let mut reply = [0u8; std::mem::size_of::<ICMP_ECHO_REPLY>() + PAYLOAD.len() + 8 + 64];
-    // SAFETY: the handle is closed below; the buffers outlive the call and their sizes are theirs.
-    unsafe {
-        let handle = IcmpCreateFile().ok()?;
-        let replies = IcmpSendEcho(
-            handle,
-            u32::from_ne_bytes(ip.octets()),
-            PAYLOAD.as_ptr().cast(),
-            PAYLOAD.len() as u16,
-            None,
-            reply.as_mut_ptr().cast(),
-            reply.len() as u32,
-            timeout.as_millis().clamp(1, u128::from(u32::MAX)) as u32,
-        );
-        // Read before IcmpCloseHandle, which may set its own.
-        let error = windows::Win32::Foundation::GetLastError();
-        let _ = IcmpCloseHandle(handle);
-        if replies == 0 {
-            // A timeout or an unreachable address is no answer; a failed call proves nothing.
-            return unanswered(error.0).then_some(false);
-        }
-        // IP_SUCCESS: an echo reply, not an ICMP error from a router on the way.
-        let first = std::ptr::read_unaligned(reply.as_ptr().cast::<ICMP_ECHO_REPLY>());
-        Some(first.Status == 0)
-    }
-}
-
-/// IP_REQ_TIMED_OUT, IP_DEST_HOST_UNREACHABLE, IP_DEST_NET_UNREACHABLE: the echo went out and
-/// nothing answered.
-#[cfg(windows)]
-fn unanswered(error: u32) -> bool {
-    matches!(error, 11010 | 11003 | 11002)
 }
 
 #[cfg(target_os = "linux")]
@@ -131,29 +76,6 @@ mod tests {
             wlan0\t00000000\t0104A8C0\t0003\n";
         assert_eq!(parse_proc_route(table), Some(Ipv4Addr::new(192, 168, 4, 1)));
         assert_eq!(parse_proc_route("Iface\tDestination\tGateway\nwlan0\t0004A8C0\t00000000\n"), None);
-    }
-
-    #[test]
-    fn loopback_answers_a_ping_and_ipv6_is_not_asked() {
-        let ping = pinger();
-        let timeout = std::time::Duration::from_secs(1);
-        if cfg!(windows) {
-            assert_eq!(ping(IpAddr::V4(Ipv4Addr::LOCALHOST), timeout), Some(true));
-            assert_eq!(ping("::1".parse().unwrap(), timeout), None);
-        } else if let Some(answered) = ping(IpAddr::V4(Ipv4Addr::LOCALHOST), timeout) {
-            // Linux pings only within net.ipv4.ping_group_range.
-            assert!(answered);
-        }
-    }
-
-    // TEST-NET-1 has no host: the echo times out (or no route answers it), which is no answer, not
-    // a ping that could not go out.
-    #[cfg(windows)]
-    #[test]
-    fn an_unanswered_ping_is_no_answer() {
-        assert_eq!(pinger()(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 200)), std::time::Duration::from_millis(300)), Some(false));
-        assert!(unanswered(11010) && unanswered(11003) && unanswered(11002));
-        assert!(!unanswered(0) && !unanswered(87), "a failed call proves nothing");
     }
 
     #[test]

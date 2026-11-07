@@ -962,9 +962,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
     .map_err(|e| ConnectError { retryable: recovery::transient_start(e.stage, e.code), message: format!("Could not start the stream: {e}"), asks_replace: false, moved_to: None })?;
     let outcome = session.outcome();
     keep_roam_watch(&roam_shared, watch);
-    if let Err(e) = session.watch_host(plan.info.https_port, gateway::toward, gateway::pinger()) {
-        eprintln!("nightjar: a PC that shuts down is told only by the recovery running out: {e}");
-    }
+    session.watch_host(plan.info.https_port, gateway::toward);
     let mut facts = Facts {
         role,
         width: outcome.config.width,

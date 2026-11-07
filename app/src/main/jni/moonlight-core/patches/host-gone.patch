@@ -1,7 +1,7 @@
 Tell a host's goodbye from a timeout, and stop toward a silent host without lingering.
 LiHostSaidGoodbye() is true when the host's own disconnect ended the connection (the held one,
 once ENet acts on it, or one sent with enet_peer_disconnect_now()), and false for ENet's timeout:
-the client then asks whether the PC is shutting down or its host restarts (HostLossWatch). The
+the client then asks whether the PC closed its server: it shuts down or its host stopped (HostLossWatch). The
 stop skips the two-second linger toward a host silent for two seconds or more, which will not
 acknowledge the disconnect. Applies after network-grace-input.patch.
 

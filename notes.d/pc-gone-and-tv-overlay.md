@@ -1,2 +1,2 @@
 ## en
-- A PC that shuts down ends the stream in seconds; TV stats fit.
+- A PC or host that shuts down ends the stream at once; a crash recovers; TV stats fit.

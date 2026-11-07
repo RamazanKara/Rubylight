@@ -61,6 +61,10 @@ final class PadEditor extends FrameLayout {
         surface = new Surface(context);
         addView(surface, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
         panel = LayoutInflater.from(context).inflate(R.layout.pad_editor_panel, this, false);
+        // The stream's glass for a modal panel without a blur: its text never sits on a control or the game.
+        float corner = 16 * context.getResources().getDisplayMetrics().density;
+        panel.setBackground(com.limelight.ui.GlassPanelDrawable.stream(context,
+                new float[] {corner, corner, corner, corner, corner, corner, corner, corner}));
         addView(panel, new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER));
         selection = panel.findViewById(R.id.pad_editor_selection);
         sizeText = panel.findViewById(R.id.pad_editor_size);

@@ -2,11 +2,12 @@ Say how long the host has been silent, and end a stream from the outside. The pe
 outlast every Wi-Fi dropout, so the client tells a PC that is gone from one that is only quiet
 itself (HostLossWatch): LiGetControlSilenceMs() is what it watches, and LiEndStream() ends the
 stream through the one termination callback, so a timeout at the same moment reports only once.
+LiHostSaidGoodbye() tells a host that disconnected (shutting down) from one that went silent.
 Applies after network-grace-input.patch.
 
 --- a/src/ControlStream.c
 +++ b/src/ControlStream.c
-@@ -749,6 +749,22 @@ bool isControlContactLost(void) {
+@@ -749,6 +749,26 @@ bool isControlContactLost(void) {
      lastReceiveTime = currentPeer->lastReceiveTime;
      return lastReceiveTime != 0 && ENET_TIME_DIFFERENCE(enet_time_get(), lastReceiveTime) >= INPUT_CONTACT_LOST_MS;
  }
@@ -26,12 +27,16 @@ Applies after network-grace-input.patch.
 +void LiEndStream(int errorCode) {
 +    ListenerCallbacks.connectionTerminated(errorCode);
 +}
++
++bool LiHostSaidGoodbye(void) {
++    return disconnectPending;
++}
 
  static bool sendMessageEnetInternal(short ptype, short paylen, const void* payload, uint8_t channelId, uint32_t flags, bool moreData) {
      ENetPacket* enetPacket;
 --- a/src/Limelight.h
 +++ b/src/Limelight.h
-@@ -583,6 +583,14 @@ extern "C" {
+@@ -583,6 +583,18 @@ extern "C" {
  // next LiStartConnection(); smaller values change nothing.
  void LiSetNetworkGracePeriodMs(int gracePeriodMs);
 
@@ -42,6 +47,10 @@ Applies after network-grace-input.patch.
 +// Ends the stream with this reason, through the termination callback: once per connection, whoever
 +// reports first.
 +void LiEndStream(int errorCode);
++
++// Whether the host sent its disconnect on this connection: it ended the stream, it did not go
++// silent past the timeout.
++bool LiHostSaidGoodbye(void);
 +
  // Use to get a user-visible string to display initialization progress
  // from the integer passed to the ConnListenerStageXXX callbacks

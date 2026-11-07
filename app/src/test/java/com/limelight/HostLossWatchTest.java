@@ -29,11 +29,21 @@ public class HostLossWatchTest {
         final List<Long> silences = new ArrayList<>();
         final List<Integer> answers = new ArrayList<>();
         final List<Long> stepped = new ArrayList<>();
+        final List<Integer> pingsPassed = new ArrayList<>();
+        final List<Integer> firstStates = new ArrayList<>();
         long bytes;
         long bytesPerTick;
         boolean networkLost;
         int ended;
         int gatewayLookups;
+        int rounds;
+        int roundCode = 2; // SilentLinkUp
+        String gateway = "192.168.4.1";
+        /** The PC's answer to the first ping, then to every round's. */
+        int firstPing = 1;
+        int roundPing = 0;
+        int pinged;
+        boolean goodbye;
         long silenceAfterVerdict = -1;
         private int tick;
 
@@ -42,14 +52,27 @@ public class HostLossWatchTest {
             return silences.get(tick);
         }
         @Override public long mediaBytes() { return bytes; }
-        @Override public int step(long silenceMs, String address, int port, String gateway, int state) {
+        @Override public int round(String address, int port, String gateway) {
+            rounds++;
+            return roundCode;
+        }
+        @Override public int decide(long silenceMs, int round, int pings, int state) {
             stepped.add(silenceMs);
+            pingsPassed.add(pings);
             tick = silences.size();
             return answers.isEmpty() ? state : answers.remove(0);
         }
+        @Override public int firstState(boolean pings) {
+            firstStates.add(pings ? 256 : 0);
+            return pings ? 256 : 0;
+        }
+        @Override public synchronized int ping(String address, int timeoutMs) {
+            return pinged++ == 0 ? firstPing : roundPing;
+        }
+        @Override public boolean saidGoodbye() { return goodbye; }
         @Override public String gatewayToward(InetAddress host) {
             gatewayLookups++;
-            return "192.168.4.1";
+            return gateway;
         }
         @Override public boolean networkLost() { return networkLost; }
         @Override public void endStream() { ended++; }
@@ -82,15 +105,54 @@ public class HostLossWatchTest {
         Script script = silences(100L, 1999L, 0L);
         runOnThisThread(watch(script));
         assertTrue(script.stepped.isEmpty());
-        assertEquals(0, script.gatewayLookups);
+        assertEquals(0, script.rounds);
         assertEquals(0, script.ended);
     }
 
     @Test public void theVerdictEndsTheStreamOnce() {
         Script script = silences(2000L, 3000L, 4000L);
-        script.answers.addAll(Arrays.asList(1, 2, -1));
+        script.answers.addAll(Arrays.asList(257, 258, -1));
         runOnThisThread(watch(script));
         assertEquals(1, script.ended);
+        assertEquals("every round pinged the PC and passed its answer", Arrays.asList(0, 0, 0), script.pingsPassed);
+        assertEquals(1 + 3, script.pinged);
+    }
+
+    @Test public void aPcThatAnsweredTheFirstPingIsAskedEveryRound() {
+        Script script = silences(2000L, 3000L);
+        runOnThisThread(watch(script));
+        assertEquals(Arrays.asList(256), script.firstStates);
+        assertEquals(1 + script.rounds, script.pinged);
+    }
+
+    @Test public void aPcThatStillAnswersPingsPassesThatOn() {
+        // A crashed or restarting server: the decision (nightjar_core) keeps the recovery.
+        Script script = silences(2000L, 3000L, 4000L);
+        script.roundPing = 1;
+        runOnThisThread(watch(script));
+        assertFalse(script.pingsPassed.isEmpty());
+        for (int pings : script.pingsPassed) assertEquals(1, pings);
+        assertEquals(0, script.ended);
+    }
+
+    @Test public void aPcThatNeverAnsweredAPingIsNeverPingedAgain() {
+        Script script = silences(2000L, 3000L, 4000L);
+        script.firstPing = 0;
+        runOnThisThread(watch(script));
+        assertEquals(Arrays.asList(0), script.firstStates);
+        assertEquals(1, script.pinged);
+        assertFalse(script.pingsPassed.isEmpty());
+        for (int pings : script.pingsPassed) assertEquals(HostLossWatch.NOT_PINGED, pings);
+    }
+
+    @Test public void aPcOffThisLinkIsNeverPinged() {
+        // A relay, a VPN or a routed PC: no gateway to compare with, so the old timeout decides.
+        Script script = silences(2000L, 3000L);
+        script.gateway = null;
+        runOnThisThread(watch(script));
+        assertEquals(0, script.pinged);
+        assertEquals(Arrays.asList(0), script.firstStates);
+        for (int pings : script.pingsPassed) assertEquals(HostLossWatch.NOT_PINGED, pings);
     }
 
     @Test public void mediaStillArrivingIsAHost() {
@@ -122,28 +184,33 @@ public class HostLossWatchTest {
     @Test public void aWatchThatStoppedDoesNothing() {
         Script script = silences(5000L, 6000L);
         script.answers.addAll(Arrays.asList(-1, -1));
+        script.goodbye = true;
         HostLossWatch watch = watch(script);
         watch.stop();
         runOnThisThread(watch);
         assertEquals(0, script.ended);
-        assertFalse(watch.confirmGone());
+        assertFalse(watch.goneAfterGoodbye());
     }
 
-    @Test public void aConnectionThatEndedChecksThePcUntilItKnows() {
-        Script gone = silences(0L);
-        gone.answers.addAll(Arrays.asList(1, 2, -1));
-        assertTrue(watch(gone).confirmGone());
-        assertEquals(3, gone.stepped.size());
-        assertTrue("every verdict needs its time", gone.stepped.get(0) >= 4000);
+    @Test public void onlyAGoodbyeWithTheServerClosedIsAGonePc() {
+        Script silent = silences(0L);
+        assertFalse("a silence past the timeout is left to the recovery", watch(silent).goneAfterGoodbye());
+        assertEquals(0, silent.rounds);
 
-        Script answers = silences(0L);
-        answers.answers.addAll(Arrays.asList(1, 0, -1));
-        assertFalse(watch(answers).confirmGone());
-        assertEquals(2, answers.stepped.size());
+        Script shuttingDown = silences(0L);
+        shuttingDown.goodbye = true;
+        assertTrue(watch(shuttingDown).goneAfterGoodbye());
+        assertEquals(1, shuttingDown.rounds);
 
-        Script neverDecides = silences(0L);
-        neverDecides.answers.addAll(Arrays.asList(1, 1, 1, 1, 1, 1, -1));
-        assertFalse(watch(neverDecides).confirmGone());
+        Script refused = silences(0L);
+        refused.goodbye = true;
+        refused.roundCode = 1;
+        assertTrue("its server stopped", watch(refused).goneAfterGoodbye());
+
+        Script stillServing = silences(0L);
+        stillServing.goodbye = true;
+        stillServing.roundCode = HostLossWatch.ROUND_ANSWERED;
+        assertFalse("only this stream ended", watch(stillServing).goneAfterGoodbye());
     }
 
     private static RouteInfo route(String prefix, int length, String gateway) throws Exception {

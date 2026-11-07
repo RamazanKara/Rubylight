@@ -8,32 +8,47 @@ import android.net.RouteInfo;
 
 import com.limelight.nvstream.jni.MoonBridge;
 
+import java.io.IOException;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 import java.util.function.BooleanSupplier;
 
 /**
- * Ends a stream as soon as its PC is gone (shut down, crashed), instead of holding a frozen picture
- * until the connection's timeout. Runs over both engines; nightjar_core::host_loss decides, with
- * connection attempts during a silence of the control stream, and says why a dropout or a stalled
- * host never counts. Does nothing while the host is heard.
+ * Ends a stream as soon as its PC is gone (shut down, lost power), instead of holding a frozen
+ * picture until the connection's timeout. Runs over both engines; nightjar_core::host_loss decides,
+ * with connection attempts and a ping of the PC during a silence of the control stream, and says
+ * why a dropout, a stalled host or a host that restarts never counts. Does nothing while the host
+ * is heard.
  */
 final class HostLossWatch {
     static final long TICK_MS = 250;
     /** nightjar_core::host_loss::PROBE_AFTER: below it a step does nothing, so nothing is looked up for it. */
     private static final long PROBE_AFTER_MS = 2000;
-    /** After the connection ended by itself there is no silence to read: long enough for every verdict. */
-    private static final long ENDED_SILENCE_MS = 60_000;
-    /** Rounds a check after the connection ended may take: a verdict needs three. */
-    private static final int CONFIRM_ROUNDS = 4;
+    /** nightjar_core::host_loss::ROUND_TIMEOUT and FIRST_PING_TIMEOUT. */
+    static final int PING_TIMEOUT_MS = 750;
+    static final int FIRST_PING_TIMEOUT_MS = 1000;
+    /** A round's ping: not asked. */
+    static final int NOT_PINGED = -1;
+    /** nightjar_core::host_loss::Round::Answered's code: the PC accepted a connection. */
+    static final int ROUND_ANSWERED = 0;
 
     /** The engine and network, replaced in tests. */
     interface Probes {
         long silenceMs();
         long mediaBytes();
-        /** nightjar_core::host_loss::Detector's next state, -1 when the PC is gone; blocks for one round. */
-        int step(long silenceMs, String address, int port, String gateway, int state);
+        /** nightjar_core::host_loss: one round of connection attempts, as its code; blocks for about 750 ms. */
+        int round(String address, int port, String gateway);
+        /** The detector's next state after a round, -1 when the PC is gone. */
+        int decide(long silenceMs, int round, int pings, int state);
+        /** The detector's first state, from the ping at the start. */
+        int firstState(boolean pings);
+        /** 1 when the PC answered a ping, 0 when not, NOT_PINGED when this device can't ping it. */
+        int ping(String address, int timeoutMs);
+        /** The connection ended with the host's disconnect, not a silence. */
+        boolean saidGoodbye();
         /** This device's gateway while the PC is on its link, else null. */
         String gatewayToward(InetAddress host);
         boolean networkLost();
@@ -75,7 +90,11 @@ final class HostLossWatch {
             return;
         }
         String literal = literal(host);
-        int state = 0;
+        // Only a PC on this device's link that answers a ping now can be told gone later.
+        boolean pings = probes.gatewayToward(host) != null && probes.ping(literal, FIRST_PING_TIMEOUT_MS) == 1;
+        LimeLog.info("Host watch: the PC " + (pings ? "answers a ping" : "does not answer a ping or is off this link"));
+        final int first = probes.firstState(pings);
+        int state = first;
         long bytes = probes.mediaBytes();
         try {
             while (!stopped) {
@@ -86,17 +105,29 @@ final class HostLossWatch {
                 boolean heard = seen != bytes || probes.networkLost();
                 bytes = seen;
                 if (heard || silence < PROBE_AFTER_MS) {
-                    state = 0;
+                    state = first;
                     continue;
                 }
-                state = probes.step(silence, literal, port, probes.gatewayToward(host), state);
+                String gateway = probes.gatewayToward(host);
+                FutureTask<Integer> ping = null;
+                if (pings && gateway != null) {
+                    ping = new FutureTask<>(() -> probes.ping(literal, PING_TIMEOUT_MS));
+                    Thread pinger = new Thread(ping, "Host ping");
+                    pinger.setDaemon(true);
+                    pinger.start();
+                }
+                int round = probes.round(literal, port, gateway);
+                int answered = ping == null ? NOT_PINGED : answer(ping);
+                long after = probes.silenceMs();
+                state = probes.decide(Math.max(silence, after), round, answered, state);
+                LimeLog.info("Host check after " + after + " ms of silence: round " + round + ", ping " + answered);
                 if (state >= 0) continue;
                 // The round took a while: the host may have been heard meanwhile.
-                if (stopped || probes.silenceMs() < silence || probes.mediaBytes() != bytes) {
-                    state = 0;
+                if (stopped || probes.silenceMs() < Math.max(silence, after) || probes.mediaBytes() != bytes) {
+                    state = first;
                     continue;
                 }
-                LimeLog.info("The PC is gone: nothing from it for " + silence + " ms and it does not answer");
+                LimeLog.info("The PC is gone: nothing from it for " + after + " ms and it stopped answering pings");
                 probes.endStream();
                 return;
             }
@@ -105,34 +136,31 @@ final class HostLossWatch {
         }
     }
 
+    private static int answer(FutureTask<Integer> ping) throws InterruptedException {
+        try {
+            return ping.get();
+        } catch (ExecutionException e) {
+            return NOT_PINGED;
+        }
+    }
+
     /**
-     * After the connection ended without a reason: whether that was the PC going away. It proves
-     * nothing on its own (a PC that answers just closed this stream). On the caller's thread, which
-     * may wait for about two seconds.
+     * After the connection ended without a reason: whether the host disconnected and its server went
+     * with it (shutting down), so there is nothing to recover. A host that went silent is left to the
+     * recovery, and one that still accepts connections only ended this stream. On the caller's
+     * thread, which may wait for one round (about 750 ms).
      */
-    boolean confirmGone() {
+    boolean goneAfterGoodbye() {
+        if (stopped || !probes.saidGoodbye()) return false;
         InetAddress host;
         try {
             host = probes.resolve(address);
         } catch (UnknownHostException e) {
             return false;
         }
-        String literal = literal(host);
-        int state = 0;
-        try {
-            for (int round = 0; round < CONFIRM_ROUNDS && !stopped; round++) {
-                state = probes.step(ENDED_SILENCE_MS, literal, port, probes.gatewayToward(host), state);
-                if (state < 0) {
-                    LimeLog.info("The PC is gone: the connection ended and it does not answer");
-                    return true;
-                }
-                if (state == 0) return false;
-                probes.sleep(TICK_MS);
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        return false;
+        boolean gone = probes.round(literal(host), port, probes.gatewayToward(host)) != ROUND_ANSWERED;
+        if (gone) LimeLog.info("The PC is gone: it disconnected and its server went with it");
+        return gone;
     }
 
     /** The address as text, without a zone: a link-local one then proves nothing, as it should. */
@@ -159,6 +187,19 @@ final class HostLossWatch {
         return onLink && gateway != null ? gateway.getHostAddress() : null;
     }
 
+    /**
+     * Where this device may not open ICMP datagram sockets: InetAddress.isReachable, which pings when
+     * it can and otherwise tries TCP port 7. A PC that drops both then never answered at the start, so
+     * it is never told gone.
+     */
+    static int reachable(String address, int timeoutMs) {
+        try {
+            return InetAddress.getByName(address).isReachable(timeoutMs) ? 1 : 0;
+        } catch (IOException e) {
+            return NOT_PINGED;
+        }
+    }
+
     /** The real engine and this device's network. */
     static final class Live implements Probes {
         private final ConnectivityManager connectivity;
@@ -171,9 +212,18 @@ final class HostLossWatch {
 
         @Override public long silenceMs() { return MoonBridge.getControlSilenceMs(); }
         @Override public long mediaBytes() { return MoonBridge.getWireBytesReceived(); }
-        @Override public int step(long silenceMs, String address, int port, String gateway, int state) {
-            return MoonBridge.hostLossStep(silenceMs, address, port, gateway, state);
+        @Override public int round(String address, int port, String gateway) {
+            return MoonBridge.hostLossRound(address, port, gateway);
         }
+        @Override public int decide(long silenceMs, int round, int pings, int state) {
+            return MoonBridge.hostLossDecide(silenceMs, round, pings, state);
+        }
+        @Override public int firstState(boolean pings) { return MoonBridge.hostLossFirstState(pings); }
+        @Override public int ping(String address, int timeoutMs) {
+            int answered = MoonBridge.hostLossPing(address, timeoutMs);
+            return answered != NOT_PINGED ? answered : HostLossWatch.reachable(address, timeoutMs);
+        }
+        @Override public boolean saidGoodbye() { return MoonBridge.hostSaidGoodbye(); }
         @Override public String gatewayToward(InetAddress host) {
             Network network = connectivity.getActiveNetwork();
             if (network == null) return null;

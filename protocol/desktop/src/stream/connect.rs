@@ -964,7 +964,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
     keep_roam_watch(&roam_shared, watch);
     // A chosen network drop tolerance asks to wait through any silence, so nothing ends it early.
     if settings.network_grace_ms <= recovery::PEER_TIMEOUT_MS {
-        if let Err(e) = session.watch_host(plan.info.https_port, gateway::toward) {
+        if let Err(e) = session.watch_host(plan.info.https_port, gateway::toward, gateway::pinger()) {
             eprintln!("nightjar: a PC that is gone is noticed only by the connection's timeout: {e}");
         }
     }

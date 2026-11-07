@@ -8,7 +8,8 @@
 //!
 //! Teardown follows Nightjar's patched `stopControlStream`: queued input is drained, then the
 //! peer disconnects gracefully and lingers up to two seconds for the host's acknowledgement,
-//! unless the host already sent a disconnect or a termination message.
+//! unless the host already sent a disconnect or a termination message, or has been silent too
+//! long to send one.
 //!
 //! When the host advertised roaming and [`DriverConfig::roaming`] is on, the driver also runs
 //! [`Roaming`] beside ENet on the same socket: it sets roaming datagrams aside before ENet
@@ -228,6 +229,8 @@ struct Shared {
     rtt: Mutex<Option<(Duration, Duration)>>,
     /// When anything last came from the host.
     last_contact: Mutex<Option<Instant>>,
+    /// The connection ended with the host's disconnect ([`ControlHandle::said_goodbye`]).
+    goodbye: AtomicBool,
     /// Both sides have roaming on.
     roaming: bool,
     /// PROBE flags of a [`ControlHandle::network_changed`] the control thread has not taken.
@@ -289,6 +292,12 @@ impl ControlHandle {
     /// it was first heard.
     pub fn silence(&self) -> Option<Duration> {
         lock(&self.shared.last_contact).map(|at| at.elapsed())
+    }
+
+    /// Whether the connection ended because the host disconnected (with or without a reason),
+    /// rather than going silent past the timeout.
+    pub fn said_goodbye(&self) -> bool {
+        self.shared.goodbye.load(Ordering::SeqCst)
     }
 
     /// Whether input is held back because the host has been silent through a grace period.
@@ -438,6 +447,8 @@ struct ControlSocket {
     held_unsequenced: bool,
     reinject: Option<(SocketAddr, Vec<u8>)>,
     last_receive: Option<Instant>,
+    /// The host sent ENet's disconnect: it ended the stream, it did not go silent.
+    goodbye: bool,
     /// Set while the connect is in flight and the socket is still marked.
     marking: Option<Marking>,
     /// The QoS marking is on, for a socket the control thread moves to.
@@ -628,8 +639,10 @@ impl rusty_enet::Socket for ControlSocket {
             self.last_receive = Some(Instant::now());
             // The host answered: the marking works, so stop watching it.
             self.marking = None;
+            let disconnect = enet_disconnect(&buffer[..length]);
+            self.goodbye |= disconnect.is_some();
             if self.intercept && self.held_disconnect.is_none() {
-                if let Some(unsequenced) = enet_disconnect(&buffer[..length]) {
+                if let Some(unsequenced) = disconnect {
                     self.held_disconnect = Some((address, buffer[..length].to_vec()));
                     self.held_unsequenced = unsequenced;
                     continue;
@@ -638,6 +651,13 @@ impl rusty_enet::Socket for ControlSocket {
             return Ok(Some((address, PacketReceived::Complete(length))));
         }
     }
+}
+
+/// Whether the stop's linger would wait for nothing: a host silent past
+/// [`INPUT_CONTACT_LOST_AFTER`] (ENet's pings go out several times a second) will not acknowledge
+/// the disconnect either.
+fn lingers_for_nothing(last_receive: Option<Instant>, now: Instant) -> bool {
+    last_receive.is_some_and(|at| now.saturating_duration_since(at) >= INPUT_CONTACT_LOST_AFTER)
 }
 
 /// The control thread's side: owns the ENet host.
@@ -744,6 +764,7 @@ pub fn connect(
         held_unsequenced: false,
         reinject: None,
         last_receive: None,
+        goodbye: false,
         marking: Some(marking),
         marked: true,
         flow: priority::open_control_flow(|m| config.warn.say(m)),
@@ -777,6 +798,7 @@ pub fn connect(
         contact_lost: AtomicBool::new(false),
         rtt: Mutex::new(None),
         last_contact: Mutex::new(None),
+        goodbye: AtomicBool::new(false),
         roaming,
         roam_request: Mutex::new(None),
         roam_held: AtomicBool::new(false),
@@ -919,7 +941,11 @@ impl ControlClient {
                 Event::Receive { packet, .. } => {
                     let _ = session.handle_datagram(now, packet.data());
                 }
-                Event::Disconnect { .. } => session.disconnected(),
+                Event::Disconnect { .. } => {
+                    // Before the termination it brings, so whoever reports it can tell.
+                    self.shared.goodbye.store(self.host.socket().goodbye, Ordering::SeqCst);
+                    session.disconnected();
+                }
                 Event::Connect { .. } => {}
             }
             if session.terminated().is_some() {
@@ -1072,9 +1098,11 @@ impl ControlClient {
         lock(&self.shared.session).stop();
         let held =
             self.host.socket().held_disconnect.is_some() || self.disconnect_released_at.is_some();
+        let silent = lingers_for_nothing(self.host.socket().last_receive, now);
         let peer = self.host.peer_mut(self.peer);
-        if held {
-            // The host already disconnected; it will not acknowledge ours.
+        if held || silent {
+            // The host already disconnected, or has been silent too long to acknowledge ours (a PC
+            // that is gone): waiting out the linger would only hold the stop up.
             peer.disconnect_now(0);
             self.host.flush();
         } else if peer.state() == PeerState::Connected {
@@ -1142,6 +1170,7 @@ mod tests {
             held_unsequenced: false,
             reinject: None,
             last_receive: None,
+            goodbye: false,
             marked: marking.is_some(),
             marking,
             flow: None,
@@ -1353,6 +1382,39 @@ mod tests {
         assert!(control.last_receive.is_none());
         assert_eq!(receive(&mut control), 2);
         assert!(control.last_receive.is_some());
+    }
+
+    #[test]
+    fn a_stop_lingers_only_for_a_host_that_was_heard_lately() {
+        let now = Instant::now() + Duration::from_secs(10);
+        assert!(!lingers_for_nothing(None, now), "never heard: ENet decides");
+        assert!(!lingers_for_nothing(Some(now - Duration::from_millis(200)), now));
+        assert!(lingers_for_nothing(Some(now - INPUT_CONTACT_LOST_AFTER), now));
+        assert!(lingers_for_nothing(Some(now - Duration::from_secs(5)), now), "a PC that is gone");
+    }
+
+    #[test]
+    fn the_hosts_disconnect_is_a_goodbye_any_other_datagram_is_not() {
+        use rusty_enet::Socket as _;
+        let (mut control, _) = control_socket(UdpSocket::bind("127.0.0.1:0").unwrap(), None);
+        let ours = control.socket.local_addr().unwrap();
+        let host = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let mut buffer = [0u8; MTU_MAX];
+        let mut deliver = |control: &mut ControlSocket, datagram: &[u8]| {
+            host.send_to(datagram, ours).unwrap();
+            for _ in 0..50 {
+                if control.receive(&mut buffer).unwrap().is_some() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            panic!("nothing arrived");
+        };
+        deliver(&mut control, &[0x00, 0x00, 0x46, 0xff, 0, 0, 0, 0, 0, 0]);
+        assert!(!control.goodbye);
+        // enet_peer_disconnect_now, reaching ENet here (no intercept).
+        deliver(&mut control, &[0x10, 0x00, 0x44, 0xff, 0, 0, 0, 0, 0, 0]);
+        assert!(control.goodbye);
     }
 
     #[test]

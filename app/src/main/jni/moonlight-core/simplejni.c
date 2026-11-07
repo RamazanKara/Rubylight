@@ -219,6 +219,11 @@ Java_com_limelight_nvstream_jni_MoonBridge_cEndStreamHostGone(JNIEnv *env, jclas
     LiEndStream(-108); // MoonBridge.CLIENT_ERROR_HOST_GONE
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_cHostSaidGoodbye(JNIEnv *env, jclass clazz) {
+    return LiHostSaidGoodbye() ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT jlong JNICALL
 Java_com_limelight_nvstream_jni_MoonBridge_cGetEstimatedRttInfo(JNIEnv *env, jclass clazz) {
     uint32_t rtt, variance;

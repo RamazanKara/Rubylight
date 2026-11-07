@@ -215,7 +215,9 @@ static void run(const char* name, int gracePeriodMs, int silenceMs, int expected
             elapsed >= minElapsedMs && elapsed <= maxElapsedMs &&
             lost == expectContactLost && (contactLostPasses > 0) == expectContactLost &&
             contactLostPasses < 2000 &&
-            contactRegained == expectContactRegained;
+            contactRegained == expectContactRegained &&
+            // A silence past the timeout is no goodbye: HostLossWatch leaves it to the recovery.
+            (expectedReason != -1 || !LiHostSaidGoodbye());
     printf("%s %s: expected %d, received %d (%d reports) %llu ms into the silence, "
            "contact lost %d (%d passes), regained %d\n", passed ? "PASS" : "FAIL", name, expectedReason,
            reportedReason, reports, (unsigned long long)elapsed, lost, contactLostPasses, contactRegained);
@@ -231,6 +233,11 @@ static void run(const char* name, int gracePeriodMs, int silenceMs, int expected
 // What the watch for a PC that is gone reads and calls (HostLossWatch).
 static void hostSilence(void) {
     CHECK(LiGetControlSilenceMs() == 0);
+    disconnectPending = false;
+    CHECK(!LiHostSaidGoodbye());
+    disconnectPending = true;
+    CHECK(LiHostSaidGoodbye());
+    disconnectPending = false;
     ENetAddress address;
     ENetHost* host = createHost(&address);
     ENetPeer* hostPeer = connectClient(host, &address);

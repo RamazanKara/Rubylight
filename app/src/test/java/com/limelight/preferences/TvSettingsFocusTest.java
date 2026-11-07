@@ -14,6 +14,7 @@ import android.preference.Preference;
 import android.preference.PreferenceManager;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ListView;
 import android.widget.TextView;
 
@@ -106,9 +107,11 @@ public class TvSettingsFocusTest {
         StreamSettings screen = open();
         ListView list = sections(screen);
         assertTrue("the rail has the first focus", list.hasFocus());
-        // Up to the top: Search, then the rows in their TV order.
-        for (int i = 0; i < list.getCount() && list.getSelectedItemPosition() != 0; i++) press(screen, KeyEvent.KEYCODE_DPAD_UP);
-        assertEquals(StreamSettings.SEARCH_ROW_KEY, keyAt(list, list.getSelectedItemPosition()));
+        // The rail opens at its top, on its first row, whole; then the rows in their TV order.
+        press(screen, KeyEvent.KEYCODE_DPAD_UP);
+        assertEquals("input", keyAt(list, list.getSelectedItemPosition()));
+        assertEquals(0, list.getFirstVisiblePosition());
+        assertEquals(list.getListPaddingTop(), list.getChildAt(0).getTop());
         List<String> visited = new ArrayList<>();
         visited.add(keyAt(list, list.getSelectedItemPosition()));
         for (int i = 1; i < list.getCount(); i++) {
@@ -118,7 +121,7 @@ public class TvSettingsFocusTest {
             assertTrue(list.hasFocus());
             visited.add(keyAt(list, list.getSelectedItemPosition()));
         }
-        assertEquals(Arrays.asList(StreamSettings.SEARCH_ROW_KEY, "input", "stream_presets", "stream_profiles", "video", "display",
+        assertEquals(Arrays.asList("input", "stream_presets", "stream_profiles", "video", "display",
                 "audio", "streaming", "app", "advanced", "debug"), visited);
         for (int i = list.getCount() - 2; i >= 0; i--) {
             press(screen, KeyEvent.KEYCODE_DPAD_UP);
@@ -126,7 +129,7 @@ public class TvSettingsFocusTest {
         }
     }
 
-    /** TV run on a TCL C6K: after a few presses the search row sat half under the subtitle. No rail row is ever cut at the top. */
+    /** TV run on a TCL C6K: after a few presses a row sat half under the subtitle. No rail row is ever cut at the top. */
     @Test
     public void noRailRowIsLeftHalfScrolledUnderTheSubtitle() {
         assertNoRailRowCut();
@@ -167,35 +170,44 @@ public class TvSettingsFocusTest {
     }
 
     /**
-     * TV run on a TCL C6K: with search results on the right the rail still marked Controls. The search row is marked
-     * (amber bar, icon and title), and Left from the results comes back to it.
+     * TV run on a TCL C6K: with search results on the right the rail still marked Controls. Results are no section, so no
+     * row is marked, and Left from the results comes back to the rail.
      */
     @Test
-    public void searchResultsMarkTheSearchRowAndLeftReturnsToIt() {
+    public void searchResultsMarkNoRailRowAndLeftReturnsToTheRail() {
         StreamSettings screen = open();
         ListView list = sections(screen);
-        int search = StreamSettings.RootFragment.positionOf(list, StreamSettings.SEARCH_ROW_KEY);
-        assertEquals(0, search);
         assertEquals("input", keyAt(list, list.getCheckedItemPosition()));
-        press(screen, KeyEvent.KEYCODE_DPAD_UP);
-        press(screen, KeyEvent.KEYCODE_DPAD_CENTER);
+        openSearchFromTheCapsule(screen);
         androidx.appcompat.widget.SearchView field = screen.findViewById(R.id.settings_search);
-        assertTrue("Select on the search row opens the field", field.getVisibility() == View.VISIBLE);
+        assertEquals(View.VISIBLE, field.getVisibility());
         field.setQuery("controller", true);
         settle(screen);
         list = sections(screen);
-        assertEquals("the rail marks the search row", StreamSettings.SEARCH_ROW_KEY,
-                keyAt(list, list.getCheckedItemPosition()));
+        assertEquals("no row stands for the results", ListView.INVALID_POSITION, list.getCheckedItemPosition());
         SettingsRail rail = org.robolectric.util.ReflectionHelpers.getField(screen, "rail");
-        assertEquals("the amber bar is on the search row", search, rail.position());
+        assertEquals("no pill", -1, rail.position());
         ListView results = (ListView) screen.getFragmentManager().findFragmentById(R.id.stream_settings).getView()
                 .findViewById(android.R.id.list);
         results.requestFocus();
         settle(screen);
         press(screen, KeyEvent.KEYCODE_DPAD_LEFT);
-        assertTrue(list.hasFocus());
-        assertEquals("Left lands on the marked row", StreamSettings.SEARCH_ROW_KEY,
-                keyAt(list, list.getSelectedItemPosition()));
+        assertTrue("Left lands on the rail", list.hasFocus());
+    }
+
+    /** Search is reached by keys from the top row: Up from the rail to the tabs, then Right along them to the search. */
+    private static void openSearchFromTheCapsule(StreamSettings screen) {
+        View search = screen.findViewById(R.id.settings_search_button);
+        StringBuilder walk = new StringBuilder();
+        for (int i = 0; i < 12 && !search.hasFocus(); i++) {
+            ViewGroup tabs = screen.findViewById(R.id.shell_bar);
+            press(screen, tabs.hasFocus() ? KeyEvent.KEYCODE_DPAD_RIGHT : KeyEvent.KEYCODE_DPAD_UP);
+            View focus = screen.getWindow().getDecorView().findFocus();
+            walk.append(focus == null ? "none" : focus.getId() == View.NO_ID ? focus.getClass().getSimpleName()
+                    : screen.getResources().getResourceEntryName(focus.getId())).append(' ');
+        }
+        assertTrue("the keys reach the capsule's search: " + walk, search.hasFocus());
+        press(screen, KeyEvent.KEYCODE_DPAD_CENTER);
     }
 
     @Test
@@ -215,12 +227,11 @@ public class TvSettingsFocusTest {
     }
 
     /**
-     * nightjar#7: Presets or Profiles had the ring while the section on the right stayed amber, which read as two
-     * selections. They have no page to show, so while one has focus it is the only highlight; the mark is back as soon as
-     * focus is on a section or in the right pane.
+     * Presets and Profiles have no page to show, so the pane keeps its section while one has focus, and so does the pill:
+     * the ring says where focus is, the pill what the pane shows. The pill leaving made the pane nameless.
      */
     @Test
-    public void aRowWithoutAPageIsTheOnlyHighlightWhileItHasFocus() {
+    public void thePillStaysOnTheSectionShownWhileARowWithoutAPageHasFocus() {
         StreamSettings screen = open();
         ListView list = sections(screen);
         View bar = screen.findViewById(R.id.settings_rail_bar);
@@ -231,21 +242,19 @@ public class TvSettingsFocusTest {
 
         for (String key : new String[] {"stream_presets", "stream_profiles"}) {
             goToRow(screen, key);
-            assertEquals(key + ": no row is marked", ListView.INVALID_POSITION, list.getCheckedItemPosition());
-            assertEquals(key + ": no bar", View.INVISIBLE, bar.getVisibility());
-            for (int i = 0; i < list.getChildCount(); i++) assertFalse(key + ": row " + i, list.getChildAt(i).isActivated());
+            assertEquals(key + ": the section shown stays marked", input, list.getCheckedItemPosition());
+            assertEquals(key + ": the pill stays", View.VISIBLE, bar.getVisibility());
             assertSame(key + ": the pane stays", pane, screen.getFragmentManager().findFragmentById(R.id.stream_settings));
         }
 
-        // Focus on the pane's section again: at once, as nothing has to load.
+        // Focus on the pane's section again.
         goToRow(screen, "input");
         assertEquals(input, list.getCheckedItemPosition());
         assertEquals(View.VISIBLE, bar.getVisibility());
         assertSame(pane, screen.getFragmentManager().findFragmentById(R.id.stream_settings));
 
-        // Right from a row without a page: focus is in the pane, whose section is marked again.
+        // Right from a row without a page: focus is in the pane, whose section is still marked.
         goToRow(screen, "stream_profiles");
-        assertEquals(ListView.INVALID_POSITION, list.getCheckedItemPosition());
         press(screen, KeyEvent.KEYCODE_DPAD_RIGHT);
         assertFalse(list.hasFocus());
         assertEquals(input, list.getCheckedItemPosition());
@@ -290,8 +299,12 @@ public class TvSettingsFocusTest {
         assertNotNull(presetRow);
         assertNotNull(videoRow);
         assertNull("no chips on the rail", presetRow.findViewById(R.id.preset_chips));
+        // Its second line names the preset in use, and the row stays a row: taller than a section by at most that line.
+        TextView value = presetRow.findViewById(R.id.preset_value);
+        assertEquals(View.VISIBLE, value.getVisibility());
+        assertFalse("the preset in use is named", value.getText().toString().isEmpty());
         assertTrue("Presets " + presetRow.getHeight() + " px against Video " + videoRow.getHeight() + " px",
-                presetRow.getHeight() <= videoRow.getHeight());
+                presetRow.getHeight() <= videoRow.getHeight() + value.getHeight());
         while (list.getSelectedItemPosition() != presets) {
             press(screen, list.getSelectedItemPosition() < presets ? KeyEvent.KEYCODE_DPAD_DOWN : KeyEvent.KEYCODE_DPAD_UP);
         }
@@ -314,17 +327,15 @@ public class TvSettingsFocusTest {
     }
 
     /**
-     * nightjar#7 (Shield TV): the search row opened the field, and with nothing typed it stayed open under the bar when
-     * the D-pad went back to the rail, so the screen showed the search row and the field. An empty field closes as
-     * focus leaves it.
+     * nightjar#7 (Shield TV): with nothing typed the field stayed open under the bar when the D-pad went back to the rail,
+     * so the screen showed search twice. An empty field closes as focus leaves it.
      */
     @Test
     public void anEmptySearchFieldClosesWhenFocusLeavesIt() {
         StreamSettings screen = open();
-        goToRow(screen, StreamSettings.SEARCH_ROW_KEY);
-        press(screen, KeyEvent.KEYCODE_DPAD_CENTER);
+        openSearchFromTheCapsule(screen);
         androidx.appcompat.widget.SearchView field = screen.findViewById(R.id.settings_search);
-        assertEquals("Select on the search row opens the field", View.VISIBLE, field.getVisibility());
+        assertEquals("Select on the capsule's search opens the field", View.VISIBLE, field.getVisibility());
         assertTrue(field.hasFocus());
         press(screen, KeyEvent.KEYCODE_DPAD_DOWN);
         assertFalse("focus left the field", field.hasFocus());
@@ -333,15 +344,14 @@ public class TvSettingsFocusTest {
     }
 
     /**
-     * nightjar#7: picking a section ends the search and closes its field, and the search row brings the search back as
+     * nightjar#7: picking a section ends the search and closes its field, and the capsule's search brings it back as
      * it was left, its query and its results. A field with a query stays open while focus is elsewhere: that is the
      * search still on screen.
      */
     @Test
-    public void theSearchRowBringsBackTheQueryAndResultsASectionLeft() {
+    public void theCapsuleSearchBringsBackTheQueryAndResultsASectionLeft() {
         StreamSettings screen = open();
-        goToRow(screen, StreamSettings.SEARCH_ROW_KEY);
-        press(screen, KeyEvent.KEYCODE_DPAD_CENTER);
+        openSearchFromTheCapsule(screen);
         androidx.appcompat.widget.SearchView field = screen.findViewById(R.id.settings_search);
         field.setQuery("controller", false);
         settle(screen);
@@ -354,14 +364,12 @@ public class TvSettingsFocusTest {
         ListView list = sections(screen);
         assertEquals("video", keyAt(list, list.getCheckedItemPosition()));
         press(screen, KeyEvent.KEYCODE_DPAD_LEFT);
-        goToRow(screen, StreamSettings.SEARCH_ROW_KEY);
-        press(screen, KeyEvent.KEYCODE_DPAD_CENTER);
+        openSearchFromTheCapsule(screen);
         assertEquals(View.VISIBLE, field.getVisibility());
         assertEquals("the query is back", "controller", field.getQuery().toString());
         assertEquals("and its results", "controller", org.robolectric.util.ReflectionHelpers.getField(screen, "searchQuery"));
         list = sections(screen);
-        assertEquals("the rail marks the search row again", StreamSettings.SEARCH_ROW_KEY,
-                keyAt(list, list.getCheckedItemPosition()));
+        assertEquals("no row stands for the results", ListView.INVALID_POSITION, list.getCheckedItemPosition());
         TextView context = screen.findViewById(R.id.settings_context);
         String none = screen.getResources().getQuantityString(R.plurals.settings_search_count, 0, 0);
         assertFalse("results are listed: " + context.getText(), none.contentEquals(context.getText()));

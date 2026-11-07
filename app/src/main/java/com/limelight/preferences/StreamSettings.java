@@ -246,18 +246,6 @@ public class StreamSettings extends NightjarActivity {
                 == Configuration.UI_MODE_TYPE_TELEVISION;
     }
 
-    /** Whether a gamepad is connected: it reaches the toolbar's search icon as badly as a TV remote does. */
-    private static boolean hasGamepad() {
-        for (int id : android.view.InputDevice.getDeviceIds()) {
-            android.view.InputDevice device = android.view.InputDevice.getDevice(id);
-            if (device != null && !device.isVirtual() && (device.getSources() & android.view.InputDevice.SOURCE_GAMEPAD)
-                    == android.view.InputDevice.SOURCE_GAMEPAD) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /** The section the right pane shows before one is picked: the first row of the list. */
     private String defaultSection() {
         return isTelevision(this) ? "input" : "video";
@@ -331,7 +319,7 @@ public class StreamSettings extends NightjarActivity {
     /** Marks the section the right pane shows in the list of sections. */
     private void markSection() {
         placeFirstFocus();
-        String row = onRowWithoutPage() ? null : markedRow();
+        String row = markedRow();
         android.app.Fragment fragment = getFragmentManager().findFragmentById(R.id.settings_sections);
         if (twoPane && fragment instanceof RootFragment) ((RootFragment) fragment).mark(row);
         if (rail != null) {
@@ -344,32 +332,35 @@ public class StreamSettings extends NightjarActivity {
     /** With the D-pad, the list of sections starts on the section shown, not on its first row: one row is highlighted from the start. */
     private void placeFirstFocus() {
         ListView list = twoPane && !firstFocusPlaced ? listOf(R.id.settings_sections) : null;
-        if (list == null || list.getAdapter() == null) return;
+        // Not before the list has focus: a selected row moves a list that overflows, and nothing needs it yet.
+        if (list == null || list.getAdapter() == null || !list.hasFocus()) return;
         int position = RootFragment.positionOf(list, markedRow());
         if (position < 0) return;
         firstFocusPlaced = true;
-        if (!list.isInTouchMode()) list.setSelection(position);
+        if (list.isInTouchMode()) return;
+        if (list.getChildCount() > 0) selectInPlace(list, position);
+        else androidx.core.view.OneShotPreDrawListener.add(list, () -> selectInPlace(list, position));
     }
 
     /**
-     * Focus is on a row of the list of sections with no page to show on the right (Presets, Profiles, Search): that row
-     * is then the one highlight, so no section is marked beside it (nightjar#7: Presets ringed and Video amber read as two
-     * selections). The mark comes back as soon as focus is on a section or leaves the list.
+     * Selects a row without moving it: setSelection puts it at the list's top, so a rail that fits its screen opened scrolled,
+     * Presets cut in half, with Video below it selected. A row off screen still comes into view.
      */
-    private boolean onRowWithoutPage() {
-        ListView list = twoPane ? listOf(R.id.settings_sections) : null;
-        // In touch mode no row shows a ring, whatever the list has selected.
-        if (list == null || list.isInTouchMode() || !list.hasFocus() || !(list.getSelectedItem() instanceof Preference)) return false;
-        String key = ((Preference) list.getSelectedItem()).getKey();
-        return !SECTIONS.containsKey(key) && !key.equals(markedRow());
+    static void selectInPlace(ListView list, int position) {
+        View row = list.getChildAt(position - list.getFirstVisiblePosition());
+        if (row == null || row.getTop() < list.getListPaddingTop() || row.getBottom() > list.getHeight() - list.getListPaddingBottom()) {
+            list.setSelection(position);
+        } else {
+            list.setSelectionFromTop(position, row.getTop() - list.getListPaddingTop());
+        }
     }
 
     /**
-     * The row of the list of sections that stands for the right pane: its section, or on a TV the search row while the
-     * pane shows search results (the rail kept marking the section left behind them).
+     * The section the right pane shows: search results are no section, so no row stands for them. A row with no page of its
+     * own (Presets, Profiles) can hold the ring beside this mark: the ring says where focus is, the pill what is on the right.
      */
     String markedRow() {
-        return isTelevision(this) && !searchQuery.isEmpty() ? SEARCH_ROW_KEY : section;
+        return searchQuery.isEmpty() ? section : null;
     }
 
     /** TV Settings' rail bar and pane motion; null without the TV layout. */
@@ -579,7 +570,11 @@ public class StreamSettings extends NightjarActivity {
     }
 
     private void applyListFoot(ListView list) {
-        if (list != null) list.setPadding(list.getPaddingLeft(), list.getPaddingTop(), list.getPaddingRight(), listFoot);
+        if (list == null) return;
+        // A handheld's rail ends on the screen's edge: nothing floats under it, and every row can fit.
+        boolean handheldRail = list == listOf(R.id.settings_sections) && GlassForm.of(this) == GlassForm.HANDHELD;
+        int foot = handheldRail ? getResources().getDimensionPixelSize(R.dimen.space_xs) : listFoot;
+        list.setPadding(list.getPaddingLeft(), list.getPaddingTop(), list.getPaddingRight(), foot);
     }
 
     /**
@@ -731,8 +726,8 @@ public class StreamSettings extends NightjarActivity {
     }
 
     /**
-     * An empty search field closes once focus leaves it: open beside the TV rail's search row, it showed search twice
-     * while nothing was searched (nightjar#7). A field with a query stays; it is the search on screen.
+     * An empty search field closes once focus leaves it: open beside the capsule's search it showed search twice while
+     * nothing was searched (nightjar#7). A field with a query stays; it is the search on screen.
      */
     private void closeEmptySearch() {
         if (!searchQuery.isEmpty() || searchView.getVisibility() != View.VISIBLE || searchView.hasFocus()) return;
@@ -747,8 +742,8 @@ public class StreamSettings extends NightjarActivity {
             searchView.setVisibility(View.GONE);
             updateNavigation();
             linkListsToSearch();
-            ListView list = sectionList();
-            if (list != null && RootFragment.showsSearchRow(this, twoPane)) list.requestFocus();
+            // Back to what opened it. By touch this asks for nothing: the button takes no focus there.
+            findViewById(R.id.settings_search_button).requestFocus();
         }
         else if (!searchQuery.isEmpty()) {
             setSearchQuery("");
@@ -1135,6 +1130,14 @@ public class StreamSettings extends NightjarActivity {
         return GlassForm.of(context) == GlassForm.TELEVISION ? R.layout.settings_section_tv : R.layout.settings_section;
     }
 
+    /** A row that holds one value says it at its end, whatever opens to change it. */
+    static boolean showsValueAtEnd(Preference preference) {
+        if (preference instanceof ListPreference || preference instanceof SeekBarPreference) return true;
+        String key = preference.getKey();
+        return "checkbox_touchscreen_trackpad".equals(key) || VideoScaling.STRETCH_PREF.equals(key)
+                || OverlayChoice.ENABLED_KEY.equals(key) || AppTheme.ALWAYS_DARK.equals(key) || "gpu_driver".equals(key);
+    }
+
     private static void stylePreferences(PreferenceGroup group, int categoryLayout) {
         for (int i = 0; i < group.getPreferenceCount(); i++) {
             Preference preference = group.getPreference(i);
@@ -1144,7 +1147,7 @@ public class StreamSettings extends NightjarActivity {
                 preference.setLayoutResource(TextUtils.isEmpty(preference.getTitle()) ?
                         R.layout.settings_category_spacer : categoryLayout);
             } else {
-                preference.setLayoutResource(preference instanceof ListPreference ? R.layout.settings_preference_value : R.layout.settings_preference);
+                preference.setLayoutResource(showsValueAtEnd(preference) ? R.layout.settings_preference_value : R.layout.settings_preference);
             }
             if (preference instanceof PreferenceGroup) {
                 stylePreferences((PreferenceGroup) preference, categoryLayout);
@@ -1217,7 +1220,6 @@ public class StreamSettings extends NightjarActivity {
         return value;
     }
 
-    static final String SEARCH_ROW_KEY = "settings_search";
     /** The overview's Profiles row, under the presets: profiles hold values from every section. */
     static final String PROFILES_KEY = "stream_profiles";
 
@@ -1278,20 +1280,6 @@ public class StreamSettings extends NightjarActivity {
                 startActivity(new Intent(getActivity(), StreamProfilesActivity.class));
                 return true;
             });
-            if (showsSearchRow(getActivity(), ((StreamSettings) getActivity()).twoPane)) {
-                Preference search = new Preference(getActivity());
-                search.setKey(SEARCH_ROW_KEY);
-                search.setTitle(R.string.settings_search_hint);
-                search.setPersistent(false);
-                search.setOrder(-2);
-                search.setLayoutResource(R.layout.settings_search_row);
-                search.setOnPreferenceClickListener(preference -> {
-                    ((StreamSettings) getActivity()).openSearch();
-                    return true;
-                });
-                getPreferenceScreen().addPreference(search);
-            }
-
         }
 
         @Override
@@ -1332,11 +1320,6 @@ public class StreamSettings extends NightjarActivity {
                 inner.onItemClick(parent, row, position, id);
                 activity.markSection();
             });
-        }
-
-        /** Whether the overview starts with a focusable "Search settings" row: for TVs, controllers and wide screens. */
-        static boolean showsSearchRow(Context context, boolean twoPane) {
-            return twoPane || isTelevision(context) || hasGamepad();
         }
 
         static int positionOf(ListView list, String key) {

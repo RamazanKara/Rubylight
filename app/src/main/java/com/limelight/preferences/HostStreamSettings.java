@@ -245,6 +245,7 @@ public class HostStreamSettings extends NightjarActivity {
             exportRomsTree = romsTree != null ? Uri.parse(romsTree) : null;
         }
         setContentView(R.layout.activity_host_stream_settings);
+        com.limelight.ui.NightSkyView.behind(this);
         // The PC is the page: its name is the title, the host software and version the subtitle.
         // A profile or a game names the page the same way.
         String title = mode == Mode.PROFILE ? profiles.name(profileId) : mode == Mode.GAME ? appName : computer.displayName();

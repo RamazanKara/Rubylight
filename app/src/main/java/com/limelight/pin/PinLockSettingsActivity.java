@@ -56,6 +56,7 @@ public class PinLockSettingsActivity extends NightjarActivity {
         verified = state != null && state.getBoolean(STATE_VERIFIED);
         awaiting = state != null && state.getBoolean(STATE_AWAITING);
         content = TopAppBar.setUpPage(this, R.string.pin_lock_title, this::finish);
+        com.limelight.ui.NightSkyView.behind(this);
         if (state == null) {
             getFragmentManager().beginTransaction().replace(content.getId(), new LockFragment()).commit();
         }

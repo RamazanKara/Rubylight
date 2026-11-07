@@ -108,6 +108,20 @@ public class NightSkyView extends View {
         }
     }
 
+    /**
+     * Puts the sky behind an art-less page that is built on a plain content view: Settings' sub-pages. No moon: its rows fill
+     * the page and it would stand behind their text. Call after setContentView.
+     */
+    public static NightSkyView behind(android.app.Activity page) {
+        android.view.ViewGroup content = page.findViewById(android.R.id.content);
+        NightSkyView sky = new NightSkyView(page);
+        sky.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+        sky.setMoonShown(false);
+        content.addView(sky, 0, new android.view.ViewGroup.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        return sky;
+    }
+
     /** How far down the window's safe area starts: the moon keeps its place under a status bar or a notch. */
     public void setSafeTop(int top) {
         if (safeTop == top) return;

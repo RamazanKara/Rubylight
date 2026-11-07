@@ -448,9 +448,16 @@ pub(super) fn env_flag(name: &str) -> Option<bool> {
 }
 
 /// Whether a backend recovers from a lost frame with reference frame invalidation: D3D11VA, VAAPI
-/// and software, as moonlight-qt asks. Vulkan video, V4L2 M2M and NVDEC do not ask.
+/// and software, as moonlight-qt asks, and Vulkan video with `NIGHTJAR_VULKAN_RFI=1` (off until
+/// measured). V4L2 M2M and NVDEC do not ask.
 pub(super) fn takes_rfi(backend: Hardware) -> bool {
-    matches!(backend, Hardware::D3d11(_) | Hardware::Vaapi | Hardware::None)
+    static VULKAN_RFI: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    takes_rfi_when(backend, *VULKAN_RFI.get_or_init(|| env_flag("NIGHTJAR_VULKAN_RFI").unwrap_or(false)))
+}
+
+/// `takes_rfi`, with Vulkan video taking it when `vulkan` says so.
+fn takes_rfi_when(backend: Hardware, vulkan: bool) -> bool {
+    matches!(backend, Hardware::D3d11(_) | Hardware::Vaapi | Hardware::None) || vulkan && matches!(backend, Hardware::Vulkan(_))
 }
 
 /// The decoder's `CAPABILITY_*` for the launch. Reference frame invalidation for HEVC and for AV1
@@ -1116,6 +1123,20 @@ mod capability_tests {
         assert_eq!(video_capabilities(&decoded_by(&[(VIDEO_FORMAT_H265, Hardware::Vaapi)]), false, true, true, 16), CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC);
         // NIGHTJAR_DESKTOP_RFI=0.
         assert_eq!(video_capabilities(&all(Hardware::Vaapi), false, false, true, 16), 0);
+    }
+
+    /// Vulkan video's reference frame invalidation is an A/B switch, off by default.
+    #[test]
+    fn vulkan_video_takes_rfi_only_when_switched_on() {
+        let device = std::ptr::dangling_mut::<std::ffi::c_void>();
+        assert!(!takes_rfi_when(Hardware::Vulkan(device), false));
+        assert!(takes_rfi_when(Hardware::Vulkan(device), true));
+        for backend in [Hardware::V4l2m2m, Hardware::Cuda] {
+            assert!(!takes_rfi_when(backend, true), "{}", backend.label());
+        }
+        for backend in [Hardware::D3d11(device), Hardware::Vaapi, Hardware::None] {
+            assert!(takes_rfi_when(backend, false), "{}", backend.label());
+        }
     }
 
     #[test]

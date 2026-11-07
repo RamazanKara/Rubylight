@@ -40,7 +40,9 @@ It also fails when the assets, excluding video, exceed 6 MB.
 - `assets/launcher.png` (192 × 192) and `assets/favicon.png` (32 × 32): the
   launcher icon `app/src/main/res/mipmap-anydpi/ic_launcher.xml` (night circle,
   amber moon, bird), rendered as SVG with a transparent background outside the circle.
-- `assets/og.png`: the 1200 × 630 raster export of `assets/og.svg`.
+- `assets/og.png`: the 1200 × 630 social card, rendered with the README banner and the
+  Play feature graphic and TV banner by `scripts/demo/brand.py` (the trailer's sky and
+  mark, with the published TV and handheld captures).
 - `assets/trailer-16x9.mp4` and `assets/trailer-9x16.mp4`: the 54 s trailer (Home
   on a TV and a game's page, a handheld stream with the performance overlay, the
   stream menu, Radeon settings, PC keyboard and picture-in-picture, the feature

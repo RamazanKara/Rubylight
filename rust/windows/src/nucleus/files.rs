@@ -233,6 +233,36 @@ fn epic_manifests() -> PathBuf {
         .join(r"Epic\EpicGamesLauncher\Data\Manifests")
 }
 
+/// Larger than any manifest the launcher writes.
+const EPIC_MANIFEST_MAX: u64 = 1 << 20;
+
+/// A manifest's bytes. The folder is writable by every user, and the host may
+/// read it elevated: never through a link, nor more than a manifest's size.
+fn read_epic_manifest(path: &Path) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+    use windows::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT,
+    };
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
+        .open(path)
+        .map_err(|error| error.to_string())?;
+    let metadata = file.metadata().map_err(|error| error.to_string())?;
+    if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0 {
+        return Err("it is a link".into());
+    }
+    let mut bytes = Vec::new();
+    file.take(EPIC_MANIFEST_MAX + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes.len() as u64 > EPIC_MANIFEST_MAX {
+        return Err(format!("it is over {EPIC_MANIFEST_MAX} bytes"));
+    }
+    Ok(bytes)
+}
+
 /// What the Epic Games Launcher in `manifests` starts the game at `exe` with
 /// ([`generic::epic_arguments`]); None for any other game. An app's command
 /// is a bare .exe, so its manifest is what says it is an Epic game. A manifest
@@ -251,8 +281,7 @@ fn epic_arguments(manifests: &Path, exe: &str) -> Option<String> {
         .map(|file| file.path())
         .filter(|path| path.extension().is_some_and(|ext| ext == "item"))
         .find_map(|path| {
-            let read = std::fs::read(&path).map_err(|error| error.to_string());
-            match read.and_then(|bytes| generic::epic_arguments(&bytes, exe)) {
+            match read_epic_manifest(&path).and_then(|bytes| generic::epic_arguments(&bytes, exe)) {
                 Ok(arguments) => arguments,
                 Err(error) => {
                     tracing::warn!(manifest = %path.display(), error, "Nucleus Co-op: an Epic Games Launcher manifest can't be used");

@@ -226,6 +226,30 @@ fn an_epic_games_handler_starts_it_as_its_launcher_would() {
     assert!(epic_arguments(&manifests.path().join("none"), exe).is_none());
 }
 
+/// A manifest too large for one, or a link to another file, is never read.
+#[test]
+fn an_epic_manifest_is_read_only_at_its_size_and_never_through_a_link() {
+    let manifests = tempfile::tempdir().unwrap();
+    let good = manifests.path().join("good.json");
+    let text = r#"{"AppName":"App","CatalogNamespace":"Space","InstallLocation":"D:\\Game","LaunchExecutable":"Game.exe"}"#;
+    std::fs::write(&good, text).unwrap();
+    assert_eq!(read_epic_manifest(&good).unwrap(), text.as_bytes());
+    let large = manifests.path().join("large.item");
+    std::fs::write(&large, vec![b' '; EPIC_MANIFEST_MAX as usize + 1]).unwrap();
+    assert!(read_epic_manifest(&large).unwrap_err().contains("over"));
+    let exe = r"D:\Game\Game.exe";
+    assert!(epic_arguments(manifests.path(), exe).is_none());
+    // Linking takes a privilege that a developer's own shell may lack.
+    let link = manifests.path().join("link.item");
+    match std::os::windows::fs::symlink_file(&good, &link) {
+        Ok(()) => {
+            assert!(read_epic_manifest(&link).unwrap_err().contains("link"));
+            assert!(epic_arguments(manifests.path(), exe).is_none());
+        }
+        Err(error) => println!("no link to test: {error}"),
+    }
+}
+
 /// #56: an Unreal game's handler starts it in a window, so it stays where
 /// it is parked instead of covering the PC's monitor.
 #[test]

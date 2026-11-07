@@ -515,12 +515,19 @@ pub fn on_this_pc(path: &str) -> Option<String> {
     Some(local.to_string())
 }
 
-/// What the Epic Games Launcher starts the game at `exe_path` with, from one
-/// of its `.item` manifests, without the sign-in we don't have; None when the
-/// manifest is another game's. Started from its .exe without these, a game
-/// that asks the Epic SDK restarts through the launcher, outside Nucleus Co-op
-/// and on the PC's monitor, and the instance exits (#56). `SteamAppId` does
-/// the same for a Steam game ([`Setup::steam_app`]).
+/// What says which Epic game the game at `exe_path` is, from one of the Epic
+/// Games Launcher's `.item` manifests, without the sign-in we don't have; None
+/// when the manifest is another game's. The game may be any .exe below its
+/// install folder, since many manifests name a launcher stub, and the manifest
+/// of a DLC names none. Started from its .exe without these, a game that asks
+/// the Epic SDK restarts through the launcher, outside Nucleus Co-op and on the
+/// PC's monitor, and the instance exits (#56). `SteamAppId` does the same for a
+/// Steam game ([`Setup::steam_app`]).
+///
+/// Any user can write these manifests and the game may run elevated, so only
+/// names that can't carry an option reach its command line, and never the
+/// manifest's `LaunchCommand`: an app that needs those options has its own
+/// arguments.
 pub fn epic_arguments(manifest: &[u8], exe_path: &str) -> Result<Option<String>, String> {
     let record: serde_json::Value =
         serde_json::from_slice(manifest).map_err(|error| error.to_string())?;
@@ -529,25 +536,29 @@ pub fn epic_arguments(manifest: &[u8], exe_path: &str) -> Result<Option<String>,
     if folder.is_empty() || launched.is_empty() {
         return Ok(None);
     }
-    let game = normalized(&format!(
-        "{}\\{launched}",
-        folder.trim_end_matches(['\\', '/'])
-    ));
-    if !game.eq_ignore_ascii_case(&normalized(exe_path)) {
+    let folder = normalized(folder);
+    let folder = folder.trim_end_matches('\\');
+    let exe = normalized(exe_path);
+    // A drive's root is no game's folder: it would claim every game on it.
+    if !folder.contains('\\')
+        || !exe.to_ascii_lowercase().ends_with(".exe")
+        || below(&exe, folder).is_none()
+    {
         return Ok(None);
     }
-    let bare = |value: &str| !value.is_empty() && !value.contains(char::is_whitespace);
+    let name = |value: &str| {
+        (1..=128).contains(&value.len())
+            && value
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+    };
     let (app, namespace) = (text("AppName"), text("CatalogNamespace"));
-    if !bare(app) || !bare(namespace) {
-        return Err(format!("{game} has no usable app name or namespace"));
+    if !name(app) || !name(namespace) {
+        return Err(format!("{exe} has no usable app name or namespace"));
     }
-    let mut arguments =
-        format!("-EpicPortal -epicapp={app} -epicenv=Prod -epicsandboxid={namespace}");
-    let own = text("LaunchCommand");
-    if !own.is_empty() {
-        arguments = format!("{own} {arguments}");
-    }
-    Ok(Some(arguments))
+    Ok(Some(format!(
+        "-EpicPortal -epicapp={app} -epicenv=Prod -epicsandboxid={namespace}"
+    )))
 }
 
 /// Why an Epic game's instance ended soon after it started.
@@ -937,20 +948,85 @@ mod tests {
             epic_arguments(manifest("", "Jackdaw").as_bytes(), exe).unwrap(),
             Some(epic.into())
         );
+        // A manifest that names a launcher stub still says what the game is.
         assert_eq!(
-            epic_arguments(manifest("-dx11", "Jackdaw").as_bytes(), exe).unwrap(),
-            Some(format!("-dx11 {epic}"))
+            epic_arguments(
+                manifest("", "Jackdaw").as_bytes(),
+                r"D:\APlagueTale\Other\Game.exe"
+            )
+            .unwrap(),
+            Some(epic.into())
         );
-        // Another game's, a launcher component without an .exe, and what can't be used.
+        // Another game's, a folder that only starts the same, a launcher
+        // component without an .exe, and what can't be used.
+        for other in [
+            r"D:\Other\Game.exe",
+            r"D:\APlagueTale2\bin\Game.exe",
+            r"D:\APlagueTale\bin\Game.bat",
+        ] {
+            assert_eq!(
+                epic_arguments(manifest("", "Jackdaw").as_bytes(), other).unwrap(),
+                None
+            );
+        }
+        assert_eq!(epic_arguments(b"{}", exe).unwrap(), None);
+        let no_exe = serde_json::json!({
+            "AppName": "Jackdaw",
+            "CatalogNamespace": "plague",
+            "InstallLocation": r"D:\APlagueTale",
+        });
         assert_eq!(
-            epic_arguments(manifest("", "Jackdaw").as_bytes(), r"D:\Other\Game.exe").unwrap(),
+            epic_arguments(no_exe.to_string().as_bytes(), exe).unwrap(),
             None
         );
-        assert_eq!(epic_arguments(b"{}", exe).unwrap(), None);
         assert!(epic_arguments(manifest("", "two words").as_bytes(), exe).is_err());
         assert!(epic_arguments(b"not json", exe).is_err());
         let why = epic_exit("Player 1's instance of Game exited", "Game");
         assert!(why.starts_with("Player 1's instance of Game exited: Game is an Epic Games game"));
+    }
+
+    /// Any user can write a manifest and the game may run elevated: nothing
+    /// in one puts an option on its command line.
+    #[test]
+    fn a_hostile_epic_manifest_puts_no_option_on_the_command_line() {
+        let exe = r"D:\Game\Game.exe";
+        let manifest = |app: &str, namespace: &str, command: &str, folder: &str| {
+            serde_json::json!({
+                "AppName": app,
+                "CatalogNamespace": namespace,
+                "InstallLocation": folder,
+                "LaunchExecutable": "Game.exe",
+                "LaunchCommand": command,
+            })
+            .to_string()
+        };
+        assert_eq!(
+            epic_arguments(
+                manifest("App", "Space", r#"-ExecCmds="quit" -log=C:\x"#, r"D:\Game").as_bytes(),
+                exe
+            )
+            .unwrap(),
+            Some("-EpicPortal -epicapp=App -epicenv=Prod -epicsandboxid=Space".into())
+        );
+        for (app, namespace) in [
+            (r#"App" -ExecCmds="quit"#, "Space"),
+            ("App", r#"Space"x"#),
+            ("App -log", "Space"),
+            ("App", r"C:\x"),
+            ("", "Space"),
+            (&*"a".repeat(129), "Space"),
+        ] {
+            let bytes = manifest(app, namespace, "", r"D:\Game");
+            assert!(epic_arguments(bytes.as_bytes(), exe).is_err(), "{app}");
+        }
+        // Nor does it claim every game on a drive.
+        for root in [r"D:\", "D:", r"D:/"] {
+            assert_eq!(
+                epic_arguments(manifest("App", "Space", "", root).as_bytes(), exe).unwrap(),
+                None,
+                "{root}"
+            );
+        }
     }
 
     #[test]

@@ -675,13 +675,15 @@ A background stream:
 - **Streams only the game's sound** ([Game-only audio](#game-only-audio)), so the
   PC user's calls and music stay private. The game plays on a virtual device,
   so it stays off the PC's speakers, even when the device asks to play audio on
-  the PC: that setting still applies to its normal streams.
+  the PC: that setting still applies to its normal streams. Without a virtual
+  device the game stays audible on the PC and the stream warns.
 
 A game needs no handler from Nucleus Co-op's handler hub for this: without
 one, the host writes its own one-player handler. The app's command must be the
 game's .exe or a Steam link; a Steam game starts with its Steam app id, so it
 doesn't restart through Steam, and a game the Epic Games Launcher installed
-starts with the arguments that launcher gives it, without its sign-in. A game
+starts with the arguments that say which game it is, without its sign-in, and
+none of its launcher's own options (the app's arguments can add them). A game
 that insists on that sign-in may still restart on the PC's monitor, and the
 stream says so. Other launchers' links, launchers' .exe files,
 games with anti-cheat and games on a network share are refused, and some games

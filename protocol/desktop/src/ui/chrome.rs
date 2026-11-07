@@ -12,11 +12,8 @@ pub(super) const BAR_TOP: f32 = 20.0;
 pub(super) const BAR_H: f32 = t::SIZE_TOP_CAPSULE_HEIGHT;
 /// Where a page's content starts: Home's hero, or a page's own first line.
 pub(super) const PAGE_TOP: f32 = 88.0;
-/// How far the page has scrolled when the scrim under the chrome is whole, and how dark it is.
-const SCRIM_FULL_AT: f32 = 40.0;
-const SCRIM_ALPHA: f32 = 0.88;
-/// The foot of the top bar's row.
-const SCRIM_HELD_TO: f32 = 68.0;
+/// The brand's width with its wordmark, near enough.
+const BRAND_WORDED_W: f32 = 118.0;
 const CAPSULE_GAP: f32 = 14.0;
 const SEARCH_W: f32 = 220.0;
 /// Below this window width the search field folds to its icon, below the second the wordmark goes.
@@ -56,32 +53,22 @@ pub(super) fn page_margin(width: f32) -> f32 {
     ((width - CONTENT_MAX) / 2.0).max((width * 0.0375).clamp(24.0, 48.0))
 }
 
-/// Where the page passes beneath the chrome: it darkens as it goes, so the brand, which has no glass
-/// of its own, stays readable over a bright cover and over a line of words. It holds as far as the
-/// brand reaches and only then lets go. Nothing at all with the page at its start.
-pub(super) fn top_scrim(screen: Rect, scrolled: f32) -> Option<Shape> {
-    let strength = (scrolled / SCRIM_FULL_AT).min(1.0);
-    if strength <= 0.0 {
-        return None;
-    }
-    let mut mesh = egui::epaint::Mesh::default();
-    let bottom = screen.top() + PAGE_TOP + space::S;
-    let held = t::TINT_FADE.gamma_multiply(SCRIM_ALPHA * strength);
-    for (y, color) in [
-        (screen.top(), held),
-        (screen.top() + SCRIM_HELD_TO, held),
-        (bottom, Color32::TRANSPARENT),
-    ] {
-        for x in [screen.left(), screen.right()] {
-            mesh.vertices.push(egui::epaint::Vertex {
-                pos: pos2(x, y),
-                uv: egui::epaint::WHITE_UV,
-                color,
-            });
-        }
-    }
-    mesh.indices.extend([0, 1, 3, 0, 3, 2, 2, 3, 5, 2, 5, 4]);
-    Some(Shape::mesh(mesh))
+/// Where the brand sits in a window: the mark, and the wordmark when there is room for it. It has no
+/// glass of its own, so the veil over the page keeps its words readable.
+pub(super) fn brand_rect(screen: Rect) -> Rect {
+    let margin = page_margin(screen.width());
+    let width = if screen.width() >= WORDMARK_GOES_BELOW {
+        BRAND_WORDED_W
+    } else {
+        30.0
+    };
+    Rect::from_min_size(
+        pos2(
+            screen.left() + margin,
+            screen.top() + BAR_TOP + BAR_H / 2.0 - 15.0,
+        ),
+        vec2(width, 30.0),
+    )
 }
 
 fn extend(ui: &Ui, shapes: Vec<Shape>) {

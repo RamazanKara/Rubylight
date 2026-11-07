@@ -1038,9 +1038,8 @@ impl Launcher {
             }
             // What rose over its neighbours, under the chrome and whatever covers the page.
             glass::flush_deferred(ui);
-            if let Some(scrim) = chrome::top_scrim(full, self.page_scrolled) {
-                ui.painter().with_clip_rect(full).add(scrim);
-            }
+            let veil = self.ambient.veil(&ctx, full, chrome::brand_rect(full), self.page_scrolled);
+            ui.painter().with_clip_rect(full).extend(veil);
         });
         if blocked {
             self.focus_screen = held_focus;

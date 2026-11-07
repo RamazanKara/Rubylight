@@ -671,13 +671,17 @@ A background stream:
   pen would type and click into whatever the PC user has focused, so they are
   off, as is the clipboard. The virtual controllers work as usual.
 - **Streams only the game's sound** ([Game-only audio](#game-only-audio)), so the
-  PC user's calls and music stay private. The game is still audible on the
-  PC's speakers unless you route it to another playback device.
+  PC user's calls and music stay private. The game plays on a virtual device,
+  so it stays off the PC's speakers, even when the device asks to play audio on
+  the PC: that setting still applies to its normal streams.
 
 A game needs no handler from Nucleus Co-op's handler hub for this: without
 one, the host writes its own one-player handler. The app's command must be the
 game's .exe or a Steam link; a Steam game starts with its Steam app id, so it
-doesn't restart through Steam. Other launchers' links, launchers' .exe files,
+doesn't restart through Steam, and a game the Epic Games Launcher installed
+starts with the arguments that launcher gives it, without its sign-in. A game
+that insists on that sign-in may still restart on the PC's monitor, and the
+stream says so. Other launchers' links, launchers' .exe files,
 games with anti-cheat and games on a network share are refused, and some games
 pause anyway when their window is not
 in front ([Games without a handler](nucleus-coop.md#games-without-a-handler)).

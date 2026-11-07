@@ -614,7 +614,16 @@ impl Runner {
 
     /// Player `slot`'s instance exited.
     fn exited(&mut self, slot: usize) -> End {
-        let why = format!("Player {}'s instance of {} exited", slot + 1, self.title);
+        let mut why = format!("Player {}'s instance of {} exited", slot + 1, self.title);
+        // Soon after its start: a game Epic's launcher restarts leaves at once.
+        if self.inject_by.is_none_or(|by| Instant::now() < by)
+            && self
+                .own_game
+                .as_ref()
+                .is_some_and(|(_, exe)| files::epic_game(exe))
+        {
+            why = butterpollo_core::nucleus::generic::epic_exit(&why, &self.title);
+        }
         self.failure(why)
     }
 

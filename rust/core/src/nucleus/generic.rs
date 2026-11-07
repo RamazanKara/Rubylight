@@ -515,6 +515,48 @@ pub fn on_this_pc(path: &str) -> Option<String> {
     Some(local.to_string())
 }
 
+/// What the Epic Games Launcher starts the game at `exe_path` with, from one
+/// of its `.item` manifests, without the sign-in we don't have; None when the
+/// manifest is another game's. Started from its .exe without these, a game
+/// that asks the Epic SDK restarts through the launcher, outside Nucleus Co-op
+/// and on the PC's monitor, and the instance exits (#56). `SteamAppId` does
+/// the same for a Steam game ([`Setup::steam_app`]).
+pub fn epic_arguments(manifest: &[u8], exe_path: &str) -> Result<Option<String>, String> {
+    let record: serde_json::Value =
+        serde_json::from_slice(manifest).map_err(|error| error.to_string())?;
+    let text = |key: &str| record[key].as_str().unwrap_or("").trim();
+    let (folder, launched) = (text("InstallLocation"), text("LaunchExecutable"));
+    if folder.is_empty() || launched.is_empty() {
+        return Ok(None);
+    }
+    let game = normalized(&format!(
+        "{}\\{launched}",
+        folder.trim_end_matches(['\\', '/'])
+    ));
+    if !game.eq_ignore_ascii_case(&normalized(exe_path)) {
+        return Ok(None);
+    }
+    let bare = |value: &str| !value.is_empty() && !value.contains(char::is_whitespace);
+    let (app, namespace) = (text("AppName"), text("CatalogNamespace"));
+    if !bare(app) || !bare(namespace) {
+        return Err(format!("{game} has no usable app name or namespace"));
+    }
+    let mut arguments =
+        format!("-EpicPortal -epicapp={app} -epicenv=Prod -epicsandboxid={namespace}");
+    let own = text("LaunchCommand");
+    if !own.is_empty() {
+        arguments = format!("{own} {arguments}");
+    }
+    Ok(Some(arguments))
+}
+
+/// Why an Epic game's instance ended soon after it started.
+pub fn epic_exit(exited: &str, title: &str) -> String {
+    format!(
+        "{exited}: {title} is an Epic Games game, and it may have started again through the Epic Games Launcher, on the PC's monitor and outside Nucleus Co-op. Close it there if it is open; a normal stream plays it"
+    )
+}
+
 /// Whether `exe_path` is a launcher rather than a game: Nucleus would hook
 /// the launcher, which starts the game outside its hooks (Steam's
 /// `-applaunch`, Bethesda's and Rockstar's launchers) or a whole library.
@@ -875,6 +917,40 @@ mod tests {
             "Assassin's Creed \"IV\"",
             Some((242050, r"D:\SteamLibrary\steamapps\common\Black Flag")),
         )
+    }
+
+    #[test]
+    fn an_epic_manifest_gives_its_own_game_the_launchers_arguments() {
+        let manifest = |command: &str, app: &str| {
+            serde_json::json!({
+                "AppName": app,
+                "CatalogNamespace": "plague",
+                "InstallLocation": r"D:\APlagueTale\",
+                "LaunchExecutable": "bin/Game.exe",
+                "LaunchCommand": command,
+            })
+            .to_string()
+        };
+        let exe = r"d:\aplaguetale\BIN\game.exe";
+        let epic = "-EpicPortal -epicapp=Jackdaw -epicenv=Prod -epicsandboxid=plague";
+        assert_eq!(
+            epic_arguments(manifest("", "Jackdaw").as_bytes(), exe).unwrap(),
+            Some(epic.into())
+        );
+        assert_eq!(
+            epic_arguments(manifest("-dx11", "Jackdaw").as_bytes(), exe).unwrap(),
+            Some(format!("-dx11 {epic}"))
+        );
+        // Another game's, a launcher component without an .exe, and what can't be used.
+        assert_eq!(
+            epic_arguments(manifest("", "Jackdaw").as_bytes(), r"D:\Other\Game.exe").unwrap(),
+            None
+        );
+        assert_eq!(epic_arguments(b"{}", exe).unwrap(), None);
+        assert!(epic_arguments(manifest("", "two words").as_bytes(), exe).is_err());
+        assert!(epic_arguments(b"not json", exe).is_err());
+        let why = epic_exit("Player 1's instance of Game exited", "Game");
+        assert!(why.starts_with("Player 1's instance of Game exited: Game is an Epic Games game"));
     }
 
     #[test]

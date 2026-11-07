@@ -191,7 +191,7 @@ pub fn write_own(folder: &Path, setup: &Setup) -> Result<Handler> {
         .context("finding the signed-in user, whose game list the handler is for")?;
     let setup = &Setup {
         inject: inject_for(folder, &setup.exe_path)?,
-        arguments: setup.windowed_arguments(),
+        arguments: start_arguments(setup, &epic_manifests()),
         ..setup.clone()
     };
     match setup.inject {
@@ -225,6 +225,61 @@ pub fn write_own(folder: &Path, setup: &Setup) -> Result<Handler> {
     }
     add_game(folder, setup)?;
     Ok(handler)
+}
+
+/// Where the Epic Games Launcher lists the games it installed.
+fn epic_manifests() -> PathBuf {
+    PathBuf::from(std::env::var_os("PROGRAMDATA").unwrap_or_else(|| r"C:\ProgramData".into()))
+        .join(r"Epic\EpicGamesLauncher\Data\Manifests")
+}
+
+/// What the Epic Games Launcher in `manifests` starts the game at `exe` with
+/// ([`generic::epic_arguments`]); None for any other game. An app's command
+/// is a bare .exe, so its manifest is what says it is an Epic game. A manifest
+/// that can't be read is said, and leaves the game as it is.
+fn epic_arguments(manifests: &Path, exe: &str) -> Option<String> {
+    let files = match std::fs::read_dir(manifests) {
+        Ok(files) => files,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(error) => {
+            tracing::warn!(folder = %manifests.display(), %error, "Nucleus Co-op: the Epic Games Launcher's manifests can't be read");
+            return None;
+        }
+    };
+    files
+        .flatten()
+        .map(|file| file.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "item"))
+        .find_map(|path| {
+            let read = std::fs::read(&path).map_err(|error| error.to_string());
+            match read.and_then(|bytes| generic::epic_arguments(&bytes, exe)) {
+                Ok(arguments) => arguments,
+                Err(error) => {
+                    tracing::warn!(manifest = %path.display(), error, "Nucleus Co-op: an Epic Games Launcher manifest can't be used");
+                    None
+                }
+            }
+        })
+}
+
+/// Whether the Epic Games Launcher installed the game at `exe`.
+pub(super) fn epic_game(exe: &str) -> bool {
+    epic_arguments(&epic_manifests(), exe).is_some()
+}
+
+/// What Rubylight's handler starts `setup`'s game with.
+fn start_arguments(setup: &Setup, manifests: &Path) -> String {
+    let arguments = setup.windowed_arguments();
+    match epic_arguments(manifests, &setup.exe_path) {
+        Some(epic) if !arguments.to_ascii_lowercase().contains("-epicportal") => {
+            tracing::info!(
+                exe = setup.exe_path,
+                "Nucleus Co-op: an Epic game, started with the arguments its launcher gives it"
+            );
+            format!("{arguments} {epic}").trim().to_string()
+        }
+        _ => arguments,
+    }
 }
 
 /// How Rubylight's handler injects ProtoInput's input hooks into the games

@@ -193,6 +193,39 @@ fn rubylights_handler_is_written_and_its_game_added_beside_the_users() {
     assert_eq!(games[0].guid, setup.guid());
 }
 
+/// #56: an Epic game named by its bare .exe starts with what its launcher
+/// would give it, so it doesn't restart through the launcher, on the PC's
+/// monitor. Other games, and a broken manifest, change nothing.
+#[test]
+fn an_epic_games_handler_starts_it_as_its_launcher_would() {
+    let manifests = tempfile::tempdir().unwrap();
+    let item = |name: &str, text: &str| {
+        std::fs::write(manifests.path().join(name), text).unwrap();
+    };
+    item("broken.item", "not json");
+    item("other.txt", "not a manifest");
+    item(
+        "game.item",
+        r#"{"AppName":"Jackdaw","CatalogNamespace":"plague","InstallLocation":"D:\\APlagueTale","LaunchExecutable":"APlagueTaleInnocence_x64.exe","LaunchCommand":""}"#,
+    );
+    let started = |exe: &str, arguments: &str| {
+        let setup = Setup {
+            arguments: arguments.into(),
+            ..Setup::new(exe, "Game", None)
+        };
+        start_arguments(&setup, manifests.path())
+    };
+    let exe = r"d:/aplaguetale/aplaguetaleinnocence_x64.EXE";
+    let epic = "-EpicPortal -epicapp=Jackdaw -epicenv=Prod -epicsandboxid=plague";
+    assert_eq!(started(exe, ""), epic);
+    assert_eq!(started(exe, "-x"), format!("-x {epic}"));
+    // An app's own arguments that already say so stay as they are.
+    assert_eq!(started(exe, "-epicportal -y"), "-epicportal -y");
+    assert_eq!(started(r"D:\Games\Other\Other.exe", "-x"), "-x");
+    assert!(epic_arguments(manifests.path(), exe).is_some());
+    assert!(epic_arguments(&manifests.path().join("none"), exe).is_none());
+}
+
 /// #56: an Unreal game's handler starts it in a window, so it stays where
 /// it is parked instead of covering the PC's monitor.
 #[test]

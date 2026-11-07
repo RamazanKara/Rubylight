@@ -10,7 +10,8 @@ use sdl3_sys::everything::*;
 
 use crate::media;
 
-/// The fixtures: 64x64 lossless 4:4:4 pictures and 256x256 Main10 ones.
+/// The fixtures: 256x256 lossless 4:4:4 pictures (at least NVDEC's minimum size, so NVIDIA is
+/// offered 4:4:4) and 256x256 Main10 ones.
 const FIXTURES: [(u32, media::Codec, &str, &[u8]); 5] = [
     (
         VIDEO_FORMAT_H264_HIGH8_444,
@@ -126,6 +127,7 @@ pub fn probe_base(hardware: media::Hardware, wanted: u32) -> Base {
             chroma444: false,
             packed: false,
             waiting: 0,
+            vaapi_node: None,
         };
         match decode(hardware, pictures, codec, data) {
             Ok((_, backend)) => {
@@ -158,6 +160,7 @@ pub fn probe(
             chroma444: yuv444,
             packed: false,
             waiting: 0,
+            vaapi_node: None,
         };
         match decode(hardware, pictures, codec, data)
             .and_then(|(info, _)| drawable(&info, yuv444, &planes))
@@ -353,15 +356,16 @@ mod tests {
     }
 
     /// The 128x128 fixtures were under NVDEC's smallest HEVC picture (144x144), so the probe
-    /// refused HEVC on every NVIDIA GPU.
+    /// refused HEVC on every NVIDIA GPU; the 64x64 4:4:4 ones never offered NVIDIA 4:4:4. The
+    /// 4:4:4 ones are lossless (`media`'s software test compares every sample), so larger.
     #[test]
-    fn the_4_2_0_fixtures_are_above_every_backends_smallest_picture_and_stay_small() {
-        let plain = FIXTURES.iter().filter(|fixture| fixture.0 & VIDEO_FORMAT_MASK_YUV444 == 0);
-        for &(_, codec, name, data) in BASE_FIXTURES.iter().chain(plain) {
+    fn the_fixtures_are_above_every_backends_smallest_picture_and_stay_small() {
+        for &(format, codec, name, data) in BASE_FIXTURES.iter().chain(&FIXTURES) {
             let (info, _) = decode(media::Hardware::None, media::Pictures::default(), codec, data)
                 .unwrap_or_else(|error| panic!("{name}: {error}"));
             assert!(info.width >= 256 && info.height >= 256, "{name}: {}x{}", info.width, info.height);
-            assert!(data.len() <= 8 * 1024, "{name}: {} bytes", data.len());
+            let limit = if format & VIDEO_FORMAT_MASK_YUV444 == 0 { 8 } else { 80 };
+            assert!(data.len() <= limit * 1024, "{name}: {} bytes", data.len());
         }
     }
 

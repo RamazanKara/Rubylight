@@ -235,15 +235,18 @@ pub const NO_TILE: &str = "none";
 pub type Buttons = BTreeMap<Hotkey, String>;
 
 /// Whether a button can be given this tile: what shows on the first page, in the grid or under it.
-/// Quality is one choice, as `bitrate`; [`layout_with_buttons`] finds whichever a stream offers.
+/// Quality is one choice, as `bitrate`, and Quit game one, as `quit_game` (both read Quit game);
+/// [`layout_with_buttons`] finds whichever a stream offers.
 pub fn assignable(tile: &Tile) -> bool {
-    tile.label.is_some() && tile.place != Place::More && tile.id != "rate_change"
+    tile.label.is_some() && tile.place != Place::More && tile.id != "rate_change" && tile.id != "close_game"
 }
 
 fn button_tile(key: Hotkey, buttons: &Buttons) -> Option<&'static str> {
     let default = || TILES.iter().find(|t| t.hotkey == Some(key)).map(|t| t.id);
     match buttons.get(&key).map(String::as_str) {
         Some(NO_TILE) => None,
+        // A settings file from before Quit game was one choice may name close_game.
+        Some("close_game") => Some("quit_game"),
         Some(id) => tile(id).filter(|t| assignable(t)).map(|t| t.id).or_else(default),
         None => default(),
     }
@@ -278,6 +281,7 @@ pub fn layout_with_buttons(offers: &[Offer], shortcuts: Option<usize>, buttons: 
         let offered = |id: &str| offers.iter().any(|o| o.id == id);
         let target = button_tile(key, buttons).and_then(|id| match id {
             "bitrate" if !offered("bitrate") && offered("rate_change") => Some("rate_change"),
+            "quit_game" if !offered("quit_game") && offered("close_game") => Some("close_game"),
             id => offered(id).then_some(id),
         });
         if let Some(id) = target {
@@ -589,6 +593,24 @@ mod tests {
         let offers = [Offer::action("rate_change")];
         let buttons = Buttons::from([(Hotkey::Rb, "bitrate".to_string())]);
         assert_eq!(layout_with_buttons(&offers, None, &buttons).unwrap().buttons[&Hotkey::Rb], "rate_change");
+    }
+
+    /// The native Close game and the classic Quit both read Quit game, so a button's setting has one
+    /// Quit game, and it runs whichever the stream offers; a saved close_game still works.
+    #[test]
+    fn quit_game_is_one_choice_and_runs_whichever_way_the_stream_offers() {
+        let close = tile("close_game").unwrap();
+        assert!(!assignable(close), "one Quit game in the setting");
+        for (offered, runs) in [("quit_game", "quit_game"), ("close_game", "close_game")] {
+            let offers = [Offer::action("keyboard"), Offer::action("disconnect"), Offer::action(offered)];
+            for chosen in ["quit_game", "close_game"] {
+                let menu = layout_with_buttons(&offers, None, &Buttons::from([(Hotkey::Lb, chosen.to_string())])).unwrap();
+                assert_eq!(menu.buttons.get(&Hotkey::Lb), Some(&runs), "{chosen} with {offered} offered");
+            }
+        }
+        let offers = [Offer::action("keyboard")];
+        let menu = layout_with_buttons(&offers, None, &Buttons::from([(Hotkey::Lb, "quit_game".to_string())])).unwrap();
+        assert_eq!(menu.buttons.get(&Hotkey::Lb), None, "no way to quit offered: the button does nothing");
     }
 
     #[test]

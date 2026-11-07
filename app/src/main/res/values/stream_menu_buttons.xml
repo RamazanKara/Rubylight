@@ -29,7 +29,6 @@
         <item>@string/stream_tile_session_graphics</item>
         <item>@string/stream_tile_disconnect</item>
         <item>@string/stream_tile_end_session</item>
-        <item>@string/stream_tile_close_game</item>
         <item>@string/stream_tile_quit_game</item>
     </string-array>
     <string-array name="stream_menu_button_values" translatable="false">
@@ -53,7 +52,6 @@
         <item>native_page</item>
         <item>disconnect</item>
         <item>end_host_session</item>
-        <item>close_game</item>
         <item>quit_game</item>
     </string-array>
 </resources>

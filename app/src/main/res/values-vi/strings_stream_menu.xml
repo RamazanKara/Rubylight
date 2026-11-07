@@ -26,7 +26,7 @@
     <string name="stream_end_session">Kết thúc phiên</string>
     <string name="stream_end_session_confirm">Kết thúc phiên stream trên PC?
 Trò chơi vẫn tiếp tục chạy.</string>
-    <string name="stream_close_game">Đóng trò chơi</string>
+    <string name="stream_close_game">Thoát trò chơi</string>
     <string name="stream_close_game_confirm">Đóng trò chơi trên PC?
 Tiến trình chưa lưu sẽ bị mất.</string>
     <string name="stream_choice_selected">Đã chọn</string>

@@ -271,6 +271,43 @@ public class PcViewLifecycleTest {
     }
 
     @Test
+    public void backFromAStreamAPadDroveThePcThatRunsTheGameHoldsFocus() {
+        // A real stream on the Retroid: after Disconnect no card had focus, so a pad or a remote could not act at once.
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            report(pc("ready", "Office", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED));
+            ComputerDetails running = pc("running", "Den", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED);
+            running.runningGameId = 7;
+            report(running);
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            assertEquals("Den", ((PcView.ComputerObject) grid.getItemAtPosition(0)).details.name);
+            grid.setSelection(1);
+
+            // The stream: this screen goes away, the pad leaves touch mode, and it comes back with focus off the list.
+            controller.pause().stop();
+            com.limelight.ui.TvScreensPreviewTest.leaveTouchMode(screen);
+            assertTrue(screen.findViewById(R.id.shell_bar).requestFocus());
+            assertFalse("the list starts without focus", grid.hasFocus());
+            // This test's manager knows no PCs, so a resume with it would drop them; the real one keeps them.
+            Object manager = ReflectionHelpers.getField(screen, "managerBinder");
+            ReflectionHelpers.setField(screen, "managerBinder", null);
+            controller.restart().resume();
+            ReflectionHelpers.setField(screen, "managerBinder", manager);
+            assertEquals(3, grid.getCount());
+            screen.onWindowFocusChanged(true);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+
+            assertTrue("the list holds focus", grid.hasFocus());
+            assertFalse(grid.isInTouchMode());
+            assertEquals("the PC that runs the game", "Den",
+                    ((PcView.ComputerObject) grid.getSelectedItem()).details.name);
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
     public void tappingAnOfflinePcWithOnlyTheMacsItsWakeListedWakesIt() throws Exception {
         ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
         try {

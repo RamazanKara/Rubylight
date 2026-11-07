@@ -83,17 +83,18 @@ make install
 mkdir -p "$prefix/licenses-ffmpeg" "$prefix/licenses-dav1d"
 cp "$source_dir/COPYING.LGPLv2.1" "$source_dir/LICENSE.md" "$prefix/licenses-ffmpeg/"
 ffmpeg_release=$(cat "$source_dir/RELEASE")
+built=unmodified
+[[ -z $linux ]] || built="with the .patch files in this folder applied"
 cat >"$prefix/licenses-ffmpeg/SOURCE.txt" <<EOF
 FFmpeg $ffmpeg_release, LGPL v2.1 or later, linked dynamically (libavcodec and libavutil).
 Source: https://ffmpeg.org/releases/ffmpeg-$ffmpeg_release.tar.xz
 SHA-256: ${FFMPEG_SHA256:-not recorded}
-Built unmodified by protocol/desktop/ffmpeg-decode-only.sh of the Nightjar repository
+Built $built by protocol/desktop/ffmpeg-decode-only.sh of the Nightjar repository
 (https://github.com/RamazanKara/nightjar), which has the configure options.
 EOF
 
 if [[ -n $linux ]]; then
   cp "$here"/ffmpeg-patches/*.patch "$prefix/licenses-ffmpeg/"
-  echo "Changed by the .patch files in this folder." >>"$prefix/licenses-ffmpeg/SOURCE.txt"
   for lib in "$prefix"/lib/lib*.so.*.*; do
     readelf -d "$lib" | grep -Eq '(RPATH|RUNPATH).*\[\$ORIGIN\]' || { echo "${lib##*/} has no run path \$ORIGIN" >&2; exit 1; }
   done

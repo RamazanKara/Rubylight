@@ -42,6 +42,20 @@ public class GameRecoveryTest {
         assertEquals(0, info.flags & ActivityInfo.FLAG_NO_HISTORY);
     }
 
+    @Test public void settingsAfterAShortcutsFailedStartHaveTheLibraryUnderThem() {
+        Application app = org.robolectric.RuntimeEnvironment.getApplication();
+        Intent start = new Intent(app, Game.class).putExtra(Game.EXTRA_PC_UUID, "pc-1").putExtra(Game.EXTRA_PC_NAME, "Desk");
+        Intent[] alone = GameRecovery.settingsAfterFailedStart(app, start, true);
+        assertEquals("a shortcut's stream had nothing under it: the library goes under Settings", 2, alone.length);
+        assertEquals(AppView.class.getName(), alone[0].getComponent().getClassName());
+        assertEquals("pc-1", alone[0].getStringExtra(AppView.UUID_EXTRA));
+        assertEquals("Desk", alone[0].getStringExtra(AppView.NAME_EXTRA));
+        assertEquals(com.limelight.preferences.StreamSettings.class.getName(), alone[1].getComponent().getClassName());
+        Intent[] fromLibrary = GameRecovery.settingsAfterFailedStart(app, start, false);
+        assertEquals("started from the library, which is still under it", 1, fromLibrary.length);
+        assertEquals(com.limelight.preferences.StreamSettings.class.getName(), fromLibrary[0].getComponent().getClassName());
+    }
+
     private Game recoveryGame() {
         Game game = Robolectric.buildActivity(Game.class).get();
         game.setTheme(R.style.AppTheme);

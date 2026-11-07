@@ -38,6 +38,19 @@ public final class DemoContext extends ContextWrapper {
     }
 
     /** What "--es look ..." asks of the system's night setting. */
+    static int appCompatNightOf(String look) {
+        return "day".equals(look) ? androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO
+                : "dark".equals(look) ? androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES
+                : androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM;
+    }
+
+    /** The Theme settings of that look. */
+    static SharedPreferences.Editor putLook(SharedPreferences.Editor edit, String look) {
+        return edit.putBoolean(com.limelight.ui.AppTheme.ALWAYS_DARK, "dark".equals(look))
+                .putBoolean(com.limelight.ui.AppTheme.OLED_BLACK, "oled".equals(look))
+                .putBoolean(com.limelight.ui.AppTheme.HIGH_CONTRAST, "contrast".equals(look));
+    }
+
     static int nightOf(String look) {
         return "day".equals(look) ? Configuration.UI_MODE_NIGHT_NO
                 : "dark".equals(look) ? Configuration.UI_MODE_NIGHT_YES : Configuration.UI_MODE_NIGHT_UNDEFINED;

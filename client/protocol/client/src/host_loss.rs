@@ -39,6 +39,9 @@ pub const RESTART_GRACE: Duration = Duration::from_secs(6);
 /// How long a host that said goodbye may still listen while it exits: the test host's process was
 /// gone 0.23 to 0.54 s after its stop (2026-11-07). A server still open after it only ended the stream.
 pub const HOST_EXIT_WINDOW: Duration = Duration::from_secs(2);
+/// How long past [`RESTART_GRACE`] a quiet moment on this device's link waits for a round that can
+/// tell: a Retroid had single such rounds, now and then, after a goodbye (2026-11-07).
+pub const QUIET_LINK_EXTRA: Duration = Duration::from_secs(2);
 /// Between two rounds after a goodbye.
 pub const GOODBYE_ROUND_GAP: Duration = Duration::from_millis(250);
 /// Where a gateway may answer: an accepted or refused connection both prove it is reachable.
@@ -114,9 +117,9 @@ pub fn after_goodbye(
         (Round::Answered, _) if waited < HOST_EXIT_WINDOW => Goodbye::Wait,
         // Still listening: only this stream ended.
         (Round::Answered, _) => Goodbye::Unknown,
-        // This device's own link may be down for a moment (one such round right after a goodbye on
-        // a Retroid, 2026-11-07): another round, and the old behaviour once the grace is over.
-        (Round::SilentLinkUnknown, _) if waited < RESTART_GRACE => Goodbye::Wait,
+        // This device's own link may be down for a moment: another round, and the old behaviour
+        // once the link stays quiet past the grace.
+        (Round::SilentLinkUnknown, _) if waited < RESTART_GRACE + QUIET_LINK_EXTRA => Goodbye::Wait,
         // The link stayed quiet, or the ping proves nothing.
         (Round::SilentLinkUnknown, _) | (_, None) => Goodbye::Unknown,
         // No answer at all, on a link that works: a PC shutting down.
@@ -128,9 +131,9 @@ pub fn after_goodbye(
 }
 
 /// After the host's goodbye: rounds until a verdict other than [`Goodbye::Wait`], at most about
-/// [`RESTART_GRACE`] and a round. `gateway` is this device's gateway toward `host` while it is on
-/// its link, asked each round; `stopped` ends it early with [`Goodbye::Unknown`]; `log` gets each
-/// round.
+/// [`RESTART_GRACE`] and a round ([`QUIET_LINK_EXTRA`] more while this device's link is quiet).
+/// `gateway` is this device's gateway toward `host` while it is on its link, asked each round;
+/// `stopped` ends it early with [`Goodbye::Unknown`]; `log` gets each round.
 pub fn watch_goodbye(
     host: SocketAddr,
     gateway: &dyn Fn(IpAddr) -> Option<IpAddr>,
@@ -155,8 +158,9 @@ pub fn watch_goodbye(
         if verdict != Goodbye::Wait {
             return verdict;
         }
-        // A quiet link says nothing about the server; a host still exiting still listens.
-        closed_before |= matches!(round, Round::Refused | Round::SilentLinkUp);
+        // A host still exiting still listens; a quiet round did not find it open either (a quiet
+        // first round can be all a restart that fast leaves to see).
+        closed_before |= round != Round::Answered;
         std::thread::sleep(GOODBYE_ROUND_GAP);
     }
     Goodbye::Unknown
@@ -398,7 +402,10 @@ mod tests {
         for pings in [UP, DOWN, None] {
             // A quiet moment on this device's link gets another round, within the grace only.
             assert_eq!(after_goodbye(true, true, Round::SilentLinkUnknown, pings, false, NOW), Goodbye::Wait);
-            assert_eq!(after_goodbye(true, true, Round::SilentLinkUnknown, pings, true, RESTART_GRACE), Goodbye::Unknown);
+            // Past the grace too, so a closed server's last round can still tell.
+            assert_eq!(after_goodbye(true, true, Round::SilentLinkUnknown, pings, true, RESTART_GRACE), Goodbye::Wait);
+            let quiet_too_long = RESTART_GRACE + QUIET_LINK_EXTRA;
+            assert_eq!(after_goodbye(true, true, Round::SilentLinkUnknown, pings, true, quiet_too_long), Goodbye::Unknown);
         }
         assert_eq!(after_goodbye(true, true, Round::SilentLinkUp, None, false, NOW), Goodbye::Unknown);
         assert_eq!(after_goodbye(true, true, Round::Refused, None, false, NOW), Goodbye::Unknown);

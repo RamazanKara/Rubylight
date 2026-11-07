@@ -101,6 +101,16 @@ public class HostLossWatchTest {
         assertEquals(Arrays.asList(false, false, false, true), script.closedPassed);
     }
 
+    @Test public void aQuietFirstRoundDidNotFindTheServerOpen() throws Exception {
+        Script script = new Script();
+        script.roundPing = 1;
+        // A quiet moment on the link while a fast restart's server was closed, then the new host.
+        script.roundCodes.addAll(Arrays.asList(3, HostLossWatch.ROUND_ANSWERED));
+        script.verdicts.addAll(Arrays.asList(HostLossWatch.GOODBYE_WAIT, HostLossWatch.GOODBYE_BACK));
+        assertEquals(HostLossWatch.GOODBYE_BACK, started(script).afterGoodbye());
+        assertEquals(Arrays.asList(false, true), script.closedPassed);
+    }
+
     @Test public void aSilenceIsNeverChecked() throws Exception {
         Script script = new Script();
         script.goodbye = false;

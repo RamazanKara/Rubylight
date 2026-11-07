@@ -756,6 +756,7 @@ pub(super) fn play_button(
     icon: Icon,
     label: &str,
     enabled: bool,
+    working: bool,
 ) -> Response {
     let sense = if enabled {
         Sense::click()
@@ -785,7 +786,11 @@ pub(super) fn play_button(
     let words = measure(ui, label, semibold(t::TYPE_BODY_SIZE + 2.0));
     let left = shown.center().x - (21.0 + 10.0 + words) / 2.0;
     let glyph = Rect::from_min_size(pos2(left, shown.center().y - 10.5), Vec2::splat(21.0));
-    icons::paint(ui.painter(), icon, glyph, ink);
+    if working {
+        ink_spinner(ui, glyph.center(), glyph.width() / 2.0 - 1.0, ink);
+    } else {
+        icons::paint(ui.painter(), icon, glyph, ink);
+    }
     paint_text(
         ui,
         glyph.right() + 10.0,
@@ -795,6 +800,25 @@ pub(super) fn play_button(
         ink,
     );
     response
+}
+
+/// A spinner in the ink of what it sits on; still under reduced motion.
+fn ink_spinner(ui: &Ui, center: Pos2, radius: f32, ink: Color32) {
+    const POINTS: usize = 24;
+    const TURN_SECONDS: f64 = 0.9;
+    let motion = spring::motion(ui.ctx());
+    let time = if motion { ui.input(|i| i.time) } else { 0.0 };
+    let start = (time / TURN_SECONDS).fract() as f32 * std::f32::consts::TAU;
+    let line: Vec<Pos2> = (0..=POINTS)
+        .map(|n| {
+            let a = start + n as f32 / POINTS as f32 * std::f32::consts::PI * 1.5;
+            center + radius * vec2(a.cos(), a.sin())
+        })
+        .collect();
+    ui.painter().add(Shape::line(line, Stroke::new(2.0, ink)));
+    if motion {
+        ui.ctx().request_repaint();
+    }
 }
 
 /// A tinted capsule beside Play.

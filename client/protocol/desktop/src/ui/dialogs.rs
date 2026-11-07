@@ -1867,7 +1867,7 @@ pub(super) fn open_on_start_action(host: &Host, game: GameTarget, favourites: &[
 }
 
 /// What hiding a game menu's game stores: every copy of a library title, or the one classic entry.
-fn hide_keys_of(host: &Host, game: GameTarget, sources: &[Source<'_>]) -> Vec<crate::config::Favourite> {
+pub(super) fn hide_keys_of(host: &Host, game: GameTarget, sources: &[Source<'_>]) -> Vec<crate::config::Favourite> {
     match game {
         GameTarget::Library { app, .. } => console::hide_keys(sources, host.id, app),
         GameTarget::Classic { app } => {

@@ -2862,6 +2862,56 @@ fn the_game_page_says_its_state_in_a_chip_and_the_pc_on_its_own_line() {
     assert!(shows(&f, "Desk") && !shows(&f, "Running") && !shows(&f, "Suspended"), "{:?}", f.drawn);
 }
 
+/// A game's page: the title over one Play with Favourite on its line, its rows under them, and no
+/// sentence with nothing to know. Quit game only for a game that runs.
+#[test]
+fn a_games_page_is_one_play_beside_favourite_over_its_rows() {
+    let mut f = home_with_games(2);
+    let pc = f.hosts.list[0].id;
+    f.hosts.list[0].apps = Apps::Loaded(vec![nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) }]);
+    f.l.go(Screen::Game { host: pc, app: 1000 });
+    f.settle();
+    let at = |f: &Frames, text: &str| f.placed.iter().rfind(|(t, r, _)| t == text && r.top() > chrome::PAGE_TOP).map(|p| p.1).unwrap_or_else(|| panic!("{text} in {:?}", f.drawn));
+    let (title, play, star, settings) = (at(&f, "Game 00"), at(&f, "Play"), at(&f, "Favourite"), at(&f, "Stream settings"));
+    assert!(title.bottom() <= play.top() && play.bottom() <= settings.top(), "{title:?} {play:?} {settings:?}");
+    assert!((play.center().y - star.center().y).abs() < 2.0 && play.right() < star.left(), "{play:?} {star:?}");
+    assert!(!shows(&f, "Quit game"), "{:?}", f.drawn);
+    let focused = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).expect("Play has focus").rect;
+    assert!(focused.contains(play.center()), "{focused:?}");
+    // The rows do what they say.
+    let commands = f.click_at(at(&f, "Hide game").center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::SetHidden { hidden: true, games } if !games.is_empty())));
+    f.settle();
+    let commands = f.click_at(at(&f, "Quit game when I leave").center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::SetQuitOnLeave { enabled: true, .. })));
+    f.settle();
+    let commands = f.click_at(at(&f, "Stream settings").center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::AppSettings { .. })));
+    // Running, the hero's words change in place and Quit game joins them.
+    f.settle();
+    f.hosts.list[0].info = Some(answer(true, 1000));
+    f.hosts.list[0].native.library.as_mut().expect("the library").games[0].running = true;
+    f.settle();
+    let (resume, quit) = (at(&f, "Resume"), at(&f, "Quit game"));
+    assert!((resume.center().y - quit.center().y).abs() < 2.0, "{resume:?} {quit:?}");
+    assert_eq!(at(&f, "Stream settings").top(), settings.top(), "no jump for a chip that was not there");
+}
+
+/// A PC that cannot play yet offers what would let it, in the place and the colour of Play.
+#[test]
+fn a_games_page_on_an_asleep_or_unpaired_pc_offers_the_way_back() {
+    let mut f = home_with_games(1);
+    let pc = f.hosts.list[0].id;
+    f.l.go(Screen::Game { host: pc, app: 1000 });
+    f.settle();
+    f.hosts.list[0].reach = Reach::Offline;
+    f.settle();
+    assert!(shows(&f, "Desk  \u{b7}  Offline"), "{:?}", f.drawn);
+    assert!(!shows(&f, "Play"), "{:?}", f.drawn);
+    let commands = f.press(Key::Enter);
+    assert!(commands.iter().any(|c| matches!(c, Command::Refresh(h) | Command::Wake(h) if *h == pc)));
+}
+
 /// Android's game page: a game the PC lists as not installed has Play off and says why, and a
 /// copy on another PC that is not installed says so under "Also on".
 #[test]
@@ -2882,7 +2932,7 @@ fn a_game_the_pc_has_not_installed_cannot_be_played_from_its_page() {
     let pc = f.hosts.list[0].id;
     f.l.go(Screen::Game { host: pc, app: 1000 });
     f.settle();
-    assert!(shows(&f, "Not installed on Desk"), "{:?}", f.drawn);
+    assert!(shows(&f, "Desk  \u{b7}  Not installed"), "{:?}", f.drawn);
     assert!(shows(&f, "Den, not installed"), "Also on marks it: {:?}", f.drawn);
     let closes = "Game 01 is running. Playing this game closes it.";
     assert!(!shows(&f, closes), "{:?}", f.drawn);

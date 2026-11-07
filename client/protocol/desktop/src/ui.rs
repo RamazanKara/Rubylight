@@ -12,6 +12,7 @@ mod dialogs;
 pub(crate) mod glass;
 mod icons;
 pub mod files;
+mod game;
 mod help;
 mod home;
 mod library;

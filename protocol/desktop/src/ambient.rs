@@ -7,6 +7,12 @@ use egui::{Color32, ColorImage};
 use crate::ui::design_tokens as t;
 
 const LUMA: [f32; 3] = [0.2126, 0.7152, 0.0722];
+/// The cover glow's strength and how its colour is lit from the bake: `0 0 70px rgba(255,95,70,.28)`
+/// in the target. A bake darker than the last dims the glow with it.
+const GLOW_ALPHA: f32 = 0.28;
+const GLOW_SATURATE: f32 = 1.5;
+const GLOW_SATURATION_MOST: f32 = 0.74;
+const GLOW_DARK_BELOW: f32 = 0.16;
 const SIZE: [usize; 2] = [
     t::TIER_BAKED_THUMB_W as usize,
     t::TIER_BAKED_THUMB_H as usize,
@@ -160,6 +166,31 @@ pub fn bake(cover: &ColorImage) -> ColorImage {
     finish(&graded, SIZE)
 }
 
+/// What the cover glows with on its page: the bake's own colour lit up, its hue kept, weighted to
+/// where the bake is most coloured, as strong as the spec's glow. A grey cover glows pale and a black
+/// one not at all. Premultiplied.
+pub fn glow_of(baked: &ColorImage) -> Color32 {
+    let (mut sum, mut weights, mut brightest) = ([0.0f32; 3], 0.0f32, 0.0f32);
+    for pixel in &baked.pixels {
+        let c = [pixel.r(), pixel.g(), pixel.b()].map(|v| f32::from(v) / 255.0);
+        let [_, s, v] = rgb_to_hsv(c);
+        let weight = s * v + 1e-3;
+        for k in 0..3 {
+            sum[k] += c[k] * weight;
+        }
+        weights += weight;
+        brightest = brightest.max(v);
+    }
+    if weights <= 0.0 {
+        return Color32::TRANSPARENT;
+    }
+    let [h, s, _] = rgb_to_hsv(sum.map(|v| v / weights));
+    let lit = hsv_to_rgb([h, (s * GLOW_SATURATE).min(GLOW_SATURATION_MOST), 1.0]);
+    let strength = GLOW_ALPHA * (brightest / GLOW_DARK_BELOW).min(1.0);
+    let [r, g, b] = lit.map(|v| (v * strength * 255.0).round() as u8);
+    Color32::from_rgba_premultiplied(r, g, b, (strength * 255.0).round() as u8)
+}
+
 /// The ambient of a game without art: its tile's gradient, under the same luminance cap.
 pub fn bake_tile(top: Color32, bottom: Color32) -> ColorImage {
     let [w, h] = SIZE;
@@ -279,6 +310,24 @@ mod tests {
         let (top, bottom) = (out.pixels[48], out.pixels[96 * 53 + 48]);
         assert!(top.r() > top.b(), "{top:?}");
         assert!(bottom.b() > bottom.r(), "{bottom:?}");
+    }
+
+    #[test]
+    fn a_warm_cover_glows_warm_a_blue_one_blue_and_a_black_one_not_at_all() {
+        let warm = glow_of(&bake(&ColorImage::filled(
+            [200, 300],
+            Color32::from_rgb(200, 70, 50),
+        )));
+        assert!(warm.r() > warm.g() * 2 && warm.r() > warm.b() * 2, "{warm:?}");
+        let alpha = f32::from(warm.a()) / 255.0;
+        assert!((alpha - GLOW_ALPHA).abs() < 0.02, "the spec's strength: {alpha}");
+        let blue = glow_of(&bake(&ColorImage::filled(
+            [200, 300],
+            Color32::from_rgb(30, 60, 200),
+        )));
+        assert!(blue.b() > blue.r() * 2, "{blue:?}");
+        let black = glow_of(&bake(&ColorImage::filled([200, 300], Color32::BLACK)));
+        assert!(black.a() < 16, "{black:?}");
     }
 
     #[test]

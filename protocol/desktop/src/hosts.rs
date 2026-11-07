@@ -133,6 +133,8 @@ pub struct Host {
     /// Each cover's ambient, baked with it on the art thread: what the backdrop cross-fades to
     /// (`glass::CrossFade`) and baked glass samples. None while the cover loads, or without one.
     pub ambient: HashMap<i32, egui::TextureHandle>,
+    /// What each cover glows with on its page, taken from its ambient.
+    pub ambient_glow: HashMap<i32, egui::Color32>,
     /// The cover version each `art` entry was asked for (empty for classic box art).
     art_versions: HashMap<i32, String>,
     pub native: Native,
@@ -973,6 +975,7 @@ impl Hosts {
             apps: Apps::NotLoaded,
             art: HashMap::new(),
             ambient: HashMap::new(),
+            ambient_glow: HashMap::new(),
             art_versions: HashMap::new(),
             native: Native::default(),
             native_epoch: 0,
@@ -1497,6 +1500,7 @@ impl Hosts {
         host.apps = Apps::NotLoaded;
         host.art.clear();
         host.ambient.clear();
+        host.ambient_glow.clear();
         host.art_versions.clear();
         host.native = Native::default();
         host.native_epoch += 1;
@@ -1749,6 +1753,7 @@ impl Hosts {
         if host.art_versions.get(&app).is_some_and(|old| old != version) {
             host.art.remove(&app);
             host.ambient.remove(&app);
+            host.ambient_glow.remove(&app);
         }
         if host.art.contains_key(&app) {
             return;
@@ -1914,9 +1919,11 @@ impl Hosts {
                     if let Some(host) = self.get_mut(id).filter(|h| h.art_versions.get(&app) == Some(&version)) {
                         match ambient {
                             Some(ambient) => {
+                                host.ambient_glow.insert(app, crate::ambient::glow_of(&ambient));
                                 host.ambient.insert(app, ctx.load_texture(format!("ambient-{id}-{app}"), ambient, egui::TextureOptions::LINEAR));
                             }
                             None => {
+                                host.ambient_glow.remove(&app);
                                 host.ambient.remove(&app);
                             }
                         }
@@ -2844,6 +2851,7 @@ pub(crate) mod tests {
         hosts.sender.send(art("v1", Some([20, 200, 20]))).expect("the channel");
         hosts.drain(&ctx);
         assert!(hosts.list[0].ambient.contains_key(&7));
+        assert!(hosts.list[0].ambient_glow[&7].a() > 0, "its glow lands with it");
         assert!(matches!(hosts.list[0].art.get(&7), Some(Art::Ready(_))));
 
         hosts.sender.send(art("old", None)).expect("the channel");
@@ -2853,6 +2861,7 @@ pub(crate) mod tests {
         hosts.sender.send(art("v1", None)).expect("the channel");
         hosts.drain(&ctx);
         assert!(!hosts.list[0].ambient.contains_key(&7), "no cover any more, no ambient of it");
+        assert!(!hosts.list[0].ambient_glow.contains_key(&7), "nor its glow");
         let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
         output.textures_delta.clear();
     }

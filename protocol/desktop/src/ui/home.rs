@@ -8,6 +8,8 @@ use super::glass;
 use super::*;
 
 const HERO_COVER: Vec2 = vec2(160.0, 240.0);
+/// How wide the colour of the ambient glows around the hero's cover.
+const HERO_GLOW_BLUR: f32 = 70.0;
 const HERO_GAP: f32 = 28.0;
 const TITLE_SIZE: f32 = 50.0;
 const TITLE_LINE: f32 = 54.0;
@@ -132,6 +134,11 @@ pub(super) fn ambient_for(view: &View<'_>, host: u64, app: u32, title: &str) -> 
             Some(texture) => Want::Art {
                 key: format!("{host}:{app}"),
                 texture: texture.clone(),
+                glow: pc
+                    .ambient_glow
+                    .get(&(app as i32))
+                    .copied()
+                    .unwrap_or(Color32::TRANSPARENT),
             },
             None => Want::Keep,
         },
@@ -498,16 +505,16 @@ impl Launcher {
         let feel = glass::feel(&ctx, &cover, t::FOCUS_SCALE_CONTROL, t::HOVER_SCALE_COVER);
         let shown = glass::scaled_rect(cover_rect, feel.scale);
         let mut out = Vec::new();
-        if !high_contrast() {
-            glass::soft(
-                &mut out,
-                &ctx,
-                shown.translate(vec2(0.0, 18.0)),
-                t::RADIUS_COVER,
-                44.0,
-                Color32::from_black_alpha(140),
-            );
-        }
+        glass::cover_glow(
+            &mut out,
+            &ctx,
+            shown,
+            t::RADIUS_COVER,
+            self.ambient.glow(),
+            HERO_GLOW_BLUR,
+            18.0,
+            44.0,
+        );
         let boost = if feel.hovered || feel.focused {
             t::HOVER_RIM_BOOST
         } else {

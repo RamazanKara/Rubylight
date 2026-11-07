@@ -4351,6 +4351,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     0, nextInputBuffer.position(),
                     timestampUs, codecFlags);
             if ((codecFlags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
+                // Only a queued frame is in the decoder: a failed queue or a frame too large for
+                // the buffer must not leave the depth waiting for an output that never comes.
+                numFramesIn++;
                 frameLatencyStats.onDecoderQueued(timestampUs, System.nanoTime());
             }
 
@@ -4696,8 +4699,6 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             timestampUs = lastTimestampUs + 1;
         }
         lastTimestampUs = timestampUs;
-
-        numFramesIn++;
 
         // The FEC padding after a Dolby Vision RPU breaks MediaTek's RPU parser; see HdrBitstream.
         boolean dolbyVision = dolbyVisionActive && HdrBitstream.endsAtRpu(videoFormat);

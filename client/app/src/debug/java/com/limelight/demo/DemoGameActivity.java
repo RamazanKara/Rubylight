@@ -262,9 +262,15 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
 
     @Override public void onPerfUpdate(String video, String network, String decode, CharSequence statisticsText,
                                        CharSequence compactText) {
-        overlay.setText(PerformanceOverlay.MODE_DEBUG.equals(mode) ? PerformanceOverlay.withHardwareMetrics(this,
+        boolean compact = PerformanceOverlay.MODE_COMPACT.equals(mode);
+        CharSequence text = PerformanceOverlay.MODE_DEBUG.equals(mode) ? PerformanceOverlay.withHardwareMetrics(this,
                 PerformanceOverlay.debugText(this, video, network, decode), DemoMetrics.hardware(tick), true) :
-                PerformanceOverlay.MODE_STATISTICS.equals(mode) ? statisticsText : compactText);
+                PerformanceOverlay.MODE_STATISTICS.equals(mode) ? statisticsText : compactText;
+        // Fitted as a stream fits it where nothing can scroll it (a TV).
+        boolean canScroll = getPackageManager().hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
+                && !getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK);
+        com.limelight.ui.OverlayFit.show(overlay, findViewById(R.id.performanceOverlayColumn2), findViewById(R.id.performanceOverlayScroll),
+                text, compact ? 13 : PerformanceOverlay.MODE_DEBUG.equals(mode) ? 11 : 12, !compact, canScroll);
         overlay.setContentDescription(PerformanceOverlay.MODE_COMPACT.equals(mode) ?
                 PerformanceOverlay.describeCompact(this, compactText) : null);
     }

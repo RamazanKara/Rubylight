@@ -172,13 +172,21 @@ impl Hardware {
     /// The backends to try, in turn, for this choice. On Linux that is moonlight-qt's and Moonlight
     /// V+'s order: the first-tier hwaccels (VAAPI, then Vulkan video for GPUs without VAAPI), then
     /// the hardware decoders outside FFmpeg's hwaccels (V4L2 M2M), then the second tier (NVDEC);
-    /// software decoding comes after them all. `NIGHTJAR_VULKAN_VIDEO` puts Vulkan first or
-    /// leaves it out.
+    /// software decoding comes after them all. With the GPU renderer's device, Vulkan video goes
+    /// before VAAPI: its pictures stay on the renderer's device, where VAAPI's are read back and
+    /// uploaded again (all but 8-bit 4:2:0 to the OpenGL renderer go through memory); VAAPI is
+    /// next where Vulkan video does not open or FFmpeg refuses it for the stream.
+    /// `NIGHTJAR_VULKAN_VIDEO_GPU_FIRST=0` keeps VAAPI first; `NIGHTJAR_VULKAN_VIDEO` puts Vulkan
+    /// first whatever the renderer or leaves it out.
     pub fn order(self) -> Vec<Self> {
         match self {
             Self::None => Vec::new(),
             #[cfg(unix)]
-            Self::Auto(gpu) => Self::linux_order(gpu, crate::vulkan_video::Choice::from_environment()),
+            Self::Auto(gpu) => Self::linux_order(
+                gpu,
+                crate::vulkan_video::Choice::from_environment(),
+                crate::vulkan_video::gpu_first(std::env::var_os(crate::vulkan_video::GPU_FIRST_ENVIRONMENT).as_deref()),
+            ),
             // Vulkan video is Linux's; the rest of the order is tried as before it.
             #[cfg(not(unix))]
             Self::Auto(_) => vec![Self::Vaapi, Self::V4l2m2m, Self::Cuda],
@@ -187,9 +195,10 @@ impl Hardware {
     }
 
     #[cfg(any(unix, test))]
-    fn linux_order(gpu: *mut c_void, choice: crate::vulkan_video::Choice) -> Vec<Self> {
+    fn linux_order(gpu: *mut c_void, choice: crate::vulkan_video::Choice, gpu_first: bool) -> Vec<Self> {
         use crate::vulkan_video::Choice;
         match choice {
+            Choice::Default if gpu_first && !gpu.is_null() => vec![Self::Vulkan(gpu), Self::Vaapi, Self::V4l2m2m, Self::Cuda],
             Choice::Default => vec![Self::Vaapi, Self::Vulkan(gpu), Self::V4l2m2m, Self::Cuda],
             Choice::First => vec![Self::Vulkan(gpu), Self::Vaapi, Self::V4l2m2m, Self::Cuda],
             Choice::Off => vec![Self::Vaapi, Self::V4l2m2m, Self::Cuda],
@@ -1502,9 +1511,18 @@ mod tests {
         use crate::vulkan_video::Choice;
         let device = ptr::dangling_mut::<c_void>();
         let (vaapi, vulkan, v4l2, nvdec) = (Hardware::Vaapi, Hardware::Vulkan(device), Hardware::V4l2m2m, Hardware::Cuda);
-        assert_eq!(Hardware::linux_order(device, Choice::Default), [vaapi, vulkan, v4l2, nvdec]);
-        assert_eq!(Hardware::linux_order(device, Choice::First), [vulkan, vaapi, v4l2, nvdec], "NIGHTJAR_VULKAN_VIDEO=1");
-        assert_eq!(Hardware::linux_order(device, Choice::Off), [vaapi, v4l2, nvdec], "NIGHTJAR_VULKAN_VIDEO=0");
+        // VAAPI's pictures cross memory to the GPU renderer: with its device Vulkan video goes first.
+        assert_eq!(Hardware::linux_order(device, Choice::Default, true), [vulkan, vaapi, v4l2, nvdec]);
+        assert_eq!(Hardware::linux_order(device, Choice::Default, false), [vaapi, vulkan, v4l2, nvdec], "NIGHTJAR_VULKAN_VIDEO_GPU_FIRST=0");
+        let other_renderer = Hardware::Vulkan(ptr::null_mut());
+        assert_eq!(Hardware::linux_order(ptr::null_mut(), Choice::Default, true), [vaapi, other_renderer, v4l2, nvdec], "without the GPU renderer VAAPI stays first");
+        for gpu_first in [true, false] {
+            assert_eq!(Hardware::linux_order(device, Choice::First, gpu_first), [vulkan, vaapi, v4l2, nvdec], "NIGHTJAR_VULKAN_VIDEO=1");
+            assert_eq!(Hardware::linux_order(device, Choice::Off, gpu_first), [vaapi, v4l2, nvdec], "NIGHTJAR_VULKAN_VIDEO=0");
+        }
+        assert!(crate::vulkan_video::gpu_first(None));
+        assert!(crate::vulkan_video::gpu_first(Some("1".as_ref())));
+        assert!(!crate::vulkan_video::gpu_first(Some("0".as_ref())));
         assert_eq!(Hardware::Vulkan(device).label(), "Vulkan");
         assert!(Hardware::None.order().is_empty());
         assert_eq!(Hardware::D3d11(device).order(), [Hardware::D3d11(device)]);

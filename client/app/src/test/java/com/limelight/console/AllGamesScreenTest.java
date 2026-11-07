@@ -6,6 +6,7 @@ import static com.limelight.nativeapi.NativeApiFixtures.nativeHost;
 import static com.limelight.nativeapi.NativeApiFixtures.ok;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -325,6 +326,38 @@ public class AllGamesScreenTest {
         View last = list.getFocusedChild();
         assertTrue("last row " + last.getTop() + ".." + last.getBottom() + " of " + list.getHeight(),
                 list.getHeight() - last.getBottom() >= above + fitRoom && last.getTop() >= above);
+    }
+
+    /**
+     * A handheld in the forced TV layout rotates without the page being made again, and the frame kept the height it had
+     * in the old orientation: focused rows ran off the screen. It ends at the new screen's safe edge.
+     */
+    @Test
+    public void onATelevisionLayoutARotationKeepsTheFrameAtTheSafeEdge() {
+        String[] games = new String[20];
+        for (int i = 0; i < games.length; i++) games[i] = game(i + 1, "Game " + (i + 1), "steam", true, null);
+        tower(games);
+        // As the manifest declares for the real screen: a rotation reaches onConfigurationChanged, no recreate.
+        android.content.pm.ActivityInfo info = new android.content.pm.ActivityInfo();
+        info.name = Grid.class.getName();
+        info.packageName = context.getPackageName();
+        info.configChanges = android.content.pm.ActivityInfo.CONFIG_ORIENTATION | android.content.pm.ActivityInfo.CONFIG_SCREEN_SIZE
+                | android.content.pm.ActivityInfo.CONFIG_SMALLEST_SCREEN_SIZE | android.content.pm.ActivityInfo.CONFIG_SCREEN_LAYOUT;
+        shadowOf(context.getPackageManager()).addOrUpdateActivity(info);
+        Grid grid = open(null);
+        View decor = grid.getWindow().getDecorView();
+        int before = decor.getHeight();
+        RuntimeEnvironment.setQualifiers("+w540dp-h960dp-port");
+        controller.configurationChange(RuntimeEnvironment.getApplication().getResources().getConfiguration());
+        settle();
+        assertSame("rotated in place", grid, controller.get());
+        int screen = decor.getHeight();
+        assertNotEquals("the window turned", before, screen);
+        View frame = (View) list(grid).getParent();
+        int[] at = new int[2];
+        frame.getLocationInWindow(at);
+        assertEquals("the frame ends at the new safe edge", screen - Math.round(screen * AllGamesActivity.SAFE_EDGE),
+                at[1] + frame.getHeight());
     }
 
     /** A phone keeps its frame and posters as wide as their columns: the TV's fit is the TV's. */

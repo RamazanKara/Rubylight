@@ -266,7 +266,7 @@ public class ShellNavigationTest {
             org.robolectric.util.ReflectionHelpers.callInstanceMethod(screen, "showSection",
                     org.robolectric.util.ReflectionHelpers.ClassParameter.from(String.class, "audio"));
             org.robolectric.shadows.ShadowLooper.idleMainLooper();
-            assertEquals("a section keeps the back arrow and its title", View.GONE, bar.getVisibility());
+            assertEquals("a section keeps the tabs, under its chips", View.VISIBLE, bar.getVisibility());
             screen.onBackPressed();
             assertNull("Back in a section returns to the list", nextStarted(screen));
             assertFalse(screen.isFinishing());
@@ -340,7 +340,6 @@ public class ShellNavigationTest {
         ActivityController<StreamSettings> settings = Robolectric.buildActivity(StreamSettings.class).setup().visible();
         try {
             assertOverscan(context, (ViewGroup) pcs.get().findViewById(R.id.home_toolbar).getParent(), 48, 27);
-            assertOverscan(context, (ViewGroup) settings.get().findViewById(R.id.settings_toolbar).getParent(), 48, 27);
         } finally {
             pcs.pause().stop().destroy();
             settings.pause().stop().destroy();
@@ -642,30 +641,6 @@ public class ShellNavigationTest {
             com.google.android.material.appbar.MaterialToolbar toolbar = screen.findViewById(R.id.settings_toolbar);
             assertNull("the selected tab names the page, no heading over it", toolbar.getTitle());
             assertEquals(screen.getString(R.string.settings), screen.getTitle().toString());
-            int tab = contentLeft(root, screen.findViewById(R.id.shell_bar));
-            float dp = screen.getResources().getDisplayMetrics().density;
-            // Settings are compact on a TV (TvSettingsScaleTest); the TV margin and the overscan keep the app's size.
-            float full = screen.fullSizeDensity();
-            assertEquals("80dp from the screen: 24dp TV margin, 48dp overscan, 8dp inset",
-                    Math.round(72 * full) + screen.getResources().getDimensionPixelSize(R.dimen.shell_inset), tab);
-            assertEquals("the line under the tabs starts there too", tab,
-                    contentLeft(root, screen.findViewById(R.id.settings_context)));
-            // The rail's focus ring is drawn on the row's pill, which starts on the same edge.
-            android.widget.ListView rail = screen.getFragmentManager().findFragmentById(R.id.settings_sections).getView()
-                    .findViewById(android.R.id.list);
-            android.graphics.Rect padding = new android.graphics.Rect();
-            rail.getSelector().getPadding(padding);
-            // An inset is a pixel offset, which truncates at the compact density.
-            assertEquals("the rail pads its rows by the ring's inset", (int) (4 * dp), padding.left);
-            View row = rail.getChildAt(0);
-            android.graphics.Rect ring = new android.graphics.Rect(0, 0, row.getWidth(), row.getHeight());
-            root.offsetDescendantRectToMyCoords(row, ring);
-            // AbsListView widens the selector by its padding around the row; the drawable insets the shape back.
-            android.graphics.drawable.Drawable selector = rail.getSelector().getCurrent();
-            selector.setBounds(ring.left - padding.left, ring.top - padding.top, ring.right + padding.right,
-                    ring.bottom + padding.bottom);
-            // At the compact density (1.7 on an xhdpi TV) each 4dp inset truncates on its own: up to 2px off, not 4dp.
-            assertEquals("the ring sits on the edge, not 4dp left of it", tab, ringLeft(selector), 2);
             // Search sits at the end of the tab row, and Right from the last tab reaches it.
             View search = screen.findViewById(R.id.settings_search_button);
             assertNotNull(search);

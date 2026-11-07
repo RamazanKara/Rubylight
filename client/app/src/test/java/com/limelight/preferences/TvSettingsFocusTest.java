@@ -386,13 +386,14 @@ public class TvSettingsFocusTest {
         goToRow(screen, "stream_presets");
         ListView list = sections(screen);
         float density = screen.getResources().getDisplayMetrics().density;
-        int amber = com.google.android.material.color.MaterialColors.getColor(screen, androidx.appcompat.R.attr.colorPrimary, 0);
+        int ring = com.google.android.material.color.MaterialColors.getColor(screen, R.attr.glassRing, 0);
+        int ink = com.google.android.material.color.MaterialColors.getColor(screen, R.attr.glassOnSelected, 0);
         ListView pane = (ListView) screen.getFragmentManager().findFragmentById(R.id.stream_settings).getView()
                 .findViewById(android.R.id.list);
         android.graphics.Bitmap rail = render(list.getSelector(), screen, FOCUSED, null);
         android.graphics.Bitmap row = render(pane.getSelector(), screen, FOCUSED, null);
         int w = rail.getWidth(), h = rail.getHeight();
-        assertEquals("the rail's ring is amber", amber, rail.getPixel(w / 2, Math.round(4 * density) + 1));
+        assertEquals("the rail's ring is the page's", ring, rail.getPixel(w / 2, 1));
         assertTrue("the rail's focused row is filled", android.graphics.Color.alpha(rail.getPixel(w / 2, h / 2)) > 0);
         assertEquals("with the right pane's fill", row.getPixel(w / 2, h / 2), rail.getPixel(w / 2, h / 2));
 
@@ -407,12 +408,12 @@ public class TvSettingsFocusTest {
         assertTrue(shown.isActivated());
         android.graphics.Bitmap pill = render(shown.getBackground(), screen, shown.getDrawableState(), null);
         assertEquals("no fill on the shown section", 0, android.graphics.Color.alpha(pill.getPixel(pill.getWidth() / 2, pill.getHeight() / 2)));
-        assertEquals("its title is amber", amber, ((TextView) shown.findViewById(android.R.id.title)).getCurrentTextColor());
+        assertEquals("its title takes the selected fill's ink", ink, ((TextView) shown.findViewById(android.R.id.title)).getCurrentTextColor());
         android.widget.ImageView icon = shown.findViewById(android.R.id.icon);
-        assertEquals("its icon is amber", amber, androidx.core.widget.ImageViewCompat.getImageTintList(icon)
+        assertEquals("and its icon", ink, androidx.core.widget.ImageViewCompat.getImageTintList(icon)
                 .getColorForState(icon.getDrawableState(), 0));
-        assertTrue("another section's title is not",
-                amber != ((TextView) other.findViewById(android.R.id.title)).getCurrentTextColor());
+        assertTrue("another section's title does not",
+                ink != ((TextView) other.findViewById(android.R.id.title)).getCurrentTextColor());
     }
 
     /** nightjar#7: the ring faded out of the row it left while it was already on the next, two rings at once. It goes at once. */

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true" android:state_selected="true">
+        <shape android:shape="rectangle">
+            <corners android:radius="20dp" />
+            <solid android:color="?attr/glassSelectedFill" />
+            <stroke android:width="?attr/nightjarFocusRingWidth" android:color="?attr/glassRing" />
+        </shape>
+    </item>
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <corners android:radius="20dp" />
+            <solid android:color="?attr/glassControlFill" />
+            <stroke android:width="?attr/nightjarFocusRingWidth" android:color="?attr/glassRing" />
+        </shape>
+    </item>
+    <item android:state_selected="true">
+        <shape android:shape="rectangle">
+            <corners android:radius="20dp" />
+            <solid android:color="?attr/glassSelectedFill" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="20dp" />
+            <solid android:color="?attr/glassControlFill" />
+        </shape>
+    </item>
+</selector>

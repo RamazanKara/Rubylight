@@ -328,7 +328,7 @@ public class ShellIntentCompatibilityTest {
             ActivityController<StreamSettings> controller = settings(item[0]);
             try {
                 assertEquals(item[0], item[1], titleOf(controller.get()));
-                assertEquals(item[0], View.GONE, controller.get().findViewById(R.id.shell_bar).getVisibility());
+                assertEquals("the tabs stay under a section's chips: " + item[0], View.VISIBLE, controller.get().findViewById(R.id.shell_bar).getVisibility());
             } finally {
                 controller.pause().stop().destroy();
             }

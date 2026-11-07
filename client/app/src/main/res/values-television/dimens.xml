@@ -7,6 +7,7 @@
     <dimen name="grid_padding_bottom">32dp</dimen>
     <dimen name="settings_section_padding">8dp</dimen>
     <dimen name="settings_section_min_height">56dp</dimen>
+    <dimen name="settings_rail_width">300dp</dimen>
     <dimen name="settings_row_min_height">56dp</dimen>
     <dimen name="settings_row_padding">@dimen/space_s</dimen>
     <integer name="settings_section_summary_lines">1</integer>

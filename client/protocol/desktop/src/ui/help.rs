@@ -462,6 +462,7 @@ fn card(ui: &mut Ui, width: f32, min_height: f32, add: impl FnOnce(&mut Ui)) -> 
         ui.set_min_height(min_height);
     });
     let mut shapes = Vec::new();
+    super::pcs::canvas_on_moon(&mut shapes, ui.ctx(), shown.response.rect, f32::from(radius::PANEL), super::backdrop::Moon::High);
     glass::group(&mut shapes, ui.ctx(), shown.response.rect, f32::from(radius::PANEL), rows_fill());
     ui.painter().set(place, egui::Shape::Vec(shapes));
     natural

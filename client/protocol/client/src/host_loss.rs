@@ -114,7 +114,10 @@ pub fn after_goodbye(
         (Round::Answered, _) if waited < HOST_EXIT_WINDOW => Goodbye::Wait,
         // Still listening: only this stream ended.
         (Round::Answered, _) => Goodbye::Unknown,
-        // This device's own link may be down, or the ping proves nothing.
+        // This device's own link may be down for a moment (one such round right after a goodbye on
+        // a Retroid, 2026-11-07): another round, and the old behaviour once the grace is over.
+        (Round::SilentLinkUnknown, _) if waited < RESTART_GRACE => Goodbye::Wait,
+        // The link stayed quiet, or the ping proves nothing.
         (Round::SilentLinkUnknown, _) | (_, None) => Goodbye::Unknown,
         // No answer at all, on a link that works: a PC shutting down.
         (Round::SilentLinkUp, Some(false)) => Goodbye::Gone,
@@ -152,7 +155,8 @@ pub fn watch_goodbye(
         if verdict != Goodbye::Wait {
             return verdict;
         }
-        closed_before |= round != Round::Answered;
+        // A quiet link says nothing about the server; a host still exiting still listens.
+        closed_before |= matches!(round, Round::Refused | Round::SilentLinkUp);
         std::thread::sleep(GOODBYE_ROUND_GAP);
     }
     Goodbye::Unknown
@@ -392,6 +396,8 @@ mod tests {
     #[test]
     fn a_quiet_link_or_a_ping_that_could_not_go_out_proves_nothing() {
         for pings in [UP, DOWN, None] {
+            // A quiet moment on this device's link gets another round, within the grace only.
+            assert_eq!(after_goodbye(true, true, Round::SilentLinkUnknown, pings, false, NOW), Goodbye::Wait);
             assert_eq!(after_goodbye(true, true, Round::SilentLinkUnknown, pings, true, RESTART_GRACE), Goodbye::Unknown);
         }
         assert_eq!(after_goodbye(true, true, Round::SilentLinkUp, None, false, NOW), Goodbye::Unknown);

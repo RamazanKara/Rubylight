@@ -1148,7 +1148,9 @@ mod host_loss_tests {
         let silent = Round::SilentLinkUp.code();
         // No ping asked (-1), an unknown round code, a PC off the link, no first ping.
         assert_eq!(host_loss_after_goodbye(true, true, silent, -1, false, 0), Goodbye::Unknown.code());
-        assert_eq!(host_loss_after_goodbye(true, true, 99, 0, false, 0), Goodbye::Unknown.code());
+        // An unknown round code reads as a quiet link: another round, then the old behaviour.
+        assert_eq!(host_loss_after_goodbye(true, true, 99, 0, false, 0), Goodbye::Wait.code());
+        assert_eq!(host_loss_after_goodbye(true, true, 99, 0, false, GRACE_MS), Goodbye::Unknown.code());
         assert_eq!(host_loss_after_goodbye(true, false, silent, 0, false, 0), Goodbye::Unknown.code());
         assert_eq!(host_loss_after_goodbye(false, true, silent, 0, false, 0), Goodbye::Unknown.code());
         // A negative wait from a clock step is no wait.

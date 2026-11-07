@@ -400,7 +400,7 @@ fn sky_through_veil(
 }
 
 /// The moon's middle and radius in this window.
-fn moon_disc(screen: Rect, moon: Moon) -> (Pos2, f32) {
+pub(super) fn moon_disc(screen: Rect, moon: Moon) -> (Pos2, f32) {
     let ([x, y], r) = moon.place();
     (
         pos2(

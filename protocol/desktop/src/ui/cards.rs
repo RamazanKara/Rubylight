@@ -9,7 +9,6 @@ pub(super) const CARD_W: f32 = 300.0;
 pub(super) const CARD_MAX_W: f32 = 420.0;
 /// The gap between cards.
 pub(super) const CARD_GAP: f32 = 16.0;
-pub(super) const CARD_H: f32 = 112.0;
 /// Home's cards: a game to continue, or a PC with one line of state.
 pub(super) const COMPACT_CARD_H: f32 = 84.0;
 /// The card's inner margin left and right of its status and detail lines.
@@ -70,25 +69,6 @@ pub(super) fn card_grid(width: f32, gap: f32) -> (usize, f32) {
     (columns as usize, ((width - gap * (columns - 1.0)) / columns).floor().clamp(CARD_W.min(width), CARD_MAX_W))
 }
 
-/// What selecting a PC's card does: open its apps, check again, or pair.
-/// The three dots on a PC's card: a second stop for focus that opens the options.
-pub(super) fn options_button(ui: &mut Ui, card: Rect, id: Id) -> Response {
-    let rect = Rect::from_min_size(card.right_top() + vec2(-42.0, 10.0), vec2(32.0, 32.0));
-    let response = ui.interact(rect, id, Sense::click()).on_hover_text(tr("Options"));
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tr("Options")));
-    if ui.is_rect_visible(rect) {
-        let active = response.hovered() || response.has_focus();
-        if active {
-            let fill = if response.is_pointer_button_down_on() { SURFACE_BRIGHT } else { SURFACE_HIGHEST };
-            ui.painter().rect_filled(rect, CornerRadius::same(16), fill);
-        }
-        let ink = if active { ON_SURFACE } else { ON_SURFACE_VARIANT };
-        icons::paint(ui.painter(), Icon::Dots, Rect::from_center_size(rect.center(), Vec2::splat(20.0)), *ink);
-        focus_ring(ui, rect, &response, 16);
-    }
-    response
-}
-
 /// The ⋮ over a cover while it is pointed at or focused: for the pointer only (the keyboard and
 /// controller open the menu with F2 or X), so it adds no stop for focus.
 pub(super) fn cover_dots(ui: &mut Ui, cover: &Response, image: Rect) -> Option<Response> {
@@ -128,60 +108,42 @@ pub(super) fn menu_request(ui: &Ui, card: &Response, dots: Option<&Response>) ->
     keys.then_some(Anchor::Beside(card.rect))
 }
 
-/// A PC's card. With `line` (Home: what it knows of the games) the card is as compact as Home's
-/// game cards, and the line follows the state on one row instead of the address and GPU.
-pub(super) fn host_card(ui: &mut Ui, host: &Host, line: Option<&str>, width: f32) -> Response {
-    let height = if line.is_some() { COMPACT_CARD_H } else { CARD_H };
-    let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
+/// A PC's card on Home: as compact as Home's game cards, its state and what it knows of the games on
+/// one line.
+pub(super) fn host_card(ui: &mut Ui, host: &Host, line: &str, width: f32) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(width, COMPACT_CARD_H), Sense::click());
     let painter = ui.painter_at(rect.expand(6.0));
     card_fill(&painter, rect, &response);
     let (status, color, ring) = host_status(host);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{}, {status}", host.display_name())));
     // The status dot: full and green when the PC is up and paired, a ring otherwise. Amber stays the
     // action's colour, so it never stands for a state.
-    let top = if line.is_some() { 28.0 } else { 30.0 };
+    let top = 28.0;
     let dot = Pos2::new(rect.left() + 26.0, rect.top() + top);
     if host.reach == Reach::Online && host.paired() {
         painter.circle_filled(dot, 7.0, OK);
     } else {
         painter.circle_stroke(dot, 6.0, Stroke::new(2.0, ring));
     }
-    // A long name ends in "…" before the three dots.
+    // A long name ends in "\u{2026}" before the three dots.
     let mut name = egui::text::LayoutJob::simple_singleline(host.display_name().to_owned(), semibold(text::CARD_TITLE), *ON_SURFACE);
     name.wrap = egui::text::TextWrapping::truncate_at_width(rect.width() - 44.0 - 46.0);
     let name = painter.layout_job(name);
     painter.galley(Pos2::new(rect.left() + 44.0, rect.top() + top - name.size().y / 2.0), name, *ON_SURFACE);
-    if let Some(line) = line {
-        // "Offline" twice said nothing more.
-        let both = if line.is_empty() {
-            status.clone()
-        } else if line.starts_with(&status[..]) {
-            line.to_owned()
-        } else {
-            format!("{status}  ·  {line}")
-        };
-        let cut = card_line(&painter, rect, 58.0, &both, regular(text::LABEL), *color);
-        focus_ring(ui, rect, &response, radius::PANEL);
-        return if cut { response.on_hover_text(both) } else { response };
-    }
-    let detail = match host.info.as_ref().and_then(|i| i.gpu_type.clone()) {
-        Some(gpu) if !gpu.is_empty() => format!("{}  ·  {gpu}", host.record.address),
-        _ => host.record.address.clone(),
+    // "Offline" twice said nothing more.
+    let both = if line.is_empty() {
+        status.clone()
+    } else if line.starts_with(&status[..]) {
+        line.to_owned()
+    } else {
+        format!("{status}  \u{b7}  {line}")
     };
-    // The state and the address with the GPU end in "…" inside the card's padding; whatever was cut
-    // is in the tooltip.
-    let status_cut = card_line(&painter, rect, 62.0, &status, regular(text::LABEL), *color);
-    let detail_cut = card_line(&painter, rect, 88.0, &detail, regular(text::CAPTION), *OUTLINE);
-    let tooltip = match (status_cut, detail_cut) {
-        (false, false) => None,
-        (true, false) => Some(status),
-        (false, true) => Some(detail),
-        (true, true) => Some(format!("{status}\n{detail}")),
-    };
+    let cut = card_line(&painter, rect, 58.0, &both, regular(text::LABEL), *color);
     focus_ring(ui, rect, &response, radius::PANEL);
-    match tooltip {
-        Some(text) => response.on_hover_text(text),
-        None => response,
+    if cut {
+        response.on_hover_text(both)
+    } else {
+        response
     }
 }
 

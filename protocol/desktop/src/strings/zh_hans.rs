@@ -1420,4 +1420,7 @@ sudo sysctl -w net.core.rmem_max={}", "接收缓冲区：系统只分配了所�
     ("Hidden", "已隐藏"),
     ("Show hidden games", "显示隐藏的游戏"),
     ("Hide hidden games", "不显示隐藏的游戏"),
+    ("Wake", "唤醒"),
+    ("Online", "在线"),
+    ("Not paired", "未配对"),
 ];

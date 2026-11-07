@@ -1420,4 +1420,7 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("Hidden", "非表示"),
     ("Show hidden games", "非表示のゲームを表示"),
     ("Hide hidden games", "非表示のゲームを隠す"),
+    ("Wake", "起動"),
+    ("Online", "オンライン"),
+    ("Not paired", "未ペアリング"),
 ];

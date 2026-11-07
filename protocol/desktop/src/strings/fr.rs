@@ -1420,4 +1420,7 @@ sudo sysctl -w net.core.rmem_max={}", "Tampon de réception : le système a acco
     ("Hidden", "Masqués"),
     ("Show hidden games", "Afficher les jeux masqués"),
     ("Hide hidden games", "Masquer les jeux masqués"),
+    ("Wake", "Réveiller"),
+    ("Online", "En ligne"),
+    ("Not paired", "Non associé"),
 ];

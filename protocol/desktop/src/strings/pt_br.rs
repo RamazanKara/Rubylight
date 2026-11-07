@@ -1420,4 +1420,7 @@ sudo sysctl -w net.core.rmem_max={}", "Buffer de recepção: o sistema concedeu 
     ("Hidden", "Ocultos"),
     ("Show hidden games", "Mostrar jogos ocultos"),
     ("Hide hidden games", "Ocultar jogos ocultos"),
+    ("Wake", "Ligar"),
+    ("Online", "On-line"),
+    ("Not paired", "Não pareado"),
 ];

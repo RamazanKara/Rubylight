@@ -1420,4 +1420,7 @@ sudo sysctl -w net.core.rmem_max={}", "Bufor odbioru: system przydzielił {0} Ki
     ("Hidden", "Ukryte"),
     ("Show hidden games", "Pokaż ukryte gry"),
     ("Hide hidden games", "Ukryj ukryte gry"),
+    ("Wake", "Wybudź"),
+    ("Online", "Online"),
+    ("Not paired", "Niesparowany"),
 ];

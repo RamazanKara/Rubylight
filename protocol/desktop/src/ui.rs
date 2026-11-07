@@ -16,6 +16,7 @@ mod help;
 mod home;
 mod library;
 mod pages;
+pub(crate) mod pcs;
 mod settings;
 mod spring;
 mod widgets;
@@ -1209,33 +1210,25 @@ impl Launcher {
         let used = ui
             .scope_builder(UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)), |ui| {
                 ui.spacing_mut().item_spacing.x = space::S;
-                match self.screen {
-                    Screen::Hosts => {
-                        if header_button(ui, "Add PC", Icon::Plus).clicked() {
-                            self.add_host_dialog();
+                if let Screen::Apps(id) = self.screen {
+                    if let Some(host) = view.hosts.get(id) {
+                        if header_button(ui, "Refresh", Icon::Refresh).clicked() {
+                            commands.push(Command::Refresh(id));
+                        }
+                        if host.running_app().is_some() && header_button(ui, "Quit running app", Icon::Stop).clicked() {
+                            self.dialog = Dialog::ConfirmQuit {
+                                host: id,
+                                start: None,
+                                running: running_name(host),
+                                resume: None,
+                                named: host.running_app(),
+                            };
+                            self.focus_dialog = true;
                         }
                     }
-                    Screen::Apps(id) => {
-                        if let Some(host) = view.hosts.get(id) {
-                            if header_button(ui, "Refresh", Icon::Refresh).clicked() {
-                                commands.push(Command::Refresh(id));
-                            }
-                            if host.running_app().is_some() && header_button(ui, "Quit running app", Icon::Stop).clicked() {
-                                self.dialog = Dialog::ConfirmQuit {
-                                    host: id,
-                                    start: None,
-                                    running: running_name(host),
-                                    resume: None,
-                                    named: host.running_app(),
-                                };
-                                self.focus_dialog = true;
-                            }
-                        }
-                        if header_button(ui, "PC settings", Icon::Sliders).clicked() {
-                            commands.push(Command::HostSettings(id));
-                        }
+                    if header_button(ui, "PC settings", Icon::Sliders).clicked() {
+                        commands.push(Command::HostSettings(id));
                     }
-                    _ => {}
                 }
                 ui.min_rect().width()
             })

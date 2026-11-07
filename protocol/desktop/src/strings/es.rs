@@ -1420,4 +1420,7 @@ sudo sysctl -w net.core.rmem_max={}", "Búfer de recepción: el sistema concedi�
     ("Hidden", "Ocultos"),
     ("Show hidden games", "Mostrar juegos ocultos"),
     ("Hide hidden games", "Ocultar juegos ocultos"),
+    ("Wake", "Activar"),
+    ("Online", "En línea"),
+    ("Not paired", "Sin vincular"),
 ];

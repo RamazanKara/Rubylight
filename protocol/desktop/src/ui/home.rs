@@ -408,7 +408,7 @@ impl Launcher {
                         for (host, source) in view.hosts.list.iter().zip(sources) {
                             // A PC to pair has no games to speak of yet: its state alone fits the card.
                             let line = if host.paired() { console::host_line(source).text() } else { String::new() };
-                            let response = host_card(ui, host, Some(&line), card_w);
+                            let response = host_card(ui, host, &line, card_w);
                             let key = format!("host:{}", host.id);
                             this.focus_item(&response, &key, std::mem::take(&mut first));
                             if response.clicked() {

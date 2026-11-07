@@ -128,6 +128,11 @@ fn paint_text(
     width
 }
 
+/// The width of the Add PC capsule.
+fn add_pc_width(ui: &Ui) -> f32 {
+    16.0 + 19.0 + 8.0 + measure(ui, tr("Add PC"), semibold(TAB_FONT)) + 20.0
+}
+
 /// Secondary ink: white in high contrast, as every text there.
 fn secondary() -> Color32 {
     *ON_SURFACE_VARIANT
@@ -193,6 +198,23 @@ impl Launcher {
                     x += measure(ui, "Nightjar", semibold(19.0)) + 6.0;
                 }
                 x += CAPSULE_GAP;
+                if !blocked
+                    && !ctx.text_edit_focused()
+                    && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, Key::K))
+                {
+                    self.open_search();
+                }
+                // On PCs the right end is where a PC is added: there is no PC to speak of or game to find.
+                if self.screen == Screen::Hosts {
+                    let add_w = add_pc_width(ui);
+                    self.nav_capsule(ui, x, bar.right() - add_w - CAPSULE_GAP, bar, sense, commands);
+                    let add = Rect::from_min_max(
+                        pos2(bar.right() - add_w, bar.top()),
+                        bar.right_bottom(),
+                    );
+                    self.add_pc_capsule(ui, add, sense);
+                    return brand;
+                }
                 // The right end: the PC capsule, then the search field left of it.
                 let pc_w = self.pc_capsule_width(ui, view);
                 let nav_ends_by = bar.right() - pc_w - BAR_H - 2.0 * CAPSULE_GAP;
@@ -210,7 +232,7 @@ impl Launcher {
                     pos2(pc.left() - CAPSULE_GAP - search_w, bar.top()),
                     vec2(search_w, BAR_H),
                 );
-                self.search_capsule(ui, search, folds, sense, blocked);
+                self.search_capsule(ui, search, folds, sense);
                 self.pc_capsule(ui, pc, view, sense);
                 brand
             })
@@ -479,16 +501,9 @@ impl Launcher {
         rect: Rect,
         folded: bool,
         sense: Sense,
-        blocked: bool,
     ) {
         const ICON: f32 = 19.0;
         let ctx = ui.ctx().clone();
-        if !blocked
-            && !ctx.text_edit_focused()
-            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, Key::K))
-        {
-            self.open_search();
-        }
         let r = BAR_H / 2.0;
         let mut out = Vec::new();
         glass::surface(&mut out, &ctx, rect, r, glass::Material::Chrome);
@@ -608,11 +623,46 @@ impl Launcher {
                     + 17.0
                     + 14.0
             }
-            None => 16.0 + 19.0 + 9.0 + measure(ui, tr("Add PC"), font) + 16.0,
+            None => add_pc_width(ui),
+        }
+    }
+
+    /// Add PC, where the PC capsule would be.
+    fn add_pc_capsule(&mut self, ui: &mut Ui, rect: Rect, sense: Sense) {
+        let ctx = ui.ctx().clone();
+        let r = BAR_H / 2.0;
+        let mut out = Vec::new();
+        glass::surface(&mut out, &ctx, rect, r, glass::Material::Chrome);
+        extend(ui, out);
+        let response = ui.interact(rect, Id::unique("top-add-pc"), sense);
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tr("Add PC")));
+        let feel = glass::feel(&ctx, &response, 1.0, 1.0);
+        hover_lift(ui, rect, r, feel);
+        let icon = Rect::from_min_size(
+            pos2(rect.left() + 16.0, rect.center().y - 9.5),
+            Vec2::splat(19.0),
+        );
+        icons::paint(ui.painter(), Icon::Plus, icon, *ON_SURFACE);
+        paint_text(
+            ui,
+            icon.right() + 8.0,
+            rect.center().y,
+            tr("Add PC"),
+            semibold(TAB_FONT),
+            *ON_SURFACE,
+        );
+        focus_ring(ui, rect, &response, r as u8);
+        self.focus_chrome(&response, "top-add-pc");
+        if response.clicked() {
+            self.add_host_dialog();
         }
     }
 
     fn pc_capsule(&mut self, ui: &mut Ui, rect: Rect, view: &View<'_>, sense: Sense) {
+        let Some(host) = self.capsule_host(view) else {
+            self.add_pc_capsule(ui, rect, sense);
+            return;
+        };
         let ctx = ui.ctx().clone();
         let r = BAR_H / 2.0;
         let mut out = Vec::new();
@@ -621,28 +671,6 @@ impl Launcher {
         let response = ui.interact(rect, Id::unique("top-pc"), sense);
         let feel = glass::feel(&ctx, &response, 1.0, 1.0);
         hover_lift(ui, rect, r, feel);
-        let Some(host) = self.capsule_host(view) else {
-            response
-                .widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tr("Add PC")));
-            let icon = Rect::from_min_size(
-                pos2(rect.left() + 16.0, rect.center().y - 9.5),
-                Vec2::splat(19.0),
-            );
-            icons::paint(ui.painter(), Icon::Plus, icon, *ON_SURFACE);
-            paint_text(
-                ui,
-                icon.right() + 9.0,
-                rect.center().y,
-                tr("Add PC"),
-                semibold(TAB_FONT),
-                *ON_SURFACE,
-            );
-            focus_ring(ui, rect, &response, r as u8);
-            if response.clicked() {
-                self.add_host_dialog();
-            }
-            return;
-        };
         let (status, ..) = host_status(host);
         response.widget_info(|| {
             egui::WidgetInfo::labeled(

@@ -1420,4 +1420,7 @@ sudo sysctl -w net.core.rmem_max={}", "Alma arabelleği: sistem istenen {1} KiB'
     ("Hidden", "Gizli"),
     ("Show hidden games", "Gizli oyunları göster"),
     ("Hide hidden games", "Gizli oyunları gizle"),
+    ("Wake", "Uyandır"),
+    ("Online", "Çevrimiçi"),
+    ("Not paired", "Eşleştirilmedi"),
 ];

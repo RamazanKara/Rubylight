@@ -238,7 +238,7 @@ impl SessionThread<'_> {
                 let mut frame_packetizer = packetizer.clone();
                 let large_frame = output.iter().any(|frame| {
                     frame_packetizer.fec_percent = s.video_fec_percent(frame.idr || frame.after_invalidation, frame.bytes.len());
-                    let wire = butterpollo_core::network_pacing::video_frame_wire_rate_bps(&frame_packetizer, frame.bytes.len(), stream_period.get(), peer.is_ipv6());
+                    let wire = butterpollo_core::network_pacing::video_frame_wire_rate_bps(&frame_packetizer, frame.bytes.len(), stream_period.get(), peer.ip().to_canonical().is_ipv6());
                     butterpollo_core::network_pacing::paced(bps, wire)
                 });
                 if std::mem::take(&mut inline_paced) || loss_paced || large_frame || automatic_pacing || send_jitter_set || c.boolean("host_adaptive_bitrate", false) || butterpollo_core::network_pacing::paced(bps, needed) {
@@ -449,7 +449,7 @@ impl SessionThread<'_> {
                         payload_bytes, cap_bytes: frame.frame_cap_bytes,
                         cap_target_bytes: frame.frame_cap_target, reencoded: frame.reencoded,
                         fec_limited: streamed.fec_limited() || packetizer.fec_limited(payload_bytes),
-                        wire_bytes: frame_bytes.saturating_add((sent.packets * butterpollo_core::network_pacing::overhead(peer.is_ipv6())) as u64),
+                        wire_bytes: frame_bytes.saturating_add((sent.packets * butterpollo_core::network_pacing::overhead(peer.ip().to_canonical().is_ipv6())) as u64),
                         pace_bps: bps, elapsed: finished.saturating_duration_since(started), lost: unrecoverable,
                     });
                     {
@@ -583,7 +583,7 @@ impl SessionThread<'_> {
                             pacing_wait += now.elapsed();
                         }
                         let budget = butterpollo_core::network_pacing::batch_payload_limit(
-                            bps, remaining[0].len(), peer.is_ipv6(), batch_kb * 1024,
+                            bps, remaining[0].len(), peer.ip().to_canonical().is_ipv6(), batch_kb * 1024,
                         );
                         let count =
                             butterpollo_windows::net::Batch::count(remaining, budget);
@@ -628,7 +628,7 @@ impl SessionThread<'_> {
                     }
                 }
                 drop(next_block);
-                s.record_link_sent(wire_frame, packet_count, frame_bytes.saturating_add((packet_count * butterpollo_core::network_pacing::overhead(peer.is_ipv6())) as u64));
+                s.record_link_sent(wire_frame, packet_count, frame_bytes.saturating_add((packet_count * butterpollo_core::network_pacing::overhead(peer.ip().to_canonical().is_ipv6())) as u64));
                 if lost.unrecoverable() {
                     s.keyframe_abandoned(wire_frame);
                     tracing::debug!(frame = packetizer.frame.wrapping_sub(1), idr = frame.idr, abandoned, "video frame lost on send; the rest of it was not sent");
@@ -644,7 +644,7 @@ impl SessionThread<'_> {
                     frame: wire_frame, idr: frame.idr, after_invalidation: frame.after_invalidation,
                     payload_bytes: frame.bytes.len(), cap_bytes: frame.frame_cap_bytes,
                     cap_target_bytes: frame.frame_cap_target, reencoded: frame.reencoded, fec_limited,
-                    wire_bytes: frame_bytes.saturating_add((packet_count * butterpollo_core::network_pacing::overhead(peer.is_ipv6())) as u64),
+                    wire_bytes: frame_bytes.saturating_add((packet_count * butterpollo_core::network_pacing::overhead(peer.ip().to_canonical().is_ipv6())) as u64),
                     pace_bps: bps, elapsed: sent.saturating_duration_since(frame_started), lost: lost.unrecoverable(),
                 });
                 if let (Some(first), Some(last), Some(before), Some(after)) = (first_send, last_send, waits_before, batch.waits) {
@@ -1327,7 +1327,7 @@ impl SessionThread<'_> {
                     let pace = crate::video_send::recovery::preview_pace(&s, &c, &recovery_packetizer, period, peer, encode_route);
                     let cap = butterpollo_core::network_pacing::recovery_frame_cap(
                         pace.bps, bitrate, period, recovery_packetizer.fec_percent,
-                        recovery_packetizer.packet_size, peer.is_ipv6(),
+                        recovery_packetizer.packet_size, peer.ip().to_canonical().is_ipv6(),
                     );
                     // Moonlight takes four FEC blocks a frame: a recovery keyframe
                     // past them leaves with less parity or none, and one lost

@@ -18,7 +18,6 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.ContextCompat;
 
 import com.google.android.material.button.MaterialButton;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.limelight.R;
 import com.limelight.nativeapi.ConsoleRepository;
 import com.limelight.nativeapi.ConsoleSnapshot;
@@ -1030,7 +1029,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                 ? R.string.stream_close_game_confirm : R.string.applist_quit_confirmation;
         int action = model.endAction == GameDetailModel.EndAction.CLOSE_GAME
                 ? R.string.stream_close_game : R.string.applist_menu_quit;
-        UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this)
+        UiHelper.showDialog(this, new com.limelight.ui.NavigationDialogBuilder(this)
                 .setMessage(message)
                 .setPositiveButton(action, (dialog, which) -> end(app, computer, () -> runOnUiThread(() -> {
                     loadedSignature = null;

@@ -20,7 +20,6 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.button.MaterialButton;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.limelight.R;
 import com.limelight.nativeapi.ConsoleRepository;
 import com.limelight.nativeapi.ConsoleSnapshot;
@@ -471,7 +470,7 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         CharSequence star = getString(remove ? R.string.console_favourite_remove : R.string.console_favourite_add);
         CharSequence hiding = getString(hide ? R.string.applist_menu_hide_app : R.string.applist_menu_show_app);
         CharSequence openPlay = OpenPlay.menuLabel(this, card.hostUuid, card.appId);
-        UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this)
+        UiHelper.showDialog(this, new com.limelight.ui.NavigationDialogBuilder(this)
                 .setTitle(card.title)
                 .setItems(copies.isEmpty() ? new CharSequence[]{star, openPlay}
                         : new CharSequence[]{star, openPlay, hiding}, (dialog, which) -> {

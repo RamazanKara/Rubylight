@@ -224,11 +224,12 @@ public class UiHelper {
         };
 
         AlertDialog.Builder builder = new NavigationDialogBuilder(parent);
-        builder.setMessage(parent.getResources().getString(R.string.applist_quit_confirmation))
+        AlertDialog dialog = builder.setMessage(parent.getResources().getString(R.string.applist_quit_confirmation))
                 .setPositiveButton(parent.getResources().getString(R.string.yes), dialogClickListener)
                 .setNegativeButton(parent.getResources().getString(R.string.no), dialogClickListener)
-                .setOnCancelListener(dialog -> { if (onNo != null) onNo.run(); })
+                .setOnCancelListener(ignored -> { if (onNo != null) onNo.run(); })
                 .show();
+        markDestructive(dialog);
     }
 
     public static void displayDeletePcConfirmationDialog(Activity parent, ComputerDetails computer, final Runnable onYes, final Runnable onNo) {
@@ -262,16 +263,18 @@ public class UiHelper {
     }
 
     /**
-     * Gives a shown confirmation's positive button the destructive style (Widget.Nightjar.Button.Destructive):
-     * the error colour for choices that remove or reset something.
+     * A shown confirmation's positive button that removes or resets something: the one red, in place of the moon.
      */
     public static void markDestructive(AlertDialog dialog) {
         android.widget.Button confirm = dialog.getButton(DialogInterface.BUTTON_POSITIVE);
-        confirm.setTextColor(com.google.android.material.color.MaterialColors.getColor(
-                dialog.getContext(), androidx.appcompat.R.attr.colorError, 0));
-        if (confirm instanceof com.google.android.material.button.MaterialButton) {
-            ((com.google.android.material.button.MaterialButton) confirm).setRippleColor(
-                    androidx.core.content.ContextCompat.getColorStateList(dialog.getContext(), R.color.error_ripple));
+        confirm.setBackgroundResource(R.drawable.dialog_button_danger);
+        // A pad's first press must not be the one that destroys: focus starts on the way out, not on the red.
+        android.view.View safe = dialog.getButton(DialogInterface.BUTTON_NEGATIVE);
+        if (android.os.Build.VERSION.SDK_INT >= 26 && safe != null) {
+            confirm.setFocusedByDefault(false);
+            safe.setFocusedByDefault(true);
+            if (confirm.isFocused()) safe.requestFocus();
         }
+        confirm.setTextColor(androidx.core.content.ContextCompat.getColor(dialog.getContext(), R.color.nj_color_on_danger_fill));
     }
 }

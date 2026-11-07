@@ -140,6 +140,7 @@ public final class DemoLauncherActivity extends Activity {
         else target = DemoPcView.class;
         DemoGameActivity.forceH264 = "h264".equals(getIntent().getStringExtra("codec"));
         Intent intent = new Intent(this, target).putExtra("state", screen).putExtra("fit", getIntent().getStringExtra("fit"))
+                .putExtra("dlg", getIntent().getStringExtra("dlg"))
                 .putExtra("align", getIntent().getStringExtra("align"))
                 .putExtra("pairwait", getIntent().getBooleanExtra("pairwait", false))
                 .putExtra("orientation", getIntent().getStringExtra("orientation"))

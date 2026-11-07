@@ -2,7 +2,6 @@ package com.limelight.console;
 
 import android.app.Activity;
 
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.limelight.R;
 import com.limelight.utils.UiHelper;
 
@@ -32,7 +31,7 @@ final class HostChooser {
             finished.run();
             return;
         }
-        UiHelper.showDialog(activity, new MaterialAlertDialogBuilder(activity)
+        UiHelper.showDialog(activity, new com.limelight.ui.NavigationDialogBuilder(activity)
                 .setTitle(R.string.console_choose_pc)
                 .setItems(labels(activity, choices), (dialog, which) -> {
                     finished.run();

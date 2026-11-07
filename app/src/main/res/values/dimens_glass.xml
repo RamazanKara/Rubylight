@@ -13,4 +13,7 @@
     <dimen name="glass_edge">16dp</dimen>
     <dimen name="glass_capsule">48dp</dimen>
     <dimen name="shelf_card_width_handheld">146dp</dimen>
+    <!-- A dialog's capsule buttons: the ring and its gap lie inside the button. -->
+    <dimen name="dialog_button_ring">2dp</dimen>
+    <dimen name="dialog_button_gap">4dp</dimen>
 </resources>

@@ -176,6 +176,15 @@ public final class ActionSheet extends BottomSheetDialog {
             setContentView(frame);
         } else {
             footer = null;
+            // A sheet along the bottom says so; a TV's fades in and has no edge to drag it from.
+            if (!television) {
+                android.view.View grabber = new android.view.View(context);
+                grabber.setBackgroundResource(R.drawable.glass_grabber);
+                LinearLayout.LayoutParams grabberParams = new LinearLayout.LayoutParams(spacing * 9 / 2, spacing / 2);
+                grabberParams.gravity = Gravity.CENTER_HORIZONTAL;
+                grabberParams.topMargin = spacing;
+                body.addView(grabber, 0, grabberParams);
+            }
             setContentView(body);
         }
         setOnKeyListener((dialog, key, event) -> {
@@ -949,10 +958,14 @@ public final class ActionSheet extends BottomSheetDialog {
         getBehavior().setMaxWidth(spacing * 75);
         android.view.View sheet = findViewById(com.google.android.material.R.id.design_bottom_sheet);
         if (sheet != null) {
-            // Material installs its surface during the first layout, replacing the XML background.
-            sheet.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) ->
-                    AppTheme.outlineOnBlack(getContext(), view.getBackground()));
+            GlassPanelDrawable glass = GlassPanelDrawable.sheet(getContext());
+            sheet.setBackground(glass);
+            // Material installs its surface during the first layout, replacing any other.
+            sheet.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+                if (view.getBackground() != glass) view.setBackground(glass);
+            });
         }
+        if (getWindow() != null) getWindow().setDimAmount(GlassPanelDrawable.backdropDim(getContext()));
         if (!content.isInTouchMode() && firstAction != null) firstAction.requestFocus();
     }
 

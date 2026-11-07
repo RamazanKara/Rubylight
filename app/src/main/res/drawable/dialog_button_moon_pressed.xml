@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android"><corners android:radius="@dimen/nj_radius_capsule" /><solid android:color="@color/nj_color_moon_hi" /></shape>

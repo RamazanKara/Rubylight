@@ -386,7 +386,8 @@
     <style name="ThemeOverlay.Nightjar.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
         <!-- Dialog messages are read at arm's length or across a room: Body rather than Supporting. -->
         <item name="textAppearanceBodyMedium">@style/TextAppearance.Nightjar.Body</item>
-        <item name="buttonBarPositiveButtonStyle">@style/NightjarDialogButton</item>
+        <item name="textAppearanceHeadlineSmall">@style/TextAppearance.Nightjar.ScreenTitle</item>
+        <item name="buttonBarPositiveButtonStyle">@style/NightjarDialogButton.Moon</item>
         <item name="buttonBarNegativeButtonStyle">@style/NightjarDialogButton</item>
         <item name="buttonBarNeutralButtonStyle">@style/NightjarDialogButton</item>
     </style>
@@ -469,8 +470,25 @@
     <style name="NightjarDialogButton" parent="Widget.Material3.Button.TextButton.Dialog">
         <item name="android:textAllCaps">false</item>
         <item name="android:minHeight">@dimen/touch_target</item>
-        <item name="strokeWidth">?attr/nightjarFocusRingWidth</item>
-        <item name="strokeColor">@color/button_focus_ring</item>
+        <item name="android:minWidth">88dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:paddingLeft">@dimen/space_xl</item>
+        <item name="android:paddingRight">@dimen/space_xl</item>
+        <item name="android:layout_marginStart">@dimen/space_s</item>
+        <item name="android:background">@drawable/dialog_button_control</item>
+        <item name="backgroundTint">@null</item>
+        <item name="rippleColor">@null</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+        <item name="android:fontFamily">?attr/nightjarFaceStrong</item>
+        <item name="fontFamily">?attr/nightjarFaceStrong</item>
+        <item name="android:stateListAnimator">?attr/nightjarControlFocusAnimator</item>
+    </style>
+
+    <!-- The dialog's one primary action. -->
+    <style name="NightjarDialogButton.Moon">
+        <item name="android:background">@drawable/dialog_button_moon</item>
+        <item name="android:textColor">@color/nj_color_on_moon</item>
     </style>
 
     <style name="ShapeAppearance.Nightjar" parent="ShapeAppearance.Material3.MediumComponent">

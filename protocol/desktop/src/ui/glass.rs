@@ -121,7 +121,7 @@ pub struct Backdrop {
 #[derive(Default)]
 pub struct CrossFade {
     current: Option<(u64, TextureHandle)>,
-    previous: Option<TextureHandle>,
+    previous: Option<(u64, TextureHandle)>,
     started: f64,
 }
 
@@ -132,10 +132,17 @@ impl CrossFade {
             return;
         }
         let now = ctx.input(|i| i.time);
+        // Back to what it fades from, while it runs: it turns where it stands, not from the full.
+        if self.previous.as_ref().is_some_and(|(k, _)| *k == key) && self.running(ctx) {
+            let back = 1.0 - self.along(ctx);
+            std::mem::swap(&mut self.previous, &mut self.current);
+            self.started = now - f64::from(back) * f64::from(ambient_ms(ctx)) / 1000.0;
+            return;
+        }
         // A second change in the frame the fade started changes its mind: the fade still runs from
         // what showed, not from what never did.
         if self.current.is_none() || self.started != now {
-            self.previous = self.current.take().map(|(_, t)| t);
+            self.previous = self.current.take();
         }
         self.current = Some((key, texture));
         self.started = now;
@@ -180,7 +187,7 @@ impl CrossFade {
             area,
         };
         let backdrop = Backdrop {
-            base: self.previous.as_ref().map(|p| layer(p, 1.0)),
+            base: self.previous.as_ref().map(|(_, p)| layer(p, 1.0)),
             top: self.current.as_ref().map(|(_, c)| layer(c, along)),
         };
         set_backdrop(ctx, backdrop);
@@ -203,6 +210,12 @@ fn backdrop_id() -> Id {
 
 pub fn set_backdrop(ctx: &Context, backdrop: Backdrop) {
     ctx.data_mut(|d| d.insert_temp(backdrop_id(), backdrop));
+}
+
+/// The layers handed out this frame, for a test to look at.
+#[cfg(test)]
+pub fn backdrop_of(ctx: &Context) -> Backdrop {
+    backdrop(ctx)
 }
 
 fn backdrop(ctx: &Context) -> Backdrop {

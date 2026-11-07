@@ -9,6 +9,8 @@ class VideoStats {
     int totalFramesRendered;
     int frameLossEvents;
     int framesLost;
+    // Frames the engine dropped because its decode queue overflowed: this device's, never in framesLost.
+    int decoderDrops;
     // Conventional decode uses Artemis's completed-frame count; PyroWave uses Moonlight X's
     // accumulated CPU submission time. Both divide by every frame received in the window.
     long decoderTimeMs;
@@ -24,6 +26,7 @@ class VideoStats {
         this.totalFramesRendered += other.totalFramesRendered;
         this.frameLossEvents += other.frameLossEvents;
         this.framesLost += other.framesLost;
+        this.decoderDrops += other.decoderDrops;
         this.decoderTimeMs += other.decoderTimeMs;
 
         if (this.minHostProcessingLatency == 0) {
@@ -48,6 +51,7 @@ class VideoStats {
         this.totalFramesRendered = other.totalFramesRendered;
         this.frameLossEvents = other.frameLossEvents;
         this.framesLost = other.framesLost;
+        this.decoderDrops = other.decoderDrops;
         this.decoderTimeMs = other.decoderTimeMs;
         this.minHostProcessingLatency = other.minHostProcessingLatency;
         this.maxHostProcessingLatency = other.maxHostProcessingLatency;
@@ -62,6 +66,7 @@ class VideoStats {
         this.totalFramesRendered = 0;
         this.frameLossEvents = 0;
         this.framesLost = 0;
+        this.decoderDrops = 0;
         this.decoderTimeMs = 0;
         this.minHostProcessingLatency = 0;
         this.maxHostProcessingLatency = 0;
@@ -101,6 +106,7 @@ class VideoStats {
 
         VideoStatsFps fps = new VideoStatsFps();
         fps.lossPercent = totalFrames == 0 ? -1 : (float) framesLost / totalFrames * 100;
+        fps.decoderDrops = decoderDrops;
         if (elapsed > 0) {
             fps.totalFps = this.totalFrames / elapsed;
             fps.receivedFps = this.totalFramesReceived / elapsed;
@@ -113,6 +119,7 @@ class VideoStats {
 class VideoStatsFps {
 
     float lossPercent;
+    int decoderDrops;
     float totalFps;
     float receivedFps;
     float renderedFps;

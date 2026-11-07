@@ -90,6 +90,7 @@
     <string name="perf_overlay_renderingfps">렌더링: %1$.2f FPS</string>
     <string name="perf_overlay_hostprocessinglatency">호스트 최소/최대/평균: %1$.1f/%2$.1f/%3$.1f ms</string>
     <string name="perf_overlay_netdrops">네트워크 프레임 손실: %1$.2f%%</string>
+    <string name="perf_overlay_decoder_drops">디코더 누락: %1$d 프레임, 디코더가 따라가지 못했습니다</string>
     <string name="perf_overlay_netlatency">네트워크: %1$d ms(±%2$d ms)</string>
     <string name="perf_overlay_dectime">디코딩 시간: %1$.2f ms</string>
     <string name="applist_connect_msg">PC에 연결 중…</string>

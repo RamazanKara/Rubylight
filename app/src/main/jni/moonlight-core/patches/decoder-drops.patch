@@ -1,0 +1,95 @@
+Count the frames dropped because the decode unit queue overflowed (the overflowing frame and every
+frame dropped until the IDR frame it requested) apart from network loss, so the performance overlay,
+the stream doctor and the bitrate logic no longer read a decoder that fell behind as frame loss
+(nightjar#80; LiGetDecoderDrops, the Rust engine's VideoStats::decoder_drops). Add it at the end of
+the list.
+
+diff --git a/src/Limelight.h b/src/Limelight.h
+index 7ead5f4..2cdc940 100644
+--- a/src/Limelight.h
++++ b/src/Limelight.h
+@@ -941,6 +941,11 @@ const RTP_VIDEO_STATS* LiGetRTPVideoStats(void);
+ // parity included: the stream's bandwidth on the wire. Safe to call from any thread.
+ uint64_t LiGetWireBytesReceived(void);
+ 
++// Returns the frames dropped because the decode unit queue overflowed since the stream started: the
++// overflowing frame and every frame dropped until the IDR frame it requested. They are the
++// decoder's backlog, not network loss. Safe to call from any thread.
++uint64_t LiGetDecoderDrops(void);
++
+ // Port index flags for use with LiGetPortFromPortFlagIndex() and LiGetProtocolFromPortFlagIndex()
+ #define ML_PORT_INDEX_TCP_47984 0
+ #define ML_PORT_INDEX_TCP_47989 1
+diff --git a/src/VideoDepacketizer.c b/src/VideoDepacketizer.c
+index 90d3f92..d1a659d 100644
+--- a/src/VideoDepacketizer.c
++++ b/src/VideoDepacketizer.c
+@@ -1,5 +1,7 @@
+ #include "Limelight-internal.h"
+ 
++#include <stdatomic.h>
++
+ // Uncomment to test 3 byte Annex B start sequences with GFE
+ //#define FORCE_3_BYTE_START_SEQUENCES
+ 
+@@ -10,6 +12,11 @@ static int nalChainDataLength;
+ static unsigned int nextFrameNumber;
+ static unsigned int startFrameNumber;
+ static bool waitingForNextSuccessfulFrame;
++
++// The decode unit queue overflowed and no frame has been queued since: drops until then are the
++// decoder's backlog, not network loss (LiGetDecoderDrops).
++static bool decoderOverflow;
++static atomic_uint_fast64_t decoderDrops;
+ static bool waitingForIdrFrame;
+ static bool waitingForRefInvalFrame;
+ static unsigned int lastPacketInStream;
+@@ -65,6 +72,8 @@ void initializeVideoDepacketizer(int pktSize) {
+     nextFrameNumber = 1;
+     startFrameNumber = 0;
+     waitingForNextSuccessfulFrame = false;
++    decoderOverflow = false;
++    atomic_store(&decoderDrops, 0);
+     waitingForIdrFrame = true;
+     waitingForRefInvalFrame = false;
+     lastPacketInStream = UINT32_MAX;
+@@ -103,6 +112,10 @@ static void dropFrameState(void) {
+     // We're dropping frame state now
+     dropStatePending = false;
+ 
++    if (decoderOverflow) {
++        atomic_fetch_add_explicit(&decoderDrops, 1, memory_order_relaxed);
++    }
++
+     if (strictIdrFrameWait || !idrFrameProcessed || waitingForIdrFrame || (nalChainHead && frameType == FRAME_TYPE_IDR)) {
+         // We'll need an IDR frame now if we're in non-RFI mode, if we've never
+         // received an IDR frame, if we explicitly need an IDR frame, or if we
+@@ -521,6 +534,8 @@ static void reassembleFrame(int frameNumber, bool frameIsLTR) {
+ 
+                     // RFI recovery is not supported here
+                     waitingForIdrFrame = true;
++                    // This frame and every one dropped until the next is queued are decoder drops
++                    decoderOverflow = true;
+ 
+                     // Clear NAL state for the frame that we failed to enqueue
+                     nalChainHead = qdu->decodeUnit.bufferList;
+@@ -544,6 +559,8 @@ static void reassembleFrame(int frameNumber, bool frameIsLTR) {
+                 LiCompleteVideoFrame(qdu, VideoCallbacks.submitDecodeUnit(&qdu->decodeUnit));
+             }
+ 
++            decoderOverflow = false;
++
+             // Notify the control connection
+             connectionReceivedCompleteFrame(frameNumber, frameIsLTR);
+ 
+@@ -556,6 +573,10 @@ static void reassembleFrame(int frameNumber, bool frameIsLTR) {
+     }
+ }
+ 
++uint64_t LiGetDecoderDrops(void) {
++    return (uint64_t)atomic_load_explicit(&decoderDrops, memory_order_relaxed);
++}
++
+ static int getBufferFlags(char* data, int length) {
+     BUFFER_DESC buffer;
+     BUFFER_DESC candidate;

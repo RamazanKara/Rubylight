@@ -90,6 +90,7 @@
     <string name="perf_overlay_renderingfps">Отрисовано: %1$.2f FPS</string>
     <string name="perf_overlay_hostprocessinglatency">Хост мин./макс./сред.: %1$.1f/%2$.1f/%3$.1f мс</string>
     <string name="perf_overlay_netdrops">Потери кадров в сети: %1$.2f%%</string>
+    <string name="perf_overlay_decoder_drops">Сброшено декодером: %1$d кадров, декодер не успевал</string>
     <string name="perf_overlay_netlatency">Сеть: %1$d мс (±%2$d мс)</string>
     <string name="perf_overlay_dectime">Время декодирования: %1$.2f мс</string>
     <string name="applist_connect_msg">Подключение к ПК…</string>

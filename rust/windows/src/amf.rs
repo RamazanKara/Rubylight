@@ -22,7 +22,7 @@ use crate::{
     encoder::{Encoded, Unit},
 };
 use anyhow::{Context, Result, bail};
-use butterpollo_core::encoder_backlog::{AMF_SURFACE_LIMIT, AmfBacklog, QUERY_TIMEOUT};
+use butterpollo_core::encoder_backlog::{self, AMF_SURFACE_LIMIT, AmfBacklog, QUERY_TIMEOUT};
 use butterpollo_core::encoder_policy::KeyframeCapScale;
 #[cfg(test)]
 use create::{OutputRange, guard_smart_access_video, transfer_characteristic};
@@ -266,6 +266,13 @@ pub struct Encoder {
     unit_idr_reported: bool,
     /// Encoder focus: the ROI map and its counters.
     focus: focus::State,
+    /// `amd_output_prediction`: `poll` skips a query the oldest frame
+    /// cannot answer yet ([`encoder_backlog::skips_query`]).
+    output_prediction: bool,
+    /// The fastest acceptance-to-output time of any frame.
+    fastest_output: Option<Duration>,
+    /// Queries `amd_output_prediction` skipped, for the stall snapshot.
+    skipped_queries: u64,
 }
 /// One output buffer from QueryOutput: a frame, or with slice/tile output one
 /// slice or tile of it.
@@ -328,6 +335,7 @@ impl Encoder {
             submit_result = result_name(self.last_submit),
             query_result = result_name(self.last_query),
             input_full = self.input_full,
+            skipped_queries = self.skipped_queries,
             in_flight = self.in_flight.len(),
             retained = self.ownership.retained(),
             oldest_pts = ?oldest.map(|s| s.pts),

@@ -415,6 +415,14 @@ impl Encoder {
             Self::Nvenc(e) => e.output_event(),
         }
     }
+    /// The earliest a poll can find output (`amd_output_prediction`); the
+    /// caller's next output poll waits for it. `None` polls as before.
+    pub fn output_due(&self) -> Option<std::time::Instant> {
+        match self {
+            Self::Amf(e) => e.output_due(),
+            Self::Nvenc(_) | Self::Pyrowave(_) => None,
+        }
+    }
     /// When the encoder accepted the input of the last encode call, after
     /// its colour conversion. Only AMF reports it.
     pub fn last_submitted(&self) -> Option<std::time::Instant> {

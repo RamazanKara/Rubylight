@@ -227,7 +227,7 @@ impl Encoder {
             || self.ownership.retained() >= AMF_SURFACE_LIMIT
         {
             let queried = Instant::now();
-            output.extend(self.poll()?);
+            output.extend(self.poll_now()?);
             // A completion at the deadline still frees capacity successfully.
             let retained = self.ownership.retained();
             if self.in_flight.len() < AMF_SURFACE_LIMIT && retained < AMF_SURFACE_LIMIT {
@@ -432,7 +432,7 @@ impl Encoder {
                 // This input's references are planned: a re-encode now would
                 // drop the ones it may name.
                 self.preparing = true;
-                let polled = self.poll();
+                let polled = self.poll_now();
                 self.preparing = false;
                 output.extend(polled?);
                 if Instant::now() >= deadline {

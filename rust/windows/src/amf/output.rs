@@ -30,7 +30,34 @@ impl Encoder {
             self.recover = true;
         }
     }
+    /// Finished output. With `amd_output_prediction` a query the oldest frame
+    /// cannot answer yet is skipped: it would only block for its timeout.
     pub fn poll(&mut self) -> Result<Vec<Encoded>> {
+        if encoder_backlog::skips_query(Instant::now(), self.predicted_output()) {
+            if let Some(input) = &mut self.compute {
+                input.converter.release_completed();
+            }
+            self.skipped_queries += 1;
+            return Ok(vec![]);
+        }
+        self.poll_now()
+    }
+    /// When the oldest frame in flight can first be done, with
+    /// `amd_output_prediction` on and whole frames returned.
+    fn predicted_output(&self) -> Option<Instant> {
+        if !self.output_prediction || self.slice_blocks > 0 || self.unit_log.is_some() {
+            return None;
+        }
+        let oldest = self.in_flight.front()?;
+        encoder_backlog::predicted_output(oldest.accepted, self.fastest_output)
+    }
+    /// When a poll is next worth making, with `amd_output_prediction`: the
+    /// caller's output poll waits until then.
+    pub fn output_due(&self) -> Option<Instant> {
+        self.predicted_output().map(encoder_backlog::query_due)
+    }
+    /// A query now, for waits that need capacity back.
+    pub(super) fn poll_now(&mut self) -> Result<Vec<Encoded>> {
         // A unit of a joined frame leaves nothing to hand on: ask again at
         // once for the frame's next unit instead of after the caller's wait.
         loop {
@@ -354,6 +381,11 @@ impl Encoder {
         if let Some((accepted, preparation)) = timing.filter(|_| produced) {
             let previous = self.backlog.limit();
             let now = Instant::now();
+            let took = now.saturating_duration_since(accepted);
+            self.fastest_output = Some(
+                self.fastest_output
+                    .map_or(took, |fastest| fastest.min(took)),
+            );
             self.backlog
                 .completed(now, now.duration_since(accepted), preparation);
             if self.backlog.limit() != previous {

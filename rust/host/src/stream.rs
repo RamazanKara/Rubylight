@@ -41,7 +41,7 @@ pub(crate) use instance_audio::{InstanceRoutes, instance_routes, plays_on_pc, pu
 use qos::Tagged;
 #[cfg(test)]
 use video::{
-    ENCODER_RECOVERY, EncoderOutput, EncoderRecovery, OUTPUT_POLL, encoder_progress,
+    ENCODER_RECOVERY, EncoderOutput, EncoderRecovery, OUTPUT_POLL, QueryTrace, encoder_progress,
     observe_foreground_game,
 };
 #[cfg(test)]

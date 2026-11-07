@@ -459,6 +459,7 @@ fn output_resets_the_stall_even_if_the_encoder_backlog_stays_full() -> Result<()
         recreations: 3,
         device_loss: None,
         progress: None,
+        queries: None,
         stall: crate::soak_fault::EncoderStall::new(None),
     };
     let mut encoder = Some(MockEncoder {
@@ -561,5 +562,41 @@ fn a_failed_poll_at_the_stall_deadline_schedules_one_recreation() -> Result<()> 
     assert!(recovery.backlog_since.is_none());
     assert_eq!(recovery.recreations, 0);
     assert_eq!(warnings.snapshot().len(), 1);
+    Ok(())
+}
+
+#[test]
+fn a_traced_poll_records_its_span_and_a_claim_names_the_one_it_held() -> Result<()> {
+    let mut recovery = EncoderRecovery {
+        queries: Some(Vec::new()),
+        ..Default::default()
+    };
+    let mut encoder = Some(MockEncoder {
+        queued: [frame(true)].into(),
+        ..Default::default()
+    });
+    recovery.collect(&mut encoder, &Default::default(), Instant::now)?;
+    let queries = recovery.queries.take().unwrap();
+    assert_eq!(queries.len(), 1);
+    assert!(queries[0].0 <= queries[0].1);
+    let start = Instant::now();
+    let ms = |n| start + Duration::from_millis(n);
+    let spans = [(ms(0), ms(1)), (ms(2), ms(3))];
+    // A picture published during the second poll waited for its end.
+    let held = QueryTrace::new(&spans, start + Duration::from_micros(2_400));
+    assert_eq!(
+        held,
+        QueryTrace {
+            queries: 2,
+            query_us: 2_000,
+            published_in_query: true,
+            held_us: 600,
+        }
+    );
+    // Between polls, or at a poll's end, nothing held it.
+    let free = QueryTrace::new(&spans, ms(1));
+    assert!(!free.published_in_query);
+    assert_eq!(free.held_us, 0);
+    assert!(QueryTrace::new(&[], ms(0)) == QueryTrace::default());
     Ok(())
 }

@@ -407,6 +407,9 @@ impl Encoder {
                 unit_held: false,
                 unit_idr_reported: false,
                 focus: Default::default(),
+                output_prediction: options.amd_output_prediction(),
+                fastest_output: None,
+                skipped_queries: 0,
             };
             // Before any property: AMF refuses an oversize FrameSize with a bare
             // AMF_OUT_OF_RANGE, which would read as a driver problem.

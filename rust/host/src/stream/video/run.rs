@@ -141,6 +141,7 @@ impl SessionThread<'_> {
         let mut packets = Vec::new();
         let trace_send = tracing::enabled!(target: "pacing", tracing::Level::TRACE);
         let mut admission_trace = trace_send.then(AdmissionTrace::default);
+        recovery.queries = trace_send.then(Vec::new);
         let mut trace_attempt = 0_u64;
         batch.waits = trace_send.then(Default::default);
         let mut network_pacer = butterpollo_core::network_pacing::Pacer::new(Instant::now());
@@ -946,7 +947,7 @@ impl SessionThread<'_> {
                             send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, poll_tick)?;
                             if encoder.as_ref().is_some_and(|e| recovery.pending(e)) {
                                 timer.until_or_event(
-                                    (Instant::now() + OUTPUT_POLL)
+                                    next_output_poll(encoder.as_ref(), Instant::now())
                                         .min(due),
                                     encoder.as_ref().and_then(Encoder::output_event),
                                 )?;
@@ -1022,7 +1023,7 @@ impl SessionThread<'_> {
                     let until = if encoder.as_ref().is_some_and(|e| recovery.pending(e))
                         && encoder_backlog::query_fits(now, deadline)
                     {
-                        deadline.min(now + OUTPUT_POLL)
+                        deadline.min(next_output_poll(encoder.as_ref(), now))
                     } else {
                         deadline
                     };
@@ -1065,7 +1066,7 @@ impl SessionThread<'_> {
                     AdmissionTrace::measure(&mut admission_trace, AdmissionWait::Repeat, || -> Result<()> {
                     if encoder.as_ref().is_some_and(|e| recovery.pending(e)) { send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, capture_tick)?; }
                     let pending = encoder.as_ref().is_some_and(|e| recovery.pending(e));
-                    let wait = if pending { OUTPUT_POLL } else { period };
+                    let wait = if pending { next_output_poll(encoder.as_ref(), Instant::now()).saturating_duration_since(Instant::now()) } else { period };
                     let output = encoder.as_ref().filter(|_| pending).and_then(Encoder::output_event);
                     latest.wait_if_current_or(&timer, &capture_wake, &image, Instant::now() + wait.min(reencode_at.saturating_duration_since(Instant::now())), output)?;
                     Ok(())
@@ -1253,6 +1254,10 @@ impl SessionThread<'_> {
                         _ => (begin, latest.picture_interval(), None),
                     };
                     let (capture_id, selected_is_latest, latest_capture_id) = latest.trace_selection(&image);
+                    let query = recovery.queries.as_ref().map_or_else(QueryTrace::default, |queries| QueryTrace::new(queries, image.published));
+                    if let Some(queries) = recovery.queries.as_mut() {
+                        queries.clear();
+                    }
                     tracing::trace!(
                         target: "pacing",
                         capture_id,
@@ -1282,6 +1287,10 @@ impl SessionThread<'_> {
                         encoder_pressure_us = admission.micros(AdmissionWait::Encoder),
                         sender_pressure_us = admission.micros(AdmissionWait::Sender),
                         admission_passes = ?admission.passes,
+                        output_polls = query.queries,
+                        output_poll_us = query.query_us,
+                        published_in_poll = query.published_in_query,
+                        poll_held_us = query.held_us,
                         "claim"
                     );
                     *admission = AdmissionTrace::default();

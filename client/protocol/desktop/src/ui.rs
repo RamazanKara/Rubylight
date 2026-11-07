@@ -43,7 +43,7 @@ use dialogs::*;
 pub use dialogs::moves_in_hotkey_dialog;
 pub use library::{asked_start, join_target, playing_elsewhere, policy_role, running_name};
 use library::*;
-pub(crate) use widgets::{column, focus_ring, focus_ring_around, glass_behind, group_row, name_for_readers, page_scroll_from, pin_key, pin_slots, primary_button, quiet_button, round_button, row, section, toggle, Combo, ToTop, Tone, DIALOG_MARGIN};
+pub(crate) use widgets::{column, focus_ring, focus_ring_around, glass_behind, group_row, lift_shapes, name_for_readers, page_scroll_from, pin_key, pin_slots, primary_button, quiet_button, round_button, row, section, toggle, Combo, ToTop, Tone, DIALOG_MARGIN};
 pub(crate) use chrome::{BACK_SIZE, PAGE_TITLE};
 use widgets::*;
 pub(crate) use icons::Icon;
@@ -409,6 +409,11 @@ pub struct Launcher {
     scroll_inset: f32,
     /// How far Home has scrolled, for the scrim under the chrome.
     page_scrolled: f32,
+    /// The stream menu's demo page, over its still.
+    #[cfg(any(test, feature = "demo-library"))]
+    pub(crate) demo_menu: Option<demo::DemoMenu>,
+    #[cfg(any(test, feature = "demo-library"))]
+    demo_video: Option<egui::TextureHandle>,
     /// The focus went up into the chrome: Home goes back to its start beneath it.
     page_to_top: bool,
     /// Back was used on the page header this frame.
@@ -516,6 +521,10 @@ impl Launcher {
             library_query: String::new(),
             scroll_inset: 0.0,
             page_scrolled: 0.0,
+            #[cfg(any(test, feature = "demo-library"))]
+            demo_menu: None,
+            #[cfg(any(test, feature = "demo-library"))]
+            demo_video: None,
             page_to_top: false,
             back_pressed: false,
             refreshing_empty: None,
@@ -947,6 +956,11 @@ impl Launcher {
             commands.push(Command::SaveSettings);
         }
         self.sync_look(&ctx);
+        #[cfg(any(test, feature = "demo-library"))]
+        if let Some(menu) = self.demo_menu {
+            self.demo_stream_menu(ui, menu);
+            return commands;
+        }
         // A check whose page was left is cancelled here. Settings opened over the page does not
         // leave it: Back returns to the page and its check.
         let page = std::iter::once(&self.screen).chain(self.trail.iter().map(|(screen, _)| screen)).find_map(|screen| match screen {

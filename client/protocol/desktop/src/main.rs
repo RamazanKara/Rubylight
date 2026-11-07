@@ -98,7 +98,7 @@ use shortcuts::{Action, Scope};
 use stream::present::{pacing, PacingMode};
 use stream::{ConnectFailed, Connecting, Display, Exit, LaunchPlan, Streaming};
 use strings::{tr, trf};
-use ui::{Command, ConnectingView, Dialog, Launcher, Screen, View};
+use ui::{Combo, Command, ConnectingView, Dialog, Launcher, Screen, View};
 
 #[cfg(windows)]
 #[link(name = "winmm")]
@@ -1347,6 +1347,11 @@ impl App {
         let updates = &mut self.updates;
         self.gui.set_readable(true);
         self.gui.set_over_video(false);
+        // The stream menu's demo pages stand in for a stream.
+        #[cfg(feature = "demo-library")]
+        if launcher.demo_menu.is_some() {
+            self.gui.set_over_video(true);
+        }
         let output = self.gui.run(self.window, self.renderer, |ui| {
             #[cfg(feature = "demo-library")]
             if demo_scrolling {
@@ -2718,16 +2723,12 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     }
                 });
         }
-        if s.menu_visible {
-            menu_style::scrim(&ctx);
-        }
         if s.menu_visible && s.session_page.is_some() {
             let lines = s.connection_lines();
             let hints = s.session_hints();
             let mut outcome = session_ui::Outcome::Stay;
             if let Some(page) = s.session_page.as_mut() {
-                menu_style::window(tr("Session and graphics"), "session-and-graphics")
-                    .show(&ctx, |ui| menu_style::body(ui, |ui| {
+                menu_style::show(&ctx, tr("Session and graphics"), "session-and-graphics", |ui| menu_style::body(ui, |ui| {
                         gui::follow_focus(ui, &mut s.menu_focus);
                         menu_style::header(ui, tr("Session and graphics"), &title);
                         outcome = session_ui::show(ui, page, &lines, hints);
@@ -2746,8 +2747,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
             let style = glyphs::Style::of(pads);
             let offered = s.controller_mouse_offered(pads);
             let mut back = false;
-            menu_style::window(tr("Shortcuts & help"), "stream-controls")
-                .show(&ctx, |ui| menu_style::body(ui, |ui| {
+            menu_style::show(&ctx, tr("Shortcuts & help"), "stream-controls", |ui| menu_style::body(ui, |ui| {
                     gui::follow_focus(ui, &mut s.menu_focus);
                     menu_style::header(ui, tr("Shortcuts & help"), &title);
                     back = menu_style::sheet(ui, style, pads.quit_combo(), pads.back_opens_menu(), offered, from_menu);
@@ -2778,11 +2778,10 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
             let grid_page = page == stream_menu::Page::Grid;
             let (heading, line) = if grid_page { s.menu_header() } else { (page.title().to_owned(), title.clone()) };
             let mut leave = None;
-            menu_style::window(tr("Stream controls"), "stream-controls")
-                .show(&ctx, |ui| {
-                // On the grid the header and the ways out stay in view; only the tiles scroll.
-                if grid_page {
-                    menu_style::header(ui, &heading, &line);
+            menu_style::show(&ctx, tr("Stream controls"), "stream-controls", |ui| {
+                // On the grid the head and the ways out stay in view; only the tiles scroll.
+                if grid_page && menu_style::head(ui, &heading, &line) {
+                    leave = Some(stream_menu::Leave::Close);
                 }
                 let reserve = if grid_page { menu_style::pinned_room(&ctx, "stream-menu-footer") } else { 0.0 };
                 menu_style::body_above(ui, reserve, |ui| {
@@ -2862,7 +2861,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                 });
                             }
                         }
-                        stream_menu::Page::Quality => {
+                        stream_menu::Page::Quality => menu_style::group(ui, |ui| {
                             let controls = s.menu_controls();
                             if s.facts.runtime_bitrate {
                                 if s.facts.role == nightjar_core::http::AppRole::Stream && !s.client_hint_active() {
@@ -2907,7 +2906,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                             if controls.size_editor {
                                 menu_style::fold(ui, "stream-size", Icon::Screen, tr("Stream size"), |ui| {
                                     let mut quality = s.quality_mode;
-                                    egui::ComboBox::from_id_salt("stream-quality").selected_text(tr(quality.label())).show_ui(ui, |ui| {
+                                    Combo::from_id_salt("stream-quality").selected_text(tr(quality.label())).show_ui(ui, |ui| {
                                         for mode in [config::QualityMode::Off, config::QualityMode::Motion, config::QualityMode::Detail, config::QualityMode::Battery] {
                                             ui.selectable_value(&mut quality, mode, tr(mode.label()));
                                         }
@@ -2931,15 +2930,15 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                     });
                                 });
                             }
-                        }
-                        stream_menu::Page::More => {
+                        }),
+                        stream_menu::Page::More => menu_style::group(ui, |ui| {
                             // The model's order (nightjar_policy::stream_menu::TILES), one row or group per ID.
                             for id in &layout.more {
                                 match *id {
                                     "picture" => {
                                         menu_style::row(ui, Icon::Overlay, tr("Performance overlay"), |ui| {
                                             let shown = if s.overlay_visible { tr(s.overlay_mode.label()) } else { tr("Off") };
-                                            egui::ComboBox::from_id_salt("stream-overlay").width(MENU_LIST).selected_text(shown).show_ui(ui, |ui| {
+                                            Combo::from_id_salt("stream-overlay").width(MENU_LIST).selected_text(shown).show_ui(ui, |ui| {
                                                 if ui.selectable_label(!s.overlay_visible, tr("Off")).clicked() { s.overlay_visible = false; }
                                                 for mode in config::OverlayMode::ALL {
                                                     if ui.selectable_label(s.overlay_visible && s.overlay_mode == mode, tr(mode.label())).clicked() {
@@ -2950,7 +2949,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                         });
                                         if s.overlay_visible {
                                             menu_style::row(ui, Icon::Corner, tr("Overlay position"), |ui| {
-                                                egui::ComboBox::from_id_salt("stream-overlay-corner").width(MENU_LIST).selected_text(tr(s.overlay_corner.label())).show_ui(ui, |ui| {
+                                                Combo::from_id_salt("stream-overlay-corner").width(MENU_LIST).selected_text(tr(s.overlay_corner.label())).show_ui(ui, |ui| {
                                                     for corner in config::OverlayCorner::ALL {
                                                         ui.selectable_value(&mut s.overlay_corner, corner, tr(corner.label()));
                                                     }
@@ -2960,7 +2959,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                         let current = s.video_scaling();
                                         let (mut scaling, top) = current;
                                         menu_style::row(ui, Icon::Screen, tr("Video size"), |ui| {
-                                            egui::ComboBox::from_id_salt("stream-scaling").width(MENU_LIST).selected_text(tr(scaling.label())).show_ui(ui, |ui| {
+                                            Combo::from_id_salt("stream-scaling").width(MENU_LIST).selected_text(tr(scaling.label())).show_ui(ui, |ui| {
                                                 use config::VideoScaling;
                                                 for mode in [VideoScaling::Fit, VideoScaling::Fill, VideoScaling::Stretch, VideoScaling::Native] {
                                                     ui.selectable_value(&mut scaling, mode, tr(mode.label()));
@@ -2992,7 +2991,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                             let current = pad.audio.as_ref().map(|a| a.device);
                                             let mut selected = current;
                                             let label = current.and_then(|id| outputs.iter().find(|(device, _)| *device == id)).map_or(tr("Off"), |(_, name)| name.as_str());
-                                            egui::ComboBox::from_id_salt(("controller-audio", pad.index)).selected_text(trf("Controller {}: {}", &[&(pad.index + 1), &label])).show_ui(ui, |ui| {
+                                            Combo::from_id_salt(("controller-audio", pad.index)).selected_text(trf("Controller {}: {}", &[&(pad.index + 1), &label])).show_ui(ui, |ui| {
                                                 ui.selectable_value(&mut selected, None, tr("Off"));
                                                 for (id, name) in &outputs { ui.selectable_value(&mut selected, Some(*id), name); }
                                             });
@@ -3001,13 +3000,13 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                                 let mut input = audio.input;
                                                 let label = input.and_then(|id| inputs.iter().find(|(device, _)| *device == id)).map_or(tr("Off"), |(_, name)| name.as_str());
                                                 ui.add_enabled_ui(s.microphone_available(), |ui| {
-                                                    egui::ComboBox::from_id_salt(("controller-microphone", pad.index)).selected_text(trf("Microphone: {}", &[&label])).show_ui(ui, |ui| {
+                                                    Combo::from_id_salt(("controller-microphone", pad.index)).selected_text(trf("Microphone: {}", &[&label])).show_ui(ui, |ui| {
                                                         ui.selectable_value(&mut input, None, tr("Off"));
                                                         for (id, name) in &inputs { ui.selectable_value(&mut input, Some(*id), name); }
                                                     });
                                                 });
                                                 if input != audio.input { input_selections.push((pad.index, input)); }
-                                                egui::ComboBox::from_id_salt(("controller-headphones", pad.index))
+                                                Combo::from_id_salt(("controller-headphones", pad.index))
                                                     .selected_text(match audio.headphone_override { None => tr("Automatic headset detection"), Some(true) => tr("Headset"), Some(false) => tr("Controller speaker") })
                                                     .show_ui(ui, |ui| {
                                                         ui.selectable_value(&mut audio.headphone_override, None, tr("Automatic headset detection"));
@@ -3049,7 +3048,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                     other => unreachable!("More has no row for {other}"),
                                 }
                             }
-                        }
+                        }),
                     }
                     if !matches!(page, stream_menu::Page::Grid | stream_menu::Page::Confirm(_)) {
                         ui.add_space(theme::space::M);
@@ -3059,7 +3058,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     }
                 });
                 if grid_page {
-                    leave = menu_style::pinned(ui, "stream-menu-footer", |ui| stream_menu::footer(ui, &layout));
+                    leave = leave.or(menu_style::pinned(ui, "stream-menu-footer", |ui| stream_menu::footer(ui, &layout)));
                 }
                 });
             match leave {

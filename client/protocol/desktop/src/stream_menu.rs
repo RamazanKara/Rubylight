@@ -14,6 +14,7 @@ use crate::menu_style;
 use crate::session_page::HostExit;
 use crate::strings::tr;
 use crate::theme::{regular, semibold, space, text, ERROR, ON_SURFACE};
+use crate::ui::Tone;
 
 /// The page the stream menu shows; Escape or B goes from any other back to the grid.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -272,14 +273,11 @@ pub fn grid(ui: &mut Ui, layout: &Layout, saved: &Shortcuts, hotkey: Option<Hotk
     pressed.or(picked.map(|index| chosen(&layout.grid[index])))
 }
 
-/// Under the grid: Return to stream across the width, then the ways out side by side, Disconnect
-/// first.
+/// Under the grid: the ways out side by side, Disconnect first. Closing the menu is the head's round
+/// close, so it isn't one of them here.
 pub fn footer(ui: &mut Ui, layout: &Layout) -> Option<Leave> {
-    ui.add_space(space::L);
+    ui.add_space(space::M);
     let mut picked = None;
-    if menu_style::primary(ui, tr("Return to stream"), Some(crate::shortcuts::Key::Escape.cap().as_ref())).clicked() {
-        picked = Some(Leave::Close);
-    }
     let exits: Vec<Leave> = layout.footer.iter().filter_map(|id| {
         let leave = leave(id);
         if leave.is_none() {
@@ -287,10 +285,6 @@ pub fn footer(ui: &mut Ui, layout: &Layout) -> Option<Leave> {
         }
         leave
     }).filter(|leave| *leave != Leave::Close).collect();
-    if exits.is_empty() {
-        return picked;
-    }
-    ui.add_space(space::S);
     let count = exits.len() as f32;
     let width = ((ui.available_width() - menu_style::TILE_GAP * (count - 1.0)) / count).floor();
     ui.horizontal(|ui| {
@@ -299,9 +293,9 @@ pub fn footer(ui: &mut Ui, layout: &Layout) -> Option<Leave> {
             let response = match leave {
                 Leave::Disconnect => {
                     let keys = crate::shortcuts::chord_for(crate::shortcuts::Scope::Stream, crate::shortcuts::Action::Disconnect).map(crate::shortcuts::Chord::text);
-                    menu_style::exit_button(ui, width, Icon::Power, tr("Disconnect"), keys.as_deref())
+                    menu_style::exit_button(ui, width, Icon::Leave, tr("Disconnect"), keys.as_deref(), Tone::Quiet)
                 }
-                Leave::Exit(exit) => menu_style::exit_button(ui, width, Icon::Power, tr(exit.label()), None),
+                Leave::Exit(exit) => menu_style::exit_button(ui, width, Icon::Power, tr(exit.label()), None, Tone::Danger),
                 Leave::Close => continue,
             };
             if response.clicked() {
@@ -318,8 +312,10 @@ pub fn confirm(ui: &mut Ui, exit: HostExit, focus_first: bool) -> Option<bool> {
     menu_style::text_block(ui, tr(exit.confirm()));
     ui.add_space(space::M);
     let mut answer = None;
+    let width = ((ui.available_width() - menu_style::TILE_GAP) / 2.0).floor();
     ui.horizontal(|ui| {
-        let cancel = menu_style::button(ui, tr("Cancel"));
+        ui.spacing_mut().item_spacing.x = menu_style::TILE_GAP;
+        let cancel = menu_style::exit_button(ui, width, Icon::Back, tr("Cancel"), None, Tone::Quiet);
         // Cancel takes the focus, so A pressed twice never ends the game.
         if focus_first {
             cancel.request_focus();
@@ -327,7 +323,7 @@ pub fn confirm(ui: &mut Ui, exit: HostExit, focus_first: bool) -> Option<bool> {
         if cancel.clicked() {
             answer = Some(false);
         }
-        if menu_style::button(ui, tr(exit.label())).clicked() {
+        if menu_style::exit_button(ui, width, Icon::Power, tr(exit.label()), None, Tone::Danger).clicked() {
             answer = Some(true);
         }
     });
@@ -620,7 +616,7 @@ mod tests {
         let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1280.0, 800.0))), ..Default::default() };
         let mut add = Some(add);
         let mut output = ctx.run_ui(input, |ui| {
-            menu_style::window("Stream controls", "footer-test").show(ui.ctx(), |ui| (add.take().unwrap())(ui));
+            menu_style::show(ui.ctx(), "Stream controls", "footer-test", |ui| (add.take().unwrap())(ui));
         });
         output.textures_delta.clear();
         let tree = output.platform_output.accesskit_update.expect("AccessKit is on");
@@ -635,7 +631,7 @@ mod tests {
     /// Return to stream across the width, and under it Disconnect and the game's ways out side by
     /// side in equal widths, as Starwire's menu has them.
     #[test]
-    fn the_ways_out_sit_side_by_side_under_return_to_stream() {
+    fn the_ways_out_sit_side_by_side_across_the_panel() {
         crate::theme::own_palette();
         let ctx = egui::Context::default();
         crate::theme::apply(&ctx);
@@ -649,14 +645,13 @@ mod tests {
             .0;
         }
         let find = |name: &str| nodes.iter().find(|(label, _)| label.starts_with(name)).map(|(_, r)| *r).unwrap_or_else(|| panic!("{name} in {nodes:#?}"));
-        let (back, disconnect, end, close) = (find("Return to stream"), find("Disconnect"), find("End session"), find("Close game"));
-        assert!(disconnect.top() > back.bottom(), "the ways out sit under Return to stream");
+        let (disconnect, end, close) = (find("Disconnect"), find("End session"), find("Close game"));
         for other in [end, close] {
             assert!((other.top() - disconnect.top()).abs() < 1.0, "one row: {other:?} beside {disconnect:?}");
             assert!((other.width() - disconnect.width()).abs() < 1.5, "equal widths");
         }
         assert!(disconnect.right() < end.left() && end.right() < close.left(), "Disconnect, End session, Close game");
-        assert!((close.right() - back.right()).abs() < 1.5 && (disconnect.left() - back.left()).abs() < 1.5, "as wide as Return to stream together");
+        assert!(!nodes.iter().any(|(label, _)| label.starts_with("Return to stream")), "the head's round close does that");
         let spoken = nodes.iter().find(|(label, _)| label.starts_with("Disconnect")).unwrap().0.clone();
         assert!(spoken.starts_with("Disconnect, "), "Disconnect's keys are read out: {spoken}");
     }

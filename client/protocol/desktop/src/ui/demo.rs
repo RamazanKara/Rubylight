@@ -289,6 +289,17 @@ impl FileHost for DemoFiles {
     }
 }
 
+/// A page of the stream menu the demo shows, and over what.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DemoMenu {
+    Grid,
+    /// The grid over a white picture, the worst case for its words.
+    White,
+    Quality,
+    More,
+    Confirm,
+}
+
 /// Every page the driver can open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Page {
@@ -320,6 +331,8 @@ pub(crate) enum Page {
     PinChoose,
     /// The PIN lock settings page, with a PIN and this mode or with none.
     PinPage(Option<crate::pin_lock::Mode>),
+    /// The real stream menu's pages over a still standing in for the video.
+    StreamMenu(DemoMenu),
 }
 
 /// The dialogs the demo can open.
@@ -340,10 +353,10 @@ impl Page {
     /// A dialog or the PIN screen: what's under it doesn't scroll.
     #[cfg(test)]
     pub(crate) fn covers_the_page(self) -> bool {
-        matches!(self, Page::Dialog(_) | Page::PinStream | Page::PinChoose | Page::PinPage(_))
+        matches!(self, Page::Dialog(_) | Page::PinStream | Page::PinChoose | Page::PinPage(_) | Page::StreamMenu(_))
     }
 
-    pub(crate) const ALL: [(&'static str, Page); 34] = [
+    pub(crate) const ALL: [(&'static str, Page); 39] = [
         ("home", Page::Home),
         ("all-games", Page::AllGames),
         ("game", Page::Game),
@@ -378,6 +391,11 @@ impl Page {
         ("pin-page-empty", Page::PinPage(None)),
         ("pin-page", Page::PinPage(Some(crate::pin_lock::Mode::App))),
         ("pin-page-selected", Page::PinPage(Some(crate::pin_lock::Mode::Selected))),
+        ("stream-menu", Page::StreamMenu(DemoMenu::Grid)),
+        ("stream-menu-white", Page::StreamMenu(DemoMenu::White)),
+        ("stream-menu-quality", Page::StreamMenu(DemoMenu::Quality)),
+        ("stream-menu-more", Page::StreamMenu(DemoMenu::More)),
+        ("stream-menu-confirm", Page::StreamMenu(DemoMenu::Confirm)),
     ];
 }
 
@@ -478,6 +496,7 @@ impl Launcher {
     pub(crate) fn demo_page(&mut self, page: Page, hosts: &Hosts, waker: Waker) -> Option<Command> {
         self.dialog = Dialog::None;
         self.pin = None;
+        self.demo_menu = None;
         if matches!(page, Page::FirstRun | Page::FirstRunFound) {
             self.go(Screen::Hosts);
             return None;
@@ -563,6 +582,10 @@ impl Launcher {
                 let dir = std::env::temp_dir().join("nightjar-demo-pin");
                 self.pin = Some(crate::pin_ui::PinLock::demo(&dir, page == Page::PinChoose, pc.display_name()));
             }
+            Page::StreamMenu(menu) => {
+                self.go(Screen::Hosts);
+                self.demo_menu = Some(menu);
+            }
             Page::PinPage(mode) => {
                 self.go(Screen::Hosts);
                 let dir = std::env::temp_dir().join("nightjar-demo-pin-page");
@@ -575,6 +598,95 @@ impl Launcher {
             }
         }
         None
+    }
+}
+
+impl Launcher {
+    /// The stream menu over a still of the Racing Game, as `draw_overlay` draws it: the real panel,
+    /// grid and footer, and the real rows on a stream's pages, with what a stream offers as a literal.
+    pub(crate) fn demo_stream_menu(&mut self, ui: &mut egui::Ui, menu: DemoMenu) {
+        use crate::glyphs::Icon as Glyph;
+        use crate::menu_style as style;
+        use crate::session_page::HostExit;
+        use crate::stream_menu::{self, Page as MenuPage};
+        use crate::strings::tr;
+        let ctx = ui.ctx().clone();
+        let full = ctx.content_rect();
+        if menu == DemoMenu::White {
+            ui.painter().rect_filled(full, 0.0, egui::Color32::WHITE);
+        } else {
+            let texture = self.demo_video.get_or_insert_with(|| {
+                let at = GAMES.iter().position(|g| g.0 == "Racing Game").expect("the demo's racing game");
+                let image = image::load_from_memory(COVERS[at]).expect("a JPEG").to_rgba8();
+                let size = [image.width() as usize, image.height() as usize];
+                ctx.load_texture("demo-video", egui::ColorImage::from_rgba_unmultiplied(size, &image), egui::TextureOptions::LINEAR)
+            });
+            // Cut to the window's shape, as the game fills it.
+            let [w, h] = texture.size().map(|v| v as f32);
+            let shown = (full.height() / full.width() * w / h).min(1.0);
+            let uv = egui::Rect::from_min_max(egui::pos2(0.0, (1.0 - shown) * 0.62), egui::pos2(1.0, (1.0 - shown) * 0.62 + shown));
+            ui.painter().image(texture.id(), full, uv, egui::Color32::WHITE);
+        }
+        let available = stream_menu::Available {
+            mouse: Some(true),
+            overlay: true,
+            shortcuts: true,
+            microphone: Some(false),
+            quality: true,
+            clipboard: true,
+            image_clipboard: true,
+            host_audio: true,
+            exits: vec![HostExit::QuitApp],
+            ..Default::default()
+        };
+        let layout = stream_menu::layout(&available, self.shortcuts.data.len());
+        let saved = &self.shortcuts;
+        let focus_first = ctx.memory(|m| m.focused().is_none());
+        let line = "Racing Game · Living Room PC";
+        style::show(&ctx, tr("Stream controls"), "stream-controls", |ui| match menu {
+            DemoMenu::Grid | DemoMenu::White => {
+                style::head(ui, "Racing Game", "1080p · 120 FPS · HEVC HDR");
+                let reserve = style::pinned_room(ui.ctx(), "stream-menu-footer");
+                style::body_above(ui, reserve, |ui| stream_menu::grid(ui, &layout, saved, None, focus_first));
+                style::pinned(ui, "stream-menu-footer", |ui| stream_menu::footer(ui, &layout));
+            }
+            DemoMenu::Quality => style::body(ui, |ui| {
+                style::header(ui, MenuPage::Quality.title(), line);
+                style::group(ui, |ui| {
+                    let mut on = false;
+                    style::switch(ui, Glyph::Gauge, tr("Device controls bitrate"), &mut on);
+                    let mut kbps = 80_000;
+                    crate::stream::menu_extras::bitrate_slider(ui, &mut kbps, true);
+                    style::fold(ui, "demo-health", Glyph::Pulse, tr("Why did my stream stutter?"), |_| {});
+                    style::fold(ui, "demo-size", Glyph::Screen, tr("Stream size"), |_| {});
+                });
+                ui.add_space(crate::theme::space::M);
+                style::action_keys(ui, Glyph::Back, tr("Back"), Some(crate::shortcuts::Key::Escape.cap().as_ref()));
+            }),
+            DemoMenu::More => style::body(ui, |ui| {
+                style::header(ui, MenuPage::More.title(), line);
+                style::group(ui, |ui| {
+                    style::row(ui, Glyph::Overlay, tr("Performance overlay"), |ui| {
+                        super::Combo::from_id_salt("demo-overlay").width(190.0).selected_text(tr("Off")).show_ui(ui, |_| {});
+                    });
+                    style::row(ui, Glyph::Screen, tr("Video size"), |ui| {
+                        super::Combo::from_id_salt("demo-scaling").width(190.0).selected_text(tr(crate::config::VideoScaling::Fit.label())).show_ui(ui, |_| {});
+                    });
+                    let mut on = true;
+                    style::switch(ui, Glyph::Speaker, tr("Night mode"), &mut on);
+                    style::action(ui, Glyph::Image, tr("Send image to PC"), None);
+                    style::action(ui, Glyph::Download, tr("Export statistics (last hour)"), None);
+                    style::action(ui, Glyph::Help, tr("Shortcuts & help"), Some(crate::shortcuts::Action::StreamShortcuts));
+                    style::action(ui, Glyph::Reconnect, tr("Reconnect"), None);
+                });
+                ui.add_space(crate::theme::space::M);
+                style::action_keys(ui, Glyph::Back, tr("Back"), Some(crate::shortcuts::Key::Escape.cap().as_ref()));
+            }),
+            DemoMenu::Confirm => style::body(ui, |ui| {
+                style::header(ui, tr(HostExit::QuitApp.label()), line);
+                stream_menu::confirm(ui, HostExit::QuitApp, focus_first);
+            }),
+        });
     }
 }
 

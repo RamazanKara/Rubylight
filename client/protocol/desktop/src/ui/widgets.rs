@@ -59,7 +59,7 @@ pub(crate) fn paint_focus_ring(painter: &egui::Painter, rect: Rect, radius: u8) 
 }
 
 /// What a tinted surface or control takes under the pointer or while held: one lift for all of them.
-pub(super) fn lift_shapes(out: &mut Vec<egui::Shape>, ctx: &egui::Context, rect: Rect, r: f32, hovered: bool, pressed: bool) {
+pub(crate) fn lift_shapes(out: &mut Vec<egui::Shape>, ctx: &egui::Context, rect: Rect, r: f32, hovered: bool, pressed: bool) {
     let lift = if pressed {
         design_tokens::PRESS_FILL_LIFT
     } else if hovered {
@@ -594,6 +594,10 @@ impl<'a> Combo<'a> {
 
     pub(crate) fn height(self, height: f32) -> Self {
         Self(self.0.height(height))
+    }
+
+    pub(crate) fn width(self, width: f32) -> Self {
+        Self(self.0.width(width))
     }
 
     pub(crate) fn show_ui<R>(self, ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> egui::InnerResponse<Option<R>> {

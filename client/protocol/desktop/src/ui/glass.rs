@@ -736,6 +736,21 @@ pub fn surface(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, material
             }
         }
     }
+    finish(out, ctx, rect, r, &recipe);
+}
+
+/// The stream menu's glass over a stream's video: shadow, fill, sheen and rim of the baked recipe,
+/// solid in high contrast. No backdrop of any kind, whichever tier the launcher runs on: nothing
+/// reads the video, and it is only painted while the menu is open.
+pub fn menu_surface(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32) {
+    let tier = if tier(ctx) == Tier::Solid { Tier::Solid } else { Tier::Baked };
+    let recipe = recipe(Material::Menu, tier);
+    soft(out, ctx, rect.translate(vec2(0.0, recipe.shadow_y)), r, recipe.shadow_blur, recipe.shadow);
+    finish(out, ctx, rect, r, &recipe);
+}
+
+/// What every glass surface has over its backdrop: fill, sheen, rim.
+fn finish(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, recipe: &Recipe) {
     solid(out, ctx, rect, r, recipe.fill);
     if recipe.sheen_top.a() > 0 && recipe.sheen_end > 0.0 {
         let end = recipe.sheen_end;
@@ -1239,6 +1254,31 @@ mod tests {
         assert!(textures(Tier::Live).contains(&LIVE_BACKDROP));
         assert!(!textures(Tier::Baked).contains(&LIVE_BACKDROP));
         assert!(textures(Tier::Baked).contains(&TextureId::User(77)));
+    }
+
+    /// A stream plays under the menu: nothing it paints may read a backdrop, on any tier.
+    #[test]
+    fn the_stream_menus_glass_reads_nothing_behind_it() {
+        for tier_set in [Tier::Live, Tier::Baked, Tier::Solid] {
+            let ctx = Context::default();
+            set_tier(&ctx, tier_set);
+            let mut seen = Vec::new();
+            let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let layer = Layer { texture: TextureId::User(77), alpha: 1.0, area: ui.ctx().content_rect() };
+                set_backdrop(ui.ctx(), Backdrop { base: Some(layer), top: None });
+                let mut out = Vec::new();
+                menu_surface(&mut out, ui.ctx(), rect(), 32.0);
+                for shape in &out {
+                    if let Shape::Mesh(mesh) = shape {
+                        seen.push(mesh.texture_id);
+                    }
+                }
+            });
+            let mut delta = output.textures_delta;
+            delta.clear();
+            assert!(!seen.is_empty());
+            assert!(!seen.contains(&LIVE_BACKDROP) && !seen.contains(&TextureId::User(77)), "{tier_set:?}: {seen:?}");
+        }
     }
 
     #[test]

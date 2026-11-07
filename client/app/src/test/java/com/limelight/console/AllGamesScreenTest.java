@@ -198,6 +198,22 @@ public class AllGamesScreenTest {
                         + Math.round(AllGamesActivity.GLOW_ROOM_DP * grid.getResources().getDisplayMetrics().density),
                 rows.getVerticalFadingEdgeLength());
         assertEquals("the fade starts at the frame's edge", 0, rows.getPaddingTop());
+        // On the real TV the bottom fade ended at the bottom padding's edge, a hard line with bright rows below it.
+        assertTrue("rows fade at the top only", rows instanceof TopFadeRecyclerView);
+        assertEquals(0f, ReflectionHelpers.<Float>callInstanceMethod(rows, "getBottomFadingEdgeStrength"), 0f);
+        // And the sky stopped at the TV margin, a lighter frame inset from the screen's edge.
+        HomeShellTest.focusAfter(grid, list(grid).getFocusedChild(), View.FOCUS_RIGHT);
+        View sky = grid.findViewById(R.id.all_games_sky);
+        View content = grid.findViewById(android.R.id.content);
+        assertTrue("the TV margin is there", content.getPaddingLeft() > 0);
+        int[] skyAt = new int[2];
+        int[] contentAt = new int[2];
+        sky.getLocationInWindow(skyAt);
+        content.getLocationInWindow(contentAt);
+        assertEquals("the sky runs edge to edge", contentAt[0], skyAt[0]);
+        assertEquals(contentAt[1], skyAt[1]);
+        assertEquals(content.getWidth(), sky.getWidth());
+        assertEquals(content.getHeight(), sky.getHeight());
     }
 
     /**

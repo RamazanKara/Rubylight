@@ -122,21 +122,47 @@ public class NightSkyView extends View {
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT));
         // The content view carries the TV margin and the safe area as padding: the sky goes edge to edge past it, or the
         // page stands as a lighter frame inset from the screen's edge.
-        sky.bleed = true;
-        content.setClipToPadding(false);
+        sky.bleedPastPadding();
         return sky;
     }
 
     private boolean bleed;
 
+    /**
+     * Lays the sky over the whole window content, past the padding the content view carries for the TV margin and the safe
+     * area, whether the sky is its child or stands in the page's own root inside it.
+     */
+    public void bleedPastPadding() {
+        bleed = true;
+        for (android.view.ViewParent at = getParent(); at instanceof android.view.ViewGroup; at = at.getParent()) {
+            android.view.ViewGroup group = (android.view.ViewGroup) at;
+            group.setClipChildren(false);
+            group.setClipToPadding(false);
+            if (group.getId() == android.R.id.content) break;
+        }
+        requestLayout();
+    }
+
     @Override
     public void layout(int l, int t, int r, int b) {
-        if (bleed && getParent() instanceof View) {
-            View parent = (View) getParent();
-            super.layout(0, 0, parent.getWidth(), parent.getHeight());
-        } else {
+        if (!bleed) {
             super.layout(l, t, r, b);
+            return;
         }
+        // The parent's place inside the content view; the sky spans the content view's whole frame from there.
+        int x = 0, y = 0;
+        View content = null;
+        for (android.view.ViewParent at = getParent(); at instanceof View; at = at.getParent()) {
+            View view = (View) at;
+            if (view.getId() == android.R.id.content) {
+                content = view;
+                break;
+            }
+            x += view.getLeft();
+            y += view.getTop();
+        }
+        if (content == null) super.layout(l, t, r, b);
+        else super.layout(-x, -y, content.getWidth() - x, content.getHeight() - y);
     }
 
     /** How far down the window's safe area starts: the moon keeps its place under a status bar or a notch. */

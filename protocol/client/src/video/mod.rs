@@ -232,8 +232,10 @@ pub trait VideoSink {
     /// makes the receiver call [`VideoSink::flush_frames`], drop its state and request a key
     /// frame, as the C core does when its 15-frame queue overflows.
     fn frame(&mut self, frame: Frame) -> Result<(), Frame>;
-    /// Discard every queued frame that has not reached the decoder.
-    fn flush_frames(&mut self) {}
+    /// Discard every queued frame that has not reached the decoder, returning how many.
+    fn flush_frames(&mut self) -> usize {
+        0
+    }
     fn signal(&mut self, signal: VideoSignal);
     /// One packet of the records envelope of the frame being assembled, in order, as soon as
     /// it is in the envelope (only with [`VideoConfig::early_chunks`]). `first` starts a new
@@ -263,8 +265,10 @@ impl VideoSink for Vec<VideoEvent> {
         Ok(())
     }
 
-    fn flush_frames(&mut self) {
+    fn flush_frames(&mut self) -> usize {
+        let before = self.len();
         self.retain(|event| !matches!(event, VideoEvent::Frame(_)));
+        before - self.len()
     }
 
     fn signal(&mut self, signal: VideoSignal) {
@@ -298,8 +302,10 @@ pub struct VideoStats {
     /// Times the depacketizer dropped its frame state (each lost or skipped frame), except
     /// [`VideoStats::decoder_drops`]: network loss only.
     pub frame_drops: u64,
-    /// Frames dropped because the decode queue overflowed: the overflowing frame and every frame
-    /// dropped while waiting for the key frame it requested. Local, not network loss.
+    /// Frames dropped because the decode queue overflowed: the overflowing frame, the queued
+    /// frames flushed with it and every whole frame dropped while waiting for the key frame it
+    /// requested. Local, not network loss; a frame lost or abandoned meanwhile stays in
+    /// [`VideoStats::frame_drops`].
     pub decoder_drops: u64,
 }
 

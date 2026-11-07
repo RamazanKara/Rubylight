@@ -446,33 +446,22 @@ pub fn present_clock_reset() {
     }
 }
 
-/// Frames still wait in the decode queue: the frame being scheduled is late by the backlog, so it
-/// is shown at once and its lateness is not learnt (`PresentClock::schedule_behind`, nightjar#80).
-fn decoder_behind() -> bool {
-    with_session(false, |s| s.decode_queue_len() > 0)
+/// Frames still waiting in the decode queue. One that stays non-empty means the frame being
+/// scheduled is late by the decoder's backlog, so it is shown at once and its lateness is not
+/// learnt (`PresentClock::schedule_queued`, nightjar#80).
+fn decode_queue_len() -> usize {
+    with_session(0, |s| s.decode_queue_len())
 }
 
 pub fn present_clock_schedule(rtp: u32, ready_us: u64) -> Option<Schedule> {
-    let behind = decoder_behind();
-    lock(&ENGINE.present_clock).as_mut().map(|clock| {
-        if behind {
-            clock.schedule_behind(rtp, ready_us)
-        } else {
-            clock.schedule(rtp, ready_us)
-        }
-    })
+    let queued = decode_queue_len();
+    lock(&ENGINE.present_clock).as_mut().map(|clock| clock.schedule_queued(rtp, ready_us, queued))
 }
 
 /// As [`present_clock_schedule`], onto a vsync grid.
 pub fn present_clock_schedule_on_grid(rtp: u32, ready_us: u64, grid: Grid) -> Option<GridSchedule> {
-    let behind = decoder_behind();
-    lock(&ENGINE.present_clock).as_mut().map(|clock| {
-        if behind {
-            clock.schedule_on_grid_behind(rtp, ready_us, grid)
-        } else {
-            clock.schedule_on_grid(rtp, ready_us, grid)
-        }
-    })
+    let queued = decode_queue_len();
+    lock(&ENGINE.present_clock).as_mut().map(|clock| clock.schedule_on_grid_queued(rtp, ready_us, grid, queued))
 }
 
 /// Notes a frame for the content rate.

@@ -70,7 +70,9 @@ pub struct Gamepads {
     /// Feedback reports read from the driver since the thread last asked.
     feedback_drained: usize,
     /// `gamepad_driver_host_priority` while a VHF pad is plugged.
-    driver_host: Option<driver_host::DriverHostPriority>,
+    driver_host: Option<Box<dyn driver_host::Held>>,
+    /// How a hold on it is taken; tests count instead of raising.
+    driver_host_acquire: fn() -> Box<dyn driver_host::Held>,
     /// Steam Deck clients' controllers attached as real Steam Decks.
     pub(super) decks: BTreeMap<u16, steam_deck_pad::DeckPad>,
     /// Controllers a Steam Deck could not be attached for; they keep their
@@ -205,6 +207,7 @@ impl Gamepads {
             feedback_failures: BTreeMap::new(),
             feedback_drained: 0,
             driver_host: None,
+            driver_host_acquire: driver_host::acquire,
             decks: BTreeMap::new(),
             deck_failed: BTreeSet::new(),
             dualsenses: BTreeMap::new(),
@@ -672,7 +675,13 @@ impl Gamepads {
             && self.backend.hosted_by_wudfhost()
             && !self.active.is_empty();
         if wanted != self.driver_host.is_some() {
-            self.driver_host = wanted.then(driver_host::DriverHostPriority::acquire);
+            self.driver_host = wanted.then(self.driver_host_acquire);
+        }
+    }
+    /// A raised WUDFHost that restarted is raised again in its new process.
+    pub(super) fn check_driver_host(&self) {
+        if let Some(held) = &self.driver_host {
+            held.check();
         }
     }
     /// The events of the plugged pads' pending feedback requests.

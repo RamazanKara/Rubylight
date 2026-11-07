@@ -427,12 +427,45 @@ fn only_a_plugged_vhf_driver_pad_raises_the_driver_host_and_only_when_asked() {
             .driver_host_priority,
         "off by default"
     );
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static HELD: AtomicUsize = AtomicUsize::new(0);
+    struct Counted;
+    impl driver_host::Held for Counted {}
+    impl Drop for Counted {
+        fn drop(&mut self) {
+            HELD.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+    fn counted() -> Box<dyn driver_host::Held> {
+        HELD.fetch_add(1, Ordering::SeqCst);
+        Box::new(Counted)
+    }
     // A USB/IP DualSense's pads are not the UMDF driver's: nothing to raise.
     let mut pads = broken_pads();
+    pads.driver_host_acquire = counted;
     pads.policy = policy;
     pads.active.insert(0, 15);
     pads.follow_driver_host();
-    assert!(pads.driver_host.is_none());
+    assert_eq!(HELD.load(Ordering::SeqCst), 0);
+    // The VHF driver's pads: held while one is plugged, once.
+    // SAFETY: a new event stands in for the driver handle, which the
+    // backend closes.
+    let handle =
+        unsafe { windows::Win32::System::Threading::CreateEventW(None, true, false, None) }
+            .unwrap();
+    pads.backend = gamepad_backend::Backend::Vhf(Some(handle));
+    for _ in 0..2 {
+        pads.follow_driver_host();
+        assert_eq!(HELD.load(Ordering::SeqCst), 1);
+    }
+    pads.active.clear();
+    pads.follow_driver_host();
+    assert_eq!(HELD.load(Ordering::SeqCst), 0, "the last pad left");
+    // Off by default: the same pads raise nothing.
+    pads.policy = butterpollo_core::input_policy::Policy::resolve(&Default::default()).unwrap();
+    pads.active.insert(0, 15);
+    pads.follow_driver_host();
+    assert_eq!(HELD.load(Ordering::SeqCst), 0);
     pads.active.clear();
 }
 #[test]

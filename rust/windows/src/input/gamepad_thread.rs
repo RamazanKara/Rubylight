@@ -109,6 +109,7 @@ impl Pads for Gamepads {
         applied
     }
     fn refresh(&mut self) -> Result<()> {
+        self.check_driver_host();
         Gamepads::refresh(self)
     }
     fn feedback(&mut self) -> Vec<(u16, u16, Vec<u8>)> {

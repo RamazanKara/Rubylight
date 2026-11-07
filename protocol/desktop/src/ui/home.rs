@@ -684,6 +684,7 @@ impl Launcher {
             Icon::Play,
             label,
             could_play,
+            false,
         );
         let play_first = *first && could_play;
         if play_first {

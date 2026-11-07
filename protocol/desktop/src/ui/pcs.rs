@@ -45,7 +45,7 @@ pub(super) fn pc_action(host: &Host) -> PcAction {
 }
 
 impl PcAction {
-    fn words(self) -> &'static str {
+    pub(super) fn words(self) -> &'static str {
         match self {
             Self::Resume(_) => tr("Resume"),
             Self::Open => tr("Open"),
@@ -55,7 +55,7 @@ impl PcAction {
         }
     }
 
-    fn icon(self) -> Option<Icon> {
+    pub(super) fn icon(self) -> Option<Icon> {
         match self {
             Self::Resume(_) => Some(Icon::Play),
             Self::Open => Some(Icon::Grid),

@@ -13,9 +13,6 @@ pub(super) const CARD_GAP: f32 = 16.0;
 pub(super) const COMPACT_CARD_H: f32 = 84.0;
 /// The card's inner margin left and right of its status and detail lines.
 pub(super) const CARD_PAD: f32 = 20.0;
-/// The game page's cover. Grids size their covers to fill the row ([`grid`]), 2:3 like it.
-pub(super) const POSTER_W: f32 = 160.0;
-pub(super) const POSTER_H: f32 = 240.0;
 /// The widest a cover in a grid gets: past it a row takes one more.
 pub(super) const POSTER_MAX_W: f32 = 170.0;
 /// The gap between covers in a grid.
@@ -307,39 +304,6 @@ pub(super) fn paint_cover(ui: &Ui, image: Rect, name: &str, art: Option<&Art>, r
         running_dot(&mut shapes, image);
     }
     ui.painter().extend(shapes);
-}
-
-/// A game's state over its title, as Android's game page: a dot and the word in the state's
-/// colour on a pill of the same hue.
-pub(super) fn state_chip(ui: &mut Ui, label: &str, color: Role) {
-    const DOT: f32 = 4.0;
-    let color: Color32 = color.into();
-    let words = ui.painter().layout_no_wrap(tr(label).to_owned(), semibold(text::CAPTION), color);
-    let size = vec2(space::M + DOT * 2.0 + space::S + words.size().x + space::M, 26.0);
-    let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
-    let painter = ui.painter();
-    painter.rect_filled(rect, CornerRadius::same(13), color.gamma_multiply(0.16));
-    let dot = Pos2::new(rect.left() + space::M + DOT, rect.center().y);
-    painter.circle_filled(dot, DOT, color);
-    painter.galley(Pos2::new(dot.x + DOT + space::S, rect.center().y - words.size().y / 2.0), words, color);
-    name_for_readers(ui, &response, tr(label), "");
-    ui.add_space(space::XS);
-}
-
-/// The PC a game is on: a monitor and its name on their own line.
-pub(super) fn pc_line(ui: &mut Ui, name: &str) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = space::S;
-        let (rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
-        let ink: Color32 = ON_SURFACE_VARIANT.into();
-        let stroke = Stroke::new(1.5, ink);
-        let screen = Rect::from_min_max(rect.left_top() + vec2(1.0, 2.0), rect.right_top() + vec2(-1.0, 13.0));
-        ui.painter().rect_stroke(screen, CornerRadius::same(2), stroke, egui::StrokeKind::Inside);
-        let foot = rect.center_bottom() - vec2(0.0, 2.0);
-        ui.painter().line_segment([Pos2::new(foot.x, screen.bottom()), foot], stroke);
-        ui.painter().line_segment([foot - vec2(4.0, 0.0), foot + vec2(4.0, 0.0)], stroke);
-        ui.label(RichText::new(name).font(regular(text::BODY)).color(ON_SURFACE_VARIANT));
-    });
 }
 
 /// Delete, or Y on a gamepad (mapped to F3), takes the star off the focused favourite.

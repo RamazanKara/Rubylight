@@ -4,6 +4,7 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
@@ -45,6 +46,8 @@ final class HomeSearch {
     private final View none;
     private final View list;
     private final View topRow;
+    /** A TV's title and hints over its shelves: null elsewhere. */
+    private final View hero;
     private final View bottomRow;
     private final View footFade;
     private final Runnable onOpen;
@@ -58,6 +61,7 @@ final class HomeSearch {
     private final ViewTreeObserver.OnGlobalLayoutListener keyboard = this::fitKeyboard;
     private View opener;
     private int restBottom;
+    private int firstRowGap;
 
     /** Null on a layout without the field (a TV's). */
     static HomeSearch of(ComponentActivity activity, ShelfAdapter.Env env, Supplier<HomeModel> model, Runnable onOpen, Runnable onClose) {
@@ -77,13 +81,22 @@ final class HomeSearch {
         none = activity.findViewById(R.id.home_search_none);
         list = activity.findViewById(R.id.console_list);
         topRow = activity.findViewById(R.id.home_top_row);
+        hero = activity.findViewById(R.id.home_hero);
         bottomRow = activity.findViewById(R.id.home_bottom_row);
         footFade = activity.findViewById(R.id.home_foot_fade);
         adapter = new ShelfAdapter(env);
         grid = new GridLayoutManager(activity, 2);
         results.setLayoutManager(grid);
         results.setItemAnimator(null);
+        results.addItemDecoration(new RecyclerView.ItemDecoration() {
+            @Override public void getItemOffsets(android.graphics.Rect out, View view, RecyclerView parent, RecyclerView.State state) {
+                if (parent.getChildAdapterPosition(view) < grid.getSpanCount()) out.top = firstRowGap;
+            }
+        });
         results.setAdapter(adapter);
+        // Home's content doesn't clip its children, for the focus rings: the results do, at the field's foot.
+        results.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> results.setClipBounds(new android.graphics.Rect(0, 0, r - l, b - t)));
+        field.setOnFocusChangeListener((v, focused) -> ((com.limelight.ui.GlassSurface) bar).setFocusShown(focused && !v.isInTouchMode()));
         activity.getOnBackPressedDispatcher().addCallback(activity, back);
         field.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
@@ -121,6 +134,7 @@ final class HomeSearch {
         field.setText("");
         results.scrollToPosition(0);
         topRow.setVisibility(View.INVISIBLE);
+        if (hero != null) hero.setVisibility(View.INVISIBLE);
         if (bottomRow != null) bottomRow.setVisibility(View.GONE);
         if (footFade != null) footFade.setVisibility(View.GONE);
         list.setVisibility(View.INVISIBLE);
@@ -146,6 +160,7 @@ final class HomeSearch {
         results.setVisibility(View.GONE);
         none.setVisibility(View.GONE);
         topRow.setVisibility(View.VISIBLE);
+        if (hero != null) hero.setVisibility(View.VISIBLE);
         list.setVisibility(View.VISIBLE);
         onClose.run();
         if (opener != null && !opener.isInTouchMode()) opener.requestFocus();
@@ -157,10 +172,20 @@ final class HomeSearch {
         if (isOpen()) showMatches();
     }
 
-    /** Padding as Home's list has it: the field's place at the top, the safe area at the foot. */
-    void setPadding(int left, int top, int right, int bottom) {
+    /**
+     * The covers start under the field, the first row {@code gap} below its foot, and end at that foot: scrolled away they fade
+     * there, and none passes behind the field. The safe area stays free at the bottom.
+     */
+    void place(int left, int fieldFoot, int gap, int right, int bottom) {
         restBottom = bottom;
-        results.setPadding(left, top, right, bottom);
+        ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) results.getLayoutParams();
+        if (params.topMargin != fieldFoot) {
+            params.topMargin = fieldFoot;
+            results.setLayoutParams(params);
+        }
+        firstRowGap = gap;
+        results.setPadding(left, 0, right, bottom);
+        results.invalidateItemDecorations();
     }
 
     private void showMatches() {
@@ -182,6 +207,7 @@ final class HomeSearch {
         int columns = Math.max(2, width / Math.max(1, usual));
         int slot = width / columns;
         grid.setSpanCount(columns);
+        results.invalidateItemDecorations();
         env.cardWidthPx = slot;
         env.coverHeightPx = ShelfAdapter.coverHeight(activity, false, slot);
     }
@@ -204,6 +230,8 @@ final class HomeSearch {
         int ime = insets == null ? 0 : insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
         int bottom = Math.max(restBottom, ime);
         if (results.getPaddingBottom() != bottom) results.setPadding(results.getPaddingLeft(), results.getPaddingTop(), results.getPaddingRight(), bottom);
+        // "No games" stands in the middle of what is left between the field and the keyboard.
+        none.setTranslationY((results.getTop() - ime) / 2f);
     }
 
     private void comeIn(View view) {

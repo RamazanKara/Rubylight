@@ -207,7 +207,7 @@ public class GlassSurface extends FrameLayout {
         super.onDraw(canvas);
         if (spec == null || getWidth() == 0) return;
         drawShadow(canvas);
-        if (isFocused()) focusRing().drawHalo(canvas, 0, 0, getWidth(), getHeight(), cornerRadius());
+        if (isFocused() || focusShown) focusRing().drawHalo(canvas, 0, 0, getWidth(), getHeight(), cornerRadius());
         drawBack(canvas);
         canvas.drawPath(shape, fillPaint);
         if (spec.sheenEnd > 0f) canvas.drawPath(shape, sheenPaint);
@@ -218,7 +218,16 @@ public class GlassSurface extends FrameLayout {
     @Override
     public void onDrawForeground(Canvas canvas) {
         super.onDrawForeground(canvas);
-        if (isFocused()) focusRing().drawRing(canvas, 0, 0, getWidth(), getHeight(), cornerRadius());
+        if (isFocused() || focusShown) focusRing().drawRing(canvas, 0, 0, getWidth(), getHeight(), cornerRadius());
+    }
+
+    private boolean focusShown;
+
+    /** The ring for a surface whose focus is on what it holds, such as a text field, which has no ring of its own. */
+    public void setFocusShown(boolean shown) {
+        if (focusShown == shown) return;
+        focusShown = shown;
+        invalidate();
     }
 
     private FocusRing ring;

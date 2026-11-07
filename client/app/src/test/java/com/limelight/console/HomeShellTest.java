@@ -1141,6 +1141,38 @@ public class HomeShellTest {
         }
     }
 
+    /** A TV's lens opened All games, which has no field: it searches on the page, as every other form does, and comes back. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionTheLensSearchesOnThePage() {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            layOut(home);
+            androidx.core.view.ViewCompat.dispatchApplyWindowInsets(home.getWindow().getDecorView(), new androidx.core.view.WindowInsetsCompat.Builder().build());
+            View lens = home.findViewById(R.id.home_search);
+            lens.performClick();
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertNull("no other page", org.robolectric.Shadows.shadowOf(home).getNextStartedActivity());
+            View bar = home.findViewById(R.id.home_search_bar);
+            assertEquals(View.VISIBLE, bar.getVisibility());
+            assertEquals(View.INVISIBLE, home.findViewById(R.id.home_top_row).getVisibility());
+            assertEquals("the title makes room", View.INVISIBLE, home.findViewById(R.id.home_hero).getVisibility());
+            layOut(home);
+            int foot = ((ViewGroup.MarginLayoutParams) bar.getLayoutParams()).topMargin + bar.getHeight();
+            View results = home.findViewById(R.id.home_search_results);
+            assertEquals("covers end at the field's foot and go no further", foot, results.getTop());
+            assertEquals(new android.graphics.Rect(0, 0, results.getWidth(), results.getHeight()), results.getClipBounds());
+            assertEquals("a fading edge stands at the padding", 0, results.getPaddingTop());
+            home.getOnBackPressedDispatcher().onBackPressed();
+            assertEquals(View.GONE, bar.getVisibility());
+            assertEquals(View.VISIBLE, home.findViewById(R.id.home_top_row).getVisibility());
+            assertEquals(View.VISIBLE, home.findViewById(R.id.home_hero).getVisibility());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     /** Right along the top of a TV: tabs, PC, View, search, then a wall. The remote has no other way up there. */
     @Test
     @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")

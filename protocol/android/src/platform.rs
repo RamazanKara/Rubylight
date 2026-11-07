@@ -57,6 +57,26 @@ pub fn log(level: Level, message: &str) {
     eprintln!("nightjar-core: {message}");
 }
 
+/// An Android system property (`adb shell setprop`), empty when unset; always empty off Android.
+#[cfg(target_os = "android")]
+pub fn system_property(name: &std::ffi::CStr) -> String {
+    use std::os::raw::{c_char, c_int};
+    extern "C" {
+        fn __system_property_get(name: *const c_char, value: *mut c_char) -> c_int;
+    }
+    // PROP_VALUE_MAX, the terminator included.
+    let mut value = [0u8; 92];
+    let length = unsafe { __system_property_get(name.as_ptr(), value.as_mut_ptr().cast()) };
+    let length = (length.max(0) as usize).min(value.len() - 1);
+    String::from_utf8_lossy(&value[..length]).into_owned()
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn system_property(name: &std::ffi::CStr) -> String {
+    let _ = name;
+    String::new()
+}
+
 pub fn info(message: &str) {
     log(Level::Info, message);
 }

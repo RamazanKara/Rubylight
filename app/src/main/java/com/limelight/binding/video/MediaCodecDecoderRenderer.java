@@ -4833,6 +4833,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         // The FEC padding after a Dolby Vision RPU breaks MediaTek's RPU parser; see HdrBitstream.
         boolean dolbyVision = dolbyVisionActive && HdrBitstream.endsAtRpu(videoFormat);
+        String vividDecoder = vividSeiDropDecoder;
+        boolean hdr10PlusParse = vulkanHdr10Plus && Boolean.TRUE.equals(currentHdrMode);
+        // A frame handed over in place has no array; one of these turned on after submitDirectDecodeUnit
+        // checked (Dolby Vision mid-stream) reads its bytes, so it gets the array copy here.
+        if (decodeUnitData == null && needsArray(dolbyVision, vividDecoder != null, hdr10PlusParse)) {
+            directArray = directArray(directInput, decodeUnitLength, directArray);
+            decodeUnitData = directArray;
+            directInput = null;
+        }
         int queuedLength = HdrBitstream.queuedLength(dolbyVision, decodeUnitData, decodeUnitLength);
         if (dolbyVision && !dolbyVisionPaddingLogged) {
             dolbyVisionPaddingLogged = true;
@@ -4840,7 +4849,6 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     ", dropped " + (decodeUnitLength - queuedLength) + " zero bytes after it");
         }
         // MediaTek shows a stream with HDR Vivid as SDR on displays without Vivid; see HdrBitstream.dropsVivid.
-        String vividDecoder = vividSeiDropDecoder;
         int[] vividRange = vividDecoder != null &&
                 HdrBitstream.findVividSei(decodeUnitData, queuedLength, vividSeiRange) ? vividSeiRange : null;
         if (vividRange != null && !vividSeiDropLogged) {
@@ -4865,14 +4873,18 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         // Copy data from our buffer list into the input buffer
-        HdrBitstream.put(nextInputBuffer, decodeUnitData, queuedLength, vividRange);
+        if (directInput != null) {
+            putDirectInput(queuedLength);
+        } else {
+            HdrBitstream.put(nextInputBuffer, decodeUnitData, queuedLength, vividRange);
+        }
 
         // The queued timestamp comes back on the decoded image, which is how the renderer finds
         // the frame again
         VulkanRendererBridge vulkan = vulkanRenderer;
         if (vulkan != null) {
             vulkan.noteFrameReceived(timestampUs, receiveTimeUs, enqueueTimeUs, frameHostProcessingLatency);
-            if (vulkanHdr10Plus && Boolean.TRUE.equals(currentHdrMode)) {
+            if (hdr10PlusParse) {
                 noteVulkanHdr10Plus(vulkan, timestampUs, decodeUnitData, decodeUnitLength);
             }
         }
@@ -4979,6 +4991,63 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         activeWindowVideoStats.measurementStartTimestamp = SystemClock.uptimeMillis();
     }
 
+    // The picture data of the submitDecodeUnit call in progress when the Rust engine handed it over
+    // in place (submitDirectDecodeUnit), else null; submitDecodeUnit then has no array.
+    private ByteBuffer directInput;
+
+    /**
+     * Picture data in place: PyroWave reads it in native code and MediaCodec copies it straight into
+     * the codec's input buffer, without the Java array between. Frames whose bytes Java reads on the
+     * way (Dolby Vision's trim, the HDR Vivid SEI drop, the Vulkan renderer's HDR10+ parse) and
+     * parameter sets take the array copy instead.
+     */
+    @Override
+    public int submitDirectDecodeUnit(ByteBuffer decodeUnitData, int decodeUnitLength, int decodeUnitType,
+                                      int frameNumber, int frameType, char frameHostProcessingLatency,
+                                      long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs,
+                                      long presentationTimeUs) {
+        boolean readsBytes = decodeUnitType != MoonBridge.BUFFER_TYPE_PICDATA || dolbyVisionActive ||
+                vividSeiDropDecoder != null || vulkanHdr10Plus;
+        if (readsBytes) {
+            return super.submitDirectDecodeUnit(decodeUnitData, decodeUnitLength, decodeUnitType, frameNumber,
+                    frameType, frameHostProcessingLatency, receiveTimeUs, enqueueTimeUs, receiveTimeNs, presentationTimeUs);
+        }
+        directInput = decodeUnitData;
+        try {
+            return submitDecodeUnit(null, decodeUnitLength, decodeUnitType, frameNumber, frameType,
+                    frameHostProcessingLatency, receiveTimeUs, enqueueTimeUs, receiveTimeNs, presentationTimeUs);
+        } finally {
+            directInput = null;
+        }
+    }
+
+    // Reused array for frames handed over in place that Java has to read after all.
+    private byte[] directArray;
+
+    /** True when the frame's bytes are read in Java, so a frame handed over in place needs an array. */
+    static boolean needsArray(boolean dolbyVision, boolean vividDrop, boolean hdr10PlusParse) {
+        return dolbyVision || vividDrop || hdr10PlusParse;
+    }
+
+    /** The first length bytes of direct in reuse when it is big enough, else in a new array. */
+    static byte[] directArray(ByteBuffer direct, int length, byte[] reuse) {
+        byte[] array = reuse != null && reuse.length >= length ? reuse : new byte[length];
+        ByteBuffer source = direct.duplicate();
+        ((java.nio.Buffer) source).position(0);
+        ((java.nio.Buffer) source).limit(length);
+        source.get(array, 0, length);
+        return array;
+    }
+
+    /** Puts the first length bytes of directInput into the codec's input buffer. */
+    private void putDirectInput(int length) {
+        ByteBuffer source = directInput.duplicate();
+        // Buffer's own position and limit: old Android lacks ByteBuffer's covariant ones.
+        ((java.nio.Buffer) source).position(0);
+        ((java.nio.Buffer) source).limit(length);
+        nextInputBuffer.put(source);
+    }
+
     @Override
     public void submitChunks(byte[] data, int length, boolean first) {
         if (!stopping && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
@@ -5013,7 +5082,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         PyroWaveDisplayClock.Snapshot displayClock =
                 FramePacingPolicy.usesPyroWaveDisplayClock(prefs.framePacing, prefs.vrr, outputVsyncAvailable) ?
                         pyroWaveDisplayClock.snapshot() : PyroWaveDisplayClock.Snapshot.UNAVAILABLE;
-        long submissionResult = pyroWaveRenderer.submitFrame(decodeUnitData, decodeUnitLength, ptsUs,
+        long submissionResult = pyroWaveRenderer.submitFrame(decodeUnitData, directInput, decodeUnitLength, ptsUs,
                 presentationTimeUs, displayClock, frameLatencyStats,
                 context, prefs.phonePerformanceHints, refreshRate);
         activeWindowVideoStats.decoderTimeMs += pyroWaveSubmissionTiming.addDurationNs(

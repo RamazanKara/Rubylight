@@ -2,6 +2,7 @@
 //! selecting a PC or game does.
 
 use super::chrome::{capsule_width, control_capsule, info_chip, info_chip_width};
+use super::design_tokens as t;
 use super::dialogs::{approve_dialog, short_device_name};
 use super::pcs::{action_button, action_width, PcAction};
 use super::*;
@@ -13,6 +14,10 @@ const LOADING_ROWS: usize = 2;
 /// The capsules at the right of a PC's page.
 const ACTION_H: f32 = 48.0;
 const ACTIONS_GAP: f32 = 14.0;
+/// A PC's page with no list: the words' widest, and the room it holds under its header.
+const BARE_WORDS_W: f32 = 520.0;
+const BARE_FOOT: f32 = 120.0;
+const BARE_LEAST: f32 = 200.0;
 /// What a page's title keeps before the name of the running game gives way.
 const MIN_TITLE_ROOM: f32 = 160.0;
 
@@ -34,6 +39,10 @@ impl Launcher {
         let (columns, width) = grid(ui.available_width());
         ui.spacing_mut().item_spacing.y = GRID_ROW_GAP;
         match &host.apps {
+            // Read again from an empty list: the same place, its button at work.
+            Apps::NotLoaded | Apps::Loading if self.refreshing_empty == Some(id) => {
+                self.bare_list(ui, id, tr("This PC lists no apps."), None, tr("Refresh"), true, commands);
+            }
             Apps::NotLoaded | Apps::Loading => {
                 // The covers' own places, so the list lands without a jump, under one word of what is
                 // going on.
@@ -50,26 +59,16 @@ impl Launcher {
                 loading_chip(ui, room);
             }
             Apps::Failed(e) => {
-                ui.label(RichText::new(tr("The library could not be loaded.")).font(semibold(text::CARD_TITLE)));
-                ui.label(RichText::new(e).color(ERROR));
-                if quiet_button(ui, "Try again").clicked() {
-                    commands.push(Command::Refresh(id));
-                }
+                self.refreshing_empty = None;
+                self.bare_list(ui, id, tr("The library could not be loaded."), Some(e), tr("Try again"), false, commands);
             }
             Apps::Loaded(apps) => {
                 if apps.is_empty() {
-                    ui.label(RichText::new(tr("This PC lists no apps.")).font(regular(text::BODY)).color(ON_SURFACE));
-                    // Clear of the ring of the tile risen below it.
-                    ui.add_space(LIFT + space::M);
-                    let response = bare_poster(ui, tr("Desktop"), None, Badge::None, width);
-                    self.focus_card(&response, "apps-desktop", "apps-desktop", true);
-                    // There is no entry to start: the launch says so out loud rather than the tile
-                    // doing nothing.
-                    if response.clicked() {
-                        commands.push(Command::Launch { host: id, app: 0, resume: false });
-                    }
+                    // Nothing listed is nothing to start, so no tile: the way on is to read it again.
+                    self.bare_list(ui, id, tr("This PC lists no apps."), None, tr("Refresh"), false, commands);
                     return;
                 }
+                self.refreshing_empty = None;
                 // Hidden games stay out of the PC's list as off Home, unless asked for.
                 let source = Source::of(host);
                 let hides = |app: &nightjar_core::http::App| console::is_hidden(&source, &app.uuid, app.id as u32, &self.hidden_games);
@@ -109,6 +108,42 @@ impl Launcher {
                     }
                 }
             }
+        }
+    }
+
+    /// A PC's page with no list to show: one line (and what went wrong) and the action that reads the
+    /// list again, in the middle of the room the covers would have had. A press holds the page as it
+    /// is, its action at work, until the answer.
+    #[allow(clippy::too_many_arguments)]
+    fn bare_list(&mut self, ui: &mut Ui, id: u64, line: &str, error: Option<&str>, action: &str, working: bool, commands: &mut Vec<Command>) {
+        const GAP: f32 = 20.0;
+        let top = ui.cursor().top();
+        let room = (ui.ctx().content_rect().bottom() - top - BARE_FOOT).max(BARE_LEAST);
+        let width = ui.available_width();
+        let (area, _) = ui.allocate_exact_size(vec2(width, room), Sense::hover());
+        let head = ui.painter().layout(line.to_owned(), semibold(t::TYPE_SECTION_SIZE), *ON_SURFACE, width.min(BARE_WORDS_W));
+        let cause = error.map(|e| ui.painter().layout(e.to_owned(), regular(t::TYPE_BODY_SIZE), *ERROR, width.min(BARE_WORDS_W)));
+        let words_h = head.size().y + cause.as_ref().map_or(0.0, |c| c.size().y + 6.0);
+        let mut y = area.center().y - (words_h + GAP + ACTION_H) / 2.0;
+        ui.painter().galley(pos2(area.center().x - head.size().x / 2.0, y), head.clone(), *ON_SURFACE);
+        y += head.size().y;
+        if let Some(cause) = cause {
+            y += 6.0;
+            ui.painter().galley(pos2(area.center().x - cause.size().x / 2.0, y), cause.clone(), *ERROR);
+            y += cause.size().y;
+        }
+        y += GAP;
+        let w = capsule_width(ui, action);
+        let rect = Rect::from_min_size(pos2(area.center().x - w / 2.0, y), vec2(w, ACTION_H));
+        let r = control_capsule(ui, rect, Id::unique(("bare-list", id)), Icon::Refresh, action, action, !working);
+        if working {
+            let spin = Rect::from_min_size(pos2(rect.left() + 20.0, rect.center().y - 9.5), Vec2::splat(19.0));
+            ui.scope_builder(UiBuilder::new().max_rect(spin), |ui| spinner(ui, 9.0));
+        }
+        self.focus_item(&r, "bare-list", true);
+        if r.clicked() {
+            self.refreshing_empty = Some(id);
+            commands.push(Command::Refresh(id));
         }
     }
 

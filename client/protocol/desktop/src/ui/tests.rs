@@ -3639,23 +3639,50 @@ fn the_pc_capsule_speaks_of_the_pc_whose_page_it_is() {
     assert!(in_bar(&f, "Attic") && !in_bar(&f, "Den"), "{:?}", f.placed);
 }
 
+/// A PC with no apps has nothing to start: no Desktop tile that could only fail, one line and Refresh.
 #[test]
-fn a_pc_with_no_apps_shows_one_line_and_the_desktop_tile() {
+fn a_pc_with_no_apps_shows_one_line_and_refresh() {
     let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 0)), Vec::new());
     f.hosts.list[0].apps = Apps::Loaded(Vec::new());
     let id = f.hosts.list[0].id;
     f.l.go(Screen::Apps(id));
     f.settle();
-    assert!(shows(&f, "This PC lists no apps.") && f.drawn.iter().any(|t| t == "Desktop"), "{:?}", f.drawn);
-    let tile = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).expect("the tile has focus").rect;
-    assert_eq!(tile.height(), crate::ui::cards::cover_height(tile.width()));
-    let line = f.placed.iter().find(|(t, ..)| t == "This PC lists no apps.").unwrap().1;
-    let focused = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).unwrap().rect;
-    let risen = crate::ui::glass::risen_rect(focused, design_tokens::FOCUS_SCALE_COVER).expand(design_tokens::FOCUS_GAP + design_tokens::FOCUS_RING_WIDTH);
-    assert!(line.bottom() <= risen.top(), "the line clear of the focused tile: {line:?} {risen:?}");
-    // No entry to start, so it asks and the launch answers out loud.
-    let commands = f.click_at(tile.center(), egui::PointerButton::Primary);
-    assert!(commands.iter().any(|c| matches!(c, Command::Launch { host, app: 0, resume: false } if *host == id)));
+    assert!(shows(&f, "This PC lists no apps.") && shows(&f, "Refresh"), "{:?}", f.drawn);
+    assert!(!shows(&f, "Desktop"), "no tile to fail: {:?}", f.drawn);
+    let focused = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).expect("Refresh has focus").rect;
+    let at = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).unwrap().1;
+    assert!(focused.contains(at(&f, "Refresh").center()), "{focused:?}");
+    assert!(at(&f, "This PC lists no apps.").bottom() < focused.top());
+    let commands = f.press(Key::Enter);
+    assert!(commands.iter().any(|c| matches!(c, Command::Refresh(host) if *host == id)));
+    assert!(!commands.iter().any(|c| matches!(c, Command::Launch { .. })));
+    // While the answer is on its way the page holds still: no covers' places for a list that had none.
+    let line = at(&f, "This PC lists no apps.");
+    f.hosts.list[0].apps = Apps::Loading;
+    f.settle();
+    assert_eq!(at(&f, "This PC lists no apps."), line);
+    assert!(!shows(&f, "Loading the library\u{2026}"), "{:?}", f.drawn);
+    // A list with a game in it lands as any.
+    f.hosts.list[0].apps = Apps::Loaded(vec![game(7)]);
+    f.settle();
+    assert!(!shows(&f, "This PC lists no apps.") && !shows(&f, "Refresh"), "{:?}", f.drawn);
+    // Failed, it says so out loud with the way to try again.
+    f.hosts.list[0].apps = Apps::Failed("The PC did not answer".into());
+    f.settle();
+    assert!(shows(&f, "The library could not be loaded.") && shows(&f, "The PC did not answer") && shows(&f, "Try again"), "{:?}", f.drawn);
+}
+
+/// A PC that lists a Desktop entry has an ordinary tile for it, which starts it.
+#[test]
+fn a_desktop_entry_the_pc_lists_is_a_normal_tile() {
+    let desktop = nightjar_core::http::App { name: "Desktop".into(), ..game(3) };
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 0)), vec![desktop]);
+    let id = f.hosts.list[0].id;
+    f.l.go(Screen::Apps(id));
+    f.settle();
+    assert!(!shows(&f, "Refresh") && !shows(&f, "This PC lists no apps."), "{:?}", f.drawn);
+    let commands = f.press(Key::Enter);
+    assert!(commands.iter().any(|c| matches!(c, Command::Launch { host, app: 3, resume: false } if *host == id)));
 }
 
 #[test]

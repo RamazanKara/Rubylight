@@ -111,6 +111,46 @@ public class FormChangeTest {
         }
     }
 
+    /** A resume found a new theme and a new form at once: one recreate covers both, not two in a row. */
+    @Test
+    public void aNewThemeAndANewFormAtOnceLayThePageOutOnce() {
+        Screen.created = 0;
+        ShellPage.held = true;
+        try (var controller = Robolectric.buildActivity(ShellPage.class).setup()) {
+            ShellPage screen = controller.get();
+            toHandheld(screen);
+            ShellPage.held = false;
+            ReflectionHelpers.setField(screen, "appearance", "another theme");
+            controller.pause().resume();
+            assertTrue("the theme lays it out again", (boolean) ReflectionHelpers.getField(screen, "recreatingForTheme"));
+            assertFalse("the form waits for that", screen.recreatingForForm());
+        } finally {
+            ShellPage.held = false;
+        }
+    }
+
+    /**
+     * Work that ends and is followed at once by more (a wake moved to another PC) must not lay the page out between the two:
+     * a page that follows soon asks once the call running now is done.
+     */
+    @Test
+    public void followingSoonWaitsForWorkThatStartsRightAfter() {
+        Screen.created = 0;
+        ShellPage.held = true;
+        try (var controller = Robolectric.buildActivity(ShellPage.class).setup()) {
+            ShellPage screen = controller.get();
+            toHandheld(screen);
+            ShellPage.held = false;
+            ReflectionHelpers.callInstanceMethod(screen, "followFormSoon");
+            ShellPage.held = true;
+            ShadowLooper.idleMainLooper();
+            assertEquals("the next work holds it", 1, Screen.created);
+            assertFalse(screen.recreatingForForm());
+        } finally {
+            ShellPage.held = false;
+        }
+    }
+
     @Test
     @Config(shadows = com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
     public void choosingAPinKeepsItsFirstEntryThroughAFormChange() {

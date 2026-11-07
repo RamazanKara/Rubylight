@@ -186,8 +186,14 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
             grid.setFadingEdgeLength(getResources().getDimensionPixelSize(R.dimen.all_games_fade) + room);
             // The frame ends at the TV's safe edge, so a focused row's ring and glow fit whole. As the page's weighted last
             // child it ended the glow room short of the page's margin: a LinearLayout gives a negative margin no space.
-            ((View) grid.getParent()).addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            View gridFrame = (View) grid.getParent();
+            gridFrame.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
                 if (t != ot || b != ob) v.post(() -> reachSafeEdge(v));
+            });
+            // A handheld in the forced TV layout rotates without being made again: the screen's height changes, the
+            // frame's own place may not.
+            findViewById(R.id.all_games_page).addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+                if (r - l != or - ol || b - t != ob - ot) v.post(() -> reachSafeEdge(gridFrame));
             });
         }
 

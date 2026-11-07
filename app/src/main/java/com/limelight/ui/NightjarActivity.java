@@ -96,7 +96,8 @@ public abstract class NightjarActivity extends AppCompatActivity {
      * that held it calls this when its work is done; a resume and the window's focus coming back ask again.
      */
     protected final void followForm() {
-        if (!followsForm() || form == null || recreatingForForm || isFinishing() || isDestroyed()) return;
+        // A new theme lays the screen out again anyway, for the form it then has.
+        if (!followsForm() || form == null || recreatingForForm || recreatingForTheme || isFinishing() || isDestroyed()) return;
         GlassForm now = GlassForm.of(this);
         if (now == form || holdsForm()) return;
         form = now;
@@ -104,6 +105,15 @@ public abstract class NightjarActivity extends AppCompatActivity {
         recreate();
     }
 
+    /**
+     * {@link #followForm} once the call running now is done: work that ends can be followed at once by more (a wake moved
+     * to another PC, an error dialog), and what holds the form is known only then.
+     */
+    protected final void followFormSoon() {
+        formHandler.post(this::followForm);
+    }
+
+    private final android.os.Handler formHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private boolean recreatingForForm;
 
     /** This screen is being laid out again for a new form: a subclass's own handling of the change has nothing left to do. */

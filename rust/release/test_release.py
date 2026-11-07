@@ -707,6 +707,32 @@ class Signing(unittest.TestCase):
         script = (ROOT / 'rust/tools/build_ffmpeg.sh').read_text(encoding='utf-8')
         self.assertIn('SOURCE_SHA256=${FFMPEG_SOURCE_SHA256:-', script)
 
+    def test_scripts_ask_for_the_service_setup_recorded(self):
+        # A side-by-side installation's service is not ApolloService, which may
+        # be another host's there. The scripts read setup's record, whose
+        # names live in one place; the service itself names nobody.
+        names = (ROOT / 'rust/core/src/host_service.rs').read_text(encoding='utf-8')
+        self.assertIn(r'KEY: &str = "SOFTWARE\\Rubylight"', names)
+        self.assertIn('VALUE: &str = "ServiceName"', names)
+        self.assertIn('DEFAULT: &str = "ApolloService"', names)
+        self.assertIn('SIDE_BY_SIDE: &str = "RubylightService"', names)
+        for script in ('rust/service.ps1', 'rust/release/elevated.ps1',
+                       'rust/tests/collect_environment.ps1'):
+            text = (ROOT / script).read_text(encoding='utf-8')
+            self.assertIn(r"'HKLM:\SOFTWARE\Rubylight' -Name ServiceName", text, script)
+            self.assertIn("-ne 'RubylightService')", text, script)
+            # The default only as the fallback, assigned once.
+            self.assertEqual(text.count('ApolloService'), 1, script)
+        # The one that manages the service must not refuse over a lost record.
+        script = (ROOT / 'rust/service.ps1').read_text(encoding='utf-8')
+        self.assertIn(r"$own.PathName -like '*\butterpollo-service.exe*'", script)
+        # The service stays as it is released: Windows ignores the name an
+        # own-process service gives, so it runs under either.
+        supervisor = (ROOT / 'rust/service/src/supervisor.rs').read_text(encoding='utf-8')
+        self.assertEqual(supervisor.count('NAME'), 4)  # Its comment, the constant and these:
+        self.assertIn('service_dispatcher::start(NAME, ffi_main)', supervisor)
+        self.assertIn('service_control_handler::register(NAME,', supervisor)
+
     def test_the_display_driver_is_packaged_where_setup_and_signing_look(self):
         # rust/build.ps1 lays the package out; setup and the signing steps
         # each name the same folder.

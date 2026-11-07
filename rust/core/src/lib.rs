@@ -66,6 +66,7 @@ pub mod game_settings;
 pub mod haptics;
 pub mod hdr;
 pub mod hdr_dynamic;
+pub mod host_service;
 pub mod host_timing;
 pub mod hotkey;
 pub mod input;

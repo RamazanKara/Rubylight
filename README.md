@@ -21,7 +21,7 @@
 
 <div align="center">
 
-**[Download 3.7.0](https://github.com/RamazanKara/Rubylight/releases/tag/v3.7.0)** · [Getting started](docs/getting-started.md) · [Documentation](docs/README.md) · [Release notes](rust/RELEASE_NOTES.md) · [Website](https://ramazankara.github.io/Rubylight/)
+**[Download 3.8.0](https://github.com/RamazanKara/Rubylight/releases/tag/v3.8.0)** · [Getting started](docs/getting-started.md) · [Documentation](docs/README.md) · [Release notes](rust/RELEASE_NOTES.md) · [Website](https://ramazankara.github.io/Rubylight/)
 
 </div>
 
@@ -147,18 +147,18 @@ Rubylight implements the Moonlight protocol as Sunshine does and keeps its proto
 
 ## Coming from Apollo or Vibepollo
 
-The installer finds an existing Apollo or Vibepollo installation and brings its settings, paired devices, host identity, console sign-in, apps and covers along. Your devices see the same PC and stay paired, and you sign in to the console with the name and password you already use.
+The installer finds an existing Apollo or Vibepollo installation and brings its settings, paired devices, host identity, console sign-in, apps and covers along. Your devices see the same PC and stay paired, and you sign in to the console with the name and password you already use. This uninstalls the other host. To keep it, choose [**Keep it and install alongside**](docs/getting-started.md#keep-another-host-and-install-alongside): Rubylight then runs next to it with its own service, ports and settings.
 
 ## Get started
 
 ### Install
 
-Download one of the packages from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.7.0):
+Download one of the packages from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.8.0):
 
 | Package | Use |
 | --- | --- |
-| `rubylight-setup-3.7.0.exe` | The installer. Sets up the Windows service, the virtual display driver and controller support, and migrates a detected Apollo or Vibepollo installation. |
-| `rubylight-3.7.0-windows-x64.zip` | Portable. Extract it and run `Start Rubylight.exe`. Streams a physical display unless the drivers are installed separately. |
+| `rubylight-setup-3.8.0.exe` | The installer. Sets up the Windows service, the virtual display driver and controller support, and either replaces a detected Apollo or Vibepollo installation, importing its settings, or installs alongside it. |
+| `rubylight-3.8.0-windows-x64.zip` | Portable. Extract it and run `Start Rubylight.exe`. Streams a physical display unless the drivers are installed separately. |
 
 The console offers updates and, if you allow it, installs them while nothing is streaming; settings and paired devices are kept. [Getting started](docs/getting-started.md#install-or-run-portable) lists the installer's command-line options, and [Upgrading](docs/getting-started.md#upgrading) covers updates, backups and uninstalling.
 

@@ -1,11 +1,13 @@
 #![windows_subsystem = "windows"]
 //! Rubylight setup. Installs or updates Rubylight, replacing an installed
 //! Vibepollo, Rubylight C++, Apollo or Sunshine in place (settings, paired
-//! devices, apps and drivers are kept), and removes Rubylight again.
+//! devices, apps and drivers are kept) or keeping them and installing alongside
+//! them with its own service, ports and settings, and removes Rubylight again.
 //!
 //! rubylight-setup.exe [--quiet] [--install-dir <folder>] [--no-gamepad-driver]
 //!                       [--no-display-driver] [--usbip-driver | --no-usbip-driver]
 //!                       [--wake-on-lan | --no-wake-on-lan] [--no-start] [--end-streams]
+//!                       [--side-by-side]
 //! rubylight-setup.exe --uninstall [--quiet] [--factory-reset] [--remove-drivers]
 //! rubylight-setup.exe --repair-drivers [--now] (the service runs it without --now)
 #![warn(clippy::undocumented_unsafe_blocks)]
@@ -15,6 +17,8 @@ mod detect;
 #[path = "../../core/src/encoder_gpu.rs"]
 mod encoder_gpu;
 mod gpu;
+#[path = "../../core/src/host_service.rs"]
+mod host_service;
 mod install;
 mod libvirtualdisplay;
 mod log;
@@ -58,6 +62,8 @@ struct Arguments {
     /// Install even while the host streams, ending the stream. Without it a
     /// quiet setup refuses; the setup window asks instead.
     end_streams: bool,
+    /// Keep other hosts and install alongside them.
+    side_by_side: bool,
     factory_reset: bool,
     remove_drivers: bool,
     /// The service found no virtual display driver: set it up again.
@@ -72,8 +78,10 @@ struct Arguments {
     extract: Option<PathBuf>,
 }
 fn arguments() -> Result<Arguments, String> {
+    parse_arguments(std::env::args().skip(1))
+}
+fn parse_arguments(mut args: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let mut parsed = Arguments::default();
-    let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.to_ascii_lowercase().as_str() {
             "--quiet" | "/quiet" | "/s" | "/qn" => parsed.quiet = true,
@@ -101,6 +109,7 @@ fn arguments() -> Result<Arguments, String> {
             }
             "--no-start" => parsed.no_start = true,
             "--end-streams" => parsed.end_streams = true,
+            "--side-by-side" => parsed.side_by_side = true,
             "--factory-reset" => parsed.factory_reset = true,
             "--remove-drivers" => parsed.remove_drivers = true,
             "--repair-drivers" => parsed.repair_drivers = true,
@@ -116,15 +125,19 @@ fn arguments() -> Result<Arguments, String> {
             other => return Err(format!("unknown option {other}")),
         }
     }
+    if parsed.side_by_side && (parsed.uninstall || parsed.update || parsed.repair_drivers) {
+        return Err("--side-by-side only applies when installing; every other run follows how Rubylight was installed".into());
+    }
     Ok(parsed)
 }
-const USAGE: &str = "rubylight-setup.exe [--quiet] [--install-dir <folder>] [--no-gamepad-driver] [--no-display-driver] [--usbip-driver | --no-usbip-driver] [--wake-on-lan | --no-wake-on-lan] [--no-start] [--end-streams]\n\
+const USAGE: &str = "rubylight-setup.exe [--quiet] [--install-dir <folder>] [--no-gamepad-driver] [--no-display-driver] [--usbip-driver | --no-usbip-driver] [--wake-on-lan | --no-wake-on-lan] [--no-start] [--end-streams] [--side-by-side]\n\
 rubylight-setup.exe --uninstall [--quiet] [--factory-reset] [--remove-drivers]\n\
 rubylight-setup.exe --repair-drivers [--now]\n\n\
 --repair-drivers sets the virtual display driver up again from this installation. The Rubylight service runs it by itself, at most once a day per version, never during a stream and never after --no-display-driver. --now is for a person: it shows progress and the result and ignores those limits, though it still refuses while a stream runs.\n\n\
 A quiet setup refuses to install while Rubylight is streaming; --end-streams ends the stream instead, and the client can reconnect once setup has finished.\n\n\
 --usbip-driver installs the bundled Steam Deck and DualSense USB audio and haptics driver. It is optional, off by default, and its choice is kept for updates. --no-usbip-driver skips it without removing a shared driver.\n\n\
 --wake-on-lan turns on the wake settings of the wired network adapters, so a client can wake this PC from sleep. It is optional, off by default, and its choice is kept for updates. --no-wake-on-lan leaves the adapters as they are.\n\n\
+By default setup uninstalls Vibepollo, Apollo and Sunshine and imports their settings. --side-by-side keeps them instead: Rubylight installs alongside with its own service (RubylightService), its own ports and new settings, and clients add this PC with the port setup reports. Updates, repairs and uninstalling keep to that. Without another host on this PC it installs the same way, so another host can follow. An installed Rubylight that runs as ApolloService is refused: uninstall it first. Setup does not turn a side-by-side installation into a replacing one; uninstall it and delete its settings first.\n\n\
 Rubylight needs an AMD Radeon GPU with its AMF video encoder or an NVIDIA GPU with its NVENC video encoder; setup explains and stops on any other PC. Intel graphics stay on Rubylight 2.6.x.\n\n\
 Exit codes: 0 done, 3010 done but Windows must restart, 1223 cancelled, 1 failed, 2 removed, but the Windows settings for the removed child-session feature were not restored.";
 
@@ -147,7 +160,12 @@ fn main() {
             "install folder: {}\nprevious installation: {:?}\n\n{}\n\n{found:#?}\n",
             folder.display(),
             found.previous_root(),
-            detect::summary(&found, &folder)
+            detect::summary(
+                &found,
+                &folder,
+                found.installed_side_by_side() || args.side_by_side,
+                install::updates_in_place(&found, &folder),
+            )
         );
         std::process::exit(i32::from(std::fs::write(file, report).is_err()));
     }
@@ -221,6 +239,9 @@ fn main() {
                     let mut notes = Vec::new();
                     let mut restart_needed = false;
                     let folder = system::win32_path(&folder)?;
+                    // A lost or malformed record heals here too, for the
+                    // launcher and the scripts, as a reinstall's does.
+                    detect::record_service(detect::side_by_side())?;
                     // As a reinstall does. In-app updates never set the
                     // drivers up, so hosts updated from the console since
                     // rc.22 had none.
@@ -282,14 +303,73 @@ fn run_install(args: &Arguments) -> i32 {
     let mut usbip_driver = usbip::selected(&install::profile(), args.usbip_driver);
     let mut wake_on_lan = wake::selected(&install::profile(), args.wake_on_lan);
     let mut end_streams = args.end_streams;
+    let mut side_by_side = match found.side_by_side(args.side_by_side) {
+        Ok(side_by_side) => side_by_side,
+        Err(error) => return failed(args.quiet, "Rubylight could not be installed", &error),
+    };
     if !args.quiet {
+        // A side-by-side installation is never converted without saying so.
+        if found.installed_side_by_side() {
+            let hosts = found.other_hosts();
+            let names = detect::in_words(&hosts);
+            let (heading, other) = if hosts.is_empty() {
+                ("Rubylight runs side by side".to_owned(), None)
+            } else {
+                (
+                    format!("Rubylight runs alongside {names}"),
+                    Some(format!("Replace {names}…")),
+                )
+            };
+            loop {
+                let choice = ui::ask(
+                    TITLE,
+                    &heading,
+                    "Setup updates Rubylight and keeps it side by side: other hosts and their drivers are not changed.",
+                    "Update Rubylight",
+                    other.as_deref(),
+                    None,
+                );
+                if choice.other {
+                    ui::message_box(TITLE, &detect::conversion_refusal(&hosts));
+                    continue;
+                }
+                if !choice.accepted {
+                    return 1223;
+                }
+                break;
+            }
+        } else if !args.side_by_side
+            && found.current().is_none()
+            && let Some(hosts) = detect::host_choice(&found)
+        {
+            let choice = ui::ask(
+                TITLE,
+                &hosts.heading,
+                &hosts.text,
+                &hosts.replace,
+                Some(&hosts.keep),
+                None,
+            );
+            if choice.other {
+                side_by_side = true;
+            } else if !choice.accepted {
+                return 1223;
+            }
+        }
         // Updating from inside a stream is fine: the stream ends while
         // Rubylight restarts and the client connects again afterwards, as
-        // with Vibepollo's installer.
-        let streaming = install::streaming(&install::profile());
+        // with Vibepollo's installer. A new side-by-side installation has no
+        // host of its own to ask; the default port's answer is the other's.
+        let streaming =
+            (found.current().is_some() || !side_by_side) && install::streaming(&install::profile());
         let choosable = args.install_dir.is_none() && detect::folder_choosable(&found);
         loop {
-            let mut text = detect::summary(&found, &folder);
+            let mut text = detect::summary(
+                &found,
+                &folder,
+                side_by_side,
+                install::updates_in_place(&found, &folder),
+            );
             if streaming {
                 text.push_str("\n\nRubylight is streaming. Installing ends the stream and closes games started from Moonlight; connect again when setup has finished.");
             }
@@ -375,6 +455,7 @@ fn run_install(args: &Arguments) -> i32 {
         usbip_driver,
         start: !args.no_start,
         end_streams,
+        side_by_side,
     };
     let result = ui::progress(TITLE, "Installing Rubylight", args.quiet, move |progress| {
         install::install(&options, &progress)
@@ -390,12 +471,29 @@ fn run_install(args: &Arguments) -> i32 {
             for note in &outcome.notes {
                 log::line(format!("note: {note}"));
             }
+            let side_by_side_text = outcome.side_by_side.then(|| {
+                install::side_by_side_result(
+                    outcome.web_port,
+                    &install::pc_address(),
+                    &found.other_hosts(),
+                )
+            });
+            if let Some(text) = &side_by_side_text {
+                log::line(format!(
+                    "console: https://localhost:{}; {text}",
+                    outcome.web_port
+                ));
+            }
             if !args.quiet {
                 let mut text = format!(
                     "Pair a device and add apps at https://localhost:{}.\nInstalled in {}.",
                     outcome.web_port,
                     outcome.install.display()
                 );
+                if let Some(side_by_side_text) = &side_by_side_text {
+                    text.push_str("\n\n");
+                    text.push_str(side_by_side_text);
+                }
                 if outcome.restart_needed {
                     text.push_str("\n\nRestart Windows to finish installing the drivers.");
                 }
@@ -428,7 +526,11 @@ fn run_uninstall(args: &Arguments) -> i32 {
         let choice = ui::ask(
             TITLE,
             "Remove Rubylight?",
-            "Streaming stops and the Rubylight service is removed. Drivers stay installed unless removal was requested; shared USBip always stays installed and can be removed separately in Windows Settings.",
+            if detect::side_by_side() {
+                "Streaming stops and the Rubylight service is removed. Other hosts on this PC and the drivers they use are not changed."
+            } else {
+                "Streaming stops and the Rubylight service is removed. Drivers stay installed unless removal was requested; shared USBip always stays installed and can be removed separately in Windows Settings."
+            },
             "Remove",
             None,
             Some((
@@ -496,5 +598,37 @@ fn open(url: &str) {
             None,
             windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn parse(args: &[&str]) -> Result<Arguments, String> {
+        parse_arguments(args.iter().map(|arg| (*arg).to_owned()))
+    }
+    #[test]
+    fn an_update_rewrites_the_service_record_before_it_runs() {
+        let update = include_str!("main.rs")
+            .split("} else if args.update {")
+            .nth(1)
+            .unwrap();
+        let record = update
+            .find("detect::record_service(detect::side_by_side())?;")
+            .unwrap();
+        assert!(record < update.find("update::run(&folder").unwrap());
+    }
+    #[test]
+    fn side_by_side_is_an_install_option_that_help_explains() {
+        assert!(!parse(&[]).unwrap().side_by_side);
+        assert!(parse(&["--quiet", "--side-by-side"]).unwrap().side_by_side);
+        assert!(parse(&["--SIDE-BY-SIDE"]).unwrap().side_by_side);
+        for other in ["--uninstall", "--update", "--repair-drivers"] {
+            let error = parse(&[other, "--side-by-side"]).err().unwrap();
+            assert!(error.contains("--side-by-side only applies"), "{error}");
+        }
+        assert!(USAGE.contains("[--side-by-side]"));
+        assert!(USAGE.contains("RubylightService"));
+        assert!(USAGE.contains("uninstalls Vibepollo"));
     }
 }

@@ -1,6 +1,7 @@
 //! Installing, upgrading and replacing a previous Vibepollo-family host.
 use crate::{
-    detect::{self, OLD_SERVICES, SERVICE, UNINSTALL},
+    detect::{self, OLD_SERVICES, UNINSTALL},
+    host_service,
     log::line,
     payload::{self, Payload},
     system::{self, Value},
@@ -23,13 +24,23 @@ pub struct Options {
     /// End active streams instead of refusing to install. The user chose
     /// this; tests and automatic updates never set it.
     pub end_streams: bool,
+    /// Keep other hosts and install alongside them ([`detect::Found::side_by_side`]).
+    pub side_by_side: bool,
 }
 pub struct Outcome {
     pub install: PathBuf,
     pub web_port: u16,
+    pub side_by_side: bool,
     pub restart_needed: bool,
     pub notes: Vec<String>,
 }
+/// Rubylight's own processes.
+pub const OWN_PROCESSES: [&str; 4] = [
+    "butterpollo.exe",
+    "butterpollo-service.exe",
+    "Start Rubylight.exe",
+    "Start Butterpollo.exe",
+];
 /// Processes of Rubylight and of the hosts it replaces.
 pub const HOST_PROCESSES: [&str; 10] = [
     "butterpollo.exe",
@@ -81,9 +92,194 @@ pub fn refresh_entries(install: &Path, notes: &mut Vec<String>) {
         )),
     }
 }
-/// The service's name in Windows Services; its key stays `SERVICE`.
+/// The service's name in Windows Services; its key stays as it was installed.
 pub fn refresh_service_name() -> Result<()> {
-    system::set_service_display_name(SERVICE, SERVICE_DISPLAY_NAME)
+    system::set_service_display_name(detect::service(), SERVICE_DISPLAY_NAME)
+}
+/// What a full installation does to other hosts. Replacing, it takes them all
+/// over; side by side, it leaves them alone and acts only on what is Rubylight's.
+#[derive(Debug, PartialEq)]
+struct Takeover {
+    /// Services stopped first, restarted if setup fails before removing a host.
+    stop: &'static [&'static str],
+    /// Processes ended after that.
+    end: &'static [&'static str],
+    /// Their packages, Apps entries and own uninstallers run; their other
+    /// services, Start menu folder and stale HDR layers go. Their profile is
+    /// imported first.
+    remove_hosts: bool,
+    /// Firewall rules removed.
+    firewall_rules: &'static [&'static str],
+}
+fn takeover(side_by_side: bool) -> Takeover {
+    if side_by_side {
+        Takeover {
+            stop: &[host_service::SIDE_BY_SIDE],
+            end: &OWN_PROCESSES,
+            remove_hosts: false,
+            firewall_rules: &[LEGACY_FIREWALL_RULE],
+        }
+    } else {
+        Takeover {
+            stop: &OLD_SERVICES,
+            end: &HOST_PROCESSES,
+            remove_hosts: true,
+            firewall_rules: &[
+                LEGACY_FIREWALL_RULE,
+                "Vibepollo",
+                "Vibepollo Service",
+                "Apollo",
+            ],
+        }
+    }
+}
+/// The base ports a side-by-side installation tries, in turn. They stay clear
+/// of the default 47984-48010 other hosts use and of the Windows ephemeral
+/// range above 49151, and of each other's ranges.
+const SIDE_BY_SIDE_PORTS: [u16; 6] = [48589, 48689, 48789, 48889, 48989, 49089];
+/// `webrtc_port`'s offset from the base port; `webrtc_media_port` and the
+/// guests' four media ports follow it.
+const WEBRTC_OFFSET: u16 = 30;
+/// Every port a base can use: `Ports::from_base`'s, then WebRTC's.
+fn ports_of(base: u16) -> std::ops::RangeInclusive<u16> {
+    base.saturating_sub(5)..=base.saturating_add(WEBRTC_OFFSET + 5)
+}
+/// Whether no program holds `port`, on TCP or UDP. The host binds the same
+/// way, so what is free here is free for it: another program's bind, a Windows
+/// excluded range or another host stopped for the moment but holding the port.
+fn port_free(port: u16) -> bool {
+    use std::io::ErrorKind::{AddrInUse, PermissionDenied};
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, TcpListener, UdpSocket};
+    let v4 = [Ipv4Addr::UNSPECIFIED, Ipv4Addr::LOCALHOST];
+    let free = v4.into_iter().map(IpAddr::V4).all(|address| {
+        TcpListener::bind((address, port)).is_ok() && UdpSocket::bind((address, port)).is_ok()
+    });
+    // A PC without IPv6 has nothing there to collide with.
+    let v6 = IpAddr::V6(Ipv6Addr::UNSPECIFIED);
+    let held = |error: std::io::Error| matches!(error.kind(), AddrInUse | PermissionDenied);
+    free && !TcpListener::bind((v6, port)).err().is_some_and(held)
+        && !UdpSocket::bind((v6, port)).err().is_some_and(held)
+}
+/// The first base port whose whole range is free.
+fn pick_base_port(free: impl Fn(u16) -> bool) -> Result<u16> {
+    SIDE_BY_SIDE_PORTS
+        .into_iter()
+        .find(|&base| ports_of(base).all(&free))
+        .with_context(|| {
+            format!(
+                "no free ports for Rubylight beside another host: every range from {} to {} is in use. Close what uses them, then run setup again. Nothing has been changed.",
+                ports_of(SIDE_BY_SIDE_PORTS[0]).start(),
+                ports_of(SIDE_BY_SIDE_PORTS[5]).end(),
+            )
+        })
+}
+/// The new profile's settings: its ports, and a name of its own for clients,
+/// which would otherwise show two hosts with the PC's name.
+fn side_by_side_conf(base: u16, pc: Option<&str>) -> String {
+    let name = match pc.map(str::trim).filter(|pc| !pc.is_empty()) {
+        Some(pc) => format!("{pc} (Rubylight)"),
+        None => "Rubylight".to_owned(),
+    };
+    format!(
+        "port = {base}\nwebrtc_port = {}\nwebrtc_media_port = {}\nsunshine_name = {name}\n",
+        base + WEBRTC_OFFSET,
+        base + WEBRTC_OFFSET + 1
+    )
+}
+/// Marks a profile that side by side made, so its identity was never imported
+/// from another host: it is kept when Rubylight is installed side by side again
+/// after an uninstall that kept its settings.
+pub(crate) const SIDE_BY_SIDE_MARK: &str = "side-by-side";
+/// Readies the profile of a side-by-side installation, which never takes
+/// settings or an identity from another host. An installed Rubylight's profile
+/// and one an earlier side-by-side installation left stay; a profile from
+/// before moves aside unchanged. Otherwise the profile is new, with its own
+/// base port. Returns whether this run made it; `moved` is where the earlier
+/// profile went.
+fn prepare_side_by_side_profile(
+    profile: &Path,
+    installed: bool,
+    pc: Option<&str>,
+    free: impl Fn(u16) -> bool,
+    moved: &mut Option<PathBuf>,
+) -> Result<bool> {
+    let empty = profile_empty(profile)?;
+    if !empty && (installed || profile.join(SIDE_BY_SIDE_MARK).is_file()) {
+        if !installed {
+            // Its port was free when it was chosen; nothing has held it since.
+            let base = web_port(profile) - 1;
+            if !ports_of(base).all(&free) {
+                bail!(
+                    "Rubylight's kept settings in {} use base port {base}, and a port of its range is in use now. Close what uses it, or set another port in sunshine.conf there, then run setup again. Nothing has been changed.",
+                    profile.display()
+                );
+            }
+        }
+        return Ok(false);
+    }
+    let base = pick_base_port(free)?;
+    if !empty {
+        *moved = Some(move_profile_aside(profile)?);
+    }
+    std::fs::create_dir_all(profile)?;
+    std::fs::write(profile.join("sunshine.conf"), side_by_side_conf(base, pc))?;
+    std::fs::write(profile.join(SIDE_BY_SIDE_MARK), b"")?;
+    Ok(true)
+}
+fn earlier_settings_moved(aside: &Path) -> String {
+    format!(
+        "Side by side starts with new settings, so setup moved the earlier Rubylight settings to {}.",
+        aside.display()
+    )
+}
+/// `profile` under the next free name beside it, unchanged.
+fn move_profile_aside(profile: &Path) -> Result<PathBuf> {
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let name = profile.file_name().context("profile has no name")?;
+    let aside = (0..100)
+        .map(|n| profile.with_file_name(format!("{}.previous-{seconds}-{n}", name.display())))
+        .find(|aside| std::fs::symlink_metadata(aside).is_err())
+        .context("no free name to move the earlier settings to")?;
+    std::fs::rename(profile, &aside)
+        .with_context(|| format!("moving {} to {}", profile.display(), aside.display()))?;
+    Ok(aside)
+}
+/// What the finished window adds for a side-by-side installation: clients
+/// must be given the port, and may otherwise reach the other host.
+pub fn side_by_side_result(web_port: u16, address: &str, hosts: &[String]) -> String {
+    let beside = if hosts.is_empty() {
+        String::new()
+    } else {
+        format!(" beside {}", detect::in_words(hosts))
+    };
+    format!(
+        "Rubylight runs{beside} as the {} service, with its own settings. In Moonlight or Nightjar, add this PC as {address}:{}: without the port, a client reaches whatever host uses the default one.",
+        host_service::SIDE_BY_SIDE,
+        web_port - 1
+    )
+}
+/// This PC's address on its default route, else its name. Connecting a UDP
+/// socket sends nothing; it only picks the route.
+pub fn pc_address() -> String {
+    let routed = std::net::UdpSocket::bind(("0.0.0.0", 0))
+        .and_then(|socket| {
+            socket.connect(("192.0.2.1", 9))?;
+            socket.local_addr()
+        })
+        .ok()
+        .map(|address| address.ip())
+        .filter(|ip| !ip.is_unspecified() && !ip.is_loopback());
+    match routed {
+        Some(ip) => ip.to_string(),
+        None => pc_name().unwrap_or_else(|| "this PC's address".to_owned()),
+    }
+}
+fn pc_name() -> Option<String> {
+    std::env::var("COMPUTERNAME")
+        .ok()
+        .filter(|name| !name.trim().is_empty())
 }
 /// The text of a profile's sunshine.conf, empty if it cannot be read. The
 /// host also reads one saved with a byte order mark or as UTF-16.
@@ -151,9 +347,16 @@ pub(crate) fn probe(profile: &Path) -> SocketAddr {
 
 pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
     let mut set_aside = None;
-    install_with(options, progress, &mut set_aside).map_err(|error| match &set_aside {
-        Some(aside) => moved_aside(error, aside),
-        None => error,
+    let mut earlier = None;
+    install_with(options, progress, &mut set_aside, &mut earlier).map_err(|error| {
+        let error = match &earlier {
+            Some(aside) => anyhow!("{error:#}\n\n{}", earlier_settings_moved(aside)),
+            None => error,
+        };
+        match &set_aside {
+            Some(aside) => moved_aside(error, aside),
+            None => error,
+        }
     })
 }
 /// An error that also says where `prepare_profile` moved a folder: the next
@@ -168,12 +371,21 @@ fn install_with(
     options: &Options,
     progress: &Progress,
     set_aside: &mut Option<PathBuf>,
+    earlier: &mut Option<PathBuf>,
 ) -> Result<Outcome> {
     let mut payload = Payload::open()?
         .context("this setup.exe carries no package; build it with build.ps1 -Package")?;
     let found = detect::scan();
     found.check_version()?;
     line(format!("found: {found:#?}"));
+    let side_by_side = found.side_by_side(options.side_by_side)?;
+    let service = if side_by_side {
+        refuse_foreign_service(system::service_program(host_service::SIDE_BY_SIDE).as_deref())?;
+        host_service::SIDE_BY_SIDE
+    } else {
+        host_service::DEFAULT
+    };
+    let plan = takeover(side_by_side);
     let install = system::win32_path(&detect::install_dir(&found, options.install_dir.clone()))?;
     let profile = profile();
     let target = target(&found, &install)?;
@@ -183,6 +395,10 @@ fn install_with(
     } else {
         system::trusted_ancestors(&install)
             .map_err(|error| anyhow!("{error:#}; choose another installation folder"))?;
+        // A new folder or a move alike would write over the other host's files.
+        if side_by_side {
+            outside_other_hosts(&found, &install)?;
+        }
     }
     // The installed service identifies Rubylight's profile, even when its
     // folder is gone and setup installs in full.
@@ -202,10 +418,12 @@ fn install_with(
     if updating {
         // Before changing the service; update::run checks again before stopping.
         ensure_idle(probe(&profile), options.end_streams)?;
+        // The launcher and the scripts read the record, should it be lost.
+        detect::record_service(side_by_side)?;
         // As a reinstall did before, the service starts automatically again;
         // a disabled service would otherwise fail the update's start check.
         system::install_service(
-            SERVICE,
+            service,
             SERVICE_DISPLAY_NAME,
             SERVICE_DESCRIPTION,
             &install.join("butterpollo-service.exe"),
@@ -245,19 +463,43 @@ fn install_with(
         refresh_entries(&install, &mut notes);
         return Ok(Outcome {
             web_port: web_port(&profile),
+            side_by_side,
             install,
             restart_needed,
             notes,
         });
     }
     if let Target::Move(old) = &target {
-        return move_install(options, old, &install, &profile, &mut payload, progress);
+        return move_install(
+            options,
+            old,
+            &install,
+            &profile,
+            service,
+            &mut payload,
+            progress,
+        );
     }
 
     // Previous hosts are only removed by a full installation.
-    let previous = migration_source(&found, &profile, &install)?;
+    let previous = if side_by_side {
+        None
+    } else {
+        migration_source(&found, &profile, &install)?
+    };
     let created = create_install(&install)?;
     let (staging, entries) = unpack(&mut payload, &install, created, progress)?;
+    let new_profile = side_by_side
+        && prepare_side_by_side_profile(
+            &profile,
+            found.current().is_some(),
+            pc_name().as_deref(),
+            port_free,
+            earlier,
+        )?;
+    if let Some(aside) = earlier {
+        notes.push(earlier_settings_moved(aside));
+    }
 
     let active_profile = previous
         .as_ref()
@@ -274,12 +516,12 @@ fn install_with(
     // Until the previous host is removed, a failure starts again exactly the
     // services that were running.
     let mut restart = stop_running(
-        &OLD_SERVICES,
+        plan.stop,
         system::service_running,
         system::stop_service,
         system::start_service,
     )?;
-    system::kill(&HOST_PROCESSES);
+    system::kill(plan.end);
     // An update that did not finish is rolled back first; its record would
     // otherwise make the service put that backup over this installation.
     crate::update::recover(&profile)?;
@@ -305,7 +547,7 @@ fn install_with(
         }
     }
 
-    undo_import_on_error(&profile, previous.is_some(), || {
+    undo_import_on_error(&profile, previous.is_some() || new_profile, || {
         if let Some(root) = &previous {
             progress.set("Importing settings, paired devices and apps…");
             let source = if root.join("config\\sunshine.conf").is_file() {
@@ -349,7 +591,105 @@ fn install_with(
 
     // The previous host is removed from here on, so a failure now starts
     // the service Rubylight runs as instead.
-    restart.services = vec![SERVICE];
+    restart.services = vec![service];
+    if plan.remove_hosts {
+        restart_needed |= remove_hosts(&found, progress, &mut notes)?;
+    }
+
+    progress.set("Registering the Rubylight service…");
+    if plan.remove_hosts {
+        // Remaining old services would hold the streaming ports.
+        for old in OLD_SERVICES.iter().filter(|s| **s != service) {
+            let _ = system::delete_service(old);
+        }
+    }
+    detect::record_service(side_by_side)?;
+    system::install_service(
+        service,
+        SERVICE_DISPLAY_NAME,
+        SERVICE_DESCRIPTION,
+        &install.join("butterpollo-service.exe"),
+    )?;
+    system::firewall_allow(FIREWALL_RULE, &install.join("butterpollo.exe"))?;
+    for rule in plan.firewall_rules {
+        system::firewall_remove(rule);
+    }
+    secure_profile(&profile)?;
+
+    remember_driver_choice(&profile, options.display_driver);
+    restart_needed |= install_drivers(
+        &install,
+        options.display_driver,
+        options.gamepad_driver,
+        options.usbip_driver,
+        progress,
+        &mut notes,
+    );
+    crate::usbip::remember(&profile, options.usbip_driver)?;
+
+    progress.set("Adding Rubylight to Start and Apps…");
+    match system::shortcut(
+        &start_menu_link(),
+        &install.join("Start Rubylight.exe"),
+        "Open the Rubylight console",
+    ) {
+        Ok(()) => {
+            let _ = std::fs::remove_file(legacy_start_menu_link());
+        }
+        Err(error) => notes.push(format!(
+            "The Start menu shortcut could not be created: {error:#}"
+        )),
+    }
+    if plan.remove_hosts {
+        let _ = std::fs::remove_dir_all(
+            system::program_data().join("Microsoft\\Windows\\Start Menu\\Programs\\Vibepollo"),
+        );
+    }
+    // Earlier installers' entry, with Apollo's icon.
+    let _ = std::fs::remove_file(
+        system::program_data()
+            .join("Microsoft\\Windows\\Start Menu\\Programs\\Butterpollo Rust.lnk"),
+    );
+    if plan.remove_hosts {
+        crate::uninstall::remove_stale_layers();
+    }
+    crate::uninstall::remove_earlier_folder(&install);
+    register(&install, &entries)?;
+
+    let web_port = web_port(&profile);
+    if options.start {
+        progress.set("Starting Rubylight…");
+        if system::start_service_unless_disabled(service)? {
+            wait_ready(probe(&profile), Some(env!("CARGO_PKG_VERSION")))?;
+            // The host made the console's certificate as it started.
+            if let Err(error) = trust_console(&profile) {
+                notes.push(format!(
+                    "Browsers will warn about the console's certificate: its root could not be trusted: {error:#}"
+                ));
+            }
+        } else {
+            notes.push(crate::update::DISABLED_WARNING.into());
+        }
+    }
+    restart.services.clear();
+    crate::update::record_installed(&profile);
+    drop(staging);
+    Ok(Outcome {
+        install,
+        web_port,
+        side_by_side,
+        restart_needed,
+        notes,
+    })
+}
+/// Uninstall the hosts `found` lists. A failure to remove one is a note; only
+/// a removal that cannot run at all fails. Returns whether Windows must restart.
+fn remove_hosts(
+    found: &detect::Found,
+    progress: &Progress,
+    notes: &mut Vec<String>,
+) -> Result<bool> {
+    let mut restart_needed = false;
     for package in &found.packages {
         let Some(code) = package.product_code() else {
             continue;
@@ -401,89 +741,7 @@ fn install_with(
             notes.push(format!("{} could not be removed: {error:#}", legacy.name));
         }
     }
-
-    progress.set("Registering the Rubylight service…");
-    // Remaining old services would hold the streaming ports.
-    for service in OLD_SERVICES.iter().filter(|s| **s != SERVICE) {
-        let _ = system::delete_service(service);
-    }
-    system::install_service(
-        SERVICE,
-        SERVICE_DISPLAY_NAME,
-        SERVICE_DESCRIPTION,
-        &install.join("butterpollo-service.exe"),
-    )?;
-    system::firewall_allow(FIREWALL_RULE, &install.join("butterpollo.exe"))?;
-    for rule in [
-        LEGACY_FIREWALL_RULE,
-        "Vibepollo",
-        "Vibepollo Service",
-        "Apollo",
-    ] {
-        system::firewall_remove(rule);
-    }
-    secure_profile(&profile)?;
-
-    remember_driver_choice(&profile, options.display_driver);
-    restart_needed |= install_drivers(
-        &install,
-        options.display_driver,
-        options.gamepad_driver,
-        options.usbip_driver,
-        progress,
-        &mut notes,
-    );
-    crate::usbip::remember(&profile, options.usbip_driver)?;
-
-    progress.set("Adding Rubylight to Start and Apps…");
-    match system::shortcut(
-        &start_menu_link(),
-        &install.join("Start Rubylight.exe"),
-        "Open the Rubylight console",
-    ) {
-        Ok(()) => {
-            let _ = std::fs::remove_file(legacy_start_menu_link());
-        }
-        Err(error) => notes.push(format!(
-            "The Start menu shortcut could not be created: {error:#}"
-        )),
-    }
-    let _ = std::fs::remove_dir_all(
-        system::program_data().join("Microsoft\\Windows\\Start Menu\\Programs\\Vibepollo"),
-    );
-    // Earlier installers' entry, with Apollo's icon.
-    let _ = std::fs::remove_file(
-        system::program_data()
-            .join("Microsoft\\Windows\\Start Menu\\Programs\\Butterpollo Rust.lnk"),
-    );
-    crate::uninstall::remove_stale_layers();
-    crate::uninstall::remove_earlier_folder(&install);
-    register(&install, &entries)?;
-
-    let web_port = web_port(&profile);
-    if options.start {
-        progress.set("Starting Rubylight…");
-        if system::start_service_unless_disabled(SERVICE)? {
-            wait_ready(probe(&profile), Some(env!("CARGO_PKG_VERSION")))?;
-            // The host made the console's certificate as it started.
-            if let Err(error) = trust_console(&profile) {
-                notes.push(format!(
-                    "Browsers will warn about the console's certificate: its root could not be trusted: {error:#}"
-                ));
-            }
-        } else {
-            notes.push(crate::update::DISABLED_WARNING.into());
-        }
-    }
-    restart.services.clear();
-    crate::update::record_installed(&profile);
-    drop(staging);
-    Ok(Outcome {
-        install,
-        web_port,
-        restart_needed,
-        notes,
-    })
+    Ok(restart_needed)
 }
 
 /// Create `install` if needed and give it the service folder's permissions,
@@ -624,6 +882,7 @@ fn move_install(
     old: &Path,
     install: &Path,
     profile: &Path,
+    service: &'static str,
     payload: &mut Payload,
     progress: &Progress,
 ) -> Result<Outcome> {
@@ -641,7 +900,7 @@ fn move_install(
     // Until the service has started from `install`, a failure starts it
     // again from the old folder.
     let mut restart = stop_running(
-        &[SERVICE],
+        &[service],
         system::service_running,
         system::stop_service,
         system::start_service,
@@ -658,7 +917,7 @@ fn move_install(
     let mut restart_needed = false;
     let point_at = |folder: &Path| {
         system::install_service(
-            SERVICE,
+            service,
             SERVICE_DISPLAY_NAME,
             SERVICE_DESCRIPTION,
             &folder.join("butterpollo-service.exe"),
@@ -679,7 +938,7 @@ fn move_install(
             );
             if options.start {
                 progress.set("Starting Rubylight…");
-                if system::start_service_unless_disabled(SERVICE)? {
+                if system::start_service_unless_disabled(service)? {
                     wait_ready(probe(profile), Some(env!("CARGO_PKG_VERSION")))?;
                     trust_console_or_warn(profile);
                 } else {
@@ -690,7 +949,7 @@ fn move_install(
         },
         || {
             progress.set("Returning to the previous installation…");
-            system::stop_service(SERVICE)?;
+            system::stop_service(service)?;
             point_at(old)
         },
     );
@@ -733,6 +992,7 @@ fn move_install(
     Ok(Outcome {
         install: install.to_path_buf(),
         web_port: web_port(profile),
+        side_by_side: service == host_service::SIDE_BY_SIDE,
         restart_needed,
         notes,
     })
@@ -815,6 +1075,11 @@ fn target(found: &detect::Found, install: &Path) -> Result<Target> {
     }
     Ok(Target::InPlace)
 }
+/// Whether setup would update an installed Rubylight where it is, which never
+/// touches another host, rather than install in full.
+pub(crate) fn updates_in_place(found: &detect::Found, install: &Path) -> bool {
+    matches!(target(found, install), Ok(Target::InPlace))
+}
 /// Why the installed service's folder cannot be made safe where it is: a
 /// parent folder that is a link or that someone other than Administrators,
 /// SYSTEM or TrustedInstaller owns, or a link inside the folder. Whoever
@@ -876,6 +1141,61 @@ fn canonical_prefix(path: &Path) -> PathBuf {
         }
     }
 }
+/// Whether `install` is `root` or inside it.
+fn folder_inside(install: &Path, root: &Path) -> Result<bool> {
+    let root_path = root.to_string_lossy().to_lowercase();
+    let install_path = system::win32_path(&canonical_prefix(install))?
+        .to_string_lossy()
+        .to_lowercase();
+    Ok(install_path == root_path || install_path.starts_with(&format!("{root_path}\\")))
+}
+/// Side by side, no file of another host may be overwritten, whether setup knows
+/// that host by its Apps entry or only by its service.
+fn outside_other_hosts(found: &detect::Found, install: &Path) -> Result<()> {
+    let products = found
+        .packages
+        .iter()
+        .chain(&found.legacy)
+        .chain(&found.vibepollo_entries)
+        .filter_map(|product| Some((product.location.as_deref()?, product.name.clone())));
+    let services = found.other_service_folders.iter().map(|(service, folder)| {
+        (
+            folder.as_path(),
+            format!("the host behind the {service} service"),
+        )
+    });
+    for (root, host) in products.chain(services) {
+        if let Ok(root) = root.canonicalize() {
+            let root = system::win32_path(&root)?;
+            if folder_inside(install, &root)? {
+                bail!(
+                    "Choose an installation folder outside {}: {host} stays installed there. Nothing has been changed.",
+                    root.display()
+                );
+            }
+        }
+    }
+    Ok(())
+}
+/// Side by side runs as `RubylightService`. Another program's service of that
+/// name is not Rubylight's to stop or point elsewhere; `program` is what it runs.
+fn refuse_foreign_service(program: Option<&Path>) -> Result<()> {
+    match program {
+        Some(program) if !detect::our_service(program) => bail!(
+            "A service named {} already exists and runs {}, which is not Rubylight. Setup does not stop or change it, and Rubylight needs that name to install side by side. Remove that service, then run setup again. Nothing has been changed.",
+            host_service::SIDE_BY_SIDE,
+            program.display()
+        ),
+        _ => Ok(()),
+    }
+}
+fn profile_empty(profile: &Path) -> Result<bool> {
+    match std::fs::read_dir(profile) {
+        Ok(mut entries) => Ok(entries.next().transpose()?.is_none()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(error) => Err(error).context("checking the existing Rubylight profile"),
+    }
+}
 fn migration_source(
     found: &detect::Found,
     profile: &Path,
@@ -902,11 +1222,7 @@ fn migration_source(
             continue;
         };
         let root = system::win32_path(&root)?;
-        let root_path = root.to_string_lossy().to_lowercase();
-        let install_path = system::win32_path(&canonical_prefix(install))?
-            .to_string_lossy()
-            .to_lowercase();
-        if install_path == root_path || install_path.starts_with(&format!("{root_path}\\")) {
+        if folder_inside(install, &root)? {
             bail!(
                 "Choose an installation folder outside {}; removing the previous host could delete Rubylight's files",
                 root.display()
@@ -937,12 +1253,7 @@ fn migration_source(
             "Setup can import the settings of only one previous host, and these each have their own: {hosts}. Uninstall the ones whose settings you do not need, then run setup again. Nothing has been changed."
         );
     }
-    let empty = match std::fs::read_dir(profile) {
-        Ok(mut entries) => entries.next().transpose()?.is_none(),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
-        Err(error) => return Err(error).context("checking the existing Rubylight profile"),
-    };
-    if !empty {
+    if !profile_empty(profile)? {
         bail!(
             "Rubylight already has settings in {}, and {name} has its own in {}. To keep Rubylight's, uninstall {name} first; to import {name}'s instead, move the Rubylight folder elsewhere. Then run setup again. Nothing has been changed.",
             profile.display(),
@@ -1265,13 +1576,23 @@ fn run_drivers(
         restart_needed |= display_step(install, progress, notes).0;
     }
     if gamepad && install.join("drivers\\gamepad\\install.ps1").is_file() {
-        progress.set("Installing the virtual gamepad driver…");
-        restart_needed |= run_driver_script(
-            &install.join("drivers\\gamepad\\install.ps1"),
-            &["-InstallerBestEffort", "-AllowLocalTestCertificate:0"],
-            notes,
-            "virtual gamepad",
-        );
+        match gamepad_step(detect::side_by_side(), crate::libvirtualdisplay::present_devices) {
+            GamepadStep::Install => {
+                progress.set("Installing the virtual gamepad driver…");
+                restart_needed |= run_driver_script(
+                    &install.join("drivers\\gamepad\\install.ps1"),
+                    &["-InstallerBestEffort", "-AllowLocalTestCertificate:0"],
+                    notes,
+                    "virtual gamepad",
+                );
+            }
+            GamepadStep::Reuse => line(
+                "the virtual gamepad driver is already here, and another host may use it: using it as it is",
+            ),
+            GamepadStep::Unknown(error) => notes.push(format!(
+                "Setup could not tell whether the virtual gamepad driver is installed ({error:#}), so it left the driver another host may use alone. Controllers need it; if they do not work in a stream, run setup again."
+            )),
+        }
     }
 
     if usbip {
@@ -1285,6 +1606,37 @@ fn run_drivers(
     }
     restart_needed
 }
+/// The instance ids of the virtual gamepad's source device start with this:
+/// the driver's own cleanup script goes by the same prefix.
+const GAMEPAD_DEVICE_PREFIX: &str = "ROOT\\VIBESHINEVIRTUALGAMEPAD\\";
+#[derive(Debug)]
+enum GamepadStep {
+    Install,
+    /// The device is here. Vibepollo's family shares this driver, and its
+    /// script reloads the device under whoever uses it, so a side-by-side host
+    /// uses it as it is.
+    Reuse,
+    /// Side by side, and the devices could not be read.
+    Unknown(anyhow::Error),
+}
+fn gamepad_step(side_by_side: bool, devices: impl FnOnce() -> Result<Vec<String>>) -> GamepadStep {
+    if !side_by_side {
+        return GamepadStep::Install;
+    }
+    match devices() {
+        Ok(devices)
+            if devices.iter().any(|device| {
+                device
+                    .to_ascii_uppercase()
+                    .starts_with(GAMEPAD_DEVICE_PREFIX)
+            }) =>
+        {
+            GamepadStep::Reuse
+        }
+        Ok(_) => GamepadStep::Install,
+        Err(error) => GamepadStep::Unknown(error),
+    }
+}
 
 /// Rubylight's display driver, then the removal of libvirtualdisplay it
 /// replaces. Returns whether Windows must restart and how many notes the
@@ -1295,8 +1647,9 @@ fn display_step(install: &Path, progress: &Progress, notes: &mut Vec<String>) ->
     let display_notes = notes.len() - before;
     // Rubylight's own driver replaced libvirtualdisplay. The old one goes
     // once the new device runs; where Windows refused the new driver or
-    // its install failed, nothing uses the old one and it stays.
-    if libvirtualdisplay_replaced(display_notes > 0, restart_needed) {
+    // its install failed, nothing uses the old one and it stays. A host kept
+    // side by side may still use it, in any run: install, update or repair.
+    if libvirtualdisplay_replaced(detect::side_by_side(), display_notes > 0, restart_needed) {
         restart_needed |= remove_libvirtualdisplay(progress, notes);
     }
     (restart_needed, display_notes)
@@ -1318,9 +1671,9 @@ fn rubylight_display_driver(install: &Path, progress: &Progress, notes: &mut Vec
 }
 /// Whether Rubylight's display driver step left a running device: no note
 /// (a refusing policy, a failed install, a missing package) and no restart
-/// still pending before the device starts.
-fn libvirtualdisplay_replaced(noted: bool, restart_pending: bool) -> bool {
-    !noted && !restart_pending
+/// still pending before the device starts. Side by side it replaces nothing.
+fn libvirtualdisplay_replaced(side_by_side: bool, noted: bool, restart_pending: bool) -> bool {
+    !side_by_side && !noted && !restart_pending
 }
 /// Remove libvirtualdisplay's device, driver packages and HDR layer, best
 /// effort. Returns whether Windows needs a restart.
@@ -1957,21 +2310,385 @@ mod tests {
     }
     #[test]
     fn libvirtualdisplay_goes_only_once_rubylights_device_runs() {
-        assert!(libvirtualdisplay_replaced(false, false));
+        assert!(libvirtualdisplay_replaced(false, false, false));
         // Smart App Control, S mode, App Control or a failed install: the
         // driver step added a note, and the old driver stays.
         let mut notes = Vec::new();
         let refused = "WARNING: [RubylightVirtualDisplay] DRIVER_UNSUPPORTED: Smart App Control is on, and it refuses a display driver signed on this PC, so streams use a physical display.\n";
         let restart = driver_result(0, refused, &mut notes, "virtual display");
-        assert!(!libvirtualdisplay_replaced(!notes.is_empty(), restart));
+        assert!(!libvirtualdisplay_replaced(
+            false,
+            !notes.is_empty(),
+            restart
+        ));
         let mut notes = Vec::new();
         let failed = "WARNING: [RubylightVirtualDisplay] DRIVER_WARNING: Rubylight display driver setup did not complete.\nWARNING: [RubylightVirtualDisplay] Installer best-effort driver action failed: Windows did not start the display driver (Error, problem 31)\n";
         let restart = driver_result(0, failed, &mut notes, "virtual display");
-        assert!(!libvirtualdisplay_replaced(!notes.is_empty(), restart));
+        assert!(!libvirtualdisplay_replaced(
+            false,
+            !notes.is_empty(),
+            restart
+        ));
         // Installed, but the device starts only after a restart.
         let mut notes = Vec::new();
         let restart = driver_result(3010, "RESTART_REQUIRED\n", &mut notes, "virtual display");
-        assert!(!libvirtualdisplay_replaced(!notes.is_empty(), restart));
+        assert!(!libvirtualdisplay_replaced(
+            false,
+            !notes.is_empty(),
+            restart
+        ));
+    }
+    /// A kept host may still use SudoVDA: its driver and HDR layer stay
+    /// through every run, even with Rubylight's own device up and running.
+    #[test]
+    fn side_by_side_never_replaces_libvirtualdisplay() {
+        assert!(!libvirtualdisplay_replaced(true, false, false));
+        let display_step = include_str!("install.rs")
+            .split("fn display_step(")
+            .nth(1)
+            .and_then(|rest| rest.split("/// The installer of").next())
+            .unwrap();
+        assert!(display_step.contains("detect::side_by_side()"));
+    }
+    #[test]
+    fn replacing_stays_as_it_was_and_side_by_side_touches_only_rubylight() {
+        let replacing = takeover(false);
+        assert_eq!(replacing.stop, OLD_SERVICES);
+        assert_eq!(replacing.end, HOST_PROCESSES);
+        assert!(replacing.remove_hosts);
+        assert_eq!(
+            replacing.firewall_rules,
+            ["Butterpollo", "Vibepollo", "Vibepollo Service", "Apollo"]
+        );
+        let keeping = takeover(true);
+        assert_eq!(keeping.stop, [host_service::SIDE_BY_SIDE]);
+        assert_eq!(keeping.end, OWN_PROCESSES);
+        assert!(!keeping.remove_hosts);
+        assert_eq!(keeping.firewall_rules, ["Butterpollo"]);
+        for service in OLD_SERVICES {
+            assert!(!keeping.stop.contains(&service), "{service}");
+        }
+        assert_eq!(HOST_PROCESSES[..4], OWN_PROCESSES);
+        for other in &HOST_PROCESSES[4..] {
+            assert!(!keeping.end.contains(other), "{other}");
+        }
+    }
+    /// Every removal of a host goes through the plan: its steps stay gated by
+    /// `remove_hosts`, the import by the side-by-side branch.
+    #[test]
+    fn a_full_installation_gates_each_removal_on_the_plan() {
+        // A Windows checkout may have CRLF line ends.
+        let source = include_str!("install.rs").replace("\r\n", "\n");
+        let code = source
+            .split("fn install_with(")
+            .nth(1)
+            .and_then(|rest| rest.split("/// Uninstall the hosts `found` lists.").next())
+            .unwrap();
+        for gated in [
+            "if plan.remove_hosts {\n        restart_needed |= remove_hosts(",
+            "if plan.remove_hosts {\n        // Remaining old services",
+            "if plan.remove_hosts {\n        let _ = std::fs::remove_dir_all(",
+            "if plan.remove_hosts {\n        crate::uninstall::remove_stale_layers();",
+            "for rule in plan.firewall_rules {",
+            "system::kill(plan.end);",
+            "        plan.stop,\n",
+        ] {
+            assert!(code.contains(gated), "{gated}");
+        }
+        for ungated in [
+            "        &OLD_SERVICES,\n",
+            "system::kill(&HOST_PROCESSES)",
+            "for rule in [",
+        ] {
+            assert!(!code.contains(ungated), "{ungated}");
+        }
+        assert!(code.contains(
+            "let previous = if side_by_side {\n        None\n    } else {\n        migration_source("
+        ));
+        // Recorded before the service in both: an update heals a lost record,
+        // and a new installation's driver steps read it.
+        assert_eq!(
+            code.matches("detect::record_service(side_by_side)?;")
+                .count(),
+            2
+        );
+        // Before anything is stopped or written, on every path but an update
+        // in place: a move returns early, and took the folder unchecked.
+        let at = |text: &str| code.find(text).unwrap_or_else(|| panic!("{text}"));
+        let guard = at("outside_other_hosts(&found, &install)?;");
+        assert!(guard < at("if let Target::Move(old) = &target {"));
+        assert!(guard > at("let updating = target == Target::InPlace;"));
+        assert!(at("refuse_foreign_service(") < at("prepare_profile(&profile"));
+    }
+    #[test]
+    fn side_by_side_stays_out_of_a_folder_a_host_knows_only_by_its_service() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let host = dir.path().join("host");
+        std::fs::create_dir(&host)?;
+        let found = detect::Found {
+            other_service_folders: vec![("ApolloService", host.clone())],
+            ..Default::default()
+        };
+        for inside in [host.clone(), host.join("Rubylight")] {
+            let refused = format!("{:#}", outside_other_hosts(&found, &inside).unwrap_err());
+            assert!(refused.contains("ApolloService"), "{refused}");
+            assert!(refused.contains("Nothing has been changed"), "{refused}");
+        }
+        outside_other_hosts(&found, &dir.path().join("Rubylight"))?;
+        // A service whose folder is gone holds nothing to overwrite.
+        let gone = detect::Found {
+            other_service_folders: vec![("ApolloService", dir.path().join("gone"))],
+            ..Default::default()
+        };
+        outside_other_hosts(&gone, &dir.path().join("gone"))?;
+        Ok(())
+    }
+    #[test]
+    fn another_programs_rubylight_service_is_refused() {
+        refuse_foreign_service(None).unwrap();
+        refuse_foreign_service(Some(Path::new(
+            r"C:\Program Files\Rubylight\butterpollo-service.exe",
+        )))
+        .unwrap();
+        let refused = format!(
+            "{:#}",
+            refuse_foreign_service(Some(Path::new(r"C:\Other\other.exe"))).unwrap_err()
+        );
+        assert!(refused.contains("RubylightService"), "{refused}");
+        assert!(refused.contains(r"C:\Other\other.exe"), "{refused}");
+        assert!(refused.contains("Nothing has been changed"), "{refused}");
+    }
+    /// Setup's rollback must not start or stop the other host: it only ever
+    /// acts on Rubylight's own service, whatever else runs.
+    #[test]
+    fn a_failed_side_by_side_setup_leaves_the_other_hosts_services_alone() -> Result<()> {
+        let mut stopped = Vec::new();
+        let mut started = Vec::new();
+        let restart = stop_running(
+            takeover(true).stop,
+            |_| true,
+            |service| {
+                stopped.push(service.to_owned());
+                Ok(())
+            },
+            |service: &str| {
+                started.push(service.to_owned());
+                Ok(())
+            },
+        )?;
+        drop(restart);
+        assert_eq!(stopped, ["RubylightService"]);
+        assert_eq!(started, ["RubylightService"]);
+        Ok(())
+    }
+    #[test]
+    fn the_range_checked_covers_every_port_the_host_derives() {
+        use butterpollo_core::config::{Config, Ports};
+        for base in SIDE_BY_SIDE_PORTS {
+            let range = ports_of(base);
+            let ports = Ports::from_base(base);
+            for port in [
+                ports.http,
+                ports.https,
+                ports.web,
+                ports.guest,
+                ports.video,
+                ports.control,
+                ports.audio,
+                ports.mic,
+                ports.rtsp,
+            ] {
+                assert!(range.contains(&port), "{port} for {base}");
+            }
+            let config = Config::parse(&side_by_side_conf(base, None)).unwrap();
+            assert_eq!(config.port().unwrap(), base);
+            assert!(range.contains(&config.webrtc_port()));
+            // The guests' media ports follow the media port (MAX_GUESTS, 4).
+            assert!(range.contains(&(config.webrtc_media_port() + 4)));
+            // Clear of the default range other hosts use, and of the ephemeral one.
+            assert!(*range.start() > 48010 + 5, "{base}");
+            assert!(*range.end() < 49152, "{base}");
+        }
+        for pair in SIDE_BY_SIDE_PORTS.windows(2) {
+            assert!(ports_of(pair[0]).end() < ports_of(pair[1]).start());
+        }
+    }
+    #[test]
+    fn the_base_port_needs_its_whole_range_free_with_a_fallback_then_an_error() {
+        assert_eq!(pick_base_port(|_| true).unwrap(), SIDE_BY_SIDE_PORTS[0]);
+        // Any one port of a range rules out the base.
+        for taken in [48584, 48589, 48590, 48610, 48619, 48624] {
+            assert_eq!(
+                pick_base_port(|port| port != taken).unwrap(),
+                SIDE_BY_SIDE_PORTS[1],
+                "{taken}"
+            );
+        }
+        let error = format!("{:#}", pick_base_port(|_| false).unwrap_err());
+        assert!(error.contains("no free ports"), "{error}");
+        assert!(error.contains("Nothing has been changed"), "{error}");
+    }
+    #[test]
+    fn a_port_a_program_holds_is_not_free() -> Result<()> {
+        let tcp = std::net::TcpListener::bind(("0.0.0.0", 0))?;
+        assert!(!port_free(tcp.local_addr()?.port()));
+        let udp = std::net::UdpSocket::bind(("0.0.0.0", 0))?;
+        assert!(!port_free(udp.local_addr()?.port()));
+        let port = {
+            let probe = std::net::TcpListener::bind(("0.0.0.0", 0))?;
+            probe.local_addr()?.port()
+        };
+        assert!(port_free(port));
+        Ok(())
+    }
+    /// Two hosts with one PC's name would collide on mDNS and look the same
+    /// in a client's list.
+    #[test]
+    fn the_new_profile_has_its_own_ports_and_name() {
+        use butterpollo_core::config::Config;
+        let conf = side_by_side_conf(48589, Some("GAMING-PC"));
+        let config = Config::parse(&conf).unwrap();
+        assert_eq!(config.get("sunshine_name", ""), "GAMING-PC (Rubylight)");
+        assert_eq!(config.webrtc_port(), 48619);
+        assert_eq!(config.webrtc_media_port(), 48620);
+        let unnamed = Config::parse(&side_by_side_conf(48589, Some(" "))).unwrap();
+        assert_eq!(unnamed.get("sunshine_name", ""), "Rubylight");
+    }
+    #[test]
+    fn a_side_by_side_profile_is_new_and_never_another_hosts() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let profile = temp.path().join("config");
+        let mut moved = None;
+        let free = |_: u16| true;
+        // Nothing there: a new profile on the first free base port.
+        assert!(prepare_side_by_side_profile(
+            &profile,
+            false,
+            Some("PC"),
+            free,
+            &mut moved
+        )?);
+        assert_eq!(web_port(&profile), 48590);
+        assert_eq!(probe(&profile).port(), 48589);
+        assert!(moved.is_none());
+        // Left by an earlier side-by-side installation: kept, settings and all.
+        std::fs::write(profile.join("sunshine_state.json"), b"paired")?;
+        assert!(!prepare_side_by_side_profile(
+            &profile,
+            false,
+            Some("PC"),
+            free,
+            &mut moved
+        )?);
+        assert_eq!(
+            std::fs::read(profile.join("sunshine_state.json"))?,
+            b"paired"
+        );
+        // Its port is taken now: said, not changed.
+        let error = prepare_side_by_side_profile(
+            &profile,
+            false,
+            Some("PC"),
+            |port| port != 48589,
+            &mut moved,
+        )
+        .unwrap_err();
+        assert!(
+            format!("{error:#}").contains("base port 48589"),
+            "{error:#}"
+        );
+        // Left by a normal installation, whose identity may be imported from
+        // another host: moved aside unchanged, and the new one starts fresh.
+        std::fs::remove_file(profile.join(SIDE_BY_SIDE_MARK))?;
+        std::fs::write(profile.join("sunshine.conf"), "port = 47989\n")?;
+        assert!(prepare_side_by_side_profile(
+            &profile,
+            false,
+            Some("PC"),
+            free,
+            &mut moved
+        )?);
+        assert_eq!(web_port(&profile), 48590);
+        assert!(!profile.join("sunshine_state.json").exists());
+        let aside = moved.take().context("the earlier profile moved aside")?;
+        assert!(aside.parent() == profile.parent());
+        assert_eq!(std::fs::read(aside.join("sunshine_state.json"))?, b"paired");
+        assert_eq!(
+            std::fs::read_to_string(aside.join("sunshine.conf"))?,
+            "port = 47989\n"
+        );
+        assert!(earlier_settings_moved(&aside).contains(&aside.display().to_string()));
+        // No free ports: refused before the earlier settings moved.
+        std::fs::remove_file(profile.join(SIDE_BY_SIDE_MARK))?;
+        assert!(
+            prepare_side_by_side_profile(&profile, false, None, |_| false, &mut moved).is_err()
+        );
+        assert!(moved.is_none());
+        assert!(profile.join("sunshine.conf").is_file());
+        // An installed side-by-side Rubylight keeps its profile as it is.
+        std::fs::write(profile.join("sunshine.conf"), "port = 50000\n")?;
+        assert!(!prepare_side_by_side_profile(
+            &profile,
+            true,
+            None,
+            |_| false,
+            &mut moved
+        )?);
+        assert_eq!(web_port(&profile), 50001);
+        Ok(())
+    }
+    /// A failed first side-by-side setup leaves no profile to take for
+    /// Rubylight's own on the next try.
+    #[test]
+    fn a_failed_first_install_removes_the_profile_it_made() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let profile = temp.path().join("config");
+        let new = prepare_side_by_side_profile(&profile, false, None, |_| true, &mut None)?;
+        assert!(new);
+        let failed = undo_import_on_error(&profile, new, || bail!("no space on the disk"));
+        assert!(failed.is_err());
+        assert!(!profile.exists());
+        Ok(())
+    }
+    #[test]
+    fn the_result_gives_the_address_with_its_port() {
+        let text = side_by_side_result(48590, "192.168.4.12", &["Vibepollo".to_owned()]);
+        assert!(text.contains("beside Vibepollo"), "{text}");
+        assert!(text.contains("RubylightService"), "{text}");
+        assert!(text.contains("add this PC as 192.168.4.12:48589"), "{text}");
+        let alone = side_by_side_result(48590, "PC", &[]);
+        assert!(alone.contains("Rubylight runs as the"), "{alone}");
+    }
+    /// The script reloads the device, and Vibepollo's family shares it.
+    #[test]
+    fn a_side_by_side_host_reuses_the_shared_gamepad_device_or_installs_one() {
+        let device = |text: &str| {
+            let text = text.to_owned();
+            move || -> Result<Vec<String>> { Ok(vec![text.clone()]) }
+        };
+        let vhf = r"ROOT\VIBESHINEVIRTUALGAMEPAD\0000";
+        assert!(matches!(
+            gamepad_step(false, || panic!("a normal install does not look")),
+            GamepadStep::Install
+        ));
+        assert!(matches!(
+            gamepad_step(true, device(vhf)),
+            GamepadStep::Reuse
+        ));
+        assert!(matches!(
+            gamepad_step(true, device(r"root\vibeshinevirtualgamepad\0001")),
+            GamepadStep::Reuse
+        ));
+        assert!(matches!(
+            gamepad_step(true, device(r"ROOT\RUBYLIGHTVDISPLAY\0000")),
+            GamepadStep::Install
+        ));
+        assert!(matches!(
+            gamepad_step(true, || bail!("denied")),
+            GamepadStep::Unknown(_)
+        ));
+        // The prefix the bundled scripts own their device by.
+        assert_eq!(GAMEPAD_DEVICE_PREFIX, "ROOT\\VIBESHINEVIRTUALGAMEPAD\\");
     }
     #[test]
     fn a_failed_libvirtualdisplay_removal_is_a_note_about_removing_it() {

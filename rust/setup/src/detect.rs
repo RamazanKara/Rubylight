@@ -1,13 +1,15 @@
 //! What is installed: Rubylight itself, Vibepollo-family MSI packages
 //! (Vibepollo, Rubylight C++, Apollo, Sunshine) and legacy NSIS installs.
-use crate::system::{registry_dword, registry_string_view, service_program, subkeys};
+use crate::{
+    host_service,
+    system::{self, registry_dword, registry_string_view, service_program, subkeys},
+};
 use std::path::{Path, PathBuf};
 use windows::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_WOW64_32KEY, KEY_WOW64_64KEY, REG_SAM_FLAGS,
 };
 
 pub const UNINSTALL: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall";
-pub const SERVICE: &str = "ApolloService";
 /// Services the previous hosts registered.
 pub const OLD_SERVICES: [&str; 5] = [
     "ApolloService",
@@ -16,6 +18,80 @@ pub const OLD_SERVICES: [&str; 5] = [
     "sunshinesvc",
     "ApolloSvc",
 ];
+pub use host_service::our_service;
+/// The service this PC's Rubylight runs as.
+pub fn service() -> &'static str {
+    host_service::service_named(
+        system::registry_string(HKEY_LOCAL_MACHINE, host_service::KEY, host_service::VALUE)
+            .as_deref(),
+        service_program,
+    )
+}
+/// Whether this PC's Rubylight keeps other hosts: it never stops or removes
+/// them, nor the drivers they use.
+pub fn side_by_side() -> bool {
+    let service = service();
+    keeps_other_hosts(
+        service,
+        service_program(service).is_some_and(|p| our_service(&p)),
+        side_by_side_profile(),
+    )
+}
+/// What says an installation keeps other hosts: the record or its service
+/// ([`service`]), else, with both lost, the mark in the profile side by side
+/// made. A Rubylight running as the default service is a normal one, whatever
+/// profile an earlier uninstall left it.
+fn keeps_other_hosts(service: &str, service_is_ours: bool, marked: bool) -> bool {
+    service == host_service::SIDE_BY_SIDE || (marked && !service_is_ours)
+}
+fn side_by_side_profile() -> bool {
+    crate::install::profile()
+        .join(crate::install::SIDE_BY_SIDE_MARK)
+        .is_file()
+}
+/// What an installation records about its service, before the service is
+/// registered, so the drivers' steps and every later run see the same.
+pub fn record_service(side_by_side: bool) -> anyhow::Result<()> {
+    if side_by_side {
+        system::write_key(
+            HKEY_LOCAL_MACHINE,
+            host_service::KEY,
+            &[(
+                host_service::VALUE,
+                system::Value::Text(host_service::SIDE_BY_SIDE),
+            )],
+        )
+    } else {
+        forget_service();
+        Ok(())
+    }
+}
+/// The record goes; `HKLM\SOFTWARE\Rubylight` may hold the display driver's.
+pub fn forget_service() {
+    system::delete_value(
+        HKEY_LOCAL_MACHINE,
+        host_service::KEY,
+        host_service::VALUE,
+        KEY_WOW64_64KEY,
+    );
+}
+/// The previous hosts' services that exist and are not Rubylight's.
+fn other_services(program: impl Fn(&str) -> Option<PathBuf>) -> Vec<&'static str> {
+    OLD_SERVICES
+        .iter()
+        .copied()
+        .filter(|name| program(name).is_some_and(|p| !our_service(&p)))
+        .collect()
+}
+/// Where the previous hosts' services that are not Rubylight's run from.
+fn other_service_folders(
+    program: impl Fn(&str) -> Option<PathBuf>,
+) -> Vec<(&'static str, PathBuf)> {
+    other_services(&program)
+        .into_iter()
+        .filter_map(|name| Some((name, program_folder(&program(name)?)?)))
+        .collect()
+}
 
 #[derive(Clone, Debug)]
 pub struct Product {
@@ -49,8 +125,65 @@ pub struct Found {
     /// Why the installed Rubylight cannot stay in its folder, which then
     /// moves (install::unrepairable).
     pub relocate: Option<String>,
+    /// The service Rubylight runs or would run as ([`service`]).
+    pub service: &'static str,
+    /// Previous hosts' services that are not Rubylight's.
+    pub other_services: Vec<&'static str>,
+    /// Those services' folders, for a host known only by its service.
+    pub other_service_folders: Vec<(&'static str, PathBuf)>,
+    /// Whether the profile carries side by side's mark.
+    pub side_by_side_profile: bool,
 }
 impl Found {
+    /// Whether a Rubylight is installed here that keeps other hosts.
+    pub fn installed_side_by_side(&self) -> bool {
+        self.current().is_some()
+            && keeps_other_hosts(
+                self.service,
+                self.service_install.is_some(),
+                self.side_by_side_profile,
+            )
+    }
+    /// Whether this run installs side by side. `requested` is --side-by-side
+    /// or the setup window's choice. An installation stays what it is: a
+    /// side-by-side one never turns into one that removes the other host, and
+    /// a normal one, which owns the default ports and may hold another host's
+    /// imported identity, does not become side by side in place.
+    pub fn side_by_side(&self, requested: bool) -> anyhow::Result<bool> {
+        if self.installed_side_by_side() {
+            return Ok(true);
+        }
+        if requested && self.current().is_some() {
+            anyhow::bail!(
+                "Rubylight is already installed on this PC as the {} service, so it cannot also install side by side. Uninstall Rubylight first, then run setup with --side-by-side. Side by side starts with new settings; the current ones are moved aside, not deleted. Nothing has been changed.",
+                host_service::DEFAULT
+            );
+        }
+        Ok(requested)
+    }
+    /// The other hosts' names for the user: their Apps entries, else the
+    /// services they left.
+    pub fn other_hosts(&self) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for product in self
+            .packages
+            .iter()
+            .chain(&self.legacy)
+            .chain(&self.vibepollo_entries)
+        {
+            if !names.iter().any(|n| n.eq_ignore_ascii_case(&product.name)) {
+                names.push(product.name.clone());
+            }
+        }
+        if names.is_empty() {
+            names.extend(
+                self.other_services
+                    .iter()
+                    .map(|service| format!("the host behind the {service} service")),
+            );
+        }
+        names
+    }
     /// The installed Rubylight's folder: its service's, else its Apps entry's.
     pub fn current(&self) -> Option<&Path> {
         self.service_install
@@ -242,11 +375,12 @@ pub fn scan() -> Found {
             product.location = service.clone();
         }
     }
-    found.service_install = service_program(SERVICE)
-        .filter(|p| {
-            p.file_name()
-                .is_some_and(|n| n.eq_ignore_ascii_case("butterpollo-service.exe"))
-        })
+    found.service = self::service();
+    found.other_services = other_services(service_program);
+    found.other_service_folders = other_service_folders(service_program);
+    found.side_by_side_profile = side_by_side_profile();
+    found.service_install = service_program(found.service)
+        .filter(|p| our_service(p))
         .and_then(|p| p.parent().map(PathBuf::from));
     found.relocate = found
         .current()
@@ -297,8 +431,59 @@ pub fn chosen_folder(picked: &std::path::Path) -> PathBuf {
         picked.join("Rubylight")
     }
 }
-/// A short description for the confirmation dialog.
-pub fn summary(found: &Found, install: &std::path::Path) -> String {
+/// Names for a sentence: "A", "A and B", "A, B and C".
+pub fn in_words(names: &[String]) -> String {
+    match names {
+        [] => String::new(),
+        [name] => name.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+/// What the choice between the other hosts and side by side says.
+pub struct HostChoice {
+    pub heading: String,
+    pub text: String,
+    pub replace: String,
+    pub keep: String,
+}
+/// The choice a new installation offers when other hosts are here, `None`
+/// when there are none. Replace comes first and is the default.
+pub fn host_choice(found: &Found) -> Option<HostChoice> {
+    let names = found.other_hosts();
+    if names.is_empty() {
+        return None;
+    }
+    let hosts = in_words(&names);
+    Some(HostChoice {
+        heading: format!("Replace {hosts}?"),
+        text: format!(
+            "Replace: setup uninstalls {hosts} and imports its settings, paired devices and apps into Rubylight, so your devices stay paired.\n\nKeep: Rubylight installs alongside it, with its own service, its own ports and new settings. {hosts} is not changed and keeps its drivers, and you pair your devices with Rubylight separately."
+        ),
+        replace: format!("Replace {hosts} (uninstalls it)"),
+        keep: format!("Keep {hosts} and install alongside"),
+    })
+}
+/// Why a side-by-side installation is not converted in place. The other host
+/// is untouched, and its import needs an empty profile.
+pub fn conversion_refusal(names: &[String]) -> String {
+    let hosts = if names.is_empty() {
+        "another host".to_owned()
+    } else {
+        in_words(names)
+    };
+    format!(
+        "Rubylight stays side by side: setup does not convert it in place. To replace {hosts} instead, uninstall Rubylight and delete its settings when asked, then run setup again and choose Replace. Nothing has been changed."
+    )
+}
+/// A short description for the confirmation dialog. `side_by_side`: this run
+/// keeps other hosts; `in_place`: it updates an installed Rubylight, which
+/// never removes another host.
+pub fn summary(
+    found: &Found,
+    install: &std::path::Path,
+    side_by_side: bool,
+    in_place: bool,
+) -> String {
     let mut lines = Vec::new();
     if let Some(ours) = &found.butterpollo {
         lines.push(format!("Rubylight {} will be updated.", ours.version));
@@ -320,7 +505,26 @@ pub fn summary(found: &Found, install: &std::path::Path) -> String {
             )
         });
     }
-    for product in found.packages.iter().chain(&found.legacy) {
+    let hosts = in_words(&found.other_hosts());
+    if side_by_side {
+        lines.push(format!(
+            "Rubylight runs side by side, with its own service ({}), its own ports and its own settings; nothing is imported.",
+            host_service::SIDE_BY_SIDE
+        ));
+        lines.push(if hosts.is_empty() {
+            "Other hosts and the drivers they use are never changed.".to_owned()
+        } else {
+            format!("{hosts} and its drivers are not changed.")
+        });
+    } else if in_place && !hosts.is_empty() {
+        lines.push(format!("This update does not change {hosts}."));
+    }
+    let replacing = if side_by_side || in_place {
+        Vec::new()
+    } else {
+        found.packages.iter().chain(&found.legacy).collect()
+    };
+    for product in replacing {
         // Vibepollo's own entry carries the release version; its package
         // entry only the Windows Installer encoding (2.0.0-beta.3 -> 2.0.33.0).
         let version = found
@@ -330,12 +534,12 @@ pub fn summary(found: &Found, install: &std::path::Path) -> String {
             .map_or(product.version.as_str(), |entry| entry.version.as_str());
         lines.push(if product.location.as_deref().is_some_and(has_profile) {
             format!(
-                "{} {version} will be replaced. Its settings, paired devices, apps and drivers are kept.",
+                "{} {version} will be uninstalled and replaced. Its settings, paired devices, apps and drivers are kept.",
                 product.name
             )
         } else {
             format!(
-                "{} {version} will be replaced. Its settings were not found, so they cannot be kept.",
+                "{} {version} will be uninstalled and replaced. Its settings were not found, so they cannot be kept.",
                 product.name
             )
         });
@@ -353,9 +557,213 @@ pub const SYSTEM_CHANGES: &str = "Setup installs the Rubylight service, a firewa
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn product(name: &str, key: &str) -> Product {
+        Product {
+            key: key.into(),
+            name: name.into(),
+            version: "2.0.0".into(),
+            location: None,
+            uninstall: None,
+            quiet_uninstall: None,
+            msi: key.starts_with('{'),
+            root: HKEY_LOCAL_MACHINE,
+        }
+    }
+    fn program(path: &str) -> Option<PathBuf> {
+        Some(PathBuf::from(path))
+    }
+    #[test]
+    fn an_apollo_service_with_another_program_is_never_rubylights() {
+        let theirs = |name: &str| {
+            (name == "ApolloService").then(|| PathBuf::from(r"C:\Vibepollo\tools\sunshinesvc.exe"))
+        };
+        assert!(!our_service(Path::new(
+            r"C:\Vibepollo\tools\sunshinesvc.exe"
+        )));
+        assert!(our_service(Path::new(
+            r"C:\Program Files\Rubylight\Butterpollo-Service.EXE"
+        )));
+        assert_eq!(other_services(theirs), ["ApolloService"]);
+        let ours = |name: &str| {
+            (name == "ApolloService")
+                .then(|| PathBuf::from(r"C:\Program Files\Rubylight\butterpollo-service.exe"))
+        };
+        assert!(other_services(ours).is_empty());
+        // Service names reach only what setup's scan and the uninstaller
+        // check: the constant that named it unconditionally is gone.
+        for source in [
+            include_str!("install.rs"),
+            include_str!("update.rs"),
+            include_str!("uninstall.rs"),
+        ] {
+            let code = source.split("#[cfg(test)]").next().unwrap();
+            assert!(!code.contains("\"ApolloService\""));
+            assert!(!code.contains("detect::SERVICE"));
+        }
+    }
+    /// With the record and the service both lost, a quiet run must not take the
+    /// Apps entry for a normal installation and remove the host it was kept beside.
+    #[test]
+    fn the_profiles_mark_keeps_an_installation_side_by_side() {
+        let entry = || {
+            let mut ours = product("Rubylight", "Butterpollo");
+            ours.location = Some(PathBuf::from(r"C:\Program Files\Rubylight"));
+            ours
+        };
+        let lost = Found {
+            service: host_service::DEFAULT,
+            butterpollo: Some(entry()),
+            side_by_side_profile: true,
+            ..Default::default()
+        };
+        assert!(lost.installed_side_by_side());
+        assert!(lost.side_by_side(false).unwrap());
+        assert!(lost.side_by_side(true).unwrap());
+        // Without the mark, the Apps entry alone is a normal installation.
+        let unmarked = Found {
+            side_by_side_profile: false,
+            ..lost
+        };
+        assert!(!unmarked.side_by_side(false).unwrap());
+        assert!(unmarked.side_by_side(true).is_err());
+        // Rubylight running as the default service stays what it is, over a
+        // profile an earlier side-by-side installation left.
+        let normal = Found {
+            service: host_service::DEFAULT,
+            service_install: Some(PathBuf::from(r"C:\Program Files\Rubylight")),
+            butterpollo: Some(entry()),
+            side_by_side_profile: true,
+            ..Default::default()
+        };
+        assert!(!normal.installed_side_by_side());
+        assert!(!normal.side_by_side(false).unwrap());
+        // That profile with nothing installed: a new run still chooses.
+        let uninstalled = Found {
+            service: host_service::DEFAULT,
+            side_by_side_profile: true,
+            ..Default::default()
+        };
+        assert!(!uninstalled.side_by_side(false).unwrap());
+        assert!(uninstalled.side_by_side(true).unwrap());
+    }
+    #[test]
+    fn the_steps_that_keep_shared_drivers_read_the_mark_too() {
+        assert!(keeps_other_hosts(host_service::SIDE_BY_SIDE, true, false));
+        assert!(keeps_other_hosts(host_service::SIDE_BY_SIDE, false, false));
+        assert!(keeps_other_hosts(host_service::DEFAULT, false, true));
+        assert!(!keeps_other_hosts(host_service::DEFAULT, true, true));
+        assert!(!keeps_other_hosts(host_service::DEFAULT, false, false));
+    }
+    #[test]
+    fn a_host_known_only_by_its_service_has_a_folder() {
+        let services = |name: &str| match name {
+            "ApolloService" => program(r"C:\Other\tools\sunshinesvc.exe"),
+            "SunshineService" => program(r"C:\Rubylight\butterpollo-service.exe"),
+            _ => None,
+        };
+        assert_eq!(
+            other_service_folders(services),
+            [("ApolloService", PathBuf::from(r"C:\Other"))]
+        );
+    }
+    /// Replace stays the default of existing upgrades. An installation stays
+    /// what it is, whatever a later run asks.
+    #[test]
+    fn the_mode_follows_the_installation_then_the_request() {
+        let rubylight = Some(PathBuf::from(r"C:\Program Files\Rubylight"));
+        let none = Found::default();
+        assert!(!none.side_by_side(false).unwrap());
+        // Without another host too, the flag gives the same layout.
+        assert!(none.side_by_side(true).unwrap());
+        let normal = Found {
+            service: host_service::DEFAULT,
+            service_install: rubylight.clone(),
+            ..Default::default()
+        };
+        assert!(!normal.side_by_side(false).unwrap());
+        let refused = format!("{:#}", normal.side_by_side(true).unwrap_err());
+        assert!(refused.contains("Nothing has been changed"), "{refused}");
+        assert!(refused.contains("Uninstall Rubylight first"), "{refused}");
+        let side = Found {
+            service: host_service::SIDE_BY_SIDE,
+            service_install: rubylight,
+            ..Default::default()
+        };
+        assert!(side.installed_side_by_side());
+        assert!(side.side_by_side(false).unwrap());
+        assert!(side.side_by_side(true).unwrap());
+        // A record left by a failed setup, with no Rubylight: nothing to keep.
+        let stale = Found {
+            service: host_service::SIDE_BY_SIDE,
+            ..Default::default()
+        };
+        assert!(!stale.installed_side_by_side());
+        assert!(!stale.side_by_side(false).unwrap());
+    }
+    #[test]
+    fn the_choice_names_every_detected_host_and_says_replace_uninstalls() {
+        assert!(host_choice(&Found::default()).is_none());
+        let found = Found {
+            packages: vec![product("Vibepollo", "{0A1B}")],
+            vibepollo_entries: vec![product("Vibepollo", "Vibepollo")],
+            legacy: vec![product("Apollo", "Apollo")],
+            ..Default::default()
+        };
+        assert_eq!(found.other_hosts(), ["Vibepollo", "Apollo"]);
+        let choice = host_choice(&found).unwrap();
+        assert_eq!(choice.heading, "Replace Vibepollo and Apollo?");
+        assert!(choice.replace.contains("uninstalls"), "{}", choice.replace);
+        assert!(choice.keep.contains("alongside"), "{}", choice.keep);
+        assert!(
+            choice
+                .text
+                .contains("setup uninstalls Vibepollo and Apollo"),
+            "{}",
+            choice.text
+        );
+        assert!(choice.text.contains("new settings"), "{}", choice.text);
+        // A service alone counts, and its name is all setup has to show.
+        let service = Found {
+            other_services: vec!["ApolloService"],
+            ..Default::default()
+        };
+        let choice = host_choice(&service).unwrap();
+        assert!(
+            choice.heading.contains("ApolloService"),
+            "{}",
+            choice.heading
+        );
+    }
+    #[test]
+    fn side_by_side_promises_no_change_and_no_replacement() {
+        let found = Found {
+            legacy: vec![product("Sunshine", "Sunshine")],
+            ..Default::default()
+        };
+        let folder = default_folder();
+        let replacing = summary(&found, &folder, false, false);
+        assert!(replacing.contains("will be uninstalled and replaced"));
+        let keeping = summary(&found, &folder, true, false);
+        assert!(!keeping.contains("replaced"), "{keeping}");
+        assert!(keeping.contains("Sunshine and its drivers are not changed"));
+        assert!(keeping.contains("RubylightService"), "{keeping}");
+        assert!(keeping.contains("nothing is imported"), "{keeping}");
+        assert!(keeping.ends_with(SYSTEM_CHANGES));
+        // An update of an installed Rubylight removes no host, and says so.
+        let updating = summary(&found, &folder, false, true);
+        assert!(!updating.contains("replaced"), "{updating}");
+        assert!(updating.contains("does not change Sunshine"), "{updating}");
+    }
+    #[test]
+    fn a_conversion_is_refused_with_the_way_to_do_it() {
+        let text = conversion_refusal(&["Vibepollo".to_owned()]);
+        assert!(text.contains("To replace Vibepollo"), "{text}");
+        assert!(text.contains("uninstall Rubylight"), "{text}");
+        assert!(text.contains("Nothing has been changed"), "{text}");
+    }
     #[test]
     fn the_summary_names_system_changes_and_the_privacy_statement() {
-        let text = summary(&Found::default(), &default_folder());
+        let text = summary(&Found::default(), &default_folder(), false, false);
         assert!(text.ends_with(SYSTEM_CHANGES), "{text}");
         assert!(text.contains("service") && text.contains("firewall rule"));
         assert!(text.contains("certificates") && text.contains("removes them"));
@@ -391,11 +799,11 @@ mod tests {
         };
         assert_eq!(install_dir(&found, None), installed);
         assert!(!folder_choosable(&found));
-        assert!(!summary(&found, &installed).contains("Rubylight moves out of"));
+        assert!(!summary(&found, &installed, false, false).contains("Rubylight moves out of"));
         found.relocate = Some("Games must be owned by Administrators".into());
         assert_eq!(install_dir(&found, None), default_folder());
         assert!(folder_choosable(&found));
-        let text = summary(&found, &default_folder());
+        let text = summary(&found, &default_folder(), false, false);
         assert!(
             text.contains(&format!(
                 "Rubylight moves out of {}: its service runs as SYSTEM",
@@ -408,7 +816,7 @@ mod tests {
             "{text}"
         );
         // Picked again, the folder is refused before setup starts.
-        assert!(summary(&found, &installed).contains("Choose another folder."));
+        assert!(summary(&found, &installed, false, false).contains("Choose another folder."));
         // A folder chosen on the command line is still used.
         let requested = root.path().join("Requested");
         assert_eq!(install_dir(&found, Some(requested.clone())), requested);
@@ -519,11 +927,11 @@ mod tests {
             ..Default::default()
         };
         let install = Path::new(r"C:\Program Files\Butterpollo");
-        assert!(summary(&found, install).contains("Its settings were not found"));
+        assert!(summary(&found, install, false, false).contains("Its settings were not found"));
         std::fs::create_dir(root.path().join("config")).unwrap();
         std::fs::write(root.path().join("config").join("sunshine.conf"), "").unwrap();
         assert!(
-            summary(&found, install)
+            summary(&found, install, false, false)
                 .contains("Its settings, paired devices, apps and drivers are kept.")
         );
     }

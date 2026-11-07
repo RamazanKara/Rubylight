@@ -296,9 +296,23 @@ fn readable(
 /// Every device, present or not, by instance id with its hardware ids. Only
 /// listing them fails; a device that can't be read is skipped.
 fn all_devices() -> Result<Vec<(String, Vec<String>)>> {
+    use windows::Win32::Devices::DeviceAndDriverInstallation::DIGCF_ALLCLASSES;
+    devices_with(DIGCF_ALLCLASSES)
+}
+/// The instance ids of the devices present now.
+pub fn present_devices() -> Result<Vec<String>> {
+    use windows::Win32::Devices::DeviceAndDriverInstallation::{DIGCF_ALLCLASSES, DIGCF_PRESENT};
+    Ok(devices_with(DIGCF_ALLCLASSES | DIGCF_PRESENT)?
+        .into_iter()
+        .map(|(instance, _)| instance)
+        .collect())
+}
+fn devices_with(
+    flags: windows::Win32::Devices::DeviceAndDriverInstallation::SETUP_DI_GET_CLASS_DEVS_FLAGS,
+) -> Result<Vec<(String, Vec<String>)>> {
     use windows::Win32::Devices::DeviceAndDriverInstallation::{
-        DIGCF_ALLCLASSES, HDEVINFO, SP_DEVINFO_DATA, SetupDiDestroyDeviceInfoList,
-        SetupDiEnumDeviceInfo, SetupDiGetClassDevsW,
+        HDEVINFO, SP_DEVINFO_DATA, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo,
+        SetupDiGetClassDevsW,
     };
     use windows::Win32::Foundation::ERROR_NO_MORE_ITEMS;
     struct Set(HDEVINFO);
@@ -309,10 +323,11 @@ fn all_devices() -> Result<Vec<(String, Vec<String>)>> {
         }
     }
     // SAFETY: No class, enumerator or window: every device of every class.
-    let set = Set(unsafe {
-        SetupDiGetClassDevsW(None, windows::core::PCWSTR::null(), None, DIGCF_ALLCLASSES)
-    }
-    .context("listing the devices")?);
+    let set =
+        Set(
+            unsafe { SetupDiGetClassDevsW(None, windows::core::PCWSTR::null(), None, flags) }
+                .context("listing the devices")?,
+        );
     let mut devices = Vec::new();
     for index in 0.. {
         let mut device = SP_DEVINFO_DATA {

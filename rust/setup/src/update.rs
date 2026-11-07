@@ -21,6 +21,7 @@ pub fn run(
 ) -> Result<()> {
     let profile = install::profile();
     let result = profile.join("update-result.json");
+    let service = detect::service();
     let mut lock = None;
     let Prepared {
         install,
@@ -42,12 +43,12 @@ pub fn run(
     progress.set("Stopping Rubylight…");
     stop_for_update(
         &result,
-        || system::stop_service(detect::SERVICE),
+        || system::stop_service(service),
         || {
-            if !system::wait_stopped(detect::SERVICE, Duration::from_secs(120)) {
+            if !system::wait_stopped(service, Duration::from_secs(120)) {
                 line("the service is still stopping");
             }
-            system::start_service(detect::SERVICE)
+            system::start_service(service)
         },
     )
     .inspect_err(|_| remove_work(&work))?;
@@ -65,7 +66,7 @@ pub fn run(
     let saved = match saved {
         Ok(saved) => saved,
         Err(error) => {
-            let _ = system::start_service(detect::SERVICE);
+            let _ = system::start_service(service);
             // No record names this backup: nothing was replaced.
             remove_work(&work);
             write_result(&result, "failed", Some(&format!("{error:#}")))?;
@@ -83,7 +84,7 @@ pub fn run(
             before_start();
             progress.set("Checking that Rubylight starts…");
             if start {
-                if system::start_service_unless_disabled(detect::SERVICE)? {
+                if system::start_service_unless_disabled(service)? {
                     install::wait_ready(install::probe(&profile), Some(env!("CARGO_PKG_VERSION")))?;
                     // The host made the console's certificate as it started.
                     install::trust_console_or_warn(&profile);
@@ -96,11 +97,11 @@ pub fn run(
         },
         || {
             progress.set("Restoring the previous version…");
-            system::stop_service(detect::SERVICE)
+            system::stop_service(service)
         },
         || {
             // A disabled service was never running; the files are restored.
-            if system::start_service_unless_disabled(detect::SERVICE)? {
+            if system::start_service_unless_disabled(service)? {
                 install::wait_ready(install::probe(&profile), None)?;
             }
             Ok(())
@@ -162,7 +163,7 @@ fn prepare(
     detect::scan().check_version()?;
     let install = std::fs::canonicalize(folder)?;
     let service =
-        system::service_program(detect::SERVICE).context("Rubylight service is not installed")?;
+        system::service_program(detect::service()).context("Rubylight service is not installed")?;
     check_service_folder(&service, &install)?;
     // Both are the installed service's now: repair what earlier installers
     // left, or refuse.

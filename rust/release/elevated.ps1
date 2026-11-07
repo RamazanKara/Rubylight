@@ -53,13 +53,16 @@ try {
         $info = (& curl.exe -s --max-time 5 http://127.0.0.1:47989/serverinfo) -join ' '
         if ($info -match '<RustHostVersion>([^<]+)</RustHostVersion>') { $reported = $Matches[1] }
     } until ($reported -eq $Version -or (Get-Date) -gt $deadline)
+    # The service setup recorded for a side-by-side installation (rust/core/src/host_service.rs).
+    $serviceName = (Get-ItemProperty 'HKLM:\SOFTWARE\Rubylight' -Name ServiceName -ErrorAction SilentlyContinue).ServiceName
+    if ($serviceName -ne 'RubylightService') { $serviceName = 'ApolloService' }
     $installed = [ordered]@{
         setup = "$(Split-Path $Installer -Leaf) --quiet over the running host"
         setup_exit = $setup.ExitCode
         reported_version = $reported
         # The install folder is the service's: Rubylight now, ButterpolloRust before rc.30.
-        host_sha256 = (Get-FileHash (Join-Path (Split-Path ((Get-CimInstance Win32_Service -Filter "Name='ApolloService'").PathName -replace '^"([^"]+)".*$', '$1')) 'butterpollo.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
-        service = "$((Get-Service ApolloService -ErrorAction SilentlyContinue).Status)"
+        host_sha256 = (Get-FileHash (Join-Path (Split-Path ((Get-CimInstance Win32_Service -Filter "Name='$serviceName'").PathName -replace '^"([^"]+)".*$', '$1')) 'butterpollo.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+        service = "$((Get-Service $serviceName -ErrorAction SilentlyContinue).Status)"
     }
     $installed | ConvertTo-Json | Set-Content (Join-Path $out 'installed.json') -Encoding utf8
     $installed | ConvertTo-Json

@@ -135,7 +135,7 @@ fn start_elevated() -> bool {
         "{}\\sc.exe",
         String::from_utf16_lossy(&folder[..length])
     ));
-    let arguments = to_wide(&format!("start {}", crate::service::NAME));
+    let arguments = to_wide(&format!("start {}", crate::service::name()));
     let mut info = SHELLEXECUTEINFOW {
         cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
         fMask: SEE_MASK_NOCLOSEPROCESS,
@@ -169,7 +169,7 @@ fn service_profile() -> Result<Option<PathBuf>> {
         Err(_) => return Ok(None),
     };
     let service = match manager.open_service(
-        crate::service::NAME,
+        crate::service::name(),
         ServiceAccess::QUERY_CONFIG | ServiceAccess::QUERY_STATUS,
     ) {
         Ok(service) => service,

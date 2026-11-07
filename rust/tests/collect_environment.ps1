@@ -45,7 +45,10 @@ if (Test-Path -LiteralPath $binary -PathType Leaf) {
     } catch { $report.errors += 'Host version: ' + $_.Exception.Message }
 } else { $report.errors += 'Rubylight executable not found in the selected installation directory' }
 try {
-    $service = Get-Service -Name ApolloService -ErrorAction Stop
+    # The service setup recorded for a side-by-side installation (rust/core/src/host_service.rs).
+    $serviceName = (Get-ItemProperty 'HKLM:\SOFTWARE\Rubylight' -Name ServiceName -ErrorAction SilentlyContinue).ServiceName
+    if ($serviceName -ne 'RubylightService') { $serviceName = 'ApolloService' }
+    $service = Get-Service -Name $serviceName -ErrorAction Stop
     $report.service_state = [string]$service.Status
 } catch { $report.errors += 'Host service is not installed or cannot be queried' }
 $destination = [IO.Path]::GetFullPath($OutputFile)

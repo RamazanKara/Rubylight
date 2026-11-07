@@ -788,7 +788,28 @@ final class GameConnection {
         });
     }
 
+    private HostLossWatch hostLossWatch;
+
+    // Readies the check after a host's goodbye: the address the stream connected to.
+    private void startHostLossWatch() {
+        if (hostLossWatch != null) hostLossWatch.stop();
+        hostLossWatch = null;
+        if (game.conn == null) return;
+        if (!MoonBridge.hostLossAvailable()) {
+            LimeLog.warning("A PC that shuts down is told only by the recovery running out: libnightjar_core.so did not load");
+            return;
+        }
+        java.net.InetAddress host = HostLossWatch.parse(MoonBridge.getHostAddress());
+        if (host == null) {
+            LimeLog.warning("A PC that shuts down is told only by the recovery running out: the stream's address is unknown");
+            return;
+        }
+        android.net.ConnectivityManager connectivity = game.getSystemService(android.net.ConnectivityManager.class);
+        hostLossWatch = new HostLossWatch(new HostLossWatch.Live(connectivity), host, game.conn.hostHttpsPort());
+    }
+
     void stopConnection() {
+        if (hostLossWatch != null) hostLossWatch.stop();
         if (openPlaySettled != null) game.bitrateHandler.removeCallbacks(openPlaySettled);
         game.adaptation.stopFoundationAbr();
         game.touchInput.releaseDesktopInput();
@@ -984,17 +1005,24 @@ final class GameConnection {
         } else {
             LimeLog.severe("Connection terminated: " + Game.terminationDescription(reportedErrorCode));
         }
+        // After this session's host said goodbye and closed its server (a PC shutting down, a host
+        // that stopped): ends here with nothing to ask it or retry. Checked first, because the other
+        // checks would wait on a PC that is gone.
+        final HostLossWatch hostLoss = hostLossWatch;
+        final boolean hostGone = !exitRequested && game.connected && hostLoss != null &&
+                StreamRecoveryPolicy.transportTermination(reportedErrorCode) &&
+                hostLoss.afterGoodbye() == HostLossWatch.GOODBYE_GONE;
         // Some hosts close the transport before their graceful termination packet arrives.
         // Verify an idle host before either retrying or showing an error, even with recovery off.
-        final boolean endedSession = !exitRequested && game.connected &&
+        final boolean endedSession = !hostGone && !exitRequested && game.connected &&
                 StreamRecoveryPolicy.transportTermination(reportedErrorCode) &&
                 game.conn != null && game.conn.hasEndedSession();
-        final int errorCode = exitRequested || endedSession ?
+        final int errorCode = hostGone ? MoonBridge.CLIENT_ERROR_HOST_GONE : exitRequested || endedSession ?
                 MoonBridge.ML_ERROR_GRACEFUL_TERMINATION : reportedErrorCode;
         if (endedSession) LimeLog.info("Connection terminated: the PC ended the previous session");
         // Another device pressed Continue here: this stream must not come back. A stream that reconnects does not wait
         // for the answer here, on a link that may be dead: its resume stops at the running-game check and asks there.
-        final boolean mayHaveMoved = !exitRequested && game.conn != null && (reportedErrorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION
+        final boolean mayHaveMoved = !hostGone && !exitRequested && game.conn != null && (reportedErrorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION
                 || StreamRecoveryPolicy.transientTermination(reportedErrorCode));
         final boolean recoveryFollows = game.prefConfig != null && game.prefConfig.autoReconnect
                 && StreamRecoveryPolicy.recoversTermination(errorCode, game.streamRecovery.videoStarted());
@@ -1010,7 +1038,7 @@ final class GameConnection {
         final boolean transientFailure = ContinueHerePolicy.recovers(
                 StreamRecoveryPolicy.recoversTermination(errorCode, game.streamRecovery.videoStarted()), movedTo != null);
         // A renderer failure on this device says nothing about the network
-        final int portTestResult = errorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION ||
+        final int portTestResult = errorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION || hostGone ||
                 errorCode == MoonBridge.CLIENT_ERROR_VULKAN_RENDERER || errorCode == MoonBridge.CLIENT_ERROR_DECODER ||
                 (transientFailure && game.prefConfig != null && game.prefConfig.autoReconnect) ?
                 MoonBridge.ML_TEST_RESULT_INCONCLUSIVE :
@@ -1095,6 +1123,10 @@ final class GameConnection {
                 }
                 else {
                     switch (errorCode) {
+                        case MoonBridge.CLIENT_ERROR_HOST_GONE:
+                            message = game.getResources().getString(R.string.lost_connection);
+                            break;
+
                         case MoonBridge.ML_ERROR_NO_VIDEO_TRAFFIC:
                             message = game.getResources().getString(R.string.no_video_received_error);
                             break;
@@ -1168,7 +1200,8 @@ final class GameConnection {
                     // The host went away or the connection was lost: nothing to act on, so
                     // go back to the list and say why where it outlives this screen. Android
                     // 12+ shows two lines of a text toast, so it is the title and the code.
-                    Toast.makeText(game.getApplicationContext(),
+                    Toast.makeText(game.getApplicationContext(), errorCode == MoonBridge.CLIENT_ERROR_HOST_GONE ?
+                            game.getString(R.string.lost_connection) :
                             game.getString(R.string.conn_terminated_title) + "\n" +
                                     game.getString(R.string.error_code_prefix) + " " + Game.errorCodeText(errorCode),
                             Toast.LENGTH_LONG).show();
@@ -1292,6 +1325,7 @@ final class GameConnection {
                 }
 
                 game.connected = true;
+                startHostLossWatch();
                 game.conn.refreshNativeHostControl();
                 game.getIntent().removeExtra(Game.EXTRA_RECOVERY_MEDIA_FAILURE);
                 game.bitrateHandler.removeCallbacks(game.adaptation.sampleStreamHealth);

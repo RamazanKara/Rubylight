@@ -40,6 +40,43 @@ public class GamePerformanceOverlayTest {
                 ReflectionHelpers.ClassParameter.from(String.class, mode));
     }
 
+    private Game laidOutTv(boolean touchscreen, String debugText) {
+        Game game = game();
+        org.robolectric.Shadows.shadowOf(game.getPackageManager()).setSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN, touchscreen);
+        org.robolectric.Shadows.shadowOf(game.getPackageManager()).setSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK, !touchscreen);
+        ReflectionHelpers.setField(game.overlays, "debugPerformanceText", debugText);
+        android.view.View root = (android.view.View) ((android.view.View) game.findViewById(R.id.performanceOverlayScroll)).getParent();
+        root.measure(android.view.View.MeasureSpec.makeMeasureSpec(1920, android.view.View.MeasureSpec.EXACTLY),
+                android.view.View.MeasureSpec.makeMeasureSpec(1080, android.view.View.MeasureSpec.EXACTLY));
+        root.layout(0, 0, 1920, 1080);
+        setMode(game, "debug");
+        return game;
+    }
+
+    private static String manyLines() {
+        StringBuilder text = new StringBuilder("Line 0");
+        for (int i = 1; i < 120; i++) text.append("\nLine ").append(i);
+        return text.toString();
+    }
+
+    @Test
+    public void aDeviceWithoutATouchscreenFitsTheWholeOverlayOnScreen() {
+        Game game = laidOutTv(false, manyLines());
+        TextView first = game.findViewById(R.id.performanceOverlay);
+        TextView second = game.findViewById(R.id.performanceOverlayColumn2);
+        assertEquals(android.view.View.VISIBLE, second.getVisibility());
+        assertTrue(first.getText().toString().startsWith("Line 0\n"));
+        assertTrue(second.getText().toString().endsWith("Line 119"));
+    }
+
+    @Test
+    public void aTouchscreenStillScrollsTheOverlay() {
+        Game game = laidOutTv(true, manyLines());
+        TextView first = game.findViewById(R.id.performanceOverlay);
+        assertEquals(android.view.View.GONE, ((TextView) game.findViewById(R.id.performanceOverlayColumn2)).getVisibility());
+        assertTrue(first.getText().toString().endsWith("Line 119"));
+    }
+
     @Test
     public void compactIsTheDefaultOneLineWithItsDotInWords() {
         Game game = game();

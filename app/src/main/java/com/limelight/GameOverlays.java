@@ -18,6 +18,7 @@ import android.os.SystemClock;
 import android.preference.PreferenceManager;
 import android.view.Display;
 import android.view.View;
+import android.widget.TextView;
 import android.widget.Toast;
 
 /** The stream's on-screen overlays: the performance overlay and its hardware metrics, the stream menu hint and the notices of the stream. */
@@ -146,12 +147,12 @@ final class GameOverlays {
                 spot == com.limelight.ui.OverlayPlacement.Spot.BOTTOM_END ? android.view.Gravity.END : android.view.Gravity.START;
         if ((game.performanceOverlayView.getGravity() & android.view.Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK) != side) {
             game.performanceOverlayView.setGravity(android.view.Gravity.TOP | side);
+            secondOverlayColumn().setGravity(android.view.Gravity.TOP | side);
         }
     }
 
     void updatePerformanceOverlay() {
         boolean compact = PerformanceOverlay.MODE_COMPACT.equals(game.overlayMode);
-        game.performanceOverlayView.setTextSize(compact ? 13 : isDebugOverlay() ? 11 : 12);
         CharSequence text = compact ? compactPerformanceText : hardwarePerformanceText(isDebugOverlay());
         if (PerformanceOverlay.MODE_STATISTICS.equals(game.overlayMode) && text.length() != 0) {
             text = PerformanceOverlay.withStatusLine(text, game.messages.notes());
@@ -160,9 +161,46 @@ final class GameOverlays {
             text = compact ? "● " + game.getString(R.string.overlay_compact_waiting) : game.getString(R.string.stats_waiting);
         }
         text = PerformanceOverlay.withLinkNotice(game, text, game.linkNotice);
-        game.performanceOverlayView.setText(text);
+        showOverlayText(text, compact ? 13 : isDebugOverlay() ? 11 : 12, !compact);
         game.performanceOverlayView.setContentDescription(compact ?
                 PerformanceOverlay.describeCompact(game, compactPerformanceText, game.linkNotice) : null);
+    }
+
+    private TextView secondOverlayColumn() {
+        return ((View) game.performanceOverlayView.getParent()).findViewById(R.id.performanceOverlayColumn2);
+    }
+
+    // Nothing scrolls the overlay without a touchscreen: a TV's remote goes to the PC during a stream, so it has to fit.
+    private boolean overlayCanScroll() {
+        return game.getPackageManager().hasSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN)
+                && !game.getPackageManager().hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK);
+    }
+
+    private void showOverlayText(CharSequence text, float textSp, boolean mayBeLong) {
+        TextView first = game.performanceOverlayView;
+        TextView second = secondOverlayColumn();
+        View scroll = game.performanceOverlayScroll;
+        View parent = scroll != null ? (View) scroll.getParent() : null;
+        int margin = Math.round(16 * game.getResources().getDisplayMetrics().density);
+        int width = parent != null ? parent.getWidth() - margin - scroll.getPaddingLeft() - scroll.getPaddingRight() : 0;
+        int height = parent != null ? parent.getHeight() - margin - scroll.getPaddingTop() - scroll.getPaddingBottom() : 0;
+        // Not laid out yet: the next second's update fits it.
+        if (!mayBeLong || width <= 0 || height <= 0 || overlayCanScroll()) {
+            first.setTextSize(textSp);
+            first.setText(text);
+            second.setVisibility(View.GONE);
+            first.setMaxWidth(game.getResources().getDimensionPixelSize(R.dimen.stream_overlay_column));
+            return;
+        }
+        com.limelight.ui.OverlayFit fit = com.limelight.ui.OverlayFit.fit(first, text, textSp, width, height,
+                game.getResources().getDimensionPixelSize(R.dimen.stream_overlay_column));
+        first.setTextSize(fit.textSp);
+        first.setMaxWidth(fit.columnWidthPx);
+        first.setText(fit.first);
+        second.setTextSize(fit.textSp);
+        second.setMaxWidth(fit.columnWidthPx);
+        second.setText(fit.second);
+        second.setVisibility(fit.second != null ? View.VISIBLE : View.GONE);
     }
 
     // The on-screen gamepad, its layout button, per-game buttons and the key toolbar stay uncovered.

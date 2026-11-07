@@ -81,6 +81,8 @@ public class MoonBridge {
     public static final int CLIENT_ERROR_PACKED_444_REFUSED = -106;
     // This device's own code, never sent by a PC: the video decoder failed and recovering it did not help
     public static final int CLIENT_ERROR_DECODER = -107;
+    // This device's own code, never sent by a PC: the PC said goodbye and closed its server: it shuts down or its host stopped (HostLossWatch)
+    public static final int CLIENT_ERROR_HOST_GONE = -108;
 
     public static final int ML_PORT_INDEX_TCP_47984 = 0;
     public static final int ML_PORT_INDEX_TCP_47989 = 1;
@@ -852,6 +854,32 @@ public class MoonBridge {
     public static native int getPortFlagsFromTerminationErrorCode(int errorCode);
 
     public static native String stringifyPortFlags(int portFlags, String separator);
+
+    /** Whether this session's host's own disconnect ended the connection, not a silence past the timeout. */
+    public static boolean hostSaidGoodbye() {
+        return rustStream ? RustBridge.hostSaidGoodbye() : cHostSaidGoodbye();
+    }
+    private static native boolean cHostSaidGoodbye();
+
+    /** The address the running stream connected to (as text, no DNS), or null without one. */
+    public static String getHostAddress() {
+        return rustStream ? RustBridge.getHostAddress() : cGetHostAddress();
+    }
+    private static native String cGetHostAddress();
+
+    /** nightjar_core::host_loss, for both engines: one round of connection attempts (about 750 ms), as its code. */
+    public static int hostLossRound(String host, int port, String gateway) {
+        return RustBridge.hostLossRound(host, port, gateway);
+    }
+
+    /** nightjar_core::host_loss::after_goodbye: one round's verdict after the host's goodbye, as its code. */
+    public static int hostLossAfterGoodbye(boolean onLink, int round, long waitedMs) {
+        return RustBridge.hostLossAfterGoodbye(onLink, round, waitedMs);
+    }
+
+    public static boolean hostLossAvailable() {
+        return RustBridge.isAvailable();
+    }
 
     // The RTT is in the top 32 bits, and the RTT variance is in the bottom 32 bits
     public static long getEstimatedRttInfo() {

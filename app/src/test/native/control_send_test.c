@@ -183,7 +183,9 @@ int gracefullyDisconnectEnetPeer(ENetHost* host, ENetPeer* target, enet_uint32 l
     return 0;
 }
 
-// No host disconnect is held back here, so a stop always disconnects gracefully.
+// No host disconnect is held back here, and the fake peer heard from the host just now (both
+// times are 0), so a stop always disconnects gracefully.
+enet_uint32 enet_time_get(void) { return 0; }
 void enet_peer_disconnect_now(ENetPeer* target, enet_uint32 data) { CHECK(false); }
 
 void enet_host_destroy(ENetHost* host) {

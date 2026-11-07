@@ -482,13 +482,14 @@ impl Shared {
         self.raise_thread(priority::StreamThread::VideoDecode);
     }
 
+    /// Says once per thread what raised it, or why nothing did.
     fn raise_thread(&self, thread: priority::StreamThread) {
         let level = priority::thread_level(thread, self.network_priority, self.decode_priority);
-        if let Err(e) = priority::raise_current_thread(level) {
-            self.warn(&format!(
-                "Could not raise the priority of {}: {e}",
-                std::thread::current().name().unwrap_or("a stream thread")
-            ));
+        let name = std::thread::current().name().unwrap_or("a stream thread").to_owned();
+        match priority::raise_current_thread(level) {
+            Ok(Some(raised)) => self.log(&format!("Raised {name} to {raised}")),
+            Ok(None) => {}
+            Err(e) => self.warn(&format!("Could not raise the priority of {name}: {e}")),
         }
     }
 }

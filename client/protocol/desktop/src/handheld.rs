@@ -141,7 +141,7 @@ impl SdrReason {
     pub fn says(self) -> &'static str {
         match self {
             Self::NoGpuRenderer => "the GPU renderer is not used",
-            Self::DisplayNotHdr => "the compositor reports no HDR for this window or any display",
+            Self::DisplayNotHdr => "the compositor reports no HDR for this window",
             Self::NotOffered => "the swapchain offers neither scRGB nor HDR10",
             Self::PqFailed => "HDR10 is offered but the PQ renderer could not be made",
             Self::SwapchainRefused => "scRGB is offered but the swapchain did not take it",
@@ -152,7 +152,7 @@ impl SdrReason {
 
 /// The output to try. SDL's window HDR state (`window_hdr`) is what a desktop compositor says;
 /// gamescope's Xwayland window never has one, so there the swapchain's colour spaces decide.
-/// A hidden Wayland window has none yet either: `plan` passes `window_hdr || display_hdr`.
+/// A hidden Wayland window has none yet either: `plan` passes on a display's HDR when a stream asks for it.
 /// scRGB first (SDL's tone mapping and the overlay work in it unchanged), then PQ, which only
 /// gamescope gets: a desktop compositor offering HDR10 alone stays on SDR as before.
 pub fn choose(gpu: bool, gamescope: bool, window_hdr: bool, offered: Offered) -> Result<Output, SdrReason> {
@@ -190,11 +190,12 @@ pub struct Plan {
 }
 
 /// `display_hdr`: a display of the compositor has HDR on. A Wayland window is told its state only
-/// once it is mapped, and mapping it takes this first renderer's frame. So the scRGB renderer
-/// stays, and SDL's own report for the window turns its HDR on when it arrives
-/// (`SDL_EVENT_WINDOW_HDR_STATE_CHANGED`) or leaves it off on an SDR display.
-pub fn plan(gamescope: bool, window_hdr: bool, display_hdr: bool, offered: Offered) -> Plan {
-    let decision = choose(true, gamescope, window_hdr || display_hdr, offered);
+/// once it is mapped, and mapping it takes this first renderer's frame. So where a saved setting
+/// asks for HDR (`hdr_asked`) the scRGB renderer stays, and SDL's own report for the window turns
+/// its HDR on when it arrives (`SDL_EVENT_WINDOW_HDR_STATE_CHANGED`) or leaves it off on an SDR
+/// display. Without an HDR setting the SDR swapchain stays: fp16 would serve no stream.
+pub fn plan(gamescope: bool, window_hdr: bool, display_hdr: bool, hdr_asked: bool, offered: Offered) -> Plan {
+    let decision = choose(true, gamescope, window_hdr || (display_hdr && hdr_asked), offered);
     match decision {
         Ok(_) if !gamescope => Plan { decision, set_window_hdr: false, rebuild: false },
         Ok(output) => Plan { decision, set_window_hdr: !window_hdr, rebuild: output == Output::Pq || !window_hdr },
@@ -214,16 +215,17 @@ pub fn settle(output: Output, made: bool, hdr_taken: bool) -> Result<Output, Sdr
 
 /// The log line for the renderer's output decision: the renderer, what the swapchain offers, and
 /// what was chosen or why it is SDR.
-pub fn describe(renderer: &str, gamescope: bool, window_hdr: bool, display_hdr: bool, offered: Offered, decision: Result<Output, SdrReason>) -> String {
+pub fn describe(renderer: &str, gamescope: bool, window_hdr: bool, display_hdr: bool, hdr_asked: bool, offered: Offered, decision: Result<Output, SdrReason>) -> String {
     let yes = |b: bool| if b { "yes" } else { "no" };
     let output = match decision {
+        Ok(Output::Scrgb) if !gamescope && !window_hdr => "HDR as scRGB, pending the window's report".to_owned(),
         Ok(Output::Scrgb) => "HDR as scRGB".to_owned(),
         Ok(Output::Pq) => "HDR as HDR10 PQ (BT.2020, ST 2084)".to_owned(),
         Err(reason) => format!("SDR, {}", reason.says()),
     };
     format!(
-        "renderer {renderer:?}: swapchain offers scRGB {}, HDR10 {}; gamescope {}, window HDR {}, display HDR {}; output {output}",
-        yes(offered.scrgb), yes(offered.hdr10), yes(gamescope), yes(window_hdr), yes(display_hdr)
+        "renderer {renderer:?}: swapchain offers scRGB {}, HDR10 {}; gamescope {}, window HDR {}, display HDR {}, HDR asked {}; output {output}",
+        yes(offered.scrgb), yes(offered.hdr10), yes(gamescope), yes(window_hdr), yes(display_hdr), yes(hdr_asked)
     )
 }
 
@@ -257,6 +259,30 @@ pub enum HdrStream {
     Sdr,
     SdrWithNote,
     Refuse,
+}
+
+/// The window's HDR report can still turn HDR on: the swapchain took HDR and a display has it on.
+pub fn hdr_report_can_come(swapchain_hdr: bool, display_hdr: bool) -> bool {
+    swapchain_hdr && display_hdr
+}
+
+/// What an HDR stream refused on a desktop can do about it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HdrRefusal {
+    /// No display has HDR on.
+    TurnHdrOn,
+    /// A display has HDR on, and the renderer was made for SDR: it is chosen when Nightjar starts.
+    Restart,
+    /// The swapchain is ready and a display has HDR on, and this window has no HDR: another display's.
+    MoveWindow,
+}
+
+pub fn hdr_refusal(swapchain_hdr: bool, display_hdr: bool) -> HdrRefusal {
+    match (swapchain_hdr, display_hdr) {
+        (_, false) => HdrRefusal::TurnHdrOn,
+        (false, true) => HdrRefusal::Restart,
+        (true, true) => HdrRefusal::MoveWindow,
+    }
 }
 
 #[cfg(test)]
@@ -342,7 +368,7 @@ mod tests {
         assert!(!window_hdr_reported(false, false));
         let both = Offered { scrgb: true, hdr10: true };
         // The second attempt under gamescope plans as the first did: set the state and rebuild.
-        let second = plan(true, window_hdr_reported(true, true), false, both);
+        let second = plan(true, window_hdr_reported(true, true), false, true, both);
         assert_eq!(second, Plan { decision: Ok(Output::Scrgb), set_window_hdr: true, rebuild: true });
     }
 
@@ -350,11 +376,11 @@ mod tests {
     fn the_renderer_is_made_again_for_pq_or_a_window_hdr_state_nightjar_sets() {
         let both = Offered { scrgb: true, hdr10: true };
         let pq_only = Offered { scrgb: false, hdr10: true };
-        assert_eq!(plan(true, false, false, both), Plan { decision: Ok(Output::Scrgb), set_window_hdr: true, rebuild: true }, "gamescope scRGB");
-        assert_eq!(plan(true, false, false, pq_only), Plan { decision: Ok(Output::Pq), set_window_hdr: true, rebuild: true }, "gamescope PQ");
-        assert_eq!(plan(false, true, false, both), Plan { decision: Ok(Output::Scrgb), set_window_hdr: false, rebuild: false }, "a desktop's HDR keeps the renderer");
-        assert_eq!(plan(true, false, false, Offered::default()), Plan { decision: Err(SdrReason::NotOffered), set_window_hdr: false, rebuild: false });
-        assert_eq!(plan(false, true, false, pq_only).decision, Err(SdrReason::PqOutsideGamescope));
+        assert_eq!(plan(true, false, false, true, both), Plan { decision: Ok(Output::Scrgb), set_window_hdr: true, rebuild: true }, "gamescope scRGB");
+        assert_eq!(plan(true, false, false, true, pq_only), Plan { decision: Ok(Output::Pq), set_window_hdr: true, rebuild: true }, "gamescope PQ");
+        assert_eq!(plan(false, true, false, false, both), Plan { decision: Ok(Output::Scrgb), set_window_hdr: false, rebuild: false }, "a desktop's HDR keeps the renderer");
+        assert_eq!(plan(true, false, false, false, Offered::default()), Plan { decision: Err(SdrReason::NotOffered), set_window_hdr: false, rebuild: false });
+        assert_eq!(plan(false, true, false, true, pq_only).decision, Err(SdrReason::PqOutsideGamescope));
     }
 
     // nightjar#80: KDE on Bazzite offers both colour spaces, but a hidden Wayland window has no HDR
@@ -363,10 +389,29 @@ mod tests {
     fn a_wayland_display_with_hdr_keeps_the_scrgb_renderer_before_the_window_is_told() {
         let both = Offered { scrgb: true, hdr10: true };
         let pq_only = Offered { scrgb: false, hdr10: true };
-        assert_eq!(plan(false, false, true, both), Plan { decision: Ok(Output::Scrgb), set_window_hdr: false, rebuild: false }, "SDL's own report sets the state");
-        assert_eq!(plan(false, false, false, both).decision, Err(SdrReason::DisplayNotHdr), "no display with HDR stays on the SDR swapchain");
-        assert_eq!(plan(false, false, true, pq_only).decision, Err(SdrReason::PqOutsideGamescope));
-        assert_eq!(plan(true, false, true, both), Plan { decision: Ok(Output::Scrgb), set_window_hdr: true, rebuild: true }, "gamescope as before");
+        assert_eq!(plan(false, false, true, true, both), Plan { decision: Ok(Output::Scrgb), set_window_hdr: false, rebuild: false }, "SDL's own report sets the state");
+        assert_eq!(plan(false, false, false, true, both).decision, Err(SdrReason::DisplayNotHdr), "no display with HDR stays on the SDR swapchain");
+        assert_eq!(plan(false, false, true, true, pq_only).decision, Err(SdrReason::PqOutsideGamescope));
+        assert_eq!(plan(true, false, true, true, both), Plan { decision: Ok(Output::Scrgb), set_window_hdr: true, rebuild: true }, "gamescope as before");
+    }
+
+    #[test]
+    fn sdr_settings_keep_the_sdr_swapchain_while_another_display_has_hdr() {
+        let both = Offered { scrgb: true, hdr10: true };
+        assert_eq!(plan(false, false, true, false, both).decision, Err(SdrReason::DisplayNotHdr), "no added fp16 for SDR streams");
+        assert_eq!(plan(false, true, true, false, both).decision, Ok(Output::Scrgb), "a window the compositor calls HDR, as before");
+        assert_eq!(plan(true, false, true, false, both).decision, Ok(Output::Scrgb), "gamescope, as before");
+    }
+
+    #[test]
+    fn a_refused_hdr_stream_says_what_helps() {
+        assert!(hdr_report_can_come(true, true), "worth a short wait");
+        assert!(!hdr_report_can_come(false, true), "an SDR swapchain gets no report that helps");
+        assert!(!hdr_report_can_come(true, false));
+        assert_eq!(hdr_refusal(true, true), HdrRefusal::MoveWindow, "the window is on an SDR display while another has HDR");
+        assert_eq!(hdr_refusal(false, true), HdrRefusal::Restart, "HDR came on after the renderer was chosen");
+        assert_eq!(hdr_refusal(true, false), HdrRefusal::TurnHdrOn);
+        assert_eq!(hdr_refusal(false, false), HdrRefusal::TurnHdrOn);
     }
 
     #[test]
@@ -381,10 +426,14 @@ mod tests {
 
     #[test]
     fn the_log_names_the_renderer_the_offer_and_the_decision() {
-        let line = describe("gpu", true, false, false, Offered { scrgb: false, hdr10: true }, Ok(Output::Pq));
-        assert_eq!(line, "renderer \"gpu\": swapchain offers scRGB no, HDR10 yes; gamescope yes, window HDR no, display HDR no; output HDR as HDR10 PQ (BT.2020, ST 2084)");
-        let sdr = describe("gpu", true, false, false, Offered::default(), Err(SdrReason::NotOffered));
+        let line = describe("gpu", true, false, false, true, Offered { scrgb: false, hdr10: true }, Ok(Output::Pq));
+        assert_eq!(line, "renderer \"gpu\": swapchain offers scRGB no, HDR10 yes; gamescope yes, window HDR no, display HDR no, HDR asked yes; output HDR as HDR10 PQ (BT.2020, ST 2084)");
+        let sdr = describe("gpu", true, false, false, false, Offered::default(), Err(SdrReason::NotOffered));
         assert!(sdr.ends_with("output SDR, the swapchain offers neither scRGB nor HDR10"), "{sdr}");
+        let pending = describe("gpu", false, false, true, true, Offered { scrgb: true, hdr10: true }, Ok(Output::Scrgb));
+        assert!(pending.ends_with("display HDR yes, HDR asked yes; output HDR as scRGB, pending the window's report"), "{pending}");
+        let reported = describe("gpu", false, true, true, true, Offered { scrgb: true, hdr10: true }, Ok(Output::Scrgb));
+        assert!(reported.ends_with("output HDR as scRGB"), "{reported}");
     }
 
     #[test]

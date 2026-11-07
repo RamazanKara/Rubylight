@@ -425,6 +425,11 @@ fn any_hardware_decoding<'a>(settings: &config::Settings, overrides: impl IntoIt
         || overrides.into_iter().any(|own| own.apply(settings).decoder != DecoderPreference::Software)
 }
 
+/// `settings` or an override of it (`any_hardware_decoding`) asks for HDR.
+fn any_hdr_asked<'a>(settings: &config::Settings, overrides: impl IntoIterator<Item = &'a config::Overrides>) -> bool {
+    settings.hdr || overrides.into_iter().any(|own| own.apply(settings).hdr)
+}
+
 fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<String>) -> Result<(), String> {
     sdl::set_hint(SDL_HINT_APP_NAME, c"Nightjar");
     sdl::set_hint(SDL_HINT_APP_ID, c"io.github.ramazankara.nightjar");
@@ -477,6 +482,10 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     let gpu = gpu || gpu_for_vulkan_video(vulkan_video, vulkan_choice);
     #[cfg(not(unix))]
     let vulkan_video = false;
+
+    sdl::set_hdr_asked(any_hdr_asked(&settings, hosts.iter()
+        .flat_map(|host| host.settings.iter().chain(host.app_settings.values()))
+        .chain(profiles.entries.iter().map(|profile| &profile.settings))));
 
     // Steam's Game Mode: fullscreen without a border from the start (handheld.rs).
     let start = handheld::start_window(handheld::gamescope());
@@ -1981,11 +1990,18 @@ impl App {
             mic_only_settings(&mut settings);
         }
         self.hdr_note = false;
-        match handheld::hdr_stream(settings.hdr, sdl::hdr_available(self.renderer), handheld::gamescope()) {
+        let hdr_output = sdl::hdr_available(self.renderer)
+            || (settings.hdr && !handheld::gamescope() && sdl::await_window_hdr(self.renderer));
+        match handheld::hdr_stream(settings.hdr, hdr_output, handheld::gamescope()) {
             handheld::HdrStream::Refuse => {
                 let why = sdl::output_decision().and_then(Result::err).map_or("the compositor reports no HDR for this window", handheld::SdrReason::says);
                 eprintln!("nightjar: HDR asked for, refused: {why}");
-                self.launcher.message(tr("HDR output unavailable"), tr("Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output."));
+                let advice = match sdl::hdr_refusal(self.renderer) {
+                    handheld::HdrRefusal::TurnHdrOn => tr("Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output."),
+                    handheld::HdrRefusal::Restart => tr("Restart Nightjar to use HDR on this display."),
+                    handheld::HdrRefusal::MoveWindow => tr("Move this window to the display with HDR on, then start the stream again."),
+                };
+                self.launcher.message(tr("HDR output unavailable"), advice);
                 return;
             }
             handheld::HdrStream::SdrWithNote => {

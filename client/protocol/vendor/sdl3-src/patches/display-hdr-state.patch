@@ -1,0 +1,10 @@
+--- a/src/video/SDL_video.c
++++ b/src/video/SDL_video.c
+@@ -1205,6 +1205,7 @@
+                          HDR_clamped.HDR_headroom != display->HDR.HDR_headroom;
+ 
+     SDL_copyp(&display->HDR, &HDR_clamped);
++    SDL_SetBooleanProperty(SDL_GetDisplayProperties(display->id), SDL_PROP_DISPLAY_HDR_ENABLED_BOOLEAN, HDR_clamped.HDR_headroom > 1.0f);
+ 
+     if (changed && !SDL_DriverSendsHDRChanges(_this)) {
+         for (SDL_Window *w = display->device->windows; w; w = w->next) {

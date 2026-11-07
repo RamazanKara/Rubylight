@@ -241,11 +241,13 @@ fn offered(renderer: *mut SDL_Renderer) -> crate::handheld::Offered {
     }
 }
 
-/// A display of the compositor has HDR on. SDL's Wayland backend reads every output's description
-/// when it starts, before any window exists.
+/// A display of the compositor has HDR on, by what has arrived so far: a Wayland compositor answers
+/// SDL about its outputs in its own time, so this takes what is waiting first. A compositor with
+/// only frog colour management tells a window, never SDL about a display: this stays false there.
 fn any_display_hdr() -> bool {
-    // SAFETY: SDL's video is initialized; the list is SDL's copy, freed here.
+    // SAFETY: SDL's video is initialized on this thread; the list is SDL's copy, freed here.
     unsafe {
+        SDL_PumpEvents();
         let mut count = 0;
         let displays = SDL_GetDisplays(&mut count);
         if displays.is_null() {
@@ -257,6 +259,40 @@ fn any_display_hdr() -> bool {
         SDL_free(displays.cast());
         hdr
     }
+}
+
+/// A saved setting of a PC, game or profile asks for HDR. Set before the first renderer: an SDR-only
+/// user keeps the SDR swapchain on a window with no HDR report yet, whatever another display has.
+static HDR_ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_hdr_asked(asked: bool) {
+    HDR_ASKED.store(asked, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// How long a stream's start waits for the compositor's HDR report on a window.
+const WINDOW_HDR_REPORT_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// Waits briefly for the window's HDR report when it can still come (`handheld::hdr_report_can_come`).
+/// Whether HDR output is available now. Events stay queued for the event loop.
+pub fn await_window_hdr(renderer: *mut SDL_Renderer) -> bool {
+    if !crate::handheld::hdr_report_can_come(swapchain_takes_hdr(renderer), any_display_hdr()) {
+        return false;
+    }
+    let deadline = std::time::Instant::now() + WINDOW_HDR_REPORT_WAIT;
+    while std::time::Instant::now() < deadline {
+        // SAFETY: SDL's video is initialized on this thread.
+        unsafe { SDL_PumpEvents() };
+        if hdr_available(renderer) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    false
+}
+
+/// What an HDR stream refused here can do about it.
+pub fn hdr_refusal(renderer: *mut SDL_Renderer) -> crate::handheld::HdrRefusal {
+    crate::handheld::hdr_refusal(swapchain_takes_hdr(renderer), any_display_hdr())
 }
 
 /// The last renderer's output decision on Linux (`make_renderer`); None on Windows.
@@ -324,7 +360,8 @@ unsafe fn hdr_output(window: *mut SDL_Window, props: SDL_PropertiesID, renderer:
     let offered = offered(renderer);
     let name = renderer_name(renderer);
     let display_hdr = any_display_hdr();
-    let plan = handheld::plan(gamescope, window_hdr, display_hdr, offered);
+    let hdr_asked = HDR_ASKED.load(std::sync::atomic::Ordering::Relaxed);
+    let plan = handheld::plan(gamescope, window_hdr, display_hdr, hdr_asked, offered);
     let mut decision = plan.decision;
     let mut renderer = renderer;
     let mut pq_error = None;
@@ -349,7 +386,7 @@ unsafe fn hdr_output(window: *mut SDL_Window, props: SDL_PropertiesID, renderer:
         renderer = std::ptr::null_mut();
         if WINDOW_HDR_SET.load(std::sync::atomic::Ordering::Relaxed) { set_window_hdr(window, None); }
     }
-    let line = handheld::describe(&name, gamescope, window_hdr, display_hdr, offered, decision);
+    let line = handheld::describe(&name, gamescope, window_hdr, display_hdr, hdr_asked, offered, decision);
     match pq_error {
         Some(why) => eprintln!("nightjar: {line} ({why})"),
         None => eprintln!("nightjar: {line}"),
@@ -651,6 +688,33 @@ mod tests {
             return String::new();
         }
         unsafe { CStr::from_ptr(value) }.to_string_lossy().into_owned()
+    }
+
+    // nightjar#80: SDL's internals, reached through the static SDL of a Linux build, as a Wayland
+    // output's late description reaches them. The dummy driver opens no device or window.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_display_hdr_state_that_arrives_after_the_display_is_seen() {
+        unsafe extern "C" {
+            fn SDL_GetVideoDisplay(display: SDL_DisplayID) -> *mut std::ffi::c_void;
+            fn SDL_SetDisplayHDRProperties(display: *mut std::ffi::c_void, hdr: *const [f32; 2]);
+        }
+        let _sdl = TEST_LOCK.lock().unwrap();
+        // SAFETY: on one thread under the lock; the display is live until the subsystem quits, and
+        // [SDR white, headroom] is SDL_HDROutputProperties.
+        unsafe {
+            SDL_SetHint(SDL_HINT_VIDEO_DRIVER, c"dummy".as_ptr());
+            assert!(SDL_InitSubSystem(SDL_INIT_VIDEO), "{}", error());
+            let display = SDL_GetVideoDisplay(SDL_GetPrimaryDisplay());
+            assert!(!display.is_null(), "{}", error());
+            assert!(!any_display_hdr(), "added without HDR");
+            SDL_SetDisplayHDRProperties(display, &[2.5, 4.0]);
+            assert!(any_display_hdr(), "the compositor's answer turned it on");
+            SDL_SetDisplayHDRProperties(display, &[1.0, 1.0]);
+            assert!(!any_display_hdr(), "and off again");
+            SDL_QuitSubSystem(SDL_INIT_VIDEO);
+            SDL_ResetHint(SDL_HINT_VIDEO_DRIVER);
+        }
     }
 
     #[test]

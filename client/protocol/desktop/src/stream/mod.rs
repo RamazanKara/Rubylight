@@ -589,6 +589,8 @@ pub struct Streaming {
     first_frame: bool,
     /// Pictures shown at least once since the last overlay redraw.
     pub needs_redraw: bool,
+    /// An HDR stream is shown on HDR output: `display_changed` says when that changes.
+    hdr_output: bool,
     timings: VecDeque<(u32, u64)>,
 }
 
@@ -613,6 +615,11 @@ fn render_device_ended(kind: SDL_EventType) -> Option<&'static str> {
 /// [`Streaming::sends_controllers`] for `settings` in a session of `role`.
 fn sends_controllers(settings: &Settings, role: AppRole) -> bool {
     settings.controllers && role != AppRole::RemoteMonitor
+}
+
+/// Whether an HDR stream's output changed, and to what. A stream without HDR is never on HDR output.
+fn hdr_output_change(was: bool, now: bool) -> Option<bool> {
+    (was != now).then_some(now)
 }
 
 impl Streaming {
@@ -820,6 +827,7 @@ impl Streaming {
             started: Instant::now(),
             first_frame: false,
             needs_redraw: true,
+            hdr_output: hdr_stream,
             timings: VecDeque::new(),
         };
         streaming.report_keyboard_layout();
@@ -966,6 +974,12 @@ impl Streaming {
         self.display_change = Some(Instant::now());
         if self.facts.display_caps && self.facts.role != AppRole::InputOnly {
             let _ = self.session.send(ClientMessage::DisplayCaps(crate::sdl::display_caps(renderer)));
+        }
+        let shown = present::hdr_negotiated(self.settings.hdr, self.facts.format) && crate::sdl::hdr_available(renderer);
+        if let Some(on) = hdr_output_change(self.hdr_output, shown) {
+            self.hdr_output = shown;
+            eprintln!("nightjar: an HDR stream's output is now {}", if on { "HDR" } else { "SDR" });
+            self.show_toast(if on { tr("HDR is back on this display.") } else { tr("This display stopped showing HDR. The stream is drawn in SDR.") });
         }
     }
 
@@ -1916,6 +1930,14 @@ fn shortcut_refusal(ready: bool, system_keys: bool, keys: &[String]) -> Option<&
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_hdr_streams_output_change_is_said_once() {
+        assert_eq!(hdr_output_change(true, false), Some(false), "the window went to an SDR display");
+        assert_eq!(hdr_output_change(false, true), Some(true), "and came back");
+        assert_eq!(hdr_output_change(true, true), None);
+        assert_eq!(hdr_output_change(false, false), None, "an SDR stream says nothing");
+    }
     use super::input::*;
 
     #[test]

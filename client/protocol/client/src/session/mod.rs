@@ -682,8 +682,15 @@ impl Session {
                 if !detector.wants_round(if heard { Duration::ZERO } else { silence }) {
                     continue;
                 }
-                let round = crate::host_loss::probe_round(watch.host, (watch.gateway)(watch.host.ip()));
+                let gateway = (watch.gateway)(watch.host.ip());
+                let round = crate::host_loss::probe_round(watch.host, gateway);
                 let silence = control.silence().unwrap_or(Duration::ZERO);
+                shared.log(&format!(
+                    "Host check after {} ms of silence: {round:?} (PC {}, gateway {})",
+                    silence.as_millis(),
+                    watch.host,
+                    gateway.map_or_else(|| "none".to_owned(), |g| g.to_string())
+                ));
                 if detector.step(silence, round)
                     && silence >= crate::host_loss::PROBE_AFTER
                     && shared.wire_bytes.load(Ordering::Relaxed) == bytes

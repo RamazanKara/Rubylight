@@ -39,6 +39,9 @@ public final class ActionSheet extends BottomSheetDialog {
     private MaterialButton panelClose;
     // The control a panel hangs under, as Home's PC sheet hangs under its capsule; null for a panel docked by the window.
     private android.view.View anchor;
+    // A panel under an anchor starts below the top row: its toggles and headings are a size tighter, so Home's View sheet
+    // fits a 1080p TV whole instead of cutting its last part off at the panel's foot.
+    private boolean compact;
     private PanelFrame frame;
     private MaterialButton firstAction;
     private Runnable backHandler;
@@ -87,6 +90,7 @@ public final class ActionSheet extends BottomSheetDialog {
     public static ActionSheet under(Context context, CharSequence title, android.view.View anchor) {
         ActionSheet sheet = new ActionSheet(context, title, true);
         sheet.anchor = anchor;
+        sheet.compact = true;
         sheet.frame.setAnchor(anchor);
         return sheet;
     }
@@ -405,7 +409,7 @@ public final class ActionSheet extends BottomSheetDialog {
 
     /** A row of equal toggle buttons above the actions, for settings changed without leaving the sheet. */
     public LinearLayout addToggleRow() {
-        LinearLayout row = new ToggleRow(getContext(), spacing);
+        LinearLayout row = new ToggleRow(getContext(), spacing, compactTile());
         row.setPadding(spacing, spacing, spacing, spacing);
         // A focused toggle grows past the row's padding on TV; clipping there cut off its rounded ends.
         if (television) {
@@ -431,11 +435,12 @@ public final class ActionSheet extends BottomSheetDialog {
         button.setMaxLines(2);
         button.setIconResource(icon);
         button.setIconGravity(MaterialButton.ICON_GRAVITY_TOP);
-        button.setIconSize(spacing * 3);
+        button.setIconSize(compact ? spacing * 5 / 2 : spacing * 3);
         button.setIconPadding(spacing / 2);
-        button.setMinHeight(spacing * 9);
+        button.setMinHeight(compactTile());
         // The icon sits above the label, so the label can use nearly the whole width of its share.
-        button.setPaddingRelative(spacing, button.getPaddingTop(), spacing, button.getPaddingBottom());
+        if (compact) button.setPaddingRelative(spacing, spacing / 2, spacing, spacing / 2);
+        else button.setPaddingRelative(spacing, button.getPaddingTop(), spacing, button.getPaddingBottom());
         int[][] states = {new int[] {android.R.attr.state_checked}, new int[] {}};
         android.content.res.ColorStateList foreground = new android.content.res.ColorStateList(states, new int[] {
                 MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnPrimaryContainer, 0),
@@ -451,6 +456,11 @@ public final class ActionSheet extends BottomSheetDialog {
         return button;
     }
 
+    /** A toggle tile's least height: a size down in a panel under an anchor. */
+    private int compactTile() {
+        return compact ? spacing * 15 / 2 : spacing * 9;
+    }
+
     /**
      * Equal toggles side by side while every word of their labels fits its share of the width. When they
      * do not, as four toggles on a phone held upright, they form two columns of tiles; with a large font
@@ -459,11 +469,17 @@ public final class ActionSheet extends BottomSheetDialog {
      */
     static final class ToggleRow extends LinearLayout {
         private final int gap;
+        private final int tileHeight;
         private int columns;
 
         ToggleRow(Context context, int gap) {
+            this(context, gap, gap * 9);
+        }
+
+        ToggleRow(Context context, int gap, int tileHeight) {
             super(context);
             this.gap = gap;
+            this.tileHeight = tileHeight;
             // Equal buttons in a straight line, whatever the size of their icons or text.
             setBaselineAligned(false);
         }
@@ -495,7 +511,7 @@ public final class ActionSheet extends BottomSheetDialog {
                 int iconGravity = stacked ? MaterialButton.ICON_GRAVITY_TEXT_START : MaterialButton.ICON_GRAVITY_TOP;
                 if (button.getIconGravity() != iconGravity) button.setIconGravity(iconGravity);
                 // A stacked toggle has its icon beside the label, so it needs only a list row's height.
-                int minHeight = gap * (stacked ? 6 : 9);
+                int minHeight = stacked ? gap * 6 : tileHeight;
                 if (button.getMinHeight() != minHeight) button.setMinHeight(minHeight);
             }
             if (columns == count || stacked) {
@@ -943,7 +959,7 @@ public final class ActionSheet extends BottomSheetDialog {
         heading.setText(title);
         heading.setTextAppearance(getContext(), R.style.TextAppearance_Nightjar_Label);
         heading.setTextColor(MaterialColors.getColor(getContext(), com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
-        heading.setPadding(spacing, spacing * 2, spacing, spacing);
+        heading.setPadding(spacing, compact ? spacing : spacing * 2, spacing, spacing);
         ViewCompat.setAccessibilityHeading(heading, true);
         return heading;
     }

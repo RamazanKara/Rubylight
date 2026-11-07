@@ -10,7 +10,7 @@ import com.limelight.BuildConfig;
 
 /**
  * How real a glass surface can afford to be on this device, chosen by capability and by a frame probe, never by the
- * device's name. {@link #decide} is the rule; what the probe found is kept per app version in its own small file.
+ * device's name. {@link #decide} is the rule; what the probe found is kept per app version and OS build in its own small file.
  */
 public enum GlassTier {
     /** Live blur plus the refracted edge band (API 33+). */
@@ -70,8 +70,11 @@ public enum GlassTier {
 
     /** Keeps the probe's verdict for this app version. */
     public static void remember(Context context, GlassTier tier) {
-        context.getApplicationContext().getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
-                .putString(versionKey(), tier.name()).apply();
+        SharedPreferences prefs = context.getApplicationContext().getSharedPreferences(FILE, Context.MODE_PRIVATE);
+        SharedPreferences.Editor editor = prefs.edit();
+        // Only the verdict for what runs now is ever read again.
+        for (String key : prefs.getAll().keySet()) if (!OVERRIDE.equals(key)) editor.remove(key);
+        editor.putString(versionKey(), tier.name()).apply();
     }
 
     /** Debug builds only: pins the tier, for the demo. Null clears it. */
@@ -89,7 +92,8 @@ public enum GlassTier {
         return null;
     }
 
+    /** An OS or driver update changes what the same device can afford, so it probes again as a new app version does. */
     private static String versionKey() {
-        return "v" + BuildConfig.VERSION_CODE;
+        return "v" + BuildConfig.VERSION_CODE + "-" + Build.FINGERPRINT;
     }
 }

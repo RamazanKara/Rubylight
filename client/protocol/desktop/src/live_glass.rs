@@ -299,8 +299,14 @@ impl Glass {
 
     /// One display refresh, what the probe measures the chain against.
     pub fn set_refresh(&mut self, hz: f32) {
-        if hz > 0.0 {
-            self.budget_ms = chain_budget_ms(hz);
+        if hz <= 0.0 {
+            return;
+        }
+        let budget_ms = chain_budget_ms(hz);
+        // A verdict holds for the budget it was against: another frame time is judged again.
+        if budget_ms != self.budget_ms {
+            self.budget_ms = budget_ms;
+            self.probe = None;
         }
     }
 
@@ -363,8 +369,13 @@ impl Glass {
             draw(stage, primitives);
             return;
         };
+        // A window with no pixels (minimized) has nothing to draw; that is no failure of the chain.
+        let size = stage.size();
+        if size.0 <= 0 || size.1 <= 0 {
+            return;
+        }
         let (content, chrome) = primitives.split_at(at);
-        let print = (fingerprint(content, &boundary.regions), stage.size());
+        let print = (fingerprint(content, &boundary.regions), size);
         if textures_changed || self.print != Some(print) {
             self.run_chain(stage, content, print);
         } else {

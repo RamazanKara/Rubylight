@@ -582,6 +582,26 @@ pub fn soft_around(
     soft_shape(out, ctx, rect, r, blur, color, true);
 }
 
+/// How long a window keeps still before it counts as resting.
+const WINDOW_REST_S: f64 = 0.25;
+
+/// Whether the window's size changed in the last moments, as seen by the bakes that ask.
+fn window_resizing(ctx: &Context) -> bool {
+    let id = Id::unique("nightjar-soft-window");
+    let (size, now) = (ctx.content_rect().size(), ctx.input(|i| i.time));
+    match ctx.data(|d| d.get_temp::<(Vec2, f64)>(id)) {
+        Some((seen, since)) if seen == size => now - since < WINDOW_REST_S,
+        Some(_) => {
+            ctx.data_mut(|d| d.insert_temp(id, (size, now)));
+            true
+        }
+        None => {
+            ctx.data_mut(|d| d.insert_temp(id, (size, f64::NEG_INFINITY)));
+            false
+        }
+    }
+}
+
 fn soft_shape(
     out: &mut Vec<Shape>,
     ctx: &Context,
@@ -608,17 +628,36 @@ fn soft_shape(
         baked.y as i32,
         hollow,
     ));
-    let texture = ctx
-        .data(|d| d.get_temp::<egui::TextureHandle>(id))
-        .unwrap_or_else(|| {
-            let handle = ctx.load_texture(
-                "glass-soft",
-                bake_soft(baked, r.min(baked.x / 2.0).min(baked.y / 2.0), blur, hollow),
-                egui::TextureOptions::LINEAR,
-            );
-            ctx.data_mut(|d| d.insert_temp(id, handle.clone()));
-            handle
-        });
+    let latest_id = Id::unique(("nightjar-soft-latest", r.round() as i32, blur.round() as i32, hollow));
+    let exact = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id));
+    let (texture, baked) = match exact {
+        Some(texture) => (texture, baked),
+        None => {
+            // A side under a wide blur follows the window; a drag would bake at each size on the
+            // UI thread. It takes the last bake until the window rests, then its own.
+            let stand_in = window_resizing(ctx)
+                .then(|| ctx.data(|d| d.get_temp::<(egui::TextureHandle, Vec2)>(latest_id)))
+                .flatten();
+            match stand_in {
+                Some(latest) => {
+                    ctx.request_repaint_after(std::time::Duration::from_secs_f64(WINDOW_REST_S));
+                    latest
+                }
+                None => {
+                    let handle = ctx.load_texture(
+                        "glass-soft",
+                        bake_soft(baked, r.min(baked.x / 2.0).min(baked.y / 2.0), blur, hollow),
+                        egui::TextureOptions::LINEAR,
+                    );
+                    ctx.data_mut(|d| {
+                        d.insert_temp(id, handle.clone());
+                        d.insert_temp(latest_id, (handle.clone(), baked));
+                    });
+                    (handle, baked)
+                }
+            }
+        }
+    };
     let pad = blur;
     let (mid_x, mid_y) = (
         slice_middle(rect.x_range(), baked.x),
@@ -1185,6 +1224,46 @@ mod tests {
                 }
             }
         });
+    }
+
+    /// A cover narrower than its glow's blur follows the window. A drag bakes nothing, and at rest
+    /// it is the very bake a window that always had this size paints.
+    #[test]
+    fn dragging_the_window_bakes_no_shadows_and_rest_is_the_exact_bake() {
+        const R: f32 = 16.0;
+        const BLUR: f32 = 110.0;
+        let frame = |ctx: &Context, width: f32, time: f64| {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(width * 4.0, 800.0))),
+                time: Some(time),
+                ..Default::default()
+            };
+            let mut mesh = None;
+            let output = ctx.run_ui(input, |ui| {
+                let mut out = Vec::new();
+                soft(&mut out, ui.ctx(), Rect::from_min_size(pos2(100.0, 100.0), vec2(width, width * 1.5)), R, BLUR, Color32::RED);
+                if let Some(Shape::Mesh(found)) = out.pop() {
+                    mesh = Some(found.vertices.iter().map(|v| (v.pos, v.uv)).collect::<Vec<_>>());
+                }
+            });
+            let uploads = output.textures_delta.set.iter().filter(|(id, _)| matches!(id, TextureId::Managed(n) if *n != 0)).count();
+            let mut delta = output.textures_delta;
+            delta.clear();
+            (uploads, mesh.expect("a mesh"))
+        };
+        let ctx = Context::default();
+        assert_eq!(frame(&ctx, 160.0, 0.0).0, 1, "the first bake");
+        let mut time = 0.0;
+        for width in 161..=215 {
+            time += 0.016;
+            assert_eq!(frame(&ctx, width as f32, time).0, 0, "a drag through {width}");
+        }
+        assert_eq!(frame(&ctx, 215.0, time + 0.1).0, 0, "not at rest yet");
+        let (uploads, rest) = frame(&ctx, 215.0, time + 1.0);
+        assert_eq!(uploads, 1, "its own bake at rest");
+        let (_, fresh) = frame(&Context::default(), 215.0, 0.0);
+        assert_eq!(rest, fresh);
+        assert_eq!(frame(&ctx, 215.0, time + 1.1).0, 0, "and once");
     }
 
     #[test]

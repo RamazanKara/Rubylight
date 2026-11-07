@@ -12,7 +12,8 @@
     <string name="library_hide_hidden">Gizli oyunları gizle</string>
     <string name="library_no_matches">Aramanızla eşleşen oyun yok.</string>
     <string name="library_clear_search">Aramayı temizle</string>
-    <string name="library_all_hidden">Oyunlarınız gizli. Geri getirmek için gizli oyunları gösterin.</string>
+    <string name="library_all_hidden">Tüm oyunlar gizli</string>
+    <string name="library_no_apps">Bu bilgisayarda uygulama yok</string>
     <string name="library_offline">Bu bilgisayar çevrimdışı. Kayıtlı kitaplığınız hâlâ burada. Oynamak için yeniden bağlanın.</string>
     <string name="library_hidden_notice">Oyun kitaplığınızdan gizlendi</string>
     <string name="library_undo">Geri al</string>

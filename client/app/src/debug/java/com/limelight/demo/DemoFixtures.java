@@ -78,12 +78,15 @@ public final class DemoFixtures {
             if (i == 1 && studioAddress) pc.activeAddress = new ComputerDetails.AddressTuple("192.0.2.20", 47989);
             pc.runningGameId = i == 0 ? 2 : 0;
             // The offline Laptop has no saved library: Home would repeat every game, without covers.
-            pc.rawAppList = i == 2 ? null : appList();
+            pc.rawAppList = i == 2 ? null : noApps ? "<root status_code=\"200\"></root>" : appList();
             if (i == 0) describeHost(pc);
             computers.add(pc);
         }
         return computers;
     }
+
+    /** "--ez noapps true": PCs that list nothing. */
+    public static boolean noApps;
 
     public static String appList() {
         StringBuilder xml = new StringBuilder("<root status_code=\"200\">");

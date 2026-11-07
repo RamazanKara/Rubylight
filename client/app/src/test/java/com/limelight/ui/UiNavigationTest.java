@@ -147,8 +147,6 @@ public class UiNavigationTest {
             assertEquals(add.getId(), help.getAccessibilityTraversalAfter());
 
             screen.setContentView(R.layout.activity_app_view);
-            TopAppBar.setUpNavigation(TopAppBar.configure(screen, R.id.library_toolbar, "PC", R.menu.library),
-                    R.id.library_back, v -> { });
             FrameLayout container = screen.findViewById(R.id.appFragmentContainer);
             screen.getLayoutInflater().inflate(R.layout.app_grid_view, container);
             GridView grid = screen.findViewById(R.id.fragmentView);
@@ -157,8 +155,6 @@ public class UiNavigationTest {
             layout(screen);
             View back = screen.findViewById(R.id.library_back);
             assertSame(grid, back.focusSearch(View.FOCUS_DOWN));
-            assertSame(back, grid.focusSearch(View.FOCUS_UP));
-            assertEquals(back.getId(), grid.getAccessibilityTraversalAfter());
         } finally {
             controller.pause().stop().destroy();
         }

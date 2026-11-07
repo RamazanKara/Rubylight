@@ -166,32 +166,6 @@ public class MotionTest {
                 new java.util.HashSet<>(java.util.Arrays.asList("scaleX", "scaleY", "translationZ")), reset);
     }
 
-    /** What a poster does when it is selected, run on the inflated layout: the scale and lift the XML promises. */
-    private static void assertPosterFocus(Context context, int layout, float scale, float lift) {
-        android.view.View card = LayoutInflater.from(context).inflate(layout, null);
-        card.setSelected(true);
-        FastTravel.settle(card);
-        assertEquals(scale, card.getScaleX(), 0.001f);
-        assertEquals(scale, card.getScaleY(), 0.001f);
-        assertEquals(lift, card.getTranslationZ(), 0.01f);
-        card.setSelected(false);
-        FastTravel.settle(card);
-        assertEquals(1f, card.getScaleX(), 0.001f);
-        assertEquals(0f, card.getTranslationZ(), 0.01f);
-    }
-
-    @Test
-    @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
-    public void aSelectedPosterReachesItsFocusScaleAndLift() {
-        animatorScale(1f);
-        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit().clear().commit();
-        try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
-            float lift = 6 * controller.get().getResources().getDisplayMetrics().density;
-            assertPosterFocus(controller.get(), R.layout.app_grid_item, 1.08f, lift);
-            assertPosterFocus(controller.get(), R.layout.app_grid_item_small, 1.10f, lift);
-        }
-    }
-
     /** A cover on Home is a spring, not a state list: focus takes it to the token's scale, and a held key lands it now. */
     @Test
     @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
@@ -215,22 +189,43 @@ public class MotionTest {
         }
     }
 
+    /** A game in a PC's grid is the same cover as on Home: the same spring, and with reduced motion it stays put and keeps its ring. */
+    private static android.view.View focusedGridCover(Context context, int layout) {
+        android.view.ViewGroup parent = new android.widget.FrameLayout(context);
+        android.view.View card = LayoutInflater.from(context).inflate(layout, parent, false);
+        parent.addView(card);
+        card.setFocusable(true);
+        parent.measure(android.view.View.MeasureSpec.makeMeasureSpec(400, android.view.View.MeasureSpec.EXACTLY),
+                android.view.View.MeasureSpec.makeMeasureSpec(600, android.view.View.MeasureSpec.EXACTLY));
+        parent.layout(0, 0, 400, 600);
+        assertTrue(card.requestFocus());
+        Springs.finish(card);
+        return card;
+    }
+
     @Test
     @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
-    public void withReducedMotionASelectedPosterStaysPutAndKeepsItsRing() {
+    public void aGridCoverSpringsToTheCoversFocusScale() {
+        animatorScale(1f);
+        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit().clear().commit();
+        try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
+            for (int layout : new int[] {R.layout.app_grid_item, R.layout.app_grid_item_small}) {
+                assertEquals(1.12f, focusedGridCover(controller.get(), layout).getScaleX(), 0.001f);
+            }
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
+    public void withReducedMotionAGridCoverStaysPut() {
         animatorScale(1f);
         set(Motion.REDUCE);
         try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
-            android.view.View card = LayoutInflater.from(controller.get()).inflate(R.layout.app_grid_item, null);
-            card.setSelected(true);
-            FastTravel.settle(card);
+            android.view.View card = focusedGridCover(controller.get(), R.layout.app_grid_item);
             assertEquals(1f, card.getScaleX(), 0f);
             assertEquals(1f, card.getScaleY(), 0f);
             assertEquals(0f, card.getTranslationZ(), 0f);
-            android.view.View ring = card.findViewById(R.id.grid_ring);
-            assertTrue("the ring shows the selection at once", java.util.Arrays.binarySearch(
-                    sorted(ring.getDrawableState()), android.R.attr.state_selected) >= 0);
-            assertEquals(R.drawable.tv_poster_ring_static, resolved(controller.get(), R.attr.nightjarPosterRing));
+            assertTrue("the ring still shows it", org.robolectric.util.ReflectionHelpers.<Boolean>callInstanceMethod(card, "showsFocus"));
         }
     }
 
@@ -375,52 +370,6 @@ public class MotionTest {
         TypedValue value = new TypedValue();
         assertTrue(context.getTheme().resolveAttribute(attr, value, true));
         return value.resourceId;
-    }
-
-    private static android.view.View poster(Screen screen, int layout, boolean selected) {
-        android.view.View poster = LayoutInflater.from(screen).inflate(layout, null);
-        poster.setSelected(selected);
-        poster.jumpDrawablesToCurrentState();
-        poster.getStateListAnimator().jumpToCurrentState();
-        return poster;
-    }
-
-    @Test
-    @Config(qualifiers = "television")
-    public void withFullMotionAPosterPopsAndLiftsAndItsRingAndGlowFade() {
-        animatorScale(1f);
-        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit().clear().commit();
-        try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
-            Screen screen = controller.get();
-            assertEquals(R.drawable.tv_poster_ring, resolved(screen, R.attr.nightjarPosterRing));
-            assertEquals(R.drawable.tv_focus_glow_fade, resolved(screen, R.attr.nightjarPosterGlow));
-            float density = screen.getResources().getDisplayMetrics().density;
-            android.view.View large = poster(screen, R.layout.app_grid_item, true);
-            assertEquals(1.08f, large.getScaleX(), 0.001f);
-            assertEquals(1.08f, large.getScaleY(), 0.001f);
-            assertEquals("lifted over its neighbours", 6 * density, large.getTranslationZ(), 0.01f);
-            android.view.View small = poster(screen, R.layout.app_grid_item_small, true);
-            assertEquals("a small poster pops a little more", 1.10f, small.getScaleX(), 0.001f);
-            android.view.View rest = poster(screen, R.layout.app_grid_item, false);
-            assertEquals(1f, rest.getScaleX(), 0f);
-            assertEquals(0f, rest.getTranslationZ(), 0f);
-        }
-    }
-
-    @Test
-    @Config(qualifiers = "television")
-    public void withReducedMotionAPosterStaysPutAndItsRingAndGlowShowAtOnce() {
-        set(Motion.REDUCE);
-        try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
-            Screen screen = controller.get();
-            assertEquals(R.animator.tv_poster_focus_static, resolved(screen, R.attr.nightjarPosterFocusAnimator));
-            assertEquals(R.animator.tv_poster_focus_static, resolved(screen, R.attr.nightjarPosterFocusAnimatorSmall));
-            assertEquals(R.drawable.tv_poster_ring_static, resolved(screen, R.attr.nightjarPosterRing));
-            assertEquals(R.drawable.tv_focus_glow_static, resolved(screen, R.attr.nightjarPosterGlow));
-            android.view.View poster = poster(screen, R.layout.app_grid_item, true);
-            assertEquals(1f, poster.getScaleX(), 0f);
-            assertEquals(0f, poster.getTranslationZ(), 0f);
-        }
     }
 
     @Test

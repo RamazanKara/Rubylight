@@ -265,7 +265,7 @@ public class FocusVisibilityTest {
 
     @Test @Config(qualifiers = "television")
     public void gridCardsShowFocusOnTelevision() {
-        for (int layout : new int[] {R.layout.pc_grid_item, R.layout.app_grid_item, R.layout.app_grid_item_small}) {
+        for (int layout : new int[] {R.layout.pc_grid_item}) {
             try (var screen = Robolectric.buildActivity(MotionTest.Screen.class).setup().visible()) {
                 View card = LayoutInflater.from(screen.get()).inflate(layout, null);
                 ((ViewGroup) screen.get().findViewById(android.R.id.content)).addView(card);
@@ -286,16 +286,39 @@ public class FocusVisibilityTest {
         }
     }
 
-    /** On a phone the grid's selector draws the ring; on television the animated card owns it (see gridCardsShow...). */
+    /** A cover rings the space around itself, past its own bounds: the drawing that shows it is its parent's. */
+    @Test @Config(qualifiers = "television")
+    public void aGridCoverDrawsItsRingAroundItself() {
+        for (int layout : new int[] {R.layout.app_grid_item, R.layout.app_grid_item_small}) {
+            try (var screen = Robolectric.buildActivity(MotionTest.Screen.class).setup().visible()) {
+                android.widget.FrameLayout parent = new android.widget.FrameLayout(screen.get());
+                parent.setClipChildren(false);
+                View card = LayoutInflater.from(screen.get()).inflate(layout, parent, false);
+                android.widget.FrameLayout.LayoutParams at = new android.widget.FrameLayout.LayoutParams(200, 300);
+                at.setMargins(100, 100, 100, 100);
+                parent.addView(card, at);
+                ((ViewGroup) screen.get().findViewById(android.R.id.content)).addView(parent);
+                card.setFocusable(true);
+                card.setFocusableInTouchMode(true);
+                parent.measure(View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(500, View.MeasureSpec.EXACTLY));
+                parent.layout(0, 0, 400, 500);
+                Bitmap before = draw(parent);
+                assertTrue(card.requestFocus());
+                Springs.finish(card);
+                assertTrue(context.getResources().getResourceEntryName(layout), ringPixels(before, draw(parent), Color.BLACK) >= 300);
+            }
+        }
+    }
+
+    /** The card draws its own ring on every form factor (aGridCoverDrawsItsRingAroundItself), so the grid's selector must add nothing over it. */
     @Test
-    public void theGridSelectorShowsFocusOnAPhone() {
+    public void theGridSelectorStaysOutOfTheCardsWay() {
         for (int layout : new int[] {R.layout.app_grid_view, R.layout.app_grid_view_small}) {
             try (var screen = Robolectric.buildActivity(MotionTest.Screen.class).setup().visible()) {
                 View grid = LayoutInflater.from(screen.get()).inflate(layout, null);
                 AbsListView list = findList(grid);
                 assertNotNull(list);
-                String problem = selectorProblem(list.getSelector(), "grid selector");
-                assertTrue(context.getResources().getResourceEntryName(layout) + ": " + problem, problem == null);
+                assertEquals(context.getResources().getResourceEntryName(layout), 0, ((android.graphics.drawable.ColorDrawable) list.getSelector()).getColor());
             }
         }
     }

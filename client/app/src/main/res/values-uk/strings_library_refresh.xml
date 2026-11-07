@@ -12,7 +12,8 @@
     <string name="library_hide_hidden">Сховати приховані ігри</string>
     <string name="library_no_matches">Немає ігор, що відповідають запиту.</string>
     <string name="library_clear_search">Очистити пошук</string>
-    <string name="library_all_hidden">Ваші ігри приховано. Увімкніть «Показати приховані ігри», щоб повернути їх.</string>
+    <string name="library_all_hidden">Усі ігри приховано</string>
+    <string name="library_no_apps">На цьому ПК немає застосунків</string>
     <string name="library_offline">Цей ПК не в мережі. Збережена бібліотека нікуди не зникла. Підключіться знову, щоб грати.</string>
     <string name="library_hidden_notice">Гру приховано з бібліотеки</string>
     <string name="library_undo">Скасувати</string>

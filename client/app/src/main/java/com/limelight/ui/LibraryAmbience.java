@@ -10,8 +10,8 @@ import com.limelight.AppView;
 import com.limelight.grid.AppGridAdapter;
 
 /**
- * What the TV library shows about the game that has the selection: its title and chips on the focus line, and its
- * cover as the screen's backdrop. The selection moves in {@code onKeyDown}; this follows it a moment later, and
+ * What a PC's games show about the one that has the selection: its title and what the keys do on it over the grid, and its
+ * cover as the screen's ambient. In touch mode nothing has the selection, and the first game (a running one is pinned there) stands in. The selection moves in {@code onKeyDown}; this follows it a moment later, and
  * only once per frame for the text and once per settle for the backdrop, so a held key costs neither.
  */
 public final class LibraryAmbience implements Choreographer.FrameCallback {
@@ -24,12 +24,18 @@ public final class LibraryAmbience implements Choreographer.FrameCallback {
     private AppView.AppObject pending;
     private boolean queued;
     private boolean cleared;
+    private java.util.function.Function<AppView.AppObject, CharSequence> line;
 
     /** Either part may be missing (a layout without the backdrop, as on a phone). */
     public LibraryAmbience(BackdropView backdrop, TextView title, TextView status) {
         this.backdrop = backdrop;
         this.title = title;
         this.status = status;
+    }
+
+    /** What the second line says about a game; without one it stays empty. */
+    public void setLine(java.util.function.Function<AppView.AppObject, CharSequence> line) {
+        this.line = line;
     }
 
     /** Follows the grid's selection. The adapter also says when a cover that was still loading has arrived. */
@@ -45,8 +51,8 @@ public final class LibraryAmbience implements Choreographer.FrameCallback {
             @Override public void onNothingSelected(AdapterView<?> parent) { }
         });
         adapter.setArtListener(app -> {
-            AppView.AppObject selected = selected();
-            if (selected != null && selected.app.getAppId() == app.getAppId()) askBackdrop(selected, isFast());
+            AppView.AppObject shown = shown();
+            if (shown != null && shown.app.getAppId() == app.getAppId()) askBackdrop(shown, isFast());
         });
         // The grid's first selection is made when the adapter is set and is never reported, so the line and the
         // backdrop would stay empty until the first key: show the game that already has the selection.
@@ -59,9 +65,16 @@ public final class LibraryAmbience implements Choreographer.FrameCallback {
         return item instanceof AppView.AppObject ? (AppView.AppObject) item : null;
     }
 
+    /** The game this page is about: the selection, or the first game while a finger leaves nothing selected. */
+    private AppView.AppObject shown() {
+        AppView.AppObject app = selected();
+        if (app == null && adapter != null && adapter.getCount() > 0) app = (AppView.AppObject) adapter.getItem(0);
+        return app;
+    }
+
     /** The selected game's chips can change under it (it starts or stops running, is hidden); say so on the line. */
     public void refresh() {
-        AppView.AppObject app = selected();
+        AppView.AppObject app = shown();
         if (app == null) return;
         pending = app;
         cleared = false;
@@ -96,7 +109,7 @@ public final class LibraryAmbience implements Choreographer.FrameCallback {
         pending = null;
         cleared = true;
         if (title != null) title.setText("");
-        if (status != null) status.setVisibility(View.GONE);
+        if (status != null) status.setText("");
     }
 
     @Override
@@ -106,6 +119,11 @@ public final class LibraryAmbience implements Choreographer.FrameCallback {
         if (app == null || cleared) return;
         // The same game told twice (the grid repeats its selection after a layout) costs no text layout.
         if (title != null && !app.app.getAppName().contentEquals(title.getText())) title.setText(app.app.getAppName());
-        if (status != null) AppGridAdapter.bindStatusChip(status, app);
+        if (status != null && line != null) {
+            CharSequence said = line.apply(app);
+            status.setText(said);
+            // A phone's line floats over the foot, and is not there at all for a finger.
+            if (title == null) status.setVisibility(said.length() == 0 ? View.GONE : View.VISIBLE);
+        }
     }
 }

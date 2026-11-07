@@ -10,7 +10,6 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import com.limelight.R;
-import com.limelight.ui.AdaptiveGridView;
 
 import java.util.ArrayList;
 
@@ -77,14 +76,8 @@ public abstract class GenericGridAdapter<T> extends BaseAdapter {
         if (appTile) {
             View artwork = (View) imgView.getParent();
             boolean small = layoutId == R.layout.app_grid_item_small;
-            boolean shortViewport = viewGroup instanceof AdaptiveGridView && ((AdaptiveGridView) viewGroup).hasShortViewport();
             int width = viewGroup instanceof android.widget.GridView ? ((android.widget.GridView) viewGroup).getColumnWidth() : 0;
-            // The art is as wide as the column less the tile's own padding (a TV poster pads itself with its glow).
-            if (width > 0) width = Math.max(1, width - convertView.getPaddingLeft() - convertView.getPaddingRight());
-            boolean television = (context.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_TYPE_MASK)
-                    == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
-            int height = TileSizing.artHeightPx(width, shortViewport, television, small,
-                    context.getResources().getDisplayMetrics().density);
+            int height = TileSizing.artHeightPx(width, small, context.getResources().getDisplayMetrics().density);
             ViewGroup.LayoutParams params = artwork.getLayoutParams();
             if (params.height != height) {
                 params.height = height;

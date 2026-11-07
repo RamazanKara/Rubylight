@@ -12,7 +12,8 @@
     <string name="library_hide_hidden">Ocultar jogos ocultos</string>
     <string name="library_no_matches">Nenhum jogo corresponde à sua pesquisa.</string>
     <string name="library_clear_search">Limpar pesquisa</string>
-    <string name="library_all_hidden">Seus jogos estão ocultos. Mostre os jogos ocultos para trazê-los de volta.</string>
+    <string name="library_all_hidden">Todos os jogos estão ocultos</string>
+    <string name="library_no_apps">Nenhum app neste PC</string>
     <string name="library_offline">Este PC está off-line. Sua biblioteca salva continua aqui. Reconecte para jogar.</string>
     <string name="library_hidden_notice">Jogo ocultado da sua biblioteca</string>
     <string name="library_undo">Desfazer</string>

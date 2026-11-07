@@ -12,7 +12,8 @@
     <string name="library_hide_hidden">不显示隐藏的游戏</string>
     <string name="library_no_matches">没有与搜索内容匹配的游戏。</string>
     <string name="library_clear_search">清除搜索</string>
-    <string name="library_all_hidden">你的游戏都已隐藏。显示隐藏的游戏即可恢复。</string>
+    <string name="library_all_hidden">所有游戏都已隐藏</string>
+    <string name="library_no_apps">此电脑上没有应用</string>
     <string name="library_offline">此电脑处于离线状态。你保存的游戏库仍在此处。重新连接后即可开始玩。</string>
     <string name="library_hidden_notice">已从游戏库中隐藏游戏</string>
     <string name="library_undo">撤消</string>

@@ -91,6 +91,11 @@ final class HomeChrome {
 
     /** The backdrop bakes for this look and fades to the canvas where this layout's lists begin. */
     void setUpBackdrop(BackdropView backdrop, int canvas) {
+        setUpBackdrop(activity, host, form, backdrop, canvas);
+    }
+
+    /** The ambient's look on this form factor, and the glass tinted from it. */
+    static void setUpBackdrop(Activity activity, com.limelight.ui.GlassHost host, GlassForm form, BackdropView backdrop, int canvas) {
         AppTheme.Look look = AppTheme.look(activity);
         backdrop.setBake(look == AppTheme.Look.DAY, form == GlassForm.PHONE);
         float[] stops = form == GlassForm.PHONE ? PHONE_STOPS : form == GlassForm.HANDHELD ? HANDHELD_STOPS : TV_STOPS;

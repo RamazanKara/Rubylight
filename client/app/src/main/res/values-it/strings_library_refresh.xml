@@ -12,7 +12,8 @@
     <string name="library_hide_hidden">Nascondi giochi nascosti</string>
     <string name="library_no_matches">Nessun gioco corrisponde alla ricerca.</string>
     <string name="library_clear_search">Cancella ricerca</string>
-    <string name="library_all_hidden">I tuoi giochi sono nascosti. Mostra i giochi nascosti per farli ricomparire.</string>
+    <string name="library_all_hidden">Tutti i giochi sono nascosti</string>
+    <string name="library_no_apps">Nessuna app su questo PC</string>
     <string name="library_offline">Questo PC è offline. La libreria salvata è ancora qui. Riconnettiti per giocare.</string>
     <string name="library_hidden_notice">Gioco nascosto dalla libreria</string>
     <string name="library_undo">Annulla</string>

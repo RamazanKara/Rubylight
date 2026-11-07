@@ -1,16 +1,12 @@
 package com.limelight.grid;
 
 import android.content.Context;
-import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
-import androidx.core.view.ViewCompat;
-
-import com.google.android.material.color.MaterialColors;
 import com.limelight.AppView;
 import com.limelight.LimeLog;
 import com.limelight.R;
@@ -36,6 +32,9 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
     private static final int ART_WIDTH_PX = 300;
     private static final int SMALL_WIDTH_DP = 104;
     private static final int LARGE_WIDTH_DP = 160;
+    private static final float HIDDEN_ALPHA = 0.45f;
+    /** The covers that step back while one has the selection. */
+    private final com.limelight.ui.CoverCard.Group coverGroup = new com.limelight.ui.CoverCard.Group();
 
     private final ComputerDetails computer;
     private final String uniqueId;
@@ -218,13 +217,15 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
         // Let the cached asset loader handle it
         loader.populateImageView(obj.app, imgView, txtView);
 
-        // A TV poster shows art only: the focused title is in the library's focus line, and every title in the card's description.
-        // The phone layout's caption stays hidden: its card prints the name on the art.
-        TextView title = parentView.findViewById(R.id.grid_title);
-        if (title != null) {
-            title.setVisibility(View.GONE);
-            title.setText(obj.app.getAppName());
+        if (parentView instanceof com.limelight.ui.GridCover) {
+            com.limelight.ui.GridCover cover = (com.limelight.ui.GridCover) parentView;
+            cover.setGroup(coverGroup);
+            cover.reset();
         }
+        // A hidden game, shown on request, stands back.
+        float art = obj.isHidden ? HIDDEN_ALPHA : 1f;
+        imgView.setAlpha(art);
+        txtView.setAlpha(art);
 
         TextView roleView = parentView.findViewById(R.id.grid_role);
         NvApp.Role role = obj.app.getRole();
@@ -238,7 +239,7 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
 
         parentView.setActivated(obj.isRunning);
         TextView status = parentView.findViewById(R.id.grid_status);
-        bindStatusChip(status, obj);
+        bindStatus(status, obj);
         String description = obj.app.getAppName();
         if (roleLabel != 0) {
             description = context.getString(R.string.library_item_description, description, roleView.getText());
@@ -250,23 +251,19 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
     }
 
     /**
-     * The Running / Hidden chip of a game: shown only when one applies. A running game is live, so its chip is the
-     * home screen's: white on the art scrim with the green live dot (amber stays for actions and selection). A hidden
-     * one is neutral.
+     * A game's state: a green dot on a running game's cover. The word stays the view's text, for screen readers and the hero's line;
+     * a hidden game has no dot and stands back instead.
      */
-    public static void bindStatusChip(TextView status, AppView.AppObject obj) {
-        status.setVisibility(obj.isRunning || obj.isHidden ? View.VISIBLE : View.GONE);
-        if (obj.isRunning || obj.isHidden) {
-            Context context = status.getContext();
-            status.setText(obj.isRunning ? (obj.isHidden ? R.string.app_running_hidden : R.string.app_running) : R.string.app_hidden);
-            ViewCompat.setBackgroundTintList(status, ColorStateList.valueOf(obj.isRunning ?
-                    androidx.core.content.ContextCompat.getColor(context, R.color.card_chip_scrim) :
-                    MaterialColors.getColor(status, com.google.android.material.R.attr.colorSurfaceContainerHigh)));
-            status.setTextColor(obj.isRunning ? androidx.core.content.ContextCompat.getColor(context, R.color.card_chip_text) :
-                    MaterialColors.getColor(status, com.google.android.material.R.attr.colorOnSurface));
-            status.setCompoundDrawablePadding(context.getResources().getDimensionPixelSize(R.dimen.space_xs));
-            status.setCompoundDrawablesRelativeWithIntrinsicBounds(obj.isRunning ? R.drawable.ic_live_dot : 0, 0, 0, 0);
-        }
+    public static void bindStatus(TextView status, AppView.AppObject obj) {
+        status.setVisibility(obj.isRunning ? View.VISIBLE : View.GONE);
+        status.setActivated(obj.isRunning);
+        int word = stateWord(obj);
+        status.setText(word == 0 ? "" : status.getContext().getString(word));
+    }
+
+    /** Running, Hidden, both, or 0 for neither. */
+    public static int stateWord(AppView.AppObject obj) {
+        return obj.isRunning ? (obj.isHidden ? R.string.app_running_hidden : R.string.app_running) : obj.isHidden ? R.string.app_hidden : 0;
     }
 
     static int roleLabel(NvApp app) {

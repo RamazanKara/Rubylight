@@ -45,7 +45,7 @@ public class CoverCard extends LinearLayout {
 
         /** Focus left this card and no other cover took it. */
         private void release(CoverCard card) {
-            if (focused == card && !card.isFocused()) set(null);
+            if (focused == card && !card.showsFocus()) set(null);
         }
 
         /** No art to dim while nothing is focused. */
@@ -160,7 +160,7 @@ public class CoverCard extends LinearLayout {
         applyDim();
         if (isPressed()) return;
         Springs.finish(this);
-        float at = scale * (isFocused() ? focusScale : 1f);
+        float at = scale * (showsFocus() ? focusScale : 1f);
         setScaleX(at);
         setScaleY(at);
     }
@@ -181,9 +181,18 @@ public class CoverCard extends LinearLayout {
     @Override
     protected void onFocusChanged(boolean gainFocus, int direction, android.graphics.Rect previously) {
         super.onFocusChanged(gainFocus, direction, previously);
+        onFocusShown(gainFocus);
+    }
+
+    /** Whether this card shows focus now. A card in a grid shows the grid's selection instead (GridCover). */
+    protected boolean showsFocus() {
+        return isFocused();
+    }
+
+    protected final void onFocusShown(boolean shown) {
         if (group != null) {
             // A move between covers loses focus here before the next one gains it: on the next turn, if at all.
-            if (gainFocus) group.set(this);
+            if (shown) group.set(this);
             else if (group.focused == this) post(releaser);
         }
         retarget();
@@ -205,7 +214,7 @@ public class CoverCard extends LinearLayout {
     }
 
     private void retarget() {
-        float target = restScale * (isPressed() ? pressScale : isFocused() ? focusScale : 1f);
+        float target = restScale * (isPressed() ? pressScale : showsFocus() ? focusScale : 1f);
         if (instant.getAsBoolean()) {
             Springs.scale(this, target, Springs.Kind.FOCUS);
             Springs.finish(this);
@@ -217,8 +226,8 @@ public class CoverCard extends LinearLayout {
     /** A card coming back from the recycled pool starts at rest. */
     public void reset() {
         Springs.finish(this);
-        setScaleX(restScale * (isFocused() ? focusScale : 1f));
-        setScaleY(restScale * (isFocused() ? focusScale : 1f));
+        setScaleX(restScale * (showsFocus() ? focusScale : 1f));
+        setScaleY(restScale * (showsFocus() ? focusScale : 1f));
         applyDim();
     }
 
@@ -232,7 +241,7 @@ public class CoverCard extends LinearLayout {
         float t = frame.getTop();
         float r = frame.getRight();
         float b = frame.getBottom();
-        boolean focused = isFocused();
+        boolean focused = showsFocus();
         if (focused) focusRing.drawHalo(canvas, l, t, r, b, radius);
         if (shadowBlur > 0f) {
             GlassShadow shadow = GlassShadow.get(radius, shadowBlur, invalidator);

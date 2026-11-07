@@ -39,12 +39,12 @@ public class AdaptiveGridViewTest {
 
             // 393 x 852 dp portrait at xhdpi, then the same phone in landscape.
             measure(container, 786, 1704);
-            assertEquals(2, grid.getNumColumns());
+            assertEquals(3, grid.getNumColumns());
             assertTrue(grid.getChildCount() > 0);
             assertFalse(grid.hasShortViewport());
 
             measure(container, 1704, 786);
-            assertEquals(4, grid.getNumColumns());
+            assertEquals(6, grid.getNumColumns());
             assertTrue("landscape grid lost its cards", grid.getChildCount() > 0);
             assertTrue(grid.hasShortViewport());
         }

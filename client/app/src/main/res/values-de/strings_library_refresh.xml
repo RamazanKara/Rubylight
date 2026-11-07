@@ -11,7 +11,8 @@
     <string name="library_hide_hidden">Ausgeblendete Spiele verbergen</string>
     <string name="library_no_matches">Keine Spiele entsprechen deiner Suche.</string>
     <string name="library_clear_search">Suche löschen</string>
-    <string name="library_all_hidden">Deine Spiele sind ausgeblendet. Zeige ausgeblendete Spiele an, um sie wieder einzublenden.</string>
+    <string name="library_all_hidden">Alle Spiele sind ausgeblendet</string>
+    <string name="library_no_apps">Keine Apps auf diesem PC</string>
     <string name="library_offline">Dieser PC ist offline. Deine gespeicherte Bibliothek ist noch da. Stelle die Verbindung zum Spielen wieder her.</string>
     <string name="library_hidden_notice">Spiel aus der Bibliothek ausgeblendet</string>
     <string name="library_undo">Rückgängig</string>

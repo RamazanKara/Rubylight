@@ -108,9 +108,14 @@ public class AppViewLifecycleTest {
             ReflectionHelpers.callInstanceMethod(screen, "updateUiWithAppList",
                     ReflectionHelpers.ClassParameter.from(List.class, Collections.emptyList()));
             assertEquals(View.GONE, screen.findViewById(R.id.library_loading).getVisibility());
-                assertEquals(View.VISIBLE, screen.findViewById(R.id.library_retry).getVisibility());
+            // One line and a Refresh, and no tile: a PC that lists nothing has no entry a tile could launch.
+            TextView refresh = screen.findViewById(R.id.library_retry);
+            assertEquals(View.VISIBLE, refresh.getVisibility());
+            assertEquals(screen.getString(R.string.library_refresh), refresh.getText().toString());
+            AppGridAdapter adapter = ReflectionHelpers.getField(screen, "appGridAdapter");
+            assertEquals(0, adapter.getCount());
             TextView status = screen.findViewById(R.id.app_list_status);
-            assertEquals(screen.getString(R.string.applist_empty), status.getText().toString());
+            assertEquals(screen.getString(R.string.library_no_apps), status.getText().toString());
             assertEquals(View.VISIBLE, status.getVisibility());
         } finally {
             controller.pause().stop().destroy();
@@ -361,11 +366,8 @@ public class AppViewLifecycleTest {
             TextView chip = tile.findViewById(R.id.grid_status);
             assertEquals(View.VISIBLE, chip.getVisibility());
             assertEquals(screen.getString(R.string.app_running), chip.getText().toString());
-            // Live, not an action: the green live dot on the art scrim, never the amber fill.
-            assertEquals(androidx.core.content.ContextCompat.getColor(screen, R.color.card_chip_text), chip.getCurrentTextColor());
-            assertEquals(androidx.core.content.ContextCompat.getColor(screen, R.color.card_chip_scrim),
-                    androidx.core.view.ViewCompat.getBackgroundTintList(chip).getDefaultColor());
-            assertNotNull(chip.getCompoundDrawablesRelative()[0]);
+            assertTrue("the dot, not a chip", chip instanceof com.limelight.ui.StatusDisc);
+            assertTrue(chip.isActivated());
             assertEquals("Racing Game, " + screen.getString(R.string.app_running), tile.getContentDescription().toString());
             View other = grid.getAdapter().getView(position(grid, "Desktop"), null, grid);
             assertEquals(View.GONE, ((TextView) other.findViewById(R.id.grid_status)).getVisibility());
@@ -434,6 +436,62 @@ public class AppViewLifecycleTest {
     }
 
     /** A PC's app grid on a 1080p TV: readable text, nothing read or focused in the overscan band. */
+    private ActivityController<Library> runningLibrary() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.UUID_EXTRA, "running-host").putExtra(AppView.NAME_EXTRA, "PC");
+        return Robolectric.buildActivity(Library.class, intent).setup().visible();
+    }
+
+    @Test
+    public void onAPhoneTheRunningGameHasACapsuleAndTheOneSearchSitsBesideTheTabs() {
+        ActivityController<Library> controller = runningLibrary();
+        try {
+            Library screen = controller.get();
+            android.widget.GridView grid = libraryWithRunningGame(screen, "sunshine-serverinfo.xml");
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            assertSame("Up from the grid reaches Back", screen.findViewById(R.id.library_back), grid.focusSearch(View.FOCUS_UP));
+            assertEquals(R.id.library_back, grid.getAccessibilityTraversalAfter());
+            assertEquals(View.VISIBLE, screen.findViewById(R.id.library_resume).getVisibility());
+            assertEquals("Racing Game", ((TextView) screen.findViewById(R.id.library_resume_name)).getText().toString());
+            assertEquals(screen.getString(R.string.applist_menu_resume), ((TextView) screen.findViewById(R.id.library_resume_button)).getText().toString());
+            assertSame(screen.findViewById(R.id.library_bottom_row), screen.findViewById(R.id.library_search_button).getParent());
+            assertEquals(View.VISIBLE, screen.findViewById(R.id.library_back).getVisibility());
+            assertEquals("no hero on a phone", View.GONE, screen.findViewById(R.id.library_focus_title).getVisibility());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void thePcsTabGoesBackToTheListOfPcs() {
+        ActivityController<Library> controller = runningLibrary();
+        try {
+            Library screen = controller.get();
+            assertTrue(screen.findViewById(R.id.shell_pcs).performClick());
+            assertTrue(screen.isFinishing());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionTheRunningGameIsResumedFromItsTileWithTheKeysSayingSo() {
+        ActivityController<Library> controller = runningLibrary();
+        try {
+            Library screen = controller.get();
+            libraryWithRunningGame(screen, "sunshine-serverinfo.xml");
+            org.robolectric.shadows.ShadowLooper.idleMainLooper(100, java.util.concurrent.TimeUnit.MILLISECONDS);
+            assertEquals(View.GONE, screen.findViewById(R.id.library_resume).getVisibility());
+            assertEquals("Racing Game", ((TextView) screen.findViewById(R.id.library_focus_title)).getText().toString());
+            String line = ((TextView) screen.findViewById(R.id.library_focus_status)).getText().toString();
+            assertTrue(line, line.startsWith(screen.getString(R.string.app_running)));
+            assertTrue(line, line.contains(screen.getString(R.string.applist_menu_resume)));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     @Test
     @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
     @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
@@ -447,9 +505,9 @@ public class AppViewLifecycleTest {
             org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
             assertEquals(Collections.emptyList(), com.limelight.ui.TvAudit.findings(screen));
             com.limelight.ui.TvScreensPreviewTest.previewIfRequested(screen, "AppView-library");
-            // The bar moved in to the overscan line and stays one press away: Up from the first row reaches it, and
-            // Right walks from Back over Search to the menu, and Left walks back.
-            View back = screen.findViewById(R.id.library_back);
+            // The chrome stays one press away: Up from the first row reaches it. The tabs name the page, so a TV has no Back button:
+            // Right walks from the capsule to search, and Left walks back.
+            assertEquals(View.GONE, screen.findViewById(R.id.library_back).getVisibility());
             View search = screen.findViewById(R.id.library_search_button);
             View options = screen.findViewById(R.id.library_options);
             com.limelight.ui.TvScreensPreviewTest.leaveTouchMode(screen);
@@ -457,11 +515,11 @@ public class AppViewLifecycleTest {
             grid.setSelection(0);
             com.limelight.ui.TvScreensPreviewTest.settle(screen);
             View up = grid.focusSearch(View.FOCUS_UP);
-            assertTrue("Up from the grid reaches the bar: " + up, up == back || up == search || up == options);
-            assertSame(search, back.focusSearch(View.FOCUS_RIGHT));
-            assertSame(options, search.focusSearch(View.FOCUS_RIGHT));
-            assertSame(search, options.focusSearch(View.FOCUS_LEFT));
-            assertSame(back, search.focusSearch(View.FOCUS_LEFT));
+            boolean inTabs = false;
+            for (android.view.ViewParent at = up.getParent(); at != null; at = at.getParent()) inTabs |= at == screen.findViewById(R.id.shell_bar);
+            assertTrue("Up from the grid reaches the chrome: " + up, up == search || up == options || inTabs);
+            assertSame(search, options.focusSearch(View.FOCUS_RIGHT));
+            assertSame(options, search.focusSearch(View.FOCUS_LEFT));
         } finally {
             controller.pause().stop().destroy();
         }

@@ -108,7 +108,7 @@ public class AdaptiveGridMotionTest {
     public void aRowChangeGlidesTheCardsFromTheirOldPlaceAndLandsAtRest() {
         open(700);
         press(KeyEvent.KEYCODE_DPAD_DOWN, 0);
-        assertEquals("the second row is selected", 4, grid.getSelectedItemPosition());
+        assertEquals("the second row is selected", 7, grid.getSelectedItemPosition());
         assertEquals("one glide for the row change", 1, grid.glideCount());
         pass(400);
         assertEquals("and the glide ends exactly in place", 0f, largestOffset(), 0f);
@@ -119,7 +119,7 @@ public class AdaptiveGridMotionTest {
         open(700);
         press(KeyEvent.KEYCODE_DPAD_DOWN, 0);
         press(KeyEvent.KEYCODE_DPAD_DOWN, 1);
-        assertEquals(8, grid.getSelectedItemPosition());
+        assertEquals(14, grid.getSelectedItemPosition());
         assertEquals("only the first press glides; a held key puts every card straight in place", 1, grid.glideCount());
         assertEquals(0f, largestOffset(), 0f);
     }
@@ -129,7 +129,7 @@ public class AdaptiveGridMotionTest {
         reduceMotion();
         open(700);
         press(KeyEvent.KEYCODE_DPAD_DOWN, 0);
-        assertEquals(4, grid.getSelectedItemPosition());
+        assertEquals(7, grid.getSelectedItemPosition());
         assertEquals(0, grid.glideCount());
         assertEquals(0f, largestOffset(), 0f);
     }

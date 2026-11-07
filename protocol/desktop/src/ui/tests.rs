@@ -7011,6 +7011,20 @@ fn opening_the_page_already_open_adds_no_back_press() {
     assert_eq!(f.l.trail.len(), depth);
 }
 
+/// The details page keeps what the PC's card used to say: its address and its GPU, also on a host
+/// with no web UI to carry the address.
+#[test]
+fn the_details_page_shows_the_address_and_the_gpu() {
+    let mut f = details(Reach::Online, "MJOLNIR_STATE_FREE", "");
+    f.hosts.list[0].record.address = "192.0.2.7".into();
+    f.hosts.list[0].info.as_mut().expect("the answer").gpu_type = Some("RX 7900 XT".into());
+    f.settle();
+    assert!(shows(&f, "192.0.2.7") && shows(&f, "RX 7900 XT"), "{:?}", f.drawn);
+    f.hosts.list[0].info.as_mut().expect("the answer").gpu_type = None;
+    f.settle();
+    assert!(shows(&f, "192.0.2.7") && !shows(&f, "GPU"), "no empty line: {:?}", f.drawn);
+}
+
 /// A PC's page with a list has a round Refresh in its head, by keyboard too; it spins and keeps the
 /// focus while it reads, and leaves room for what a running game offers.
 #[test]

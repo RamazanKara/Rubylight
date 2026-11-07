@@ -200,6 +200,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Replace your {} saved shortcuts with {} from this file.", "用此檔案中的 {1} 個快捷鍵替換你儲存的 {0} 個快捷鍵。"),
     ("Pair with {}", "與 {} 配對"),
     ("Address: {}", "位址：{}"),
+    ("Address", "位址"),
     ("{} quits on the PC. Unsaved progress is lost.", "{} 將在電腦上結束。未儲存的進度會遺失。"),
     ("Quit {} and start {}?", "要退出 {0} 並啟動 {1} 嗎？"),
     ("Close {} and start {}?", "要關閉 {0} 並啟動 {1} 嗎？"),

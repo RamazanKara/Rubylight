@@ -38,14 +38,11 @@ pub const STREAM_MUTEX: &str = "Local\\NightjarStream";
 const SETUP_MUTEX: &str = "Local\\NightjarSetup";
 /// What the setup starts Nightjar with when it ends, so that isn't taken for a launch during the install.
 const AFTER_SETUP: &str = "--after-setup";
-/// How long a started program gets to fail at once. After this it runs, and Nightjar can go.
-#[cfg(not(test))]
+/// How long a restarted AppImage gets to fail at once. After this it runs, and Nightjar can go.
 const START_WATCH: Duration = Duration::from_secs(1);
-/// A freshly copied program takes 0.7 s to end here on an idle machine: scanned first. In a full
-/// run that passed the second above and the test saw a setup still going.
-#[cfg(test)]
-const START_WATCH: Duration = Duration::from_secs(30);
-/// How long a started setup can take to hold SETUP_MUTEX.
+/// How long a started setup can take to hold SETUP_MUTEX. Until it does it may yet fail: a freshly
+/// copied program is scanned first, which took 0.7 s here on an idle machine and over a second
+/// under load.
 const SETUP_STARTING: Duration = Duration::from_secs(10);
 /// The entry the setup writes for its AppId (nightjar.iss): per user, so under HKCU.
 #[cfg(windows)]
@@ -312,7 +309,7 @@ impl Steps {
                 let target = path.clone();
                 let apply = move |part: &Path, _: &Asset| {
                     replace_file(part, &target).map_err(Failure::Apply)?;
-                    start_watched(&target, &restart_arguments(), START_WATCH).map_err(Failure::Restart)
+                    start_watched(&target, &restart_arguments(), START_WATCH, || false).map_err(Failure::Restart)
                 };
                 // The same folder as the AppImage: a rename across file systems isn't atomic.
                 Some(Self { net, allow: download_host, dir: path.parent()?.to_path_buf(), own_dir: false, marker, stream_elsewhere, setup_running, apply: Box::new(apply) })
@@ -406,15 +403,15 @@ fn run_setup(part: &Path, asset: &Asset) -> Result<(), Failure> {
         let _ = std::fs::remove_file(part);
         Failure::Apply(format!("{}: {e}", setup.display()))
     })?;
-    start_watched(&setup, &setup_arguments(&setup.with_extension("log")), START_WATCH).map_err(|e| {
+    start_watched(&setup, &setup_arguments(&setup.with_extension("log")), SETUP_STARTING, || mutex_exists(SETUP_MUTEX)).map_err(|e| {
         let _ = std::fs::remove_file(&setup);
         Failure::Apply(e)
     })
 }
 
-/// Starts a program that outlives Nightjar, and stays for `watch` to see it isn't gone at once with
-/// a failure: Nightjar must not exit for something that already ended.
-fn start_watched(program: &Path, arguments: &[String], watch: Duration) -> Result<(), String> {
+/// Starts a program that outlives Nightjar, and stays for `watch`, or until it has `settled`, to see
+/// it isn't gone at once with a failure: Nightjar must not exit for something that already ended.
+fn start_watched(program: &Path, arguments: &[String], watch: Duration, settled: impl Fn() -> bool) -> Result<(), String> {
     let mut child = Command::new(program)
         .args(arguments)
         .stdin(Stdio::null())
@@ -427,6 +424,7 @@ fn start_watched(program: &Path, arguments: &[String], watch: Duration) -> Resul
         match child.try_wait() {
             Ok(Some(status)) if status.success() => return Ok(()),
             Ok(Some(status)) => return Err(format!("{}: {status}", program.display())),
+            Ok(None) if settled() => return Ok(()),
             Ok(None) => std::thread::sleep(Duration::from_millis(50)),
             Err(e) => {
                 // It did start; only the watching failed.
@@ -676,11 +674,11 @@ mod tests {
     #[test]
     fn a_program_that_fails_at_once_is_noticed() {
         let (program, arguments) = shell("exit 3");
-        let failure = start_watched(&program, &arguments, Duration::from_secs(10)).unwrap_err();
+        let failure = start_watched(&program, &arguments, Duration::from_secs(10), || false).unwrap_err();
         assert!(failure.contains('3'), "{failure}");
         let (program, arguments) = shell("exit 0");
         let started = Instant::now();
-        assert_eq!(start_watched(&program, &arguments, Duration::from_secs(10)), Ok(()));
+        assert_eq!(start_watched(&program, &arguments, Duration::from_secs(10), || false), Ok(()));
         assert!(started.elapsed() < Duration::from_secs(9), "no reason to wait on");
     }
 
@@ -688,8 +686,21 @@ mod tests {
     fn a_program_that_keeps_running_is_left_running() {
         let (program, arguments) = shell(if cfg!(windows) { "ping -n 4 127.0.0.1 >nul" } else { "sleep 3" });
         let started = Instant::now();
-        assert_eq!(start_watched(&program, &arguments, Duration::from_millis(200)), Ok(()));
+        assert_eq!(start_watched(&program, &arguments, Duration::from_millis(200), || false), Ok(()));
         assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    /// Slow to start is no reason to miss a failure: a setup that has not taken its mutex is watched
+    /// well past the second an AppImage gets, and one that holds it is left at once.
+    #[test]
+    fn a_setup_is_watched_until_it_holds_its_mutex() {
+        let (program, arguments) = shell(if cfg!(windows) { "ping -n 3 127.0.0.1 >nul & exit 3" } else { "sleep 2; exit 3" });
+        let failure = start_watched(&program, &arguments, SETUP_STARTING, || false).unwrap_err();
+        assert!(failure.contains('3'), "{failure}");
+        let (program, arguments) = shell(if cfg!(windows) { "ping -n 4 127.0.0.1 >nul" } else { "sleep 3" });
+        let started = Instant::now();
+        assert_eq!(start_watched(&program, &arguments, SETUP_STARTING, || true), Ok(()));
+        assert!(started.elapsed() < Duration::from_secs(2), "it holds the mutex: it runs");
     }
 
     #[test]

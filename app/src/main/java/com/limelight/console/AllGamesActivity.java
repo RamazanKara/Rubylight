@@ -124,6 +124,14 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         findViewById(R.id.shell_home).setOnClickListener(v -> finish());
         if (isTelevision()) {
             getWindow().setBackgroundDrawable(new ColorDrawable(AppTheme.tvCanvas(this)));
+            // The sky of Home, PCs and Settings; the grid fills the screen, so no moon behind the posters.
+            com.limelight.ui.NightSkyView sky = findViewById(R.id.all_games_sky);
+            sky.setMoonShown(false);
+            sky.setVisibility(View.VISIBLE);
+            // Rows scrolling up fade out under the heading and filters instead of stopping on a hard edge.
+            View grid = findViewById(R.id.all_games_grid);
+            grid.setVerticalFadingEdgeEnabled(true);
+            grid.setFadingEdgeLength(getResources().getDimensionPixelSize(R.dimen.all_games_fade));
         }
 
         loading = findViewById(R.id.all_games_loading);

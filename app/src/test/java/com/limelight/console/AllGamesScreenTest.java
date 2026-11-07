@@ -186,6 +186,17 @@ public class AllGamesScreenTest {
     }
 
     @Test
+    public void onATelevisionThePageStandsOnTheSkyAndTheGridFadesUnderTheHeading() {
+        tower(DOOM, HADES, PORTAL);
+        Grid grid = open(null);
+        assertEquals("the night sky of the other pages, not a flat canvas", View.VISIBLE,
+                grid.findViewById(R.id.all_games_sky).getVisibility());
+        View rows = list(grid);
+        assertTrue("rows fade out at the grid's edge instead of a hard crop", rows.isVerticalFadingEdgeEnabled());
+        assertEquals(grid.getResources().getDimensionPixelSize(R.dimen.all_games_fade), rows.getVerticalFadingEdgeLength());
+    }
+
+    @Test
     public void theFirstGameHasFocusAndTheDpadMovesBetweenTheChipsAndTheGrid() {
         tower(DOOM, HADES, PORTAL);
         Grid grid = open(null);

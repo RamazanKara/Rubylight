@@ -1,7 +1,8 @@
 //! Socket and thread priorities, as moonlight-common-c and Nightjar's `latency.c` set them.
 //!
-//! Three layers, all Linux and Android only (elsewhere they do nothing) except the control
-//! socket's marking, which Windows gets through qWAVE:
+//! Three socket layers, all Linux and Android only (elsewhere they do nothing) except the
+//! control socket's marking, which Windows gets through qWAVE, and the thread priorities, which
+//! Windows gets through `SetThreadPriority` ([`thread_level`]):
 //!
 //! - Socket QoS (`setSocketQos` in `PlatformSockets.c`) is always on: the audio and microphone
 //!   sockets get `SO_PRIORITY` 6 and the video socket 5, a local queue hint. They also get DSCP
@@ -15,7 +16,13 @@
 //!   sockets of the stream (the RTSP connection) and raises the receive, audio decode and
 //!   control threads to nice -4.
 //! - The queued video decode thread is always raised to nice -8 (`THREAD_PRIORITY_URGENT_DISPLAY`),
-//!   or -4 when that is refused, as the PyroWave submission thread is.
+//!   or -4 when that is refused, as the PyroWave submission thread is. With direct submission
+//!   the receive thread runs the decoder, so it gets that level instead of -4 when "prioritize
+//!   stream traffic" is on.
+//! - Windows raises the same threads with "prioritize stream traffic" on: the decoding thread
+//!   to `THREAD_PRIORITY_HIGHEST`, the others to `THREAD_PRIORITY_ABOVE_NORMAL`.
+//! - The decode priority switch ([`decode_priority_switch`], default on) turns the direct
+//!   submission level and everything Windows does off, for A/B runs.
 //!
 //! The option is a plain argument, never process-global state, so two sessions in one
 //! process do not affect each other.
@@ -277,9 +284,15 @@ mod qwave {
                 // SAFETY: the documented signatures of these qWAVE exports.
                 unsafe {
                     Ok(Qwave {
-                        create: std::mem::transmute::<*mut c_void, CreateHandle>(find(b"QOSCreateHandle\0")?),
-                        close: std::mem::transmute::<*mut c_void, CloseHandle>(find(b"QOSCloseHandle\0")?),
-                        add: std::mem::transmute::<*mut c_void, AddSocketToFlow>(find(b"QOSAddSocketToFlow\0")?),
+                        create: std::mem::transmute::<*mut c_void, CreateHandle>(find(
+                            b"QOSCreateHandle\0",
+                        )?),
+                        close: std::mem::transmute::<*mut c_void, CloseHandle>(find(
+                            b"QOSCloseHandle\0",
+                        )?),
+                        add: std::mem::transmute::<*mut c_void, AddSocketToFlow>(find(
+                            b"QOSAddSocketToFlow\0",
+                        )?),
                         remove: std::mem::transmute::<*mut c_void, RemoveSocketFromFlow>(find(
                             b"QOSRemoveSocketFromFlow\0",
                         )?),
@@ -368,20 +381,160 @@ mod qwave {
     }
 }
 
-/// Raises the calling thread to [`THREAD_NICE`] when "prioritize stream traffic" is on. On
-/// Linux `setpriority(PRIO_PROCESS, 0)` is the calling thread only.
-pub fn prioritize_current_thread(network_priority: bool) -> io::Result<()> {
-    if !network_priority {
-        return Ok(());
-    }
-    set_thread_nice(THREAD_NICE)
+/// The environment variable that turns the decode priority off on the desktop when set to `0`.
+pub const DECODE_PRIORITY_ENV: &str = "NIGHTJAR_DECODE_PRIORITY";
+/// The Android system property that does the same (`adb shell setprop
+/// debug.nightjar.decode_priority 0`), as the classic engine's `latency.c` reads it.
+pub const DECODE_PRIORITY_PROPERTY: &str = "debug.nightjar.decode_priority";
+/// `THREAD_PRIORITY_ABOVE_NORMAL`: the Windows level of [`ThreadLevel::Stream`].
+pub const WINDOWS_STREAM_PRIORITY: i32 = 1;
+/// `THREAD_PRIORITY_HIGHEST`: the Windows level of [`ThreadLevel::Decode`].
+pub const WINDOWS_DECODE_PRIORITY: i32 = 2;
+
+/// A session thread, as far as its priority goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StreamThread {
+    /// VideoRecv; with direct submission it also runs the decoder.
+    VideoReceive { direct_submit: bool },
+    /// The queued VideoDec thread (no direct submission), which also submits PyroWave frames.
+    VideoDecode,
+    /// AudioRecv, AudioDec and ControlRecv.
+    Other,
 }
 
-/// Raises the calling video decode thread to [`DECODE_NICE`], or [`DECODE_FALLBACK_NICE`]
-/// when that is refused. Independent of "prioritize stream traffic": the decoder sits on the
-/// frame's critical path, as the PyroWave submission thread does.
-pub fn prioritize_decode_thread() -> io::Result<()> {
-    set_thread_nice(DECODE_NICE).or_else(|_| set_thread_nice(DECODE_FALLBACK_NICE))
+/// How far a session thread is raised.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThreadLevel {
+    /// Left where the OS put it.
+    Normal,
+    /// [`THREAD_NICE`]; [`WINDOWS_STREAM_PRIORITY`] on Windows.
+    Stream,
+    /// [`DECODE_NICE`], or [`DECODE_FALLBACK_NICE`] when that is refused;
+    /// [`WINDOWS_DECODE_PRIORITY`] on Windows.
+    Decode,
+}
+
+/// The level of `thread` with "prioritize stream traffic" (`network_priority`) and the decode
+/// priority switch ([`decode_priority_switch`]) as given.
+pub fn thread_level(
+    thread: StreamThread,
+    network_priority: bool,
+    decode_priority: bool,
+) -> ThreadLevel {
+    thread_level_on(thread, network_priority, decode_priority, cfg!(windows))
+}
+
+fn thread_level_on(
+    thread: StreamThread,
+    network_priority: bool,
+    decode_priority: bool,
+    windows: bool,
+) -> ThreadLevel {
+    // Windows raised no session thread before the switch: off keeps it that way, for A/B runs.
+    if windows && !decode_priority {
+        return ThreadLevel::Normal;
+    }
+    match thread {
+        // Linux and Android always raised the queued decode thread; Windows only with
+        // "prioritize stream traffic" on.
+        StreamThread::VideoDecode if network_priority || !windows => ThreadLevel::Decode,
+        // With direct submission the receive thread runs the decoder, so it gets the decoder's
+        // level.
+        StreamThread::VideoReceive {
+            direct_submit: true,
+        } if network_priority && decode_priority => ThreadLevel::Decode,
+        StreamThread::VideoReceive { .. } | StreamThread::Other if network_priority => {
+            ThreadLevel::Stream
+        }
+        _ => ThreadLevel::Normal,
+    }
+}
+
+/// The decode priority switch: on unless [`DECODE_PRIORITY_ENV`] (desktop) or
+/// [`DECODE_PRIORITY_PROPERTY`] (Android) is `0`.
+pub fn decode_priority_switch() -> bool {
+    #[cfg(target_os = "android")]
+    let value = android_property(DECODE_PRIORITY_PROPERTY);
+    #[cfg(not(target_os = "android"))]
+    let value = std::env::var(DECODE_PRIORITY_ENV).ok();
+    switch_on(value.as_deref())
+}
+
+/// `0` turns a switch off; anything else, or nothing, leaves it on.
+fn switch_on(value: Option<&str>) -> bool {
+    value.map(str::trim) != Some("0")
+}
+
+#[cfg(target_os = "android")]
+fn android_property(name: &str) -> Option<String> {
+    let name = std::ffi::CString::new(name).ok()?;
+    let mut value = [0 as libc::c_char; libc::PROP_VALUE_MAX as usize];
+    // SAFETY: a NUL-terminated name and a buffer of PROP_VALUE_MAX bytes, as the call requires.
+    let length = unsafe { libc::__system_property_get(name.as_ptr(), value.as_mut_ptr()) };
+    if length <= 0 {
+        return None;
+    }
+    // SAFETY: the call NUL-terminates what it wrote into the buffer.
+    let value = unsafe { std::ffi::CStr::from_ptr(value.as_ptr()) };
+    Some(value.to_string_lossy().into_owned())
+}
+
+/// The `SetThreadPriority` value of `level`, or `None` to leave the thread alone.
+pub fn windows_thread_priority(level: ThreadLevel) -> Option<i32> {
+    match level {
+        ThreadLevel::Normal => None,
+        ThreadLevel::Stream => Some(WINDOWS_STREAM_PRIORITY),
+        ThreadLevel::Decode => Some(WINDOWS_DECODE_PRIORITY),
+    }
+}
+
+/// Raises the calling thread to `level`. On Linux `setpriority(PRIO_PROCESS, 0)` is the calling
+/// thread only; on Windows a relative `SetThreadPriority`, which needs no undoing when the thread
+/// ends (MMCSS would, and it throttles the other network traffic while a task is registered).
+pub fn raise_current_thread(level: ThreadLevel) -> io::Result<()> {
+    #[cfg(windows)]
+    let result = windows_thread::set_current(windows_thread_priority(level));
+    #[cfg(not(windows))]
+    let result = match level {
+        ThreadLevel::Normal => Ok(()),
+        ThreadLevel::Stream => set_thread_nice(THREAD_NICE),
+        ThreadLevel::Decode => {
+            set_thread_nice(DECODE_NICE).or_else(|_| set_thread_nice(DECODE_FALLBACK_NICE))
+        }
+    };
+    result
+}
+
+#[cfg(windows)]
+mod windows_thread {
+    use std::io;
+
+    // Handles as isize, as the receive bench declares GetCurrentThread.
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetCurrentThread() -> isize;
+        fn SetThreadPriority(thread: isize, priority: i32) -> i32;
+        #[cfg(test)]
+        fn GetThreadPriority(thread: isize) -> i32;
+    }
+
+    pub(super) fn set_current(priority: Option<i32>) -> io::Result<()> {
+        let Some(priority) = priority else {
+            return Ok(());
+        };
+        // SAFETY: the calling thread's pseudo handle, which needs no closing.
+        if unsafe { SetThreadPriority(GetCurrentThread(), priority) } == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn current() -> i32 {
+        // SAFETY: the calling thread's pseudo handle.
+        unsafe { GetThreadPriority(GetCurrentThread()) }
+    }
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -394,7 +547,7 @@ fn set_thread_nice(nice: i32) -> io::Result<()> {
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
+#[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
 fn set_thread_nice(_nice: i32) -> io::Result<()> {
     Ok(())
 }
@@ -429,10 +582,16 @@ pub(crate) mod tests {
     fn media_sockets_are_marked() {
         let audio = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         mark_media_socket(&audio, Qos::Audio, false).unwrap();
-        assert_eq!(read_option(&audio, libc::IPPROTO_IP, libc::IP_TOS), AUDIO_TOS);
+        assert_eq!(
+            read_option(&audio, libc::IPPROTO_IP, libc::IP_TOS),
+            AUDIO_TOS
+        );
         let video = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         mark_media_socket(&video, Qos::Video, false).unwrap();
-        assert_eq!(read_option(&video, libc::IPPROTO_IP, libc::IP_TOS), VIDEO_TOS);
+        assert_eq!(
+            read_option(&video, libc::IPPROTO_IP, libc::IP_TOS),
+            VIDEO_TOS
+        );
         let plain = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         mark_media_socket(&plain, Qos::BestEffort, false).unwrap();
         assert_eq!(read_option(&plain, libc::IPPROTO_IP, libc::IP_TOS), 0);
@@ -448,6 +607,125 @@ pub(crate) mod tests {
     #[test]
     fn the_control_tos_is_expedited_forwarding_with_ect1() {
         assert_eq!(CONTROL_TOS, 0xB9);
+    }
+
+    const QUEUED: StreamThread = StreamThread::VideoReceive {
+        direct_submit: false,
+    };
+    const DIRECT: StreamThread = StreamThread::VideoReceive {
+        direct_submit: true,
+    };
+
+    #[test]
+    fn a_direct_submission_receive_thread_gets_the_decode_level() {
+        for windows in [false, true] {
+            assert_eq!(
+                thread_level_on(DIRECT, true, true, windows),
+                ThreadLevel::Decode
+            );
+            assert_eq!(
+                thread_level_on(QUEUED, true, true, windows),
+                ThreadLevel::Stream
+            );
+            assert_eq!(
+                thread_level_on(StreamThread::VideoDecode, true, true, windows),
+                ThreadLevel::Decode
+            );
+            assert_eq!(
+                thread_level_on(StreamThread::Other, true, true, windows),
+                ThreadLevel::Stream
+            );
+        }
+    }
+
+    #[test]
+    fn stream_priority_off_raises_only_the_queued_decoder_off_windows() {
+        for thread in [DIRECT, QUEUED, StreamThread::Other] {
+            for windows in [false, true] {
+                assert_eq!(
+                    thread_level_on(thread, false, true, windows),
+                    ThreadLevel::Normal
+                );
+            }
+        }
+        // As before the switch: Linux and Android always raised the queued decode thread.
+        assert_eq!(
+            thread_level_on(StreamThread::VideoDecode, false, true, false),
+            ThreadLevel::Decode
+        );
+        assert_eq!(
+            thread_level_on(StreamThread::VideoDecode, false, true, true),
+            ThreadLevel::Normal
+        );
+    }
+
+    #[test]
+    fn the_switch_off_restores_the_old_levels() {
+        // Linux and Android: the receive thread is back at the stream level even when it decodes.
+        assert_eq!(
+            thread_level_on(DIRECT, true, false, false),
+            ThreadLevel::Stream
+        );
+        assert_eq!(
+            thread_level_on(QUEUED, true, false, false),
+            ThreadLevel::Stream
+        );
+        assert_eq!(
+            thread_level_on(StreamThread::VideoDecode, true, false, false),
+            ThreadLevel::Decode
+        );
+        assert_eq!(
+            thread_level_on(StreamThread::Other, true, false, false),
+            ThreadLevel::Stream
+        );
+        // Windows raised nothing.
+        for thread in [
+            DIRECT,
+            QUEUED,
+            StreamThread::VideoDecode,
+            StreamThread::Other,
+        ] {
+            assert_eq!(
+                thread_level_on(thread, true, false, true),
+                ThreadLevel::Normal
+            );
+        }
+    }
+
+    #[test]
+    fn windows_raises_decoding_highest_and_the_rest_above_normal() {
+        assert_eq!(windows_thread_priority(ThreadLevel::Normal), None);
+        assert_eq!(windows_thread_priority(ThreadLevel::Stream), Some(1));
+        assert_eq!(windows_thread_priority(ThreadLevel::Decode), Some(2));
+    }
+
+    #[test]
+    fn only_zero_turns_the_switch_off() {
+        assert!(switch_on(None));
+        assert!(switch_on(Some("")));
+        assert!(switch_on(Some("1")));
+        assert!(!switch_on(Some("0")));
+        assert!(!switch_on(Some(" 0\n")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_thread_takes_its_level() {
+        let levels = std::thread::spawn(|| {
+            let before = windows_thread::current();
+            raise_current_thread(ThreadLevel::Normal).unwrap();
+            let normal = windows_thread::current();
+            raise_current_thread(ThreadLevel::Stream).unwrap();
+            let stream = windows_thread::current();
+            raise_current_thread(ThreadLevel::Decode).unwrap();
+            (before, normal, stream, windows_thread::current())
+        })
+        .join()
+        .unwrap();
+        assert_eq!(
+            levels,
+            (0, 0, WINDOWS_STREAM_PRIORITY, WINDOWS_DECODE_PRIORITY)
+        );
     }
 
     // Windows ignores IP_TOS: the control socket is marked by joining a qWAVE control flow, once

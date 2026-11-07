@@ -81,6 +81,8 @@ struct Driver {
     hold_fence: bool,
     /// Each D3D12 picture's wait fence, wait value and signal value.
     fence_points: Vec<(usize, u64, u64)>,
+    /// Each output fence value an event was armed for.
+    notified: Vec<u64>,
     /// Each picture's QP delta map.
     maps: Vec<Option<Vec<i8>>>,
 }
@@ -95,6 +97,10 @@ impl Fence for FakeFence {
     }
     fn completed(&self) -> Result<u64> {
         Ok(state(|d| d.fence))
+    }
+    fn notify(&self, value: u64, _event: HANDLE) -> Result<()> {
+        state(|d| d.notified.push(value));
+        Ok(())
     }
 }
 thread_local! { static DRIVER: RefCell<Driver> = RefCell::default(); }
@@ -2128,6 +2134,35 @@ fn a_d3d12_session_waits_for_the_conversion_on_the_gpu_and_signals_its_fence() -
     );
     let error = input(&mut encoder, 18).err().unwrap();
     assert!(format!("{error:#}").contains("D3D12"), "{error:#}");
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn the_output_event_is_armed_only_for_an_unwritten_d3d12_frame() -> Result<()> {
+    reset();
+    let event = crate::timing::Signal::new()?;
+    let d3d11 = session(&Negotiated::default(), ApiVersion(13, 0))?;
+    assert!(!d3d11.arm_output(&event)?, "a D3D11 session keeps its poll");
+    drop(d3d11);
+    reset();
+    let mut encoder = d3d12_session(&Negotiated::default(), ApiVersion(13, 0), "")?;
+    let slot = d3d12_input(&mut encoder, 17)?;
+    assert!(!encoder.arm_output(&event)?, "nothing in flight");
+    state(|d| d.hold_fence = true);
+    encoder.submit(slot, converted(1), true, Instant::now())?;
+    event.set()?;
+    assert!(encoder.arm_output(&event)?);
+    // The arm resets a stale event and asks for the frame's own value.
+    let timer = crate::timing::Timer::new()?;
+    assert!(!timer.until_or_event(Instant::now() + Duration::from_millis(1), Some(&event))?);
+    state(|d| assert_eq!(d.notified, [1]));
+    // Once the fence passed it, the caller polls instead of waiting.
+    state(|d| d.fence = 1);
+    assert!(!encoder.arm_output(&event)?);
+    assert_eq!(encoder.poll()?.len(), 1);
+    assert!(!encoder.arm_output(&event)?);
+    state(|d| assert_eq!(d.notified, [1]));
     drop(encoder);
     assert_clean();
     Ok(())

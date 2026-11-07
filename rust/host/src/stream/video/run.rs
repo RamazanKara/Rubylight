@@ -945,10 +945,11 @@ impl SessionThread<'_> {
                             let poll_tick = Instant::now();
                             send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, poll_tick)?;
                             if encoder.as_ref().is_some_and(|e| recovery.pending(e)) {
-                                timer.until(
+                                timer.until_or_event(
                                     (Instant::now() + OUTPUT_POLL)
                                         .min(due),
-                                );
+                                    encoder.as_ref().and_then(Encoder::output_event),
+                                )?;
                             }
                         } else {
                             timer.until(due);
@@ -1030,7 +1031,7 @@ impl SessionThread<'_> {
                     if until == deadline {
                         latest.wait_if_current_precise(&timer, &capture_wake, &image, until)?;
                     } else {
-                        latest.wait_if_current(&timer, &capture_wake, &image, until)?;
+                        latest.wait_if_current_or(&timer, &capture_wake, &image, until, encoder.as_ref().and_then(Encoder::output_event))?;
                     }
                     Ok(())
                     })?;
@@ -1063,8 +1064,10 @@ impl SessionThread<'_> {
                 {
                     AdmissionTrace::measure(&mut admission_trace, AdmissionWait::Repeat, || -> Result<()> {
                     if encoder.as_ref().is_some_and(|e| recovery.pending(e)) { send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, capture_tick)?; }
-                    let wait = if encoder.as_ref().is_some_and(|e| recovery.pending(e)) { OUTPUT_POLL } else { period };
-                    latest.wait_if_current(&timer, &capture_wake, &image, Instant::now() + wait.min(reencode_at.saturating_duration_since(Instant::now())))?;
+                    let pending = encoder.as_ref().is_some_and(|e| recovery.pending(e));
+                    let wait = if pending { OUTPUT_POLL } else { period };
+                    let output = encoder.as_ref().filter(|_| pending).and_then(Encoder::output_event);
+                    latest.wait_if_current_or(&timer, &capture_wake, &image, Instant::now() + wait.min(reencode_at.saturating_duration_since(Instant::now())), output)?;
                     Ok(())
                     })?;
                     continue;
@@ -1097,7 +1100,12 @@ impl SessionThread<'_> {
                         // Network occupancy must not start encoder stall recovery.
                         recovery.backlog_since = None;
                         if encoder.as_ref().is_some_and(|e| recovery.pending(e)) {
-                            send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, capture_tick)?;
+                            let output = recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?;
+                            let idle = output.is_empty();
+                            send_frames(output, peer, Duration::ZERO, latest, capture_tick)?;
+                            if idle {
+                                wait_for_output(&timer, encoder.as_ref())?;
+                            }
                         } else {
                             video_sender.get().unwrap().wait_for_capacity(encoder_backlog::total_limit(encoding_limit), period, recovery_lead)?;
                         }
@@ -1112,7 +1120,11 @@ impl SessionThread<'_> {
                     // silent gets longer each time.
                     AdmissionTrace::measure(&mut admission_trace, AdmissionWait::Encoder, || -> Result<()> {
                         if let Some(output) = recovery.poll_full(&mut encoder, &s.launch.warnings, Instant::now)? {
+                            let idle = output.is_empty();
                             send_frames(output, peer, Duration::ZERO, latest, capture_tick)?;
+                            if idle {
+                                wait_for_output(&timer, encoder.as_ref())?;
+                            }
                         }
                         Ok(())
                     })?;

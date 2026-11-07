@@ -406,6 +406,15 @@ impl Encoder {
             Self::Pyrowave(_) => false,
         }
     }
+    /// An event that ends a wait for output as soon as the oldest frame is
+    /// done (`nvenc_output_event`), armed by this call. `None` keeps the
+    /// caller's output poll; with an event that poll stays the wait's bound.
+    pub fn output_event(&self) -> Option<&crate::timing::Signal> {
+        match self {
+            Self::Amf(_) | Self::Pyrowave(_) => None,
+            Self::Nvenc(e) => e.output_event(),
+        }
+    }
     /// When the encoder accepted the input of the last encode call, after
     /// its colour conversion. Only AMF reports it.
     pub fn last_submitted(&self) -> Option<std::time::Instant> {

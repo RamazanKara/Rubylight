@@ -44,6 +44,20 @@ pub(super) fn observe_foreground_game(h: &Shared, client: &str, program: &str, p
 /// How often completed encoder output is collected while a frame is in flight.
 pub(super) const OUTPUT_POLL: Duration = Duration::from_micros(100);
 
+/// After a poll that returned nothing while the encoder is full: an encoder
+/// with an output event (NVENC's D3D12 fence) sleeps until it, at most one
+/// output poll, instead of polling again at once; others poll again at once
+/// as before.
+pub(super) fn wait_for_output(
+    timer: &butterpollo_windows::timing::Timer,
+    encoder: Option<&Encoder>,
+) -> Result<()> {
+    if let Some(event) = encoder.and_then(Encoder::output_event) {
+        timer.until_or_event(Instant::now() + OUTPUT_POLL, Some(event))?;
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy)]
 enum AdmissionWait {
     Grid,

@@ -407,10 +407,17 @@ trait Fence {
     fn raw(&self) -> *mut c_void;
     /// The completed value; fails once the device is removed.
     fn completed(&self) -> Result<u64>;
+    /// Set `event` once the fence reaches `value`.
+    fn notify(&self, value: u64, event: HANDLE) -> Result<()>;
 }
 impl Fence for ID3D12Fence {
     fn raw(&self) -> *mut c_void {
         self.as_raw()
+    }
+    fn notify(&self, value: u64, event: HANDLE) -> Result<()> {
+        // SAFETY: The fence is live and `event` an open event its owner keeps
+        // until the session (which holds this fence) is gone or rearms it.
+        unsafe { self.SetEventOnCompletion(value, event) }.context("NVENC D3D12 output fence event")
     }
     fn completed(&self) -> Result<u64> {
         // SAFETY: The fence is a live D3D12 fence; GetCompletedValue only reads it.
@@ -1782,6 +1789,25 @@ impl Session {
         self.reencoded_cuts += 1;
         Ok(())
     }
+    /// Arm `event` to be set when the oldest frame in flight is written, for
+    /// a D3D12 session whose frame is not written yet; false otherwise, and
+    /// the caller polls as before. Each arm resets the event first; frames
+    /// collected earlier had already completed, so only a late notification
+    /// of theirs can wake a wait early, never hold one.
+    fn arm_output(&self, event: &crate::timing::Signal) -> Result<bool> {
+        let (Some(d3d12), Some(signal)) = (
+            &self.d3d12,
+            self.pending.front().and_then(|pending| pending.signal),
+        ) else {
+            return Ok(false);
+        };
+        if !self.ready.is_empty() || d3d12.fence.completed()? >= signal {
+            return Ok(false);
+        }
+        event.reset()?;
+        d3d12.fence.notify(signal, event.raw())?;
+        Ok(true)
+    }
     fn collect(&mut self) -> Result<()> {
         let _guard = self.guard()?;
         while let Some(pending) = self.pending.front() {
@@ -2481,6 +2507,10 @@ pub struct Encoder {
     answers: Vec<crate::amf::focus::Grid>,
     /// The focus probe is running: every frame is measured.
     probing: bool,
+    /// `nvenc_output_event`: set by the D3D12 output fence once the oldest
+    /// frame is written, so the stream wakes for it instead of on its next
+    /// output poll. Declared last: it outlives the fence that may set it.
+    output_event: Option<crate::timing::Signal>,
 }
 /// A frame whose block QP statistics were asked for.
 struct Ask {
@@ -2576,7 +2606,16 @@ impl Encoder {
             asked: VecDeque::new(),
             answers: Vec::new(),
             probing: false,
+            output_event: None,
         };
+        if options.nvenc_output_event() && encoder.session.d3d12.is_some() {
+            match crate::timing::Signal::new() {
+                Ok(event) => encoder.output_event = Some(event),
+                Err(error) => {
+                    tracing::warn!("NVENC output event unavailable ({error:#}); polling for output")
+                }
+            }
+        }
         encoder.dynamic = encoder.enable_dynamic(options);
         encoder.set_hdr_metadata(metadata);
         Ok(encoder)
@@ -2755,6 +2794,24 @@ impl Encoder {
             splice(self.dynamic.as_deref_mut(), frame);
         }
         Ok(frames)
+    }
+    /// An event set once the oldest frame in flight is written, armed by
+    /// this call; `None` when there is nothing to wait for or the session
+    /// has none (D3D11, CUDA, `nvenc_output_event` off), and the caller
+    /// keeps its output poll, which stays the bound of any wait.
+    pub fn output_event(&self) -> Option<&crate::timing::Signal> {
+        let event = self.output_event.as_ref()?;
+        match self.session.arm_output(event) {
+            Ok(armed) => armed.then_some(event),
+            Err(error) => {
+                self.warnings.event(
+                    "encoder_output_event",
+                    format!("NVENC could not arm its output event ({error:#}); polling for output instead. Report this with the host log."),
+                    butterpollo_core::session::EVENT_PERIOD,
+                );
+                None
+            }
+        }
     }
     pub fn accepts_gpu_device(&self, image: &GpuImage) -> bool {
         self.gpu.device.as_raw() == image.gpu.device.as_raw()

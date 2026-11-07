@@ -219,6 +219,8 @@ impl Streams {
                             first: block.index == 0,
                             last: block.is_last(),
                         }),
+                        whole: false,
+                        frame_wire_bytes: None,
                     };
                     if let Err(error) = shared.enqueue(prepared) {
                         fatal = Some(error);

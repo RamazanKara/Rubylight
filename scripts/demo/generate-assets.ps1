@@ -3,6 +3,16 @@ $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $assets = Join-Path $root 'app/src/debug/assets/demo'
 $work = Join-Path $root 'out/demo/assets'
 New-Item -ItemType Directory -Force $assets, $work | Out-Null
+# The covers: playwright-core is this script's own dependency (scripts/demo/package.json), nothing else uses it.
+Push-Location $PSScriptRoot
+try {
+    & npm ci --no-audit --no-fund
+    if ($LASTEXITCODE -ne 0) { throw 'npm ci failed.' }
+    & node covers.mjs
+    if ($LASTEXITCODE -ne 0) { throw 'Cover generation failed.' }
+} finally {
+    Pop-Location
+}
 $command = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
 $ffmpeg = if ($command) { $command.Source } else {
     Get-ChildItem "$env:LOCALAPPDATA/Microsoft/WinGet/Packages/Gyan.FFmpeg*/**/bin/ffmpeg.exe" -ErrorAction SilentlyContinue |

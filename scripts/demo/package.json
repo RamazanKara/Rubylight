@@ -1,0 +1,9 @@
+{
+  "name": "nightjar-demo-covers",
+  "private": true,
+  "description": "covers.mjs only: renders the demo covers through installed Chrome.",
+  "type": "module",
+  "dependencies": {
+    "playwright-core": "1.65.0"
+  }
+}

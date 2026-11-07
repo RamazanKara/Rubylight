@@ -1,61 +1,67 @@
-//! The in-stream menus in the launcher's look: a scrim over the game, the dialog frame, a title and
-//! the game's line, groups under small captions, action rows with an icon and their shortcut,
-//! rows with a control right, folds, and the one way out in the error colour. Everything here is
-//! drawn only while a menu is open; a closed menu costs the stream nothing.
+//! The in-stream menus in the moonlit glass: a panel at the right of the stream, its fill and rim
+//! painted with no backdrop, tiles and rows as tinted controls, one round close, and the ways out
+//! as capsules. Everything here is drawn only while a menu is open; a closed menu costs the stream
+//! nothing: no blur, no layer, no texture bound.
 //!
-//! The states follow the launcher's: hover lightens a row one surface step, pressing lightens it
-//! one more, and keyboard or controller focus is one ring in amber at the row's radius, inside it,
-//! so nothing moves.
+//! The states follow the launcher's: hover and press lift a control, and keyboard or controller
+//! focus is the one amber ring around it, so nothing moves.
 
-use egui::{vec2, Align, Align2, Color32, CornerRadius, Frame, Layout, Margin, Pos2, Rect, Response, RichText, Sense, Stroke, StrokeKind, Ui};
+use egui::{vec2, Align, Align2, Color32, CornerRadius, Frame, Layout, Margin, Pos2, Rect, Response, RichText, Sense, Shape, Stroke, StrokeKind, Ui, Vec2};
 
 use crate::config::GamepadQuitCombo;
 use crate::glyphs::{self, icon, Icon, Piece, Style};
 use crate::shortcuts::{self, Action, Chord, Scope};
 use crate::strings::tr;
-use crate::theme::{
-    focus_ring_width, radius, regular, semibold, space, text, ERROR, MOON, ON_MOON, ON_SURFACE, ON_SURFACE_VARIANT, OUTLINE_VARIANT, SCRIM, SURFACE, SURFACE_HIGH,
-    SURFACE_HIGHEST,
-};
-use crate::ui::{name_for_readers, toggle};
+use crate::theme::{high_contrast, radius, regular, semibold, space, text, ERROR, MOON, ON_MOON, ON_MOON_CONTAINER, ON_SURFACE, ON_SURFACE_VARIANT};
+use crate::ui::{design_tokens as t, focus_ring, glass, lift_shapes, name_for_readers, round_button, toggle, Tone};
 
-/// The menus' width with their frame: a row's label, its control or shortcut side by side.
-pub const WIDTH: f32 = 480.0;
-/// The frame's margin.
-const MARGIN: f32 = 24.0;
+/// The menus' width with their margin.
+pub const WIDTH: f32 = 452.0;
+/// The panel's margin.
+const MARGIN: f32 = 20.0;
+/// The panel's distance from the window's edges.
+const OUTER: f32 = 24.0;
+/// The panel's corner.
+const CORNER: f32 = 32.0;
+/// How far the focus ring reaches outside a control: a page keeps this much room inside its clip.
+const HALO: f32 = 10.0;
+/// How far the ring's glow reaches here: it fades out inside the panel's margin, and so inside a
+/// page's clip and the panel's round corners. The launcher's wider glow would be cut in a line.
+const HALO_REACH: f32 = MARGIN - t::FOCUS_GAP - t::FOCUS_RING_WIDTH;
 /// A row's inner padding left and right, so its icon, label and control sit inside its hover fill.
 pub const PAD: f32 = 12.0;
 /// An action row's height.
-const ROW: f32 = 40.0;
+const ROW: f32 = 44.0;
 /// The icons' size.
 const ICON: f32 = 18.0;
 /// Where a row's label starts: after its padding, its icon and a gap.
 const LABEL_X: f32 = PAD + ICON + PAD;
 
-/// A menu's window: the launcher's dialog frame, centred, without egui's title bar (the menu draws
-/// its own title with [`header`]).
-pub fn window<'a>(title: &'a str, id: &str) -> egui::Window<'a> {
+/// A menu: the panel at the right of the stream, as tall as what it holds, without egui's title bar
+/// (the menu draws its own title). The surface goes under `add`, once its size is known.
+pub fn show(ctx: &egui::Context, title: &str, id: &str, add: impl FnOnce(&mut Ui)) {
+    let inside = (ctx.content_rect().width() - 2.0 * OUTER).min(WIDTH) - 2.0 * MARGIN;
     egui::Window::new(title)
         .id(egui::Id::unique(id))
         .title_bar(false)
-        .anchor(Align2::CENTER_CENTER, egui::Vec2::ZERO)
+        .anchor(Align2::RIGHT_TOP, vec2(-OUTER, OUTER))
         .collapsible(false)
         .resizable(false)
-        .min_width(WIDTH)
-        .max_width(WIDTH)
-        .frame(
-            Frame::new()
-                .fill(*SURFACE)
-                .corner_radius(CornerRadius::same(16))
-                .inner_margin(Margin::same(MARGIN as i8))
-                .stroke(Stroke::new(1.0, OUTLINE_VARIANT)),
-        )
-}
-
-/// Dims the game under an open menu, so the menu reads as the one thing in front.
-pub fn scrim(ctx: &egui::Context) {
-    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::unique("stream-menu-scrim")));
-    painter.rect_filled(ctx.content_rect(), 0.0, SCRIM);
+        .min_width(inside)
+        .max_width(inside)
+        .frame(Frame::new().inner_margin(Margin::same(MARGIN as i8)))
+        .show(ctx, |ui| {
+            let place = ui.painter().add(Shape::Noop);
+            ui.set_width(inside);
+            let ctx = ui.ctx().clone();
+            glass::with_halo_reach(&ctx, HALO_REACH, || add(ui));
+            let mut shapes = Vec::new();
+            glass::menu_surface(&mut shapes, ui.ctx(), ui.min_rect().expand(MARGIN), CORNER);
+            // The window's clip stops at its edge, and the shadow falls past that.
+            let mut painter = ui.painter().clone();
+            painter.set_clip_rect(ui.ctx().content_rect());
+            painter.set(place, Shape::Vec(shapes));
+        });
 }
 
 /// A menu's content: as tall as the window allows less a margin, scrolling beyond that. egui
@@ -68,13 +74,19 @@ pub fn body<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
 /// the window drew above it already, and `reserve` points under it (see [`pinned`]).
 pub fn body_above<R>(ui: &mut Ui, reserve: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
     let above = ui.cursor().top() - ui.max_rect().top();
-    let room = (ui.ctx().content_rect().height() - 2.0 * (space::XL + MARGIN) - above - reserve).max(TILE);
+    let room = (ui.ctx().content_rect().height() - 2.0 * (OUTER + MARGIN) - above - reserve).max(TILE);
     // A child as tall as the room rather than Ui::set_max_height, which puts the cursor back at the
     // window's top, under what it drew already.
     ui.allocate_ui(egui::vec2(ui.available_width(), room), |ui| {
         egui::ScrollArea::vertical().max_height(room).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
-            add(ui)
+            // The scroll area's own edges would cut the focus ring and its glow. Past them on both ends
+            // lies only the empty gap to the head and the footer.
+            ui.set_clip_rect(ui.clip_rect().expand(HALO));
+            ui.add_space(HALO);
+            let inner = add(ui);
+            ui.add_space(HALO);
+            inner
         })
         .inner
     })
@@ -84,7 +96,7 @@ pub fn body_above<R>(ui: &mut Ui, reserve: f32, add: impl FnOnce(&mut Ui) -> R) 
 /// The room a [`pinned`] part took last frame, for [`body_above`] to leave under the scrolling
 /// part; before the first frame, about Return to stream and one row of exits.
 pub fn pinned_room(ctx: &egui::Context, id: &str) -> f32 {
-    ctx.data(|d| d.get_temp(egui::Id::unique(("pinned", id)))).unwrap_or(space::L + 44.0 + space::S + ROW)
+    ctx.data(|d| d.get_temp(egui::Id::unique(("pinned", id)))).unwrap_or(space::L + EXIT)
 }
 
 /// A part that stays in view under the scrolling part (the stream menu's ways out); its height is
@@ -98,10 +110,24 @@ pub fn pinned<R>(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
 
 /// The menu's title and, under it, what streams from where.
 pub fn header(ui: &mut Ui, title: &str, line: &str) {
-    ui.label(RichText::new(title).font(semibold(text::SECTION)).color(ON_SURFACE));
+    ui.add(egui::Label::new(RichText::new(title).font(semibold(text::SECTION)).color(ON_SURFACE)).truncate());
     ui.add_space(2.0);
-    ui.label(RichText::new(line).font(regular(text::LABEL)).color(ON_SURFACE_VARIANT));
-    ui.add_space(space::L);
+    ui.add(egui::Label::new(RichText::new(line).font(regular(text::LABEL)).color(ON_SURFACE_VARIANT)).truncate());
+    ui.add_space(space::M);
+}
+
+/// The grid's head: [`header`] with the round close beside it. Says whether the close was used.
+pub fn head(ui: &mut Ui, title: &str, line: &str) -> bool {
+    const CLOSE: f32 = 44.0;
+    let top = ui.cursor().min;
+    let close = Rect::from_min_size(Pos2::new(top.x + ui.available_width() - CLOSE, top.y), Vec2::splat(CLOSE));
+    let closed = round_button(ui, close, crate::ui::Icon::Close, tr("Return to stream")).clicked();
+    ui.scope(|ui| {
+        ui.set_max_width(ui.available_width() - CLOSE - space::S);
+        ui.set_min_height(CLOSE);
+        header(ui, title, line);
+    });
+    closed
 }
 
 /// A group's caption: what the rows under it are about.
@@ -109,29 +135,42 @@ pub fn caption(ui: &mut Ui, label: &str) {
     ui.add_space(space::M);
     ui.horizontal(|ui| {
         ui.add_space(PAD);
-        ui.label(RichText::new(label.to_uppercase()).font(semibold(text::CAPTION)).color(ON_SURFACE_VARIANT));
+        ui.label(RichText::new(label).font(semibold(text::LABEL)).color(ON_SURFACE));
     });
     ui.add_space(space::XS);
 }
 
-/// A row's fill for its state: none at rest, a step lighter on hover, another while pressed.
+/// Rows that belong together, on a tint with its rim.
+pub fn group<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let place = ui.painter().add(Shape::Noop);
+    let shown = Frame::new().inner_margin(Margin::same(4)).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        add(ui)
+    });
+    let mut shapes = Vec::new();
+    glass::group(&mut shapes, ui.ctx(), shown.response.rect, GROUP_CORNER, t::TINT_GROUP_FILL);
+    ui.painter().set(place, Shape::Vec(shapes));
+    shown.inner
+}
+
+const GROUP_CORNER: f32 = 20.0;
+
+/// A row's fill for its state: none at rest, a tint on hover, a stronger one while pressed.
 fn fill(ui: &Ui, response: &Response) -> Color32 {
     if !ui.is_enabled() {
         Color32::TRANSPARENT
     } else if response.is_pointer_button_down_on() {
-        *SURFACE_HIGHEST
+        t::TINT_SEG_ON_FILL
     } else if response.hovered() {
-        *SURFACE_HIGH
+        t::TINT_CONTROL_FILL
     } else {
         Color32::TRANSPARENT
     }
 }
 
-/// The focus ring: one amber line inside `rect` at its radius.
+/// The focus ring: the launcher's one amber ring around `rect`.
 pub fn ring(ui: &Ui, rect: Rect, response: &Response, corner: u8) {
-    if response.has_focus() {
-        ui.painter().rect_stroke(rect, CornerRadius::same(corner), Stroke::new(focus_ring_width(), MOON), StrokeKind::Inside);
-    }
+    focus_ring(ui, rect, response, corner);
 }
 
 /// What a row shows at its right edge.
@@ -208,32 +247,31 @@ pub fn danger(ui: &mut Ui, glyph: Icon, label: &str, shortcut: Option<Action>) -
     response
 }
 
-/// One of the ways out side by side under Return to stream (Disconnect, Quit game): its icon and
-/// label centred in the error colour on a tile's fill, `width` wide. The keys that do it show on
-/// hover and are read out with the label.
-pub fn exit_button(ui: &mut Ui, width: f32, glyph: Icon, label: &str, keys: Option<&str>) -> Response {
+/// One of the ways out side by side under the grid, `width` wide: Disconnect a quiet capsule, ending
+/// something on the PC a red one. The keys that do it show on hover and are read out with the label.
+pub fn exit_button(ui: &mut Ui, width: f32, glyph: Icon, label: &str, keys: Option<&str>, tone: Tone) -> Response {
     let enabled = ui.is_enabled();
-    let ink = if enabled { *ERROR } else { ERROR.gamma_multiply(0.4) };
-    let mut job = egui::text::LayoutJob::simple(label.to_owned(), regular(text::BODY), ink, (width - 2.0 * PAD - ICON - space::S).max(space::L));
+    let (hovered, pressed) = (false, false);
+    let base_ink = tone.colors(hovered, pressed).1;
+    let ink = if enabled { base_ink } else { base_ink.gamma_multiply(0.4) };
+    let mut job = egui::text::LayoutJob::simple(label.to_owned(), semibold(text::LABEL), ink, (width - 2.0 * PAD - ICON - space::S).max(space::L));
     job.wrap.max_rows = 2;
     let galley = ui.painter().layout_job(job);
-    let height = (galley.size().y + 2.0 * 10.0).max(ROW);
+    let height = (galley.size().y + 2.0 * 10.0).max(EXIT);
     let (rect, mut response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
-    let fill = if !enabled {
-        *SURFACE
-    } else if response.is_pointer_button_down_on() {
-        SURFACE_HIGH.lerp_to_gamma(*ON_SURFACE, 0.12)
-    } else if response.hovered() {
-        SURFACE_HIGH.lerp_to_gamma(*ON_SURFACE, 0.06)
+    let r = (height / 2.0).min(EXIT / 2.0);
+    let mut shapes = Vec::new();
+    if matches!(tone, Tone::Danger) && !high_contrast() {
+        glass::solid(&mut shapes, ui.ctx(), rect, r, tone.colors(false, false).0);
     } else {
-        *SURFACE_HIGH
-    };
-    let painter = ui.painter();
-    painter.rect_filled(rect, CornerRadius::same(radius::CONTROL), fill);
+        glass::control(&mut shapes, ui.ctx(), rect, r);
+    }
+    lift_shapes(&mut shapes, ui.ctx(), rect, r, enabled && response.hovered(), enabled && response.is_pointer_button_down_on());
+    ui.painter().extend(shapes);
     let left = rect.center().x - (ICON + space::S + galley.size().x) / 2.0;
-    icon(painter, Rect::from_center_size(Pos2::new(left + ICON / 2.0, rect.center().y), vec2(ICON, ICON)), glyph, ink);
-    painter.galley(Pos2::new(left + ICON + space::S, rect.center().y - galley.size().y / 2.0), galley, ink);
-    ring(ui, rect, &response, radius::CONTROL);
+    icon(ui.painter(), Rect::from_center_size(Pos2::new(left + ICON / 2.0, rect.center().y), vec2(ICON, ICON)), glyph, ink);
+    ui.painter().galley(Pos2::new(left + ICON + space::S, rect.center().y - galley.size().y / 2.0), galley, ink);
+    ring(ui, rect, &response, r as u8);
     if let Some(keys) = keys {
         response = response.on_hover_text(keys);
     }
@@ -241,6 +279,9 @@ pub fn exit_button(ui: &mut Ui, width: f32, glyph: Icon, label: &str, keys: Opti
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &spoken));
     response
 }
+
+/// A way out's height.
+const EXIT: f32 = 48.0;
 
 /// A fold: a row that opens what is under it (a slider, a report, a list), its body lined up with
 /// the label. Returns what the body returned, while open.
@@ -273,9 +314,6 @@ pub fn row<R>(ui: &mut Ui, glyph: Icon, label: &str, control: impl FnOnce(&mut U
         ui.label(RichText::new(label).font(regular(text::BODY)).color(dim(*ON_SURFACE)));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             ui.add_space(PAD);
-            // A list's box on the menu's fill: one step lighter, as on a settings row.
-            ui.visuals_mut().widgets.inactive.weak_bg_fill = *SURFACE_HIGH;
-            ui.visuals_mut().widgets.hovered.weak_bg_fill = *SURFACE_HIGHEST;
             control(ui)
         })
         .inner
@@ -293,68 +331,71 @@ pub fn switch(ui: &mut Ui, glyph: Icon, label: &str, on: &mut bool) -> Response 
 }
 
 /// The menu's one main action, across its width in amber (Return to stream), with its key right.
-/// Disabled (Resume while End or Close game runs), it loses its amber for a smaller button's
-/// greyed look and takes no hover.
+/// Disabled (Resume while End or Close game runs), it loses its amber for a tinted capsule's look
+/// and takes no hover.
 pub fn primary(ui: &mut Ui, label: &str, keys: Option<&str>) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
     let enabled = ui.is_enabled();
-    let base = *MOON;
-    let fill = if !enabled {
-        *SURFACE_HIGH
-    } else if response.is_pointer_button_down_on() {
-        base.lerp_to_gamma(Color32::BLACK, 0.12)
-    } else if response.hovered() {
-        base.lerp_to_gamma(Color32::WHITE, 0.12)
+    let r = rect.height() / 2.0;
+    let mut shapes = Vec::new();
+    if enabled {
+        glass::play(&mut shapes, ui.ctx(), rect, r);
+        lift_shapes(&mut shapes, ui.ctx(), rect, r, response.hovered(), response.is_pointer_button_down_on());
     } else {
-        base
-    };
+        glass::control(&mut shapes, ui.ctx(), rect, r);
+    }
+    ui.painter().extend(shapes);
     let ink = if enabled { *ON_MOON } else { ON_SURFACE.gamma_multiply(0.4) };
     let painter = ui.painter();
-    painter.rect_filled(rect, CornerRadius::same(radius::CONTROL), fill);
-    let left = Rect::from_center_size(Pos2::new(rect.left() + PAD + ICON / 2.0, rect.center().y), vec2(ICON, ICON));
+    let left = Rect::from_center_size(Pos2::new(rect.left() + PAD + 4.0 + ICON / 2.0, rect.center().y), vec2(ICON, ICON));
     icon(painter, left, Icon::Play, ink);
     let galley = painter.layout_no_wrap(label.to_owned(), semibold(text::BODY), ink);
-    painter.galley(Pos2::new(rect.left() + LABEL_X, rect.center().y - galley.size().y / 2.0), galley, ink);
+    painter.galley(Pos2::new(rect.left() + 4.0 + LABEL_X, rect.center().y - galley.size().y / 2.0), galley, ink);
     if let Some(keys) = keys {
         let g = painter.layout_no_wrap(keys.to_owned(), semibold(text::CAPTION), ink);
         let cap = Rect::from_min_size(Pos2::new(rect.right() - PAD - g.size().x - 14.0, rect.center().y - 12.0), vec2(g.size().x + 14.0, 24.0));
         painter.rect_stroke(cap, CornerRadius::same(radius::SMALL), Stroke::new(1.0, ink.gamma_multiply(0.5)), StrokeKind::Inside);
         painter.galley(cap.center() - g.size() / 2.0, g, ink);
     }
-    // On amber an inside ring would vanish: the ring sits just outside, in the same amber.
-    if response.has_focus() {
-        painter.rect_stroke(rect.expand(3.0), CornerRadius::same(radius::CONTROL + 3), Stroke::new(focus_ring_width(), MOON), StrokeKind::Outside);
-    }
+    ring(ui, rect, &response, r as u8);
     let spoken = keys.map(|k| format!("{label}, {k}")).unwrap_or_else(|| label.to_owned());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &spoken));
     response
 }
 
 /// A tile's height in the stream menu's grid.
-pub const TILE: f32 = 96.0;
+pub const TILE: f32 = 76.0;
 /// The gap between tiles.
 pub const TILE_GAP: f32 = 8.0;
+/// A tile's corner.
+const TILE_CORNER: f32 = 20.0;
 
 /// A tile of the stream menu's grid: its icon over its label, a quieter line under that (a
-/// shortcut's keys), a small switch in the top right corner while it has a state, and the
-/// controller button that runs it in the top left. On, the tile takes an amber tint.
+/// shortcut's keys), and the controller button that runs it in the top left. On, the tile takes the
+/// selected tint and its icon the moon.
 pub fn tile(ui: &mut Ui, width: f32, glyph: Icon, label: &str, detail: Option<&str>, on: Option<bool>, hotkey: Option<&str>) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(width, TILE), Sense::click());
     let enabled = ui.is_enabled();
     let lit = on == Some(true);
-    let base = if lit { SURFACE_HIGH.lerp_to_gamma(*MOON, 0.22) } else { *SURFACE_HIGH };
-    let fill = if !enabled {
-        *SURFACE
-    } else if response.is_pointer_button_down_on() {
-        base.lerp_to_gamma(*ON_SURFACE, 0.12)
-    } else if response.hovered() {
-        base.lerp_to_gamma(*ON_SURFACE, 0.06)
+    let mut shapes = Vec::new();
+    if lit && high_contrast() {
+        glass::solid(&mut shapes, ui.ctx(), rect, TILE_CORNER, t::SOLID_CONTROL_FILL);
+        glass::rim(&mut shapes, ui.ctx(), rect, TILE_CORNER, 2.0, &|_| *MOON);
+    } else if lit {
+        glass::solid(&mut shapes, ui.ctx(), rect, TILE_CORNER, t::TINT_SELECTED_FILL);
+        let rim = glass::gradient(rect, 180.0, &[(0.0, t::TINT_SELECTED_RIM_TOP), (0.5, Color32::TRANSPARENT)]);
+        glass::rim(&mut shapes, ui.ctx(), rect, TILE_CORNER, 1.0, &rim);
     } else {
-        base
+        glass::control(&mut shapes, ui.ctx(), rect, TILE_CORNER);
+    }
+    lift_shapes(&mut shapes, ui.ctx(), rect, TILE_CORNER, enabled && response.hovered(), enabled && response.is_pointer_button_down_on());
+    ui.painter().extend(shapes);
+    let ink = match (enabled, lit) {
+        (false, _) => ON_SURFACE.gamma_multiply(0.4),
+        (true, true) if !high_contrast() => *ON_MOON_CONTAINER,
+        _ => *ON_SURFACE,
     };
-    let ink = if enabled { *ON_SURFACE } else { ON_SURFACE.gamma_multiply(0.4) };
     let painter = ui.painter();
-    painter.rect_filled(rect, CornerRadius::same(radius::CONTROL), fill);
     let mut job = egui::text::LayoutJob::simple(label.to_owned(), regular(text::LABEL), ink, width - 2.0 * space::S);
     job.halign = Align::Center;
     job.wrap.max_rows = 2;
@@ -370,34 +411,28 @@ pub fn tile(ui: &mut Ui, width: f32, glyph: Icon, label: &str, detail: Option<&s
         job.wrap.max_rows = 2;
         painter.layout_job(job)
     });
-    // Icon, label and keys sit together in the middle of the tile, however many rows they take.
-    let block = 22.0 + 6.0 + galley.size().y + quiet.as_ref().map_or(0.0, |g| g.size().y + 1.0);
+    // Icon, label and keys sit together in the middle of the tile, however many rows they take. A
+    // tile too full for its icon (a long name over long keys) keeps its words.
+    let words = galley.size().y + quiet.as_ref().map_or(0.0, |g| g.size().y + 1.0);
+    let room_for_icon = 22.0 + 6.0 + words <= TILE - 2.0 * space::XS;
+    let block = if room_for_icon { 22.0 + 6.0 + words } else { words };
     let top = rect.top() + ((TILE - block) / 2.0).max(space::XS);
-    let icon_rect = Rect::from_min_size(Pos2::new(rect.center().x - 11.0, top), vec2(22.0, 22.0));
-    icon(painter, icon_rect, glyph, if lit { *MOON } else { ink });
-    let label_top = top + 28.0;
+    if room_for_icon {
+        let icon_rect = Rect::from_min_size(Pos2::new(rect.center().x - 11.0, top), vec2(22.0, 22.0));
+        icon(painter, icon_rect, glyph, if lit { *MOON } else { ink });
+    }
+    let label_top = if room_for_icon { top + 28.0 } else { top };
     painter.galley(Pos2::new(rect.center().x, label_top), galley.clone(), ink);
     if let Some(g) = quiet {
         painter.galley(Pos2::new(rect.center().x, label_top + galley.size().y + 1.0), g, *ON_SURFACE_VARIANT);
     }
-    if let Some(on) = on {
-        // A small switch: amber track with the knob right while on, a grey outline with it left while off.
-        let track = Rect::from_min_size(Pos2::new(rect.right() - 8.0 - 22.0, rect.top() + 8.0), vec2(22.0, 12.0));
-        if on {
-            painter.rect_filled(track, CornerRadius::same(6), *MOON);
-            painter.circle_filled(Pos2::new(track.right() - 6.0, track.center().y), 4.0, *ON_MOON);
-        } else {
-            painter.rect_stroke(track, CornerRadius::same(6), Stroke::new(1.2, *ON_SURFACE_VARIANT), StrokeKind::Inside);
-            painter.circle_filled(Pos2::new(track.left() + 6.0, track.center().y), 3.5, *ON_SURFACE_VARIANT);
-        }
-    }
     if let Some(keys) = hotkey {
         let g = painter.layout_no_wrap(keys.to_owned(), semibold(text::CAPTION), *ON_SURFACE_VARIANT);
-        let cap = Rect::from_min_size(Pos2::new(rect.left() + 8.0, rect.top() + 6.0), vec2(g.size().x + 10.0, 16.0));
+        let cap = Rect::from_min_size(Pos2::new(rect.left() + 10.0, rect.top() + 8.0), vec2(g.size().x + 10.0, 16.0));
         painter.rect_stroke(cap, CornerRadius::same(radius::SMALL), Stroke::new(1.0, ON_SURFACE_VARIANT.gamma_multiply(0.6)), StrokeKind::Inside);
         painter.galley(cap.center() - g.size() / 2.0, g, *ON_SURFACE_VARIANT);
     }
-    ring(ui, rect, &response, radius::CONTROL);
+    ring(ui, rect, &response, TILE_CORNER as u8);
     let mut spoken = label.to_owned();
     if let Some(detail) = detail {
         spoken = format!("{spoken}, {detail}");
@@ -425,18 +460,13 @@ pub fn button(ui: &mut Ui, label: &str) -> Response {
     if galley.elided {
         response = response.on_hover_text(label);
     }
-    let fill = if !enabled {
-        *SURFACE_HIGH
-    } else if response.is_pointer_button_down_on() {
-        SURFACE_HIGHEST.lerp_to_gamma(*ON_SURFACE, 0.08)
-    } else if response.hovered() {
-        *SURFACE_HIGHEST
-    } else {
-        *SURFACE_HIGH
-    };
-    ui.painter().rect_filled(rect, CornerRadius::same(radius::CONTROL), fill);
+    let r = rect.height() / 2.0;
+    let mut shapes = Vec::new();
+    glass::control(&mut shapes, ui.ctx(), rect, r);
+    lift_shapes(&mut shapes, ui.ctx(), rect, r, enabled && response.hovered(), enabled && response.is_pointer_button_down_on());
+    ui.painter().extend(shapes);
     ui.painter().galley(rect.center() - galley.size() / 2.0, galley, ink);
-    ring(ui, rect, &response, radius::CONTROL);
+    ring(ui, rect, &response, r as u8);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
     response
 }
@@ -446,7 +476,7 @@ pub fn divider(ui: &mut Ui) {
     ui.add_space(space::S);
     let width = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(vec2(width, 1.0), Sense::hover());
-    ui.painter().rect_filled(rect, 0.0, OUTLINE_VARIANT);
+    ui.painter().rect_filled(rect, 0.0, t::TINT_SEPARATOR);
     ui.add_space(space::S);
 }
 
@@ -532,6 +562,14 @@ pub fn sheet(ui: &mut Ui, style: Style, quit: GamepadQuitCombo, back_opens: bool
 mod tests {
     use super::*;
 
+    /// Whether `seen` is `colour` under some opacity: premultiplied, its channels keep their ratio.
+    fn same_colour(seen: Color32, colour: Color32) -> bool {
+        let scale = seen.a() as f32 / colour.a() as f32;
+        [(seen.r(), colour.r()), (seen.g(), colour.g()), (seen.b(), colour.b())]
+            .iter()
+            .all(|(s, c)| (*s as f32 - *c as f32 * scale).abs() <= 2.0)
+    }
+
     fn run(ctx: &egui::Context, events: Vec<egui::Event>, add: impl FnMut(&mut Ui)) -> egui::FullOutput {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1280.0, 800.0))),
@@ -540,7 +578,7 @@ mod tests {
         };
         let mut add = add;
         let mut output = ctx.run_ui(input, |ui| {
-            window("Stream controls", "menu-test").show(ui.ctx(), |ui| add(ui));
+            show(ui.ctx(), "Stream controls", "menu-test", |ui| add(ui));
         });
         output.textures_delta.clear();
         output
@@ -607,15 +645,18 @@ mod tests {
         let (shapes, _) = frame(Vec::new(), false);
         // The window is still fading in here, so its colours carry its opacity: compare without it.
         let row = fills(&shapes).into_iter().find(|(r, _)| *r == rest).map(|(_, c)| c).expect("the row's fill");
-        let want = SURFACE_HIGH.gamma_multiply(f32::from(row.a()) / 255.0);
-        let close = row.to_array().iter().zip(want.to_array()).all(|(a, b)| a.abs_diff(b) <= 2);
-        assert!(close, "hover lightens the row one step: {row:?}, want {want:?}");
+        assert!(row.a() > 0 && row.a() <= t::TINT_CONTROL_FILL.a(), "hover lays a tint on the row: {row:?}");
+        assert!(same_colour(row, t::TINT_CONTROL_FILL), "the control tint under any opacity: {row:?}");
         frame(vec![egui::Event::PointerMoved(Pos2::new(5.0, 5.0))], true);
         let (shapes, rect) = frame(Vec::new(), true);
         assert_eq!(rect, rest, "focus does not move or resize the row");
-        let amber = |c: Color32| c.to_array().iter().zip(MOON.gamma_multiply(f32::from(c.a()) / 255.0).to_array()).all(|(a, b)| a.abs_diff(b) <= 2);
-        let ring = shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Rect(r) if r.rect == rest && r.stroke.color.a() > 0 && amber(r.stroke.color) && r.stroke_kind == StrokeKind::Inside));
-        assert!(ring, "focus is an amber ring inside the row");
+        let around = |colour: Color32| {
+            shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Mesh(m) if m.calc_bounds().contains_rect(rest)
+                && m.calc_bounds() != rest
+                && m.vertices.iter().any(|v| v.color.a() > 0 && same_colour(v.color, colour))))
+        };
+        assert!(around(t::FOCUS_RING_COLOR), "focus is the amber ring around the row");
+        assert!(around(t::FOCUS_HALO_COLOR), "with its glow");
     }
 
     /// A disabled main action (Resume while End or Close game runs) loses its amber and says so to
@@ -632,15 +673,19 @@ mod tests {
                 let output = run(&ctx, Vec::new(), |ui| {
                     rect = ui.add_enabled_ui(enabled, |ui| primary(ui, "Resume", None)).inner.rect;
                 });
-                fill = output.shapes.iter().find_map(|s| match &s.shape { egui::Shape::Rect(r) if r.rect == rect => Some(r.fill), _ => None }).or(fill);
+                // Its amber comes as a mesh. The window may still be fading in: compare red with blue.
+                let amber = output.shapes.iter().any(|s| match &s.shape {
+                    egui::Shape::Mesh(m) if rect.contains_rect(m.calc_bounds().shrink(1.0)) => {
+                        m.vertices.iter().any(|v| v.color.a() > 0 && f32::from(v.color.r()) > 1.5 * f32::from(v.color.b()))
+                    }
+                    _ => false,
+                });
+                fill = Some(amber);
                 let tree = output.platform_output.accesskit_update.expect("AccessKit is on");
                 disabled = tree.nodes.iter().find(|(_, n)| n.label() == Some("Resume")).map(|(_, n)| n.is_disabled()).or(disabled);
             }
             let fill = fill.expect("the action's fill");
-            // The window may still be fading in: compare without its opacity.
-            let want = if enabled { *MOON } else { *SURFACE_HIGH };
-            let want = want.gamma_multiply(f32::from(fill.a()) / f32::from(want.a()));
-            assert!(fill.to_array().iter().zip(want.to_array()).all(|(a, b)| a.abs_diff(b) <= 3), "enabled {enabled}: {fill:?}, want {want:?}");
+            assert_eq!(fill, enabled, "amber only while it works");
             assert_eq!(disabled, Some(!enabled), "a screen reader hears whether Resume works");
         }
     }
@@ -762,7 +807,6 @@ mod tests {
             "s.exit = Some(Exit::User)",
             "Some(stream::Sheet::FromMenu)",
             "menu_style::sheet(",
-            "menu_style::scrim(",
         ] {
             assert!(menu.contains(action), "the stream menu lost {action}");
         }
@@ -776,6 +820,61 @@ mod tests {
     /// opening never leaves; Return to stream and then Disconnect sit right under it, a step or two
     /// down for a controller or remote. Reconnect is one level down, behind More.
     #[test]
+    fn a_closed_menu_adds_nothing_to_the_stream() {
+        let main = include_str!("main.rs");
+        let start = main.find("fn draw_overlay(").expect("draw_overlay");
+        let overlay = &main[start..start + main[start..].find("\nfn ").unwrap_or(main.len() - start)];
+        let run = overlay.find("gui.run(").expect("the pass");
+        assert!(overlay[..run].contains("!s.overlay_visible && toast.is_none() && !input_only && !s.menu_visible"), "no pass at all with nothing to show");
+        assert!(!overlay.contains("glass::") && !overlay.contains("LIVE_BACKDROP"), "the glass is menu_style's");
+        assert_eq!(overlay.matches("menu_style::show(").count(), 3);
+        for at in overlay.match_indices("menu_style::show(").map(|(at, _)| at) {
+            let opened = overlay[..at].rfind("if s.menu_visible").expect("under the open menu's check");
+            assert!(!overlay[opened..at].contains("\n        }\n"), "the panel stands inside that check");
+        }
+    }
+
+    #[test]
+    fn the_panels_shadow_falls_past_the_window() {
+        let ctx = egui::Context::default();
+        crate::theme::own_palette();
+        crate::theme::apply(&ctx);
+        let mut shapes = Vec::new();
+        for _ in 0..3 {
+            shapes = run(&ctx, Vec::new(), |ui| drop(ui.label("A row"))).shapes;
+        }
+        let wide = shapes.iter().any(|s| s.clip_rect == ctx.content_rect() && matches!(s.shape, egui::Shape::Vec(_)));
+        assert!(wide, "the surface clips to the screen, not the window");
+    }
+
+    #[test]
+    fn the_heads_close_is_named_and_closes() {
+        let ctx = egui::Context::default();
+        crate::theme::own_palette();
+        crate::theme::apply(&ctx);
+        ctx.enable_accesskit();
+        let mut closed = false;
+        let draw = |ctx: &egui::Context, events: Vec<egui::Event>, closed: &mut bool| {
+            run(ctx, events, |ui| {
+                *closed |= head(ui, "Racing Game", "1080p");
+            })
+        };
+        for _ in 0..3 {
+            draw(&ctx, Vec::new(), &mut closed);
+        }
+        let output = draw(&ctx, Vec::new(), &mut closed);
+        let nodes = output.platform_output.accesskit_update.expect("readers on").nodes;
+        assert!(nodes.iter().any(|(_, node)| node.label() == Some("Return to stream")));
+        let at = nodes.iter().find(|(_, node)| node.label() == Some("Return to stream")).and_then(|(_, node)| node.bounds()).expect("a place");
+        let pos = egui::pos2((at.x0 + at.x1) as f32 / 2.0, (at.y0 + at.y1) as f32 / 2.0);
+        draw(&ctx, vec![egui::Event::PointerMoved(pos)], &mut closed);
+        let press = |pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        draw(&ctx, vec![press(true)], &mut closed);
+        draw(&ctx, vec![press(false)], &mut closed);
+        assert!(closed);
+    }
+
+    #[test]
     fn leaving_sits_right_under_the_grid() {
         let main = include_str!("main.rs");
         let start = main.find("fn draw_overlay(").expect("draw_overlay");
@@ -787,9 +886,11 @@ fn ").unwrap_or(main.len() - start)];
         let menu = include_str!("stream_menu.rs");
         let footer = &menu[menu.find("pub fn footer(").expect("the footer")..];
         let at = |needle: &str| footer.find(needle).unwrap_or_else(|| panic!("{needle} in the footer"));
-        assert!(at("tr(\"Return to stream\")") < at("tr(\"Disconnect\")"), "Return to stream, then Disconnect");
+        assert!(!footer[..at("tr(\"Disconnect\")")].contains("Return to stream"), "closing is the head's");
         // Once in the footer; the button's question page names it too.
-        assert_eq!(footer[..footer.find("\n}\n").unwrap()].matches("tr(\"Disconnect\")").count(), 1, "Disconnect is drawn once");
+        assert_eq!(footer[..footer.find("
+}
+").unwrap()].matches("tr(\"Disconnect\")").count(), 1, "Disconnect is drawn once");
         assert!(!overlay.contains("tr(\"Disconnect\")"), "Disconnect is the footer's");
         let grid = &menu[menu.find("pub fn grid(").expect("the grid")..];
         assert!(grid[..grid.find("
@@ -810,8 +911,8 @@ fn ").unwrap_or(main.len() - start)];
         use crate::strings::tr;
         crate::theme::own_palette();
         crate::theme::set_high_contrast(high_contrast);
-        let art = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/src/debug/assets/demo/art/3.png");
-        let art = image::load_from_memory(&std::fs::read(art).expect("the demo cover")).expect("a PNG").to_rgba8();
+        let art = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/src/debug/assets/demo/art/3.jpg");
+        let art = image::load_from_memory(&std::fs::read(art).expect("the demo cover")).expect("a JPEG").to_rgba8();
         let ctx = egui::Context::default();
         crate::theme::apply(&ctx);
         let picture = ctx.load_texture(
@@ -834,9 +935,8 @@ fn ").unwrap_or(main.len() - start)];
                 egui::Image::from_texture((picture.id(), screen.size()))
                     .uv(egui::Rect::from_min_max(egui::pos2(0.0, 0.3), egui::pos2(1.0, 0.75)))
                     .paint_at(ui, screen);
-                scrim(ui.ctx());
                 if sheet {
-                    window(tr("Shortcuts & help"), "stream-controls").show(ui.ctx(), |ui| {
+                    show(ui.ctx(), tr("Shortcuts & help"), "stream-controls", |ui| {
                         body(ui, |ui| {
                             header(ui, tr("Shortcuts & help"), "Open World · Living Room PC");
                             sheet_(ui);
@@ -854,7 +954,7 @@ fn ").unwrap_or(main.len() - start)];
                     "editor" => crate::stream_menu::Page::Editor(draft.clone()),
                     _ => crate::stream_menu::Page::Grid,
                 };
-                window(tr("Stream controls"), "stream-controls").show(ui.ctx(), |ui| {
+                show(ui.ctx(), tr("Stream controls"), "stream-controls", |ui| {
                     if what == "menu" {
                         // As main.rs draws the grid page: the game over its mode, the grid scrolling, the ways out pinned.
                         header(ui, "Open World", "1440p · 144 FPS · HEVC HDR");

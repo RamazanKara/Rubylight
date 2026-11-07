@@ -1,0 +1,22 @@
+<!doctype html><meta charset="utf-8"><title>Nightjar TV game page</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="glass.css"><script src="lib.js"></script><body><script>
+mount(`
+${ambient('racing-game', { bg: 'var(--color-canvasTv)', fade: 'linear-gradient(180deg,rgba(11,13,18,0) 50%,rgba(11,13,18,.5))' })}
+${cover('racing-game', { style: 'position:absolute;left:64px;top:108px;width:336px;box-shadow:0 30px 70px rgba(0,0,0,.6),0 0 110px rgba(255,95,70,.3)' })}
+<div style="position:absolute;left:448px;right:64px;top:108px">
+  <div style="display:flex;gap:8px"><span class="chip tint" style="height:36px;font-size:16px;padding:0 15px"><span class="dot"></span>Running</span><span class="chip tint" style="height:36px;font-size:16px;padding:0 15px">Steam</span></div>
+  <div class="t-hero" style="font-size:72px;line-height:78px;margin-top:14px;letter-spacing:-1.6px">Racing Game</div>
+  <div class="t-body" style="font-size:20px;line-height:26px;color:var(--color-labelSecondary);display:flex;align-items:center;gap:9px;margin-top:6px">${icon('pcs', 22)}Living-room PC</div>
+  <div style="display:flex;gap:14px;margin-top:30px;align-items:center">
+    <button class="play press fx" style="height:64px;min-width:240px;font-size:21px;padding:0 34px">${icon('play', 26)}Resume</button>
+    <button class="ctl press" style="height:64px;font-size:18px;padding:0 26px">${icon('star', 23)}Favourite</button>
+    <button class="ctl press" style="height:64px;font-size:18px;padding:0 26px">${icon('power', 23)}Quit game</button>
+  </div>
+  <div class="group" style="margin-top:32px;background:var(--tint-groupOnArt-fill)">
+    ${row('Stream settings', { sub: '1920 × 1080, 60 FPS, 20 Mbps', chev: true, style: 'min-height:68px;padding:12px 22px' })}
+    ${row('Quit game when I leave', { right: sw(false), style: 'min-height:68px;padding:12px 22px' })}
+    ${row('Hide this game', { right: sw(false), style: 'min-height:68px;padding:12px 22px' })}
+  </div>
+</div>
+`, { w: 1280, h: 720, zoom: 1.5, tv: true });
+</script></body>

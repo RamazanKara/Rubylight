@@ -1,0 +1,35 @@
+<!doctype html><meta charset="utf-8"><title>Nightjar phone game sheet</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="glass.css"><script src="lib.js"></script><body><script>
+document.head.insertAdjacentHTML('beforeend', '<style>[data-hero]{visibility:hidden}</style>');
+mount(`
+<div style="position:absolute;inset:0;transform:translateY(16px) scale(.93);transform-origin:50% 0;border-radius:28px;overflow:hidden;filter:brightness(var(--sheet-backdropBrightness))">${phoneHomeMarkup().replace(statusBar(), '')}</div>
+${statusBar()}
+${cover('racing-game', { style: 'position:absolute;left:20px;top:176px;width:150px;z-index:6;box-shadow:0 16px 40px rgba(0,0,0,.6)' })}
+${glass('panel', { style: 'position:absolute;left:0;right:0;top:274px;bottom:-40px;border-radius:32px 32px 0 0;z-index:5' }, `
+  <div style="height:674px;overflow:hidden;border-radius:32px 32px 0 0;position:relative">
+    <div style="position:absolute;left:50%;top:8px;width:38px;height:5px;margin-left:-19px;border-radius:3px;background:rgba(255,255,255,.34)"></div>
+    <button class="ctl round press" style="position:absolute;right:14px;top:14px;width:40px;min-height:40px;height:40px">${icon('x', 19, 2.2)}</button>
+    <div style="position:absolute;left:184px;right:60px;top:20px">
+      <div class="t-title" style="white-space:nowrap">Racing Game</div>
+      <div class="t-sub sec" style="margin-top:2px">Living-room PC</div>
+    </div>
+    <div style="position:absolute;left:184px;right:12px;top:82px;display:flex;flex-wrap:wrap;gap:6px">
+      <span class="chip tint"><span class="dot"></span>Running</span><span class="chip tint">Steam</span>
+    </div>
+    <div style="position:absolute;left:20px;right:20px;top:146px"><button class="play press" style="width:100%">${icon('play', 22)}Resume</button></div>
+    <div style="position:absolute;left:20px;right:20px;top:214px;display:flex;gap:10px">
+      <button class="ctl press" style="flex:1">${icon('star', 20)}Favourite</button>
+      <button class="ctl press" style="flex:1">${icon('power', 20)}Quit game</button>
+    </div>
+    <div class="group" style="position:absolute;left:20px;right:20px;top:280px">
+      ${row('Stream settings', { sub: '1920 × 1080, 60 FPS, 20 Mbps', chev: true })}
+      ${row('Quit game when I leave', { right: sw(false) })}
+    </div>
+    <div style="position:absolute;left:20px;right:0;top:416px">
+      <div class="t-section">Also on Steam</div>
+      <div class="shelf" style="margin-top:12px;width:800px">${cover('music-studio', { w: 112 })}${cover('puzzle-night', { w: 112 })}${cover('ember-keep', { w: 112 })}${cover('deep-field', { w: 112 })}</div>
+    </div>
+  </div>
+`)}
+`, { w: 412, h: 915 });
+</script></body>

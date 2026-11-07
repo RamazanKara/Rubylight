@@ -116,10 +116,11 @@ public final class DemoFixtures {
         try (OutputStream output = CacheHelper.openCacheFileForOutput(context.getCacheDir(), "applist", PC_UUID)) {
             output.write(appList().getBytes(StandardCharsets.UTF_8));
         }
-        // The native library's games past the ten reuse the ten images in turn.
+        // Every game of the native library has its own cover, which carries its title. A JPEG under the
+        // cache's .png name: the box art loader reads whatever format the file holds.
         for (int i = 0; i < DemoConsole.LIBRARY.length; i++) {
             NvApp app = new NvApp(DemoConsole.LIBRARY[i][0], i + 1, true);
-            try (InputStream input = context.getAssets().open("demo/art/" + (i % TITLES.length + 1) + ".png");
+            try (InputStream input = context.getAssets().open("demo/art/" + (i + 1) + ".jpg");
                  OutputStream output = CacheHelper.openCacheFileForOutput(context.getCacheDir(),
                          "boxart", PC_UUID, app.getAssetCacheKey() + ".png")) {
                 byte[] buffer = new byte[8192];

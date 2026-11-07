@@ -9,6 +9,8 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod a11y;
+#[allow(dead_code, reason = "glass foundation: the pages start using it in the next change")]
+mod ambient;
 mod autostart;
 mod autostream;
 mod cli;
@@ -16,6 +18,8 @@ mod clipboard;
 mod config;
 #[cfg(windows)]
 mod crash_dump;
+#[cfg(feature = "demo-library")]
+mod demo_driver;
 mod console;
 mod coop_page;
 mod folders_page;
@@ -28,7 +32,9 @@ mod gui;
 mod handheld;
 mod host_page;
 mod hosts;
+mod input_source;
 mod keymap;
+mod live_glass;
 mod logfile;
 mod link_channel;
 mod logpipe;
@@ -93,7 +99,7 @@ use shortcuts::{Action, Scope};
 use stream::present::{pacing, PacingMode};
 use stream::{ConnectFailed, Connecting, Display, Exit, LaunchPlan, Streaming};
 use strings::{tr, trf};
-use ui::{Command, ConnectingView, Dialog, Launcher, Screen, View};
+use ui::{Combo, Command, ConnectingView, Dialog, Launcher, Screen, View};
 
 #[cfg(windows)]
 #[link(name = "winmm")]
@@ -183,6 +189,8 @@ struct App {
     next_network_check: Instant,
     /// A pairing link from the system, until the launcher can ask about it.
     links: Arc<link_channel::Inbox>,
+    #[cfg(feature = "demo-library")]
+    demo: demo_driver::Driver,
     waker: hosts::Waker,
     wake_event: u32,
     screenshot_dir: PathBuf,
@@ -210,6 +218,8 @@ struct App {
     open_play: open_play::OpenPlay,
     /// The background the title bar was last given (High contrast turns it black).
     title_bar: egui::Color32,
+    /// The window changed since the last launcher frame: it needs one, whatever egui paints.
+    window_changed: bool,
 }
 
 fn display_of(window: *mut SDL_Window) -> Display {
@@ -223,6 +233,11 @@ fn display_of(window: *mut SDL_Window) -> Display {
         let m = &*mode;
         display_from_mode(Some((m.w, m.h, m.pixel_density, m.refresh_rate)))
     }
+}
+
+/// Whether the window now stands on another display, or its display on another mode.
+fn another_display(kind: SDL_EventType) -> bool {
+    matches!(kind, SDL_EVENT_WINDOW_DISPLAY_CHANGED | SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED)
 }
 
 /// The display from SDL's current mode (width, height, pixel density, refresh rate), if it gave
@@ -287,7 +302,25 @@ fn log_display(window: *mut SDL_Window, display: Display) {
     );
 }
 
+/// When this process entered `main`, for the launch line.
+static LAUNCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+/// The events after which the window has to be drawn even if egui paints the same: it moved, was
+/// resized, exposed or restored, or the renderer lost what it held.
+fn window_needs_a_frame(kind: SDL_EventType) -> bool {
+    (SDL_EVENT_WINDOW_FIRST.0..=SDL_EVENT_WINDOW_LAST.0).contains(&kind.0)
+        || matches!(kind, SDL_EVENT_RENDER_TARGETS_RESET | SDL_EVENT_RENDER_DEVICE_RESET | SDL_EVENT_RENDER_DEVICE_LOST)
+}
+
+/// The launch line, once: the launcher's first frame is on the screen.
+fn first_frame_line(already: &std::sync::atomic::AtomicBool, since: Option<std::time::Duration>) -> Option<String> {
+    let since = since?;
+    (!already.swap(true, std::sync::atomic::Ordering::Relaxed))
+        .then(|| format!("nightjar: launch to first frame {} ms", since.as_millis()))
+}
+
 fn main() {
+    LAUNCH.get_or_init(std::time::Instant::now);
     // Every request to a host says which Nightjar asks: `User-Agent: Nightjar/<version>`.
     nightjar_core::http::set_app_version(VERSION);
     // Package checks run without a window: `nightjar --check-pyrowave <report file>`.
@@ -464,6 +497,8 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
             return Err(format!("SDL could not start: {}", sdl::error()));
         }
     }
+    #[cfg(feature = "demo-library")]
+    demo_driver::require_sandbox()?;
     let store = Store::open().map_err(|e| format!("No config directory: {e}"))?;
     let settings = store.settings();
     let profiles = store.profiles();
@@ -503,7 +538,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         if window.is_null() {
             return Err(format!("No window: {}", sdl::error()));
         }
-        SDL_SetWindowMinimumSize(window, 720, 480);
+        window_place::set_minimum_size(window);
         if start.restore_place {
             window_place::apply(window, store.window_placement().as_ref());
         }
@@ -540,6 +575,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     unsafe { SDL_ShowWindow(window) };
     theme::apply(&gui.ctx);
     let display = display_of(window);
+    gui.set_refresh(display.refresh_hz);
     shortcuts::set_hotkeys(store.hotkeys());
     let mut launcher = Launcher::new(settings.clone(), profiles, store.shortcuts(), display);
     launcher.recents = store.recents();
@@ -573,12 +609,17 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     }
     // A frontend's start ends with its stream, and a link waiting behind it would be lost: the
     // link starts its own window then.
-    if launch.is_none() {
+    if launch.is_none() && !cfg!(feature = "demo-library") {
         if let Err(e) = link_channel::listen(links.clone(), waker.clone()) {
             eprintln!("nightjar: pairing links do not come to this window: {e}");
         }
     }
-    let mut hosts = Hosts::new(store.hosts(), waker.clone());
+    #[cfg(not(feature = "demo-library"))]
+    let records = store.hosts();
+    #[cfg(feature = "demo-library")]
+    let records = ui::demo::records();
+    // The demo library looks for nobody.
+    let mut hosts = if cfg!(feature = "demo-library") { Hosts::without_discovery(records, waker.clone()) } else { Hosts::new(records, waker.clone()) };
     let cli = match launch {
         Some(_) if std::env::var_os("NIGHTJAR_AUTOSTREAM").is_some() => {
             return Err("--host and NIGHTJAR_AUTOSTREAM both ask for a stream; give one".into());
@@ -594,13 +635,15 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
             launcher.go(Screen::Home);
         }
     }
+    #[cfg(feature = "demo-library")]
+    ui::demo::fill(&mut hosts, &mut launcher, &gui.ctx);
     // A stream started from the command line waits for the next ordinary start.
     if cli.is_none() && std::env::var_os("NIGHTJAR_AUTOSTREAM").is_none() && launcher.show_kept_settings_once(&hosts.list) {
         if let Err(e) = store.save_settings(&launcher.settings) {
             eprintln!("nightjar: saving settings failed: {e}");
         }
     }
-    let identity = match store.identity() {
+    let identity = match store.identity().filter(|_| !cfg!(feature = "demo-library")) {
         Some(saved) => match ClientIdentity::from_pem(saved.unique_id, &saved.certificate_pem, &saved.private_key_pem) {
             Ok(identity) => {
                 launcher.identity_ready = true;
@@ -620,7 +663,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     pads.mappings = mappings;
     pads.configure(&settings);
     let updates = update_check::Updates::start(
-        settings.check_updates && cli.is_none() && std::env::var_os("NIGHTJAR_AUTOSTREAM").is_none(),
+        settings.check_updates && !cfg!(feature = "demo-library") && cli.is_none() && std::env::var_os("NIGHTJAR_AUTOSTREAM").is_none(),
         waker.clone(),
     );
     let open_play = open_play::at_launch(
@@ -656,6 +699,8 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         network_launch: None,
         next_network_check: Instant::now(),
         links,
+        #[cfg(feature = "demo-library")]
+        demo: demo_driver::start(waker.clone()),
         waker,
         wake_event,
         screenshot_dir,
@@ -674,12 +719,15 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         select_read: false,
         move_watch: Default::default(),
         title_bar: *theme::NIGHT,
+        window_changed: true,
     };
     match identity {
         Some(identity) => {
             app.hosts.set_identity(Arc::new(identity));
             app.hosts.poll();
         }
+        // The demo library has no identity: without one nothing can ask a PC.
+        None if cfg!(feature = "demo-library") => {}
         None => {
             let (sender, receiver) = channel();
             let waker = app.waker.clone();
@@ -941,6 +989,19 @@ impl App {
     fn handle_launcher_event(&mut self, event: &SDL_Event) {
         log_window_hdr(event);
         self.track_visibility(event);
+        // SAFETY: reading the event type.
+        self.window_changed |= window_needs_a_frame(SDL_EventType(unsafe { event.r#type }));
+        if let Some(source) = input_source::of(event, |id| self.pads.real_pad_type(id)) {
+            self.launcher.input_source = source;
+        }
+        // SAFETY: reading the event type.
+        let kind = SDL_EventType(unsafe { event.r#type });
+        if kind == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED || another_display(kind) {
+            window_place::set_minimum_size(self.window);
+        }
+        if another_display(kind) {
+            self.gui.set_refresh(display_of(self.window).refresh_hz);
+        }
         // SAFETY: SDL cursor calls on the main thread.
         match self.pointer.input(pointer_input(event)) {
             Some(true) => unsafe { SDL_ShowCursor(); },
@@ -1013,6 +1074,8 @@ impl App {
         }
         self.repeat_navigation();
         self.open_waiting_link();
+        #[cfg(feature = "demo-library")]
+        self.demo_steps();
         let test_events: Vec<_> = self.network_test.as_ref().map(|test| test.events.try_iter().collect()).unwrap_or_default();
         for event in test_events {
             match event {
@@ -1302,13 +1365,25 @@ impl App {
                 pin.returned();
             }
         }
+        #[cfg(feature = "demo-library")]
+        let demo_scrolling = self.demo_scrolling();
         let mut commands = Vec::new();
         let launcher = &mut self.launcher;
         let hosts = &self.hosts;
         let pads = &self.pads;
         let updates = &mut self.updates;
         self.gui.set_readable(true);
+        self.gui.set_over_video(false);
+        // The stream menu's demo pages stand in for a stream.
+        #[cfg(feature = "demo-library")]
+        if launcher.demo_menu.is_some() {
+            self.gui.set_over_video(true);
+        }
         let output = self.gui.run(self.window, self.renderer, |ui| {
+            #[cfg(feature = "demo-library")]
+            if demo_scrolling {
+                ui.ctx().request_repaint();
+            }
             updates.show(ui.ctx());
             commands = launcher.ui(
                 ui,
@@ -1329,15 +1404,24 @@ impl App {
             self.title_bar = *theme::NIGHT;
             sdl::blend_title_bar(self.window, self.title_bar, *theme::ON_SURFACE);
         }
+        let renderer = self.renderer;
+        let must_draw = std::mem::take(&mut self.window_changed) || self.screenshot_requested;
         // SAFETY: drawing on the live renderer.
-        unsafe {
-            SDL_SetRenderDrawColor(self.renderer, 0x14, 0x16, 0x1F, 255);
-            SDL_RenderClear(self.renderer);
+        let drew = self.gui.paint_if_changed(renderer, output, must_draw, || unsafe {
+            SDL_SetRenderDrawColor(renderer, 0x14, 0x16, 0x1F, 255);
+            SDL_RenderClear(renderer);
+        });
+        if drew {
+            #[cfg(feature = "demo-library")]
+            self.demo_drew();
+            self.take_screenshot("launcher");
+            // SAFETY: a live renderer.
+            unsafe { SDL_RenderPresent(self.renderer) };
+            static FIRST_FRAME_SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            if let Some(line) = first_frame_line(&FIRST_FRAME_SAID, LAUNCH.get().map(|at| at.elapsed())) {
+                eprintln!("{line}");
+            }
         }
-        self.gui.paint(self.renderer, output);
-        self.take_screenshot("launcher");
-        // SAFETY: a live renderer.
-        unsafe { SDL_RenderPresent(self.renderer) };
         for command in commands {
             self.command(command);
         }
@@ -1679,8 +1763,17 @@ impl App {
                     _ => {}
                 }
             }
+            Command::ReadAppsAgain(host) => {
+                self.hosts.poll_one(host);
+                self.hosts.load_apps(host);
+            }
             Command::RequestArt { host, app, version } => self.hosts.request_art(host, app, &version, &self.store),
             Command::CloseGame(host) => self.hosts.session_action(host, ActionId::CloseGame),
+            Command::LoadApps(host) => {
+                if matches!(self.hosts.get(host).map(|h| &h.apps), Some(Apps::NotLoaded)) {
+                    self.hosts.load_apps(host);
+                }
+            }
             Command::OpenApps(host) => {
                 if !matches!(self.hosts.get(host).map(|h| &h.apps), Some(Apps::Loaded(_))) {
                     self.hosts.load_apps(host);
@@ -1949,7 +2042,7 @@ impl App {
             return;
         };
         // A microphone-only session names no app of the PC's list.
-        let app = if mic_only { mic_only_app() } else { match launch_app(&host.apps, app_id) {
+        let app = if mic_only { mic_only_app() } else { match launch_target(host, app_id, resume) {
             LaunchApp::Ready(app) => app,
             LaunchApp::Wait => {
                 // The list is being read again (the first native read of a run reloads it).
@@ -1957,7 +2050,15 @@ impl App {
                 self.network_launch = Some((host_id, app_id, resume, kind));
                 return;
             }
-            LaunchApp::Gone => return,
+            LaunchApp::Gone => {
+                // Nothing has read the list yet: read it now and go on when it lands.
+                if read_list_for_launch(&mut self.hosts, host_id) {
+                    self.network_launch = Some((host_id, app_id, resume, kind));
+                } else {
+                    self.launcher.message(tr("The stream could not start"), trf("The app list could not be loaded. {}", &[&tr("Creating this device's pairing key…")]));
+                }
+                return;
+            }
             LaunchApp::Failed(why) => {
                 self.launcher.message(tr("The stream could not start"), trf("The app list could not be loaded. {}", &[&why]));
                 return;
@@ -1971,6 +2072,7 @@ impl App {
             self.hosts.control_action(host_id, app_id);
             return;
         }
+        let listed = matches!(&host.apps, Apps::Loaded(apps) if apps.contains(&app));
         let mut settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi)));
         if let Some(overrides) = host.record.app_settings(&app.uuid, app.id) { settings = overrides.apply(&settings); }
         if settings.codec.is_pyrowave() { settings.experimental_packed_444 = false; }
@@ -2076,6 +2178,7 @@ impl App {
             info,
             native: host.native.capabilities.clone(),
             app,
+            listed,
             resume,
             join: kind == LaunchKind::JoinRunning,
             small_stream_input_only: small,
@@ -2223,6 +2326,8 @@ impl App {
             return;
         };
         let host = streaming.host_id;
+        // The launcher didn't see the window move while the stream had it.
+        self.gui.set_refresh(display_of(self.window).refresh_hz);
         self.open_play.left_by_player = matches!(exit, Exit::User | Exit::CloseWindow);
         // Microphone only has no video; it is going once connected.
         let reconnect = if matches!(exit, Exit::Reconnect) || exit.retryable(streaming.video_started() || streaming.mic_only()) {
@@ -2602,8 +2707,6 @@ fn nav_key(action: Action) -> Option<egui::Key> {
         Action::Select => Some(egui::Key::Enter),
         Action::Back => Some(egui::Key::Escape),
         Action::Options => Some(egui::Key::F2),
-        // Y takes the star off a favourite, as Delete does (ui/cards.rs).
-        Action::Unstar => Some(egui::Key::F3),
         _ => None,
     }
 }
@@ -2614,6 +2717,8 @@ const MENU_LIST: f32 = 190.0;
 /// The overlay and toasts, drawn with egui over the picture.
 /// Returns whether the user's shortcuts changed (saved or deleted in the stream menu) and want writing.
 fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Renderer, s: &mut Streaming, pads: &mut Gamepads, shortcuts: &mut shortcuts::Shortcuts) -> bool {
+    // Glass holds nothing while a stream plays, and draws no live blur over its video.
+    gui.set_over_video(true);
     // A stream started from the command line never drew the launcher, which loads these too.
     theme::fonts_for(&gui.ctx, strings::current());
     let mut shortcuts_changed = false;
@@ -2669,16 +2774,12 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     }
                 });
         }
-        if s.menu_visible {
-            menu_style::scrim(&ctx);
-        }
         if s.menu_visible && s.session_page.is_some() {
             let lines = s.connection_lines();
             let hints = s.session_hints();
             let mut outcome = session_ui::Outcome::Stay;
             if let Some(page) = s.session_page.as_mut() {
-                menu_style::window(tr("Session and graphics"), "session-and-graphics")
-                    .show(&ctx, |ui| menu_style::body(ui, |ui| {
+                menu_style::show(&ctx, tr("Session and graphics"), "session-and-graphics", |ui| menu_style::body(ui, |ui| {
                         gui::follow_focus(ui, &mut s.menu_focus);
                         menu_style::header(ui, tr("Session and graphics"), &title);
                         outcome = session_ui::show(ui, page, &lines, hints);
@@ -2697,8 +2798,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
             let style = glyphs::Style::of(pads);
             let offered = s.controller_mouse_offered(pads);
             let mut back = false;
-            menu_style::window(tr("Shortcuts & help"), "stream-controls")
-                .show(&ctx, |ui| menu_style::body(ui, |ui| {
+            menu_style::show(&ctx, tr("Shortcuts & help"), "stream-controls", |ui| menu_style::body(ui, |ui| {
                     gui::follow_focus(ui, &mut s.menu_focus);
                     menu_style::header(ui, tr("Shortcuts & help"), &title);
                     back = menu_style::sheet(ui, style, pads.quit_combo(), pads.back_opens_menu(), offered, from_menu);
@@ -2730,11 +2830,10 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
             let (heading, line) = if grid_page { s.menu_header() } else { (page.title().to_owned(), title.clone()) };
             let button = if grid_page { s.menu_hotkey.and_then(|key| stream_menu::button_leave(&layout, key)) } else { None };
             let mut leave = None;
-            menu_style::window(tr("Stream controls"), "stream-controls")
-                .show(&ctx, |ui| {
-                // On the grid the header and the ways out stay in view; only the tiles scroll.
-                if grid_page {
-                    menu_style::header(ui, &heading, &line);
+            menu_style::show(&ctx, tr("Stream controls"), "stream-controls", |ui| {
+                // On the grid the head and the ways out stay in view; only the tiles scroll.
+                if grid_page && menu_style::head(ui, &heading, &line) {
+                    leave = Some(stream_menu::Leave::Close);
                 }
                 let reserve = if grid_page { menu_style::pinned_room(&ctx, "stream-menu-footer") } else { 0.0 };
                 menu_style::body_above(ui, reserve, |ui| {
@@ -2819,7 +2918,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                 });
                             }
                         }
-                        stream_menu::Page::Quality => {
+                        stream_menu::Page::Quality => menu_style::group(ui, |ui| {
                             let controls = s.menu_controls();
                             if s.facts.runtime_bitrate {
                                 if s.facts.role == nightjar_core::http::AppRole::Stream && !s.client_hint_active() {
@@ -2864,7 +2963,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                             if controls.size_editor {
                                 menu_style::fold(ui, "stream-size", Icon::Screen, tr("Stream size"), |ui| {
                                     let mut quality = s.quality_mode;
-                                    egui::ComboBox::from_id_salt("stream-quality").selected_text(tr(quality.label())).show_ui(ui, |ui| {
+                                    Combo::from_id_salt("stream-quality").selected_text(tr(quality.label())).show_ui(ui, |ui| {
                                         for mode in [config::QualityMode::Off, config::QualityMode::Motion, config::QualityMode::Detail, config::QualityMode::Battery] {
                                             ui.selectable_value(&mut quality, mode, tr(mode.label()));
                                         }
@@ -2888,15 +2987,15 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                     });
                                 });
                             }
-                        }
-                        stream_menu::Page::More => {
+                        }),
+                        stream_menu::Page::More => menu_style::group(ui, |ui| {
                             // The model's order (nightjar_policy::stream_menu::TILES), one row or group per ID.
                             for id in &layout.more {
                                 match *id {
                                     "picture" => {
                                         menu_style::row(ui, Icon::Overlay, tr("Performance overlay"), |ui| {
                                             let shown = if s.overlay_visible { tr(s.overlay_mode.label()) } else { tr("Off") };
-                                            egui::ComboBox::from_id_salt("stream-overlay").width(MENU_LIST).selected_text(shown).show_ui(ui, |ui| {
+                                            Combo::from_id_salt("stream-overlay").width(MENU_LIST).selected_text(shown).show_ui(ui, |ui| {
                                                 if ui.selectable_label(!s.overlay_visible, tr("Off")).clicked() { s.overlay_visible = false; }
                                                 for mode in config::OverlayMode::ALL {
                                                     if ui.selectable_label(s.overlay_visible && s.overlay_mode == mode, tr(mode.label())).clicked() {
@@ -2907,7 +3006,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                         });
                                         if s.overlay_visible {
                                             menu_style::row(ui, Icon::Corner, tr("Overlay position"), |ui| {
-                                                egui::ComboBox::from_id_salt("stream-overlay-corner").width(MENU_LIST).selected_text(tr(s.overlay_corner.label())).show_ui(ui, |ui| {
+                                                Combo::from_id_salt("stream-overlay-corner").width(MENU_LIST).selected_text(tr(s.overlay_corner.label())).show_ui(ui, |ui| {
                                                     for corner in config::OverlayCorner::ALL {
                                                         ui.selectable_value(&mut s.overlay_corner, corner, tr(corner.label()));
                                                     }
@@ -2917,7 +3016,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                         let current = s.video_scaling();
                                         let (mut scaling, top) = current;
                                         menu_style::row(ui, Icon::Screen, tr("Video size"), |ui| {
-                                            egui::ComboBox::from_id_salt("stream-scaling").width(MENU_LIST).selected_text(tr(scaling.label())).show_ui(ui, |ui| {
+                                            Combo::from_id_salt("stream-scaling").width(MENU_LIST).selected_text(tr(scaling.label())).show_ui(ui, |ui| {
                                                 use config::VideoScaling;
                                                 for mode in [VideoScaling::Fit, VideoScaling::Fill, VideoScaling::Stretch, VideoScaling::Native] {
                                                     ui.selectable_value(&mut scaling, mode, tr(mode.label()));
@@ -2949,7 +3048,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                             let current = pad.audio.as_ref().map(|a| a.device);
                                             let mut selected = current;
                                             let label = current.and_then(|id| outputs.iter().find(|(device, _)| *device == id)).map_or(tr("Off"), |(_, name)| name.as_str());
-                                            egui::ComboBox::from_id_salt(("controller-audio", pad.index)).selected_text(trf("Controller {}: {}", &[&(pad.index + 1), &label])).show_ui(ui, |ui| {
+                                            Combo::from_id_salt(("controller-audio", pad.index)).selected_text(trf("Controller {}: {}", &[&(pad.index + 1), &label])).show_ui(ui, |ui| {
                                                 ui.selectable_value(&mut selected, None, tr("Off"));
                                                 for (id, name) in &outputs { ui.selectable_value(&mut selected, Some(*id), name); }
                                             });
@@ -2958,13 +3057,13 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                                 let mut input = audio.input;
                                                 let label = input.and_then(|id| inputs.iter().find(|(device, _)| *device == id)).map_or(tr("Off"), |(_, name)| name.as_str());
                                                 ui.add_enabled_ui(s.microphone_available(), |ui| {
-                                                    egui::ComboBox::from_id_salt(("controller-microphone", pad.index)).selected_text(trf("Microphone: {}", &[&label])).show_ui(ui, |ui| {
+                                                    Combo::from_id_salt(("controller-microphone", pad.index)).selected_text(trf("Microphone: {}", &[&label])).show_ui(ui, |ui| {
                                                         ui.selectable_value(&mut input, None, tr("Off"));
                                                         for (id, name) in &inputs { ui.selectable_value(&mut input, Some(*id), name); }
                                                     });
                                                 });
                                                 if input != audio.input { input_selections.push((pad.index, input)); }
-                                                egui::ComboBox::from_id_salt(("controller-headphones", pad.index))
+                                                Combo::from_id_salt(("controller-headphones", pad.index))
                                                     .selected_text(match audio.headphone_override { None => tr("Automatic headset detection"), Some(true) => tr("Headset"), Some(false) => tr("Controller speaker") })
                                                     .show_ui(ui, |ui| {
                                                         ui.selectable_value(&mut audio.headphone_override, None, tr("Automatic headset detection"));
@@ -3006,7 +3105,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                     other => unreachable!("More has no row for {other}"),
                                 }
                             }
-                        }
+                        }),
                     }
                     if !matches!(page, stream_menu::Page::Grid | stream_menu::Page::Confirm(_) | stream_menu::Page::ConfirmDisconnect) {
                         ui.add_space(theme::space::M);
@@ -3016,7 +3115,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     }
                 });
                 if grid_page {
-                    leave = menu_style::pinned(ui, "stream-menu-footer", |ui| stream_menu::footer(ui, &layout));
+                    leave = leave.or(menu_style::pinned(ui, "stream-menu-footer", |ui| stream_menu::footer(ui, &layout)));
                 }
                 });
             // From a button Disconnect asks first, as the ways out that end the game do.
@@ -3392,6 +3491,44 @@ fn launch_app(apps: &Apps, app_id: i32) -> LaunchApp {
     }
 }
 
+/// What a launch starts on this PC. A resume names the running session and needs no entry of the
+/// list: the stream start asks for the id and UUID the PC reports, and checks them against a fresh
+/// read. A tile that happens to carry the running id is never its action.
+fn launch_target(host: &hosts::Host, app_id: i32, resume: bool) -> LaunchApp {
+    let listed = launch_app(&host.apps, app_id);
+    if !resume {
+        return listed;
+    }
+    let running = host.running_app() == Some(app_id);
+    match listed {
+        LaunchApp::Wait => LaunchApp::Wait,
+        LaunchApp::Ready(app) if !app.is_control_action() => LaunchApp::Ready(app),
+        _ if running => LaunchApp::Ready(running_app_unlisted(host, app_id)),
+        LaunchApp::Ready(_) => LaunchApp::Missing,
+        other => other,
+    }
+}
+
+/// The session the PC runs, for a resume its list has no entry for.
+fn running_app_unlisted(host: &hosts::Host, app_id: i32) -> nightjar_core::http::App {
+    nightjar_core::http::App {
+        name: ui::at_sentence_start(&ui::running_name(host)),
+        id: app_id,
+        hdr_supported: false,
+        uuid: host.info.as_ref().and_then(|info| info.current_game_uuid.clone()).unwrap_or_default(),
+        host_index: None,
+        art_version: String::new(),
+        control: nightjar_core::http::AppControl::None,
+        monitor_resume: false,
+    }
+}
+
+/// Starts reading the list a launch waits for; false when no read could start.
+fn read_list_for_launch(hosts: &mut Hosts, host: u64) -> bool {
+    hosts.load_apps(host);
+    matches!(hosts.get(host).map(|h| &h.apps), Some(Apps::Loading))
+}
+
 /// Opens the dialog choosing where the shared folder browser of `host` saves a download, or
 /// what it uploads. One dialog at a time: with one open, the page says so.
 fn start_folder_pick(
@@ -3440,6 +3577,28 @@ mod shot;
 
 #[cfg(test)]
 mod tests {
+    use super::{first_frame_line, window_needs_a_frame};
+
+    /// A launcher at rest presents nothing, but what the window itself lost has to come back.
+    #[test]
+    fn the_window_changing_asks_for_a_frame_and_a_worker_or_the_pointer_does_not() {
+        for kind in [SDL_EVENT_WINDOW_EXPOSED, SDL_EVENT_WINDOW_RESIZED, SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED, SDL_EVENT_WINDOW_RESTORED, SDL_EVENT_RENDER_TARGETS_RESET, SDL_EVENT_RENDER_DEVICE_LOST] {
+            assert!(window_needs_a_frame(kind), "{}", kind.0);
+        }
+        for kind in [SDL_EVENT_MOUSE_MOTION, SDL_EVENT_USER, SDL_EVENT_KEY_DOWN] {
+            assert!(!window_needs_a_frame(kind), "{}", kind.0);
+        }
+    }
+
+    #[test]
+    fn the_launch_line_comes_once_with_the_time() {
+        let said = std::sync::atomic::AtomicBool::new(false);
+        assert_eq!(first_frame_line(&said, None), None, "no start, no number");
+        let line = first_frame_line(&said, Some(std::time::Duration::from_millis(412)));
+        assert_eq!(line.as_deref(), Some("nightjar: launch to first frame 412 ms"));
+        assert_eq!(first_frame_line(&said, Some(std::time::Duration::from_secs(9))), None, "once");
+    }
+
     /// Stream here too on a resume joins; a PC that did not answer never does.
     #[test]
     fn who_plays_decides_how_a_start_goes_on() {
@@ -3704,6 +3863,13 @@ mod tests {
         assert!(matches!(launch_app(&Apps::NotLoaded, 5), LaunchApp::Gone));
         // A reload that ends in an error is shown, not dropped.
         assert!(matches!(launch_app(&Apps::Failed("x".into()), 5), LaunchApp::Failed(why) if why == "x"));
+    }
+
+    #[test]
+    fn the_window_on_another_display_or_mode_is_told_apart() {
+        assert!(another_display(SDL_EVENT_WINDOW_DISPLAY_CHANGED));
+        assert!(another_display(SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED));
+        assert!(!another_display(SDL_EVENT_WINDOW_MOVED) && !another_display(SDL_EVENT_WINDOW_RESIZED));
     }
 
     #[test]

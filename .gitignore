@@ -5,6 +5,7 @@
 output.json
 output-metadata.json
 out/
+scripts/demo/node_modules/
 
 # files for the dex VM
 *.dex

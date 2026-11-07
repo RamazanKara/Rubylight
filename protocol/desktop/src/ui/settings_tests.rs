@@ -621,3 +621,66 @@ fn settings_screenshots() {
         }
     }
 }
+
+/// Runs `draw` in a bare frame `width` wide.
+fn bare_frame<R>(width: f32, draw: impl FnOnce(&mut Ui) -> R) -> R {
+    let ctx = egui::Context::default();
+    let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(width, 800.0))), ..Default::default() };
+    let (mut draw, mut out) = (Some(draw), None);
+    let mut output = ctx.run_ui(input, |ui| {
+        if let Some(draw) = draw.take() {
+            out = Some(draw(ui));
+        }
+    });
+    output.textures_delta.clear();
+    out.expect("the frame ran")
+}
+
+/// Rows placed one after another are one group across the whole column; a gap starts another.
+#[test]
+fn rows_that_follow_each_other_are_one_group_across_the_column() {
+    let (a, b, c, column_width) = bare_frame(1000.0, |ui| {
+        let column_width = ui.available_width();
+        let a = group_row(ui, |ui| { ui.label("a"); });
+        let b = group_row(ui, |ui| { ui.label("b"); });
+        ui.add_space(30.0);
+        let c = group_row(ui, |ui| { ui.label("c"); });
+        (a, b, c, column_width)
+    });
+    assert!((a.bottom() - b.top()).abs() < 0.5, "{a:?} then {b:?}");
+    assert!((a.width() - column_width).abs() < 0.5, "{} of {column_width}", a.width());
+    assert!(c.top() - b.bottom() >= 30.0, "{b:?} then {c:?}");
+}
+
+/// A column as wide as a page may ever want still ends with the page: its controls stay on screen.
+#[test]
+fn a_column_ends_with_the_page_and_stops_at_its_widest_on_a_wide_window() {
+    for (window, most) in [(800.0, 800.0), (3000.0, SETTINGS_W)] {
+        let right = bare_frame(window, |ui| {
+            let mut right = 0.0;
+            column(ui, SETTINGS_W, |ui| right = group_row(ui, |ui| { ui.label("a"); }).right());
+            right
+        });
+        assert!(right <= most + 8.0 && right > most - 60.0, "at {window}: {right}");
+    }
+}
+
+/// A group's heading is the section type as written, not a shouted label.
+#[test]
+fn a_group_heading_is_written_as_it_reads() {
+    let f = settings_with(Settings::default());
+    assert!(shows(&f, "Fine-tuning"), "{:?}", f.drawn);
+    assert!(!shows(&f, "FINE-TUNING"), "{:?}", f.drawn);
+}
+
+/// The switch and the list choice take the sizes the design gives every control.
+#[test]
+fn a_switch_and_a_list_choice_have_the_designed_size() {
+    let (switch, choice) = bare_frame(1000.0, |ui| {
+        let switch = toggle(ui, &mut true).rect;
+        let choice = Combo::from_id_salt("choice").selected_text("Automatic").show_ui(ui, |_| {}).response.rect;
+        (switch, choice)
+    });
+    assert_eq!(switch.size(), vec2(design_tokens::SIZE_SWITCH_W, design_tokens::SIZE_SWITCH_H));
+    assert_eq!(choice.height(), 40.0);
+}

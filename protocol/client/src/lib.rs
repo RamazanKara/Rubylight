@@ -15,6 +15,7 @@ pub mod rtsp;
 pub mod sdp;
 pub mod session;
 pub mod stun;
+pub mod tile;
 pub mod timing_record;
 pub mod usb;
 pub mod video;

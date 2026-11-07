@@ -38,7 +38,7 @@ adb shell am start -n com.butterpollo.client.debug/com.limelight.demo.DemoLaunch
 | --- | --- |
 | `hosts` (default) | Real PcView cards: Living-room PC online/paired, Studio PC online/unpaired, Laptop offline with Wake PC action |
 | `pc-settings` | Real per-PC settings for Living-room PC: Video, Display on the PC, Connection and Host groups |
-| `library` | Real AppView, ten original 3:4 covers, Racing Game marked running |
+| `library` | Real AppView, ten original covers (portrait, a banner, a square, a 2:3 poster), Racing Game marked running |
 | `stream`, `compact` | Looping sample in the Game layout's StreamView with the compact performance overlay |
 | `statistics` | Same sample with the Statistics overlay, including the host's CPU and GPU |
 | `advanced`, `debug` | Same sample with the Debug overlay |
@@ -235,14 +235,28 @@ $env:JAVA_HOME = 'C:\jdk17'
 
 The generator finds FFmpeg on PATH or under
 `%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_*\*\bin`; it downloads
-nothing. `GenerateAssets.java` uses JDK 17 Java2D and system Segoe UI fonts to
-make ten slate gradient covers (one accent colour and genre per title, no app name) and an original ten-second seamless flight
-animation: parallax mountains, a neon ground grid, towers, particles, a moving
-ship and HUD. Raw frames are piped to FFmpeg at 1920x1080/60. H.264 is mandatory;
-HEVC and AV1 10-bit SDR copies are encoded when their software encoders are
-available. All footage and art are synthetic and contain no third-party games.
-The PNG preview and ffprobe verification reports go to `out/demo/assets/`.
-Only the generated `app/src/debug/assets/demo/` files ship in the debug APK.
+nothing. The script needs Node and installed Chrome.
+
+`covers.mjs` draws the covers, "night posters" with one scene and one Figtree
+title per game, as SVG, rendered through installed Chrome into
+`app/src/debug/assets/demo/art/N.jpg`. N is the game's place in
+`DemoConsole.LIBRARY`; the script fails if a game there has no scene or a scene has
+no game, so never reuse one cover for another game. Most are 450x600, Racing Game
+is a 920x430 banner, Open World a 480x480 square and Space Sim a 450x675 poster, so every
+client shows how each fits; clients crop to the middle, so the titles of the
+banner and the square stay inside it. `playwright-core` is pinned in
+`scripts/demo/package.json` for this script alone. `node covers.mjs <slug>...` redraws
+some of them, and each run writes a contact sheet at 100 % to
+`out/demo/assets/covers-contact.png`.
+
+`GenerateAssets.java` uses JDK 17 Java2D and system Segoe UI fonts to make an
+original ten-second seamless flight animation: parallax mountains, a neon ground
+grid, towers, particles, a moving ship and HUD. Raw frames are piped to FFmpeg at
+1920x1080/60. H.264 is mandatory; HEVC and AV1 10-bit SDR copies are encoded when
+their software encoders are available. All footage and art are synthetic and
+contain no third-party games. The PNG preview and ffprobe verification reports go
+to `out/demo/assets/`. Only the generated `app/src/debug/assets/demo/` files ship in
+the debug APK.
 
 ## Trailer
 

@@ -8,6 +8,7 @@ use std::time::Instant;
 use egui::{Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, TextStyle};
 
 use crate::strings::Lang;
+use crate::ui::design_tokens as t;
 
 /// A colour role. The palette behind it is the normal night one or the high-contrast one, chosen
 /// by [`set_high_contrast`], so drawing code names a role and never a colour. It derefs to the
@@ -45,73 +46,78 @@ const fn rgb(hex: u32) -> Color32 {
     Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
 }
 
-// `palette.xml` night roles; the second colour is the high-contrast one: black surfaces, white
-// text, and no grey text at all (the variant and outline roles are on-surface).
+// The design's roles, from `tokens.json` through [`t`]; the second colour is the high-contrast one:
+// black surfaces, white text, and no grey text at all (the variant and outline roles are on-surface).
 roles! {
-    NIGHT: rgb(0x14161F), rgb(0x000000);
-    SURFACE_LOWEST: rgb(0x0E1017), rgb(0x000000);
-    SURFACE_LOW: rgb(0x1A1C26), rgb(0x0A0A0C);
-    SURFACE: rgb(0x1E202B), rgb(0x101114);
-    SURFACE_HIGH: rgb(0x282A36), rgb(0x1C1D22);
-    SURFACE_HIGHEST: rgb(0x333541), rgb(0x2A2C33);
+    NIGHT: t::COLOR_NIGHT, t::HC_COLOR_NIGHT;
+    SURFACE_LOWEST: t::COLOR_SURFACE_LOWEST, rgb(0x000000);
+    SURFACE_LOW: t::COLOR_SURFACE_LOW, rgb(0x0A0A0C);
+    SURFACE: t::COLOR_SURFACE, rgb(0x101114);
+    SURFACE_HIGH: t::COLOR_SURFACE_HIGH, rgb(0x1C1D22);
+    SURFACE_HIGHEST: t::COLOR_SURFACE_HIGHEST, rgb(0x2A2C33);
     // One step past the highest: a hovered or pressed control that already sits on SURFACE_HIGHEST.
-    SURFACE_BRIGHT: rgb(0x3D404D), rgb(0x383A42);
-    ON_SURFACE: rgb(0xE3E4EE), rgb(0xFFFFFF);
-    ON_SURFACE_VARIANT: rgb(0xC1C4D2), rgb(0xFFFFFF);
+    SURFACE_BRIGHT: t::COLOR_SURFACE_BRIGHT, rgb(0x383A42);
+    ON_SURFACE: t::COLOR_LABEL, t::HC_COLOR_LABEL;
+    ON_SURFACE_VARIANT: t::COLOR_LABEL_SECONDARY, t::HC_COLOR_LABEL_SECONDARY;
     // Text on hovered cards and buttons too (4.5:1 on SURFACE_HIGHEST), lighter than Android's.
     OUTLINE: rgb(0xA0A3B1), rgb(0xFFFFFF);
-    OUTLINE_VARIANT: rgb(0x3F4250), rgb(0xA8ABBA);
-    MOON: rgb(0xF2A93B), rgb(0xFFC555);
-    ON_MOON: rgb(0x2B1700), rgb(0x000000);
+    OUTLINE_VARIANT: rgb(0x3F4250), t::HC_COLOR_RIM;
+    MOON: t::COLOR_MOON, t::HC_COLOR_MOON;
+    ON_MOON: t::COLOR_ON_MOON, t::HC_COLOR_ON_MOON;
     MOON_CONTAINER: rgb(0x5C3E00), rgb(0x5C3E00);
-    ON_MOON_CONTAINER: rgb(0xFFDDB0), rgb(0xFFFFFF);
+    ON_MOON_CONTAINER: t::COLOR_ON_SELECTED, rgb(0xFFFFFF);
     TERTIARY: rgb(0xAFC8E9), rgb(0xCFE2FF);
-    ERROR: rgb(0xFFB4AB), rgb(0xFFCFC9);
-    // A failure that fills a shape (the console's --danger-soft) and its text.
-    ERROR_CONTAINER: rgb(0x93000A), rgb(0x93000A);
-    ON_ERROR_CONTAINER: rgb(0xFFDAD6), rgb(0xFFFFFF);
-    // Status (the console's --ok and --warn): up, ready, running; and something to look at. Warn is
-    // yellow because amber is the action, and it is never a filled shape: an icon and a word.
-    OK: rgb(0x5FD38D), rgb(0x7CF0A8);
-    WARN: rgb(0xF5D06B), rgb(0xFFE08A);
+    ERROR: t::COLOR_ERROR, t::HC_COLOR_ERROR;
+    // A failure that fills a shape and its text.
+    ERROR_CONTAINER: t::COLOR_DANGER_FILL, rgb(0x93000A);
+    ON_ERROR_CONTAINER: t::COLOR_ON_DANGER_FILL, rgb(0xFFFFFF);
+    // Status: up, ready, running; and something to look at. Warn is yellow because amber is the
+    // action, and it is never a filled shape: an icon and a word.
+    OK: t::COLOR_OK, t::HC_COLOR_OK;
+    WARN: t::COLOR_WARN, t::HC_COLOR_WARN;
     // The orbit rings of the site banner.
-    ORBIT: rgb(0x2A2D3A), rgb(0x2A2D3A);
+    ORBIT: t::COLOR_ORBIT, rgb(0x2A2D3A);
     // Paper white of the wordmark.
-    PAPER: rgb(0xF4EFE6), rgb(0xFFFFFF);
+    PAPER: t::COLOR_PAPER, rgb(0xFFFFFF);
 }
 
 /// What text over game art sits on (the console's --media-bg, Android's `tv_chip_scrim`), the same
 /// in every palette: white on it over a white frame is still 9:1.
-pub const SCRIM: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 184);
+pub const SCRIM: Color32 = t::COLOR_SCRIM;
 
-/// The console's 4-based spacing scale (`--space-1` to `--space-7`), in points.
-#[allow(dead_code, reason = "the whole console scale, so a new page picks a step instead of a literal")]
+/// The design's 4-based spacing scale, in points.
+#[allow(dead_code, reason = "the whole scale, so a new page picks a step instead of a literal")]
 pub mod space {
-    pub const XS: f32 = 4.0;
-    pub const S: f32 = 8.0;
-    pub const M: f32 = 12.0;
-    pub const L: f32 = 16.0;
-    pub const XL: f32 = 24.0;
-    pub const XXL: f32 = 32.0;
-    pub const XXXL: f32 = 48.0;
+    use crate::ui::design_tokens as t;
+    pub const XS: f32 = t::SPACE_XS;
+    pub const S: f32 = t::SPACE_S;
+    pub const M: f32 = t::SPACE_M;
+    pub const L: f32 = t::SPACE_L;
+    pub const XL: f32 = t::SPACE_XL;
+    pub const XXL: f32 = t::SPACE_XXL;
+    pub const XXXL: f32 = t::SPACE_XXXL;
 }
 
-/// The console's type scale, in points.
+/// The design's type scale, in points.
 pub mod text {
-    pub const TITLE: f32 = 28.0;
-    pub const SECTION: f32 = 22.0;
-    pub const CARD_TITLE: f32 = 18.0;
-    pub const BODY: f32 = 16.0;
-    pub const LABEL: f32 = 14.0;
-    pub const CAPTION: f32 = 13.0;
+    use crate::ui::design_tokens as t;
+    pub const LARGE_TITLE: f32 = t::TYPE_LARGE_TITLE_SIZE;
+    pub const TITLE: f32 = t::TYPE_TITLE_SIZE;
+    pub const SECTION: f32 = t::TYPE_SECTION_SIZE;
+    pub const CARD_TITLE: f32 = t::TYPE_HEADLINE_SIZE;
+    pub const BODY: f32 = t::TYPE_BODY_SIZE;
+    pub const LABEL: f32 = t::TYPE_SUB_SIZE;
+    pub const CAPTION: f32 = t::TYPE_CAPTION_SIZE;
 }
 
-/// The console's corners: chips, then buttons, fields and menus, then cards, panels and dialogs.
-#[allow(dead_code, reason = "the whole console scale, so a new page picks a step instead of a literal")]
+/// The design's corners: small tags and tiles, then buttons, fields and menus, then groups, cards
+/// and dialogs.
+#[allow(dead_code, reason = "the whole scale, so a new page picks a step instead of a literal")]
 pub mod radius {
-    pub const SMALL: u8 = 6;
-    pub const CONTROL: u8 = 10;
-    pub const PANEL: u8 = 12;
+    use crate::ui::design_tokens as t;
+    pub const SMALL: u8 = t::RADIUS_TILE as u8;
+    pub const CONTROL: u8 = t::RADIUS_CONTROL as u8;
+    pub const PANEL: u8 = t::RADIUS_GROUP as u8;
 }
 
 /// Height of primary actions and list rows (the console's --control-height); dense inline controls
@@ -157,11 +163,9 @@ pub fn own_palette() {
 /// The stroke of the focus ring: thick enough to find from across a room, thicker still in high
 /// contrast.
 pub fn focus_ring_width() -> f32 {
-    if high_contrast() { 3.5 } else { 2.0 }
+    if high_contrast() { t::HC_FOCUS_RING_WIDTH } else { t::FOCUS_RING_WIDTH }
 }
 
-/// The gap between an element and its focus ring, so the ring never touches the element's own fill.
-pub const FOCUS_GAP: f32 = 2.0;
 
 /// The surface ladder, darkest first. Hover lifts a surface one step, pressing two.
 const LADDER: [Role; 6] = [SURFACE_LOWEST, SURFACE_LOW, SURFACE, SURFACE_HIGH, SURFACE_HIGHEST, SURFACE_BRIGHT];
@@ -626,6 +630,45 @@ pub fn set_look(ctx: &egui::Context, high: bool, still: bool) {
 /// adaptive icon: moon radius 27 around (54, 54)).
 const BIRD: &str = "M 51.75,41.24 C 53.31,40.96 54.50,41.92 54.89,43.31 C 55.16,44.00 55.33,44.55 55.55,44.95 C 58.63,42.95 61.40,40.41 64.45,38.63 C 68.66,39.72 73.12,42.22 78.13,45.72 C 72.88,44.97 68.19,45.36 64.07,46.82 C 60.97,47.94 58.40,49.93 56.11,51.87 L 56.49,56.49 L 59.86,66.49 C 58.86,67.47 57.71,67.97 56.50,68.18 C 55.30,68.39 54.04,68.32 52.77,67.74 L 52.51,57.19 L 51.29,52.72 C 48.47,51.68 45.38,50.70 42.08,50.69 C 37.70,50.73 33.17,51.97 28.50,54.48 C 32.00,49.47 35.34,45.59 38.92,43.13 C 42.40,43.76 45.87,45.20 49.45,46.03 C 49.52,45.58 49.49,45.00 49.51,44.26 C 49.40,42.82 50.19,41.51 51.75,41.24 Z";
 
+/// The bird alone over the moon's box (27 to 81 units), white with coverage as its alpha, to tint.
+pub fn bird_mask(size: usize) -> egui::ColorImage {
+    const SUB: usize = 4;
+    const LEFT: f32 = 27.0;
+    const SPAN: f32 = 54.0;
+    let polygon = bird_polygon();
+    let mut coverage = vec![0.0f32; size * size];
+    let mut crossings = Vec::new();
+    for row in 0..size * SUB {
+        let y = LEFT + (row as f32 + 0.5) / (size * SUB) as f32 * SPAN;
+        crossings.clear();
+        for (i, a) in polygon.iter().enumerate() {
+            let b = polygon[(i + 1) % polygon.len()];
+            if (a.1 > y) != (b.1 > y) {
+                let x = a.0 + (y - a.1) / (b.1 - a.1) * (b.0 - a.0);
+                crossings.push((x - LEFT) / SPAN * size as f32);
+            }
+        }
+        crossings.sort_by(f32::total_cmp);
+        for span in crossings.chunks_exact(2) {
+            let (from, to) = (span[0].clamp(0.0, size as f32), span[1].clamp(0.0, size as f32));
+            let line = row / SUB;
+            for x in from as usize..(to.ceil() as usize).min(size) {
+                let over = (to.min(x as f32 + 1.0) - from.max(x as f32)).max(0.0);
+                coverage[line * size + x] += over / SUB as f32;
+            }
+        }
+    }
+    let pixels = coverage
+        .iter()
+        .map(|c| egui::Color32::from_white_alpha((c.min(1.0) * 255.0).round() as u8))
+        .collect();
+    egui::ColorImage {
+        size: [size, size],
+        source_size: egui::vec2(size as f32, size as f32),
+        pixels,
+    }
+}
+
 /// The bird outline flattened to a polygon in icon units.
 fn bird_polygon() -> Vec<(f32, f32)> {
     let mut points = Vec::new();
@@ -751,11 +794,87 @@ pub fn slider<N: egui::emath::Numeric>(
     rail: impl FnOnce(egui::Slider<'_>) -> egui::Slider<'_>,
     field: impl FnOnce(egui::DragValue<'_>) -> egui::DragValue<'_>,
 ) -> egui::Response {
+    slider_along(ui, value, range, step, false, rail, field)
+}
+
+/// [`slider`] whose rail runs in equal ratios, for a value across orders of magnitude. The rail
+/// has to be told so with `logarithmic(true)` in `rail`.
+pub fn log_slider<N: egui::emath::Numeric>(
+    ui: &mut egui::Ui,
+    value: &mut N,
+    range: std::ops::RangeInclusive<N>,
+    step: f64,
+    rail: impl FnOnce(egui::Slider<'_>) -> egui::Slider<'_>,
+    field: impl FnOnce(egui::DragValue<'_>) -> egui::DragValue<'_>,
+) -> egui::Response {
+    slider_along(ui, value, range, step, true, rail, field)
+}
+
+/// Where `value` stands along a rail, 0 to 1. Only a range above zero runs in ratios here.
+fn rail_position(value: f64, low: f64, high: f64, ratios: bool) -> f32 {
+    let along = if ratios && low > 0.0 {
+        (value.max(low) / low).ln() / (high / low).ln()
+    } else {
+        (value - low) / (high - low)
+    };
+    if along.is_finite() { along.clamp(0.0, 1.0) as f32 } else { 0.0 }
+}
+
+fn slider_along<N: egui::emath::Numeric>(
+    ui: &mut egui::Ui,
+    value: &mut N,
+    range: std::ops::RangeInclusive<N>,
+    step: f64,
+    ratios: bool,
+    rail: impl FnOnce(egui::Slider<'_>) -> egui::Slider<'_>,
+    field: impl FnOnce(egui::DragValue<'_>) -> egui::DragValue<'_>,
+) -> egui::Response {
     ui.horizontal(|ui| {
-        let slid = ui.add(rail(egui::Slider::new(value, range.clone()).show_value(false)));
+        let (low, high) = (range.start().to_f64(), range.end().to_f64());
+        // egui's slider keeps the input; the rail and thumb are ours, a moon fill and a paper
+        // thumb, which egui's one colour for rail and thumb cannot draw.
+        let slid = ui.scope(|ui| {
+            ui.spacing_mut().slider_width = 150.0;
+            let v = ui.visuals_mut();
+            v.selection.bg_fill = Color32::TRANSPARENT;
+            for look in [&mut v.widgets.noninteractive, &mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
+                look.bg_fill = Color32::TRANSPARENT;
+                look.fg_stroke = Stroke::NONE;
+                look.bg_stroke = Stroke::NONE;
+            }
+            ui.add(rail(egui::Slider::new(value, range.clone()).show_value(false)))
+        }).inner;
+        let along = rail_position(value.to_f64(), low, high, ratios);
+        paint_rail(ui, &slid, along);
         slid | step_value(ui, value, range, step, field)
     })
     .inner
+}
+
+fn paint_rail(ui: &egui::Ui, slid: &egui::Response, along: f32) {
+    use crate::ui::design_tokens as t;
+    let rect = slid.rect;
+    // Where egui's slider has its thumb, so a drag stays under the pointer.
+    let reach = (rect.height() / 2.5).round();
+    let thumb_x = egui::lerp(rect.left() + reach..=rect.right() - reach, along);
+    let middle = rect.center().y;
+    let bar = egui::Rect::from_min_max(egui::pos2(rect.left(), middle - t::SIZE_SLIDER_TRACK / 2.0), egui::pos2(rect.right(), middle + t::SIZE_SLIDER_TRACK / 2.0));
+    let round = egui::CornerRadius::same((t::SIZE_SLIDER_TRACK / 2.0) as u8);
+    let high = high_contrast();
+    let painter = ui.painter();
+    painter.rect_filled(bar, round, if high { *SURFACE_HIGHEST } else { t::TINT_TRACK_FILL });
+    if high {
+        painter.rect_stroke(bar, round, Stroke::new(1.0, t::HC_COLOR_RIM), egui::StrokeKind::Outside);
+    }
+    let filled = egui::Rect::from_min_max(bar.min, egui::pos2(thumb_x, bar.bottom()));
+    painter.rect_filled(filled, round, *MOON);
+    let center = egui::pos2(thumb_x, middle);
+    painter.circle_filled(center + egui::vec2(0.0, 1.0), t::SIZE_SLIDER_THUMB / 2.0, Color32::from_black_alpha(70));
+    painter.circle_filled(center, t::SIZE_SLIDER_THUMB / 2.0, *PAPER);
+    if slid.has_focus() {
+        let spot = egui::Rect::from_center_size(center, egui::Vec2::splat(t::SIZE_SLIDER_THUMB));
+        crate::ui::focus_ring_around(ui, spot, (t::SIZE_SLIDER_THUMB / 2.0) as u8);
+    }
 }
 
 /// The mark as straight RGBA pixels, `size` square: the amber moon with the night bird cut
@@ -807,6 +926,18 @@ pub fn logo_image(size: usize) -> egui::ColorImage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The moon fill and thumb stand where egui's own hit area does: equal ratios for bitrate.
+    #[test]
+    fn a_rail_places_its_thumb_by_the_scale_it_runs_in() {
+        assert_eq!(rail_position(150.0, 100.0, 200.0, false), 0.5);
+        assert!((rail_position(1000.0, 100.0, 10_000.0, true) - 0.5).abs() < 1e-5);
+        assert_eq!(rail_position(50.0, 100.0, 200.0, true), 0.0);
+        assert_eq!(rail_position(900.0, 100.0, 200.0, false), 1.0);
+        // A range from zero cannot run in ratios, and an empty one has nowhere to go.
+        assert_eq!(rail_position(5.0, 0.0, 10.0, true), 0.5);
+        assert_eq!(rail_position(5.0, 5.0, 5.0, false), 0.0);
+    }
 
     #[test]
     fn bird_parses_into_a_closed_shape_inside_the_moon() {
@@ -996,13 +1127,13 @@ mod tests {
         let size = |s: TextStyle| style.text_styles[&s].size;
         assert_eq!(
             [size(TextStyle::Heading), size(TextStyle::Body), size(TextStyle::Button), size(TextStyle::Small), size(TextStyle::Monospace)],
-            [28.0, 16.0, 14.0, 13.0, 13.0]
+            [26.0, 16.0, 14.0, 12.0, 12.0]
         );
         assert_eq!(style.spacing.item_spacing, egui::vec2(8.0, 8.0));
         assert_eq!(style.spacing.button_padding.x, 16.0);
-        assert_eq!(style.visuals.widgets.inactive.corner_radius, egui::CornerRadius::same(10));
-        assert_eq!(style.visuals.window_corner_radius, egui::CornerRadius::same(12));
-        assert_eq!(style.visuals.menu_corner_radius, egui::CornerRadius::same(10));
+        assert_eq!(style.visuals.widgets.inactive.corner_radius, egui::CornerRadius::same(16));
+        assert_eq!(style.visuals.window_corner_radius, egui::CornerRadius::same(22));
+        assert_eq!(style.visuals.menu_corner_radius, egui::CornerRadius::same(16));
         assert_eq!([space::XS, space::S, space::M, space::L, space::XL, space::XXL, space::XXXL], [4.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0]);
         assert_eq!(CONTROL_HEIGHT, 44.0);
     }
@@ -1126,6 +1257,27 @@ mod tests {
             let ratio = contrast(color(true, OUTLINE_VARIANT), color(true, ground));
             assert!(ratio >= 3.0, "outline on {ground:?} is {ratio:.2}:1, wants 3");
         }
+    }
+
+    /// The bird's mask holds as much as its polygon, at the place the moon's box puts it.
+    #[test]
+    fn the_birds_mask_covers_what_its_outline_does() {
+        let polygon = bird_polygon();
+        let twice: f32 = polygon
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                let b = polygon[(i + 1) % polygon.len()];
+                a.0 * b.1 - b.0 * a.1
+            })
+            .sum();
+        let area = (twice / 2.0).abs();
+        let size = 256;
+        let mask = bird_mask(size);
+        let covered: f32 = mask.pixels.iter().map(|p| f32::from(p.a()) / 255.0).sum();
+        let units = covered * (54.0 / size as f32).powi(2);
+        assert!((units - area).abs() / area < 0.03, "{units} of {area}");
+        assert!(mask.pixels.iter().any(|p| p.a() == 255) && mask.pixels.iter().any(|p| p.a() == 0));
     }
 
     #[test]

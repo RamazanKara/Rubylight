@@ -137,7 +137,8 @@ def analyse(logcat, t0, offset):
         for name, text in MARKS.items():
             if text in line and name not in marks:
                 marks[name] = round(at, 2)
-        if 'Automatic stream recovery' in line or 'Recovery:' in line:
+        # "Recovery:" lines come only while the PC is unreachable; a relaunch says so each attempt.
+        if 'Automatic stream recovery' in line or 'Recovery:' in line or 'Stream launch from recovery' in line:
             attempts += 1
     return marks, attempts
 

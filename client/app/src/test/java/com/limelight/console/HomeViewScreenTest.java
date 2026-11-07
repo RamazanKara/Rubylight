@@ -512,6 +512,18 @@ public class HomeViewScreenTest {
     }
 
     @Test
+    public void aPhonesListFadesOutUnderTheTopRowOnlyAtTheTop() {
+        HomeShellTest.Home home = home().get();
+        shadowOf(Looper.getMainLooper()).idle();
+        HomeList list = home.findViewById(R.id.console_list);
+        assertTrue("scrolled rows fade under the PC capsule instead of passing whole under it", list.isVerticalFadingEdgeEnabled());
+        assertTrue(list.getPaddingTop() > 0);
+        assertEquals("the fade covers the top row, down to where the list rests", list.getPaddingTop(), list.getVerticalFadingEdgeLength());
+        assertEquals("the foot has its own fade over the tabs", 0f,
+                (float) ReflectionHelpers.callInstanceMethod(list, "getBottomFadingEdgeStrength"), 0f);
+    }
+
+    @Test
     public void closingTheSheetUnchangedStoresNothing() {
         HomeShellTest.Home home = home().get();
         home.findViewById(R.id.console_view).performClick();

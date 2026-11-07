@@ -254,6 +254,11 @@ final class HomeChrome {
         int foot = handheld ? bottom + res.getDimensionPixelSize(R.dimen.space_xl)
                 : bottom + res.getDimensionPixelSize(R.dimen.nj_size_tab_bar_height) + 3 * res.getDimensionPixelSize(R.dimen.space_m);
         list.setPadding(left + listInset, rowTop + capsule + gap, right + listInset, foot);
+        // Scrolled, the list fades out under the top row: a bright button never slides whole under the PC capsule.
+        if (list instanceof HomeList) {
+            list.setVerticalFadingEdgeEnabled(true);
+            list.setFadingEdgeLength(rowTop + capsule + gap);
+        }
         View fade = activity.findViewById(R.id.home_foot_fade);
         if (fade != null) {
             // The bar floats above the safe area, and its 136 dp stand above that too.

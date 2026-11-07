@@ -5,6 +5,7 @@ import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.RouteInfo;
+import android.os.Build;
 import android.os.SystemClock;
 
 import com.limelight.nvstream.jni.MoonBridge;
@@ -130,12 +131,18 @@ final class HostLossWatch {
         InetAddress gateway = null;
         for (RouteInfo route : routes) {
             if (route.isDefaultRoute()) {
-                if (route.hasGateway() && route.getGateway() instanceof Inet4Address) gateway = route.getGateway();
-            } else if (!route.hasGateway() && route.matches(host)) {
+                if (hasGateway(route) && route.getGateway() instanceof Inet4Address) gateway = route.getGateway();
+            } else if (!hasGateway(route) && route.matches(host)) {
                 onLink = true;
             }
         }
         return onLink && gateway != null ? gateway.getHostAddress() : null;
+    }
+
+    /** RouteInfo.hasGateway() before Android 10, where it is hidden: no gateway reads as 0.0.0.0 or ::. */
+    private static boolean hasGateway(RouteInfo route) {
+        InetAddress gateway = route.getGateway();
+        return gateway != null && !gateway.isAnyLocalAddress();
     }
 
     /** The real engine and this device's network. */
@@ -154,8 +161,25 @@ final class HostLossWatch {
         }
         @Override public boolean saidGoodbye() { return MoonBridge.hostSaidGoodbye(); }
         @Override public String gatewayToward(InetAddress host) {
-            Network network = connectivity.getActiveNetwork();
-            if (network == null) return null;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                Network network = connectivity.getActiveNetwork();
+                return network == null ? null : gatewayOn(network, host);
+            }
+            // No active Network before Android 6: any VPN rules the path as above, else the network
+            // whose own link holds the PC.
+            Network[] networks = connectivity.getAllNetworks();
+            for (Network network : networks) {
+                NetworkCapabilities capabilities = connectivity.getNetworkCapabilities(network);
+                if (capabilities != null && capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return null;
+            }
+            for (Network network : networks) {
+                String gateway = gatewayOn(network, host);
+                if (gateway != null) return gateway;
+            }
+            return null;
+        }
+
+        private String gatewayOn(Network network, InetAddress host) {
             NetworkCapabilities capabilities = connectivity.getNetworkCapabilities(network);
             LinkProperties link = connectivity.getLinkProperties(network);
             if (capabilities == null || link == null || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return null;

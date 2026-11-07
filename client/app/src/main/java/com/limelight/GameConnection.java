@@ -804,7 +804,8 @@ final class GameConnection {
             LimeLog.warning("A PC that shuts down is told only by the recovery running out: the stream's address is unknown");
             return;
         }
-        android.net.ConnectivityManager connectivity = game.getSystemService(android.net.ConnectivityManager.class);
+        android.net.ConnectivityManager connectivity =
+                (android.net.ConnectivityManager) game.getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
         hostLossWatch = new HostLossWatch(new HostLossWatch.Live(connectivity), host, game.conn.hostHttpsPort());
     }
 

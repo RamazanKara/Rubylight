@@ -437,6 +437,9 @@ pub struct Streaming {
     skipped_picture: Option<present::Pending>,
     /// Finds pictures that missed their refresh, for `skipped`.
     miss_watch: present::MissWatch,
+    /// How long a stream that skips keeps a new place from the host (`phase::SteadyReports`), from
+    /// `NIGHTJAR_PHASE_STEADY_WINDOWS` for measurement runs, 0 to send every report as it is.
+    phase_steady_windows: u32,
     /// Presents `VrrSync::Scan` held for a scan under way, and how long in all (ns).
     scan_waits: (u32, u64),
     /// The picture on the display's beam, while racing it is possible (see `sync_race`).
@@ -726,6 +729,7 @@ impl Streaming {
             skipped: present::SkippedPicture::new(std::env::var("NIGHTJAR_PRESENT_HOLD_US").ok().and_then(|us| us.parse().ok()).map_or(present::REFUSED_HOLD, Duration::from_micros)),
             skipped_picture: None,
             miss_watch: present::MissWatch::default(),
+            phase_steady_windows: std::env::var("NIGHTJAR_PHASE_STEADY_WINDOWS").ok().and_then(|windows| windows.parse().ok()).unwrap_or(phase::STEADY_WINDOWS),
             scan_waits: (0, 0),
             race_scan: None,
             racer: race::Racer::default(),

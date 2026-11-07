@@ -1,16 +1,69 @@
 use rubylight_protocol::phase_lock::{Report, SlackWindow};
 use sdl3_sys::everything::*;
 
+/// Windows in a row a new place of the frames takes to reach the host of a stream with no refreshes
+/// to spare (`SteadyReports`): 2 s.
+pub const STEADY_WINDOWS: u32 = 4;
+/// Windows of a new lock that go out as they are: it has to find its place first.
+const STEADY_AFTER: u32 = 6;
+
+/// Keeps a passing change of place from the host, on a stream with no refreshes to spare.
+///
+/// A source faster than the stream takes frames a picture off their place now and then, for a second
+/// or two, and they come back by themselves. The host answers a report from there by taking a later
+/// picture, and it learns a false drift that moves them later again: they land past the desktop's
+/// deadline, where a picture a refresh has none to spare and each miss repeats one and loses one. So a
+/// report from a new place repeats the last place until `windows` in a row said the same. Frames that
+/// came early only wait a little longer, and a refresh that missed goes through at once.
+#[derive(Debug, Default)]
+pub struct SteadyReports {
+    kept: Option<(i32, u32)>,
+    seen: u32,
+    away: u32,
+    missed: bool,
+}
+
+impl SteadyReports {
+    /// A refresh repeated a picture that was late for it.
+    pub fn missed(&mut self) { self.missed = true; }
+
+    /// What to send for this window's `report`.
+    pub fn report(&mut self, report: Report, windows: u32) -> Report {
+        let missed = std::mem::take(&mut self.missed);
+        self.seen = self.seen.saturating_add(1);
+        let period = i64::from(report.period_ns);
+        let moved = |kept: i32| (i64::from(report.lead_ns) - i64::from(kept)).rem_euclid(period);
+        let held = self.kept.filter(|&(lead, _)| {
+            let moved = moved(lead);
+            let away = moved.min(period - moved) > period / 5 || i64::from(report.spread_ns) > period / 4;
+            away && !missed && self.seen > STEADY_AFTER && self.away + 1 < windows
+        });
+        if let Some((lead_ns, spread_ns)) = held {
+            self.away += 1;
+            return Report { lead_ns, spread_ns, ..report };
+        }
+        self.away = 0;
+        self.kept = Some((report.lead_ns, report.spread_ns));
+        report
+    }
+}
+
 #[derive(Default)]
 pub struct Phase {
     window: SlackWindow,
     last_report: u64,
     last_frame: u64,
     pub lead_us: Option<i32>,
+    steady: SteadyReports,
 }
 
 impl Phase {
-    pub fn sample(&mut self, ready_us: u64, now_us: u64, timing: Option<(i64, i64)>) -> Option<Report> {
+    /// A refresh repeated a picture that was late for it.
+    pub fn missed(&mut self) { self.steady.missed(); }
+
+    /// `steady_windows`: how long a stream with no refreshes to spare keeps a new place from the
+    /// host (`SteadyReports`), 0 for any other.
+    pub fn sample(&mut self, ready_us: u64, now_us: u64, timing: Option<(i64, i64)>, steady_windows: u32) -> Option<Report> {
         let Some((latch_us, period_ns)) = timing.filter(|(_, period)| (2_000_000..=41_700_000).contains(period)) else {
             self.reset(); return None;
         };
@@ -24,7 +77,7 @@ impl Phase {
         // The window's length tells the report whether a frame came every refresh.
         let report = self.window.report_over(10, elapsed_us.min(u32::MAX as u64) as i64 * 1000)?;
         self.lead_us = Some(report.lead_ns / 1000);
-        Some(report)
+        Some(if steady_windows > 0 { self.steady.report(report, steady_windows) } else { report })
     }
 
     pub fn reset(&mut self) { *self = Self::default(); }
@@ -128,15 +181,89 @@ mod tests {
         let mut report = None;
         for n in 1..=61 {
             let now = n * 10_000;
-            report = phase.sample(now - 2000, now, Some((now as i64, 10_000_000))).or(report);
+            report = phase.sample(now - 2000, now, Some((now as i64, 10_000_000)), 0).or(report);
         }
         let report = report.unwrap();
         assert_eq!(report.lead_ns, 2_000_000);
         assert!(Report::decode(&report.encode()).is_some());
-        assert_eq!(phase.sample(700_000, 700_000, None), None);
+        assert_eq!(phase.sample(700_000, 700_000, None, 0), None);
         assert_eq!(phase.lead_us, None);
-        assert_eq!(phase.sample(800_000, 800_000, Some((800_000, 10_000_000))), None);
-        assert_eq!(phase.sample(800_000, 1_100_000, Some((1_100_000, 10_000_000))), None);
+        assert_eq!(phase.sample(800_000, 800_000, Some((800_000, 10_000_000)), 0), None);
+        assert_eq!(phase.sample(800_000, 1_100_000, Some((1_100_000, 10_000_000)), 0), None);
+    }
+
+    fn at(lead_ns: i32) -> Report {
+        Report { frames: 60, period_ns: 8_333_333, lead_ns, spread_ns: 1_300_000 }
+    }
+
+    fn settled() -> SteadyReports {
+        let mut steady = SteadyReports::default();
+        for _ in 0..=STEADY_AFTER { steady.report(at(2_000_000), STEADY_WINDOWS); }
+        steady
+    }
+
+    /// Reports of real runs: frames a picture early for two windows, then back.
+    #[test]
+    fn a_passing_change_of_place_never_reaches_the_host() {
+        let mut steady = settled();
+        for lead in [-2_640_000, -1_840_000] {
+            assert_eq!(steady.report(at(lead), STEADY_WINDOWS).lead_ns, 2_000_000);
+        }
+        assert_eq!(steady.report(at(2_490_000), STEADY_WINDOWS).lead_ns, 2_490_000, "near the last place: as it is");
+    }
+
+    #[test]
+    fn a_window_across_a_change_of_place_keeps_the_last_spread_too() {
+        let mut steady = settled();
+        let across = steady.report(Report { spread_ns: 4_900_000, ..at(2_100_000) }, STEADY_WINDOWS);
+        assert_eq!((across.lead_ns, across.spread_ns), (2_000_000, 1_300_000));
+    }
+
+    #[test]
+    fn a_new_place_that_lasts_reaches_the_host() {
+        let mut steady = settled();
+        for _ in 1..STEADY_WINDOWS {
+            assert_eq!(steady.report(at(-2_500_000), STEADY_WINDOWS).lead_ns, 2_000_000);
+        }
+        assert_eq!(steady.report(at(-2_500_000), STEADY_WINDOWS).lead_ns, -2_500_000);
+        assert_eq!(steady.report(at(-2_400_000), STEADY_WINDOWS).lead_ns, -2_400_000, "the new place is the place now");
+    }
+
+    #[test]
+    fn a_missed_refresh_goes_through_at_once() {
+        let mut steady = settled();
+        steady.missed();
+        assert_eq!(steady.report(at(-1_000_000), STEADY_WINDOWS).lead_ns, -1_000_000);
+        assert_eq!(steady.report(at(2_000_000), STEADY_WINDOWS).lead_ns, -1_000_000, "the miss counts once");
+    }
+
+    #[test]
+    fn a_new_lock_finds_its_place_unheld() {
+        let mut steady = SteadyReports::default();
+        for lead in [-1_530_000, 3_020_000, -210_000, -3_850_000, 2_130_000, -2_000_000] {
+            assert_eq!(steady.report(at(lead), STEADY_WINDOWS).lead_ns, lead);
+        }
+    }
+
+    #[test]
+    fn across_the_wrap_of_a_refresh_is_no_change_of_place() {
+        let mut steady = settled();
+        assert_eq!(steady.report(at(3_600_000), STEADY_WINDOWS).lead_ns, 3_600_000);
+        assert_eq!(steady.report(at(4_100_000), STEADY_WINDOWS).lead_ns, 4_100_000);
+        assert_eq!(steady.report(at(-4_166_000), STEADY_WINDOWS).lead_ns, -4_166_000);
+    }
+
+    #[test]
+    fn a_stream_with_refreshes_to_spare_sends_every_window_as_it_is() {
+        let mut phase = Phase::default();
+        let mut leads = Vec::new();
+        for n in 1..=400u64 {
+            let now = n * 10_000;
+            // Frames move a quarter of a refresh every second.
+            let ready = now - if n < 200 { 2000 } else { 4500 };
+            if let Some(report) = phase.sample(ready, now, Some((now as i64, 10_000_000)), 0) { leads.push(report.lead_ns); }
+        }
+        assert_eq!(leads.last(), Some(&4_500_000));
     }
 
     #[test]
@@ -145,7 +272,7 @@ mod tests {
         let mut report = None;
         for n in 1..=61 {
             let now = n * 10_000;
-            report = phase.sample(now - 7000, now, aimed(Some((now as i64, 10_000_000)), 5_000)).or(report);
+            report = phase.sample(now - 7000, now, aimed(Some((now as i64, 10_000_000)), 5_000), 0).or(report);
         }
         assert_eq!(report.unwrap().lead_ns, 2_000_000, "ready 7 ms before the refresh is 2 ms before a deadline 5 ms ahead of it");
     }

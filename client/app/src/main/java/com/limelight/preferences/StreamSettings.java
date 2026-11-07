@@ -2125,7 +2125,6 @@ public class StreamSettings extends NightjarActivity {
                 settings.edit().putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING, true).apply();
                 return true;
             });
-            findPreference("checkbox_codec_low_latency").setEnabled(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R);
             findPreference("checkbox_codec_performance").setEnabled(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
             findPreference("checkbox_phone_performance_hints").setEnabled(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S);
             if (!PyroWaveDecoderRenderer.hasAdrenoGpu()) {

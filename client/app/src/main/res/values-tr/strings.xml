@@ -296,7 +296,7 @@
     <string name="latency_csv_failed">Gecikme CSV’si kaydedilemedi.</string>
     <string name="latency_csv_lost">Birikme nedeniyle kaybolan CSV satırları: %1$d</string>
     <string name="title_codec_low_latency">Android düşük gecikme modu</string>
-    <string name="summary_codec_low_latency">Android 11 veya üstünde video gecikmesini azaltır.</string>
+    <string name="summary_codec_low_latency">Çözücüden en düşük gecikmeyi ister. Bazı çözücüler bunu yok sayar.</string>
     <string name="title_vendor_low_latency">Yonga seti düşük gecikme modu</string>
     <string name="summary_vendor_low_latency">Yonga seti desteğiyle video gecikmesini azaltır.</string>
     <string name="title_codec_performance">Kod çözücü performans ipuçları</string>

@@ -37,6 +37,7 @@
     <string name="perf_overlay_low_latency_android">Android</string>
     <string name="perf_overlay_low_latency_vendor">칩 제조사</string>
     <string name="perf_overlay_low_latency_off">꺼짐</string>
+    <string name="perf_overlay_low_latency_requested">요청함, 디코더가 확인하지 않음</string>
     <string name="perf_overlay_low_latency_keys">적용된 디코더 설정: %1$s</string>
     <string name="perf_overlay_low_latency_unconfirmed">확인되지 않은 디코더 설정: %1$s</string>
     <string name="perf_overlay_phone_hints">휴대전화 성능 힌트: %1$s</string>

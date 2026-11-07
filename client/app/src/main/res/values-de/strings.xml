@@ -296,7 +296,7 @@
     <string name="latency_csv_failed">Latenz-CSV konnte nicht gespeichert werden.</string>
     <string name="latency_csv_lost">Verlorene CSV-Zeilen: %1$d</string>
     <string name="title_codec_low_latency">Android-Latenzmodus</string>
-    <string name="summary_codec_low_latency">Senke die Videolatenz ab Android 11.</string>
+    <string name="summary_codec_low_latency">Fordert vom Decoder die geringste Latenz an. Manche Decoder ignorieren das.</string>
     <string name="title_vendor_low_latency">Chipsatz-Latenzmodus</string>
     <string name="summary_vendor_low_latency">Senke die Videolatenz mit Chipsatz-Unterstützung.</string>
     <string name="title_codec_performance">Decoder-Leistungshinweise</string>

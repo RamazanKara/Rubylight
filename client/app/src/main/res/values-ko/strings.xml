@@ -296,7 +296,7 @@
     <string name="latency_csv_failed">지연 시간 CSV를 저장할 수 없습니다.</string>
     <string name="latency_csv_lost">백로그로 손실된 CSV 행: %1$d</string>
     <string name="title_codec_low_latency">Android 저지연 모드</string>
-    <string name="summary_codec_low_latency">Android 11 이상에서 영상 지연을 줄입니다.</string>
+    <string name="summary_codec_low_latency">디코더에 가장 낮은 지연을 요청합니다. 일부 디코더는 이를 무시합니다.</string>
     <string name="title_vendor_low_latency">칩셋 저지연 모드</string>
     <string name="summary_vendor_low_latency">칩셋 지원을 통해 영상 지연을 줄입니다.</string>
     <string name="title_codec_performance">디코더 성능 힌트</string>

@@ -37,6 +37,7 @@
     <string name="perf_overlay_low_latency_android">Android</string>
     <string name="perf_overlay_low_latency_vendor">nhà sản xuất chip</string>
     <string name="perf_overlay_low_latency_off">tắt</string>
+    <string name="perf_overlay_low_latency_requested">đã yêu cầu, bộ giải mã không xác nhận</string>
     <string name="perf_overlay_low_latency_keys">Cài đặt trình giải mã được chấp nhận: %1$s</string>
     <string name="perf_overlay_low_latency_unconfirmed">Cài đặt trình giải mã chưa được xác nhận: %1$s</string>
     <string name="perf_overlay_phone_hints">Gợi ý hiệu năng của điện thoại: %1$s</string>

@@ -37,6 +37,7 @@
     <string name="perf_overlay_low_latency_android">Android</string>
     <string name="perf_overlay_low_latency_vendor">fabricant de la puce</string>
     <string name="perf_overlay_low_latency_off">désactivé</string>
+    <string name="perf_overlay_low_latency_requested">demandé, non confirmé par le décodeur</string>
     <string name="perf_overlay_low_latency_keys">Paramètres du décodeur acceptés : %1$s</string>
     <string name="perf_overlay_low_latency_unconfirmed">Paramètres du décodeur non confirmés : %1$s</string>
     <string name="perf_overlay_phone_hints">Indications de performances du téléphone : %1$s</string>

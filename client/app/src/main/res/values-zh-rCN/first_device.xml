@@ -37,6 +37,7 @@
     <string name="perf_overlay_low_latency_android">Android</string>
     <string name="perf_overlay_low_latency_vendor">芯片厂商</string>
     <string name="perf_overlay_low_latency_off">关闭</string>
+    <string name="perf_overlay_low_latency_requested">已请求，解码器未确认</string>
     <string name="perf_overlay_low_latency_keys">已接受的解码器设置：%1$s</string>
     <string name="perf_overlay_low_latency_unconfirmed">未确认的解码器设置：%1$s</string>
     <string name="perf_overlay_phone_hints">手机性能提示：%1$s</string>

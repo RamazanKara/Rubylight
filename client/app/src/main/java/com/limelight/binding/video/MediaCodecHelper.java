@@ -995,11 +995,12 @@ public class MediaCodecHelper {
         List<String> keys = tuningKeyNames(vendorParams);
         List<String> confirmed = new ArrayList<>();
         List<String> unconfirmed = new ArrayList<>();
-        boolean android = false, vendor = false;
+        boolean android = false, vendor = false, asked = false;
         for (String key : keys) {
             if (!requested.containsKey(key)) {
                 continue;
             }
+            asked = true;
             int value = requested.getInteger(key);
             boolean echoed = accepted != null && accepted.containsKey(key) && value == accepted.getInteger(key);
             boolean ok = echoed || (key.equals(MediaFormat.KEY_LOW_LATENCY) ? featureLowLatency
@@ -1013,7 +1014,10 @@ public class MediaCodecHelper {
                 vendor = true;
             }
         }
-        String mode = android && vendor ? "android+vendor" : android ? "android" : vendor ? "vendor" : "off";
+        // Sent but unconfirmed is no "off": below Android 11 no decoder can confirm anything, whatever
+        // it does with the keys (a Fire TV's omx.mtk decoders on Android 9, #56).
+        String mode = android && vendor ? "android+vendor" : android ? "android" : vendor ? "vendor" :
+                asked ? "requested" : "off";
         return new String[] { confirmed.isEmpty() ? "none" : String.join(", ", confirmed),
                 unconfirmed.isEmpty() ? "none" : String.join(", ", unconfirmed), mode };
     }

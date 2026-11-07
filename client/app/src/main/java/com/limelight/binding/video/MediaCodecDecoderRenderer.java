@@ -2383,6 +2383,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 case "android+vendor": mode = R.string.perf_overlay_low_latency_android_vendor; break;
                 case "android": mode = R.string.perf_overlay_low_latency_android; break;
                 case "vendor": mode = R.string.perf_overlay_low_latency_vendor; break;
+                case "requested": mode = R.string.perf_overlay_low_latency_requested; break;
                 default: mode = R.string.perf_overlay_low_latency_off; break;
             }
             decoderDiagnostics = context.getString(R.string.perf_overlay_decoder,

@@ -296,7 +296,7 @@
     <string name="latency_csv_failed">無法儲存延遲 CSV。</string>
     <string name="latency_csv_lost">因積壓而遺失的 CSV 列數：%1$d</string>
     <string name="title_codec_low_latency">Android 低延遲模式</string>
-    <string name="summary_codec_low_latency">在 Android 11 以上版本減少視訊延遲。</string>
+    <string name="summary_codec_low_latency">要求解碼器使用最低延遲。部分解碼器會忽略此要求。</string>
     <string name="title_vendor_low_latency">晶片組低延遲模式</string>
     <string name="summary_vendor_low_latency">透過晶片組支援減少視訊延遲。</string>
     <string name="title_codec_performance">解碼器效能提示</string>

@@ -37,6 +37,7 @@
     <string name="perf_overlay_low_latency_android">Android</string>
     <string name="perf_overlay_low_latency_vendor">チップベンダー</string>
     <string name="perf_overlay_low_latency_off">オフ</string>
+    <string name="perf_overlay_low_latency_requested">要求済み、デコーダーの確認なし</string>
     <string name="perf_overlay_low_latency_keys">受け入れられたデコーダー設定: %1$s</string>
     <string name="perf_overlay_low_latency_unconfirmed">未確認のデコーダー設定: %1$s</string>
     <string name="perf_overlay_phone_hints">スマートフォンのパフォーマンス ヒント: %1$s</string>

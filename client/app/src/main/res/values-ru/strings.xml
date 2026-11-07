@@ -296,7 +296,7 @@
     <string name="latency_csv_failed">Не удалось сохранить CSV задержки.</string>
     <string name="latency_csv_lost">Строк CSV потеряно из-за переполнения очереди: %1$d</string>
     <string name="title_codec_low_latency">Режим низкой задержки Android</string>
-    <string name="summary_codec_low_latency">Уменьшает задержку видео на Android 11 и новее.</string>
+    <string name="summary_codec_low_latency">Запрашивает у декодера минимальную задержку. Некоторые декодеры это игнорируют.</string>
     <string name="title_vendor_low_latency">Режим низкой задержки чипсета</string>
     <string name="summary_vendor_low_latency">Уменьшает задержку видео при поддержке чипсетом.</string>
     <string name="title_codec_performance">Подсказки производительности декодера</string>

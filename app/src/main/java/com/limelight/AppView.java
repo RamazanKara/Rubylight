@@ -640,6 +640,12 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
             place.rightMargin = gridEnd;
             place.bottomMargin = safeBottom + side;
             foot = safeBottom + (running == null ? side : capsule + 2 * side);
+            // A TV's focused poster grows and wears its ring: the grid keeps room for that and the overscan under its last
+            // row, so it can scroll the card that far clear of the screen's edge.
+            if (form == GlassForm.TELEVISION) {
+                foot = Math.max(foot, safeBottom + res.getDimensionPixelSize(R.dimen.shell_overscan_vertical)
+                        + Math.round(24 * res.getDisplayMetrics().density));
+            }
         }
         resume.setLayoutParams(place);
         gridFoot = foot;

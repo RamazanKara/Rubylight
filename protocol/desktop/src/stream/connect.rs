@@ -447,6 +447,37 @@ pub(super) fn env_flag(name: &str) -> Option<bool> {
     value
 }
 
+/// Whether a backend recovers from a lost frame with reference frame invalidation: D3D11VA, VAAPI
+/// and software, as moonlight-qt asks. Vulkan video, V4L2 M2M and NVDEC do not ask.
+pub(super) fn takes_rfi(backend: Hardware) -> bool {
+    matches!(backend, Hardware::D3d11(_) | Hardware::Vaapi | Hardware::None)
+}
+
+/// The decoder's `CAPABILITY_*` for the launch. Reference frame invalidation for HEVC and for AV1
+/// when every backend that decodes the family here takes it (`base`, from
+/// `color_probe::probe_base`; H.264 never, as moonlight-qt): a lost frame then recovers with an
+/// invalidation and the next inter frame (~47 KB) instead of a key frame (~204 KB) and the wait
+/// for it. Software decoding (`software`) asks for `min(4, cores)` slices per frame, which its
+/// slice threads decode in parallel. `rfi` and `slices` are `NIGHTJAR_DESKTOP_RFI` and
+/// `NIGHTJAR_DESKTOP_SLICES`, on unless 0, for A/B runs.
+pub(super) fn video_capabilities(base: &color_probe::Base, software: bool, rfi: bool, slices: bool, cores: usize) -> u32 {
+    let family = |mask: u32| {
+        let mut backends = base.backends.iter().filter(|&&(format, _)| format & mask != 0).peekable();
+        backends.peek().is_some() && backends.all(|&(_, backend)| takes_rfi(backend))
+    };
+    let mut capabilities = 0;
+    if rfi && family(VIDEO_FORMAT_MASK_H265) {
+        capabilities |= CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC;
+    }
+    if rfi && family(VIDEO_FORMAT_MASK_AV1) {
+        capabilities |= CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1;
+    }
+    if software && slices {
+        capabilities |= capability_slices_per_frame(cores.clamp(1, 4) as u8);
+    }
+    capabilities
+}
+
 /// The setting, unless `NIGHTJAR_BEAM_RACE` says on (whatever the link; for measurement runs) or
 /// off. Needs the GPU decoder whatever asked.
 pub(super) fn beam_race(setting: bool, link_mbps: u32, gpu_decoder: bool) -> BeamRace {
@@ -798,7 +829,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         .info
         .capabilities
         .trusted_codec_mode_support(plan.info.server_codec_mode_support);
-    let offer = offered_formats(settings, scm, &plan.color_decodable);
+    let offer = offered_formats_decoding(settings, scm, &plan.color_decodable, plan.base_decodable.decodable);
     request.ten_bit_sdr = launches_ten_bit_sdr(settings, &offer);
     // The interface the system sends this host's traffic over decides, not the internet
     // connection; the connection is the fallback when that lookup tells nothing. Looked up before
@@ -898,6 +929,12 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
     }
     let mut iv = [0u8; 16];
     iv[..4].copy_from_slice(&ri_key_id.to_be_bytes());
+    let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
+    let video_capabilities = video_capabilities(&plan.base_decodable, plan.hardware == Hardware::None,
+        env_flag("NIGHTJAR_DESKTOP_RFI").unwrap_or(true), env_flag("NIGHTJAR_DESKTOP_SLICES").unwrap_or(true), cores);
+    eprintln!("nightjar: decoder capabilities {video_capabilities:#x} (reference frame invalidation: HEVC {}, AV1 {}; slices {})",
+        video_capabilities & CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC != 0, video_capabilities & CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1 != 0,
+        (video_capabilities >> 24).max(1));
     let stream = StreamConfig {
         width: width as i32,
         height: height as i32,
@@ -922,7 +959,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         encryption_flags: ENCFLG_ALL,
         remote_input_aes_key: ri_key,
         remote_input_aes_iv: iv,
-        video_capabilities: 0,
+        video_capabilities,
         audio_capabilities: CAPABILITY_DIRECT_SUBMIT,
         video_fec: settings.error_correction.into(),
         hdr_format: asked_hdr_format(hdr_format(
@@ -1052,6 +1089,48 @@ fn recent_game(plan: &LaunchPlan) -> Option<config::Recent> {
 }
 
 #[cfg(test)]
+mod capability_tests {
+    use super::*;
+
+    fn decoded_by(backends: &[(u32, Hardware)]) -> color_probe::Base {
+        color_probe::Base { decodable: backends.iter().fold(0, |all, &(format, _)| all | format), reason: String::new(), backends: backends.to_vec() }
+    }
+
+    /// The decoder used to ask for nothing, so every lost frame waited for a key frame.
+    #[test]
+    fn reference_frame_invalidation_is_asked_for_where_the_backend_recovers_with_it() {
+        let rfi = CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC | CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1;
+        let device = std::ptr::dangling_mut::<std::ffi::c_void>();
+        let all = |backend| decoded_by(&[(VIDEO_FORMAT_H265, backend), (VIDEO_FORMAT_H265_MAIN10, backend), (VIDEO_FORMAT_AV1_MAIN8, backend), (VIDEO_FORMAT_AV1_MAIN10, backend)]);
+        for backend in [Hardware::D3d11(device), Hardware::Vaapi] {
+            assert_eq!(video_capabilities(&all(backend), false, true, true, 16), rfi, "{}: no slices for hardware", backend.label());
+        }
+        for backend in [Hardware::Vulkan(device), Hardware::V4l2m2m, Hardware::Cuda] {
+            assert_eq!(video_capabilities(&all(backend), false, true, true, 16), 0, "{}", backend.label());
+        }
+        // H.264 never asks; a family any of whose formats another backend decodes does not either.
+        assert_eq!(rfi & CAPABILITY_REFERENCE_FRAME_INVALIDATION_AVC, 0);
+        let mixed = decoded_by(&[(VIDEO_FORMAT_H265, Hardware::Vaapi), (VIDEO_FORMAT_H265_MAIN10, Hardware::Vulkan(device)), (VIDEO_FORMAT_AV1_MAIN8, Hardware::Vaapi)]);
+        assert_eq!(video_capabilities(&mixed, false, true, true, 16), CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1);
+        // A family nothing decodes asks for nothing.
+        assert_eq!(video_capabilities(&decoded_by(&[(VIDEO_FORMAT_H265, Hardware::Vaapi)]), false, true, true, 16), CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC);
+        // NIGHTJAR_DESKTOP_RFI=0.
+        assert_eq!(video_capabilities(&all(Hardware::Vaapi), false, false, true, 16), 0);
+    }
+
+    #[test]
+    fn software_decoding_asks_for_a_slice_per_decoding_thread_up_to_4() {
+        let software = color_probe::Base::software();
+        let rfi = CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC | CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1;
+        assert_eq!(video_capabilities(&software, true, true, true, 16), rfi | capability_slices_per_frame(4));
+        assert_eq!(video_capabilities(&software, true, true, true, 2), rfi | capability_slices_per_frame(2));
+        assert_eq!(video_capabilities(&software, true, true, true, 0) >> 24, 1);
+        // NIGHTJAR_DESKTOP_SLICES=0.
+        assert_eq!(video_capabilities(&software, true, true, false, 16), rfi);
+    }
+}
+
+#[cfg(test)]
 mod replace_tests {
     use super::*;
 
@@ -1086,6 +1165,7 @@ mod replace_tests {
             gpu_decoder: None,
             packed_modes: 0,
             color_decodable: (0, String::new()),
+            base_decodable: color_probe::Base::software(),
             pacing: PacingMode::Immediate,
             vrr: false,
             gamepad_mask: 0,

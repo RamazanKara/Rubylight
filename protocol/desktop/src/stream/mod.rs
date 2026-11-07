@@ -156,6 +156,9 @@ pub struct LaunchPlan {
     /// The 4:4:4 and 10-bit formats this device decodes and draws, and why the others are not
     /// (`color_probe::probe`); `(0, "")` when neither setting asks for them.
     pub color_decodable: (u32, String),
+    /// The plain HEVC and AV1 formats (and Main10) the stream's decoder decodes, and by which
+    /// backend (`color_probe::probe_base`).
+    pub base_decodable: color_probe::Base,
     pub pacing: PacingMode,
     pub vrr: bool,
     pub gamepad_mask: u32,
@@ -2488,6 +2491,31 @@ mod tests {
         assert!(!probes_color(&Settings { hdr: true, ..on.clone() }));
         assert!(!probes_color(&Settings { experimental_packed_444: true, ..on.clone() }));
         assert!(!probes_color(&Settings { codec: CodecPreference::PyroWave, ..on }));
+    }
+
+    /// A hardware decoder that cannot decode HEVC Main10 or AV1 (`color_probe::probe_base`) is
+    /// never offered them, so the PC never streams what FFmpeg would decode in software or not at
+    /// all; H.264 always stays, and packed full chroma checks its own formats.
+    #[test]
+    fn plain_formats_the_hardware_decoder_cannot_decode_are_not_offered() {
+        let all = SCM_H264 | SCM_HEVC | SCM_HEVC_MAIN10 | SCM_AV1_MAIN8 | SCM_AV1_MAIN10;
+        let hdr = |codec| Settings { codec, hdr: true, ..Default::default() };
+        let offered = |settings: &Settings, decodable| offered_formats_decoding(settings, all, &decodes_all(), decodable).formats;
+        let eight_bit = VIDEO_FORMAT_H265 | VIDEO_FORMAT_AV1_MAIN8;
+        assert_eq!(offered(&hdr(CodecPreference::Hevc), color_probe::BASE_FORMATS), VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10);
+        assert_eq!(offered(&hdr(CodecPreference::Hevc), eight_bit), VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265, "no Main10 decoder");
+        assert_eq!(offered(&hdr(CodecPreference::Av1), VIDEO_FORMAT_H265), VIDEO_FORMAT_H264, "no AV1 decoder at all");
+        assert_eq!(offered(&hdr(CodecPreference::Av1), color_probe::BASE_FORMATS), VIDEO_FORMAT_H264 | VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10);
+        assert_eq!(offered(&Settings::default(), 0), VIDEO_FORMAT_H264);
+        let packed = Settings { experimental_packed_444: true, codec: CodecPreference::Hevc, ..Default::default() };
+        assert_eq!(offered(&packed, 0), offered(&packed, color_probe::BASE_FORMATS));
+        // `offered_formats` is the offer of a decoder that decodes them all.
+        assert_eq!(offered_formats(&hdr(CodecPreference::Hevc), all, &decodes_all()).formats, offered(&hdr(CodecPreference::Hevc), color_probe::BASE_FORMATS));
+        // Software decoding decodes them all, by the software decoder.
+        let software = color_probe::Base::software();
+        assert_eq!(software.decodable, color_probe::BASE_FORMATS);
+        assert!(software.backends.iter().all(|&(_, backend)| backend == Hardware::None) && software.backends.len() == 4);
+        assert_eq!(color_probe::probe_base(Hardware::None), software, "software decoding is not checked");
     }
 
     #[test]

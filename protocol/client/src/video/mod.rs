@@ -504,6 +504,13 @@ impl VideoReceiver {
         self.depacketizer.request_decoder_refresh(sink);
     }
 
+    /// From now on every loss waits for a key frame and asks for one, as without RFI: the
+    /// decoder that negotiated RFI was replaced by one that never asked for it.
+    pub fn recover_with_idr_only(&mut self) {
+        self.depacketizer.require_idr();
+        self.queue.rfi = false;
+    }
+
     /// The host display's HDR mode from the control stream; frames report it and use BT.2020
     /// while it is on.
     pub fn set_hdr_active(&mut self, active: bool) {

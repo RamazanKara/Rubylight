@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="addpc_scan_qr">Scan QR code</string>
+    <string name="addpc_scan_code">Scanner un code d’association</string>
     <string name="addpc_qr_hint">Show the pairing QR code on the PC’s Devices page and scan it to add and pair the PC at once.</string>
     <string name="addpc_qr_invalid">This is not a valid pairing code. Show a new QR code on the PC and scan it again.</string>
     <string name="pair_link_address">Adresse : %1$s</string>

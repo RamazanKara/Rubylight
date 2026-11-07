@@ -688,7 +688,72 @@ public class PcViewLifecycleTest {
         }
     }
 
-    /** Three PCs on a 1080p TV: one centred row across the width inside the overscan, with Add PC clear of it and still reachable. */
+    /** The row started at x=330 with the title at x=96, and the capsule 8 px below Home's. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionTheCapsuleIsHomesAndTheRowStartsUnderTheTitle() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            report(pc("b", "Beta", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED));
+            assertEquals(com.limelight.console.HomeShellTest.tvCapsule(), com.limelight.ui.TvAudit.topCapsule(screen));
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            int[] card = new int[2];
+            grid.getChildAt(0).findViewById(R.id.grid_card).getLocationInWindow(card);
+            int[] title = new int[2];
+            screen.findViewById(R.id.pc_focus_title).getLocationInWindow(title);
+            assertEquals(title[0], card[0]);
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** Bigger hosts' words: the update line wraps inside its card instead of ending in dots. */
+    @Test
+    @Config(qualifiers = "de-w960dp-h540dp-land-television-xhdpi")
+    public void aLongUpdateLineWrapsInsideItsCard() {
+        android.view.LayoutInflater inflater = android.view.LayoutInflater.from(new android.view.ContextThemeWrapper(
+                RuntimeEnvironment.getApplication(), R.style.AppTheme));
+        android.view.View card = inflater.inflate(R.layout.pc_grid_card, null);
+        android.widget.TextView update = card.findViewById(R.id.grid_update);
+        assertEquals(2, update.getMaxLines());
+    }
+
+    /** + offers both ways in where there is a camera; with none there is one way, and + takes it. */
+    @Test
+    public void plusOffersAddAndScanWithACamera() {
+        org.robolectric.Shadows.shadowOf(RuntimeEnvironment.getApplication().getPackageManager())
+                .setSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY, true);
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            screen.findViewById(R.id.manuallyAddPc).performClick();
+            com.limelight.ui.ActionSheet sheet = ReflectionHelpers.getField(screen, "addPcSheet");
+            assertNotNull(sheet);
+            assertTrue(sheet.isShowing());
+            sheet.dismiss();
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void plusGoesStraightToAddWithNoCamera() {
+        org.robolectric.Shadows.shadowOf(RuntimeEnvironment.getApplication().getPackageManager())
+                .setSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY, false);
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            screen.findViewById(R.id.manuallyAddPc).performClick();
+            assertNull(ReflectionHelpers.getField(screen, "addPcSheet"));
+            assertEquals(com.limelight.preferences.AddComputerManually.class.getName(),
+                    org.robolectric.Shadows.shadowOf(screen).getNextStartedActivity().getComponent().getClassName());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** Three PCs on a 1080p TV: one row from the page's margin, inside the overscan, with Add PC clear of it and still reachable. */
     @Test
     @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
     public void onATelevisionThreePcsSitInOneRowAndAddPcStaysClearAndReachable() {
@@ -705,11 +770,12 @@ public class PcViewLifecycleTest {
             root.measure(android.view.View.MeasureSpec.makeMeasureSpec(w, android.view.View.MeasureSpec.EXACTLY),
                     android.view.View.MeasureSpec.makeMeasureSpec(h, android.view.View.MeasureSpec.EXACTLY));
             root.layout(0, 0, w, h);
-            assertEquals("one row", 3, grid.getNumColumns());
+            assertEquals("one row", grid.getChildAt(0).getTop(), grid.getChildAt(2).getTop());
             int[] at = new int[2];
             grid.getLocationInWindow(at);
             int overscan = screen.getResources().getDimensionPixelSize(R.dimen.shell_overscan_horizontal);
-            assertTrue("the grid stays inside the overscan", at[0] >= overscan && at[0] + grid.getWidth() <= w - overscan);
+            int glow = screen.getResources().getDimensionPixelSize(R.dimen.tile_glow);
+            assertTrue("the grid stays inside the overscan, past a card's own glow", at[0] >= overscan - glow && at[0] + grid.getWidth() <= w - overscan + glow);
             android.view.View add = screen.findViewById(R.id.manuallyAddPc);
             android.graphics.Rect addRect = new android.graphics.Rect();
             add.getGlobalVisibleRect(addRect);

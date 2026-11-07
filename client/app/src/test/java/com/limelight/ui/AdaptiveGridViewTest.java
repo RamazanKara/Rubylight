@@ -19,6 +19,17 @@ import static org.junit.Assert.*;
         shadows = com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class,
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class AdaptiveGridViewTest {
+    /** Rows stop at the grid's top; only the selected card, which stands below it, may let its halo past. */
+    @Test
+    public void aLibraryClipsEveryRowButTheSelectedCard() {
+        AdaptiveGridView grid = new AdaptiveGridView(org.robolectric.RuntimeEnvironment.getApplication());
+        grid.setColumnPolicy(false, false);
+        assertTrue(grid.clipsAtTop(new android.view.View(grid.getContext())));
+        assertFalse("nothing selected, and the selected view is null", grid.clipsAtTop(null));
+        grid.setColumnPolicy(true, false);
+        assertFalse("PC cards have no such edge", grid.clipsAtTop(new android.view.View(grid.getContext())));
+    }
+
     private static void measure(View view, int width, int height) {
         view.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));

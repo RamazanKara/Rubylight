@@ -1,7 +1,6 @@
 package com.limelight.grid;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -44,7 +43,7 @@ import org.robolectric.shadows.ShadowLooper;
 import java.io.File;
 import java.io.FileOutputStream;
 
-/** The PCs screen on TV: fixed-size tiles in a centred row, their focus, their state and the game they are running. */
+/** The PCs screen on TV: fixed-size tiles in a row from the page margin, their focus, their state and the game they are running. */
 @RunWith(RobolectricTestRunner.class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = 30, application = Application.class, qualifiers = "w960dp-h540dp-land-television-xhdpi",
@@ -363,21 +362,6 @@ public class TvPcTilesTest {
         return grid;
     }
 
-    @Test
-    public void paddingSetAfterTheFirstMeasureBecomesTheNewBase() {
-        AdaptiveGridView grid = grid(screen(), 2);
-        measure(grid);
-        int extra = 40;
-        grid.setPadding(extra, grid.getPaddingTop(), extra, grid.getPaddingBottom());
-        measure(grid);
-        assertEquals(2, grid.getNumColumns());
-        assertEquals(extra + (CONTENT - 2 * extra - 2 * CELL) / 2, grid.getPaddingLeft());
-        assertEquals(grid.getPaddingLeft(), grid.getPaddingRight());
-        grid.setPaddingRelative(0, grid.getPaddingTop(), 0, grid.getPaddingBottom());
-        measure(grid);
-        assertEquals((CONTENT - 2 * CELL) / 2, grid.getPaddingLeft());
-    }
-
     /** The visible colour a selector draws for a focused, selected item: 0 when it draws nothing. */
     private static int focusedSelectorAlpha(android.graphics.drawable.Drawable selector) {
         selector.setState(new int[]{android.R.attr.state_focused, android.R.attr.state_selected, android.R.attr.state_enabled});
@@ -406,38 +390,17 @@ public class TvPcTilesTest {
                 View.MeasureSpec.makeMeasureSpec(900, View.MeasureSpec.EXACTLY));
     }
 
+    /** The row starts at the page's margin with the title, however many PCs there are: as many columns as fit, no padding added. */
     @Test
-    public void twoPcsSitAsACentredPair() {
-        AdaptiveGridView grid = grid(screen(), 2);
-        measure(grid);
-        assertEquals(2, grid.getNumColumns());
-        assertEquals((CONTENT - 2 * CELL) / 2, grid.getPaddingLeft());
-        assertEquals(grid.getPaddingLeft(), grid.getPaddingRight());
-    }
-
-    @Test
-    public void onePcSitsInTheMiddle() {
-        AdaptiveGridView grid = grid(screen(), 1);
-        measure(grid);
-        assertEquals(1, grid.getNumColumns());
-        assertEquals((CONTENT - CELL) / 2, grid.getPaddingLeft());
-    }
-
-    @Test
-    public void morePcsFillFourColumnsOfACentredBlockAndTheBlockFollowsTheCount() {
-        AdaptiveGridView grid = grid(screen(), 5);
-        measure(grid);
-        assertEquals(4, grid.getNumColumns());
-        assertEquals((CONTENT - 4 * CELL) / 2, grid.getPaddingLeft());
-        // Down to two PCs: the padding comes from the layout's own, not from the last centring.
-        PcGridAdapter adapter = (PcGridAdapter) grid.getAdapter();
-        adapter.removeComputer((PcView.ComputerObject) adapter.getItem(0));
-        adapter.removeComputer((PcView.ComputerObject) adapter.getItem(0));
-        adapter.removeComputer((PcView.ComputerObject) adapter.getItem(0));
-        adapter.notifyDataSetChanged();
-        measure(grid);
-        assertEquals(2, grid.getNumColumns());
-        assertEquals((CONTENT - 2 * CELL) / 2, grid.getPaddingLeft());
-        assertNotEquals(0, grid.getPaddingLeft());
+    public void pcsStartAtTheMarginWhateverTheirCount() {
+        for (int count : new int[] {1, 2, 5}) {
+            AdaptiveGridView grid = grid(screen(), count);
+            measure(grid);
+            assertEquals(4, grid.getNumColumns());
+            assertEquals(0, grid.getPaddingLeft());
+            assertEquals(0, grid.getPaddingRight());
+            controller.close();
+            controller = null;
+        }
     }
 }

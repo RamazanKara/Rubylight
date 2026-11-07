@@ -296,7 +296,7 @@
     <string name="latency_csv_failed">Không thể lưu CSV độ trễ.</string>
     <string name="latency_csv_lost">Số dòng CSV bị mất do tồn đọng: %1$d</string>
     <string name="title_codec_low_latency">Chế độ độ trễ thấp của Android</string>
-    <string name="summary_codec_low_latency">Giảm độ trễ video trên Android 11 trở lên.</string>
+    <string name="summary_codec_low_latency">Yêu cầu bộ giải mã dùng độ trễ thấp nhất. Một số bộ giải mã bỏ qua yêu cầu này.</string>
     <string name="title_vendor_low_latency">Chế độ độ trễ thấp của chipset</string>
     <string name="summary_vendor_low_latency">Giảm độ trễ video nhờ hỗ trợ của chipset.</string>
     <string name="title_codec_performance">Gợi ý hiệu năng trình giải mã</string>

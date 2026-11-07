@@ -37,6 +37,7 @@
     <string name="perf_overlay_low_latency_android">Android</string>
     <string name="perf_overlay_low_latency_vendor">yonga üreticisi</string>
     <string name="perf_overlay_low_latency_off">kapalı</string>
+    <string name="perf_overlay_low_latency_requested">istendi, çözücü doğrulamıyor</string>
     <string name="perf_overlay_low_latency_keys">Kabul edilen kod çözücü ayarları: %1$s</string>
     <string name="perf_overlay_low_latency_unconfirmed">Onaylanmayan kod çözücü ayarları: %1$s</string>
     <string name="perf_overlay_phone_hints">Telefon performans ipuçları: %1$s</string>

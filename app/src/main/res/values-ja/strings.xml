@@ -296,7 +296,7 @@
     <string name="latency_csv_failed">遅延の CSV を保存できませんでした。</string>
     <string name="latency_csv_lost">処理の遅れで失われた CSV の行: %1$d</string>
     <string name="title_codec_low_latency">Android の低遅延モード</string>
-    <string name="summary_codec_low_latency">Android 11 以降で映像の遅延を減らします。</string>
+    <string name="summary_codec_low_latency">デコーダーに最小の遅延を要求します。無視するデコーダーもあります。</string>
     <string name="title_vendor_low_latency">チップセットの低遅延モード</string>
     <string name="summary_vendor_low_latency">チップセットの機能で映像の遅延を減らします。</string>
     <string name="title_codec_performance">デコーダーのパフォーマンス ヒント</string>

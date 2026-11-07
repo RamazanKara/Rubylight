@@ -47,6 +47,22 @@ public class MediaCodecHevcLowLatencyTest {
     private static final String AML_LOW_LATENCY = "vendor.low-latency.enable";
     private static final String OTHER_HEVC = "c2.acme.hevc.decoder";
 
+    // A Fire TV Stick 4K Max on Android 9 lists no vendor keys and no FEATURE_LowLatency, so nothing
+    // it gets can be confirmed: it read "off" while the decoder got every key (#56).
+    @Test
+    public void lowLatencySentToADecoderThatCannotConfirmIsNotOff() {
+        MediaFormat sent = new MediaFormat();
+        sent.setInteger(MediaFormat.KEY_LOW_LATENCY, 1);
+        sent.setInteger("vdec-lowlatency", 1);
+        String[] options = MediaCodecHelper.getDecoderLowLatencyOptions(sent, null, null, false);
+        assertEquals("requested", options[2]);
+        assertEquals("none", options[0]);
+        assertTrue(options[1], options[1].contains("vdec-lowlatency=1"));
+
+        assertEquals("off", MediaCodecHelper.getDecoderLowLatencyOptions(new MediaFormat(), null, null, false)[2]);
+        assertEquals("android", MediaCodecHelper.getDecoderLowLatencyOptions(sent, null, null, true)[2]);
+    }
+
     @Before
     public void setUp() {
         ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);

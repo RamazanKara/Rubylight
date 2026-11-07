@@ -37,6 +37,7 @@
     <string name="perf_overlay_low_latency_android">Android</string>
     <string name="perf_overlay_low_latency_vendor">производитель чипа</string>
     <string name="perf_overlay_low_latency_off">выкл.</string>
+    <string name="perf_overlay_low_latency_requested">запрошено, декодер не подтверждает</string>
     <string name="perf_overlay_low_latency_keys">Принятые параметры декодера: %1$s</string>
     <string name="perf_overlay_low_latency_unconfirmed">Неподтверждённые параметры декодера: %1$s</string>
     <string name="perf_overlay_phone_hints">Подсказки производительности телефона: %1$s</string>

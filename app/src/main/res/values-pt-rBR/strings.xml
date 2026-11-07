@@ -296,7 +296,7 @@
     <string name="latency_csv_failed">Não foi possível salvar o CSV de latência.</string>
     <string name="latency_csv_lost">Linhas do CSV perdidas por acúmulo: %1$d</string>
     <string name="title_codec_low_latency">Modo de baixa latência do Android</string>
-    <string name="summary_codec_low_latency">Reduz o atraso do vídeo no Android 11 ou mais recente.</string>
+    <string name="summary_codec_low_latency">Pede ao decodificador o menor atraso. Alguns decodificadores ignoram isso.</string>
     <string name="title_vendor_low_latency">Modo de baixa latência do chipset</string>
     <string name="summary_vendor_low_latency">Reduz o atraso do vídeo com suporte do chipset.</string>
     <string name="title_codec_performance">Dicas de desempenho do decodificador</string>

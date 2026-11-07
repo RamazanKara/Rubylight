@@ -296,7 +296,7 @@
     <string name="latency_csv_failed">Impossibile salvare il CSV della latenza.</string>
     <string name="latency_csv_lost">Righe CSV perse per arretrato: %1$d</string>
     <string name="title_codec_low_latency">Modalità bassa latenza Android</string>
-    <string name="summary_codec_low_latency">Riduce il ritardo video su Android 11 o versioni successive.</string>
+    <string name="summary_codec_low_latency">Chiede al decoder il ritardo più basso. Alcuni decoder lo ignorano.</string>
     <string name="title_vendor_low_latency">Modalità bassa latenza del chipset</string>
     <string name="summary_vendor_low_latency">Riduce il ritardo video con il supporto del chipset.</string>
     <string name="title_codec_performance">Suggerimenti prestazioni del decoder</string>

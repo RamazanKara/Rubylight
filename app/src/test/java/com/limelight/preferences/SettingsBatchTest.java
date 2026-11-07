@@ -234,6 +234,20 @@ public class SettingsBatchTest {
         }
     }
 
+    // This class runs at API 28, a Fire TV Stick 4K Max's Android 9: the decoder gets the flag on
+    // every version, so the switch that turns it off and on works there too (#56).
+    @Test
+    public void androidLowLatencySwitchWorksBelowAndroid11() {
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            PreferenceScreen advanced = section(controller, "advanced");
+            Preference customize = advanced.findPreference("low_latency_customize");
+            customize.getOnPreferenceClickListener().onPreferenceClick(customize);
+            Preference android = advanced.findPreference("checkbox_codec_low_latency");
+            assertTrue(android.isEnabled());
+            assertFalse(controller.get().getString(com.limelight.R.string.summary_codec_low_latency).contains("11"));
+        }
+    }
+
     @Test
     public void customizeStaysOpenAcrossARotation() {
         android.os.Bundle saved = new android.os.Bundle();

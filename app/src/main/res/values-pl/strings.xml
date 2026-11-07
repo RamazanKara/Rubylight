@@ -296,7 +296,7 @@
     <string name="latency_csv_failed">Nie udało się zapisać CSV opóźnień.</string>
     <string name="latency_csv_lost">Wiersze CSV utracone przez zaległości: %1$d</string>
     <string name="title_codec_low_latency">Tryb niskiego opóźnienia Androida</string>
-    <string name="summary_codec_low_latency">Zmniejsza opóźnienie wideo na Androidzie 11 lub nowszym.</string>
+    <string name="summary_codec_low_latency">Prosi dekoder o najmniejsze opóźnienie. Niektóre dekodery to ignorują.</string>
     <string name="title_vendor_low_latency">Tryb niskiego opóźnienia chipsetu</string>
     <string name="summary_vendor_low_latency">Zmniejsza opóźnienie wideo dzięki obsłudze chipsetu.</string>
     <string name="title_codec_performance">Wskazówki wydajności dekodera</string>

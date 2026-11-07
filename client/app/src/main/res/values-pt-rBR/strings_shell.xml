@@ -3,7 +3,6 @@
     <string name="shell_destinations">Seções principais</string>
     <string name="shell_current_page">Página atual</string>
     <string name="host_menu_rename">Renomear</string>
-    <string name="host_options_hint">X ou ⋮ para opções</string>
     <string name="host_rename_field">Nome</string>
     <string name="host_rename_help">Aparece apenas neste dispositivo. Deixe vazio para usar o nome original do PC.</string>
     <string name="host_rename_save">Salvar</string>

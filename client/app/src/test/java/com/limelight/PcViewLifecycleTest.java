@@ -719,6 +719,24 @@ public class PcViewLifecycleTest {
         assertEquals(2, update.getMaxLines());
     }
 
+    /** The words of "How to connect" start where the words above them start, not a few dots beside them. */
+    @Test
+    public void howToConnectLinesUpWithTheLineAboveIt() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            android.view.View help = screen.findViewById(R.id.pc_list_help);
+            android.view.ViewGroup row = (android.view.ViewGroup) screen.findViewById(R.id.pc_list_spinner).getParent();
+            android.view.ViewGroup footer = (android.view.ViewGroup) help.getParent();
+            footer.measure(android.view.View.MeasureSpec.makeMeasureSpec(1000, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
+            footer.layout(0, 0, 1000, footer.getMeasuredHeight());
+            assertEquals(row.getLeft() + row.getChildAt(1).getLeft(), help.getLeft() + help.getPaddingLeft());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     /** + offers both ways in where there is a camera; with none there is one way, and + takes it. */
     @Test
     public void plusOffersAddAndScanWithACamera() {

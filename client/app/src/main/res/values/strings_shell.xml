@@ -4,7 +4,6 @@
     <string name="shell_destinations">Main sections</string>
     <string name="shell_current_page">Current page</string>
     <string name="host_menu_rename">Rename</string>
-    <string name="host_options_hint">X or ⋮ for options</string>
     <string name="host_rename_field">Name</string>
     <string name="host_rename_help">Shown only on this device. Leave it empty to use the PC’s own name.</string>
     <string name="host_rename_save">Save</string>

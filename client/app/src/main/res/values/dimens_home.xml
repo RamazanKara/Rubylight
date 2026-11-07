@@ -10,5 +10,7 @@
          where the shell bar's first tab is. -->
     <dimen name="home_list_inset">8dp</dimen>
     <dimen name="home_head_handheld">36dp</dimen>
+    <dimen name="home_head_tv">60dp</dimen>
+    <dimen name="home_head_tv_drop">4dp</dimen>
     <dimen name="home_foot_fade">136dp</dimen>
 </resources>

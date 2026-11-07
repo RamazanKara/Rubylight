@@ -3,7 +3,6 @@
     <string name="shell_destinations">メインセクション</string>
     <string name="shell_current_page">現在のページ</string>
     <string name="host_menu_rename">名前を変更</string>
-    <string name="host_options_hint">オプションは X または ⋮</string>
     <string name="host_rename_field">名前</string>
     <string name="host_rename_help">この端末にだけ表示されます。空にすると PC 本来の名前を使います。</string>
     <string name="host_rename_save">保存</string>

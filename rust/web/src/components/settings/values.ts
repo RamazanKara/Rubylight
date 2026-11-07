@@ -455,6 +455,26 @@ export function handSetCautions(
   });
 }
 
+/** The key=value pairs that dismissing a list of cautions remembers. */
+export function cautionPairs(cautions: readonly { setting: Setting }[], values: Record<string, ConfigValue>): string[] {
+  return cautions.map(({ setting }) => `${setting.key}=${String(values[setting.key])}`);
+}
+
+/**
+ * Whether the cautions banner shows: a costly value not dismissed yet. Fixing
+ * one of the listed settings keeps the rest dismissed; a new costly value, or
+ * a listed setting changed to another costly value, shows it again.
+ */
+export function cautionsPending(pairs: readonly string[], dismissed: readonly string[]): boolean {
+  const seen = new Set(dismissed);
+  return pairs.some((pair) => !seen.has(pair));
+}
+
+/** What dismissing remembers: what it remembered before, and the pairs shown now. */
+export function dismissCautions(pairs: readonly string[], dismissed: readonly string[]): string[] {
+  return [...new Set([...dismissed, ...pairs])];
+}
+
 /**
  * What a folded group's summary shows: how many settings differ from their default, how many have an unsaved
  * change, and whether the group must be open so that an unsaved change stays visible.

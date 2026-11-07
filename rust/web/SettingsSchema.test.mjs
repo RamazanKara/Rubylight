@@ -813,7 +813,7 @@ test('AMF values that cost the stream say so; the defaults and costless choices 
     assert.match(caution(settings.get(key), amfValues(schema.settings, config)), text, key);
   }
   for (const config of [
-    { amd_usage: 'ultralowlatency' }, { amd_usage: 'not-a-usage' }, { amd_quality: 'balanced' },
+    { amd_usage: 'ultralowlatency' }, { amd_usage: 'not-a-usage' }, { amd_usage: 'webcam' }, { amd_quality: 'balanced' },
     { amd_rc: 'cbr' }, { amd_max_frame_size: 2 }, { amd_lowlatency_mode: 'enabled' },
     { amd_av1_latency_mode: 'lowest' }, { amd_enforce_hrd: 'enabled' },
   ]) assert.deepEqual(costs(config), [], JSON.stringify(config));
@@ -826,4 +826,22 @@ test('a preset that removes the frame cap shows it on the row, not as a hand-set
   const cap = described.find(setting => setting.key === 'amd_max_frame_size');
   assert.match(caution(cap, current), /error correction/);
   assert.deepEqual(handSetCautions(described, current, {}, config), []);
+});
+
+test('a dismissed caution stays dismissed when another listed one is fixed, and a new costly value shows again', () => {
+  const { cautionPairs, cautionsPending, dismissCautions } = values;
+  const config = { amd_usage: 'auto', amd_max_frame_size: 0 };
+  const listed = handSetCautions(schema.settings, amfValues(schema.settings, config), {}, config);
+  const pairs = cautionPairs(listed, amfValues(schema.settings, config));
+  assert.deepEqual(pairs, ['amd_usage=auto', 'amd_max_frame_size=0']);
+  assert.equal(cautionsPending(pairs, []), true);
+  const dismissed = dismissCautions(pairs, []);
+  assert.equal(cautionsPending(pairs, dismissed), false);
+  // Usage fixed: the frame cap the user already dismissed stays dismissed.
+  assert.equal(cautionsPending(['amd_max_frame_size=0'], dismissed), false);
+  // Another costly value, or a listed setting moved to another costly value, shows the banner again.
+  assert.equal(cautionsPending([...pairs, 'amd_preanalysis=true'], dismissed), true);
+  assert.equal(cautionsPending(['amd_usage=transcoding', 'amd_max_frame_size=0'], dismissed), true);
+  assert.equal(cautionsPending([], dismissed), false);
+  assert.deepEqual(dismissCautions(['amd_usage=transcoding'], dismissed), [...pairs, 'amd_usage=transcoding']);
 });

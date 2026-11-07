@@ -16,9 +16,12 @@
   import { matchesWords, searchSettings, searchWords } from '../components/settings/search';
   import {
     applyChanges,
+    cautionPairs,
+    cautionsPending,
     computeChanges,
     currentValues,
     differsFromDefault,
+    dismissCautions,
     effective,
     handSetCautions,
     has,
@@ -79,22 +82,23 @@
           config,
         ),
   );
-  // Dismissing hides this set of values; another costly value shows the banner again.
+  // Dismissing remembers the costly values shown; only a new one shows the banner again.
   const CAUTIONS_DISMISSED = 'rubylight.settings.cautions-dismissed';
-  const cautionSignature = $derived(cautions.map(({ setting }) => `${setting.key}=${String(values[setting.key])}`).join('&'));
-  let dismissedSignature = $state(readDismissed());
-  function readDismissed(): string {
+  const pairs = $derived(cautionPairs(cautions, values));
+  let dismissed = $state<string[]>(readDismissed());
+  function readDismissed(): string[] {
     // A browser that blocks site data throws on localStorage: dismissing then lasts for this visit.
     try {
-      return localStorage.getItem(CAUTIONS_DISMISSED) ?? '';
+      const saved: unknown = JSON.parse(localStorage.getItem(CAUTIONS_DISMISSED) ?? '[]');
+      return Array.isArray(saved) ? saved.filter((pair): pair is string => typeof pair === 'string') : [];
     } catch {
-      return '';
+      return [];
     }
   }
-  function dismissCautions() {
-    dismissedSignature = cautionSignature;
+  function dismiss() {
+    dismissed = dismissCautions(pairs, dismissed);
     try {
-      localStorage.setItem(CAUTIONS_DISMISSED, cautionSignature);
+      localStorage.setItem(CAUTIONS_DISMISSED, JSON.stringify(dismissed));
     } catch {
       // Kept for this visit only.
     }
@@ -353,12 +357,12 @@
     </div>
   {/if}
 
-  {#if cautions.length > 0 && cautionSignature !== dismissedSignature}
+  {#if cautionsPending(pairs, dismissed)}
     <div class="cautions" data-cautions>
       <Banner
         tone="warn"
         title={cautions.length === 1 ? 'A changed setting slows the stream' : `${cautions.length} changed settings slow the stream`}
-        ondismiss={dismissCautions}
+        ondismiss={dismiss}
       >
         <ul>
           {#each cautions as { setting, text } (setting.key)}

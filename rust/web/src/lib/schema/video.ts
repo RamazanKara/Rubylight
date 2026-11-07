@@ -71,24 +71,27 @@ const amf = (values: Values) => encoder(values) === 'amf' || automatic(values, '
 const nvenc = (values: Values) => encoder(values) === 'nvenc' || automatic(values, 'nvenc', false);
 const amfHint = 'Applies when AMD AMF encodes, as Automatic does on AMD graphics cards.';
 /** PERFORMANCE.md, October 7: AMF split-frame encoding, pre-analysis row (4K60, RX 7900 XT). */
-const PREANALYSIS_COST = 'Pre-analysis adds about 20 ms per 4K frame.';
+const PREANALYSIS_COST = 'about 20 ms per 4K frame on 8-bit SDR streams';
 /**
  * What an AMF usage costs against Ultra low latency (PERFORMANCE.md, October 7: AMF
- * low-latency mode and AV1 latency mode, and AMF split-frame encoding, usage rows).
+ * low-latency mode and AV1 latency mode, and AMF split-frame encoding, usage rows: at
+ * 4K60 transcoding, low latency and high quality queued frames, 12-25 ms against 5-6;
+ * at 1440p120 transcoding and low latency left both low-latency modes off). Unset, the
+ * usage reads back as transcoding (HevcUsage=0, LowLatencyInternal=0) on the RX 7900 XT
+ * and, in issue 56's logs, on an RX 9070 XT. Webcam was never measured, so it says nothing.
  */
 function amfUsageCaution(usage: string): string | undefined {
   switch (usage) {
     case 'lowlatency_high_quality':
       return 'Slower than Ultra low latency: about 0.4 ms more per HEVC frame and 0.9 ms per AV1 frame at 1440p120.';
     case 'auto':
-      return "Adds delay: the driver's default is its transcoding profile, which queues frames and leaves its low-latency modes off.";
+      return "Adds delay: the driver's default is its transcoding profile, which leaves the low-latency modes off and queues frames at 4K.";
     case 'transcoding':
     case 'lowlatency':
-    case 'webcam':
     case 'high_quality':
-      return 'Adds delay: this profile queues frames in the encoder. Ultra low latency is the fastest.';
+      return 'Adds delay: this profile queues frames at 4K. Ultra low latency is the fastest.';
     default:
-      // Ultra low latency, and names the host does not know (it falls back to Ultra low latency).
+      // Ultra low latency, webcam, and names the host does not know (it falls back to Ultra low latency).
       return undefined;
   }
 }
@@ -722,7 +725,7 @@ const amd: Setting[] = [
     visibleWhen: amf,
     cautionWhen: (values) =>
       ['qvbr', 'hqvbr', 'hqcbr'].includes(read(values, 'amd_rc', 'vbr_latency'))
-        ? `Turns on pre-analysis for 8-bit SDR streams. ${PREANALYSIS_COST}`
+        ? `Turns on pre-analysis, which adds ${PREANALYSIS_COST}.`
         : undefined,
   },
   {
@@ -796,7 +799,7 @@ const amd: Setting[] = [
     // PERFORMANCE.md, October 28: oversize scene cuts encoded again as keyframes.
     cautionWhen: (values) =>
       read(values, 'amd_max_frame_size', 'auto') === '0'
-        ? 'No size limit: a large keyframe can outgrow error correction, and one lost packet then breaks the picture until the next keyframe.'
+        ? 'No limit from Rubylight: a large keyframe can outgrow error correction, and one lost packet then breaks the picture until the next keyframe.'
         : undefined,
   },
   {
@@ -822,7 +825,7 @@ const amd: Setting[] = [
     default: false,
     inactiveHint: amfHint,
     visibleWhen: amf,
-    cautionWhen: (values) => (flag(values, 'amd_preanalysis', false) ? PREANALYSIS_COST : undefined),
+    cautionWhen: (values) => (flag(values, 'amd_preanalysis', false) ? `Adds ${PREANALYSIS_COST}.` : undefined),
   },
   {
     key: 'amd_vbaq',
@@ -917,7 +920,7 @@ const amd: Setting[] = [
     // PERFORMANCE.md, October 7: AMF low-latency mode and AV1 latency mode.
     cautionWhen: (values) =>
       read(values, 'amd_lowlatency_mode', 'auto') === 'disabled'
-        ? 'Off adds about 0.4 ms per H.264 and HEVC frame at 1440p120.'
+        ? 'Off adds about 0.4 ms per HEVC frame at 1440p120 against On.'
         : undefined,
   },
   {

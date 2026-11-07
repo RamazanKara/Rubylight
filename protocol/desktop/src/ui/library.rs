@@ -148,14 +148,32 @@ impl Launcher {
         }
     }
 
-    /// What a running game offers at the right of its PC's page: its name, Resume and Quit game. They
-    /// hang on the row's centre, so the row keeps its height whether something runs or not. Returns
+    /// The right of a PC's page: what a running game offers, then the list's round Refresh. Returns
     /// how wide they are.
-    pub(super) fn running_actions(&mut self, ui: &mut Ui, host: &Host, commands: &mut Vec<Command>) -> f32 {
+    pub(super) fn apps_head(&mut self, ui: &mut Ui, host: &Host, commands: &mut Vec<Command>) -> f32 {
+        let refresh = head_refresh(host, self.refreshing_empty);
+        let kept = refresh.map_or(0.0, |_| ACTION_H);
+        let running = self.running_actions(ui, host, kept + ACTIONS_GAP, commands);
+        let Some(working) = refresh else { return running };
+        let slot = ui.available_rect_before_wrap();
+        let rect = Rect::from_min_size(pos2(slot.right() - ACTION_H, ui.min_rect().center().y - ACTION_H / 2.0), Vec2::splat(ACTION_H));
+        let r = round_button_working(ui, rect, Icon::Refresh, tr("Refresh"), working);
+        self.focus_item(&r, "apps-refresh", false);
+        if r.clicked() && !working {
+            commands.push(Command::Refresh(host.id));
+        }
+        running + kept + if running > 0.0 { ACTIONS_GAP } else { 0.0 }
+    }
+
+    /// What a running game offers at the right of its PC's page, `kept` from its edge: its name, Resume
+    /// and Quit game. They hang on the row's centre, so the row keeps its height whether something runs
+    /// or not. Returns how wide they are.
+    fn running_actions(&mut self, ui: &mut Ui, host: &Host, kept: f32, commands: &mut Vec<Command>) -> f32 {
         if host.running_app().is_none() {
             return 0.0;
         }
-        let slot = ui.available_rect_before_wrap();
+        let mut slot = ui.available_rect_before_wrap();
+        slot.max.x -= kept;
         let row = ui.min_rect();
         let mid = row.center().y;
         let name = at_sentence_start(&running_name(host));
@@ -750,6 +768,16 @@ pub fn running_name(host: &Host) -> String {
 /// The classic app id of the app the PC runs now, once the app list is loaded.
 pub(super) fn running_app_id(host: &Host) -> Option<i32> {
     running_entry(host).map(|app| app.id)
+}
+
+/// Whether a PC's page has the round Refresh in its head, and whether it is at work: for a list to
+/// read again. A page with no list to show has that action in its middle.
+pub(super) fn head_refresh(host: &Host, refreshing_empty: Option<u64>) -> Option<bool> {
+    match &host.apps {
+        Apps::Loaded(apps) if !apps.is_empty() => Some(false),
+        Apps::Loading if refreshing_empty != Some(host.id) => Some(true),
+        _ => None,
+    }
 }
 
 /// What a Resume names: the list's entry, else the id the PC reports, which is all a resume needs.

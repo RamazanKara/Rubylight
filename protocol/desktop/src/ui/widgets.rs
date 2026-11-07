@@ -339,8 +339,19 @@ pub(crate) fn pin_key(ui: &mut Ui, icon: Option<Icon>, words: &str, said: &str, 
 
 /// A round icon button in a corner of a surface (a sheet's close): `rect` is its place.
 pub(crate) fn round_button(ui: &mut Ui, rect: Rect, icon: Icon, said: &str) -> Response {
+    round_button_working(ui, rect, icon, said, false)
+}
+
+/// [`round_button`] with a spinner for its icon while what it does is `working`.
+pub(crate) fn round_button_working(ui: &mut Ui, rect: Rect, icon: Icon, said: &str, working: bool) -> Response {
+    const SPIN: f32 = 9.0;
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)));
-    pin_key(&mut child, Some(icon), "", said, Tone::Quiet, rect.size()).on_hover_text(said)
+    let response = pin_key(&mut child, (!working).then_some(icon), "", said, Tone::Quiet, rect.size()).on_hover_text(said);
+    if working {
+        let spin = Rect::from_center_size(rect.center(), Vec2::splat(SPIN * 2.0));
+        ui.scope_builder(egui::UiBuilder::new().max_rect(spin), |ui| spinner(ui, SPIN));
+    }
+    response
 }
 
 pub(super) fn text_button(ui: &mut Ui, text: &str) -> Response {

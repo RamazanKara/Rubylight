@@ -87,55 +87,122 @@ pub fn gpu_probe(_device: *mut std::ffi::c_void, _ten_bit: bool) -> Result<(), S
     Err("PyroWave GPU decoding needs Windows or Linux".to_owned())
 }
 
-type ProbeState = std::sync::Mutex<Vec<(bool, Option<Result<(), String>>)>>;
+/// The settings probes' results by format, None while one runs, and the threads that run them.
+#[derive(Default)]
+struct Probes {
+    results: Vec<(bool, Option<Result<(), String>>)>,
+    running: Vec<std::thread::JoinHandle<()>>,
+}
+
+type ProbeState = std::sync::Mutex<Probes>;
 
 fn settings_probe_state() -> &'static ProbeState {
-    static STATE: ProbeState = std::sync::Mutex::new(Vec::new());
+    static STATE: ProbeState = std::sync::Mutex::new(Probes { results: Vec::new(), running: Vec::new() });
     &STATE
 }
 
 /// `gpu_probe` for settings screens, on the renderer's device (so its adapter's LUID) and the plane
 /// format the stream would use (`ten_bit` is the HDR setting). It loads the DLL and builds a Vulkan
 /// device, so it runs once per format on a thread of its own and the result is remembered. None
-/// while it runs. `device` is the renderer's, which outlives the process's settings screens.
+/// while it runs. `device` is the renderer's, which outlives the probe: a new renderer (Linux) waits
+/// for it first ([`settings_probe_reset`]).
 pub fn settings_probe(device: *mut std::ffi::c_void, ten_bit: bool) -> Option<Result<(), String>> {
+    probe_in(settings_probe_state(), device, ten_bit, gpu_probe)
+}
+
+/// Before the renderer goes (Linux's switch to the GPU renderer or back): waits for a probe still
+/// on its device, and forgets what the probes found on it, so the new device is probed again.
+#[cfg_attr(windows, allow(dead_code))]
+pub fn settings_probe_reset() {
+    reset_in(settings_probe_state());
+}
+
+fn probe_in(
+    state: &'static ProbeState,
+    device: *mut std::ffi::c_void,
+    ten_bit: bool,
+    probe: fn(*mut std::ffi::c_void, bool) -> Result<(), String>,
+) -> Option<Result<(), String>> {
     struct Raw(*mut std::ffi::c_void);
     #[cfg(windows)]
     // SAFETY: D3D11 devices are free-threaded and the renderer outlives the probe thread's use.
     unsafe impl Send for Raw {}
     #[cfg(unix)]
-    // SAFETY: The pointer is the renderer's SDL_GPUDevice, which outlives the process's settings
-    // screens, and the probe thread only borrows it to create (and release) a shader module through
-    // `SDL_CreateGPUShader`. That relies on SDL's rule that GPU device-level calls other than the
-    // ones on a command buffer may be made from any thread, and on the Vulkan backend guarding
-    // its own bookkeeping for them (shader creation touches no state the render thread's command
-    // buffers use). Nothing else of the device is used from the probe thread.
+    // SAFETY: The pointer is the renderer's SDL_GPUDevice, which outlives the probe thread (a new
+    // renderer joins it first, `settings_probe_reset`), and the probe thread only borrows it to
+    // create (and release) a shader module through `SDL_CreateGPUShader`. That relies on SDL's rule
+    // that GPU device-level calls other than the ones on a command buffer may be made from any
+    // thread, and on the Vulkan backend guarding its own bookkeeping for them (shader creation
+    // touches no state the render thread's command buffers use). Nothing else of the device is
+    // used from the probe thread.
     unsafe impl Send for Raw {}
-    let mut state = settings_probe_state().lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((_, done)) = state.iter().find(|(key, _)| *key == ten_bit) {
+    let mut probes = state.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, done)) = probes.results.iter().find(|(key, _)| *key == ten_bit) {
         return done.clone();
     }
-    state.push((ten_bit, None));
+    probes.results.push((ten_bit, None));
     let device = Raw(device);
-    std::thread::spawn(move || {
+    let thread = std::thread::spawn(move || {
         let device = device;
-        let result = gpu_probe(device.0, ten_bit);
-        let mut state = settings_probe_state().lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(entry) = state.iter_mut().find(|(key, _)| *key == ten_bit) { entry.1 = Some(result); }
+        let result = probe(device.0, ten_bit);
+        let mut probes = state.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(entry) = probes.results.iter_mut().find(|(key, _)| *key == ten_bit) { entry.1 = Some(result); }
     });
+    probes.running.retain(|running| !running.is_finished());
+    probes.running.push(thread);
     None
+}
+
+fn reset_in(state: &'static ProbeState) {
+    // Joined unlocked: a probe that ends takes the lock to leave its result.
+    let running = std::mem::take(&mut state.lock().unwrap_or_else(|e| e.into_inner()).running);
+    for thread in running {
+        if thread.join().is_err() {
+            eprintln!("nightjar: the PyroWave settings probe panicked");
+        }
+    }
+    state.lock().unwrap_or_else(|e| e.into_inner()).results.clear();
 }
 
 /// Whether `settings_probe` has been asked for `ten_bit` yet (tests: settings views that do not
 /// need the probe must not start it).
 #[cfg(test)]
 pub fn settings_probe_started(ten_bit: bool) -> bool {
-    settings_probe_state().lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(key, _)| *key == ten_bit)
+    settings_probe_state().lock().unwrap_or_else(|e| e.into_inner()).results.iter().any(|(key, _)| *key == ten_bit)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Linux's switch to the GPU renderer: a probe still on the old device ends before it goes, and
+    /// what was found on it (an OpenGL start has no device: "needs the SDL GPU renderer") is not
+    /// kept for the new one.
+    #[test]
+    fn a_new_renderer_waits_for_the_probe_and_probes_its_device_again() {
+        static STATE: ProbeState = std::sync::Mutex::new(Probes { results: Vec::new(), running: Vec::new() });
+        static DEVICES: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
+        fn slow(device: *mut std::ffi::c_void, _: bool) -> Result<(), String> {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            DEVICES.lock().unwrap().push(device as usize);
+            if device.is_null() { Err("needs the SDL GPU renderer".into()) } else { Ok(()) }
+        }
+        let opengl = std::ptr::null_mut();
+        assert_eq!(probe_in(&STATE, opengl, false, slow), None, "it runs on its own thread");
+        reset_in(&STATE);
+        assert_eq!(*DEVICES.lock().unwrap(), [0], "the reset waited for it");
+        assert!(STATE.lock().unwrap().results.is_empty(), "and forgot what it found");
+        let gpu = 0x60 as *mut std::ffi::c_void;
+        assert_eq!(probe_in(&STATE, gpu, false, slow), None, "probed again, on the new device");
+        reset_in(&STATE);
+        assert_eq!(*DEVICES.lock().unwrap(), [0, 0x60]);
+        assert_eq!(probe_in(&STATE, gpu, false, slow), None);
+        while STATE.lock().unwrap().results[0].1.is_none() {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(probe_in(&STATE, gpu, false, slow), Some(Ok(())), "kept until the renderer changes");
+        reset_in(&STATE);
+    }
 
     #[test]
     fn cpu_mode_checks_only_the_cpu_decoder() {

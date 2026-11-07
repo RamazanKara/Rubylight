@@ -538,7 +538,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Could not save shortcuts", "단축키를 저장할 수 없습니다"),
     ("That address is not valid", "올바른 주소가 아닙니다"),
     ("HDR output unavailable", "HDR 출력을 사용할 수 없습니다"),
-    ("Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output.", "이 디스플레이에서 HDR을 켜고 Nightjar를 다시 시작하세요. 현재 컴포지터나 스왑 체인이 HDR 출력을 지원하지 않습니다."),
+    ("Turn HDR on for this display, then start the stream again.", "이 디스플레이에서 HDR을 켠 다음 스트림을 다시 시작하세요."),
     ("This display has HDR on, but the renderer cannot present HDR: {}.", "이 디스플레이는 HDR이 켜져 있지만 렌더러가 HDR을 출력할 수 없습니다: {}."),
     ("Move this window to the display with HDR on, then start the stream again.", "이 창을 HDR이 켜진 디스플레이로 옮긴 다음 스트림을 다시 시작하세요."),
     ("This display stopped showing HDR. The stream is drawn in SDR.", "이 디스플레이의 HDR 표시가 중단되었습니다. 스트림은 SDR로 표시됩니다."),

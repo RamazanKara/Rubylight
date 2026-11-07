@@ -306,6 +306,9 @@ pub struct RendererNow {
     pub hdr_swapchain: bool,
     /// It was made for an HDR stream with a display's HDR on: making it again would change nothing.
     pub made_for_hdr: bool,
+    /// The GPU renderer could not be made this run: a stream does not try again (each try makes a
+    /// working renderer again), it is refused saying why.
+    pub gpu_failed: bool,
 }
 
 /// Why a stream's start makes Linux's renderer again on the same window, before its checks.
@@ -340,13 +343,20 @@ impl RendererSwitch {
 /// at OpenGL (`choice`) never switches: the stream's check refuses it, naming the setting.
 #[cfg_attr(windows, allow(dead_code))]
 pub fn renderer_switch(choice: Renderer, now: RendererNow, need: Option<&'static str>, hdr: bool, display_hdr: bool, busy: bool) -> Option<RendererSwitch> {
-    if busy || choice == Renderer::OpenGl {
+    if busy || choice == Renderer::OpenGl || now.gpu_failed {
         return None;
     }
     if !now.gpu {
         return need.filter(|&why| why != "HDR" || display_hdr).map(RendererSwitch::ToGpu);
     }
     (hdr && display_hdr && !now.hdr_swapchain && !now.made_for_hdr).then_some(RendererSwitch::ForHdr)
+}
+
+/// Whether HDR can reach a display, for the renderer switch: gamescope presents HDR whatever the
+/// displays report, as in [`plan`]; elsewhere a display has HDR on.
+#[cfg_attr(windows, allow(dead_code))]
+pub fn hdr_display(gamescope: bool, any_display_hdr: bool) -> bool {
+    gamescope || any_display_hdr
 }
 
 /// Whether Linux starts on the GPU renderer: the Renderer setting, or at Auto whether a saved
@@ -526,7 +536,7 @@ mod tests {
     /// the GPU renderer at the stream's start.
     #[test]
     fn a_stream_that_needs_the_gpu_renderer_switches_to_it_at_its_start() {
-        let opengl = RendererNow { gpu: false, hdr_swapchain: false, made_for_hdr: false };
+        let opengl = RendererNow { gpu: false, hdr_swapchain: false, made_for_hdr: false, gpu_failed: false };
         assert_eq!(renderer_switch(Renderer::Auto, opengl, Some("HDR"), true, true, false), Some(RendererSwitch::ToGpu("HDR")));
         assert_eq!(renderer_switch(Renderer::Auto, opengl, Some("upscaling"), false, false, false), Some(RendererSwitch::ToGpu("upscaling")), "SDR needs it too");
         assert_eq!(renderer_switch(Renderer::Auto, opengl, Some("PyroWave"), true, false, false), Some(RendererSwitch::ToGpu("PyroWave")));
@@ -535,14 +545,27 @@ mod tests {
         assert_eq!(renderer_switch(Renderer::Auto, opengl, Some("HDR"), true, true, true), None, "never under a stream or a launch");
     }
 
+    /// A Steam Deck under gamescope: no display reports HDR, gamescope presents it anyway, so HDR
+    /// turned on later switches as `plan` would have started.
+    #[test]
+    fn hdr_under_gamescope_switches_though_no_display_reports_it() {
+        assert!(hdr_display(true, false));
+        assert!(hdr_display(false, true));
+        assert!(!hdr_display(false, false));
+        let opengl = RendererNow { gpu: false, hdr_swapchain: false, made_for_hdr: false, gpu_failed: false };
+        assert_eq!(renderer_switch(Renderer::Auto, opengl, Some("HDR"), true, hdr_display(true, false), false), Some(RendererSwitch::ToGpu("HDR")));
+        let sdr = RendererNow { gpu: true, ..opengl };
+        assert_eq!(renderer_switch(Renderer::Auto, sdr, Some("HDR"), true, hdr_display(true, false), false), Some(RendererSwitch::ForHdr));
+    }
+
     #[test]
     fn the_gpu_renderer_is_made_again_for_hdr_once_and_never_left() {
-        let sdr = RendererNow { gpu: true, hdr_swapchain: false, made_for_hdr: false };
+        let sdr = RendererNow { gpu: true, hdr_swapchain: false, made_for_hdr: false, gpu_failed: false };
         assert_eq!(renderer_switch(Renderer::Auto, sdr, Some("HDR"), true, true, false), Some(RendererSwitch::ForHdr), "made for SDR at start");
         assert_eq!(RendererSwitch::ForHdr.reason(), "HDR");
         let tried = RendererNow { made_for_hdr: true, ..sdr };
         assert_eq!(renderer_switch(Renderer::Auto, tried, Some("HDR"), true, true, false), None, "made for HDR already: the refusal says why");
-        let hdr = RendererNow { gpu: true, hdr_swapchain: true, made_for_hdr: false };
+        let hdr = RendererNow { gpu: true, hdr_swapchain: true, made_for_hdr: false, gpu_failed: false };
         assert_eq!(renderer_switch(Renderer::Auto, hdr, Some("HDR"), true, true, false), None);
         assert_eq!(renderer_switch(Renderer::Auto, sdr, Some("HDR"), true, false, false), None, "no display has HDR on");
         assert_eq!(renderer_switch(Renderer::Auto, sdr, None, false, true, false), None, "an SDR stream never goes back to OpenGL");
@@ -550,7 +573,7 @@ mod tests {
 
     #[test]
     fn the_renderer_setting_decides_the_start_the_switch_and_a_change() {
-        let opengl = RendererNow { gpu: false, hdr_swapchain: false, made_for_hdr: false };
+        let opengl = RendererNow { gpu: false, hdr_swapchain: false, made_for_hdr: false, gpu_failed: false };
         let gpu = RendererNow { gpu: true, ..opengl };
         assert!(!starts_on_gpu(Renderer::Auto, false), "OpenGL's zero-copy path for SDR");
         assert!(starts_on_gpu(Renderer::Auto, true));
@@ -558,7 +581,12 @@ mod tests {
         assert!(starts_on_gpu(Renderer::Gpu, false));
         assert_eq!(renderer_switch(Renderer::OpenGl, opengl, Some("HDR"), true, true, false), None, "OpenGL stays: the stream is refused");
         assert_eq!(renderer_switch(Renderer::OpenGl, gpu, Some("HDR"), true, true, false), None);
-        assert_eq!(renderer_switch(Renderer::Gpu, opengl, Some("upscaling"), false, false, false), Some(RendererSwitch::ToGpu("upscaling")), "a GPU renderer that failed at start is tried again");
+        assert_eq!(renderer_switch(Renderer::Gpu, opengl, Some("upscaling"), false, false, false), Some(RendererSwitch::ToGpu("upscaling")));
+        let failed = RendererNow { gpu_failed: true, ..opengl };
+        for choice in [Renderer::Auto, Renderer::Gpu] {
+            assert_eq!(renderer_switch(choice, failed, Some("upscaling"), false, false, false), None, "a GPU renderer that failed this run is not tried for each stream");
+            assert_eq!(renderer_switch(choice, RendererNow { gpu: true, ..failed }, Some("HDR"), true, true, false), None, "nor made again for HDR");
+        }
         assert_eq!(renderer_switch(Renderer::Gpu, gpu, Some("HDR"), true, true, false), Some(RendererSwitch::ForHdr));
         for need in ["upscaling", "4:4:4", "10-bit SDR", "packed full chroma"] {
             assert!(refused_without_gpu(need), "{need} on OpenGL is refused, not drawn without it");

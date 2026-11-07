@@ -538,7 +538,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Could not save shortcuts", "Nie udało się zapisać skrótów"),
     ("That address is not valid", "Ten adres jest nieprawidłowy"),
     ("HDR output unavailable", "Wyjście HDR niedostępne"),
-    ("Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output.", "Włącz HDR na tym ekranie i uruchom ponownie Nightjar. Obecny kompozytor lub łańcuch wymiany nie obsługuje wyjścia HDR."),
+    ("Turn HDR on for this display, then start the stream again.", "Włącz HDR na tym ekranie i uruchom stream ponownie."),
     ("This display has HDR on, but the renderer cannot present HDR: {}.", "Ten ekran ma włączony HDR, ale renderer nie może wyświetlać HDR: {}."),
     ("Move this window to the display with HDR on, then start the stream again.", "Przenieś to okno na ekran z włączonym HDR i uruchom stream ponownie."),
     ("This display stopped showing HDR. The stream is drawn in SDR.", "Ten ekran przestał wyświetlać HDR. Stream jest wyświetlany w SDR."),

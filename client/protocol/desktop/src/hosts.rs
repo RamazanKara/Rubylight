@@ -1515,6 +1515,16 @@ impl Hosts {
         host.native_epoch += 1;
     }
 
+    /// A new renderer (Linux's switch to the GPU renderer): the covers and ambients went with the
+    /// old one and load again from the art cache as they are asked for ([`Self::request_art`]).
+    #[cfg_attr(windows, allow(dead_code))]
+    pub fn renderer_changed(&mut self) {
+        for host in &mut self.list {
+            host.art.retain(|_, art| !matches!(art, Art::Ready(_)));
+            host.ambient.clear();
+        }
+    }
+
     pub fn load_apps(&mut self, id: u64) {
         let Some(identity) = self.identity.clone() else {
             return;
@@ -2871,6 +2881,29 @@ pub(crate) mod tests {
         hosts.drain(&ctx);
         assert!(!hosts.list[0].ambient.contains_key(&7), "no cover any more, no ambient of it");
         assert!(!hosts.list[0].ambient_glow.contains_key(&7), "nor its glow");
+        let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
+        output.textures_delta.clear();
+    }
+
+    /// Linux's switch to the GPU renderer: covers on the old renderer are dropped, so they load
+    /// again from the art cache; no copy of them is kept.
+    #[test]
+    fn a_new_renderer_drops_the_covers_so_they_load_again() {
+        let ctx = egui::Context::default();
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        hosts.list[0].art_versions.insert(7, "v1".into());
+        let (image, ambient) = art_and_ambient(Some(png([20, 200, 20])));
+        hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient }).expect("the channel");
+        hosts.drain(&ctx);
+        hosts.list[0].art.insert(8, Art::Missing);
+        hosts.list[0].art.insert(9, Art::Loading);
+        hosts.renderer_changed();
+        let pc = &hosts.list[0];
+        assert!(!pc.art.contains_key(&7) && !pc.ambient.contains_key(&7), "asked for again, from the cache");
+        assert!(pc.ambient_glow.contains_key(&7) && pc.art_versions.contains_key(&7), "no texture: kept");
+        assert!(matches!(pc.art.get(&8), Some(Art::Missing)), "no cover is still no cover");
+        assert!(matches!(pc.art.get(&9), Some(Art::Loading)), "one on its way lands as it is");
         let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
         output.textures_delta.clear();
     }

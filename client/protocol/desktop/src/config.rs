@@ -872,6 +872,17 @@ impl Settings {
     }
 }
 
+/// The settings page's name for what [`Settings::gpu_need`] found, for a refusal to translate.
+pub fn gpu_need_label(need: &'static str) -> &'static str {
+    match need {
+        "packed full chroma" => en("Full chroma"),
+        "upscaling" => en("Upscaling"),
+        "4:4:4" => en("Sharper colored text (YUV 4:4:4)"),
+        "10-bit SDR" => en("Less color banding (10-bit SDR)"),
+        other => other,
+    }
+}
+
 /// A bitrate for a stream of this size and rate, scaled from 20 Mbps at 1080p60 as
 /// moonlight-qt's default does: linear in pixels, with rates above 60 counting for less.
 pub fn default_bitrate_kbps(width: u32, height: u32, fps: u32) -> u32 {

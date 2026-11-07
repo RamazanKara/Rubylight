@@ -538,7 +538,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Could not save shortcuts", "ショートカットを保存できませんでした"),
     ("That address is not valid", "そのアドレスは無効です"),
     ("HDR output unavailable", "HDR出力を利用できません"),
-    ("Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output.", "このディスプレイでHDRを有効にしてNightjarを再起動してください。現在のコンポジターまたはスワップチェーンはHDR出力に対応していません。"),
+    ("Turn HDR on for this display, then start the stream again.", "このディスプレイでHDRを有効にしてから、ストリームをもう一度開始してください。"),
     ("This display has HDR on, but the renderer cannot present HDR: {}.", "このディスプレイはHDRが有効ですが、レンダラーはHDRを出力できません: {}。"),
     ("Move this window to the display with HDR on, then start the stream again.", "このウィンドウをHDRが有効なディスプレイへ移動してから、ストリームをもう一度開始してください。"),
     ("This display stopped showing HDR. The stream is drawn in SDR.", "このディスプレイはHDR表示を停止しました。ストリームはSDRで表示されます。"),

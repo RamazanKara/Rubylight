@@ -185,35 +185,8 @@ pub(crate) fn fill(hosts: &mut Hosts, launcher: &mut Launcher, ctx: &egui::Conte
         revision: "demo".into(),
         games,
     });
-    pc.apps = Apps::Loaded(apps.clone());
-    for (n, app) in apps.iter().enumerate() {
-        let image = image::load_from_memory(COVERS[n])
-            .expect("a demo cover")
-            .to_rgba8();
-        let image = egui::ColorImage::from_rgba_unmultiplied(
-            [image.width() as usize, image.height() as usize],
-            &image,
-        );
-        let ambient = crate::ambient::bake(&image);
-        pc.ambient_glow
-            .insert(app.id, crate::ambient::glow_of(&ambient));
-        pc.ambient.insert(
-            app.id,
-            ctx.load_texture(
-                format!("demo-ambient-{n}"),
-                ambient,
-                egui::TextureOptions::LINEAR,
-            ),
-        );
-        pc.art.insert(
-            app.id,
-            Art::Ready(ctx.load_texture(
-                format!("demo-cover-{n}"),
-                image,
-                egui::TextureOptions::LINEAR,
-            )),
-        );
-    }
+    pc.apps = Apps::Loaded(apps);
+    covers(hosts, ctx);
     let idle = &mut hosts.list[1];
     idle.reach = Reach::Online;
     idle.info = Some(answer(true, 0));
@@ -230,6 +203,42 @@ pub(crate) fn fill(hosts: &mut Hosts, launcher: &mut Launcher, ctx: &egui::Conte
     // What the captures show, whatever this PC's language.
     launcher.settings.language = Language::English;
     launcher.go(Screen::Home);
+}
+
+/// The demo covers and their ambients on the library PC: at the start, and again on a new renderer
+/// (Linux's switch to the GPU renderer), as the art cache does for a real PC.
+pub(crate) fn covers(hosts: &mut Hosts, ctx: &egui::Context) {
+    let pc = &mut hosts.list[0];
+    let Apps::Loaded(apps) = &pc.apps else { return };
+    let ids: Vec<i32> = apps.iter().map(|app| app.id).collect();
+    for (n, app) in ids.into_iter().enumerate() {
+        let image = image::load_from_memory(COVERS[n])
+            .expect("a demo cover")
+            .to_rgba8();
+        let image = egui::ColorImage::from_rgba_unmultiplied(
+            [image.width() as usize, image.height() as usize],
+            &image,
+        );
+        let ambient = crate::ambient::bake(&image);
+        pc.ambient_glow
+            .insert(app, crate::ambient::glow_of(&ambient));
+        pc.ambient.insert(
+            app,
+            ctx.load_texture(
+                format!("demo-ambient-{n}"),
+                ambient,
+                egui::TextureOptions::LINEAR,
+            ),
+        );
+        pc.art.insert(
+            app,
+            Art::Ready(ctx.load_texture(
+                format!("demo-cover-{n}"),
+                image,
+                egui::TextureOptions::LINEAR,
+            )),
+        );
+    }
 }
 
 /// The Files page's answers, so that page opens with no PC behind it.

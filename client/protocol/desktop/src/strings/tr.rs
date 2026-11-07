@@ -538,7 +538,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Could not save shortcuts", "Kısayollar kaydedilemedi"),
     ("That address is not valid", "Bu adres geçerli değil"),
     ("HDR output unavailable", "HDR çıkışı kullanılamıyor"),
-    ("Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output.", "Bu ekranda HDR'yi açın ve Nightjar'ı yeniden başlatın. Geçerli birleştirici veya swapchain HDR çıkışını desteklemiyor."),
+    ("Turn HDR on for this display, then start the stream again.", "Bu ekranda HDR'yi açın ve akışı yeniden başlatın."),
     ("This display has HDR on, but the renderer cannot present HDR: {}.", "Bu ekranda HDR açık, ancak oluşturucu HDR gösteremiyor: {}."),
     ("Move this window to the display with HDR on, then start the stream again.", "Bu pencereyi HDR'si açık ekrana taşıyın ve akışı yeniden başlatın."),
     ("This display stopped showing HDR. The stream is drawn in SDR.", "Bu ekran HDR göstermeyi bıraktı. Akış SDR olarak gösteriliyor."),

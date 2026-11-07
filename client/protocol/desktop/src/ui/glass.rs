@@ -646,6 +646,16 @@ fn soft_textures_id() -> Id {
     Id::unique("nightjar-soft-textures")
 }
 
+/// Forgets the soft bakes (a new renderer, Linux): they are baked again as they are drawn.
+#[cfg_attr(windows, allow(dead_code))]
+pub fn forget_soft(ctx: &Context) {
+    ctx.data_mut(|d| {
+        d.remove_by_type::<TextureHandle>();
+        d.remove_by_type::<(TextureHandle, Vec2)>();
+        d.remove_by_type::<SoftTextures>();
+    });
+}
+
 /// Every texture a blurred shape was drawn with so far.
 pub fn soft_textures(ctx: &Context) -> SoftTextures {
     ctx.data(|d| d.get_temp(soft_textures_id())).unwrap_or_default()

@@ -407,9 +407,7 @@ impl Encoder {
                 unit_held: false,
                 unit_idr_reported: false,
                 focus: Default::default(),
-                output_prediction: options.amd_output_prediction(),
-                fastest_output: None,
-                skipped_queries: 0,
+                prediction: output::Prediction::new(options.amd_output_prediction()),
                 output_thread: None,
             };
             // Before any property: AMF refuses an oversize FrameSize with a bare

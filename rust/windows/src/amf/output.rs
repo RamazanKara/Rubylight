@@ -9,6 +9,42 @@ pub(super) fn output_is_idr(picture_type: Option<i64>, requested_idr: bool) -> b
     // frames ahead, or continue an earlier encoder's frame numbering.
     picture_type.map_or(requested_idr, |kind| kind == 0)
 }
+/// `amd_output_prediction`: when the oldest frame in flight can first be
+/// done, from the fastest encode seen, and the queries skipped before then.
+pub(super) struct Prediction {
+    enabled: bool,
+    /// The fastest acceptance-to-output time of any frame.
+    fastest: Option<Duration>,
+    /// Queries skipped, for the stall snapshot.
+    pub(super) skipped: u64,
+}
+impl Prediction {
+    pub(super) fn new(enabled: bool) -> Self {
+        Self {
+            enabled,
+            fastest: None,
+            skipped: 0,
+        }
+    }
+    /// A frame came out `took` after AMF accepted it.
+    pub(super) fn observe(&mut self, took: Duration) {
+        self.fastest = Some(self.fastest.map_or(took, |fastest| fastest.min(took)));
+    }
+    /// The oldest frame's earliest finish, when on and it applies (whole
+    /// frames queried on the stream thread).
+    pub(super) fn predicted(&self, oldest: Option<Instant>, applies: bool) -> Option<Instant> {
+        if !self.enabled || !applies {
+            return None;
+        }
+        encoder_backlog::predicted_output(oldest?, self.fastest)
+    }
+    /// Whether a query now is skipped, counting it.
+    pub(super) fn skips(&mut self, now: Instant, predicted: Option<Instant>) -> bool {
+        let skips = encoder_backlog::skips_query(now, predicted);
+        self.skipped += u64::from(skips);
+        skips
+    }
+}
 impl Encoder {
     fn expire_unreturned(&mut self) {
         // A submission the driver never answers would otherwise keep every
@@ -33,11 +69,11 @@ impl Encoder {
     /// Finished output. With `amd_output_prediction` a query the oldest frame
     /// cannot answer yet is skipped: it would only block for its timeout.
     pub fn poll(&mut self) -> Result<Vec<Encoded>> {
-        if encoder_backlog::skips_query(Instant::now(), self.predicted_output()) {
+        let predicted = self.predicted_output();
+        if self.prediction.skips(Instant::now(), predicted) {
             if let Some(input) = &mut self.compute {
                 input.converter.release_completed();
             }
-            self.skipped_queries += 1;
             return Ok(vec![]);
         }
         self.poll_now()
@@ -45,15 +81,11 @@ impl Encoder {
     /// When the oldest frame in flight can first be done, with
     /// `amd_output_prediction` on and whole frames returned.
     fn predicted_output(&self) -> Option<Instant> {
-        if !self.output_prediction
-            || self.slice_blocks > 0
-            || self.unit_log.is_some()
-            || self.output_thread.is_some()
-        {
-            return None;
-        }
-        let oldest = self.in_flight.front()?;
-        encoder_backlog::predicted_output(oldest.accepted, self.fastest_output)
+        let whole = self.slice_blocks == 0 && self.unit_log.is_none();
+        self.prediction.predicted(
+            self.in_flight.front().map(|oldest| oldest.accepted),
+            whole && self.output_thread.is_none(),
+        )
     }
     /// When a poll is next worth making, with `amd_output_prediction`: the
     /// caller's output poll waits until then.
@@ -409,11 +441,8 @@ impl Encoder {
         if let Some((accepted, preparation)) = timing.filter(|_| produced) {
             let previous = self.backlog.limit();
             let now = Instant::now();
-            let took = now.saturating_duration_since(accepted);
-            self.fastest_output = Some(
-                self.fastest_output
-                    .map_or(took, |fastest| fastest.min(took)),
-            );
+            self.prediction
+                .observe(now.saturating_duration_since(accepted));
             self.backlog
                 .completed(now, now.duration_since(accepted), preparation);
             if self.backlog.limit() != previous {
@@ -533,5 +562,56 @@ pub(super) fn unreturned_notice(probe: bool, pts: Option<i64>) -> Unreturned {
         Unreturned::Warning(format!(
             "AMF returned no output for frame {pts:?} within two seconds; dropping it and requesting a keyframe. You may see a pause; lower game GPU load or update the AMD driver if this repeats."
         ))
+    }
+}
+
+#[cfg(test)]
+mod prediction_tests {
+    use super::*;
+
+    /// `Encoder::poll`'s choice around a fake query: true when it queried.
+    fn poll(prediction: &mut Prediction, now: Instant, oldest: Instant, applies: bool) -> bool {
+        let predicted = prediction.predicted(Some(oldest), applies);
+        !prediction.skips(now, predicted)
+    }
+
+    #[test]
+    fn a_query_the_oldest_frame_cannot_answer_is_skipped_only_when_on() {
+        let accepted = Instant::now();
+        let mut off = Prediction::new(false);
+        off.observe(Duration::from_millis(4));
+        assert!(poll(&mut off, accepted, accepted, true));
+        let mut on = Prediction::new(true);
+        assert!(
+            poll(&mut on, accepted, accepted, true),
+            "nothing measured yet"
+        );
+        on.observe(Duration::from_millis(5));
+        on.observe(Duration::from_millis(4));
+        assert!(!poll(&mut on, accepted, accepted, true));
+        assert!(!poll(
+            &mut on,
+            accepted + Duration::from_millis(2),
+            accepted,
+            true
+        ));
+        assert_eq!(on.skipped, 2);
+        // Within the margin of the fastest finish, and past it, it queries.
+        assert!(poll(
+            &mut on,
+            accepted + Duration::from_millis(3),
+            accepted,
+            true
+        ));
+        assert!(poll(
+            &mut on,
+            accepted + Duration::from_millis(9),
+            accepted,
+            true
+        ));
+        // Slice output, the unit probe and the output thread always query.
+        assert!(poll(&mut on, accepted, accepted, false));
+        assert_eq!(on.predicted(None, true), None, "nothing in flight");
+        assert_eq!(on.skipped, 2);
     }
 }

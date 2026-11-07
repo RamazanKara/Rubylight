@@ -268,12 +268,8 @@ pub struct Encoder {
     /// Encoder focus: the ROI map and its counters.
     focus: focus::State,
     /// `amd_output_prediction`: `poll` skips a query the oldest frame
-    /// cannot answer yet ([`encoder_backlog::skips_query`]).
-    output_prediction: bool,
-    /// The fastest acceptance-to-output time of any frame.
-    fastest_output: Option<Duration>,
-    /// Queries `amd_output_prediction` skipped, for the stall snapshot.
-    skipped_queries: u64,
+    /// cannot answer yet.
+    prediction: output::Prediction,
     /// `amd_output_thread`: QueryOutput runs on a thread of its own.
     output_thread: Option<output_thread::OutputThread>,
 }
@@ -338,7 +334,7 @@ impl Encoder {
             submit_result = result_name(self.last_submit),
             query_result = result_name(self.last_query),
             input_full = self.input_full,
-            skipped_queries = self.skipped_queries,
+            skipped_queries = self.prediction.skipped,
             in_flight = self.in_flight.len(),
             retained = self.ownership.retained(),
             oldest_pts = ?oldest.map(|s| s.pts),

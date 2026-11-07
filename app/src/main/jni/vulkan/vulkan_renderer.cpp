@@ -540,6 +540,18 @@ bool VulkanRenderer::pickDevice() {
                         std::any_of(instanceSetup_.extensions.begin(), instanceSetup_.extensions.end(), [](const char* name) {
                             return strcmp(name, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME) == 0;
                         });
+                // Off unless adb shell setprop debug.nightjar.vk_sync_fd 1: it came out with the
+                // Nightjar 3.2.3 decode reverts and waits for an A/B on real devices.
+                char syncFdWait[PROP_VALUE_MAX] = {};
+                __system_property_get("debug.nightjar.vk_sync_fd", syncFdWait);
+                if (strcmp(syncFdWait, "1") == 0) {
+                    hasSyncFdImport_ = hasExtension(extensions, VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME) &&
+                            syncFdImportable(device);
+                    if (!hasSyncFdImport_) {
+                        ALOGW("GPU wait for the decoder asked for, but the device can't import sync fds; "
+                              "the image reader thread waits for the decoder");
+                    }
+                }
                 globalPriorityExt_ = hasExtension(extensions, VK_KHR_GLOBAL_PRIORITY_EXTENSION_NAME)
                         ? VK_KHR_GLOBAL_PRIORITY_EXTENSION_NAME
                         : hasExtension(extensions, VK_EXT_GLOBAL_PRIORITY_EXTENSION_NAME)
@@ -571,6 +583,11 @@ bool VulkanRenderer::createDevice() {
     }
     else if (frontBufferRequested_) {
         ALOGW("Front buffer asked for, but the device has no shared presentable images");
+    }
+    if (hasSyncFdImport_) {
+        deviceSetup_.extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME);
+        deviceSetup_.info.enabledExtensionCount = static_cast<uint32_t>(deviceSetup_.extensions.size());
+        deviceSetup_.info.ppEnabledExtensionNames = deviceSetup_.extensions.data();
     }
 
     // Our queues at high global priority, so the GPU runs a render (one small draw, due at a
@@ -621,6 +638,11 @@ bool VulkanRenderer::createDevice() {
     if (!vk_.vkGetPastPresentationTimingGOOGLE) {
         hasDisplayTimingExt_ = false;
     }
+    gpuDecodeWait_ = hasSyncFdImport_ && vk_.vkImportSemaphoreFdKHR;
+    if (hasSyncFdImport_) {
+        ALOGI("Decoder fence waited for by the %s", gpuDecodeWait_ ? "GPU when presenting on arrival" :
+              "image reader thread: vkImportSemaphoreFdKHR is missing");
+    }
 
     vk_.vkGetDeviceQueue(device_, queueFamily_, 0, &queue_);
     return true;
@@ -647,9 +669,52 @@ bool VulkanRenderer::createFrameResources() {
         fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
         VkSemaphoreCreateInfo semInfo {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
         if (vk_.vkCreateFence(device_, &fenceInfo, nullptr, &fences_[i]) != VK_SUCCESS ||
-                vk_.vkCreateSemaphore(device_, &semInfo, nullptr, &imageAcquired_[i]) != VK_SUCCESS) {
+                vk_.vkCreateSemaphore(device_, &semInfo, nullptr, &imageAcquired_[i]) != VK_SUCCESS ||
+                (gpuDecodeWait_ && vk_.vkCreateSemaphore(device_, &semInfo, nullptr, &decodeDone_[i]) != VK_SUCCESS)) {
             return false;
         }
+    }
+    return true;
+}
+
+bool VulkanRenderer::syncFdImportable(VkPhysicalDevice device) const {
+    auto properties = reinterpret_cast<PFN_vkGetPhysicalDeviceExternalSemaphoreProperties>(
+            vk_.vkGetInstanceProcAddr(instance_, "vkGetPhysicalDeviceExternalSemaphoreProperties"));
+    if (!properties) {
+        return false;
+    }
+    VkPhysicalDeviceExternalSemaphoreInfo info {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SEMAPHORE_INFO};
+    info.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT;
+    VkExternalSemaphoreProperties result {VK_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_PROPERTIES};
+    properties(device, &info, &result);
+    return (result.externalSemaphoreFeatures & VK_EXTERNAL_SEMAPHORE_FEATURE_IMPORTABLE_BIT) != 0;
+}
+
+bool VulkanRenderer::waitForDecoder(VideoFrame& frame, int slot, bool* gpuWait) {
+    const bool gpu = gpuDecodeWait_ && decodeDone_[slot] != VK_NULL_HANDLE;
+    VkResult refused = VK_SUCCESS;
+    const vkr::DecoderWait wait = vkr::waitForDecoder(frame.decodeFence, gpu,
+            static_cast<int>(kFenceTimeoutNs / 1'000'000), [&](int fd) {
+        // Temporary, as sync fds must be: the submit's wait consumes it and the semaphore is
+        // empty again for the slot's next frame. On success Vulkan owns the fd.
+        VkImportSemaphoreFdInfoKHR import {VK_STRUCTURE_TYPE_IMPORT_SEMAPHORE_FD_INFO_KHR};
+        import.semaphore = decodeDone_[slot];
+        import.flags = VK_SEMAPHORE_IMPORT_TEMPORARY_BIT;
+        import.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT;
+        import.fd = fd;
+        refused = vk_.vkImportSemaphoreFdKHR(device_, &import);
+        return refused == VK_SUCCESS;
+    });
+    if (refused != VK_SUCCESS) {
+        // Once refused, the image reader thread waits for the decoder again, as without the GPU wait
+        ALOGE("Could not import the decoder fence (%d); the image reader thread waits for the decoder from now on",
+              refused);
+        gpuDecodeWait_ = false;
+    }
+    *gpuWait = wait == vkr::DecoderWait::GPU;
+    if (wait == vkr::DecoderWait::TIMED_OUT) {
+        ALOGE("Timed out waiting for the decoder to write a frame");
+        return false;
     }
     return true;
 }
@@ -674,6 +739,7 @@ VideoFrame::~VideoFrame() {
         reporter->reportDropped(timing.hostPtsNs);
     }
     if (image) ndk->AImage_delete(image);
+    // decodeFence closes its fd itself
 }
 
 void VulkanRenderer::reportPresent(int64_t hostPtsNs, int64_t queuedNs, int64_t presentNs) {
@@ -782,11 +848,17 @@ void VulkanRenderer::recreateSlotSync(int slot) {
         vk_.vkDestroySemaphore(device_, imageAcquired_[slot], nullptr);
         imageAcquired_[slot] = VK_NULL_HANDLE;
     }
+    // An imported decoder fence that no submit waited for goes with its semaphore
+    if (decodeDone_[slot]) {
+        vk_.vkDestroySemaphore(device_, decodeDone_[slot], nullptr);
+        decodeDone_[slot] = VK_NULL_HANDLE;
+    }
     VkFenceCreateInfo fenceInfo {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     VkSemaphoreCreateInfo semInfo {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     if (vk_.vkCreateFence(device_, &fenceInfo, nullptr, &fences_[slot]) != VK_SUCCESS ||
-            vk_.vkCreateSemaphore(device_, &semInfo, nullptr, &imageAcquired_[slot]) != VK_SUCCESS) {
+            vk_.vkCreateSemaphore(device_, &semInfo, nullptr, &imageAcquired_[slot]) != VK_SUCCESS ||
+            (gpuDecodeWait_ && vk_.vkCreateSemaphore(device_, &semInfo, nullptr, &decodeDone_[slot]) != VK_SUCCESS)) {
         setFatal("could not recover from a failed GPU submit");
     }
 }
@@ -892,6 +964,7 @@ VulkanRenderer::~VulkanRenderer() {
         for (int i = 0; i < kFramesInFlight; i++) {
             if (fences_[i]) vk_.vkDestroyFence(device_, fences_[i], nullptr);
             if (imageAcquired_[i]) vk_.vkDestroySemaphore(device_, imageAcquired_[i], nullptr);
+            if (decodeDone_[i]) vk_.vkDestroySemaphore(device_, decodeDone_[i], nullptr);
         }
         if (timestampPool_) vk_.vkDestroyQueryPool(device_, timestampPool_, nullptr);
         if (commandPool_) vk_.vkDestroyCommandPool(device_, commandPool_, nullptr);
@@ -1123,7 +1196,11 @@ void VulkanRenderer::onImageAvailable() {
             }
             return;
         }
-        if (fenceFd >= 0) {
+        // Presenting on arrival with the GPU wait, the frame goes on with its fence and the GPU
+        // waits for it (waitForDecoder()), so its draw is recorded and queued while the decoder
+        // finishes; its arrival is then when the decoder handed it over, not when it was written.
+        const bool gpuWaits = fenceFd >= 0 && gpuDecodeWait_ && presentOnArrival_;
+        if (fenceFd >= 0 && !gpuWaits) {
             pollfd fence {fenceFd, POLLIN, 0};
             int ready;
             do {
@@ -1138,6 +1215,7 @@ void VulkanRenderer::onImageAvailable() {
         }
 
         auto frame = std::make_shared<VideoFrame>(ndk_, image);
+        if (gpuWaits) frame->decodeFence.reset(fenceFd);
         frame->timing.arrivalNs = nowNs();
         if (ndk_->AImage_getHardwareBuffer(image, &frame->buffer) != AMEDIA_OK || !frame->buffer) {
             ALOGE("Image has no hardware buffer");
@@ -1836,10 +1914,22 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
     const VkPipelineStageFlags waitStage =
             timed ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT : VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
+    // The decoder's writes, before the barrier that takes the image from it
+    bool decoderWait = false;
+    if (frame->decodeFence.pending() && !waitForDecoder(*frame, slot, &decoderWait)) {
+        // The image is acquired and its semaphore signalled; start the swapchain over
+        swapchainDirty_ = true;
+        recreateSlotSync(slot);
+        noteFailure("waiting for the decoder", VK_TIMEOUT, kFatalFenceTimeouts);
+        return false;
+    }
+    const VkSemaphore waitSemaphores[2] = {imageAcquired_[slot], decodeDone_[slot]};
+    const VkPipelineStageFlags waitStages[2] = {waitStage, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT};
+
     VkSubmitInfo submit {VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    submit.waitSemaphoreCount = 1;
-    submit.pWaitSemaphores = &imageAcquired_[slot];
-    submit.pWaitDstStageMask = &waitStage;
+    submit.waitSemaphoreCount = decoderWait ? 2 : 1;
+    submit.pWaitSemaphores = waitSemaphores;
+    submit.pWaitDstStageMask = waitStages;
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &cmd;
     submit.signalSemaphoreCount = 1;

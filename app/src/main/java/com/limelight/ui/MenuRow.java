@@ -23,9 +23,14 @@ public final class MenuRow extends MaterialButton {
     private CharSequence value;
 
     MenuRow(Context context, CharSequence label, CharSequence value) {
-        super(context, null, androidx.appcompat.R.attr.borderlessButtonStyle);
-        android.content.res.Resources res = context.getResources();
+        this(context, (android.util.AttributeSet) null);
         setText(label);
+        setValue(value);
+    }
+
+    public MenuRow(Context context, android.util.AttributeSet attrs) {
+        super(context, attrs, androidx.appcompat.R.attr.borderlessButtonStyle);
+        android.content.res.Resources res = context.getResources();
         setAllCaps(false);
         setTextAppearance(context, R.style.TextAppearance_Nightjar_Label);
         setTextColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, 0));
@@ -45,7 +50,22 @@ public final class MenuRow extends MaterialButton {
         valuePaint.setTextSize(res.getDimension(R.dimen.stream_menu_row_value));
         valuePaint.setColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
         valuePaint.setTypeface(getTypeface());
-        setValue(value);
+    }
+
+    /** Its name over a quieter line, for a value too long to stand beside the name. */
+    void setDetail(CharSequence label, CharSequence detail) {
+        android.text.SpannableStringBuilder text = new android.text.SpannableStringBuilder(label).append('\n');
+        int start = text.length();
+        text.append(detail);
+        int end = text.length();
+        text.setSpan(new android.text.style.AbsoluteSizeSpan(Math.round(valuePaint.getTextSize())), start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        text.setSpan(new android.text.style.ForegroundColorSpan(valuePaint.getColor()), start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        setSingleLine(false);
+        setMaxLines(2);
+        setPaddingRelative(gap * 2, gap, gap * 2 + chevronSize, gap);
+        setText(text);
+        value = null;
+        setContentDescription(label + ", " + detail);
     }
 
     public void setValue(CharSequence text) {

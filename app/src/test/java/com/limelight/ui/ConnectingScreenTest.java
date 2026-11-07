@@ -121,11 +121,13 @@ public class ConnectingScreenTest {
 
         View test = dialog.findViewById(R.id.conn_test);
         test.performClick();
-        for (int i = 0; i < 200 && !test.isEnabled(); i++) {
+        assertTrue("the row keeps a remote's focus while it runs", test.isEnabled());
+        View working = dialog.findViewById(R.id.conn_test_working);
+        for (int i = 0; i < 200 && working.getVisibility() == View.VISIBLE; i++) {
             Thread.sleep(5);
             ShadowLooper.idleMainLooper();
         }
-        assertTrue(test.isEnabled());
+        assertEquals(View.GONE, working.getVisibility());
         assertEquals("Blocked", text(dialog, R.id.conn_test_result));
         assertEquals(View.VISIBLE, dialog.findViewById(R.id.conn_test_result).getVisibility());
         assertNotNull(screen);
@@ -135,6 +137,64 @@ public class ConnectingScreenTest {
         assertEquals(1, tried.get());
         assertEquals(0, back.get());
         assertFalse(dialog.isShowing());
+        controller.pause().stop().destroy();
+    }
+
+    /** The panel lets a failed start change what it asked for; a row that opens nothing is not offered. */
+    @Test
+    public void aFailureOffersTheStreamsSettingsWithTheirValues() {
+        ActivityController<Stream> controller = Robolectric.buildActivity(Stream.class).setup();
+        AtomicInteger opened = new AtomicInteger();
+        String line = ConnectingScreen.settingsLine(controller.get(), 1920, 1080, 60, 20000);
+        assertEquals("1920 × 1080, 60 FPS, 20 Mbps", line);
+        ConnectingScreen screen = ConnectingScreen.failure(controller.get(), "Racing Game", "PC", null, "Connection Error", "No.",
+                new ConnectingScreen.Failure() {
+                    @Override public void onTryAgain() { }
+
+                    @Override public CharSequence testNetwork() {
+                        return "";
+                    }
+
+                    @Override public void onBack() { }
+
+                    @Override public CharSequence streamSettings() {
+                        return line;
+                    }
+
+                    @Override public void onStreamSettings() {
+                        opened.incrementAndGet();
+                    }
+                });
+        screen.showFailure();
+        android.app.Dialog dialog = screen.dialog();
+        ShadowLooper.idleMainLooper();
+        View row = dialog.findViewById(R.id.conn_settings);
+        assertEquals(View.VISIBLE, row.getVisibility());
+        assertEquals("Stream settings\n" + line, text(dialog, R.id.conn_settings));
+        assertEquals("Stream settings, " + line, row.getContentDescription().toString());
+        row.performClick();
+        ShadowLooper.idleMainLooper();
+        assertEquals(1, opened.get());
+        assertFalse(dialog.isShowing());
+        controller.pause().stop().destroy();
+    }
+
+    @Test
+    public void aFailureWithoutSettingsHasNoSuchRow() {
+        ActivityController<Stream> controller = Robolectric.buildActivity(Stream.class).setup();
+        ConnectingScreen screen = ConnectingScreen.failure(controller.get(), "Racing Game", "PC", null, "Connection Error", "No.",
+                new ConnectingScreen.Failure() {
+                    @Override public void onTryAgain() { }
+
+                    @Override public CharSequence testNetwork() {
+                        return "";
+                    }
+
+                    @Override public void onBack() { }
+                });
+        screen.showFailure();
+        ShadowLooper.idleMainLooper();
+        assertEquals(View.GONE, screen.dialog().findViewById(R.id.conn_settings).getVisibility());
         controller.pause().stop().destroy();
     }
 

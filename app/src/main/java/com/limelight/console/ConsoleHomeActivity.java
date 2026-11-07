@@ -298,7 +298,10 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             return;
         }
         final HomeView before = view;
-        ActionSheet sheet = new ActionSheet(this, getString(R.string.home_view));
+        // Off a phone View sits in the top row: its panel hangs under it, as the PC sheet hangs under the capsule.
+        ActionSheet sheet = com.limelight.ui.GlassForm.of(this) == com.limelight.ui.GlassForm.PHONE
+                ? new ActionSheet(this, getString(R.string.home_view))
+                : ActionSheet.under(this, getString(R.string.home_view), findViewById(R.id.console_view));
         viewSheet = sheet;
         sheet.addSection(R.string.home_view_layout);
         // A list's lines have one size, so Size shows only for the covers' layouts.

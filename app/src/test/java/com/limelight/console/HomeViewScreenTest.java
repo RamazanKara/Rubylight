@@ -500,6 +500,18 @@ public class HomeViewScreenTest {
     }
 
     @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionTheViewSheetHangsUnderItsButtonNotOnTheFoot() {
+        HomeShellTest.Home home = home().get();
+        home.findViewById(R.id.console_view).performClick();
+        ActionSheet sheet = openSheet();
+        assertNotNull(sheet);
+        assertTrue("a panel, not a sheet across the bottom", sheet.isPanel());
+        sheet.dismiss();
+        shadowOf(Looper.getMainLooper()).idle();
+    }
+
+    @Test
     public void closingTheSheetUnchangedStoresNothing() {
         HomeShellTest.Home home = home().get();
         home.findViewById(R.id.console_view).performClick();

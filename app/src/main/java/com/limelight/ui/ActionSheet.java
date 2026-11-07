@@ -37,6 +37,9 @@ public final class ActionSheet extends BottomSheetDialog {
     private GlassPanelDrawable menuGlass;
     private MenuBlurWindow blur;
     private MaterialButton panelClose;
+    // The control a panel hangs under, as Home's PC sheet hangs under its capsule; null for a panel docked by the window.
+    private android.view.View anchor;
+    private PanelFrame frame;
     private MaterialButton firstAction;
     private Runnable backHandler;
     private Runnable onClosed;
@@ -75,6 +78,17 @@ public final class ActionSheet extends BottomSheetDialog {
 
     public ActionSheet(Context context, CharSequence title) {
         this(context, title, false);
+    }
+
+    /**
+     * A panel hanging under {@code anchor}, its end on the anchor's end, over a dimmed page: a TV's sheet opened from the top
+     * row, as the PC sheet hangs under Home's capsule. A remote has no bottom edge to reach for.
+     */
+    public static ActionSheet under(Context context, CharSequence title, android.view.View anchor) {
+        ActionSheet sheet = new ActionSheet(context, title, true);
+        sheet.anchor = anchor;
+        sheet.frame.setAnchor(anchor);
+        return sheet;
     }
 
     /**
@@ -222,7 +236,7 @@ public final class ActionSheet extends BottomSheetDialog {
             body.setBackground(menuGlass);
             body.setClipToOutline(true);
             body.setElevation(spacing);
-            PanelFrame frame = new PanelFrame(context, body, context.getResources().getDimensionPixelSize(R.dimen.stream_menu_margin));
+            frame = new PanelFrame(context, body, context.getResources().getDimensionPixelSize(R.dimen.stream_menu_margin));
             frame.setOnOutsideTap(this::cancel);
             setContentView(frame);
         } else {
@@ -302,7 +316,8 @@ public final class ActionSheet extends BottomSheetDialog {
     @Override
     public void show() {
         // Shown first, so it stands under the panel: it blurs the stream, not the menu.
-        if (panel && blur == null && !isShowing() && getOwnerActivity() != null) {
+        // A panel over a page samples nothing live: its surface stays the near-opaque one, over the page's dim.
+        if (panel && anchor == null && blur == null && !isShowing() && getOwnerActivity() != null) {
             int radius = Math.round(GlassSpec.menuWindow(getContext()).blur);
             blur = MenuBlurWindow.openIfAllowed(getOwnerActivity(), radius, on -> menuGlass.setOverBlur(on));
             menuGlass.setOverBlur(blur != null);
@@ -710,6 +725,23 @@ public final class ActionSheet extends BottomSheetDialog {
             this.onOutsideTap = onOutsideTap;
         }
 
+        private android.view.View anchor;
+
+        void setAnchor(android.view.View anchor) {
+            this.anchor = anchor;
+        }
+
+        /**
+         * Under an anchor: {@link #MIN_WIDTH_DP} wide, 8 dp below it, its end on the anchor's end (start in RTL), kept
+         * {@code edge} inside the window. Positions are on screen; the result is the panel's left and top in this frame.
+         */
+        static int[] underAnchor(int[] anchorAt, int anchorWidth, int anchorHeight, int[] frameAt, int frameWidth,
+                                 int panelWidth, int edge, float density, boolean rtl) {
+            int start = rtl ? anchorAt[0] - frameAt[0] : anchorAt[0] - frameAt[0] + anchorWidth - panelWidth;
+            int left = Math.max(edge, Math.min(start, frameWidth - panelWidth - edge));
+            return new int[] {left, anchorAt[1] - frameAt[1] + anchorHeight + Math.round(8 * density)};
+        }
+
         /** The panel's width in pixels in a window {@code width} × {@code height} pixels big. */
         static int panelWidth(int width, int height, int margin, float density) {
             int wide = Math.round(WIDTH_DP * density);
@@ -724,9 +756,24 @@ public final class ActionSheet extends BottomSheetDialog {
             int width = MeasureSpec.getSize(widthSpec) - getPaddingLeft() - getPaddingRight();
             int height = MeasureSpec.getSize(heightSpec) - getPaddingTop() - getPaddingBottom();
             LayoutParams params = (LayoutParams) panel.getLayoutParams();
-            params.width = panelWidth(width, height, margin, getResources().getDisplayMetrics().density);
-            params.gravity = width > height ? Gravity.END | Gravity.CENTER_VERTICAL : Gravity.CENTER;
-            params.setMargins(margin, margin, margin, margin);
+            float density = getResources().getDisplayMetrics().density;
+            if (anchor != null && anchor.isAttachedToWindow()) {
+                params.width = Math.max(0, Math.min(Math.round(MIN_WIDTH_DP * density), width - 2 * margin));
+                params.gravity = Gravity.TOP | Gravity.LEFT;
+                int[] anchorAt = new int[2];
+                int[] frameAt = new int[2];
+                anchor.getLocationOnScreen(anchorAt);
+                getLocationOnScreen(frameAt);
+                frameAt[0] += getPaddingLeft();
+                frameAt[1] += getPaddingTop();
+                int[] at = underAnchor(anchorAt, anchor.getWidth(), anchor.getHeight(), frameAt, width, params.width, margin,
+                        density, getLayoutDirection() == LAYOUT_DIRECTION_RTL);
+                params.setMargins(at[0], at[1], 0, margin);
+            } else {
+                params.width = panelWidth(width, height, margin, density);
+                params.gravity = width > height ? Gravity.END | Gravity.CENTER_VERTICAL : Gravity.CENTER;
+                params.setMargins(margin, margin, margin, margin);
+            }
             super.onMeasure(widthSpec, heightSpec);
         }
 
@@ -1109,8 +1156,11 @@ public final class ActionSheet extends BottomSheetDialog {
         behavior.setSkipCollapsed(true);
         behavior.setMaxWidth(Integer.MAX_VALUE);
         behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-        // The stream stays as it is around the panel: no dim over the whole picture.
-        if (getWindow() != null) getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+        // The stream stays as it is around the panel: no dim over the whole picture. A page under a panel dims as under a sheet.
+        if (getWindow() != null) {
+            if (anchor == null) getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            else getWindow().setDimAmount(GlassPanelDrawable.backdropDim(getContext()));
+        }
         android.view.View sheet = findViewById(com.google.android.material.R.id.design_bottom_sheet);
         if (sheet != null) {
             sheet.getLayoutParams().height = android.view.ViewGroup.LayoutParams.MATCH_PARENT;

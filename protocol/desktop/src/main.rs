@@ -207,6 +207,8 @@ struct App {
     /// The 4:4:4 and 10-bit decoder check for a decoder, done at the first launch that asks: the
     /// decoder stays the same while Nightjar runs, and a renderer switch drops it.
     color_probed: Option<(Hardware, (u32, String))>,
+    /// The plain HEVC and AV1 decoder check (`color_probe::probe_base`), kept the same way.
+    base_probed: Option<(Hardware, stream::color_probe::Base)>,
     /// Linux's renderer as it was made ([`RendererState`]).
     #[cfg(unix)]
     renderer_state: RendererState,
@@ -738,6 +740,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         open_play,
         cli,
         color_probed: None,
+        base_probed: None,
         #[cfg(unix)]
         renderer_state: RendererState {
             choice: settings.renderer,
@@ -1959,6 +1962,7 @@ impl App {
         self.launcher.renderer_changed(&self.gui.ctx);
         self.launcher.gpu_device = renderer_gpu_device(made);
         self.color_probed = None;
+        self.base_probed = None;
         self.window_changed = true;
         let to = sdl::renderer_name(made);
         self.renderer_state.made_for_hdr = to == "gpu" && hdr && display_hdr;
@@ -2357,6 +2361,11 @@ impl App {
         } else {
             (0, String::new())
         };
+        // Offers follow what the decoder decodes here, not what it is said to.
+        let base_decodable = match self.hardware(&settings) {
+            Hardware::None => stream::color_probe::Base::software(),
+            hardware => probed_once(&mut self.base_probed, hardware, || stream::color_probe::probe_base(hardware)),
+        };
         let (Some(identity), Some(host)) = (identity, self.hosts.get(host_id)) else {
             return;
         };
@@ -2384,6 +2393,7 @@ impl App {
             gpu_decoder,
             packed_modes,
             color_decodable,
+            base_decodable,
             pacing,
             vrr,
             gamepad_mask: if settings.controllers { u32::from(self.pads.active_mask()) } else { 0 },
@@ -3429,7 +3439,7 @@ fn small_stream(settings: &mut config::Settings) {
 }
 
 /// `probe`'s answer for `hardware`, from `cache` when it was the last decoder checked.
-fn probed_once(cache: &mut Option<(Hardware, (u32, String))>, hardware: Hardware, probe: impl FnOnce() -> (u32, String)) -> (u32, String) {
+fn probed_once<T: Clone>(cache: &mut Option<(Hardware, T)>, hardware: Hardware, probe: impl FnOnce() -> T) -> T {
     match cache {
         Some((probed, result)) if *probed == hardware => result.clone(),
         _ => cache.insert((hardware, probe())).1.clone(),

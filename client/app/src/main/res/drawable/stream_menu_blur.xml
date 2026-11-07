@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- See-through: its only job is the rounded outline the system clips its blur to. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="@dimen/nj_radius_panel" />
+    <solid android:color="#01000000" />
+</shape>

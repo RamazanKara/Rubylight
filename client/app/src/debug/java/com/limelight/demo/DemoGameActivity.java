@@ -276,6 +276,14 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         host.name = "Living-room PC";
         StreamMenu.Options options = new StreamMenu.Options(NvApp.Role.STREAM, host);
         options.overlayShown = findViewById(R.id.performanceOverlayScroll).getVisibility() == View.VISIBLE;
+        options.appName = "Skybound";
+        options.cover = demoCover();
+        options.streamWidth = SAMPLE_WIDTH;
+        options.streamHeight = SAMPLE_HEIGHT;
+        options.streamFps = 120;
+        options.videoFormat = MoonBridge.VIDEO_FORMAT_H265_MAIN10;
+        options.bitrateKbps = demoBitrate;
+        options.bitrateChange = kbps -> demoBitrate = kbps;
         options.overlayMode = mode;
         options.overlayPosition = corner.key;
         options.onscreenControls = showControls;
@@ -293,6 +301,24 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
                 SAMPLE_WIDTH, SAMPLE_HEIGHT, 120, 80_000, new com.limelight.utils.WifiFacts(com.limelight.utils.WifiFacts.Link.WIFI,
                         -45, 5745, 160, 1201, 1201, 1201, 6), 4);
         return options;
+    }
+
+    private int demoBitrate = 80_000;
+    private android.graphics.Bitmap demoCoverArt;
+
+    // The sample game's own cover, as a real stream takes the one it showed while connecting.
+    private android.graphics.Bitmap demoCover() {
+        if (demoCoverArt == null) {
+            for (int i = 0; i < DemoConsole.LIBRARY.length; i++) {
+                if (!"Skybound".equals(DemoConsole.LIBRARY[i][0])) continue;
+                try (java.io.InputStream art = getAssets().open("demo/art/" + (i + 1) + ".jpg")) {
+                    demoCoverArt = android.graphics.BitmapFactory.decodeStream(art);
+                } catch (java.io.IOException e) {
+                    return null;
+                }
+            }
+        }
+        return demoCoverArt;
     }
 
     private void showMenu() {

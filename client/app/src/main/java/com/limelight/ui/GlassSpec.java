@@ -38,7 +38,16 @@ final class GlassSpec {
         String tierName = tier.name().toLowerCase(java.util.Locale.ROOT);
         // Solid exists at night only: high contrast is always black.
         boolean dayTokens = day && tier != GlassTier.SOLID;
-        String prefix = (dayTokens ? "nj_day_glass_" : "nj_glass_") + material + "_" + tierName + "_";
+        return of(context, (dayTokens ? "nj_day_glass_" : "nj_glass_") + material + "_" + tierName + "_", dayTokens);
+    }
+
+    /** The stream menu over a system blur of its own: that blur has no colour filter, so this recipe has its own fill. */
+    static GlassSpec menuWindow(Context context) {
+        return of(context, "nj_glass_menu_window_", false);
+    }
+
+    private static GlassSpec of(Context context, String prefix, boolean dayTokens) {
+        Resources res = context.getResources();
         String key = prefix + res.getDisplayMetrics().density;
         GlassSpec spec = CACHE.get(key);
         if (spec == null) {

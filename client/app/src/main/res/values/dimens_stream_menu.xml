@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- The stream menu's compact grid on a handheld or tablet, as desktop Nightjar's: a 20dp icon over a 12sp label, up
-         to six tiles to a row while each stays wide enough for its label, a slim Return to stream bar and the ways out
-         in a slim row under it. A TV has its own, for the distance (values-television). -->
-    <integer name="stream_tile_columns">6</integer>
+         to four tiles to a row while each stays wide enough for its label, the ways out in capsules at the foot. A TV has its own, for the distance (values-television). -->
+    <integer name="stream_tile_columns">4</integer>
     <dimen name="stream_tile_min_width">70dp</dimen>
     <dimen name="stream_tile_min_height">58dp</dimen>
     <dimen name="stream_tile_gap">6dp</dimen>
@@ -12,13 +11,19 @@
     <dimen name="stream_tile_pad_top">6dp</dimen>
     <dimen name="stream_tile_pad_bottom">5dp</dimen>
     <dimen name="stream_tile_pad_side">4dp</dimen>
-    <dimen name="stream_tile_corner">10dp</dimen>
+    <dimen name="stream_tile_corner">@dimen/nj_radius_tile</dimen>
     <dimen name="stream_tile_cap_text">9sp</dimen>
-    <dimen name="stream_tile_switch_width">18dp</dimen>
-    <dimen name="stream_tile_switch_height">10dp</dimen>
-    <dimen name="stream_tile_corner_inset">5dp</dimen>
-    <dimen name="stream_menu_return_height">38dp</dimen>
-    <dimen name="stream_menu_exit_height">34dp</dimen>
+    <dimen name="stream_tile_corner_inset">7dp</dimen>
+    <dimen name="stream_menu_exit_height">44dp</dimen>
+    <dimen name="stream_menu_close">40dp</dimen>
+    <dimen name="stream_menu_margin">12dp</dimen>
+    <dimen name="stream_menu_cover_width">36dp</dimen>
+    <dimen name="stream_menu_cover_height">54dp</dimen>
+    <dimen name="stream_menu_row_height">44dp</dimen>
+    <dimen name="stream_menu_row_value">13sp</dimen>
+    <dimen name="stream_menu_group_gap">10dp</dimen>
+    <dimen name="stream_menu_title">18sp</dimen>
+    <dimen name="stream_menu_title_line">24sp</dimen>
     <dimen name="stream_menu_footer_icon">18dp</dimen>
     <dimen name="stream_menu_edge">16dp</dimen>
 </resources>

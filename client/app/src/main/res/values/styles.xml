@@ -269,6 +269,15 @@
     <!-- Stream activity theme (Game and the debug stream fixtures). -->
     <style name="StreamTheme" parent="Theme.Nightjar.Stream" />
 
+    <!-- The stream menu's blur: an empty see-through window under the panel, rounded as the panel is. -->
+    <style name="StreamMenuBlurWindow" parent="@android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:windowBackground">@drawable/stream_menu_blur</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@style/TvSheetAnimation</item>
+    </style>
+
     <!-- The window of connecting and a failed connection: the whole screen, no animation in front of the stream. -->
     <style name="ConnectingScreen" parent="Theme.Nightjar.Stream">
         <item name="android:windowIsFloating">false</item>

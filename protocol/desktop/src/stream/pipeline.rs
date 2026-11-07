@@ -551,7 +551,7 @@ fn recovers_with_rfi(backend: Option<Hardware>) -> bool {
 
 /// The backends of `order` after `refused`, which FFmpeg took to software: none when it is not
 /// in the order.
-fn backends_after(order: Vec<Hardware>, refused: Hardware) -> Vec<Hardware> {
+pub(super) fn backends_after(order: Vec<Hardware>, refused: Hardware) -> Vec<Hardware> {
     match order.iter().position(|&backend| backend == refused) {
         Some(at) => order[at + 1..].to_vec(),
         None => Vec::new(),

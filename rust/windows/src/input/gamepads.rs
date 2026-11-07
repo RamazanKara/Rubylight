@@ -772,6 +772,17 @@ impl Gamepads {
 /// out one pending report per call, so a game writing faster than the poll
 /// left a backlog, and its rumble lagged or ran on after it stopped.
 pub(super) const FEEDBACK_DRAIN: usize = 8;
+/// What a feedback report sets, as bits: rumble 1, lights 2, trigger
+/// effects 4. A PlayStation report (kind 5) always carries rumble, and its
+/// lightbar and trigger effects only with flag 1 and 2 of byte 7
+/// (`feedback_packets` in the host's control stream); any other report
+/// replaces all of its kind.
+fn feedback_parts(kind: u16, data: &[u8]) -> u8 {
+    match kind {
+        5 if data.len() >= 8 => 1 | (data[7] & 3) << 1,
+        _ => 7,
+    }
+}
 fn poll_feedback(
     active: &BTreeMap<u16, u16>,
     last: &mut BTreeMap<u16, (u16, Vec<u8>)>,
@@ -786,9 +797,10 @@ fn poll_feedback(
             .reported
             .is_none_or(|at| now.duration_since(at) >= Duration::from_secs(5))
     };
-    // The newest report of each kind a pad had pending, in the order of
-    // their last arrival: an older rumble or light the game already
-    // replaced is not worth sending.
+    // What a pad had pending, in arrival order, without the reports a newer
+    // one of the same kind fully replaces: an older rumble the game already
+    // changed is not worth sending, but older lights or trigger effects a
+    // rumble-only report leaves out still go, before it.
     let mut pending: Vec<(u16, Vec<u8>)> = Vec::new();
     for (&id, &global) in active {
         pending.clear();
@@ -796,7 +808,10 @@ fn poll_feedback(
         for _ in 0..FEEDBACK_DRAIN {
             match poll(u32::from(global)) {
                 Ok(Some(report)) => {
-                    pending.retain(|(kind, _)| *kind != report.0);
+                    let parts = feedback_parts(report.0, &report.1);
+                    pending.retain(|(kind, data)| {
+                        *kind != report.0 || feedback_parts(*kind, data) & !parts != 0
+                    });
                     pending.push(report);
                 }
                 Ok(None) => break,

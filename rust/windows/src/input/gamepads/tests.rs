@@ -133,13 +133,10 @@ fn feedback_failures_warn_per_pad_without_hiding_healthy_reports_or_flooding_log
 }
 #[test]
 fn feedback_drains_each_pads_backlog_and_forwards_the_newest_of_each_kind() {
-    // Pad 0 has a rumble, a light and the rumble's stop pending; pad 1 a
-    // game's rumble writes beyond what one poll reads.
+    // Pad 0 has a rumble and its stop pending; pad 1 a game's rumble
+    // writes beyond what one poll reads.
     let mut queues = BTreeMap::from([
-        (
-            2u32,
-            VecDeque::from([(4u16, vec![9]), (5, vec![1, 2, 3]), (4, vec![0])]),
-        ),
+        (2u32, VecDeque::from([(4u16, vec![9; 8]), (4, vec![0; 8])])),
         (5, (0..10u8).map(|n| (4, vec![n])).collect()),
     ]);
     let active = BTreeMap::from([(0, 2), (1, 5)]);
@@ -161,11 +158,7 @@ fn feedback_drains_each_pads_backlog_and_forwards_the_newest_of_each_kind() {
     // The stop is the last rumble pad 0 sends, so its motors don't stick.
     assert_eq!(
         output,
-        vec![
-            (0, 5, vec![1, 2, 3]),
-            (0, 4, vec![0]),
-            (1, 4, vec![FEEDBACK_DRAIN as u8 - 1])
-        ]
+        vec![(0, 4, vec![0; 8]), (1, 4, vec![FEEDBACK_DRAIN as u8 - 1])]
     );
     let output = poll_feedback(
         &active,
@@ -176,9 +169,9 @@ fn feedback_drains_each_pads_backlog_and_forwards_the_newest_of_each_kind() {
         &mut poll,
     );
     assert_eq!(output, vec![(1, 4, vec![9])]);
-    // Pad 0: three reports and the empty answer, then one empty answer;
+    // Pad 0: two reports and the empty answer, then one empty answer;
     // pad 1: a full drain, then the rest and the empty answer.
-    assert_eq!(calls, 4 + FEEDBACK_DRAIN + 1 + 3);
+    assert_eq!(calls, 3 + FEEDBACK_DRAIN + 1 + 3);
 
     // A report read before a failing call still goes out, and the failure
     // counts.
@@ -194,6 +187,50 @@ fn feedback_drains_each_pads_backlog_and_forwards_the_newest_of_each_kind() {
     assert_eq!(output, vec![(0, 4, vec![7])]);
     assert_eq!(failures[&0].unreported, 0, "the first failure is logged");
     assert!(failures[&0].reported.is_some());
+}
+#[test]
+fn a_rumble_only_report_does_not_hide_the_lights_and_trigger_effects_before_it() {
+    // PlayStation reports: rumble in bytes 0-3, lightbar 4-6, flags in 7
+    // (1 lightbar, 2 trigger effects), the effects from byte 10.
+    let report = |rumble: u8, flags: u8| {
+        let mut data = vec![0; 32];
+        data[..4].fill(rumble);
+        data[4..7].copy_from_slice(&[1, 2, 3]);
+        data[7] = flags;
+        data[10] = 0x21;
+        (5u16, data)
+    };
+    let poll_once = |queue: Vec<(u16, Vec<u8>)>| {
+        let mut queue = VecDeque::from(queue);
+        poll_feedback(
+            &BTreeMap::from([(0, 2)]),
+            &mut BTreeMap::new(),
+            &mut BTreeMap::new(),
+            "fake",
+            Instant::now(),
+            |_| Ok(queue.pop_front()),
+        )
+    };
+    let with = |(kind, data): (u16, Vec<u8>)| (0, kind, data);
+    // Triggers off and lights, then a rumble-only report: both go, the
+    // newest rumble last.
+    assert_eq!(
+        poll_once(vec![report(0xff, 3), report(0, 0)]),
+        vec![with(report(0xff, 3)), with(report(0, 0))]
+    );
+    assert_eq!(
+        poll_once(vec![report(0xff, 2), report(0x80, 1), report(0, 0)]),
+        vec![
+            with(report(0xff, 2)),
+            with(report(0x80, 1)),
+            with(report(0, 0))
+        ]
+    );
+    // A newer report that carries everything an older one did replaces it.
+    assert_eq!(
+        poll_once(vec![report(0xff, 0), report(0x80, 1), report(0, 3)]),
+        vec![with(report(0, 3))]
+    );
 }
 fn submit_touch(
     pointers: &mut BTreeMap<(u8, u32), u8>,

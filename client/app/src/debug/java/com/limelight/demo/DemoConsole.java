@@ -61,7 +61,8 @@ final class DemoConsole {
     /**
      * The demo library: the ten classic demo games first (same ids), then more, 36 added across Steam, Epic, GOG,
      * Xbox and no store, six of them not installed, five played lately; then four the host found but has not added.
-     * Covers cycle through the ten demo images, which are portrait, landscape and square.
+     * Each has its own cover, art/N.jpg for the game's place here (scripts/demo/covers.mjs checks this list); they are
+     * portrait, landscape and square.
      */
     static final String[][] LIBRARY = {
             // title, store, installed, last played (unix seconds)

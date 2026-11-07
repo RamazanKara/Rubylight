@@ -1,0 +1,28 @@
+<!doctype html><meta charset="utf-8"><title>Nightjar connection error</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="glass.css"><script src="lib.js"></script><body><script>
+// Loud, in words and with an icon, where the action happened. The app's own strings. One moon action.
+mount(`
+${ambient('racing-game', { fade: 'linear-gradient(180deg,rgba(14,14,22,.1),rgba(14,14,22,.4) 30%,rgba(20,22,31,.9) 60%,#14161f)' })}
+${statusBar()}
+<div style="position:absolute;left:131px;top:70px;width:150px;filter:saturate(.55) brightness(.8)">${cover('racing-game', { w: 150 })}</div>
+${glass('panel', { style: 'position:absolute;left:0;right:0;top:330px;bottom:-40px;border-radius:32px 32px 0 0;z-index:5' }, `
+  <div style="height:625px;position:relative;padding:44px 24px 0">
+    <div style="position:absolute;left:50%;top:8px;width:38px;height:5px;margin-left:-19px;border-radius:3px;background:var(--tint-track-fill)"></div>
+    <div style="display:flex;align-items:center;gap:14px">
+      <span style="width:52px;height:52px;border-radius:50%;display:grid;place-items:center;color:var(--color-error);background:color-mix(in srgb,var(--color-error) 20%,transparent);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--color-error) 55%,transparent);flex:none">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 6.5v7"/><circle cx="12" cy="17.5" r=".6" fill="currentColor"/></svg>
+      </span>
+      <div style="min-width:0"><div class="t-title">Connection Error</div><div class="t-sub sec" style="margin-top:1px">Racing Game, Living-room PC</div></div>
+    </div>
+    <div class="t-body" style="margin-top:22px;font-size:18px;line-height:26px">Stream failed to start.<br>Close protected videos or restart the PC.</div>
+    <button class="play press" style="width:100%;margin-top:26px">Try again</button>
+    <div class="group" style="margin-top:16px">
+      ${row('Stream settings', { sub: '1920 × 1080, 60 FPS, 20 Mbps', chev: true })}
+      ${row('Test the network', { chev: true })}
+      ${row('Error code', { val: '5031' })}
+    </div>
+    <div style="display:flex;justify-content:center;margin-top:18px"><button class="ctl press" style="height:52px;padding:0 30px">Back</button></div>
+  </div>
+`)}
+`, { w: 412, h: 915 });
+</script></body>

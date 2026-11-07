@@ -1,11 +1,26 @@
 //! PCs, Home and a PC's library: the pages that list PCs and games, a game's page, and what
 //! selecting a PC or game does.
 
+use super::chrome::{capsule_width, control_capsule, info_chip, info_chip_width};
+use super::design_tokens as t;
+use super::pcs::pc_line_of;
 use super::dialogs::{approve_dialog, short_device_name};
+use super::pcs::{action_button, action_width, PcAction};
 use super::*;
 
 /// How wide a List line grows: past it, the store and the date sit too far from the title.
-const LIST_MAX_W: f32 = 760.0;
+pub(super) const LIST_MAX_W: f32 = 760.0;
+/// The places a PC's list holds open while it loads.
+const LOADING_ROWS: usize = 2;
+/// The capsules at the right of a PC's page.
+const ACTION_H: f32 = 48.0;
+const ACTIONS_GAP: f32 = 14.0;
+/// A PC's page with no list: the words' widest, and the room it holds under its header.
+const BARE_WORDS_W: f32 = 520.0;
+const BARE_FOOT: f32 = 120.0;
+const BARE_LEAST: f32 = 200.0;
+/// What a page's title keeps before the name of the running game gives way.
+const MIN_TITLE_ROOM: f32 = 160.0;
 
 impl Launcher {
     pub(super) fn add_host_dialog(&mut self) {
@@ -16,154 +31,190 @@ impl Launcher {
         self.focus_dialog = true;
     }
 
-    pub(super) fn hosts(&mut self, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>, logo: egui::TextureId) {
-        ui.label(RichText::new(tr("Your PCs")).font(semibold(text::TITLE)).color(ON_SURFACE));
-        ui.label(
-            RichText::new(tr("PCs running a Moonlight-compatible host on this network appear here. Add one by address if it doesn't."))
-                .color(ON_SURFACE_VARIANT),
-        );
-        ui.add_space(18.0);
-        if view.hosts.list.is_empty() {
-            ui.add_space(60.0);
-            ui.vertical_centered(|ui| {
-                egui::Image::from_texture((logo, vec2(72.0, 72.0))).ui(ui);
-                ui.add_space(14.0);
-                if self.identity_ready {
-                    ui.label(RichText::new(tr("Looking for PCs…")).font(semibold(text::CARD_TITLE)));
-                } else {
-                    ui.label(RichText::new(tr("Creating this device's pairing key…")).font(semibold(text::CARD_TITLE)));
-                }
-                ui.label(
-                    RichText::new(tr("Start a Moonlight-compatible host on your PC and keep both on the same network."))
-                        .color(ON_SURFACE_VARIANT),
-                );
-                ui.add_space(12.0);
-                let r = primary_button(ui, "Add a PC by address");
-                if self.focus_screen {
-                    r.request_focus();
-                    self.focus_screen = false;
-                }
-                if r.clicked() {
-                    self.dialog = Dialog::AddHost {
-                        text: String::new(),
-                        error: None,
-                    };
-                    self.focus_dialog = true;
-                }
-                how_to_connect(ui, commands);
-            });
-            return;
-        }
-        scroll(ui, "hosts", |ui| {
-            let (columns, width) = card_grid(ui.available_width(), CARD_GAP);
-            for (row, chunk) in view.hosts.list.chunks(columns).enumerate() {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = CARD_GAP;
-                    for (i, host) in chunk.iter().enumerate() {
-                        let response = host_card(ui, host, None, width);
-                        let options = options_button(ui, response.rect, response.id.with("options"));
-                        let key = format!("host:{}", host.id);
-                        self.focus_item(&response, &key, row == 0 && i == 0);
-                        self.focus_item(&options, &format!("options:{}", host.id), false);
-                        if response.clicked() {
-                            host_clicked(host, self.settings.quick_resume, commands);
-                        }
-                        if let Some(anchor) = menu_request(ui, &response, Some(&options)) {
-                            self.open_menu(Dialog::HostOptions { host: host.id }, anchor, key);
-                        }
-                    }
-                });
-                ui.add_space(CARD_GAP);
-            }
-            // A short list may not be all of them: say the search goes on and where help is.
-            if view.hosts.list.len() <= columns {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = space::S;
-                    ui.label(RichText::new(tr("Looking for other PCs on this network")).color(ON_SURFACE_VARIANT));
-                    let help = how_to_connect(ui, commands);
-                    self.focus_item(&help, "how-to-connect", false);
-                });
-            }
-            ui.add_space(space::L);
-        });
-    }
-
     pub(super) fn apps(&mut self, ui: &mut Ui, view: &View<'_>, id: u64, commands: &mut Vec<Command>) {
         let Some(host) = view.hosts.get(id) else {
             self.go(Screen::Hosts);
             return;
         };
         let running = host.running_app();
+        let (columns, width) = grid(ui.available_width());
+        ui.spacing_mut().item_spacing.y = GRID_ROW_GAP;
         match &host.apps {
+            // Read again from an empty list: the same place, its button at work.
+            Apps::NotLoaded | Apps::Loading if self.refreshing_empty == Some(id) => {
+                self.bare_list(ui, id, tr("This PC lists no apps."), None, tr("Refresh"), true, false, commands);
+            }
             Apps::NotLoaded | Apps::Loading => {
-                ui.add_space(40.0);
-                ui.horizontal(|ui| {
-                    spinner(ui, 10.0);
-                    ui.label(RichText::new(tr("Loading the library…")).color(ON_SURFACE_VARIANT));
-                });
+                // The covers' own places, so the list lands without a jump, under one word of what is
+                // going on.
+                let top = ui.cursor().min;
+                for _ in 0..LOADING_ROWS {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = POSTER_GAP;
+                        for _ in 0..columns {
+                            cover_placeholder(ui, width);
+                        }
+                    });
+                }
+                let room = Rect::from_min_size(top, vec2(ui.available_width(), LOADING_ROWS as f32 * (cover_height(width) + GRID_ROW_GAP)));
+                loading_chip(ui, room);
             }
             Apps::Failed(e) => {
-                ui.label(RichText::new(tr("The library could not be loaded.")).font(semibold(text::CARD_TITLE)));
-                ui.label(RichText::new(e).color(ERROR));
-                if quiet_button(ui, "Try again").clicked() {
-                    commands.push(Command::Refresh(id));
-                }
+                self.refreshing_empty = None;
+                self.bare_list(ui, id, tr("The library could not be loaded."), Some(e), tr("Try again"), false, false, commands);
             }
             Apps::Loaded(apps) => {
+                self.refreshing_empty = None;
                 if apps.is_empty() {
-                    ui.label(RichText::new(tr("This PC lists no apps.")).color(ON_SURFACE_VARIANT));
+                    // Nothing listed is nothing to start, so no tile: the way on is to read it again.
+                    self.bare_list(ui, id, tr("This PC lists no apps."), None, tr("Refresh"), false, true, commands);
                     return;
                 }
-                scroll(ui, "apps", |ui| {
-                    ui.add_space(LIFT);
-                    let (columns, width) = grid(ui.available_width());
-                    // Hidden games stay out of the PC's list as off Home, unless asked for.
-                    let source = Source::of(host);
-                    let hides = |app: &nightjar_core::http::App| console::is_hidden(&source, &app.uuid, app.id as u32, &self.hidden_games);
-                    let any_hidden = apps.iter().any(hides);
-                    let shown: Vec<&nightjar_core::http::App> = apps.iter().filter(|app| self.show_hidden_apps || !hides(app)).collect();
-                    for (row, chunk) in shown.chunks(columns).enumerate() {
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = POSTER_GAP;
-                            for (i, app) in chunk.iter().enumerate() {
-                                let is_running = running.is_some_and(|r| app.matches_running_app(r, None));
-                                let art = host.art.get(&app.id);
-                                let response = poster(ui, &app.name, art, if is_running { Badge::Running } else { Badge::None }, width);
-                                let first = if running.is_some() { is_running } else { row == 0 && i == 0 };
-                                let key = format!("app:{}", app.id);
-                                self.focus_card(&response, &key, &key, first);
-                                let image = Rect::from_min_size(response.rect.min, vec2(width, (width * 4.0 / 3.0).round()));
-                                let dots = cover_dots(ui, &response, image);
-                                if response.clicked() {
-                                    if let Some(ask) = self.start_app(host, app, commands) {
-                                        self.ask(ask);
-                                    }
-                                }
-                                if let Some(anchor) = menu_request(ui, &response, dots.as_ref()) {
-                                    self.open_menu(Dialog::GameMenu { host: id, game: GameTarget::Classic { app: app.id } }, anchor, key);
+                // Hidden games stay out of the PC's list as off Home, unless asked for.
+                let source = Source::of(host);
+                let hides = |app: &nightjar_core::http::App| console::is_hidden(&source, &app.uuid, app.id as u32, &self.hidden_games);
+                let any_hidden = apps.iter().any(hides);
+                let shown: Vec<&nightjar_core::http::App> = apps.iter().filter(|app| self.show_hidden_apps || !hides(app)).collect();
+                for (row, chunk) in shown.chunks(columns).enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = POSTER_GAP;
+                        for (i, app) in chunk.iter().enumerate() {
+                            let is_running = running.is_some_and(|r| app.matches_running_app(r, None));
+                            let art = shown_art(view, id, app.id as u32);
+                            let response = bare_poster(ui, &app.name, art, if is_running { Badge::Running } else { Badge::None }, width);
+                            let first = if running.is_some() { is_running } else { row == 0 && i == 0 };
+                            let key = format!("app:{}", app.id);
+                            self.focus_card(&response, &key, &key, first);
+                            let dots = cover_dots(ui, &response, response.rect, if is_running { Badge::Running } else { Badge::None });
+                            if response.clicked() {
+                                if let Some(ask) = self.start_app(host, app, commands) {
+                                    self.ask(ask);
                                 }
                             }
-                        });
-                        ui.add_space(space::XS);
-                    }
-                    // A focused-but-unloaded first poster still gets focus next frame.
-                    if self.focus_screen && running.is_some() {
-                        self.focus_screen = false;
-                    }
-                    if any_hidden {
-                        let r = quiet_button(ui, if self.show_hidden_apps { tr("Hide hidden games") } else { tr("Show hidden games") });
-                        self.focus_item(&r, "show-hidden", shown.is_empty());
-                        if r.clicked() {
-                            self.show_hidden_apps = !self.show_hidden_apps;
+                            if let Some(anchor) = menu_request(ui, &response, dots.as_ref()) {
+                                self.open_menu(Dialog::GameMenu { host: id, game: GameTarget::Classic { app: app.id } }, anchor, key);
+                            }
                         }
+                    });
+                }
+                // A focused-but-unloaded first poster still gets focus next frame.
+                if self.focus_screen && running.is_some() {
+                    self.focus_screen = false;
+                }
+                if any_hidden {
+                    let r = quiet_button(ui, if self.show_hidden_apps { tr("Hide hidden games") } else { tr("Show hidden games") });
+                    self.focus_item(&r, "show-hidden", shown.is_empty());
+                    if r.clicked() {
+                        self.show_hidden_apps = !self.show_hidden_apps;
                     }
-                });
+                }
             }
         }
     }
 
+    /// A PC's page with no list to show: one line (and what went wrong) and the action that reads the
+    /// list again, in the middle of the room the covers would have had. A press holds the page as it
+    /// is, its action at work, until the answer; only an empty list's (`empty`) stays that page.
+    #[allow(clippy::too_many_arguments)]
+    fn bare_list(&mut self, ui: &mut Ui, id: u64, line: &str, error: Option<&str>, action: &str, working: bool, empty: bool, commands: &mut Vec<Command>) {
+        const GAP: f32 = 20.0;
+        let top = ui.cursor().top();
+        let room = (ui.ctx().content_rect().bottom() - top - BARE_FOOT).max(BARE_LEAST);
+        let width = ui.available_width();
+        let (area, _) = ui.allocate_exact_size(vec2(width, room), Sense::hover());
+        let head = ui.painter().layout(line.to_owned(), semibold(t::TYPE_SECTION_SIZE), *ON_SURFACE, width.min(BARE_WORDS_W));
+        let cause = error.map(|e| ui.painter().layout(e.to_owned(), regular(t::TYPE_BODY_SIZE), *ERROR, width.min(BARE_WORDS_W)));
+        let words_h = head.size().y + cause.as_ref().map_or(0.0, |c| c.size().y + 6.0);
+        let mut y = area.center().y - (words_h + GAP + ACTION_H) / 2.0;
+        ui.painter().galley(pos2(area.center().x - head.size().x / 2.0, y), head.clone(), *ON_SURFACE);
+        y += head.size().y;
+        if let Some(cause) = cause {
+            y += 6.0;
+            ui.painter().galley(pos2(area.center().x - cause.size().x / 2.0, y), cause.clone(), *ERROR);
+            y += cause.size().y;
+        }
+        y += GAP;
+        let w = capsule_width(ui, action);
+        let rect = Rect::from_min_size(pos2(area.center().x - w / 2.0, y), vec2(w, ACTION_H));
+        let r = control_capsule(ui, rect, Id::unique(("bare-list", id)), Icon::Refresh, action, action, !working);
+        if working {
+            let spin = Rect::from_min_size(pos2(rect.left() + 20.0, rect.center().y - 9.5), Vec2::splat(19.0));
+            ui.scope_builder(UiBuilder::new().max_rect(spin), |ui| spinner(ui, 9.0));
+        }
+        self.focus_item(&r, "bare-list", true);
+        if r.clicked() {
+            self.refreshing_empty = empty.then_some(id);
+            commands.push(Command::Refresh(id));
+        }
+    }
+
+    /// The right of a PC's page: what a running game offers, then the list's round Refresh. Returns
+    /// how wide they are.
+    pub(super) fn apps_head(&mut self, ui: &mut Ui, host: &Host, commands: &mut Vec<Command>) -> f32 {
+        let refresh = head_refresh(host, self.refreshing_empty);
+        let kept = refresh.map_or(0.0, |_| ACTION_H);
+        let running = self.running_actions(ui, host, kept + ACTIONS_GAP, commands);
+        let Some(working) = refresh else { return running };
+        let slot = ui.available_rect_before_wrap();
+        let rect = Rect::from_min_size(pos2(slot.right() - ACTION_H, ui.min_rect().center().y - ACTION_H / 2.0), Vec2::splat(ACTION_H));
+        let r = round_button_working(ui, rect, Icon::Refresh, tr("Refresh"), working);
+        self.focus_item(&r, "apps-refresh", false);
+        if r.clicked() && !working {
+            commands.push(Command::Refresh(host.id));
+        }
+        running + kept + if running > 0.0 { ACTIONS_GAP } else { 0.0 }
+    }
+
+    /// What a running game offers at the right of its PC's page, `kept` from its edge: its name, Resume
+    /// and Quit game. They hang on the row's centre, so the row keeps its height whether something runs
+    /// or not. Returns how wide they are.
+    fn running_actions(&mut self, ui: &mut Ui, host: &Host, kept: f32, commands: &mut Vec<Command>) -> f32 {
+        if host.running_app().is_none() {
+            return 0.0;
+        }
+        let mut slot = ui.available_rect_before_wrap();
+        slot.max.x -= kept;
+        let row = ui.min_rect();
+        let mid = row.center().y;
+        let name = at_sentence_start(&running_name(host));
+        let quit_words = tr("Quit game");
+        let quit_w = capsule_width(ui, quit_words);
+        let resume = resume_target(host).map(|app| (app, action_width(ui, PcAction::Resume(app), f32::MAX)));
+        let mut wide = quit_w + resume.map_or(0.0, |(_, w)| w + ACTIONS_GAP);
+        let chip_w = info_chip_width(ui, Some(9.0), &name);
+        // The title of the page comes first: a narrow window drops the chip, the dot on the cover and
+        // Resume still say it.
+        let chip = slot.right() - row.left() - chrome::BACK_SIZE - wide - chip_w - ACTIONS_GAP >= MIN_TITLE_ROOM;
+        if chip {
+            wide += chip_w + ACTIONS_GAP;
+        }
+        let mut x = slot.right() - wide;
+        if chip {
+            info_chip(ui, x, mid, Some(*OK), &name);
+            x += chip_w + ACTIONS_GAP;
+        }
+        if let Some((app, w)) = resume {
+            let rect = Rect::from_min_size(pos2(x, mid - ACTION_H / 2.0), vec2(w, ACTION_H));
+            let said = trf("Resume {}", &[&name]);
+            let r = action_button(ui, rect, Id::unique(("apps-resume", host.id)), PcAction::Resume(app), &said);
+            self.focus_item(&r, "apps-resume", false);
+            if r.clicked() {
+                commands.push(PcAction::Resume(app).command(host.id));
+            }
+            x += w + ACTIONS_GAP;
+        }
+        let rect = Rect::from_min_size(pos2(x, mid - ACTION_H / 2.0), vec2(quit_w, ACTION_H));
+        let r = control_capsule(ui, rect, Id::unique(("apps-quit", host.id)), Icon::Power, quit_words, quit_words, true);
+        self.focus_item(&r, "apps-quit", false);
+        if r.clicked() {
+            self.dialog = Dialog::ConfirmQuit { host: host.id, start: None, running: running_name(host), resume: None, named: host.running_app() };
+            self.focus_dialog = true;
+        }
+        wide
+    }
+
     /// "TV wants to pair" while a PC this device may approve for has a device waiting.
-    fn pairing_banner(&mut self, ui: &mut Ui, view: &View<'_>) {
+    pub(super) fn pairing_banner(&mut self, ui: &mut Ui, view: &View<'_>) {
         let mut waiting = view.hosts.list.iter().flat_map(|h| h.waiting_to_pair().iter().map(move |r| (h, r)));
         let Some((host, request)) = waiting.next() else {
             return;
@@ -183,192 +234,6 @@ impl Launcher {
         ui.add_space(space::S);
     }
 
-    pub(super) fn home(&mut self, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>, logo: egui::TextureId) {
-        if view.hosts.list.is_empty() {
-            ui.add_space(60.0);
-            ui.vertical_centered(|ui| {
-                egui::Image::from_texture((logo, vec2(72.0, 72.0))).ui(ui);
-                ui.add_space(14.0);
-                ui.label(RichText::new(tr("No PCs yet")).font(semibold(text::CARD_TITLE)));
-                ui.label(RichText::new(tr("Pair Nightjar with a PC to see its games here.")).color(ON_SURFACE_VARIANT));
-                ui.add_space(12.0);
-                let r = primary_button(ui, "Open PCs");
-                self.focus_item(&r, "open-hosts", true);
-                if r.clicked() {
-                    self.open(Screen::Hosts);
-                }
-                how_to_connect(ui, commands);
-            });
-            return;
-        }
-        let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
-        let (entries, _) = console::split_hidden(console::merge_library(&sources), &sources, &self.hidden_games);
-        let group = console::shown_group(self.settings.home_group, &entries);
-        let rows = console::home_rows(&entries, group);
-        let playing = console::continue_playing(&sources);
-        // A running game stays under Continue playing: hiding must not lose the way back to it.
-        let recent = console::recently_shown(&sources, &self.recents, &playing, &self.hidden_games, 6);
-        let starred: Vec<_> = console::favourite_games(&sources, &self.favourites).into_iter().filter(|s| console::not_hidden(&sources, s.host, s.app_id, &self.hidden_games)).collect();
-        let loading = library_loading(view);
-        scroll(ui, "home", |ui| {
-            // A failed read stays on screen beside the last good data.
-            for host in &view.hosts.list {
-                if let Some(error) = &host.native.error {
-                    ui.label(RichText::new(format!("{}: {}", host.display_name(), tr(error))).color(ERROR));
-                }
-            }
-            self.pairing_banner(ui, view);
-            let width = ui.available_width();
-            let (columns, cover_w) = grid_up_to(width, POSTER_MAX_W * self.settings.home_card_size.scale());
-            let (_, card_w) = card_grid(width, CARD_GAP);
-            let mut first = true;
-            if !starred.is_empty() {
-                shelf(ui, tr("Favourites"), None);
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = Vec2::splat(CARD_GAP);
-                    for (index, item) in starred.iter().enumerate() {
-                        let line = if item.online { trf("On {}", &[&item.host_name]) } else { trf("{} is away", &[&item.host_name]) };
-                        let response = continue_card(ui, &item.title, &line, false, card_w);
-                        let key = favourite_key(item);
-                        let game = console::entry_key_of(&entries, item.host, item.app_id).unwrap_or(&key);
-                        self.focus_card(&response, &key, game, std::mem::take(&mut first));
-                        if response.clicked() {
-                            self.open(Screen::Game { host: item.host, app: item.app_id });
-                        }
-                        if response.has_focus() && unstar_pressed(ui) {
-                            commands.push(Command::ToggleFavourite(item.favourite.clone()));
-                            // The focus moves to the next favourite (else the previous), not back to the top.
-                            match favourite_neighbour(&starred, index) {
-                                Some(near) => self.restore_key = Some(near),
-                                None => self.focus_screen = true,
-                            }
-                        }
-                        if let Some(anchor) = menu_request(ui, &response, None) {
-                            self.open_menu(Dialog::GameMenu { host: item.host, game: GameTarget::Library { app: item.app_id, favourite: true } }, anchor, key);
-                        }
-                    }
-                });
-            }
-            if !playing.is_empty() {
-                shelf(ui, tr("Continue playing"), None);
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = Vec2::splat(CARD_GAP);
-                    for item in &playing {
-                        let (line, running) = match item.playing {
-                            Playing::Running => (trf("Running on {}", &[&item.host_name]), true),
-                            Playing::Suspended => (trf("Suspended on {}", &[&item.host_name]), false),
-                        };
-                        let response = continue_card(ui, &item.title, &line, running, card_w);
-                        let key = format!("continue:{}:{}", item.host, item.app_id);
-                        self.focus_item(&response, &key, std::mem::take(&mut first));
-                        if response.clicked() {
-                            self.open(Screen::Game { host: item.host, app: item.app_id });
-                        }
-                        if let Some(anchor) = menu_request(ui, &response, None) {
-                            self.open_menu(Dialog::GameMenu { host: item.host, game: GameTarget::Library { app: item.app_id, favourite: false } }, anchor, key);
-                        }
-                    }
-                });
-            }
-            if !recent.is_empty() {
-                shelf(ui, tr("Recently played"), None);
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = Vec2::splat(CARD_GAP);
-                    for item in &recent {
-                        let line = if item.online { trf("On {}", &[&item.host_name]) } else { trf("{} is away", &[&item.host_name]) };
-                        let response = continue_card(ui, &item.title, &line, false, card_w);
-                        let key = format!("recent:{}:{}", item.host, item.app_id);
-                        let game = console::entry_key_of(&entries, item.host, item.app_id).unwrap_or(&key);
-                        self.focus_card(&response, &key, game, std::mem::take(&mut first));
-                        if response.clicked() {
-                            self.open(Screen::Game { host: item.host, app: item.app_id });
-                        }
-                        if let Some(anchor) = menu_request(ui, &response, None) {
-                            self.open_menu(Dialog::GameMenu { host: item.host, game: GameTarget::Library { app: item.app_id, favourite: false } }, anchor, key);
-                        }
-                    }
-                });
-            }
-            if entries.is_empty() {
-                shelf(ui, tr("Library"), None);
-                if loading {
-                    loading_games(ui);
-                } else {
-                    ui.label(RichText::new(tr("No games to show yet. They appear here once a PC that shares its game library is online.")).color(ON_SURFACE_VARIANT));
-                }
-            }
-            // One row per store (or one for the library), as many covers as fit and an All tile for
-            // the rest. The Grid view shows each row whole, as does a library of one kind by store.
-            let whole = self.settings.home_layout == HomeLayout::Grid || (rows.len() == 1 && group == HomeGroup::Store);
-            for row in &rows {
-                let name = match &row.kind {
-                    console::RowKind::Store { name, .. } => name.as_str(),
-                    console::RowKind::Games => tr("Games"),
-                    console::RowKind::Other => tr("Other apps"),
-                    console::RowKind::Library => tr("Library"),
-                    console::RowKind::Collection { name } => name.as_str(),
-                    console::RowKind::NoCollection => tr("No collection"),
-                };
-                shelf(ui, name, Some(row.games.len()));
-                // The List layout: every game of the row as a line, under each other.
-                if self.settings.home_layout == HomeLayout::List {
-                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-                    for entry in &row.games {
-                        let line = console::list_line(entry, console::last_played(entry, &sources, &self.recents), now);
-                        self.library_line(ui, view, &row.key(), entry, &line, width.min(LIST_MAX_W), std::mem::take(&mut first), commands);
-                        ui.add_space(space::XS);
-                    }
-                    continue;
-                }
-                let (shown, more) = if whole { (row.games.len(), false) } else { row.fit(columns) };
-                // What a screen reader says for the tile: whose games it opens, and how many.
-                let said = match &row.kind {
-                    console::RowKind::Store { name, .. } | console::RowKind::Collection { name } => trf("All {} games, {}", &[name, &row.games.len()]),
-                    console::RowKind::Other => trf("All other apps, {}", &[&row.games.len()]),
-                    console::RowKind::Games | console::RowKind::Library | console::RowKind::NoCollection => trf("All games, {}", &[&row.games.len()]),
-                };
-                let games = &row.games[..shown];
-                // At one column no cover fits beside the tile: the tile is the row.
-                let lines: Vec<&[&console::Entry]> = if games.is_empty() && more { vec![games] } else { games.chunks(columns).collect() };
-                for line in lines {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = POSTER_GAP;
-                        for entry in line {
-                            self.library_cover(ui, view, Some(&row.key()), entry, cover_w, std::mem::take(&mut first), commands);
-                        }
-                        if more && line.len() < columns {
-                            let tile = all_tile(ui, row.games.len(), &said, cover_w);
-                            self.focus_item(&tile, &format!("all:{}", row.key()), std::mem::take(&mut first));
-                            if tile.clicked() {
-                                self.library_filter = row.filter.clone();
-                                self.open(Screen::AllGames);
-                            }
-                        }
-                    });
-                    ui.add_space(space::XS);
-                }
-            }
-            shelf(ui, tr("PCs"), None);
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = Vec2::splat(CARD_GAP);
-                for (host, source) in view.hosts.list.iter().zip(&sources) {
-                    // A PC to pair has no games to speak of yet: its state alone fits the card.
-                    let line = if host.paired() { console::host_line(source).text() } else { String::new() };
-                    let response = host_card(ui, host, Some(&line), card_w);
-                    let key = format!("host:{}", host.id);
-                    self.focus_item(&response, &key, std::mem::take(&mut first));
-                    if response.clicked() {
-                        host_clicked(host, self.settings.quick_resume, commands);
-                    }
-                    if let Some(anchor) = menu_request(ui, &response, None) {
-                        self.open_menu(Dialog::HostOptions { host: host.id }, anchor, key);
-                    }
-                }
-            });
-            ui.add_space(space::L);
-        });
-    }
-
     /// Every game of every PC under its filter chips: All, Installed, each store, Other apps.
     pub(super) fn all_games(&mut self, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>) {
         let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
@@ -377,6 +242,7 @@ impl Launcher {
         if !hidden.is_empty() {
             chips.push(console::FilterChip { filter: console::LibraryFilter::Hidden, store_name: None, count: hidden.len() });
         }
+        let words = self.library_query.trim().to_lowercase();
         // A filter whose games went away falls back to all of them (with only hidden ones left, to those).
         if !chips.iter().any(|c| c.filter == self.library_filter) {
             self.library_filter = chips.first().map_or(console::LibraryFilter::All, |c| c.filter.clone());
@@ -391,6 +257,8 @@ impl Launcher {
             ui.label(RichText::new(tr("No games to show yet. They appear here once a PC that shares its game library is online.")).color(ON_SURFACE_VARIANT));
             return;
         }
+        // The chips stay as they are while words narrow them, only their counts follow.
+        count_chips(&mut chips, &entries, &hidden, &words);
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(space::S, space::S);
             for chip in &chips {
@@ -420,35 +288,33 @@ impl Launcher {
         // The room a raised cover's ring needs at the top of the scroll comes out of the gap.
         ui.add_space(space::L - LIFT);
         let pool = if self.library_filter == console::LibraryFilter::Hidden { &hidden } else { &entries };
-        let shown = console::filtered(pool, &self.library_filter);
+        let shown = matching(pool, &self.library_filter, &words);
         // Installed is offered while anything is not, so with nothing installed it holds no game.
         if shown.is_empty() {
             ui.add_space(LIFT);
             ui.label(RichText::new(tr("No games match this filter.")).color(ON_SURFACE_VARIANT));
             return;
         }
-        scroll(ui, "all-games", |ui| {
-            ui.add_space(LIFT);
-            let (columns, width) = grid(ui.available_width());
-            let mut first = true;
-            for line in shown.chunks(columns) {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = POSTER_GAP;
-                    for entry in line {
-                        self.library_cover(ui, view, None, entry, width, std::mem::take(&mut first), commands);
-                    }
-                });
-                ui.add_space(space::XS);
-            }
-            ui.add_space(space::L);
-        });
+        ui.add_space(LIFT);
+        let (columns, width) = grid(ui.available_width());
+        ui.spacing_mut().item_spacing.y = GRID_ROW_GAP;
+        let mut first = true;
+        for line in shown.chunks(columns) {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = POSTER_GAP;
+                for entry in line {
+                    self.library_cover(ui, view, None, entry, width, std::mem::take(&mut first), commands);
+                }
+            });
+        }
+        ui.add_space(space::L);
     }
 
     /// A game of the merged library as a line of the List layout; it opens and offers as its cover does.
     #[allow(clippy::too_many_arguments)]
-    fn library_line(&mut self, ui: &mut Ui, view: &View<'_>, row: &str, entry: &console::Entry, line: &str, width: f32, first: bool, commands: &mut Vec<Command>) {
+    pub(super) fn library_line(&mut self, ui: &mut Ui, view: &View<'_>, row: &str, entry: &console::Entry, line: &str, width: f32, first: bool, commands: &mut Vec<Command>) {
         let cover = entry.cover();
-        let art = cover.and_then(|c| view.hosts.get(c.host).and_then(|h| h.art.get(&(c.app_id as i32))));
+        let art = cover.and_then(|c| shown_art(view, c.host, c.app_id));
         let badge = if entry.running() {
             Badge::Running
         } else if !entry.installed() {
@@ -474,9 +340,9 @@ impl Launcher {
     /// A game of the merged library as a cover: selecting it opens its page, its menu offers the rest.
     /// On Home a game can show in several rows: `row` tells its cards apart for focus.
     #[allow(clippy::too_many_arguments)]
-    fn library_cover(&mut self, ui: &mut Ui, view: &View<'_>, row: Option<&str>, entry: &console::Entry, width: f32, first: bool, commands: &mut Vec<Command>) {
+    pub(super) fn library_cover(&mut self, ui: &mut Ui, view: &View<'_>, row: Option<&str>, entry: &console::Entry, width: f32, first: bool, commands: &mut Vec<Command>) {
         let cover = entry.cover();
-        let art = cover.and_then(|c| view.hosts.get(c.host).and_then(|h| h.art.get(&(c.app_id as i32))));
+        let art = cover.and_then(|c| shown_art(view, c.host, c.app_id));
         let badge = if entry.running() {
             Badge::Running
         } else if !entry.installed() {
@@ -484,7 +350,8 @@ impl Launcher {
         } else {
             Badge::None
         };
-        let response = poster(ui, &entry.title, art, badge, width);
+        // Home's shelves name their covers; the grid of all games lets the art say it.
+        let response = if row.is_some() { poster(ui, &entry.title, art, badge, width) } else { bare_poster(ui, &entry.title, art, badge, width) };
         if let Some(c) = cover {
             request_cover(ui, view, c.host, c.app_id, &c.cover_version, &response, commands);
         }
@@ -493,8 +360,8 @@ impl Launcher {
             None => format!("game:{}", entry.key),
         };
         self.focus_card(&response, &key, &entry.key, first);
-        let image = Rect::from_min_size(response.rect.min, vec2(width, (width * 4.0 / 3.0).round()));
-        let dots = cover_dots(ui, &response, image);
+        let image = Rect::from_min_size(response.rect.min, vec2(width, cover_height(width)));
+        let dots = cover_dots(ui, &response, image, badge);
         let best = entry.best();
         if response.clicked() {
             self.open(Screen::Game { host: best.host, app: best.app_id });
@@ -523,7 +390,7 @@ impl Launcher {
                 host: id,
                 start: Some((app.id, app.name.clone())),
                 running: running_name(host),
-                resume: running_app_id(host),
+                resume: resume_target(host),
                 named: host.running_app(),
             });
         } else {
@@ -532,28 +399,10 @@ impl Launcher {
         None
     }
 
-    /// Leaves the current screen for the one it was opened from.
-    pub(super) fn leave(&mut self) {
-        let root = self.root();
-        self.pop(root);
-    }
-
-    pub(super) fn game(&mut self, ui: &mut Ui, view: &View<'_>, host_id: u64, app_id: u32, commands: &mut Vec<Command>) {
-        let Some(host) = view.hosts.get(host_id) else {
-            self.leave();
-            return;
-        };
-        let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
-        let source = sources.iter().find(|s| s.id == host_id).expect("source of a listed host");
-        let Some(game) = source.library.and_then(|l| l.games.iter().find(|g| g.app_id == app_id)) else {
-            ui.label(RichText::new(tr("This game is no longer in the PC's library.")).font(semibold(text::CARD_TITLE)));
-            let r = primary_button(ui, "Back");
-            self.focus_item(&r, "back", true);
-            if r.clicked() {
-                self.leave();
-            }
-            return;
-        };
+    /// What a game can do on its PC now, for its Play, Favourite and Quit game. The game page and
+    /// Home's hero read the same answer.
+    pub(super) fn play_state(&self, host: &Host, source: &Source<'_>, game: &nightjar_core::http::native_api::library::Game) -> PlayState {
+        let app_id = game.app_id;
         let detail = console::detail(source, app_id, host.native_api());
         let classic = match &host.apps {
             Apps::Loaded(apps) => {
@@ -575,218 +424,188 @@ impl Launcher {
                 .clone()
                 .or_else(|| if online { host.running_app().map(|_| running_name(host)) } else { None })
         };
-        let merged = console::merge_library(&sources);
-        let others: Vec<console::Copy> = merged
-            .iter()
-            .find(|e| e.copies.iter().any(|c| c.host == host_id && c.app_id == app_id))
-            .map(|e| e.copies.iter().filter(|c| !(c.host == host_id && c.app_id == app_id)).cloned().collect())
-            .unwrap_or_default();
-        ui.horizontal_top(|ui| {
-            ui.spacing_mut().item_spacing.x = 28.0;
-            let (rect, response) = ui.allocate_exact_size(vec2(POSTER_W, POSTER_H), Sense::hover());
-            let art = host.art.get(&(app_id as i32));
-            // The state chip beside the title says it; a badge on the cover would say it twice.
-            paint_cover(ui, rect, &game.title, art, false);
-            request_cover(ui, view, host_id, app_id, &game.artwork.version, &response, commands);
-            ui.vertical(|ui| {
-                ui.set_max_width(640.0);
-                match detail.state {
-                    GameState::Running => state_chip(ui, "Running", OK),
-                    GameState::Suspended => state_chip(ui, "Suspended", TERTIARY),
-                    GameState::Idle => {}
-                }
-                ui.label(RichText::new(&game.title).font(semibold(text::TITLE)).color(ON_SURFACE));
-                // Hosts may send only the key: name it as the chips do (steam reads Steam).
-                if let Some(store) = game.store.as_ref().map(|s| console::store_name(&s.source, &s.name)).filter(|n| !n.is_empty()) {
-                    ui.label(RichText::new(store).color(ON_SURFACE_VARIANT));
-                }
-                pc_line(ui, source.name);
-                ui.add_space(8.0);
-                if host.reach == Reach::Offline {
-                    ui.label(RichText::new(tr("This PC is offline. Your saved library is still here. Reconnect to play.")).color(ERROR));
-                } else if host.reach == Reach::Unknown {
-                    ui.label(RichText::new(tr("Checking the PC…")).color(ON_SURFACE_VARIANT));
-                } else if !source.paired {
-                    ui.label(RichText::new(tr("Pair Nightjar with this PC to play.")).color(ERROR));
-                } else if !detail.can_start && !detail.installed {
-                    // Play is off: say why, as Android's game page does.
-                    ui.label(RichText::new(trf("Not installed on {}", &[&source.name])).color(ON_SURFACE_VARIANT));
-                }
-                // Only a game that can start would close it.
-                if let Some(other) = other_running.as_ref().filter(|_| detail.can_start) {
-                    ui.label(RichText::new(trf("{} is running. Playing this game closes it.", &[&at_sentence_start(other)])).color(TERTIARY));
-                }
-                ui.add_space(8.0);
-                let can_play = detail.can_start && classic.is_some();
-                ui.horizontal(|ui| {
-                    let r = ui.add_enabled_ui(can_play, |ui| primary_button(ui, if resumes { en("Resume") } else { en("Play") })).inner;
-                    self.focus_item(&r, "play", true);
-                    if r.clicked() {
-                        if let Some(app) = &classic {
-                            if resumes {
-                                commands.push(Command::Launch { host: host_id, app: app.id, resume: true });
-                            } else if let (Some(running), false) = (&other_running, host.confirms_replacement()) {
-                                self.dialog = Dialog::ConfirmQuit {
-                                    host: host_id,
-                                    start: Some((app.id, game.title.clone())),
-                                    running: running.clone(),
-                                    resume: running_app_id(host),
-                                    named: host.running_app(),
-                                };
-                                self.focus_dialog = true;
-                            } else {
-                                commands.push(Command::Launch { host: host_id, app: app.id, resume: false });
-                            }
-                        }
-                    }
-                    let star = console::favourite_of(source, game);
-                    let starred = console::is_starred(source, game, &self.favourites);
-                    let r = ui
-                        .add_enabled_ui(star.is_some(), |ui| {
-                            quiet_button(ui, if starred { en("Remove from favourites") } else { en("Add to favourites") })
-                        })
-                        .inner;
-                    // With Play off (not installed, the PC away) and nothing to end, the star takes the
-                    // focus, so the D-pad has somewhere to start.
-                    self.focus_item(&r, "favourite", !can_play && detail.end == EndAction::None);
-                    if r.clicked() {
-                        if let Some(star) = star {
-                            commands.push(Command::ToggleFavourite(star));
-                        }
-                    }
-                    if detail.end != EndAction::None {
-                        let closing = host.native.acting;
-                        let label = if detail.end == EndAction::CloseGame { en("Close game") } else { en("Quit game") };
-                        let r = ui.add_enabled_ui(!closing, |ui| quiet_button(ui, label)).inner;
-                        self.focus_item(&r, "end", !can_play);
-                        if r.clicked() {
-                            self.dialog = if detail.end == EndAction::CloseGame {
-                                Dialog::ConfirmClose { host: host_id, name: game.title.clone() }
-                            } else {
-                                Dialog::ConfirmQuit { host: host_id, start: None, running: game.title.clone(), resume: None, named: host.running_app() }
-                            };
-                            self.focus_dialog = true;
-                        }
-                        if closing {
-                            spinner(ui, 9.0);
-                        }
-                    }
-                });
-                // Why Play is not there yet: the app list is what starts a stream.
-                if detail.can_start && classic.is_none() {
-                    match &host.apps {
-                        Apps::NotLoaded | Apps::Loading => {
-                            ui.horizontal(|ui| {
-                                spinner(ui, 9.0);
-                                ui.label(RichText::new(tr("Loading the app list…")).color(ON_SURFACE_VARIANT));
-                            });
-                        }
-                        Apps::Failed(_) | Apps::Loaded(_) => {
-                            let why = match &host.apps {
-                                Apps::Failed(e) => trf("The app list could not be loaded. {}", &[&e]),
-                                _ => tr("The PC's app list has no entry for this game.").to_owned(),
-                            };
-                            ui.label(RichText::new(why).color(ERROR));
-                            let r = quiet_button(ui, "Try again");
-                            self.focus_item(&r, "retry", true);
-                            if r.clicked() {
-                                commands.push(Command::Refresh(host_id));
-                            }
-                        }
-                    }
-                }
-                if let Some(app) = &classic {
-                    self.leave_and_input_only(ui, host, app, can_play, resumes, commands);
-                }
-                ui.add_space(14.0);
-                let kind = self.network.kind(&self.profiles.home_wifi);
-                let mut settings = host.record.settings(&self.profiles.settings(&self.settings, kind));
-                let game = classic.as_ref().and_then(|a| host.record.app_settings(&a.uuid, a.id));
-                if let Some(overrides) = game {
-                    settings = overrides.apply(&settings);
-                }
-                let (w, h, fps, kbps) = stream_mode(&settings, self.display);
-                let profile = self
-                    .profiles
-                    .selected(kind)
-                    .and_then(|id| self.profiles.entries.iter().find(|p| p.id == id))
-                    .map_or(tr("Main settings"), |p| p.name.as_str());
-                let mut summary = format!("{}  \u{b7}  {profile}", console::stream_summary(w, h, fps, kbps));
-                for from in summary_sources(self.profiles.profile(kind), host.record.settings.as_ref(), game) {
-                    summary.push_str("  \u{b7}  ");
-                    summary.push_str(&from);
-                }
-                row(ui, "Stream settings", &summary, |ui| {
-                    match &classic {
-                        Some(app) => {
-                            let r = quiet_button(ui, "Game settings");
-                            self.focus_item(&r, "settings", false);
-                            if r.clicked() {
-                                commands.push(Command::AppSettings { host: host_id, app: app.clone() });
-                            }
-                            r
-                        }
-                        None => ui.add_enabled(false, egui::Button::new(tr("Game settings"))),
-                    }
-                });
-                if !others.is_empty() {
-                    section(ui, "Also on");
-                    ui.horizontal_wrapped(|ui| {
-                        for copy in &others {
-                            // A copy there that is not installed opens, but says so first.
-                            let name = if copy.installed { copy.host_name.clone() } else { trf("{}, not installed", &[&copy.host_name]) };
-                            let r = quiet_button(ui, &name);
-                            self.focus_item(&r, &format!("copy:{}", copy.host), false);
-                            if r.clicked() {
-                                self.go(Screen::Game { host: copy.host, app: copy.app_id });
-                            }
-                        }
-                    });
-                }
-            });
-        });
+        let can_play = detail.can_start && classic.is_some();
+        PlayState { detail, classic, resumes, other_running, can_play }
     }
 
-    /// A game's quit on leave switch and, on a PC without its own mode, Input-only through a
-    /// small stream: Android's game menu entries.
-    pub(super) fn leave_and_input_only(&mut self, ui: &mut Ui, host: &Host, app: &nightjar_core::http::App, can_play: bool, running: bool, commands: &mut Vec<Command>) {
-        use nightjar_policy::launch::{self, InputOnlyBlocker};
-        if launch::offers_quit_on_leave(host.paired(), policy_control(app.control), policy_role(app.role(false))) {
-            let mut on = host.record.quits_on_leave(&app.uuid, app.id);
-            // A switch in a row like every other setting, its effect said under it.
-            let note = if on { en("On: Disconnect also quits it on the PC") } else { en("Off: Disconnect leaves it running on the PC") };
-            // As far below the buttons as the stream settings card sits below it.
-            ui.add_space(space::S);
-            let r = row(ui, "Quit the game when I leave the stream", note, |ui| toggle(ui, &mut on));
-            self.focus_item(&r, "quit-on-leave", false);
-            if r.changed() {
-                commands.push(Command::SetQuitOnLeave { host: host.id, uuid: app.uuid.clone(), id: app.id, enabled: on });
+    /// Play or Resume: asks first when it would replace another running game.
+    pub(super) fn press_play(&mut self, host: &Host, game: &nightjar_core::http::native_api::library::Game, state: &PlayState, commands: &mut Vec<Command>) {
+        let Some(app) = &state.classic else {
+            // The list starts a stream and is not here yet: Play holds until it lands.
+            if state.could_play(host) {
+                self.pending_play = Some(PendingPlay { host: host.id, app: game.app_id, screen: self.screen });
+                commands.push(Command::LoadApps(host.id));
             }
-        }
-        let Some(blocker) = small_stream_offer(host, app, running, self.settings.input_only_any_host) else { return };
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            let r = ui.add_enabled_ui(blocker.is_none() && can_play, |ui| quiet_button(ui, "Input-only")).inner;
-            self.focus_item(&r, "input-only", false);
-            if r.clicked() {
-                commands.push(Command::LaunchInputOnly { host: host.id, app: app.id, resume: running });
-            }
-            let note = match blocker {
-                Some(InputOnlyBlocker::Pair) => tr("Pair with this PC first").to_owned(),
-                Some(InputOnlyBlocker::ViewPermission) => tr("Allow viewing streams for this device on the host").to_owned(),
-                Some(InputOnlyBlocker::InputPermission) => tr("Allow input for this device on the host").to_owned(),
-                None => trf("Video still streams at the smallest size, about {} Mbit/s ({} MB an hour), but isn’t shown", &[
-                    &format!("{:.1}", f64::from(launch::estimated_kbps()) / 1000.0),
-                    &launch::estimated_megabytes_per_hour().to_string(),
-                ]),
+            return;
+        };
+        self.pending_play = None;
+        if state.resumes {
+            commands.push(Command::Launch { host: host.id, app: app.id, resume: true });
+        } else if let (Some(running), false) = (&state.other_running, host.confirms_replacement()) {
+            self.dialog = Dialog::ConfirmQuit {
+                host: host.id,
+                start: Some((app.id, game.title.clone())),
+                running: running.clone(),
+                resume: resume_target(host),
+                named: host.running_app(),
             };
-            ui.label(RichText::new(note).color(if blocker.is_some() { ERROR } else { ON_SURFACE_VARIANT }));
-        });
+            self.focus_dialog = true;
+        } else {
+            commands.push(Command::Launch { host: host.id, app: app.id, resume: false });
+        }
+    }
+
+    /// Whether Play on this game is waiting for its PC's app list.
+    pub(super) fn playing_soon(&self, host: u64, app: u32) -> bool {
+        self.pending_play.is_some_and(|p| p.host == host && p.app == app)
+    }
+
+    /// A Play that waited for the list: starts once the entry is there, and says so out loud if it
+    /// cannot be. Leaving the page where it was pressed lets it go; an open dialog holds it, so no
+    /// stream starts under a menu and no typed text gets replaced.
+    pub(super) fn settle_play(&mut self, view: &View<'_>, sources: &[Source<'_>], commands: &mut Vec<Command>) {
+        let Some(pending) = self.pending_play else { return };
+        if self.screen != pending.screen {
+            self.pending_play = None;
+            return;
+        }
+        if !matches!(self.dialog, Dialog::None) {
+            return;
+        }
+        let host = view.hosts.get(pending.host);
+        let source = sources.iter().find(|s| s.id == pending.host);
+        let game = source.and_then(|s| s.library).and_then(|l| l.games.iter().find(|g| g.app_id == pending.app));
+        let (Some(host), Some(source), Some(game)) = (host, source, game) else {
+            self.pending_play = None;
+            return;
+        };
+        let state = self.play_state(host, source, game);
+        let why = if !state.detail.can_start {
+            Some(pc_line_of(host).words().to_owned())
+        } else if matches!(host.apps, Apps::NotLoaded | Apps::Loading) {
+            return;
+        } else {
+            state.list_problem(host)
+        };
+        self.pending_play = None;
+        match why {
+            Some(why) => self.message(tr("The stream could not start"), why),
+            None => self.press_play(host, game, &state, commands),
+        }
+    }
+
+    /// Try again beside a Play the list stopped: reads the list again, whatever it last said.
+    pub(super) fn list_retry(&mut self, ui: &mut Ui, rect: Rect, key: &'static str, first: bool, host: u64, commands: &mut Vec<Command>) {
+        let words = tr("Try again");
+        let r = control_capsule(ui, rect, Id::unique(key), Icon::Refresh, words, words, true);
+        self.focus_item(&r, key, first);
+        if r.clicked() {
+            commands.push(Command::ReadAppsAgain(host));
+        }
+    }
+
+    /// Quit game, through the native Close game where the PC allows it, else the classic quit.
+    pub(super) fn press_end(&mut self, host: &Host, game: &nightjar_core::http::native_api::library::Game, state: &PlayState) {
+        self.dialog = if state.detail.end == EndAction::CloseGame {
+            Dialog::ConfirmClose { host: host.id, name: game.title.clone() }
+        } else {
+            Dialog::ConfirmQuit { host: host.id, start: None, running: game.title.clone(), resume: None, named: host.running_app() }
+        };
+        self.focus_dialog = true;
+    }
+
+    /// Leaves the current screen for the one it was opened from.
+    pub(super) fn leave(&mut self) {
+        let root = self.root();
+        self.pop(root);
+    }
+}
+
+/// The games of `pool` under `filter` whose title holds the lowercase `words`.
+fn matching<'a>(pool: &'a [console::Entry], filter: &console::LibraryFilter, words: &str) -> Vec<&'a console::Entry> {
+    let mut shown = console::filtered(pool, filter);
+    if !words.is_empty() {
+        shown.retain(|entry| entry.title.to_lowercase().contains(words));
+    }
+    shown
+}
+
+/// What each chip would show for the words in the search.
+fn count_chips(chips: &mut [console::FilterChip], entries: &[console::Entry], hidden: &[console::Entry], words: &str) {
+    if words.is_empty() {
+        return;
+    }
+    for chip in chips {
+        let pool = if chip.filter == console::LibraryFilter::Hidden { hidden } else { entries };
+        chip.count = matching(pool, &chip.filter, words).len();
+    }
+}
+
+/// "Loading the library…" with its spinner, over the middle of the places held for the covers.
+fn loading_chip(ui: &mut Ui, room: Rect) {
+    const H: f32 = 40.0;
+    const R: f32 = 8.0;
+    let words = ui.painter().layout_no_wrap(tr("Loading the library…").to_owned(), regular(text::LABEL), *ON_SURFACE);
+    let rect = Rect::from_center_size(room.center(), vec2(14.0 + 2.0 * R + 10.0 + words.size().x + 18.0, H));
+    let mut out = Vec::new();
+    glass::control(&mut out, ui.ctx(), rect, H / 2.0);
+    ui.painter().extend(out);
+    let spinning = Rect::from_min_size(pos2(rect.left() + 14.0, rect.center().y - R), Vec2::splat(2.0 * R));
+    ui.scope_builder(UiBuilder::new().max_rect(spinning), |ui| spinner(ui, R));
+    ui.painter().galley(pos2(spinning.right() + 10.0, rect.center().y - words.size().y / 2.0), words, *ON_SURFACE);
+}
+
+/// A Play that waits for its PC's app list, and the page it was pressed on.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct PendingPlay {
+    pub host: u64,
+    pub app: u32,
+    pub screen: Screen,
+}
+
+/// What a game can do on its PC now ([`Launcher::play_state`]).
+pub(super) struct PlayState {
+    pub detail: console::Detail,
+    /// Its entry in the PC's app list, which is what starts a stream.
+    pub classic: Option<nightjar_core::http::App>,
+    pub resumes: bool,
+    /// The other game that playing this one would close.
+    pub other_running: Option<String>,
+    pub can_play: bool,
+}
+
+impl PlayState {
+    /// Whether Play is on: the PC can start it, and its app list has the entry or may yet.
+    pub(super) fn could_play(&self, host: &Host) -> bool {
+        self.detail.can_start && (self.classic.is_some() || matches!(host.apps, Apps::NotLoaded | Apps::Loading))
+    }
+
+    /// Why the PC's app list stops a game that could start, once the list has had its say.
+    pub(super) fn list_problem(&self, host: &Host) -> Option<String> {
+        if !self.detail.can_start || self.classic.is_some() {
+            return None;
+        }
+        match &host.apps {
+            Apps::Failed(e) => Some(trf("The app list could not be loaded. {}", &[&e])),
+            Apps::Loaded(_) => Some(tr("The PC's app list has no entry for this game.").to_owned()),
+            Apps::NotLoaded | Apps::Loading => None,
+        }
+    }
+}
+
+/// A game's cover as it should show now: what is known of it, and for a PC that is up and has yet to
+/// be asked, on its way. A PC that is away sends none, so its covers without art are tiles.
+pub(super) fn shown_art<'a>(view: &'a View<'_>, host: u64, app: u32) -> Option<&'a Art> {
+    let pc = view.hosts.get(host)?;
+    match pc.art.get(&(app as i32)) {
+        Some(art) => Some(art),
+        None if pc.reach == Reach::Online => Some(&Art::Loading),
+        None => None,
     }
 }
 
 /// Whether a paired PC that is up and shares its library has not sent it yet.
-fn library_loading(view: &View<'_>) -> bool {
+pub(super) fn library_loading(view: &View<'_>) -> bool {
     view.hosts.list.iter().any(|h| {
         h.reach == Reach::Online && h.paired() && h.native_api() && h.native.library.is_none() && h.native.error.is_none()
     })
@@ -813,7 +632,7 @@ pub(super) fn card_neighbour(cards: &[(String, String)], key: &str) -> Option<St
 }
 
 /// "Loading the games…" by a spinner, on Home and All games alike.
-fn loading_games(ui: &mut Ui) {
+pub(super) fn loading_games(ui: &mut Ui) {
     ui.horizontal(|ui| {
         spinner(ui, 10.0);
         ui.label(RichText::new(tr("Loading the games…")).color(ON_SURFACE_VARIANT));
@@ -885,7 +704,7 @@ pub(super) fn running_entry(host: &Host) -> Option<&nightjar_core::http::App> {
 
 /// A name that starts a sentence: the stand-in "the running app" gets its capital, a game's own
 /// name stays as it is spelled.
-pub(super) fn at_sentence_start(name: &str) -> String {
+pub fn at_sentence_start(name: &str) -> String {
     if name != tr("the running app") {
         return name.to_owned();
     }
@@ -943,24 +762,27 @@ pub(super) fn plays_this_game(known: Option<&nightjar_core::http::App>, app: i32
 }
 
 pub fn running_name(host: &Host) -> String {
-    let Some(running) = host.running_app() else {
-        return tr("the running app").into();
-    };
-    if let Apps::Loaded(apps) = &host.apps {
-        if let Some(app) = apps.iter().find(|a| a.matches_running_app(running, None)) {
-            return app.name.clone();
-        }
-    }
-    tr("the running app").into()
+    running_entry(host).map_or_else(|| tr("the running app").into(), |app| app.name.clone())
 }
 
 /// The classic app id of the app the PC runs now, once the app list is loaded.
 pub(super) fn running_app_id(host: &Host) -> Option<i32> {
-    let running = host.running_app()?;
+    running_entry(host).map(|app| app.id)
+}
+
+/// Whether a PC's page has the round Refresh in its head, and whether it is at work: for a list to
+/// read again. A page with no list to show has that action in its middle.
+pub(super) fn head_refresh(host: &Host, refreshing_empty: Option<u64>) -> Option<bool> {
     match &host.apps {
-        Apps::Loaded(apps) => apps.iter().find(|a| a.matches_running_app(running, None)).map(|a| a.id),
+        Apps::Loaded(apps) if !apps.is_empty() => Some(false),
+        Apps::Loading if refreshing_empty != Some(host.id) => Some(true),
         _ => None,
     }
+}
+
+/// What a Resume names: the list's entry, else the id the PC reports, which is all a resume needs.
+pub(super) fn resume_target(host: &Host) -> Option<i32> {
+    running_app_id(host).or(host.running_app())
 }
 
 /// Where the game page's stream size, rate and bitrate come from, for those not from the main

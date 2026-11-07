@@ -1,0 +1,45 @@
+<!doctype html><meta charset="utf-8"><title>Nightjar desktop home</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="glass.css"><script src="lib.js"></script><body><script>
+const row1 = [['open-world', 'Open World'], ['ocean-explorer', 'Ocean Explorer'], ['space-sim', 'Space Sim'], ['music-studio', 'Music Studio'], ['ember-keep', 'Ember Keep'], ['puzzle-night', 'Puzzle Night']];
+const row2 = ['frostline', 'night-courier', 'ashfall', 'harvest-valley', 'brightwater', 'deep-field', 'retro-arcade'];
+mount(`
+${ambient('racing-game', { fade: 'linear-gradient(180deg,rgba(14,12,20,0),rgba(14,12,20,0) 30%,rgba(16,16,24,.95) 58%,#12141c)' })}
+<div style="position:absolute;left:48px;right:48px;top:20px;display:flex;align-items:center;gap:14px;z-index:6">
+  <div style="display:flex;align-items:center;gap:10px;font:600 19px/24px Figtree;margin-right:6px">${mark(30)}Nightjar</div>
+  ${capsuleNav(0, { h: 48 })}
+  <div style="flex:1"></div>
+  ${glass('chrome', { style: 'border-radius:24px;height:48px;width:220px' }, `<div class="sec" style="height:48px;display:flex;align-items:center;gap:9px;padding:0 16px;font:400 15px/20px Figtree">${icon('search', 19)}Search<span style="margin-left:auto;font-size:12px;opacity:.75" class="num">Ctrl K</span></div>`)}
+  ${pcCapsule('Living-room PC', 48)}
+</div>
+<div style="position:absolute;left:48px;top:88px;display:flex;gap:28px;align-items:flex-end;z-index:2">
+  ${cover('racing-game', { w: 160, style: 'box-shadow:0 18px 44px rgba(0,0,0,.55),0 0 70px rgba(255,95,70,.28)' })}
+  <div style="padding-bottom:2px">
+    <div style="display:flex;gap:6px;margin-bottom:10px"><span class="chip tint"><span class="dot"></span>Running</span><span class="chip tint">Steam</span></div>
+    <div class="t-hero" style="font-size:50px;line-height:54px">Racing Game</div>
+    <div style="display:flex;gap:10px;margin-top:18px;align-items:center">
+      <button class="play press" style="min-width:176px;height:52px">${icon('play', 21)}Resume</button>
+      <button class="ctl press" style="height:52px">${icon('star', 19)}Favourite</button>
+      <button class="ctl press" style="height:52px">${icon('power', 19)}Quit game</button>
+    </div>
+  </div>
+</div>
+
+<div class="group" style="position:absolute;right:48px;top:88px;width:280px;background:var(--tint-groupOnArt-fill);z-index:2">
+  <div class="t-head" style="padding:12px 16px 4px">Continue</div>
+  <div class="row press" style="gap:12px;padding:8px 16px">${cover('open-world', { w: 38, style: 'border-radius:8px' })}<div class="ti"><div class="t-body" style="font-weight:600">Open World</div><div class="t-sub sec">Yesterday</div></div></div>
+  <div class="row press" style="gap:12px;padding:8px 16px">${cover('ocean-explorer', { w: 38, style: 'border-radius:8px' })}<div class="ti"><div class="t-body" style="font-weight:600">Ocean Explorer</div><div class="t-sub sec">Monday</div></div></div>
+  <div class="row press" style="gap:12px;padding:8px 16px 10px">${cover('space-sim', { w: 38, style: 'border-radius:8px' })}<div class="ti"><div class="t-body" style="font-weight:600">Space Sim</div><div class="t-sub sec">Last week</div></div></div>
+</div>
+<div style="position:absolute;left:48px;right:48px;top:350px">
+  <div class="hdr"><span class="t-section">Steam</span><span class="t-body sec">10</span></div>
+  <div class="shelf" style="margin-top:12px;gap:16px">
+    ${row1.map(([n, t], i) => cover(n, { w: 155, cap: t, style: i === 1 ? 'transform:translateY(-3px) scale(1.03);box-shadow:0 18px 40px rgba(0,0,0,.6)' : '' })).join('')}
+    <button class="group press" style="flex:none;width:155px;height:232px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;border-radius:var(--radius-cover);color:var(--color-labelSecondary);font:600 16px/22px Figtree">${icon('grid', 28)}All 10</button>
+  </div>
+</div>
+<div style="position:absolute;left:48px;right:48px;top:656px">
+  <div class="hdr"><span class="t-section">Epic Games</span><span class="t-body sec">7</span></div>
+  <div class="shelf" style="margin-top:12px;gap:16px">${row2.map((n) => cover(n, { w: 155 })).join('')}</div>
+</div>
+`, { w: 1280, h: 800 });
+</script></body>

@@ -1,14 +1,26 @@
 //! The launcher: PCs, pairing, the app library, settings, and the connecting card. It only
 //! draws and collects [`Command`]s; `main.rs` carries them out.
 
+mod backdrop;
 mod cards;
+mod chrome;
+#[allow(dead_code, reason = "generated: every token is listed, the pages use them as they are redesigned")]
+pub(crate) mod design_tokens;
+#[cfg(any(feature = "demo-library", test))]
+pub(crate) mod demo;
 mod dialogs;
+pub(crate) mod glass;
 mod icons;
 pub mod files;
+mod first_run;
+mod game;
 mod help;
+mod home;
 mod library;
 mod pages;
+pub(crate) mod pcs;
 mod settings;
+mod spring;
 mod widgets;
 
 use egui::{
@@ -29,11 +41,12 @@ use crate::theme::*;
 use cards::*;
 use dialogs::*;
 pub use dialogs::moves_in_hotkey_dialog;
-pub use library::{asked_start, join_target, playing_elsewhere, policy_role, running_name};
+pub use library::{asked_start, at_sentence_start, join_target, playing_elsewhere, policy_role, running_name};
 use library::*;
-pub(crate) use widgets::{focus_ring, name_for_readers, primary_button, quiet_button, toggle};
+pub(crate) use widgets::{column, focus_ring, focus_ring_around, glass_behind, group_row, lift_shapes, name_for_readers, page_scroll_from, pin_key, pin_slots, primary_button, quiet_button, round_button, row, section, toggle, Combo, ToTop, Tone, DIALOG_MARGIN};
+pub(crate) use chrome::{BACK_SIZE, PAGE_TITLE};
 use widgets::*;
-use icons::Icon;
+pub(crate) use icons::Icon;
 
 /// Where Nightjar's guides live, the pages Android's help opens.
 pub const GUIDES: &str = "https://github.com/RamazanKara/nightjar/blob/main/docs/";
@@ -114,6 +127,8 @@ pub enum Command {
     OpenLogs,
     /// Check that the PC answers at its saved address (the details page's remote access test).
     RemoteCheck(u64),
+    /// Read a PC's app list if it was never read: Home's Play starts from it.
+    LoadApps(u64),
     /// Open a PC's web UI in the default browser.
     OpenWebUi(String),
     /// Open one of Nightjar's guides (a page under [`GUIDES`]) in the default browser.
@@ -134,6 +149,8 @@ pub enum Command {
     Unpair(u64),
     Remove(u64),
     Refresh(u64),
+    /// Reads the PC's app list again, also one that came without the game.
+    ReadAppsAgain(u64),
     OpenApps(u64),
     /// Fetch a cover that scrolled into view (a new `version` fetches again).
     RequestArt { host: u64, app: i32, version: String },
@@ -159,7 +176,7 @@ pub enum Command {
     Power(crate::power::Offer),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Screen {
     /// Games to continue, the merged library and the PCs.
     Home,
@@ -246,6 +263,8 @@ pub enum Dialog {
     ImportShortcuts(crate::shortcuts::Shortcuts),
     /// A PC's actions in one list, in the order of `host_options`.
     HostOptions { host: u64 },
+    /// The PCs, from the top bar's capsule with two or more: `current` is the one it shows.
+    PcSheet { current: u64 },
     /// A game's actions: its page, favourites, its settings, starting it.
     GameMenu { host: u64, game: GameTarget },
     Rename { host: u64, text: String },
@@ -341,6 +360,8 @@ pub struct Launcher {
     pub controller_key: String,
     pub controller_mapping: crate::gamepad::Mapping,
     pub controller_test: bool,
+    /// The device in the hand: what the button hints name.
+    pub input_source: crate::input_source::InputSource,
     pub shortcuts: crate::shortcuts::Shortcuts,
     /// Games streamed before, latest first.
     pub recents: Vec<crate::config::Recent>,
@@ -380,6 +401,37 @@ pub struct Launcher {
     home_ready: bool,
     /// The width the header's actions took last frame, to keep them at the right edge.
     header_width: f32,
+    /// The game Home is about; the chrome's PC capsule speaks of its PC.
+    hero: Option<home::Hero>,
+    /// What lies behind the page.
+    ambient: backdrop::Ambient,
+    /// The top bar's search field is open on All games, with these words.
+    search_open: bool,
+    search_focus: bool,
+    /// All games was opened for the search, so leaving the search leaves it too.
+    search_pushed: bool,
+    library_query: String,
+    /// How far under the chrome this page's content scrolls: an item revealed rests below it.
+    scroll_inset: f32,
+    /// How far Home has scrolled, for the scrim under the chrome.
+    page_scrolled: f32,
+    /// The stream menu's demo page, over its still.
+    #[cfg(any(test, feature = "demo-library"))]
+    pub(crate) demo_menu: Option<demo::DemoMenu>,
+    #[cfg(any(test, feature = "demo-library"))]
+    demo_video: Option<egui::TextureHandle>,
+    /// The focus went up into the chrome: Home goes back to its start beneath it.
+    page_to_top: bool,
+    /// Back was used on the page header this frame.
+    back_pressed: bool,
+    /// The PC whose empty list is being read again: its page holds still until the answer.
+    refreshing_empty: Option<u64>,
+    /// The first run shows a found PC: when it first does, its Pair takes the focus.
+    found_shown: bool,
+    /// Play pressed before the PC's app list arrived: it starts when the list lands.
+    pending_play: Option<library::PendingPlay>,
+    /// Where the page's Back has its slot this frame: None on a page without one.
+    back_slot: Option<f32>,
     /// The display's tearing support, for the VRR setting's note.
     pub tearing_supported: bool,
     /// The renderer's Direct3D 11 device, which the PyroWave GPU decoder's settings probe runs on.
@@ -419,8 +471,9 @@ pub struct View<'a> {
 const CONTENT_MAX: f32 = 1760.0;
 /// Seconds a pairing link's question shows before Pair can be chosen.
 const PAIR_LINK_DELAY: f64 = 1.0;
-/// The column of settings rows: settings, a PC's details, the profile and shortcut lists.
-const SETTINGS_W: f32 = 760.0;
+/// The column of settings rows takes what the page gives it up to this, so that on a very wide
+/// window a row's label and its control stay in one glance. No window under about 1400 reaches it.
+pub(crate) const SETTINGS_W: f32 = 1300.0;
 
 impl Launcher {
     pub fn new(settings: Settings, profiles: Profiles, shortcuts: crate::shortcuts::Shortcuts, display: Display) -> Self {
@@ -444,6 +497,7 @@ impl Launcher {
             controller_key: String::new(),
             controller_mapping: crate::gamepad::Mapping::default(),
             controller_test: false,
+            input_source: crate::input_source::InputSource::None,
             shortcuts,
             recents: Vec::new(),
             favourites: Vec::new(),
@@ -466,6 +520,24 @@ impl Launcher {
             cards: Vec::new(),
             home_ready: false,
             header_width: 0.0,
+            hero: None,
+            ambient: Default::default(),
+            search_open: false,
+            search_focus: false,
+            search_pushed: false,
+            library_query: String::new(),
+            scroll_inset: 0.0,
+            page_scrolled: 0.0,
+            #[cfg(any(test, feature = "demo-library"))]
+            demo_menu: None,
+            #[cfg(any(test, feature = "demo-library"))]
+            demo_video: None,
+            page_to_top: false,
+            back_pressed: false,
+            refreshing_empty: None,
+            found_shown: false,
+            pending_play: None,
+            back_slot: None,
             tearing_supported: false,
             gpu_device: None,
             display,
@@ -536,6 +608,12 @@ impl Launcher {
         }
         if self.screen == Screen::Settings && screen != Screen::Settings && self.settings_dirty {
             self.settings_dirty = false;
+        }
+        // The search lives on All games and the game pages it opens.
+        if !matches!(screen, Screen::AllGames | Screen::Game { .. }) {
+            self.search_open = false;
+            self.search_pushed = false;
+            self.library_query.clear();
         }
         self.screen = screen;
         self.focus_screen = true;
@@ -643,10 +721,10 @@ impl Launcher {
         // on that too (Tab moves report both; scrolling twice is one scroll).
         if response.has_focus() && self.focused_key.as_deref() != Some(key) {
             self.focused_key = Some(key.to_owned());
-            response.scroll_to_me(None);
+            self.reveal(response);
         }
         if response.gained_focus() {
-            response.scroll_to_me(None);
+            self.reveal(response);
         }
         if !response.enabled() {
             return;
@@ -655,11 +733,18 @@ impl Launcher {
             self.restore_key = None;
             self.focus_screen = false;
             response.request_focus();
-            response.scroll_to_me(None);
+            self.reveal(response);
         } else if first && self.focus_screen && self.restore_key.is_none() {
             self.focus_screen = false;
             response.request_focus();
         }
+    }
+
+    /// Scrolls an item into view, clear of the chrome content passes beneath.
+    fn reveal(&self, response: &Response) {
+        let mut clear = response.clone();
+        clear.rect = clear.rect.with_min_y(clear.rect.top() - self.scroll_inset);
+        clear.scroll_to_me(None);
     }
 
     /// Gives the screen's first item focus again (after a stream or a dialog).
@@ -811,13 +896,19 @@ impl Launcher {
             .anchor(egui::Align2::CENTER_BOTTOM, vec2(0.0, -40.0))
             .interactable(false)
             .show(ctx, |ui| {
-                Frame::new()
-                    .fill(Color32::from_rgba_unmultiplied(0x28, 0x2A, 0x36, 235))
-                    .corner_radius(CornerRadius::same(18))
-                    .inner_margin(Margin::symmetric(18, 10))
-                    .show(ui, |ui| {
-                        ui.label(RichText::new(notice).font(regular(text::LABEL)).color(ON_SURFACE));
-                    });
+                let place = ui.painter().add(egui::Shape::Noop);
+                let shown = Frame::new().inner_margin(Margin::symmetric(18, 10)).show(ui, |ui| {
+                    ui.label(RichText::new(notice).font(regular(text::LABEL)).color(ON_SURFACE));
+                });
+                let rect = shown.response.rect;
+                let mut shapes = Vec::new();
+                // The stream menu's recipe, not the thin chip: with no blur, the words of a page under
+                // a chip read through a toast's own.
+                glass::without_backdrop(&mut shapes, ctx, rect, rect.height() / 2.0, glass::Material::Menu);
+                // The shadow falls past the area's clip.
+                let mut painter = ui.painter().clone();
+                painter.set_clip_rect(ctx.content_rect());
+                painter.set(place, egui::Shape::Vec(shapes));
             });
         ctx.request_repaint_after(left);
     }
@@ -878,6 +969,11 @@ impl Launcher {
             commands.push(Command::SaveSettings);
         }
         self.sync_look(&ctx);
+        #[cfg(any(test, feature = "demo-library"))]
+        if let Some(menu) = self.demo_menu {
+            self.demo_stream_menu(ui, menu);
+            return commands;
+        }
         // A check whose page was left is cancelled here. Settings opened over the page does not
         // leave it: Back returns to the page and its check.
         let page = std::iter::once(&self.screen).chain(self.trail.iter().map(|(screen, _)| screen)).find_map(|screen| match screen {
@@ -900,6 +996,10 @@ impl Launcher {
         // above run under them, so a check, transfer or join in flight still ends or is cancelled.
         if let Some(pin) = &mut self.pin {
             let pcs: Vec<(String, String)> = view.hosts.list.iter().map(|h| (h.record.unique_id.clone(), h.display_name().to_owned())).collect();
+            if pin.up() {
+                self.ambient.set_page(&ctx, "pin");
+                ui.painter().extend(self.ambient.paint(&ctx, backdrop::Want::Sky(backdrop::Moon::High)));
+            }
             if pin.ui(ui, &pcs, &mut commands) {
                 return commands;
             }
@@ -910,8 +1010,8 @@ impl Launcher {
         let menu_open = egui::Popup::is_any_open(&ctx);
         let escape = ctx.input(|i| i.key_pressed(Key::Escape)) && !menu_open;
         let pad = std::mem::take(&mut self.pad_back);
-        // On a settings page, Escape leaves the search before the page.
-        if escape && view.connecting.is_none() && view.waking.is_none() && !(matches!(self.dialog, Dialog::None) && self.escape_search()) {
+        // On a settings page and on All games, Escape leaves the search before the page.
+        if escape && view.connecting.is_none() && view.waking.is_none() && !(matches!(self.dialog, Dialog::None) && (self.escape_search() || self.escape_library_search())) {
             self.back(&mut commands, pad);
         } else if view.connecting.is_none() && view.waking.is_none() {
             self.help_keys(&ctx, &mut commands);
@@ -926,49 +1026,82 @@ impl Launcher {
         }
         let logo = self.logo(&ctx);
         let full = ui.max_rect();
-        ui.painter().rect_filled(full, 0.0, NIGHT);
-        // The banner's orbit rings, off the top right corner.
-        let center = Pos2::new(full.right() + 40.0, full.top() + 40.0);
-        for r in [140.0, 210.0, 280.0, 350.0] {
-            ui.painter().circle_stroke(center, r, Stroke::new(1.5, ORBIT));
+        // Home's hero is known before anything is drawn: the backdrop and the chrome speak of it.
+        let mut home_data = (self.screen == Screen::Home).then(|| home::HomeData::gather(self, &sources));
+        if let Some(data) = &home_data {
+            self.hero.clone_from(&data.hero);
         }
-
-        // The page breathes with the window: a margin that grows with it, the content capped only
-        // on very wide screens.
-        let margin = ((full.width() - CONTENT_MAX) / 2.0).max((full.width() * 0.035).clamp(24.0, 56.0));
+        // Home has nothing to say with no PCs: the first run is on PCs, where they are found.
+        if self.screen == Screen::Home && view.hosts.list.is_empty() {
+            self.go(Screen::Hosts);
+        }
+        let want = self.page_backdrop(&view, &sources);
+        // The backdrop goes under the page but is painted once the page is drawn: its moon stands
+        // clear of what this page holds, in the same frame.
+        self.ambient.set_page(&ctx, self.screen);
+        self.ambient.set_orbit(self.screen == Screen::Hosts && first_run::first_run_of(view.hosts).is_some() && view.hosts.discovering);
+        self.ambient.prepare(&ctx, want);
+        let under = ui.painter().clone();
+        let backdrop_slot = under.add(egui::Shape::Noop);
+        let margin = chrome::page_margin(full.width());
         let content = Rect::from_min_max(
-            Pos2::new(full.left() + margin, full.top() + 24.0),
+            Pos2::new(full.left() + margin, full.top() + chrome::PAGE_TOP),
             Pos2::new(full.right() - margin, full.bottom() - 16.0),
         );
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(content).layout(Layout::top_down(Align::Min)));
         let ui = &mut child;
         self.cards.clear();
         // A menu by its card leaves the page as it is (it holds the input itself); a dialog dims it.
-        let menu = matches!(self.dialog, Dialog::HostOptions { .. } | Dialog::GameMenu { .. } | Dialog::HomeView) && self.menu_anchor != Anchor::Center;
+        let menu = matches!(self.dialog, Dialog::HostOptions { .. } | Dialog::PcSheet { .. } | Dialog::GameMenu { .. } | Dialog::HomeView) && self.menu_anchor != Anchor::Center;
         let blocked = (!matches!(self.dialog, Dialog::None) && !menu) || view.connecting.is_some() || view.waking.is_some();
         // Screens take focus only when nothing covers them.
         let held_focus = self.focus_screen;
         if blocked {
             self.focus_screen = false;
         }
+        self.settle_play(&view, &sources, &mut commands);
+        let brand = self.top_bar(&ctx, &view, blocked, &mut commands);
+        self.back_slot = None;
+        // Every page scrolls whole beneath the chrome, so whatever is revealed rests below it.
+        self.scroll_inset = chrome::PAGE_TOP;
         ui.add_enabled_ui(!blocked, |ui| {
-            self.header(ui, logo, &view, &mut commands);
-            ui.add_space(space::XL);
             match self.screen {
-                Screen::Home => self.home(ui, &view, &mut commands, logo),
-                Screen::AllGames => self.all_games(ui, &view, &mut commands),
-                Screen::Game { host, app } => self.game(ui, &view, host, app, &mut commands),
-                Screen::Hosts => self.hosts(ui, &view, &mut commands, logo),
-                Screen::Apps(id) => self.apps(ui, &view, id, &mut commands),
-                Screen::HostDetails(id) => self.host_details(ui, &view, id, &mut commands),
-                Screen::Files(id) => self.files_page(ui, &view, id, &mut commands),
-                Screen::Settings |Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.settings_page(ui, &view, &mut commands),
-                Screen::Profiles => self.profiles_page(ui, &mut commands),
-                Screen::Controllers => self.controllers_page(ui, view.pads, &mut commands),
-                Screen::Shortcuts => self.shortcuts_page(ui, &mut commands),
-                Screen::StreamHotkeys => self.stream_hotkeys_page(ui, &mut commands),
-                Screen::Help => self.help_page(ui, &view, &mut commands),
+                Screen::Home => {
+                    let data = home_data.take().unwrap_or_else(|| home::HomeData::gather(self, &sources));
+                    self.home(ui, &view, &sources, data, &mut commands)
+                }
+                Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.settings_page(ui, &view, &mut commands),
+                screen => {
+                    let to_top = self.chrome_to_top();
+                    self.page_scrolled = page_scroll(ui, page_area(screen), to_top, |ui| {
+                        self.header(ui, &view, &mut commands);
+                        match screen {
+                            Screen::AllGames => self.all_games(ui, &view, &mut commands),
+                            Screen::Game { host, app } => self.game(ui, &view, host, app, &mut commands),
+                            Screen::Hosts => self.hosts(ui, &view, &mut commands),
+                            Screen::Apps(id) => self.apps(ui, &view, id, &mut commands),
+                            Screen::HostDetails(id) => self.host_details(ui, &view, id, &mut commands),
+                            Screen::Files(id) => self.files_page(ui, &view, id, &mut commands),
+                            Screen::Profiles => self.profiles_page(ui, &mut commands),
+                            Screen::Controllers => self.controllers_page(ui, view.pads, &mut commands),
+                            Screen::Shortcuts => self.shortcuts_page(ui, &mut commands),
+                            Screen::StreamHotkeys => self.stream_hotkeys_page(ui, &mut commands),
+                            Screen::Help => self.help_page(ui, &view, &mut commands),
+                            Screen::Home | Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => {}
+                        }
+                    });
+                }
             }
+            // Back, once the page it leaves is drawn: the next one starts in its own scroll area.
+            if std::mem::take(&mut self.back_pressed) {
+                self.back(&mut commands, false);
+            }
+            self.paint_brand(&ctx, brand, logo);
+            // What rose over its neighbours, under the chrome and whatever covers the page.
+            glass::flush_deferred(ui);
+            under.set(backdrop_slot, egui::Shape::Vec(self.ambient.finish(&ctx)));
+            let veil = self.ambient.veil(&ctx, full, chrome::brand_rect(full), self.page_scrolled);
+            ui.painter().with_clip_rect(full).extend(veil);
         });
         if blocked {
             self.focus_screen = held_focus;
@@ -989,24 +1122,60 @@ impl Launcher {
         } else if let Some(host) = &view.waking {
             waking(&ctx, host, &mut commands);
         }
+        self.button_hints(&ctx, &view);
         self.draw_toast(&ctx);
         commands
     }
 
-    /// The top bar: the brand, the destinations (the one this page belongs to marked) and the
-    /// page's actions at the right edge. Below the top level, a second row leads back and names the
-    /// page, with that page's actions at its right.
-    fn header(&mut self, ui: &mut Ui, logo: egui::TextureId, view: &View<'_>, commands: &mut Vec<Command>) {
-        ui.horizontal(|ui| {
-            ui.set_min_height(44.0);
-            egui::Image::from_texture((logo, vec2(28.0, 28.0))).ui(ui);
-            ui.label(RichText::new("Nightjar").font(semibold(text::CARD_TITLE)).color(PAPER));
-            ui.add_space(space::XL);
-            self.nav(ui, commands);
-            if self.screen.destination() == self.screen {
-                self.actions(ui, view, commands);
+    /// A dialog or a connecting or waking card is over the page.
+    fn panel_is_up(&self, view: &View<'_>) -> bool {
+        !matches!(self.dialog, Dialog::None) || view.connecting.is_some() || view.waking.is_some()
+    }
+
+    /// Focus that went up into the chrome brings the page back to its top.
+    fn chrome_to_top(&mut self) -> ToTop {
+        if std::mem::take(&mut self.page_to_top) {
+            ToTop::Glide
+        } else {
+            ToTop::No
+        }
+    }
+
+    /// What the page wants behind it: its game's ambient, the sky with its moon on a page of cards or
+    /// rows. A page that belongs to what came before it keeps what shows.
+    fn page_backdrop(&self, view: &View<'_>, sources: &[Source<'_>]) -> backdrop::Want {
+        use backdrop::{Moon, Want};
+        match self.screen {
+            Screen::Home => match &self.hero {
+                Some(hero) => home::ambient_for(view, hero.host, hero.app, &hero.title),
+                None => Want::Sky(Moon::High),
+            },
+            Screen::Game { host, app } => {
+                let game = sources.iter().find(|s| s.id == host).and_then(|s| s.library).and_then(|l| l.games.iter().find(|g| g.app_id == app));
+                match game {
+                    Some(game) => home::ambient_for(view, host, app, &game.title),
+                    None => Want::Keep,
+                }
             }
-        });
+            // The game the PC runs lights its page; with none, what shows stays.
+            Screen::Apps(id) => match view.hosts.get(id).and_then(|host| Some((host, running_app_id(host)?))) {
+                Some((host, app)) => home::ambient_for(view, id, app as u32, &running_name(host)),
+                None => Want::Keep,
+            },
+            Screen::AllGames => Want::Keep,
+            Screen::Hosts => Want::Sky(first_run::first_run_of(view.hosts).map_or(Moon::Low, first_run::FirstRun::moon)),
+            _ => Want::Sky(Moon::High),
+        }
+    }
+
+    /// Whether the page leads back: anything below the top level.
+    fn has_back(&self) -> bool {
+        !matches!(self.screen, Screen::Home | Screen::Hosts | Screen::Settings | Screen::Help)
+    }
+
+    /// Under the chrome, below the top level: a row that leads back and names the page, with that
+    /// page's actions at its right.
+    fn header(&mut self, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>) {
         let title = match self.screen {
             Screen::Home | Screen::Hosts | Screen::Settings | Screen::Help => return,
             // The page itself is headed by the game's title, beside its cover.
@@ -1019,55 +1188,30 @@ impl Launcher {
             Screen::Shortcuts => tr("Keyboard shortcuts").to_owned(),
             Screen::StreamHotkeys => tr("Stream hotkeys").to_owned(),
         };
-        ui.add_space(space::L);
         ui.horizontal(|ui| {
-            ui.set_min_height(40.0);
-            // Back names where it leads when that is a destination's page.
-            let (to, said) = match self.screen {
-                Screen::Apps(_) if self.trail.last().is_none_or(|(s, _)| *s == Screen::Hosts) => (en("PCs"), en("Back to PCs")),
-                Screen::Profiles | Screen::Controllers | Screen::Shortcuts | Screen::StreamHotkeys => (en("Settings"), en("Back to Settings")),
-                _ => (en("Back"), en("Back")),
+            ui.spacing_mut().item_spacing.x = 14.0;
+            ui.set_min_height(chrome::BACK_SIZE);
+            // Back names where it leads when that is a destination's page, so a screen reader tells
+            // it from the destination of the same name in the row above.
+            let said = match self.screen {
+                Screen::Apps(_) if self.trail.last().is_none_or(|(s, _)| *s == Screen::Hosts) => en("Back to PCs"),
+                Screen::Profiles | Screen::Controllers | Screen::Shortcuts | Screen::StreamHotkeys => en("Back to Settings"),
+                _ => en("Back"),
             };
-            let back = button(ui, Some(Icon::Back), tr(to), Tone::Plain, Size { pad: 12.0, ..Size::HEADER });
-            // A screen reader tells it from the destination of the same name in the row above.
-            back.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tr(said)));
-            if back.clicked() {
-                self.back(commands, false);
+            let (slot, _) = ui.allocate_exact_size(Vec2::splat(chrome::BACK_SIZE), Sense::hover());
+            if self.sticky_back(ui, slot, tr(said)).clicked() {
+                self.back_pressed = true;
             }
             if !title.is_empty() {
-                ui.add_space(space::S);
-                ui.label(RichText::new(title).font(semibold(text::SECTION)).color(PAPER));
+                // A long name ends in an ellipsis before the page's actions.
+                let room = ui.available_width() - self.header_width - 2.0 * space::M;
+                ui.allocate_ui(vec2(room.max(0.0), chrome::BACK_SIZE), |ui| {
+                    ui.add(egui::Label::new(RichText::new(title).font(semibold(chrome::PAGE_TITLE)).color(PAPER)).truncate());
+                });
             }
             self.actions(ui, view, commands);
         });
-    }
-
-    /// The destinations as one segmented control: the current page's destination filled, the
-    /// others plain until pointed at.
-    fn nav(&mut self, ui: &mut Ui, commands: &mut Vec<Command>) {
-        let marked = self.screen.destination();
-        Frame::new().fill(*SURFACE_LOW).corner_radius(CornerRadius::same(14)).inner_margin(Margin::same(4)).stroke(control_stroke()).show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                for (name, screen) in DESTINATIONS {
-                    // Home waits for a library to show.
-                    if screen != Screen::Home || self.home_ready || marked == Screen::Home {
-                        self.destination(ui, name, screen, marked == screen, commands);
-                    }
-                }
-            });
-        });
-    }
-
-    /// One destination of the top bar. From a page below it, it leads back to its top.
-    fn destination(&mut self, ui: &mut Ui, name: &str, screen: Screen, marked: bool, commands: &mut Vec<Command>) {
-        let tone = if marked { Tone::Current } else { Tone::Plain };
-        let response = button(ui, Some(destination_icon(screen)), tr(name), tone, Size { height: 36.0, pad: 14.0, ..Size::HEADER });
-        // The marked one reads as selected, as the chosen filter chip does.
-        response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, marked, tr(name)));
-        if response.clicked() && self.screen != screen {
-            self.go_destination(screen, commands);
-        }
+        ui.add_space(space::L);
     }
 
     /// The destinations the top bar offers now: Home waits for a library, unless it is shown.
@@ -1125,60 +1269,14 @@ impl Launcher {
     }
 
     /// The page's actions at the right edge of its row, registered left to right so Tab reaches
-    /// them in reading order. Their width is last frame's; a change repaints.
-    fn actions(&mut self, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>) {
-        let slot = ui.available_rect_before_wrap();
-        let width = self.header_width.min(slot.width());
-        let rect = Rect::from_min_max(pos2(slot.right() - width, slot.top()), slot.right_bottom());
-        let used = ui
-            .scope_builder(UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)), |ui| {
-                ui.spacing_mut().item_spacing.x = space::S;
-                match self.screen {
-                    // All games is always a step away, not only from a row too long to fit, once
-                    // some PC has games to list (`home_ready`, worked out once a frame).
-                    Screen::Home => {
-                        if self.home_ready && header_button(ui, "All games", Icon::Grid).clicked() {
-                            self.library_filter = console::LibraryFilter::All;
-                            self.open(Screen::AllGames);
-                        }
-                        if self.home_ready {
-                            let view = header_button(ui, "View", Icon::Sliders);
-                            self.focus_item(&view, "home-view", false);
-                            if view.clicked() {
-                                self.open_menu(Dialog::HomeView, Anchor::Below(view.rect), "home-view".into());
-                            }
-                        }
-                    }
-                    Screen::Hosts => {
-                        if header_button(ui, "Add PC", Icon::Plus).clicked() {
-                            self.add_host_dialog();
-                        }
-                    }
-                    Screen::Apps(id) => {
-                        if let Some(host) = view.hosts.get(id) {
-                            if header_button(ui, "Refresh", Icon::Refresh).clicked() {
-                                commands.push(Command::Refresh(id));
-                            }
-                            if host.running_app().is_some() && header_button(ui, "Quit running app", Icon::Stop).clicked() {
-                                self.dialog = Dialog::ConfirmQuit {
-                                    host: id,
-                                    start: None,
-                                    running: running_name(host),
-                                    resume: None,
-                                    named: host.running_app(),
-                                };
-                                self.focus_dialog = true;
-                            }
-                        }
-                        if header_button(ui, "PC settings", Icon::Sliders).clicked() {
-                            commands.push(Command::HostSettings(id));
-                        }
-                    }
-                    _ => {}
-                }
-                ui.min_rect().width()
-            })
-            .inner;
+    /// them in reading order. What the row's title leaves them is said to it next frame.
+    pub(super) fn actions(&mut self, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>) {
+        let mut used = 0.0;
+        if let Screen::Apps(id) = self.screen {
+            if let Some(host) = view.hosts.get(id) {
+                used = self.apps_head(ui, host, commands);
+            }
+        }
         if (used - self.header_width).abs() > 0.5 {
             self.header_width = used;
             ui.ctx().request_repaint();
@@ -1189,7 +1287,7 @@ impl Launcher {
 /// A destination's icon in the top bar.
 fn destination_icon(screen: Screen) -> Icon {
     match screen {
-        Screen::Home => Icon::Home,
+        Screen::Home => Icon::Gamepad,
         Screen::Hosts => Icon::Monitor,
         Screen::Settings => Icon::Gear,
         _ => Icon::Help,
@@ -1203,6 +1301,27 @@ pub fn inherited_from(pc: Option<&Overrides>, profile: Option<&crate::config::Pr
     pc.into_iter().chain(profile).collect()
 }
 
+/// Which scroll area a page keeps its place in. Each game has its own.
+fn page_area(screen: Screen) -> Id {
+    match screen {
+        Screen::Game { host, app } => Id::unique(("game", host, app)),
+        Screen::Home => Id::unique("home"),
+        Screen::AllGames => Id::unique("all-games"),
+        Screen::Hosts => Id::unique("hosts"),
+        Screen::Apps(_) => Id::unique("apps"),
+        Screen::HostDetails(_) => Id::unique("host-details"),
+        Screen::Files(_) => Id::unique("files"),
+        Screen::Profiles => Id::unique("profiles"),
+        Screen::Controllers => Id::unique("controller-mapping"),
+        Screen::Shortcuts => Id::unique("shortcuts"),
+        Screen::StreamHotkeys => Id::unique("stream-hotkeys"),
+        Screen::Help => Id::unique("help"),
+        Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => Id::unique("settings"),
+    }
+}
+
+#[cfg(test)]
+mod glass_shots;
 #[cfg(test)]
 use settings::*;
 #[cfg(test)]

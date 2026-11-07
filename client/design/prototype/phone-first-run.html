@@ -1,0 +1,28 @@
+<!doctype html><meta charset="utf-8"><title>Nightjar first run</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="glass.css"><script src="lib.js"></script><body><script>
+// Every new user starts here. Discovery is already running: the mark, one orbit, the app's own words, one action.
+const found = Q.get('found') === '1';
+mount(`
+${nightSky({ x: 206, y: found ? 214 : 322, r: found ? 70 : 96 })}
+${statusBar()}
+<div style="position:absolute;left:206px;top:${found ? 214 : 322}px;transform:translate(-50%,-50%);filter:drop-shadow(0 0 44px rgba(242,169,59,.45))">${mark(found ? 140 : 192)}</div>
+<div style="position:absolute;left:0;top:0;width:412px;height:915px;pointer-events:none">${orbit(found ? 118 : 160, { cx: 206, cy: found ? 214 : 322, dur: 2.4 })}</div>
+${found ? `
+<div style="position:absolute;left:16px;right:16px;top:376px">
+  ${glass('panel', { style: 'border-radius:28px' }, `
+    <div style="display:flex;gap:16px;align-items:center;padding:18px">
+      ${pcScreen('Game-room PC', { state: 'unpaired', w: 92 })}
+      <div style="flex:1;min-width:0"><div class="t-head" style="font-size:19px;line-height:24px">Game-room PC</div><div class="t-sub sec" style="margin-top:3px">Not paired</div></div>
+    </div>
+    <div style="padding:0 18px 18px"><button class="play press" style="width:100%">${icon('lock', 21)}Pair</button></div>
+  `)}
+  <div style="display:flex;justify-content:center;gap:9px;align-items:center;margin-top:24px" class="t-sub sec"><span class="dot off"></span>Searching for PCs…</div>
+</div>
+<div style="position:absolute;left:0;right:0;top:716px;display:flex;justify-content:center"><button class="ctl press" style="height:52px">${icon('plus', 20)}Add PC</button></div>
+` : `
+<div style="position:absolute;left:24px;right:24px;top:530px;text-align:center" class="t-title">Searching for PCs…</div>
+<div style="position:absolute;left:0;right:0;top:600px;display:flex;justify-content:center"><button class="play press" style="min-width:214px">${icon('plus', 22, 2.2)}Add PC</button></div>
+`}
+${tabBar(1)}
+`, { w: 412, h: 915 });
+</script></body>

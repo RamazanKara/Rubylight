@@ -1,0 +1,36 @@
+<!doctype html><meta charset="utf-8"><title>Nightjar phone PCs</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="glass.css"><script src="lib.js"></script><body><script>
+// The landing page on every host without a library API. Each state reads from the screen, the word and the action.
+const pc = (name, state, sub, action = '') => `<div class="row ico press" style="min-height:84px;padding:11px 14px">${pcScreen(name, { state, w: 76 })}<div class="ti" style="margin-left:2px"><div class="t-head" style="font-size:17px">${name}</div><div class="t-sub ${state === 'online' ? '' : 'sec'}" style="display:flex;align-items:center;gap:7px;margin-top:2px">${state === 'online' ? '<span class="dot"></span>' : state === 'offline' ? '<span class="dot off"></span>' : ''}<span class="num">${sub}</span></div></div>${action}</div>`;
+mount(`
+${nightSky({ x: 232, y: 84, r: 40 })}
+${statusBar()}
+<div style="position:absolute;left:20px;right:16px;top:64px;display:flex;align-items:center;justify-content:space-between"><div class="t-large">PCs</div>${roundGlass('plus')}</div>
+<div style="position:absolute;left:16px;right:16px;top:132px">
+  <div class="group" style="border-radius:28px;background:var(--tint-groupOnSky-fill)">
+    <div style="display:flex;gap:14px;padding:14px;align-items:stretch">
+      ${cover('racing-game', { w: 92, style: 'border-radius:14px' })}
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+        <div class="t-head" style="font-size:19px;line-height:24px">Living-room PC</div>
+        <div class="t-sub" style="display:flex;align-items:center;gap:7px;margin-top:3px"><span class="dot"></span>Racing Game</div>
+        <div class="t-sub sec num" style="margin-top:3px">Wi-Fi 6, 4 ms</div>
+        <div style="margin-top:auto;display:flex;gap:8px;align-items:center">
+          <button class="play press" style="height:48px;padding:0 20px;font-size:16px;flex:1">${icon('play', 19)}Resume</button>
+          <button class="ctl round press">${icon('more', 22)}</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="group" style="margin-top:14px;background:var(--tint-groupOnSky-fill)">
+    ${pc('Studio PC', 'online', 'Online, 12 ms', `<span class="sec">${icon('right', 18, 2.2)}</span>`)}
+    ${pc('Office PC', 'offline', 'Offline', `<button class="ctl press" style="min-height:44px;height:44px;padding:0 16px;font-size:15px">${icon('power', 17)}Wake</button>`)}
+    ${pc('Game-room PC', 'unpaired', 'Not paired', `<button class="ctl press" style="min-height:44px;height:44px;padding:0 20px;font-size:15px;color:var(--color-moonInk)">Pair</button>`)}
+  </div>
+  <div class="group" style="margin-top:14px;background:var(--tint-groupOnSky-fill)">
+    ${row('Add PC', { ic: 'plus', chev: true })}
+    ${row('Scan a pairing code', { ic: 'grid', chev: true })}
+  </div>
+</div>
+${tabBar(1)}
+`, { w: 412, h: 915 });
+</script></body>

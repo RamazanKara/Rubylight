@@ -1,0 +1,36 @@
+<!doctype html><meta charset="utf-8"><title>Nightjar handheld home</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="glass.css"><script src="lib.js"></script><body><script>
+const row1 = [['open-world', 'Open World'], ['ocean-explorer', 'Ocean Explorer'], ['space-sim', 'Space Sim'], ['music-studio', 'Music Studio'], ['ember-keep', 'Ember Keep'], ['puzzle-night', 'Puzzle Night'], ['frostline', 'Frostline'], ['retro-arcade', 'Retro Arcade']];
+mount(`
+${ambient('racing-game', { fade: 'linear-gradient(180deg,rgba(14,12,20,0),rgba(14,12,20,0) 32%,rgba(16,16,24,.92) 62%,#12141c)' })}
+<div style="position:absolute;left:32px;right:32px;top:20px;display:flex;align-items:center;gap:10px;z-index:6">
+  ${capsuleNav(0)}
+  <div style="flex:1"></div>
+  ${pcCapsule('Living-room PC', 52)}${roundGlass('search', 52)}
+</div>
+<div style="position:absolute;left:32px;top:90px;display:flex;gap:28px;align-items:flex-end;z-index:2">
+  ${cover('racing-game', { w: 172, style: 'box-shadow:0 18px 44px rgba(0,0,0,.55),0 0 70px rgba(255,95,70,.28)' })}
+  <div style="padding-bottom:4px">
+    <div style="display:flex;gap:6px;margin-bottom:12px"><span class="chip tint"><span class="dot"></span>Running</span><span class="chip tint">Steam</span></div>
+    <div class="t-hero" style="font-size:52px;line-height:56px">Racing Game</div>
+    <div style="display:flex;gap:12px;margin-top:20px;align-items:center">
+      <button class="play press fx" style="min-width:196px">${icon('play', 22)}Resume</button>
+      <button class="ctl press" style="height:56px">${icon('star', 20)}Favourite</button>
+      <button class="ctl press" style="height:56px">${icon('power', 20)}Quit game</button>
+    </div>
+  </div>
+</div>
+
+<div class="group" style="position:absolute;right:32px;top:88px;width:270px;background:var(--tint-groupOnArt-fill);z-index:2">
+  <div class="t-head" style="padding:12px 16px 4px">Continue</div>
+  <div class="row press" style="gap:12px;padding:6px 16px">${cover('open-world', { w: 38, style: 'border-radius:8px' })}<div class="ti"><div class="t-body" style="font-weight:600">Open World</div><div class="t-sub sec">Yesterday</div></div></div>
+  <div class="row press" style="gap:12px;padding:6px 16px">${cover('ocean-explorer', { w: 38, style: 'border-radius:8px' })}<div class="ti"><div class="t-body" style="font-weight:600">Ocean Explorer</div><div class="t-sub sec">Monday</div></div></div>
+  <div class="row press" style="gap:12px;padding:6px 16px 10px">${cover('space-sim', { w: 38, style: 'border-radius:8px' })}<div class="ti"><div class="t-body" style="font-weight:600">Space Sim</div><div class="t-sub sec">Last week</div></div></div>
+</div>
+<div style="position:absolute;left:32px;right:0;top:366px">
+  <div class="hdr"><span class="t-section">Steam</span><span class="t-body sec">10</span></div>
+  <div class="shelf" style="margin-top:12px;width:1500px;gap:16px">${row1.map(([n]) => cover(n, { w: 172 })).join('')}</div>
+</div>
+<div style="position:absolute;left:32px;top:682px;display:flex;gap:8px;align-items:baseline"><span class="t-section">Epic Games</span><span class="t-body sec">6</span></div>
+`, { w: 1280, h: 720 });
+</script></body>

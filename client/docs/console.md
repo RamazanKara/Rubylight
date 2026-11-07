@@ -124,7 +124,7 @@ PCs and games have a menu that opens by the card, never covering the window or d
 
 - **⋮** on the card opens it under the dots. A cover shows its ⋮ while the pointer is on it or it has focus.
 - A **right-click** opens it at the pointer.
-- **F2**, **Shift+F10** or a controller's **X** (West button) open it beside the focused card.
+- **F2**, **F**, **Shift+F10** or a controller's **Y** or **X** (North or West button) open it beside the focused card.
 
 The menu stays inside the window, flipping above or to the left where it would not fit. The item that selecting the card does is marked **Enter**. **Escape** (the controller's **B**) closes it and gives focus back to the card, and a click outside closes it too.
 

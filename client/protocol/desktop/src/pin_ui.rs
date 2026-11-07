@@ -7,12 +7,13 @@ use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use egui::{vec2, Align, Key, Layout, RichText, Sense, Ui};
+use egui::{vec2, Align, Key, Layout, Rect, RichText, Ui, Vec2};
 
 use crate::pin_lock::{Mode, Outcome, PinGate, PinStore, Problem, GRACE_CHOICES, MAX_DIGITS, MIN_DIGITS};
 use crate::strings::{en, tr, trf};
+use crate::ui::{design_tokens, glass, glass_behind, pin_key, pin_slots, round_button, Icon, Tone, DIALOG_MARGIN};
 use crate::theme::*;
-use crate::ui::{primary_button, quiet_button, Command};
+use crate::ui::{column, group_row, page_scroll_from, primary_button, quiet_button, row, section, toggle, Combo, Command, ToTop, BACK_SIZE, PAGE_TITLE, SETTINGS_W};
 
 /// What the PIN screen is up for.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -88,6 +89,8 @@ pub struct PinLock {
     pad: Option<Pad>,
     /// The settings page is open (after its PIN was given, while the window stayed in view).
     page: bool,
+    /// The page just opened: its first action takes the focus.
+    focus_page: bool,
     job: Option<Receiver<Done>>,
     notice: Option<&'static str>,
 }
@@ -97,9 +100,36 @@ impl PinLock {
         Self::with_store(PinStore::new(dir, Arc::new(crate::pin_lock::SystemClock)))
     }
 
+    /// A PIN screen for the demo's shots, over an empty store in `dir`.
+    #[cfg(any(test, feature = "demo-library"))]
+    pub(crate) fn demo(dir: &Path, choose: bool, pc: &str) -> Self {
+        let mut lock = Self::open(dir);
+        let purpose = if choose { Purpose::Choose } else { Purpose::Stream { key: String::new(), pc: pc.to_owned() } };
+        lock.pad = Some(Pad::new(purpose, &lock.store));
+        lock
+    }
+
+    /// The settings page for the demo's shots, over a new store in `dir`: with a PIN and `mode`, or
+    /// with no PIN.
+    #[cfg(any(test, feature = "demo-library"))]
+    pub(crate) fn demo_page(dir: &Path, mode: Option<Mode>) -> Self {
+        std::fs::remove_dir_all(dir).ok();
+        std::fs::create_dir_all(dir).ok();
+        let store = PinStore::new(dir, Arc::new(crate::pin_lock::SystemClock));
+        if let Some(mode) = mode {
+            store.set_pin(b"1234").expect("the demo's PIN is valid");
+            store.set_mode(mode);
+        }
+        let mut lock = Self::with_store(store);
+        lock.pad = None;
+        lock.gate.unlock_app();
+        lock.show_page();
+        lock
+    }
+
     pub fn with_store(store: PinStore) -> Self {
         let gate = PinGate::new(&store);
-        let mut lock = Self { store, gate, pad: None, page: false, job: None, notice: None };
+        let mut lock = Self { store, gate, pad: None, page: false, focus_page: false, job: None, notice: None };
         lock.lock_app_if_needed();
         lock
     }
@@ -168,8 +198,13 @@ impl PinLock {
         if self.store.has_pin() {
             self.pad = Some(Pad::new(Purpose::Verify(After::Open), &self.store));
         } else {
-            self.page = true;
+            self.show_page();
         }
+    }
+
+    fn show_page(&mut self) {
+        self.page = true;
+        self.focus_page = true;
     }
 
     /// Draws the PIN screen or the settings page when one is up, over everything else, and says
@@ -185,15 +220,17 @@ impl PinLock {
         if self.pad.is_none() && !self.page {
             return false;
         }
-        egui::Frame::new().fill(*NIGHT).show(ui, |ui| {
-            ui.set_min_size(ui.available_size());
-            if self.pad.is_some() {
-                self.pad_ui(ui, commands);
-            } else {
-                self.page_ui(ui, pcs);
-            }
-        });
+        if self.pad.is_some() {
+            self.pad_ui(ui, commands);
+        } else {
+            self.page_ui(ui, pcs);
+        }
         true
+    }
+
+    /// Whether the PIN screen or the settings page is up: the sky goes behind them.
+    pub fn up(&self) -> bool {
+        self.pad.is_some() || self.page
     }
 
     fn poll(&mut self, commands: &mut Vec<Command>) {
@@ -213,7 +250,7 @@ impl PinLock {
                         self.gate.grant(&self.store, &key);
                         commands.push(Command::PinPassed);
                     }
-                    Purpose::Verify(After::Open) => self.page = true,
+                    Purpose::Verify(After::Open) => self.show_page(),
                     Purpose::Verify(After::Change) => self.pad = Some(Pad::new(Purpose::Choose, &self.store)),
                     Purpose::Verify(After::Remove) => {
                         self.store.remove_pin();
@@ -241,7 +278,7 @@ impl PinLock {
                 }
                 self.gate.unlock_app();
                 self.notice = Some(en("PIN saved"));
-                self.page = true;
+                self.show_page();
             }
             Done::Saved(Err(why)) => {
                 eprintln!("nightjar: saving the PIN failed: {why}");
@@ -348,12 +385,11 @@ impl PinLock {
             pad.locked_until = None;
         }
         let (title, subtitle) = match &pad.purpose {
-            Purpose::App => (tr("Nightjar is locked"), tr("Enter your PIN to continue").to_owned()),
-            Purpose::Stream { pc, .. } if !pc.is_empty() => (tr("Enter your PIN"), trf("Needed to start a stream on {}", &[pc])),
-            Purpose::Stream { .. } => (tr("Enter your PIN"), tr("Needed to start a stream").to_owned()),
-            Purpose::Verify(_) => (tr("Enter your PIN"), tr("Needed to change the PIN lock").to_owned()),
-            Purpose::Choose => (tr("Choose a PIN"), tr("Use 4 to 8 digits").to_owned()),
-            Purpose::Confirm(_) => (tr("Confirm your PIN"), tr("Type the same PIN again").to_owned()),
+            Purpose::App => (tr("Nightjar is locked").to_owned(), None),
+            Purpose::Stream { pc, .. } if !pc.is_empty() => (pc.clone(), Some(tr("PIN"))),
+            Purpose::Stream { .. } | Purpose::Verify(_) => (tr("Enter your PIN").to_owned(), None),
+            Purpose::Choose => (tr("Choose a PIN").to_owned(), Some(tr("Use 4 to 8 digits"))),
+            Purpose::Confirm(_) => (tr("Confirm your PIN").to_owned(), None),
         };
         let problem = if pad.checks() { self.store.problem() } else { None };
         let status = if self.job.is_some() {
@@ -396,44 +432,70 @@ impl PinLock {
             }
         });
 
+        // The panel in the middle of the sky; in a short window its keys and slots give way.
+        let screen = ui.max_rect();
+        glass::boundary(ui.painter(), vec![ui.ctx().content_rect()]);
+        let edge = DIALOG_MARGIN + space::M;
+        let head = TITLE_ROW + if subtitle.is_some() { SUBTITLE_ROW } else { 0.0 } + space::M;
+        let spare = screen.height() - 2.0 * edge - head - STATUS_ROW;
+        let slot_height = (spare * 0.2).clamp(52.0, 76.0);
+        let key_height = ((spare - slot_height - 3.0 * KEY_GAP) / 4.0).clamp(40.0, 64.0);
+        let height = head + slot_height + STATUS_ROW + 4.0 * key_height + 3.0 * KEY_GAP;
+        let width = PANEL_WIDTH.min(screen.width() - 2.0 * edge);
+        let inner = Rect::from_center_size(screen.center(), vec2(width, height));
         let mut pressed = Vec::new();
         let mut first_key = None;
-        ui.vertical_centered(|ui| {
-            ui.add_space((ui.available_height() * 0.12).max(space::XL));
-            ui.label(RichText::new(title).font(semibold(text::TITLE)).color(ON_SURFACE));
-            ui.add_space(space::S);
-            ui.label(RichText::new(subtitle).font(regular(text::BODY)).color(ON_SURFACE_VARIANT));
-            ui.add_space(space::XL);
-            dots(ui, entered, full);
+        let mut panel = ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(Layout::top_down(Align::Center)));
+        glass_behind(&mut panel, glass::Material::Panel, design_tokens::RADIUS_PANEL, DIALOG_MARGIN, |ui| {
+            ui.set_min_width(inner.width());
+            ui.spacing_mut().item_spacing.y = 0.0;
+            // Clear of the round close at the panel's corner.
+            let clear = inner.width() - 2.0 * CLOSE_SIZE.max(space::XL);
+            ui.allocate_ui_with_layout(vec2(clear, TITLE_ROW), Layout::top_down(Align::Center), |ui| {
+                ui.add(egui::Label::new(RichText::new(title).font(semibold(text::SECTION)).color(ON_SURFACE)).truncate());
+            });
+            if let Some(subtitle) = subtitle {
+                ui.allocate_ui_with_layout(vec2(clear, SUBTITLE_ROW), Layout::top_down(Align::Center), |ui| {
+                    ui.label(RichText::new(subtitle).font(regular(text::BODY)).color(ON_SURFACE_VARIANT));
+                });
+            }
             ui.add_space(space::M);
-            let (text, error) = status.unwrap_or_default();
-            ui.label(RichText::new(text).font(regular(text::LABEL)).color(if error { ERROR } else { ON_SURFACE_VARIANT }));
-            ui.add_space(space::L);
-            let key_size = vec2(84.0, 56.0);
+            let digits = vec!['*'; entered];
+            pin_slots(ui, &digits, full, true, slot_height, &trf("{} of {} digits entered", &[&entered, &full]));
+            ui.add_space(STATUS_GAP);
+            let (words, error) = status.unwrap_or_default();
+            ui.allocate_ui_with_layout(vec2(inner.width(), STATUS_ROW - 2.0 * STATUS_GAP), Layout::top_down(Align::Center), |ui| {
+                ui.label(RichText::new(words).font(regular(text::LABEL)).color(if error { ERROR } else { ON_SURFACE_VARIANT }));
+            });
+            ui.add_space(STATUS_GAP);
+            let key_width = (inner.width() - 2.0 * KEY_GAP) / 3.0;
+            let key_size = vec2(key_width, key_height);
             let rows: [[PadKey; 3]; 4] = [
                 [PadKey::Digit(1), PadKey::Digit(2), PadKey::Digit(3)],
                 [PadKey::Digit(4), PadKey::Digit(5), PadKey::Digit(6)],
                 [PadKey::Digit(7), PadKey::Digit(8), PadKey::Digit(9)],
-                [PadKey::Delete, PadKey::Digit(0), PadKey::Confirm],
+                [PadKey::Confirm, PadKey::Digit(0), PadKey::Delete],
             ];
-            let width = key_size.x * 3.0 + space::M * 2.0;
-            for row in rows {
-                ui.allocate_ui_with_layout(vec2(width, key_size.y), Layout::left_to_right(Align::Center), |ui| {
-                    ui.spacing_mut().item_spacing.x = space::M;
+            for (n, row) in rows.into_iter().enumerate() {
+                if n > 0 {
+                    ui.add_space(KEY_GAP);
+                }
+                ui.allocate_ui_with_layout(vec2(inner.width(), key_height), Layout::left_to_right(Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = KEY_GAP;
                     for key in row {
-                        let label = match key {
-                            PadKey::Digit(d) => d.to_string(),
-                            PadKey::Delete => tr("Delete").to_owned(),
-                            PadKey::Confirm => tr("Confirm").to_owned(),
+                        let response = match key {
+                            PadKey::Digit(d) => {
+                                let word = d.to_string();
+                                pin_key(ui, None, &word, &word, Tone::Quiet, key_size)
+                            }
+                            PadKey::Delete => pin_key(ui, Some(Icon::Backspace), "", tr("Delete"), Tone::Quiet, key_size),
+                            // The one primary, once there is a PIN to confirm.
+                            PadKey::Confirm => {
+                                let tone = if entered >= full { Tone::Primary } else { Tone::Quiet };
+                                pin_key(ui, Some(Icon::Check), "", tr("Confirm"), tone, key_size)
+                            }
                             PadKey::Cancel | PadKey::FocusFirst => unreachable!("not on the pad"),
                         };
-                        let font = if matches!(key, PadKey::Digit(_)) { semibold(text::SECTION) } else { semibold(text::LABEL) };
-                        let button = egui::Button::new(RichText::new(label).font(font).color(ON_SURFACE))
-                            .fill(*SURFACE_HIGHEST)
-                            .corner_radius(egui::CornerRadius::same(radius::CONTROL))
-                            .min_size(key_size);
-                        let response = ui.add(button);
-                        crate::ui::focus_ring(ui, response.rect, &response, radius::CONTROL);
                         if key == PadKey::Digit(1) {
                             first_key = Some(response.id);
                         }
@@ -442,17 +504,18 @@ impl PinLock {
                         }
                     }
                 });
-                ui.add_space(space::M);
-            }
-            ui.add_space(space::M);
-            if can_cancel {
-                if quiet_button(ui, "Cancel").clicked() {
-                    pressed.push(PadKey::Cancel);
-                }
-            } else if quiet_button(ui, "Close Nightjar").clicked() {
-                commands.push(Command::Quit);
             }
         });
+        let corner = panel.min_rect().expand(DIALOG_MARGIN).right_top() + vec2(-CLOSE_INSET - CLOSE_SIZE, CLOSE_INSET);
+        let close = Rect::from_min_size(corner, Vec2::splat(CLOSE_SIZE));
+        let said = if can_cancel { tr("Cancel") } else { tr("Close Nightjar") };
+        if round_button(ui, close, Icon::Close, said).clicked() {
+            if can_cancel {
+                pressed.push(PadKey::Cancel);
+            } else {
+                commands.push(Command::Quit);
+            }
+        }
 
         for key in typed.into_iter().chain(pressed) {
             match key {
@@ -467,92 +530,34 @@ impl PinLock {
         }
     }
 
+    /// The settings page, a settings sub-page in look: its head, then rows on the sky.
     fn page_ui(&mut self, ui: &mut Ui, pcs: &[(String, String)]) {
         let view = self.store.view();
-        let mut close = ui.input(|i| i.key_pressed(Key::Escape));
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.add_space(space::XL);
-            ui.horizontal(|ui| {
-                ui.add_space(space::XL);
-                ui.vertical(|ui| {
-                    ui.set_max_width(720.0);
-                    ui.label(RichText::new(tr("PIN lock")).font(semibold(text::TITLE)).color(ON_SURFACE));
-                    ui.add_space(space::S);
-                    if let Some(notice) = self.notice {
-                        ui.label(RichText::new(tr(notice)).font(regular(text::LABEL)).color(OK));
-                        ui.add_space(space::S);
-                    }
-                    let summary = if view.has_pin { tr("A PIN is set. Changing or removing it asks for the current one.") } else { tr("Choose 4 to 8 digits.") };
-                    ui.label(RichText::new(summary).font(regular(text::BODY)).color(ON_SURFACE_VARIANT));
-                    ui.add_space(space::M);
-                    ui.horizontal(|ui| {
-                        if view.has_pin {
-                            if primary_button(ui, "Change PIN").clicked() {
-                                self.notice = None;
-                                self.pad = Some(Pad::new(Purpose::Verify(After::Change), &self.store));
-                            }
-                            if quiet_button(ui, "Remove PIN").clicked() {
-                                self.notice = None;
-                                self.pad = Some(Pad::new(Purpose::Verify(After::Remove), &self.store));
-                            }
-                        } else if primary_button(ui, "Set PIN").clicked() {
-                            self.notice = None;
-                            self.pad = Some(Pad::new(Purpose::Choose, &self.store));
-                        }
-                    });
-                    ui.add_space(space::XL);
-                    ui.add_enabled_ui(view.has_pin, |ui| {
-                        ui.label(RichText::new(tr("Lock")).font(semibold(text::CARD_TITLE)).color(ON_SURFACE));
-                        ui.add_space(space::S);
-                        let mut mode = view.mode;
-                        egui::ComboBox::from_id_salt("pin-mode").width(320.0).selected_text(tr(mode_label(mode))).show_ui(ui, |ui| {
-                            for choice in Mode::ALL {
-                                ui.selectable_value(&mut mode, choice, tr(mode_label(choice)));
-                            }
-                        });
-                        if mode != view.mode {
-                            self.store.set_mode(mode);
-                            // Turning the app lock on while using the app must not lock it on the spot.
-                            self.gate.unlock_app();
-                        }
-                        if view.mode == Mode::Selected {
-                            ui.add_space(space::M);
-                            ui.label(RichText::new(tr("Selected PCs")).font(semibold(text::LABEL)).color(ON_SURFACE));
-                            if pcs.is_empty() {
-                                ui.label(RichText::new(tr("No PCs added yet.")).font(regular(text::LABEL)).color(ON_SURFACE_VARIANT));
-                            }
-                            for (uuid, name) in pcs.iter().filter(|(uuid, _)| !uuid.is_empty()) {
-                                let mut on = crate::pin_lock::contains(&view.pcs, uuid);
-                                if ui.checkbox(&mut on, name).changed() {
-                                    let mut chosen: Vec<String> = view.pcs.iter().filter(|pc| !pc.eq_ignore_ascii_case(uuid)).cloned().collect();
-                                    if on {
-                                        chosen.push(uuid.clone());
-                                    }
-                                    self.store.set_pcs(chosen);
-                                }
-                            }
-                        }
-                        if view.mode == Mode::App {
-                            ui.add_space(space::M);
-                            ui.label(RichText::new(tr("Ask again after")).font(semibold(text::LABEL)).color(ON_SURFACE));
-                            let mut grace = view.grace_minutes;
-                            egui::ComboBox::from_id_salt("pin-grace").width(320.0).selected_text(grace_label(grace)).show_ui(ui, |ui| {
-                                for choice in GRACE_CHOICES {
-                                    ui.selectable_value(&mut grace, choice, grace_label(choice));
-                                }
-                            });
-                            if grace != view.grace_minutes {
-                                self.store.set_grace_minutes(grace);
-                            }
-                        }
-                    });
-                    ui.add_space(space::XL);
-                    ui.label(RichText::new(tr("If you forget the PIN, the only way to reset it is to delete pin_lock.json in Nightjar's settings folder, next to settings.json.")).font(regular(text::LABEL)).color(ON_SURFACE_VARIANT));
-                    ui.add_space(space::L);
-                    if primary_button(ui, "Done").clicked() {
+        // With a list open, Escape (B) only closes the list.
+        let mut close = ui.input(|i| i.key_pressed(Key::Escape)) && !egui::Popup::is_any_open(ui.ctx());
+        let focus = std::mem::take(&mut self.focus_page);
+        page_scroll_from(ui, "pin-lock-page", ToTop::No, PAGE_HEAD_TOP, |ui| {
+            column(ui, SETTINGS_W, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 14.0;
+                    ui.set_min_height(BACK_SIZE);
+                    let (slot, _) = ui.allocate_exact_size(Vec2::splat(BACK_SIZE), egui::Sense::hover());
+                    if round_button(ui, slot, Icon::Back, tr("Back to Settings")).clicked() {
                         close = true;
                     }
+                    ui.label(RichText::new(tr("PIN lock")).font(semibold(PAGE_TITLE)).color(PAPER));
                 });
+                ui.add_space(space::L);
+                if let Some(notice) = self.notice {
+                    ui.label(RichText::new(tr(notice)).font(regular(text::LABEL)).color(OK));
+                    ui.add_space(space::S);
+                }
+                self.pin_row(ui, view.has_pin, focus);
+                if view.has_pin {
+                    self.lock_rows(ui, &view, pcs);
+                    ui.add_space(space::M);
+                    ui.label(RichText::new(tr("If you forget the PIN, the only way to reset it is to delete pin_lock.json in Nightjar's settings folder, next to settings.json.")).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
+                }
             });
         });
         if close {
@@ -560,7 +565,102 @@ impl PinLock {
             self.notice = None;
         }
     }
+
+    /// The PIN itself: setting one, or changing and removing it.
+    fn pin_row(&mut self, ui: &mut Ui, has_pin: bool, focus: bool) {
+        let about = if has_pin { NO_LINE } else { en("4 to 8 digits") };
+        row(ui, "PIN", about, |ui| {
+            ui.horizontal(|ui| {
+                if !has_pin {
+                    let set = primary_button(ui, "Set PIN");
+                    if focus {
+                        set.request_focus();
+                    }
+                    if set.clicked() {
+                        self.notice = None;
+                        self.pad = Some(Pad::new(Purpose::Choose, &self.store));
+                    }
+                    return set;
+                }
+                let change = quiet_button(ui, "Change PIN");
+                if focus {
+                    change.request_focus();
+                }
+                if change.clicked() {
+                    self.notice = None;
+                    self.pad = Some(Pad::new(Purpose::Verify(After::Change), &self.store));
+                }
+                let remove = quiet_button(ui, "Remove PIN");
+                if remove.clicked() {
+                    self.notice = None;
+                    self.pad = Some(Pad::new(Purpose::Verify(After::Remove), &self.store));
+                }
+                remove
+            })
+            .inner
+        });
+    }
+
+    /// What the PIN locks, and for how long a passed PIN holds.
+    fn lock_rows(&mut self, ui: &mut Ui, view: &crate::pin_lock::View, pcs: &[(String, String)]) {
+        row(ui, "Lock", NO_LINE, |ui| {
+            let mut mode = view.mode;
+            let shown = Combo::from_id_salt("pin-mode").selected_text(tr(mode_label(mode))).show_ui(ui, |ui| {
+                for choice in Mode::ALL {
+                    ui.selectable_value(&mut mode, choice, tr(mode_label(choice)));
+                }
+            });
+            if mode != view.mode {
+                self.store.set_mode(mode);
+                // Turning the app lock on while using the app must not lock it on the spot.
+                self.gate.unlock_app();
+            }
+            shown.response
+        });
+        if view.mode == Mode::App {
+            row(ui, "Ask again after", NO_LINE, |ui| {
+                let mut grace = view.grace_minutes;
+                let shown = Combo::from_id_salt("pin-grace").selected_text(grace_label(grace)).show_ui(ui, |ui| {
+                    for choice in GRACE_CHOICES {
+                        ui.selectable_value(&mut grace, choice, grace_label(choice));
+                    }
+                });
+                if grace != view.grace_minutes {
+                    self.store.set_grace_minutes(grace);
+                }
+                shown.response
+            });
+        }
+        if view.mode == Mode::Selected {
+            section(ui, "Selected PCs");
+            let named: Vec<_> = pcs.iter().filter(|(uuid, _)| !uuid.is_empty()).collect();
+            if named.is_empty() {
+                group_row(ui, |ui| {
+                    ui.label(RichText::new(tr("No PCs added yet.")).font(regular(text::BODY)).color(ON_SURFACE_VARIANT));
+                });
+            }
+            for (uuid, name) in named {
+                row(ui, name, NO_LINE, |ui| {
+                    let mut on = crate::pin_lock::contains(&view.pcs, uuid);
+                    let switch = toggle(ui, &mut on);
+                    if switch.changed() {
+                        let mut chosen: Vec<String> = view.pcs.iter().filter(|pc| !pc.eq_ignore_ascii_case(uuid)).cloned().collect();
+                        if on {
+                            chosen.push(uuid.clone());
+                        }
+                        self.store.set_pcs(chosen);
+                    }
+                    switch
+                });
+            }
+        }
+    }
 }
+
+/// A row with its label alone.
+const NO_LINE: &str = "";
+/// How far down the page's head starts: this page has no top bar over it.
+const PAGE_HEAD_TOP: f32 = 32.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PadKey {
@@ -571,21 +671,15 @@ enum PadKey {
     FocusFirst,
 }
 
-/// The digits typed so far as filled and empty circles; a screen reader hears the count.
-fn dots(ui: &mut Ui, entered: usize, full: usize) {
-    let step = 28.0;
-    let (rect, response) = ui.allocate_exact_size(vec2(step * full as f32, 20.0), Sense::hover());
-    for i in 0..full {
-        let centre = egui::pos2(rect.left() + step * (i as f32 + 0.5), rect.center().y);
-        if i < entered {
-            ui.painter().circle_filled(centre, 7.0, *MOON);
-        } else {
-            ui.painter().circle_stroke(centre, 7.0, egui::Stroke::new(1.5, *OUTLINE));
-        }
-    }
-    let said = trf("{} of {} digits entered", &[&entered, &full]);
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &said));
-}
+/// The PIN screen's panel, inside its margin, and its rows.
+const PANEL_WIDTH: f32 = 360.0;
+const TITLE_ROW: f32 = 34.0;
+const SUBTITLE_ROW: f32 = 24.0;
+const STATUS_GAP: f32 = 8.0;
+const STATUS_ROW: f32 = 20.0 + 2.0 * STATUS_GAP;
+const KEY_GAP: f32 = 12.0;
+const CLOSE_SIZE: f32 = 40.0;
+const CLOSE_INSET: f32 = 14.0;
 
 /// What the lock screen says while the lock's file cannot be used, with its full path so it can
 /// be found and deleted.

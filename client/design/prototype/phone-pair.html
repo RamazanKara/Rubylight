@@ -1,0 +1,24 @@
+<!doctype html><meta charset="utf-8"><title>Nightjar pairing</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="glass.css"><script src="lib.js"></script><body><script>
+const key = (k, sub) => `<button class="ctl press" style="height:72px;border-radius:36px;font:600 28px/32px Figtree;font-feature-settings:'tnum';padding:0">${k}</button>`;
+mount(`
+${nightSky({ x: 206, y: 192, r: 88 })}
+${statusBar()}
+${glass('panel', { style: 'position:absolute;left:0;right:0;top:320px;bottom:-40px;border-radius:32px 32px 0 0' }, `
+  <div style="position:relative;height:637px">
+    <div style="position:absolute;left:50%;top:8px;width:38px;height:5px;margin-left:-19px;border-radius:3px;background:rgba(255,255,255,.34)"></div>
+    <button class="ctl round press" style="position:absolute;right:14px;top:14px;width:40px;min-height:40px;height:40px">${icon('x', 19, 2.2)}</button>
+    <div style="position:absolute;left:24px;right:24px;top:40px;text-align:center"><div class="t-title">Game-room PC</div><div class="t-sub sec" style="margin-top:4px">PIN</div></div>
+    <div style="position:absolute;left:0;right:0;top:118px;display:flex;justify-content:center;gap:12px">
+      ${['4', '7', '', ''].map((d, i) => `<div class="${i === 2 ? 'fx' : ''}" style="width:64px;height:76px;position:relative;z-index:${i === 2 ? 0 : 1};border-radius:20px;background:#2B2C33;display:grid;place-items:center;font:600 36px/40px Figtree;font-feature-settings:'tnum';box-shadow:${i === 2 ? '' : 'inset 0 1px 0 rgba(255,255,255,.22)'}">${d}</div>`).join('')}
+    </div>
+    <div style="position:absolute;left:32px;right:32px;top:222px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
+      ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((k) => key(k)).join('')}
+      <button class="ctl press" style="height:72px;border-radius:36px;padding:0">${icon('grid', 24)}</button>
+      ${key(0)}
+      <button class="ctl press" style="height:72px;border-radius:36px;padding:0">${icon('del', 26)}</button>
+    </div>
+  </div>
+`)}
+`, { w: 412, h: 915 });
+</script></body>

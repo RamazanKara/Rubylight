@@ -207,6 +207,7 @@ impl Scope {
 pub enum Key {
     Tab,
     N,
+    F,
     F1,
     F2,
     F10,
@@ -230,6 +231,7 @@ impl Key {
         Cow::Borrowed(match self {
             Key::Tab => "Tab",
             Key::N => "N",
+            Key::F => "F",
             Key::F1 => "F1",
             Key::F2 => "F2",
             Key::F10 => "F10",
@@ -252,6 +254,7 @@ impl Key {
         Some(match self {
             Key::Tab => SDL_SCANCODE_TAB,
             Key::N => SDL_SCANCODE_N,
+            Key::F => SDL_SCANCODE_F,
             Key::F1 => SDL_SCANCODE_F1,
             Key::F2 => SDL_SCANCODE_F2,
             Key::F10 => SDL_SCANCODE_F10,
@@ -276,6 +279,7 @@ impl Key {
         match self {
             Key::Tab => &[E::Tab],
             Key::N => &[E::N],
+            Key::F => &[E::F],
             Key::F1 => &[E::F1],
             Key::F2 => &[E::F2],
             Key::F10 => &[E::F10],
@@ -387,7 +391,7 @@ impl Chord {
 
     /// Whether the chord types a character into a text field: a printable key without Ctrl or Alt.
     pub fn types(self) -> bool {
-        !self.ctrl && !self.alt && matches!(self.key, Key::N
+        !self.ctrl && !self.alt && matches!(self.key, Key::N | Key::F
             | Key::Question | Key::Plus | Key::Minus | Key::Zero)
     }
 
@@ -445,7 +449,7 @@ pub const KEYS: &[KeyBinding] = &[
     keys(Action::Move, Scope::Launcher, &[Chord::key(Key::Arrows), Chord::key(Key::Tab)]),
     keys(Action::Select, Scope::Launcher, &[Chord::key(Key::Enter)]),
     keys(Action::Back, Scope::Launcher, &[Chord::key(Key::Escape)]),
-    keys(Action::Options, Scope::Launcher, &[Chord::key(Key::F2), Chord::shift(Key::F10)]),
+    keys(Action::Options, Scope::Launcher, &[Chord::key(Key::F), Chord::key(Key::F2), Chord::shift(Key::F10)]),
     keys(Action::AddPc, Scope::Launcher, &[Chord::ctrl(Key::N)]),
     keys(Action::Unstar, Scope::Launcher, &[Chord::key(Key::Delete)]),
     keys(Action::ZoomIn, Scope::Launcher, &[Chord::ctrl(Key::Plus)]),
@@ -718,8 +722,7 @@ pub const PAD: &[PadBinding] = &[
     pad(Action::Move, Scope::Launcher, Press::Any(&[Button::DPad, Button::LeftStick])),
     pad(Action::Select, Scope::Launcher, Press::Any(&[Button::South])),
     pad(Action::Back, Scope::Launcher, Press::Any(&[Button::East, Button::Back])),
-    pad(Action::Options, Scope::Launcher, Press::Any(&[Button::West])),
-    pad(Action::Unstar, Scope::Launcher, Press::Any(&[Button::North])),
+    pad(Action::Options, Scope::Launcher, Press::Any(&[Button::North, Button::West])),
     pad(Action::OpenSettings, Scope::Launcher, Press::Any(&[Button::Start])),
     pad(Action::PreviousTab, Scope::Launcher, Press::Any(&[Button::LeftShoulder])),
     pad(Action::NextTab, Scope::Launcher, Press::Any(&[Button::RightShoulder])),
@@ -929,7 +932,9 @@ mod tests {
         assert_eq!(pad_action(Button::East, true), Some(Action::Select));
         assert_eq!(pad_action(Button::Back, true), Some(Action::Back));
         assert_eq!(pad_action(Button::West, false), Some(Action::Options));
-        assert_eq!(pad_action(Button::North, false), Some(Action::Unstar));
+        assert_eq!(pad_action(Button::North, false), Some(Action::Options), "as on Android, and the hints name it");
+        assert!(PAD.iter().all(|b| b.action != Action::Unstar), "favourites go through the options");
+        assert!(KEYS.iter().any(|b| b.action == Action::Unstar), "the keyboard keeps Delete");
         assert_eq!(pad_action(Button::Start, false), Some(Action::OpenSettings));
         assert_eq!(pad_action(Button::LeftShoulder, false), Some(Action::PreviousTab));
         assert_eq!(pad_action(Button::RightShoulder, true), Some(Action::NextTab));

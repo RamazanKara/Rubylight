@@ -775,7 +775,7 @@ fn settings_show_a_sections_every_row_with_the_rarer_ones_in_groups_after() {
     f.size = vec2(1280.0, 12000.0);
     f.l.go(Screen::Settings);
     f.settle();
-    for text in ["Lower bitrate when the network is busy", "FINE-TUNING", "Automatic quality", "PyroWave decoder"] {
+    for text in ["Lower bitrate when the network is busy", "Fine-tuning", "Automatic quality", "PyroWave decoder"] {
         assert!(shows(&f, text), "{text}: nothing is folded away: {:?}", f.drawn);
     }
     assert!(!shows(&f, "Recover interrupted streams") && !shows(&f, "More Video settings (6)"), "one section at a time, no fold");
@@ -967,7 +967,9 @@ fn assert_fits(f: &Frames, what: &str, whole_height: bool) {
 /// clip ends above the window's edge. A clip that reaches the edge scrolls nothing away: text
 /// past it is cut off, even when none of it shows.
 fn must_stay_in_window(rect: Rect, clip: Rect, screen: Rect) -> bool {
-    rect.intersects(clip) || clip.bottom() >= screen.bottom() - 1.0
+    // Wholly under the window's edge is a page's scrolled-off rest; a dialog's own is caught by
+    // `areas_past_window`.
+    rect.top() < screen.bottom() && (rect.intersects(clip) || clip.bottom() >= screen.bottom() - 1.0)
 }
 
 /// A dialog's whole area, whatever part of it reached the screen: egui doesn't paint a button
@@ -1109,6 +1111,22 @@ fn at_150_percent_the_longest_options_list_scrolls_to_the_option_with_focus() {
     assert!(matches!(f.l.dialog, Dialog::ConfirmRemove { .. }), "the last option is Remove");
 }
 
+/// The meshes drawn and their clips, nested shapes included.
+fn meshes_drawn(f: &Frames) -> Vec<(std::sync::Arc<egui::epaint::Mesh>, Rect)> {
+    fn walk(shape: &egui::Shape, clip: Rect, out: &mut Vec<(std::sync::Arc<egui::epaint::Mesh>, Rect)>) {
+        match shape {
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, clip, out)),
+            egui::Shape::Mesh(mesh) => out.push((mesh.clone(), clip)),
+            _ => {}
+        }
+    }
+    let mut found = Vec::new();
+    for clipped in &f.shapes {
+        walk(&clipped.shape, clipped.clip_rect, &mut found);
+    }
+    found
+}
+
 /// The rectangles drawn filled with `fill`, nested shapes included.
 fn rects_filled(f: &Frames, fill: Color32) -> Vec<Rect> {
     fn walk(shape: &egui::Shape, fill: Color32, out: &mut Vec<Rect>) {
@@ -1131,7 +1149,7 @@ fn fades(f: &Frames) -> Vec<Rect> {
     for clipped in &f.shapes {
         if let egui::Shape::Mesh(mesh) = &clipped.shape {
             let colours: Vec<Color32> = mesh.vertices.iter().map(|v| v.color).collect();
-            if colours.contains(&*SURFACE_HIGH) && colours.contains(&Color32::TRANSPARENT) {
+            if (colours.contains(&*SURFACE_HIGH) || colours.contains(&dialogs::MENU_FADE)) && colours.contains(&Color32::TRANSPARENT) {
                 found.push(Rect::from_points(&mesh.vertices.iter().map(|v| v.pos).collect::<Vec<_>>()));
             }
         }
@@ -1407,6 +1425,27 @@ fn a_toast_shows_over_the_launcher_and_goes_away() {
     assert!(f.l.toast.is_none() && !f.drawn.iter().any(|t| t == "gone"), "{:?}", f.drawn);
 }
 
+/// A toast has no blur of its own, so the words of the page under it must not read through: glass
+/// nearly as dense as the stream menu's, its shadow past the area, no fill of its own.
+#[test]
+fn a_toast_stands_on_glass_the_page_does_not_read_through() {
+    let mut f = Frames::new(record("Den", true, true), Reach::Online);
+    let screen = |f: &Frames| f.ctx.content_rect();
+    f.l.toast("Saved".to_owned());
+    f.settle();
+    let whole = screen(&f);
+    let (at, ..) = f.placed.iter().find(|(t, ..)| t == "Saved").map(|p| (p.1, ())).expect("the words");
+    // Its area is still fading in, which takes a little off the menu fill's alpha of 240.
+    let glass = meshes_drawn(&f).into_iter().find(|(mesh, _)| {
+        let bounds = mesh.calc_bounds();
+        bounds.contains_rect(at) && bounds.height() < 80.0 && mesh.vertices.iter().any(|v| v.color.a() >= 220)
+    });
+    let (_, clip) = glass.expect("glass the page does not read through");
+    assert_eq!(clip, whole, "the toast's glass clips to the window, not its area");
+    let filled = f.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Rect(r) if r.rect.contains_rect(at) && r.rect.height() < 80.0 && r.fill.a() > 0));
+    assert!(!filled, "no fill of its own");
+}
+
 #[test]
 fn waking_shows_the_pc_and_cancel_stops_it() {
     let mut f = Frames::new(record("Den", true, true), Reach::Offline);
@@ -1464,11 +1503,11 @@ fn wake_is_offered_until_the_pc_answers_and_resume_while_it_runs_a_game() {
     let at = |option| busy.iter().position(|o| *o == option).unwrap();
     assert!(at(HostOption::OpenLibrary) < at(HostOption::Resume) && at(HostOption::Resume) < at(HostOption::QuitApp));
     assert!(!host_options(&by("paired")).contains(&HostOption::Resume));
-    // Without its library the running game cannot be named, so there is nothing to resume.
+    // Without its library the running game has no name, and it resumes by its number all the same.
     let mut unlisted = by("running a game");
     unlisted.apps = Apps::NotLoaded;
     let options = host_options(&unlisted);
-    assert!(!options.contains(&HostOption::Resume) && options.contains(&HostOption::QuitApp));
+    assert!(options.contains(&HostOption::Resume) && options.contains(&HostOption::QuitApp));
 }
 
 #[test]
@@ -1752,7 +1791,7 @@ fn settings_a_pc_kept_before_the_update_are_listed_once_and_reset_only_on_reques
 #[test]
 fn the_details_page_shows_shared_folders_and_co_op_once_the_native_read_offers_them() {
     use crate::hosts::tests::{info_lands, native_caps, native_info, native_lands, stock_info, NATIVE_EXTRAS};
-    let rows = |f: &Frames| [shows(f, "SHARED FOLDERS") && shows(f, "Browse"), shows(f, "CO-OP") && shows(f, "Show sessions")];
+    let rows = |f: &Frames| [shows(f, "Shared folders") && shows(f, "Browse"), shows(f, "Co-op") && shows(f, "Show sessions")];
     let mut f = Frames::with(record("uid", true, false), Reach::Online, Some(native_info()), Vec::new());
     f.size = vec2(1280.0, 12000.0);
     let id = f.hosts.list[0].id;
@@ -1784,7 +1823,7 @@ fn the_details_page_lists_co_op_sessions_only_where_the_pc_offers_them_and_joins
     let mut f = details(Reach::Online, "SUNSHINE_SERVER_FREE", native);
     f.size = vec2(1280.0, 12000.0);
     f.settle();
-    assert!(!shows(&f, "CO-OP"), "a PC that has not said it offers co-op shows none: {:?}", f.drawn);
+    assert!(!shows(&f, "Co-op"), "a PC that has not said it offers co-op shows none: {:?}", f.drawn);
     let offer = |f: &mut Frames, coop_offered: bool| {
         let info = f.hosts.list[0].info.as_mut().unwrap();
         let evidence = info.capabilities.evidence().unwrap().clone();
@@ -1792,9 +1831,9 @@ fn the_details_page_lists_co_op_sessions_only_where_the_pc_offers_them_and_joins
         f.settle();
     };
     offer(&mut f, false);
-    assert!(!shows(&f, "CO-OP"), "a PC without Nucleus Co-op shows none");
+    assert!(!shows(&f, "Co-op"), "a PC without Nucleus Co-op shows none");
     offer(&mut f, true);
-    assert!(shows(&f, "CO-OP") && shows(&f, "Show sessions"), "{:?}", f.drawn);
+    assert!(shows(&f, "Co-op") && shows(&f, "Show sessions"), "{:?}", f.drawn);
     let id = f.hosts.list[0].id;
     let commands = click_text(&mut f, "Show sessions");
     assert!(commands.iter().any(|c| matches!(c, Command::Coop(h) if *h == id)), "Show sessions opens the list");
@@ -2171,7 +2210,7 @@ fn the_pin_pad_is_an_even_grid_under_its_pin_line() {
     }
     let (left, right) = (at("2").x - at("1").x, at("3").x - at("2").x);
     assert!((left - right).abs() < 1.0, "even columns: {left} and {right}");
-    assert!((at("– – – –").x - at("2").x).abs() < 1.0, "the PIN line sits over the middle column");
+    assert!((at("2").x - f.size.x / 2.0).abs() < 1.0, "the middle column is the dialog's middle, as its slots are");
 }
 
 #[test]
@@ -2578,14 +2617,15 @@ fn header_stops(f: &mut Frames) -> Vec<Rect> {
 
 #[test]
 fn tab_walks_the_header_left_to_right_and_the_actions_sit_at_the_right_edge() {
-    // PCs: Home hides while there is no library; the destinations sit together beside the brand
-    // and Add PC, the page's action, at the right edge.
+    // PCs: Home hides while there is no library; the destinations sit together beside the brand,
+    // and Add PC at the right edge, where the search and the PC capsule are elsewhere.
     let mut f = Frames::new(record("Paired", true, false), Reach::Online);
     let stops = header_stops(&mut f);
     assert_eq!(stops.len(), 4, "PCs, Settings, Help and Add PC: {stops:?}");
-    assert!(stops.windows(2).all(|w| w[0].right() < w[1].left()), "in reading order: {stops:?}");
+    assert!(stops.windows(2).all(|w| w[0].right() <= w[1].left()), "in reading order: {stops:?}");
     assert!(stops[1].right() < 640.0, "the destinations sit at the left: {stops:?}");
     assert!(1280.0 - stops[3].right() < 80.0, "Add PC is at the right edge: {:?}", stops[3]);
+    assert!(shows(&f, "Add PC") && !shows(&f, "Ctrl K"), "{:?}", f.drawn);
     // Hit targets a finger or a pointer finds: no destination is shorter than 36 points.
     assert!(stops.iter().all(|r| r.height() >= 36.0), "{stops:?}");
 
@@ -2594,8 +2634,8 @@ fn tab_walks_the_header_left_to_right_and_the_actions_sit_at_the_right_edge() {
     f.l.go(Screen::Home);
     f.settle();
     let stops = header_stops(&mut f);
-    assert_eq!(stops.len(), 4, "Home, PCs, Settings and Help: {stops:?}");
-    assert!(stops.windows(2).all(|w| w[0].right() < w[1].left() && w[1].left() - w[0].right() < 12.0), "in reading order, together: {stops:?}");
+    assert_eq!(stops.len(), 6, "Home, PCs, Settings, Help, the search and the PC: {stops:?}");
+    assert!(stops[..4].windows(2).all(|w| w[0].right() <= w[1].left() && w[1].left() - w[0].right() < 12.0), "in reading order, together: {stops:?}");
 }
 
 /// The page shown marks its destination in the top bar, below the top level too: a PC's library
@@ -2619,7 +2659,7 @@ fn the_top_bar_marks_the_destination_of_the_page_shown() {
     let tab = |f: &Frames, name: &str| f.placed.iter().find(|(t, r, _)| t == name && r.center().y < 60.0).map(|p| p.1).expect(name);
     let pcs = tab(&f, "PCs");
     let settings = tab(&f, "Settings");
-    let filled = |f: &Frames, at: Rect| rects_filled(f, *SURFACE_HIGHEST).iter().any(|r| r.contains_rect(at));
+    let filled = |f: &Frames, at: Rect| meshes_holding(&f.shapes, design_tokens::TINT_SELECTED_FILL).iter().any(|r| r.contains_rect(at));
     assert!(filled(&f, pcs), "PCs is marked on a PC's page");
     assert!(!filled(&f, settings), "Settings is not");
 }
@@ -2671,7 +2711,7 @@ fn home_scrolls_to_the_game_the_arrow_keys_focus() {
             break;
         }
         seen.push(id);
-        assert!(rect.top() >= 0.0 && rect.bottom() <= 720.0, "row {step}: the focused game is on screen: {rect:?}");
+        assert!(rect.top() >= chrome::PAGE_TOP - 8.0 && rect.bottom() <= 720.0, "row {step}: the focused game is clear of the chrome: {rect:?}");
     }
     assert!(seen.len() >= 4, "the focus walked down past the first screen: {} rows", seen.len());
     for step in 0..seen.len() - 1 {
@@ -2680,7 +2720,17 @@ fn home_scrolls_to_the_game_the_arrow_keys_focus() {
         let (_, rect) = focused(&f);
         assert!(rect.top() >= 0.0 && rect.bottom() <= 720.0, "back up {step}: on screen: {rect:?}");
     }
-    assert_eq!(focused(&f).0, start, "back at the first game");
+    // Up from the top reaches the chrome; the page is back at its start under it.
+    for _ in 0..6 {
+        let (_, rect) = focused(&f);
+        if rect.top() < chrome::PAGE_TOP - 8.0 {
+            break;
+        }
+        f.press(Key::ArrowUp);
+        scrolled(&mut f);
+    }
+    let play = f.ctx.read_response(start).expect("Play is drawn").rect;
+    assert!(play.top() >= chrome::PAGE_TOP, "back at the top: {play:?}, focus on {:?}", focused(&f));
 }
 
 /// A cover with art names its game under it, focused or not, so a row reads at a glance; a cover
@@ -2689,7 +2739,8 @@ fn home_scrolls_to_the_game_the_arrow_keys_focus() {
 fn covers_name_the_game_inside_without_art_and_under_art_always() {
     let mut f = home_with_games(3);
     let count = |f: &Frames, title: &str| f.drawn.iter().filter(|t| *t == title).count();
-    assert_eq!((count(&f, "Game 00"), count(&f, "Game 01")), (1, 1), "without art each title shows once: {:?}", f.drawn);
+    // Game 00 is the hero: its name stands beside its cover, and its shelf leaves it out.
+    assert_eq!((count(&f, "Game 01"), count(&f, "Game 02")), (1, 1), "without art each title shows once: {:?}", f.drawn);
     let texture = f.ctx.load_texture("art", egui::ColorImage::new([3, 4], vec![Color32::GRAY; 12]), egui::TextureOptions::LINEAR);
     let pc = &mut f.hosts.list[0];
     for g in &mut pc.native.library.as_mut().expect("a library").games {
@@ -2697,12 +2748,13 @@ fn covers_name_the_game_inside_without_art_and_under_art_always() {
         pc.art.insert(g.app_id as i32, Art::Ready(texture.clone()));
     }
     f.settle();
-    assert_eq!((count(&f, "Game 00"), count(&f, "Game 01")), (1, 1), "every cover is named under its art: {:?}", f.drawn);
+    assert_eq!((count(&f, "Game 01"), count(&f, "Game 02")), (1, 1), "every cover is named under its art: {:?}", f.drawn);
     let under = |f: &Frames, title: &str| f.placed.iter().find(|(t, ..)| t == title).map(|p| p.1).expect(title);
     let before = under(&f, "Game 01");
+    f.press(Key::ArrowDown);
     f.press(Key::ArrowRight);
     f.settle();
-    assert_eq!((count(&f, "Game 00"), count(&f, "Game 01")), (1, 1), "focus moving names nothing twice: {:?}", f.drawn);
+    assert_eq!((count(&f, "Game 01"), count(&f, "Game 02")), (1, 1), "focus moving names nothing twice: {:?}", f.drawn);
     assert_eq!(under(&f, "Game 01").top(), before.top(), "the title stays put when its cover is focused and lifts");
 }
 
@@ -2750,9 +2802,9 @@ fn dialogs_put_the_primary_action_right_and_cancel_left_and_escape_cancels() {
         ("Remove PC", Dialog::ConfirmRemove { host: id, name: "Desk".into() }),
         ("Unpair", Dialog::ConfirmUnpair { host: id, name: "Desk".into() }),
         ("Add", Dialog::AddHost { text: String::new(), error: None }),
-        ("Close game", Dialog::ConfirmClose { host: id, name: "Game".into() }),
+        ("Quit game", Dialog::ConfirmClose { host: id, name: "Game".into() }),
     ];
-    let buttons = ["Save", "Remove PC", "Unpair", "Add", "Close game", "Paste link", "Cancel"];
+    let buttons = ["Save", "Remove PC", "Unpair", "Add", "Quit game", "Paste link", "Cancel"];
     for (primary, dialog) in dialogs {
         f.l.dialog = dialog;
         f.l.focus_dialog = true;
@@ -2771,7 +2823,7 @@ fn dialogs_put_the_primary_action_right_and_cancel_left_and_escape_cancels() {
 #[test]
 fn settings_scroll_beside_their_column_on_a_wide_window() {
     let mut f = Frames::new(record("Desk", true, true), Reach::Online);
-    f.size = vec2(1920.0, 1080.0);
+    f.size = vec2(1920.0, 640.0);
     f.l.go(Screen::Settings);
     f.settle();
     let top = |f: &Frames| f.placed.iter().find(|(t, ..)| t == "Codec").map(|p| p.1.top()).expect("the Codec row");
@@ -2791,16 +2843,16 @@ fn settings_scroll_beside_their_column_on_a_wide_window() {
     assert!(top(&f) < before - 50.0, "the wheel beside the rows scrolls them: {before} to {}", top(&f));
 }
 
-/// A controller's mapping scrolls in the same column as settings: the wheel beside it scrolls it.
+/// A controller's mapping scrolls as settings do: the wheel beside it scrolls it.
 #[test]
 fn controller_mappings_scroll_beside_their_column() {
     let mut f = Frames::new(record("Desk", true, true), Reach::Online);
-    f.size = vec2(1920.0, 1080.0);
+    f.size = vec2(1920.0, 640.0);
     f.l.go(Screen::Controllers);
     f.l.controller_key = "pad".into();
     f.l.controller_mapping = crate::gamepad::Mapping { name: "Pad".into(), ..Default::default() };
     f.settle();
-    let top = |f: &Frames| f.placed.iter().find(|(t, ..)| t == "AXES").map(|p| p.1.top()).expect("the axes under Connect as");
+    let top = |f: &Frames| f.placed.iter().find(|(t, ..)| t == "Axes").map(|p| p.1.top()).expect("the axes under Connect as");
     let before = top(&f);
     f.frame(vec![egui::Event::PointerMoved(Pos2::new(1500.0, 600.0))]);
     f.frame(vec![egui::Event::MouseWheel {
@@ -2840,13 +2892,158 @@ fn the_game_page_says_its_state_in_a_chip_and_the_pc_on_its_own_line() {
     f.l.go(Screen::Game { host: pc, app: 1000 });
     f.settle();
     // The last of a text: the cover without art shows the title too, before the page does.
-    let at = |f: &Frames, text: &str| f.placed.iter().rfind(|(t, ..)| t == text).map(|p| p.1).unwrap_or_else(|| panic!("{text} in {:?}", f.drawn));
+    let at = |f: &Frames, text: &str| f.placed.iter().rfind(|(t, r, _)| t == text && r.top() > chrome::PAGE_TOP).map(|p| p.1).unwrap_or_else(|| panic!("{text} in {:?}", f.drawn));
     let (chip, title, line) = (at(&f, "Running"), at(&f, "Game 00"), at(&f, "Desk"));
     assert!(chip.bottom() <= title.top() && title.bottom() <= line.top(), "chip, title, PC: {chip:?} {title:?} {line:?}");
     assert!(!f.drawn.iter().any(|t| t.starts_with("Running on")), "{:?}", f.drawn);
     f.l.go(Screen::Game { host: pc, app: 1001 });
     f.settle();
     assert!(shows(&f, "Desk") && !shows(&f, "Running") && !shows(&f, "Suspended"), "{:?}", f.drawn);
+}
+
+/// A game's page: the title over one Play with Favourite on its line, its rows under them, and no
+/// sentence with nothing to know. Quit game only for a game that runs.
+#[test]
+fn a_games_page_is_one_play_beside_favourite_over_its_rows() {
+    let mut f = home_with_games(2);
+    let pc = f.hosts.list[0].id;
+    f.hosts.list[0].apps = Apps::Loaded(vec![nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) }]);
+    f.l.go(Screen::Game { host: pc, app: 1000 });
+    f.settle();
+    let at = |f: &Frames, text: &str| f.placed.iter().rfind(|(t, r, _)| t == text && r.top() > chrome::PAGE_TOP).map(|p| p.1).unwrap_or_else(|| panic!("{text} in {:?}", f.drawn));
+    let (title, play, star, settings) = (at(&f, "Game 00"), at(&f, "Play"), at(&f, "Favourite"), at(&f, "Stream settings"));
+    assert!(title.bottom() <= play.top() && play.bottom() <= settings.top(), "{title:?} {play:?} {settings:?}");
+    assert!((play.center().y - star.center().y).abs() < 2.0 && play.right() < star.left(), "{play:?} {star:?}");
+    assert!(!shows(&f, "Quit game"), "{:?}", f.drawn);
+    let focused = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).expect("Play has focus").rect;
+    assert!(focused.contains(play.center()), "{focused:?}");
+    // The rows do what they say.
+    let commands = f.click_at(at(&f, "Hide game").center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::SetHidden { hidden: true, games } if !games.is_empty())));
+    f.settle();
+    let commands = f.click_at(at(&f, "Quit game when I leave").center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::SetQuitOnLeave { enabled: true, .. })));
+    f.settle();
+    let commands = f.click_at(at(&f, "Stream settings").center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::AppSettings { .. })));
+    // Running, the hero's words change in place and Quit game joins them.
+    f.settle();
+    f.hosts.list[0].info = Some(answer(true, 1000));
+    f.hosts.list[0].native.library.as_mut().expect("the library").games[0].running = true;
+    f.settle();
+    let (resume, quit) = (at(&f, "Resume"), at(&f, "Quit game"));
+    assert!((resume.center().y - quit.center().y).abs() < 2.0, "{resume:?} {quit:?}");
+    assert_eq!(at(&f, "Stream settings").top(), settings.top(), "no jump for a chip that was not there");
+}
+
+/// Play pressed before the PC's app list arrives holds, then starts when it lands; it asks for it too.
+#[test]
+fn play_before_the_list_arrives_starts_when_it_lands() {
+    let mut f = home_with_games(1);
+    let pc = f.hosts.list[0].id;
+    f.hosts.list[0].apps = Apps::NotLoaded;
+    f.l.go(Screen::Game { host: pc, app: 1000 });
+    f.settle();
+    let commands = f.press(Key::Enter);
+    assert!(commands.iter().any(|c| matches!(c, Command::LoadApps(host) if *host == pc)));
+    assert!(!commands.iter().any(|c| matches!(c, Command::Launch { .. })));
+    assert!(f.l.playing_soon(pc, 1000));
+    f.hosts.list[0].apps = Apps::Loading;
+    let commands = f.frame(Vec::new());
+    assert!(!commands.iter().any(|c| matches!(c, Command::Launch { .. })), "still on its way");
+    f.hosts.list[0].apps = Apps::Loaded(vec![nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) }]);
+    let commands = f.frame(Vec::new());
+    assert!(commands.iter().any(|c| matches!(c, Command::Launch { host, app: 1000, resume: false } if *host == pc)));
+    assert!(!f.l.playing_soon(pc, 1000));
+    let commands = f.frame(Vec::new());
+    assert!(!commands.iter().any(|c| matches!(c, Command::Launch { .. })), "once");
+}
+
+/// A Play that waited says why when it cannot start, and leaving the page lets it go.
+#[test]
+fn play_before_the_list_is_loud_when_it_cannot_start_and_ends_with_the_page() {
+    let press = |apps: Apps| {
+        let mut f = home_with_games(1);
+        let pc = f.hosts.list[0].id;
+        f.hosts.list[0].apps = Apps::Loading;
+        f.l.go(Screen::Game { host: pc, app: 1000 });
+        f.settle();
+        f.press(Key::Enter);
+        assert!(f.l.playing_soon(pc, 1000));
+        f.hosts.list[0].apps = apps;
+        f
+    };
+    let mut f = press(Apps::Failed("The PC did not answer".into()));
+    f.settle();
+    assert!(shows(&f, "The stream could not start") && shows(&f, "The app list could not be loaded. The PC did not answer"), "{:?}", f.drawn);
+    let mut f = press(Apps::Loaded(vec![game(77)]));
+    f.settle();
+    assert!(shows(&f, "The stream could not start") && shows(&f, "The PC's app list has no entry for this game."), "{:?}", f.drawn);
+    // Gone from the page, nothing starts behind the player's back.
+    let mut f = press(Apps::Loading);
+    f.l.go(Screen::Home);
+    f.frame(Vec::new());
+    f.hosts.list[0].apps = Apps::Loaded(vec![nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) }]);
+    let commands = f.frame(Vec::new());
+    assert!(!commands.iter().any(|c| matches!(c, Command::Launch { .. })));
+}
+
+/// Down from the search field goes to the games it filters, as a controller's D-pad does.
+#[test]
+fn down_from_the_search_field_reaches_the_games() {
+    let mut f = home_with_games(4);
+    f.l.go(Screen::AllGames);
+    f.settle();
+    f.l.open_search();
+    f.settle();
+    assert!(f.ctx.text_edit_focused(), "the field has the keyboard");
+    f.press(Key::ArrowDown);
+    f.settle();
+    assert!(!f.ctx.text_edit_focused(), "Down left the field");
+    let focused = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).expect("something has focus").rect;
+    assert!(focused.top() > chrome::PAGE_TOP, "a game below the bar: {focused:?}");
+}
+
+/// Home's PC card's halo may leave the scroll area, whose edge would cut it: it is deferred, in a clip
+/// wider than the area's.
+#[test]
+fn a_host_cards_halo_is_deferred_past_the_scroll_edge() {
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let hosts = Hosts::without_discovery(vec![record("Den", true, true)], Arc::new(|| {}));
+    let mut deferred = None;
+    for pass in 0..2 {
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let area = ui.clip_rect();
+            let card = host_card(ui, &hosts.list[0], "Online", 300.0);
+            if pass == 0 {
+                card.request_focus();
+            } else {
+                deferred = Some((area, glass::take_deferred(ui)));
+            }
+        });
+        let mut delta = output.textures_delta;
+        delta.clear();
+    }
+    let (area, deferred) = deferred.expect("two passes");
+    assert_eq!(deferred.len(), 1, "the halo");
+    assert!(deferred[0].0.width() > area.width() && !deferred[0].1.is_empty(), "{:?}", deferred[0].0);
+}
+
+/// A PC that cannot play yet offers what would let it, in the place and the colour of Play.
+#[test]
+fn a_games_page_on_an_asleep_or_unpaired_pc_offers_the_way_back() {
+    let mut f = home_with_games(1);
+    let pc = f.hosts.list[0].id;
+    f.l.go(Screen::Game { host: pc, app: 1000 });
+    f.settle();
+    f.hosts.list[0].reach = Reach::Offline;
+    f.settle();
+    assert!(shows(&f, "Desk  \u{b7}  Offline"), "{:?}", f.drawn);
+    assert!(!shows(&f, "Play"), "{:?}", f.drawn);
+    let commands = f.press(Key::Enter);
+    assert!(commands.iter().any(|c| matches!(c, Command::Refresh(h) | Command::Wake(h) if *h == pc)));
 }
 
 /// Android's game page: a game the PC lists as not installed has Play off and says why, and a
@@ -2869,7 +3066,7 @@ fn a_game_the_pc_has_not_installed_cannot_be_played_from_its_page() {
     let pc = f.hosts.list[0].id;
     f.l.go(Screen::Game { host: pc, app: 1000 });
     f.settle();
-    assert!(shows(&f, "Not installed on Desk"), "{:?}", f.drawn);
+    assert!(shows(&f, "Desk  \u{b7}  Not installed"), "{:?}", f.drawn);
     assert!(shows(&f, "Den, not installed"), "Also on marks it: {:?}", f.drawn);
     let closes = "Game 01 is running. Playing this game closes it.";
     assert!(!shows(&f, closes), "{:?}", f.drawn);
@@ -2912,10 +3109,49 @@ fn settings_has_no_back_but_its_sub_pages_do() {
     f.l.go(Screen::Settings);
     f.settle();
     let below_bar = |f: &Frames, name: &str| f.placed.iter().any(|(t, r, _)| t == name && r.center().y > 60.0 && r.center().y < 140.0);
-    assert!(shows(&f, "Settings") && !below_bar(&f, "Settings") && !shows(&f, "Back"), "{:?}", f.drawn);
+    assert!(shows(&f, "Settings") && !below_bar(&f, "Settings") && back_rect(&f).is_none(), "{:?}", f.drawn);
     f.l.open(Screen::Profiles);
     f.settle();
-    assert!(below_bar(&f, "Settings"), "Back leads to Settings by name: {:?}", f.placed);
+    assert!(back_rect(&f).is_some(), "Back is there on a sub-page");
+}
+
+/// Where the round Back shows, on a page that has one.
+fn back_rect(f: &Frames) -> Option<Rect> {
+    f.ctx.read_response(Id::unique("back")).map(|r| r.rect)
+}
+
+/// However far a long page scrolled, Back is one click away: it rises with the page, then holds in
+/// the bar where the brand gave way to it. It takes the click over the cover passing beneath.
+#[test]
+fn back_holds_in_the_bar_when_the_page_scrolled_far() {
+    let mut f = home_with_games(70);
+    f.l.open(Screen::AllGames);
+    f.settle();
+    let rest = back_rect(&f).expect("Back on All games");
+    assert_eq!(rest.top(), chrome::PAGE_TOP, "at rest it heads the page");
+    assert!(shows(&f, "Nightjar"), "the brand is there at rest: {:?}", f.drawn);
+    f.scroll_to_end();
+    let held = back_rect(&f).expect("Back after scrolling");
+    assert!((held.top() - 22.0).abs() < 0.5 && held.left() == rest.left(), "held in the bar: {held:?}");
+    assert!(!shows(&f, "Nightjar"), "the brand gave way: {:?}", f.drawn);
+    f.click_at(held.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.screen, Screen::Home, "the click left the page and opened no game");
+    assert_eq!(chrome::brand_alpha(Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 800.0)), None), 1.0, "Home keeps its brand");
+}
+
+/// The brand fades over the same stretch of scrolling each time, so Back never rides over its words.
+#[test]
+fn the_brand_is_gone_before_back_reaches_it() {
+    let screen = Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 800.0));
+    let alpha_at = |scrolled: f32| chrome::brand_alpha(screen, Some(chrome::PAGE_TOP - scrolled));
+    assert_eq!(alpha_at(0.0), 1.0);
+    assert_eq!(alpha_at(16.0), 1.0);
+    assert!(alpha_at(26.0) > 0.0 && alpha_at(26.0) < 1.0);
+    assert_eq!(alpha_at(36.0), 0.0);
+    // Back's top passes the mark's foot (59) at 29 scrolled: the brand is mostly gone by then.
+    assert!(alpha_at(29.0) < 0.4);
+    assert_eq!(chrome::back_top(screen, chrome::PAGE_TOP - 500.0), 22.0);
+    assert_eq!(chrome::back_top(screen, chrome::PAGE_TOP), chrome::PAGE_TOP);
 }
 
 /// Under a short list of PCs: the search goes on, and How to connect opens the pairing guide.
@@ -2938,7 +3174,7 @@ fn a_short_pc_list_says_the_search_goes_on_and_links_how_to_connect() {
 
 /// The pairing PIN is what the dialog is for: large, bold digits in the amber accent.
 #[test]
-fn the_pairing_pin_is_large_bold_and_amber() {
+fn the_pairing_pin_is_large_and_bold_in_its_slots() {
     fn digits(shape: &egui::Shape, out: &mut Vec<(String, egui::FontId, Color32)>) {
         match shape {
             egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| digits(s, out)),
@@ -2966,7 +3202,7 @@ fn the_pairing_pin_is_large_bold_and_amber() {
     let digit = |d: &str| f.placed.iter().find(|(t, ..)| t == d).map(|p| p.1.center().x).expect("the digit");
     let middle = (digit("4") + digit("1")) / 2.0;
     assert!((middle - (left + 220.0)).abs() < 2.0, "the PIN is centred: {middle} in {left}..{}", left + 440.0);
-    assert!(pin.iter().all(|(_, font, color)| font.size >= 40.0 && *font == semibold(font.size) && *color == Color32::from(MOON)), "{pin:?}");
+    assert!(pin.iter().all(|(_, font, color)| font.size >= 36.0 && *font == semibold(font.size) && *color == Color32::from(ON_SURFACE)), "{pin:?}");
 }
 
 /// Home's card for a PC to pair says only that, whole: no "Games not loaded yet" cut short after it.
@@ -3003,63 +3239,142 @@ fn the_home_card_of_a_pc_to_pair_fits_its_state() {
 
 /// Before any PC, Home and PCs both link How to connect under their main action, as Android's
 /// empty discovery card does, and it opens the pairing guide.
+/// Frames over a list with no PCs, on a network being searched.
+fn first_run_frames(records: Vec<crate::config::HostRecord>) -> Frames {
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut l = launcher(true, false);
+    l.identity_ready = true;
+    let mut hosts = Hosts::without_discovery(records, Arc::new(|| {}));
+    hosts.discovering = true;
+    Frames::over(ctx, l, hosts)
+}
+
+/// The first run is the moon, what is happening in one line, one action and the way to help; Home
+/// sends it there.
 #[test]
-fn no_pcs_yet_links_how_to_connect_on_home_and_pcs() {
+fn the_first_run_is_one_line_and_add_pc_from_home_too() {
     for screen in [Screen::Home, Screen::Hosts] {
-        crate::theme::own_palette();
-        let ctx = egui::Context::default();
-        crate::theme::apply(&ctx);
-        let mut l = launcher(true, false);
-        l.identity_ready = true;
-        let mut f = Frames::over(ctx, l, Hosts::without_discovery(Vec::new(), Arc::new(|| {})));
+        let mut f = first_run_frames(Vec::new());
         f.l.go(screen);
         f.settle();
-        let at = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1).unwrap_or_else(|| panic!("{screen:?}: {text} in {:?}", f.drawn));
-        let main = at(&f, if screen == Screen::Home { "Open PCs" } else { "Add a PC by address" });
-        let link = at(&f, "How to connect");
-        assert!(link.top() >= main.bottom(), "{screen:?}: the link under the main action: {link:?} {main:?}");
-        f.frame(vec![egui::Event::PointerMoved(link.center())]);
-        let commands = f.click_at(link.center(), egui::PointerButton::Primary);
-        assert!(commands.iter().any(|c| matches!(c, Command::OpenGuide("pairing.md"))), "{screen:?}: a click opens the guide");
+        assert_eq!(f.l.screen, Screen::Hosts, "{:?}", f.drawn);
+        assert!(shows(&f, "Searching for PCs\u{2026}"), "{:?}", f.drawn);
+        let adds = f.placed.iter().filter(|(t, ..)| t == "Add PC").count();
+        assert_eq!(adds, 1, "the page's, not the bar's as well: {:?}", f.drawn);
+        assert!(shows(&f, "How to connect") && !f.drawn.iter().any(|t| t.to_lowercase().contains("host")), "{:?}", f.drawn);
+        let add = f.placed.iter().find(|(t, ..)| t == "Add PC").map(|p| p.1).expect("Add PC");
+        let focused = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).expect("Add PC has focus").rect;
+        assert!(focused.contains(add.center()), "{focused:?}");
+        f.press(Key::Enter);
+        assert!(!matches!(f.l.dialog, Dialog::None), "Enter opens Add PC");
     }
 }
 
-/// Home before any PC speaks of PCs, as Android's Home does, and never of hosts.
+/// With no search running it says so, out loud; the dot is off and Add PC is the way on.
 #[test]
-fn home_without_pcs_speaks_of_pcs() {
-    crate::theme::own_palette();
-    let ctx = egui::Context::default();
-    crate::theme::apply(&ctx);
-    let mut l = launcher(true, false);
-    l.identity_ready = true;
-    let mut f = Frames::over(ctx, l, Hosts::without_discovery(Vec::new(), Arc::new(|| {})));
-    f.l.go(Screen::Home);
+fn a_first_run_that_cannot_search_says_so() {
+    let mut f = first_run_frames(Vec::new());
+    f.hosts.discovering = false;
+    f.l.go(Screen::Hosts);
     f.settle();
-    assert!(shows(&f, "No PCs yet") && shows(&f, "Open PCs"), "{:?}", f.drawn);
-    assert!(!f.drawn.iter().any(|t| t.to_lowercase().contains("host")), "{:?}", f.drawn);
+    assert!(shows(&f, "Can't search this network for PCs") && !shows(&f, "Searching for PCs\u{2026}"), "{:?}", f.drawn);
+    assert!(shows(&f, "Add PC"), "{:?}", f.drawn);
 }
 
-/// A saved PC is on Home from the first frame, before it has answered: "No PCs yet" never flashes on a start.
+/// A found PC arrives as a card with Pair as the page's one moon action, which takes the focus; Add PC
+/// steps down, and more PCs than a first run has make the page a list.
 #[test]
-fn a_saved_pc_that_has_not_answered_yet_is_not_no_pcs() {
-    crate::theme::own_palette();
-    let ctx = egui::Context::default();
-    crate::theme::apply(&ctx);
-    let mut l = launcher(true, false);
-    l.identity_ready = true;
-    let mut f = Frames::over(ctx, l, Hosts::without_discovery(vec![record("Desk", true, false)], Arc::new(|| {})));
+fn a_found_pc_rises_in_with_pair_and_add_pc_steps_down() {
+    let mut f = first_run_frames(Vec::new());
+    f.l.go(Screen::Hosts);
+    f.settle();
+    let before = f.placed.iter().find(|(t, ..)| t == "Add PC").map(|p| p.1).expect("Add PC");
+    let mut found = Hosts::without_discovery(vec![record("Game Room", false, false)], Arc::new(|| {}));
+    found.discovering = true;
+    found.list[0].reach = Reach::Online;
+    f.hosts = found;
+    let name = |f: &Frames| f.placed.iter().find(|(t, r, _)| t == "Game Room" && r.top() > chrome::PAGE_TOP).map(|p| p.1).unwrap_or_else(|| panic!("{:?}", f.drawn));
+    f.frame(Vec::new());
+    f.frame(Vec::new());
+    let rising = name(&f);
+    f.settle();
+    let settled = name(&f);
+    assert!(rising.top() > settled.top(), "it rises: {rising:?} to {settled:?}");
+    let at = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1).unwrap_or_else(|| panic!("{text} in {:?}", f.drawn));
+    let (pair, line, add) = (at(&f, "Pair"), at(&f, "Searching for PCs\u{2026}"), at(&f, "Add PC"));
+    assert!(settled.bottom() <= pair.top() && pair.bottom() <= line.top() && line.bottom() <= add.top(), "{pair:?} {line:?} {add:?}");
+    assert!(add.top() != before.top(), "Add PC stepped down");
+    assert_eq!(f.placed.iter().filter(|(t, ..)| t == "PCs").count(), 1, "the tab's alone, no page title: {:?}", f.drawn);
+    let focused = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).expect("Pair has focus").rect;
+    assert!(focused.contains(pair.center()), "{focused:?}");
+    let commands = f.press(Key::Enter);
+    let id = f.hosts.list[0].id;
+    assert!(commands.iter().any(|c| matches!(c, Command::Pair(host) if *host == id)));
+    // Paired, it is the ordinary list.
+    let mut paired = Hosts::without_discovery(vec![record("Game Room", true, false)], Arc::new(|| {}));
+    paired.discovering = true;
+    paired.list[0].reach = Reach::Online;
+    f.hosts = paired;
+    f.settle();
+    assert!(!shows(&f, "Searching for PCs\u{2026}"), "{:?}", f.drawn);
+}
+
+/// How to connect stays on the first run, searching and found: under Add PC, centred on it, by
+/// pointer and by keyboard; Tab scrolls it into a short window.
+#[test]
+fn the_first_run_links_how_to_connect_in_both_states() {
+    let link = |f: &Frames| f.placed.iter().find(|(t, ..)| t == "How to connect").map(|p| p.1);
+    let add = |f: &Frames| f.placed.iter().find(|(t, ..)| t == "Add PC").map(|p| p.1).expect("Add PC");
+    let opens = |commands: &[Command]| commands.iter().any(|c| matches!(c, Command::OpenGuide("pairing.md")));
+    for found in [false, true] {
+        for size in [vec2(1280.0, 800.0), vec2(853.0, 480.0)] {
+            let mut f = first_run_frames(if found { vec![record("Game Room", false, false)] } else { Vec::new() });
+            if found {
+                f.hosts.list[0].reach = Reach::Online;
+            }
+            f.size = size;
+            f.l.go(Screen::Hosts);
+            f.settle();
+            assert_eq!(shows(&f, "Pair"), found, "{:?}", f.drawn);
+            let mut tabbed = false;
+            for _ in 0..8 {
+                f.press(Key::Tab);
+                let focus = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i));
+                let on_link = link(&f).filter(|at| focus.is_some_and(|r| r.rect.contains(at.center())));
+                if let Some(at) = on_link {
+                    let under = add(&f);
+                    assert!(at.top() >= under.bottom(), "{at:?} under {under:?}");
+                    assert!((at.center().x - under.center().x).abs() < 16.0, "{at:?} over {under:?}");
+                    assert!(at.bottom() <= size.y, "{at:?} in {size:?}");
+                    assert!(opens(&f.press(Key::Enter)), "Enter on the link");
+                    tabbed = true;
+                    break;
+                }
+            }
+            assert!(tabbed, "Tab reaches it, found {found}");
+        }
+    }
+}
+
+/// A saved PC is on Home from the first frame, before it has answered: the first run never flashes on a start.
+#[test]
+fn a_saved_pc_that_has_not_answered_yet_is_not_the_first_run() {
+    let mut f = first_run_frames(vec![record("Desk", true, false)]);
     f.l.go(Screen::Home);
     f.settle();
-    assert!(!shows(&f, "No PCs yet"), "{:?}", f.drawn);
+    assert_eq!(f.l.screen, Screen::Home);
+    assert!(!shows(&f, "Searching for PCs\u{2026}"), "{:?}", f.drawn);
 }
 
 /// A saved PC that answers as offline with no library saved is still its card on Home, with Wake in its options.
 #[test]
-fn an_offline_pc_with_nothing_saved_is_a_card_not_no_pcs() {
+fn an_offline_pc_with_nothing_saved_is_a_card_not_the_first_run() {
     let mut f = Frames::new(record("Den", true, true), Reach::Offline);
     f.l.go(Screen::Home);
     f.settle();
-    assert!(!shows(&f, "No PCs yet"), "{:?}", f.drawn);
+    assert_eq!(f.l.screen, Screen::Home);
     assert!(shows(&f, "PCs") && shows(&f, "Den"), "{:?}", f.drawn);
     assert!(host_options(&f.hosts.list[0]).contains(&HostOption::Wake));
 }
@@ -3089,7 +3404,7 @@ fn the_quit_on_leave_switch_sends_the_choice() {
     f.l.go(Screen::Game { host: pc, app: 1000 });
     f.settle();
     let bounds = f.access.as_ref().expect("AccessKit is on").nodes.iter()
-        .find(|(_, n)| n.label().is_some_and(|l| l.starts_with("Quit the game when I leave")))
+        .find(|(_, n)| n.label().is_some_and(|l| l.starts_with("Quit game when I leave")))
         .and_then(|(_, n)| n.bounds())
         .expect("the switch has the row's name");
     let at = Pos2::new(((bounds.x0 + bounds.x1) / 2.0) as f32, ((bounds.y0 + bounds.y1) / 2.0) as f32);
@@ -3187,36 +3502,25 @@ fn a_pc_that_is_up_reads_green_and_amber_never_stands_for_a_state() {
     assert_ne!(*looks[4].2, *OK, "a PC still being checked is not shown as up");
 }
 
+/// Home on its own, gathered as the page does.
+fn draw_home(l: &mut Launcher, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>) {
+    let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
+    let data = home::HomeData::gather(l, &sources);
+    l.home(ui, view, &sources, data, commands);
+    glass::flush_deferred(ui);
+}
+
 #[test]
-fn the_running_badge_is_a_green_dot_and_white_words_on_the_scrim_that_fit() {
+fn a_running_cover_wears_a_green_dot_and_no_amber() {
     crate::theme::own_palette();
-    let ctx = egui::Context::default();
-    crate::theme::apply(&ctx);
-    let mut badge = Rect::NOTHING;
-    let mut words = 0.0;
-    let mut output = egui::FullOutput::default();
-    for n in 0..2 {
-        let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0))), time: Some(f64::from(n)), ..Default::default() };
-        output = ctx.run_ui(input, |ui| {
-            badge = running_badge(ui.painter(), pos2(20.0, 20.0));
-            words = ui.painter().layout_no_wrap(tr("Running").to_owned(), semibold(text::CAPTION), Color32::WHITE).size().x;
-        });
-        output.textures_delta.clear();
-    }
-    assert!(badge.width() >= words + space::S * 3.0, "the badge is {} wide for words {words} wide", badge.width());
-    assert_eq!(badge.height(), space::XL);
-    let mut fills = Vec::new();
-    for clipped in &output.shapes {
-        match &clipped.shape {
-            egui::Shape::Rect(r) => fills.push(r.fill),
-            egui::Shape::Circle(c) => fills.push(c.fill),
-            _ => {}
-        }
-    }
-    assert!(fills.contains(&SCRIM), "the badge sits on the scrim: {fills:?}");
-    assert!(fills.contains(&*OK), "with a green dot: {fills:?}");
-    assert!(!fills.contains(&*MOON), "and no amber fill: {fills:?}");
-    assert!(collect_all_text(&output.shapes).iter().any(|t| t == tr("Running")));
+    let mut out = Vec::new();
+    running_dot(&mut out, Rect::from_min_size(Pos2::ZERO, vec2(160.0, 240.0)));
+    let fills: Vec<Color32> = out.iter().filter_map(|shape| match shape {
+        egui::Shape::Circle(c) => Some(c.fill),
+        _ => None,
+    }).collect();
+    assert!(fills.contains(&*OK), "a green dot: {fills:?}");
+    assert!(!fills.contains(&*MOON), "and no amber: {fills:?}");
 }
 
 #[test]
@@ -3252,9 +3556,9 @@ fn a_switched_off_primary_button_is_grey_not_faded_amber() {
         let painted: Vec<Color32> = output
             .shapes
             .iter()
-            .filter_map(|clipped| match &clipped.shape {
-                egui::Shape::Rect(r) if r.fill.a() > 0 => Some(r.fill),
-                _ => None,
+            .flat_map(|clipped| match &clipped.shape {
+                egui::Shape::Mesh(mesh) => mesh.vertices.iter().map(|v| v.color).filter(|c| c.a() > 0).collect(),
+                _ => Vec::new(),
             })
             .collect();
         let amber = painted.iter().any(|&c| is_amber(c));
@@ -3264,13 +3568,20 @@ fn a_switched_off_primary_button_is_grey_not_faded_amber() {
     assert!(!fills[1].1 && !fills[1].2.is_empty(), "a switched-off Play is drawn, but not in amber: {:?}", fills[1].2);
 }
 
-/// Every text drawn in `shapes`.
-fn collect_all_text(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
-    let mut drawn = Vec::new();
-    for clipped in shapes {
-        collect_text(&clipped.shape, &mut drawn);
+/// The outlines of the glass meshes that hold `color`: glass paints meshes, not filled rects.
+fn meshes_holding(shapes: &[egui::epaint::ClippedShape], color: Color32) -> Vec<Rect> {
+    fn walk(shape: &egui::Shape, color: Color32, out: &mut Vec<Rect>) {
+        match shape {
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, color, out)),
+            egui::Shape::Mesh(mesh) if mesh.vertices.iter().any(|v| v.color == color) => out.push(mesh.calc_bounds()),
+            _ => {}
+        }
     }
-    drawn
+    let mut found = Vec::new();
+    for clipped in shapes {
+        walk(&clipped.shape, color, &mut found);
+    }
+    found
 }
 
 /// What each text shape shows on screen (a cut line ends in "…"), with where it landed.
@@ -3283,20 +3594,6 @@ fn collect_visible(shape: &egui::Shape, out: &mut Vec<(String, Rect)>) {
         egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect_visible(s, out)),
         _ => {}
     }
-}
-
-/// A PC with a long IPv6 address and GPU name; `zoomed` is the smallest window SDL allows at 150 %, in German.
-fn long_detail_card(zoomed: bool) -> (Frames, String) {
-    let address = "fd12:3456:789a:bcde:f012:3456:789a:bcde";
-    let mut info = answer(true, 0);
-    info.gpu_type = Some("AMD Radeon RX 7900 XTX Phantom Gaming OC".into());
-    let mut f = Frames::with(HostRecord { address: address.into(), ..record("Living Room PC", true, true) }, Reach::Online, Some(info), Vec::new());
-    if zoomed {
-        fit_150(&mut f);
-        f.size = vec2(720.0 / 1.5, 480.0 / 1.5);
-    }
-    f.settle();
-    (f, format!("{address}  ·  AMD Radeon RX 7900 XTX Phantom Gaming OC"))
 }
 
 fn visible(f: &Frames) -> Vec<(String, Rect)> {
@@ -3314,35 +3611,606 @@ fn hover_card(f: &mut Frames, card: Rect) {
     }
 }
 
+/// The card of the only PC, by its own id.
+fn pc_card_rect(f: &Frames) -> Rect {
+    let id = f.hosts.list[0].id;
+    f.ctx.read_response(Id::unique(("pc-card", id))).expect("the card").rect
+}
+
 #[test]
-fn a_long_address_and_gpu_end_in_an_ellipsis_inside_the_card_and_the_tooltip_shows_them_whole() {
+fn a_long_pc_name_ends_in_an_ellipsis_inside_the_card_and_the_tooltip_shows_it_whole() {
     for zoomed in [false, true] {
-        let (mut f, full) = long_detail_card(zoomed);
-        let (card, _) = f.card_and_dots();
+        let full = "The Very Long Name Of The Living Room Gaming PC Under The Television";
+        let mut f = Frames::new(record(full, true, true), Reach::Online);
+        if zoomed {
+            fit_150(&mut f);
+            f.size = vec2(720.0 / 1.5, 480.0 / 1.5);
+        }
+        f.settle();
+        let card = pc_card_rect(&f);
         assert!(card.right() <= f.size.x, "{zoomed}: the card {card:?} fits the window");
-        let (line, rect) = visible(&f).into_iter().find(|(t, _)| t.starts_with("fd12:")).expect("the address line is drawn");
-        assert!(line.ends_with('…') && line.chars().count() < full.chars().count(), "{zoomed}: the line is cut: {line}");
-        assert!(rect.right() <= card.right() - CARD_PAD + 0.5, "{zoomed}: {line} ends at {} in a card ending at {}", rect.right(), card.right());
-        assert!(rect.left() >= card.left(), "{zoomed}: the line starts inside the card");
-        // The state line above it still fits whole.
-        let status = host_status(&f.hosts.list[0]).0;
-        assert!(visible(&f).iter().any(|(t, _)| *t == status), "{zoomed}: {status} is drawn whole");
-        hover_card(&mut f, card);
-        assert!(visible(&f).iter().any(|(t, _)| *t == full), "{zoomed}: the tooltip shows the whole line: {:?}", visible(&f));
+        let (line, rect) = visible(&f).into_iter().find(|(t, _)| t.starts_with("The Very")).expect("the name is drawn");
+        assert!(line.ends_with('\u{2026}'), "{zoomed}: the name is cut: {line}");
+        assert!(rect.right() <= card.right() + 0.5, "{zoomed}: {line} ends at {} in a card ending at {}", rect.right(), card.right());
+        // Up to the card's top, away from its action and More.
+        let over = pos2(card.left() + 8.0, card.top() + 8.0);
+        f.frame(vec![egui::Event::PointerMoved(over)]);
+        for _ in 0..30 {
+            f.frame(Vec::new());
+        }
+        assert!(visible(&f).iter().any(|(t, _)| t.starts_with(full)), "{zoomed}: the tooltip shows it whole: {:?}", visible(&f));
     }
 }
 
 #[test]
-fn a_short_detail_line_is_drawn_whole_with_no_tooltip() {
-    let (mut f, _) = long_detail_card(false);
-    f.hosts.list[0].record.address = "192.0.2.7".into();
-    f.hosts.list[0].info.as_mut().expect("the answer").gpu_type = Some("RX 7900 XT".into());
-    f.settle();
-    let (card, _) = f.card_and_dots();
+fn a_short_pc_name_is_drawn_whole_with_no_tooltip() {
+    let mut f = Frames::new(record("Den", true, true), Reach::Online);
+    let card = pc_card_rect(&f);
     hover_card(&mut f, card);
     let shown = visible(&f);
-    let lines: Vec<_> = shown.iter().filter(|(t, _)| t == "192.0.2.7  ·  RX 7900 XT").collect();
-    assert_eq!(lines.len(), 1, "drawn once, whole, and no tooltip: {shown:?}");
+    assert!(shown.iter().any(|(t, _)| t == "Den"), "{shown:?}");
+    assert!(!shown.iter().any(|(t, _)| t.starts_with("Den, ")), "no tooltip: {shown:?}");
+}
+
+/// A PC's one action says what the screen and the line say, and does it.
+#[test]
+fn a_pc_offers_the_one_action_its_state_calls_for() {
+    let action_of = |f: &Frames| crate::ui::pcs::pc_action(&f.hosts.list[0]);
+    let line_of = |f: &Frames| crate::ui::pcs::pc_line_of(&f.hosts.list[0]);
+    use crate::ui::pcs::{PcAction, PcLine};
+    let click_action = |f: &mut Frames| {
+        let at = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).expect("the action has focus").rect.center();
+        f.click_at(at, egui::PointerButton::Primary)
+    };
+    // Up and paired, idle: Open, a green "Online", and no made-up latency.
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 0)), vec![game(7)]);
+    assert_eq!(action_of(&f), PcAction::Open);
+    assert_eq!(line_of(&f), PcLine::Online);
+    assert!(shows(&f, "Open") && shows(&f, "Online") && !f.drawn.iter().any(|t| t.ends_with(" ms")), "{:?}", f.drawn);
+    let id = f.hosts.list[0].id;
+    assert!(click_action(&mut f).iter().any(|c| matches!(c, Command::OpenApps(h) if *h == id)));
+
+    // Running a game of its known list: Resume starts it again, the line names the game.
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 7)), vec![game(7)]);
+    f.hosts.list[0].apps = Apps::Loaded(vec![game(7)]);
+    f.settle();
+    assert_eq!(action_of(&f), PcAction::Resume(7));
+    assert!(matches!(line_of(&f), PcLine::Running(_)));
+    assert!(shows(&f, "Resume"), "{:?}", f.drawn);
+    let commands = click_action(&mut f);
+    assert!(commands.iter().any(|c| matches!(c, Command::Launch { app: 7, resume: true, .. })));
+
+    // Running but the list is not known: it asks for it, and offers what still works.
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 7)), Vec::new());
+    f.hosts.list[0].apps = Apps::NotLoaded;
+    let commands = f.settle();
+    assert_eq!(action_of(&f), PcAction::Open);
+    assert!(commands.iter().any(|c| matches!(c, Command::LoadApps(_))));
+
+    // Asleep with a saved address: Wake. Without one: Try again, which checks again.
+    let mut f = Frames::new(HostRecord { mac: Some("00:1a:2b:3c:4d:5e".into()), ..record("Den", true, true) }, Reach::Offline);
+    assert_eq!((action_of(&f), line_of(&f)), (PcAction::Wake, PcLine::Offline));
+    assert!(shows(&f, "Wake") && shows(&f, "Offline"), "{:?}", f.drawn);
+    assert!(click_action(&mut f).iter().any(|c| matches!(c, Command::Wake(_))));
+    let mut f = Frames::new(HostRecord { mac: None, ..record("Den", true, true) }, Reach::Offline);
+    assert_eq!(action_of(&f), PcAction::TryAgain);
+    assert!(click_action(&mut f).iter().any(|c| matches!(c, Command::Refresh(_))));
+
+    // Up and not paired: Pair, and the lock says why.
+    let mut f = Frames::new(record("Den", false, false), Reach::Online);
+    assert_eq!((action_of(&f), line_of(&f)), (PcAction::Pair, PcLine::NotPaired));
+    assert!(shows(&f, "Not paired"), "{:?}", f.drawn);
+    assert!(click_action(&mut f).iter().any(|c| matches!(c, Command::Pair(_))));
+}
+
+/// The rest of the card still does what selecting a PC always did.
+#[test]
+fn selecting_a_pcs_card_opens_it_and_a_right_click_offers_its_menu() {
+    let mut f = Frames::new(record("Den", true, true), Reach::Online);
+    let card = pc_card_rect(&f);
+    let commands = f.click_at(card.right_top() + vec2(-20.0, 20.0), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::OpenApps(_))));
+    let mut f = Frames::new(record("Den", true, true), Reach::Online);
+    let card = pc_card_rect(&f);
+    f.click_at(card.right_top() + vec2(-20.0, 20.0), egui::PointerButton::Secondary);
+    assert!(f.options_open(), "its menu");
+}
+
+/// Tab meets each card's action, then its More. The card itself takes no focus.
+#[test]
+fn a_pcs_card_has_two_stops_for_focus() {
+    let mut f = Frames::new(record("Den", true, true), Reach::Online);
+    let (action, more) = f.card_and_dots();
+    let card = pc_card_rect(&f);
+    assert!(card.contains_rect(action) && card.contains_rect(more), "{action:?} {more:?} in {card:?}");
+    assert!((action.left() - card.left() - 22.0).abs() < 0.5 && (card.right() - more.right() - 22.0).abs() < 0.5, "{action:?} {more:?} in {card:?}");
+    assert_eq!((more.width(), more.height()), (48.0, 48.0));
+    f.press(Key::Tab);
+    let focused = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).unwrap();
+    assert_eq!(focused.rect, more, "More comes after the action");
+}
+
+/// The halo of a focused action paints over the card beside it, so no neighbour cuts it.
+#[test]
+fn a_focused_actions_halo_paints_after_the_next_card() {
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut l = launcher(false, false);
+    l.go(Screen::Hosts);
+    let mut second = record("Attic", true, true);
+    second.address = "192.0.2.77".into();
+    second.unique_id = "attic".into();
+    let hosts = Hosts::without_discovery(vec![record("Den", true, true), second], Arc::new(|| {}));
+    let mut f = Frames::over(ctx, l, hosts);
+    f.settle();
+    let ring = f.shapes.iter().position(|s| !meshes_holding(std::slice::from_ref(s), design_tokens::FOCUS_RING_COLOR).is_empty()).expect("the ring");
+    let neighbour = f.shapes.iter().position(|s| {
+        let mut shown = Vec::new();
+        collect_visible(&s.shape, &mut shown);
+        shown.iter().any(|(t, _)| t == "Attic")
+    });
+    assert!(neighbour.is_some_and(|at| at < ring), "ring at {ring}, the next card at {neighbour:?}");
+}
+
+/// Ctrl+K still opens the search from PCs, where the field gave way to Add PC.
+#[test]
+fn ctrl_k_searches_from_pcs_and_add_pc_opens_its_dialog() {
+    let mut f = Frames::new(record("Den", true, true), Reach::Online);
+    let add = f.placed.iter().find(|(t, ..)| t == "Add PC").map(|p| p.1).expect("Add PC");
+    assert!(add.top() < 68.0, "in the bar: {add:?}");
+    f.click_at(add.center(), egui::PointerButton::Primary);
+    assert!(matches!(f.l.dialog, Dialog::AddHost { .. }));
+    f.press(Key::Escape);
+    f.frame(vec![egui::Event::Key { key: Key::K, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND }]);
+    f.settle();
+    assert_eq!(f.l.screen, Screen::AllGames);
+    assert!(f.l.search_open);
+}
+
+/// A PC's page with `count` apps, some running.
+fn app_grid(count: i32, running: i32) -> Frames {
+    let games: Vec<_> = (1..=count).map(|id| nightjar_core::http::App { name: format!("App {id}"), ..game(id) }).collect();
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, running)), games);
+    let id = f.hosts.list[0].id;
+    f.size = vec2(1280.0, 800.0);
+    f.l.go(Screen::Apps(id));
+    f.settle();
+    f
+}
+
+/// Nothing of Back is clipped to its own square: that once showed as a dark box around the disc.
+#[test]
+fn backs_shadow_and_halo_leave_its_square() {
+    let mut f = store_mix();
+    f.l.go(Screen::AllGames);
+    f.settle();
+    let back = f.ctx.read_response(Id::unique("back")).expect("Back").rect;
+    assert!(f.shapes.iter().all(|s| s.clip_rect != back), "clipped to {back:?}");
+}
+
+#[test]
+fn an_app_grid_has_seven_fixed_columns_and_no_labels_on_art() {
+    let mut f = app_grid(15, 0);
+    let id = f.hosts.list[0].id;
+    for app in 2..=15 {
+        let art = demo_art(&f.ctx, app as usize);
+        f.hosts.get_mut(id).unwrap().art.insert(app, art);
+    }
+    f.hosts.get_mut(id).unwrap().art.insert(1, Art::Missing);
+    f.settle();
+    let (_, width) = crate::ui::cards::grid(1184.0);
+    assert_eq!(width, 155.0, "seven columns at the design's width");
+    // Art says its own title; no line is drawn under it, but a tile still holds the name.
+    assert!(!shows(&f, "App 2"), "{:?}", f.drawn);
+    assert!(f.drawn.iter().any(|t| t.contains("App 1")), "a tile holds it: {:?}", f.drawn);
+    // A screen reader still hears them all: the slot is a labelled button.
+    let first = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).expect("the first cover has focus").rect;
+    assert_eq!(first.size(), vec2(155.0, 232.0), "the slot is the cover");
+    assert_eq!(first.left(), 48.0, "at the margin");
+    f.press(Key::ArrowRight);
+    let second = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).unwrap().rect;
+    assert_eq!(second.left() - first.right(), 16.0, "the columns' gap");
+    assert_eq!(second.top(), first.top());
+    for _ in 0..5 {
+        f.press(Key::ArrowRight);
+    }
+    let last = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).unwrap().rect;
+    assert_eq!((last.top(), last.left()), (first.top(), first.left() + 6.0 * (155.0 + 16.0)), "seven to a row");
+    f.press(Key::ArrowDown);
+    for _ in 0..6 {
+        f.press(Key::ArrowLeft);
+    }
+    let below = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).unwrap().rect;
+    assert_eq!(below.left(), first.left(), "the next row starts under it");
+    assert_eq!(below.top() - first.bottom(), 18.0, "the rows' gap");
+}
+
+#[test]
+fn a_cover_without_its_art_yet_holds_its_name() {
+    let f = app_grid(3, 0);
+    assert!(!f.hosts.list[0].art.contains_key(&2));
+    assert!(shows(&f, "App 2"), "the placeholder names it: {:?}", f.drawn);
+}
+
+#[test]
+fn a_running_app_offers_resume_and_quit_game_beside_its_name() {
+    let mut f = app_grid(5, 3);
+    let name = "App 3";
+    assert_eq!(f.drawn.iter().filter(|t| **t == name).count(), 2, "its chip and its cover: {:?}", f.drawn);
+    assert!(shows(&f, "Resume") && shows(&f, "Quit game"), "{:?}", f.drawn);
+    for gone in ["Refresh", "Quit running app", "PC settings"] {
+        assert!(!shows(&f, gone), "{gone} lives in the PC's menu now: {:?}", f.drawn);
+    }
+    let at = |f: &Frames, word: &str| f.placed.iter().find(|(t, ..)| t == word).map(|p| p.1).unwrap();
+    let (resume, quit) = (at(&f, "Resume"), at(&f, "Quit game"));
+    assert!(resume.right() < quit.left(), "{resume:?} {quit:?}");
+    assert!(1280.0 - quit.right() < 140.0, "at the right edge, by the round Refresh: {quit:?}");
+    // The row does not grow for them: what runs does not move the grid.
+    let top = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).expect("the running cover has focus").rect.top();
+    let idle = app_grid(5, 0);
+    let idle_top = idle.ctx.memory(|m| m.focused()).and_then(|i| idle.ctx.read_response(i)).unwrap().rect.top();
+    assert_eq!(top, idle_top);
+    // Resume starts it again; Quit game asks first.
+    let commands = f.click_at(resume.center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::Launch { app: 3, resume: true, .. })));
+    let quit = at(&f, "Quit game");
+    f.click_at(quit.center(), egui::PointerButton::Primary);
+    assert!(matches!(f.l.dialog, Dialog::ConfirmQuit { start: None, .. }));
+}
+
+#[test]
+fn a_narrow_window_lets_the_running_name_go_before_the_title() {
+    let mut f = app_grid(5, 3);
+    f.size = vec2(560.0, 700.0);
+    f.settle();
+    f.settle();
+    let name = "App 3";
+    assert!(shows(&f, "Den"), "the title stays: {:?}", f.drawn);
+    assert!(shows(&f, "Resume") && shows(&f, "Quit game"), "{:?}", f.drawn);
+    let chips = visible(&f).iter().filter(|(t, r)| *t == name && r.top() < 150.0).count();
+    assert_eq!(chips, 0, "no chip in the row: {:?}", visible(&f));
+}
+
+#[test]
+fn a_running_app_the_list_does_not_know_can_be_resumed_too() {
+    let mut f = app_grid(5, 99);
+    f.settle();
+    assert!(shows(&f, "Resume") && shows(&f, "Quit game") && shows(&f, "The running app"), "{:?}", f.drawn);
+    let resume = f.placed.iter().find(|(t, ..)| t == "Resume").map(|p| p.1).expect("Resume");
+    let commands = f.click_at(resume.center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::Launch { app: 99, resume: true, .. })), "the game itself, not a control tile");
+}
+
+#[test]
+fn the_pc_capsule_speaks_of_the_pc_whose_page_it_is() {
+    let mut other = record("Attic", true, true);
+    other.address = "192.0.2.77".into();
+    other.unique_id = "attic".into();
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut l = launcher(false, false);
+    l.go(Screen::Hosts);
+    let mut hosts = Hosts::without_discovery(vec![record("Den", true, true), other], Arc::new(|| {}));
+    for host in &mut hosts.list {
+        host.reach = Reach::Online;
+        host.apps = Apps::Loaded(vec![game(1)]);
+    }
+    let attic = hosts.list[1].id;
+    let mut f = Frames::over(ctx, l, hosts);
+    f.l.go(Screen::Apps(attic));
+    f.settle();
+    let in_bar = |f: &Frames, word: &str| f.placed.iter().any(|(t, r, _)| t == word && r.top() < 68.0);
+    assert!(in_bar(&f, "Attic") && !in_bar(&f, "Den"), "{:?}", f.placed);
+}
+
+/// The top bar over Den's page, with Attic not paired and Cellar asleep. Ids in that order.
+fn three_pcs() -> (Frames, [u64; 3]) {
+    let mut attic = record("Attic", false, false);
+    attic.address = "192.0.2.77".into();
+    let mut cellar = record("Cellar", true, true);
+    cellar.address = "192.0.2.78".into();
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut l = launcher(false, false);
+    l.go(Screen::Hosts);
+    let mut hosts = Hosts::without_discovery(vec![record("Den", true, true), attic, cellar], Arc::new(|| {}));
+    for (host, reach) in hosts.list.iter_mut().zip([Reach::Online, Reach::Online, Reach::Offline]) {
+        host.reach = reach;
+    }
+    hosts.list[0].apps = Apps::Loaded(vec![game(1)]);
+    let ids = [hosts.list[0].id, hosts.list[1].id, hosts.list[2].id];
+    let mut f = Frames::over(ctx, l, hosts);
+    f.l.go(Screen::Apps(ids[0]));
+    f.settle();
+    (f, ids)
+}
+
+/// Where the bar's capsule is, by the name in it.
+fn capsule_at(f: &Frames, name: &str) -> Pos2 {
+    f.placed.iter().find(|(t, r, _)| t == name && r.top() < 68.0).expect("the capsule names its PC").1.center()
+}
+
+fn focus_capsule(f: &mut Frames) {
+    f.ctx.memory_mut(|m| m.request_focus(Id::unique("top-pc")));
+    f.settle();
+}
+
+/// The name in the row that has the focus, if a row of the sheet has it.
+fn focused_row(f: &Frames) -> Option<String> {
+    let rect = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id))?.rect;
+    f.placed.iter().find(|(t, r, _)| rect.height() == 60.0 && rect.contains_rect(*r) && ["Den", "Attic", "Cellar"].contains(&t.as_str())).map(|(t, ..)| t.clone())
+}
+
+#[test]
+fn the_capsule_opens_the_pcs_with_two_or_more() {
+    let (mut f, [den, ..]) = three_pcs();
+    f.click_at(capsule_at(&f, "Den"), egui::PointerButton::Primary);
+    assert!(matches!(f.l.dialog, Dialog::PcSheet { current } if current == den));
+    for word in ["PCs", "Den", "Online", "Attic", "Not paired", "Cellar", "Offline"] {
+        assert!(shows(&f, word), "{word}: {:?}", f.drawn);
+    }
+    assert_eq!(focused_row(&f), None, "opened by the pointer, no row wears the ring");
+    f.press(Key::ArrowDown);
+    assert_eq!(focused_row(&f).as_deref(), Some("Den"), "the first key starts on the first row");
+}
+
+#[test]
+fn the_capsule_of_the_only_pc_opens_its_options() {
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 0)), Vec::new());
+    f.hosts.list[0].apps = Apps::Loaded(vec![game(1)]);
+    let id = f.hosts.list[0].id;
+    f.l.go(Screen::Apps(id));
+    f.settle();
+    f.click_at(capsule_at(&f, "Den"), egui::PointerButton::Primary);
+    assert!(f.options_open());
+}
+
+#[test]
+fn the_capsules_options_stay_on_their_keys_and_the_right_button() {
+    let (mut f, [den, ..]) = three_pcs();
+    focus_capsule(&mut f);
+    for key in [Key::F, Key::F2] {
+        f.press(key);
+        assert!(matches!(f.l.dialog, Dialog::HostOptions { host } if host == den), "{key:?}");
+        f.press(Key::Escape);
+        assert!(f.no_dialog());
+        f.settle();
+    }
+    f.click_at(capsule_at(&f, "Den"), egui::PointerButton::Secondary);
+    assert!(matches!(f.l.dialog, Dialog::HostOptions { host } if host == den));
+}
+
+#[test]
+fn keys_walk_the_pcs_from_the_first_row_and_back_to_the_capsule() {
+    let (mut f, [den, ..]) = three_pcs();
+    f.ctx.enable_accesskit();
+    focus_capsule(&mut f);
+    f.press(Key::Enter);
+    assert!(matches!(f.l.dialog, Dialog::PcSheet { current } if current == den));
+    assert_eq!(focused_row(&f).as_deref(), Some("Den"), "by keys the ring starts on the first row");
+    f.press(Key::ArrowDown);
+    assert_eq!(focused_row(&f).as_deref(), Some("Attic"));
+    let tree = f.access.as_ref().expect("AccessKit is on");
+    let marked = |label: &str| tree.nodes.iter().find(|(_, n)| n.label() == Some(label)).unwrap_or_else(|| panic!("{label}")).1.toggled();
+    assert_eq!(marked("Den, Online"), Some(egui::accesskit::Toggled::True), "the mark is read out too");
+    assert_eq!(marked("Attic, Not paired"), Some(egui::accesskit::Toggled::False));
+    f.press(Key::Escape);
+    f.settle();
+    assert!(f.no_dialog());
+    assert_eq!(f.ctx.memory(|m| m.focused()), Some(Id::unique("top-pc")), "the focus goes back to the capsule");
+}
+
+/// A focused row's ring was cut thin at the list's top and its glow ended in a line across the panel.
+#[test]
+fn a_menu_rows_ring_and_glow_end_before_the_list_cuts_them() {
+    let (mut f, _) = three_pcs();
+    for key in [Key::Enter, Key::F2] {
+        focus_capsule(&mut f);
+        f.press(key);
+        f.settle();
+        assert!(!f.no_dialog(), "{key:?} opens a list");
+        let row = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).expect("the first row has the focus").rect;
+        let (glow, clip) = meshes_drawn(&f)
+            .iter()
+            .find(|(mesh, _)| mesh.vertices.first().is_some_and(|v| v.color == design_tokens::FOCUS_HALO_COLOR))
+            .map(|(mesh, clip)| (mesh.calc_bounds(), *clip))
+            .expect("the focused row glows");
+        assert!(glow.contains_rect(row.expand(design_tokens::FOCUS_GAP + design_tokens::FOCUS_RING_WIDTH)), "{glow:?} goes around the ring of {row:?}");
+        assert!(clip.expand(0.6).contains_rect(glow), "{glow:?} is cut by {clip:?}");
+        f.press(Key::Escape);
+        f.settle();
+    }
+}
+
+/// The cards and rows read the same on the sky's moon as the PCs' cards do: the disc's sharp edge
+/// ran through a card's words. The moon stands clear of them at the page's top, so a card meets it
+/// as the page scrolls: there it gets its canvas, which follows the moon where it really stands and
+/// goes nowhere else.
+#[test]
+fn a_card_on_the_moon_has_canvas_under_its_words() {
+    let canvas = design_tokens::COLOR_CANVAS.gamma_multiply(0.8);
+    for (window, zoom) in [(vec2(1280.0, 800.0), 100), (vec2(1100.0, 650.0), 100), (vec2(1280.0, 800.0), 150)] {
+        let mut f = four_pcs();
+        f.l.settings.ui_zoom = zoom;
+        f.size = window;
+        f.l.go(Screen::Profiles);
+        f.settle();
+        let what = format!("Profiles at {window:?}, {zoom} %");
+        let (center, r) = backdrop::disc_of(&f.ctx).unwrap_or_else(|| panic!("{what}: the moon stands beside the rows"));
+        let mut on_moon = 0;
+        for _ in 0..40 {
+            f.frame(vec![egui::Event::PointerMoved((f.size / 2.0).to_pos2())]);
+            f.frame(vec![egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -30.0), phase: egui::TouchPhase::Move, source: egui::MouseWheelSource::Unknown, modifiers: egui::Modifiers::NONE }]);
+            assert_eq!(backdrop::disc_of(&f.ctx), Some((center, r)), "{what}: the moon holds still as the page scrolls");
+            for (mesh, clip) in meshes_drawn(&f) {
+                if mesh.vertices.iter().any(|v| v.color == canvas) {
+                    let bounds = mesh.calc_bounds().intersect(clip);
+                    assert!(bounds.distance_to_pos(center) < r, "{what}: canvas at {bounds:?}, away from the moon at {center:?}, r {r}");
+                    on_moon += 1;
+                }
+            }
+        }
+        assert!(on_moon > 0, "{what}: rows scrolled over the moon get their canvas");
+    }
+}
+
+/// Enter on the card, on the PCs page: the card's own action.
+#[test]
+fn picking_a_pc_does_what_enter_does_on_its_card() {
+    for (name, want) in [("Den", 0), ("Attic", 1), ("Cellar", 2)] {
+        let (mut f, ids) = three_pcs();
+        f.click_at(capsule_at(&f, "Den"), egui::PointerButton::Primary);
+        // The sheet draws last: the page behind it may name the PC too.
+        let row = f.placed.iter().rev().find(|(t, ..)| t == name).expect("its row").1.center();
+        let commands = f.click_at(row, egui::PointerButton::Primary);
+        assert!(f.no_dialog(), "{name}: the sheet closes");
+        let id = ids[want];
+        let did = commands.iter().any(|c| match want {
+            0 => matches!(c, Command::OpenApps(h) if *h == id),
+            1 => matches!(c, Command::Pair(h) if *h == id),
+            _ => matches!(c, Command::Wake(h) if *h == id),
+        });
+        assert!(did, "{name} did something else");
+    }
+}
+
+/// A PC with no apps has nothing to start: no Desktop tile that could only fail, one line and Refresh.
+#[test]
+fn a_pc_with_no_apps_shows_one_line_and_refresh() {
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 0)), Vec::new());
+    f.hosts.list[0].apps = Apps::Loaded(Vec::new());
+    let id = f.hosts.list[0].id;
+    f.l.go(Screen::Apps(id));
+    f.settle();
+    assert!(shows(&f, "This PC lists no apps.") && shows(&f, "Refresh"), "{:?}", f.drawn);
+    assert!(!shows(&f, "Desktop"), "no tile to fail: {:?}", f.drawn);
+    let focused = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).expect("Refresh has focus").rect;
+    let at = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).unwrap().1;
+    assert!(focused.contains(at(&f, "Refresh").center()), "{focused:?}");
+    assert!(at(&f, "This PC lists no apps.").bottom() < focused.top());
+    let commands = f.frame(crate::gui::tap(Key::Enter).to_vec());
+    assert!(commands.iter().any(|c| matches!(c, Command::Refresh(host) if *host == id)));
+    assert!(!commands.iter().any(|c| matches!(c, Command::Launch { .. })));
+    // While the answer is on its way the page holds still: no covers' places for a list that had none.
+    let line = at(&f, "This PC lists no apps.");
+    f.hosts.list[0].apps = Apps::Loading;
+    f.settle();
+    assert_eq!(at(&f, "This PC lists no apps."), line);
+    assert!(!shows(&f, "Loading the library\u{2026}"), "{:?}", f.drawn);
+    // A list with a game in it lands as any.
+    f.hosts.list[0].apps = Apps::Loaded(vec![game(7)]);
+    f.settle();
+    assert!(!shows(&f, "This PC lists no apps.") && !shows(&f, "Refresh"), "{:?}", f.drawn);
+    // Failed, it says so out loud with the way to try again.
+    f.hosts.list[0].apps = Apps::Failed("The PC did not answer".into());
+    f.settle();
+    assert!(shows(&f, "The library could not be loaded.") && shows(&f, "The PC did not answer") && shows(&f, "Try again"), "{:?}", f.drawn);
+}
+
+/// A PC that lists a Desktop entry has an ordinary tile for it, which starts it.
+#[test]
+fn a_desktop_entry_the_pc_lists_is_a_normal_tile() {
+    let desktop = nightjar_core::http::App { name: "Desktop".into(), ..game(3) };
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 0)), vec![desktop]);
+    let id = f.hosts.list[0].id;
+    f.l.go(Screen::Apps(id));
+    f.settle();
+    assert!(!shows(&f, "Refresh") && !shows(&f, "This PC lists no apps."), "{:?}", f.drawn);
+    let commands = f.press(Key::Enter);
+    assert!(commands.iter().any(|c| matches!(c, Command::Launch { host, app: 3, resume: false } if *host == id)));
+}
+
+/// A cover's ⋮ takes the bottom right, clear of a logotype at the top or the bottom left, and the bottom
+/// left on a running cover, whose dot has the other corner.
+#[test]
+fn a_covers_dots_sit_clear_of_its_logotype_and_its_running_dot() {
+    let cover = Rect::from_min_size(pos2(100.0, 100.0), vec2(160.0, 240.0));
+    for badge in [Badge::None, Badge::NotInstalled] {
+        let dots = crate::ui::cards::dots_rect(cover, badge);
+        assert!(cover.contains_rect(dots), "{dots:?}");
+        assert!(dots.top() > cover.center().y && dots.left() > cover.center().x, "{dots:?}");
+        assert!(cover.right() - dots.right() < 12.0, "in the corner: {dots:?}");
+    }
+    let running = crate::ui::cards::dots_rect(cover, Badge::Running);
+    let status = cover.right_bottom() - Vec2::splat(18.0);
+    assert!(cover.contains_rect(running) && running.right() < status.x - 10.0, "away from the running dot: {running:?}");
+    assert!(running.left() - cover.left() < 12.0, "{running:?}");
+}
+
+/// Pointing at a cover shows its ⋮ in that corner, and pressing it opens the menu, on Home's shelves too.
+#[test]
+fn a_covers_dots_open_its_menu_on_homes_shelves() {
+    let mut f = home_with_games(9);
+    let host = f.hosts.list[0].record.unique_id.clone();
+    f.l.favourites = vec![crate::config::Favourite { host, install_id: "install-3".into(), app_id: 1003, title: "Game 03".into() }];
+    f.settle();
+    // The arrows reach the favourite's cover, first of the page's "Game 03"s; its rect holds its caption.
+    let mut cover = None;
+    for _ in 0..8 {
+        f.press(Key::ArrowDown);
+        f.settle();
+        let caption = f.placed.iter().find(|(t, ..)| t == "Game 03").map(|p| p.1).unwrap_or_else(|| panic!("{:?}", f.drawn));
+        let rect = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).map(|r| r.rect);
+        cover = rect.filter(|r| r.contains(caption.center()));
+        if cover.is_some() {
+            break;
+        }
+    }
+    let cover = cover.expect("the arrows reach the favourite");
+    let foot = cover.top() + cover_height(cover.width());
+    let at = pos2(cover.right() - 8.0 - 15.0, foot - 8.0 - 15.0);
+    f.frame(vec![egui::Event::PointerMoved(at)]);
+    f.settle();
+    f.click_at(at, egui::PointerButton::Primary);
+    assert!(matches!(f.l.dialog, Dialog::GameMenu { .. }), "the menu, not the game's page: {:?}, cover {cover:?}", f.l.screen);
+}
+
+#[test]
+fn the_list_lands_where_its_places_were_held() {
+    let mut f = app_grid(9, 0);
+    let id = f.hosts.list[0].id;
+    let landed = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).unwrap().rect;
+    f.hosts.get_mut(id).unwrap().apps = Apps::Loading;
+    f.settle();
+    assert!(shows(&f, "Loading the library\u{2026}"), "{:?}", f.drawn);
+    let held = meshes_holding(&f.shapes, design_tokens::COVER_PLACEHOLDER);
+    assert!(held.iter().any(|r| (r.center() - landed.center()).length() < 0.5 && (r.width() - landed.width()).abs() <= 1.0), "{landed:?} among {held:?}");
+    assert!(held.len() >= 14, "two rows of seven: {held:?}");
+}
+
+/// The chips stay while the words narrow them, each counting what it would show.
+#[test]
+fn chip_counts_follow_the_search_and_the_chips_stay() {
+    let mut f = store_mix();
+    f.l.go(Screen::AllGames);
+    f.settle();
+    let before: Vec<String> = f.drawn.iter().filter(|t| ["All", "Steam", "Epic Games"].contains(&t.as_str())).cloned().collect();
+    let total = f.hosts.list[0].native.library.as_ref().unwrap().games.len();
+    assert!(shows(&f, &total.to_string()), "{:?}", f.drawn);
+    f.l.search_open = true;
+    f.l.library_query = "fort".into();
+    f.settle();
+    let after: Vec<String> = f.drawn.iter().filter(|t| ["All", "Steam", "Epic Games"].contains(&t.as_str())).cloned().collect();
+    assert_eq!(before, after, "the chips stay");
+    assert!(!shows(&f, &total.to_string()) && f.drawn.iter().any(|t| t == "1"), "only Fortnite counts: {:?}", f.drawn);
+}
+
+#[test]
+fn the_open_searchs_words_sit_on_the_closed_ones_line() {
+    let mut f = store_mix();
+    f.settle();
+    let closed = f.placed.iter().find(|(t, r, _)| t == "Search" && r.top() < 68.0).expect("the closed field").1;
+    f.l.open_search();
+    f.settle();
+    let open = f.placed.iter().find(|(t, r, _)| t == "Search" && r.top() < 68.0).expect("the field's hint").1;
+    assert!((open.center().y - closed.center().y).abs() <= 0.5, "open {open:?}, closed {closed:?}");
+    f.l.library_query = "Search".into();
+    f.settle();
+    let typed = f.placed.iter().find(|(t, r, _)| t == "Search" && r.top() < 68.0).expect("the typed words").1;
+    assert!((typed.center().y - closed.center().y).abs() <= 0.5, "typed {typed:?}, closed {closed:?}");
 }
 
 #[test]
@@ -3430,12 +4298,152 @@ fn page_screenshots() {
     f.shoot(&dir, &format!("{prefix}hosts-long-detail-desktop"));
 }
 
-/// The demo library's cover art (the same genre covers the Android demo and README use).
+/// The demo library's cover art (the same covers the Android demo and README use).
 fn demo_art(ctx: &egui::Context, n: usize) -> Art {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../app/src/debug/assets/demo/art/{}.png", n + 1));
-    let image = image::load_from_memory(&std::fs::read(&path).expect("the demo cover")).expect("a PNG").to_rgba8();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../app/src/debug/assets/demo/art/{}.jpg", n + 1));
+    let image = image::load_from_memory(&std::fs::read(&path).expect("the demo cover")).expect("a JPEG").to_rgba8();
     let size = [image.width() as usize, image.height() as usize];
     Art::Ready(ctx.load_texture(format!("demo-art-{n}"), egui::ColorImage::from_rgba_unmultiplied(size, &image), egui::TextureOptions::LINEAR))
+}
+
+/// The glass Home on each tier and every other page once, beside the prototype:
+/// `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop --bin nightjar glass_page_screenshots --release -- --ignored`.
+#[test]
+#[ignore = "writes PNGs; set NIGHTJAR_SHOTS"]
+fn glass_page_screenshots() {
+    use crate::live_glass::Tier;
+    use nightjar_core::http::native_api::library::{Artwork, Game, Library, Store};
+    let Some(dir) = std::env::var_os("NIGHTJAR_SHOTS").map(std::path::PathBuf::from) else { return };
+    std::fs::create_dir_all(&dir).expect("the folder for the screenshots");
+    let library = |tier: Tier, ppp: f32, hero: usize, art_less: &[usize]| {
+        crate::theme::own_palette();
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::live_glass::set_tier(&ctx, tier);
+        let mut l = launcher(true, false);
+        l.identity_ready = true;
+        let records = vec![HostRecord { address: "192.0.2.10".into(), ..record("Living Room PC", true, true) }];
+        let hosts = Hosts::without_discovery(records, Arc::new(|| {}));
+        let mut f = Frames::over(ctx, l, hosts);
+        f.size = vec2(1280.0, 800.0);
+        f.native_ppp = ppp;
+        f.shots = true;
+        let games: Vec<Game> = POLISH_GAMES
+            .iter()
+            .enumerate()
+            .map(|(n, (title, store))| Game {
+                install_id: format!("install-{n}"),
+                app_id: 1000 + n as u32,
+                title: (*title).into(),
+                game_id: (!store.is_empty()).then(|| format!("{store}:{n}")),
+                store: (!store.is_empty()).then(|| Store { source: (*store).into(), id: n.to_string(), name: String::new() }),
+                installed: Some(true),
+                running: n == hero,
+                artwork: Artwork { cover: (!art_less.contains(&n)).then(|| format!("/cover/{n}")), version: "1".into() },
+            })
+            .collect();
+        let apps: Vec<nightjar_core::http::App> = games
+            .iter()
+            .map(|g| nightjar_core::http::App { name: g.title.clone(), uuid: g.install_id.clone(), ..game(g.app_id as i32) })
+            .collect();
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("the clock").as_secs();
+        let pc = &mut f.hosts.list[0];
+        pc.reach = Reach::Online;
+        pc.info = Some(files::tests::native_answer());
+        pc.native.library = Some(Library { revision: "r1".into(), games });
+        pc.apps = Apps::Loaded(apps.clone());
+        for (n, app) in apps.iter().enumerate() {
+            if art_less.contains(&n) {
+                pc.art.insert(app.id, Art::Missing);
+                continue;
+            }
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../app/src/debug/assets/demo/art/{}.jpg", n + 1));
+            let image = image::load_from_memory(&std::fs::read(&path).expect("the demo cover")).expect("a JPEG").to_rgba8();
+            let image = egui::ColorImage::from_rgba_unmultiplied([image.width() as usize, image.height() as usize], &image);
+            pc.ambient.insert(app.id, f.ctx.load_texture(format!("ambient-{n}"), crate::ambient::bake(&image), egui::TextureOptions::LINEAR));
+            pc.art.insert(app.id, Art::Ready(f.ctx.load_texture(format!("cover-{n}"), image, egui::TextureOptions::LINEAR)));
+        }
+        let uuid = f.hosts.list[0].record.unique_id.clone();
+        for (n, days) in [(2u32, 1u64), (8, 3), (3, 8)] {
+            f.l.recents.push(crate::config::Recent { host: uuid.clone(), install_id: format!("install-{n}"), app_id: 1000 + n, title: POLISH_GAMES[n as usize].0.into(), at: now - days * 86400 });
+        }
+        f.l.go(Screen::Home);
+        f
+    };
+    let at_rest = |f: &mut Frames| {
+        for _ in 0..16 {
+            f.settle();
+        }
+    };
+    for (name, tier, ppp) in [("home-live", Tier::Live, 1.0), ("home-baked", Tier::Baked, 1.0), ("home-solid", Tier::Solid, 1.0), ("home-150", Tier::Live, 1.5)] {
+        let mut f = library(tier, ppp, 1, &[]);
+        at_rest(&mut f);
+        f.shoot(&dir, name);
+    }
+    // A running game with no art, one on a shelf too: each game's own tile.
+    let mut f = library(Tier::Live, 1.0, 18, &[18, 11, 13]);
+    at_rest(&mut f);
+    f.shoot(&dir, "home-noart");
+    // Down to the shelves: the focused cover lifts.
+    let mut f = library(Tier::Live, 1.0, 1, &[]);
+    at_rest(&mut f);
+    for _ in 0..3 {
+        f.press(Key::ArrowDown);
+    }
+    at_rest(&mut f);
+    f.shoot(&dir, "home-focus-cover");
+    let pc = f.hosts.list[0].id;
+    for (name, screen) in [
+        ("pcs", Screen::Hosts),
+        ("settings", Screen::Settings),
+        ("help", Screen::Help),
+        ("all-games", Screen::AllGames),
+        ("game", Screen::Game { host: pc, app: 1002 }),
+        ("apps", Screen::Apps(pc)),
+    ] {
+        f.l.go(screen);
+        at_rest(&mut f);
+        f.shoot(&dir, name);
+    }
+    f.l.go(Screen::Home);
+    f.l.open_search();
+    f.l.library_query = "ocean".into();
+    at_rest(&mut f);
+    f.shoot(&dir, "search");
+}
+
+/// All 36 games of the Android demo's library have a cover of their own that this app's image
+/// decoder reads. Covers carry their titles, so one repeated would show the wrong name.
+#[test]
+fn demo_covers_decode_and_none_repeats() {
+    let art = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/src/debug/assets/demo/art");
+    let mut seen = std::collections::HashSet::new();
+    for n in 1..=36 {
+        let bytes = std::fs::read(art.join(format!("{n}.jpg"))).expect("the demo cover");
+        image::load_from_memory(&bytes).expect("a JPEG");
+        assert!(seen.insert(bytes), "cover {n} repeats another");
+    }
+}
+
+/// The showcase library. Store keys as a host sends them (console.rs names them). Ten Steam games
+/// overflow a row at both sizes, so Steam's ends in its All tile; one Epic game is not installed.
+const POLISH_GAMES: [(&str, &str); 19] = [
+    ("Desktop", ""), ("Racing Game", "steam"), ("Open World", "steam"), ("Space Sim", "microsoft"), ("Puzzle Night", "gog"),
+    ("Retro Arcade", "steam"), ("Strategy", "battlenet"), ("Music Studio", "steam"), ("Ocean Explorer", "steam"), ("Skybound", "steam"),
+    ("Ashfall", "microsoft"), ("Brightwater", "steam"), ("Cinder Road", "steam"), ("Deep Field", "steam"), ("Ember Keep", "steam"),
+    ("Frostline", "epic"), ("Glass Harbor", "battlenet"), ("Hollow Peak", "epic"), ("Iron Tide", ""),
+];
+
+/// A showcase game shows art/N.jpg of its own place in the demo library, so no game wears another's
+/// cover and none stays empty: its title must be the one the demo keeps at that place.
+#[test]
+fn showcase_games_sit_at_their_own_covers_place() {
+    let java = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/src/debug/java/com/limelight/demo/DemoConsole.java")).expect("the demo library");
+    let library = java.split("LIBRARY = {").nth(1).expect("the list").split("};").next().expect("its end");
+    let demo: Vec<&str> = library.lines().filter_map(|line| line.trim().strip_prefix("{\"")?.split('"').next()).collect();
+    for (n, (title, _)) in POLISH_GAMES.iter().enumerate() {
+        assert_eq!(Some(title), demo.get(n), "place {n}");
+    }
 }
 
 /// Every main page and state as a first-time and a returning user meet them, at 1280x800 (150 %)
@@ -3447,16 +4455,7 @@ fn polish_screenshots() {
     let Some(dir) = std::env::var_os("NIGHTJAR_SHOTS").map(std::path::PathBuf::from) else { return };
     std::fs::create_dir_all(&dir).expect("the folder for the screenshots");
     let only = std::env::var("NIGHTJAR_SHOTS_ONLY").unwrap_or_default();
-    // Store keys as a host sends them (console.rs names them). Ten Steam games overflow a row at
-    // both sizes, so Steam's ends in its All tile; one Epic game is not installed. The first ten
-    // have the demo covers, which carry their titles; the rest sort after them and show the
-    // placeholder, so each row starts as a real library looks.
-    let titles = [
-        ("Desktop", ""), ("Racing Game", "steam"), ("Open World", "steam"), ("Space Sim", "microsoft"), ("Puzzle Night", "gog"),
-        ("Retro Arcade", "steam"), ("Strategy", "battlenet"), ("Music Studio", "steam"), ("Ocean Explorer", "steam"), ("Skybound", "steam"),
-        ("Trail Runner", "microsoft"), ("Star Courier", "steam"), ("Tiny Tactics", "steam"), ("Wild Frontier", "steam"), ("Zen Garden", "steam"),
-        ("Frost Peak", "epic"), ("Tavern Duel", "battlenet"), ("Wayfarer", "epic"), ("Steam Big Picture", ""),
-    ];
+    let titles = POLISH_GAMES;
     for (width, height, ppp) in [(1280.0, 800.0, 1.5), (1920.0, 1080.0, 1.0)] {
         let size = format!("{}x{}", width as u32, height as u32);
         let fresh = |records: Vec<HostRecord>, home: bool| {
@@ -3505,9 +4504,9 @@ fn polish_screenshots() {
                 title: (*title).into(),
                 game_id: (!store.is_empty()).then(|| format!("{store}:{n}")),
                 store: (!store.is_empty()).then(|| Store { source: (*store).into(), id: n.to_string(), name: String::new() }),
-                installed: Some(*title != "Frost Peak"),
+                installed: Some(*title != "Frostline"),
                 running: n == 1,
-                artwork: Artwork { cover: (n < 10).then(|| format!("/cover/{n}")), version: "1".into() },
+                artwork: Artwork { cover: Some(format!("/cover/{n}")), version: "1".into() },
             })
             .collect();
         let apps: Vec<nightjar_core::http::App> = games
@@ -3520,7 +4519,7 @@ fn polish_screenshots() {
             pc.info = Some(files::tests::native_answer());
             pc.native.library = Some(Library { revision: "r1".into(), games });
             pc.apps = Apps::Loaded(apps.clone());
-            for (n, app) in apps.iter().enumerate().take(10) {
+            for (n, app) in apps.iter().enumerate() {
                 pc.art.insert(app.id, demo_art(&f.ctx, n));
             }
         }
@@ -3537,7 +4536,7 @@ fn polish_screenshots() {
         // Home's View: its menu, then each layout, grouping and card size.
         f.l.go(Screen::Home);
         f.settle();
-        if let Some(view) = f.placed.iter().find(|(t, r, _)| t == "View" && r.center().y < 80.0).map(|p| p.1) {
+        if let Some(view) = f.placed.iter().find(|(t, ..)| t == "View").map(|p| p.1) {
             f.click_at(view.center(), egui::PointerButton::Primary);
             shoot(&mut f, "home-view-menu");
             f.press(Key::Escape);
@@ -3619,7 +4618,7 @@ fn polish_screenshots() {
         shoot(&mut f, "game-running");
         f.l.go(Screen::Game { host: pc, app: 1002 });
         shoot(&mut f, "game");
-        // Frost Peak, which the PC has not installed: no Play.
+        // Frostline, which the PC has not installed: no Play.
         f.l.go(Screen::Game { host: pc, app: 1015 });
         shoot(&mut f, "game-not-installed");
         f.l.go(Screen::Hosts);
@@ -3678,7 +4677,7 @@ fn polish_screenshots() {
                 let mut commands = Vec::new();
                 let output = f.ctx.run_ui(input, |ui| {
                     let view = View { hosts: &f.hosts, pads: &f.pads, connecting: None, waking: None };
-                    egui::CentralPanel::default().show(ui, |ui| f.l.home(ui, &view, &mut commands, egui::TextureId::default()));
+                    egui::CentralPanel::default().show(ui, |ui| draw_home(&mut f.l, ui, &view, &mut commands));
                 });
                 f.textures.append(output.textures_delta);
                 shapes = output.shapes;
@@ -3923,7 +4922,7 @@ fn home_groups_by_collection_only_when_the_pc_names_any() {
     let mut f = store_mix();
     f.size = vec2(1280.0, 2400.0);
     in_collections(&mut f, &[("install-0", &["VR", "Couch"]), ("install-12", &["Couch"])]);
-    let view = f.placed.iter().find(|(t, r, _)| t == "View" && r.center().y < 80.0).map(|p| p.1).expect("View in the top row");
+    let view = f.placed.iter().find(|(t, ..)| t == "View").map(|p| p.1).expect("View in the top row");
     f.click_at(view.center(), egui::PointerButton::Primary);
     let row = |f: &Frames, label: &str| f.placed.iter().find(|(t, ..)| t == label).map(|p| p.1).expect(label);
     for (next, says) in [(HomeGroup::Type, "Type"), (HomeGroup::Collection, "Collection")] {
@@ -4060,14 +5059,417 @@ fn a_running_hidden_game_stays_under_continue_playing_and_can_be_shown_again() {
     assert_eq!(keys.len(), 1);
     f.l.hidden_games = keys;
     f.settle();
-    assert!(shows(&f, "Continue playing"), "{:?}", f.drawn);
-    assert_eq!(f.drawn.iter().filter(|t| *t == "Alpha").count(), 1, "only its Continue playing card: {:?}", f.drawn);
-    let card = f.placed.iter().find(|(t, r, _)| t == "Alpha" && r.center().y > 80.0).map(|p| p.1).expect("Alpha's card");
+    // Running, it is Home's hero: hiding must not lose the way back to it.
+    assert!(shows(&f, "Alpha") && shows(&f, "Resume"), "{:?}", f.drawn);
+    let card = f.ctx.read_response(egui::Id::unique("hero-cover")).expect("the hero's cover").rect;
     f.click_at(card.center(), egui::PointerButton::Secondary);
     let show = f.placed.iter().find(|(t, ..)| t == "Show game").map(|p| p.1).expect("Show game in the menu");
     let commands = f.click_at(show.center(), egui::PointerButton::Primary);
     assert!(commands.iter().any(|c| matches!(c, Command::SetHidden { hidden: false, .. })));
-    assert_eq!(f.l.focused_key.as_deref(), Some(format!("continue:{id}:1000").as_str()), "its card stays");
+    assert!(f.l.focused_key.as_deref().is_some_and(|key| key.starts_with("hero-")), "the hero keeps the focus: {:?}", f.l.focused_key);
+    assert_eq!(id, f.hosts.list[0].id);
+    assert!(!shows(&f, "Close game"), "one word, Quit game: {:?}", f.drawn);
+}
+
+/// The hero's cover opens the same menu as a shelf's, with F2 from its buttons too, and the focus
+/// comes back to what asked.
+#[test]
+fn the_hero_opens_its_games_menu_and_gives_focus_back() {
+    let mut f = home_with_stores(&[("Alpha", "steam", true), ("Beta", "steam", true)]);
+    let cover = f.ctx.read_response(egui::Id::unique("hero-cover")).expect("the hero's cover").rect;
+    f.click_at(cover.center(), egui::PointerButton::Secondary);
+    assert!(shows(&f, "Hide game"), "{:?}", f.drawn);
+    f.press(Key::Escape);
+    let focused = f.ctx.memory(|m| m.focused()).expect("focus");
+    assert_eq!(focused, egui::Id::unique("hero-cover"));
+    let star = egui::Id::unique("hero-star");
+    f.ctx.memory_mut(|m| m.request_focus(star));
+    f.settle();
+    f.press(Key::F2);
+    assert!(matches!(f.l.dialog, Dialog::GameMenu { .. }), "F2 opens the game's menu");
+}
+
+/// A title's word is never cut in two on a tile: the size gives way.
+#[test]
+fn a_long_word_on_a_tile_stays_whole() {
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut out = Vec::new();
+    let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+        cover_shapes(ui, &mut out, Rect::from_min_size(Pos2::ZERO, vec2(155.0, 232.0)), 155.0, 16.0, "Brightwater", None, 1.0);
+    });
+    output.textures_delta.clear();
+    let rows: Vec<usize> = out.iter().filter_map(|shape| match shape {
+        egui::Shape::Text(text) => Some(text.galley.rows.len()),
+        _ => None,
+    }).collect();
+    assert_eq!(rows, [1], "one line");
+}
+
+/// The demo library in a window of this size, on Home.
+fn demo_frames(size: egui::Vec2) -> Frames {
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut l = launcher(true, false);
+    let mut hosts = Hosts::without_discovery(super::demo::records(), Arc::new(|| {}));
+    super::demo::fill(&mut hosts, &mut l, &ctx);
+    let mut f = Frames::over(ctx, l, hosts);
+    f.size = size;
+    f.settle();
+    f
+}
+
+fn demo_page(f: &mut Frames, page: super::demo::Page) {
+    let waker: crate::hosts::Waker = Arc::new(|| {});
+    let command = {
+        let Frames { l, hosts, .. } = &mut *f;
+        l.demo_page(page, hosts, waker)
+    };
+    if let Some(Command::ProfileSettings(id)) = command {
+        f.l.go(Screen::ProfileSettings(id));
+    }
+    f.settle();
+    f.settle();
+}
+
+fn wheel(f: &mut Frames, at: Pos2, points: f32) {
+    f.frame(vec![egui::Event::PointerMoved(at)]);
+    f.frame(vec![egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: vec2(0.0, points),
+        phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    for _ in 0..5 {
+        f.settle();
+    }
+}
+
+/// At 760 wide the Help tab ran under the search button. The tabs give way to what is on their right:
+/// first their padding, then their words, and each keeps its name for a screen reader and the pointer.
+#[test]
+fn the_tabs_never_run_under_the_search_button_in_a_narrow_window() {
+    for (width, worded) in [(1280.0, true), (900.0, true), (760.0, true), (506.0, false)] {
+        let mut f = demo_frames(vec2(width, 700.0));
+        f.settle();
+        let in_bar = |rect: &&Rect| rect.top() < 60.0;
+        let pc = f.placed.iter().filter(|(text, ..)| text.contains("Living Room PC")).map(|(_, rect, _)| rect).rfind(in_bar).copied().expect("the PC capsule");
+        let help = f.placed.iter().filter(|(text, ..)| text == "Help").map(|(_, rect, _)| rect).find(in_bar).copied();
+        assert_eq!(help.is_some(), worded, "{width}: the tabs' words");
+        if let Some(help) = help {
+            // The search button, its gaps and the PC capsule's own padding sit between them.
+            assert!(help.right() + 40.0 < pc.left(), "{width}: Help ends at {}, the PC's name starts at {}", help.right(), pc.left());
+        }
+    }
+    assert_eq!(super::chrome::nav_fit(&[50.0, 30.0, 60.0, 35.0], 1000.0), (18.0, true));
+    let (pad, worded) = super::chrome::nav_fit(&[50.0, 30.0, 60.0, 35.0], 400.0);
+    assert!(worded && (10.0..18.0).contains(&pad), "{pad}");
+    assert_eq!(super::chrome::nav_fit(&[50.0, 30.0, 60.0, 35.0], 250.0), (10.0, false));
+}
+
+/// Every page is one area the size of the window: what it holds moves up beneath the chrome and is
+/// cut only by the window's own edges, never at a line of its own below the chrome or above the
+/// bottom. The scrim that keeps the chrome legible comes with it, and it leaves again at the top.
+#[test]
+fn every_page_scrolls_whole_beneath_the_chrome() {
+    use super::demo::Page;
+    let size = vec2(1000.0, 300.0);
+    let mut f = demo_frames(size);
+    for (name, page) in Page::ALL.into_iter().filter(|(_, page)| !page.covers_the_page()) {
+        demo_page(&mut f, page);
+        let before = f.placed.clone();
+        let opened = f.l.page_scrolled;
+        wheel(&mut f, Pos2::new(990.0, 280.0), -160.0);
+        // Files lists on a thread of its own, late on a busy machine; until then the page is short.
+        for _ in 0..200 {
+            if f.l.page_scrolled > opened + 50.0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+            wheel(&mut f, Pos2::new(990.0, 280.0), -160.0);
+        }
+        assert!(f.l.page_scrolled > opened + 50.0, "{name}: the wheel scrolls it from anywhere on the window");
+        let moved: Vec<_> = f.placed.iter().filter(|(text, rect, _)| before.iter().any(|(was, at, _)| was == text && at.top() > rect.top() + 50.0)).collect();
+        assert!(!moved.is_empty(), "{name}: the page's text moved");
+        // A card may clip its own words; the page's are cut by the window alone.
+        let window = |clip: &Rect| clip.top() <= 0.5 && clip.bottom() >= size.y - 0.5;
+        assert!(moved.iter().any(|(_, _, clip)| window(clip)), "{name}: a clip of its own: {:?}", moved.iter().map(|m| m.2).collect::<Vec<_>>());
+        let screen = Rect::from_min_size(Pos2::ZERO, size);
+        assert!(!f.l.ambient.veil(&f.ctx, screen, chrome::brand_rect(screen), f.l.page_scrolled).is_empty(), "{name}: the veil comes with scrolling");
+        wheel(&mut f, Pos2::new(990.0, 280.0), 4000.0);
+        assert!(f.l.page_scrolled < 0.5, "{name} comes back to its top");
+    }
+}
+
+/// The arrow keys walk a page past the window's edges and back: what they reach rests clear of the
+/// chrome, on any page, and coming back up ends at the top.
+#[test]
+fn the_arrow_keys_keep_the_focus_clear_of_the_chrome_on_every_long_page() {
+    use super::demo::Page;
+    let size = vec2(1280.0, 480.0);
+    for (name, page) in [("all-games", Page::AllGames), ("apps", Page::Apps), ("settings", Page::Settings), ("pc-settings", Page::PcSettings)] {
+        let mut f = demo_frames(size);
+        demo_page(&mut f, page);
+        let focused = |f: &Frames| {
+            let id = f.ctx.memory(|m| m.focused()).expect("something is focused");
+            (id, f.ctx.read_response(id).expect("the focused widget was drawn").rect)
+        };
+        // Down the rows of a settings page: the list beside them takes Right first.
+        if matches!(page, Page::Settings | Page::PcSettings) {
+            f.press(Key::ArrowRight);
+        }
+        let start = f.l.page_scrolled;
+        let mut walked = 0;
+        let mut last = focused(&f).0;
+        for _ in 0..14 {
+            f.press(Key::ArrowDown);
+            f.settle();
+            f.settle();
+            let (id, rect) = focused(&f);
+            if id == last {
+                continue;
+            }
+            last = id;
+            walked += 1;
+            assert!(rect.top() >= chrome::PAGE_TOP - 8.0, "{name}: {rect:?} rests beneath the chrome");
+            assert!(rect.bottom() <= size.y + 0.5, "{name}: {rect:?} runs off the window");
+        }
+        assert!(walked >= 3, "{name}: the focus walked: {walked}");
+        assert!(f.l.page_scrolled > start + 50.0, "{name}: the page followed it: {}", f.l.page_scrolled);
+        for _ in 0..20 {
+            f.press(Key::ArrowUp);
+            f.settle();
+            f.settle();
+            let (_, rect) = focused(&f);
+            assert!(rect.bottom() >= 0.0 && rect.top() <= size.y, "{name}: the focus stays on screen going up: {rect:?}");
+        }
+    }
+}
+
+/// On a wide window the sections stay put below the chrome while the rows go by, and a settings page
+/// with a header first lets them rise to that place. The list is not cut by the chrome.
+#[test]
+fn the_side_list_stays_below_the_chrome_while_the_rows_scroll() {
+    use super::demo::Page;
+    let mut f = demo_frames(vec2(1600.0, 700.0));
+    let top_of = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1.top()).unwrap_or_else(|| panic!("{text} is drawn"));
+    demo_page(&mut f, Page::Settings);
+    let (entry, row) = (top_of(&f, "Audio"), top_of(&f, "Codec"));
+    wheel(&mut f, Pos2::new(1500.0, 600.0), -200.0);
+    assert!(top_of(&f, "Codec") < row - 50.0, "the rows move");
+    assert!((top_of(&f, "Audio") - entry).abs() < 0.5, "the sections do not");
+    wheel(&mut f, Pos2::new(120.0, 680.0), 200.0);
+    assert!((top_of(&f, "Codec") - row).abs() < 0.5, "the wheel over the list scrolls the page too");
+
+    demo_page(&mut f, Page::PcSettings);
+    let entry = top_of(&f, "Audio");
+    wheel(&mut f, Pos2::new(1500.0, 600.0), -600.0);
+    let risen = top_of(&f, "Audio");
+    assert!(risen < entry, "under a header the list rises first: {entry} to {risen}");
+    let search_top = f.placed.iter().filter(|(t, ..)| t == "Audio").map(|p| p.1.top()).fold(f32::MAX, f32::min);
+    assert!(search_top >= chrome::PAGE_TOP, "and stops below the chrome: {search_top}");
+    // The window too short for the list: it goes with the page, or its end could never be seen.
+    let mut f = demo_frames(vec2(1600.0, 300.0));
+    demo_page(&mut f, Page::Settings);
+    f.settle();
+    let entry = top_of(&f, "Audio");
+    wheel(&mut f, Pos2::new(1500.0, 280.0), -100.0);
+    assert!(top_of(&f, "Audio") < entry - 50.0, "the short window's list scrolls");
+}
+
+/// Help's section chips land the section below the chrome, not beneath it.
+#[test]
+fn a_help_section_jump_lands_below_the_chrome() {
+    use super::demo::Page;
+    let mut f = demo_frames(vec2(1280.0, 480.0));
+    demo_page(&mut f, Page::Help);
+    let chip = f.placed.iter().find(|(t, ..)| t == "Sharing").map(|p| p.1.center()).expect("the Sharing chip");
+    f.click_at(chip, egui::PointerButton::Primary);
+    f.settle();
+    f.settle();
+    let tops: Vec<f32> = f.placed.iter().filter(|(t, ..)| t == "Sharing").map(|p| p.1.top()).collect();
+    assert!(f.l.page_scrolled > 50.0, "the page moved to it");
+    let heading = tops.iter().copied().fold(f32::MIN, f32::max);
+    assert!((chrome::PAGE_TOP - 1.0..chrome::PAGE_TOP + 24.0).contains(&heading), "the heading rests just below the chrome: {tops:?}");
+}
+
+/// Home at rest draws nothing more: springs and fades ask for frames only while they move.
+#[test]
+fn home_at_rest_asks_for_no_more_frames() {
+    let mut f = store_mix();
+    for art in f.hosts.list[0].native.library.as_ref().expect("a library").games.iter().map(|g| g.app_id as i32).collect::<Vec<_>>() {
+        f.hosts.list[0].art.insert(art, Art::Missing);
+    }
+    for _ in 0..12 {
+        f.settle();
+    }
+    assert!(!f.ctx.has_requested_repaint(), "Home at rest asks for no frame");
+    f.press(Key::ArrowDown);
+    for _ in 0..12 {
+        f.settle();
+    }
+    assert!(!f.ctx.has_requested_repaint(), "nor after the focus has landed");
+}
+
+/// The launcher wakes for workers and timers with nothing new to show: the frame comes out the same,
+/// so nothing is presented. Whatever does change it, a hover here, is a different frame.
+#[test]
+fn a_launcher_at_rest_paints_the_same_frame_whenever_it_wakes() {
+    use crate::live_glass::{frame_differs, frame_print};
+    let mut f = store_mix();
+    for art in f.hosts.list[0].native.library.as_ref().expect("a library").games.iter().map(|g| g.app_id as i32).collect::<Vec<_>>() {
+        f.hosts.list[0].art.insert(art, Art::Missing);
+    }
+    for _ in 0..12 {
+        f.settle();
+    }
+    let print = |f: &mut Frames| {
+        f.frame(Vec::new());
+        let shapes = std::mem::take(&mut f.shapes);
+        let primitives = f.ctx.tessellate(shapes, 1.0);
+        frame_print(&primitives, 1.0, (1280, 800))
+    };
+    let shown = print(&mut f);
+    for _ in 0..8 {
+        let again = print(&mut f);
+        assert!(!frame_differs(Some(shown), again, false, false), "an idle wake draws nothing");
+    }
+    assert!(frame_differs(None, shown, false, false), "the first frame after a stream's is drawn");
+    assert!(frame_differs(Some(shown), shown, true, false), "so is one the window asked for");
+    assert!(frame_differs(Some(shown), shown, false, true), "and one with a new texture");
+    f.frame(vec![egui::Event::PointerMoved(Pos2::new(600.0, 44.0))]);
+    for _ in 0..6 {
+        f.settle();
+    }
+    assert!(frame_differs(Some(shown), print(&mut f), false, false), "a hover is a new frame");
+}
+
+/// The driver reaches every page of the demo library, on what `fill` puts there and with no dialog
+/// in the way: README, store and trailer captures depend on it.
+#[test]
+fn the_demo_library_reaches_every_page() {
+    use super::demo::{self, Page};
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut l = launcher(true, false);
+    let mut hosts = Hosts::without_discovery(demo::records(), Arc::new(|| {}));
+    demo::fill(&mut hosts, &mut l, &ctx);
+    let mut f = Frames::over(ctx, l, hosts);
+    f.settle();
+    assert_eq!(f.l.screen, Screen::Home);
+    assert_eq!(f.hosts.list[0].native.library.as_ref().expect("the library").games.len(), 36);
+    assert!(f.hosts.identity().is_none(), "no identity: nothing can ask a PC");
+    let pc = f.hosts.list[0].id;
+    for (name, page) in Page::ALL {
+        let waker: crate::hosts::Waker = Arc::new(|| {});
+        let command = { let Frames { l, hosts, .. } = &mut f; l.demo_page(page, hosts, waker) };
+        if let Some(Command::ProfileSettings(id)) = command {
+            f.l.go(Screen::ProfileSettings(id));
+        }
+        for _ in 0..4 {
+            f.settle();
+        }
+        let expected = match page {
+            Page::Home => Screen::Home,
+            Page::Toast => Screen::Home,
+            Page::AllGames | Page::Search => Screen::AllGames,
+            Page::Game => Screen::Game { host: pc, app: 1002 },
+            Page::Pcs | Page::FirstRun | Page::FirstRunFound | Page::Dialog(_) | Page::PinStream | Page::PinChoose | Page::PinLock(_) | Page::StreamMenu(_) => Screen::Hosts,
+            Page::Apps => Screen::Apps(pc),
+            Page::AppsEmpty => Screen::Apps(f.hosts.list[1].id),
+            Page::Pc => Screen::HostDetails(pc),
+            Page::Files => Screen::Files(pc),
+            Page::Settings => Screen::Settings,
+            Page::PcSettings => Screen::HostSettings(pc),
+            Page::GameSettings => Screen::AppSettings(pc),
+            Page::Profiles => Screen::Profiles,
+            Page::ProfileSettings => Screen::ProfileSettings(1),
+            Page::Controllers => Screen::Controllers,
+            Page::Shortcuts => Screen::Shortcuts,
+            Page::Hotkeys => Screen::StreamHotkeys,
+            Page::Help => Screen::Help,
+        };
+        assert_eq!(f.l.screen, expected, "{name}");
+        assert!(page.covers_the_page() || f.no_dialog(), "{name} opens with nothing over it");
+    }
+}
+
+/// The hero is what runs, else what ran last, else the library's first installed game.
+#[test]
+fn the_hero_is_the_running_game_then_the_last_played_then_the_first_installed() {
+    let mut f = home_with_stores(&[("Alpha", "steam", false), ("Beta", "steam", true), ("Gamma", "steam", true)]);
+    let hero = |f: &Frames| f.l.hero.as_ref().map(|h| h.title.clone());
+    assert_eq!(hero(&f).as_deref(), Some("Beta"), "the first installed");
+    f.l.recents.push(crate::config::Recent { host: "Desk".into(), install_id: "install-2".into(), app_id: 1002, title: "Gamma".into(), at: 1000 });
+    f.settle();
+    assert_eq!(hero(&f).as_deref(), Some("Gamma"), "the last played");
+    f.hosts.list[0].native.library.as_mut().expect("a library").games[0].running = true;
+    f.settle();
+    assert_eq!(hero(&f).as_deref(), Some("Alpha"), "what runs");
+}
+
+/// Ctrl K opens the search on All games; the words narrow it; Escape takes both away and gives the
+/// focus back to what had it.
+#[test]
+fn the_search_filters_all_games_and_escape_goes_back() {
+    let mut f = store_mix();
+    let before = f.ctx.memory(|m| m.focused()).expect("focus on Home");
+    f.frame(vec![egui::Event::Key { key: Key::K, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND }]);
+    f.settle();
+    assert_eq!(f.l.screen, Screen::AllGames);
+    assert!(f.ctx.text_edit_focused(), "the field has the keys");
+    f.l.library_query = "fort".into();
+    f.settle();
+    assert!(shows(&f, "Fortnite") && !shows(&f, "Forza Horizon 5") && !shows(&f, "Diablo IV"), "{:?}", f.drawn);
+    f.press(Key::Escape);
+    assert_eq!(f.l.screen, Screen::Home, "a page opened for the search goes with it");
+    assert!(f.l.library_query.is_empty());
+    assert_eq!(f.ctx.memory(|m| m.focused()), Some(before), "the focus is back");
+}
+
+/// Into a game and back: Back lands on the cover it left.
+#[test]
+fn back_from_a_game_restores_the_focus_on_home() {
+    let mut f = store_mix();
+    let shelf = (0..6).find_map(|_| {
+        f.press(Key::ArrowDown);
+        let id = f.ctx.memory(|m| m.focused())?;
+        let rect = f.ctx.read_response(id)?.rect;
+        (rect.height() > 200.0 && rect.top() > 300.0).then_some(id)
+    });
+    let shelf = shelf.expect("a shelf's cover");
+    f.press(Key::Enter);
+    assert!(matches!(f.l.screen, Screen::Game { .. }), "{:?}", f.l.screen);
+    f.press(Key::Escape);
+    assert_eq!(f.l.screen, Screen::Home);
+    assert_eq!(f.ctx.memory(|m| m.focused()), Some(shelf));
+}
+
+/// Covers arriving change nothing's place: a cover's slot is the same with art, without, and while
+/// it is on its way.
+#[test]
+fn covers_arriving_move_nothing() {
+    let mut f = home_with_games(4);
+    let place = |f: &Frames| f.placed.iter().find(|(t, ..)| t == "PCs").map(|p| p.1.top());
+    let heading = |f: &Frames| f.placed.iter().filter(|(t, ..)| t == "Desk").map(|p| p.1.top()).fold(0.0, f32::max);
+    let loading = (place(&f), heading(&f));
+    let texture = f.ctx.load_texture("art", egui::ColorImage::new([3, 4], vec![Color32::GRAY; 12]), egui::TextureOptions::LINEAR);
+    let pc = &mut f.hosts.list[0];
+    for g in &mut pc.native.library.as_mut().expect("a library").games {
+        pc.art.insert(g.app_id as i32, Art::Ready(texture.clone()));
+    }
+    f.settle();
+    assert_eq!((place(&f), heading(&f)), loading, "art");
+    let pc = &mut f.hosts.list[0];
+    for g in &mut pc.native.library.as_mut().expect("a library").games {
+        pc.art.insert(g.app_id as i32, Art::Missing);
+    }
+    f.settle();
+    assert_eq!((place(&f), heading(&f)), loading, "tiles");
 }
 
 /// Hide on a card's menu takes the game off Home on this device; All games has it under Hidden,
@@ -4075,7 +5477,7 @@ fn a_running_hidden_game_stays_under_continue_playing_and_can_be_shown_again() {
 #[test]
 fn a_game_hides_from_home_and_shows_again_from_all_games() {
     let mut f = home_with_stores(&[("Alpha", "steam", true), ("Beta", "steam", true)]);
-    let card = f.placed.iter().find(|(t, r, _)| t == "Alpha" && r.center().y > 80.0).map(|p| p.1).expect("Alpha's card");
+    let card = f.placed.iter().find(|(t, r, _)| t == "Beta" && r.center().y > 80.0).map(|p| p.1).expect("Beta's card");
     f.click_at(card.center(), egui::PointerButton::Secondary);
     let hide = f.placed.iter().find(|(t, ..)| t == "Hide game").map(|p| p.1).expect("Hide game in the menu");
     let commands = f.click_at(hide.center(), egui::PointerButton::Primary);
@@ -4083,20 +5485,20 @@ fn a_game_hides_from_home_and_shows_again_from_all_games() {
         panic!("no SetHidden");
     };
     assert_eq!(games.len(), 1);
-    assert_eq!((games[0].host.as_str(), games[0].install_id.as_str()), ("Desk", "install-0"));
+    assert_eq!((games[0].host.as_str(), games[0].install_id.as_str()), ("Desk", "install-1"));
     assert!(crate::config::set_hidden(&mut f.l.hidden_games, games, true));
     f.settle();
     assert!(f.no_dialog());
-    assert!(!shows(&f, "Alpha") && shows(&f, "Beta"), "{:?}", f.drawn);
+    assert!(!shows(&f, "Beta") && shows(&f, "Alpha"), "{:?}", f.drawn);
 
     f.l.go(Screen::AllGames);
     f.settle();
     assert!(shows(&f, "Hidden 1") || shows(&f, "Hidden"), "{:?}", f.drawn);
-    assert!(!shows(&f, "Alpha"), "only under Hidden: {:?}", f.drawn);
+    assert!(!shows(&f, "Beta"), "only under Hidden: {:?}", f.drawn);
     f.l.library_filter = crate::console::LibraryFilter::Hidden;
     f.settle();
-    assert!(shows(&f, "Alpha") && !shows(&f, "Beta"), "{:?}", f.drawn);
-    let card = f.placed.iter().find(|(t, r, _)| t == "Alpha" && r.center().y > 80.0).map(|p| p.1).expect("Alpha's card");
+    assert!(shows(&f, "Beta") && !shows(&f, "Alpha"), "{:?}", f.drawn);
+    let card = f.placed.iter().find(|(t, r, _)| t == "Beta" && r.center().y > 80.0).map(|p| p.1).expect("Beta's card");
     f.click_at(card.center(), egui::PointerButton::Secondary);
     let show = f.placed.iter().find(|(t, ..)| t == "Show game").map(|p| p.1).expect("Show game in the menu");
     let commands = f.click_at(show.center(), egui::PointerButton::Primary);
@@ -4107,7 +5509,7 @@ fn a_game_hides_from_home_and_shows_again_from_all_games() {
     f.settle();
     assert!(f.l.hidden_games.is_empty());
     assert_eq!(f.l.library_filter, crate::console::LibraryFilter::All, "the empty Hidden chip gives way");
-    assert!(shows(&f, "Alpha"), "{:?}", f.drawn);
+    assert!(shows(&f, "Beta"), "{:?}", f.drawn);
 }
 
 /// Home has a row per store, largest first, each as wide as the window and ending in an All tile
@@ -4143,8 +5545,8 @@ fn home_shows_a_row_per_store_that_ends_in_an_all_tile() {
 #[test]
 fn at_one_column_a_long_row_is_its_all_tile() {
     let mut f = store_mix();
-    let column = vec2(180.0, 2400.0);
-    assert_eq!(grid(column.x).0, 1, "one column");
+    let column = vec2(210.0, 2400.0);
+    assert_eq!(grid(column.x - 2.0 * chrome::page_margin(column.x)).0, 1, "one column");
     let mut drawn = Vec::new();
     let mut tile = None;
     let mut clicked_at = None;
@@ -4165,7 +5567,7 @@ fn at_one_column_a_long_row_is_its_all_tile() {
         let mut commands = Vec::new();
         let mut output = f.ctx.run_ui(input, |ui| {
             let view = View { hosts: &f.hosts, pads: &f.pads, connecting: None, waking: None };
-            f.l.home(ui, &view, &mut commands, egui::TextureId::default());
+            draw_home(&mut f.l, ui, &view, &mut commands);
         });
         // Debug builds of epaint refuse to drop font textures nobody uploaded.
         output.textures_delta.clear();
@@ -4232,8 +5634,7 @@ fn all_games_filters_by_store_and_by_what_is_installed() {
     }
     // The chosen chip is the filled one.
     let installed = chip(&f, "Installed").unwrap();
-    let marked = [*MOON_CONTAINER, Tone::Selected.colors(true, false).0];
-    assert!(marked.iter().any(|fill| rects_filled(&f, *fill).iter().any(|r| r.contains_rect(installed))), "the chosen chip is marked");
+    assert!(meshes_holding(&f.shapes, design_tokens::TINT_SELECTED_FILL).iter().any(|r| r.contains_rect(installed)), "the chosen chip is marked");
     assert_eq!(f.l.library_filter, console::LibraryFilter::Installed);
 }
 
@@ -4253,16 +5654,17 @@ fn a_risen_covers_ring_is_not_cut_at_the_top_of_the_grid() {
                 f.settle();
             }
             let cover = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).expect("the first cover has focus").rect;
+            let color = if high { design_tokens::HC_FOCUS_RING_COLOR } else { design_tokens::FOCUS_RING_COLOR };
             let mut rings = Vec::new();
             for clipped in &f.shapes {
-                if let egui::Shape::Rect(r) = &clipped.shape {
-                    if r.stroke.color == *MOON && r.stroke.width > 0.0 {
-                        rings.push((r.rect.expand(r.stroke.width), clipped.clip_rect));
+                if let egui::Shape::Mesh(mesh) = &clipped.shape {
+                    if mesh.vertices.iter().any(|v| v.color == color) {
+                        rings.push((mesh.calc_bounds(), clipped.clip_rect));
                     }
                 }
             }
             let (ring, clip) = *rings.first().unwrap_or_else(|| panic!("{page}, {high}: a ring"));
-            assert!(ring.top() < cover.top() - FOCUS_GAP - 1.0, "{page}, {high}: the cover rose: {ring:?} for {cover:?}");
+            assert!(ring.top() < cover.top() - design_tokens::FOCUS_GAP - 1.0, "{page}, {high}: the cover rose: {ring:?} for {cover:?}");
             assert!(clip.contains_rect(ring), "{page}, {high}: the ring {ring:?} is cut by {clip:?}");
         }
     }
@@ -4285,40 +5687,25 @@ fn an_empty_filter_and_an_empty_library_say_so() {
     assert!(!shows(&f, "All") && !shows(&f, "No games match this filter."), "no chips: {:?}", f.drawn);
 }
 
-/// All games is reachable from Home's top row even when every row fits and no All tile shows:
-/// with the pointer, with Tab (after the destinations) and with the D-pad (Right from them). It
-/// opens on All, whatever chip was chosen last.
+/// All games is reachable over Home's first shelf even when every row fits and no All tile shows.
+/// It opens on All, whatever chip was chosen last.
 #[test]
 fn home_opens_all_games_from_its_top_row_when_every_row_fits() {
     let mut f = home_with_stores(&[("Portal", "steam", true), ("Celeste", "steam", true), ("Fortnite", "epic", true)]);
     f.l.library_filter = console::LibraryFilter::Store("epic".into());
     f.settle();
     assert!(!f.drawn.iter().any(|t| t.strip_prefix("All ").is_some_and(|n| n.parse::<usize>().is_ok())), "every row fits, no All tile: {:?}", f.drawn);
-    let stops = header_stops(&mut f);
-    assert_eq!(stops.len(), 6, "Home, PCs, Settings, Help, All games and View: {stops:?}");
-    let action = f.placed.iter().find(|(t, r, _)| t == "All games" && r.center().y < 80.0).map(|p| p.1).expect("All games in the top row");
-    let view = f.placed.iter().find(|(t, r, _)| t == "View" && r.center().y < 80.0).map(|p| p.1).expect("View in the top row");
-    assert!(stops[4].contains_rect(action), "the page's first action for Tab: {stops:?}");
-    assert!(stops[5].contains_rect(view) && 1280.0 - stops[5].right() < 80.0, "View last, at the right edge: {stops:?}");
-    // Right from the last destination, Help, lands on it.
-    let settings = f.placed.iter().find(|(t, r, _)| t == "Help" && r.center().y < 80.0).map(|p| p.1).unwrap();
-    let pill = (0..30).find_map(|_| {
-        f.press_with(Key::Tab, egui::Modifiers::SHIFT);
-        let id = f.ctx.memory(|m| m.focused())?;
-        f.ctx.read_response(id).filter(|r| r.rect.contains(settings.center())).map(|r| r.id)
-    });
-    assert!(pill.is_some(), "Shift+Tab reaches Help");
-    f.press(Key::ArrowRight);
-    let focused = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect).expect("focus");
-    assert!(focused.contains_rect(action), "Right from Help reaches All games: {focused:?}");
-    f.press(Key::Enter);
+    let action = f.placed.iter().find(|(t, ..)| t == "All games").map(|p| p.1).expect("All games over the first shelf");
+    let view = f.placed.iter().find(|(t, ..)| t == "View").map(|p| p.1).expect("View beside it");
+    assert!(action.right() <= view.left() && 1280.0 - view.right() < 80.0, "All games, then View, at the right edge: {action:?} {view:?}");
+    f.click_at(action.center(), egui::PointerButton::Primary);
     assert_eq!(f.l.screen, Screen::AllGames);
     assert_eq!(f.l.library_filter, console::LibraryFilter::All);
     assert!(shows(&f, "Portal") && shows(&f, "Fortnite"), "{:?}", f.drawn);
     // An empty library offers no way to an empty page, and nothing to view.
     let mut f = home_with_stores(&[]);
     f.settle();
-    assert!(!f.placed.iter().any(|(t, r, _)| (t == "All games" || t == "View") && r.center().y < 80.0), "{:?}", f.drawn);
+    assert!(!f.placed.iter().any(|(t, ..)| t == "All games" || t == "View"), "{:?}", f.drawn);
 }
 
 /// Home's View: a menu under its button whose rows step through the layout, grouping and card
@@ -4327,7 +5714,7 @@ fn home_opens_all_games_from_its_top_row_when_every_row_fits() {
 #[test]
 fn home_view_changes_layout_grouping_and_card_size_in_place() {
     let mut f = store_mix();
-    let view = f.placed.iter().find(|(t, r, _)| t == "View" && r.center().y < 80.0).map(|p| p.1).expect("View in the top row");
+    let view = f.placed.iter().find(|(t, ..)| t == "View").map(|p| p.1).expect("View in the top row");
     f.click_at(view.center(), egui::PointerButton::Primary);
     assert!(matches!(f.l.dialog, Dialog::HomeView), "the menu opens");
     for row in ["Layout", "Group by", "Card size", "Rows", "Store", "Medium"] {
@@ -4573,7 +5960,7 @@ fn a_menu_by_its_card_leaves_the_page_undimmed_and_out_of_reach() {
     assert!(f.options_open());
     assert!(rects_filled(&f, Color32::from_black_alpha(150)).is_empty(), "no backdrop over the page");
     let rename = f.placed.iter().find(|(t, ..)| t == "Rename").map(|p| p.1).unwrap();
-    assert!(rename.top() > dots.bottom() && rename.left() < dots.right(), "under the dots: {rename:?} below {dots:?}");
+    assert!(rename.left() < dots.right(), "by the dots: {rename:?} by {dots:?}");
     // A click on the card under the page closes the menu without starting anything.
     let commands = f.click_at(card.left_center() + vec2(20.0, 0.0), egui::PointerButton::Primary);
     assert!(f.no_dialog(), "a press outside closes the menu");
@@ -4771,31 +6158,20 @@ fn leaving_a_files_page_by_the_top_bar_asks_while_a_transfer_runs() {
 #[test]
 fn hover_lightens_a_card_and_focus_adds_one_ring_without_resizing() {
     let mut f = Frames::new(record("Desk", true, true), Reach::Online);
-    let (card, _) = f.card_and_dots();
-    let card_id = f.ctx.memory(|m| m.focused()).unwrap();
-    let strokes = |f: &Frames| {
-        let mut found = Vec::new();
-        fn walk(shape: &egui::Shape, out: &mut Vec<(Rect, Color32)>) {
-            match shape {
-                egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, out)),
-                egui::Shape::Rect(r) if r.stroke.width > 0.0 => out.push((r.rect, r.stroke.color)),
-                _ => {}
-            }
-        }
-        for clipped in &f.shapes {
-            walk(&clipped.shape, &mut found);
-        }
-        found
-    };
-    // Focused (the first card has focus on arrival): one amber ring around it, with a gap.
-    let rings: Vec<Rect> = strokes(&f).into_iter().filter(|(r, c)| *c == *MOON && r.intersects(card)).map(|(r, _)| r).collect();
-    assert_eq!(rings.len(), 1, "one ring: {rings:?}");
-    assert!(rings[0].contains_rect(card) && rings[0] != card, "outside the card: {rings:?} around {card:?}");
+    let (action, _) = f.card_and_dots();
+    let card = pc_card_rect(&f);
+    let card_id = Id::unique(("pc-card", f.hosts.list[0].id));
+    let rings = |f: &Frames| -> Vec<Rect> { meshes_holding(&f.shapes, design_tokens::FOCUS_RING_COLOR).into_iter().filter(|r| r.intersects(card)).collect() };
+    // Focused (the first action has focus on arrival): one ring around it, with a gap.
+    let around = rings(&f);
+    assert_eq!(around.len(), 1, "one ring: {around:?}");
+    assert!(around[0].contains_rect(action) && around[0] != action, "outside the action: {around:?} around {action:?}");
     // Moved off and hovered: lighter, no outline of any colour, same rect.
+    let rest = meshes_holding(&f.shapes, design_tokens::HOVER_FILL_LIFT).len();
     f.ctx.memory_mut(|m| m.surrender_focus(m.focused().unwrap()));
     hover_card(&mut f, card);
-    assert!(strokes(&f).iter().all(|(r, _)| !r.intersects(card)), "no outline on hover: {:?}", strokes(&f));
-    assert!(rects_filled(&f, *SURFACE_HIGH).contains(&card), "the hovered card is one step lighter");
+    assert!(rings(&f).is_empty(), "no outline on hover: {:?}", rings(&f));
+    assert!(meshes_holding(&f.shapes, design_tokens::HOVER_FILL_LIFT).len() > rest, "the hovered card is one step lighter");
     assert_eq!(f.ctx.read_response(card_id).unwrap().rect, card, "the card did not move or grow");
 }
 
@@ -5170,3 +6546,941 @@ fn a_bad_link_from_outside_is_refused_without_repeating_it() {
 
 #[path = "settings_tests.rs"]
 mod settings_tests;
+
+/// What a screen reader is told is on screen, with where.
+fn read_out(f: &Frames) -> Vec<(String, egui::accesskit::Rect)> {
+    f.access.as_ref().unwrap().nodes.iter().filter_map(|(_, n)| Some((n.label().or(n.value())?.to_owned(), n.bounds()?))).collect()
+}
+
+#[test]
+fn only_what_cant_be_taken_back_is_red() {
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    let host = f.hosts.list[0].id;
+    // A dialog is still fading in on the last frame: red by its hue, not its exact value.
+    let red = |f: &Frames| {
+        fn walk(shape: &egui::Shape, out: &mut usize) {
+            match shape {
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, out)),
+                egui::Shape::Mesh(mesh) if mesh.vertices.iter().any(|v| v.color.r() > 0x60 && v.color.g() == 0 && v.color.b() < 0x20 && v.color.a() > 0x80) => *out += 1,
+                _ => {}
+            }
+        }
+        let mut count = 0;
+        f.shapes.iter().for_each(|c| walk(&c.shape, &mut count));
+        count
+    };
+    for dialog in [
+        Dialog::ConfirmRemove { host, name: "PC".into() },
+        Dialog::ConfirmUnpair { host, name: "PC".into() },
+        Dialog::ConfirmClose { host, name: "Racing Game".into() },
+    ] {
+        f.l.dialog = dialog;
+        f.settle();
+        assert_eq!(red(&f), 1, "the one red control");
+    }
+    f.l.dialog = Dialog::Rename { host, text: "PC".into() };
+    f.settle();
+    assert_eq!(red(&f), 0, "renaming costs nothing");
+}
+
+#[test]
+fn a_dialog_stands_on_the_panels_glass_and_not_a_flat_card() {
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    let host = f.hosts.list[0].id;
+    f.l.dialog = Dialog::Rename { host, text: "PC".into() };
+    f.settle();
+    let flat = rects_filled(&f, *SURFACE_HIGH);
+    assert!(flat.iter().all(|r| r.width() < 300.0), "no opaque card behind it: {flat:?}");
+    let label = f.placed.iter().find(|(text, ..)| text == "Rename PC").expect("the dialog's words").1;
+    fn walk(shape: &egui::Shape, out: &mut Vec<Rect>) {
+        match shape {
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, out)),
+            egui::Shape::Mesh(mesh) => out.push(mesh.calc_bounds()),
+            _ => {}
+        }
+    }
+    let mut meshes = Vec::new();
+    f.shapes.iter().for_each(|c| walk(&c.shape, &mut meshes));
+    assert!(meshes.iter().any(|r| r.contains_rect(label) && r.width() < f.size.x), "a mesh of the panel's size is behind its words, whole: {meshes:?}");
+}
+
+#[test]
+fn the_pc_menu_says_what_the_pc_page_says() {
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    let host = f.hosts.list[0].id;
+    f.l.dialog = Dialog::HostOptions { host };
+    f.settle();
+    assert!(shows(&f, "Online"), "its status under its name");
+    assert!(!shows(&f, "Paired"), "being paired is not news");
+}
+
+#[test]
+fn the_pin_screen_has_its_keys_in_the_window_delete_at_the_bottom_right() {
+    let dir = std::env::temp_dir().join(format!("nightjar-pin-keys-{}", std::process::id()));
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    f.ctx.enable_accesskit();
+    for size in [vec2(1280.0, 720.0), vec2(720.0, 480.0)] {
+        f.size = size;
+        f.l.pin = Some(crate::pin_ui::PinLock::demo(&dir, false, "Desk"));
+        f.settle();
+        let read = read_out(&f);
+        let at = |name: &str| read.iter().find(|(said, _)| said == name).unwrap_or_else(|| panic!("{name} in {read:?}")).1;
+        let (zero, delete, confirm, one) = (at("0"), at("Delete"), at("Confirm"), at("1"));
+        assert!(delete.x0 > zero.x0 && confirm.x0 < zero.x0, "Confirm, 0, Delete");
+        assert!((delete.y0 - zero.y0).abs() < 1.0 && one.y0 < zero.y0, "the bottom row");
+        assert!(delete.y1 <= f64::from(size.y) && one.y0 >= 0.0, "all of the pad shows at {size:?}");
+        assert!(delete.x1 - delete.x0 > 44.0, "a key to hit at {size:?}");
+    }
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn the_pin_page_takes_the_keys_and_escape_leaves_a_list_before_the_page() {
+    let dir = std::env::temp_dir().join(format!("nightjar-pin-page-{}", std::process::id()));
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    f.ctx.enable_accesskit();
+    let key = |key| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+    f.l.pin = Some(crate::pin_ui::PinLock::demo_page(&dir, None));
+    f.settle();
+    let said: Vec<String> = read_out(&f).into_iter().map(|(said, _)| said).collect();
+    assert!(said.iter().any(|s| s == "Set PIN") && said.iter().any(|s| s == "Back to Settings"), "{said:?}");
+    assert!(!said.iter().any(|s| s == "Lock"), "with no PIN nothing is there to lock: {said:?}");
+    assert!(f.ctx.memory(|m| m.focused()).is_some(), "the page opens on its first action");
+
+    f.l.pin = Some(crate::pin_ui::PinLock::demo_page(&dir, Some(crate::pin_lock::Mode::App)));
+    f.settle();
+    let said: Vec<String> = read_out(&f).into_iter().map(|(said, _)| said).collect();
+    for name in ["Change PIN", "Remove PIN", "Lock", "Ask again after"] {
+        assert!(said.iter().any(|s| s == name), "{name} in {said:?}");
+    }
+    // Change, Remove, then the list: by Tab alone.
+    f.frame(vec![key(Key::Tab)]);
+    f.frame(vec![key(Key::Tab)]);
+    f.settle();
+    f.frame(vec![key(Key::Enter)]);
+    f.settle();
+    assert!(egui::Popup::is_any_open(&f.ctx), "Enter opens the list");
+    f.frame(vec![key(Key::Escape)]);
+    f.settle();
+    assert!(!egui::Popup::is_any_open(&f.ctx), "Escape closes the list");
+    assert!(f.l.pin.as_ref().unwrap().up(), "and only the list");
+    f.frame(vec![key(Key::Escape)]);
+    f.settle();
+    assert!(!f.l.pin.as_ref().unwrap().up(), "the next one leaves the page");
+    std::fs::remove_dir_all(dir).ok();
+}
+
+/// The screen's share of the live chain's first region in the last frame.
+fn blurred_share(f: &Frames) -> f32 {
+    let boundary = f.shapes.iter().find_map(|c| match &c.shape {
+        egui::Shape::Callback(call) => (call.callback.as_ref() as &dyn std::any::Any).downcast_ref::<crate::live_glass::Boundary>(),
+        _ => None,
+    });
+    let regions = &boundary.expect("the live tier paints a boundary").regions;
+    regions[0].area() / (f.size.x * f.size.y)
+}
+
+#[test]
+fn a_panel_blurs_the_whole_screen_from_the_pass_after_it_opens() {
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    crate::live_glass::set_tier(&f.ctx, crate::live_glass::Tier::Live);
+    f.settle();
+    assert!(blurred_share(&f) < 0.5, "at rest: the bar");
+    assert!(!f.ctx.has_requested_repaint(), "and no frames");
+    // A click opens the dialog after this pass's boundary went out. The pass after it, which any
+    // input brings, has the whole blur: no panel stays on the bar's until the pointer moves.
+    let add = f.placed.iter().find(|(t, ..)| t == "Add PC").map(|p| p.1).expect("Add PC");
+    let press = |pressed| egui::Event::PointerButton { pos: add.center(), button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+    f.frame(vec![egui::Event::PointerMoved(add.center())]);
+    f.settle();
+    f.frame(vec![press(true)]);
+    f.frame(vec![press(false)]);
+    assert!(!matches!(f.l.dialog, Dialog::None), "the click opened Add a PC");
+    assert!(f.ctx.has_requested_repaint(), "so the next pass comes");
+    f.frame(vec![]);
+    assert!(blurred_share(&f) > 0.99);
+
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    crate::live_glass::set_tier(&f.ctx, crate::live_glass::Tier::Live);
+    f.settle();
+    f.waking = Some("PC".to_owned());
+    f.frame(vec![]);
+    assert!(blurred_share(&f) > 0.99, "the waking card stands anywhere as a dialog does");
+    f.waking = None;
+    f.frame(vec![]);
+    assert!(blurred_share(&f) < 0.5, "and the bar alone once it is gone");
+}
+
+#[test]
+fn add_and_rename_say_what_a_field_takes_in_its_placeholder() {
+    let mut f = Frames::new(record("Desk", true, false), Reach::Online);
+    f.l.add_host_dialog();
+    f.settle();
+    assert!(shows(&f, "IP address or name"), "{:?}", f.drawn);
+    assert!(f.drawn.iter().all(|t| !t.trim_end().ends_with('.')), "no sentence: {:?}", f.drawn);
+    f.l.dialog = Dialog::Rename { host: f.hosts.list[0].id, text: String::new() };
+    f.settle();
+    assert!(shows(&f, "Desk"), "the name an empty field leaves: {:?}", f.drawn);
+    assert!(f.drawn.iter().all(|t| !t.trim_end().ends_with('.')), "no sentence: {:?}", f.drawn);
+}
+
+#[test]
+fn a_pin_screen_counts_digits_and_never_says_one() {
+    let dir = std::env::temp_dir().join(format!("nightjar-pin-said-{}", std::process::id()));
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    f.ctx.enable_accesskit();
+    f.l.pin = Some(crate::pin_ui::PinLock::demo(&dir, false, "Desk"));
+    f.settle();
+    f.frame(vec![egui::Event::Key { key: Key::Num7, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }]);
+    f.settle();
+    let said: Vec<String> = read_out(&f).into_iter().map(|(said, _)| said).collect();
+    assert!(said.iter().any(|s| s == "1 of 4 digits entered"), "{said:?}");
+    assert!(f.placed.iter().all(|(text, ..)| !text.contains('*')), "a dot, no character, in a slot");
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn a_dialogs_buttons_sit_right_under_it_in_a_short_window() {
+    let mut f = approving_frames(true);
+    f.size = vec2(853.0, 480.0);
+    f.hosts.list[0].native.pairing_requests = vec![tv_request("a1")];
+    f.l.dialog = dialogs::approve_dialog(&f.hosts.list[0], &f.hosts.list[0].native.pairing_requests[0].clone());
+    f.settle();
+    let at = |text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1).unwrap_or_else(|| panic!("{text}"));
+    assert!(at("Cancel").top() - at("0").bottom() < 60.0, "no empty row above the buttons: {:?} under {:?}", at("Cancel"), at("0"));
+    assert!(at("Cancel").bottom() < 480.0, "in the window");
+}
+
+/// F, as on any card, opens a found PC's options from Pair, and the hints call Pair by its name.
+#[test]
+fn f_on_a_found_card_opens_its_options() {
+    let mut found = Hosts::without_discovery(vec![record("Game Room", false, false)], Arc::new(|| {}));
+    found.discovering = true;
+    found.list[0].reach = Reach::Online;
+    let mut f = first_run_frames(Vec::new());
+    f.hosts = found;
+    f.l.go(Screen::Hosts);
+    f.settle();
+    f.l.input_source = crate::input_source::InputSource::Keyboard;
+    f.settle();
+    let count = |f: &Frames, word: &str| f.placed.iter().filter(|(t, ..)| t == word).count();
+    assert_eq!(count(&f, "Pair"), 2, "the button and the hint: {:?}", f.placed);
+    assert_eq!(count(&f, "Open"), 0, "{:?}", f.placed);
+    f.press(Key::F);
+    assert!(matches!(f.l.dialog, Dialog::HostOptions { .. }));
+}
+
+/// The hint names what Go does: Play, Resume, Favourite and Quit game on the hero's buttons, Play or
+/// Resume on the game page's, and Open only on what opens.
+#[test]
+fn the_go_hint_names_what_the_control_does() {
+    let tab_until = |f: &mut Frames, word: &str, go: &str| {
+        let hint = |f: &Frames| f.placed.iter().filter(|(t, ..)| t == go).count();
+        for _ in 0..20 {
+            let focused = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).map(|r| r.rect);
+            let on = f.placed.iter().any(|(t, r, _)| t == word && focused.is_some_and(|at| at.contains(r.center())));
+            if on && f.placed.iter().any(|(t, ..)| t == "Options") {
+                let open = f.placed.iter().filter(|(t, ..)| t == "Open").count();
+                assert_eq!(open, 0, "{word} is no Open: {:?}", f.placed);
+                assert!(hint(f) >= 2, "{word} and the hint {go}: {:?}", f.placed);
+                return;
+            }
+            f.press(Key::Tab);
+            f.settle();
+        }
+        panic!("Tab never reached {word}: {:?}", f.placed);
+    };
+    let mut f = home_with_games(1);
+    f.l.input_source = crate::input_source::InputSource::Keyboard;
+    f.settle();
+    tab_until(&mut f, "Play", "Play");
+    tab_until(&mut f, "Favourite", "Favourite");
+    let pc = f.hosts.list[0].id;
+    f.l.go(Screen::Game { host: pc, app: 1000 });
+    f.settle();
+    tab_until(&mut f, "Play", "Play");
+    // A running game: Resume, and its Quit game by its name.
+    f.hosts.list[0].native.library.as_mut().unwrap().games[0].running = true;
+    f.settle();
+    tab_until(&mut f, "Resume", "Resume");
+    f.l.go(Screen::Home);
+    f.settle();
+    tab_until(&mut f, "Resume", "Resume");
+    tab_until(&mut f, "Quit game", "Quit game");
+}
+
+/// A key cap and a word for what has focus, for the device in the hand; nothing for a mouse.
+#[test]
+fn the_button_hints_follow_the_last_input() {
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 0)), vec![game(1)]);
+    f.l.go(Screen::Hosts);
+    f.settle();
+    f.press(Key::Tab);
+    f.settle();
+    let says = |f: &Frames, word: &str| f.placed.iter().any(|(t, ..)| t == word);
+    assert!(!says(&f, "Options"), "no hints before the last input is known: {:?}", f.placed);
+    f.l.input_source = crate::input_source::InputSource::Keyboard;
+    for _ in 0..12 {
+        if says(&f, "Options") {
+            break;
+        }
+        f.press(Key::Tab);
+        f.settle();
+    }
+    assert!(says(&f, "Options"), "a card with options takes focus by Tab: {:?}", f.placed);
+    assert!(says(&f, "F") && says(&f, "Enter"), "the keyboard's caps: {:?}", f.placed);
+    f.l.input_source = crate::input_source::InputSource::Pad(crate::glyphs::Style::PlayStation);
+    f.settle();
+    assert!(says(&f, "Options") && !says(&f, "Enter"), "a pad's own labels: {:?}", f.placed);
+    f.l.input_source = crate::input_source::InputSource::None;
+    f.settle();
+    assert!(!says(&f, "Options"), "none for a mouse");
+}
+
+/// A game the PC runs that is not on its list still resumes and quits, as any other.
+#[test]
+fn a_running_game_with_no_list_entry_offers_the_same_choices() {
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 77)), vec![game(1)]);
+    f.settle();
+    let host = &f.hosts.list[0];
+    assert_eq!(host.running_app(), Some(77));
+    let options = dialogs::host_options(host);
+    assert!(options.contains(&HostOption::Resume) && options.contains(&HostOption::QuitApp), "{options:?}");
+}
+
+/// The Resume a game with no list entry offers: what it sends reaches the stream start as a resume
+/// of the running session, whatever the state of the list, and the PC's read still matches it.
+#[test]
+fn resuming_a_running_game_with_no_list_entry_reaches_the_stream_start() {
+    let lists = [Apps::Loaded(vec![game(1)]), Apps::NotLoaded, Apps::Failed("no".into())];
+    for list in lists {
+        let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 77)), vec![game(1)]);
+        f.settle();
+        f.hosts.list[0].apps = list;
+        let mut commands = Vec::new();
+        let asked = f.l.choose_host_option(&f.hosts.list[0], HostOption::Resume, &mut commands);
+        assert!(asked.is_none());
+        let (app, resume) = match commands[..] {
+            [Command::Launch { app, resume, .. }] => (app, resume),
+            _ => panic!("one launch"),
+        };
+        assert!((app, resume) == (77, true));
+        let crate::LaunchApp::Ready(started) = crate::launch_target(&f.hosts.list[0], app, resume) else {
+            panic!("the resume stops short of the stream start");
+        };
+        assert!(started.id == 77 && started.control == nightjar_core::http::AppControl::None);
+        assert!(started.matches_running_app(f.hosts.list[0].running_app().unwrap(), None), "the start's own check");
+    }
+}
+
+/// A launch whose list nobody has read reads it and holds; with no key to read it with it says so,
+/// where it used to end without a word.
+#[test]
+fn a_launch_with_no_list_read_loads_it_or_fails_out_loud() {
+    let mut hosts = Hosts::without_discovery(vec![record("Den", true, true)], Arc::new(|| {}));
+    let id = hosts.list[0].id;
+    assert!(matches!(crate::launch_target(&hosts.list[0], 5, false), crate::LaunchApp::Gone));
+    assert!(!crate::read_list_for_launch(&mut hosts, id), "no key, no read");
+    hosts.set_identity(Arc::new(nightjar_core::http::ClientIdentity::generate().expect("a key")));
+    assert!(crate::read_list_for_launch(&mut hosts, id), "the launch holds for this read");
+    assert!(matches!(crate::launch_target(&hosts.list[0], 5, false), crate::LaunchApp::Wait));
+}
+
+/// Try again on a failed list reads as a read, not as "no apps": only the empty page's own Refresh
+/// holds that page, and it goes when the list has answered, empty or not.
+#[test]
+fn try_again_on_a_failed_list_does_not_say_no_apps() {
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 0)), Vec::new());
+    let id = f.hosts.list[0].id;
+    f.hosts.list[0].apps = Apps::Failed("The PC did not answer".into());
+    f.l.go(Screen::Apps(id));
+    f.settle();
+    assert!(f.press(Key::Enter).iter().any(|c| matches!(c, Command::Refresh(_))), "Try again has the focus");
+    f.hosts.list[0].apps = Apps::Loading;
+    f.settle();
+    assert!(!shows(&f, "This PC lists no apps."), "{:?}", f.drawn);
+    // The empty page's Refresh, answered empty, then read by something else.
+    f.hosts.list[0].apps = Apps::Loaded(Vec::new());
+    f.l.refocus();
+    f.settle();
+    // The launcher reads it before the next frame, as main does with the command.
+    assert!(f.frame(crate::gui::tap(Key::Enter).to_vec()).iter().any(|c| matches!(c, Command::Refresh(_))));
+    f.hosts.list[0].apps = Apps::Loading;
+    f.settle();
+    assert!(shows(&f, "This PC lists no apps."), "held while it reads: {:?}", f.drawn);
+    f.hosts.list[0].apps = Apps::Loaded(Vec::new());
+    f.settle();
+    f.hosts.list[0].apps = Apps::Loading;
+    f.settle();
+    assert!(!shows(&f, "This PC lists no apps."), "the answer ended it: {:?}", f.drawn);
+}
+
+/// The smallest window holds the hero's whole row when Try again joins it.
+#[test]
+fn try_again_leaves_homes_row_in_the_smallest_window() {
+    for running in [0, 1000] {
+        let mut f = home_with_games(1);
+        f.hosts.list[0].info = Some(answer(true, running));
+        f.size = vec2(720.0, 490.0);
+        f.settle();
+        f.hosts.list[0].apps = Apps::Failed("The PC did not answer".into());
+        f.l.refocus();
+        f.settle();
+        let words = |f: &Frames| -> Vec<Rect> {
+            ["Resume", "Play", "Try again", "Favourite", "Quit game"].iter().filter_map(|w| f.placed.iter().find(|(t, ..)| t == w).map(|p| p.1)).collect()
+        };
+        let row = words(&f);
+        assert!(row.len() >= 3, "{:?}", f.drawn);
+        assert!(row.iter().all(|r| r.right() <= f.size.x), "running {running}: {row:?} in {:?}", f.size);
+        assert!(row.windows(2).all(|w| w[0].right() < w[1].left()), "running {running}: {row:?}");
+    }
+}
+
+/// Home's hero says what stops Play, as the game's page does, offers Try again and comes back from it.
+#[test]
+fn homes_play_says_what_stops_it_and_recovers() {
+    let entry = nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) };
+    type Case = (fn() -> Apps, &'static str);
+    let cases: [Case; 2] = [
+        (|| Apps::Failed("The PC did not answer".into()), "The app list could not be loaded. The PC did not answer"),
+        (|| Apps::Loaded(vec![game(77)]), "The PC's app list has no entry for this game."),
+    ];
+    for (list, why) in cases {
+        for screen in ["Home", "Game"] {
+            let mut f = home_with_games(1);
+            let pc = f.hosts.list[0].id;
+            if screen == "Game" {
+                f.l.go(Screen::Game { host: pc, app: 1000 });
+            }
+            f.settle();
+            f.hosts.list[0].apps = list();
+            f.l.refocus();
+            f.settle();
+            assert!(shows(&f, why), "{screen}: {:?}", f.drawn);
+            let at = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1);
+            let retry = at(&f, "Try again").unwrap_or_else(|| panic!("{screen}: {:?}", f.drawn));
+            assert!(at(&f, why).unwrap().bottom() <= at(&f, "Play").unwrap().top() + 1.0, "{screen}: above the buttons");
+            assert!(at(&f, "Game 00").is_none_or(|t| t.bottom() <= at(&f, why).unwrap().top()), "{screen}: under the title");
+            // The press reads the list again, also one that came without the game.
+            let commands = f.click_at(retry.center(), egui::PointerButton::Primary);
+            assert!(commands.iter().any(|c| matches!(c, Command::ReadAppsAgain(host) if *host == pc)), "{screen}");
+            f.hosts.list[0].apps = Apps::Loading;
+            f.settle();
+            assert!(!shows(&f, why) && !shows(&f, "Try again"), "{screen}: {:?}", f.drawn);
+            f.hosts.list[0].apps = Apps::Loaded(vec![entry.clone()]);
+            f.settle();
+            let play = at(&f, "Play").expect("Play");
+            let commands = f.click_at(play.center(), egui::PointerButton::Primary);
+            assert!(commands.iter().any(|c| matches!(c, Command::Launch { app: 1000, .. })), "{screen}: it plays again");
+        }
+    }
+}
+
+/// A dialog over All games holds the search field too: neither a click nor typing reaches it.
+#[test]
+fn the_search_field_takes_nothing_under_a_dialog() {
+    let mut f = home_with_games(3);
+    f.l.go(Screen::AllGames);
+    f.settle();
+    f.l.open_search();
+    f.settle();
+    let field = f.placed.iter().find(|(t, ..)| t == "Search").map(|p| p.1).expect("the field");
+    f.frame(vec![egui::Event::Text("a".into())]);
+    assert_eq!(f.l.library_query, "a", "the field has the keys while nothing covers it");
+    f.l.add_host_dialog();
+    f.settle();
+    f.frame(vec![egui::Event::Text("b".into())]);
+    assert!(f.l.library_query == "a", "typing under a dialog: {}", f.l.library_query);
+    f.click_at(field.center(), egui::PointerButton::Primary);
+    f.settle();
+    f.ctx.memory_mut(|m| m.request_focus(egui::Id::unique(chrome::SEARCH_ID)));
+    f.frame(Vec::new());
+    f.frame(vec![egui::Event::Text("c".into())]);
+    assert!(f.l.library_query == "a", "a click, then typing, under a dialog: {}", f.l.library_query);
+    assert!(matches!(&f.l.dialog, Dialog::AddHost { .. }));
+    // A dialog with no field of its own, and the same click and keys.
+    f.l.dialog = Dialog::None;
+    f.settle();
+    f.l.message("Title", "Words".to_owned());
+    f.settle();
+    f.click_at(field.center(), egui::PointerButton::Primary);
+    f.settle();
+    f.frame(vec![egui::Event::Text("d".into())]);
+    assert!(f.l.library_query == "a", "under a message: {}", f.l.library_query);
+}
+
+/// Enter on an empty field closes the search and stays on the page: opened again, Escape ends the
+/// search there too, and does not leave for where the first search came from.
+#[test]
+fn reopening_the_search_and_escaping_stays_on_the_page() {
+    let mut f = home_with_games(3);
+    f.l.go(Screen::Home);
+    f.settle();
+    f.l.open_search();
+    f.settle();
+    assert_eq!(f.l.screen, Screen::AllGames);
+    f.press(Key::Enter);
+    assert!(!f.l.search_open);
+    f.l.open_search();
+    f.settle();
+    f.press(Key::Escape);
+    assert!(!f.l.search_open);
+    assert_eq!(f.l.screen, Screen::AllGames, "one Escape ends the search, it does not leave");
+}
+
+/// Picking the PC whose page is open adds no screen for Back to walk through.
+#[test]
+fn opening_the_page_already_open_adds_no_back_press() {
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 0)), vec![game(1)]);
+    let id = f.hosts.list[0].id;
+    f.l.go(Screen::Home);
+    f.l.open(Screen::Apps(id));
+    f.settle();
+    let depth = f.l.trail.len();
+    let picked = pcs::pc_action(&f.hosts.list[0]).command(id);
+    assert!(matches!(picked, Command::OpenApps(host) if host == id), "what the sheet's row sends");
+    f.l.open(Screen::Apps(id));
+    assert_eq!(f.l.trail.len(), depth);
+}
+
+/// The details page keeps what the PC's card used to say: its address and its GPU, also on a host
+/// with no web UI to carry the address.
+#[test]
+fn the_details_page_shows_the_address_and_the_gpu() {
+    let mut f = details(Reach::Online, "MJOLNIR_STATE_FREE", "");
+    f.hosts.list[0].record.address = "192.0.2.7".into();
+    f.hosts.list[0].info.as_mut().expect("the answer").gpu_type = Some("RX 7900 XT".into());
+    f.settle();
+    assert!(shows(&f, "192.0.2.7") && shows(&f, "RX 7900 XT"), "{:?}", f.drawn);
+    f.hosts.list[0].info.as_mut().expect("the answer").gpu_type = None;
+    f.settle();
+    assert!(shows(&f, "192.0.2.7") && !shows(&f, "GPU"), "no empty line: {:?}", f.drawn);
+}
+
+/// A PC's page with a list has a round Refresh in its head, by keyboard too; it spins and keeps the
+/// focus while it reads, and leaves room for what a running game offers.
+#[test]
+fn a_list_has_a_round_refresh_in_its_head() {
+    let square = |f: &Frames| {
+        f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).map(|r| r.rect).filter(|r| (r.width() - r.height()).abs() < 1.0 && r.height() == 48.0)
+    };
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 0)), vec![game(7)]);
+    let id = f.hosts.list[0].id;
+    f.l.go(Screen::Apps(id));
+    f.settle();
+    let mut tabs = 0;
+    while square(&f).is_none() {
+        f.press(Key::Tab);
+        tabs += 1;
+        assert!(tabs < 12, "Tab reaches it");
+    }
+    let at = square(&f).expect("it");
+    assert!(at.right() > f.size.x - 120.0 && at.top() < 200.0, "the head's right: {at:?}");
+    assert!(f.press(Key::Enter).iter().any(|c| matches!(c, Command::Refresh(host) if *host == id)));
+    f.hosts.list[0].apps = Apps::Loading;
+    f.settle();
+    assert_eq!(library::head_refresh(&f.hosts.list[0], None), Some(true));
+    assert_eq!(square(&f), Some(at), "it keeps the focus while it spins");
+    assert!(!f.press(Key::Enter).iter().any(|c| matches!(c, Command::Refresh(_))), "one read at a time");
+    f.hosts.list[0].apps = Apps::Loaded(vec![game(7)]);
+    f.settle();
+    assert_eq!(square(&f), Some(at));
+    assert_eq!(library::head_refresh(&f.hosts.list[0], None), Some(false));
+    // Beside what a running game offers.
+    f.hosts.list[0].info = Some(answer(true, 7));
+    f.settle();
+    let quit = f.placed.iter().find(|(t, ..)| t == "Quit game").map(|p| p.1).expect("Quit game");
+    assert!(quit.right() < at.left(), "{quit:?} {at:?}");
+    // No list, no second Refresh: the page's middle has it.
+    f.hosts.list[0].apps = Apps::Loaded(Vec::new());
+    assert_eq!(library::head_refresh(&f.hosts.list[0], None), None);
+    f.hosts.list[0].apps = Apps::Failed("no".into());
+    assert_eq!(library::head_refresh(&f.hosts.list[0], None), None);
+    f.hosts.list[0].apps = Apps::Loading;
+    assert_eq!(library::head_refresh(&f.hosts.list[0], Some(id)), None, "the empty page's own at work");
+}
+
+/// A waiting Play holds while a dialog is open: no stream starts under it and no typed text goes.
+#[test]
+fn a_waiting_play_holds_while_a_dialog_is_open() {
+    let entry = nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) };
+    for (landing, launches) in [(Apps::Loaded(vec![entry]), true), (Apps::Failed("The PC did not answer".into()), false)] {
+        let mut f = home_with_games(1);
+        let pc = f.hosts.list[0].id;
+        f.hosts.list[0].apps = Apps::Loading;
+        f.l.go(Screen::Game { host: pc, app: 1000 });
+        f.settle();
+        f.press(Key::Enter);
+        assert!(f.l.playing_soon(pc, 1000));
+        f.l.dialog = Dialog::AddHost { text: "typed".into(), error: None };
+        f.hosts.list[0].apps = landing;
+        for _ in 0..3 {
+            assert!(!f.frame(Vec::new()).iter().any(|c| matches!(c, Command::Launch { .. })), "not under a dialog");
+        }
+        assert!(matches!(&f.l.dialog, Dialog::AddHost { text, .. } if text == "typed"), "the words stay");
+        assert!(f.l.playing_soon(pc, 1000), "still waiting");
+        f.l.dialog = Dialog::None;
+        let commands = f.frame(Vec::new());
+        assert_eq!(commands.iter().any(|c| matches!(c, Command::Launch { app: 1000, .. })), launches);
+        assert!(!f.l.playing_soon(pc, 1000));
+        if !launches {
+            assert!(matches!(f.l.dialog, Dialog::Message { .. }), "and now it says why");
+        }
+    }
+}
+
+/// A control tile that carries the running id is not the running game: Resume never fires its
+/// action, every name for the running game agrees, and the tile is not what Resume names.
+#[test]
+fn a_control_tile_with_the_running_id_is_never_what_resume_runs() {
+    let mut tile = game(77);
+    tile.name = "Disconnect".into();
+    tile.control = nightjar_core::http::AppControl::Terminate;
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 77)), vec![tile, game(1)]);
+    f.settle();
+    let host = &f.hosts.list[0];
+    assert!(library::running_entry(host).is_none());
+    assert_eq!(library::running_app_id(host), None, "one rule for both");
+    assert_ne!(library::running_name(host), "Disconnect");
+    let mut commands = Vec::new();
+    f.l.choose_host_option(host, HostOption::Resume, &mut commands);
+    assert!(matches!(commands[..], [Command::Launch { app: 77, resume: true, .. }]));
+    let crate::LaunchApp::Ready(started) = crate::launch_target(host, 77, true) else {
+        panic!("resume goes on");
+    };
+    assert!(!started.is_control_action() && started.control == nightjar_core::http::AppControl::None);
+    assert!(matches!(crate::launch_target(host, 77, false), crate::LaunchApp::Ready(a) if a.is_control_action()), "the tile's own press still is its action");
+}
+
+/// The moon stands in open sky: never under a card, chip, row or title and never cut by one, on
+/// every page that draws it, in the default window at 150 % (where it sat under the PCs' cards and
+/// on Settings' last chip), a large window, the smallest one and 150 % in German. Where a page
+/// leaves no sky the moon steps back; a large window keeps it on the PCs and Settings. Every kind
+/// of shape counts: meshes, rectangles, circles, paths and words.
+#[test]
+fn the_moon_stands_clear_of_every_card_and_chip() {
+    let pages = [Screen::Hosts, Screen::Settings, Screen::Help, Screen::Profiles, Screen::Controllers, Screen::Shortcuts, Screen::StreamHotkeys];
+    let windows = [(vec2(1280.0, 800.0), 150, false), (vec2(1280.0, 800.0), 100, false), (vec2(1920.0, 1080.0), 100, false), (vec2(720.0, 490.0), 100, false), (vec2(1280.0, 800.0), 150, true)];
+    let mut kinds = std::collections::BTreeSet::new();
+    for (window, zoom, german) in windows {
+        for page in pages {
+            let mut f = four_pcs();
+            f.l.settings.ui_zoom = zoom;
+            if german {
+                f.l.settings.language = crate::config::Language::German;
+            }
+            f.size = window;
+            f.l.go(page);
+            f.settle();
+            let what = format!("{page:?} at {window:?}, {zoom} %{}", if german { ", German" } else { "" });
+            if backdrop::disc_of(&f.ctx).is_none() {
+                assert!(window.x < 1920.0 || !matches!(page, Screen::Hosts | Screen::Settings), "{what}: a large window has sky for the moon");
+            }
+            kinds.extend(assert_moon_clear(&f, &what));
+        }
+    }
+    for kind in ["mesh", "rect", "circle", "path", "text"] {
+        assert!(kinds.contains(kind), "a {kind} was checked: {kinds:?}");
+    }
+}
+
+/// From a game's ambient to the sky the moon fades in with it; nothing pops in at full, the fade
+/// runs to its end and the moon stands in one place all along.
+#[test]
+fn from_art_to_the_sky_the_moon_fades_in_with_it() {
+    for (window, zoom, page) in [(vec2(1280.0, 800.0), 100, Screen::Hosts), (vec2(1280.0, 800.0), 150, Screen::Profiles), (vec2(1280.0, 800.0), 150, Screen::Hosts)] {
+        let mut f = home_with_games(2);
+        let pc = f.hosts.list[0].id;
+        f.hosts.list[0].apps = Apps::Loaded(vec![nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) }]);
+        f.hosts.list[0].art.insert(1000, Art::Missing);
+        f.l.settings.ui_zoom = zoom;
+        f.size = window;
+        f.l.go(Screen::Game { host: pc, app: 1000 });
+        f.settle();
+        f.settle();
+        let what = format!("{page:?} at {window:?}, {zoom} %");
+        assert!(f.l.ambient.shows_art() && backdrop::painted(&f.ctx).moons.is_empty(), "{what}: the game's tile shows");
+        f.l.go(page);
+        let frames = follow_the_fade(&mut f, &what, false);
+        let first = &frames[0];
+        assert!(first.fading && first.along < 0.35, "{what}: the sky fades in from the art: {first:?}");
+        let discs: std::collections::HashSet<_> = frames.iter().flat_map(|p| p.moons.iter().map(|(d, _)| (d.0.x.to_bits(), d.0.y.to_bits(), d.1.to_bits()))).collect();
+        assert!(discs.len() <= 1, "{what}: one moon in one place: {frames:?}");
+        assert_moon_clear(&f, &what);
+    }
+}
+
+/// From one page's sky to the next the old moon fades out where it stood as the new one fades in
+/// where it stands: none pops in or out at full, and the sky's fade is never cut short.
+#[test]
+fn from_sky_to_sky_the_moons_cross_fade() {
+    let pairs = [(Screen::Settings, Screen::Help), (Screen::Profiles, Screen::Hosts), (Screen::Hosts, Screen::Profiles), (Screen::Profiles, Screen::Controllers), (Screen::Hosts, Screen::Settings), (Screen::StreamHotkeys, Screen::Profiles)];
+    let windows = [(vec2(1280.0, 800.0), 150), (vec2(1280.0, 800.0), 100), (vec2(1100.0, 650.0), 100)];
+    let mut moved = 0;
+    for (window, zoom) in windows {
+        for (from, to) in pairs {
+            let mut f = four_pcs();
+            f.l.settings.ui_zoom = zoom;
+            f.size = window;
+            f.l.go(from);
+            f.settle();
+            let before = backdrop::disc_of(&f.ctx);
+            f.l.go(to);
+            let what = format!("{from:?} to {to:?} at {window:?}, {zoom} %");
+            follow_the_fade(&mut f, &what, false);
+            let after = backdrop::disc_of(&f.ctx);
+            if before.is_some() && after.is_some() && before != after {
+                moved += 1;
+            }
+            assert_moon_clear(&f, &what);
+        }
+    }
+    assert!(moved > 0, "some page change moves the moon");
+}
+
+/// Pointing at or focusing what stands nearest the moon moves nothing: a card's lift shadow and a
+/// focus halo are no cards, and the moon neither moves nor fades.
+#[test]
+fn hover_and_focus_by_the_moon_leave_it_where_it_stands() {
+    let pages = [Screen::Hosts, Screen::Profiles, Screen::Settings, Screen::Controllers];
+    // The PCs at 1200x560 and 1020x600: the moon stands its gap below a card, within its lift shadow.
+    let windows = [(vec2(1200.0, 560.0), 100), (vec2(1020.0, 600.0), 100), (vec2(1280.0, 800.0), 100), (vec2(1100.0, 650.0), 100), (vec2(1280.0, 800.0), 150), (vec2(1600.0, 900.0), 125)];
+    let mut reached = 0;
+    for (window, zoom) in windows {
+        for page in pages {
+            let mut f = four_pcs();
+            f.l.settings.ui_zoom = zoom;
+            f.size = window;
+            f.l.go(page);
+            f.settle();
+            let Some((center, r)) = backdrop::disc_of(&f.ctx) else { continue };
+            let screen = Rect::from_min_size(Pos2::ZERO, f.size);
+            // What can be pointed at near the moon, but the chrome and the scroll bar.
+            let mut near: Vec<egui::WidgetRect> = f.ctx.viewport(|v| {
+                v.prev_pass.widgets.layers().flat_map(|(_, w)| w.iter().copied()).filter(|w| w.sense.senses_click() && w.rect.top() >= chrome::PAGE_TOP && w.rect.height() < screen.height() * 0.8 && w.rect.distance_to_pos(center) < r + 80.0).collect()
+            });
+            near.sort_by(|a, b| a.rect.distance_to_pos(center).total_cmp(&b.rect.distance_to_pos(center)));
+            near.truncate(4);
+            for widget in near {
+                let what = format!("{page:?} at {window:?}, {zoom} %, by {:?}", widget.rect);
+                let soft = glass::soft_textures(&f.ctx);
+                let reaches = |f: &Frames| meshes_drawn(f).iter().any(|(m, _)| soft.contains(&m.texture_id) && m.calc_bounds().distance_to_pos(center) < r);
+                let calm = |f: &Frames, how: &str| {
+                    assert_eq!(backdrop::disc_of(&f.ctx), Some((center, r)), "{what}: {how} moves the moon");
+                    let painted = backdrop::painted(&f.ctx);
+                    assert!(!painted.fading && painted.moons == vec![((center, r), 1.0)], "{what}: {how} fades the moon: {painted:?}");
+                };
+                f.frame(vec![egui::Event::PointerMoved(widget.rect.center())]);
+                for _ in 0..3 {
+                    f.settle();
+                    reached += usize::from(reaches(&f));
+                    calm(&f, "pointing");
+                }
+                f.frame(vec![egui::Event::PointerGone]);
+                f.settle();
+                if widget.sense.is_focusable() {
+                    f.ctx.memory_mut(|m| m.request_focus(widget.id));
+                    for _ in 0..3 {
+                        f.settle();
+                        reached += usize::from(reaches(&f));
+                        if backdrop::disc_of(&f.ctx) == Some((center, r)) {
+                            calm(&f, "the focus");
+                        } else {
+                            panic!("{what}: the focus moves the moon to {:?}", backdrop::disc_of(&f.ctx));
+                        }
+                    }
+                    f.ctx.memory_mut(|m| m.surrender_focus(widget.id));
+                    f.settle();
+                }
+            }
+        }
+    }
+    assert!(reached > 0, "a shadow or halo reached the moon somewhere, and it stayed");
+}
+
+/// A window resized or zoomed shows no moon from before: the frame it changes in, the moon already
+/// stands clear and whole in the new window, or has stepped back.
+#[test]
+fn a_resized_or_zoomed_window_shows_no_stale_moon() {
+    for page in [Screen::Hosts, Screen::Profiles, Screen::Controllers, Screen::Settings] {
+        let mut f = four_pcs();
+        f.size = vec2(1280.0, 800.0);
+        f.l.go(page);
+        f.settle();
+        // A window drag changes the size; a zoom changes the points the next frame.
+        let steps = [(vec2(1100.0, 650.0), 100), (vec2(1100.0, 650.0), 150), (vec2(1280.0, 800.0), 150), (vec2(1920.0, 1080.0), 150), (vec2(1920.0, 1080.0), 100), (vec2(720.0, 490.0), 100), (vec2(1280.0, 800.0), 100), (vec2(1280.0, 800.0), 125)];
+        for (window, zoom) in steps {
+            if zoom != f.l.settings.ui_zoom {
+                f.l.settings.ui_zoom = zoom;
+                f.frame(Vec::new());
+            }
+            let (before, last) = (backdrop::disc_of(&f.ctx), backdrop::painted(&f.ctx));
+            f.size = window;
+            f.frame(Vec::new());
+            let what = format!("{page:?} the frame it went to {window:?}, {zoom} %");
+            assert_moon_clear(&f, &what);
+            let disc = backdrop::disc_of(&f.ctx);
+            if let (Some(_), Some(now)) = (before, disc) {
+                assert_eq!(backdrop::painted(&f.ctx).moons, vec![(now, 1.0)], "{what}: one moon that moves, at full");
+            } else {
+                // It steps back or comes back: it fades.
+                fade_step(&last, &backdrop::painted(&f.ctx), &what, 0, false);
+            }
+            // As the page settles in the new window it may move on, never fade out and in.
+            follow_the_fade(&mut f, &what, true);
+            f.settle();
+            assert_moon_clear(&f, &what);
+        }
+    }
+}
+
+/// A page first seen scrolled (here: the window changed size while it was) could not show what
+/// scrolled away; its moon keeps out of that, so it stays put when the page goes back to its top.
+#[test]
+fn a_page_first_seen_scrolled_keeps_its_moon_at_the_top() {
+    let mut placed = 0;
+    // Ten PCs: rows scroll away above, and the last row leaves sky on the right.
+    for (page, more) in [(Screen::Profiles, 0), (Screen::Hosts, 0), (Screen::Hosts, 6), (Screen::Settings, 0), (Screen::Help, 0), (Screen::Controllers, 0)] {
+        for (first, then) in [(vec2(1280.0, 800.0), vec2(1100.0, 650.0)), (vec2(1100.0, 650.0), vec2(1280.0, 800.0)), (vec2(1280.0, 800.0), vec2(1920.0, 1080.0)), (vec2(853.0, 533.0), vec2(1000.0, 800.0))] {
+            let mut f = pcs_more(more);
+            f.size = first;
+            f.l.go(page);
+            f.settle();
+            f.scroll_to_end();
+            f.size = then;
+            f.settle();
+            let what = format!("{page:?} scrolled at {first:?}, then {then:?}");
+            let disc = backdrop::disc_of(&f.ctx);
+            placed += usize::from(disc.is_some());
+            f.frame(vec![egui::Event::PointerMoved((f.size / 2.0).to_pos2())]);
+            f.frame(vec![egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: vec2(0.0, 1000.0), phase: egui::TouchPhase::Move, source: egui::MouseWheelSource::Unknown, modifiers: egui::Modifiers::NONE }]);
+            for _ in 0..10 {
+                f.settle();
+            }
+            assert_eq!(backdrop::disc_of(&f.ctx), disc, "{what}: back at the top the moon stays");
+            assert_moon_clear(&f, &what);
+        }
+    }
+    assert!(placed > 0, "some page first seen scrolled has a moon");
+}
+
+/// Steps frames until the sky's fade ends, checking each against the one before: a moon that comes
+/// starts faint, one that goes leaves faint, one that stays changes by a frame's step at most, and
+/// the fade only runs forward.
+fn follow_the_fade(f: &mut Frames, what: &str, moves: bool) -> Vec<backdrop::Painted> {
+    let mut last = backdrop::painted(&f.ctx);
+    let mut frames = Vec::new();
+    for n in 0..12 {
+        f.frame(Vec::new());
+        let now = backdrop::painted(&f.ctx);
+        fade_step(&last, &now, what, n, moves);
+        frames.push(now.clone());
+        last = now;
+    }
+    assert!(!last.fading, "{what}: the fade ends");
+    frames
+}
+
+/// One frame of [`follow_the_fade`]. A moon still fading that moves on its page (its first frame
+/// laid out a little differently) goes on fading where it stands: one that goes and one that comes
+/// alike are one moon. With `moves` a moon at full may move too: the window changed size.
+fn fade_step(last: &backdrop::Painted, now: &backdrop::Painted, what: &str, n: usize, moves: bool) {
+    let step = 0.35;
+    let mut gone: Vec<_> = last.moons.iter().filter(|(d, _)| !now.moons.iter().any(|(e, _)| e == d)).collect();
+    for (disc, alpha) in &now.moons {
+        match last.moons.iter().find(|(d, _)| d == disc) {
+            Some((_, was)) => assert!((alpha - was).abs() <= step, "{what}, frame {n}: the moon at {disc:?} jumps from {was} to {alpha}: {last:?} then {now:?}"),
+            None if *alpha <= step => {}
+            None => {
+                let moved = gone.iter().position(|(_, was)| (alpha - was).abs() <= step && (moves || *alpha < 1.0));
+                let moved = moved.unwrap_or_else(|| panic!("{what}, frame {n}: a moon at {disc:?} comes in at {alpha}: {last:?} then {now:?}"));
+                gone.remove(moved);
+            }
+        }
+    }
+    for (disc, was) in gone {
+        assert!(*was <= step, "{what}, frame {n}: the moon at {disc:?} goes at {was}");
+    }
+    if last.fading && now.fading {
+        assert!(now.along >= last.along, "{what}, frame {n}: the fade starts over: {last:?} then {now:?}");
+    }
+}
+
+/// Asserts the moon this frame is whole in the window and clear of everything the page drew, and
+/// says which kinds of shape it checked.
+fn assert_moon_clear(f: &Frames, what: &str) -> Vec<&'static str> {
+    let Some((center, r)) = backdrop::disc_of(&f.ctx) else {
+        return Vec::new();
+    };
+    let screen = f.ctx.content_rect();
+    assert!(screen.contains_rect(Rect::from_center_size(center, Vec2::splat(r * 2.0))), "{what}: the moon at {center:?}, r {r}, is whole in the window");
+    let mut kinds = Vec::new();
+    for (kind, rect) in page_shapes(f) {
+        if rect.is_positive() && rect.intersects(screen) {
+            assert!(rect.distance_to_pos(center) >= r, "{what}: the moon at {center:?}, r {r}, meets a {kind} at {rect:?}");
+            kinds.push(kind);
+        }
+    }
+    kinds
+}
+
+/// Every shape the last frame drew but the backdrop's own, as laid out within its clip: the sky,
+/// the page colour and the veil run the window's width, the chrome's soft shade falls from the
+/// window's top, and blurred shadows and halos are no cards.
+fn page_shapes(f: &Frames) -> Vec<(&'static str, Rect)> {
+    fn walk(shape: &egui::Shape, clip: Rect, soft: &glass::SoftTextures, out: &mut Vec<(&'static str, Rect)>) {
+        let (kind, rect) = match shape {
+            egui::Shape::Vec(shapes) => return shapes.iter().for_each(|s| walk(s, clip, soft, out)),
+            egui::Shape::Mesh(mesh) if soft.contains(&mesh.texture_id) => return,
+            egui::Shape::Mesh(mesh) => ("mesh", mesh.calc_bounds()),
+            egui::Shape::Rect(rect) => ("rect", rect.rect),
+            egui::Shape::Circle(circle) => ("circle", Rect::from_center_size(circle.center, Vec2::splat(circle.radius * 2.0))),
+            egui::Shape::Path(path) => ("path", Rect::from_points(&path.points)),
+            egui::Shape::Text(text) => ("text", text.visual_bounding_rect()),
+            egui::Shape::Noop => return,
+            other => ("shape", other.visual_bounding_rect()),
+        };
+        out.push((kind, rect.intersect(clip)));
+    }
+    let screen = f.ctx.content_rect();
+    let soft = glass::soft_textures(&f.ctx);
+    let backdrop = |shape: &egui::Shape| matches!(shape, egui::Shape::Vec(s) if matches!(s.first(), Some(egui::Shape::Rect(r)) if r.rect.min == Pos2::ZERO && r.fill == design_tokens::COLOR_CANVAS));
+    let mut out = Vec::new();
+    for clipped in f.shapes.iter().filter(|c| !backdrop(&c.shape)) {
+        walk(&clipped.shape, clipped.clip_rect, &soft, &mut out);
+    }
+    out.retain(|(_, rect)| rect.width() < screen.width() - 1.0 && rect.top() > screen.top());
+    out
+}
+
+/// The demo's PCs page: one running a game, one online, one asleep and one not paired.
+fn four_pcs() -> Frames {
+    pcs_more(0)
+}
+
+/// [`four_pcs`] and `more` paired PCs after them.
+fn pcs_more(more: usize) -> Frames {
+    let mut records = vec![record("Living Room PC", true, true), record("Studio PC", true, true), record("Office PC", true, true), record("Game Room PC", false, false)];
+    records.extend((0..more).map(|n| record(&format!("PC {n}"), true, false)));
+    for (n, record) in records.iter_mut().enumerate() {
+        record.address = format!("192.0.2.{}", 80 + n);
+    }
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut l = launcher(false, false);
+    l.go(Screen::Hosts);
+    let mut hosts = Hosts::without_discovery(records, Arc::new(|| {}));
+    for (host, reach) in hosts.list.iter_mut().zip([Reach::Online, Reach::Online, Reach::Offline, Reach::Online]) {
+        host.reach = reach;
+    }
+    hosts.list[0].apps = Apps::Loaded(vec![game(1)]);
+    Frames::over(ctx, l, hosts)
+}
+
+
+

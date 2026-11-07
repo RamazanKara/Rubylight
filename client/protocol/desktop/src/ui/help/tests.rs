@@ -134,7 +134,7 @@ fn f1_opens_help_from_any_page_and_back_returns() {
     let mut page = Page::new(vec![record("Desk")]);
     page.press(egui::Key::F1);
     assert_eq!(page.l.screen, Screen::Help, "F1 on the PCs opens Help");
-    assert!(page.drawn.iter().any(|t| t == tr("Keyboard shortcuts").to_uppercase().as_str()), "the page draws its sections: {:?}", page.drawn);
+    assert!(page.drawn.iter().any(|t| t == tr("Keyboard shortcuts")), "the page draws its sections: {:?}", page.drawn);
     page.press(egui::Key::Escape);
     assert_eq!(page.l.screen, Screen::Hosts, "Back returns to the PCs");
 
@@ -343,7 +343,7 @@ fn the_page_reads_in_german() {
     page.l.switch(Screen::Help);
     page.size = vec2(1280.0, 9000.0);
     page.settle();
-    for word in ["TASTENKÜRZEL", "Stream-Steuerung", "Strg"] {
+    for word in ["Tastenkürzel", "Stream-Steuerung", "Strg"] {
         assert!(page.drawn.iter().any(|t| t.contains(word)), "{word} on the German page: {:?}", page.drawn);
     }
 }
@@ -413,4 +413,16 @@ fn help_screenshots() {
             }
         }
     }
+}
+
+/// Cards stand on the sky in the settings rows' glass, and the old surface ladder stays out.
+#[test]
+fn help_is_glass_on_the_sky() {
+    let source = include_str!("../help.rs");
+    let code = source.split("#[cfg(test)]").next().expect("the page");
+    for old in [".fill(*SURFACE", "*SURFACE_HIGH", "OUTLINE_VARIANT"] {
+        assert!(!code.contains(old), "{old} is the old look");
+    }
+    assert!(code.contains("glass::group("), "a card is a group");
+    assert!(code.contains("glass::control("), "an icon sits on a tinted disc");
 }

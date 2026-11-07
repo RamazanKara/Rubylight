@@ -334,15 +334,21 @@ pub(crate) mod tests {
     // ---- The table against the sources. ----
 
     /// The UI sources, up to their test modules.
-    const SOURCES: [(&str, &str); 30] = [
+    const SOURCES: [(&str, &str); 36] = [
         ("open_play.rs", include_str!("open_play.rs")),
         ("autostart.rs", include_str!("autostart.rs")),
         ("ui.rs", include_str!("ui.rs")),
         ("ui/files.rs", include_str!("ui/files.rs")),
         ("ui/widgets.rs", include_str!("ui/widgets.rs")),
         ("ui/cards.rs", include_str!("ui/cards.rs")),
+        ("ui/chrome.rs", include_str!("ui/chrome.rs")),
+        ("ui/home.rs", include_str!("ui/home.rs")),
+        ("ui/demo.rs", include_str!("ui/demo.rs")),
         ("ui/library.rs", include_str!("ui/library.rs")),
         ("ui/pages.rs", include_str!("ui/pages.rs")),
+        ("ui/pcs.rs", include_str!("ui/pcs.rs")),
+        ("ui/game.rs", include_str!("ui/game.rs")),
+        ("ui/first_run.rs", include_str!("ui/first_run.rs")),
         ("ui/settings.rs", include_str!("ui/settings.rs")),
         ("ui/dialogs.rs", include_str!("ui/dialogs.rs")),
         ("host_page.rs", include_str!("host_page.rs")),
@@ -541,8 +547,9 @@ pub(crate) mod tests {
 
     /// Helpers that translate their text arguments themselves, and how many of the arguments
     /// after the prefix are text: call sites pass the English literal.
-    const HELPERS: [(&str, usize); 13] = [
+    const HELPERS: [(&str, usize); 14] = [
         ("quiet_button(ui, ", 1),
+        ("danger_button(ui, ", 1),
         ("rows.section(ui, ", 1),
         ("rows.group(ui, ", 1),
         ("primary_button(ui, ", 1),
@@ -680,7 +687,7 @@ pub(crate) mod tests {
         "Host", "Jitter", "Offline", "PCs", "Streaming", "App", "Relay (DERP)", "Store", "Bitrate", "Debug", "Headset", "Overlay",
         "Frame pacing", "Input-only", "Mouse", "Display ({} Hz)", "X / West", "Paddle 1", "Paddle 2", "Paddle 3", "Paddle 4", "Type",
         "Options", "Axes", "Compact", "Direct", "{} minutes", "Passphrase", "Home", "Upscaling", "Folder", "Layout", "Logs", "Link",
-        "5.1 surround", "7.1 surround", "7.1.4 surround", "Game Bar", "Collection",
+        "5.1 surround", "7.1 surround", "7.1.4 surround", "Game Bar", "Collection", "Online", "Desktop",
     ];
 
     #[test]

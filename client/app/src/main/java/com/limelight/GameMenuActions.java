@@ -88,7 +88,7 @@ final class GameMenuActions {
             }
         });
         ActionSheet.keepSystemBarsHidden(dialog, game);
-        dialog.show();
+        com.limelight.ui.StreamGlass.show(dialog);
     }
 
     /** The stream menu is open: its bitrate slider already shows an applied rate, and a toast would cover its ways out. */

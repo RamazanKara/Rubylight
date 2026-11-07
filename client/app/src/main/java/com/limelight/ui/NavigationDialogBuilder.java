@@ -20,10 +20,13 @@ import com.limelight.R;
 public final class NavigationDialogBuilder extends MaterialAlertDialogBuilder {
     private DialogInterface.OnKeyListener keyListener;
     private boolean startOnCancel;
+    private final boolean overStream;
 
     public NavigationDialogBuilder(Context context) {
         super(context);
-        setBackground(GlassPanelDrawable.dialog(getContext()));
+        // Over a stream, the stream menu's glass: StreamGlass.show puts a blur under it where the device affords one.
+        overStream = StreamGlass.overStream(getContext());
+        setBackground(overStream ? GlassPanelDrawable.menu(getContext(), false) : GlassPanelDrawable.dialog(getContext()));
     }
 
     /** For a confirmation that ends or loses something: a pad's or a remote's first press is Cancel, not the moon. */
@@ -44,7 +47,11 @@ public final class NavigationDialogBuilder extends MaterialAlertDialogBuilder {
         // The platform's selector is a grey block, which is no focus language of ours.
         ListView list = dialog.getListView();
         if (list != null) list.setSelector(R.drawable.dialog_row_focus);
-        if (dialog.getWindow() != null) dialog.getWindow().setDimAmount(GlassPanelDrawable.dialogBackdropDim(getContext()));
+        if (dialog.getWindow() != null) {
+            // Over a stream the game stays in view around the glass, as around the stream menu.
+            if (overStream) dialog.getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            else dialog.getWindow().setDimAmount(GlassPanelDrawable.dialogBackdropDim(getContext()));
+        }
         // Builds the views now: the buttons exist, and their bar can be laid out for capsules.
         dialog.create();
         styleButtons(dialog);

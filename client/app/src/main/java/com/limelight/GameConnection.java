@@ -247,6 +247,7 @@ final class GameConnection {
 
         game.performanceOverlayView = game.findViewById(R.id.performanceOverlay);
         game.performanceOverlayScroll = game.findViewById(R.id.performanceOverlayScroll);
+        com.limelight.ui.StreamGlass.dressHud(game.performanceOverlayScroll, game.streamMenuHint, game.notificationOverlayView);
         game.performanceOverlayScroll.setOnTouchListener((view, event) -> !game.overlays.isDebugOverlay() && game.touchInput.onOverlayTouch(view, event));
         game.overlayMode = PerformanceOverlay.normalizeMode(PreferenceManager.getDefaultSharedPreferences(game)
                 .getString("performance_overlay_mode", PerformanceOverlay.MODE_COMPACT));

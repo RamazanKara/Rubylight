@@ -42,6 +42,8 @@
         <attr name="orbitMoon" format="boolean" />
         <attr name="orbitRingsStart" format="float" />
     </declare-styleable>
+    <!-- True in the stream's theme: its dialogs and panels take the stream's glass (StreamGlass). -->
+    <attr name="nightjarOverStream" format="boolean" />
     <attr name="glassCanvas" format="color" />
     <attr name="glassPlaceholder" format="color" />
     <attr name="glassSelectedFill" format="color" />

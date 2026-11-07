@@ -4733,7 +4733,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         // Copy data from our buffer list into the input buffer
-        HdrBitstream.put(nextInputBuffer, decodeUnitData, queuedLength, vividRange);
+        if (directInput != null) {
+            putDirectInput(queuedLength);
+        } else {
+            HdrBitstream.put(nextInputBuffer, decodeUnitData, queuedLength, vividRange);
+        }
 
         // The queued timestamp comes back on the decoded image, which is how the renderer finds
         // the frame again
@@ -4847,6 +4851,45 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         activeWindowVideoStats.measurementStartTimestamp = SystemClock.uptimeMillis();
     }
 
+    // The picture data of the submitDecodeUnit call in progress when the Rust engine handed it over
+    // in place (submitDirectDecodeUnit), else null; submitDecodeUnit then has no array.
+    private ByteBuffer directInput;
+
+    /**
+     * Picture data in place: PyroWave reads it in native code and MediaCodec copies it straight into
+     * the codec's input buffer, without the Java array between. Frames whose bytes Java reads on the
+     * way (Dolby Vision's trim, the HDR Vivid SEI drop, the Vulkan renderer's HDR10+ parse) and
+     * parameter sets take the array copy instead.
+     */
+    @Override
+    public int submitDirectDecodeUnit(ByteBuffer decodeUnitData, int decodeUnitLength, int decodeUnitType,
+                                      int frameNumber, int frameType, char frameHostProcessingLatency,
+                                      long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs,
+                                      long presentationTimeUs) {
+        boolean readsBytes = decodeUnitType != MoonBridge.BUFFER_TYPE_PICDATA || dolbyVisionActive ||
+                vividSeiDropDecoder != null || vulkanHdr10Plus;
+        if (readsBytes) {
+            return super.submitDirectDecodeUnit(decodeUnitData, decodeUnitLength, decodeUnitType, frameNumber,
+                    frameType, frameHostProcessingLatency, receiveTimeUs, enqueueTimeUs, receiveTimeNs, presentationTimeUs);
+        }
+        directInput = decodeUnitData;
+        try {
+            return submitDecodeUnit(null, decodeUnitLength, decodeUnitType, frameNumber, frameType,
+                    frameHostProcessingLatency, receiveTimeUs, enqueueTimeUs, receiveTimeNs, presentationTimeUs);
+        } finally {
+            directInput = null;
+        }
+    }
+
+    /** Puts the first length bytes of directInput into the codec's input buffer. */
+    private void putDirectInput(int length) {
+        ByteBuffer source = directInput.duplicate();
+        // Buffer's own position and limit: old Android lacks ByteBuffer's covariant ones.
+        ((java.nio.Buffer) source).position(0);
+        ((java.nio.Buffer) source).limit(length);
+        nextInputBuffer.put(source);
+    }
+
     @Override
     public void submitChunks(byte[] data, int length, boolean first) {
         if (!stopping && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
@@ -4881,7 +4924,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         PyroWaveDisplayClock.Snapshot displayClock =
                 FramePacingPolicy.usesPyroWaveDisplayClock(prefs.framePacing, prefs.vrr, outputVsyncAvailable) ?
                         pyroWaveDisplayClock.snapshot() : PyroWaveDisplayClock.Snapshot.UNAVAILABLE;
-        long submissionResult = pyroWaveRenderer.submitFrame(decodeUnitData, decodeUnitLength, ptsUs,
+        long submissionResult = pyroWaveRenderer.submitFrame(decodeUnitData, directInput, decodeUnitLength, ptsUs,
                 presentationTimeUs, displayClock, frameLatencyStats,
                 context, prefs.phonePerformanceHints, refreshRate);
         activeWindowVideoStats.decoderTimeMs += pyroWaveSubmissionTiming.addDurationNs(

@@ -18,7 +18,6 @@
     <!-- A TV library poster: its focus tween (large and small), its ring and its glow. High contrast thickens the
          ring and drops the glow; Reduce motion stops the zoom and the fades. -->
     <attr name="nightjarPosterFocusAnimator" format="reference" />
-    <attr name="nightjarPosterFocusAnimatorSmall" format="reference" />
     <attr name="nightjarPosterRing" format="reference" />
     <attr name="nightjarPosterGlow" format="reference" />
     <!-- The interface's two weights: a font resource where Figtree covers the language, else the system face. -->
@@ -33,6 +32,8 @@
     <declare-styleable name="GlassButton">
         <!-- Solid moon, for Play. -->
         <attr name="glassMoon" format="boolean" />
+        <!-- Words alone, for a link. -->
+        <attr name="glassLink" format="boolean" />
     </declare-styleable>
     <!-- The glass colours that differ between the looks. The themes point them at the design tokens. -->
     <attr name="glassCanvas" format="color" />

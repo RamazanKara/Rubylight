@@ -126,7 +126,7 @@ public class MotionTest {
     /** The poster tweens are the spec's: 200 ms to the focus scale, 150 ms back, 70 ms to the press scale; nothing else moves. */
     @Test
     public void posterAnimatorsFollowTheMotionSpec() throws Exception {
-        for (String[] spec : new String[][] {{"tv_poster_focus", "1.08"}, {"tv_poster_focus_small", "1.10"}}) {
+        for (String[] spec : new String[][] {{"tv_poster_focus", "1.08"}}) {
             NodeList items = parse("src/main/res/animator/" + spec[0] + ".xml").getElementsByTagName("item");
             boolean pressed = false, focused = false, rest = false;
             for (int i = 0; i < items.getLength(); i++) {

@@ -554,6 +554,23 @@ public class AppViewLifecycleTest {
     }
 
     /** The grid's clip cut the selected card's halo in a straight line under the hints; it reaches past the grid's top now. */
+    /** A remote reaches the PC capsule and search from the tabs, and they end in a wall. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionRightWalksTheTopRow() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.NAME_EXTRA, "Tower").putExtra(AppView.UUID_EXTRA, "uuid");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            Library screen = controller.get();
+            assertEquals(R.id.library_options, screen.findViewById(R.id.shell_settings).getNextFocusRightId());
+            assertEquals(R.id.library_search_button, screen.findViewById(R.id.library_options).getNextFocusRightId());
+            assertEquals(R.id.library_search_button, screen.findViewById(R.id.library_search_button).getNextFocusRightId());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     /** Resume's glow reaches past the button; a clip on the way up left its corners square in the capsule. */
     @Test
     public void resumesGlowIsNotCutInItsCapsule() {

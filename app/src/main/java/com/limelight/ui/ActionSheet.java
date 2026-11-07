@@ -51,11 +51,21 @@ public final class ActionSheet extends BottomSheetDialog {
         return dpadEchoes.drop(event) || super.dispatchKeyEvent(event);
     }
 
+    private boolean focusPlaced;
+
     /** Releases that arrive while another window has focus never reach this one. */
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         if (!hasFocus) dpadEchoes.reset();
         super.onWindowFocusChanged(hasFocus);
+        // A remote's first press must move the ring, not reveal it. A new window starts in touch mode even when a key opened
+        // it, so ask the window behind: that is where the key landed.
+        if (hasFocus && !focusPlaced) {
+            focusPlaced = true;
+            android.app.Activity owner = getOwnerActivity();
+            boolean byKeys = owner != null && !owner.getWindow().getDecorView().isInTouchMode();
+            if (byKeys && content.findFocus() == null && firstAction != null) firstAction.requestFocusFromTouch();
+        }
     }
 
     public ActionSheet(Context context, CharSequence title) {

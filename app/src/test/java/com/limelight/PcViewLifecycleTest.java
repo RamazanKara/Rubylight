@@ -675,9 +675,14 @@ public class PcViewLifecycleTest {
             android.view.View settings = screen.findViewById(R.id.shell_settings);
             android.view.View pcs = screen.findViewById(R.id.shell_pcs);
             assertTrue(settings.requestFocus());
-            assertSame("Right on the last tab goes nowhere", settings, settings.focusSearch(android.view.View.FOCUS_RIGHT));
-            com.limelight.ui.TvScreensPreviewTest.key(screen, android.view.KeyEvent.KEYCODE_DPAD_RIGHT);
-            assertTrue("focus stays on Settings", settings.hasFocus());
+            android.view.View plus = screen.findViewById(R.id.manuallyAddPc);
+            if (plus.getVisibility() == android.view.View.VISIBLE) {
+                assertSame("Right on the last tab reaches +, never a tile", plus, settings.focusSearch(android.view.View.FOCUS_RIGHT));
+                assertSame("+ ends the row", plus, plus.focusSearch(android.view.View.FOCUS_RIGHT));
+                assertSame(settings, plus.focusSearch(android.view.View.FOCUS_LEFT));
+            } else {
+                assertSame("with no + the bar ends in a wall", settings, settings.focusSearch(android.view.View.FOCUS_RIGHT));
+            }
             assertSame("Left still walks the bar", pcs, settings.focusSearch(android.view.View.FOCUS_LEFT));
             android.view.View below = settings.focusSearch(android.view.View.FOCUS_DOWN);
             assertNotNull(below);
@@ -717,6 +722,65 @@ public class PcViewLifecycleTest {
         android.view.View card = inflater.inflate(R.layout.pc_grid_card, null);
         android.widget.TextView update = card.findViewById(R.id.grid_update);
         assertEquals(2, update.getMaxLines());
+    }
+
+    /** The tabs draw the ring themselves: when focus left for the page below, the ring stayed on Settings beside the new one. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void theTabsRingGoesWithFocus() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            Object root = ReflectionHelpers.callInstanceMethod(screen.getWindow().getDecorView(), "getViewRootImpl");
+            ReflectionHelpers.callInstanceMethod(root, "ensureTouchMode", ReflectionHelpers.ClassParameter.from(boolean.class, false));
+            android.view.View tabs = screen.findViewById(R.id.shell_bar_items);
+            android.view.View plus = screen.findViewById(R.id.manuallyAddPc);
+            plus.setVisibility(android.view.View.VISIBLE);
+            assertTrue(screen.findViewById(R.id.shell_settings).requestFocus());
+            org.robolectric.Shadows.shadowOf(tabs).clearWasInvalidated();
+            assertTrue(plus.requestFocus());
+            assertTrue(org.robolectric.Shadows.shadowOf(tabs).wasInvalidated());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** With a remote the sheet opens with the ring on its first row. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void theAddSheetOpensWithItsFirstRowFocused() {
+        org.robolectric.Shadows.shadowOf(RuntimeEnvironment.getApplication().getPackageManager())
+                .setSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY, true);
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            Object root = ReflectionHelpers.callInstanceMethod(screen.getWindow().getDecorView(), "getViewRootImpl");
+            ReflectionHelpers.callInstanceMethod(root, "ensureTouchMode", ReflectionHelpers.ClassParameter.from(boolean.class, false));
+            screen.findViewById(R.id.manuallyAddPc).performClick();
+            com.limelight.ui.ActionSheet sheet = ReflectionHelpers.getField(screen, "addPcSheet");
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            android.view.View dropped = sheet.getCurrentFocus();
+            if (dropped != null) dropped.clearFocus();
+            sheet.getWindow().getDecorView().clearFocus();
+            sheet.onWindowFocusChanged(true);
+            android.view.View focus = sheet.getCurrentFocus();
+            assertNotNull(focus);
+            assertTrue(focus.getClass().getName(), focus.isClickable());
+            sheet.dismiss();
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** The link wears the ring every control wears, not a Material stroke of its own. */
+    @Test
+    public void howToConnectWearsTheGlassRing() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            assertTrue(controller.get().findViewById(R.id.pc_list_help) instanceof com.limelight.ui.GlassButton);
+        } finally {
+            controller.pause().stop().destroy();
+        }
     }
 
     /** The words of "How to connect" start where the words above them start, not a few dots beside them. */

@@ -30,6 +30,7 @@ public class GlassButton extends MaterialButton {
         super(context, attrs);
         TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.GlassButton);
         moon = a.getBoolean(R.styleable.GlassButton_glassMoon, false);
+        boolean link = a.getBoolean(R.styleable.GlassButton_glassLink, false);
         a.recycle();
         android.content.res.Resources res = context.getResources();
         boolean highContrast = AppTheme.isHighContrast(context);
@@ -45,6 +46,8 @@ public class GlassButton extends MaterialButton {
             setTextColor(ResourcesCompat.getColor(res, highContrast ? R.color.nj_hc_color_on_moon : R.color.nj_color_on_moon, null));
             setIconTint(android.content.res.ColorStateList.valueOf(
                     ResourcesCompat.getColor(res, highContrast ? R.color.nj_hc_color_on_moon : R.color.nj_color_on_moon, null)));
+        } else if (link) {
+            shape.setColor(android.graphics.Color.TRANSPARENT);
         } else {
             shape.setColor(MaterialColors.getColor(context, R.attr.glassControlFill, 0));
             shape.setStroke(Math.max(1, Math.round(res.getDisplayMetrics().density * 0.75f)),

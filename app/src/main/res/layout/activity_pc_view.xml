@@ -33,9 +33,9 @@
                             android:layout_marginStart="@dimen/space_m" android:text="@string/pc_list_searching"
                             android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant" />
                     </LinearLayout>
-                    <com.google.android.material.button.MaterialButton android:id="@+id/pc_list_help"
-                        style="@style/Widget.Nightjar.Button.Text" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:layout_marginStart="@dimen/space_xxl" android:minHeight="@dimen/touch_target"
+                    <com.limelight.ui.GlassButton android:id="@+id/pc_list_help"
+                        style="@style/Widget.Nightjar.Glass.Link" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/space_xxl"
                         android:text="@string/discovery_connect_help" />
                 </LinearLayout>
                 <ScrollView android:id="@+id/no_pc_found_layout" android:layout_width="match_parent"
@@ -83,7 +83,7 @@
             android:orientation="horizontal" android:gravity="center_vertical" android:clipChildren="false" android:clipToPadding="false">
             <TextView android:id="@+id/pc_title" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
                 android:text="@string/library_computers" android:maxLines="1" android:ellipsize="end"
-                android:textSize="36sp" android:lineHeight="42sp" android:fontFamily="?attr/nightjarFaceStrong" android:letterSpacing="-0.02"
+                android:textAppearance="@style/TextAppearance.Nightjar.Glass.PcsTitle" android:lineHeight="42sp" android:fontFamily="?attr/nightjarFaceStrong" android:letterSpacing="-0.02"
                 android:textColor="?attr/colorOnSurface" />
             <com.limelight.ui.GlassSurface android:id="@+id/manuallyAddPc" android:layout_width="@dimen/glass_capsule" android:layout_height="@dimen/glass_capsule"
                 android:focusable="true" android:clickable="true" android:defaultFocusHighlightEnabled="false"

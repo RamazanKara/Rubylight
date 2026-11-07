@@ -41,7 +41,36 @@ pub fn rate_bps_for_client(
     needed_bps: u64,
     client_link_bps: u64,
 ) -> u64 {
+    rate_bps_following_client(
+        configured_kbps,
+        stream_kbps,
+        link_bps,
+        wireless,
+        needed_bps,
+        client_link_bps,
+        false,
+    )
+}
+
+/// [`rate_bps_for_client`], and with `follow_client_link`
+/// (`pacing_follow_client_link`) a wired route whose host link is known and
+/// whose client reported its own is no longer held to 800 Mbps: its ceiling
+/// is 4/5 of the slower link, as PyroWave follows the client's report.
+pub fn rate_bps_following_client(
+    configured_kbps: i64,
+    stream_kbps: u32,
+    link_bps: u64,
+    wireless: bool,
+    needed_bps: u64,
+    client_link_bps: u64,
+    follow_client_link: bool,
+) -> u64 {
     let host_link_bps = link_bps;
+    let wired_ceiling = if follow_client_link && link_bps > 0 && client_link_bps > 0 {
+        (link_bps.min(client_link_bps).saturating_mul(4) / 5).max(800_000_000)
+    } else {
+        800_000_000
+    };
     let link_bps = match (link_bps, client_link_bps) {
         (0, client) => client,
         (host, 0) => host,
@@ -56,7 +85,7 @@ pub fn rate_bps_for_client(
             .max(needed_bps.saturating_add(needed_bps / 4))
             .clamp(1_000_000, 800_000_000)
     } else {
-        800_000_000
+        wired_ceiling
     };
     if link_bps > 0 {
         let cap = link_bps.saturating_mul(4) / 5;

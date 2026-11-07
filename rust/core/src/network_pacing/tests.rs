@@ -852,3 +852,37 @@ fn each_ipv6_datagram_has_wire_overhead_and_empty_batches_have_no_debt() {
     pacer.sent(completed, 0, 0, false, 8_000_000);
     assert_eq!(pacer.due(), completed);
 }
+
+/// `pacing_follow_client_link`: a wired 2.5 or 10 GbE path that both ends
+/// report is paced at 4/5 of its slower link instead of 800 Mbps; off, or
+/// without both links known, or on Wi-Fi, nothing changes.
+#[test]
+fn following_the_client_link_lifts_the_wired_ceiling_to_the_slower_link() {
+    const M: u64 = 1_000_000;
+    let rate = |host: u64, client: u64, wireless: bool, follow: bool| {
+        rate_bps_following_client(0, 150_000, host * M, wireless, 180 * M, client * M, follow)
+    };
+    assert_eq!(rate(10_000, 2_500, false, true), 2_000 * M);
+    assert_eq!(rate(2_500, 10_000, false, true), 2_000 * M);
+    assert_eq!(rate(10_000, 10_000, false, true), 8_000 * M);
+    // Off: the ceiling stays where it was.
+    assert_eq!(rate(10_000, 2_500, false, false), 800 * M);
+    assert_eq!(
+        rate(10_000, 2_500, false, false),
+        rate_bps_for_client(0, 150_000, 10_000 * M, false, 180 * M, 2_500 * M)
+    );
+    // A slower link keeps its 4/5 cap, never above what it was.
+    assert_eq!(rate(1_000, 1_000, false, true), 800 * M);
+    assert_eq!(
+        rate(1_000, 100, false, true),
+        rate(1_000, 100, false, false)
+    );
+    // Without the host's link or the client's report there is nothing to follow.
+    assert_eq!(rate(0, 2_500, false, true), 800 * M);
+    assert_eq!(rate(10_000, 0, false, true), 800 * M);
+    // Wi-Fi keeps its own policy.
+    assert_eq!(
+        rate(10_000, 2_500, true, true),
+        rate(10_000, 2_500, true, false)
+    );
+}

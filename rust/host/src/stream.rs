@@ -42,7 +42,7 @@ use qos::Tagged;
 #[cfg(test)]
 use video::{
     ENCODER_RECOVERY, EncoderOutput, EncoderRecovery, OUTPUT_POLL, QueryTrace, encoder_progress,
-    observe_foreground_game,
+    next_output_poll, observe_foreground_game, poll_fits, wait_for_output,
 };
 #[cfg(test)]
 pub(crate) mod reconnect_tests;

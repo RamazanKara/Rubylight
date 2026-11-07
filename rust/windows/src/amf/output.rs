@@ -68,6 +68,10 @@ impl Encoder {
             .filter(|_| !self.in_flight.is_empty())
             .map(|thread| thread.event())
     }
+    /// QueryOutput blocks on the stream thread, without the output thread.
+    pub fn poll_blocks(&self) -> bool {
+        self.output_thread.is_none()
+    }
     /// A query now, for waits that need capacity back.
     pub(super) fn poll_now(&mut self) -> Result<Vec<Encoded>> {
         // A unit of a joined frame leaves nothing to hand on: ask again at

@@ -416,6 +416,14 @@ impl Encoder {
             Self::Pyrowave(_) => None,
         }
     }
+    /// A poll can wait in the driver: AMF's QueryOutput blocks for its
+    /// timeout unless `amd_output_thread` queries; the others return at once.
+    pub fn poll_blocks(&self) -> bool {
+        match self {
+            Self::Amf(e) => e.poll_blocks(),
+            Self::Nvenc(_) | Self::Pyrowave(_) => false,
+        }
+    }
     /// The earliest a poll can find output (`amd_output_prediction`); the
     /// caller's next output poll waits for it. `None` polls as before.
     pub fn output_due(&self) -> Option<std::time::Instant> {

@@ -47,22 +47,35 @@ pub(super) const OUTPUT_POLL: Duration = Duration::from_micros(100);
 /// The next output poll while frames are in flight: one output poll from
 /// now, or later when the encoder knows its oldest frame cannot be done
 /// sooner (`amd_output_prediction`).
-pub(super) fn next_output_poll(encoder: Option<&Encoder>, now: Instant) -> Instant {
+pub(super) fn next_output_poll(encoder: Option<&impl EncoderOutput>, now: Instant) -> Instant {
     let poll = now + OUTPUT_POLL;
     encoder
-        .and_then(Encoder::output_due)
+        .and_then(|encoder| encoder.output_due())
         .map_or(poll, |due| due.max(poll))
+}
+
+/// Whether an output poll before `deadline` cannot overshoot it: only a poll
+/// that can block (AMF's QueryOutput, for its 1 ms timeout) must leave room.
+pub(super) fn poll_fits(
+    encoder: Option<&impl EncoderOutput>,
+    now: Instant,
+    deadline: Instant,
+) -> bool {
+    encoder.is_none_or(|encoder| !encoder.poll_blocks())
+        || encoder_backlog::query_fits(now, deadline)
 }
 
 /// After a poll that returned nothing while the encoder is full: an encoder
 /// that predicts its output sleeps until then, one with an output event
 /// (NVENC's D3D12 fence) until it, at most one output poll; others poll
-/// again at once as before.
+/// again at once as before. Nothing waits once no frame is pending, such as
+/// after a device loss.
 pub(super) fn wait_for_output(
     timer: &butterpollo_windows::timing::Timer,
-    encoder: Option<&Encoder>,
+    recovery: &EncoderRecovery,
+    encoder: Option<&impl EncoderOutput>,
 ) -> Result<()> {
-    let Some(encoder) = encoder else {
+    let Some(encoder) = encoder.filter(|encoder| recovery.pending(*encoder)) else {
         return Ok(());
     };
     if let Some(due) = encoder.output_due().filter(|due| *due > Instant::now()) {
@@ -143,6 +156,18 @@ pub(super) trait EncoderOutput {
     fn device_removed(&self) -> Option<DeviceLost> {
         None
     }
+    /// The earliest a poll can find output, when the encoder predicts it.
+    fn output_due(&self) -> Option<Instant> {
+        None
+    }
+    /// An event that ends a wait for output, armed by this call.
+    fn output_event(&self) -> Option<&butterpollo_windows::timing::Signal> {
+        None
+    }
+    /// A poll can wait in the driver.
+    fn poll_blocks(&self) -> bool {
+        true
+    }
 }
 
 impl EncoderOutput for Encoder {
@@ -163,6 +188,15 @@ impl EncoderOutput for Encoder {
     }
     fn device_removed(&self) -> Option<DeviceLost> {
         self.device_removed()
+    }
+    fn output_due(&self) -> Option<Instant> {
+        self.output_due()
+    }
+    fn output_event(&self) -> Option<&butterpollo_windows::timing::Signal> {
+        self.output_event()
+    }
+    fn poll_blocks(&self) -> bool {
+        self.poll_blocks()
     }
 }
 

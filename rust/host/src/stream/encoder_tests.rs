@@ -10,6 +10,11 @@ struct MockEncoder {
     fault_directory: Option<PathBuf>,
     removed: Option<DeviceLost>,
     poll_failure: bool,
+    /// What the encoder predicts or arms for its output, and its poll
+    /// returns at once.
+    due: Option<Instant>,
+    event: Option<butterpollo_windows::timing::Signal>,
+    immediate: bool,
 }
 fn frame(idr: bool) -> Encoded {
     Encoded {
@@ -48,6 +53,15 @@ impl EncoderOutput for MockEncoder {
     fn log_stall(&self) {}
     fn device_removed(&self) -> Option<DeviceLost> {
         self.removed
+    }
+    fn output_due(&self) -> Option<Instant> {
+        self.due
+    }
+    fn output_event(&self) -> Option<&butterpollo_windows::timing::Signal> {
+        self.event.as_ref()
+    }
+    fn poll_blocks(&self) -> bool {
+        !self.immediate
     }
 }
 
@@ -598,5 +612,80 @@ fn a_traced_poll_records_its_span_and_a_claim_names_the_one_it_held() -> Result<
     assert!(!free.published_in_query);
     assert_eq!(free.held_us, 0);
     assert!(QueryTrace::new(&[], ms(0)) == QueryTrace::default());
+    Ok(())
+}
+
+#[test]
+fn the_next_output_poll_waits_for_a_predicted_finish_and_never_sooner_than_the_poll() {
+    let now = Instant::now();
+    assert_eq!(
+        next_output_poll(None::<&MockEncoder>, now),
+        now + OUTPUT_POLL
+    );
+    let mut encoder = MockEncoder::default();
+    assert_eq!(next_output_poll(Some(&encoder), now), now + OUTPUT_POLL);
+    encoder.due = Some(now + Duration::from_millis(3));
+    assert_eq!(
+        next_output_poll(Some(&encoder), now),
+        now + Duration::from_millis(3)
+    );
+    encoder.due = Some(now);
+    assert_eq!(next_output_poll(Some(&encoder), now), now + OUTPUT_POLL);
+}
+
+#[test]
+fn only_a_blocking_poll_keeps_clear_of_the_claim() {
+    let now = Instant::now();
+    let close = now + Duration::from_micros(300);
+    let mut encoder = MockEncoder::default();
+    assert!(!poll_fits(Some(&encoder), now, close));
+    assert!(poll_fits(
+        Some(&encoder),
+        now,
+        now + Duration::from_millis(2)
+    ));
+    encoder.immediate = true;
+    assert!(poll_fits(Some(&encoder), now, close));
+    assert!(poll_fits(None::<&MockEncoder>, now, close));
+}
+
+#[test]
+fn an_idle_full_encoder_sleeps_on_its_event_or_prediction_but_not_after_a_device_loss() -> Result<()>
+{
+    let timer = butterpollo_windows::timing::Timer::new()?;
+    let event = butterpollo_windows::timing::Signal::new()?;
+    event.set()?;
+    let mut recovery = EncoderRecovery::default();
+    let mut encoder = MockEncoder {
+        queued: [frame(false)].into(),
+        event: Some(event),
+        ..Default::default()
+    };
+    // A set event ends the wait at once.
+    let started = Instant::now();
+    wait_for_output(&timer, &recovery, Some(&encoder))?;
+    assert!(started.elapsed() < Duration::from_millis(50));
+    // Without an event or prediction the next poll comes at once.
+    encoder.event = None;
+    let started = Instant::now();
+    wait_for_output(&timer, &recovery, Some(&encoder))?;
+    assert!(started.elapsed() < Duration::from_millis(50));
+    // A prediction holds the poll until the frame can be done.
+    let due = Instant::now() + Duration::from_millis(3);
+    encoder.due = Some(due);
+    wait_for_output(&timer, &recovery, Some(&encoder))?;
+    assert!(Instant::now() >= due);
+    // After a device loss nothing is pending, so nothing waits or arms.
+    encoder.due = Some(Instant::now() + Duration::from_secs(5));
+    recovery.device_loss = Some(DeviceLost(0x887a0005_u32 as i32));
+    let started = Instant::now();
+    wait_for_output(&timer, &recovery, Some(&encoder))?;
+    assert!(started.elapsed() < Duration::from_secs(1));
+    // Nor with nothing in flight.
+    recovery.device_loss = None;
+    encoder.queued.clear();
+    let started = Instant::now();
+    wait_for_output(&timer, &recovery, Some(&encoder))?;
+    assert!(started.elapsed() < Duration::from_secs(1));
     Ok(())
 }

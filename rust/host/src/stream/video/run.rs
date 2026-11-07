@@ -941,7 +941,7 @@ impl SessionThread<'_> {
                         // A poll can block for the encoder's 1 ms query
                         // timeout; close to the grid tick it would overshoot.
                         if encoder.as_ref().is_some_and(|e| recovery.pending(e))
-                            && encoder_backlog::query_fits(Instant::now(), due)
+                            && poll_fits(encoder.as_ref(), Instant::now(), due)
                         {
                             let poll_tick = Instant::now();
                             send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, poll_tick)?;
@@ -1015,13 +1015,13 @@ impl SessionThread<'_> {
                     // A poll can block for the encoder's 1 ms query
                     // timeout; close to the claim it would overshoot.
                     if encoder.as_ref().is_some_and(|e| recovery.pending(e))
-                        && encoder_backlog::query_fits(Instant::now(), deadline)
+                        && poll_fits(encoder.as_ref(), Instant::now(), deadline)
                     {
                         send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, capture_tick)?;
                     }
                     let now = Instant::now();
                     let until = if encoder.as_ref().is_some_and(|e| recovery.pending(e))
-                        && encoder_backlog::query_fits(now, deadline)
+                        && poll_fits(encoder.as_ref(), now, deadline)
                     {
                         deadline.min(next_output_poll(encoder.as_ref(), now))
                     } else {
@@ -1101,12 +1101,7 @@ impl SessionThread<'_> {
                         // Network occupancy must not start encoder stall recovery.
                         recovery.backlog_since = None;
                         if encoder.as_ref().is_some_and(|e| recovery.pending(e)) {
-                            let output = recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?;
-                            let idle = output.is_empty();
-                            send_frames(output, peer, Duration::ZERO, latest, capture_tick)?;
-                            if idle {
-                                wait_for_output(&timer, encoder.as_ref())?;
-                            }
+                            send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, capture_tick)?;
                         } else {
                             video_sender.get().unwrap().wait_for_capacity(encoder_backlog::total_limit(encoding_limit), period, recovery_lead)?;
                         }
@@ -1124,7 +1119,7 @@ impl SessionThread<'_> {
                             let idle = output.is_empty();
                             send_frames(output, peer, Duration::ZERO, latest, capture_tick)?;
                             if idle {
-                                wait_for_output(&timer, encoder.as_ref())?;
+                                wait_for_output(&timer, &recovery, encoder.as_ref())?;
                             }
                         }
                         Ok(())

@@ -528,6 +528,7 @@ public class StreamSettings extends NightjarActivity {
         NightSkyView sky = findViewById(R.id.settings_sky);
         // A rail and a pane fill the screen: the moon would stand behind the rows' text. A phone's stands over its title.
         if (form != GlassForm.PHONE) sky.setMoonShown(false);
+        sky.setMoonAtEnd();
         host.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
             if (r - l != or - ol || b - t != ob - ot) host.setAmbient(sky.bake(r - l, b - t), false, 0);
         });

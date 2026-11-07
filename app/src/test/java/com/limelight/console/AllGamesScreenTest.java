@@ -193,7 +193,36 @@ public class AllGamesScreenTest {
                 grid.findViewById(R.id.all_games_sky).getVisibility());
         View rows = list(grid);
         assertTrue("rows fade out at the grid's edge instead of a hard crop", rows.isVerticalFadingEdgeEnabled());
-        assertEquals(grid.getResources().getDimensionPixelSize(R.dimen.all_games_fade), rows.getVerticalFadingEdgeLength());
+        // Over the glow's room above the first row too, so no row stands unfaded under the focused title.
+        assertEquals(grid.getResources().getDimensionPixelSize(R.dimen.all_games_fade)
+                        + Math.round(AllGamesActivity.GLOW_ROOM_DP * grid.getResources().getDisplayMetrics().density),
+                rows.getVerticalFadingEdgeLength());
+        assertEquals("the fade starts at the frame's edge", 0, rows.getPaddingTop());
+    }
+
+    /**
+     * On TV the focused poster's glow was cut square at the grid frame's top and left: the frame clipped 12 dp above the first
+     * row and 24 dp beside it. The frame stands 40 dp further out there, and the list pads by as much.
+     */
+    @Test
+    public void onATelevisionTheFocusedPostersGlowHasRoomInsideTheGridsFrame() {
+        tower(DOOM, HADES, PORTAL);
+        Grid grid = open(null);
+        View first = list(grid).getFocusedChild();
+        HomeShellTest.focusAfter(grid, first, View.FOCUS_RIGHT);
+        View frame = (View) list(grid).getParent();
+        int room = Math.round(40 * grid.getResources().getDisplayMetrics().density);
+        int top = list(grid).getTop() + first.getTop();
+        int start = list(grid).getLeft() + first.getLeft();
+        assertTrue("above the first row: " + top, top >= room);
+        assertTrue("beside the first poster: " + start, start >= room);
+        assertTrue("and at the end", list(grid).getPaddingRight() >= room && list(grid).getRight() == frame.getWidth());
+        int[] title = new int[2];
+        int[] card = new int[2];
+        grid.findViewById(R.id.all_games_focus).getLocationInWindow(title);
+        first.getLocationInWindow(card);
+        assertTrue("the first row stays under the focused title",
+                card[1] >= title[1] + grid.findViewById(R.id.all_games_focus).getHeight());
     }
 
     @Test

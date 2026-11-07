@@ -49,6 +49,8 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
     private static final int COVER_WIDTH_DP = 140;
     /** The narrowest a poster's card gets before the grid drops a column. */
     private static final int MIN_CARD_WIDTH_DP = 120;
+    /** How far a focused TV poster's glow reaches past its 24 dp bleed: the grid's frame keeps that much room. */
+    static final int GLOW_ROOM_DP = 40;
     private static final long DEBOUNCE_MS = 250;
     private static final String SHELF = "all-games";
 
@@ -131,7 +133,27 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
             // Rows scrolling up fade out under the heading and filters instead of stopping on a hard edge.
             View grid = findViewById(R.id.all_games_grid);
             grid.setVerticalFadingEdgeEnabled(true);
-            grid.setFadingEdgeLength(getResources().getDimensionPixelSize(R.dimen.all_games_fade));
+            // The frame clips the grid. A focused poster's glow reaches past its 24 dp bleed and the row's top padding, and
+            // was cut square there: the frame stands further out at the top and sides, and the list pads by as much. The
+            // room above goes to the first row, not the padding: the fade starts at the padding's edge, and rows scrolled
+            // into an unfaded strip would stand under the focused title.
+            int room = Math.round(GLOW_ROOM_DP * getResources().getDisplayMetrics().density);
+            android.view.ViewGroup.MarginLayoutParams frame = (android.view.ViewGroup.MarginLayoutParams)
+                    ((View) grid.getParent()).getLayoutParams();
+            frame.topMargin -= room;
+            frame.setMarginStart(frame.getMarginStart() - room);
+            frame.setMarginEnd(frame.getMarginEnd() - room);
+            int above = grid.getPaddingTop() + room;
+            grid.setPaddingRelative(grid.getPaddingStart() + room, 0, grid.getPaddingEnd() + room, grid.getPaddingBottom());
+            ((RecyclerView) grid).addItemDecoration(new RecyclerView.ItemDecoration() {
+                @Override
+                public void getItemOffsets(@NonNull android.graphics.Rect out, @NonNull View card, @NonNull RecyclerView parent,
+                                           @NonNull RecyclerView.State state) {
+                    int at = parent.getChildAdapterPosition(card);
+                    out.top = at != RecyclerView.NO_POSITION && at < AllGamesActivity.this.grid.getSpanCount() ? above : 0;
+                }
+            });
+            grid.setFadingEdgeLength(getResources().getDimensionPixelSize(R.dimen.all_games_fade) + room);
         }
 
         loading = findViewById(R.id.all_games_loading);

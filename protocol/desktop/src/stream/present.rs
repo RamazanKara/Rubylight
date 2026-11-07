@@ -532,6 +532,8 @@ pub struct Pacer {
     frame_us: u64,
     /// The FPS limit's last present slot.
     last_slot_us: Option<u64>,
+    /// Frames wait in the decode queue: the decoder is behind the stream.
+    decoder_behind: bool,
 }
 
 impl Pacer {
@@ -552,7 +554,15 @@ impl Pacer {
             frame_pacing: FramePacing::Latency,
             frame_us: frame_us(60),
             last_slot_us: None,
+            decoder_behind: false,
         }
+    }
+
+    /// Whether frames wait in the decode queue now. While they do, PC's frame times show each
+    /// picture as soon as it is ready and do not learn its lateness, which is the backlog's
+    /// (`PresentClock::schedule_behind`).
+    pub fn set_decoder_behind(&mut self, behind: bool) {
+        self.decoder_behind = behind;
     }
 
     /// The frame pacing setting and the stream's frame rate, for V-Sync.
@@ -591,7 +601,11 @@ impl Pacer {
     pub fn accept(&mut self, decoded: Decoded) {
         let (present_us, hold_us, late) = match self.mode {
             PacingMode::HostTimes => {
-                let s = self.clock.schedule(decoded.rtp, decoded.ready_us);
+                let s = if self.decoder_behind {
+                    self.clock.schedule_behind(decoded.rtp, decoded.ready_us)
+                } else {
+                    self.clock.schedule(decoded.rtp, decoded.ready_us)
+                };
                 (s.present_us, s.hold_us, s.late)
             }
             _ if self.paced(FramePacing::CapFps) => {
@@ -3077,6 +3091,21 @@ pub(crate) mod tests {
             SDL_DestroyWindow(window);
             SDL_Quit();
         }
+    }
+
+    // Regression (nightjar#80): PC's frame times held pictures by the lateness a decoder behind
+    // the stream made, up to the longest hold.
+    #[test]
+    fn host_times_show_a_picture_at_once_while_the_decoder_is_behind() {
+        let mut pacer = Pacer::new(PacingMode::HostTimes, 0);
+        pacer.set_decoder_behind(true);
+        pacer.accept(decoded(10_000));
+        pacer.set_decoder_behind(false);
+        pacer.accept(decoded(20_000));
+        let (picture, _) = pacer.take_due(10_000);
+        assert_eq!(picture.unwrap().hold_us, 0);
+        let held: Vec<i64> = crate::stream::pipeline::lock(&pacer.pending).iter().map(|p| p.hold_us).collect();
+        assert_eq!(held, [pacer.clock.settings.margin_us], "caught up: scheduled as before");
     }
 
     #[test]

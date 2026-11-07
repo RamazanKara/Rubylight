@@ -86,6 +86,12 @@ impl Signal {
     pub(crate) fn raw(&self) -> HANDLE {
         self.0
     }
+    /// Whether the event is set, without waiting.
+    pub(crate) fn is_set(&self) -> bool {
+        // SAFETY: `self.0` is the event this Signal owns, open until Drop; a
+        // zero timeout only reads its state.
+        unsafe { WaitForSingleObject(self.0, 0) == WAIT_OBJECT_0 }
+    }
     /// Reset while holding the protected capture-image lock, before waiting.
     pub fn reset(&self) -> Result<()> {
         // SAFETY: `self.0` is the event this Signal owns, open until Drop.

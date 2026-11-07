@@ -83,6 +83,8 @@ struct Driver {
     fence_points: Vec<(usize, u64, u64)>,
     /// Each output fence value an event was armed for.
     notified: Vec<u64>,
+    /// Reading the output fence fails, as on a removed device.
+    removed: bool,
     /// Each picture's QP delta map.
     maps: Vec<Option<Vec<i8>>>,
 }
@@ -96,7 +98,10 @@ impl Fence for FakeFence {
         FAKE_FENCE as *mut c_void
     }
     fn completed(&self) -> Result<u64> {
-        Ok(state(|d| d.fence))
+        state(|d| {
+            anyhow::ensure!(!d.removed, "the D3D12 device was removed");
+            Ok(d.fence)
+        })
     }
     fn notify(&self, value: u64, _event: HANDLE) -> Result<()> {
         state(|d| d.notified.push(value));
@@ -2157,9 +2162,23 @@ fn the_output_event_is_armed_only_for_an_unwritten_d3d12_frame() -> Result<()> {
     let timer = crate::timing::Timer::new()?;
     assert!(!timer.until_or_event(Instant::now() + Duration::from_millis(1), Some(&event))?);
     state(|d| assert_eq!(d.notified, [1]));
-    // Once the fence passed it, the caller polls instead of waiting.
-    state(|d| d.fence = 1);
+    // Later waits for the same frame ask the fence no more; a late
+    // notification of an earlier frame is reset rather than ending each wait.
+    for _ in 0..10 {
+        assert!(encoder.arm_output(&event)?);
+    }
+    event.set()?;
+    assert!(encoder.arm_output(&event)?);
+    assert!(!event.is_set());
+    state(|d| assert_eq!(d.notified, [1]));
+    // A removed device quietly falls back to the poll; collect reports it.
+    state(|d| d.removed = true);
     assert!(!encoder.arm_output(&event)?);
+    state(|d| d.removed = false);
+    // Once the fence passed it, the wait ends at once.
+    state(|d| d.fence = 1);
+    assert!(encoder.arm_output(&event)?);
+    assert!(event.is_set());
     assert_eq!(encoder.poll()?.len(), 1);
     assert!(!encoder.arm_output(&event)?);
     state(|d| assert_eq!(d.notified, [1]));

@@ -579,6 +579,9 @@ struct Session {
     oversize_warned: Option<Instant>,
     /// Why encoding a scene cut again failed, until the encoder reports it.
     reencode_failure: Option<String>,
+    /// The output fence value the encoder's output event was last armed
+    /// for ([`Session::arm_output`]); 0 before any.
+    armed: std::cell::Cell<u64>,
     /// Blocks a P-frame is sent in when slice delivery is on, else 0.
     slice_blocks: u8,
     /// NVENC writes each slice as it finishes (`enableSubFrameWrite`), and
@@ -725,6 +728,7 @@ impl Session {
             keyframes_over_cap: 0,
             oversize_warned: None,
             reencode_failure: None,
+            armed: std::cell::Cell::new(0),
             slice_blocks: 0,
             subframe: false,
             subframe_slices: 0,
@@ -1789,11 +1793,12 @@ impl Session {
         self.reencoded_cuts += 1;
         Ok(())
     }
-    /// Arm `event` to be set when the oldest frame in flight is written, for
-    /// a D3D12 session whose frame is not written yet; false otherwise, and
-    /// the caller polls as before. Each arm resets the event first; frames
-    /// collected earlier had already completed, so only a late notification
-    /// of theirs can wake a wait early, never hold one.
+    /// Arm `event` to be set when the oldest frame in flight of a D3D12
+    /// session is written: true when the caller may wait on it (set already
+    /// if the frame is written), false to poll as before. The fence is asked
+    /// once per frame. A frame collected earlier can only set the event late,
+    /// after this frame was armed; a set event whose frame is not written is
+    /// therefore reset, so it never ends every wait at once.
     fn arm_output(&self, event: &crate::timing::Signal) -> Result<bool> {
         let (Some(d3d12), Some(signal)) = (
             &self.d3d12,
@@ -1801,11 +1806,26 @@ impl Session {
         ) else {
             return Ok(false);
         };
-        if !self.ready.is_empty() || d3d12.fence.completed()? >= signal {
+        if !self.ready.is_empty() {
             return Ok(false);
         }
-        event.reset()?;
-        d3d12.fence.notify(signal, event.raw())?;
+        // A removed device fails the read; the next collect reports it.
+        let Ok(completed) = d3d12.fence.completed() else {
+            return Ok(false);
+        };
+        if completed >= signal {
+            event.set()?;
+        } else if self.armed.get() != signal {
+            event.reset()?;
+            d3d12.fence.notify(signal, event.raw())?;
+            self.armed.set(signal);
+        } else if event.is_set() {
+            event.reset()?;
+            // Written meanwhile: its notification may have come before the reset.
+            if d3d12.fence.completed().is_ok_and(|value| value >= signal) {
+                event.set()?;
+            }
+        }
         Ok(true)
     }
     fn collect(&mut self) -> Result<()> {

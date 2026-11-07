@@ -639,21 +639,17 @@ public class PcViewLifecycleTest {
             assertEquals(lastAt[1] + last.getHeight() + screen.getResources().getDimensionPixelSize(R.dimen.space_l), footerAt[1]);
 
             assertEquals(R.id.pc_list_help, grid.getNextFocusDownId());
-            assertEquals(R.id.pc_list_help, add.getNextFocusUpId());
-            assertEquals(R.id.pc_list_help, add.getAccessibilityTraversalAfter());
+            assertEquals(R.id.fragmentView, help.getAccessibilityTraversalAfter());
             assertTrue(grid.requestFocus());
             assertSame("Down from the last PC reaches the link", help, grid.focusSearch(android.view.View.FOCUS_DOWN));
-            assertSame("and Down again Add PC", add, help.focusSearch(android.view.View.FOCUS_DOWN));
-            assertTrue(add.requestFocus());
-            assertSame("Up from Add PC comes back through the link", help, add.focusSearch(android.view.View.FOCUS_UP));
             assertSame(grid, help.focusSearch(android.view.View.FOCUS_UP));
+            assertTrue("the + stays a stop", add.isFocusable());
 
             // Hidden (here: the list is replaced by the empty state), the link drops out of the path again.
             screen.findViewById(R.id.pcFragmentContainer).setVisibility(android.view.View.GONE);
             screen.placeListFooter();
             assertEquals(android.view.View.INVISIBLE, footer.getVisibility());
             assertEquals(android.view.View.NO_ID, grid.getNextFocusDownId());
-            assertEquals(R.id.fragmentView, add.getNextFocusUpId());
         } finally {
             controller.pause().stop().destroy();
         }

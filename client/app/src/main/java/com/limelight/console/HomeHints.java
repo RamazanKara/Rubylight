@@ -12,7 +12,7 @@ import com.limelight.ui.KeyCaps;
  * The button hints of Home on a phone and a handheld: a key cap and a word for Go and More on what has focus, for the device
  * in the hand. They change on the next input with no animation, and are gone for touch and a mouse.
  */
-final class HomeHints {
+public final class HomeHints {
     private final Context context;
     private final TextView view;
     private InputSource source;
@@ -62,7 +62,7 @@ final class HomeHints {
     }
 
     /** The line with its keys drawn as key caps; null when there is nothing to say on this source. */
-    static CharSequence line(Context context, InputSource source, int vendor, CharSequence go, CharSequence more) {
+    public static CharSequence line(Context context, InputSource source, int vendor, CharSequence go, CharSequence more) {
         String goKey = source == null ? null : source.goKey(context, vendor);
         String moreKey = source == null ? null : source.moreKey(context, vendor);
         if (goKey == null || (go == null && more == null)) return null;

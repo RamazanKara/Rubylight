@@ -91,12 +91,14 @@ public class FocusVisibilityTest {
         size(view);
         if (view.hasFocus()) view.clearFocus();
         settle(view);
-        Bitmap before = draw(view);
+        // Glass tabs draw the ring around a tab themselves, over all of them.
+        View painter = view.getParent() instanceof GlassTabs ? (View) view.getParent() : view;
+        Bitmap before = draw(painter);
         // A D-pad walk is out of touch mode; the test does not enter it, so the view may take focus in it.
         view.setFocusableInTouchMode(true);
         if (!view.requestFocus() || !view.isFocused()) return "cannot take focus";
         settle(view);
-        Bitmap after = draw(view);
+        Bitmap after = draw(painter);
         int ring = ringPixels(before, after, surfaceOf(view));
         if (ring >= Math.max(view.getWidth(), view.getHeight())) return null;
         // Robolectric does not draw a RippleDrawable's content layer; a ring inside one is checked as a selector.
@@ -287,7 +289,7 @@ public class FocusVisibilityTest {
     /** On a phone the grid's selector draws the ring; on television the animated card owns it (see gridCardsShow...). */
     @Test
     public void theGridSelectorShowsFocusOnAPhone() {
-        for (int layout : new int[] {R.layout.pc_grid_view, R.layout.app_grid_view, R.layout.app_grid_view_small}) {
+        for (int layout : new int[] {R.layout.app_grid_view, R.layout.app_grid_view_small}) {
             try (var screen = Robolectric.buildActivity(MotionTest.Screen.class).setup().visible()) {
                 View grid = LayoutInflater.from(screen.get()).inflate(layout, null);
                 AbsListView list = findList(grid);
@@ -313,48 +315,50 @@ public class FocusVisibilityTest {
         }
     }
 
-    /**
-     * TV run on a TCL C6K: the focused Add PC pill only darkened. It takes an amber ring outside the pill, as a PC tile
-     * does, and the pill keeps its 56dp height and its amber. A phone's Add PC is unchanged.
-     */
-    @Test @Config(qualifiers = "television")
-    public void addPcShowsAnAmberRingOutsideItsPillOnTelevision() {
+    /** A phone's PC row draws the ring around its own shape, so the gap under the group stays out of it. */
+    @Test
+    public void aPhoneRowDrawsItsOwnRingOnlyWhileTheKeysActOnIt() {
         try (var screen = Robolectric.buildActivity(MotionTest.Screen.class).setup().visible()) {
             ViewGroup content = screen.get().findViewById(android.R.id.content);
-            View pcs = LayoutInflater.from(screen.get()).inflate(R.layout.activity_pc_view, content, false);
-            content.addView(pcs);
-            View add = pcs.findViewById(R.id.manuallyAddPc);
-            add.setVisibility(View.VISIBLE);
-            size(add);
-            float density = add.getResources().getDisplayMetrics().density;
-            assertEquals("the pill stays 56dp inside the ring's room", Math.round(66 * density), add.getHeight());
-            assertNull(focusProblem(add));
-            int amber = com.google.android.material.color.MaterialColors.getColor(add,
-                    androidx.appcompat.R.attr.colorPrimary);
-            Bitmap focused = draw(add);
-            int x = add.getWidth() / 2;
-            int ringY = Math.round(2.5f * density);
-            int pillY = Math.round(10 * density);
-            assertEquals("the ring is amber", amber, focused.getPixel(x, ringY));
-            assertTrue("focus leaves the pill amber, not darkened",
-                    ColorUtils.calculateContrast(ColorUtils.compositeColors(focused.getPixel(x, pillY), Color.BLACK), amber) < 1.1);
-            add.clearFocus();
-            settle(add);
-            assertEquals("no ring without focus", 0, Color.alpha(draw(add).getPixel(x, ringY)));
+            PcRow row = (PcRow) LayoutInflater.from(screen.get()).inflate(R.layout.pc_grid_item, content, false);
+            content.addView(row);
+            row.setPlace(true, true, true, 0f);
+            size(row);
+            int gap = context.getResources().getDimensionPixelSize(R.dimen.pc_group_gap);
+            assertEquals("the gap is not part of the shape", row.getHeight() - gap, row.shapeHeight());
+            Bitmap plain = draw(row);
+            row.setSelected(true);
+            assertFalse("a selection outside a focused list shows nothing", row.ringShown());
+            row.setSelected(false);
+            row.setHovered(true);
+            assertTrue(row.ringShown());
+            assertTrue(ringPixels(plain, draw(row), surfaceOf(row)) >= row.getWidth());
         }
     }
 
+    /** The + on the PCs page is one round glass button on every form, and it shows focus. */
     @Test
-    public void addPcOnAPhoneKeepsItsPillSize() {
+    public void thePlusIsARoundGlassButtonThatShowsFocus() {
+        plusIsRound();
+    }
+
+    @Test @Config(qualifiers = "television")
+    public void thePlusIsARoundGlassButtonThatShowsFocusOnTelevision() {
+        plusIsRound();
+    }
+
+    private void plusIsRound() {
         try (var screen = Robolectric.buildActivity(MotionTest.Screen.class).setup().visible()) {
             ViewGroup content = screen.get().findViewById(android.R.id.content);
             View pcs = LayoutInflater.from(screen.get()).inflate(R.layout.activity_pc_view, content, false);
             content.addView(pcs);
             View add = pcs.findViewById(R.id.manuallyAddPc);
-            add.setVisibility(View.VISIBLE);
+            assertTrue(add instanceof GlassSurface);
             size(add);
-            assertEquals(Math.round(56 * add.getResources().getDisplayMetrics().density), add.getHeight());
-            assertNull(add.getForeground());
+            int capsule = context.getResources().getDimensionPixelSize(R.dimen.glass_capsule);
+            assertEquals(capsule, add.getLayoutParams().height);
+            assertEquals(capsule, add.getLayoutParams().width);
+            assertNull(focusProblem(add));
         }
     }
 

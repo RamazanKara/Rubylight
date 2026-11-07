@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A width and an orientation outrank -television, so a TV restates its PC cards over the handheld's. This is a 1080p TV at
+         320dpi, 960 by 540dp: still four cards, and all of them on screen. -->
+    <dimen name="pcs_max_width">4096dp</dimen>
+    <dimen name="tile_height">214dp</dimen>
+    <dimen name="tile_cell">212dp</dimen>
+    <dimen name="tile_screen">120dp</dimen>
+    <dimen name="tile_glyph">40dp</dimen>
+    <dimen name="tile_pad_top">14dp</dimen>
+    <dimen name="tile_name_top">8dp</dimen>
+    <dimen name="pcs_list_top">196dp</dimen>
+    <dimen name="pcs_hero_title">48sp</dimen>
+    <dimen name="tile_update_text">14sp</dimen>
+</resources>

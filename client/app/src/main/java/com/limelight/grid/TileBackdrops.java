@@ -9,13 +9,11 @@ import android.os.SystemClock;
 import android.util.LruCache;
 import android.widget.ImageView;
 
-import androidx.core.content.ContextCompat;
 
 import com.limelight.R;
 import com.limelight.grid.assets.DiskAssetLoader;
 import com.limelight.grid.assets.PlaceholderArt;
 import com.limelight.nvstream.http.NvApp;
-import com.limelight.ui.BackdropBlur;
 
 import java.io.File;
 import java.util.HashMap;
@@ -26,26 +24,31 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
- * The backgrounds of the TV PC tiles. A PC playing a game gets that game's cover, blurred and darkened once on a worker
- * into a 96x54 thumbnail (BackdropBlur.tile) that the tile stretches with bilinear filtering; any other PC, or one whose
- * cover is not on disk yet, gets the gradient of its state. No live blur, and a refresh of the grid costs a cache lookup.
+ * The running game's cover on a PC: cropped once on a worker to the monitor's face (or whole, for a phone's running row), and
+ * shown when it arrives. A PC with nothing to show, or one whose cover is not on disk yet, shows what lies under the view: its
+ * own gradient and disc. A refresh of the grid costs a cache lookup.
  */
 final class TileBackdrops {
-    /** The state's gradient: online, waiting on something (pairing, waking, checking), or away. */
-    static int gradient(PcGridAdapter.RowState state) {
-        switch (state) {
-            case RUNNING:
-            case READY:
-                return R.drawable.tv_tile_bg_live;
-            case OFFLINE:
-                return R.drawable.tv_tile_bg_idle;
-            default:
-                return R.drawable.tv_tile_bg_attention;
+    /** What the cover is cut to. */
+    enum Cut {
+        /** The monitor's face: the design's crop, a little below the cover's middle. */
+        SCREEN(480, 480 * .62f),
+        /** The whole cover. */
+        COVER(320, 480);
+
+        final int width;
+        final float height;
+
+        Cut(int width, float height) {
+            this.width = width;
+            this.height = height;
         }
     }
 
+    /** How far down the cover the face's crop stands: 0 the top, 1 the foot. */
+    private static final float FACE_CROP_Y = .58f;
     private static final Executor WORKER = worker();
-    /** A few PCs, about 20 KB each. */
+    /** A few PCs, under a megabyte each. */
     private static final LruCache<String, Bitmap> CACHE = new LruCache<>(8);
     /** How long a cover that was not on disk is left alone before the next bind looks again; it may have been fetched since. */
     static final long RETRY_MS = 5000;
@@ -69,21 +72,17 @@ final class TileBackdrops {
         CACHE.evictAll();
     }
 
-    static String key(String hostUuid, NvApp running) {
-        return running == null ? null : hostUuid + ":" + running.getAssetCacheKey();
+    static String key(String hostUuid, NvApp running, Cut cut) {
+        return running == null ? null : hostUuid + ":" + running.getAssetCacheKey() + ":" + cut;
     }
 
-    /**
-     * Puts the tile's background on {@code view}: the running game's cover when it has one, and the state's gradient
-     * otherwise, or until the cover is decoded. The opaque cover replaces the gradient rather than covering it.
-     */
-    void show(ImageView view, String hostUuid, NvApp running, PcGridAdapter.RowState state) {
-        String key = state == PcGridAdapter.RowState.RUNNING ? key(hostUuid, running) : null;
+    /** Puts the running game's cover on {@code view}, or nothing while there is none, so what lies under it shows. */
+    void show(ImageView view, String hostUuid, NvApp running, PcGridAdapter.RowState state, Cut cut) {
+        String key = state == PcGridAdapter.RowState.RUNNING ? key(hostUuid, running, cut) : null;
         Object shown = view.getTag(R.id.grid_backdrop);
         if (key == null) {
             view.setTag(R.id.grid_backdrop, null);
             view.setImageDrawable(null);
-            view.setBackgroundResource(gradient(state));
             return;
         }
         Bitmap cached = CACHE.get(key);
@@ -91,7 +90,6 @@ final class TileBackdrops {
             cover(view, key, cached);
             return;
         }
-        view.setBackgroundResource(gradient(state));
         Long missedAt = missing.get(key);
         boolean retry = missedAt != null && SystemClock.uptimeMillis() - missedAt >= RETRY_MS;
         if (!retry && (key.equals(shown) || missedAt != null)) {
@@ -104,9 +102,8 @@ final class TileBackdrops {
         view.setTag(R.id.grid_backdrop, key);
         view.setImageDrawable(null);
         File file = new DiskAssetLoader(context).getFile(hostUuid, running.getAssetCacheKey());
-        int canvas = ContextCompat.getColor(context, R.color.tv_canvas);
         executor.execute(() -> {
-            Bitmap tile = decode(file, canvas);
+            Bitmap tile = decode(file, cut);
             main.post(() -> {
                 if (tile == null) {
                     missing.put(key, SystemClock.uptimeMillis());
@@ -121,29 +118,38 @@ final class TileBackdrops {
     private static void cover(ImageView view, String key, Bitmap tile) {
         view.setTag(R.id.grid_backdrop, key);
         view.setImageBitmap(tile);
-        view.setBackground(null);
     }
 
-    /** The cover, decoded at about 4x the thumbnail's width so BackdropBlur's halving has something to work on. */
-    private static Bitmap decode(File file, int canvas) {
-        // The host's grey stand-in is no cover: the tile keeps its gradient.
+    private static Bitmap decode(File file, Cut cut) {
+        // The host's grey stand-in is no cover: the PC keeps its gradient.
         if (!PlaceholderArt.isCover(file)) return null;
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(file.getPath(), bounds);
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
         BitmapFactory.Options options = new BitmapFactory.Options();
-        options.inSampleSize = DiskAssetLoader.calculateInSampleSize(bounds, 4 * BackdropBlur.WIDTH, 4 * BackdropBlur.HEIGHT);
+        options.inSampleSize = DiskAssetLoader.calculateInSampleSize(bounds, cut.width, Math.round(cut.height));
         Bitmap cover = BitmapFactory.decodeFile(file.getPath(), options);
         if (cover == null) return null;
-        Bitmap tile = BackdropBlur.tile(cover, canvas);
-        cover.recycle();
-        return tile;
+        return cut == Cut.SCREEN ? cropToFace(cover) : cover;
+    }
+
+    /** The largest part of the cover with the face's shape, centred across and a little below the middle down. */
+    static Bitmap cropToFace(Bitmap cover) {
+        float aspect = Cut.SCREEN.width / Cut.SCREEN.height;
+        int w = cover.getWidth();
+        int h = cover.getHeight();
+        int cropW = Math.min(w, Math.round(h * aspect));
+        int cropH = Math.min(h, Math.round(cropW / aspect));
+        if (cropW == w && cropH == h) return cover;
+        Bitmap face = Bitmap.createBitmap(cover, (w - cropW) / 2, Math.round((h - cropH) * FACE_CROP_Y), cropW, cropH);
+        if (face != cover) cover.recycle();
+        return face;
     }
 
     private static Executor worker() {
         ThreadPoolExecutor pool = new ThreadPoolExecutor(1, 1, 5, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), runnable -> {
-            Thread thread = new Thread(runnable, "tile-blur");
+            Thread thread = new Thread(runnable, "pc-cover");
             thread.setDaemon(true);
             thread.setPriority(Thread.MIN_PRIORITY);
             return thread;

@@ -1,7 +1,9 @@
 #include "Limelight-internal.h"
 #include "latency.h"
+#include "stream_thread_priority.h"
 
 #include <sys/resource.h>
+#include <sys/system_properties.h>
 
 atomic_bool AndroidUnbatchedInput;
 atomic_bool AndroidNetworkPriority;
@@ -28,11 +30,15 @@ int __wrap_socket(int domain, int type, int protocol) {
 int __wrap_pthread_setname_np(pthread_t thread, const char* name) {
     int result = __real_pthread_setname_np(thread, name);
     // The core names each worker from inside that worker before it starts receiving/sending.
-    if (pthread_equal(thread, pthread_self()) && atomic_load(&AndroidNetworkPriority) &&
-            (!strcmp(name, "VideoRecv") || !strcmp(name, "AudioRecv") || !strcmp(name, "AudioDec") ||
-             !strcmp(name, "ControlRecv") || !strcmp(name, "InputSend"))) {
+    if (pthread_equal(thread, pthread_self()) && atomic_load(&AndroidNetworkPriority)) {
         int savedErrno = errno;
-        if (setpriority(PRIO_PROCESS, 0, -4) < 0) {
+        char property[PROP_VALUE_MAX] = { 0 };
+        __system_property_get("debug.nightjar.decode_priority", property);
+        // VideoStream.c starts no VideoDec thread with direct submission: VideoRecv decodes.
+        bool directSubmit = (VideoCallbacks.capabilities & CAPABILITY_DIRECT_SUBMIT) != 0;
+        int nice = streamThreadNice(name, true, directSubmit, decodePriorityOn(property));
+        if (nice != 0 && setpriority(PRIO_PROCESS, 0, nice) < 0 &&
+                (nice == STREAM_THREAD_NICE || setpriority(PRIO_PROCESS, 0, STREAM_THREAD_NICE) < 0)) {
             Limelog("Streaming thread priority unavailable for %s: %d\n", name, errno);
         }
         errno = savedErrno;

@@ -210,6 +210,16 @@ Java_com_limelight_nvstream_jni_MoonBridge_stringifyPortFlags(JNIEnv *env, jclas
 }
 
 JNIEXPORT jlong JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_cGetControlSilenceMs(JNIEnv *env, jclass clazz) {
+    return (jlong)LiGetControlSilenceMs();
+}
+
+JNIEXPORT void JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_cEndStream(JNIEnv *env, jclass clazz, jint errorCode) {
+    LiEndStream(errorCode);
+}
+
+JNIEXPORT jlong JNICALL
 Java_com_limelight_nvstream_jni_MoonBridge_cGetEstimatedRttInfo(JNIEnv *env, jclass clazz) {
     uint32_t rtt, variance;
 

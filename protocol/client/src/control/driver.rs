@@ -226,6 +226,8 @@ struct Shared {
     stop: AtomicBool,
     contact_lost: AtomicBool,
     rtt: Mutex<Option<(Duration, Duration)>>,
+    /// When anything last came from the host.
+    last_contact: Mutex<Option<Instant>>,
     /// Both sides have roaming on.
     roaming: bool,
     /// PROBE flags of a [`ControlHandle::network_changed`] the control thread has not taken.
@@ -281,6 +283,12 @@ impl ControlHandle {
     /// ENet's round-trip time and its variance, while connected.
     pub fn round_trip_time(&self) -> Option<(Duration, Duration)> {
         *lock(&self.shared.rtt)
+    }
+
+    /// How long the host has been silent: not even an acknowledgement of ENet's pings. None until
+    /// it was first heard.
+    pub fn silence(&self) -> Option<Duration> {
+        lock(&self.shared.last_contact).map(|at| at.elapsed())
     }
 
     /// Whether input is held back because the host has been silent through a grace period.
@@ -768,6 +776,7 @@ pub fn connect(
         stop: AtomicBool::new(false),
         contact_lost: AtomicBool::new(false),
         rtt: Mutex::new(None),
+        last_contact: Mutex::new(None),
         roaming,
         roam_request: Mutex::new(None),
         roam_held: AtomicBool::new(false),
@@ -990,6 +999,7 @@ impl ControlClient {
         let rtt = (peer.state() == PeerState::Connected)
             .then(|| (peer.round_trip_time(), peer.round_trip_time_variance()));
         *lock(&self.shared.rtt) = rtt;
+        *lock(&self.shared.last_contact) = self.host.socket().last_receive;
     }
 
     /// Hands a held host disconnect to ENet once receives have stopped for a moment.

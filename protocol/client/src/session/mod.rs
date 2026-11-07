@@ -63,6 +63,9 @@ pub mod error {
     /// Packed 4:4:4 cannot be streamed with this host ([`crate::rtsp::RtspError::PackedRefused`],
     /// Java's `CLIENT_ERROR_PACKED_444_REFUSED`): the client may reconnect without it.
     pub const PACKED_444_REFUSED: i32 = -106;
+    /// The PC is gone: it shut down or crashed ([`crate::host_loss`], Java's
+    /// `CLIENT_ERROR_HOST_GONE`). Not a dropout, so nothing reconnects on its own.
+    pub const HOST_GONE: i32 = -108;
     /// A failure without an OS error code.
     pub const FAILED: i32 = -1;
 }
@@ -334,6 +337,9 @@ pub struct SessionStats {
     pub input_contact_lost: bool,
 }
 
+/// Between two looks at the control stream's silence ([`Session::watch_host`]).
+const HOST_WATCH_TICK: Duration = Duration::from_millis(250);
+
 /// State every session thread shares.
 pub(crate) struct Shared {
     listener: Arc<dyn Listener>,
@@ -348,6 +354,15 @@ pub(crate) struct Shared {
     /// Bytes of every video and audio datagram received, FEC parity included: what the stream
     /// takes on the wire ([`Session::wire_bytes`]).
     wire_bytes: AtomicU64,
+    /// Set by [`Session::watch_host`]: what a connection lost without a reason is checked with.
+    host_watch: Mutex<Option<HostWatch>>,
+}
+
+/// Where [`Session::watch_host`] looks for the PC.
+#[derive(Clone)]
+struct HostWatch {
+    host: SocketAddr,
+    gateway: Arc<dyn Fn(IpAddr) -> Option<IpAddr> + Send + Sync>,
 }
 
 enum StartGate {
@@ -364,6 +379,7 @@ impl Shared {
             start_gate: Mutex::new(StartGate::Starting(None)),
             network_priority,
             wire_bytes: AtomicU64::new(0),
+            host_watch: Mutex::new(None),
         }
     }
 
@@ -389,9 +405,18 @@ impl Shared {
 
     fn report_terminated(&self, code: i32) {
         let listener = self.listener.clone();
+        let watch = (code == error::DISCONNECTED)
+            .then(|| self.host_watch.lock().unwrap_or_else(|p| p.into_inner()).clone())
+            .flatten();
         let _ = std::thread::Builder::new()
             .name("AsyncTerm".into())
-            .spawn(move || listener.connection_terminated(code));
+            .spawn(move || {
+                // A host on its way down may close first: a PC that is gone says so, at once.
+                let gone = watch.is_some_and(|w| {
+                    crate::host_loss::confirm_gone(w.host, || (w.gateway)(w.host.ip()))
+                });
+                listener.connection_terminated(if gone { error::HOST_GONE } else { code });
+            });
     }
 
     /// The start succeeded: a termination held while it ran is reported now.
@@ -621,6 +646,54 @@ impl Session {
                 Err(error)
             }
         }
+    }
+
+    /// How long the host has been silent on the control stream ([`ControlHandle::silence`]);
+    /// zero until it was first heard.
+    pub fn host_silence(&self) -> Duration {
+        self.control().silence().unwrap_or(Duration::ZERO)
+    }
+
+    /// Ends the stream with [`error::HOST_GONE`]: reported once, like any termination.
+    pub fn end_host_gone(&self) {
+        self.parts.shared.terminate(error::HOST_GONE);
+    }
+
+    /// Watches for a PC that is gone ([`crate::host_loss`]) until the stream ends: `port` is the
+    /// PC's HTTPS port, `gateway` this device's gateway while the PC is on its link. For clients
+    /// that run the watch here; the Android app runs its own over both of its engines.
+    pub fn watch_host(&self, port: u16, gateway: impl Fn(IpAddr) -> Option<IpAddr> + Send + Sync + 'static) -> io::Result<()> {
+        let shared = self.parts.shared.clone();
+        let (Some(remote), Some(control)) = (self.parts.remote, self.parts.control.clone()) else {
+            return Ok(());
+        };
+        let watch = HostWatch { host: SocketAddr::new(remote.ip(), port), gateway: Arc::new(gateway) };
+        *shared.host_watch.lock().unwrap_or_else(|p| p.into_inner()) = Some(watch.clone());
+        std::thread::Builder::new().name("Host watch".into()).spawn(move || {
+            let mut detector = crate::host_loss::Detector::default();
+            let mut bytes = shared.wire_bytes.load(Ordering::Relaxed);
+            while !shared.stopping.load(Ordering::SeqCst) && !shared.terminated.load(Ordering::SeqCst) {
+                std::thread::sleep(HOST_WATCH_TICK);
+                let silence = control.silence().unwrap_or(Duration::ZERO);
+                // Media still arriving is a host too, whatever the control stream says.
+                let seen = shared.wire_bytes.load(Ordering::Relaxed);
+                let heard = seen != bytes;
+                bytes = seen;
+                if !detector.wants_round(if heard { Duration::ZERO } else { silence }) {
+                    continue;
+                }
+                let round = crate::host_loss::probe_round(watch.host, (watch.gateway)(watch.host.ip()));
+                let silence = control.silence().unwrap_or(Duration::ZERO);
+                if detector.step(silence, round)
+                    && silence >= crate::host_loss::PROBE_AFTER
+                    && shared.wire_bytes.load(Ordering::Relaxed) == bytes
+                {
+                    shared.terminate(error::HOST_GONE);
+                    return;
+                }
+            }
+        })?;
+        Ok(())
     }
 
     fn control(&self) -> &ControlHandle {

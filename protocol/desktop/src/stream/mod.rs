@@ -21,6 +21,7 @@ mod system_keys;
 mod bitrate;
 pub mod host_abr;
 pub mod doctor;
+mod gateway;
 pub mod overlay;
 mod recovery;
 mod quality;

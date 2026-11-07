@@ -81,6 +81,8 @@ public class MoonBridge {
     public static final int CLIENT_ERROR_PACKED_444_REFUSED = -106;
     // This device's own code, never sent by a PC: the video decoder failed and recovering it did not help
     public static final int CLIENT_ERROR_DECODER = -107;
+    // This device's own code, never sent by a PC: the PC shut down or crashed (HostLossWatch), not a dropout
+    public static final int CLIENT_ERROR_HOST_GONE = -108;
 
     public static final int ML_PORT_INDEX_TCP_47984 = 0;
     public static final int ML_PORT_INDEX_TCP_47989 = 1;
@@ -854,6 +856,27 @@ public class MoonBridge {
     public static native String stringifyPortFlags(int portFlags, String separator);
 
     // The RTT is in the top 32 bits, and the RTT variance is in the bottom 32 bits
+    // Milliseconds since anything came from the host on the control stream, 0 without a connection.
+    public static long getControlSilenceMs() {
+        return rustStream ? RustBridge.getControlSilenceMs() : cGetControlSilenceMs();
+    }
+    private static native long cGetControlSilenceMs();
+
+    // Ends the stream with CLIENT_ERROR_HOST_GONE: the engine's one termination callback.
+    public static void endStreamHostGone() {
+        if (rustStream) RustBridge.endStreamHostGone(); else cEndStream(CLIENT_ERROR_HOST_GONE);
+    }
+    private static native void cEndStream(int errorCode);
+
+    /** nightjar_core::host_loss, for both engines: the detector's next state, -1 when the PC is gone. */
+    public static int hostLossStep(long silenceMs, String host, int port, String gateway, int state) {
+        return RustBridge.hostLossStep(silenceMs, host, port, gateway, state);
+    }
+
+    public static boolean hostLossAvailable() {
+        return RustBridge.isAvailable();
+    }
+
     public static long getEstimatedRttInfo() {
         return rustStream ? RustBridge.getEstimatedRttInfo() : cGetEstimatedRttInfo();
     }

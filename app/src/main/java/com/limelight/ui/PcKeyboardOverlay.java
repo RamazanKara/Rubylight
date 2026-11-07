@@ -34,8 +34,10 @@ public final class PcKeyboardOverlay extends LinearLayout {
         setOrientation(VERTICAL);
         // The stream's see-through glass, round at the top like a sheet; no blur under it while the game plays.
         float corner = 18 * density;
-        setBackground(GlassPanelDrawable.hud(context, new float[] {corner, corner, corner, corner, 0, 0, 0, 0}));
-        setAlpha(opacityPercent / 100f);
+        // The opacity setting is the panel fill's alpha, as on the desktop controls; the keys stay opaque and readable.
+        GlassPanelDrawable background = GlassPanelDrawable.hud(context, new float[] {corner, corner, corner, corner, 0, 0, 0, 0});
+        background.setFillOpacity(opacityPercent / 100f);
+        setBackground(background);
         // Keys must not take focus from the stream or draw the system focus ring around the panel.
         setFocusable(false);
         setClickable(true);

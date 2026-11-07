@@ -308,6 +308,42 @@ public class PcViewLifecycleTest {
     }
 
     @Test
+    public void backFromAPadsDisconnectInTouchModeThePcThatRunsTheGameShowsTheRing() {
+        // On the Retroid this window kept the touch mode of the tap that started the stream, the list focused with nothing
+        // selected: no ring until a first pad press, which only brought the ring.
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            report(pc("ready", "Office", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED));
+            ComputerDetails running = pc("running", "Den", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED);
+            running.runningGameId = 7;
+            report(running);
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            controller.pause().stop();
+            // The stream menu's sheet saw the pad's A on Disconnect.
+            com.limelight.ui.InputSource.remember(com.limelight.ui.InputSource.PAD);
+            Object manager = ReflectionHelpers.getField(screen, "managerBinder");
+            ReflectionHelpers.setField(screen, "managerBinder", null);
+            controller.restart().resume();
+            ReflectionHelpers.setField(screen, "managerBinder", manager);
+            Object root = ReflectionHelpers.callInstanceMethod(screen.getWindow().getDecorView(), "getViewRootImpl");
+            ReflectionHelpers.callInstanceMethod(root, "ensureTouchMode", ReflectionHelpers.ClassParameter.from(boolean.class, true));
+            grid.requestFocus();
+            assertTrue(grid.isInTouchMode());
+            assertTrue(grid.hasFocus());
+            screen.onWindowFocusChanged(true);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+
+            assertFalse("the ring shows", grid.isInTouchMode());
+            assertTrue(grid.hasFocus());
+            assertEquals("Den", ((PcView.ComputerObject) grid.getSelectedItem()).details.name);
+        } finally {
+            com.limelight.ui.InputSource.remember(null);
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
     public void tappingAnOfflinePcWithOnlyTheMacsItsWakeListedWakesIt() throws Exception {
         ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
         try {

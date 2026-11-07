@@ -745,9 +745,16 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         super.onWindowFocusChanged(hasFocus);
         if (!hasFocus || !resumedFocusPending) return;
         resumedFocusPending = false;
-        // Back from a stream a pad or a remote drove, the window is out of touch mode with nothing on the list: the PC that
-        // runs the game takes the ring, so A acts at once.
-        if (pcList == null || pcList.isInTouchMode() || !focusIsLoose() || pcGridAdapter == null || pcGridAdapter.getCount() == 0) return;
+        // Back from a stream a pad or a remote drove (its menu's Disconnect), the PC that runs the game takes the ring, so A
+        // acts at once. This window can still be in the touch mode its last tap left: the keys of the screen before end it.
+        if (pcList == null || pcGridAdapter == null || pcGridAdapter.getCount() == 0) return;
+        boolean touch = pcList.isInTouchMode();
+        InputSource last = InputSource.last();
+        if (touch && (last == null || last == InputSource.NONE)) return;
+        boolean ringShown = !touch && pcList.hasFocus() && pcList.getSelectedItemPosition() != android.widget.AdapterView.INVALID_POSITION;
+        if (ringShown || (!pcList.hasFocus() && !focusIsLoose())) return;
+        // Out of touch mode first: a list in touch mode keeps no selection.
+        if (touch) pcList.requestFocusFromTouch();
         for (int i = 0; i < pcGridAdapter.getCount(); i++) {
             Object item = pcGridAdapter.getItem(i);
             if (item instanceof ComputerObject && ((ComputerObject) item).rowState() == PcGridAdapter.RowState.RUNNING) {

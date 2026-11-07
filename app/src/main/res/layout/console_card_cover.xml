@@ -9,20 +9,17 @@
             <com.limelight.ui.PosterImageView android:id="@+id/console_cover" android:layout_width="match_parent" android:layout_height="match_parent"
                 android:scaleType="centerCrop" android:importantForAccessibility="no" />
             <com.limelight.ui.NoArtTile android:id="@+id/console_cover_text" android:layout_width="match_parent" android:layout_height="match_parent" android:importantForAccessibility="no" />
-            <!-- Running or Suspended: a dot in the foot corner, where it hides no title. -->
-            <com.limelight.ui.StatusDisc android:id="@+id/console_badge" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:layout_gravity="bottom|end" android:layout_margin="7dp" android:visibility="gone" android:importantForAccessibility="no" />
-            <!-- The top end: a favourite's star, then the store's glyph (or name) in the corner. -->
+            <!-- The foot's end, where they hide no title: a favourite's star, then Running or Suspended as a dot. The store is in the hero's line. -->
             <LinearLayout android:id="@+id/console_marks" android:layout_width="wrap_content"
-                android:layout_height="wrap_content" android:layout_gravity="top|end"
-                android:layout_margin="@dimen/space_s" android:orientation="horizontal">
+                android:layout_height="wrap_content" android:layout_gravity="bottom|end"
+                android:layout_margin="7dp" android:orientation="horizontal" android:gravity="center_vertical">
                 <ImageView android:id="@+id/console_star" android:layout_width="@dimen/card_chip_height"
                     android:layout_height="@dimen/card_chip_height" android:layout_marginEnd="@dimen/space_xs"
                     android:padding="5dp" android:background="@drawable/bg_card_star"
                     android:src="@drawable/ic_star_filled" app:tint="@color/nj_color_moon"
                     android:visibility="gone" android:importantForAccessibility="no" />
-                <TextView android:id="@+id/console_store_mark" style="@style/Widget.Nightjar.CardChip"
-                    android:visibility="gone" />
+                <com.limelight.ui.StatusDisc android:id="@+id/console_badge" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:visibility="gone" android:importantForAccessibility="no" />
             </LinearLayout>
             <!-- Not installed, or what adding takes. -->
             <TextView android:id="@+id/console_store" style="@style/Widget.Nightjar.CardChip"

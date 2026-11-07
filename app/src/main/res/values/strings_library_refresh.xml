@@ -11,7 +11,8 @@
     <string name="library_hide_hidden">Hide hidden games</string>
     <string name="library_no_matches">No games match your search.</string>
     <string name="library_clear_search">Clear search</string>
-    <string name="library_all_hidden">Your games are hidden. Show hidden games to bring them back.</string>
+    <string name="library_all_hidden">All games are hidden</string>
+    <string name="library_no_apps">No apps on this PC</string>
     <string name="library_offline">This PC is offline. Your saved library is still here. Reconnect to play.</string>
     <string name="library_hidden_notice">Game hidden from your library</string>
     <string name="library_undo">Undo</string>

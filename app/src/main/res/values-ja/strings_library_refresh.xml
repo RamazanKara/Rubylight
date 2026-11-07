@@ -12,7 +12,8 @@
     <string name="library_hide_hidden">非表示のゲームを隠す</string>
     <string name="library_no_matches">検索に一致するゲームはありません。</string>
     <string name="library_clear_search">検索をクリア</string>
-    <string name="library_all_hidden">すべてのゲームが非表示になっています。元に戻すには [非表示のゲームを表示] を選んでください。</string>
+    <string name="library_all_hidden">すべてのゲームが非表示です</string>
+    <string name="library_no_apps">このPCにアプリはありません</string>
     <string name="library_offline">この PC はオフラインです。保存済みのライブラリは引き続き表示されます。プレイするには再接続してください。</string>
     <string name="library_hidden_notice">ゲームをライブラリで非表示にしました</string>
     <string name="library_undo">元に戻す</string>

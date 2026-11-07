@@ -29,17 +29,13 @@ public class AppGridAdapterTest {
                 grid.measure(android.view.View.MeasureSpec.makeMeasureSpec(1920, android.view.View.MeasureSpec.EXACTLY),
                         android.view.View.MeasureSpec.makeMeasureSpec(1080, android.view.View.MeasureSpec.EXACTLY));
                 grid.layout(0, 0, 1920, 1080);
-                assertEquals(small ? 6 : 4, grid.getNumColumns());
-                // The poster's root pads itself with its glow; the card inside it is what is cropped and rounded.
+                assertEquals(small ? 9 : 7, grid.getNumColumns());
+                // The cover fills its slot: no glow padding around it, and the frame rounds and clips it.
                 android.view.View tile = grid.getChildAt(0);
-                com.google.android.material.card.MaterialCardView card = tile.findViewById(R.id.grid_card);
-                assertEquals(Math.round(16 * 2f), tile.getPaddingLeft());
-                android.view.View cover = card.findViewById(R.id.grid_image);
-                assertEquals(tile.getWidth() - 2 * tile.getPaddingLeft(), cover.getWidth());
+                android.view.View cover = tile.findViewById(R.id.grid_image);
+                assertEquals(tile.getWidth(), cover.getWidth());
                 assertEquals(Math.round(cover.getWidth() * 3f / 2), cover.getHeight());
-                assertTrue(card.getClipToOutline());
-                assertFalse(card.getPreventCornerOverlap());
-                assertEquals(0, card.getChildAt(0).getPaddingLeft());
+                assertEquals(cover.getHeight(), tile.getHeight());
             }
         }
     }
@@ -145,7 +141,7 @@ public class AppGridAdapterTest {
         container.addView(grid, new android.widget.FrameLayout.LayoutParams(1728, heightPx));
         screen.setContentView(container);
         layout(grid, heightPx);
-        assertEquals(4, grid.getNumColumns());
+        assertEquals(7, grid.getNumColumns());
         assertTrue(grid.requestFocusFromTouch());
         grid.setSelection(0);
         layout(grid, heightPx);
@@ -172,13 +168,13 @@ public class AppGridAdapterTest {
     @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
     public void theFocusedPosterIsWhollyInViewAfterFourDownPresses() {
         try (var controller = Robolectric.buildActivity(com.limelight.ui.UiNavigationTest.Screen.class).setup().visible()) {
-            com.limelight.ui.AdaptiveGridView grid = posterGrid(controller.get(), 20, 700);
+            com.limelight.ui.AdaptiveGridView grid = posterGrid(controller.get(), 40, 700);
             for (int i = 0; i < 4; i++) {
                 key(grid, android.view.KeyEvent.KEYCODE_DPAD_DOWN, 0);
                 android.view.View card = grid.getSelectedView();
-                assertEquals(4 * (i + 1), grid.getSelectedItemPosition());
+                assertEquals(7 * (i + 1), grid.getSelectedItemPosition());
                 // The card grows by its focus scale around its centre: that growth has to fit as well.
-                int growth = (int) Math.ceil(0.08f * card.getHeight() / 2);
+                int growth = (int) Math.ceil(0.12f * card.getHeight() / 2);
                 assertTrue("press " + (i + 1) + ": top " + card.getTop() + " growth " + growth, card.getTop() - growth >= 0);
                 assertTrue("press " + (i + 1) + ": bottom " + card.getBottom() + " of " + grid.getHeight(),
                         card.getBottom() + growth <= grid.getHeight());
@@ -186,96 +182,55 @@ public class AppGridAdapterTest {
         }
     }
 
+    /** The dot in the foot's end corner, the role in the start corner: the art's title stays clear, and no card carries a label or a button. */
     @Test
     @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
-    public void theGlowReachesItsFullPaddingBeyondThePoster() {
-        try (var controller = Robolectric.buildActivity(com.limelight.ui.UiNavigationTest.Screen.class).setup().visible()) {
-            for (int layoutId : new int[] {R.layout.app_grid_item, R.layout.app_grid_item_small}) {
-                android.view.View root = android.view.LayoutInflater.from(controller.get()).inflate(layoutId, null);
-                root.measure(android.view.View.MeasureSpec.makeMeasureSpec(432, android.view.View.MeasureSpec.EXACTLY),
-                        android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
-                root.layout(0, 0, root.getMeasuredWidth(), root.getMeasuredHeight());
-                android.view.View glow = root.findViewById(R.id.grid_glow);
-                android.view.View card = root.findViewById(R.id.grid_card);
-                int reach = controller.get().getResources().getDimensionPixelSize(R.dimen.poster_glow);
-                // A negative layout_margin is ignored by the framework: only the four sides separately reach out.
-                assertEquals(card.getLeft() - reach, glow.getLeft());
-                assertEquals(card.getTop() - reach, glow.getTop());
-                assertEquals(card.getRight() + reach, glow.getRight());
-                assertEquals(card.getBottom() + reach, glow.getBottom());
-            }
-        }
-    }
-
-    /**
-     * The Running chip sits at the top start, as on a phone, just under the options button, since a TV poster at TV type
-     * sizes has no room for it beside the button. The role sits in the bottom start corner (nightjar#7: stacked under
-     * the chip it covered the middle of the art).
-     */
-    @Test
-    @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
-    public void tvBadgesSitInTheCornersClearOfTheMiddleOfTheArtAndTheOptionsButton() {
+    public void aTileIsOnlyItsArtWithTheDotAndTheRoleInTheFootCorners() {
         try (var controller = Robolectric.buildActivity(com.limelight.ui.UiNavigationTest.Screen.class).setup().visible()) {
             float dp = controller.get().getResources().getDisplayMetrics().density;
-            // Root widths as the TV library lays them out at 1080p: the art (112dp, small 88dp) plus the glow's 16dp each side.
-            int[][] cases = {{R.layout.app_grid_item, 144}, {R.layout.app_grid_item_small, 120}};
+            int[][] cases = {{R.layout.app_grid_item, 112}, {R.layout.app_grid_item_small, 88}};
             for (int[] c : cases) {
                 android.view.View root = android.view.LayoutInflater.from(controller.get()).inflate(c[0], null);
+                String name = controller.get().getResources().getResourceEntryName(c[0]);
+                assertNull(name, root.findViewById(R.id.grid_more));
                 android.widget.TextView status = root.findViewById(R.id.grid_status);
                 android.widget.TextView role = root.findViewById(R.id.grid_role);
-                status.setText("Running");
-                status.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_live_dot, 0, 0, 0);
-                status.setCompoundDrawablePadding(Math.round(4 * dp));
                 status.setVisibility(android.view.View.VISIBLE);
                 role.setText("A very long role label that would otherwise run past the poster");
                 role.setVisibility(android.view.View.VISIBLE);
-                // GenericGridAdapter gives a TV poster's art a 2:3 shape.
-                android.view.View artwork = (android.view.View) root.findViewById(R.id.grid_image).getParent();
-                artwork.getLayoutParams().height = Math.round((c[1] - 32) * dp * 3f / 2);
+                android.view.View art = root.findViewById(R.id.grid_image);
+                ((android.view.View) art.getParent()).getLayoutParams().height = Math.round(c[1] * dp * 3f / 2);
                 root.measure(android.view.View.MeasureSpec.makeMeasureSpec(Math.round(c[1] * dp), android.view.View.MeasureSpec.EXACTLY),
                         android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
                 root.layout(0, 0, root.getMeasuredWidth(), root.getMeasuredHeight());
-                String name = controller.get().getResources().getResourceEntryName(c[0]);
-                android.view.View badges = root.findViewById(R.id.grid_badges);
-                android.view.View art = root.findViewById(R.id.grid_image);
-                android.view.View more = root.findViewById(R.id.grid_more);
-                int margin = controller.get().getResources().getDimensionPixelSize(R.dimen.space_xs);
-                assertSame(art.getParent(), badges.getParent());
-                assertEquals(name, art.getLeft() + margin, badges.getLeft());
-                assertTrue(name + ": under the options button", badges.getTop() >= more.getBottom());
-                assertEquals(name + ": Running stays on one line", 1, status.getLineCount());
-                assertTrue(name + ": Running is not cut", status.getLayout().getEllipsisCount(0) == 0);
-                assertTrue(name + ": Running stays in the top 60%",
-                        badges.getTop() + status.getBottom() < art.getHeight() * 0.6f);
-                assertSame(art.getParent(), role.getParent());
-                assertEquals(name + ": the role starts at the art's corner", art.getLeft() + margin, role.getLeft());
-                assertEquals(name + ": the role ends at the art's corner", art.getBottom() - margin, role.getBottom());
-                assertTrue(name + ": a long role ends inside the poster", role.getRight() <= art.getRight() - margin);
+                assertSame(name, art.getParent(), status.getParent());
+                assertTrue(name + ": the dot is in the end corner", status.getRight() <= art.getRight() && status.getLeft() > art.getWidth() / 2);
+                assertTrue(name + ": the dot is at the foot", status.getTop() > art.getHeight() / 2 && status.getBottom() <= art.getBottom());
+                assertTrue(name + ": a long role ends inside the art", role.getRight() <= art.getRight());
                 assertTrue(name + ": the role is clear of the art's middle", role.getTop() > art.getHeight() / 2);
             }
         }
     }
 
+    /** The grid keeps focus and moves a selection: the card with the selection lifts and rings, and only while the grid has focus. */
     @Test
     @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
-    public void theRingIsDrawnAroundThePosterAndNeverOverItsArt() {
+    public void theSelectedCoverShowsFocusOnlyWhileTheGridHasIt() {
         try (var controller = Robolectric.buildActivity(com.limelight.ui.UiNavigationTest.Screen.class).setup().visible()) {
-            for (int layoutId : new int[] {R.layout.app_grid_item, R.layout.app_grid_item_small}) {
-                android.view.View root = android.view.LayoutInflater.from(controller.get()).inflate(layoutId, null);
-                root.measure(android.view.View.MeasureSpec.makeMeasureSpec(432, android.view.View.MeasureSpec.EXACTLY),
-                        android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
-                root.layout(0, 0, root.getMeasuredWidth(), root.getMeasuredHeight());
-                android.view.View ring = root.findViewById(R.id.grid_ring);
-                android.view.View card = root.findViewById(R.id.grid_card);
-                int reach = Math.round(5 * controller.get().getResources().getDisplayMetrics().density);
-                assertSame("the ring is the poster's sibling, not a layer over its art", root, ring.getParent());
-                assertEquals(card.getLeft() - reach, ring.getLeft());
-                assertEquals(card.getTop() - reach, ring.getTop());
-                assertEquals(card.getRight() + reach, ring.getRight());
-                assertEquals(card.getBottom() + reach, ring.getBottom());
-                assertTrue("inside the glow's padding", ring.getLeft() >= 0 && ring.getTop() >= 0);
-                assertTrue("drawn after the poster, so over it", ((android.view.ViewGroup) root).indexOfChild(ring) > ((android.view.ViewGroup) root).indexOfChild(card));
-            }
+            com.limelight.ui.AdaptiveGridView grid = posterGrid(controller.get(), 20, 700);
+            com.limelight.ui.GridCover first = (com.limelight.ui.GridCover) grid.getSelectedView();
+            key(grid, android.view.KeyEvent.KEYCODE_DPAD_RIGHT, 0);
+            com.limelight.ui.GridCover second = (com.limelight.ui.GridCover) grid.getSelectedView();
+            assertNotSame(first, second);
+            assertTrue("the new card shows focus", org.robolectric.util.ReflectionHelpers.<Boolean>callInstanceMethod(second, "showsFocus"));
+            assertFalse("the old card does not", org.robolectric.util.ReflectionHelpers.<Boolean>callInstanceMethod(first, "showsFocus"));
+            android.view.View other = new android.view.View(controller.get());
+            other.setFocusable(true);
+            other.setFocusableInTouchMode(true);
+            ((android.view.ViewGroup) grid.getParent()).addView(other, new android.widget.FrameLayout.LayoutParams(10, 10));
+            layout(grid, grid.getHeight());
+            assertTrue(other.requestFocus());
+            assertFalse("focus left the grid", org.robolectric.util.ReflectionHelpers.<Boolean>callInstanceMethod(second, "showsFocus"));
         }
     }
 
@@ -287,12 +242,11 @@ public class AppGridAdapterTest {
             android.view.View first = grid.getSelectedView();
             key(grid, android.view.KeyEvent.KEYCODE_DPAD_RIGHT, 1);
             assertEquals(1, grid.getSelectedItemPosition());
-            assertEquals("the new card is already scaled", 1.08f, grid.getSelectedView().getScaleX(), 0.001f);
+            assertEquals("the new card is already scaled", 1.12f, grid.getSelectedView().getScaleX(), 0.001f);
             assertEquals("the old card is already at rest", 1f, first.getScaleX(), 0.001f);
-            assertNull("the poster carries no title any more: the focus line says it", grid.getSelectedView().findViewById(R.id.grid_title));
             key(grid, android.view.KeyEvent.KEYCODE_DPAD_RIGHT, 2);
             assertEquals(2, grid.getSelectedItemPosition());
-            assertEquals(1.08f, grid.getSelectedView().getScaleX(), 0.001f);
+            assertEquals(1.12f, grid.getSelectedView().getScaleX(), 0.001f);
             assertEquals(1f, grid.getChildAt(1).getScaleX(), 0.001f);
         }
     }

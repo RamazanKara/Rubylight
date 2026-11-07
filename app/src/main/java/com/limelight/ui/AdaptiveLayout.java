@@ -244,6 +244,26 @@ public final class AdaptiveLayout {
         return Math.max(1, (int) ((widthDp + spacing) / (cellWidth + spacing)));
     }
 
+    /**
+     * A PC's games: 3 columns on a phone and 7 on a TV, whatever their size, so a slot's place never depends on the screen. A wider
+     * phone (a fold, landscape) and a handheld keep the cover's size and take more. Small icons add to each.
+     */
+    public static int appColumns(GlassForm form, float widthDp, boolean smallIcons) {
+        int columns;
+        switch (form) {
+            case TELEVISION:
+                columns = 7;
+                break;
+            case HANDHELD:
+                columns = Math.max(5, (int) (widthDp / 150));
+                break;
+            default:
+                columns = Math.max(3, (int) (widthDp / 130));
+                break;
+        }
+        return smallIcons ? columns + (form == GlassForm.PHONE ? 1 : 2) : columns;
+    }
+
     /** The width a grid column is sized for, in dp; the grid stretches columns to fill the row. */
     public static int cellWidthDp(boolean computers, boolean smallIcons, boolean television) {
         // A TV PC tile is 248dp with its 16dp glow on each side (dimen tile_cell).

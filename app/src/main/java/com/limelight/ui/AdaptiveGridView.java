@@ -91,6 +91,7 @@ public class AdaptiveGridView extends GridView {
         if (policySet && this.computers == computers && this.smallIcons == smallIcons) return;
         policySet = true;
         this.computers = computers;
+        setChildrenDrawingOrderEnabled(!computers);
         this.smallIcons = smallIcons;
         requestLayout();
     }
@@ -231,7 +232,7 @@ public class AdaptiveGridView extends GridView {
      * first. Meant for the first time a screen fills, once its list has been handed to the grid. Nothing with Reduce motion.
      */
     public void playEnter() {
-        if (computers || !isTelevision() || Motion.reduced(getContext())) return;
+        if (computers || Motion.reduced(getContext())) return;
         getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
             @Override public boolean onPreDraw() {
                 getViewTreeObserver().removeOnPreDrawListener(this);
@@ -369,13 +370,30 @@ public class AdaptiveGridView extends GridView {
         super.onFocusChanged(gainFocus, direction, previouslyFocusedRect);
         if (!gainFocus) markAction(null);
         // A PC row's ring follows the grid's focus, not only its own selection.
-        if (computers) for (int i = 0; i < getChildCount(); i++) getChildAt(i).invalidate();
+        for (int i = 0; i < getChildCount(); i++) {
+            View child = getChildAt(i);
+            if (child instanceof GridCover) ((GridCover) child).update();
+            else if (computers) child.invalidate();
+        }
     }
+
+    private final java.util.function.BooleanSupplier fastTravel = this::isFastTravel;
 
     @Override
     protected void layoutChildren() {
         View action = markedAction;
         super.layoutChildren();
+        // The grid sets a card's selection while it is off the view tree, where the card cannot ask about the grid's focus.
+        if (!computers) {
+            for (int i = 0; i < getChildCount(); i++) {
+                View child = getChildAt(i);
+                if (child instanceof GridCover) {
+                    GridCover cover = (GridCover) child;
+                    cover.setInstant(fastTravel);
+                    cover.update();
+                }
+            }
+        }
         // A rebuilt or recycled card no longer holds the marked button.
         if (action != null && action != selectedAction()) markAction(null);
         if (travel.isActive(SystemClock.uptimeMillis())) {
@@ -390,6 +408,15 @@ public class AdaptiveGridView extends GridView {
         } else {
             contentY = contentY();
         }
+    }
+
+    /** The selected card lifts over its neighbours: its ring and halo reach past the gap. */
+    @Override
+    protected int getChildDrawingOrder(int childCount, int i) {
+        int selected = getSelectedItemPosition() - getFirstVisiblePosition();
+        if (selected < 0 || selected >= childCount) return i;
+        if (i == childCount - 1) return selected;
+        return i < selected ? i : i + 1;
     }
 
     /** The overflow button of the selected card, if it shows one. */
@@ -501,6 +528,8 @@ public class AdaptiveGridView extends GridView {
                 columns = centreTiles(cell <= 0 ? columns : Math.max(1, width / cell), width, base);
             } else if (computers) {
                 columns = 1;
+            } else {
+                columns = AdaptiveLayout.appColumns(GlassForm.of(getContext()), width / density, smallIcons);
             }
             // A no-op when unchanged; otherwise the children are rebuilt by the layout that follows.
             setNumColumns(columns);

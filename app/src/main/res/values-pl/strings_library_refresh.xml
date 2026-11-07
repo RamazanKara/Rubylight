@@ -12,7 +12,8 @@
     <string name="library_hide_hidden">Ukryj ukryte gry</string>
     <string name="library_no_matches">Żadna gra nie pasuje do wyszukiwania.</string>
     <string name="library_clear_search">Wyczyść wyszukiwanie</string>
-    <string name="library_all_hidden">Twoje gry są ukryte. Pokaż ukryte gry, aby je przywrócić.</string>
+    <string name="library_all_hidden">Wszystkie gry są ukryte</string>
+    <string name="library_no_apps">Brak aplikacji na tym komputerze</string>
     <string name="library_offline">Ten komputer jest offline. Zapisana biblioteka nadal tu jest. Połącz się ponownie, aby grać.</string>
     <string name="library_hidden_notice">Gra ukryta w bibliotece</string>
     <string name="library_undo">Cofnij</string>

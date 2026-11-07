@@ -10,4 +10,5 @@
     <dimen name="pcs_list_top">252dp</dimen>
     <dimen name="pcs_hero_title">60sp</dimen>
     <dimen name="tile_update_text">16sp</dimen>
+    <dimen name="app_grid_top">24dp</dimen>
 </resources>

@@ -12,7 +12,8 @@
     <string name="library_hide_hidden">Не показывать скрытые игры</string>
     <string name="library_no_matches">Нет игр, соответствующих запросу.</string>
     <string name="library_clear_search">Очистить поиск</string>
-    <string name="library_all_hidden">Все игры скрыты. Включите показ скрытых игр, чтобы вернуть их.</string>
+    <string name="library_all_hidden">Все игры скрыты</string>
+    <string name="library_no_apps">На этом ПК нет приложений</string>
     <string name="library_offline">Этот ПК не в сети. Сохранённая библиотека доступна. Подключитесь снова, чтобы играть.</string>
     <string name="library_hidden_notice">Игра скрыта из библиотеки</string>
     <string name="library_undo">Отменить</string>

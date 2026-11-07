@@ -12,7 +12,8 @@
     <string name="library_hide_hidden">Masquer les jeux masqués</string>
     <string name="library_no_matches">Aucun jeu ne correspond à votre recherche.</string>
     <string name="library_clear_search">Effacer la recherche</string>
-    <string name="library_all_hidden">Vos jeux sont masqués. Affichez les jeux masqués pour les faire réapparaître.</string>
+    <string name="library_all_hidden">Tous les jeux sont masqués</string>
+    <string name="library_no_apps">Aucune application sur ce PC</string>
     <string name="library_offline">Ce PC est hors ligne. Votre bibliothèque enregistrée reste disponible. Reconnectez-vous pour jouer.</string>
     <string name="library_hidden_notice">Jeu masqué de votre bibliothèque</string>
     <string name="library_undo">Annuler</string>

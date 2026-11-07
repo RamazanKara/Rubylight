@@ -12,7 +12,8 @@
     <string name="library_hide_hidden">Ẩn trò chơi đã ẩn</string>
     <string name="library_no_matches">Không có trò chơi nào khớp với tìm kiếm của bạn.</string>
     <string name="library_clear_search">Xóa tìm kiếm</string>
-    <string name="library_all_hidden">Các trò chơi của bạn đang bị ẩn. Hãy hiện trò chơi đã ẩn để đưa chúng trở lại.</string>
+    <string name="library_all_hidden">Tất cả trò chơi đều bị ẩn</string>
+    <string name="library_no_apps">Không có ứng dụng trên PC này</string>
     <string name="library_offline">PC này đang ngoại tuyến. Thư viện đã lưu của bạn vẫn còn đây. Hãy kết nối lại để chơi.</string>
     <string name="library_hidden_notice">Đã ẩn trò chơi khỏi thư viện</string>
     <string name="library_undo">Hoàn tác</string>

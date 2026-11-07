@@ -1,6 +1,7 @@
 // A fake stateful V4L2 decoder, inside this program, for FFmpeg's hevc_v4l2m2m: it answers the system
-// calls the way the Iris driver does (Linux 7.2 and later). On a 10-bit stream the capture queue
-// moves to P010 at the source change, at the same size, and NV12 buffers are refused from then on.
+// calls the way a stateful driver that offers P010 does. On a 10-bit stream the capture queue moves
+// to P010 when the source change is delivered, at the same size, with planes aligned wider and
+// taller than the picture, and NV12 is refused from then on.
 //
 //   v4l2-p010-test 8|10
 //
@@ -32,8 +33,9 @@
 
 #define FAKE_FD 999
 #define MAX_BUFFERS 64
-#define WIDTH 64
-#define HEIGHT 32
+#define WIDTH 1920
+#define HEIGHT 1080
+#define ALIGNED_HEIGHT 1088
 
 static int ten_bit_stream;
 static int stream_seen, event_pending, capture_on, output_on, input_count;
@@ -41,8 +43,8 @@ static uint32_t capture_format = V4L2_PIX_FMT_NV12;
 static int capture_queued[MAX_BUFFERS], output_done[MAX_BUFFERS];
 static uint8_t *maps[2][MAX_BUFFERS];
 
-static uint32_t stride(uint32_t format) { return format == V4L2_PIX_FMT_P010 ? WIDTH * 2 : WIDTH; }
-static uint32_t size_of(uint32_t format) { return stride(format) * HEIGHT * 3 / 2; }
+static uint32_t stride(uint32_t format) { return ((format == V4L2_PIX_FMT_P010 ? WIDTH * 2 : WIDTH) + 255) & ~255u; }
+static uint32_t size_of(uint32_t format) { return stride(format) * ALIGNED_HEIGHT * 3 / 2; }
 
 static void fail(const char *why)
 {
@@ -54,7 +56,7 @@ static void fill_format(struct v4l2_format *f)
 {
     struct v4l2_pix_format_mplane *mp = &f->fmt.pix_mp;
     mp->width = WIDTH;
-    mp->height = HEIGHT;
+    mp->height = ALIGNED_HEIGHT;
     mp->num_planes = 1;
     if (f->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
         if (mp->pixelformat != V4L2_PIX_FMT_P010 && mp->pixelformat != V4L2_PIX_FMT_NV12)
@@ -150,12 +152,8 @@ static int fake_ioctl(unsigned long request, void *arg)
         if (b->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
             output_done[b->index] = 1;
             input_count++;
-            if (!stream_seen) {
-                stream_seen = 1;
+            if (!stream_seen)
                 event_pending = 1;
-                if (ten_bit_stream)
-                    capture_format = V4L2_PIX_FMT_P010;
-            }
         } else {
             capture_queued[b->index] = 1;
         }
@@ -182,8 +180,8 @@ static int fake_ioctl(unsigned long request, void *arg)
         b->flags = 0;
         // Luma and chroma that tell the planes apart, in the capture format's sample size.
         uint8_t *map = maps[1][index];
-        memset(map, 0x11, stride(capture_format) * HEIGHT);
-        memset(map + stride(capture_format) * HEIGHT, 0x77, stride(capture_format) * HEIGHT / 2);
+        memset(map, 0x11, stride(capture_format) * ALIGNED_HEIGHT);
+        memset(map + stride(capture_format) * ALIGNED_HEIGHT, 0x77, stride(capture_format) * ALIGNED_HEIGHT / 2);
         return 0;
     }
     case VIDIOC_DQEVENT: {
@@ -194,6 +192,9 @@ static int fake_ioctl(unsigned long request, void *arg)
         e->type = V4L2_EVENT_SOURCE_CHANGE;
         e->u.src_change.changes = V4L2_EVENT_SRC_CH_RESOLUTION;
         event_pending = 0;
+        stream_seen = 1;
+        if (ten_bit_stream)
+            capture_format = V4L2_PIX_FMT_P010;
         return 0;
     }
     case VIDIOC_STREAMON:
@@ -376,14 +377,14 @@ int main(int argc, char **argv)
             fail("avcodec_receive_frame failed");
 
         enum AVPixelFormat want = ten_bit_stream ? AV_PIX_FMT_P010LE : AV_PIX_FMT_NV12;
-        int line = ten_bit_stream ? WIDTH * 2 : WIDTH;
+        int line = ten_bit_stream ? 3840 : 2048;
         if (frame->format != want)
             fail(ten_bit_stream ? "the picture is not P010" : "the picture is not NV12");
         if (context->pix_fmt != want)
             fail("the codec context does not say the picture's format");
         if (frame->linesize[0] != line || frame->linesize[1] != line)
             fail("wrong line sizes");
-        if (frame->data[1] != frame->data[0] + line * HEIGHT)
+        if (frame->data[1] != frame->data[0] + line * ALIGNED_HEIGHT)
             fail("the chroma plane is not after the luma plane");
         if (frame->data[0][0] != 0x11 || frame->data[1][0] != 0x77)
             fail("the planes do not hold the decoder's samples");

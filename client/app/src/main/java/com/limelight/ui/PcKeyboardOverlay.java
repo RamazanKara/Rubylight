@@ -32,7 +32,9 @@ public final class PcKeyboardOverlay extends LinearLayout {
         this.sizePercent = sizePercent;
         float density = context.getResources().getDisplayMetrics().density;
         setOrientation(VERTICAL);
-        setBackgroundColor(0xE6101216);
+        // The stream's see-through glass, round at the top like a sheet; no blur under it while the game plays.
+        float corner = 18 * density;
+        setBackground(GlassPanelDrawable.hud(context, new float[] {corner, corner, corner, corner, 0, 0, 0, 0}));
         setAlpha(opacityPercent / 100f);
         // Keys must not take focus from the stream or draw the system focus ring around the panel.
         setFocusable(false);
@@ -55,14 +57,14 @@ public final class PcKeyboardOverlay extends LinearLayout {
 
         TextView title = new TextView(context);
         title.setText(R.string.pc_keyboard_title);
-        title.setTextColor(0xFFF2F4F7);
+        title.setTextColor(androidx.core.content.ContextCompat.getColor(context, R.color.nj_color_label));
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setTextSize(13);
         header.addView(title, new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
 
         // Touch users switch layouts here for this stream; the setting picks the starting one.
         layoutName = new TextView(context);
-        layoutName.setTextColor(0xFF9AA3AF);
+        layoutName.setTextColor(androidx.core.content.ContextCompat.getColor(context, R.color.nj_color_label_secondary));
         layoutName.setTextSize(13);
         layoutName.setPadding(pad * 2, pad, pad * 2, pad);
         layoutName.setOnClickListener(v -> cycleLayout());

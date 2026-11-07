@@ -302,11 +302,102 @@ public class HomeShellTest {
             assertFalse("the add still runs on this page", (boolean) ReflectionHelpers.getField(screen, "recreatingForForm"));
             assertFalse(screen.isDestroyed());
 
+            // The add's end asks by itself; nothing else gives the window focus back.
             adding.clear();
-            screen.onWindowFocusChanged(true);
+            GameOpener.Screen opener = ReflectionHelpers.getField(screen, "opener");
+            opener.onAdded();
+            shadowOf(Looper.getMainLooper()).idle();
             assertTrue("done: Home is laid out for the handheld", (boolean) ReflectionHelpers.getField(screen, "recreatingForForm"));
         } finally {
             controller.pause().stop().destroy();
+        }
+    }
+
+    /** A wake held Home through a form change, and nothing asked again when it ended. */
+    @Test
+    public void aRotationWhileAPcWakesKeepsHomeThenHomeFollowsWhenTheWakeEnds() {
+        ActivityController<Home> controller = home();
+        try {
+            Home screen = controller.get();
+            com.limelight.computers.HostActions actions = ReflectionHelpers.getField(screen, "hostActions");
+            ComputerDetails attic = new ComputerDetails();
+            attic.uuid = "attic";
+            attic.name = "Attic";
+            attic.state = ComputerDetails.State.OFFLINE;
+            attic.macAddress = "02:00:00:00:00:05";
+            ReflectionHelpers.callInstanceMethod(actions, "startWake",
+                    ReflectionHelpers.ClassParameter.from(ComputerDetails.class, attic),
+                    ReflectionHelpers.ClassParameter.from(HostWaker.Sender.class, (HostWaker.Sender) host -> { }),
+                    ReflectionHelpers.ClassParameter.from(java.util.concurrent.Executor.class, (java.util.concurrent.Executor) Runnable::run),
+                    ReflectionHelpers.ClassParameter.from(java.util.function.LongSupplier.class, (java.util.function.LongSupplier) () -> 0L));
+            assertTrue(actions.isWaking());
+            RuntimeEnvironment.setQualifiers("w900dp-h700dp-land");
+            screen.onConfigurationChanged(screen.getResources().getConfiguration());
+            shadowOf(Looper.getMainLooper()).idle();
+            assertFalse("the wake still runs on this page", (boolean) ReflectionHelpers.getField(screen, "recreatingForForm"));
+
+            ReflectionHelpers.callInstanceMethod(actions, "endWake");
+            shadowOf(Looper.getMainLooper()).idle();
+            assertTrue("done: Home is laid out for the handheld", (boolean) ReflectionHelpers.getField(screen, "recreatingForForm"));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** A pairing started on Home keeps Home, its pairing and its PIN through a form change; Home follows once it is done. */
+    @Test
+    public void aRunningPairingKeepsHomeThroughAFormChangeThenHomeFollows() throws Exception {
+        ActivityController<Home> controller = home();
+        java.util.concurrent.CountDownLatch pollingStopped = new java.util.concurrent.CountDownLatch(1);
+        Thread worker = null;
+        try {
+            Home screen = controller.get();
+            HostFeed feed = ReflectionHelpers.getField(screen, "feed");
+            ReflectionHelpers.setField(feed, "binder", new ComputerManagerService().new ComputerManagerBinder() {
+                @Override public boolean isPersistent() { return false; }
+                @Override public void startPolling(ComputerManagerListener listener) { }
+                @Override public void stopPolling() { }
+                @Override public void invalidateStateForComputer(String uuid) { }
+                @Override public String getUniqueId() { return "client"; }
+                @Override public void waitForPollingStopped() {
+                    try {
+                        pollingStopped.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            });
+            ComputerDetails tower = new ComputerDetails();
+            tower.uuid = "tower";
+            tower.name = "Tower";
+            tower.state = ComputerDetails.State.ONLINE;
+            tower.activeAddress = new ComputerDetails.AddressTuple("127.0.0.1", 47989);
+            com.limelight.computers.HostActions actions = ReflectionHelpers.getField(screen, "hostActions");
+            actions.pair(tower);
+            shadowOf(Looper.getMainLooper()).idle();
+            worker = ReflectionHelpers.getField(actions, "pairingThread");
+            AlertDialog pin = ReflectionHelpers.getField(actions, "pairingDialog");
+            assertTrue(pin.isShowing());
+
+            RuntimeEnvironment.setQualifiers("w900dp-h700dp-land");
+            screen.onConfigurationChanged(screen.getResources().getConfiguration());
+            shadowOf(Looper.getMainLooper()).idle();
+            assertFalse("Home waits for the pairing", (boolean) ReflectionHelpers.getField(screen, "recreatingForForm"));
+            assertFalse(screen.isDestroyed());
+            assertTrue("the pairing still runs", actions.isPairing());
+            assertTrue("its PIN still shows", pin.isShowing());
+
+            pin.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+            shadowOf(Looper.getMainLooper()).idle();
+            worker.join(5000);
+            assertFalse(actions.isPairing());
+            screen.onWindowFocusChanged(true);
+            shadowOf(Looper.getMainLooper()).idle();
+            assertTrue("done: Home follows the form", (boolean) ReflectionHelpers.getField(screen, "recreatingForForm"));
+        } finally {
+            pollingStopped.countDown();
+            controller.pause().stop().destroy();
+            if (worker != null) worker.join(5000);
         }
     }
 

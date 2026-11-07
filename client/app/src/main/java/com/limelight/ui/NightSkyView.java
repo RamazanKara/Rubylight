@@ -39,6 +39,7 @@ public class NightSkyView extends View {
     private final float density;
     private int shadedW;
     private int shadedH;
+    private boolean moonAtEnd;
     private float moonX;
     private float moonY;
     private float moonR;
@@ -130,6 +131,13 @@ public class NightSkyView extends View {
         invalidate();
     }
 
+    /** A page with a big title at its start: on a phone the moon stands at the end, clear of the longest word. */
+    public void setMoonAtEnd() {
+        moonAtEnd = true;
+        shadedW = 0;
+        invalidate();
+    }
+
     /** Where the moon stands in a window of this size. */
     private void placeMoon(int w, int h) {
         switch (form) {
@@ -146,8 +154,9 @@ public class NightSkyView extends View {
                 moonR = 58 * density;
                 break;
             default:
-                moonX = w * .563f;
-                moonY = safeTop + 60 * density;
+                boolean rtl = getResources().getConfiguration().getLayoutDirection() == LAYOUT_DIRECTION_RTL;
+                moonX = !moonAtEnd ? w * .563f : w * (rtl ? .233f : .767f);
+                moonY = safeTop + (moonAtEnd ? 47 : 60) * density;
                 moonR = 40 * density;
                 break;
         }

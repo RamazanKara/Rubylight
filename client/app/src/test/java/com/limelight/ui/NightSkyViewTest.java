@@ -52,6 +52,20 @@ public class NightSkyViewTest {
         }
     }
 
+    /** "Einstellungen" ran into the moon in the middle of the page: Settings has it at the end, clear of a long title. */
+    @Test
+    @Config(qualifiers = "w412dp-h915dp-mdpi")
+    public void aPageWithABigTitleHasItsMoonAtTheEnd() {
+        try (var controller = Robolectric.buildActivity(MotionTest.Screen.class).setup()) {
+            NightSkyView sky = new NightSkyView(controller.get());
+            sky.setSafeTop(24);
+            sky.setMoonAtEnd();
+            Bitmap at = drawn(sky);
+            assertEquals(true, amber(at.getPixel(Math.round(W * .767f), 71)));
+            assertEquals("the title's room is free", false, amber(at.getPixel(Math.round(W * .6f), 71)));
+        }
+    }
+
     @Test
     @Config(qualifiers = "w960dp-h540dp-land-television-mdpi")
     public void onATvOfFiveHundredAndFortyDpTheWholeMoonIsOnScreenAboveTheCards() {

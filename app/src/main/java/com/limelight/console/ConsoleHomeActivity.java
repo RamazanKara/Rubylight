@@ -98,6 +98,11 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     private boolean settled;
     private boolean shown;
     private boolean focusPending = true;
+    /**
+     * Until the first key or touch Home is at its start, whatever arrives. The hosts' answer comes right after what was saved and
+     * can change the shelves: the start follows it, from the top of the list.
+     */
+    private boolean atStart = true;
     private int columns = 2;
     private int lastWidthPx;
 
@@ -517,19 +522,26 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
 
     @Override
     public boolean dispatchTouchEvent(android.view.MotionEvent event) {
-        if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) onInput(InputSource.of(event), 0);
+        if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
+            atStart = false;
+            onInput(InputSource.of(event), 0);
+        }
         return super.dispatchTouchEvent(event);
     }
 
     @Override
     public boolean dispatchGenericMotionEvent(android.view.MotionEvent event) {
+        if (InputSource.of(event) != null) atStart = false;
         onInput(InputSource.of(event), event.getDevice() == null ? 0 : event.getDevice().getVendorId());
         return super.dispatchGenericMotionEvent(event);
     }
 
     @Override
     public boolean dispatchKeyEvent(android.view.KeyEvent event) {
-        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) onInput(InputSource.of(event), InputSource.vendorOf(event));
+        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+            atStart = false;
+            onInput(InputSource.of(event), InputSource.vendorOf(event));
+        }
         // Up from the top of the list goes to the current tab of the shell bar, whatever the focus search would pick
         // (View, at the bar's end, included).
         // On a phone the tabs are at the foot: Up from the top card stays in the top row.
@@ -713,7 +725,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
 
     /** With a D-pad or controller the first card has focus from the start, so a press opens something. */
     private void focusFirstCard(boolean emptyShown) {
-        if (!focusPending) {
+        if (!focusPending && !atStart) {
             return;
         }
         if (emptyShown) {
@@ -733,11 +745,14 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             }
             focusPending = false;
             list.post(() -> {
-                RecyclerView.ViewHolder holder = list.findViewHolderForAdapterPosition(first);
+                // Asked again here: the hosts' answer may have changed the list since.
+                int now = adapter.initialFocus();
+                if (now < 0) return;
+                RecyclerView.ViewHolder holder = list.findViewHolderForAdapterPosition(now);
                 if (holder != null) {
                     holder.itemView.requestFocus();
                 } else {
-                    grid.scrollToPosition(first);
+                    grid.scrollToPosition(now);
                     focusPending = true;
                 }
             });
@@ -770,9 +785,23 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         restoreFocus(first, 0);
     }
 
-    /** Focuses the card once its shelf and it are laid out; a card out of range is brought in and asked for again. */
+    /**
+     * Focuses the card once its shelf and it are laid out; a card out of range is brought in and asked for again. A place on the
+     * list means nothing once the list has changed, so the card goes by its keys, and at the start it is whatever starts now.
+     */
     private void restoreFocus(ConsoleHomeAdapter.Cursor target, int attempt) {
+        restoreFocus(shelves.rowKey(target.row), shelves.keyAt(target), attempt);
+    }
+
+    private void restoreFocus(String shelf, String key, int attempt) {
         list.post(() -> {
+            ConsoleHomeAdapter.Cursor target = atStart ? shelves.initialFocus() : shelves.positionOfKey(shelf, key);
+            if (target == null || attempt >= FOCUS_TRIES) return;
+            if (list.hasPendingAdapterUpdates()) {
+                // The list is about to lay out what it was just given: a frame from now it knows its cards.
+                list.postOnAnimation(() -> restoreFocus(shelf, key, attempt + 1));
+                return;
+            }
             View card = shelves.cardView(list, target);
             if (card != null) {
                 if (!card.hasFocus()) {
@@ -781,12 +810,14 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                     // The card kept focus through the refresh: its state may have changed, so the hero is written again.
                     ambience.refresh(shelves.itemAt(target));
                 }
-            } else if (attempt < 3) {
+            } else {
                 shelves.reveal(list, target);
-                restoreFocus(target, attempt + 1);
+                restoreFocus(shelf, key, attempt + 1);
             }
         });
     }
+
+    private static final int FOCUS_TRIES = 8;
 
     private void openGame(HomeModel.GameCard card) {
         // A game in several PCs' libraries asks which one first; a found game that is not added opens as before.
@@ -911,14 +942,22 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             submitGridKeepingFocus(model);
             return;
         }
+        if (atStart) {
+            // Nobody chose anything yet: the shelves start over, and focusFirstCard places the start.
+            shelves.forgetScroll();
+            shelves.submit(model);
+            list.scrollToPosition(0);
+            return;
+        }
         ConsoleHomeAdapter.Cursor at = shelves.focusedCard(list);
         String key = shelves.keyAt(at);
+        String shelf = at == null ? null : shelves.rowKey(at.row);
         shelves.submit(model);
         if (key == null) {
             return;
         }
         // A card that left (an unstarred favourite) hands focus to its neighbour instead of dropping it.
-        ConsoleHomeAdapter.Cursor target = shelves.positionOfKey(key);
+        ConsoleHomeAdapter.Cursor target = shelves.positionOfKey(shelf, key);
         if (target == null) {
             target = shelves.nearestCard(at);
         }

@@ -70,6 +70,13 @@ import java.util.Set;
 @Config(sdk = 28, application = Application.class, shadows = PcViewLifecycleTest.NoNativeMoonBridge.class,
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class HomeShellTest {
+    /** The tabs' capsule on a 960 x 540 dp TV (xhdpi), which PCs and a PC's games must match. */
+    public static String tvCapsule() {
+        return TV_CAPSULE;
+    }
+
+    private static final String TV_CAPSULE = "at 96,54 height 80 text 26.0 gap 0";
+
     @Rule public TemporaryFolder temporary = new TemporaryFolder();
 
     /** Home without the computer manager service: tests report hosts themselves. */
@@ -1038,5 +1045,78 @@ public class HomeShellTest {
         } finally {
             controller.pause().stop().destroy();
         }
+    }
+
+    /** The capsule the other pages are held to: Home's, at the overscan. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void theCapsuleOnATelevisionStandsAtTheOverscan() {
+        ActivityController<Home> controller = home();
+        try {
+            assertEquals(TV_CAPSULE, com.limelight.ui.TvAudit.topCapsule(controller.get()));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /**
+     * The second launch on the real TV: what was saved came first, the hosts' answer right after it, and the place on the list
+     * asked for under the first landed on another game in the second. Steam at the top, sideways, and no ring.
+     */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void theStartFollowsTheHostsAnswerUntilAKeyIsPressed() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            RecyclerView list = showHosts(home, 12, NativeApiFixtures.nativeHost("tower", "Tower", true));
+            Object root = ReflectionHelpers.callInstanceMethod(home.getWindow().getDecorView(), "getViewRootImpl");
+            ReflectionHelpers.callInstanceMethod(root, "ensureTouchMode",
+                    ReflectionHelpers.ClassParameter.from(boolean.class, false));
+            ConsoleHomeAdapter shelves = ReflectionHelpers.getField(home, "shelves");
+            layOut(home);
+            ConsoleHomeAdapter.Cursor last = new ConsoleHomeAdapter.Cursor(0, shelves.cardCount(0) - 1);
+            // A stale wish: asked for before the hosts answered, run after.
+            ReflectionHelpers.callInstanceMethod(home, "restoreFocus",
+                    ReflectionHelpers.ClassParameter.from(ConsoleHomeAdapter.Cursor.class, last),
+                    ReflectionHelpers.ClassParameter.from(int.class, 0));
+            ReflectionHelpers.callInstanceMethod(home, "focusFirstCard",
+                    ReflectionHelpers.ClassParameter.from(boolean.class, false));
+            for (int i = 0; i < 10; i++) {
+                shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(32));
+                layOut(home);
+            }
+            ConsoleHomeAdapter.Cursor focused = shelves.focusedCard(list);
+            assertNotNull("a card has the ring", focused);
+            assertEquals("the start, not the stale place", shelves.keyAt(shelves.initialFocus()), shelves.keyAt(focused));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** One game on two shelves: a refresh leaves focus on the shelf it was on, not on the first place the game is. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void aRefreshKeepsFocusOnItsShelf() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            showHosts(home, 3, NativeApiFixtures.nativeHost("tower", "Tower", true));
+            ConsoleHomeAdapter shelves = ReflectionHelpers.getField(home, "shelves");
+            int row = 0;
+            String key = shelves.keyAt(new ConsoleHomeAdapter.Cursor(row, 0));
+            assertEquals(row, shelves.positionOfKey(shelves.rowKey(row), key).row);
+            assertEquals("a shelf that is gone: the first place it is", row, shelves.positionOfKey("shelf:gone", key).row);
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    private static void layOut(Home home) {
+        View root = home.getWindow().getDecorView();
+        int w = home.getResources().getDisplayMetrics().widthPixels;
+        int h = home.getResources().getDisplayMetrics().heightPixels;
+        root.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY));
+        root.layout(0, 0, w, h);
     }
 }

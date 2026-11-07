@@ -40,6 +40,42 @@ public final class DemoConsoleHome extends ConsoleHomeActivity {
         }
     }
 
+    /** "--es state home --es dlg quit|delete|reconnect|error|list|three": one of the app's dialogs over Home, to look at. */
+    private void showDemoDialog() {
+        String dlg = getIntent().getStringExtra("dlg");
+        if (dlg == null) return;
+        getIntent().removeExtra("dlg");
+        switch (dlg) {
+            case "quit":
+                com.limelight.utils.UiHelper.displayQuitConfirmationDialog(this, () -> { }, () -> { });
+                break;
+            case "delete":
+                com.limelight.nvstream.http.ComputerDetails pc = new com.limelight.nvstream.http.ComputerDetails();
+                pc.name = "Living-room PC";
+                com.limelight.utils.UiHelper.displayDeletePcConfirmationDialog(this, pc, () -> { }, () -> { });
+                break;
+            case "reconnect":
+                new com.limelight.ui.NavigationDialogBuilder(this).setTitle(com.limelight.R.string.conn_terminated_title)
+                        .setMessage(getString(com.limelight.R.string.conn_terminated_msg)).setCancelable(false)
+                        .setNegativeButton(com.limelight.R.string.stream_disconnect, null)
+                        .setPositiveButton(com.limelight.R.string.stream_reconnect, null).show();
+                break;
+            case "error":
+                com.limelight.utils.Dialog.displayDialog(this, "Pairing failed", "The PC did not answer.", false);
+                break;
+            case "list":
+                new com.limelight.ui.NavigationDialogBuilder(this).setTitle(com.limelight.R.string.title_resolution_list)
+                        .setSingleChoiceItems(new String[] {"720p", "1080p", "1440p", "4K"}, 1, null)
+                        .setNegativeButton(android.R.string.cancel, null).show();
+                break;
+            case "three":
+                ReplaceDemo.show(this);
+                break;
+            default:
+                break;
+        }
+    }
+
     @Override protected void onResume() {
         if (getIntent().getBooleanExtra("pairwait", false)) {
             com.limelight.nvstream.http.ComputerDetails pc = new com.limelight.nvstream.http.ComputerDetails();
@@ -48,6 +84,7 @@ public final class DemoConsoleHome extends ConsoleHomeActivity {
                     new com.limelight.nativeapi.NativePairing.Request("1", DemoConsole.PAIRING_DEVICE, "192.168.4.2", 3))));
         }
         super.onResume();
+        showDemoDialog();
         // Once: coming back from the PC settings the sheet is not wanted again.
         if (!optionsOpened && "options".equals(getIntent().getStringExtra("state"))) {
             optionsOpened = true;

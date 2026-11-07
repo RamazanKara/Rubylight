@@ -31,4 +31,6 @@
     <color name="night_glass_gap">@color/nj_focus_gap_color</color>
     <color name="night_glass_halo">@color/nj_focus_halo_color</color>
     <color name="night_glass_ok">@color/nj_color_ok</color>
+    <!-- The moon gradient's low end (Play, a dialog's primary action). -->
+    <color name="glass_moon_low">#EE9F2E</color>
 </resources>

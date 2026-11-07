@@ -14,7 +14,6 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.limelight.AppView;
 import com.limelight.FolderBrowserActivity;
 import com.limelight.R;
@@ -1035,7 +1034,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             labels.add(hiding);
             actions.add(() -> setHidden(copies, hide));
         }
-        UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this)
+        UiHelper.showDialog(this, new com.limelight.ui.NavigationDialogBuilder(this)
                 .setTitle(card.title)
                 .setItems(labels.toArray(new CharSequence[0]), (dialog, which) -> actions.get(which).run())
                 .setNegativeButton(android.R.string.cancel, null).create());

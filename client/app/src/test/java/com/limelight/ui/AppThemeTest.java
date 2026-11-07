@@ -56,8 +56,8 @@ public class AppThemeTest {
             decor.layout(0, 0, 1920, 1080);
             View surface = sheet.findViewById(com.google.android.material.R.id.design_bottom_sheet);
             android.graphics.drawable.Drawable background = surface.getBackground();
-            assertTrue(background.getClass().getName(), background instanceof com.google.android.material.shape.MaterialShapeDrawable);
-            assertTrue(((com.google.android.material.shape.MaterialShapeDrawable) background).getStrokeWidth() > 0);
+            assertTrue(background.getClass().getName(), background instanceof GlassPanelDrawable);
+            assertTrue(((GlassPanelDrawable) background).rimWidth() > 0);
             sheet.dismiss();
         }
     }
@@ -161,11 +161,7 @@ public class AppThemeTest {
             Screen screen = controller.get();
             NavigationDialogBuilder builder = new NavigationDialogBuilder(screen);
             builder.setTitle("Info").setMessage("Dialog").create();
-            com.google.android.material.shape.MaterialShapeDrawable background =
-                    (com.google.android.material.shape.MaterialShapeDrawable) builder.getBackground();
-            assertTrue(background.getStrokeWidth() > 0);
-            assertEquals(MaterialColors.getColor(screen, com.google.android.material.R.attr.colorOutlineVariant, 0),
-                    background.getStrokeColor().getDefaultColor());
+            assertTrue(((GlassPanelDrawable) builder.getBackground()).rimWidth() > 0);
         } finally {
             controller.pause().stop().destroy();
         }

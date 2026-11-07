@@ -5,7 +5,6 @@ import android.content.DialogInterface;
 
 import androidx.appcompat.app.AlertDialog;
 
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.limelight.R;
 
 /**
@@ -22,7 +21,7 @@ final class ReplaceRunningPrompt {
      * {@code running} is null when the PC does not say which game runs; the prompt then does without its name.
      */
     static AlertDialog build(Context context, String running, String starting, Runnable resume, Runnable replace) {
-        MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(context)
+        androidx.appcompat.app.AlertDialog.Builder builder = new com.limelight.ui.NavigationDialogBuilder(context)
                 .setMessage(running == null ? context.getString(R.string.library_replace_message, starting)
                         : context.getString(R.string.library_replace_message_running, running, starting))
                 .setPositiveButton(running == null ? context.getString(R.string.library_replace_confirm)

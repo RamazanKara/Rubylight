@@ -137,15 +137,23 @@ fn into_rounded(rect: Rect, r: f32, p: Pos2) -> Pos2 {
     }
 }
 
-/// How much a card covers the moon behind PCs, from none to enough that its words sit on it. A long
-/// list or a narrow window brings them there, and scrolling moves them across it.
-pub(super) fn over_moon(screen: Rect, card: Rect) -> f32 {
-    let (center, r) = backdrop::moon_disc(screen, backdrop::Moon::Low);
+/// How much a card covers the moon, from none to enough that its words sit on it. A long list or a
+/// narrow window brings them there, and scrolling moves them across it.
+pub(super) fn over_moon(screen: Rect, card: Rect, moon: backdrop::Moon) -> f32 {
+    let (center, r) = backdrop::moon_disc(screen, moon);
     let nearest = pos2(
         center.x.clamp(card.left(), card.right()),
         center.y.clamp(card.top(), card.bottom()),
     );
     ((r - (center - nearest).length()) / MOON_CLEAR_OVER).clamp(0.0, 1.0)
+}
+
+/// The canvas that goes under a card on the moon, or its words sit on the disc's sharp edge.
+pub(super) fn canvas_on_moon(out: &mut Vec<Shape>, ctx: &egui::Context, card: Rect, r: f32, moon: backdrop::Moon) {
+    let over = over_moon(ctx.content_rect(), card, moon);
+    if over > 0.0 && !high_contrast() {
+        glass::solid(out, ctx, card, r, t::COLOR_CANVAS.gamma_multiply(OVER_MOON * over));
+    }
 }
 
 /// A small screen on a stand, in the state of its PC. `face` is the screen's rect; the stand hangs
@@ -540,16 +548,7 @@ impl Launcher {
                     Color32::from_black_alpha(102).gamma_multiply(rise / HOVER_RISE),
                 );
             }
-            let moon = over_moon(ctx.content_rect(), rect);
-            if moon > 0.0 && !high_contrast() {
-                glass::solid(
-                    &mut out,
-                    &ctx,
-                    rect,
-                    r,
-                    t::COLOR_CANVAS.gamma_multiply(OVER_MOON * moon),
-                );
-            }
+            canvas_on_moon(&mut out, &ctx, rect, r, backdrop::Moon::Low);
             glass::group(&mut out, &ctx, rect, r, group_fill());
             lift_shapes(
                 &mut out,
@@ -683,7 +682,8 @@ mod tests {
         assert_eq!(
             over_moon(
                 screen,
-                Rect::from_min_size(pos2(848.0, 150.0), vec2(384.0, 216.0))
+                Rect::from_min_size(pos2(848.0, 150.0), vec2(384.0, 216.0)),
+                backdrop::Moon::Low
             ),
             0.0
         );
@@ -691,7 +691,8 @@ mod tests {
         assert_eq!(
             over_moon(
                 screen,
-                Rect::from_min_size(pos2(848.0, 382.0), vec2(384.0, 216.0))
+                Rect::from_min_size(pos2(848.0, 382.0), vec2(384.0, 216.0)),
+                backdrop::Moon::Low
             ),
             1.0
         );
@@ -702,6 +703,7 @@ mod tests {
                 pos2(1040.0 - 118.0 - 384.0 + 12.0, 412.0),
                 vec2(384.0, 216.0),
             ),
+            backdrop::Moon::Low,
         );
         assert!(edge > 0.0 && edge < 1.0, "{edge}");
     }

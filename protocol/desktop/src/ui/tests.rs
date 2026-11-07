@@ -3982,6 +3982,24 @@ fn a_menu_rows_ring_and_glow_end_before_the_list_cuts_them() {
     }
 }
 
+/// The Help and Settings cards read the same on the sky's moon as the PCs' cards do: the disc's sharp
+/// edge ran through a card's words.
+#[test]
+fn a_card_on_the_moon_has_canvas_under_its_words() {
+    let canvas = design_tokens::COLOR_CANVAS.gamma_multiply(0.8);
+    for screen in [Screen::Help, Screen::Settings] {
+        let (mut f, _) = three_pcs();
+        f.l.go(screen);
+        f.settle();
+        let (center, r) = backdrop::moon_disc(f.ctx.content_rect(), backdrop::Moon::High);
+        let on_moon = meshes_drawn(&f).iter().any(|(mesh, _)| {
+            let bounds = mesh.calc_bounds();
+            bounds.expand(r).contains(center) && mesh.vertices.iter().any(|v| v.color == canvas)
+        });
+        assert!(on_moon, "{screen:?}");
+    }
+}
+
 /// Enter on the card, on the PCs page: the card's own action.
 #[test]
 fn picking_a_pc_does_what_enter_does_on_its_card() {

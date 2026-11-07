@@ -570,6 +570,7 @@ pub(crate) fn group_row(ui: &mut Ui, add: impl FnOnce(&mut Ui)) -> Rect {
     let run = RowRun { bottom: rect.bottom(), ..run };
     let group = Rect::from_min_max(Pos2::new(run.left, run.top), Pos2::new(run.right, run.bottom));
     let mut shapes = Vec::new();
+    pcs::canvas_on_moon(&mut shapes, ui.ctx(), group, f32::from(radius::PANEL), backdrop::Moon::High);
     glass::group(&mut shapes, ui.ctx(), group, f32::from(radius::PANEL), rows_fill());
     painter.set(run.background, egui::Shape::Vec(shapes));
     ui.data_mut(|d| d.insert_temp(run_id, run));

@@ -32,7 +32,12 @@ final class GlassControlDrawable extends Drawable {
         /** A row inside a group: no fill until it is touched or focused. */
         ROW,
         /** Rows standing together. Never takes state. */
-        GROUP
+        GROUP,
+        /**
+         * A key on a keyboard over the stream: its own opaque fill, so its label reads over any game whatever the panel
+         * lets through. Selected (a held modifier) it takes the selected tint.
+         */
+        KEY
     }
 
     private final Kind kind;
@@ -76,6 +81,13 @@ final class GlassControlDrawable extends Drawable {
                 rimMid = highContrast ? controlRim : ResourcesCompat.getColor(res, R.color.nj_tint_group_rim_mid, null);
                 rimBottom = highContrast ? controlRim : ResourcesCompat.getColor(res, R.color.nj_tint_group_rim_bottom, null);
                 break;
+            case KEY:
+                fillColor = highContrast ? MaterialColors.getColor(context, R.attr.glassControlFill, 0)
+                        : ResourcesCompat.getColor(res, R.color.nj_color_surface_high, null);
+                rimTop = highContrast ? controlRim : ResourcesCompat.getColor(res, R.color.nj_tint_control_rim_top, null);
+                rimMid = highContrast ? controlRim : ResourcesCompat.getColor(res, R.color.nj_tint_control_rim_mid, null);
+                rimBottom = highContrast ? controlRim : ResourcesCompat.getColor(res, R.color.nj_tint_control_rim_bottom, null);
+                break;
             default:
                 fillColor = MaterialColors.getColor(context, R.attr.glassControlFill, 0);
                 rimTop = highContrast ? controlRim : ResourcesCompat.getColor(res, R.color.nj_tint_control_rim_top, null);
@@ -83,7 +95,9 @@ final class GlassControlDrawable extends Drawable {
                 rimBottom = highContrast ? controlRim : ResourcesCompat.getColor(res, R.color.nj_tint_control_rim_bottom, null);
                 break;
         }
-        checkedFill = MaterialColors.getColor(context, R.attr.glassSelectedFill, 0);
+        int selected = MaterialColors.getColor(context, R.attr.glassSelectedFill, 0);
+        // A key stays opaque when selected: the tint goes over its own fill.
+        checkedFill = kind == Kind.KEY ? ColorUtils.compositeColors(selected, fillColor) : selected;
         checkedRimTop = MaterialColors.getColor(context, R.attr.glassSelectedRim, 0);
         rim.setStyle(Paint.Style.STROKE);
         rim.setStrokeWidth(Math.max(1f, res.getDisplayMetrics().density));
@@ -129,6 +143,8 @@ final class GlassControlDrawable extends Drawable {
         for (int s : state) {
             if (s == android.R.attr.state_focused) nowFocused = true;
             else if (s == android.R.attr.state_checked) nowChecked = true;
+            // A key's selection is its modifier held: a button that is not checkable says it so.
+            else if (s == android.R.attr.state_selected && kind == Kind.KEY) nowChecked = true;
             else if (s == android.R.attr.state_pressed || s == android.R.attr.state_hovered) nowActive = true;
         }
         if (nowFocused == focused && nowChecked == checked && nowActive == active) return false;

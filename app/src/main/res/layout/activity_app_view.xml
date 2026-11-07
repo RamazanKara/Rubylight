@@ -7,8 +7,9 @@
         android:clipChildren="false" android:clipToPadding="false">
         <com.limelight.ui.BackdropView android:id="@+id/library_backdrop" android:layout_width="match_parent" android:layout_height="match_parent"
             android:importantForAccessibility="no" />
-        <!-- Clips rows as they scroll up to the chrome: the grid's own padding leaves its top row's ring room inside. -->
-        <FrameLayout android:id="@+id/appFragmentContainer" android:layout_width="match_parent" android:layout_height="match_parent" />
+        <!-- Starts where the chrome ends. The grid clips its rows there itself, so the selected card's halo can reach past it. -->
+        <FrameLayout android:id="@+id/appFragmentContainer" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:clipChildren="false" android:clipToPadding="false" />
         <View android:id="@+id/library_foot_fade" android:layout_width="match_parent" android:layout_height="@dimen/home_foot_fade"
             android:layout_gravity="bottom" android:importantForAccessibility="no" />
         <!-- Offline, nothing to show: one line and what can be done about it, in the middle of the page. -->

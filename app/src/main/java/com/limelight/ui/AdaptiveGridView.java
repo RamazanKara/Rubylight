@@ -419,6 +419,25 @@ public class AdaptiveGridView extends GridView {
         return i < selected ? i : i + 1;
     }
 
+    /**
+     * A library's rows stop at the grid's top, where the chrome ends. The selected card's halo reaches past that, so the grid
+     * clips each row itself, cheaply, and leaves the selected card out: a parent's clip cut the halo in a straight line.
+     */
+    @Override
+    protected boolean drawChild(android.graphics.Canvas canvas, View child, long drawingTime) {
+        if (!clipsAtTop(child)) return super.drawChild(canvas, child, drawingTime);
+        int save = canvas.save();
+        canvas.clipRect(0, 0, getWidth(), getHeight());
+        boolean more = super.drawChild(canvas, child, drawingTime);
+        canvas.restoreToCount(save);
+        return more;
+    }
+
+    /** Every card but the selected one at rest; one on its way in a glide may be up under the chrome. */
+    boolean clipsAtTop(View child) {
+        return !computers && (child != getSelectedView() || glideOffset != 0);
+    }
+
     /** The overflow button of the selected card, if it shows one. */
     View selectedAction() {
         View card = getSelectedView();
@@ -480,37 +499,6 @@ public class AdaptiveGridView extends GridView {
         return height > 0 && height / getResources().getDisplayMetrics().density < SHORT_VIEWPORT_DP;
     }
 
-    /** The side padding the layout (or a later setPadding) gave, before {@link #centreTiles} adds to it. */
-    private int[] basePadding;
-    /** The side padding centreTiles last set: anything else on the view now came from outside and is the new base. */
-    private int[] centredPadding;
-
-    private int[] basePadding() {
-        int left = getPaddingLeft();
-        int right = getPaddingRight();
-        if (basePadding == null || centredPadding == null || left != centredPadding[0] || right != centredPadding[1]) {
-            basePadding = new int[] {left, right};
-        }
-        return basePadding;
-    }
-
-    /**
-     * PC cards have a fixed width (pc_grid_cards' columnWidth, no stretching): a few PCs sit as one centred row, and more
-     * fill rows from the left of a centred block. GridView has no centring of its own, so the side padding takes the rest.
-     */
-    private int centreTiles(int columns, int width, int[] base) {
-        android.widget.ListAdapter adapter = getAdapter();
-        int count = adapter == null ? 0 : adapter.getCount();
-        int used = Math.max(1, Math.min(columns, count));
-        int cell = getRequestedColumnWidth();
-        int side = cell <= 0 ? 0 : Math.max(0, (width - used * cell - (used - 1) * getRequestedHorizontalSpacing()) / 2);
-        int left = base[0] + side;
-        int right = base[1] + side;
-        centredPadding = new int[] {left, right};
-        if (left != getPaddingLeft() || right != getPaddingRight()) setPadding(left, getPaddingTop(), right, getPaddingBottom());
-        return used;
-    }
-
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         if (policySet && MeasureSpec.getMode(widthMeasureSpec) != MeasureSpec.UNSPECIFIED) {
@@ -519,13 +507,12 @@ public class AdaptiveGridView extends GridView {
             float fontScale = Math.max(1, configuration.fontScale);
             boolean television = (configuration.uiMode & Configuration.UI_MODE_TYPE_MASK)
                     == Configuration.UI_MODE_TYPE_TELEVISION;
-            int[] base = basePadding();
-            int width = Math.max(0, MeasureSpec.getSize(widthMeasureSpec) - base[0] - base[1]);
+            int width = Math.max(0, MeasureSpec.getSize(widthMeasureSpec) - getPaddingLeft() - getPaddingRight());
             int columns = AdaptiveLayout.gridColumns(width / density / fontScale,
                     MeasureSpec.getSize(heightMeasureSpec) / density, computers, smallIcons, television);
             if (computers && GlassForm.of(getContext()) != GlassForm.PHONE) {
                 int cell = getRequestedColumnWidth();
-                columns = centreTiles(cell <= 0 ? columns : Math.max(1, width / cell), width, base);
+                columns = cell <= 0 ? columns : Math.max(1, width / cell);
             } else if (computers) {
                 columns = 1;
             } else {

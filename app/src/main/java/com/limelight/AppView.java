@@ -518,9 +518,10 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
                 place.width = Math.round(getResources().getDisplayMetrics().density * 320);
             }
         }
+        // Before the chrome, which styles the tabs: installing them again would undo that.
+        ShellBar.install(this, ShellBar.Destination.PCS);
         // Last: the chrome reports the safe area at once, and that needs everything in its place.
         chrome = new PageChrome(this, host, R.id.library_tabs, R.id.library_top_row, R.id.library_bottom_row, R.id.library_foot_fade, this::layOutUnderChrome);
-        ShellBar.install(this, ShellBar.Destination.PCS);
         // This page is inside PCs: its tab goes back to the list.
         findViewById(R.id.shell_pcs).setOnClickListener(v -> finish());
         findViewById(R.id.library_chrome).addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> placeGrid(b));

@@ -524,4 +524,47 @@ public class AppViewLifecycleTest {
             controller.pause().stop().destroy();
         }
     }
+
+    /** The tabs were installed again after the chrome styled them: larger words, another width, stacked on PCs and inline here. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionTheCapsuleIsTheSameAsOnHome() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.NAME_EXTRA, "Tower").putExtra(AppView.UUID_EXTRA, "uuid");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            assertEquals(com.limelight.console.HomeShellTest.tvCapsule(), com.limelight.ui.TvAudit.topCapsule(controller.get()));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w412dp-h915dp-port-xxhdpi")
+    public void onAPhoneTheTabsStackIconOverWord() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.NAME_EXTRA, "Tower").putExtra(AppView.UUID_EXTRA, "uuid");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            com.google.android.material.button.MaterialButton tab = controller.get().findViewById(R.id.shell_settings);
+            assertEquals(com.google.android.material.button.MaterialButton.ICON_GRAVITY_TEXT_TOP, tab.getIconGravity());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** The grid's clip cut the selected card's halo in a straight line under the hints; it reaches past the grid's top now. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void theHaloIsNotCutWhereTheChromeEnds() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.NAME_EXTRA, "Tower").putExtra(AppView.UUID_EXTRA, "uuid");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            android.view.ViewGroup frame = controller.get().findViewById(R.id.appFragmentContainer);
+            assertFalse(frame.getClipChildren());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
 }

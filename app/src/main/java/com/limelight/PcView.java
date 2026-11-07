@@ -192,7 +192,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         TopAppBar.configure(this, R.id.home_toolbar, getString(R.string.library_computers), 0);
         ShellBar.install(this, ShellBar.Destination.PCS);
         ShellBar.installBack(this, ShellBar.Destination.PCS);
-        findViewById(R.id.manuallyAddPc).setOnClickListener(v -> startActivity(new Intent(this, AddComputerManually.class)));
+        findViewById(R.id.manuallyAddPc).setOnClickListener(v -> offerAddPc());
         setUpGlass();
 
         getFragmentManager().beginTransaction()
@@ -206,6 +206,30 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         updateEmptyState();
         pcGridAdapter.notifyDataSetChanged();
     }
+
+    /** Type an address or scan the code a host shows. A device with no camera has only the first, so + goes straight to it. */
+    private void offerAddPc() {
+        Intent add = new Intent(this, AddComputerManually.class);
+        if (!getPackageManager().hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY)) {
+            startActivity(add);
+            return;
+        }
+        if (addPcSheet != null) return;
+        com.limelight.ui.ActionSheet sheet = new com.limelight.ui.ActionSheet(this, getString(R.string.title_add_pc));
+        addPcSheet = sheet;
+        sheet.addAction(R.drawable.ic_add, getString(R.string.title_add_pc)).setOnClickListener(v -> {
+            sheet.dismiss();
+            startActivity(add);
+        });
+        sheet.addAction(R.drawable.ic_glass_grid, getString(R.string.addpc_scan_code)).setOnClickListener(v -> {
+            sheet.dismiss();
+            startActivity(new Intent(this, AddComputerManually.class).putExtra(AddComputerManually.EXTRA_SCAN, true));
+        });
+        sheet.setOnDismissListener(dialog -> addPcSheet = null);
+        sheet.show();
+    }
+
+    private com.limelight.ui.ActionSheet addPcSheet;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -512,15 +536,19 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
             boolean television = form == GlassForm.TELEVISION;
             int side = res.getDimensionPixelSize(R.dimen.shell_overscan_horizontal);
             int inset = television ? 0 : Math.round(24 * density);
-            int rowTop = top + res.getDimensionPixelSize(television ? R.dimen.space_xs : R.dimen.space_m);
+            // The capsule stands where it stands on Home; only a handheld keeps a gap above the safe area.
+            int rowTop = television ? top : top + res.getDimensionPixelSize(R.dimen.space_m);
             row.setPaddingRelative(left + inset, rowTop, right + inset, 0);
             View focusTitle = findViewById(R.id.pc_focus_title);
             focusTitle.setPaddingRelative(left + inset, 0, right + inset + Math.round(density * (television ? 300 : 200)), 0);
             View hint = findViewById(R.id.pc_options_hint);
             hint.setPaddingRelative(left + inset, hint.getPaddingTop(), 0, hint.getPaddingBottom());
             params.topMargin = top + res.getDimensionPixelSize(R.dimen.pcs_list_top);
-            params.leftMargin = left + side + inset;
-            params.rightMargin = right + side + inset;
+            // A card pads itself with its glow: the card itself starts under the title, the glow past it.
+            int glow = res.getDimensionPixelSize(R.dimen.tile_glow);
+            params.leftMargin = left + side + inset - glow;
+            params.rightMargin = right + side + inset - glow;
+            ((com.limelight.ui.ContentFrame) frame).setMaxContentWidth(Integer.MAX_VALUE);
             listFoot = bottom;
         }
         frame.setLayoutParams(params);

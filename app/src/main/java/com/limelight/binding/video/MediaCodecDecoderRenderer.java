@@ -4701,6 +4701,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         // The FEC padding after a Dolby Vision RPU breaks MediaTek's RPU parser; see HdrBitstream.
         boolean dolbyVision = dolbyVisionActive && HdrBitstream.endsAtRpu(videoFormat);
+        String vividDecoder = vividSeiDropDecoder;
+        boolean hdr10PlusParse = vulkanHdr10Plus && Boolean.TRUE.equals(currentHdrMode);
+        // A frame handed over in place has no array; one of these turned on after submitDirectDecodeUnit
+        // checked (Dolby Vision mid-stream) reads its bytes, so it gets the array copy here.
+        if (decodeUnitData == null && needsArray(dolbyVision, vividDecoder != null, hdr10PlusParse)) {
+            directArray = directArray(directInput, decodeUnitLength, directArray);
+            decodeUnitData = directArray;
+            directInput = null;
+        }
         int queuedLength = HdrBitstream.queuedLength(dolbyVision, decodeUnitData, decodeUnitLength);
         if (dolbyVision && !dolbyVisionPaddingLogged) {
             dolbyVisionPaddingLogged = true;
@@ -4708,7 +4717,6 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     ", dropped " + (decodeUnitLength - queuedLength) + " zero bytes after it");
         }
         // MediaTek shows a stream with HDR Vivid as SDR on displays without Vivid; see HdrBitstream.dropsVivid.
-        String vividDecoder = vividSeiDropDecoder;
         int[] vividRange = vividDecoder != null &&
                 HdrBitstream.findVividSei(decodeUnitData, queuedLength, vividSeiRange) ? vividSeiRange : null;
         if (vividRange != null && !vividSeiDropLogged) {
@@ -4744,7 +4752,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         VulkanRendererBridge vulkan = vulkanRenderer;
         if (vulkan != null) {
             vulkan.noteFrameReceived(timestampUs, receiveTimeUs, enqueueTimeUs, frameHostProcessingLatency);
-            if (vulkanHdr10Plus && Boolean.TRUE.equals(currentHdrMode)) {
+            if (hdr10PlusParse) {
                 noteVulkanHdr10Plus(vulkan, timestampUs, decodeUnitData, decodeUnitLength);
             }
         }
@@ -4879,6 +4887,24 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         } finally {
             directInput = null;
         }
+    }
+
+    // Reused array for frames handed over in place that Java has to read after all.
+    private byte[] directArray;
+
+    /** True when the frame's bytes are read in Java, so a frame handed over in place needs an array. */
+    static boolean needsArray(boolean dolbyVision, boolean vividDrop, boolean hdr10PlusParse) {
+        return dolbyVision || vividDrop || hdr10PlusParse;
+    }
+
+    /** The first length bytes of direct in reuse when it is big enough, else in a new array. */
+    static byte[] directArray(ByteBuffer direct, int length, byte[] reuse) {
+        byte[] array = reuse != null && reuse.length >= length ? reuse : new byte[length];
+        ByteBuffer source = direct.duplicate();
+        ((java.nio.Buffer) source).position(0);
+        ((java.nio.Buffer) source).limit(length);
+        source.get(array, 0, length);
+        return array;
     }
 
     /** Puts the first length bytes of directInput into the codec's input buffer. */

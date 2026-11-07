@@ -69,6 +69,8 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     private View noPcFoundLayout;
     private AbsListView pcList;
     private boolean listWasEmpty = true;
+    /** Resumed and not yet back in the window's focus: the first focus after a stream or another screen. */
+    private boolean resumedFocusPending;
     private ActionSheet pcMenu;
     private PcGridAdapter pcGridAdapter;
     private ShortcutHelper shortcutHelper;
@@ -429,6 +431,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         UiHelper.showDecoderCrashDialog(this);
 
         inForeground = true;
+        resumedFocusPending = true;
         if (completeOnCreateCalled) {
             // A host's library can arrive while this screen is away, which makes Home available.
             ShellBar.refresh(this);
@@ -735,6 +738,24 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     private boolean focusIsLoose() {
         View focus = getCurrentFocus();
         return focus == null || isInside(focus, R.id.shell_bar) || isInside(focus, R.id.no_pc_found_layout);
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (!hasFocus || !resumedFocusPending) return;
+        resumedFocusPending = false;
+        // Back from a stream a pad or a remote drove, the window is out of touch mode with nothing on the list: the PC that
+        // runs the game takes the ring, so A acts at once.
+        if (pcList == null || pcList.isInTouchMode() || !focusIsLoose() || pcGridAdapter == null || pcGridAdapter.getCount() == 0) return;
+        for (int i = 0; i < pcGridAdapter.getCount(); i++) {
+            Object item = pcGridAdapter.getItem(i);
+            if (item instanceof ComputerObject && ((ComputerObject) item).rowState() == PcGridAdapter.RowState.RUNNING) {
+                pcList.setSelection(i);
+                break;
+            }
+        }
+        claimListFocus();
     }
 
     private void claimListFocus() {

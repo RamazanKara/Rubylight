@@ -4,13 +4,14 @@ use crate::state::{Session, Shared};
 use anyhow::{Result, bail};
 use butterpollo_core::{
     config::Config,
-    packet::{PacketBlock, PyrowaveFec, VideoPacketizer},
+    packet::{BlockPool, PacketBlock, PyrowaveFec, VideoPacketizer},
     performance::{Claim, Claims},
     pyrowave::DetailFec,
     session::Warnings,
 };
 use butterpollo_windows::{encoder::Encoded, net::ReplySocket, timing::Signal};
 use std::{
+    collections::VecDeque,
     net::SocketAddr,
     sync::{
         Arc, Condvar, Mutex,
@@ -51,6 +52,45 @@ struct Prepared {
     packetized: Instant,
     prepared: Instant,
     timestamp: u32,
+    /// Handed over as its blocks were built: `blocks` holds block 0 and the
+    /// rest follow in [`Ready::blocks`], and `prepared` is when block 0 was
+    /// ready. A whole frame holds all of its blocks.
+    streamed: bool,
+}
+/// The frame for the paced sender, and the blocks of a frame handed over as
+/// they are built.
+#[derive(Default)]
+struct Ready {
+    frame: Option<Prepared>,
+    /// Blocks after the first of the streamed frame, in order.
+    blocks: VecDeque<PacketBlock>,
+    /// The packetizer still builds blocks of the streamed frame.
+    open: bool,
+    /// The paced sender has a frame in hand.
+    sending: bool,
+}
+impl Ready {
+    /// Nothing is queued or sending: a frame's first block would leave at once.
+    fn idle(&self) -> bool {
+        self.frame.is_none() && !self.sending && !self.open && self.blocks.is_empty()
+    }
+    /// Queue a whole frame, in place of any the sender has not taken: the
+    /// newest intra frame wins. A streamed frame not taken yet is replaced
+    /// with its later blocks. Returns whether a frame was replaced.
+    fn replace(&mut self, frame: Prepared, pool: &BlockPool) -> bool {
+        let Some(old) = self.frame.replace(frame) else {
+            return false;
+        };
+        if old.streamed {
+            for block in self.blocks.drain(..) {
+                pool.give(block);
+            }
+        }
+        for block in old.blocks {
+            pool.give(block);
+        }
+        true
+    }
 }
 #[derive(Default)]
 struct DroppedFrames {
@@ -102,8 +142,10 @@ fn batch_limit(bps: u64, packet: usize, ipv6: bool) -> usize {
 struct Slot {
     pending: Mutex<Option<Frame>>,
     changed: Condvar,
-    ready: Mutex<Option<Prepared>>,
+    ready: Mutex<Ready>,
     ready_changed: Condvar,
+    /// Sent blocks, for the packetizer to fill again.
+    pool: BlockPool,
     error: Mutex<Option<String>>,
     stop: AtomicBool,
     stop_signal: Signal,
@@ -155,8 +197,9 @@ impl Sender {
         let slot = Arc::new(Slot {
             pending: Mutex::new(None),
             changed: Condvar::new(),
-            ready: Mutex::new(None),
+            ready: Mutex::new(Ready::default()),
             ready_changed: Condvar::new(),
+            pool: BlockPool::default(),
             error: Mutex::new(None),
             stop: AtomicBool::new(false),
             stop_signal: Signal::new()?,
@@ -176,6 +219,7 @@ impl Sender {
             let mut last_stamp = start;
             let mut fec_reported: Option<Instant> = None;
             let requested_fec = config.integer("pyrowave_critical_fec_percentage", 20);
+            let early_blocks = config.boolean("video_send_early_blocks", true);
             if requested_fec != requested_fec.clamp(0, 255) {
                 current.launch.warnings.set("pyrowave_fec_config", format!("PyroWave critical FEC {requested_fec}% is outside 0-255; using {}%. Correct the critical FEC setting.", requested_fec.clamp(0, 255)));
             }
@@ -209,24 +253,60 @@ impl Sender {
                 // prepared frame's queue nor packet pacing can change it.
                 let packetized = Instant::now();
                 let processing = micros(packetized.saturating_duration_since(processing_started));
-                let prepared = packetizer.pyrowave_blocks(&frame.bytes, timestamp, processing, PyrowaveFec {
+                let prepared = packetizer.pyrowave_blocks_in(&frame.bytes, timestamp, processing, PyrowaveFec {
                     records: current.config.pyrowave_records, critical_percentage, detail_percentage,
                     wire_budget, ipv6: peer.ip().to_canonical().is_ipv6(),
-                });
+                }, Some(&shared.pool));
                 let Some((packets, limited, blocks)) = dropped.prepared(prepared, frame.bytes.len(), now, &current.launch.warnings) else { continue };
                 if limited && fec_reported.is_none_or(|at| at.elapsed() >= Duration::from_secs(1)) {
                     fec_reported = Some(Instant::now());
                     current.launch.warnings.event("pyrowave_fec_frame", "PyroWave error correction was reduced or omitted because the frame and its parity cannot fit the supported wire blocks. Recovery protection is reduced; lower bitrate/resolution or use HEVC/AV1 on a lossy link.", butterpollo_core::session::EVENT_PERIOD);
                 }
+                let demand = demand_bps(packets, current.config.packet_size, current.config.encryption & 2 != 0, peer.ip().to_canonical().is_ipv6(), current.config.fps_millihz());
+                let details = |blocks, streamed| Prepared { blocks, peer, claimed, processing, latency: micros(latency),
+                    age: micros(claimed.saturating_duration_since(captured)), wire_frame, demand, kbps,
+                    claim, polled, packetized, prepared: Instant::now(), timestamp, streamed };
+                // An idle sender takes each block as it is built (6772d4019: the first of a
+                // 4K frame leaves after 0.2 ms instead of 1.8). A busy one gets the whole frame,
+                // which a newer one can still replace.
+                if early_blocks && shared.ready.lock().unwrap().idle() {
+                    let mut first = true;
+                    for block in blocks {
+                        let block = dropped.prepared(block, frame.bytes.len(), Instant::now(), &current.launch.warnings);
+                        let mut ready = shared.ready.lock().unwrap();
+                        match block {
+                            // Packets of the frame may be out: the rest of it is abandoned,
+                            // and its index stays used, as for a frame that is never sent.
+                            None => {
+                                ready.open = false;
+                                drop(ready);
+                                shared.ready_changed.notify_one();
+                                continue 'frames;
+                            }
+                            // The frame's details travel with block 0.
+                            Some(block) if first => {
+                                first = false;
+                                ready.open = true;
+                                ready.frame = Some(details(vec![block], true));
+                            }
+                            Some(block) => ready.blocks.push_back(block),
+                        }
+                        drop(ready);
+                        shared.ready_changed.notify_one();
+                    }
+                    shared.ready.lock().unwrap().open = false;
+                    shared.ready_changed.notify_one();
+                    continue;
+                }
                 let mut ready = Vec::new();
                 for block in blocks {
-                    let Some(block) = dropped.prepared(block, frame.bytes.len(), Instant::now(), &current.launch.warnings) else { continue 'frames };
+                    let Some(block) = dropped.prepared(block, frame.bytes.len(), Instant::now(), &current.launch.warnings) else {
+                        for block in ready { shared.pool.give(block); }
+                        continue 'frames
+                    };
                     ready.push(block);
                 }
-                let demand = demand_bps(packets, current.config.packet_size, current.config.encryption & 2 != 0, peer.ip().to_canonical().is_ipv6(), current.config.fps_millihz());
-                if shared.ready.lock().unwrap().replace(Prepared { blocks: ready, peer, claimed, processing, latency: micros(latency),
-                    age: micros(claimed.saturating_duration_since(captured)), wire_frame, demand, kbps,
-                    claim, polled, packetized, prepared: Instant::now(), timestamp }).is_some() {
+                if shared.ready.lock().unwrap().replace(details(ready, false), &shared.pool) {
                     current.stats.frames_replaced.fetch_add(1, Ordering::Relaxed);
                 }
                 shared.ready_changed.notify_one();
@@ -582,10 +662,10 @@ mod tests {
                     .slot
                     .ready_changed
                     .wait_timeout_while(ready, wait, |r| {
-                        r.as_ref().is_none_or(|f| f.wire_frame != wire_frame)
+                        r.open || r.frame.as_ref().is_none_or(|f| f.wire_frame != wire_frame)
                     })
                     .unwrap();
-                let result = ready.as_ref().map(|f| {
+                let result = ready.frame.as_ref().map(|f| {
                     (
                         f.processing,
                         f.latency,
@@ -671,6 +751,160 @@ mod tests {
             });
             finished.recv_timeout(wait).unwrap();
         }
+    }
+
+    /// Review 2026-11-07: the sender thread (031dc57e5) built every block of a
+    /// frame before the first left, losing 6772d4019's early blocks. An idle
+    /// sender gets block 0 with the frame's details and the rest as they are
+    /// built; a busy one gets the whole frame, which a newer one replaces.
+    #[test]
+    fn an_idle_sender_gets_each_block_as_it_is_built() {
+        for early in [true, false] {
+            let fixture = crate::state::test_support::Fixture::new();
+            let launch = fixture.launch(fixture.client(0), butterpollo_core::session::Role::Stream);
+            let session = Session::new(
+                launch,
+                butterpollo_core::rtsp::Negotiated {
+                    bitrate_kbps: 80_000,
+                    ..Default::default()
+                },
+            );
+            let mut config = fixture.host.config.read().unwrap().clone();
+            if !early {
+                config
+                    .values
+                    .insert("video_send_early_blocks".into(), "false".into());
+            }
+            let sender = Sender::packetizer(
+                session.clone(),
+                config,
+                fixture.host.clone(),
+                Instant::now(),
+                None,
+            )
+            .unwrap();
+            let submit = || {
+                sender
+                    .submit(
+                        vec![Encoded {
+                            bytes: vec![42; 400_000],
+                            unit: butterpollo_windows::encoder::Unit::Whole,
+                            idr: true,
+                            after_invalidation: false,
+                            frame_cap_bytes: None,
+                            reencoded: false,
+                            frame_cap_target: None,
+                            latency: None,
+                            presentation: None,
+                        }],
+                        "127.0.0.1:12345".parse().unwrap(),
+                        Duration::ZERO,
+                        Instant::now(),
+                        &mut Claims::default(),
+                    )
+                    .unwrap()
+            };
+            // Whether the frame was streamed, its blocks in hand and to follow,
+            // and its packets.
+            let settled = |wire_frame| {
+                let ready = sender.slot.ready.lock().unwrap();
+                let (ready, timeout) = sender
+                    .slot
+                    .ready_changed
+                    .wait_timeout_while(ready, Duration::from_secs(4), |r| {
+                        r.open || r.frame.as_ref().is_none_or(|f| f.wire_frame != wire_frame)
+                    })
+                    .unwrap();
+                assert!(!timeout.timed_out(), "frame {wire_frame} was not prepared");
+                let frame = ready.frame.as_ref().unwrap();
+                let packets = frame
+                    .blocks
+                    .iter()
+                    .chain(&ready.blocks)
+                    .map(Vec::len)
+                    .sum::<usize>();
+                (
+                    frame.streamed,
+                    frame.blocks.len(),
+                    ready.blocks.len(),
+                    packets,
+                )
+            };
+            submit();
+            let (streamed, first, later, packets) = settled(1);
+            if early {
+                assert_eq!((streamed, first), (true, 1));
+                assert!(later > 0, "a 400 KB frame takes more than one block");
+            } else {
+                assert_eq!((streamed, later), (false, 0));
+                assert!(first > 1);
+            }
+            // The sender is busy: the next frame comes whole, in place of the
+            // one it never took, and that one's later blocks go with it.
+            sender.slot.ready.lock().unwrap().sending = true;
+            submit();
+            let (streamed, first, later, next) = settled(2);
+            assert_eq!(
+                (streamed, first > 1, later, next),
+                (false, true, 0, packets)
+            );
+            assert_eq!(session.stats.frames_replaced.load(Ordering::Relaxed), 1);
+        }
+    }
+
+    /// The paced sender sends a streamed frame's later blocks too, and only
+    /// then counts the frame as sent.
+    #[test]
+    fn a_streamed_frame_goes_out_whole() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let launch = fixture.launch(fixture.client(0), butterpollo_core::session::Role::Stream);
+        let session = Session::new(
+            launch,
+            butterpollo_core::rtsp::Negotiated {
+                codec: 3,
+                bitrate_kbps: 80_000,
+                ..Default::default()
+            },
+        );
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let sender = Sender::new(
+            Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap()),
+            session.clone(),
+            fixture.host.config.read().unwrap().clone(),
+            fixture.host.clone(),
+            Instant::now(),
+            None,
+        )
+        .unwrap();
+        sender
+            .submit(
+                vec![Encoded {
+                    bytes: vec![42; 400_000],
+                    unit: butterpollo_windows::encoder::Unit::Whole,
+                    idr: true,
+                    after_invalidation: false,
+                    frame_cap_bytes: None,
+                    reencoded: false,
+                    frame_cap_target: None,
+                    latency: None,
+                    presentation: None,
+                }],
+                client.local_addr().unwrap(),
+                Duration::ZERO,
+                Instant::now(),
+                &mut Claims::default(),
+            )
+            .unwrap();
+        for _ in 0..400 {
+            if session.stats.frames.load(Ordering::Relaxed) > 0 {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(session.stats.frames.load(Ordering::Relaxed), 1);
+        // Block 0 holds at most 255 packets; the frame needs about 290 and parity.
+        assert!(session.stats.packets.load(Ordering::Relaxed) > 255);
+        assert!(!sender.slot.ready.lock().unwrap().sending);
     }
 
     #[test]

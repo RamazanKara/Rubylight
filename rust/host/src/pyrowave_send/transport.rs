@@ -26,16 +26,18 @@ pub(super) fn run(
     {
         let frame = {
             let mut ready = shared.ready.lock().unwrap();
-            if ready.is_none() {
+            if ready.frame.is_none() {
                 ready = shared
                     .ready_changed
                     .wait_timeout(ready, Duration::from_millis(20))
                     .unwrap()
                     .0;
             }
-            ready.take()
+            let frame = ready.frame.take();
+            ready.sending |= frame.is_some();
+            frame
         };
-        let Some(frame) = frame else { continue };
+        let Some(mut frame) = frame else { continue };
         let report = route_check.due(Instant::now(), frame.peer);
         let route = link_watch.get(frame.peer);
         let client = client_path(&current);
@@ -65,7 +67,11 @@ pub(super) fn run(
             .stats
             .video_frame
             .store(u64::from(frame.wire_frame) + 1, Ordering::Release);
-        for packets in frame.blocks {
+        let mut handed = std::mem::take(&mut frame.blocks).into_iter();
+        while let Some(packets) = handed
+            .next()
+            .or_else(|| frame.streamed.then(|| next_block(shared)).flatten())
+        {
             let mut remaining = packets.as_slice();
             while !remaining.is_empty() {
                 if shared.stop.load(Ordering::Acquire)
@@ -100,7 +106,10 @@ pub(super) fn run(
                     .fetch_add(bytes as u64, Ordering::Relaxed);
                 remaining = &remaining[count..];
             }
+            shared.pool.give(packets);
         }
+        // The next frame's blocks may leave as they are built.
+        shared.ready.lock().unwrap().sending = false;
         if batch.dropped != packets_dropped {
             host_dropped(&current, frame.wire_frame);
         }
@@ -147,6 +156,25 @@ pub(super) fn run(
         }
     }
     Ok(())
+}
+
+/// The next block of the streamed frame being sent, waiting while the
+/// packetizer builds it; none once the frame is complete or abandoned.
+fn next_block(shared: &Slot) -> Option<PacketBlock> {
+    let mut ready = shared.ready.lock().unwrap();
+    loop {
+        if let Some(block) = ready.blocks.pop_front() {
+            return Some(block);
+        }
+        if !ready.open || shared.stop.load(Ordering::Acquire) {
+            return None;
+        }
+        ready = shared
+            .ready_changed
+            .wait_timeout(ready, Duration::from_millis(20))
+            .unwrap()
+            .0;
+    }
 }
 
 /// How often the sender routes its client's address again.

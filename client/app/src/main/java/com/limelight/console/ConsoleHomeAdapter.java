@@ -137,6 +137,8 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
     /** The game that led the hero's list at the last refresh. */
     private String heroLead;
 
+    private Function<View, View> aboveHero;
+
     ConsoleHomeAdapter(Context context, CoverLoaders covers, Function<String, ComputerDetails> hosts, Listener listener) {
         env = new ShelfAdapter.Env(context, covers, hosts, listener);
         this.listener = listener;
@@ -486,6 +488,20 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
             if (card != null) return card.itemView;
         }
         return nearestTo(shelf.cards, from);
+    }
+
+    /**
+     * The handheld's hero has its controls and its panel side by side: a free search from Play finds the panel's last line
+     * and never the top row, and from there Play again. Up leaves the hero for what lies above it.
+     */
+    @Override
+    public View aboveFirst(RecyclerView rows, View row, View from) {
+        if (aboveHero == null || rows.getChildAdapterPosition(row) != 0 || getItemViewType(0) != HERO_WIDE) return null;
+        return aboveHero.apply(from);
+    }
+
+    void setAboveHero(Function<View, View> aboveHero) {
+        this.aboveHero = aboveHero;
     }
 
     /** The laid-out card whose centre is the closest across to {@code from}'s. */

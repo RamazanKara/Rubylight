@@ -454,6 +454,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         ShelfLayoutManager rows = new ShelfLayoutManager(this, LinearLayoutManager.VERTICAL,
                 () -> shelves.isFastTravel() || Motion.reduced(this));
         rows.setRowFocus(shelves);
+        shelves.setAboveHero(from -> ShellBar.nearestInTopRow(this, from, R.id.home_pc, R.id.console_view, R.id.home_search_top));
         list.setLayoutManager(rows);
         list.setItemAnimator(null);
         list.setItemViewCacheSize(2);
@@ -541,6 +542,8 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     public boolean dispatchKeyEvent(android.view.KeyEvent event) {
         if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
             atStart = false;
+            // The key that ends touch mode never gets here: focus stands, and this one moves it. A refresh must not take it back.
+            if (com.limelight.ui.InputSource.isDpad(event.getKeyCode())) focusPending = false;
             onInput(InputSource.of(event), InputSource.vendorOf(event));
         }
         // Up from the top of the list goes to the current tab of the shell bar, whatever the focus search would pick
@@ -616,7 +619,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     }
 
     /** "TV wants to pair" while something waits. */
-    private void showWaitingToPair(List<PairingWatch.Waiting> waiting) {
+    protected void showWaitingToPair(List<PairingWatch.Waiting> waiting) {
         waitingToPair = waiting;
         pairingBanner.setVisibility(waiting.isEmpty() ? View.GONE : View.VISIBLE);
         if (waiting.size() == 1) {

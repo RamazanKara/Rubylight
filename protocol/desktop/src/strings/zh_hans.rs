@@ -538,7 +538,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Could not save shortcuts", "无法保存快捷键"),
     ("That address is not valid", "该地址无效"),
     ("HDR output unavailable", "HDR 输出不可用"),
-    ("Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output.", "在此显示器上启用 HDR 并重启 Nightjar。当前的合成器或交换链不支持 HDR 输出。"),
+    ("Turn HDR on for this display, then start the stream again.", "在此显示器上启用 HDR，然后重新开始串流。"),
     ("This display has HDR on, but the renderer cannot present HDR: {}.", "此显示器已开启 HDR，但渲染器无法输出 HDR：{}。"),
     ("Move this window to the display with HDR on, then start the stream again.", "将此窗口移到已开启 HDR 的显示器上，然后重新开始串流。"),
     ("This display stopped showing HDR. The stream is drawn in SDR.", "此显示器已停止显示 HDR。串流以 SDR 显示。"),

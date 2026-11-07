@@ -66,10 +66,14 @@ public class FocusVisibilityTest {
     }
 
     private static Bitmap draw(View view) {
-        int width = Math.max(view.getWidth(), 1);
-        int height = Math.max(view.getHeight(), 1);
+        // A glass button's ring lies outside its bounds; a link has no fill inside them to show it instead.
+        int reach = view instanceof GlassButton ? Math.round(8 * view.getResources().getDisplayMetrics().density) : 0;
+        int width = Math.max(view.getWidth(), 1) + 2 * reach;
+        int height = Math.max(view.getHeight(), 1) + 2 * reach;
         Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-        view.draw(new Canvas(bitmap));
+        Canvas canvas = new Canvas(bitmap);
+        canvas.translate(reach, reach);
+        view.draw(canvas);
         return bitmap;
     }
 

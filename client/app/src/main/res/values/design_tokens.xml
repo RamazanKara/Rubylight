@@ -156,6 +156,7 @@
     <item name="nj_sheet_detent_large" type="dimen" format="float">0.94</item>
     <item name="nj_sheet_backdrop_scale" type="dimen" format="float">0.93</item>
     <item name="nj_sheet_backdrop_brightness" type="dimen" format="float">0.72</item>
+    <item name="nj_dialog_tv_backdrop_brightness" type="dimen" format="float">0.5</item>
     <integer name="nj_tier_probe_frames">60</integer>
     <item name="nj_tier_probe_p90_budget_fraction" type="dimen" format="float">0.7</item>
     <integer name="nj_tier_baked_thumb_w">96</integer>

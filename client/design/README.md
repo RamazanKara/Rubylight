@@ -104,7 +104,7 @@ All have default, hover, focus, pressed and disabled, on `solid` too. Touch targ
 - **Sheet**: `panel`, `radius.sheet`, grabber, drag between detents, flick to close. Scroll hands over to drag at the top edge.
 - **Grouped row**: `tint.group` (`tint.groupOnArt` on art), `size.rowHeight`, leading icon optional, value and chevron trailing. Separators inset past the icon. Long German labels wrap to two lines, values never truncate first.
 - **Switch, slider, segmented, chips**: tints only. Moon for on and filled, paper thumb. The slider shows its value at all times and steps with D-pad left and right.
-- **Dialog**: `panel`, centred, one primary action in moon; destructive uses `color.dangerFill`.
+- **Dialog**: `panel`, centred, one primary action in moon; destructive uses `color.dangerFill`. On a TV at night the page behind goes to `dialog.tvBackdropBrightness`, deeper than under a sheet, so what the dialog covers reads as behind it.
 - **Toast**: `chip`, top on phone and above the shelves on TV, one line, no action needed to dismiss.
 - **Stream menu**: `menu`, right side, 452 × 672 at 720p scale. Tile row, sliders, status rows, Disconnect and Quit game at the bottom. Quit game is the one red control.
 - **Stats overlay**: `stats.fill`, tabular numbers (`type.numbers`), label colour only. Never blurred.

@@ -2081,11 +2081,11 @@ fn early_sender(session: Arc<Session>) -> Sender {
 }
 
 fn keyframe(shards: usize) -> Encoded {
-    Encoded {
-        idr: true,
-        frame_cap_bytes: None,
-        ..unit(butterpollo_windows::encoder::Unit::Whole, shards, 7)
-    }
+    // Encoded returns its buffer to a pool on drop, so no struct update.
+    let mut frame = unit(butterpollo_windows::encoder::Unit::Whole, shards, 7);
+    frame.idr = true;
+    frame.frame_cap_bytes = None;
+    frame
 }
 
 /// Review 2026-11-07: the sender thread (031dc57e5) built every block of a

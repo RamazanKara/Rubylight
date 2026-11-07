@@ -43,9 +43,11 @@ impl VideoSink for LogSink {
         Ok(())
     }
 
-    fn flush_frames(&mut self) {
+    fn flush_frames(&mut self) -> usize {
         self.log.push(b'X');
+        let flushed = self.queue.len();
         self.queue.clear();
+        flushed
     }
 
     fn signal(&mut self, signal: VideoSignal) {

@@ -713,7 +713,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     private long lastTimestampUs;
     private int lastFrameNumber;
-    // The engine's decoder drop count (MoonBridge.getDecoderDrops) at the last frame-number gap.
+    // The engine's decoder drops (MoonBridge.getDecoderDrops) already counted at frame-number gaps.
     private long lastDecoderDrops;
     private long baseTimestampUs;
     private volatile int refreshRate;
@@ -4657,20 +4657,22 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     /**
-     * Counts gap frames that never reached this renderer. When the engine's decode queue overflowed
-     * since the last gap (decoderOverflowed), the whole gap is the overflow's: the flushed queue, the
-     * overflowing frame and the frames dropped until the key frame it asked for. Those are decoder
-     * drops, this device's, and stay out of framesLost, which the loss figure, the stream doctor and
-     * the bitrate logic read as network loss (nightjar#80).
+     * Counts gap frames that never reached this renderer. Up to newDecoderDrops of them (the engine's
+     * decoder drop count since the last gap: the overflowing frame, the flushed queue and the whole
+     * frames dropped until the key frame it asked for) are decoder drops, this device's, and stay out
+     * of framesLost, which the loss figure, the stream doctor and the bitrate logic read as network
+     * loss (nightjar#80). The rest of the gap is network loss, also when it falls in the same gap.
+     * Returns the decoder drops taken; any left over belong to the next gap.
      */
-    static void recordFrameGap(VideoStats window, int gap, boolean decoderOverflowed) {
+    static long recordFrameGap(VideoStats window, int gap, long newDecoderDrops) {
         window.totalFrames += gap;
-        if (decoderOverflowed) {
-            window.decoderDrops += gap;
-        } else {
-            window.framesLost += gap;
+        int decoder = (int) Math.max(0, Math.min(gap, newDecoderDrops));
+        window.decoderDrops += decoder;
+        if (gap > decoder) {
+            window.framesLost += gap - decoder;
             window.frameLossEvents++;
         }
+        return decoder;
     }
 
     /**
@@ -4727,15 +4729,18 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if (lastFrameNumber == 0) {
             activeWindowVideoStats.measurementStartTimestamp = SystemClock.uptimeMillis();
             lastDecoderDrops = MoonBridge.getDecoderDrops();
-        } else if (frameNumber != lastFrameNumber && frameNumber != lastFrameNumber + 1 &&
-                // The frames dropped while waiting for the keyframe the net asked for were no network loss.
-                !(safetyNet != null && frameType == MoonBridge.FRAME_TYPE_IDR &&
-                        safetyNet.takeAnsweredGap(frameNumber - lastFrameNumber - 1))) {
+        } else if (frameNumber != lastFrameNumber && frameNumber != lastFrameNumber + 1) {
             // We can receive the same "frame" multiple times if it's an IDR frame.
             // In that case, each frame start NALU is submitted independently.
             long decoderDrops = MoonBridge.getDecoderDrops();
-            recordFrameGap(activeWindowVideoStats, frameNumber - lastFrameNumber - 1, decoderDrops != lastDecoderDrops);
-            lastDecoderDrops = decoderDrops;
+            // The frames dropped while waiting for the keyframe the net asked for were no network loss.
+            if (safetyNet != null && frameType == MoonBridge.FRAME_TYPE_IDR &&
+                    safetyNet.takeAnsweredGap(frameNumber - lastFrameNumber - 1)) {
+                lastDecoderDrops = decoderDrops;
+            } else {
+                lastDecoderDrops += recordFrameGap(activeWindowVideoStats, frameNumber - lastFrameNumber - 1,
+                        decoderDrops - lastDecoderDrops);
+            }
         }
 
         // Reset CSD data for each IDR frame

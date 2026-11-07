@@ -20,7 +20,7 @@ public class DecoderDropsTest {
     @Test
     public void aGapAcrossADecodeQueueOverflowIsDecoderDropsNotLoss() {
         VideoStats window = new VideoStats();
-        MediaCodecDecoderRenderer.recordFrameGap(window, 21, true);
+        assertEquals(21, MediaCodecDecoderRenderer.recordFrameGap(window, 21, 21));
         assertEquals(0, window.framesLost);
         assertEquals(0, window.frameLossEvents);
         assertEquals(21, window.decoderDrops);
@@ -35,7 +35,7 @@ public class DecoderDropsTest {
     @Test
     public void aGapWithoutAnOverflowIsStillNetworkLoss() {
         VideoStats window = new VideoStats();
-        MediaCodecDecoderRenderer.recordFrameGap(window, 2, false);
+        assertEquals(0, MediaCodecDecoderRenderer.recordFrameGap(window, 2, 0));
         window.totalFrames += 98;
         assertEquals(2, window.framesLost);
         assertEquals(1, window.frameLossEvents);
@@ -46,7 +46,7 @@ public class DecoderDropsTest {
     @Test
     public void decoderDropsSurviveTheWindowRollover() {
         VideoStats window = new VideoStats();
-        MediaCodecDecoderRenderer.recordFrameGap(window, 5, true);
+        MediaCodecDecoderRenderer.recordFrameGap(window, 5, 5);
         VideoStats last = new VideoStats();
         last.copy(window);
         VideoStats both = new VideoStats();
@@ -55,5 +55,28 @@ public class DecoderDropsTest {
         assertEquals(10, both.decoderDrops);
         window.clear();
         assertEquals(0, window.decoderDrops);
+    }
+
+    /**
+     * Review of nightjar#80: frames the network lost in the same gap as an overflow are network loss,
+     * so a Wi-Fi burst still reads as loss and the automatic bitrate comes down.
+     */
+    @Test
+    public void networkLossInTheSameGapAsAnOverflowStaysLoss() {
+        VideoStats window = new VideoStats();
+        assertEquals(16, MediaCodecDecoderRenderer.recordFrameGap(window, 20, 16));
+        assertEquals(16, window.decoderDrops);
+        assertEquals(4, window.framesLost);
+        assertEquals(1, window.frameLossEvents);
+        assertEquals(20, window.totalFrames);
+    }
+
+    /** Drops counted after this gap's frame was taken belong to the next gap. */
+    @Test
+    public void decoderDropsBeyondTheGapAreLeftForTheNextOne() {
+        VideoStats window = new VideoStats();
+        assertEquals(3, MediaCodecDecoderRenderer.recordFrameGap(window, 3, 5));
+        assertEquals(0, window.framesLost);
+        assertEquals(3, window.decoderDrops);
     }
 }

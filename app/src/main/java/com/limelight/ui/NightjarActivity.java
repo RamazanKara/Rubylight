@@ -78,8 +78,16 @@ public abstract class NightjarActivity extends AppCompatActivity {
         GlassForm now = GlassForm.of(this);
         if (form != null && now != form && !isFinishing() && !isDestroyed()) {
             form = now;
+            recreatingForForm = true;
             recreate();
         }
+    }
+
+    private boolean recreatingForForm;
+
+    /** This screen is being laid out again for a new form: a subclass's own handling of the change has nothing left to do. */
+    protected boolean recreatingForForm() {
+        return recreatingForForm;
     }
 
     @Override

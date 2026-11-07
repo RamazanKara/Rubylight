@@ -231,7 +231,7 @@ public class TvTransitionsTest {
     @Test
     public void homeClipsNeitherTheListNorItsRowsSoTheFocusGlowIsKept() throws Exception {
         Element layout = parse("src/main/res/layout/activity_console_home.xml");
-        NodeList lists = layout.getElementsByTagName("androidx.recyclerview.widget.RecyclerView");
+        NodeList lists = layout.getElementsByTagName("com.limelight.console.HomeList");
         // Home's list and the search's results keep the glow alike.
         assertEquals(1, lists.getLength());
         Element list = (Element) lists.item(0);

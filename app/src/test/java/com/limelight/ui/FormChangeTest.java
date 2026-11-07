@@ -47,6 +47,7 @@ public class FormChangeTest {
             ShadowLooper.idleMainLooper();
             assertEquals(GlassForm.HANDHELD, GlassForm.of(screen));
             assertEquals("the handheld's layout, not the phone's under it", 2, Screen.created);
+            org.junit.Assert.assertTrue("a subclass is told, so it does not recreate a second time", screen.recreatingForForm());
         }
     }
 }

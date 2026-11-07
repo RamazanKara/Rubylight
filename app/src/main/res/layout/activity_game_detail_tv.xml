@@ -67,8 +67,10 @@
                         android:layout_marginTop="@dimen/space_m"
                         android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant"
                         android:accessibilityLiveRegion="polite" android:visibility="gone" />
-                    <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/space_xl" android:orientation="horizontal"
+                    <!-- Close game drops to its own line when the row is full, as a pill like the others. -->
+                    <com.limelight.ui.WrapRow android:id="@+id/detail_actions"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_xl"
                         android:clipChildren="false" android:clipToPadding="false">
                         <com.google.android.material.button.MaterialButton android:id="@+id/detail_play"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -89,7 +91,7 @@
                             android:paddingStart="@dimen/space_l" android:paddingEnd="@dimen/space_xl"
                             android:text="@string/stream_close_game" app:icon="@drawable/ic_stop" android:visibility="gone"
                             android:nextFocusLeft="@id/detail_favourite" />
-                    </LinearLayout>
+                    </com.limelight.ui.WrapRow>
                     <LinearLayout android:id="@+id/detail_profile" android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:layout_marginTop="@dimen/space_xl" android:background="@drawable/tv_panel"
                         android:orientation="vertical" android:padding="20dp">

@@ -176,6 +176,41 @@ public class GameDetailShellTest {
         }
     }
 
+    /**
+     * German "Spiel schließen" beside Fortsetzen and the long star label did not fit the TV row, and the row squeezed it
+     * into a circle with its label over four lines. It is a one-line pill like the others, on its own line if need be,
+     * and the remote still reaches it from the star and back.
+     */
+    @Test
+    @Config(qualifiers = "de-w960dp-h540dp-land-television-xhdpi")
+    @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    public void onTelevisionCloseGameStaysAOneLinePillWhenTheRowIsFull() {
+        ActivityController<Detail> controller = detail();
+        try {
+            Detail page = controller.get();
+            page.findViewById(R.id.detail_play).setEnabled(true);
+            android.widget.Button play = page.findViewById(R.id.detail_play);
+            android.widget.Button favourite = page.findViewById(R.id.detail_favourite);
+            android.widget.Button end = page.findViewById(R.id.detail_end);
+            play.setText(R.string.applist_menu_resume);
+            end.setVisibility(View.VISIBLE);
+            View decor = page.getWindow().getDecorView();
+            decor.measure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY));
+            decor.layout(0, 0, 1920, 1080);
+            assertEquals("one line, not a squeezed circle", 1, end.getLineCount());
+            assertEquals(1, favourite.getLineCount());
+            assertEquals("a pill of the row's height", favourite.getHeight(), end.getHeight());
+            assertTrue("wider than tall", end.getWidth() > 2 * end.getHeight());
+            View row = (View) end.getParent();
+            assertTrue("inside the row", end.getRight() <= row.getWidth() && end.getLeft() >= 0);
+            assertTrue("on its own line under the others", end.getTop() >= favourite.getBottom());
+            assertEquals("Left still goes back to the star", R.id.detail_favourite, end.getNextFocusLeftId());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     @Test
     @Config(qualifiers = "television")
     public void onTelevisionTheHostLinesIconIsTheSizeOfItsText() {

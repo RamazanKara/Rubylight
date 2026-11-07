@@ -269,9 +269,7 @@
     </style>
 
     <!-- Stream activity theme (Game and the debug stream fixtures). -->
-    <style name="StreamTheme" parent="Theme.Nightjar.Stream">
-        <item name="nightjarOverStream">true</item>
-    </style>
+    <style name="StreamTheme" parent="Theme.Nightjar.Stream" />
 
     <!-- The stream menu's blur: an empty see-through window under the panel, rounded as the panel is. -->
     <style name="StreamMenuBlurWindow" parent="@android:style/Theme.Translucent.NoTitleBar">

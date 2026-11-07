@@ -1121,6 +1121,30 @@ public class PcViewLifecycleTest {
         }
     }
 
+    /** First run's last action keeps its ring clear of the gesture bar and the screen's edge. */
+    @Test
+    public void firstRunLeavesRoomUnderItsLastAction() {
+        Application application = RuntimeEnvironment.getApplication();
+        GlPreferences gl = GlPreferences.readPreferences(application);
+        gl.savedFingerprint = Build.FINGERPRINT;
+        gl.glRenderer = "Test renderer";
+        gl.writePreferences();
+        application.getSharedPreferences("FirstRun", 0).edit().putBoolean("pairing_guide_shown", true).commit();
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class).setup();
+        try {
+            Library screen = controller.get();
+            org.robolectric.util.ReflectionHelpers.callInstanceMethod(com.limelight.PcView.class, screen, "layOutUnderChrome",
+                    org.robolectric.util.ReflectionHelpers.ClassParameter.from(int.class, 0),
+                    org.robolectric.util.ReflectionHelpers.ClassParameter.from(int.class, 0),
+                    org.robolectric.util.ReflectionHelpers.ClassParameter.from(int.class, 0),
+                    org.robolectric.util.ReflectionHelpers.ClassParameter.from(int.class, 48));
+            assertTrue(screen.findViewById(R.id.first_run).getPaddingBottom()
+                    >= 48 + screen.getResources().getDimensionPixelSize(R.dimen.space_l));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     /** First run's one action offers what the page's + offers: the address, or the code a host shows. */
     @Test
     public void theFirstRunActionOffersWhatPlusOffers() {

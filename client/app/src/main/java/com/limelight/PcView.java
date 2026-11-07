@@ -516,7 +516,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
             int width = v.getWidth() - v.getPaddingLeft() - v.getPaddingRight();
             int height = v.getHeight() - v.getPaddingTop() - v.getPaddingBottom();
             int others = column.getChildAt(1).getHeight() + column.getChildAt(2).getHeight() + column.getChildAt(3).getHeight()
-                    + 2 * getResources().getDimensionPixelSize(R.dimen.space_l);
+                    + 2 * getResources().getDimensionPixelSize(R.dimen.space_l) + column.getPaddingBottom();
             int size = Math.max(0, Math.min(width, height - others));
             if (size != orbit.getLayoutParams().height) {
                 orbit.getLayoutParams().width = size;
@@ -535,6 +535,9 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         View row = findViewById(R.id.pc_top_row);
         View frame = findViewById(R.id.pc_list_frame);
         android.widget.FrameLayout.LayoutParams params = (android.widget.FrameLayout.LayoutParams) frame.getLayoutParams();
+        // First run's last action keeps its ring clear of the screen's edge, the gesture bar and a phone's tabs.
+        findViewById(R.id.first_run).setPadding(0, 0, 0, bottom + res.getDimensionPixelSize(R.dimen.space_l)
+                + (form == GlassForm.PHONE ? res.getDimensionPixelSize(R.dimen.nj_size_tab_bar_height) : 0));
         if (form == GlassForm.PHONE) {
             int edge = res.getDimensionPixelSize(R.dimen.glass_edge);
             int rowTop = top + Math.round(39 * density);

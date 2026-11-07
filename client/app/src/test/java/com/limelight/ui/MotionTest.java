@@ -221,11 +221,17 @@ public class MotionTest {
         animatorScale(1f);
         set(Motion.REDUCE);
         try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
-            android.view.View card = focusedGridCover(controller.get(), R.layout.app_grid_item);
-            assertEquals(1f, card.getScaleX(), 0f);
-            assertEquals(1f, card.getScaleY(), 0f);
-            assertEquals(0f, card.getTranslationZ(), 0f);
-            assertTrue("the ring still shows it", org.robolectric.util.ReflectionHelpers.<Boolean>callInstanceMethod(card, "showsFocus"));
+            // Home's cover is the same cover: it stays put too.
+            for (int layout : new int[] {R.layout.app_grid_item, R.layout.console_card_cover}) {
+                android.view.View card = focusedGridCover(controller.get(), layout);
+                assertEquals(1f, card.getScaleX(), 0f);
+                assertEquals(1f, card.getScaleY(), 0f);
+                assertEquals(0f, card.getTranslationZ(), 0f);
+                assertTrue("the ring still shows it", org.robolectric.util.ReflectionHelpers.<Boolean>callInstanceMethod(card, "showsFocus"));
+                card.setPressed(true);
+                Springs.finish(card);
+                assertEquals("no press dip either", 1f, card.getScaleX(), 0f);
+            }
         }
     }
 

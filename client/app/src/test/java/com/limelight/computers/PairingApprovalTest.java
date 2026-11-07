@@ -394,6 +394,13 @@ public class PairingApprovalTest {
             // AppCompat's DialogTitle: one line, two in smaller text when that one is cut off.
             assertEquals("the title", 1, title.getMaxLines());
             assertEquals(android.text.TextUtils.TruncateAt.END, title.getEllipsize());
+            // Approving names the device again on the line under the title, while the PC answers.
+            TextView line = dialog.findViewById(R.id.pairing_pin_from);
+            for (int digit : new int[] {1, 2, 3, 4}) digit(dialog, digit).performClick();
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            assertTrue(line.getText().toString().contains("A long name"));
+            assertEquals("the waiting line", 2, line.getMaxLines());
+            assertEquals(android.text.TextUtils.TruncateAt.END, line.getEllipsize());
             dialog.dismiss();
         }
     }

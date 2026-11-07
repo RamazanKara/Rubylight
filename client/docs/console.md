@@ -21,7 +21,7 @@ To start on the PC list instead, turn off **Open on Home**. The bar under the to
 
 ## A game's page
 
-Select a game to see the PC it runs on and the settings the stream will use (resolution, frame rate, bitrate, and the profile layer that set each), then choose **Play** or **Resume**. If another game is running on that PC, the page says that playing this game will close it. **Close game** appears when the PC grants this device **Host control**; otherwise the page offers **Quit game**.
+Select a game to see the PC it runs on and the settings the stream will use (resolution, frame rate, bitrate, and the profile layer that set each), then choose **Play** or **Resume**. If another game is running on that PC, the page says that playing this game will close it. **Quit game** closes it: through the host when the PC grants this device **Host control**, otherwise the classic way.
 
 Starting a game while another is running closes the running game only after you confirm a prompt that names both games. A cancelled prompt or a remembered launch never closes a game. When the host asks for confirmation before closing a game, Nightjar shows that question to you and starts the new game once you confirm.
 
@@ -32,7 +32,7 @@ When the host lists a game as not installed, **Play** is unavailable and the pag
 On a TV the page keeps the backdrop that Home showed for the game. A row of chips above the title shows the state (**Running** or **Suspended**), the store (Steam, Epic, GOG, Microsoft), whether the game is installed, and HDR support. A screen reader reads the row as one item.
 
 <p align="center">
-  <img src="assets/shots/tv-game-page.png" width="720" alt="A game's page on a TV: chips for Running, Steam and Installed, the PC name Living-room PC under the title, the Resume, Add to favourites and Close game buttons, the stream settings 1920 x 1080, 60 FPS, 20 Mbps from the main settings, and the Quit the game when I leave the stream switch (demo library)">
+  <img src="assets/shots/tv-game-page.png" width="720" alt="A game's page on a TV: chips for Running, Steam and Installed, the PC name Living-room PC under the title, the Resume, Add to favourites and Quit game buttons, the stream settings 1920 x 1080, 60 FPS, 20 Mbps from the main settings, and the Quit the game when I leave the stream switch (demo library)">
 </p>
 
 ## On a TV
@@ -68,7 +68,7 @@ The device needs the **Can join co-op games** permission in the host's web UI. A
 
 Open the stream menu during a stream and choose **Session and graphics**:
 
-- **Session.** **Resume**, **Disconnect**, **End session**, and **Close game** with Host control (otherwise **Quit game**).
+- **Session.** **Resume**, **Disconnect**, **End session** and **Quit game** (through the host with Host control).
 - **Connection.** The host, codec, resolution, frame rate and bitrate, and your link: Wi-Fi generation, band and speed, Ethernet or mobile data, with the round-trip time.
 - **Radeon graphics.** The AMD driver features the host exposes, such as Anti-Lag and Radeon Chill.
 
@@ -90,7 +90,7 @@ Each setting shows the state the host reports:
 | Not supported | A note that the GPU or driver does not support it |
 | Temporarily unavailable | The reason; Nightjar asks again |
 
-You can change a setting when the host marks it configurable, the device has **Host control**, and you own the running session. Grant Host control to the device in the host's web UI. After a change, the panel shows the value the host reads back. Changes made during a stream are reverted when the session ends (End session, Close game, an expired grace period, unpairing or host shutdown), and the panel notes this next to the setting; **Disconnect** keeps the change until you resume or end the session. Settings this version of Nightjar does not recognize are still listed, drawn from their type. If the driver refuses a change, the reason appears next to the setting.
+You can change a setting when the host marks it configurable, the device has **Host control**, and you own the running session. Grant Host control to the device in the host's web UI. After a change, the panel shows the value the host reads back. Changes made during a stream are reverted when the session ends (End session, Quit game, an expired grace period, unpairing or host shutdown), and the panel notes this next to the setting; **Disconnect** keeps the change until you resume or end the session. Settings this version of Nightjar does not recognize are still listed, drawn from their type. If the driver refuses a change, the reason appears next to the setting.
 
 ## Navigation
 

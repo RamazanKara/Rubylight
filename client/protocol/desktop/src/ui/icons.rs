@@ -39,6 +39,11 @@ pub enum Icon {
     Back,
     Mic,
     Lock,
+    Video,
+    Sun,
+    Speaker,
+    Wifi,
+    App,
 }
 
 /// Draws `icon` into the square `rect` in `color`.
@@ -63,6 +68,31 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
     let dot = |x: f32, y: f32, r: f32| painter.circle_filled(p(x, y), r * s, color);
     let ring = |x: f32, y: f32, r: f32| painter.circle_stroke(p(x, y), r * s, stroke);
     match icon {
+        Icon::Video => {
+            painter.rect_stroke(Rect::from_min_max(p(2.8, 6.2), p(15.4, 17.8)), CornerRadius::same((3.0 * s) as u8), stroke, StrokeKind::Middle);
+            closed(vec![p(15.4, 11.0), p(21.2, 7.4), p(21.2, 16.6), p(15.4, 13.0)]);
+        }
+        Icon::Sun => {
+            ring(12.0, 12.0, 4.2);
+            for i in 0..8 {
+                let a = i as f32 * TAU / 8.0;
+                line(vec![p(12.0 + 7.0 * a.cos(), 12.0 + 7.0 * a.sin()), p(12.0 + 9.6 * a.cos(), 12.0 + 9.6 * a.sin())]);
+            }
+        }
+        Icon::Speaker => {
+            closed(vec![p(3.4, 9.4), p(7.4, 9.4), p(12.2, 5.2), p(12.2, 18.8), p(7.4, 14.6), p(3.4, 14.6)]);
+            line(arc(12.2, 12.0, 4.4, -0.8, 0.8));
+            line(arc(12.2, 12.0, 8.2, -0.8, 0.8));
+        }
+        Icon::Wifi => {
+            line(arc(12.0, 19.2, 7.2, -2.4, -0.74));
+            line(arc(12.0, 19.2, 12.8, -2.4, -0.74));
+            dot(12.0, 19.0, 1.5);
+        }
+        Icon::App => {
+            painter.rect_stroke(Rect::from_min_max(p(3.6, 3.6), p(20.4, 20.4)), CornerRadius::same((5.0 * s) as u8), stroke, StrokeKind::Middle);
+            line(vec![p(8.0, 12.0), p(16.0, 12.0)]);
+        }
         Icon::Search => {
             ring(10.8, 10.8, 6.4);
             line(vec![p(15.6, 15.6), p(20.4, 20.4)]);

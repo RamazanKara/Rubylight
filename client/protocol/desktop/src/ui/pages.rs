@@ -5,7 +5,6 @@ use super::*;
 
 impl Launcher {
     pub(super) fn shortcuts_page(&mut self, ui: &mut Ui, commands: &mut Vec<Command>) {
-        ui.label(tr("Send saved chords to the PC from stream controls. Import and export use Nightjar Android's shortcut format."));
         ui.horizontal(|ui| {
             let button = primary_button(ui, "New shortcut");
             if std::mem::take(&mut self.focus_screen) { button.request_focus(); }
@@ -84,9 +83,8 @@ impl Launcher {
 
     pub(super) fn controllers_page(&mut self, ui: &mut Ui, pads: &crate::gamepad::Gamepads, commands: &mut Vec<Command>) {
         use crate::gamepad::{AXIS_NAMES, BUTTON_MAP, BUTTON_NAMES, CONNECT_AS, MAX_TRIGGER_DEADZONE, Mapping};
-        ui.label(tr("Mappings apply to controllers of the same model. Local menu and disconnect chords always use physical buttons."));
         let selected = if self.controller_key.is_empty() { tr("Choose a controller") } else { &self.controller_mapping.name };
-        let chooser = egui::ComboBox::from_id_salt("controller-model").selected_text(selected).show_ui(ui, |ui| {
+        let chooser = Combo::from_id_salt("controller-model").selected_text(selected).show_ui(ui, |ui| {
             for pad in &pads.pads {
                 if ui.selectable_label(pad.key == self.controller_key, &pad.name).clicked() {
                     commands.push(Command::EditController { key: pad.key.clone(), name: pad.name.clone() });
@@ -125,7 +123,7 @@ impl Launcher {
             }
             let selected = CONNECT_AS.iter().find(|(kind, _)| *kind == mapping.connect_as).map_or(CONNECT_AS[0].1, |(_, label)| label);
             row(ui, "Connect as", "The controller type games see. Automatic uses the type the controller reports; pick another if games show the wrong buttons. Xbox sends no motion or touchpad.", |ui| {
-                egui::ComboBox::from_id_salt("connect-as").selected_text(tr(selected)).show_ui(ui, |ui| {
+                Combo::from_id_salt("connect-as").selected_text(tr(selected)).show_ui(ui, |ui| {
                     for (kind, label) in CONNECT_AS {
                         ui.selectable_value(&mut mapping.connect_as, kind, tr(label));
                     }
@@ -144,7 +142,7 @@ impl Launcher {
                 let selected = if source == 0 { tr("Disabled").to_owned() }
                     else if source < 0 { trf("{} (inverted)", &[&axis]) } else { axis.to_owned() };
                 row(ui, name, "Choose the physical axis that drives this output.", |ui| {
-                    egui::ComboBox::from_id_salt(("axis-mapping", i)).selected_text(selected).show_ui(ui, |ui| {
+                    Combo::from_id_salt(("axis-mapping", i)).selected_text(selected).show_ui(ui, |ui| {
                         ui.selectable_value(&mut mapping.axes[i], 0, tr("Disabled"));
                         let range = if i < 4 { 0..4 } else { 4..6 };
                         for j in range {
@@ -162,7 +160,7 @@ impl Launcher {
                     Some(flag) => tr(BUTTON_NAMES[BUTTON_MAP.iter().position(|b| *b == flag).expect("validated button")]),
                 };
                 row(ui, name, "Default follows the Nintendo layout setting. Explicit mappings take priority.", |ui| {
-                    egui::ComboBox::from_id_salt(("button-mapping", i)).selected_text(selected).show_ui(ui, |ui| {
+                    Combo::from_id_salt(("button-mapping", i)).selected_text(selected).show_ui(ui, |ui| {
                         ui.selectable_value(&mut mapping.buttons[i], None, tr("Default"));
                         ui.selectable_value(&mut mapping.buttons[i], Some(0), tr("Disabled"));
                         for (target, label) in BUTTON_MAP.iter().zip(BUTTON_NAMES) {
@@ -196,7 +194,6 @@ impl Launcher {
         let state = self.remote.state_for(id).cloned();
         let running = state == Some(CheckState::Running);
         column(ui, SETTINGS_W, |ui| {
-            ui.set_max_width(SETTINGS_W);
             section(ui, "Host");
             detail(ui, tr("Host software"), &software);
             ui.add_space(8.0);
@@ -271,7 +268,7 @@ impl Launcher {
         let mut choice = pinned.clone();
         let shown = pinned.clone().unwrap_or_else(|| tr("Automatic").to_owned());
         let chooser = row(ui, "Connection address", "Automatic tries the address that answered last, then the PC's other addresses. Choose one to always connect through it.", |ui| {
-            egui::ComboBox::from_id_salt("pinned-address").selected_text(shown).show_ui(ui, |ui| {
+            Combo::from_id_salt("pinned-address").selected_text(shown).show_ui(ui, |ui| {
                 ui.selectable_value(&mut choice, None, tr("Automatic"));
                 for address in &known {
                     ui.selectable_value(&mut choice, Some((*address).clone()), address.as_str());
@@ -490,13 +487,12 @@ impl Launcher {
     }
 
     pub(super) fn profiles_page(&mut self, ui: &mut Ui, commands: &mut Vec<Command>) {
-        ui.label(tr("Profiles change the settings used for your next stream. Each PC and game can override them."));
         let before_profiles = self.profiles.clone();
         let before = self.profiles.active;
         let active = self.profiles.entries.iter().find(|p| Some(p.id) == before)
             .map_or(tr("Main settings"), |p| p.name.as_str());
         row(ui, "Active profile", "Main settings apply wherever the profile has no override.", |ui| {
-            egui::ComboBox::from_id_salt("active-profile").selected_text(active).show_ui(ui, |ui| {
+            Combo::from_id_salt("active-profile").selected_text(active).show_ui(ui, |ui| {
                 ui.selectable_value(&mut self.profiles.active, None, tr("Main settings"));
                 for profile in &self.profiles.entries {
                     ui.selectable_value(&mut self.profiles.active, Some(profile.id), &profile.name);
@@ -523,7 +519,7 @@ impl Launcher {
                 ("home-profile", en("Home Wi-Fi"), &mut self.profiles.home), ("wifi-profile", en("Other Wi-Fi"), &mut self.profiles.wifi)] {
                 let name = self.profiles.entries.iter().find(|p| Some(p.id) == *selected).map_or(tr("Active profile"), |p| p.name.as_str());
                 row(ui, title, "An unset rule follows your active profile.", |ui| {
-                    egui::ComboBox::from_id_salt(id).selected_text(name).show_ui(ui, |ui| {
+                    Combo::from_id_salt(id).selected_text(name).show_ui(ui, |ui| {
                         ui.selectable_value(selected, None, tr("Active profile"));
                         for profile in &self.profiles.entries { ui.selectable_value(selected, Some(profile.id), &profile.name); }
                     }).response

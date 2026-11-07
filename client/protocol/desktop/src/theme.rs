@@ -794,11 +794,87 @@ pub fn slider<N: egui::emath::Numeric>(
     rail: impl FnOnce(egui::Slider<'_>) -> egui::Slider<'_>,
     field: impl FnOnce(egui::DragValue<'_>) -> egui::DragValue<'_>,
 ) -> egui::Response {
+    slider_along(ui, value, range, step, false, rail, field)
+}
+
+/// [`slider`] whose rail runs in equal ratios, for a value across orders of magnitude. The rail
+/// has to be told so with `logarithmic(true)` in `rail`.
+pub fn log_slider<N: egui::emath::Numeric>(
+    ui: &mut egui::Ui,
+    value: &mut N,
+    range: std::ops::RangeInclusive<N>,
+    step: f64,
+    rail: impl FnOnce(egui::Slider<'_>) -> egui::Slider<'_>,
+    field: impl FnOnce(egui::DragValue<'_>) -> egui::DragValue<'_>,
+) -> egui::Response {
+    slider_along(ui, value, range, step, true, rail, field)
+}
+
+/// Where `value` stands along a rail, 0 to 1. Only a range above zero runs in ratios here.
+fn rail_position(value: f64, low: f64, high: f64, ratios: bool) -> f32 {
+    let along = if ratios && low > 0.0 {
+        (value.max(low) / low).ln() / (high / low).ln()
+    } else {
+        (value - low) / (high - low)
+    };
+    if along.is_finite() { along.clamp(0.0, 1.0) as f32 } else { 0.0 }
+}
+
+fn slider_along<N: egui::emath::Numeric>(
+    ui: &mut egui::Ui,
+    value: &mut N,
+    range: std::ops::RangeInclusive<N>,
+    step: f64,
+    ratios: bool,
+    rail: impl FnOnce(egui::Slider<'_>) -> egui::Slider<'_>,
+    field: impl FnOnce(egui::DragValue<'_>) -> egui::DragValue<'_>,
+) -> egui::Response {
     ui.horizontal(|ui| {
-        let slid = ui.add(rail(egui::Slider::new(value, range.clone()).show_value(false)));
+        let (low, high) = (range.start().to_f64(), range.end().to_f64());
+        // egui's slider keeps the input; the rail and thumb are ours, a moon fill and a paper
+        // thumb, which egui's one colour for rail and thumb cannot draw.
+        let slid = ui.scope(|ui| {
+            ui.spacing_mut().slider_width = 150.0;
+            let v = ui.visuals_mut();
+            v.selection.bg_fill = Color32::TRANSPARENT;
+            for look in [&mut v.widgets.noninteractive, &mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
+                look.bg_fill = Color32::TRANSPARENT;
+                look.fg_stroke = Stroke::NONE;
+                look.bg_stroke = Stroke::NONE;
+            }
+            ui.add(rail(egui::Slider::new(value, range.clone()).show_value(false)))
+        }).inner;
+        let along = rail_position(value.to_f64(), low, high, ratios);
+        paint_rail(ui, &slid, along);
         slid | step_value(ui, value, range, step, field)
     })
     .inner
+}
+
+fn paint_rail(ui: &egui::Ui, slid: &egui::Response, along: f32) {
+    use crate::ui::design_tokens as t;
+    let rect = slid.rect;
+    // Where egui's slider has its thumb, so a drag stays under the pointer.
+    let reach = (rect.height() / 2.5).round();
+    let thumb_x = egui::lerp(rect.left() + reach..=rect.right() - reach, along);
+    let middle = rect.center().y;
+    let bar = egui::Rect::from_min_max(egui::pos2(rect.left(), middle - t::SIZE_SLIDER_TRACK / 2.0), egui::pos2(rect.right(), middle + t::SIZE_SLIDER_TRACK / 2.0));
+    let round = egui::CornerRadius::same((t::SIZE_SLIDER_TRACK / 2.0) as u8);
+    let high = high_contrast();
+    let painter = ui.painter();
+    painter.rect_filled(bar, round, if high { *SURFACE_HIGHEST } else { t::TINT_TRACK_FILL });
+    if high {
+        painter.rect_stroke(bar, round, Stroke::new(1.0, t::HC_COLOR_RIM), egui::StrokeKind::Outside);
+    }
+    let filled = egui::Rect::from_min_max(bar.min, egui::pos2(thumb_x, bar.bottom()));
+    painter.rect_filled(filled, round, *MOON);
+    let center = egui::pos2(thumb_x, middle);
+    painter.circle_filled(center + egui::vec2(0.0, 1.0), t::SIZE_SLIDER_THUMB / 2.0, Color32::from_black_alpha(70));
+    painter.circle_filled(center, t::SIZE_SLIDER_THUMB / 2.0, *PAPER);
+    if slid.has_focus() {
+        let spot = egui::Rect::from_center_size(center, egui::Vec2::splat(t::SIZE_SLIDER_THUMB));
+        crate::ui::focus_ring_around(ui, spot, (t::SIZE_SLIDER_THUMB / 2.0) as u8);
+    }
 }
 
 /// The mark as straight RGBA pixels, `size` square: the amber moon with the night bird cut
@@ -850,6 +926,18 @@ pub fn logo_image(size: usize) -> egui::ColorImage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The moon fill and thumb stand where egui's own hit area does: equal ratios for bitrate.
+    #[test]
+    fn a_rail_places_its_thumb_by_the_scale_it_runs_in() {
+        assert_eq!(rail_position(150.0, 100.0, 200.0, false), 0.5);
+        assert!((rail_position(1000.0, 100.0, 10_000.0, true) - 0.5).abs() < 1e-5);
+        assert_eq!(rail_position(50.0, 100.0, 200.0, true), 0.0);
+        assert_eq!(rail_position(900.0, 100.0, 200.0, false), 1.0);
+        // A range from zero cannot run in ratios, and an empty one has nowhere to go.
+        assert_eq!(rail_position(5.0, 0.0, 10.0, true), 0.5);
+        assert_eq!(rail_position(5.0, 5.0, 5.0, false), 0.0);
+    }
 
     #[test]
     fn bird_parses_into_a_closed_shape_inside_the_moon() {

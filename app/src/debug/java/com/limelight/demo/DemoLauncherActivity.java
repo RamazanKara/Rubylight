@@ -39,10 +39,9 @@ public final class DemoLauncherActivity extends Activity {
         // Day and dark take the system's setting out of the picture: the Theme setting's System would follow the device.
         String look = getIntent().getStringExtra("look");
         DemoContext.forceNight = DemoContext.nightOf(look);
-        android.preference.PreferenceManager.getDefaultSharedPreferences(this).edit()
-                .putBoolean(AppTheme.ALWAYS_DARK, "dark".equals(look))
-                .putBoolean(AppTheme.OLED_BLACK, "oled".equals(look))
-                .putBoolean(AppTheme.HIGH_CONTRAST, "contrast".equals(look))
+        // The PIN pad and the other real screens a demo reaches have no DemoContext: AppCompat carries the look to them.
+        androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(DemoContext.appCompatNightOf(look));
+        DemoContext.putLook(android.preference.PreferenceManager.getDefaultSharedPreferences(this).edit(), look)
                 .putString(com.limelight.ui.Motion.REDUCE_MOTION, getIntent().getBooleanExtra("reduced", false)
                         ? com.limelight.ui.Motion.REDUCE : com.limelight.ui.Motion.FOLLOW_SYSTEM)
                 .apply();
@@ -103,6 +102,10 @@ public final class DemoLauncherActivity extends Activity {
         // PIN lock (real pin_lock prefs of this install): "pin-set" opens the set-PIN pad; "pin-lock" sets the PIN
         // 1234 for opening the app (asked every time) and opens Home behind the app-entry pad; "pin-off" removes it.
         PinStore pin = new PinStore(getApplication());
+        // The pad is a real screen with this install's own preferences, so the look goes there too.
+        if (screen != null && screen.startsWith("pin-")) {
+            DemoContext.putLook(android.preference.PreferenceManager.getDefaultSharedPreferences(getApplication()).edit(), look).commit();
+        }
         if ("pin-set".equals(screen) || "pin-off".equals(screen)) {
             pin.removePin();
             pin.setMode(PinStore.Mode.OFF);

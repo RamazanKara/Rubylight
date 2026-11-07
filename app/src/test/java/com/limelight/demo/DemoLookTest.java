@@ -59,6 +59,15 @@ public class DemoLookTest {
         assertEquals(Configuration.UI_MODE_NIGHT_YES, DemoContext.nightOf("dark"));
         assertEquals(Configuration.UI_MODE_NIGHT_UNDEFINED, DemoContext.nightOf("oled"));
         assertEquals(Configuration.UI_MODE_NIGHT_UNDEFINED, DemoContext.nightOf(null));
+        android.content.SharedPreferences prefs = android.preference.PreferenceManager.getDefaultSharedPreferences(context());
+        DemoContext.putLook(prefs.edit(), "oled").commit();
+        assertTrue(com.limelight.ui.AppTheme.isOledBlack(context()));
+        DemoContext.putLook(prefs.edit(), "day").commit();
+        assertFalse(com.limelight.ui.AppTheme.isOledBlack(context()));
+        // A real screen the demo reaches, as the PIN pad, has no DemoContext and takes the look from AppCompat.
+        assertEquals(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO, DemoContext.appCompatNightOf("day"));
+        assertEquals(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES, DemoContext.appCompatNightOf("dark"));
+        assertEquals(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM, DemoContext.appCompatNightOf("oled"));
         assertFalse(context().getResources().getBoolean(R.bool.light_system_bars));
     }
 }

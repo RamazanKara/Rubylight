@@ -397,6 +397,26 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
         return anywhere != null ? anywhere : firstCard();
     }
 
+    /** A game is on several shelves: this card on this shelf, else the first place it is, or null. */
+    Cursor positionOfKey(String shelf, String key) {
+        for (int row = 0; row < shelves.size(); row++) {
+            if (!shelves.get(row).key.equals(shelf)) continue;
+            List<ShelfAdapter.Item> items = shelves.get(row).items;
+            for (int card = 0; card < items.size(); card++) {
+                if (items.get(card).key.equals(key)) return new Cursor(row, card);
+            }
+        }
+        return positionOfKey(key);
+    }
+
+    /** Every shelf starts at its first card again. */
+    void forgetScroll() {
+        scrolled.clear();
+        for (ShelfHolder holder : attached) {
+            if (holder.hero == null) holder.layout.scrollToPosition(0);
+        }
+    }
+
     /** Where the card with this stable id is, or null. */
     Cursor positionOfKey(String key) {
         for (int row = 0; row < shelves.size(); row++) {

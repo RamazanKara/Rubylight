@@ -5,3 +5,4 @@
 - Lost frames recover faster with HEVC and AV1 on D3D11VA, VA-API and software decoding: Nightjar asks the PC to stop referencing the lost frame instead of waiting for a full key frame. Software decoding asks for frames in slices it decodes in parallel.
 - Linux: on the GPU renderer, Vulkan video now decodes before VA-API, so HDR and 10-bit pictures (Steam Deck included) stay on the GPU instead of a round trip through memory.
 - Linux: the V4L2 decoders of ARM handhelds and boards hand each picture over with its own frame instead of one frame late, and the overlay's latency counts that wait.
+- Linux: where Vulkan video cannot decode the stream, VA-API pictures reach the GPU renderer mapped into its Vulkan device instead of being read back and uploaded, so 4K HDR at high frame rates no longer spends most of the frame copying through memory. If the mapping cannot be set up, the log says why and the pictures go through memory as before.

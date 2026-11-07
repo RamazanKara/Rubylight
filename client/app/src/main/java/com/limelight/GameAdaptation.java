@@ -246,17 +246,20 @@ final class GameAdaptation {
     }
 
     // The stream menu's slider settled: as the matching dialog's OK, on whichever path this stream changes its bitrate.
-    void applyBitrateFromMenu(int kbps) {
+    // Answers the rate the slider is to show: a rate not sent snaps it back to the one applied.
+    int applyBitrateFromMenu(int kbps) {
         if (game.rateChanges != null) {
             sendRateChange(game.rateChanges, kbps, 0);
-            return;
+            return kbps;
         }
+        int applied = game.currentBitrate == 0 ? game.prefConfig.bitrate : game.currentBitrate;
         if (game.hostActionInProgress) {
             game.messages.alert(R.string.stream_bitrate_busy, Toast.LENGTH_SHORT);
-            return;
+            return applied;
         }
-        if (!game.foreground || !game.connected) return;
+        if (!game.foreground || !game.connected) return applied;
         sendManualBitrate(kbps);
+        return kbps;
     }
 
     private void sendManualBitrate(int kbps) {

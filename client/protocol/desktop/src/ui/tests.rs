@@ -6930,7 +6930,8 @@ fn try_again_leaves_homes_row_in_the_smallest_window() {
 #[test]
 fn homes_play_says_what_stops_it_and_recovers() {
     let entry = nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) };
-    let cases: [(fn() -> Apps, &str); 2] = [
+    type Case = (fn() -> Apps, &'static str);
+    let cases: [Case; 2] = [
         (|| Apps::Failed("The PC did not answer".into()), "The app list could not be loaded. The PC did not answer"),
         (|| Apps::Loaded(vec![game(77)]), "The PC's app list has no entry for this game."),
     ];
@@ -6949,7 +6950,7 @@ fn homes_play_says_what_stops_it_and_recovers() {
             let at = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1);
             let retry = at(&f, "Try again").unwrap_or_else(|| panic!("{screen}: {:?}", f.drawn));
             assert!(at(&f, why).unwrap().bottom() <= at(&f, "Play").unwrap().top() + 1.0, "{screen}: above the buttons");
-            assert!(at(&f, "Game 00").map_or(true, |t| t.bottom() <= at(&f, why).unwrap().top()), "{screen}: under the title");
+            assert!(at(&f, "Game 00").is_none_or(|t| t.bottom() <= at(&f, why).unwrap().top()), "{screen}: under the title");
             // The press reads the list again, also one that came without the game.
             let commands = f.click_at(retry.center(), egui::PointerButton::Primary);
             assert!(commands.iter().any(|c| matches!(c, Command::ReadAppsAgain(host) if *host == pc)), "{screen}");

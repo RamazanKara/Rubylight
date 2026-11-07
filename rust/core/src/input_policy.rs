@@ -14,6 +14,11 @@ pub const VHF_DS4: u16 = 5;
 /// The VHF driver's DualSense, the only virtual pad with adaptive triggers.
 pub const VHF_DUALSENSE: u16 = 6;
 pub const VHF_SWITCH: u16 = 7;
+/// An Xbox 360 pad on ViGEmBus, separately installed (`gamepad = vigem_x360`):
+/// an emulated USB device for tools that don't see a VHF pad (#74).
+pub const VIGEM_X360: u16 = 8;
+/// What ViGEmBus offers, as a bit per profile.
+pub const VIGEM_PROFILES: u32 = 1 << (VIGEM_X360 - 1);
 /// Moonlight's `LI_CTYPE_STEAM`: a Valve controller such as the Steam Deck,
 /// with an Xbox layout, two trackpads, motion sensors and back grips.
 pub const CTYPE_STEAM: u8 = 4;
@@ -126,6 +131,7 @@ pub fn gamepad_profile(value: &str) -> u16 {
         "usbip_ds5" => USBIP_DUALSENSE,
         "vhf_switch" => VHF_SWITCH,
         "vhf" => VHF_AUTO,
+        "vigem_x360" => VIGEM_X360,
         other => {
             crate::config::fallback("gamepad", other, "auto");
             0
@@ -353,6 +359,22 @@ impl BackButton {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// #74: the chosen ViGEmBus pad is the only one its driver is asked for,
+    /// whatever the client is, and the retired names stay VHF pads.
+    #[test]
+    fn vigem_x360_is_chosen_by_name_only_and_never_replaced() {
+        assert_eq!(gamepad_profile("vigem_x360"), VIGEM_X360);
+        assert_eq!(gamepad_profile("x360"), VHF_XBOX_ONE);
+        let policy = Policy::resolve(&Config::default()).unwrap();
+        for kind in 0..=4 {
+            for caps in [0, 8, 0x30, 0x38] {
+                assert_eq!(
+                    policy.controller_profile(VIGEM_X360, kind, caps, VIGEM_PROFILES),
+                    Some(VIGEM_X360)
+                );
+            }
+        }
+    }
     #[test]
     fn retired_vigem_choices_select_the_vhf_pad_of_their_family() {
         assert_eq!(gamepad_profile("x360"), VHF_XBOX_ONE);

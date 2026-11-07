@@ -9,6 +9,22 @@ use std::{
 };
 use windows::Win32::Storage::FileSystem::WriteFile;
 
+/// #74: without ViGEmBus the chosen pad fails and says what to do; no VHF pad
+/// stands in, which the tool it was chosen for wouldn't see either.
+#[test]
+fn a_chosen_vigem_pad_without_its_driver_says_what_to_install() {
+    let Err(error) = Backend::vigem(Err(anyhow::anyhow!("ViGEmBus is not installed"))) else {
+        panic!("a backend without its driver");
+    };
+    let message = format!("{error:#}");
+    assert!(message.contains("nefarius/ViGEmBus/releases"), "{message}");
+    assert!(
+        message.contains("choose another controller type"),
+        "{message}"
+    );
+    assert!(message.ends_with("ViGEmBus is not installed"), "{message}");
+}
+
 #[test]
 fn only_an_empty_feedback_queue_is_not_a_poll_failure() {
     assert!(

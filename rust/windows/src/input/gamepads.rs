@@ -754,6 +754,7 @@ fn poll_feedback(
 }
 fn profile_name(profile: u16) -> &'static str {
     match profile {
+        butterpollo_core::input_policy::VIGEM_X360 => "vigem_x360",
         3 => "vhf_xbox_one",
         4 => "vhf_xbox",
         5 => "vhf_ds4",

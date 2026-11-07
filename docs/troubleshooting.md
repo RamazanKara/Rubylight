@@ -255,11 +255,15 @@ Check the stream card in the console first.
 - **"…its device permissions do not allow it"**: the device lacks that input permission. Devices paired after the first get the permissions chosen at pairing (**Watch only** has no input), or view-only permissions when no choice was made. Turn on **Controllers** (or Touch, Pen, Mouse, Keyboard) for it under **Devices**, then reconnect.
 - **"Virtual gamepad driver unavailable"**: the VHF gamepad driver could not be opened. Run the installer again with the gamepad driver selected.
 
+## reWASD or another tool doesn't see the virtual controller
+
+Windows lists the standard pads as HID devices of a virtual driver, not as USB devices, and some tools only look for USB controllers. Choose **Xbox 360 (ViGEmBus)** as the [controller type](configuration.md#controllers), with ViGEmBus installed: that pad is an emulated USB device. We have no reWASD to test it with; tell us if it still doesn't show up.
+
 ## Steam shows two controllers
 
 Some Steam builds list one VHF Xbox controller twice: Steam's SDL controller discovery races its XInput and GameInput backends for the same device. Start+Select may then open both Xbox Game Bar and Steam's keyboard. SDL has an [upstream fix](https://github.com/libsdl-org/SDL/commit/c4cfb739), and users report that the Steam beta, which includes it, lists the pad once; switch to it under Steam → Settings → Interface → Client Beta Participation until the stable client carries the fix.
 
-Steam's `logs/controller.txt` shows each arrival. Rubylight no longer uses ViGEmBus, which earlier releases offered as a workaround; an installed copy can be uninstalled.
+Steam's `logs/controller.txt` shows each arrival. Rubylight uses ViGEmBus only when you choose Xbox 360 (ViGEmBus) as the [controller type](configuration.md#controllers); otherwise an installed copy can be uninstalled.
 
 ## A Steam Deck has no gyro, trackpads or back grips
 

@@ -1,22 +1,36 @@
 use super::gamepads::{GamepadTouchRequest, request};
-use super::open_interface;
-use anyhow::{Result, bail};
-use butterpollo_core::input_policy::{USBIP_DUALSENSE, VHF_AUTO};
+use super::{open_interface, vigem};
+use anyhow::{Context, Result, bail};
+use butterpollo_core::input_policy::{USBIP_DUALSENSE, VHF_AUTO, VIGEM_PROFILES, VIGEM_X360};
 use windows::{
     Win32::{Foundation::*, System::IO::DeviceIoControl},
     core::GUID,
 };
 
-/// The VHF gamepad driver, which the installer brings: Xbox One, Xbox
-/// Series, DualShock 4, DualSense and Switch Pro pads in 16 slots.
-pub(super) struct Backend(Option<HANDLE>);
+/// What a chosen ViGEmBus pad says without the driver: it never stands in
+/// another pad, which a tool waiting for this one wouldn't see either (#74).
+const VIGEM_MISSING: &str = "the chosen Xbox 360 (ViGEmBus) controller needs ViGEmBus, which Rubylight doesn't install: install it from github.com/nefarius/ViGEmBus/releases, or choose another controller type";
+
+pub(super) enum Backend {
+    /// The VHF gamepad driver, which the installer brings: Xbox One, Xbox
+    /// Series, DualShock 4, DualSense and Switch Pro pads in 16 slots.
+    Vhf(Option<HANDLE>),
+    /// ViGEmBus, only when `gamepad = vigem_x360` asks for it.
+    Vigem(vigem::Client),
+}
 impl Backend {
+    fn vigem(client: Result<vigem::Client>) -> Result<(Self, u32)> {
+        Ok((Self::Vigem(client.context(VIGEM_MISSING)?), VIGEM_PROFILES))
+    }
     /// Returns the profiles the installed driver offers, as a bit per profile.
     pub(super) fn open(profile: u16) -> Result<(Self, u32)> {
         if profile == USBIP_DUALSENSE {
-            return Ok((Self(None), 1 << 5));
+            return Ok((Self::Vhf(None), 1 << 5));
         }
-        let mut backend = Self(Some(open_interface(GUID::from_u128(
+        if profile == VIGEM_X360 {
+            return Self::vigem(vigem::Client::open());
+        }
+        let mut backend = Self::Vhf(Some(open_interface(GUID::from_u128(
             0x27debbf5_1d1e_4e9c_906d_d104b1418b2b,
         ))?));
         let out = backend.ioctl(0x800, &request(8, None), 28)?;
@@ -30,7 +44,10 @@ impl Backend {
         Ok((backend, available))
     }
     pub(super) fn name(&self) -> &'static str {
-        "VHF"
+        match self {
+            Self::Vhf(_) => "VHF",
+            Self::Vigem(_) => "ViGEmBus",
+        }
     }
     fn ioctl(
         &mut self,
@@ -44,8 +61,10 @@ impl Backend {
             let mut result = vec![0; output];
             let mut n = 0;
             DeviceIoControl(
-                self.0
-                    .ok_or_else(|| windows::core::Error::from_hresult(E_HANDLE))?,
+                match self {
+                    Self::Vhf(Some(handle)) => *handle,
+                    _ => return Err(windows::core::Error::from_hresult(E_HANDLE)),
+                },
                 (0x22 << 16) | (3 << 14) | (function << 2),
                 Some(data.as_ptr().cast()),
                 data.len() as u32,
@@ -59,6 +78,9 @@ impl Backend {
         }
     }
     pub(super) fn plug(&mut self, slot: u32, profile: u16) -> Result<()> {
+        if let Self::Vigem(client) = self {
+            return client.plug(slot);
+        }
         let mut b = request(16, Some(slot));
         b.extend_from_slice(&profile.to_le_bytes());
         b.extend_from_slice(&0u16.to_le_bytes());
@@ -66,6 +88,9 @@ impl Backend {
         Ok(())
     }
     pub(super) fn unplug(&mut self, slot: u32) -> Result<()> {
+        if let Self::Vigem(client) = self {
+            return client.unplug(slot);
+        }
         self.ioctl(0x802, &request(12, Some(slot)), 0)?;
         Ok(())
     }
@@ -77,6 +102,9 @@ impl Backend {
         right: u8,
         sticks: &[i16; 4],
     ) -> Result<()> {
+        if let Self::Vigem(client) = self {
+            return client.submit(slot, buttons, left, right, sticks);
+        }
         let mut b = request(28, Some(slot));
         b.extend_from_slice(&buttons.to_le_bytes());
         for stick in sticks {
@@ -108,6 +136,9 @@ impl Backend {
         Ok(())
     }
     pub(super) fn feedback(&mut self, slot: u32) -> Result<Option<(u16, Vec<u8>)>> {
+        if let Self::Vigem(client) = self {
+            return client.feedback(slot);
+        }
         decode_feedback(self.ioctl(0x804, &request(12, Some(slot)), 48))
     }
 }
@@ -134,8 +165,8 @@ impl Drop for Backend {
         // SAFETY: open_interface transferred this handle to Backend, which closes it
         // exactly once after its synchronous I/O has completed.
         unsafe {
-            if let Some(handle) = self.0 {
-                let _ = CloseHandle(handle);
+            if let Self::Vhf(Some(handle)) = self {
+                let _ = CloseHandle(*handle);
             }
         }
     }

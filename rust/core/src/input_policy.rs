@@ -159,6 +159,10 @@ pub struct Policy {
     /// What each back grip presses, in [`PADDLES`] order.
     pub back_grips: [Option<GripTarget>; 4],
     pub steam_deck: DeckPad,
+    /// The profile of a Nucleus Co-op session's pads: Xbox pads whatever the
+    /// clients' controllers are, since only those reach XInput, and the
+    /// ViGEmBus one when `gamepad` chose it.
+    pub session_pad: u16,
     pub keybindings: BTreeMap<u16, u16>,
 }
 impl Policy {
@@ -222,6 +226,10 @@ impl Policy {
             back_button_timeout: back_button_timeout(config),
             back_grips: BACK_GRIP_KEYS.map(|key| grip_target(key, config.get(key, "none"))),
             steam_deck: deck_pad(config.get("steam_deck_controller", "auto")),
+            session_pad: match config.get("gamepad", "auto") {
+                "vigem_x360" => VIGEM_X360,
+                _ => VHF_XBOX_SERIES,
+            },
             keybindings,
         })
     }
@@ -374,6 +382,16 @@ mod tests {
                 );
             }
         }
+        assert_eq!(policy.session_pad, VHF_XBOX_SERIES);
+        for other in ["vhf_ds5", "usbip_ds5", "x360"] {
+            let config = Config::parse(&format!("gamepad={other}\n")).unwrap();
+            assert_eq!(
+                Policy::resolve(&config).unwrap().session_pad,
+                VHF_XBOX_SERIES
+            );
+        }
+        let config = Config::parse("gamepad=vigem_x360\n").unwrap();
+        assert_eq!(Policy::resolve(&config).unwrap().session_pad, VIGEM_X360);
     }
     #[test]
     fn retired_vigem_choices_select_the_vhf_pad_of_their_family() {

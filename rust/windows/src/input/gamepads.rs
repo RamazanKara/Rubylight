@@ -110,6 +110,40 @@ fn reclaim(slots: &mut [bool; 16], mut unplug: impl FnMut(u32) -> Result<()>) {
             }
         });
 }
+/// Plugs a pad into a free slot of `slots`, reserved first: a driver can take
+/// seconds, and other clients and teardowns need the lock meanwhile. With
+/// `every_slot` a slot the driver refuses is followed by the next; the last
+/// refusal comes back, or None when no slot was free.
+fn plug_in_free_slot(
+    slots: &std::sync::Mutex<[bool; 16]>,
+    every_slot: bool,
+    mut plug: impl FnMut(u16) -> Result<()>,
+) -> Result<Option<u16>> {
+    let mut failed = None;
+    let mut next = 0;
+    loop {
+        let global = {
+            let mut slots = slots.lock().unwrap();
+            let Some(free) = (next..16u16).find(|&global| !slots[global as usize]) else {
+                break;
+            };
+            slots[free as usize] = true;
+            free
+        };
+        next = global + 1;
+        match plug(global) {
+            Ok(()) => return Ok(Some(global)),
+            Err(error) => {
+                slots.lock().unwrap()[global as usize] = false;
+                if !every_slot {
+                    return Err(error);
+                }
+                failed = Some(error);
+            }
+        }
+    }
+    failed.map_or(Ok(None), Err)
+}
 impl Slot {
     pub(super) fn reserve() -> Result<Self> {
         let mut slots = SLOTS.lock().unwrap();
@@ -174,8 +208,9 @@ impl Gamepads {
     /// the `steam_deck_controller` setting and the host allow it. Returns
     /// whether controller `id` is one.
     fn ensure_deck(&mut self, id: u16) -> Result<bool> {
-        use butterpollo_core::input_policy::{CTYPE_STEAM, DeckPad};
-        if self.profile == butterpollo_core::input_policy::USBIP_DUALSENSE {
+        use butterpollo_core::input_policy::{CTYPE_STEAM, DeckPad, USBIP_DUALSENSE, VIGEM_X360};
+        // A pad chosen by name is the one every client gets.
+        if matches!(self.profile, USBIP_DUALSENSE | VIGEM_X360) {
             return Ok(false);
         }
         if self.decks.contains_key(&id) {
@@ -261,41 +296,38 @@ impl Gamepads {
             self.pointers.retain(|(pad, _), _| u16::from(*pad) != id);
             SLOTS.lock().unwrap()[global as usize] = false;
         }
-        let mut slots = SLOTS.lock().unwrap();
-        reclaim(&mut slots, |global| self.backend.unplug(global));
-        let mut failed = None;
-        for global in 0..16u16 {
-            if slots[global as usize] {
-                continue;
+        reclaim(&mut SLOTS.lock().unwrap(), |global| {
+            self.backend.unplug(global)
+        });
+        let every_slot = self.backend.every_slot_differs();
+        let plugged = plug_in_free_slot(&SLOTS, every_slot, |global| {
+            self.backend.plug(u32::from(global), profile)
+        });
+        // The driver's own reason, not slot exhaustion, when it refused.
+        let global = match plugged {
+            Ok(Some(global)) => global,
+            Ok(None) => bail!("no free virtual controller slots"),
+            Err(error) => {
+                return Err(error.context(format!(
+                    "the gamepad driver could not plug a {} controller",
+                    profile_name(profile)
+                )));
             }
-            if let Err(error) = self.backend.plug(u32::from(global), profile) {
-                failed = Some(error);
-                continue;
-            }
-            slots[global as usize] = true;
-            self.active.insert(id, global);
-            self.profiles.insert(id, profile);
-            if let Some(warning) = switch_fallback(self.profile, kind, capabilities, profile) {
-                self.warnings.set("input_switch", warning);
-            }
-            tracing::info!(
-                controller = id,
-                client_type = kind,
-                capabilities = format!("{capabilities:#x}"),
-                backend = self.backend.name(),
-                profile = profile_name(profile),
-                "virtual controller connected"
-            );
-            return Ok(());
+        };
+        self.active.insert(id, global);
+        self.profiles.insert(id, profile);
+        if let Some(warning) = switch_fallback(self.profile, kind, capabilities, profile) {
+            self.warnings.set("input_switch", warning);
         }
-        // The driver's own reason, not slot exhaustion, when it refused every free slot.
-        match failed {
-            Some(error) => Err(error.context(format!(
-                "the gamepad driver could not plug a {} controller",
-                profile_name(profile)
-            ))),
-            None => bail!("no free virtual controller slots"),
-        }
+        tracing::info!(
+            controller = id,
+            client_type = kind,
+            capabilities = format!("{capabilities:#x}"),
+            backend = self.backend.name(),
+            profile = profile_name(profile),
+            "virtual controller connected"
+        );
+        Ok(())
     }
     fn ensure_dualsense(&mut self, id: u16) -> Result<bool> {
         use butterpollo_core::{
@@ -880,7 +912,6 @@ impl Drop for Gamepads {
         for (i, global) in self.active.clone() {
             match self.backend.unplug(u32::from(global)) {
                 Ok(()) => SLOTS.lock().unwrap()[global as usize] = false,
-                // Its slot stays reserved and is tried again before the next plug.
                 Err(error) => {
                     tracing::warn!(
                         controller = i,
@@ -888,7 +919,13 @@ impl Drop for Gamepads {
                         error = format!("{error:#}"),
                         "virtual controller removal failed as its session ended"
                     );
-                    STRANDED.lock().unwrap().insert(global);
+                    // The driver removes it with this client's handle, or its
+                    // slot stays reserved and is tried again before the next plug.
+                    if self.backend.frees_pads_on_close() {
+                        SLOTS.lock().unwrap()[global as usize] = false;
+                    } else {
+                        STRANDED.lock().unwrap().insert(global);
+                    }
                 }
             }
         }

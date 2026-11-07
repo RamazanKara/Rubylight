@@ -254,6 +254,7 @@ Check the stream card in the console first.
 
 - **"…its device permissions do not allow it"**: the device lacks that input permission. Devices paired after the first get the permissions chosen at pairing (**Watch only** has no input), or view-only permissions when no choice was made. Turn on **Controllers** (or Touch, Pen, Mouse, Keyboard) for it under **Devices**, then reconnect.
 - **"Virtual gamepad driver unavailable"**: the VHF gamepad driver could not be opened. Run the installer again with the gamepad driver selected.
+- **"Xbox 360 (ViGEmBus) controller unavailable"**: that controller type is chosen and ViGEmBus could not be opened. The installer doesn't bring it: install [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases), or choose another controller type.
 
 ## reWASD or another tool doesn't see the virtual controller
 

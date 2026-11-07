@@ -344,6 +344,74 @@ fn a_pad_that_will_not_unplug_at_session_end_keeps_its_slot_until_it_does() {
     assert!(!slots[global as usize]);
     assert!(!STRANDED.lock().unwrap().contains(&global));
 }
+/// #74: a Deck client gets the pad chosen by name, whatever a Deck may get
+/// otherwise, and hears nothing about one.
+#[test]
+fn a_chosen_vigem_pad_is_never_replaced_by_a_steam_deck_pad() {
+    use butterpollo_core::input_policy::{CTYPE_STEAM, DeckPad, VIGEM_PROFILES, VIGEM_X360};
+    let mut pads = broken_pads();
+    pads.profile = VIGEM_X360;
+    pads.available = VIGEM_PROFILES;
+    pads.policy.steam_deck = DeckPad::SteamDeck;
+    pads.arrivals.insert(0, (CTYPE_STEAM, 0));
+    assert!(!pads.ensure_deck(0).unwrap());
+    assert!(pads.deck_failed.is_empty(), "it never tried");
+    assert!(pads.warnings.snapshot().is_empty());
+}
+#[test]
+fn a_plug_keeps_the_slots_free_and_stops_where_the_driver_says_so() {
+    let slots = std::sync::Mutex::new([false; 16]);
+    slots.lock().unwrap()[0] = true;
+    // Not held while the driver works, and the slot is taken by then.
+    let plugged = plug_in_free_slot(&slots, true, |global| {
+        assert_eq!(global, 1);
+        assert!(slots.try_lock().unwrap()[1], "reserved during the plug");
+        Ok(())
+    });
+    assert_eq!(plugged.unwrap(), Some(1));
+    assert!(slots.lock().unwrap()[1]);
+    // A driver for which the slot doesn't matter is asked once and the slot
+    // comes back; one for which it does, in every free slot.
+    let mut tried = vec![];
+    let refused = plug_in_free_slot(&slots, false, |global| {
+        tried.push(global);
+        anyhow::bail!("refused")
+    });
+    assert_eq!(refused.unwrap_err().to_string(), "refused");
+    assert_eq!(tried, [2]);
+    assert!(!slots.lock().unwrap()[2]);
+    let mut tried = vec![];
+    let refused = plug_in_free_slot(&slots, true, |global| {
+        tried.push(global);
+        anyhow::bail!("refused {global}")
+    });
+    assert_eq!(refused.unwrap_err().to_string(), "refused 15");
+    assert_eq!(tried, (2..16).collect::<Vec<_>>());
+    assert_eq!(
+        slots.lock().unwrap().iter().filter(|used| **used).count(),
+        2
+    );
+    // No free slot is not a refusal.
+    *slots.lock().unwrap() = [true; 16];
+    assert_eq!(
+        plug_in_free_slot(&slots, true, |_| unreachable!()).unwrap(),
+        None
+    );
+}
+/// A ViGEmBus pad goes with its client's handle: its slot isn't reserved for
+/// a later unplug no other client could do.
+#[test]
+fn a_vigem_pad_that_will_not_unplug_frees_its_slot_with_its_client() {
+    let slot = Slot::reserve().unwrap();
+    let global = slot.id();
+    std::mem::forget(slot);
+    let mut pads = broken_pads();
+    pads.backend = gamepad_backend::Backend::Vigem(vigem::Client::detached().unwrap());
+    pads.active.insert(0, global);
+    drop(pads);
+    assert!(!STRANDED.lock().unwrap().contains(&global));
+    assert!(!SLOTS.lock().unwrap()[global as usize]);
+}
 #[test]
 fn a_nintendo_controller_without_the_switch_profile_is_warned_about() {
     use butterpollo_core::input_policy::{VHF_DS4, VHF_DUALSENSE, VHF_SWITCH, VHF_XBOX_SERIES};

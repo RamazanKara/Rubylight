@@ -593,7 +593,11 @@ fn run<P: Pads>(
                         pads = Some(opened);
                     }
                     Err(error) => {
-                        shared.warnings.lock().unwrap().set("input_gamepad", format!("Virtual gamepad driver unavailable ({error:#}); controller input is ignored while keyboard and mouse remain available. Run Rubylight setup again with the gamepad driver selected to restore it."));
+                        shared
+                            .warnings
+                            .lock()
+                            .unwrap()
+                            .set("input_gamepad", super::gamepad_backend::unavailable(&error));
                         retry = Some(now + RETRY);
                         continue;
                     }

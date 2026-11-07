@@ -7,9 +7,29 @@ use windows::{
     core::GUID,
 };
 
-/// What a chosen ViGEmBus pad says without the driver: it never stands in
-/// another pad, which a tool waiting for this one wouldn't see either (#74).
-const VIGEM_MISSING: &str = "the chosen Xbox 360 (ViGEmBus) controller needs ViGEmBus, which Rubylight doesn't install: install it from github.com/nefarius/ViGEmBus/releases, or choose another controller type";
+/// A chosen ViGEmBus pad without the driver: no other pad stands in, which a
+/// tool waiting for this one wouldn't see either (#74).
+#[derive(Debug)]
+struct VigemMissing;
+impl std::fmt::Display for VigemMissing {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("ViGEmBus could not be opened")
+    }
+}
+
+/// What the stream says about a driver that won't open, with what fixes it.
+pub(super) fn unavailable(error: &anyhow::Error) -> String {
+    const IGNORED: &str = "controller input is ignored while keyboard and mouse remain available";
+    if error.downcast_ref::<VigemMissing>().is_some() {
+        format!(
+            "Xbox 360 (ViGEmBus) controller unavailable ({error:#}); {IGNORED}. Rubylight doesn't install ViGEmBus: install it from github.com/nefarius/ViGEmBus/releases, or choose another controller type."
+        )
+    } else {
+        format!(
+            "Virtual gamepad driver unavailable ({error:#}); {IGNORED}. Run Rubylight setup again with the gamepad driver selected to restore it."
+        )
+    }
+}
 
 pub(super) enum Backend {
     /// The VHF gamepad driver, which the installer brings: Xbox One, Xbox
@@ -20,7 +40,17 @@ pub(super) enum Backend {
 }
 impl Backend {
     fn vigem(client: Result<vigem::Client>) -> Result<(Self, u32)> {
-        Ok((Self::Vigem(client.context(VIGEM_MISSING)?), VIGEM_PROFILES))
+        Ok((Self::Vigem(client.context(VigemMissing)?), VIGEM_PROFILES))
+    }
+    /// Whether another slot may help when the driver refuses one: each VHF
+    /// slot is the driver's own, and ViGEmBus has none.
+    pub(super) fn every_slot_differs(&self) -> bool {
+        matches!(self, Self::Vhf(_))
+    }
+    /// Whether the driver removes a client's pads as its handle closes, as
+    /// ViGEmBus does.
+    pub(super) fn frees_pads_on_close(&self) -> bool {
+        matches!(self, Self::Vigem(_))
     }
     /// Returns the profiles the installed driver offers, as a bit per profile.
     pub(super) fn open(profile: u16) -> Result<(Self, u32)> {

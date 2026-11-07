@@ -74,8 +74,11 @@ fn control(bus: HANDLE, code: u32, data: &[u8]) -> Result<()> {
         if WaitForSingleObject(handle(&event), 10_000) != WAIT_OBJECT_0 {
             let _ = CancelIoEx(bus, Some(&overlapped));
             // Cancellation is asynchronous: the kernel must release the input
-            // buffer and OVERLAPPED before their storage goes away.
-            let _ = GetOverlappedResult(bus, &overlapped, &mut transferred, true);
+            // buffer and OVERLAPPED before their storage goes away. A request
+            // that finished meanwhile did what it asked, late.
+            if GetOverlappedResult(bus, &overlapped, &mut transferred, true).is_ok() {
+                return Ok(());
+            }
             bail!("ViGEmBus request {code:#x} timed out");
         }
         GetOverlappedResult(bus, &overlapped, &mut transferred, false)?;
@@ -330,6 +333,14 @@ impl Client {
             bus: open_bus()?,
         })
     }
+    /// A client without the driver, on a handle no request works on.
+    #[cfg(test)]
+    pub(super) fn detached() -> Result<Self> {
+        Ok(Self {
+            targets: BTreeMap::new(),
+            bus: event()?,
+        })
+    }
     fn target(&mut self, slot: u32) -> Result<&mut Target> {
         self.targets
             .get_mut(&slot)
@@ -350,6 +361,10 @@ impl Client {
                     .downcast_ref::<windows::core::Error>()
                     .is_some_and(|error| error.code() == ERROR_INVALID_PARAMETER.to_hresult())
                 {
+                    // A refused request may still have got as far as a pad.
+                    if let Err(undo) = control(bus, UNPLUG, &packet(8, serial)) {
+                        tracing::debug!(%undo, serial, "no ViGEm target to take back");
+                    }
                     return Err(error.context("could not plug ViGEm target"));
                 }
                 last_error = error;

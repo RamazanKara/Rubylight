@@ -16,13 +16,18 @@ fn a_chosen_vigem_pad_without_its_driver_says_what_to_install() {
     let Err(error) = Backend::vigem(Err(anyhow::anyhow!("ViGEmBus is not installed"))) else {
         panic!("a backend without its driver");
     };
-    let message = format!("{error:#}");
+    let message = unavailable(&error);
+    assert!(message.contains("ViGEmBus is not installed"), "{message}");
     assert!(message.contains("nefarius/ViGEmBus/releases"), "{message}");
     assert!(
         message.contains("choose another controller type"),
         "{message}"
     );
-    assert!(message.ends_with("ViGEmBus is not installed"), "{message}");
+    assert!(!message.contains("Rubylight setup"), "{message}");
+    // Setup does bring the other driver.
+    let message = unavailable(&anyhow::anyhow!("no interface"));
+    assert!(message.contains("no interface"), "{message}");
+    assert!(message.contains("Rubylight setup"), "{message}");
 }
 
 #[test]

@@ -159,18 +159,16 @@ impl Pads for SessionPads {
     }
 }
 
-/// The session's pads on the PC: virtual Xbox Series pads, whatever the
-/// clients' controllers are, since only Xbox pads reach XInput.
+/// The session's pads on the PC: [`Policy::session_pad`], whatever the
+/// clients' controllers are.
+///
+/// [`Policy::session_pad`]: butterpollo_core::input_policy::Policy::session_pad
 pub fn virtual_pads(
     policy: butterpollo_core::input_policy::Policy,
     warnings: Arc<Warnings>,
 ) -> Result<SessionPads> {
-    let thread = GamepadThread::new(
-        butterpollo_core::input_policy::VHF_XBOX_SERIES,
-        policy,
-        warnings.clone(),
-    )
-    .context("start the virtual controllers for Nucleus Co-op")?;
+    let thread = GamepadThread::new(policy.session_pad, policy, warnings.clone())
+        .context("start the virtual controllers for Nucleus Co-op")?;
     Ok(session_pads(thread, warnings))
 }
 
@@ -916,6 +914,36 @@ pub(crate) mod tests {
         let deadline = Instant::now() + PLUG_TIMEOUT;
         while xinput.connected()? != before {
             ensure!(Instant::now() < deadline, "the pads did not unplug");
+            std::thread::sleep(POLL);
+        }
+        Ok(())
+    }
+
+    /// #74: `gamepad = vigem_x360` holds in a co-op or background stream too.
+    #[test]
+    #[ignore = "plugs a pad on the installed ViGEmBus; needs an idle host"]
+    fn a_session_with_the_vigem_pad_plugs_one_on_this_pc() -> Result<()> {
+        let config = butterpollo_core::config::Config::parse("gamepad=vigem_x360\n")?;
+        let policy = butterpollo_core::input_policy::Policy::resolve(&config)?;
+        let warnings = std::sync::Arc::new(butterpollo_core::session::Warnings::default());
+        let pads = virtual_pads(policy, warnings)?;
+        let mut xinput = System::open()?;
+        let before = xinput.connected()?;
+        let indices = plug(&pads, &mut xinput, 1, PLUG_TIMEOUT)?;
+        ensure!(indices.len() == 1, "{indices:?}");
+        let listed = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                r"Get-PnpDevice -PresentOnly -InstanceId 'USB\VID_045E&PID_028E*' | ForEach-Object InstanceId",
+            ])
+            .output()?;
+        let listed = String::from_utf8_lossy(&listed.stdout);
+        ensure!(listed.contains(r"USB\VID_045E&PID_028E"), "{listed}");
+        drop(pads);
+        let deadline = Instant::now() + PLUG_TIMEOUT;
+        while xinput.connected()? != before {
+            ensure!(Instant::now() < deadline, "the pad did not unplug");
             std::thread::sleep(POLL);
         }
         Ok(())

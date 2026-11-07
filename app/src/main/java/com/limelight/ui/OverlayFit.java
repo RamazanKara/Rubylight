@@ -1,5 +1,6 @@
 package com.limelight.ui;
 
+import android.os.Build;
 import android.text.Layout;
 import android.text.StaticLayout;
 import android.text.TextPaint;
@@ -57,6 +58,11 @@ public final class OverlayFit {
         TextPaint paint = new TextPaint(view.getPaint());
         paint.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sp, view.getResources().getDisplayMetrics()));
         int inner = Math.max(1, widthPx - view.getTotalPaddingLeft() - view.getTotalPaddingRight());
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            // Before Android 6 a TextView has no break strategy or hyphenation to copy: simple breaking, as here.
+            return new StaticLayout(text, paint, inner, Layout.Alignment.ALIGN_NORMAL,
+                    view.getLineSpacingMultiplier(), view.getLineSpacingExtra(), view.getIncludeFontPadding());
+        }
         return StaticLayout.Builder.obtain(text, 0, text.length(), paint, inner)
                 .setLineSpacing(view.getLineSpacingExtra(), view.getLineSpacingMultiplier())
                 .setIncludePad(view.getIncludeFontPadding())

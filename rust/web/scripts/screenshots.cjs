@@ -7,6 +7,7 @@
 // SHOT_AUTH=signed-out shows the sign-in page, SHOT_AUTH=setup first-run setup
 // (the fixture is signed in otherwise); either one shoots that page by default.
 // SHOT_COOP=missing, failed, blocked or notice sets Nucleus Co-op's folder state (Help, /library/steam-620).
+// SHOT_CONFIG='{"amd_usage":"auto"}' adds saved settings to the fixture's configuration.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -33,7 +34,7 @@ const replies = {
     ...(auth === 'signed-out' ? { creds_program: 'C:\\Program Files\\Rubylight\\butterpollo.exe' } : {}),
   },
   '/api/csrf-token': { csrf_token: 'fixture-token' },
-  '/api/config': { sunshine_name: 'Gaming PC', enable_pairing: false },
+  '/api/config': { sunshine_name: 'Gaming PC', enable_pairing: false, ...JSON.parse(process.env.SHOT_CONFIG || '{}') },
   '/api/metadata': metadata,
   '/api/clients/pending': { requests: [] },
   '/api/clients/list': { clients: [

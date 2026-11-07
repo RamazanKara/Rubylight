@@ -70,6 +70,28 @@ function automatic(values: Values, backend: string, unknown: boolean): boolean {
 const amf = (values: Values) => encoder(values) === 'amf' || automatic(values, 'amf', true);
 const nvenc = (values: Values) => encoder(values) === 'nvenc' || automatic(values, 'nvenc', false);
 const amfHint = 'Applies when AMD AMF encodes, as Automatic does on AMD graphics cards.';
+/** PERFORMANCE.md, October 7: AMF split-frame encoding, pre-analysis row (4K60, RX 7900 XT). */
+const PREANALYSIS_COST = 'Pre-analysis adds about 20 ms per 4K frame.';
+/**
+ * What an AMF usage costs against Ultra low latency (PERFORMANCE.md, October 7: AMF
+ * low-latency mode and AV1 latency mode, and AMF split-frame encoding, usage rows).
+ */
+function amfUsageCaution(usage: string): string | undefined {
+  switch (usage) {
+    case 'lowlatency_high_quality':
+      return 'Slower than Ultra low latency: about 0.4 ms more per HEVC frame and 0.9 ms per AV1 frame at 1440p120.';
+    case 'auto':
+      return "Adds delay: the driver's default is its transcoding profile, which queues frames and leaves its low-latency modes off.";
+    case 'transcoding':
+    case 'lowlatency':
+    case 'webcam':
+    case 'high_quality':
+      return 'Adds delay: this profile queues frames in the encoder. Ultra low latency is the fastest.';
+    default:
+      // Ultra low latency, and names the host does not know (it falls back to Ultra low latency).
+      return undefined;
+  }
+}
 const nvencHint = 'Applies when NVIDIA NVENC encodes, as Automatic does on NVIDIA graphics cards.';
 const nativeHint = 'Applies when AMD AMF or NVIDIA NVENC encodes, as Automatic does on AMD and NVIDIA graphics cards.';
 
@@ -646,6 +668,7 @@ const amd: Setting[] = [
     default: 'ultralowlatency',
     inactiveHint: amfHint,
     visibleWhen: amf,
+    cautionWhen: (values) => amfUsageCaution(read(values, 'amd_usage', 'ultralowlatency')),
   },
   {
     key: 'amd_quality',
@@ -666,6 +689,11 @@ const amd: Setting[] = [
     default: 'speed',
     inactiveHint: amfHint,
     visibleWhen: amf,
+    // PERFORMANCE.md, October 7: AMF split-frame encoding, quality preset rows (Balanced matched Speed).
+    cautionWhen: (values) =>
+      read(values, 'amd_quality', 'speed') === 'quality'
+        ? 'Slower: about 1 ms more per 4K frame on HEVC and 12 ms on AV1 than Speed.'
+        : undefined,
   },
   {
     key: 'amd_rc',
@@ -692,6 +720,10 @@ const amd: Setting[] = [
     default: 'vbr_latency',
     inactiveHint: amfHint,
     visibleWhen: amf,
+    cautionWhen: (values) =>
+      ['qvbr', 'hqvbr', 'hqcbr'].includes(read(values, 'amd_rc', 'vbr_latency'))
+        ? `Turns on pre-analysis for 8-bit SDR streams. ${PREANALYSIS_COST}`
+        : undefined,
   },
   {
     key: 'amd_peak_bitrate_ratio',
@@ -761,6 +793,11 @@ const amd: Setting[] = [
     inactiveHint: amfHint,
     visibleWhen: amf,
     advanced: true,
+    // PERFORMANCE.md, October 28: oversize scene cuts encoded again as keyframes.
+    cautionWhen: (values) =>
+      read(values, 'amd_max_frame_size', 'auto') === '0'
+        ? 'No size limit: a large keyframe can outgrow error correction, and one lost packet then breaks the picture until the next keyframe.'
+        : undefined,
   },
   {
     key: 'amd_qvbr_quality_level',
@@ -785,6 +822,7 @@ const amd: Setting[] = [
     default: false,
     inactiveHint: amfHint,
     visibleWhen: amf,
+    cautionWhen: (values) => (flag(values, 'amd_preanalysis', false) ? PREANALYSIS_COST : undefined),
   },
   {
     key: 'amd_vbaq',
@@ -876,6 +914,11 @@ const amd: Setting[] = [
     default: 'auto',
     inactiveHint: amfHint,
     visibleWhen: amf,
+    // PERFORMANCE.md, October 7: AMF low-latency mode and AV1 latency mode.
+    cautionWhen: (values) =>
+      read(values, 'amd_lowlatency_mode', 'auto') === 'disabled'
+        ? 'Off adds about 0.4 ms per H.264 and HEVC frame at 1440p120.'
+        : undefined,
   },
   {
     key: 'amd_high_motion_quality_boost',
@@ -946,6 +989,11 @@ const amd: Setting[] = [
     default: 'auto',
     inactiveHint: amfHint,
     visibleWhen: amf,
+    // PERFORMANCE.md, October 7: AMF low-latency mode and AV1 latency mode.
+    cautionWhen: (values) =>
+      read(values, 'amd_av1_latency_mode', 'auto') === 'none'
+        ? 'Adds about 1.3 ms per AV1 frame at 1440p120 against Lowest latency.'
+        : undefined,
   },
   {
     key: 'amd_av1_screen_content',

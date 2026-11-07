@@ -14,6 +14,7 @@
     showKey = false,
     inactive = false,
     missing = false,
+    caution,
     invalidText,
     onchange,
     onreset,
@@ -37,6 +38,8 @@
     inactive?: boolean;
     /** Empty although the current choices need a value. */
     missing?: boolean;
+    /** What the current value costs the stream (Setting.cautionWhen). */
+    caution?: string;
     invalidText?: string;
     onchange: (value: ConfigValue) => void;
     onreset: () => void;
@@ -107,6 +110,9 @@
       />
       {#if missing && invalidText === undefined}
         <p class="required">Required: streams fail until this has a value.</p>
+      {/if}
+      {#if caution && invalidText === undefined}
+        <p class="caution" data-caution>{caution}</p>
       {/if}
     </div>
 
@@ -302,7 +308,8 @@
     justify-self: end;
     padding-top: 1px;
   }
-  .required {
+  .required,
+  .caution {
     font-size: var(--text-xs);
     line-height: 1.45;
     color: var(--warn);

@@ -124,3 +124,13 @@ test('integer controls with larger increments accept any whole number and reject
     assert.match(html, /aria-invalid="true"/);
   }
 });
+
+test('a settings row shows its caution under the control', async () => {
+  const { default: SettingRow } = await server.ssrLoadModule('/src/components/settings/SettingRow.svelte');
+  const setting = schema.settings.find((item) => item.key === 'amd_usage');
+  const props = { setting, value: 'auto', stored: true, changed: false, resetting: false, differs: true,
+    onchange() {}, onreset() {}, onundo() {}, oninvalid() {} };
+  const shown = render(SettingRow, { props: { ...props, caution: 'Adds delay: test.' } }).body;
+  assert.match(shown, /data-caution[^>]*>Adds delay: test\.<\/p>/);
+  assert.doesNotMatch(render(SettingRow, { props }).body, /data-caution/);
+});

@@ -776,3 +776,54 @@ test('the host virtual display scale says a device that asks for its own scale g
   // rlDisplayScale (Nightjar's PC display scaling) wins over dd_virtual_display_scale.
   assert.match(settings.get('dd_virtual_display_scale').details, /A device that asks for its own scale \(PC display scaling in Nightjar\) gets that one\./);
 });
+
+// Issue 56: a settings file with Usage and Quality preset on "Driver default" ran AMD's transcoding profile
+// (AV1 latency mode off), and Maximum frame size 0 let keyframes outgrow error correction, with nothing
+// in the console saying so.
+const { withPreset } = await server.ssrLoadModule('/src/lib/stream-presets.ts');
+const { caution, currentValues, handSetCautions } = values;
+const amfValues = (described, config, native = ['amf']) => ({
+  ...currentValues(described, {}, config),
+  [types.NATIVE_ENCODERS]: native,
+});
+const costs = (config, native) =>
+  handSetCautions(schema.settings, amfValues(schema.settings, config, native), {}, config).map(({ setting }) => setting.key);
+
+test('AMF values that cost the stream say so; the defaults and costless choices say nothing', () => {
+  const reported = {
+    amd_usage: 'auto', amd_quality: 'auto', amd_rc: 'auto', amd_max_frame_size: 0,
+    amd_enforce_hrd: 'enabled', amd_vbaq: 'auto', amd_av1_latency_mode: 'auto',
+  };
+  assert.deepEqual(costs(reported), ['amd_usage', 'amd_max_frame_size']);
+  assert.match(caution(settings.get('amd_usage'), amfValues(schema.settings, reported)), /transcoding profile/);
+  assert.match(caution(settings.get('amd_max_frame_size'), amfValues(schema.settings, reported)), /error correction/);
+  assert.deepEqual(costs({}), []);
+  // AMF settings do not apply where Automatic uses NVENC.
+  assert.deepEqual(costs(reported, ['nvenc']), []);
+  for (const [config, key, text] of [
+    [{ amd_usage: 'transcoding' }, 'amd_usage', /queues frames/],
+    [{ amd_usage: 'lowlatency_high_quality' }, 'amd_usage', /0\.9 ms per AV1 frame/],
+    [{ amd_quality: 'quality' }, 'amd_quality', /12 ms on AV1/],
+    [{ amd_rc: 'qvbr' }, 'amd_rc', /pre-analysis/],
+    [{ amd_preanalysis: true }, 'amd_preanalysis', /20 ms per 4K frame/],
+    [{ amd_lowlatency_mode: 'false' }, 'amd_lowlatency_mode', /0\.4 ms/],
+    [{ amd_av1_latency_mode: 'none' }, 'amd_av1_latency_mode', /1\.3 ms per AV1 frame/],
+  ]) {
+    assert.deepEqual(costs(config), [key], JSON.stringify(config));
+    assert.match(caution(settings.get(key), amfValues(schema.settings, config)), text, key);
+  }
+  for (const config of [
+    { amd_usage: 'ultralowlatency' }, { amd_usage: 'not-a-usage' }, { amd_quality: 'balanced' },
+    { amd_rc: 'cbr' }, { amd_max_frame_size: 2 }, { amd_lowlatency_mode: 'enabled' },
+    { amd_av1_latency_mode: 'lowest' }, { amd_enforce_hrd: 'enabled' },
+  ]) assert.deepEqual(costs(config), [], JSON.stringify(config));
+});
+
+test('a preset that removes the frame cap shows it on the row, not as a hand-set cost', () => {
+  const described = withPreset(schema.settings, 'reference');
+  const config = { stream_preset: 'reference' };
+  const current = amfValues(described, config);
+  const cap = described.find(setting => setting.key === 'amd_max_frame_size');
+  assert.match(caution(cap, current), /error correction/);
+  assert.deepEqual(handSetCautions(described, current, {}, config), []);
+});

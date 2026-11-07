@@ -86,6 +86,12 @@ export interface Setting {
   inactiveHint?: string;
   /** Streams fail without a value while this holds, given the current (edited) values. */
   requiredWhen?: (values: Record<string, ConfigValue>) => boolean;
+  /**
+   * What the current value costs the stream (measured delay, lost recovery),
+   * in one sentence, or undefined when it costs nothing. Shown under the
+   * control while the setting applies, and on the settings home when set by hand.
+   */
+  cautionWhen?: (values: Record<string, ConfigValue>) => string | undefined;
   /** Takes effect only after the host restarts. */
   restart?: boolean;
   advanced?: boolean;

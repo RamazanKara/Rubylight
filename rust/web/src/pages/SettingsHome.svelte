@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import Banner from '../components/Banner.svelte';
   import Button from '../components/Button.svelte';
   import Icon from '../components/Icon.svelte';
   import PageHeader from '../components/PageHeader.svelte';
@@ -19,7 +20,9 @@
     currentValues,
     differsFromDefault,
     effective,
+    handSetCautions,
     has,
+    nativeEncoders,
     normalise,
     sameValue,
     settingsOnly,
@@ -30,7 +33,8 @@
   import { guardNavigation, link, route } from '../lib/router.svelte';
   import { MAIN_SECTIONS, onHome } from '../lib/schema/main';
   import { categoriesOf, schema, settingGroups, settingsGroup } from '../lib/settings-schema';
-  import type { Setting } from '../lib/settings-types';
+  import { session as host } from '../lib/session.svelte';
+  import { NATIVE_ENCODERS, type Setting } from '../lib/settings-types';
   import { SETTING as PRESET, covered, presetById, presetId, presetNotice, withPreset } from '../lib/stream-presets';
 
   const RESULTS = 8;
@@ -54,6 +58,47 @@
   const changes = $derived(stored ? computeChanges(defaults, edits, stored, new Set(covered)) : {});
   const pending = $derived(new Set([...Object.keys(changes), ...Object.keys(invalid)]));
   const invalidCount = $derived(Object.keys(invalid).length);
+
+  // ---------- settings set by hand to a value that costs the stream ----------
+
+  const cautions = $derived(
+    stored === null
+      ? []
+      : handSetCautions(
+          described,
+          {
+            ...values,
+            // AMF settings apply only where Automatic would use AMF.
+            [NATIVE_ENCODERS]: nativeEncoders(
+              host.metadata?.gpus,
+              String(values.adapter_name ?? ''),
+              String(values.adapter_pnp_id ?? ''),
+            ),
+          },
+          edits,
+          config,
+        ),
+  );
+  // Dismissing hides this set of values; another costly value shows the banner again.
+  const CAUTIONS_DISMISSED = 'rubylight.settings.cautions-dismissed';
+  const cautionSignature = $derived(cautions.map(({ setting }) => `${setting.key}=${String(values[setting.key])}`).join('&'));
+  let dismissedSignature = $state(readDismissed());
+  function readDismissed(): string {
+    // A browser that blocks site data throws on localStorage: dismissing then lasts for this visit.
+    try {
+      return localStorage.getItem(CAUTIONS_DISMISSED) ?? '';
+    } catch {
+      return '';
+    }
+  }
+  function dismissCautions() {
+    dismissedSignature = cautionSignature;
+    try {
+      localStorage.setItem(CAUTIONS_DISMISSED, cautionSignature);
+    } catch {
+      // Kept for this visit only.
+    }
+  }
 
   // Monitors only turn off around a virtual display.
   const applies = (key: string) => key !== 'virtual_display_layout' || values.virtual_display_mode !== 'disabled' || pending.has(key);
@@ -308,6 +353,22 @@
     </div>
   {/if}
 
+  {#if cautions.length > 0 && cautionSignature !== dismissedSignature}
+    <div class="cautions" data-cautions>
+      <Banner
+        tone="warn"
+        title={cautions.length === 1 ? 'A changed setting slows the stream' : `${cautions.length} changed settings slow the stream`}
+        ondismiss={dismissCautions}
+      >
+        <ul>
+          {#each cautions as { setting, text } (setting.key)}
+            <li><a href={target(setting)} use:link>{setting.label}</a>: {text}</li>
+          {/each}
+        </ul>
+      </Banner>
+    </div>
+  {/if}
+
   {#each sections as section (section.id)}
     <div id={section.id} class="anchor">
       <Section title={section.title}>
@@ -374,6 +435,12 @@
   .note.error,
   .note.error strong {
     color: var(--danger);
+  }
+  .cautions ul {
+    margin: 0;
+    padding-left: var(--space-4);
+    display: grid;
+    gap: var(--space-1);
   }
   .aside {
     margin: 0;

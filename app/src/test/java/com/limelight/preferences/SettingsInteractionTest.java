@@ -415,6 +415,55 @@ public class SettingsInteractionTest {
         }
     }
 
+    /**
+     * The per-PC page on the real TV kept the old flat look: the sky inset by the TV margin as a lighter frame, a three-line
+     * explanation under the resolution, and a grey Save bar with nothing to save. It is Settings' page now: the sky edge to
+     * edge, the resolution's value alone, and no foot until a change brings Save.
+     */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionThePcPageLooksLikeSettings() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), HostStreamSettings.class)
+                .putExtra("host_uuid", "look-host").putExtra("host_name", "PC");
+        ActivityController<HostStreamSettings> controller = Robolectric.buildActivity(HostStreamSettings.class, intent).setup().visible();
+        try {
+            HostStreamSettings screen = controller.get();
+            android.view.View decor = screen.getWindow().getDecorView();
+            decor.measure(android.view.View.MeasureSpec.makeMeasureSpec(1920, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(1080, android.view.View.MeasureSpec.EXACTLY));
+            decor.layout(0, 0, 1920, 1080);
+            android.view.ViewGroup content = screen.findViewById(android.R.id.content);
+            assertTrue("the TV margin is there", content.getPaddingLeft() > 0);
+            android.view.View sky = content.getChildAt(0);
+            assertTrue(sky instanceof com.limelight.ui.NightSkyView);
+            assertEquals("the sky runs past the margin", 0, sky.getLeft());
+            assertEquals(0, sky.getTop());
+            assertEquals(content.getWidth(), sky.getRight());
+            assertEquals(content.getHeight(), sky.getBottom());
+
+            HostStreamSettings.SettingsFragment fragment = (HostStreamSettings.SettingsFragment)
+                    screen.getFragmentManager().findFragmentById(R.id.host_profile_settings);
+            String resolution = String.valueOf(fragment.findPreference("resolution").getSummary());
+            assertFalse(resolution, resolution.contains("\n"));
+            assertFalse(resolution, resolution.contains(screen.getString(R.string.summary_resolution_list)));
+
+            assertEquals(android.view.View.GONE, screen.findViewById(R.id.host_profile_save).getVisibility());
+            assertEquals(android.view.View.GONE, screen.findViewById(R.id.host_profile_status).getVisibility());
+            fragment.findPreference("bitrate").getOnPreferenceClickListener().onPreferenceClick(fragment.findPreference("bitrate"));
+            AlertDialog editor = (AlertDialog) ShadowDialog.getLatestDialog();
+            ((android.widget.CompoundButton) editor.findViewById(R.id.host_profile_follow_all)).setChecked(false);
+            ((android.widget.EditText) editor.findViewById(R.id.host_profile_field_primary)).setText("45.5");
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            editor.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertEquals(android.view.View.VISIBLE, screen.findViewById(R.id.host_profile_save).getVisibility());
+            assertTrue(screen.findViewById(R.id.host_profile_save).isEnabled());
+            assertEquals(android.view.View.VISIBLE, screen.findViewById(R.id.host_profile_status).getVisibility());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     private static android.widget.ScrollView findScrollView(android.view.ViewGroup root) {
         if (root instanceof android.widget.ScrollView) return (android.widget.ScrollView) root;
         for (int i = 0; i < root.getChildCount(); i++) {

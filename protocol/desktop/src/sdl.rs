@@ -193,12 +193,16 @@ pub fn renderer_pointer(renderer: *mut SDL_Renderer, name: *const c_char) -> *mu
 }
 
 pub fn hdr_available(renderer: *mut SDL_Renderer) -> bool {
+    // SAFETY: The renderer is live.
+    let enabled = unsafe { SDL_GetBooleanProperty(SDL_GetRendererProperties(renderer), SDL_PROP_RENDERER_HDR_ENABLED_BOOLEAN, false) };
+    enabled && swapchain_takes_hdr(renderer)
+}
+
+/// The renderer's swapchain is an HDR one, whatever the window's HDR state is right now.
+fn swapchain_takes_hdr(renderer: *mut SDL_Renderer) -> bool {
     // SAFETY: The renderer and its associated window/device are live.
     unsafe {
         let props = SDL_GetRendererProperties(renderer);
-        if !SDL_GetBooleanProperty(props, SDL_PROP_RENDERER_HDR_ENABLED_BOOLEAN, false) {
-            return false;
-        }
         let device: *mut SDL_GPUDevice = SDL_GetPointerProperty(
             props,
             SDL_PROP_RENDERER_GPU_DEVICE_POINTER,
@@ -234,6 +238,24 @@ fn offered(renderer: *mut SDL_Renderer) -> crate::handheld::Offered {
             scrgb: SDL_WindowSupportsGPUSwapchainComposition(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_HDR_EXTENDED_LINEAR),
             hdr10: SDL_WindowSupportsGPUSwapchainComposition(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_HDR10_ST2084),
         }
+    }
+}
+
+/// A display of the compositor has HDR on. SDL's Wayland backend reads every output's description
+/// when it starts, before any window exists.
+fn any_display_hdr() -> bool {
+    // SAFETY: SDL's video is initialized; the list is SDL's copy, freed here.
+    unsafe {
+        let mut count = 0;
+        let displays = SDL_GetDisplays(&mut count);
+        if displays.is_null() {
+            return false;
+        }
+        let hdr = std::slice::from_raw_parts(displays, count.max(0) as usize)
+            .iter()
+            .any(|&display| SDL_GetBooleanProperty(SDL_GetDisplayProperties(display), SDL_PROP_DISPLAY_HDR_ENABLED_BOOLEAN, false));
+        SDL_free(displays.cast());
+        hdr
     }
 }
 
@@ -285,7 +307,8 @@ unsafe fn set_window_hdr(window: *mut SDL_Window, hdr: Option<(f32, f32)>) {
 }
 
 /// Linux's GPU renderer `renderer`, made from `props` with linear output: the HDR output for its
-/// window (`handheld::plan`) or null for SDR. scRGB keeps it (made again under gamescope, after
+/// window (`handheld::plan`) or null for SDR. scRGB keeps it, on a desktop with [`hdr_available`]
+/// following the window's state once the compositor reports it (made again under gamescope, after
 /// the window's HDR state is set); PQ makes it again with the PQ present. Logs the renderer, the
 /// colour spaces offered and the decision, which [`output_decision`] keeps.
 ///
@@ -300,7 +323,8 @@ unsafe fn hdr_output(window: *mut SDL_Window, props: SDL_PropertiesID, renderer:
     );
     let offered = offered(renderer);
     let name = renderer_name(renderer);
-    let plan = handheld::plan(gamescope, window_hdr, offered);
+    let display_hdr = any_display_hdr();
+    let plan = handheld::plan(gamescope, window_hdr, display_hdr, offered);
     let mut decision = plan.decision;
     let mut renderer = renderer;
     let mut pq_error = None;
@@ -318,14 +342,14 @@ unsafe fn hdr_output(window: *mut SDL_Window, props: SDL_PropertiesID, renderer:
                 if renderer.is_null() { pq_error = Some(error()); }
             }
         }
-        decision = handheld::settle(output, !renderer.is_null(), !renderer.is_null() && hdr_available(renderer));
+        decision = handheld::settle(output, !renderer.is_null(), !renderer.is_null() && swapchain_takes_hdr(renderer));
     }
     if decision.is_err() {
         if !renderer.is_null() { SDL_DestroyRenderer(renderer); }
         renderer = std::ptr::null_mut();
         if WINDOW_HDR_SET.load(std::sync::atomic::Ordering::Relaxed) { set_window_hdr(window, None); }
     }
-    let line = handheld::describe(&name, gamescope, window_hdr, offered, decision);
+    let line = handheld::describe(&name, gamescope, window_hdr, display_hdr, offered, decision);
     match pq_error {
         Some(why) => eprintln!("nightjar: {line} ({why})"),
         None => eprintln!("nightjar: {line}"),

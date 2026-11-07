@@ -238,8 +238,14 @@ final class HomeChrome {
                 right + (handheld ? res.getDimensionPixelSize(R.dimen.space_xl) : edge), 0);
         ViewGroup.MarginLayoutParams loading = (ViewGroup.MarginLayoutParams) activity.findViewById(R.id.console_loading).getLayoutParams();
         loading.topMargin = top;
-        ViewGroup.MarginLayoutParams banner = (ViewGroup.MarginLayoutParams) activity.findViewById(R.id.home_pairing_banner).getLayoutParams();
-        banner.topMargin = rowTop + capsule + gap;
+        android.widget.FrameLayout.LayoutParams banner = (android.widget.FrameLayout.LayoutParams) activity.findViewById(R.id.home_pairing_banner).getLayoutParams();
+        if (handheld) {
+            banner.topMargin = rowTop + capsule + gap;
+        } else {
+            // A phone's hero fills the width under the top row: over it, the banner would cover the art. It rests on the bar.
+            banner.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL;
+            banner.bottomMargin = bottom + res.getDimensionPixelSize(R.dimen.nj_size_tab_bar_height) + 2 * gap;
+        }
         bottomRow.setPadding(left + res.getDimensionPixelSize(R.dimen.space_m), 0, right + res.getDimensionPixelSize(R.dimen.space_m),
                 bottom + res.getDimensionPixelSize(R.dimen.space_s));
         int foot = handheld ? bottom + res.getDimensionPixelSize(R.dimen.space_xl)

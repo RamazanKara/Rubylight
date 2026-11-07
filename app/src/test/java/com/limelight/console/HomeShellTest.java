@@ -744,6 +744,23 @@ public class HomeShellTest {
         }
     }
 
+    /** On a phone the hero fills the width under the top row, so the pairing banner rests on the bar instead of covering the art. */
+    @Test
+    public void onAPhoneThePairingBannerStaysOffTheHero() {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            View root = home.findViewById(R.id.home_pairing_banner);
+            androidx.core.view.ViewCompat.dispatchApplyWindowInsets(home.getWindow().getDecorView(), new androidx.core.view.WindowInsetsCompat.Builder().build());
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            android.widget.FrameLayout.LayoutParams banner = (android.widget.FrameLayout.LayoutParams) root.getLayoutParams();
+            assertEquals(android.view.Gravity.BOTTOM, banner.gravity & android.view.Gravity.VERTICAL_GRAVITY_MASK);
+            assertTrue(banner.bottomMargin >= home.getResources().getDimensionPixelSize(R.dimen.nj_size_tab_bar_height));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     @Test
     public void onAPhoneUpFromALongLibraryReachesTheShellBar() throws Exception {
         chooseGrid();

@@ -87,7 +87,7 @@ public final class MenuRow extends MaterialButton {
         int inset = gap;
         int chevronLeft = rtl ? inset : getWidth() - inset - chevronSize;
         chevron.setAutoMirrored(true);
-        chevron.setLayoutDirection(getLayoutDirection());
+        androidx.core.graphics.drawable.DrawableCompat.setLayoutDirection(chevron, getLayoutDirection());
         chevron.setBounds(chevronLeft, top, chevronLeft + chevronSize, top + chevronSize);
         chevron.draw(canvas);
         if (value == null || value.length() == 0) return;

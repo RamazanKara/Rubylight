@@ -161,8 +161,7 @@ impl Launcher {
         let name = at_sentence_start(&running_name(host));
         let quit_words = tr("Quit game");
         let quit_w = capsule_width(ui, quit_words);
-        // The list has to know the game for it to be started again.
-        let resume = running_app_id(host).map(|app| (app, action_width(ui, PcAction::Resume(app), f32::MAX)));
+        let resume = resume_target(host).map(|app| (app, action_width(ui, PcAction::Resume(app), f32::MAX)));
         let mut wide = quit_w + resume.map_or(0.0, |(_, w)| w + ACTIONS_GAP);
         let chip_w = info_chip_width(ui, Some(9.0), &name);
         // The title of the page comes first: a narrow window drops the chip, the dot on the cover and
@@ -373,7 +372,7 @@ impl Launcher {
                 host: id,
                 start: Some((app.id, app.name.clone())),
                 running: running_name(host),
-                resume: running_app_id(host),
+                resume: resume_target(host),
                 named: host.running_app(),
             });
         } else {
@@ -429,7 +428,7 @@ impl Launcher {
                 host: host.id,
                 start: Some((app.id, game.title.clone())),
                 running: running.clone(),
-                resume: running_app_id(host),
+                resume: resume_target(host),
                 named: host.running_app(),
             };
             self.focus_dialog = true;
@@ -664,7 +663,7 @@ pub(super) fn running_entry(host: &Host) -> Option<&nightjar_core::http::App> {
 
 /// A name that starts a sentence: the stand-in "the running app" gets its capital, a game's own
 /// name stays as it is spelled.
-pub(super) fn at_sentence_start(name: &str) -> String {
+pub fn at_sentence_start(name: &str) -> String {
     if name != tr("the running app") {
         return name.to_owned();
     }
@@ -722,24 +721,17 @@ pub(super) fn plays_this_game(known: Option<&nightjar_core::http::App>, app: i32
 }
 
 pub fn running_name(host: &Host) -> String {
-    let Some(running) = host.running_app() else {
-        return tr("the running app").into();
-    };
-    if let Apps::Loaded(apps) = &host.apps {
-        if let Some(app) = apps.iter().find(|a| a.matches_running_app(running, None)) {
-            return app.name.clone();
-        }
-    }
-    tr("the running app").into()
+    running_entry(host).map_or_else(|| tr("the running app").into(), |app| app.name.clone())
 }
 
 /// The classic app id of the app the PC runs now, once the app list is loaded.
 pub(super) fn running_app_id(host: &Host) -> Option<i32> {
-    let running = host.running_app()?;
-    match &host.apps {
-        Apps::Loaded(apps) => apps.iter().find(|a| a.matches_running_app(running, None)).map(|a| a.id),
-        _ => None,
-    }
+    running_entry(host).map(|app| app.id)
+}
+
+/// What a Resume names: the list's entry, else the id the PC reports, which is all a resume needs.
+pub(super) fn resume_target(host: &Host) -> Option<i32> {
+    running_app_id(host).or(host.running_app())
 }
 
 /// Where the game page's stream size, rate and bitrate come from, for those not from the main

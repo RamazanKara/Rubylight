@@ -2019,7 +2019,7 @@ impl App {
             return;
         };
         // A microphone-only session names no app of the PC's list.
-        let app = if mic_only { mic_only_app() } else { match launch_app(&host.apps, app_id) {
+        let app = if mic_only { mic_only_app() } else { match launch_target(host, app_id, resume) {
             LaunchApp::Ready(app) => app,
             LaunchApp::Wait => {
                 // The list is being read again (the first native read of a run reloads it).
@@ -2027,7 +2027,15 @@ impl App {
                 self.network_launch = Some((host_id, app_id, resume, kind));
                 return;
             }
-            LaunchApp::Gone => return,
+            LaunchApp::Gone => {
+                // Nothing has read the list yet: read it now and go on when it lands.
+                if read_list_for_launch(&mut self.hosts, host_id) {
+                    self.network_launch = Some((host_id, app_id, resume, kind));
+                } else {
+                    self.launcher.message(tr("The stream could not start"), trf("The app list could not be loaded. {}", &[&tr("Creating this device's pairing key…")]));
+                }
+                return;
+            }
             LaunchApp::Failed(why) => {
                 self.launcher.message(tr("The stream could not start"), trf("The app list could not be loaded. {}", &[&why]));
                 return;
@@ -2041,6 +2049,7 @@ impl App {
             self.hosts.control_action(host_id, app_id);
             return;
         }
+        let listed = matches!(&host.apps, Apps::Loaded(apps) if apps.contains(&app));
         let mut settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi)));
         if let Some(overrides) = host.record.app_settings(&app.uuid, app.id) { settings = overrides.apply(&settings); }
         if settings.codec.is_pyrowave() { settings.experimental_packed_444 = false; }
@@ -2137,6 +2146,7 @@ impl App {
             info,
             native: host.native.capabilities.clone(),
             app,
+            listed,
             resume,
             join: kind == LaunchKind::JoinRunning,
             small_stream_input_only: small,
@@ -3419,6 +3429,44 @@ fn launch_app(apps: &Apps, app_id: i32) -> LaunchApp {
         Apps::NotLoaded => LaunchApp::Gone,
         Apps::Failed(why) => LaunchApp::Failed(why.clone()),
     }
+}
+
+/// What a launch starts on this PC. A resume names the running session and needs no entry of the
+/// list: the stream start asks for the id and UUID the PC reports, and checks them against a fresh
+/// read. A tile that happens to carry the running id is never its action.
+fn launch_target(host: &hosts::Host, app_id: i32, resume: bool) -> LaunchApp {
+    let listed = launch_app(&host.apps, app_id);
+    if !resume {
+        return listed;
+    }
+    let running = host.running_app() == Some(app_id);
+    match listed {
+        LaunchApp::Wait => LaunchApp::Wait,
+        LaunchApp::Ready(app) if !app.is_control_action() => LaunchApp::Ready(app),
+        _ if running => LaunchApp::Ready(running_app_unlisted(host, app_id)),
+        LaunchApp::Ready(_) => LaunchApp::Missing,
+        other => other,
+    }
+}
+
+/// The session the PC runs, for a resume its list has no entry for.
+fn running_app_unlisted(host: &hosts::Host, app_id: i32) -> nightjar_core::http::App {
+    nightjar_core::http::App {
+        name: ui::at_sentence_start(&ui::running_name(host)),
+        id: app_id,
+        hdr_supported: false,
+        uuid: host.info.as_ref().and_then(|info| info.current_game_uuid.clone()).unwrap_or_default(),
+        host_index: None,
+        art_version: String::new(),
+        control: nightjar_core::http::AppControl::None,
+        monitor_resume: false,
+    }
+}
+
+/// Starts reading the list a launch waits for; false when no read could start.
+fn read_list_for_launch(hosts: &mut Hosts, host: u64) -> bool {
+    hosts.load_apps(host);
+    matches!(hosts.get(host).map(|h| &h.apps), Some(Apps::Loading))
 }
 
 /// Opens the dialog choosing where the shared folder browser of `host` saves a download, or

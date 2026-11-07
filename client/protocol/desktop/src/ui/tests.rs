@@ -6736,3 +6736,64 @@ fn a_running_game_with_no_list_entry_offers_the_same_choices() {
     let options = dialogs::host_options(host);
     assert!(options.contains(&HostOption::Resume) && options.contains(&HostOption::QuitApp), "{options:?}");
 }
+
+/// The Resume a game with no list entry offers: what it sends reaches the stream start as a resume
+/// of the running session, whatever the state of the list, and the PC's read still matches it.
+#[test]
+fn resuming_a_running_game_with_no_list_entry_reaches_the_stream_start() {
+    let lists = [Apps::Loaded(vec![game(1)]), Apps::NotLoaded, Apps::Failed("no".into())];
+    for list in lists {
+        let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 77)), vec![game(1)]);
+        f.settle();
+        f.hosts.list[0].apps = list;
+        let mut commands = Vec::new();
+        let asked = f.l.choose_host_option(&f.hosts.list[0], HostOption::Resume, &mut commands);
+        assert!(asked.is_none());
+        let (app, resume) = match commands[..] {
+            [Command::Launch { app, resume, .. }] => (app, resume),
+            _ => panic!("one launch"),
+        };
+        assert!((app, resume) == (77, true));
+        let crate::LaunchApp::Ready(started) = crate::launch_target(&f.hosts.list[0], app, resume) else {
+            panic!("the resume stops short of the stream start");
+        };
+        assert!(started.id == 77 && started.control == nightjar_core::http::AppControl::None);
+        assert!(started.matches_running_app(f.hosts.list[0].running_app().unwrap(), None), "the start's own check");
+    }
+}
+
+/// A launch whose list nobody has read reads it and holds; with no key to read it with it says so,
+/// where it used to end without a word.
+#[test]
+fn a_launch_with_no_list_read_loads_it_or_fails_out_loud() {
+    let mut hosts = Hosts::without_discovery(vec![record("Den", true, true)], Arc::new(|| {}));
+    let id = hosts.list[0].id;
+    assert!(matches!(crate::launch_target(&hosts.list[0], 5, false), crate::LaunchApp::Gone));
+    assert!(!crate::read_list_for_launch(&mut hosts, id), "no key, no read");
+    hosts.set_identity(Arc::new(nightjar_core::http::ClientIdentity::generate().expect("a key")));
+    assert!(crate::read_list_for_launch(&mut hosts, id), "the launch holds for this read");
+    assert!(matches!(crate::launch_target(&hosts.list[0], 5, false), crate::LaunchApp::Wait));
+}
+
+/// A control tile that carries the running id is not the running game: Resume never fires its
+/// action, every name for the running game agrees, and the tile is not what Resume names.
+#[test]
+fn a_control_tile_with_the_running_id_is_never_what_resume_runs() {
+    let mut tile = game(77);
+    tile.name = "Disconnect".into();
+    tile.control = nightjar_core::http::AppControl::Terminate;
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 77)), vec![tile, game(1)]);
+    f.settle();
+    let host = &f.hosts.list[0];
+    assert!(library::running_entry(host).is_none());
+    assert_eq!(library::running_app_id(host), None, "one rule for both");
+    assert_ne!(library::running_name(host), "Disconnect");
+    let mut commands = Vec::new();
+    f.l.choose_host_option(host, HostOption::Resume, &mut commands);
+    assert!(matches!(commands[..], [Command::Launch { app: 77, resume: true, .. }]));
+    let crate::LaunchApp::Ready(started) = crate::launch_target(host, 77, true) else {
+        panic!("resume goes on");
+    };
+    assert!(!started.is_control_action() && started.control == nightjar_core::http::AppControl::None);
+    assert!(matches!(crate::launch_target(host, 77, false), crate::LaunchApp::Ready(a) if a.is_control_action()), "the tile's own press still is its action");
+}

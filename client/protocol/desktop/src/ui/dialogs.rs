@@ -1407,7 +1407,7 @@ impl Launcher {
         match option {
             HostOption::OpenLibrary => commands.push(Command::OpenApps(id)),
             HostOption::Resume => {
-                if let Some(app) = running_entry(host).map(|app| app.id).or(host.running_app()) {
+                if let Some(app) = resume_target(host) {
                     commands.push(Command::Launch { host: id, app, resume: true });
                 }
             }

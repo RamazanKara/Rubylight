@@ -20,13 +20,4 @@
     <string name="library_discovery_title">你的遊戲，就在這個畫面上</string>
     <string name="library_discovery_body">請開啟電腦並啟動串流主機軟體，例如 Apollo、Rubylight 或 Sunshine。同一網路中的電腦會自動顯示在這裡。</string>
     <string name="library_discovery_hint">在不同的網路上？請透過位址新增你的電腦。</string>
-    <plurals name="library_results">
-        <item quantity="other">%1$d / %2$d 款遊戲</item>
-    </plurals>
-    <plurals name="library_showing_hidden">
-        <item quantity="other">%1$d 款遊戲 · 包含隱藏的遊戲</item>
-    </plurals>
-    <plurals name="library_app_count">
-        <item quantity="other">%d 款遊戲</item>
-    </plurals>
 </resources>

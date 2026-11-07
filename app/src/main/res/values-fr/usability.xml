@@ -20,7 +20,6 @@
     <string name="startup_launch_failed">Impossible de lancer l’application. Vérifiez qu’elle s’ouvre sur le PC, puis réessayez.</string>
     <string name="applist_permission_required">Cet appareil ne peut pas lister les applications. Autorisez le listage des applications pour cet appareil dans les paramètres ou l’interface Web de votre hôte. La bibliothèque s’actualise automatiquement.</string>
     <string name="applist_load_failed">Impossible de charger les applications du PC. Vérifiez l’hôte et l’autorisation de liste des applications de cet appareil dans ses paramètres ou son interface Web. Nouvelle tentative automatique.</string>
-    <string name="applist_empty">Aucune application disponible. Ajoutez des applications à la bibliothèque de l’hôte et vérifiez l’autorisation de liste des applications de cet appareil dans les paramètres ou l’interface Web de votre hôte.</string>
     <string name="host_profile_unsaved_title">Enregistrer les paramètres de stream ?</string>
     <string name="host_profile_unsaved_message">Vos modifications des paramètres de stream de ce PC n’ont pas été enregistrées. Un mode d’affichage confirmé dans sa propre boîte de dialogue est enregistré séparément.</string>
     <string name="host_profile_discard">Annuler les modifications</string>

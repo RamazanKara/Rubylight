@@ -20,22 +20,4 @@
     <string name="library_discovery_title">Twoje gry na tym ekranie</string>
     <string name="library_discovery_body">Włącz komputer i uruchom na nim host do strumieniowania, np. Apollo, Rubylight lub Sunshine. Komputery w tej samej sieci pojawią się tu automatycznie.</string>
     <string name="library_discovery_hint">Inna sieć? Dodaj komputer po adresie.</string>
-    <plurals name="library_results">
-        <item quantity="one">Gry: %1$d z %2$d</item>
-        <item quantity="few">Gry: %1$d z %2$d</item>
-        <item quantity="many">Gry: %1$d z %2$d</item>
-        <item quantity="other">Gry: %1$d z %2$d</item>
-    </plurals>
-    <plurals name="library_showing_hidden">
-        <item quantity="one">%1$d gra · z ukrytymi</item>
-        <item quantity="few">%1$d gry · z ukrytymi</item>
-        <item quantity="many">%1$d gier · z ukrytymi</item>
-        <item quantity="other">%1$d gry · z ukrytymi</item>
-    </plurals>
-    <plurals name="library_app_count">
-        <item quantity="one">%d gra</item>
-        <item quantity="few">%d gry</item>
-        <item quantity="many">%d gier</item>
-        <item quantity="other">%d gry</item>
-    </plurals>
 </resources>

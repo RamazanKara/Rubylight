@@ -19,16 +19,4 @@
     <string name="library_discovery_title">Your games, on this screen</string>
     <string name="library_discovery_body">Turn on your PC and start its streaming host, such as Apollo, Rubylight or Sunshine. PCs on the same network appear here automatically.</string>
     <string name="library_discovery_hint">On a different network? Add your PC by address.</string>
-    <plurals name="library_results">
-        <item quantity="one">%1$d of %2$d game</item>
-        <item quantity="other">%1$d of %2$d games</item>
-    </plurals>
-    <plurals name="library_showing_hidden">
-        <item quantity="one">%1$d game · including hidden</item>
-        <item quantity="other">%1$d games · including hidden</item>
-    </plurals>
-    <plurals name="library_app_count">
-        <item quantity="one">%d game</item>
-        <item quantity="other">%d games</item>
-    </plurals>
 </resources>

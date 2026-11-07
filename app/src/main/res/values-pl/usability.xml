@@ -20,7 +20,6 @@
     <string name="startup_launch_failed">Nie udało się uruchomić aplikacji. Sprawdź, czy otwiera się na komputerze, a potem spróbuj ponownie.</string>
     <string name="applist_permission_required">To urządzenie nie może wyświetlać listy aplikacji. Zezwól temu urządzeniu na listę aplikacji w ustawieniach lub interfejsie WWW hosta. Biblioteka odświeży się automatycznie.</string>
     <string name="applist_load_failed">Nie udało się wczytać aplikacji komputera. Sprawdź host i uprawnienie tego urządzenia do listy aplikacji w ustawieniach lub interfejsie WWW hosta. Ponawianie automatyczne.</string>
-    <string name="applist_empty">Brak dostępnych aplikacji. Dodaj aplikacje do biblioteki hosta i sprawdź uprawnienie tego urządzenia do listy aplikacji w ustawieniach lub interfejsie WWW hosta.</string>
     <string name="host_profile_unsaved_title">Zapisać ustawienia strumienia?</string>
     <string name="host_profile_unsaved_message">Zmiany ustawień strumienia tego komputera nie zostały zapisane. Tryb ekranu potwierdzony w jego własnym oknie jest zapisywany osobno.</string>
     <string name="host_profile_discard">Odrzuć zmiany</string>

@@ -20,22 +20,4 @@
     <string name="library_discovery_title">Ваші ігри на цьому екрані</string>
     <string name="library_discovery_body">Увімкніть ПК і запустіть на ньому хост для трансляції, наприклад Apollo, Rubylight або Sunshine. ПК у тій самій мережі з’являться тут автоматично.</string>
     <string name="library_discovery_hint">В іншій мережі? Додайте ПК за адресою.</string>
-    <plurals name="library_results">
-        <item quantity="one">Ігор: %1$d з %2$d</item>
-        <item quantity="few">Ігор: %1$d з %2$d</item>
-        <item quantity="many">Ігор: %1$d з %2$d</item>
-        <item quantity="other">Ігор: %1$d з %2$d</item>
-    </plurals>
-    <plurals name="library_showing_hidden">
-        <item quantity="one">%1$d гра · разом із прихованими</item>
-        <item quantity="few">%1$d гри · разом із прихованими</item>
-        <item quantity="many">%1$d ігор · разом із прихованими</item>
-        <item quantity="other">%1$d гри · разом із прихованими</item>
-    </plurals>
-    <plurals name="library_app_count">
-        <item quantity="one">%d гра</item>
-        <item quantity="few">%d гри</item>
-        <item quantity="many">%d ігор</item>
-        <item quantity="other">%d гри</item>
-    </plurals>
 </resources>

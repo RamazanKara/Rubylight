@@ -20,7 +20,6 @@
     <string name="startup_launch_failed">Impossibile avviare l’app. Controlla che si apra sul PC, poi riprova.</string>
     <string name="applist_permission_required">Questo dispositivo non può elencare le app. Consenti l’elenco delle applicazioni per questo dispositivo nelle impostazioni o nell’interfaccia web dell’host. La libreria si aggiorna automaticamente.</string>
     <string name="applist_load_failed">Impossibile caricare le app del PC. Controlla l’host e l’autorizzazione all’elenco delle applicazioni di questo dispositivo nelle sue impostazioni o nell’interfaccia web. Nuovo tentativo automatico.</string>
-    <string name="applist_empty">Nessuna app disponibile. Aggiungi app alla libreria dell’host e controlla l’autorizzazione all’elenco delle applicazioni di questo dispositivo nelle impostazioni o nell’interfaccia web dell’host.</string>
     <string name="host_profile_unsaved_title">Salvare le impostazioni dello stream?</string>
     <string name="host_profile_unsaved_message">Le modifiche alle impostazioni dello stream di questo PC non sono state salvate. Una modalità display confermata nella relativa finestra viene salvata a parte.</string>
     <string name="host_profile_discard">Ignora modifiche</string>

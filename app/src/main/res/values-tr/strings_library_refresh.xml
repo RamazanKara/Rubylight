@@ -20,16 +20,4 @@
     <string name="library_discovery_title">Oyunlarınız bu ekranda</string>
     <string name="library_discovery_body">Bilgisayarınızı açın ve Apollo, Rubylight veya Sunshine gibi yayın sunucusunu başlatın. Aynı ağdaki bilgisayarlar burada otomatik olarak görünür.</string>
     <string name="library_discovery_hint">Farklı bir ağda mısınız? Bilgisayarınızı adresiyle ekleyin.</string>
-    <plurals name="library_results">
-        <item quantity="one">%1$d / %2$d oyun</item>
-        <item quantity="other">%1$d / %2$d oyun</item>
-    </plurals>
-    <plurals name="library_showing_hidden">
-        <item quantity="one">%1$d oyun · gizliler dahil</item>
-        <item quantity="other">%1$d oyun · gizliler dahil</item>
-    </plurals>
-    <plurals name="library_app_count">
-        <item quantity="one">%d oyun</item>
-        <item quantity="other">%d oyun</item>
-    </plurals>
 </resources>

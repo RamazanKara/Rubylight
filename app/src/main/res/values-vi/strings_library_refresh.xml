@@ -20,13 +20,4 @@
     <string name="library_discovery_title">Trò chơi của bạn, ngay trên màn hình này</string>
     <string name="library_discovery_body">Bật PC và khởi động máy chủ stream trên đó, chẳng hạn Apollo, Rubylight hoặc Sunshine. Các PC trong cùng mạng sẽ tự động xuất hiện ở đây.</string>
     <string name="library_discovery_hint">Ở mạng khác? Hãy thêm PC bằng địa chỉ.</string>
-    <plurals name="library_results">
-        <item quantity="other">%1$d/%2$d trò chơi</item>
-    </plurals>
-    <plurals name="library_showing_hidden">
-        <item quantity="other">%1$d trò chơi · gồm cả trò chơi đã ẩn</item>
-    </plurals>
-    <plurals name="library_app_count">
-        <item quantity="other">%d trò chơi</item>
-    </plurals>
 </resources>

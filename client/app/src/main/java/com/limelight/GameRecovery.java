@@ -576,6 +576,8 @@ final class GameRecovery {
                         game.finish();
                     }
                 });
+        // After the stream ran only the menu's small copy is held: the panel reads the cover at its own size again.
+        game.streamConnection.readCoverInto(screen);
         game.menuActions.showStreamDialog(screen.dialog());
         screen.showFailure();
     }

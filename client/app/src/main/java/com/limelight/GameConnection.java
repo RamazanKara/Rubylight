@@ -711,32 +711,70 @@ final class GameConnection {
 
     /** The connecting screen of this stream's game, its cover read off the main thread; cancelling ends the stream. */
     com.limelight.ui.ConnectingScreen showConnecting(String detail) {
+        // One connecting window at a time: a reconnect over one still open would leave it behind, over the stream.
+        if (game.spinner != null) {
+            game.spinner.dismiss();
+            game.spinner = null;
+        }
         android.content.Intent intent = game.getIntent();
         com.limelight.ui.ConnectingScreen screen = com.limelight.ui.ConnectingScreen.show(game, intent.getStringExtra(Game.EXTRA_APP_NAME),
                 intent.getStringExtra(Game.EXTRA_PC_NAME), game.getString(R.string.conn_establishing_title), detail, game::finish);
         if (screen == null) return null;
-        if (connectingCover != null) {
-            screen.showCover(connectingCover);
-            return screen;
-        }
-        String uuid = intent.getStringExtra(Game.EXTRA_PC_UUID);
-        String art = intent.getStringExtra(Game.EXTRA_APP_ART_KEY);
-        if (uuid == null || art == null) return screen;
-        new Thread(() -> {
-            java.io.File file = new com.limelight.grid.assets.DiskAssetLoader(game).getFile(uuid, art);
-            android.graphics.Bitmap cover = file.exists() ? android.graphics.BitmapFactory.decodeFile(file.getPath()) : null;
-            if (cover == null) return;
-            connectingCover = cover;
-            screen.showCover(cover);
-        }, "Connecting cover").start();
+        readCoverInto(screen);
         return screen;
     }
 
+    /** The cover at the window's size, read off the main thread unless this start already has it. */
+    void readCoverInto(com.limelight.ui.ConnectingScreen screen) {
+        if (connectingCover != null) {
+            screen.showCover(connectingCover);
+            return;
+        }
+        android.content.Intent intent = game.getIntent();
+        String uuid = intent.getStringExtra(Game.EXTRA_PC_UUID);
+        String art = intent.getStringExtra(Game.EXTRA_APP_ART_KEY);
+        if (uuid == null || art == null) return;
+        android.util.DisplayMetrics window = game.getResources().getDisplayMetrics();
+        int menuWidth = game.getResources().getDimensionPixelSize(R.dimen.stream_menu_cover_width);
+        int menuHeight = game.getResources().getDimensionPixelSize(R.dimen.stream_menu_cover_height);
+        new Thread(() -> {
+            java.io.File file = new com.limelight.grid.assets.DiskAssetLoader(game).getFile(uuid, art);
+            android.graphics.Bitmap cover = file.exists()
+                    ? com.limelight.ui.ConnectingScreen.readCover(file.getPath(), window.widthPixels, window.heightPixels) : null;
+            if (cover == null) return;
+            if (menuCover == null) menuCover = menuCover(cover, menuWidth, menuHeight);
+            // A start that connected meanwhile keeps only the menu's copy.
+            if (!game.connected) connectingCover = cover;
+            screen.showCover(cover);
+        }, "Connecting cover").start();
+    }
+
+    /** The stream menu's copy: the full cover would be held for the whole stream. */
+    private static android.graphics.Bitmap menuCover(android.graphics.Bitmap cover, int width, int height) {
+        float scale = Math.max((float) width / cover.getWidth(), (float) height / cover.getHeight());
+        if (scale >= 1f) return cover;
+        try {
+            return android.graphics.Bitmap.createScaledBitmap(cover, Math.max(1, Math.round(cover.getWidth() * scale)),
+                    Math.max(1, Math.round(cover.getHeight() * scale)), true);
+        } catch (OutOfMemoryError e) {
+            com.limelight.LimeLog.warning("No memory for the stream menu's cover: " + e);
+            return null;
+        }
+    }
+
+    /** The cover the stream menu and a failure show: the connecting one while it is held, else the menu's copy. */
     android.graphics.Bitmap connectingCover() {
-        return connectingCover;
+        android.graphics.Bitmap full = connectingCover;
+        return full != null ? full : menuCover;
+    }
+
+    /** The stream runs: the connecting window's cover is let go, and only the menu's small copy stays. */
+    void dropConnectingCover() {
+        connectingCover = null;
     }
 
     private volatile android.graphics.Bitmap connectingCover;
+    private volatile android.graphics.Bitmap menuCover;
 
     void stageStarting(final String stage) {
         game.runOnUiThread(new Runnable() {
@@ -1247,6 +1285,7 @@ final class GameConnection {
                     if (openPlaySettled != null) game.bitrateHandler.removeCallbacks(openPlaySettled);
                     openPlaySettled = com.limelight.console.OpenPlay.settleAfter(game, game.bitrateHandler);
                 }
+                dropConnectingCover();
                 if (game.spinner != null) {
                     game.spinner.dismiss();
                     game.spinner = null;

@@ -161,7 +161,7 @@ final class HomeAmbience implements ShelfAdapter.FocusListener, Choreographer.Fr
     private void write(ShelfAdapter.Item item) {
         setText(meta, metaOf(item));
         setText(title, titleOf(item));
-        setText(hints, hintText(item.game != null));
+        setText(hints, hintText(item));
         written = text(item);
     }
 
@@ -170,10 +170,23 @@ final class HomeAmbience implements ShelfAdapter.FocusListener, Choreographer.Fr
         return context.getString(game ? R.string.console_hint_open : R.string.library_open);
     }
 
-    /** The hint line for the device in the hand; empty for touch and a mouse. */
-    private CharSequence hintText(boolean game) {
-        CharSequence line = HomeHints.line(context, input, vendor, goWord(context, game), context.getString(R.string.console_hint_options));
-        return line == null ? "" : line;
+    /** The line under the title: a game's store and state, then the keys of the device in the hand (none for touch and a mouse). */
+    private CharSequence hintText(ShelfAdapter.Item item) {
+        CharSequence line = HomeHints.line(context, input, vendor, goWord(context, item.game != null), context.getString(R.string.console_hint_options));
+        String facts = item.game == null ? null : factsOf(context, item.game);
+        if (facts == null) return line == null ? "" : line;
+        android.text.SpannableStringBuilder text = new android.text.SpannableStringBuilder(facts);
+        text.setSpan(new android.text.style.ForegroundColorSpan(androidx.core.content.ContextCompat.getColor(context, R.color.nj_color_label_secondary)),
+                0, facts.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return line == null ? text : text.append("    ").append(line);
+    }
+
+    /** What a poster no longer says: the store and Running or Suspended. Null for a game with neither. */
+    static String factsOf(Context context, HomeModel.GameCard card) {
+        String store = card.storeName();
+        CharSequence state = ShelfAdapter.CardHolder.stateOf(context, card);
+        if (store == null) return state == null ? null : state.toString();
+        return state == null ? store : store + " · " + state;
     }
 
     /** The next input came from {@code source} (null says nothing): the hints name that device's keys, at once. */
@@ -182,7 +195,7 @@ final class HomeAmbience implements ShelfAdapter.FocusListener, Choreographer.Fr
         input = source;
         vendor = padVendor;
         ShelfAdapter.Item item = pending;
-        if (item != null) setText(hints, hintText(item.game != null));
+        if (item != null) setText(hints, hintText(item));
     }
 
     /** Drops the pending frame callback: the screen is going away. */

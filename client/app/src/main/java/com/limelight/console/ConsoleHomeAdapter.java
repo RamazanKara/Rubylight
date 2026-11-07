@@ -302,10 +302,8 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
             List<ShelfAdapter.Item> items = items(row.cards);
             if (row.hasMore()) items.add(ShelfAdapter.Item.allOf(row));
             Shelf shelf = new Shelf(row.key, ShelfAdapter.CardHolder.rowTitle(env.context, row), items);
-            if (form != com.limelight.ui.GlassForm.TELEVISION) {
-                shelf.count = row.total;
-                if (form == com.limelight.ui.GlassForm.PHONE) shelf.filter = row.filter;
-            }
+            shelf.count = row.total;
+            if (form == com.limelight.ui.GlassForm.PHONE) shelf.filter = row.filter;
             shelves.add(shelf);
         }
         if (!model.hosts.isEmpty()) {
@@ -321,7 +319,7 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
     private void addGames(String name, @StringRes int title, List<HomeModel.GameCard> cards) {
         if (cards.isEmpty()) return;
         Shelf shelf = new Shelf("shelf:" + name, env.context.getString(title), items(cards));
-        if (form != com.limelight.ui.GlassForm.TELEVISION) shelf.count = cards.size();
+        shelf.count = cards.size();
         shelves.add(shelf);
     }
 

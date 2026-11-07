@@ -364,6 +364,148 @@ fn a_delayed_release_is_sent_after_the_shared_key_lock_is_released() {
     calls();
 }
 
+/// What the stand-ins below sent, across the test's two threads.
+static SENDS: std::sync::Mutex<Vec<&str>> = std::sync::Mutex::new(Vec::new());
+static HELD_SENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// A delayed release's SendInput that takes its time.
+fn slow_held_send(inputs: &[INPUT]) -> usize {
+    HELD_SENDING.store(true, std::sync::atomic::Ordering::Release);
+    std::thread::sleep(Duration::from_millis(100));
+    SENDS.lock().unwrap().push("held");
+    inputs.len()
+}
+fn pass_send(inputs: &[INPUT]) -> usize {
+    SENDS.lock().unwrap().push("pass");
+    inputs.len()
+}
+#[test]
+fn another_injectors_pass_is_sent_after_a_delayed_release_it_followed() {
+    let mut injector = recording();
+    injector.apply(&click(7, true)).unwrap();
+    calls();
+    injector.inject = slow_held_send;
+    let other = std::thread::spawn(|| {
+        let mut other = recording();
+        other.inject = pass_send;
+        while !HELD_SENDING.load(std::sync::atomic::Ordering::Acquire) {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(
+            other
+                .apply_all(&[Event::Relative { x: 1, y: 0 }])
+                .is_empty()
+        );
+    });
+    injector
+        .held(false, 7, false, true, Injector::button(7, false))
+        .unwrap();
+    other.join().unwrap();
+    assert_eq!(*SENDS.lock().unwrap(), ["held", "pass"]);
+    injector.buttons.remove(&7);
+}
+
+thread_local! {
+    /// Touch frames sent: each contact's x and flags.
+    static FRAMES: std::cell::RefCell<Vec<Vec<(i32, POINTER_FLAGS)>>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+/// `inject_pointer`'s stand-in: nothing reaches the desktop.
+unsafe fn record_touch(_: HSYNTHETICPOINTERDEVICE, frame: &[POINTER_TYPE_INFO]) -> Result<()> {
+    let frame = frame
+        .iter()
+        // SAFETY: The injector sends touch frames only.
+        .map(|contact| unsafe { contact.Anonymous.touchInfo.pointerInfo })
+        .map(|info| (info.ptPixelLocation.x, info.pointerFlags))
+        .collect();
+    FRAMES.with_borrow_mut(|frames| frames.push(frame));
+    Ok(())
+}
+fn frames() -> Vec<Vec<(i32, POINTER_FLAGS)>> {
+    FRAMES.take()
+}
+fn finger(event: u8, id: u32, x: f32) -> Event {
+    Event::Touch {
+        event,
+        id,
+        x,
+        y: 0.5,
+        pressure: 0.5,
+        major: 0.,
+        minor: 0.,
+        rotation: u16::MAX,
+    }
+}
+#[test]
+fn touch_moves_wait_for_the_end_of_the_pass_or_the_next_other_event() {
+    let mut injector = recording();
+    injector.lookup = None;
+    injector.rect = Some(RECT {
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 1000,
+    });
+    injector.inject_touch = record_touch;
+    injector.touch_device = Some(HSYNTHETICPOINTERDEVICE::default());
+    assert!(
+        injector
+            .apply_all(&[finger(1, 1, 0.2), finger(1, 2, 0.6)])
+            .is_empty()
+    );
+    let down = frames();
+    assert_eq!(down.len(), 2);
+    let a = down[0][0].0;
+    // Moves in turn are one frame, sent at the end of the pass, with each finger
+    // where it was last: A moved 0.2 and B 0.2 of the 999-pixel span.
+    assert!(
+        injector
+            .apply_all(&[
+                finger(3, 1, 0.3),
+                finger(3, 2, 0.7),
+                finger(3, 1, 0.4),
+                finger(3, 2, 0.8),
+            ])
+            .is_empty()
+    );
+    let moved = frames();
+    assert_eq!(moved.len(), 1);
+    assert_eq!(moved[0].len(), 2);
+    assert!((199..=200).contains(&(moved[0][0].0 - a)), "{moved:?}");
+    assert!(
+        (399..=400).contains(&(moved[0][1].0 - moved[0][0].0)),
+        "{moved:?}"
+    );
+    // Mouse input sends the moves before it.
+    assert!(
+        injector
+            .apply_all(&[
+                finger(3, 1, 0.5),
+                Event::Relative { x: 1, y: 0 },
+                finger(3, 1, 0.6)
+            ])
+            .is_empty()
+    );
+    assert_eq!(frames().len(), 2);
+    assert_eq!(calls().len(), 1);
+    // So does a lift, whose frame holds the other finger where it moved.
+    assert!(
+        injector
+            .apply_all(&[finger(3, 1, 0.7), finger(2, 2, 0.8)])
+            .is_empty()
+    );
+    let lifted = frames();
+    assert_eq!(lifted.len(), 2);
+    assert!(
+        lifted[0]
+            .iter()
+            .all(|(_, flags)| flags.contains(POINTER_FLAG_UPDATE))
+    );
+    assert_eq!(lifted[1][0], lifted[0][0]);
+    assert!(lifted[1][1].1.contains(POINTER_FLAG_UP));
+    // The fake device is never destroyed.
+    injector.touch_device = None;
+    injector.touches.clear();
+}
+
 #[test]
 fn overlapping_keybindings_keep_the_destination_held_and_repeating() {
     let mut injector = recording();

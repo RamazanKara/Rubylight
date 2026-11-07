@@ -213,7 +213,7 @@ impl Injector {
             if !contacts.is_empty() {
                 // SAFETY: The live touch device owns these contacts, whose union fields and pointer types are initialized as touch input.
                 unsafe {
-                    inject_pointer(device, &contacts)?;
+                    (self.inject_touch)(device, &contacts)?;
                 }
             }
         }
@@ -230,9 +230,10 @@ impl Injector {
         let Some(device) = self.touch_device else {
             return Ok(());
         };
+        let inject = self.inject_touch;
         let result = submit_touch_moves(&mut self.touches, moves, |contacts| {
             // SAFETY: The live touch device owns these contacts, whose union fields and pointer types are initialized as touch input.
-            unsafe { inject_pointer(device, contacts) }
+            unsafe { inject(device, contacts) }
         });
         self.touch_refreshed = std::time::Instant::now();
         result
@@ -244,10 +245,11 @@ impl Injector {
             self.touches.clear();
             return Ok(());
         };
+        let inject = self.inject_touch;
         let result = cancel_touch_contacts(&mut self.touches, |contacts| {
             // SAFETY: The injector owns the device through every synchronous
             // attempt, and each frame is initialized as touch input.
-            unsafe { inject_pointer(device, contacts) }
+            unsafe { inject(device, contacts) }
         });
         if result.is_err() {
             self.touch_device = None;
@@ -356,8 +358,9 @@ impl Injector {
                 return Ok(());
             }
             let device = self.touch_device.expect("touch device created above");
+            let inject = self.inject_touch;
             let result = submit_touch(&mut self.touches, id, p, event, |contacts| {
-                inject_pointer(device, contacts)
+                inject(device, contacts)
             });
             if result.is_err()
                 && matches!(event, 2 | 4 | 6)

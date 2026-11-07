@@ -132,6 +132,8 @@ pub struct Injector {
     pending: Pending,
     /// SendInput, or a stand-in in tests.
     inject: fn(&[INPUT]) -> usize,
+    /// `inject_pointer` for touch frames, or a stand-in in tests.
+    inject_touch: unsafe fn(HSYNTHETICPOINTERDEVICE, &[POINTER_TYPE_INFO]) -> Result<()>,
 }
 /// Keyboard and mouse input of one pass of the control loop, sent in one
 /// SendInput call: a call cost 31-36 us whether it carried one input or
@@ -285,6 +287,7 @@ impl Injector {
             left_release: None,
             pending: Pending::default(),
             inject,
+            inject_touch: inject_pointer,
         };
         injector.look_up(output);
         Ok(injector)

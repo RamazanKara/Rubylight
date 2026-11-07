@@ -395,6 +395,9 @@ impl Ambient {
             {
                 find_sky(screen, moon, &held.rects)
             }
+            // Where it stepped back, room the page makes at its top brings it back: a shorter
+            // section, a cleared search, a page first seen scrolled seen at its top.
+            (Some(None), Some(held)) if held.at_top() => find_sky(screen, moon, &held.rects),
             (Some(disc), _) => disc,
             (None, Some(held)) => find_sky(screen, moon, &held.with_unseen()),
             // Kept only once the page has said what it holds.
@@ -491,8 +494,9 @@ impl Ambient {
         }
     }
 
-    /// The backdrop's shapes this frame, all at once; tells glass what to sample. For a page that
-    /// holds nothing (see [`Self::prepare`] for one that does).
+    /// The backdrop's shapes this frame, all at once, for a test of a page that holds nothing (the
+    /// launcher goes through [`Self::prepare`] and [`Self::finish`]).
+    #[cfg(test)]
     pub(super) fn paint(&mut self, ctx: &Context, want: Want) -> Vec<Shape> {
         self.prepare(ctx, want);
         self.finish(ctx)

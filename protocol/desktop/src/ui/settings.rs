@@ -1607,18 +1607,22 @@ fn with_hotkey(description: &str, action: crate::shortcuts::Action) -> String {
 }
 
 fn stream_menu_button_name(choice: Option<&str>) -> String {
-    match choice {
+    match choice.map(nightjar_policy::stream_menu::saved_choice) {
         None => tr("Default").to_owned(),
         Some(NO_TILE) => tr("Off").to_owned(),
-        // Saved before Quit game was one choice: it runs Quit game now.
-        Some("close_game") => tr("Quit game").to_owned(),
         Some(id) => crate::stream_menu::ASSIGNABLE.iter().find(|(tile, _)| *tile == id).map_or(id, |(_, name)| tr(name)).to_owned(),
     }
 }
 
+/// A button's saved choice as the list shows it: close_game, saved before Quit game was one
+/// choice, is Quit game, so the list highlights it.
+fn stream_menu_button_choice(s: &Settings, key: Hotkey) -> Option<String> {
+    s.stream_menu_buttons.get(&key).map(|saved| nightjar_policy::stream_menu::saved_choice(saved).to_owned())
+}
+
 /// The list of what a controller button can run in the stream menu: its own tile, nothing, or any of ours.
 fn stream_menu_button(ui: &mut Ui, s: &mut Settings, key: Hotkey) -> Response {
-    let mut choice = s.stream_menu_buttons.get(&key).cloned();
+    let mut choice = stream_menu_button_choice(s, key);
     let response = egui::ComboBox::from_id_salt(("stream-menu-button", key.cap())).selected_text(stream_menu_button_name(choice.as_deref())).show_ui(ui, |ui| {
         ui.selectable_value(&mut choice, None, tr("Default"));
         ui.selectable_value(&mut choice, Some(NO_TILE.to_owned()), tr("Off"));
@@ -1996,6 +2000,13 @@ mod tests {
         assert_eq!(stream_menu_button_name(Some("close_game")), "Quit game");
         assert_eq!(stream_menu_button_name(Some("quit_game")), "Quit game");
         assert_eq!(crate::stream_menu::ASSIGNABLE.iter().filter(|(_, name)| *name == "Quit game").count(), 1, "one Quit game in the list");
+        // The list highlights it too.
+        let mut s = Settings::default();
+        s.stream_menu_buttons.insert(Hotkey::Lb, "close_game".to_owned());
+        s.stream_menu_buttons.insert(Hotkey::Y, "overlay".to_owned());
+        assert_eq!(stream_menu_button_choice(&s, Hotkey::Lb).as_deref(), Some("quit_game"));
+        assert_eq!(stream_menu_button_choice(&s, Hotkey::Y).as_deref(), Some("overlay"));
+        assert_eq!(stream_menu_button_choice(&s, Hotkey::X), None);
     }
 }
 

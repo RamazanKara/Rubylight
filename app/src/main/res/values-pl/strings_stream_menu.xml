@@ -77,8 +77,8 @@ Niezapisany postęp zostanie utracony.</string>
     <string name="stream_tile_add_shortcut">Dodaj skrót</string>
     <string name="stream_tile_disconnect">Rozłącz</string>
     <string name="stream_tile_end_session">Zakończ sesję</string>
-    <string name="stream_tile_close_game">Wyjdź z gry</string>
-    <string name="stream_tile_quit_game">Wyjdź z gry</string>
+    <string name="stream_tile_close_game">Zamknij grę</string>
+    <string name="stream_tile_quit_game">Zamknij grę</string>
     <string name="stream_shortcut_key_unsupported">%1$s nie może być częścią skrótu: dotknij, aby usunąć.</string>
     <string name="stream_shortcut_no_keyboard">Skrót nie został wysłany: to urządzenie nie może wysyłać klawiatury do komputera.</string>
     <string name="stream_shortcut_not_sent">Skrót nie został wysłany: strumień nie przyjmuje teraz wejścia.</string>

@@ -241,12 +241,16 @@ pub fn assignable(tile: &Tile) -> bool {
     tile.label.is_some() && tile.place != Place::More && tile.id != "rate_change" && tile.id != "close_game"
 }
 
+/// A saved choice as this version reads it: a settings file from before Quit game was one choice
+/// may name close_game, which is Quit game now.
+pub fn saved_choice(saved: &str) -> &str {
+    if saved == "close_game" { "quit_game" } else { saved }
+}
+
 fn button_tile(key: Hotkey, buttons: &Buttons) -> Option<&'static str> {
     let default = || TILES.iter().find(|t| t.hotkey == Some(key)).map(|t| t.id);
-    match buttons.get(&key).map(String::as_str) {
+    match buttons.get(&key).map(|saved| saved_choice(saved)) {
         Some(NO_TILE) => None,
-        // A settings file from before Quit game was one choice may name close_game.
-        Some("close_game") => Some("quit_game"),
         Some(id) => tile(id).filter(|t| assignable(t)).map(|t| t.id).or_else(default),
         None => default(),
     }
@@ -601,6 +605,8 @@ mod tests {
     fn quit_game_is_one_choice_and_runs_whichever_way_the_stream_offers() {
         let close = tile("close_game").unwrap();
         assert!(!assignable(close), "one Quit game in the setting");
+        assert_eq!(saved_choice("close_game"), "quit_game");
+        assert_eq!(saved_choice("overlay"), "overlay");
         for (offered, runs) in [("quit_game", "quit_game"), ("close_game", "close_game")] {
             let offers = [Offer::action("keyboard"), Offer::action("disconnect"), Offer::action(offered)];
             for chosen in ["quit_game", "close_game"] {

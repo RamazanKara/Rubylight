@@ -77,8 +77,8 @@ Se perderá el progreso no guardado.</string>
     <string name="stream_tile_add_shortcut">Añadir atajo</string>
     <string name="stream_tile_disconnect">Desconectar</string>
     <string name="stream_tile_end_session">Finalizar sesión</string>
-    <string name="stream_tile_close_game">Salir del juego</string>
-    <string name="stream_tile_quit_game">Salir del juego</string>
+    <string name="stream_tile_close_game">Cerrar juego</string>
+    <string name="stream_tile_quit_game">Cerrar juego</string>
     <string name="stream_shortcut_key_unsupported">%1$s no puede formar parte de un atajo: tócalo para quitarlo.</string>
     <string name="stream_shortcut_no_keyboard">Atajo no enviado: este dispositivo no puede enviar entradas de teclado al PC.</string>
     <string name="stream_shortcut_not_sent">Atajo no enviado: el stream no acepta entradas ahora mismo.</string>

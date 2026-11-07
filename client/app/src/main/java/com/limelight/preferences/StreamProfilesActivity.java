@@ -56,6 +56,7 @@ public class StreamProfilesActivity extends NightjarActivity {
         super.onCreate(state);
         UiHelper.setLocale(this);
         FrameLayout content = TopAppBar.setUpPage(this, R.string.profiles_title, this::finish);
+        com.limelight.ui.NightSkyView.behind(this);
         TopAppBar.configure(this, R.id.page_toolbar, getString(R.string.profiles_title), R.menu.host_profile)
                 .setOnMenuItemClickListener(item -> {
                     UiHelper.showDialog(this, new NavigationDialogBuilder(this).setTitle(R.string.profiles_title)

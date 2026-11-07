@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Presets on Settings' rail: one line like the sections around it, so Up and Down move one row
-     at a time. Wrapping chips made it the rail's tallest row, and the D-pad scrolled inside it instead of reaching Video
-     (nightjar#7). Select opens the preset list, which names them. -->
+<!-- Presets on Settings' rail: its name and, under it, the preset in use. Wrapping chips made it the rail's tallest row, and
+     the D-pad scrolled inside it instead of reaching Video (nightjar#7); these two fixed lines keep Up and Down at one row a
+     press. A value beside the title cut German's title to one letter. Select opens the preset list. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="@dimen/settings_rail_row"
     android:gravity="center_vertical" android:paddingStart="@dimen/space_m" android:paddingEnd="@dimen/space_m"
@@ -9,9 +9,13 @@
     <ImageView android:layout_width="20dp" android:layout_height="20dp"
         android:layout_marginEnd="@dimen/space_m" android:src="@drawable/ic_speed"
         app:tint="@color/tv_rail_icon" android:duplicateParentState="true" android:importantForAccessibility="no" />
-    <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
-        android:maxLines="1" android:ellipsize="end" android:text="@string/stream_presets"
-        android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurface" />
-    <TextView android:id="@+id/preset_value" android:layout_width="wrap_content" android:layout_height="wrap_content"
-        android:visibility="gone" />
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+        android:orientation="vertical">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:maxLines="1" android:ellipsize="end" android:text="@string/stream_presets"
+            android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurface" />
+        <TextView android:id="@+id/preset_value" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:maxLines="1" android:ellipsize="end"
+            android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant" />
+    </LinearLayout>
 </LinearLayout>

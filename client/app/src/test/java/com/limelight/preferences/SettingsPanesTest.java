@@ -92,8 +92,6 @@ public class SettingsPanesTest {
             assertNull(controller.get().findViewById(R.id.settings_sections));
             assertTrue(controller.get().getFragmentManager().findFragmentById(R.id.stream_settings)
                     instanceof StreamSettings.RootFragment);
-            assertNull("no search row without a D-pad or controller",
-                    findRow(controller.get(), StreamSettings.SEARCH_ROW_KEY));
         } finally { controller.pause().stop().destroy(); }
     }
 
@@ -301,16 +299,11 @@ public class SettingsPanesTest {
     }
 
     @Test @Config(qualifiers = WIDE)
-    public void theSearchRowOpensSearchAndResultsFillTheRightPane() {
+    public void theCapsuleSearchOpensAndResultsFillTheRightPane() {
         ActivityController<StreamSettings> controller = open();
         try {
             StreamSettings screen = controller.get();
-            ListView list = sections(screen);
-            assertEquals("Search settings is the first row", StreamSettings.SEARCH_ROW_KEY,
-                    ((Preference) list.getItemAtPosition(0)).getKey());
-            Preference search = (Preference) list.getItemAtPosition(0);
-            assertEquals(screen.getString(R.string.settings_search_hint), search.getTitle().toString());
-            assertTrue(search.getOnPreferenceClickListener().onPreferenceClick(search));
+            assertTrue(screen.findViewById(R.id.settings_search_button).performClick());
             SearchView view = screen.findViewById(R.id.settings_search);
             assertEquals(View.VISIBLE, view.getVisibility());
             view.setQuery("bitrate", false);
@@ -404,16 +397,34 @@ public class SettingsPanesTest {
     }
 
     @Test @Config(qualifiers = WIDE)
-    public void aWideScreenKeepsTheSearchRowWhenItIsRecreatedWide() {
+    public void theRailOpensAtItsTopWithPresetsFirstAlsoWhenRecreatedWide() {
         ActivityController<StreamSettings> first = open();
-        row(sections(first.get()), StreamSettings.SEARCH_ROW_KEY);
+        ListView rail = sections(first.get());
+        assertEquals("stream_presets", ((Preference) rail.getItemAtPosition(0)).getKey());
+        assertEquals(0, rail.getFirstVisiblePosition());
+        assertEquals("the first row stands whole", rail.getListPaddingTop(), rail.getChildAt(0).getTop());
         ActivityController<StreamSettings> second = restore(WIDE, save(first));
         try {
             ListView list = sections(second.get());
-            assertEquals("the Search row is still first", StreamSettings.SEARCH_ROW_KEY,
-                    ((Preference) list.getItemAtPosition(0)).getKey());
+            assertEquals("stream_presets", ((Preference) list.getItemAtPosition(0)).getKey());
             assertEquals("video", shownSection(second.get()));
         } finally { second.pause().stop().destroy(); }
+    }
+
+    /** The first selection put Video at the rail's top, so a rail that fits its screen opened with Presets cut in half. */
+    @Test @Config(qualifiers = WIDE)
+    public void theFirstSelectionLeavesTheRailWhereItIs() {
+        ActivityController<StreamSettings> controller = open();
+        try {
+            StreamSettings screen = controller.get();
+            ListView list = sections(screen);
+            int video = row(list, "video");
+            int top = list.getChildAt(video).getTop();
+            StreamSettings.selectInPlace(list, video);
+            settle(screen);
+            assertEquals(0, list.getFirstVisiblePosition());
+            assertEquals("the row stays where it stood", top, list.getChildAt(video).getTop());
+        } finally { controller.pause().stop().destroy(); }
     }
 
     @Test @Config(qualifiers = WIDE)
@@ -426,7 +437,6 @@ public class SettingsPanesTest {
             assertEquals("audio", shownSection(second.get()));
             ListView list = sections(second.get());
             assertTrue(list.isItemChecked(row(list, "audio")));
-            row(list, StreamSettings.SEARCH_ROW_KEY);
         } finally { second.pause().stop().destroy(); }
     }
 
@@ -526,20 +536,19 @@ public class SettingsPanesTest {
     }
 
     @Test @Config(qualifiers = WIDE)
-    public void clickingTheSearchOrPresetRowKeepsTheShownSectionMarked() {
+    public void clickingThePresetRowKeepsTheShownSectionMarked() {
         ActivityController<StreamSettings> controller = open();
         try {
             StreamSettings screen = controller.get();
             screen.showSection("audio");
             settle(screen);
             ListView list = sections(screen);
-            for (String key : new String[] {StreamSettings.SEARCH_ROW_KEY, "stream_presets"}) {
-                int position = row(list, key);
-                list.performItemClick(list.getChildAt(position - list.getFirstVisiblePosition()), position, list.getItemIdAtPosition(position));
-                settle(screen);
-                assertTrue(key + " leaves the shown section marked", list.isItemChecked(row(list, "audio")));
-                assertFalse(key + " is not marked", list.isItemChecked(row(list, key)));
-            }
+            String key = "stream_presets";
+            int position = row(list, key);
+            list.performItemClick(list.getChildAt(position - list.getFirstVisiblePosition()), position, list.getItemIdAtPosition(position));
+            settle(screen);
+            assertTrue(key + " leaves the shown section marked", list.isItemChecked(row(list, "audio")));
+            assertFalse(key + " is not marked", list.isItemChecked(row(list, key)));
         } finally { controller.pause().stop().destroy(); }
     }
 

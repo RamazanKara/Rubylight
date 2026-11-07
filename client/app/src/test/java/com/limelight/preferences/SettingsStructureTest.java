@@ -101,6 +101,23 @@ public class SettingsStructureTest {
         prefs().edit().clear().commit();
     }
 
+    /** Video bitrate and Touch mode wrote their value under the title, the only rows that did. */
+    @Test
+    public void aRowHoldingOneValueSaysItAtItsEnd() {
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings screen = controller.get();
+            settle(screen);
+            screen.showSection("video");
+            settle(screen);
+            StreamSettings.SettingsFragment video = (StreamSettings.SettingsFragment) shown(screen);
+            assertEquals(R.layout.settings_preference_value, video.findPreference("seekbar_bitrate_kbps").getLayoutResource());
+            screen.showSection("input");
+            settle(screen);
+            StreamSettings.SettingsFragment input = (StreamSettings.SettingsFragment) shown(screen);
+            assertEquals(R.layout.settings_preference_value, input.findPreference("checkbox_touchscreen_trackpad").getLayoutResource());
+        }
+    }
+
     @Test
     public void overviewListsTheSectionsInOrder() {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {

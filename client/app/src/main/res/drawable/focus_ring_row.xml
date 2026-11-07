@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The outline every focusable row and button on a settings sub-page shows when it has focus (list_focus_row is the list version). -->
+<!-- The outline every focusable row and button on a settings sub-page shows when it has focus. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_focused="true">
         <inset android:insetLeft="2dp" android:insetRight="2dp" android:insetTop="1dp" android:insetBottom="1dp">

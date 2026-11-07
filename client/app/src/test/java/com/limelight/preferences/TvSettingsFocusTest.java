@@ -458,7 +458,7 @@ public class TvSettingsFocusTest {
      * Settings lists use, and nothing fills it.
      */
     @Test
-    public void thePresetListMarksItsRowWithTheAmberOutline() {
+    public void thePresetListMarksItsRowWithTheRingOverAQuietTint() {
         StreamSettings screen = open();
         ListView list = sections(screen);
         int presets = StreamSettings.RootFragment.positionOf(list, "stream_presets");
@@ -476,10 +476,9 @@ public class TvSettingsFocusTest {
         selector.jumpToCurrentState();
         android.graphics.Bitmap row = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
         selector.draw(new android.graphics.Canvas(row));
-        int amber = com.google.android.material.color.MaterialColors.getColor(chooser.getContext(),
-                androidx.appcompat.R.attr.colorPrimary, 0);
-        assertEquals("the outline is amber", amber, row.getPixel(w / 2, Math.round(3 * density)));
-        assertEquals("no grey block inside it", 0, android.graphics.Color.alpha(row.getPixel(w / 2, h / 2)));
+        int ring = com.google.android.material.color.MaterialColors.getColor(chooser.getContext(), R.attr.glassRing, 0);
+        assertEquals("the outline is the glass ring", ring | 0xFF000000, row.getPixel(w / 2, Math.round(density)) | 0xFF000000);
+        assertTrue("no grey block inside it, a quiet tint", android.graphics.Color.alpha(row.getPixel(w / 2, h / 2)) < 0x40);
         chooser.dismiss();
     }
 }

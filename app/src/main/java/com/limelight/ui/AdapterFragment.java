@@ -31,7 +31,8 @@ public class AdapterFragment extends Fragment {
     public void onActivityCreated(Bundle savedInstanceState) {
         super.onActivityCreated(savedInstanceState);
         AdaptiveGridView grid = getView().findViewById(R.id.fragmentView);
-        grid.setColumnPolicy(callbacks.getAdapterFragmentLayoutId() == R.layout.pc_grid_view,
+        int layout = callbacks.getAdapterFragmentLayoutId();
+        grid.setColumnPolicy(layout == R.layout.pc_grid_view || layout == R.layout.pc_grid_cards,
                 PreferenceConfiguration.readPreferences(getActivity()).smallIconMode);
         callbacks.receiveAbsListView(grid);
         UiNavigation.bindGrid(grid);

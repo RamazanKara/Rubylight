@@ -57,8 +57,9 @@ public class AdaptiveGridViewTest {
             grid.setColumnPolicy(true, false);
             measure(grid, 786, 1704);
             assertEquals(1, grid.getNumColumns());
+            // The form decides, not the size of this measure: a phone's rows stay one list.
             measure(grid, 1704, 786);
-            assertEquals(2, grid.getNumColumns());
+            assertEquals(1, grid.getNumColumns());
         }
     }
 

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PCs on a handheld and a TV: fixed-size cards (pc_grid_card, dimen tile_cell), no stretching and no gap, since each card pads
+     itself with its glow. Each card draws its own ring, so the grid's selector is empty. AdaptiveGridView centres a row of a few PCs and the block of more. -->
+<com.limelight.ui.AdaptiveGridView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/fragmentView" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:accessibilityTraversalAfter="@id/manuallyAddPc"
+    android:numColumns="auto_fit" android:columnWidth="@dimen/tile_cell" android:stretchMode="none"
+    android:horizontalSpacing="0dp" android:verticalSpacing="0dp"
+    android:paddingTop="@dimen/space_s" android:paddingBottom="@dimen/space_xl"
+    android:focusable="true" android:focusableInTouchMode="true" android:clipToPadding="false" android:clipChildren="false"
+    android:scrollbars="none"
+    android:listSelector="@android:color/transparent" android:drawSelectorOnTop="false" android:gravity="center" />

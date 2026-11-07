@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A TV of 1280dp, and larger: four cards with room to spare. -->
+    <dimen name="tile_height">272dp</dimen>
+    <dimen name="tile_cell">296dp</dimen>
+    <dimen name="tile_screen">204dp</dimen>
+    <dimen name="tile_glyph">60dp</dimen>
+    <dimen name="tile_pad_top">26dp</dimen>
+    <dimen name="tile_name_top">18dp</dimen>
+    <dimen name="pcs_list_top">252dp</dimen>
+    <dimen name="pcs_hero_title">60sp</dimen>
+    <dimen name="tile_update_text">16sp</dimen>
+</resources>

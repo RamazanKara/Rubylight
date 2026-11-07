@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- More on a PC: nothing at rest, the control's fill under a press, and the ring when the D-pad has stepped onto it (hover is
+     the one state a card does not pass down to its children). -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_hovered="true">
+        <inset android:insetLeft="2dp" android:insetRight="2dp" android:insetTop="4dp" android:insetBottom="4dp">
+            <shape android:shape="oval">
+                <solid android:color="?attr/glassControlFill" />
+                <stroke android:width="?attr/nightjarCardFocusRingWidth" android:color="?attr/glassRing" />
+            </shape>
+        </inset>
+    </item>
+    <item android:state_pressed="true">
+        <inset android:insetLeft="2dp" android:insetRight="2dp" android:insetTop="4dp" android:insetBottom="4dp">
+            <shape android:shape="oval">
+                <solid android:color="?attr/glassControlFill" />
+            </shape>
+        </inset>
+    </item>
+    <item android:drawable="@android:color/transparent" />
+</selector>

@@ -1,9 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A phone's grouped PCs: one column with no spacing, as each row draws its share of its group and the gap under it (PcRow), and
+     its own focus ring, so the grid's selector is empty. The edges fade where rows slide under the chrome. -->
 <com.limelight.ui.AdaptiveGridView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/fragmentView" android:layout_width="match_parent" android:layout_height="match_parent"
-    android:nextFocusDown="@id/manuallyAddPc" android:accessibilityTraversalAfter="@id/home_toolbar"
-    android:numColumns="auto_fit" android:columnWidth="296dp" android:stretchMode="columnWidth"
-    android:horizontalSpacing="@dimen/grid_spacing" android:verticalSpacing="@dimen/grid_spacing"
+    android:accessibilityTraversalAfter="@id/manuallyAddPc"
+    android:numColumns="1" android:stretchMode="columnWidth"
+    android:horizontalSpacing="0dp" android:verticalSpacing="0dp"
     android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter"
-    android:paddingTop="@dimen/grid_padding_top" android:paddingBottom="@dimen/fab_clearance"
+    android:paddingTop="@dimen/space_s" android:paddingBottom="@dimen/fab_clearance"
     android:focusable="true" android:focusableInTouchMode="true" android:clipToPadding="false" android:clipChildren="false"
-    android:listSelector="@drawable/grid_focus_ring" android:drawSelectorOnTop="true" android:gravity="center" />
+    android:requiresFadingEdge="vertical" android:fadingEdgeLength="20dp" android:scrollbars="none"
+    android:listSelector="@android:color/transparent" android:drawSelectorOnTop="false" android:gravity="center" />

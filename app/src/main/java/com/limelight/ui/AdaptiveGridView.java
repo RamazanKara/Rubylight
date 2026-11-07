@@ -368,6 +368,8 @@ public class AdaptiveGridView extends GridView {
     protected void onFocusChanged(boolean gainFocus, int direction, android.graphics.Rect previouslyFocusedRect) {
         super.onFocusChanged(gainFocus, direction, previouslyFocusedRect);
         if (!gainFocus) markAction(null);
+        // A PC row's ring follows the grid's focus, not only its own selection.
+        if (computers) for (int i = 0; i < getChildCount(); i++) getChildAt(i).invalidate();
     }
 
     @Override
@@ -466,7 +468,7 @@ public class AdaptiveGridView extends GridView {
     }
 
     /**
-     * TV PC tiles have a fixed width (pc_grid_view's columnWidth, no stretching): a few PCs sit as one centred row, and more
+     * PC cards have a fixed width (pc_grid_cards' columnWidth, no stretching): a few PCs sit as one centred row, and more
      * fill rows from the left of a centred block. GridView has no centring of its own, so the side padding takes the rest.
      */
     private int centreTiles(int columns, int width, int[] base) {
@@ -494,7 +496,12 @@ public class AdaptiveGridView extends GridView {
             int width = Math.max(0, MeasureSpec.getSize(widthMeasureSpec) - base[0] - base[1]);
             int columns = AdaptiveLayout.gridColumns(width / density / fontScale,
                     MeasureSpec.getSize(heightMeasureSpec) / density, computers, smallIcons, television);
-            if (computers && television) columns = centreTiles(columns, width, base);
+            if (computers && GlassForm.of(getContext()) != GlassForm.PHONE) {
+                int cell = getRequestedColumnWidth();
+                columns = centreTiles(cell <= 0 ? columns : Math.max(1, width / cell), width, base);
+            } else if (computers) {
+                columns = 1;
+            }
             // A no-op when unchanged; otherwise the children are rebuilt by the layout that follows.
             setNumColumns(columns);
         }

@@ -399,6 +399,72 @@ fn abandoning_pyrowave_blocks_keeps_frame_and_nonce_progress() {
     assert_eq!(p.iv_counter, (first.len() + total) as u64);
 }
 
+/// Review 2026-11-07: PyroWave allocated and zero-filled every packet of every
+/// frame. Blocks built in returned buffers, even ones of another size and
+/// full of the last frame's bytes, are the same bytes, and the buffers stay.
+#[test]
+fn pyrowave_blocks_in_reused_buffers_match_fresh_ones() {
+    let fec = || PyrowaveFec {
+        records: false,
+        critical_percentage: 20,
+        detail_percentage: 0,
+        wire_budget: 0,
+        ipv6: false,
+    };
+    let make = || VideoPacketizer {
+        sequence: 65000,
+        iv_counter: 9,
+        frame: 3,
+        packet_size: 1392,
+        fec_percent: 0,
+        min_fec: 2,
+        key: Some([42; 16]),
+    };
+    let pool = BlockPool::default();
+    let (mut fresh, mut reused) = (make(), make());
+    for (index, size) in [400_000usize, 90_000, 700_000, 1_000]
+        .into_iter()
+        .enumerate()
+    {
+        let payload: Vec<u8> = (0..size).map(|i| (i * 31 + index) as u8).collect();
+        let expected: Vec<_> = fresh
+            .pyrowave_blocks(&payload, 9000, 543, fec())
+            .unwrap()
+            .2
+            .map(Result::unwrap)
+            .collect();
+        let (count, _, blocks) = reused
+            .pyrowave_blocks_in(&payload, 9000, 543, fec(), Some(&pool))
+            .unwrap();
+        let actual: Vec<_> = blocks.map(Result::unwrap).collect();
+        assert_eq!(actual, expected, "frame {index}");
+        assert_eq!(actual.iter().map(Vec::len).sum::<usize>(), count);
+        for block in actual {
+            pool.give(block);
+        }
+        assert!(pool.len() > 0);
+    }
+    assert_eq!(
+        (fresh.sequence, fresh.iv_counter, fresh.frame),
+        (reused.sequence, reused.iv_counter, reused.frame)
+    );
+}
+
+#[test]
+fn a_block_pool_hands_blocks_back_in_order_and_keeps_a_few() {
+    let pool = BlockPool::default();
+    for size in 1..=20 {
+        pool.give(vec![Vec::new(); size]);
+    }
+    assert_eq!(pool.len(), 16);
+    let first = pool.take();
+    assert_eq!(first.len(), 1);
+    pool.unused(first);
+    assert_eq!(pool.take().len(), 1);
+    assert_eq!(pool.take().len(), 2);
+    assert!(BlockPool::default().take().is_empty());
+}
+
 #[test]
 fn legacy_pyrowave_uses_the_conventional_receivers_fec_bytes() {
     for key in [None, Some([42; 16])] {

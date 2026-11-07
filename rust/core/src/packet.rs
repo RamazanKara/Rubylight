@@ -8,6 +8,39 @@ use crate::crypto;
 /// Datagram storage for one video FEC block.
 pub type PacketBlock = Vec<Vec<u8>>;
 
+/// Blocks the paced sender has sent, for the packetizer to fill again instead
+/// of allocating every packet of every frame. First in, first out: a frame's
+/// blocks come back in order, so the next frame's block takes the buffer of
+/// the same block before it, which already has its size.
+#[derive(Default)]
+pub struct BlockPool(std::sync::Mutex<std::collections::VecDeque<PacketBlock>>);
+
+impl BlockPool {
+    /// Blocks kept; more are freed. A large PyroWave frame takes about a dozen.
+    const KEEP: usize = 16;
+
+    pub fn take(&self) -> PacketBlock {
+        self.0.lock().unwrap().pop_front().unwrap_or_default()
+    }
+
+    pub fn give(&self, block: PacketBlock) {
+        let mut blocks = self.0.lock().unwrap();
+        if blocks.len() < Self::KEEP {
+            blocks.push_back(block);
+        }
+    }
+
+    /// A block taken but not filled goes back first in line.
+    fn unused(&self, block: PacketBlock) {
+        self.0.lock().unwrap().push_front(block);
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.0.lock().unwrap().len()
+    }
+}
+
 const REPLAY_WINDOW: u32 = 4096;
 /// Authenticate a message before recording its sequence. Moonlight numbers
 /// control messages with one counter across ENet channels, which are only
@@ -238,13 +271,34 @@ impl VideoPacketizer {
         latency_us: u64,
         fec: PyrowaveFec,
     ) -> Result<(usize, bool, impl Iterator<Item = Result<PacketBlock>> + 'a)> {
+        self.pyrowave_blocks_in(payload, timestamp, latency_us, fec, None)
+    }
+    /// [`Self::pyrowave_blocks`], building each block in a buffer from `pool`
+    /// when there is one, so a sent block's packets are filled again.
+    pub fn pyrowave_blocks_in<'a>(
+        &'a mut self,
+        payload: &'a [u8],
+        timestamp: u32,
+        latency_us: u64,
+        fec: PyrowaveFec,
+        pool: Option<&'a BlockPool>,
+    ) -> Result<(usize, bool, impl Iterator<Item = Result<PacketBlock>> + 'a)> {
         let (count, limited, mut next) =
             self.frame_blocks(payload, true, false, timestamp, latency_us, Some(fec))?;
         let blocks = std::iter::from_fn(move || {
-            let mut packets = Vec::new();
+            let mut packets = pool.map(BlockPool::take).unwrap_or_default();
             match next(&mut packets) {
-                Ok(0) => None,
-                Ok(_) => Some(Ok(packets)),
+                Ok(0) => {
+                    if let Some(pool) = pool {
+                        pool.unused(packets);
+                    }
+                    None
+                }
+                Ok(filled) => {
+                    // A reused buffer can be longer than this block.
+                    packets.truncate(filled);
+                    Some(Ok(packets))
+                }
                 Err(error) => Some(Err(error)),
             }
         });

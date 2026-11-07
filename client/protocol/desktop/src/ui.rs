@@ -996,11 +996,18 @@ impl Launcher {
         // above run under them, so a check, transfer or join in flight still ends or is cancelled.
         if let Some(pin) = &mut self.pin {
             let pcs: Vec<(String, String)> = view.hosts.list.iter().map(|h| (h.record.unique_id.clone(), h.display_name().to_owned())).collect();
-            if pin.up() {
+            // Its sky goes under it as the launcher's does, painted once it is drawn.
+            let slot = pin.up().then(|| {
                 self.ambient.set_page(&ctx, "pin");
-                ui.painter().extend(self.ambient.paint(&ctx, backdrop::Want::Sky(backdrop::Moon::High)));
-            }
+                self.ambient.prepare(&ctx, backdrop::Want::Sky(backdrop::Moon::High));
+                let under = ui.painter().clone();
+                let slot = under.add(egui::Shape::Noop);
+                (under, slot)
+            });
             if pin.ui(ui, &pcs, &mut commands) {
+                if let Some((under, slot)) = slot {
+                    under.set(slot, egui::Shape::Vec(self.ambient.finish(&ctx)));
+                }
                 return commands;
             }
         }

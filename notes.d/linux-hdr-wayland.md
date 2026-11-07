@@ -1,2 +1,2 @@
-## en
-- Linux: HDR no longer fails with "HDR output unavailable" on KDE and other Wayland desktops when a display has HDR on.
+## desktop
+- Linux: HDR on Wayland desktops with colour management goes by the displays' HDR state when Nightjar starts, not only by its still hidden window.

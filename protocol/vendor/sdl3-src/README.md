@@ -26,11 +26,14 @@ either (libsdl-org/SDL issue 10876; pull request 14157 adds no Vulkan path).
   that shader (the PQ encode in `desktop/src/pq_present.hlsl`) instead of the blit. Renderer
   creation fails if the swapchain refuses HDR10. SDL 3.4.18's GPU renderer has no HDR10 output
   of its own; it is for swapchains that offer HDR10 and not scRGB.
+- `patches/display-hdr-state.patch` keeps `SDL_PROP_DISPLAY_HDR_ENABLED_BOOLEAN` true to the
+  display's HDR state. SDL 3.4.18 sets it once, when the display is added, and a Wayland
+  compositor's answer about an output can come later. Drop it once upstream SDL updates it.
 - `build.rs` copies the submodule into the build directory and applies the patches there; a hunk
   that does not match fails the build, and so does a patch that would change nothing (no
   `+++ b/` file, a file without hunks). Its tests: see the top of `build.rs`.
 
 To move to another SDL release: check out the new tag in the submodule, bump the version here
 and in `src/lib.rs` to the one sdl3-sys pins, and regenerate the patches against the new files
-(`diff -u` of `include/SDL3/SDL_gpu.h` and `src/gpu/vulkan/SDL_gpu_vulkan.c`, and of `src/render/gpu/SDL_render_gpu.c`, paths `a/` and `b/`).
+(`diff -u` of `include/SDL3/SDL_gpu.h` and `src/gpu/vulkan/SDL_gpu_vulkan.c`, of `src/render/gpu/SDL_render_gpu.c`, and of `src/video/SDL_video.c`, paths `a/` and `b/`).
 Drop the interop patch once upstream SDL can share the device, and the PQ patch once its GPU renderer outputs HDR10.

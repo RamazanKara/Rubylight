@@ -98,7 +98,7 @@ pub fn host_options(host: &Host) -> Vec<HostOption> {
     let mut options = Vec::new();
     if host.paired() {
         options.push(HostOption::OpenLibrary);
-        if running_entry(host).is_some() {
+        if host.running_app().is_some() {
             options.push(HostOption::Resume);
         }
         if host.running_app().is_some() {
@@ -1392,8 +1392,8 @@ impl Launcher {
         match option {
             HostOption::OpenLibrary => commands.push(Command::OpenApps(id)),
             HostOption::Resume => {
-                if let Some(app) = running_entry(host) {
-                    commands.push(Command::Launch { host: id, app: app.id, resume: true });
+                if let Some(app) = running_entry(host).map(|app| app.id).or(host.running_app()) {
+                    commands.push(Command::Launch { host: id, app, resume: true });
                 }
             }
             HostOption::QuitApp => {

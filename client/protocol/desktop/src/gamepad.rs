@@ -452,6 +452,17 @@ impl Gamepads {
         }).collect::<Vec<_>>().join(",")
     }
 
+    /// The type of this gamepad if it is a real pad, with a stick: SDL also calls some other devices
+    /// gamepads.
+    pub fn real_pad_type(&self, id: SDL_JoystickID) -> Option<SDL_GamepadType> {
+        let pad = self.pads.iter().find(|p| p.id == id)?;
+        // SAFETY: the handle lives as long as its Pad.
+        unsafe {
+            let stick = SDL_GamepadHasAxis(pad.handle, SDL_GAMEPAD_AXIS_LEFTX) && SDL_GamepadHasAxis(pad.handle, SDL_GAMEPAD_AXIS_LEFTY);
+            stick.then(|| SDL_GetGamepadType(pad.handle))
+        }
+    }
+
     pub fn find(&mut self, id: SDL_JoystickID) -> Option<&mut Pad> {
         self.pads.iter_mut().find(|p| p.id == id)
     }

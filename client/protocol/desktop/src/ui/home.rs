@@ -676,7 +676,11 @@ impl Launcher {
             app: game.app_id,
             favourite: false,
         };
-        if let Some(anchor) = menu_request(ui, &play, None) {
+        let asked = menu_request(ui, &play, None);
+        if play.has_focus() {
+            hint_here(ui.ctx(), en("Play"));
+        }
+        if let Some(anchor) = asked {
             self.open_menu(
                 Dialog::GameMenu {
                     host: host.id,

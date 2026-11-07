@@ -1464,11 +1464,11 @@ fn wake_is_offered_until_the_pc_answers_and_resume_while_it_runs_a_game() {
     let at = |option| busy.iter().position(|o| *o == option).unwrap();
     assert!(at(HostOption::OpenLibrary) < at(HostOption::Resume) && at(HostOption::Resume) < at(HostOption::QuitApp));
     assert!(!host_options(&by("paired")).contains(&HostOption::Resume));
-    // Without its library the running game cannot be named, so there is nothing to resume.
+    // Without its library the running game has no name, and it resumes by its number all the same.
     let mut unlisted = by("running a game");
     unlisted.apps = Apps::NotLoaded;
     let options = host_options(&unlisted);
-    assert!(!options.contains(&HostOption::Resume) && options.contains(&HostOption::QuitApp));
+    assert!(options.contains(&HostOption::Resume) && options.contains(&HostOption::QuitApp));
 }
 
 #[test]
@@ -5125,7 +5125,7 @@ fn the_demo_library_reaches_every_page() {
             Page::Home => Screen::Home,
             Page::AllGames | Page::Search => Screen::AllGames,
             Page::Game => Screen::Game { host: pc, app: 1002 },
-            Page::Pcs | Page::FirstRun | Page::FirstRunFound | Page::Dialog(_) | Page::PinStream | Page::PinChoose | Page::PinPage(_) | Page::StreamMenu(_) => Screen::Hosts,
+            Page::Pcs | Page::FirstRun | Page::FirstRunFound | Page::Dialog(_) | Page::PinStream | Page::PinChoose | Page::PinLock(_) | Page::StreamMenu(_) => Screen::Hosts,
             Page::Apps => Screen::Apps(pc),
             Page::AppsEmpty => Screen::Apps(f.hosts.list[1].id),
             Page::Pc => Screen::HostDetails(pc),
@@ -6500,4 +6500,43 @@ fn a_dialogs_buttons_sit_right_under_it_in_a_short_window() {
     let at = |text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1).unwrap_or_else(|| panic!("{text}"));
     assert!(at("Cancel").top() - at("0").bottom() < 60.0, "no empty row above the buttons: {:?} under {:?}", at("Cancel"), at("0"));
     assert!(at("Cancel").bottom() < 480.0, "in the window");
+}
+
+/// A key cap and a word for what has focus, for the device in the hand; nothing for a mouse.
+#[test]
+fn the_button_hints_follow_the_last_input() {
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 0)), vec![game(1)]);
+    f.l.go(Screen::Hosts);
+    f.settle();
+    f.press(Key::Tab);
+    f.settle();
+    let says = |f: &Frames, word: &str| f.placed.iter().any(|(t, ..)| t == word);
+    assert!(!says(&f, "Options"), "no hints before the last input is known: {:?}", f.placed);
+    f.l.input_source = crate::input_source::InputSource::Keyboard;
+    for _ in 0..12 {
+        if says(&f, "Options") {
+            break;
+        }
+        f.press(Key::Tab);
+        f.settle();
+    }
+    assert!(says(&f, "Options"), "a card with options takes focus by Tab: {:?}", f.placed);
+    assert!(says(&f, "F") && says(&f, "Enter"), "the keyboard's caps: {:?}", f.placed);
+    f.l.input_source = crate::input_source::InputSource::Pad(crate::glyphs::Style::PlayStation);
+    f.settle();
+    assert!(says(&f, "Options") && !says(&f, "Enter"), "a pad's own labels: {:?}", f.placed);
+    f.l.input_source = crate::input_source::InputSource::None;
+    f.settle();
+    assert!(!says(&f, "Options"), "none for a mouse");
+}
+
+/// A game the PC runs that is not on its list still resumes and quits, as any other.
+#[test]
+fn a_running_game_with_no_list_entry_offers_the_same_choices() {
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 77)), vec![game(1)]);
+    f.settle();
+    let host = &f.hosts.list[0];
+    assert_eq!(host.running_app(), Some(77));
+    let options = dialogs::host_options(host);
+    assert!(options.contains(&HostOption::Resume) && options.contains(&HostOption::QuitApp), "{options:?}");
 }

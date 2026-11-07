@@ -356,6 +356,8 @@ pub struct Launcher {
     pub controller_key: String,
     pub controller_mapping: crate::gamepad::Mapping,
     pub controller_test: bool,
+    /// The device in the hand: what the button hints name.
+    pub input_source: crate::input_source::InputSource,
     pub shortcuts: crate::shortcuts::Shortcuts,
     /// Games streamed before, latest first.
     pub recents: Vec<crate::config::Recent>,
@@ -491,6 +493,7 @@ impl Launcher {
             controller_key: String::new(),
             controller_mapping: crate::gamepad::Mapping::default(),
             controller_test: false,
+            input_source: crate::input_source::InputSource::None,
             shortcuts,
             recents: Vec::new(),
             favourites: Vec::new(),
@@ -1102,6 +1105,7 @@ impl Launcher {
         } else if let Some(host) = &view.waking {
             waking(&ctx, host, &mut commands);
         }
+        self.button_hints(&ctx, &view);
         self.draw_toast(&ctx);
         commands
     }

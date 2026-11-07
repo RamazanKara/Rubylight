@@ -914,6 +914,44 @@ pub(super) fn info_chip(
     rect.width()
 }
 
+/// A key cap and a word for Go and More on what has focus, for the device in the hand. No animation:
+/// they change on the next input, and are gone for a mouse and over a dialog.
+impl Launcher {
+    pub(super) fn button_hints(&self, ctx: &egui::Context, view: &View<'_>) {
+        let source = self.input_source;
+        if source == crate::input_source::InputSource::None || self.panel_is_up(view) {
+            return;
+        }
+        let Some(go) = hint_said(ctx) else { return };
+        let swap = self.settings.swap_face_buttons;
+        egui::Area::new(Id::unique("button-hints"))
+            .order(egui::Order::Foreground)
+            .anchor(egui::Align2::RIGHT_BOTTOM, vec2(-20.0, -20.0))
+            .interactable(false)
+            .fade_in(false)
+            .show(ctx, |ui| {
+                let place = ui.painter().add(egui::Shape::Noop);
+                let shown = Frame::new().inner_margin(Margin { left: 6, right: 16, top: 5, bottom: 5 }).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+                        crate::glyphs::show(ui, &source.go(swap));
+                        ui.label(RichText::new(tr(go)).font(semibold(text::LABEL)).color(ON_SURFACE));
+                        ui.add_space(8.0);
+                        crate::glyphs::show(ui, &source.more(swap));
+                        ui.label(RichText::new(tr("Options")).font(semibold(text::LABEL)).color(ON_SURFACE));
+                    });
+                });
+                let rect = shown.response.rect;
+                let mut shapes = Vec::new();
+                glass::without_backdrop(&mut shapes, ctx, rect, rect.height() / 2.0, glass::Material::Chip);
+                // The shadow falls past the area's clip.
+                let mut painter = ui.painter().clone();
+                painter.set_clip_rect(ctx.content_rect());
+                painter.set(place, egui::Shape::Vec(shapes));
+            });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

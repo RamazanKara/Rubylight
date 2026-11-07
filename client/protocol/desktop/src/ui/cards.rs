@@ -118,8 +118,25 @@ pub(super) fn menu_request(ui: &Ui, card: &Response, dots: Option<&Response>) ->
         return Some(Anchor::Point(at));
     }
     let focused = card.has_focus() || dots.is_some_and(Response::has_focus);
-    let keys = focused && ui.input(|i| i.key_pressed(Key::F2) || (i.modifiers.shift && i.key_pressed(Key::F10)));
+    if focused {
+        hint_here(ui.ctx(), en("Open"));
+    }
+    let keys = focused && ui.input(|i| {
+        crate::shortcuts::pressed(i, crate::shortcuts::Action::Options, false) && !(i.modifiers.ctrl || i.modifiers.alt || i.modifiers.command)
+    });
     keys.then_some(Anchor::Beside(card.rect))
+}
+
+/// What has focus has options, and Go does `go`: the button hints speak of it this pass.
+pub(super) fn hint_here(ctx: &egui::Context, go: &'static str) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| d.insert_temp(Id::unique("hint-focus"), (pass, go)));
+}
+
+/// What [`hint_here`] said this pass.
+pub(super) fn hint_said(ctx: &egui::Context) -> Option<&'static str> {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data(|d| d.get_temp::<(u64, &'static str)>(Id::unique("hint-focus"))).filter(|said| said.0 == pass).map(|said| said.1)
 }
 
 /// A PC's card on Home: as compact as Home's game cards, its state and what it knows of the games on

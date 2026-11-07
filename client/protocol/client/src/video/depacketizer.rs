@@ -71,8 +71,9 @@ pub(super) struct Depacketizer {
     drop_state_pending: bool,
     idr_frame_processed: bool,
     consecutive_frame_drops: u32,
-    /// The decode queue overflowed and no frame has reached the sink since: drops until then
-    /// are the decoder's backlog, not network loss.
+    /// The decode queue overflowed and since then only whole frames were dropped, waiting for
+    /// the key frame it requested: those are the decoder's backlog, not network loss. Any other
+    /// drop (a lost or abandoned frame) ends it.
     decoder_overflow: bool,
 
     pyro_last_block: u8,
@@ -163,13 +164,21 @@ impl Depacketizer {
 
     /// Drops the frame in progress and decides whether recovery needs a key frame or RFI.
     fn drop_frame_state<S: VideoSink>(&mut self, io: &mut Io<S>) {
-        self.drop_state_pending = false;
-        if self.decoder_overflow {
-            io.stats.decoder_drops += 1;
-        } else {
-            io.stats.frame_drops += 1;
-        }
+        self.decoder_overflow = false;
+        io.stats.frame_drops += 1;
+        self.reset_dropped_frame(io);
+    }
 
+    /// Drops a frame that arrived whole but has no room in the decode queue: the overflowing
+    /// frame and every whole frame dropped until the key frame it requested.
+    fn drop_frame_state_for_decoder<S: VideoSink>(&mut self, io: &mut Io<S>) {
+        self.decoder_overflow = true;
+        io.stats.decoder_drops += 1;
+        self.reset_dropped_frame(io);
+    }
+
+    fn reset_dropped_frame<S: VideoSink>(&mut self, io: &mut Io<S>) {
+        self.drop_state_pending = false;
         if self.strict_idr_frame_wait
             || !self.idr_frame_processed
             || self.waiting_for_idr_frame
@@ -392,13 +401,12 @@ impl Depacketizer {
             buffers,
         };
         if let Err(frame) = io.sink.frame(frame) {
-            // The decode queue overflowed: recover with a key frame. This frame and every one
-            // dropped until the next one reaches the sink count as decoder drops.
+            // The decode queue overflowed: recover with a key frame. This frame, the flushed
+            // ones and every whole frame dropped until the key frame are decoder drops.
             self.waiting_for_idr_frame = true;
-            self.decoder_overflow = true;
             io.pools.recycle_frame(frame.data, frame.buffers);
-            self.drop_frame_state(io);
-            io.sink.flush_frames();
+            self.drop_frame_state_for_decoder(io);
+            io.stats.decoder_drops += io.sink.flush_frames() as u64;
             io.sink.signal(VideoSignal::RequestIdr);
             return;
         }
@@ -600,7 +608,11 @@ impl Depacketizer {
                     self.detected_frame_loss(io, frame_index);
                 }
                 self.waiting_for_next_successful_frame = false;
-                self.drop_frame_state(io);
+                if self.decoder_overflow && self.waiting_for_idr_frame {
+                    self.drop_frame_state_for_decoder(io);
+                } else {
+                    self.drop_frame_state(io);
+                }
                 return;
             }
 

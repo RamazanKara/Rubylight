@@ -253,8 +253,8 @@ impl VideoSink for Sink<'_> {
         Ok(())
     }
 
-    fn flush_frames(&mut self) {
-        drop(self.shared.queue.flush());
+    fn flush_frames(&mut self) -> usize {
+        self.shared.queue.flush().len()
     }
 
     fn signal(&mut self, signal: VideoSignal) {

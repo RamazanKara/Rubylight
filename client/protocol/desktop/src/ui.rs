@@ -12,6 +12,7 @@ mod dialogs;
 pub(crate) mod glass;
 mod icons;
 pub mod files;
+mod first_run;
 mod game;
 mod help;
 mod home;
@@ -413,6 +414,8 @@ pub struct Launcher {
     back_pressed: bool,
     /// The PC whose empty list is being read again: its page holds still until the answer.
     refreshing_empty: Option<u64>,
+    /// The first run shows a found PC: when it first does, its Pair takes the focus.
+    found_shown: bool,
     /// Where the page's Back has its slot this frame: None on a page without one.
     back_slot: Option<f32>,
     /// The display's tearing support, for the VRR setting's note.
@@ -512,6 +515,7 @@ impl Launcher {
             page_to_top: false,
             back_pressed: false,
             refreshing_empty: None,
+            found_shown: false,
             back_slot: None,
             tearing_supported: false,
             gpu_device: None,
@@ -991,7 +995,12 @@ impl Launcher {
         if let Some(data) = &home_data {
             self.hero.clone_from(&data.hero);
         }
+        // Home has nothing to say with no PCs: the first run is on PCs, where they are found.
+        if self.screen == Screen::Home && view.hosts.list.is_empty() {
+            self.go(Screen::Hosts);
+        }
         let want = self.page_backdrop(&view, &sources);
+        self.ambient.set_orbit(self.screen == Screen::Hosts && first_run::first_run_of(view.hosts).is_some() && view.hosts.discovering);
         ui.painter().extend(self.ambient.paint(&ctx, want));
         let margin = chrome::page_margin(full.width());
         let content = Rect::from_min_max(
@@ -1017,7 +1026,7 @@ impl Launcher {
             match self.screen {
                 Screen::Home => {
                     let data = home_data.take().unwrap_or_else(|| home::HomeData::gather(self, &sources));
-                    self.home(ui, &view, &sources, data, &mut commands, logo)
+                    self.home(ui, &view, &sources, data, &mut commands)
                 }
                 Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.settings_page(ui, &view, &mut commands),
                 screen => {
@@ -1027,7 +1036,7 @@ impl Launcher {
                         match screen {
                             Screen::AllGames => self.all_games(ui, &view, &mut commands),
                             Screen::Game { host, app } => self.game(ui, &view, host, app, &mut commands),
-                            Screen::Hosts => self.hosts(ui, &view, &mut commands, logo),
+                            Screen::Hosts => self.hosts(ui, &view, &mut commands),
                             Screen::Apps(id) => self.apps(ui, &view, id, &mut commands),
                             Screen::HostDetails(id) => self.host_details(ui, &view, id, &mut commands),
                             Screen::Files(id) => self.files_page(ui, &view, id, &mut commands),
@@ -1105,7 +1114,7 @@ impl Launcher {
                 None => Want::Keep,
             },
             Screen::AllGames => Want::Keep,
-            Screen::Hosts => Want::Sky(Moon::Low),
+            Screen::Hosts => Want::Sky(first_run::first_run_of(view.hosts).map_or(Moon::Low, first_run::FirstRun::moon)),
             _ => Want::Sky(Moon::High),
         }
     }

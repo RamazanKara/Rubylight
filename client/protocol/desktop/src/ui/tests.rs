@@ -3105,63 +3105,104 @@ fn the_home_card_of_a_pc_to_pair_fits_its_state() {
 
 /// Before any PC, Home and PCs both link How to connect under their main action, as Android's
 /// empty discovery card does, and it opens the pairing guide.
+/// Frames over a list with no PCs, on a network being searched.
+fn first_run_frames(records: Vec<crate::config::HostRecord>) -> Frames {
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut l = launcher(true, false);
+    l.identity_ready = true;
+    let mut hosts = Hosts::without_discovery(records, Arc::new(|| {}));
+    hosts.discovering = true;
+    Frames::over(ctx, l, hosts)
+}
+
+/// The first run is the moon, what is happening in one line, and one action; Home sends it there.
 #[test]
-fn no_pcs_yet_links_how_to_connect_on_home_and_pcs() {
+fn the_first_run_is_one_line_and_add_pc_from_home_too() {
     for screen in [Screen::Home, Screen::Hosts] {
-        crate::theme::own_palette();
-        let ctx = egui::Context::default();
-        crate::theme::apply(&ctx);
-        let mut l = launcher(true, false);
-        l.identity_ready = true;
-        let mut f = Frames::over(ctx, l, Hosts::without_discovery(Vec::new(), Arc::new(|| {})));
+        let mut f = first_run_frames(Vec::new());
         f.l.go(screen);
         f.settle();
-        let at = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1).unwrap_or_else(|| panic!("{screen:?}: {text} in {:?}", f.drawn));
-        let main = at(&f, if screen == Screen::Home { "Open PCs" } else { "Add a PC by address" });
-        let link = at(&f, "How to connect");
-        assert!(link.top() >= main.bottom(), "{screen:?}: the link under the main action: {link:?} {main:?}");
-        f.frame(vec![egui::Event::PointerMoved(link.center())]);
-        let commands = f.click_at(link.center(), egui::PointerButton::Primary);
-        assert!(commands.iter().any(|c| matches!(c, Command::OpenGuide("pairing.md"))), "{screen:?}: a click opens the guide");
+        assert_eq!(f.l.screen, Screen::Hosts, "{:?}", f.drawn);
+        assert!(shows(&f, "Searching for PCs\u{2026}"), "{:?}", f.drawn);
+        let adds = f.placed.iter().filter(|(t, ..)| t == "Add PC").count();
+        assert_eq!(adds, 1, "the page's, not the bar's as well: {:?}", f.drawn);
+        assert!(!shows(&f, "How to connect") && !f.drawn.iter().any(|t| t.to_lowercase().contains("host")), "{:?}", f.drawn);
+        let add = f.placed.iter().find(|(t, ..)| t == "Add PC").map(|p| p.1).expect("Add PC");
+        let focused = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).expect("Add PC has focus").rect;
+        assert!(focused.contains(add.center()), "{focused:?}");
+        f.press(Key::Enter);
+        assert!(!matches!(f.l.dialog, Dialog::None), "Enter opens Add PC");
     }
 }
 
-/// Home before any PC speaks of PCs, as Android's Home does, and never of hosts.
+/// With no search running it says so, out loud; the dot is off and Add PC is the way on.
 #[test]
-fn home_without_pcs_speaks_of_pcs() {
-    crate::theme::own_palette();
-    let ctx = egui::Context::default();
-    crate::theme::apply(&ctx);
-    let mut l = launcher(true, false);
-    l.identity_ready = true;
-    let mut f = Frames::over(ctx, l, Hosts::without_discovery(Vec::new(), Arc::new(|| {})));
-    f.l.go(Screen::Home);
+fn a_first_run_that_cannot_search_says_so() {
+    let mut f = first_run_frames(Vec::new());
+    f.hosts.discovering = false;
+    f.l.go(Screen::Hosts);
     f.settle();
-    assert!(shows(&f, "No PCs yet") && shows(&f, "Open PCs"), "{:?}", f.drawn);
-    assert!(!f.drawn.iter().any(|t| t.to_lowercase().contains("host")), "{:?}", f.drawn);
+    assert!(shows(&f, "Can't search this network for PCs") && !shows(&f, "Searching for PCs\u{2026}"), "{:?}", f.drawn);
+    assert!(shows(&f, "Add PC"), "{:?}", f.drawn);
 }
 
-/// A saved PC is on Home from the first frame, before it has answered: "No PCs yet" never flashes on a start.
+/// A found PC arrives as a card with Pair as the page's one moon action, which takes the focus; Add PC
+/// steps down, and more PCs than a first run has make the page a list.
 #[test]
-fn a_saved_pc_that_has_not_answered_yet_is_not_no_pcs() {
-    crate::theme::own_palette();
-    let ctx = egui::Context::default();
-    crate::theme::apply(&ctx);
-    let mut l = launcher(true, false);
-    l.identity_ready = true;
-    let mut f = Frames::over(ctx, l, Hosts::without_discovery(vec![record("Desk", true, false)], Arc::new(|| {})));
+fn a_found_pc_rises_in_with_pair_and_add_pc_steps_down() {
+    let mut f = first_run_frames(Vec::new());
+    f.l.go(Screen::Hosts);
+    f.settle();
+    let before = f.placed.iter().find(|(t, ..)| t == "Add PC").map(|p| p.1).expect("Add PC");
+    let mut found = Hosts::without_discovery(vec![record("Game Room", false, false)], Arc::new(|| {}));
+    found.discovering = true;
+    found.list[0].reach = Reach::Online;
+    f.hosts = found;
+    let name = |f: &Frames| f.placed.iter().find(|(t, r, _)| t == "Game Room" && r.top() > chrome::PAGE_TOP).map(|p| p.1).unwrap_or_else(|| panic!("{:?}", f.drawn));
+    f.frame(Vec::new());
+    f.frame(Vec::new());
+    let rising = name(&f);
+    f.settle();
+    let settled = name(&f);
+    assert!(rising.top() > settled.top(), "it rises: {rising:?} to {settled:?}");
+    let at = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1).unwrap_or_else(|| panic!("{text} in {:?}", f.drawn));
+    let (pair, line, add) = (at(&f, "Pair"), at(&f, "Searching for PCs\u{2026}"), at(&f, "Add PC"));
+    assert!(settled.bottom() <= pair.top() && pair.bottom() <= line.top() && line.bottom() <= add.top(), "{pair:?} {line:?} {add:?}");
+    assert!(add.top() != before.top(), "Add PC stepped down");
+    assert_eq!(f.placed.iter().filter(|(t, ..)| t == "PCs").count(), 1, "the tab's alone, no page title: {:?}", f.drawn);
+    let focused = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).expect("Pair has focus").rect;
+    assert!(focused.contains(pair.center()), "{focused:?}");
+    let commands = f.press(Key::Enter);
+    let id = f.hosts.list[0].id;
+    assert!(commands.iter().any(|c| matches!(c, Command::Pair(host) if *host == id)));
+    // Paired, it is the ordinary list.
+    let mut paired = Hosts::without_discovery(vec![record("Game Room", true, false)], Arc::new(|| {}));
+    paired.discovering = true;
+    paired.list[0].reach = Reach::Online;
+    f.hosts = paired;
+    f.settle();
+    assert!(!shows(&f, "Searching for PCs\u{2026}"), "{:?}", f.drawn);
+}
+
+/// A saved PC is on Home from the first frame, before it has answered: the first run never flashes on a start.
+#[test]
+fn a_saved_pc_that_has_not_answered_yet_is_not_the_first_run() {
+    let mut f = first_run_frames(vec![record("Desk", true, false)]);
     f.l.go(Screen::Home);
     f.settle();
-    assert!(!shows(&f, "No PCs yet"), "{:?}", f.drawn);
+    assert_eq!(f.l.screen, Screen::Home);
+    assert!(!shows(&f, "Searching for PCs\u{2026}"), "{:?}", f.drawn);
 }
 
 /// A saved PC that answers as offline with no library saved is still its card on Home, with Wake in its options.
 #[test]
-fn an_offline_pc_with_nothing_saved_is_a_card_not_no_pcs() {
+fn an_offline_pc_with_nothing_saved_is_a_card_not_the_first_run() {
     let mut f = Frames::new(record("Den", true, true), Reach::Offline);
     f.l.go(Screen::Home);
     f.settle();
-    assert!(!shows(&f, "No PCs yet"), "{:?}", f.drawn);
+    assert_eq!(f.l.screen, Screen::Home);
     assert!(shows(&f, "PCs") && shows(&f, "Den"), "{:?}", f.drawn);
     assert!(host_options(&f.hosts.list[0]).contains(&HostOption::Wake));
 }
@@ -3191,7 +3232,7 @@ fn the_quit_on_leave_switch_sends_the_choice() {
     f.l.go(Screen::Game { host: pc, app: 1000 });
     f.settle();
     let bounds = f.access.as_ref().expect("AccessKit is on").nodes.iter()
-        .find(|(_, n)| n.label().is_some_and(|l| l.starts_with("Quit the game when I leave")))
+        .find(|(_, n)| n.label().is_some_and(|l| l.starts_with("Quit game when I leave")))
         .and_then(|(_, n)| n.bounds())
         .expect("the switch has the row's name");
     let at = Pos2::new(((bounds.x0 + bounds.x1) / 2.0) as f32, ((bounds.y0 + bounds.y1) / 2.0) as f32);
@@ -3293,7 +3334,7 @@ fn a_pc_that_is_up_reads_green_and_amber_never_stands_for_a_state() {
 fn draw_home(l: &mut Launcher, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>) {
     let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
     let data = home::HomeData::gather(l, &sources);
-    l.home(ui, view, &sources, data, commands, egui::TextureId::default());
+    l.home(ui, view, &sources, data, commands);
     glass::flush_deferred(ui);
 }
 
@@ -4987,7 +5028,7 @@ fn the_demo_library_reaches_every_page() {
             Page::Home => Screen::Home,
             Page::AllGames | Page::Search => Screen::AllGames,
             Page::Game => Screen::Game { host: pc, app: 1002 },
-            Page::Pcs => Screen::Hosts,
+            Page::Pcs | Page::FirstRun | Page::FirstRunFound => Screen::Hosts,
             Page::Apps => Screen::Apps(pc),
             Page::AppsEmpty => Screen::Apps(f.hosts.list[1].id),
             Page::Pc => Screen::HostDetails(pc),

@@ -523,6 +523,11 @@ pub struct Hosts {
     /// STUN for the remote address of PCs found on the LAN; off in tests, which stay offline.
     stun: bool,
     _mdns: Option<mdns_sd::ServiceDaemon>,
+    /// Whether this network is being searched for PCs: the first run's orbit runs on it.
+    pub(crate) discovering: bool,
+    /// The demo's PCs while a first-run page shows a shorter list.
+    #[cfg(feature = "demo-library")]
+    pub(crate) demo_shelf: Vec<Host>,
 }
 
 pub fn client_for(identity: &Arc<ClientIdentity>, record: &HostRecord, address: &str) -> Result<HostClient, String> {
@@ -929,6 +934,7 @@ impl Hosts {
     pub fn new(records: Vec<HostRecord>, waker: Waker) -> Self {
         let mut hosts = Self::without_discovery(records, waker);
         hosts._mdns = hosts.start_discovery();
+        hosts.discovering = hosts._mdns.is_some();
         hosts.stun = true;
         hosts
     }
@@ -948,6 +954,9 @@ impl Hosts {
             library_saves: Vec::new(),
             stun: false,
             _mdns: None,
+            discovering: false,
+            #[cfg(feature = "demo-library")]
+            demo_shelf: Vec::new(),
         };
         for record in records {
             hosts.insert(record);

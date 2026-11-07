@@ -188,28 +188,7 @@ impl Launcher {
         sources: &[Source<'_>],
         data: HomeData,
         commands: &mut Vec<Command>,
-        logo: egui::TextureId,
     ) {
-        if view.hosts.list.is_empty() {
-            ui.add_space(60.0);
-            ui.vertical_centered(|ui| {
-                egui::Image::from_texture((logo, vec2(72.0, 72.0))).ui(ui);
-                ui.add_space(14.0);
-                ui.label(RichText::new(tr("No PCs yet")).font(semibold(text::CARD_TITLE)));
-                ui.label(
-                    RichText::new(tr("Pair Nightjar with a PC to see its games here."))
-                        .color(ON_SURFACE_VARIANT),
-                );
-                ui.add_space(12.0);
-                let r = primary_button(ui, "Open PCs");
-                self.focus_item(&r, "open-hosts", true);
-                if r.clicked() {
-                    self.open(Screen::Hosts);
-                }
-                how_to_connect(ui, commands);
-            });
-            return;
-        }
         let HomeData {
             entries,
             playing,

@@ -111,6 +111,7 @@ fn answer(paired: bool, running: i32) -> ServerInfo {
 
 /// Puts the library, its covers, what was played and a profile where the real answers land.
 pub(crate) fn fill(hosts: &mut Hosts, launcher: &mut Launcher, ctx: &egui::Context) {
+    hosts.discovering = true;
     let games: Vec<Game> = GAMES
         .iter()
         .enumerate()
@@ -309,10 +310,13 @@ pub(crate) enum Page {
     Hotkeys,
     Help,
     Search,
+    /// The first run: the driver keeps the PCs off the list for these two.
+    FirstRun,
+    FirstRunFound,
 }
 
 impl Page {
-    pub(crate) const ALL: [(&'static str, Page); 18] = [
+    pub(crate) const ALL: [(&'static str, Page); 20] = [
         ("home", Page::Home),
         ("all-games", Page::AllGames),
         ("game", Page::Game),
@@ -331,6 +335,8 @@ impl Page {
         ("hotkeys", Page::Hotkeys),
         ("help", Page::Help),
         ("search", Page::Search),
+        ("first-run", Page::FirstRun),
+        ("first-run-found", Page::FirstRunFound),
     ];
 }
 
@@ -429,9 +435,14 @@ pub(crate) fn parse(line: &str) -> Result<Step, String> {
 impl Launcher {
     /// Opens a page the way its own control does. A page main.rs opens comes back as its command.
     pub(crate) fn demo_page(&mut self, page: Page, hosts: &Hosts, waker: Waker) -> Option<Command> {
+        if matches!(page, Page::FirstRun | Page::FirstRunFound) {
+            self.go(Screen::Hosts);
+            return None;
+        }
         let pc = &hosts.list[0];
         let id = pc.id;
         match page {
+            Page::FirstRun | Page::FirstRunFound => {}
             Page::Home => self.go(Screen::Home),
             Page::AllGames => self.go(Screen::AllGames),
             Page::Game => self.go(Screen::Game {

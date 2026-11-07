@@ -429,13 +429,3 @@ pub(crate) fn name_for_readers(ui: &Ui, response: &Response, label: &str, descri
         }
     });
 }
-
-pub(super) trait UiExt {
-    fn ui(self, ui: &mut Ui) -> Response;
-}
-
-impl UiExt for egui::Image<'_> {
-    fn ui(self, ui: &mut Ui) -> Response {
-        ui.add(self)
-    }
-}

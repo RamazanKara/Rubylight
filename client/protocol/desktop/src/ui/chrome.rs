@@ -29,7 +29,7 @@ const SEARCH_FOLDS_BELOW: f32 = 1120.0;
 const WORDMARK_GOES_BELOW: f32 = 900.0;
 const PC_NAME_MAX: f32 = 170.0;
 const TAB_FONT: f32 = 15.0;
-const SEARCH_ID: &str = "top-search";
+pub(super) const SEARCH_ID: &str = "top-search";
 
 const NAV_PAD: f32 = 4.0;
 const NAV_ICON: f32 = 22.0;
@@ -501,6 +501,8 @@ impl Launcher {
 
     /// Enter on an empty field: as Escape, without leaving the page's filter or focus behind.
     fn close_search(&mut self) {
+        // The page stays, so it is no longer one a later Escape leaves.
+        self.search_pushed = false;
         self.search_open = false;
         self.library_query.clear();
         self.focus_screen = true;

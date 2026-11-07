@@ -6944,6 +6944,73 @@ fn homes_play_says_what_stops_it_and_recovers() {
     }
 }
 
+/// A dialog over All games holds the search field too: neither a click nor typing reaches it.
+#[test]
+fn the_search_field_takes_nothing_under_a_dialog() {
+    let mut f = home_with_games(3);
+    f.l.go(Screen::AllGames);
+    f.settle();
+    f.l.open_search();
+    f.settle();
+    let field = f.placed.iter().find(|(t, ..)| t == "Search").map(|p| p.1).expect("the field");
+    f.frame(vec![egui::Event::Text("a".into())]);
+    assert_eq!(f.l.library_query, "a", "the field has the keys while nothing covers it");
+    f.l.add_host_dialog();
+    f.settle();
+    f.frame(vec![egui::Event::Text("b".into())]);
+    assert!(f.l.library_query == "a", "typing under a dialog: {}", f.l.library_query);
+    f.click_at(field.center(), egui::PointerButton::Primary);
+    f.settle();
+    f.ctx.memory_mut(|m| m.request_focus(egui::Id::unique(chrome::SEARCH_ID)));
+    f.frame(Vec::new());
+    f.frame(vec![egui::Event::Text("c".into())]);
+    assert!(f.l.library_query == "a", "a click, then typing, under a dialog: {}", f.l.library_query);
+    assert!(matches!(&f.l.dialog, Dialog::AddHost { .. }));
+    // A dialog with no field of its own, and the same click and keys.
+    f.l.dialog = Dialog::None;
+    f.settle();
+    f.l.message("Title", "Words".to_owned());
+    f.settle();
+    f.click_at(field.center(), egui::PointerButton::Primary);
+    f.settle();
+    f.frame(vec![egui::Event::Text("d".into())]);
+    assert!(f.l.library_query == "a", "under a message: {}", f.l.library_query);
+}
+
+/// Enter on an empty field closes the search and stays on the page: opened again, Escape ends the
+/// search there too, and does not leave for where the first search came from.
+#[test]
+fn reopening_the_search_and_escaping_stays_on_the_page() {
+    let mut f = home_with_games(3);
+    f.l.go(Screen::Home);
+    f.settle();
+    f.l.open_search();
+    f.settle();
+    assert_eq!(f.l.screen, Screen::AllGames);
+    f.press(Key::Enter);
+    assert!(!f.l.search_open);
+    f.l.open_search();
+    f.settle();
+    f.press(Key::Escape);
+    assert!(!f.l.search_open);
+    assert_eq!(f.l.screen, Screen::AllGames, "one Escape ends the search, it does not leave");
+}
+
+/// Picking the PC whose page is open adds no screen for Back to walk through.
+#[test]
+fn opening_the_page_already_open_adds_no_back_press() {
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 0)), vec![game(1)]);
+    let id = f.hosts.list[0].id;
+    f.l.go(Screen::Home);
+    f.l.open(Screen::Apps(id));
+    f.settle();
+    let depth = f.l.trail.len();
+    let picked = pcs::pc_action(&f.hosts.list[0]).command(id);
+    assert!(matches!(picked, Command::OpenApps(host) if host == id), "what the sheet's row sends");
+    f.l.open(Screen::Apps(id));
+    assert_eq!(f.l.trail.len(), depth);
+}
+
 /// A PC's page with a list has a round Refresh in its head, by keyboard too; it spins and keeps the
 /// focus while it reads, and leaves room for what a running game offers.
 #[test]

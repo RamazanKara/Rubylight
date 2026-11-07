@@ -18,6 +18,8 @@ import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.TestHosts;
 import com.limelight.preferences.PreferenceConfiguration;
+import com.limelight.ui.RustStreamMenuModel;
+import com.limelight.ui.StreamMenuModel;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -295,6 +297,33 @@ public class GameRateChangeTest {
         assertEquals(game.getString(R.string.stream_rate_change_auto_no_answer), ShadowToast.getTextOfLatestToast());
         runFor(20);
         assertEquals("nothing more goes out", 1, sent.size());
+    }
+
+    @Test
+    public void anAppliedBitrateFromTheOpenMenusSliderShowsNoToastOverTheMenu() {
+        // A real stream on the Retroid: "Bitrate: 32.0 Mbps" lay over the menu's Disconnect while the slider showed 32 already.
+        StreamMenuModel.use(new RustStreamMenuModel());
+        try {
+            startStream(recording());
+            game.showStreamMenu();
+            assertNotNull("the menu is open", ReflectionHelpers.getField(game.menuActions, "streamMenuSheet"));
+            int toasts = ShadowToast.shownToastCount();
+            assertEquals(32_000, game.adaptation.applyBitrateFromMenu(32_000));
+            game.rateChange(new RateChangeResult(sent.get(0)[0], 32_000, 0, STATUS_APPLIED, REASON_NONE,
+                    STATUS_UNCHANGED, REASON_NONE));
+            ShadowLooper.idleMainLooper();
+            assertEquals("the slider shows it", toasts, ShadowToast.shownToastCount());
+            assertEquals(32_000, (int) ReflectionHelpers.getField(game, "currentBitrate"));
+
+            // A clamp is news the slider cannot show.
+            game.adaptation.applyBitrateFromMenu(90_000);
+            game.rateChange(new RateChangeResult(sent.get(1)[0], 80_000, 0, STATUS_CLAMPED, REASON_ENCODER_LIMIT,
+                    STATUS_UNCHANGED, REASON_NONE));
+            ShadowLooper.idleMainLooper();
+            assertEquals(toasts + 1, ShadowToast.shownToastCount());
+        } finally {
+            StreamMenuModel.use(null);
+        }
     }
 
     @Test

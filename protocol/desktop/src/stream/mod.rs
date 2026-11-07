@@ -131,6 +131,8 @@ pub struct LaunchPlan {
     /// The native read, merged into the serverinfo a resume reads again.
     pub native: Option<NativeCapabilities>,
     pub app: App,
+    /// Whether `app` is an entry of the PC's list; a resume of a game it does not list is not.
+    pub listed: bool,
     pub resume: bool,
     /// This resume joins the game the PC runs although the PC reports no game of this device's: the
     /// user chose Stream here too. `/resume` starts nothing, so a closed game stays closed.

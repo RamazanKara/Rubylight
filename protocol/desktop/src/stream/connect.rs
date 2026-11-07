@@ -1036,7 +1036,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
 /// [`Connecting::recent_game`] of `plan`.
 fn recent_game(plan: &LaunchPlan) -> Option<config::Recent> {
     let record = &plan.record;
-    if record.unique_id.is_empty() || plan.mic_only || plan.app.id < 0
+    if record.unique_id.is_empty() || plan.mic_only || !plan.listed || plan.app.id < 0
         || plan.app.control != nightjar_core::http::AppControl::None {
         return None;
     }
@@ -1062,6 +1062,7 @@ mod replace_tests {
             host_name: "PC".into(),
             info: ServerInfo::parse(xml, 47989).expect("the answer parses"),
             native: None,
+            listed: true,
             app: nightjar_core::http::App {
                 name: "Zelda".into(),
                 id: 9,
@@ -1272,6 +1273,11 @@ mod replace_tests {
         assert!(recent_game(&plan).is_some());
         plan.mic_only = true;
         assert!(recent_game(&plan).is_none(), "Microphone only is no game to continue");
+        plan.mic_only = false;
+        plan.listed = false;
+        assert!(recent_game(&plan).is_none(), "a resume with no name to list is no game to continue");
+        plan.listed = true;
+        plan.mic_only = true;
         // It runs minimized or behind other windows by design.
         let rejoined = automatic_rejoin(&plan, AppRole::InputOnly, true, true, 60_000, false, false).expect("a plan");
         assert!(rejoined.mic_only && !rejoined.resume);

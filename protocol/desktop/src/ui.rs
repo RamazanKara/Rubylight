@@ -41,7 +41,7 @@ use crate::theme::*;
 use cards::*;
 use dialogs::*;
 pub use dialogs::moves_in_hotkey_dialog;
-pub use library::{asked_start, join_target, playing_elsewhere, policy_role, running_name};
+pub use library::{asked_start, at_sentence_start, join_target, playing_elsewhere, policy_role, running_name};
 use library::*;
 pub(crate) use widgets::{column, focus_ring, focus_ring_around, glass_behind, group_row, lift_shapes, name_for_readers, page_scroll_from, pin_key, pin_slots, primary_button, quiet_button, round_button, row, section, toggle, Combo, ToTop, Tone, DIALOG_MARGIN};
 pub(crate) use chrome::{BACK_SIZE, PAGE_TITLE};

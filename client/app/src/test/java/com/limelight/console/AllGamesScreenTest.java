@@ -241,6 +241,47 @@ public class AllGamesScreenTest {
                 card[1] >= title[1] + grid.findViewById(R.id.all_games_focus).getHeight());
     }
 
+    /**
+     * On the real TV a lower row that took focus scrolled to the frame's very top, 40 dp up in the focus line: its title stood
+     * over the poster and the glow was cut square there. Walking down and back up, the focused row keeps that room.
+     */
+    @Test
+    public void onATelevisionALowerFocusedRowStaysUnderTheFocusLineWithItsGlowRoom() {
+        String[] games = new String[40];
+        for (int i = 0; i < games.length; i++) games[i] = game(i + 1, "Game " + (i + 1), "steam", true, null);
+        tower(games);
+        Grid grid = open(null);
+        RecyclerView list = list(grid);
+        View focusLine = grid.findViewById(R.id.all_games_focus);
+        int firstTop = list.getTop() + list.getFocusedChild().getTop();
+        int room = Math.round(AllGamesActivity.GLOW_ROOM_DP * grid.getResources().getDisplayMetrics().density);
+        assertTrue("the first row has the glow's room: " + firstTop, firstTop >= room);
+        boolean scrolled = false;
+        for (int direction : new int[] {View.FOCUS_DOWN, View.FOCUS_UP}) {
+            for (int step = 0; step < 4; step++) {
+                View next = HomeShellTest.focusAfter(grid, list.getFocusedChild(), direction);
+                assertNotNull("step " + step, next);
+                assertTrue(isInside(list, next));
+                next.requestFocus();
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+                HomeShellTest.focusAfter(grid, list.getFocusedChild(), direction);
+                scrolled |= list.computeVerticalScrollOffset() > 0;
+                View card = list.getFocusedChild();
+                int[] line = new int[2];
+                int[] at = new int[2];
+                focusLine.getLocationInWindow(line);
+                card.getLocationInWindow(at);
+                int top = list.getTop() + card.getTop();
+                String where = (direction == View.FOCUS_DOWN ? "down " : "up ") + step + ": card at " + top + " in the frame";
+                assertTrue(where + ", the first row's place " + firstTop, top >= firstTop);
+                // As drawn, with the focus scale: what a person sees stays under the focus line.
+                assertTrue(where + ", drawn at " + at[1] + ", under the focus line ending at " + (line[1] + focusLine.getHeight()),
+                        at[1] >= line[1] + focusLine.getHeight());
+            }
+        }
+        assertTrue("the grid scrolled at all", scrolled);
+    }
+
     /** The frame's glow room stands over the focus line and filters: a touch there was the grid's on touch-capable TVs. */
     @Test
     public void onATelevisionATouchInTheGlowRoomIsForWhatLiesUnderIt() {

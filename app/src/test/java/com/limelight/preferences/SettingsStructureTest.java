@@ -511,8 +511,11 @@ public class SettingsStructureTest {
             reset.getOnPreferenceClickListener().onPreferenceClick(reset);
             AlertDialog confirm = (AlertDialog) ShadowDialog.getLatestDialog();
             assertTrue(confirm.isShowing());
-            assertEquals(MaterialColors.getColor(confirm.getContext(), androidx.appcompat.R.attr.colorError, 0),
+            // The one red control: light text on the danger capsule.
+            assertEquals(androidx.core.content.ContextCompat.getColor(confirm.getContext(), R.color.nj_color_on_danger_fill),
                     confirm.getButton(AlertDialog.BUTTON_POSITIVE).getCurrentTextColor());
+            assertEquals(R.drawable.dialog_button_danger, shadowOf(confirm.getButton(AlertDialog.BUTTON_POSITIVE).getBackground())
+                    .getCreatedFromResId());
             confirm.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
         }
     }

@@ -86,16 +86,22 @@ public final class BitrateSlider {
 
     /**
      * A slider at {@code kbps} in the stream menu itself: {@code shown} hears each step in the text the menu shows, and
-     * {@code commit} the bitrate once it settles.
+     * {@code commit} the bitrate once it settles. A rate {@code commit} could not send snaps the slider back to the one it answers.
      */
-    public static StepSlider inline(Context context, int kbps, java.util.function.Consumer<String> shown, java.util.function.IntConsumer commit) {
+    public static StepSlider inline(Context context, int kbps, java.util.function.Consumer<String> shown, java.util.function.IntUnaryOperator commit) {
         StepSlider bar = new StepSlider(context);
         bar.setMax(MAX_PROGRESS);
         bar.setPosition(progress(kbps));
         bar.setKeyStep(1);
         bar.setPositionText(progress -> text(context, kbps(progress)));
-        Settle settle = new Settle(chosen -> shown.accept(text(context, chosen)), () -> commit.accept(kbps(bar.getPosition())),
-                new Handler(Looper.getMainLooper()));
+        Settle settle = new Settle(chosen -> shown.accept(text(context, chosen)), () -> {
+            int chosen = kbps(bar.getPosition());
+            int applied = commit.applyAsInt(chosen);
+            if (applied != chosen) {
+                bar.setPosition(progress(applied));
+                shown.accept(text(context, applied));
+            }
+        }, new Handler(Looper.getMainLooper()));
         bar.setOnPositionChangeListener(settle);
         bar.addOnSliderTouchListener(settle);
         return bar;

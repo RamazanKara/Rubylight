@@ -73,8 +73,11 @@ public final class StreamMenu {
         public android.graphics.Bitmap cover;
         /** The stream's bitrate for the slider on the first page, in kbps; 0 leaves the slider out. */
         public int bitrateKbps;
-        /** Sends a bitrate the slider settled on; with no way to send it the slider is left out. */
-        public java.util.function.IntConsumer bitrateChange;
+        /**
+         * Sends a bitrate the slider settled on and answers the rate the slider is to show: the one sent, or the one still applied
+         * when nothing could be sent. With no way to send it the slider is left out.
+         */
+        public java.util.function.IntUnaryOperator bitrateChange;
         public boolean canSendInput = true;
         public boolean microphoneOffered, microphoneMuted;
         /** The stream has a microphone button (not on a remote monitor), and whether it shows (its setting is on). */
@@ -711,7 +714,7 @@ public final class StreamMenu {
         if (quality && o.bitrateKbps > 0 && o.bitrateChange != null) {
             LinearLayout sliders = sheet.addRowGroup();
             TextView[] shown = new TextView[1];
-            java.util.function.IntConsumer change = o.bitrateChange;
+            java.util.function.IntUnaryOperator change = o.bitrateChange;
             bitrateSlider = BitrateSlider.inline(activity, o.bitrateKbps, text -> {
                 if (shown[0] != null) shown[0].setText(text);
             }, change);

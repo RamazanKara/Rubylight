@@ -207,7 +207,10 @@ public class StreamMenuGlassTest {
             List<Integer> sent = new ArrayList<>();
             StreamMenu menu = open(controller.get(), o -> {
                 o.bitrateKbps = 40000;
-                o.bitrateChange = sent::add;
+                o.bitrateChange = kbps -> {
+                    sent.add(kbps);
+                    return kbps;
+                };
             });
             StepSlider slider = menu.bitrateSlider();
             assertNotNull(slider);
@@ -220,6 +223,27 @@ public class StreamMenuGlassTest {
             ShadowLooper.idleMainLooper(5, TimeUnit.SECONDS);
             assertEquals(1, sent.size());
             assertTrue("sent " + sent.get(0), sent.get(0) != 40000);
+            menu.sheet().dismiss();
+        }
+    }
+
+    /** A busy stream sends nothing: the slider goes back to the rate still applied, not the one it was moved to. */
+    @Test
+    public void aRateNotSentSnapsTheSliderBack() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup().visible()) {
+            StreamMenu menu = open(controller.get(), o -> {
+                o.bitrateKbps = 40000;
+                o.bitrateChange = kbps -> 40000;
+            });
+            StepSlider slider = menu.bitrateSlider();
+            int at = slider.getPosition();
+            long now = android.os.SystemClock.uptimeMillis();
+            slider.onKeyDown(android.view.KeyEvent.KEYCODE_DPAD_RIGHT,
+                    new android.view.KeyEvent(now, now, android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_RIGHT, 0));
+            assertEquals(at + 1, slider.getPosition());
+            ShadowLooper.idleMainLooper(5, TimeUnit.SECONDS);
+            assertEquals(at, slider.getPosition());
+            assertEquals(BitrateSlider.progress(40000), slider.getPosition());
             menu.sheet().dismiss();
         }
     }

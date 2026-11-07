@@ -48,14 +48,14 @@ impl Encoder {
     ) -> Result<(butterpollo_core::ltr::Plan, bool, bool)> {
         let mut plan = self.references.plan(frame, idr);
         let [_, _, mark, reference] = self.ltr_properties();
-        let apply = |name: &str, value: AMFVariantStruct| -> Result<()> {
+        let apply = |name: &'static str, value: AMFVariantStruct| -> Result<()> {
             // SAFETY: Both callers own surface throughout preparation. These local
             // variants have matching scalar tags, and AMF copies them and the terminated
             // property name synchronously while the runtime remains loaded.
             unsafe {
                 check(((*(*surface).pVtbl).SetProperty.unwrap())(
                     surface,
-                    to_wide(name).as_ptr(),
+                    static_wide(name).as_ptr(),
                     value,
                 ))
             }

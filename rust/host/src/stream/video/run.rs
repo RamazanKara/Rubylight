@@ -58,7 +58,9 @@ impl SessionThread<'_> {
         let vrr = s.config.vrr_low_latency;
         let arrival_pacing = vrr
             || butterpollo_core::stream_policy::Pacing::from_config(&c) == butterpollo_core::stream_policy::Pacing::Arrival;
-        let source_phase_eligible = vrr || c.boolean("frame_pacing_predictive", true);        let new_pacer = |rates: &butterpollo_core::reconfigure::Rates| {
+        let source_phase_eligible = vrr || c.boolean("frame_pacing_predictive", true);
+        // Read once: the setting is the session's, and a lookup a frame costs.
+        let direct_encoder_input = c.boolean("wgc_direct_encoder_input", true);        let new_pacer = |rates: &butterpollo_core::reconfigure::Rates| {
             let predictive = c.boolean("frame_pacing_predictive", true);
             butterpollo_core::stream_policy::Pacer::new(Instant::now(), rates.period)
                 .with_static_period(rates.static_period)
@@ -1404,7 +1406,7 @@ impl SessionThread<'_> {
                     crate::soak_fault::check("encoder failure")?;
                     #[cfg(debug_assertions)]
                     crate::soak_fault::check("DXGI_ERROR_DEVICE_REMOVED")?;
-                    Ok(if c.boolean("wgc_direct_encoder_input", true) {                                    active.encode_gpu(&presented_image, idr, bitrate)?
+                    Ok(if direct_encoder_input {                                    active.encode_gpu(&presented_image, idr, bitrate)?
                     } else {
                         active.encode(
                             &presented_image.readback(&mut staging)?,

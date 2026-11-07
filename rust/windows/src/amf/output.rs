@@ -129,7 +129,7 @@ impl Encoder {
                 1 => "HevcOutputDataType",
                 _ => "Av1OutputFrameType",
             };
-            let _ = (v.GetProperty.unwrap())(buffer, to_wide(prop).as_ptr(), &mut picture);
+            let _ = (v.GetProperty.unwrap())(buffer, static_wide(prop).as_ptr(), &mut picture);
             self.focus_feedback(buffer, pts, last);
             if size > 64 * 1024 * 1024 || raw.is_null() {
                 (v.Release.unwrap())(buffer);
@@ -339,7 +339,7 @@ impl Encoder {
                 _ => "AV1OutputBufferType",
             };
             let mut value: AMFVariantStruct = std::mem::zeroed();
-            ((v.GetProperty.unwrap())(buffer, to_wide(name).as_ptr(), &mut value)
+            ((v.GetProperty.unwrap())(buffer, static_wide(name).as_ptr(), &mut value)
                 == AMF_RESULT_AMF_OK
                 && value.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64)
                 .then_some(value.__bindgen_anon_1.int64Value)

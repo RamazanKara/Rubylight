@@ -15,7 +15,7 @@ mod rate_control;
 mod submit;
 mod units;
 
-use crate::text::to_wide;
+use crate::text::{static_wide, to_wide};
 use crate::{
     amf_abi::*,
     capture::{Device, GpuImage, Image},

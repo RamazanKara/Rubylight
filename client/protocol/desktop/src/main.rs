@@ -3342,9 +3342,9 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
             egui::Area::new(egui::Id::unique("overlay"))
                 .anchor(anchor, offset)
                 .show(&ctx, |ui| {
-                    egui::Frame::new()
-                        .fill(egui::Color32::from_rgba_unmultiplied(0x0E, 0x10, 0x17, 215))
-                        .corner_radius(egui::CornerRadius::same(10))
+                    // The stream's HUD glass, painted under the text once its size is known; no blur under it.
+                    let place = ui.painter().add(egui::Shape::Noop);
+                    let frame = egui::Frame::new()
                         .inner_margin(egui::Margin::symmetric(14, 10))
                         .show(ui, |ui| {
                             if let Some((line, notice)) = &compact {
@@ -3374,19 +3374,24 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                 }
                             });
                         });
+                    let mut glass = Vec::new();
+                    ui::glass::hud_surface(&mut glass, ui.ctx(), frame.response.rect, 12.0);
+                    ui.painter().set(place, egui::Shape::Vec(glass));
                 });
         }
         if let Some(text) = &toast {
             egui::Area::new(egui::Id::unique("toast"))
                 .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -40.0))
                 .show(&ctx, |ui| {
-                    egui::Frame::new()
-                        .fill(egui::Color32::from_rgba_unmultiplied(0x28, 0x2A, 0x36, 235))
-                        .corner_radius(egui::CornerRadius::same(18))
+                    let place = ui.painter().add(egui::Shape::Noop);
+                    let frame = egui::Frame::new()
                         .inner_margin(egui::Margin::symmetric(18, 10))
                         .show(ui, |ui| {
                             ui.label(egui::RichText::new(text).font(theme::regular(theme::text::LABEL)).color(theme::ON_SURFACE));
                         });
+                    let mut glass = Vec::new();
+                    ui::glass::hud_surface(&mut glass, ui.ctx(), frame.response.rect, 18.0);
+                    ui.painter().set(place, egui::Shape::Vec(glass));
                 });
         }
     });

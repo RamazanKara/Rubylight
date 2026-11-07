@@ -826,7 +826,9 @@ mod tests {
         let overlay = &main[start..start + main[start..].find("\nfn ").unwrap_or(main.len() - start)];
         let run = overlay.find("gui.run(").expect("the pass");
         assert!(overlay[..run].contains("!s.overlay_visible && toast.is_none() && !input_only && !s.menu_visible"), "no pass at all with nothing to show");
-        assert!(!overlay.contains("glass::") && !overlay.contains("LIVE_BACKDROP"), "the glass is menu_style's");
+        // The menu's glass is menu_style's; the statistics and the toast stand on the HUD's, which reads nothing behind it.
+        assert_eq!(overlay.matches("glass::").count(), overlay.matches("glass::hud_surface(").count(), "the glass is menu_style's");
+        assert!(!overlay.contains("LIVE_BACKDROP"), "nothing reads the stream");
         assert_eq!(overlay.matches("menu_style::show(").count(), 3);
         for at in overlay.match_indices("menu_style::show(").map(|(at, _)| at) {
             let opened = overlay[..at].rfind("if s.menu_visible").expect("under the open menu's check");
@@ -935,6 +937,29 @@ fn ").unwrap_or(main.len() - start)];
                 egui::Image::from_texture((picture.id(), screen.size()))
                     .uv(egui::Rect::from_min_max(egui::pos2(0.0, 0.3), egui::pos2(1.0, 0.75)))
                     .paint_at(ui, screen);
+                if what == "stats" {
+                    // The statistics as main.rs draws them over the game: the HUD glass under the text, no menu.
+                    egui::Area::new(egui::Id::new("overlay")).anchor(egui::Align2::LEFT_TOP, vec2(16.0, 16.0)).show(ui.ctx(), |ui| {
+                        let place = ui.painter().add(egui::Shape::Noop);
+                        let frame = egui::Frame::new().inner_margin(egui::Margin::symmetric(14, 10)).show(ui, |ui| {
+                            use crate::theme;
+                            ui.label(egui::RichText::new("Open World").font(theme::semibold(theme::text::LABEL)).color(theme::MOON));
+                            ui.add_space(2.0);
+                            egui::Grid::new("stats").num_columns(2).spacing([14.0, 3.0]).show(ui, |ui| {
+                                for (k, v) in [("Video", "2560x1440 · 144 FPS · HEVC HDR"), ("Network", "4 ms · 0.0% loss"), ("Decode", "1.2 ms"),
+                                    ("Render", "0.8 ms"), ("Host processing", "3.1 / 3.0 / 3.8 ms")] {
+                                    ui.label(egui::RichText::new(k).font(theme::regular(theme::text::CAPTION)).color(theme::OUTLINE));
+                                    ui.label(egui::RichText::new(v).font(theme::regular(theme::text::CAPTION)).color(theme::ON_SURFACE));
+                                    ui.end_row();
+                                }
+                            });
+                        });
+                        let mut glass = Vec::new();
+                        crate::ui::glass::hud_surface(&mut glass, ui.ctx(), frame.response.rect, 12.0);
+                        ui.painter().set(place, egui::Shape::Vec(glass));
+                    });
+                    return;
+                }
                 if sheet {
                     show(ui.ctx(), tr("Shortcuts & help"), "stream-controls", |ui| {
                         body(ui, |ui| {
@@ -997,7 +1022,7 @@ fn ").unwrap_or(main.len() - start)];
     }
 
     /// The stream menu's grid, its Shortcuts page, the shortcut editor and the help sheet as they open over a game, normal and high
-    /// contrast: `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop stream_menu_screenshot -- --ignored`.
+    /// contrast, and the statistics: `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop stream_menu_screenshot -- --ignored`.
     #[test]
     #[ignore = "writes PNGs; set NIGHTJAR_SHOTS"]
     fn stream_menu_screenshot() {
@@ -1010,6 +1035,7 @@ fn ").unwrap_or(main.len() - start)];
             shoot(&dir, &format!("stream-shortcuts-{size}"), width, height, ppp, false, "shortcuts");
             shoot(&dir, &format!("stream-shortcut-editor-{size}"), width, height, ppp, false, "editor");
             shoot(&dir, &format!("stream-menu-{size}-high-contrast"), width, height, ppp, true, "menu");
+            shoot(&dir, &format!("stream-stats-{size}"), width, height, ppp, false, "stats");
         }
     }
 }

@@ -219,6 +219,39 @@ public class ActionSheetTest {
         }
     }
 
+    /**
+     * On the real TV focus reaching the stream menu's Bitrate slid the tiles under the head although Bitrate was wholly in
+     * view: the platform's scroll keeps a focused row clear of the fading edge too. A row in view stays put; one out of view
+     * is still brought in.
+     */
+    @Test
+    public void aFocusedRowInViewDoesNotScrollTheSheet() {
+        try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+            android.content.Context context = controller.get();
+            ActionSheet.StillScroll scroll = new ActionSheet.StillScroll(context);
+            scroll.setVerticalFadingEdgeEnabled(true);
+            scroll.setFadingEdgeLength(48);
+            android.widget.LinearLayout rows = new android.widget.LinearLayout(context);
+            rows.setOrientation(android.widget.LinearLayout.VERTICAL);
+            View[] row = new View[4];
+            for (int i = 0; i < row.length; i++) {
+                row[i] = new View(context);
+                row[i].setFocusable(true);
+                rows.addView(row[i], new android.widget.LinearLayout.LayoutParams(100, 100));
+            }
+            scroll.addView(rows);
+            controller.get().setContentView(scroll, new android.view.ViewGroup.LayoutParams(100, 340));
+            scroll.measure(View.MeasureSpec.makeMeasureSpec(100, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(340, View.MeasureSpec.EXACTLY));
+            scroll.layout(0, 0, 100, 340);
+            assertTrue(row[0].requestFocus());
+            assertTrue(row[2].requestFocus());
+            assertEquals("row 3 ends at 300 of 340: in view, though in the fading edge", 0, scroll.getScrollY());
+            assertTrue(row[3].requestFocus());
+            assertTrue("row 4 is brought in", scroll.getScrollY() > 0);
+        }
+    }
+
     @Test @Config(sdk = 35) public void navigationInsetsReachTheMaterialSheet() {
         try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup()) {
             ActionSheet sheet = new ActionSheet(controller.get(), "PC actions");

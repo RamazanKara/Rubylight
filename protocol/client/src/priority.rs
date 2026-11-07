@@ -30,6 +30,9 @@
 //! process do not affect each other.
 
 use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
+use std::time::Duration;
 
 /// `SO_PRIORITY` of the sockets that carry audio and video, and of the others with
 /// "prioritize stream traffic" on.
@@ -551,21 +554,30 @@ pub fn raise_current_thread(level: ThreadLevel) -> io::Result<Option<Raised>> {
             ThreadLevel::Stream => (THREAD_NICE, None),
             ThreadLevel::Decode => (DECODE_NICE, Some(DECODE_FALLBACK_NICE)),
         };
+        // The id of this thread, not the helper's that asks the services.
+        let tid = current_thread_id();
         #[cfg(target_os = "linux")]
-        let services = [RaisedBy::Portal, RaisedBy::RealtimeKit]
-            .into_iter()
-            .map(|by| (by, realtime::service(by)));
+        let ask = |nice| {
+            realtime::broker()?
+                .run(SERVICE_BUDGET, move || {
+                    ask_services(nice, tid, realtime::services())
+                })
+                .and_then(|raised| raised)
+        };
         // Android apps have no D-Bus: setpriority only.
         #[cfg(not(target_os = "linux"))]
-        let services = std::iter::empty();
-        raise_nice_with(nice, fallback, set_thread_nice, services, current_thread_id).map(Some)
+        let ask = |_| {
+            let _ = tid;
+            Err(Vec::new())
+        };
+        raise_nice_with(nice, fallback, set_thread_nice, ask).map(Some)
     };
     result
 }
 
 /// A D-Bus service that raises a thread of an unprivileged process: the desktop portal's
 /// `org.freedesktop.portal.Realtime` or `org.freedesktop.RealtimeKit1`.
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) trait RealtimeService {
     /// The service's `MinNiceLevel` property: the lowest nice value it grants.
     fn min_nice_level(&self) -> Result<i32, String>;
@@ -574,22 +586,25 @@ pub(crate) trait RealtimeService {
 }
 
 /// `nice` clamped to a service's `MinNiceLevel`; `None` when that is no raise at all.
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn clamp_nice(nice: i32, min_nice_level: i32) -> Option<i32> {
     let nice = nice.max(min_nice_level);
     (nice < 0).then_some(nice)
 }
 
+/// The longest a stream thread's start waits on the D-Bus services, all of them together.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const SERVICE_BUDGET: Duration = Duration::from_millis(500);
+
 /// Tries `set_nice(nice)`, then `set_nice(fallback)`, then, only when the kernel refused for lack
-/// of privilege (EPERM, EACCES), each service in turn at `nice` clamped to its `MinNiceLevel`.
-/// A service is opened only when the one before it failed. The error lists every reason.
+/// of privilege (EPERM, EACCES), `ask(nice)` ([`ask_services`] behind a [`Broker`] on Linux).
+/// The error lists every reason.
 #[cfg_attr(windows, allow(dead_code))]
-fn raise_nice_with<'a>(
+fn raise_nice_with(
     nice: i32,
     fallback: Option<i32>,
     set_nice: impl Fn(i32) -> io::Result<()>,
-    services: impl IntoIterator<Item = (RaisedBy, Result<&'a dyn RealtimeService, String>)>,
-    tid: impl Fn() -> u64,
+    ask: impl FnOnce(i32) -> Result<Raised, Vec<String>>,
 ) -> io::Result<Raised> {
     let refused = match set_nice(nice) {
         Ok(()) => {
@@ -609,21 +624,129 @@ fn raise_nice_with<'a>(
     if refused.kind() != io::ErrorKind::PermissionDenied {
         return Err(refused);
     }
-    let mut reasons = vec![format!("setpriority: {refused}")];
-    for (by, service) in services {
-        let raised = service.and_then(|service| {
-            let min = service.min_nice_level()?;
-            let value =
-                clamp_nice(nice, min).ok_or(format!("grants no raise (MinNiceLevel {min})"))?;
-            service.make_thread_high_priority(tid(), value)?;
+    match ask(nice) {
+        Ok(raised) => Ok(raised),
+        Err(reasons) => {
+            let reasons = std::iter::once(format!("setpriority: {refused}")).chain(reasons);
+            Err(io::Error::new(
+                refused.kind(),
+                reasons.collect::<Vec<_>>().join("; "),
+            ))
+        }
+    }
+}
+
+/// A service as [`ask_services`] takes it: what it is, its process-wide "gone" flag, and the
+/// service or why it could not be opened.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+type ServiceEntry<'a> = (
+    RaisedBy,
+    &'a AtomicBool,
+    Result<&'a dyn RealtimeService, String>,
+);
+
+/// Asks each service in turn to raise thread `tid` to `nice` clamped to its `MinNiceLevel`; a
+/// service is opened only when the one before it failed. A service that can't be reached, has
+/// no `MinNiceLevel` or grants no raise sets its "gone" flag and is skipped from then on, for the
+/// whole process. A refused call is per thread and is not remembered.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn ask_services<'a>(
+    nice: i32,
+    tid: u64,
+    services: impl IntoIterator<Item = ServiceEntry<'a>>,
+) -> Result<Raised, Vec<String>> {
+    let mut reasons = Vec::new();
+    for (by, gone, service) in services {
+        if gone.load(Ordering::Acquire) {
+            reasons.push(format!("{by}: skipped, it failed for an earlier thread"));
+            continue;
+        }
+        let raised = service.map_err(|e| (e, true)).and_then(|service| {
+            let min = service.min_nice_level().map_err(|e| (e, true))?;
+            let value = clamp_nice(nice, min)
+                .ok_or_else(|| (format!("grants no raise (MinNiceLevel {min})"), true))?;
+            service
+                .make_thread_high_priority(tid, value)
+                .map_err(|e| (e, false))?;
             Ok(value)
         });
         match raised {
             Ok(value) => return Ok(Raised { by, value }),
-            Err(e) => reasons.push(format!("{by}: {e}")),
+            Err((e, remember)) => {
+                if remember {
+                    gone.store(true, Ordering::Release);
+                }
+                reasons.push(format!("{by}: {e}"));
+            }
         }
     }
-    Err(io::Error::new(refused.kind(), reasons.join("; ")))
+    Err(reasons)
+}
+
+/// A job for the [`Broker`]'s helper thread.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+type BrokerJob = Box<dyn FnOnce() + Send>;
+
+/// Runs the D-Bus part of a raise on one helper thread, so a bus that hangs (connecting
+/// included, which zbus has no timeout for) costs a stream thread at most the budget. After one
+/// job ran out of time every later one is refused at once: the helper may still be stuck in it.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+struct Broker {
+    jobs: mpsc::Sender<BrokerJob>,
+    stuck: AtomicBool,
+}
+
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+impl Broker {
+    fn new() -> io::Result<Self> {
+        let (jobs, queue) = mpsc::channel::<BrokerJob>();
+        std::thread::Builder::new()
+            .name("RealtimeAsk".into())
+            .spawn(move || queue.into_iter().for_each(|job| job()))?;
+        Ok(Self {
+            jobs,
+            stuck: AtomicBool::new(false),
+        })
+    }
+
+    /// `job`'s result, or why there is none within `budget`.
+    fn run<T: Send + 'static>(
+        &self,
+        budget: Duration,
+        job: impl FnOnce() -> T + Send + 'static,
+    ) -> Result<T, Vec<String>> {
+        if self.stuck.load(Ordering::Acquire) {
+            return Err(vec![
+                "D-Bus: skipped, an earlier thread got no answer in time".into(),
+            ]);
+        }
+        let (answer, wait) = mpsc::sync_channel(1);
+        let abandoned = Arc::new(AtomicBool::new(false));
+        let skip = abandoned.clone();
+        let job: BrokerJob = Box::new(move || {
+            // A job queued behind one that ran out of time has nobody waiting for it any more.
+            if !skip.load(Ordering::Acquire) {
+                let _ = answer.send(job());
+            }
+        });
+        if self.jobs.send(job).is_err() {
+            return Err(vec!["D-Bus: the helper thread is gone".into()]);
+        }
+        match wait.recv_timeout(budget) {
+            Ok(value) => Ok(value),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                abandoned.store(true, Ordering::Release);
+                self.stuck.store(true, Ordering::Release);
+                Err(vec![format!(
+                    "D-Bus: no answer within {} ms",
+                    budget.as_millis()
+                )])
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                Err(vec!["D-Bus: the helper thread failed".into()])
+            }
+        }
+    }
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -637,17 +760,40 @@ fn current_thread_id() -> u64 {
     0
 }
 
-/// The D-Bus services behind [`raise_nice_with`]: one connection per bus, opened at the first
-/// thread that needs it and kept (a failure too, so later threads don't wait on it again).
+/// The D-Bus services behind [`ask_services`]: one connection per bus, opened on the broker's
+/// helper thread when a thread first needs it, and kept (a failure too).
 #[cfg(target_os = "linux")]
 mod realtime {
-    use super::{RaisedBy, RealtimeService};
+    use super::{Broker, RaisedBy, RealtimeService, ServiceEntry};
+    use std::sync::atomic::AtomicBool;
     use std::sync::OnceLock;
     use std::time::Duration;
     use zbus::blocking::{connection::Builder, Connection};
 
-    /// Per call: a thread's start waits at most this long per service.
-    const TIMEOUT: Duration = Duration::from_millis(500);
+    /// Per method call, so a portal that doesn't answer still leaves RealtimeKit time within
+    /// [`super::SERVICE_BUDGET`].
+    const TIMEOUT: Duration = Duration::from_millis(200);
+
+    /// The process's one broker; Err when its helper thread could not start.
+    pub(super) fn broker() -> Result<&'static Broker, Vec<String>> {
+        static BROKER: OnceLock<Result<Broker, String>> = OnceLock::new();
+        BROKER
+            .get_or_init(|| Broker::new().map_err(|e| format!("D-Bus helper thread: {e}")))
+            .as_ref()
+            .map_err(|e| vec![e.clone()])
+    }
+
+    /// The portal, then RealtimeKit, each with its process-wide "gone" flag; opened lazily.
+    pub(super) fn services() -> impl Iterator<Item = ServiceEntry<'static>> {
+        static PORTAL_GONE: AtomicBool = AtomicBool::new(false);
+        static REALTIME_KIT_GONE: AtomicBool = AtomicBool::new(false);
+        [
+            (RaisedBy::Portal, &PORTAL_GONE),
+            (RaisedBy::RealtimeKit, &REALTIME_KIT_GONE),
+        ]
+        .into_iter()
+        .map(|(by, gone)| (by, gone, service(by)))
+    }
 
     struct Service {
         connection: Connection,
@@ -700,7 +846,7 @@ mod realtime {
         }
     }
 
-    pub(super) fn service(by: RaisedBy) -> Result<&'static dyn RealtimeService, String> {
+    fn service(by: RaisedBy) -> Result<&'static dyn RealtimeService, String> {
         static PORTAL: OnceLock<Result<Service, String>> = OnceLock::new();
         static REALTIME_KIT: OnceLock<Result<Service, String>> = OnceLock::new();
         let service = match by {
@@ -960,6 +1106,7 @@ pub(crate) mod tests {
         min_nice_level: Result<i32, String>,
         answer: Result<(), String>,
         calls: std::cell::RefCell<Vec<(u64, i32)>>,
+        min_nice_reads: std::cell::Cell<u32>,
     }
 
     impl FakeService {
@@ -968,12 +1115,14 @@ pub(crate) mod tests {
                 min_nice_level,
                 answer,
                 calls: Default::default(),
+                min_nice_reads: Default::default(),
             }
         }
     }
 
     impl RealtimeService for FakeService {
         fn min_nice_level(&self) -> Result<i32, String> {
+            self.min_nice_reads.set(self.min_nice_reads.get() + 1);
             self.min_nice_level.clone()
         }
 
@@ -992,14 +1141,88 @@ pub(crate) mod tests {
         portal: Result<&dyn RealtimeService, String>,
         kit: Result<&dyn RealtimeService, String>,
     ) -> io::Result<Raised> {
-        let services = [(RaisedBy::Portal, portal), (RaisedBy::RealtimeKit, kit)];
-        raise_nice_with(
-            DECODE_NICE,
-            Some(DECODE_FALLBACK_NICE),
-            set_nice,
-            services,
-            || 42,
-        )
+        let gone = [AtomicBool::new(false), AtomicBool::new(false)];
+        raise_nice_with(DECODE_NICE, Some(DECODE_FALLBACK_NICE), set_nice, |nice| {
+            let services = [
+                (RaisedBy::Portal, &gone[0], portal),
+                (RaisedBy::RealtimeKit, &gone[1], kit),
+            ];
+            ask_services(nice, 42, services)
+        })
+    }
+
+    #[test]
+    fn a_service_that_failed_is_skipped_by_later_threads() {
+        let gone = [AtomicBool::new(false), AtomicBool::new(false)];
+        let unreadable = FakeService::new(Err("ServiceUnknown".into()), Ok(()));
+        let refusing = FakeService::new(Ok(-15), Err("AccessDenied".into()));
+        for _ in 0..2 {
+            let services = [
+                (
+                    RaisedBy::Portal,
+                    &gone[0],
+                    Ok(&unreadable as &dyn RealtimeService),
+                ),
+                (
+                    RaisedBy::RealtimeKit,
+                    &gone[1],
+                    Ok(&refusing as &dyn RealtimeService),
+                ),
+            ];
+            assert!(ask_services(DECODE_NICE, 42, services).is_err());
+        }
+        // The missing portal was asked once; RealtimeKit refused a thread, which is per thread.
+        assert_eq!(unreadable.min_nice_reads.get(), 1);
+        assert_eq!(refusing.calls.borrow().len(), 2);
+        // A bus that could not be reached is remembered as well.
+        let gone = AtomicBool::new(false);
+        for _ in 0..2 {
+            let services = [(
+                RaisedBy::Portal,
+                &gone,
+                Err("session bus: none".to_string()),
+            )];
+            let reasons = ask_services(DECODE_NICE, 42, services).unwrap_err();
+            assert_eq!(reasons.len(), 1);
+        }
+        assert!(gone.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn a_hung_bus_costs_a_thread_at_most_the_budget_once() {
+        let broker = Broker::new().unwrap();
+        let budget = Duration::from_millis(100);
+        // A connect that never returns: the job waits on a channel nobody sends to.
+        let (release, hung) = mpsc::channel::<()>();
+        let start = std::time::Instant::now();
+        let reasons = broker
+            .run(budget, move || {
+                let _ = hung.recv();
+            })
+            .unwrap_err();
+        let waited = start.elapsed();
+        assert!(waited < budget + Duration::from_millis(400), "{waited:?}");
+        assert!(
+            reasons[0].contains("no answer within 100 ms"),
+            "{reasons:?}"
+        );
+        // The next thread is refused at once and its job never runs.
+        let ran = Arc::new(AtomicBool::new(false));
+        let job_ran = ran.clone();
+        let start = std::time::Instant::now();
+        assert!(broker
+            .run(budget, move || job_ran.store(true, Ordering::Release))
+            .is_err());
+        assert!(start.elapsed() < Duration::from_millis(50));
+        drop(release);
+        assert!(!ran.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn a_broker_answers_within_the_budget() {
+        let broker = Broker::new().unwrap();
+        assert_eq!(broker.run(SERVICE_BUDGET, || 7).unwrap(), 7);
+        assert_eq!(broker.run(SERVICE_BUDGET, || 8).unwrap(), 8);
     }
 
     #[test]

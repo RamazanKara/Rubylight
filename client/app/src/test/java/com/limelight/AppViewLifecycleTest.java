@@ -337,8 +337,26 @@ public class AppViewLifecycleTest {
         ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
         try {
             Library screen = controller.get();
-            libraryWithRunningGame(screen, "sunshine-serverinfo.xml");
+            // Motion as on a phone with animations on; a test harness turns them off.
+            android.provider.Settings.Global.putFloat(screen.getContentResolver(),
+                    android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f);
+            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                    ReflectionHelpers.ClassParameter.from(float.class, 1f));
+            android.widget.GridView grid = libraryWithRunningGame(screen, "sunshine-serverinfo.xml");
             assertTrue(ReflectionHelpers.<Boolean>getField(screen, "enterPlayed"));
+            // The cards really rise: the first starts low and clear, and stands in place once the rise is over.
+            // As a frame does: the grid lays its cards out, then the pre-draw pass starts the rise.
+            grid.measure(View.MeasureSpec.makeMeasureSpec(1280, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.EXACTLY));
+            grid.layout(0, 0, 1280, 720);
+            assertTrue("cards laid out", grid.getChildCount() > 0);
+            grid.getViewTreeObserver().dispatchOnPreDraw();
+            View first = grid.getChildAt(0);
+            assertTrue("starts below its place: " + first.getTranslationY(), first.getTranslationY() > 0f);
+            assertTrue("starts clear: " + first.getAlpha(), first.getAlpha() < 1f);
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1));
+            assertEquals(0f, grid.getChildAt(0).getTranslationY(), 0f);
+            assertEquals(1f, grid.getChildAt(0).getAlpha(), 0f);
         } finally {
             controller.pause().stop().destroy();
         }

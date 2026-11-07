@@ -418,7 +418,7 @@ impl Launcher {
         ui.add_space(SIDE_INSET - ui.spacing().item_spacing.y);
         let list = Rect::from_min_max(Pos2::new(ui.max_rect().left(), top), Pos2::new(ui.max_rect().right(), ui.cursor().top()));
         let mut shapes = Vec::new();
-        pcs::canvas_on_moon(&mut shapes, ui.ctx(), list, f32::from(radius::PANEL), backdrop::Moon::High);
+        pcs::canvas_on_moon(&mut shapes, ui.ctx(), list, f32::from(radius::PANEL));
         glass::group(&mut shapes, ui.ctx(), list, f32::from(radius::PANEL), rows_fill());
         ui.painter().set(under, egui::Shape::Vec(shapes));
         entries

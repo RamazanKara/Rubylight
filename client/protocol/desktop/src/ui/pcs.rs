@@ -139,8 +139,7 @@ fn into_rounded(rect: Rect, r: f32, p: Pos2) -> Pos2 {
 
 /// How much a card covers the moon, from none to enough that its words sit on it. A long list or a
 /// narrow window brings them there, and scrolling moves them across it.
-pub(super) fn over_moon(screen: Rect, card: Rect, moon: backdrop::Moon) -> f32 {
-    let (center, r) = backdrop::moon_disc(screen, moon);
+pub(super) fn over_moon((center, r): (Pos2, f32), card: Rect) -> f32 {
     let nearest = pos2(
         center.x.clamp(card.left(), card.right()),
         center.y.clamp(card.top(), card.bottom()),
@@ -149,8 +148,8 @@ pub(super) fn over_moon(screen: Rect, card: Rect, moon: backdrop::Moon) -> f32 {
 }
 
 /// The canvas that goes under a card on the moon, or its words sit on the disc's sharp edge.
-pub(super) fn canvas_on_moon(out: &mut Vec<Shape>, ctx: &egui::Context, card: Rect, r: f32, moon: backdrop::Moon) {
-    let over = over_moon(ctx.content_rect(), card, moon);
+pub(super) fn canvas_on_moon(out: &mut Vec<Shape>, ctx: &egui::Context, card: Rect, r: f32) {
+    let over = backdrop::disc_of(ctx).map_or(0.0, |disc| over_moon(disc, card));
     if over > 0.0 && !high_contrast() {
         glass::solid(out, ctx, card, r, t::COLOR_CANVAS.gamma_multiply(OVER_MOON * over));
     }
@@ -548,7 +547,7 @@ impl Launcher {
                     Color32::from_black_alpha(102).gamma_multiply(rise / HOVER_RISE),
                 );
             }
-            canvas_on_moon(&mut out, &ctx, rect, r, backdrop::Moon::Low);
+            canvas_on_moon(&mut out, &ctx, rect, r);
             glass::group(&mut out, &ctx, rect, r, group_fill());
             lift_shapes(
                 &mut out,
@@ -678,32 +677,30 @@ mod tests {
     #[test]
     fn a_card_on_the_moon_gets_its_canvas_and_one_beside_it_none() {
         let screen = Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 800.0));
+        let moon = backdrop::moon_disc(screen, backdrop::Moon::Low);
         // The design's third column, first row: clear of the moon at (1040, 520), r 118.
         assert_eq!(
             over_moon(
-                screen,
-                Rect::from_min_size(pos2(848.0, 150.0), vec2(384.0, 216.0)),
-                backdrop::Moon::Low
+                moon,
+                Rect::from_min_size(pos2(848.0, 150.0), vec2(384.0, 216.0))
             ),
             0.0
         );
         // A sixth PC sits right on it.
         assert_eq!(
             over_moon(
-                screen,
-                Rect::from_min_size(pos2(848.0, 382.0), vec2(384.0, 216.0)),
-                backdrop::Moon::Low
+                moon,
+                Rect::from_min_size(pos2(848.0, 382.0), vec2(384.0, 216.0))
             ),
             1.0
         );
         // The edge eases in.
         let edge = over_moon(
-            screen,
+            moon,
             Rect::from_min_size(
                 pos2(1040.0 - 118.0 - 384.0 + 12.0, 412.0),
                 vec2(384.0, 216.0),
             ),
-            backdrop::Moon::Low,
         );
         assert!(edge > 0.0 && edge < 1.0, "{edge}");
     }

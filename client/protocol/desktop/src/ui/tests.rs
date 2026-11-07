@@ -4026,7 +4026,8 @@ fn a_menu_rows_ring_and_glow_end_before_the_list_cuts_them() {
 }
 
 /// The Help and Settings cards read the same on the sky's moon as the PCs' cards do: the disc's sharp
-/// edge ran through a card's words.
+/// edge ran through a card's words. The moon now stands clear of them, so a card meets it only as
+/// the page scrolls: its canvas follows the moon where it really stands, and none goes elsewhere.
 #[test]
 fn a_card_on_the_moon_has_canvas_under_its_words() {
     let canvas = design_tokens::COLOR_CANVAS.gamma_multiply(0.8);
@@ -4034,12 +4035,13 @@ fn a_card_on_the_moon_has_canvas_under_its_words() {
         let (mut f, _) = three_pcs();
         f.l.go(screen);
         f.settle();
-        let (center, r) = backdrop::moon_disc(f.ctx.content_rect(), backdrop::Moon::High);
-        let on_moon = meshes_drawn(&f).iter().any(|(mesh, _)| {
-            let bounds = mesh.calc_bounds();
-            bounds.expand(r).contains(center) && mesh.vertices.iter().any(|v| v.color == canvas)
-        });
-        assert!(on_moon, "{screen:?}");
+        let disc = backdrop::disc_of(&f.ctx);
+        for (mesh, _) in meshes_drawn(&f) {
+            if mesh.vertices.iter().any(|v| v.color == canvas) {
+                let bounds = mesh.calc_bounds();
+                assert!(disc.is_some_and(|(center, r)| bounds.distance_to_pos(center) < r), "{screen:?}: canvas at {bounds:?}, away from the moon {disc:?}");
+            }
+        }
     }
 }
 
@@ -7140,4 +7142,78 @@ fn a_control_tile_with_the_running_id_is_never_what_resume_runs() {
     };
     assert!(!started.is_control_action() && started.control == nightjar_core::http::AppControl::None);
     assert!(matches!(crate::launch_target(host, 77, false), crate::LaunchApp::Ready(a) if a.is_control_action()), "the tile's own press still is its action");
+}
+
+/// The moon stands in open sky: never under a card, chip, row or title and never cut by one, on
+/// every page that draws it, in the default window at 150 % (where it sat under the PCs' cards and
+/// on Settings' last chip), a large window, the smallest one and 150 % in German. Where a page
+/// leaves no sky the moon steps back; a large window keeps it on the PCs and Settings.
+#[test]
+fn the_moon_stands_clear_of_every_card_and_chip() {
+    let pages = [Screen::Hosts, Screen::Settings, Screen::Help, Screen::Profiles, Screen::Controllers, Screen::Shortcuts, Screen::StreamHotkeys];
+    let windows = [(vec2(1280.0, 800.0), 150, false), (vec2(1280.0, 800.0), 100, false), (vec2(1920.0, 1080.0), 100, false), (vec2(720.0, 490.0), 100, false), (vec2(1280.0, 800.0), 150, true)];
+    for (window, zoom, german) in windows {
+        for page in pages {
+            let mut f = four_pcs();
+            f.l.settings.ui_zoom = zoom;
+            if german {
+                f.l.settings.language = crate::config::Language::German;
+            }
+            f.size = window / (zoom as f32 / 100.0);
+            f.l.go(page);
+            f.settle();
+            f.settle();
+            let what = format!("{page:?} at {window:?}, {zoom} %{}", if german { ", German" } else { "" });
+            let screen = Rect::from_min_size(Pos2::ZERO, f.size);
+            // Scrolling moves the page, not the moon: egui does not paint what scrolled away, and the
+            // moon came into that room over the rows.
+            let still = |f: &mut Frames| {
+                let at_top = backdrop::disc_of(&f.ctx);
+                f.scroll_to_end();
+                f.settle();
+                assert_eq!(backdrop::disc_of(&f.ctx), at_top, "{what}: the moon holds still as the page scrolls");
+            };
+            let Some((center, r)) = backdrop::disc_of(&f.ctx) else {
+                assert!(window.x < 1920.0 || !matches!(page, Screen::Hosts | Screen::Settings), "{what}: a large window has sky for the moon");
+                still(&mut f);
+                continue;
+            };
+            assert!(screen.contains_rect(Rect::from_center_size(center, Vec2::splat(r * 2.0))), "{what}: the moon is whole in the window");
+            let mut held: Vec<(String, Rect)> = f.placed.iter().filter(|(t, ..)| !t.trim().is_empty()).map(|(t, rect, clip)| (t.clone(), rect.intersect(*clip))).collect();
+            for (mesh, clip) in meshes_drawn(&f) {
+                let bounds = mesh.calc_bounds().intersect(clip);
+                // The sky, the page colour and the veil run the window's width; the moon is itself;
+                // the chrome's soft shade falls from the window's top.
+                if bounds.width() >= screen.width() - 1.0 || (bounds.center() - center).length() < 2.0 || bounds.top() <= screen.top() {
+                    continue;
+                }
+                held.push(("a shape".into(), bounds));
+            }
+            for (name, rect) in held {
+                if rect.is_positive() && rect.intersects(screen) {
+                    assert!(rect.distance_to_pos(center) >= r, "{what}: the moon at {center:?}, r {r}, meets {name} at {rect:?}");
+                }
+            }
+            still(&mut f);
+        }
+    }
+}
+
+/// The demo's PCs page: one running a game, one online, one asleep and one not paired.
+fn four_pcs() -> Frames {
+    let mut records = vec![record("Living Room PC", true, true), record("Studio PC", true, true), record("Office PC", true, true), record("Game Room PC", false, false)];
+    for (n, record) in records.iter_mut().enumerate() {
+        record.address = format!("192.0.2.{}", 80 + n);
+    }
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut l = launcher(false, false);
+    l.go(Screen::Hosts);
+    let mut hosts = Hosts::without_discovery(records, Arc::new(|| {}));
+    for (host, reach) in hosts.list.iter_mut().zip([Reach::Online, Reach::Online, Reach::Offline, Reach::Online]) {
+        host.reach = reach;
+    }
+    hosts.list[0].apps = Apps::Loaded(vec![game(1)]);
+    Frames::over(ctx, l, hosts)
 }

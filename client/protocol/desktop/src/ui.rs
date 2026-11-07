@@ -176,7 +176,7 @@ pub enum Command {
     Power(crate::power::Offer),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Screen {
     /// Games to continue, the merged library and the PCs.
     Home,
@@ -997,6 +997,7 @@ impl Launcher {
         if let Some(pin) = &mut self.pin {
             let pcs: Vec<(String, String)> = view.hosts.list.iter().map(|h| (h.record.unique_id.clone(), h.display_name().to_owned())).collect();
             if pin.up() {
+                self.ambient.set_page(&ctx, "pin");
                 ui.painter().extend(self.ambient.paint(&ctx, backdrop::Want::Sky(backdrop::Moon::High)));
             }
             if pin.ui(ui, &pcs, &mut commands) {
@@ -1035,6 +1036,8 @@ impl Launcher {
             self.go(Screen::Hosts);
         }
         let want = self.page_backdrop(&view, &sources);
+        // The moon stands clear of what this page held when last drawn.
+        self.ambient.set_page(&ctx, self.screen);
         self.ambient.set_orbit(self.screen == Screen::Hosts && first_run::first_run_of(view.hosts).is_some() && view.hosts.discovering);
         ui.painter().extend(self.ambient.paint(&ctx, want));
         let margin = chrome::page_margin(full.width());

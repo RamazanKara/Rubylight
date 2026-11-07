@@ -541,6 +541,14 @@ fn frame_status(fed: &FedFrame, asynchronous: bool, steady: bool) -> DecodeStatu
     }
 }
 
+/// Whether the FFmpeg decoder now decoding (`backend`, none for PyroWave) recovers with
+/// reference frame invalidation: a launch asks for it only by backends that do
+/// (`connect::takes_rfi`), so one a refusal brought in mid-stream (Vulkan video, V4L2 M2M,
+/// NVDEC) has the rest of the stream recover with key frames.
+fn recovers_with_rfi(backend: Option<Hardware>) -> bool {
+    backend.is_none_or(super::connect::takes_rfi)
+}
+
 /// The backends of `order` after `refused`, which FFmpeg took to software: none when it is not
 /// in the order.
 fn backends_after(order: Vec<Hardware>, refused: Hardware) -> Vec<Hardware> {
@@ -863,6 +871,10 @@ impl VideoDecoder for Decoder {
 
     fn wants_early_chunks(&self) -> bool {
         self.early
+    }
+
+    fn recovers_with_rfi(&self) -> bool {
+        recovers_with_rfi(self.decoder.as_ref().map(|decoder| decoder.hardware))
     }
 
     fn chunk(&mut self, first: bool, flags: u32, payload: &[u8]) {
@@ -1957,5 +1969,21 @@ mod tests {
         assert!(backends_after(order.clone(), Hardware::Cuda).is_empty());
         assert!(backends_after(vec![Hardware::D3d11(gpu)], Hardware::D3d11(gpu)).is_empty(), "D3D11VA goes to software");
         assert!(backends_after(order, Hardware::None).is_empty());
+    }
+
+    /// A refused decoder replaced mid-stream by a backend that never asked for reference frame
+    /// invalidation makes the session recover with key frames for the rest of the stream.
+    #[test]
+    fn a_fallback_to_a_backend_without_rfi_turns_rfi_recovery_off() {
+        let gpu = std::ptr::dangling_mut::<c_void>();
+        for backend in [Hardware::D3d11(gpu), Hardware::Vaapi, Hardware::None] {
+            assert!(recovers_with_rfi(Some(backend)), "{}", backend.label());
+        }
+        for backend in [Hardware::Vulkan(gpu), Hardware::V4l2m2m, Hardware::Cuda] {
+            assert!(!recovers_with_rfi(Some(backend)), "{}", backend.label());
+        }
+        assert!(recovers_with_rfi(None), "PyroWave, or no decoder yet");
+        let (decoder, _) = decoder();
+        assert!(VideoDecoder::recovers_with_rfi(&decoder));
     }
 }

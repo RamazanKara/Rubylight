@@ -538,6 +538,9 @@ fn receive_thread(
                         if std::mem::take(&mut d.decoded_key_frame) {
                             receiver.frame_decoded(FrameType::Idr);
                         }
+                        if !d.decoder.recovers_with_rfi() {
+                            receiver.recover_with_idr_only();
+                        }
                         if std::mem::take(&mut d.need_refresh) {
                             let mut sink = Sink {
                                 shared: &shared,
@@ -611,6 +614,9 @@ fn decode_loop(
                         receiver.frame_decoded(FrameType::Idr);
                     }
                 }
+            }
+            if !decoder.recovers_with_rfi() {
+                receiver.recover_with_idr_only();
             }
             receiver.recycle(frame);
         }

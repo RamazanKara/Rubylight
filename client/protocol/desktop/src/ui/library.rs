@@ -3,6 +3,7 @@
 
 use super::chrome::{capsule_width, control_capsule, info_chip, info_chip_width};
 use super::design_tokens as t;
+use super::pcs::pc_line_of;
 use super::dialogs::{approve_dialog, short_device_name};
 use super::pcs::{action_button, action_width, PcAction};
 use super::*;
@@ -412,7 +413,15 @@ impl Launcher {
 
     /// Play or Resume: asks first when it would replace another running game.
     pub(super) fn press_play(&mut self, host: &Host, game: &nightjar_core::http::native_api::library::Game, state: &PlayState, commands: &mut Vec<Command>) {
-        let Some(app) = &state.classic else { return };
+        let Some(app) = &state.classic else {
+            // The list starts a stream and is not here yet: Play holds until it lands.
+            if state.could_play(host) {
+                self.pending_play = Some(PendingPlay { host: host.id, app: game.app_id, screen: self.screen });
+                commands.push(Command::LoadApps(host.id));
+            }
+            return;
+        };
+        self.pending_play = None;
         if state.resumes {
             commands.push(Command::Launch { host: host.id, app: app.id, resume: true });
         } else if let (Some(running), false) = (&state.other_running, host.confirms_replacement()) {
@@ -426,6 +435,44 @@ impl Launcher {
             self.focus_dialog = true;
         } else {
             commands.push(Command::Launch { host: host.id, app: app.id, resume: false });
+        }
+    }
+
+    /// Whether Play on this game is waiting for its PC's app list.
+    pub(super) fn playing_soon(&self, host: u64, app: u32) -> bool {
+        self.pending_play.is_some_and(|p| p.host == host && p.app == app)
+    }
+
+    /// A Play that waited for the list: starts once the entry is there, and says so out loud if it
+    /// cannot be. Leaving the page where it was pressed lets it go.
+    pub(super) fn settle_play(&mut self, view: &View<'_>, sources: &[Source<'_>], commands: &mut Vec<Command>) {
+        let Some(pending) = self.pending_play else { return };
+        if self.screen != pending.screen {
+            self.pending_play = None;
+            return;
+        }
+        let host = view.hosts.get(pending.host);
+        let source = sources.iter().find(|s| s.id == pending.host);
+        let game = source.and_then(|s| s.library).and_then(|l| l.games.iter().find(|g| g.app_id == pending.app));
+        let (Some(host), Some(source), Some(game)) = (host, source, game) else {
+            self.pending_play = None;
+            return;
+        };
+        let state = self.play_state(host, source, game);
+        let why = if !state.detail.can_start {
+            Some(pc_line_of(host).words().to_owned())
+        } else {
+            match &host.apps {
+                Apps::NotLoaded | Apps::Loading => return,
+                Apps::Failed(e) => Some(trf("The app list could not be loaded. {}", &[&e])),
+                Apps::Loaded(_) if state.classic.is_none() => Some(tr("The PC's app list has no entry for this game.").to_owned()),
+                Apps::Loaded(_) => None,
+            }
+        };
+        self.pending_play = None;
+        match why {
+            Some(why) => self.message(tr("The stream could not start"), why),
+            None => self.press_play(host, game, &state, commands),
         }
     }
 
@@ -478,6 +525,14 @@ fn loading_chip(ui: &mut Ui, room: Rect) {
     let spinning = Rect::from_min_size(pos2(rect.left() + 14.0, rect.center().y - R), Vec2::splat(2.0 * R));
     ui.scope_builder(UiBuilder::new().max_rect(spinning), |ui| spinner(ui, R));
     ui.painter().galley(pos2(spinning.right() + 10.0, rect.center().y - words.size().y / 2.0), words, *ON_SURFACE);
+}
+
+/// A Play that waits for its PC's app list, and the page it was pressed on.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct PendingPlay {
+    pub host: u64,
+    pub app: u32,
+    pub screen: Screen,
 }
 
 /// What a game can do on its PC now ([`Launcher::play_state`]).

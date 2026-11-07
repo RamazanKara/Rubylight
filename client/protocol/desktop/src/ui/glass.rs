@@ -976,6 +976,14 @@ pub fn defer_focused(ui: &Ui, shapes: Vec<Shape>) {
     });
 }
 
+/// What is deferred so far, taken away, for a test to look at.
+#[cfg(test)]
+pub fn take_deferred(ui: &Ui) -> Vec<(Rect, Vec<Shape>)> {
+    ui.ctx().data_mut(|d| {
+        std::mem::take(d.get_temp_mut_or_default::<Vec<(Rect, Vec<Shape>)>>(deferred_id()))
+    })
+}
+
 /// Paints what was deferred, each in the clip it was asked for in.
 pub fn flush_deferred(ui: &Ui) {
     let deferred = ui.ctx().data_mut(|d| {

@@ -2897,6 +2897,101 @@ fn a_games_page_is_one_play_beside_favourite_over_its_rows() {
     assert_eq!(at(&f, "Stream settings").top(), settings.top(), "no jump for a chip that was not there");
 }
 
+/// Play pressed before the PC's app list arrives holds, then starts when it lands; it asks for it too.
+#[test]
+fn play_before_the_list_arrives_starts_when_it_lands() {
+    let mut f = home_with_games(1);
+    let pc = f.hosts.list[0].id;
+    f.hosts.list[0].apps = Apps::NotLoaded;
+    f.l.go(Screen::Game { host: pc, app: 1000 });
+    f.settle();
+    let commands = f.press(Key::Enter);
+    assert!(commands.iter().any(|c| matches!(c, Command::LoadApps(host) if *host == pc)));
+    assert!(!commands.iter().any(|c| matches!(c, Command::Launch { .. })));
+    assert!(f.l.playing_soon(pc, 1000));
+    f.hosts.list[0].apps = Apps::Loading;
+    let commands = f.frame(Vec::new());
+    assert!(!commands.iter().any(|c| matches!(c, Command::Launch { .. })), "still on its way");
+    f.hosts.list[0].apps = Apps::Loaded(vec![nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) }]);
+    let commands = f.frame(Vec::new());
+    assert!(commands.iter().any(|c| matches!(c, Command::Launch { host, app: 1000, resume: false } if *host == pc)));
+    assert!(!f.l.playing_soon(pc, 1000));
+    let commands = f.frame(Vec::new());
+    assert!(!commands.iter().any(|c| matches!(c, Command::Launch { .. })), "once");
+}
+
+/// A Play that waited says why when it cannot start, and leaving the page lets it go.
+#[test]
+fn play_before_the_list_is_loud_when_it_cannot_start_and_ends_with_the_page() {
+    let press = |apps: Apps| {
+        let mut f = home_with_games(1);
+        let pc = f.hosts.list[0].id;
+        f.hosts.list[0].apps = Apps::Loading;
+        f.l.go(Screen::Game { host: pc, app: 1000 });
+        f.settle();
+        f.press(Key::Enter);
+        assert!(f.l.playing_soon(pc, 1000));
+        f.hosts.list[0].apps = apps;
+        f
+    };
+    let mut f = press(Apps::Failed("The PC did not answer".into()));
+    f.settle();
+    assert!(shows(&f, "The stream could not start") && shows(&f, "The app list could not be loaded. The PC did not answer"), "{:?}", f.drawn);
+    let mut f = press(Apps::Loaded(vec![game(77)]));
+    f.settle();
+    assert!(shows(&f, "The stream could not start") && shows(&f, "The PC's app list has no entry for this game."), "{:?}", f.drawn);
+    // Gone from the page, nothing starts behind the player's back.
+    let mut f = press(Apps::Loading);
+    f.l.go(Screen::Home);
+    f.frame(Vec::new());
+    f.hosts.list[0].apps = Apps::Loaded(vec![nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) }]);
+    let commands = f.frame(Vec::new());
+    assert!(!commands.iter().any(|c| matches!(c, Command::Launch { .. })));
+}
+
+/// Down from the search field goes to the games it filters, as a controller's D-pad does.
+#[test]
+fn down_from_the_search_field_reaches_the_games() {
+    let mut f = home_with_games(4);
+    f.l.go(Screen::AllGames);
+    f.settle();
+    f.l.open_search();
+    f.settle();
+    assert!(f.ctx.text_edit_focused(), "the field has the keyboard");
+    f.press(Key::ArrowDown);
+    f.settle();
+    assert!(!f.ctx.text_edit_focused(), "Down left the field");
+    let focused = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).expect("something has focus").rect;
+    assert!(focused.top() > chrome::PAGE_TOP, "a game below the bar: {focused:?}");
+}
+
+/// Home's PC card's halo may leave the scroll area, whose edge would cut it: it is deferred, in a clip
+/// wider than the area's.
+#[test]
+fn a_host_cards_halo_is_deferred_past_the_scroll_edge() {
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let hosts = Hosts::without_discovery(vec![record("Den", true, true)], Arc::new(|| {}));
+    let mut deferred = None;
+    for pass in 0..2 {
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let area = ui.clip_rect();
+            let card = host_card(ui, &hosts.list[0], "Online", 300.0);
+            if pass == 0 {
+                card.request_focus();
+            } else {
+                deferred = Some((area, glass::take_deferred(ui)));
+            }
+        });
+        let mut delta = output.textures_delta;
+        delta.clear();
+    }
+    let (area, deferred) = deferred.expect("two passes");
+    assert_eq!(deferred.len(), 1, "the halo");
+    assert!(deferred[0].0.width() > area.width() && !deferred[0].1.is_empty(), "{:?}", deferred[0].0);
+}
+
 /// A PC that cannot play yet offers what would let it, in the place and the colour of Play.
 #[test]
 fn a_games_page_on_an_asleep_or_unpaired_pc_offers_the_way_back() {

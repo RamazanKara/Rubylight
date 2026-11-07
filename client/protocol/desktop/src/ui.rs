@@ -416,6 +416,8 @@ pub struct Launcher {
     refreshing_empty: Option<u64>,
     /// The first run shows a found PC: when it first does, its Pair takes the focus.
     found_shown: bool,
+    /// Play pressed before the PC's app list arrived: it starts when the list lands.
+    pending_play: Option<library::PendingPlay>,
     /// Where the page's Back has its slot this frame: None on a page without one.
     back_slot: Option<f32>,
     /// The display's tearing support, for the VRR setting's note.
@@ -516,6 +518,7 @@ impl Launcher {
             back_pressed: false,
             refreshing_empty: None,
             found_shown: false,
+            pending_play: None,
             back_slot: None,
             tearing_supported: false,
             gpu_device: None,
@@ -1018,6 +1021,7 @@ impl Launcher {
         if blocked {
             self.focus_screen = false;
         }
+        self.settle_play(&view, &sources, &mut commands);
         let brand = self.top_bar(&ctx, &view, blocked, &mut commands);
         self.back_slot = None;
         // Every page scrolls whole beneath the chrome, so whatever is revealed rests below it.

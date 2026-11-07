@@ -1405,4 +1405,7 @@ sudo sysctl -w net.core.rmem_max={}", "Buffer di ricezione: il sistema ha conces
     ("Desktop", "Desktop"),
     ("Searching for PCs…", "Ricerca dei PC…"),
     ("Can't search this network for PCs", "Impossibile cercare PC su questa rete"),
+    ("{} cannot decode this stream. Now decoding with {}.", "{0} non può decodificare questo stream. Ora decodifica {1}."),
+    ("{} cannot decode this stream. Now decoding in software.", "{} non può decodificare questo stream. Ora la decodifica è software."),
+    ("{} cannot decode this stream, and no other decoder opens: {}", "{0} non può decodificare questo stream e nessun altro decoder si apre: {1}"),
 ];

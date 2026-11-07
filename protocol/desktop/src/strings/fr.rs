@@ -1405,4 +1405,7 @@ sudo sysctl -w net.core.rmem_max={}", "Tampon de réception : le système a acco
     ("Desktop", "Bureau"),
     ("Searching for PCs…", "Recherche de PC…"),
     ("Can't search this network for PCs", "Impossible de chercher des PC sur ce réseau"),
+    ("{} cannot decode this stream. Now decoding with {}.", "{0} ne peut pas décoder ce flux. Décodage désormais avec {1}."),
+    ("{} cannot decode this stream. Now decoding in software.", "{} ne peut pas décoder ce flux. Décodage désormais logiciel."),
+    ("{} cannot decode this stream, and no other decoder opens: {}", "{0} ne peut pas décoder ce flux, et aucun autre décodeur ne s’ouvre : {1}"),
 ];

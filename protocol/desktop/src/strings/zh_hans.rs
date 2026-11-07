@@ -1405,4 +1405,7 @@ sudo sysctl -w net.core.rmem_max={}", "接收缓冲区：系统只分配了所�
     ("Desktop", "桌面"),
     ("Searching for PCs…", "正在搜索电脑…"),
     ("Can't search this network for PCs", "无法在此网络上搜索电脑"),
+    ("{} cannot decode this stream. Now decoding with {}.", "{0} 无法解码此串流。现在使用 {1} 解码。"),
+    ("{} cannot decode this stream. Now decoding in software.", "{} 无法解码此串流。现在使用软件解码。"),
+    ("{} cannot decode this stream, and no other decoder opens: {}", "{0} 无法解码此串流，也没有其他解码器能打开：{1}"),
 ];

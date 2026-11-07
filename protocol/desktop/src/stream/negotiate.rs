@@ -151,6 +151,16 @@ pub fn probes_color(settings: &Settings) -> bool {
     (wants.yuv444 || wants.sdr10) && !wants.hdr && !wants.packed444 && !wants.pyrowave
 }
 
+/// The formats of `color_probe::BASE_FORMATS` a launch with these settings can offer, which
+/// `color_probe::probe_base` checks: none for H.264 or packed full chroma (its own probe), AV1
+/// only when AV1 is chosen, Main10 only with HDR.
+pub fn base_probe_formats(settings: &Settings) -> u32 {
+    if settings.experimental_packed_444 {
+        return 0;
+    }
+    video_formats(settings.codec, settings.hdr, 0) & color_probe::BASE_FORMATS
+}
+
 /// The formats a launch offers: the codec choice's, and the 4:4:4 and 10-bit ones the settings
 /// add where this device (`decodable`, from the probe) and the PC (`scm`) both handle them.
 /// Packed full chroma offers the plain formats whatever the PC reports.

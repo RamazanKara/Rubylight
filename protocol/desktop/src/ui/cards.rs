@@ -71,11 +71,26 @@ pub(super) fn card_grid(width: f32, gap: f32) -> (usize, f32) {
     (columns as usize, ((width - gap * (columns - 1.0)) / columns).floor().clamp(CARD_W.min(width), CARD_MAX_W))
 }
 
+/// Where a cover's ⋮ goes on `shown`, the cover as it stands this frame. The art's logotype lives at
+/// the top and the running dot at the bottom right, so it takes the bottom left; only the Not installed
+/// pill is there, and a cover with that one has no running dot.
+pub(super) fn dots_rect(shown: Rect, badge: Badge) -> Rect {
+    const SIZE: f32 = 30.0;
+    const INSET: f32 = 8.0;
+    let y = shown.bottom() - INSET - SIZE;
+    let x = match badge {
+        Badge::NotInstalled => shown.right() - INSET - SIZE,
+        Badge::None | Badge::Running => shown.left() + INSET,
+    };
+    Rect::from_min_size(pos2(x, y), Vec2::splat(SIZE))
+}
+
 /// The ⋮ over a cover while it is pointed at or focused: for the pointer only (the keyboard and
-/// controller open the menu with F2 or X), so it adds no stop for focus.
-pub(super) fn cover_dots(ui: &mut Ui, cover: &Response, image: Rect) -> Option<Response> {
-    let rect = Rect::from_min_size(image.right_top() + vec2(-38.0, 8.0), vec2(30.0, 30.0));
+/// controller open the menu with F2 or X), so it adds no stop for focus. It stays on the risen cover.
+pub(super) fn cover_dots(ui: &mut Ui, cover: &Response, image: Rect, badge: Badge) -> Option<Response> {
     let id = cover.id.with("options");
+    let shown = ui.ctx().data(|d| d.get_temp::<Rect>(cover.id.with("shown"))).unwrap_or(image);
+    let rect = dots_rect(shown, badge);
     let shown = cover.has_focus() || cover.contains_pointer();
     if !shown {
         return None;
@@ -392,6 +407,7 @@ fn cover_slot(ui: &mut Ui, name: &str, art: Option<&Art>, badge: Badge, width: f
     let image = Rect::from_min_size(rect.min, vec2(width, height));
     // It rises from its foot: the name under it stays clear.
     let shown = glass::risen_rect(image, feel.scale);
+    ctx.data_mut(|d| d.insert_temp(response.id.with("shown"), shown));
     let boost = if feel.hovered || feel.focused { t::HOVER_RIM_BOOST } else { 1.0 };
     let mut shapes = Vec::new();
     cover_shapes(ui, &mut shapes, shown, width, t::RADIUS_COVER, name, art, boost);

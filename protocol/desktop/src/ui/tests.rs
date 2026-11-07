@@ -3685,6 +3685,49 @@ fn a_desktop_entry_the_pc_lists_is_a_normal_tile() {
     assert!(commands.iter().any(|c| matches!(c, Command::Launch { host, app: 3, resume: false } if *host == id)));
 }
 
+/// A cover's ⋮ takes the bottom left, clear of the logotype at the top and of the running dot.
+#[test]
+fn a_covers_dots_sit_clear_of_its_logotype_and_its_running_dot() {
+    let cover = Rect::from_min_size(pos2(100.0, 100.0), vec2(160.0, 240.0));
+    let dots = crate::ui::cards::dots_rect(cover, Badge::Running);
+    assert!(cover.contains_rect(dots), "{dots:?}");
+    assert!(dots.top() > cover.center().y, "below the logotype's half: {dots:?}");
+    let status = cover.right_bottom() - Vec2::splat(18.0);
+    assert!(dots.right() < status.x - 10.0, "away from the running dot: {dots:?}");
+    assert!(dots.left() - cover.left() < 12.0, "in the corner: {dots:?}");
+    // The Not installed pill has the bottom left, and such a cover has no running dot.
+    let beside_pill = crate::ui::cards::dots_rect(cover, Badge::NotInstalled);
+    assert!(cover.contains_rect(beside_pill) && beside_pill.left() > cover.center().x, "{beside_pill:?}");
+}
+
+/// Pointing at a cover shows its ⋮ in that corner, and pressing it opens the menu, on Home's shelves too.
+#[test]
+fn a_covers_dots_open_its_menu_on_homes_shelves() {
+    let mut f = home_with_games(9);
+    let host = f.hosts.list[0].record.unique_id.clone();
+    f.l.favourites = vec![crate::config::Favourite { host, install_id: "install-3".into(), app_id: 1003, title: "Game 03".into() }];
+    f.settle();
+    // The arrows reach the favourite's cover, first of the page's "Game 03"s; its rect holds its caption.
+    let mut cover = None;
+    for _ in 0..8 {
+        f.press(Key::ArrowDown);
+        f.settle();
+        let caption = f.placed.iter().find(|(t, ..)| t == "Game 03").map(|p| p.1).unwrap_or_else(|| panic!("{:?}", f.drawn));
+        let rect = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).map(|r| r.rect);
+        cover = rect.filter(|r| r.contains(caption.center()));
+        if cover.is_some() {
+            break;
+        }
+    }
+    let cover = cover.expect("the arrows reach the favourite");
+    let foot = cover.top() + cover_height(cover.width());
+    let at = pos2(cover.left() + 8.0 + 15.0, foot - 8.0 - 15.0);
+    f.frame(vec![egui::Event::PointerMoved(at)]);
+    f.settle();
+    f.click_at(at, egui::PointerButton::Primary);
+    assert!(matches!(f.l.dialog, Dialog::GameMenu { .. }), "the menu, not the game's page: {:?}, cover {cover:?}", f.l.screen);
+}
+
 #[test]
 fn the_list_lands_where_its_places_were_held() {
     let mut f = app_grid(9, 0);

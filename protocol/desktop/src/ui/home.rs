@@ -309,7 +309,8 @@ impl Launcher {
                                         None => this.focus_screen = true,
                                     }
                                 }
-                                if let Some(anchor) = menu_request(ui, &response, None) {
+                                let dots = cover_dots(ui, &response, shelf_image(&response), Badge::None);
+                                if let Some(anchor) = menu_request(ui, &response, dots.as_ref()) {
                                     this.open_menu(Dialog::GameMenu { host: item.host, game: GameTarget::Library { app: item.app_id, favourite: true } }, anchor, key);
                                 }
                             }
@@ -332,7 +333,8 @@ impl Launcher {
                                 if response.clicked() {
                                     this.open(Screen::Game { host: item.host, app: item.app });
                                 }
-                                if let Some(anchor) = menu_request(ui, &response, None) {
+                                let dots = cover_dots(ui, &response, shelf_image(&response), Badge::None);
+                                if let Some(anchor) = menu_request(ui, &response, dots.as_ref()) {
                                     this.open_menu(Dialog::GameMenu { host: item.host, game: GameTarget::Library { app: item.app, favourite: false } }, anchor, item.key.clone());
                                 }
                             }
@@ -904,6 +906,11 @@ impl Launcher {
             y += PANEL_ROW;
         }
     }
+}
+
+/// The picture of a shelf's cover, without the caption under it.
+fn shelf_image(cover: &Response) -> Rect {
+    Rect::from_min_size(cover.rect.min, vec2(cover.rect.width(), cover_height(cover.rect.width())))
 }
 
 /// The huge title on one line, cut with "…" when it does not fit.

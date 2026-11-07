@@ -70,6 +70,8 @@ struct Flipped {
     issued_us: u64,
     returned_us: u64,
     scan: Option<race_probe::ScanReport>,
+    /// The picture was not presented: the last one still waits for the display.
+    refused: bool,
 }
 
 impl Streaming {
@@ -108,7 +110,9 @@ impl Streaming {
                 decoded.visible = Some((width, height));
                 self.facts.width = width;
                 self.facts.height = height;
-                if confirmed { self.pending_mode = None; }
+                if confirmed {
+                    if let Some((mode, _)) = self.pending_mode.take() { self.stream_rate_changed(mode.fps_millihz.div_ceil(1000)); }
+                }
             } else if decoded.setup.chroma_packing != 0 || decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
                 // The menu's header and the session page name the stream's size: PyroWave and packed
                 // 4:4:4 tell it in their setup, a reconfigure's new setup included.
@@ -146,6 +150,10 @@ impl Streaming {
         let due = match (self.pacer.next_due(), racing) {
             (Some(picture), Some(slice)) => Some(picture.min(slice)),
             (picture, slice) => picture.or(slice),
+        };
+        let due = match (due, self.skipped.due_us()) {
+            (Some(due), Some(skipped)) => Some(due.min(skipped)),
+            (due, skipped) => due.or(skipped),
         };
         let wait = match due {
             Some(due) => {
@@ -420,20 +428,28 @@ impl Streaming {
             // SAFETY: a live renderer.
             self.direct_motion.presenting(Some(self.direct_rules(unsafe { SDL_GetRenderWindow(renderer) })));
         }
+        let skips = probe && self.skip_over_waiting && !self.skipped.must_wait()
+            && self.pacer.skips_instead_of_waiting(self.plan.display.refresh_hz);
         let issued_us = session::now_us();
         // SAFETY: a live renderer.
-        unsafe { SDL_RenderPresent(renderer) };
+        let refused = unsafe {
+            let done = if skips { present::present_without_waiting(renderer, self.skipped.hold()) } else { present::NoWait::Failed };
+            if skips { self.no_wait_present = done != present::NoWait::Failed; }
+            if done == present::NoWait::Failed { SDL_RenderPresent(renderer); }
+            done == present::NoWait::Refused
+        };
         let returned_us = session::now_us();
         if !mode_tears {
             self.direct_motion.presenting(None);
         }
         let fps = f64::from(self.facts.fps);
         let probe_tears = self.vrr.probe_tears(self.pacer.mode);
-        let scan = self.race_probe.as_mut().filter(|_| probe).map(|probe| {
+        // A refused present reached no display, so it says nothing about the scan.
+        let scan = self.race_probe.as_mut().filter(|_| probe && !refused).map(|probe| {
             probe.after_present(renderer, beam_before, probe_tears, fps);
             probe.report(beam_before)
         });
-        Flipped { issued_us, returned_us, scan }
+        Flipped { issued_us, returned_us, scan, refused }
     }
 
     /// Shows the due picture, if any. Returns whether something was drawn.
@@ -452,6 +468,7 @@ impl Streaming {
         // The slices of a frame still being received go out ahead of the beam.
         let sliced = self.present_slices(renderer, &mut draw_overlay, session::now_us());
         let now = session::now_us();
+        let overdue = self.skipped.take_due(now);
         let (picture, mut dropped) = self.pacer.take_due(now);
         // A newer frame's slices are on the screen: this older picture would step it back a frame.
         let picture = picture.filter(|p| {
@@ -459,6 +476,8 @@ impl Streaming {
             dropped += u32::from(older);
             !older
         });
+        let (picture, replaced) = present::take_over_kept(picture, &mut self.skipped_picture, overdue);
+        dropped += replaced;
         self.window.dropped_pacing += dropped;
         self.shared.counters.replaced.fetch_add(u64::from(dropped), Ordering::Relaxed);
         let has_picture = picture.is_some();
@@ -471,7 +490,16 @@ impl Streaming {
         let mut rows = None;
         if let Some(p) = &picture {
             if self.facts.phase_lock && self.pacer.mode == PacingMode::Vsync && self.focused && !self.menu_visible {
-                let timing = phase::timing(renderer, self.plan.display.refresh_hz);
+                // With no refreshes to spare a picture has to make the desktop's deadline, which comes before the refresh.
+                let refresh_hz = self.plan.display.refresh_hz;
+                let skipping = self.no_wait_present && self.pacer.skips_instead_of_waiting(refresh_hz);
+                // SAFETY: a live renderer and its window.
+                let exclusive = unsafe {
+                    let window = SDL_GetRenderWindow(renderer);
+                    SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN != 0 && !SDL_GetWindowFullscreenMode(window).is_null()
+                };
+                let aim_us = present::phase_lock_aim_us(skipping, exclusive, self.present_deadline_us, refresh_hz);
+                let timing = phase::aimed(phase::timing(renderer, refresh_hz), aim_us);
                 if let Some(report) = self.phase.sample(p.decoded.ready_us, begin, timing) {
                     let _ = self.session.send(ClientMessage::PhaseLockReport(report));
                 }
@@ -503,10 +531,30 @@ impl Streaming {
             }
         }
         let flipped = self.render_flip(renderer, &mut draw_overlay, has_picture);
+        self.needs_redraw = false;
+        if flipped.refused {
+            self.skipped_picture = picture;
+            let refresh_us = (1_000_000.0 / self.plan.display.refresh_hz.max(1.0)) as u64;
+            if let Some(hold) = self.skipped.skipped(flipped.returned_us, self.pacer.frame_us(), refresh_us) {
+                eprintln!("nightjar: pacing: many presents find the last picture waiting, each now tries for {hold:?}");
+            }
+            return true;
+        }
+        // A redraw for the menu or the overlay leaves a kept picture to be shown and counted.
+        if has_picture { self.skipped.shown(); }
         let presented = flipped.returned_us;
         let scan = flipped.scan;
-        let flip = if self.timing_csv.is_some() && picture.is_some() { phase::present_stats(renderer) } else { Default::default() };
-        self.needs_redraw = false;
+        let watches = has_picture && self.no_wait_present && self.pacer.skips_instead_of_waiting(self.plan.display.refresh_hz);
+        let flip = if (self.timing_csv.is_some() || watches) && picture.is_some() { phase::present_stats(renderer) } else { Default::default() };
+        if watches {
+            let refresh_us = (1_000_000.0 / self.plan.display.refresh_hz.max(1.0)) as u64;
+            self.miss_watch.presented(flip.present_count, flipped.issued_us);
+            if self.miss_watch.seen(flip, refresh_us) {
+                if let Some(hold) = self.skipped.missed(self.pacer.frame_us(), refresh_us) {
+                    eprintln!("nightjar: pacing: many pictures miss their refresh here, each now waits its turn ({hold:?})");
+                }
+            }
+        }
         if let Some(p) = picture {
             let timeline = self.finish_frame(&p.decoded, raced, flipped.issued_us, flipped.returned_us);
             let w = &mut self.window;

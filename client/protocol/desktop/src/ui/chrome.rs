@@ -184,6 +184,10 @@ impl Launcher {
                 if self.has_back() {
                     regions.push(back_column(screen));
                 }
+                // A dialog's panel sits anywhere on the page, so all of it is blurred under one.
+                if !matches!(self.dialog, Dialog::None) {
+                    regions = vec![screen];
+                }
                 glass::boundary(ui.painter(), regions);
                 let sense = if blocked {
                     Sense::hover()

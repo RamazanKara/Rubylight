@@ -44,6 +44,9 @@ pub enum Icon {
     Speaker,
     Wifi,
     App,
+    Close,
+    Check,
+    Backspace,
 }
 
 /// Draws `icon` into the square `rect` in `color`.
@@ -224,6 +227,17 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
         Icon::Gear => {
             closed(gear(&p));
             ring(12.0, 12.0, 3.0);
+        }
+        Icon::Close => {
+            line(vec![p(6.0, 6.0), p(18.0, 18.0)]);
+            line(vec![p(18.0, 6.0), p(6.0, 18.0)]);
+        }
+        Icon::Check => line(vec![p(5.0, 12.5), p(10.0, 17.5), p(19.0, 7.0)]),
+        Icon::Backspace => {
+            // A key shape pointing left, a cross in it.
+            line(vec![p(9.0, 5.5), p(21.0, 5.5), p(21.0, 18.5), p(9.0, 18.5), p(3.0, 12.0), p(9.0, 5.5)]);
+            line(vec![p(12.0, 9.5), p(17.0, 14.5)]);
+            line(vec![p(17.0, 9.5), p(12.0, 14.5)]);
         }
         Icon::Plus => {
             line(vec![p(12.0, 5.0), p(12.0, 19.0)]);

@@ -14,7 +14,7 @@ use nightjar_core::http::{
 };
 
 use super::files::{FileHost, Page as FilesPage};
-use super::{Command, Launcher, Screen};
+use super::{Command, Dialog, Launcher, Screen};
 use crate::config::{HostRecord, Language, Profile, Recent};
 use crate::hosts::{Apps, Art, Hosts, Reach, Waker};
 
@@ -313,10 +313,35 @@ pub(crate) enum Page {
     /// The first run: the driver keeps the PCs off the list for these two.
     FirstRun,
     FirstRunFound,
+    /// A dialog over the PC list.
+    Dialog(DemoDialog),
+    /// The PIN screen: starting a stream, and choosing a PIN.
+    PinStream,
+    PinChoose,
+}
+
+/// The dialogs the demo can open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DemoDialog {
+    Remove,
+    Unpair,
+    Rename,
+    Add,
+    Pairing,
+    Approve,
+    QuitGame,
+    Message,
+    PcMenu,
 }
 
 impl Page {
-    pub(crate) const ALL: [(&'static str, Page); 20] = [
+    /// A dialog or the PIN screen: what's under it doesn't scroll.
+    #[cfg(test)]
+    pub(crate) fn covers_the_page(self) -> bool {
+        matches!(self, Page::Dialog(_) | Page::PinStream | Page::PinChoose)
+    }
+
+    pub(crate) const ALL: [(&'static str, Page); 31] = [
         ("home", Page::Home),
         ("all-games", Page::AllGames),
         ("game", Page::Game),
@@ -337,6 +362,17 @@ impl Page {
         ("search", Page::Search),
         ("first-run", Page::FirstRun),
         ("first-run-found", Page::FirstRunFound),
+        ("dialog-remove", Page::Dialog(DemoDialog::Remove)),
+        ("dialog-unpair", Page::Dialog(DemoDialog::Unpair)),
+        ("dialog-rename", Page::Dialog(DemoDialog::Rename)),
+        ("dialog-add", Page::Dialog(DemoDialog::Add)),
+        ("dialog-pairing", Page::Dialog(DemoDialog::Pairing)),
+        ("dialog-approve", Page::Dialog(DemoDialog::Approve)),
+        ("dialog-quit", Page::Dialog(DemoDialog::QuitGame)),
+        ("dialog-message", Page::Dialog(DemoDialog::Message)),
+        ("dialog-pc-menu", Page::Dialog(DemoDialog::PcMenu)),
+        ("pin-stream", Page::PinStream),
+        ("pin-choose", Page::PinChoose),
     ];
 }
 
@@ -435,6 +471,8 @@ pub(crate) fn parse(line: &str) -> Result<Step, String> {
 impl Launcher {
     /// Opens a page the way its own control does. A page main.rs opens comes back as its command.
     pub(crate) fn demo_page(&mut self, page: Page, hosts: &Hosts, waker: Waker) -> Option<Command> {
+        self.dialog = Dialog::None;
+        self.pin = None;
         if matches!(page, Page::FirstRun | Page::FirstRunFound) {
             self.go(Screen::Hosts);
             return None;
@@ -493,6 +531,33 @@ impl Launcher {
             Page::Shortcuts => self.go(Screen::Shortcuts),
             Page::Hotkeys => self.go(Screen::StreamHotkeys),
             Page::Help => self.go(Screen::Help),
+            Page::Dialog(dialog) => {
+                self.go(Screen::Hosts);
+                self.dialog = match dialog {
+                    DemoDialog::Remove => Dialog::ConfirmRemove { host: id, name: pc.display_name().to_owned() },
+                    DemoDialog::Unpair => Dialog::ConfirmUnpair { host: id, name: pc.display_name().to_owned() },
+                    DemoDialog::Rename => Dialog::Rename { host: id, text: pc.display_name().to_owned() },
+                    DemoDialog::Add => Dialog::AddHost { text: String::new(), error: None },
+                    DemoDialog::Pairing => Dialog::Pairing { host: id, pin: "4821".to_owned() },
+                    DemoDialog::Approve => Dialog::ApprovePairing {
+                        host: id,
+                        request: String::new(),
+                        name: "Living room TV".to_owned(),
+                        address: "192.168.1.40".to_owned(),
+                        pc: pc.display_name().to_owned(),
+                        pin: "48".to_owned(),
+                        busy: false,
+                    },
+                    DemoDialog::QuitGame => Dialog::ConfirmClose { host: id, name: "Racing Game".to_owned() },
+                    DemoDialog::Message => Dialog::Message { title: "Can't reach this PC".to_owned(), body: "It didn't answer on the network.".to_owned() },
+                    DemoDialog::PcMenu => Dialog::HostOptions { host: id },
+                };
+            }
+            Page::PinStream | Page::PinChoose => {
+                self.go(Screen::Hosts);
+                let dir = std::env::temp_dir().join("nightjar-demo-pin");
+                self.pin = Some(crate::pin_ui::PinLock::demo(&dir, page == Page::PinChoose, pc.display_name()));
+            }
             Page::Search => {
                 self.go(Screen::Home);
                 self.open_search();

@@ -76,6 +76,25 @@ fn background_game_can_only_resume_on_its_owner_in_the_same_mode() {
     }
 }
 
+#[test]
+fn a_background_stream_never_plays_its_game_on_the_pc() {
+    let fixture = Fixture::new();
+    let mut launch = fixture.launch(fixture.client(u32::MAX), Role::Stream);
+    launch.host_audio = true;
+    // A normal stream and a co-op player keep what the device asked for.
+    for background in [None, Some(false)] {
+        launch.background = background;
+        keep_background_sound_off_the_pc(&mut launch);
+        assert!(launch.host_audio);
+    }
+    launch.background = Some(true);
+    keep_background_sound_off_the_pc(&mut launch);
+    assert!(!launch.host_audio);
+    // So the session's routes move the instance, as the launch reads it.
+    let config = butterpollo_core::config::Config::default();
+    assert!(!crate::stream::plays_on_pc(&config, launch.host_audio));
+}
+
 pub(super) fn ensure_streaming_session() -> Result<()> {
     match SESSION_ERROR.get() {
         Some(message) => bail!(message),

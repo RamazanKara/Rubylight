@@ -1537,6 +1537,16 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
     clippy::too_many_arguments,
     reason = "the launch's parts, as both transports parse them"
 )]
+/// A background stream leaves the PC to whoever uses it, so its game is heard
+/// only on the stream, whatever the device's "play audio on the PC" says: that
+/// setting stays for its normal streams (#56). A co-op player's choice stands.
+fn keep_background_sound_off_the_pc(launch: &mut Launch) {
+    if launch.background == Some(true) && launch.host_audio {
+        tracing::info!(client = %launch.client.name, "background stream: the game's sound stays off the PC, whatever the device asks");
+        launch.host_audio = false;
+    }
+}
+
 fn launch_back_half(
     h: &Shared,
     args: &Args,
@@ -1563,6 +1573,7 @@ fn launch_back_half(
     // game window of its own: it neither ends the other transport's streams
     // nor takes the host's session from whoever owns it.
     let in_nucleus = coop.is_some() || launch.background == Some(true);
+    keep_background_sound_off_the_pc(&mut launch);
     // Stopping streams can still own displays shared with this launch.
     // Read both maps under one lock so a worker moving into teardown
     // cannot disappear from the wait before releasing its resources.

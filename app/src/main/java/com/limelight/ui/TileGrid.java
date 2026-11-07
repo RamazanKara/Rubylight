@@ -139,6 +139,10 @@ public final class TileGrid extends ViewGroup {
             invalidate();
         }
 
+        boolean capShown() {
+            return capShown;
+        }
+
         public String hotkey() {
             return hotkey;
         }

@@ -960,6 +960,60 @@ public class StreamMenuTest {
         return ((MaterialButton) tile).getText().toString();
     }
 
+    /** A remote has no face buttons: the ways out and the status rows show and say their caps only with a controller there. */
+    @Test
+    public void theWaysOutAndStatusRowsShowTheirCapsOnlyWithAController() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            android.preference.PreferenceManager.getDefaultSharedPreferences(activity).edit()
+                    .putString("list_stream_menu_button_y", "overlay_page")
+                    .putString("list_stream_menu_button_x", "disconnect")
+                    .commit();
+            StreamMenu.Options state = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+            for (boolean pad : new boolean[] {true, false}) {
+                StreamMenu.gamepadForTest = pad;
+                List<StreamMenu.Item> chosen = new ArrayList<>();
+                StreamMenu menu = new StreamMenu(activity, () -> state, chosen::add, null, new SavedShortcuts());
+                menu.show();
+                MenuRow row = (MenuRow) menu.row(OVERLAY_PAGE);
+                TileGrid.Tile out = (TileGrid.Tile) menu.row(DISCONNECT);
+                assertEquals("Y", row.hotkey());
+                assertEquals("X", out.hotkey());
+                assertEquals("pad " + pad, pad, row.capShown());
+                assertEquals("pad " + pad, pad, out.capShown());
+                assertEquals("pad " + pad, pad, row.getContentDescription().toString().endsWith(", Y"));
+                assertEquals("pad " + pad, pad, String.valueOf(out.getContentDescription()).endsWith(", X"));
+                // The button works either way: Disconnect asks first.
+                press(menu, KeyEvent.KEYCODE_BUTTON_X);
+                assertEquals(Arrays.asList(CONFIRM_DISCONNECT), chosen);
+                menu.sheet().dismiss();
+            }
+        } finally {
+            StreamMenu.gamepadForTest = null;
+        }
+    }
+
+    /** A button saved as close_game before Quit game became one choice shows Quit game selected, and the menu reads it as Quit game. */
+    @Test
+    public void aSavedCloseGameButtonReadsAsQuitGame() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            android.content.SharedPreferences prefs = android.preference.PreferenceManager.getDefaultSharedPreferences(activity);
+            prefs.edit().putString("list_stream_menu_button_lb", "close_game")
+                    .putString("list_stream_menu_button_y", "overlay").commit();
+            assertEquals("quit_game", StreamMenu.buttonChoices(activity).get("lb"));
+            StreamMenu.upgradeButtonChoices(prefs);
+            assertEquals("quit_game", prefs.getString("list_stream_menu_button_lb", null));
+            assertEquals("overlay", prefs.getString("list_stream_menu_button_y", null));
+            assertFalse(prefs.contains("list_stream_menu_button_x"));
+            // Quit game is a choice the list has, so it shows selected.
+            List<String> values = Arrays.asList(activity.getResources().getStringArray(R.array.stream_menu_button_values));
+            assertTrue(values.contains("quit_game"));
+            assertFalse(values.contains("close_game"));
+        }
+    }
+
     @Test
     public void theButtonsRunWhatTheUserGaveThemIncludingAWayOutOrNothing() {
         try (var controller = Robolectric.buildActivity(Activity.class).setup()) {

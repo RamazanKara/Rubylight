@@ -105,6 +105,36 @@ public class GameHealthTest {
         assertNoTrial(game);
     }
 
+    /** The stream menu's slider snaps back to what this answers: the rate still applied whenever nothing goes out. */
+    @Test public void aMenuRateThatCannotGoOutAnswersTheRateStillApplied() throws Exception {
+        FakeConnection connection = new FakeConnection(50000);
+        Game game = game(connection);
+        ReflectionHelpers.setField(game, "hostActionInProgress", true);
+        assertEquals("the host is busy", 50000, game.adaptation.applyBitrateFromMenu(30000));
+        ReflectionHelpers.setField(game, "hostActionInProgress", false);
+        ReflectionHelpers.setField(game, "connected", false);
+        assertEquals("not connected yet", 50000, game.adaptation.applyBitrateFromMenu(30000));
+        // Before the host told any rate, the one the stream started with.
+        ReflectionHelpers.setField(game, "currentBitrate", 0);
+        com.limelight.preferences.PreferenceConfiguration prefs = new com.limelight.preferences.PreferenceConfiguration();
+        prefs.bitrate = 40000;
+        ReflectionHelpers.setField(game, "prefConfig", prefs);
+        assertEquals(40000, game.adaptation.applyBitrateFromMenu(30000));
+        assertEquals(0, connection.writes);
+
+        // Connected and idle, it goes out and the slider keeps the rate it asked for.
+        ReflectionHelpers.setField(game, "connected", true);
+        ReflectionHelpers.setField(game, "currentBitrate", 50000);
+        assertEquals(30000, game.adaptation.applyBitrateFromMenu(30000));
+        long deadline = System.nanoTime() + 2_000_000_000L;
+        while ((boolean) ReflectionHelpers.getField(game, "hostActionInProgress") && System.nanoTime() < deadline) {
+            ShadowLooper.idleMainLooper();
+            Thread.sleep(5);
+        }
+        assertEquals(1, connection.writes);
+        assertEquals(30000, connection.lastWrite);
+    }
+
     private static Game game(FakeConnection connection) {
         Game game = Robolectric.buildActivity(Game.class).get();
         ReflectionHelpers.setField(game, "conn", connection);

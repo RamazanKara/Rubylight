@@ -388,7 +388,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Allow input for this device on the host", "호스트에서 이 기기의 입력을 허용하세요"),
     ("The PC still streams small video (about {} Mbit/s); it isn’t shown.", "PC가 여전히 작은 비디오(약 {} Mbit/s)를 보내지만 표시되지 않습니다."),
     ("Input-only on this PC uses a small ordinary stream, and the host refused it. Some hosts allow only one stream at a time: end the other stream or allow more in the host’s settings.", "이 PC의 입력 전용은 작은 일반 스트림을 사용하는데 호스트가 이를 거부했습니다. 일부 호스트는 한 번에 하나의 스트림만 허용합니다. 다른 스트림을 종료하거나 호스트 설정에서 더 많이 허용하세요."),
-    ("Quit game when I leave", "스트림을 나갈 때 게임 종료"),
+    ("Quit game when I leave", "나갈 때 게임 종료"),
     ("On: Disconnect also quits it on the PC", "켜짐: 연결을 끊으면 PC에서도 게임이 종료됩니다"),
     ("Off: Disconnect leaves it running on the PC", "꺼짐: 연결을 끊어도 PC에서 게임이 계속 실행됩니다"),
     ("Quitting {} on the PC…", "PC에서 {} 종료 중…"),

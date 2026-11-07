@@ -388,7 +388,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Allow input for this device on the host", "請在主機上允許這部裝置輸入"),
     ("The PC still streams small video (about {} Mbit/s); it isn’t shown.", "電腦仍在串流小尺寸視訊（約 {} Mbit/s）；它不會顯示。"),
     ("Input-only on this PC uses a small ordinary stream, and the host refused it. Some hosts allow only one stream at a time: end the other stream or allow more in the host’s settings.", "這部電腦上的「僅限輸入」使用小尺寸的一般串流，但主機拒絕了。有些主機同時只允許一個串流：請結束另一個串流，或在主機設定中允許更多串流。"),
-    ("Quit game when I leave", "離開串流時結束遊戲"),
+    ("Quit game when I leave", "離開時結束遊戲"),
     ("On: Disconnect also quits it on the PC", "開：中斷連線時也會在電腦上結束遊戲"),
     ("Off: Disconnect leaves it running on the PC", "關：中斷連線後遊戲會繼續在電腦上執行"),
     ("Quitting {} on the PC…", "正在電腦上結束 {}…"),

@@ -2978,6 +2978,33 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeSubmitFrame(JNIEn
     return timing.result;
 }
 
+// The Rust engine's frame in place (debug.nightjar.pyro_direct, on by default): a direct buffer
+// over its own memory, valid for this call. submit() parses the frame and the SDK copies the
+// records it keeps before this returns, so neither Java nor this side copies the frame first,
+// whether early push finished it or it goes whole. The copy stage then only finds the address.
+JNIEXPORT jlong JNICALL
+Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeSubmitDirectFrame(JNIEnv *env, jclass, jlong handle,
+                                                                                 jobject data, jint length, jlong ptsUs,
+                                                                                 jlong hostPresentationTimeUs,
+                                                                                 jlong vsyncNs, jlong intervalNs) {
+    auto *renderer = reinterpret_cast<Renderer *>(handle);
+    if (renderer == nullptr) return SUBMIT_ERROR;
+    SubmissionDiagnostics::Frame timing(renderer->submissionDiagnostics, length > 0 ? size_t(length) : 0);
+    if (data == nullptr || length <= 0) return SUBMIT_ERROR;
+    const uint8_t *bytes;
+    {
+        SubmissionDiagnostics::Stage copy(renderer->submissionDiagnostics, SubmissionDiagnostics::COPY);
+        bytes = static_cast<const uint8_t *>(env->GetDirectBufferAddress(data));
+        if (bytes == nullptr || jlong(length) > env->GetDirectBufferCapacity(data)) {
+            LOGE("PyroWave frame handed over in place without a direct buffer of %d bytes", length);
+            return SUBMIT_ERROR;
+        }
+    }
+    timing.framing(length >= 4 && pyroReadLe32(bytes) == 0);
+    timing.result = renderer->submit(bytes, size_t(length), ptsUs, hostPresentationTimeUs, vsyncNs, intervalNs);
+    return timing.result;
+}
+
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeSubmitChunks(JNIEnv *env, jclass, jlong handle,
                                                                             jbyteArray data, jint length,

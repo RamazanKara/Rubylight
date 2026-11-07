@@ -1,5 +1,8 @@
 package com.limelight.nvstream.av.video;
 
+import java.nio.Buffer;
+import java.nio.ByteBuffer;
+
 public abstract class VideoDecoderRenderer {
     // The protocol setup callback carries whole FPS. Preserve a fractional launch rate separately
     // when the freshly discovered host supports it; renderers without pacing may ignore it.
@@ -55,6 +58,27 @@ public abstract class VideoDecoderRenderer {
                                          int frameNumber, int frameType, char frameHostProcessingLatency,
                                          long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs,
                                          long presentationTimeUs);
+
+    private byte[] directCopy;
+
+    // Picture data the Rust engine hands over in place: a direct buffer over its frame, valid only
+    // during the call and never to be written. Renderers that can read it in place override this;
+    // the default copies it into an array for submitDecodeUnit, so every renderer takes it.
+    public int submitDirectDecodeUnit(ByteBuffer decodeUnitData, int decodeUnitLength, int decodeUnitType,
+                                      int frameNumber, int frameType, char frameHostProcessingLatency,
+                                      long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs,
+                                      long presentationTimeUs) {
+        if (directCopy == null || directCopy.length < decodeUnitLength) {
+            directCopy = new byte[decodeUnitLength];
+        }
+        // From the start, on a duplicate: the caller's position and limit stay as they are. The
+        // Buffer cast keeps the call off ByteBuffer's covariant clear(), which old Android lacks.
+        ByteBuffer source = decodeUnitData.duplicate();
+        ((Buffer) source).clear();
+        source.get(directCopy, 0, decodeUnitLength);
+        return submitDecodeUnit(directCopy, decodeUnitLength, decodeUnitType, frameNumber, frameType,
+                frameHostProcessingLatency, receiveTimeUs, enqueueTimeUs, receiveTimeNs, presentationTimeUs);
+    }
 
     // Packets of the next PyroWave records frame while it arrives, as [length][flags][payload]
     // each; first marks the frame's first packet. Only with early record push requested.

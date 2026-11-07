@@ -868,9 +868,30 @@ public class MoonBridge {
     }
     private static native void cEndStreamHostGone();
 
-    /** nightjar_core::host_loss, for both engines: the detector's next state, -1 when the PC is gone. */
-    public static int hostLossStep(long silenceMs, String host, int port, String gateway, int state) {
-        return RustBridge.hostLossStep(silenceMs, host, port, gateway, state);
+    /** Whether the connection ended with the host's disconnect (it is shutting down), not a silence. */
+    public static boolean hostSaidGoodbye() {
+        return rustStream ? RustBridge.hostSaidGoodbye() : cHostSaidGoodbye();
+    }
+    private static native boolean cHostSaidGoodbye();
+
+    /** nightjar_core::host_loss, for both engines: one round of connection attempts (about 750 ms), as its code. */
+    public static int hostLossRound(String host, int port, String gateway) {
+        return RustBridge.hostLossRound(host, port, gateway);
+    }
+
+    /** The detector's next state after a round, -1 when the PC is gone; pings is 1, 0 or -1 (not asked). */
+    public static int hostLossDecide(long silenceMs, int round, int pings, int state) {
+        return RustBridge.hostLossDecide(silenceMs, round, pings, state);
+    }
+
+    /** The detector's first state, from whether the PC answered a ping as the stream started. */
+    public static int hostLossFirstState(boolean pings) {
+        return RustBridge.hostLossFirstState(pings);
+    }
+
+    /** One ICMP echo through a datagram socket: 1 answered, 0 not, -1 when this device may not ping that way. */
+    public static int hostLossPing(String host, int timeoutMs) {
+        return RustBridge.hostLossPing(host, timeoutMs);
     }
 
     public static boolean hostLossAvailable() {

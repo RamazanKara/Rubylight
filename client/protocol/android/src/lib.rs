@@ -225,41 +225,98 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_endStreamHostG
     engine::with_session((), |s| s.end_host_gone());
 }
 
-/// One step of [`nightjar_core::host_loss::Detector`] for `HostLossWatch`, which runs it over both
-/// engines: blocks for one round during a silence. Returns the detector's next state, or -1 when
-/// the PC is gone. `gateway` may be null; an address that does not parse proves nothing.
+/// Whether the Rust engine's connection ended with the host's disconnect, not a silence.
 #[no_mangle]
-pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_hostLossStep(
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_hostSaidGoodbye(
+    _: JNIEnv,
+    _: JClass,
+) -> jboolean {
+    if engine::with_session(false, |s| s.host_said_goodbye()) { JNI_TRUE } else { JNI_FALSE }
+}
+
+/// An address from Java; null or one that does not parse is none.
+fn java_address(env: &mut JNIEnv, text: &JString) -> Option<std::net::IpAddr> {
+    if text.is_null() {
+        return None;
+    }
+    env.get_string(text).ok().and_then(|text| String::from(text).parse().ok())
+}
+
+/// One round of [`nightjar_core::host_loss`] for `HostLossWatch`, which runs it over both engines:
+/// blocks for about 750 ms. Returns [`nightjar_core::host_loss::Round::code`]. `gateway` may be
+/// null; a host that does not parse proves nothing.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_hostLossRound(
     mut env: JNIEnv,
     _: JClass,
-    silence_ms: jlong,
     host: JString,
     port: jint,
     gateway: JString,
+) -> jint {
+    use nightjar_core::host_loss::{probe_round, Round};
+    let Some(host) = java_address(&mut env, &host) else {
+        return Round::SilentLinkUnknown.code();
+    };
+    let gateway = java_address(&mut env, &gateway);
+    probe_round(std::net::SocketAddr::new(host, port as u16), gateway).code()
+}
+
+/// [`nightjar_core::host_loss::Detector::step`]: the detector's next state, or -1 when the PC is
+/// gone. `pings` is 1 or 0 for the PC's answer to the round's ping, -1 when there was none.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_hostLossDecide(
+    _: JNIEnv,
+    _: JClass,
+    silence_ms: jlong,
+    round: jint,
+    pings: jint,
     state: jint,
 ) -> jint {
-    use nightjar_core::host_loss::{probe_round, Detector};
+    host_loss_decide(silence_ms, round, pings, state)
+}
+
+fn host_loss_decide(silence_ms: jlong, round: jint, pings: jint, state: jint) -> jint {
+    use nightjar_core::host_loss::{Detector, Round};
     let mut detector = Detector::from_state(state);
     let silence = std::time::Duration::from_millis(silence_ms.max(0) as u64);
     if !detector.wants_round(silence) {
         return detector.state();
     }
-    let mut address = |text: &JString| -> Option<std::net::IpAddr> {
-        if text.is_null() {
-            return None;
-        }
-        env.get_string(text).ok().and_then(|text| String::from(text).parse().ok())
+    let pings = match pings {
+        1 => Some(true),
+        0 => Some(false),
+        _ => None,
     };
-    let Some(host) = address(&host) else {
-        return 0;
+    if detector.step(silence, Round::from_code(round), pings) { -1 } else { detector.state() }
+}
+
+/// The detector's first state: `pings` when the PC answered a ping as the stream started.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_hostLossFirstState(
+    _: JNIEnv,
+    _: JClass,
+    pings: jboolean,
+) -> jint {
+    nightjar_core::host_loss::Detector::new(pings == JNI_TRUE).state()
+}
+
+/// One ICMP echo to `host` through an unprivileged datagram socket: 1 answered, 0 not, -1 when
+/// this device may not ping that way (the app then asks `InetAddress.isReachable`).
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_hostLossPing(
+    mut env: JNIEnv,
+    _: JClass,
+    host: JString,
+    timeout_ms: jint,
+) -> jint {
+    let Some(host) = java_address(&mut env, &host) else {
+        return -1;
     };
-    let gateway = address(&gateway);
-    let started = std::time::Instant::now();
-    let round = probe_round(std::net::SocketAddr::new(host, port as u16), gateway);
-    if detector.step(silence + started.elapsed(), round) {
-        -1
-    } else {
-        detector.state()
+    let timeout = std::time::Duration::from_millis(timeout_ms.max(1) as u64);
+    match nightjar_core::host_loss::ping(host, timeout) {
+        Ok(true) => 1,
+        Ok(false) => 0,
+        Err(_) => -1,
     }
 }
 

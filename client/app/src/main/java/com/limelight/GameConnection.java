@@ -934,11 +934,11 @@ final class GameConnection {
         } else {
             LimeLog.severe("Connection terminated: " + Game.terminationDescription(reportedErrorCode));
         }
-        // A PC gone for good ends here, with nothing to ask it or retry. A timeout or a close without a
-        // reason may be that too: checked first, because the other checks would wait on the PC.
+        // A PC gone for good ends here, with nothing to ask it or retry. A host that disconnected and
+        // closed its server is shutting down: checked first, because the other checks would wait on it.
         final HostLossWatch hostLoss = hostLossWatch;
         final boolean hostGone = !exitRequested && (reportedErrorCode == MoonBridge.CLIENT_ERROR_HOST_GONE ||
-                (game.connected && hostLoss != null && StreamRecoveryPolicy.transportTermination(reportedErrorCode) && hostLoss.confirmGone()));
+                (game.connected && hostLoss != null && StreamRecoveryPolicy.transportTermination(reportedErrorCode) && hostLoss.goneAfterGoodbye()));
         // Some hosts close the transport before their graceful termination packet arrives.
         // Verify an idle host before either retrying or showing an error, even with recovery off.
         final boolean endedSession = !hostGone && !exitRequested && game.connected &&

@@ -2723,12 +2723,12 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                 usb: s.usb.is_some() || s.usb_refused.is_some(),
                 exits: s.game_exits(),
             };
-            let layout = stream_menu::layout(&available, shortcuts.data.len());
+            let layout = stream_menu::layout(&available, shortcuts.data.len(), pads.menu_buttons());
             let mut page = std::mem::take(&mut s.menu_page);
             let mut next = None;
             let grid_page = page == stream_menu::Page::Grid;
             let (heading, line) = if grid_page { s.menu_header() } else { (page.title().to_owned(), title.clone()) };
-            let mut leave = None;
+            let mut leave = if grid_page { s.menu_hotkey.and_then(|key| stream_menu::button_leave(&layout, key)) } else { None };
             menu_style::window(tr("Stream controls"), "stream-controls")
                 .show(&ctx, |ui| {
                 // On the grid the header and the ways out stay in view; only the tiles scroll.
@@ -3010,7 +3010,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     }
                 });
                 if grid_page {
-                    leave = menu_style::pinned(ui, "stream-menu-footer", |ui| stream_menu::footer(ui, &layout));
+                    leave = menu_style::pinned(ui, "stream-menu-footer", |ui| stream_menu::footer(ui, &layout)).or(leave);
                 }
                 });
             match leave {

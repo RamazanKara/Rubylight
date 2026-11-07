@@ -125,6 +125,22 @@ public class StreamMenuModelContractTest {
                     assertEquals(Arrays.asList(StreamMenuModel.CLOSE, "disconnect", "quit_game"), layout.footer);
                     break;
                 }
+                case "layout_with_buttons": {
+                    java.util.Map<String, String> buttons = new java.util.HashMap<>();
+                    buttons.put("y", "overlay");
+                    buttons.put("x", "disconnect");
+                    buttons.put("rb", "none");
+                    StreamMenuModel.Layout layout = StreamMenuModel.layout(Arrays.asList(new StreamMenuModel.Offer("keyboard", null),
+                            new StreamMenuModel.Offer("overlay", false), new StreamMenuModel.Offer("disconnect", null)), null, buttons);
+                    assertEquals(1, layout.hotkey("y"));
+                    assertEquals("y", layout.grid.get(1).hotkey);
+                    assertNull(layout.grid.get(0).hotkey);
+                    assertEquals(-1, layout.hotkey("x"));
+                    assertEquals("disconnect", layout.buttons.get("x"));
+                    assertEquals(-1, layout.hotkey("rb"));
+                    assertNull(layout.buttons.get("rb"));
+                    break;
+                }
                 case "layout_without_shortcuts": {
                     StreamMenuModel.Layout layout = StreamMenuModel.layout(Arrays.asList(new StreamMenuModel.Offer("overlay_page", null),
                             new StreamMenuModel.Offer("disconnect", null)), null);

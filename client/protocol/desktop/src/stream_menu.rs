@@ -12,7 +12,7 @@ use sdl3_sys::everything::*;
 use crate::glyphs::Icon;
 use crate::menu_style;
 use crate::session_page::HostExit;
-use crate::strings::tr;
+use crate::strings::{en, tr};
 use crate::theme::{regular, semibold, space, text, ERROR, ON_SURFACE};
 
 /// The page the stream menu shows; Escape or B goes from any other back to the grid.
@@ -146,10 +146,34 @@ fn leave(id: &str) -> Option<Leave> {
     }
 }
 
-/// The menu for what is offered and the user's `saved` shortcuts.
-pub fn layout(a: &Available, saved: usize) -> Layout {
-    model::layout(&offers(a), a.shortcuts.then_some(saved)).expect("the desktop offers only tiles the model knows")
+/// The menu for what is offered, the user's `saved` shortcuts and what they chose for the
+/// controller's buttons.
+pub fn layout(a: &Available, saved: usize, buttons: &model::Buttons) -> Layout {
+    model::layout_with_buttons(&offers(a), a.shortcuts.then_some(saved), buttons).expect("the desktop offers only tiles the model knows")
 }
+
+/// The way out under the grid a controller button runs, when the user gave it one.
+pub fn button_leave(layout: &Layout, key: Hotkey) -> Option<Leave> {
+    leave(layout.buttons.get(&key)?)
+}
+
+/// What the desktop's stream menu can give a controller button, for its setting: the ids and how
+/// they read. A desktop has no on-screen keyboard or controls, so those are left out.
+pub const ASSIGNABLE: [(&str, &str); 13] = [
+    ("controller_mouse", en("Mouse")),
+    ("overlay", en("Overlay")),
+    ("shortcuts", en("Shortcuts")),
+    ("microphone", en("Microphone")),
+    ("bitrate", en("Quality")),
+    ("clipboard_send", en("Send clipboard")),
+    ("clipboard_receive", en("Get clipboard")),
+    ("server_commands", en("PC commands")),
+    ("native_page", en("Session and graphics")),
+    ("disconnect", en("Disconnect")),
+    ("end_host_session", en("End session")),
+    ("close_game", en("Close game")),
+    ("quit_game", en("Quit game")),
+];
 
 /// A grid tile's label.
 pub fn label(id: &str) -> &'static str {
@@ -514,6 +538,47 @@ pub fn editor(ui: &mut Ui, draft: &mut Draft, saved: &mut Shortcuts, focus_first
 mod tests {
     use super::*;
 
+    fn layout(a: &Available, saved: usize) -> Layout {
+        super::layout(a, saved, &model::Buttons::new())
+    }
+
+    #[test]
+    fn a_button_runs_a_way_out_or_a_tile_the_user_gave_it() {
+        let buttons = model::Buttons::from([
+            (Hotkey::Y, "close_game".to_owned()),
+            (Hotkey::X, "disconnect".to_owned()),
+            (Hotkey::Lb, "microphone".to_owned()),
+            (Hotkey::Rb, model::NO_TILE.to_owned()),
+        ]);
+        let menu = super::layout(&everything(), 0, &buttons);
+        assert_eq!(button_leave(&menu, Hotkey::Y), Some(Leave::Exit(HostExit::CloseGame)));
+        assert_eq!(button_leave(&menu, Hotkey::X), Some(Leave::Disconnect));
+        assert_eq!(button_leave(&menu, Hotkey::Lb), None);
+        assert_eq!(menu.hotkey(Hotkey::Lb).and_then(|index| menu.tile_id(index)), Some("microphone"));
+        assert_eq!(button_leave(&menu, Hotkey::Rb), None);
+        assert_eq!(menu.hotkey(Hotkey::Rb), None);
+    }
+
+    #[test]
+    fn every_choice_for_a_button_is_one_the_desktop_can_draw_and_run() {
+        let a = everything();
+        for (id, name) in ASSIGNABLE {
+            assert!(!tr(name).is_empty());
+            if leave(id).is_none() {
+                assert_eq!(label(id), tr(name), "{id}");
+            }
+            let tile = model::TILES.iter().find(|tile| tile.id == id).unwrap();
+            assert!(model::assignable(tile), "{id}");
+        }
+        // Nothing the desktop offers on the first page is missing from the list.
+        let menu = layout(&a, 0);
+        for cell in &menu.grid {
+            if let Cell::Tile { id, .. } = cell {
+                assert!(*id == model::MORE || ASSIGNABLE.iter().any(|(tile, _)| tile == id), "{id}");
+            }
+        }
+    }
+
     fn everything() -> Available {
         Available {
             mouse: Some(true), overlay: true, shortcuts: true, microphone: Some(false), quality: true, clipboard: true, image_clipboard: true,
@@ -713,7 +778,7 @@ mod tests {
         let layout = layout(&Available { shortcuts: false, ..everything() }, 3);
         assert!(!layout.grid.iter().any(|cell| matches!(cell, Cell::Shortcut(_) | Cell::Add)));
         assert_eq!(layout.hotkey(Hotkey::Lb), None);
-        let layout = super::layout(&everything(), 0);
+        let layout = self::layout(&everything(), 0);
         assert_eq!(hotkey(SDL_GAMEPAD_BUTTON_WEST).and_then(|k| layout.hotkey(k)).and_then(|i| layout.tile_id(i)), Some("controller_mouse"));
         assert_eq!(hotkey(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER).and_then(|k| layout.hotkey(k)).and_then(|i| layout.tile_id(i)), Some("overlay"));
         assert_eq!(hotkey(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER).and_then(|k| layout.hotkey(k)).and_then(|i| layout.tile_id(i)), Some("shortcuts"));

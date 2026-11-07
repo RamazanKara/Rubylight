@@ -4,6 +4,7 @@
 //! profile's settings show the same rows, each with a box that keeps its value for that layer.
 
 use super::*;
+use nightjar_policy::stream_menu::{Hotkey, NO_TILE};
 
 /// The settings sections in the order Android lists them (App only on the main settings).
 pub(super) const SETTINGS_SECTIONS: [&str; 8] = [en("Video"), en("Display & image"), en("Controls"), en("Audio"), en("Streaming"), en("App"), en("Advanced"), en("Debug")];
@@ -33,7 +34,7 @@ pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
         &["align_video_top"], &["present_at_host_times"], &["frame_pacing"], &["vsync"]],
     &[&["mouse_mode"], &["controllers"], &["swap_face_buttons"], &["clipboard_sync"], &["guide_hold_ms"], &["back_opens_menu"],
         &["capture_system_keys"], &["mouse_speed"], &["mouse_nav_buttons"], &["native_touchpad"], &["right_alt_as_meta"],
-        &["gamepad_quit_combo"], &["controller_mouse"], &["analog_scrolling"], &["mouse_fixed_step"],
+        &["gamepad_quit_combo"], &["stream_menu_buttons"], &["controller_mouse"], &["analog_scrolling"], &["mouse_fixed_step"],
         &["gamepad_touchpad_as_mouse"], &["disable_rumble"], &["controller_motion"], &["controller_audio"], &["background_controllers"]],
     &[&["audio"], &["play_audio_on_host"], &["microphone"], &["mic_echo_cancel"], &["mute_audio"], &["audio_passthrough"]],
     &[&["overlay", "overlay_mode"], &["overlay_position"], &["auto_reconnect"],
@@ -855,7 +856,11 @@ impl Launcher {
                     }
                 }).response
             });
-            setting_row(ui, s, &mut rows, &["controller_mouse"], "Controller mouse mode", "Hold Start for 750 ms, then let go, to move the PC's pointer with the controller. A and B click, the D-pad scrolls.", |ui, s| toggle(ui, &mut s.controller_mouse));
+            setting_row(ui, s, &mut rows, &["stream_menu_buttons"], "Y in the stream menu", "What this button runs while the stream menu is open.", |ui, s| stream_menu_button(ui, s, Hotkey::Y));
+            setting_row(ui, s, &mut rows, &["stream_menu_buttons"], "X in the stream menu", "What this button runs while the stream menu is open.", |ui, s| stream_menu_button(ui, s, Hotkey::X));
+            setting_row(ui, s, &mut rows, &["stream_menu_buttons"], "LB in the stream menu", "What this button runs while the stream menu is open.", |ui, s| stream_menu_button(ui, s, Hotkey::Lb));
+            setting_row(ui, s, &mut rows, &["stream_menu_buttons"], "RB in the stream menu", "What this button runs while the stream menu is open.", |ui, s| stream_menu_button(ui, s, Hotkey::Rb));
+            setting_row(ui, s, &mut rows, &["controller_mouse"], "Controller mouse mode","Hold Start for 750 ms, then let go, to move the PC's pointer with the controller. A and B click, the D-pad scrolls.", |ui, s| toggle(ui, &mut s.controller_mouse));
             if s.controller_mouse {
                 setting_row(ui, s, &mut rows, &["analog_scrolling"], "Stick for scrolling", "In controller mouse mode this stick scrolls and the other moves the pointer. Off lets both sticks move it.", |ui, s| {
                     use crate::config::AnalogScrolling;
@@ -1381,6 +1386,8 @@ pub(super) fn value_text(key: &str, s: &Settings, display: &Display, style: crat
         "mouse_mode" => mouse_name(s.mouse_mode).to_owned(),
         "mouse_speed" => format!("{}%", s.mouse_speed),
         "gamepad_quit_combo" => style.quit_combo(s.gamepad_quit_combo),
+        "stream_menu_buttons" if s.stream_menu_buttons.is_empty() => tr("Default").to_owned(),
+        "stream_menu_buttons" => s.stream_menu_buttons.iter().map(|(key, id)| format!("{}: {}", key.cap(), stream_menu_button_name(Some(id)))).collect::<Vec<_>>().join(", "),
         "analog_scrolling" => scrolling_name(s.analog_scrolling).to_owned(),
         "guide_hold_ms" => guide_hold_name(s.guide_hold_ms),
         "audio" => audio_name(s.audio).to_owned(),
@@ -1589,6 +1596,31 @@ fn with_hotkey(description: &str, action: crate::shortcuts::Action) -> String {
         Some(chord) => format!("{description} {}", trf("{} switches it during a stream.", &[&chord.text()])),
         None => description.to_owned(),
     }
+}
+
+fn stream_menu_button_name(choice: Option<&str>) -> String {
+    match choice {
+        None => tr("Default").to_owned(),
+        Some(NO_TILE) => tr("Off").to_owned(),
+        Some(id) => crate::stream_menu::ASSIGNABLE.iter().find(|(tile, _)| *tile == id).map_or(id, |(_, name)| tr(name)).to_owned(),
+    }
+}
+
+/// The list of what a controller button can run in the stream menu: its own tile, nothing, or any of ours.
+fn stream_menu_button(ui: &mut Ui, s: &mut Settings, key: Hotkey) -> Response {
+    let mut choice = s.stream_menu_buttons.get(&key).cloned();
+    let response = egui::ComboBox::from_id_salt(("stream-menu-button", key.cap())).selected_text(stream_menu_button_name(choice.as_deref())).show_ui(ui, |ui| {
+        ui.selectable_value(&mut choice, None, tr("Default"));
+        ui.selectable_value(&mut choice, Some(NO_TILE.to_owned()), tr("Off"));
+        for (tile, label) in crate::stream_menu::ASSIGNABLE {
+            ui.selectable_value(&mut choice, Some(tile.to_owned()), tr(label));
+        }
+    }).response;
+    match choice {
+        Some(id) => { s.stream_menu_buttons.insert(key, id); }
+        None => { s.stream_menu_buttons.remove(&key); }
+    }
+    response
 }
 
 pub(super) fn setting_row(

@@ -847,7 +847,7 @@ fn ").unwrap_or(main.len() - start)];
                     mouse: Some(false), overlay: true, shortcuts: true, microphone: Some(true), quality: true, clipboard: true,
                     commands: true, session: true, exits: vec![crate::session_page::HostExit::QuitApp], ..Default::default()
                 };
-                let layout = crate::stream_menu::layout(&available, saved.data.len());
+                let layout = crate::stream_menu::layout(&available, saved.data.len(), &Default::default());
                 let page = match what {
                     "shortcuts" => crate::stream_menu::Page::Shortcuts,
                     "editor" => crate::stream_menu::Page::Editor(draft.clone()),

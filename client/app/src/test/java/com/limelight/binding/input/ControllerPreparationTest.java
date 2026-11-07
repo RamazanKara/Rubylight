@@ -144,6 +144,159 @@ public class ControllerPreparationTest {
         }
     }
 
+    private static PreferenceConfiguration onscreenOwnPlayerPrefs(Activity activity) {
+        // The attached mask reads the saved settings, the handler its session's.
+        android.preference.PreferenceManager.getDefaultSharedPreferences(activity).edit()
+                .putBoolean("checkbox_multi_controller", true)
+                .putBoolean("checkbox_show_onscreen_controls", true)
+                .putBoolean("checkbox_onscreen_own_player", true).commit();
+        return PreferenceConfiguration.readPreferences(activity);
+    }
+
+    private static java.util.Map<Integer, ControllerHandler.InputDeviceContext> contexts(ControllerHandler handler) {
+        return ReflectionHelpers.getField(handler, "inputDeviceContexts");
+    }
+
+    private static final int JOYPAD = InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD;
+
+    @Test public void onscreenOwnPlayerPutsAttachedPadsAfterIt() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            addInputDevice(activity.get(), 2, true, JOYPAD);
+            addInputDevice(activity.get(), 4, true, JOYPAD);
+            PreferenceConfiguration prefs = onscreenOwnPlayerPrefs(activity.get());
+            // What the launch tells the host: controller 1 and the two pads behind it.
+            assertEquals(7, ControllerHandler.getAttachedControllerMask(activity.get()));
+            Connection connection = new Connection(73);
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            try {
+                String[] prepared = handler.prepareControllersForLaunch().split(",");
+                assertEquals(3, prepared.length);
+                assertTrue(prepared[0], prepared[0].startsWith("0:" + MoonBridge.LI_CTYPE_XBOX + ":0:"));
+                assertEquals(0, Integer.parseUnsignedInt(prepared[0].split(":")[3]) & ControllerPacket.TOUCHPAD_FLAG);
+                assertTrue(prepared[1], prepared[1].startsWith("1:"));
+                assertTrue(prepared[2], prepared[2].startsWith("2:"));
+                assertEquals(1, contexts(handler).get(2).controllerNumber);
+                assertEquals(2, contexts(handler).get(4).controllerNumber);
+
+                connection.events.clear();
+                handler.resendControllerArrivals();
+                // First to arrive and first with a state, or the PC's own numbering starts with a pad.
+                assertEquals("arrival 0", connection.events.get(0));
+                assertEquals("input 0 0", connection.events.get(1));
+                assertEquals(7, connection.activeMask);
+            } finally { handler.destroy(); }
+        }
+    }
+
+    @Test public void onscreenOwnPlayerKeepsItsNumberThroughAPadLeavingAndComingBack() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            PreferenceConfiguration prefs = onscreenOwnPlayerPrefs(activity.get());
+            Connection connection = new Connection(73);
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            try {
+                handler.resendControllerArrivals();
+                assertEquals(1, connection.activeMask);
+
+                // Connected after the stream started.
+                addInputDevice(activity.get(), 5, true, JOYPAD);
+                handler.onInputDeviceAdded(5);
+                assertEquals(1, contexts(handler).get(5).controllerNumber);
+                assertEquals(3, connection.activeMask);
+
+                handler.onInputDeviceRemoved(5);
+                assertEquals(1, connection.activeMask);
+
+                // Back with a new id: the same player, and no pad ever on controller 1.
+                addInputDevice(activity.get(), 6, true, JOYPAD);
+                handler.onInputDeviceAdded(6);
+                assertEquals(1, contexts(handler).get(6).controllerNumber);
+                assertEquals(3, connection.activeMask);
+
+                // The stream menu hiding the controls keeps every number.
+                prefs.onscreenController = false;
+                handler.reportOscState(0, (short) 0, (short) 0, (short) 0, (short) 0, (byte) 0, (byte) 0);
+                assertEquals(3, connection.activeMask);
+            } finally { handler.destroy(); }
+        }
+    }
+
+    @Test public void onscreenOwnPlayerDoesNotMixWithBuiltInOrUsbPads() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            addInputDevice(activity.get(), 2, false, JOYPAD);
+            PreferenceConfiguration prefs = onscreenOwnPlayerPrefs(activity.get());
+            Connection connection = new Connection(73);
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            try {
+                handler.deviceAdded(new Pad());
+                handler.resendControllerArrivals();
+                ControllerHandler.InputDeviceContext builtIn = contexts(handler).get(2);
+                assertNotEquals(0, builtIn.controllerNumber);
+                assertTrue(builtIn.reservedControllerNumber);
+                assertEquals(7, connection.activeMask & 7);
+
+                connection.events.clear();
+                handler.reportOscState(ControllerPacket.A_FLAG, (short) 0, (short) 0, (short) 0, (short) 0, (byte) 0, (byte) 0);
+                assertEquals(Collections.singletonList("input 0 " + ControllerPacket.A_FLAG), connection.events);
+
+                // A pad's state stays on its own number, without the on-screen press.
+                connection.events.clear();
+                builtIn.inputMap = ControllerPacket.B_FLAG;
+                ReflectionHelpers.callInstanceMethod(handler, "sendControllerInputPacket",
+                        ReflectionHelpers.ClassParameter.from(ControllerHandler.GenericControllerContext.class, builtIn));
+                assertEquals(Collections.singletonList("input " + builtIn.controllerNumber + " " + ControllerPacket.B_FLAG),
+                        connection.events);
+            } finally { handler.destroy(); }
+        }
+    }
+
+    @Test public void onscreenOwnPlayerAnnouncesTheTouchpadPadItsButtonNeeds() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            addInputDevice(activity.get(), 2, true, JOYPAD);
+            PreferenceConfiguration prefs = onscreenOwnPlayerPrefs(activity.get());
+            prefs.showTouchpadButton = true;
+            Connection connection = new Connection(73);
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            try {
+                String[] prepared = handler.prepareControllersForLaunch().split(",");
+                assertTrue(prepared[0], prepared[0].startsWith("0:" + MoonBridge.LI_CTYPE_PS + ":"));
+                assertEquals(ControllerPacket.TOUCHPAD_FLAG,
+                        Integer.parseUnsignedInt(prepared[0].split(":")[3]) & ControllerPacket.TOUCHPAD_FLAG);
+                assertTrue(prepared[1], prepared[1].startsWith("1:" + MoonBridge.LI_CTYPE_XBOX + ":"));
+            } finally { handler.destroy(); }
+        }
+    }
+
+    @Test public void onscreenOwnPlayerNeedsOnscreenControlsMultipleControllersAndMoreThanL3R3() {
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.onscreenOwnPlayer = prefs.multiController = prefs.onscreenController = true;
+        assertTrue(ControllerHandler.onscreenOwnsPlayerOne(prefs));
+        prefs.onlyL3R3 = true;
+        assertFalse(ControllerHandler.onscreenOwnsPlayerOne(prefs));
+        prefs.onlyL3R3 = false;
+        prefs.multiController = false;
+        assertFalse(ControllerHandler.onscreenOwnsPlayerOne(prefs));
+        prefs.multiController = true;
+        prefs.onscreenController = false;
+        assertFalse(ControllerHandler.onscreenOwnsPlayerOne(prefs));
+        prefs.onscreenController = true;
+        prefs.onscreenOwnPlayer = false;
+        assertFalse(ControllerHandler.onscreenOwnsPlayerOne(prefs));
+    }
+
+    @Test public void withoutTheOptionAPadStillSharesPlayerOneWithTheOnscreenControls() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            addInputDevice(activity.get(), 2, true, JOYPAD);
+            PreferenceConfiguration prefs = onscreenOwnPlayerPrefs(activity.get());
+            prefs.onscreenOwnPlayer = false;
+            Connection connection = new Connection(73);
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            try {
+                assertTrue(handler.prepareControllersForLaunch().startsWith("0:"));
+                assertEquals(0, contexts(handler).get(2).controllerNumber);
+            } finally { handler.destroy(); }
+        }
+    }
+
     @Test public void sharedPlayerOneIsPreparedOnlyOnce() {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             addInputDevice(activity.get(), 2, true, InputDevice.SOURCE_GAMEPAD);
@@ -831,17 +984,19 @@ public class ControllerPreparationTest {
         byte arrivalSlot;
         int arrivalButtons;
         final java.util.Map<Byte, Byte> typeBySlot = new java.util.HashMap<>();
+        /** Each arrival as "arrival slot" and each input as "input slot buttons", in order. */
+        final List<String> events = new ArrayList<>();
         Connection(int appId) {
             super(null, new ComputerDetails.AddressTuple("127.0.0.1", 47989), 47984, "test",
                     new StreamConfiguration.Builder().setApp(new NvApp("Test", appId, false)).build(), null, null);
         }
         @Override public int sendControllerArrivalEvent(byte slot, short mask, byte type, int buttons, short caps) {
             arrivals++; arrivalType = type; arrivalCaps = caps; arrivalSlot = slot; arrivalButtons = buttons;
-            typeBySlot.put(slot, type); return 0;
+            typeBySlot.put(slot, type); events.add("arrival " + slot); return 0;
         }
         @Override public void sendControllerInput(short slot, short mask, int buttons, byte leftTrigger,
                                                  byte rightTrigger, short leftX, short leftY, short rightX, short rightY) {
-            inputs++; activeMask = mask;
+            inputs++; activeMask = mask; events.add("input " + slot + " " + buttons);
         }
     }
     private static class Pad extends AbstractController {

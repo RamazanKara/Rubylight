@@ -453,4 +453,14 @@
     <string name="continue_here_failed">Не удалось продолжить здесь</string>
     <string name="continue_here_came_back">Игра вернулась на это устройство</string>
     <string name="continue_here_did_not_move">Игра не перешла на другое устройство</string>
+    <string name="title_onscreen_own_player">Экранные кнопки как отдельный игрок</string>
+    <string name="summary_onscreen_own_player">Экранные кнопки становятся контроллером 1 на ПК, а физические контроллеры считаются с 2, чтобы инструмент вроде Steam мог настроить их отдельно. Нужен параметр Несколько контроллеров, действует со следующей трансляции.</string>
+    <string name="keyboard_shortcuts_reorder">Перетащите, чтобы изменить порядок, или нажмите вверх или вниз</string>
+    <string name="title_stream_menu_button_y">Y в меню трансляции</string>
+    <string name="title_stream_menu_button_x">X в меню трансляции</string>
+    <string name="title_stream_menu_button_lb">LB в меню трансляции</string>
+    <string name="title_stream_menu_button_rb">RB в меню трансляции</string>
+    <string name="summary_stream_menu_button">Что делает эта кнопка, пока открыто меню трансляции. A выбирает, B закрывает меню.</string>
+    <string name="stream_menu_button_default">По умолчанию</string>
+    <string name="stream_menu_button_none">Выкл.</string>
 </resources>

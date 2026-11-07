@@ -163,6 +163,15 @@ impl Shortcuts {
             Ok(())
         }
     }
+
+    /// Puts the shortcut `id` at `index` of the list, or last when `index` is past the end. The
+    /// list's order is the order the stream menu shows them in.
+    pub fn move_to(&mut self, id: &str, index: usize) -> Result<(), ShortcutError> {
+        let from = self.data.iter().position(|e| e.id == id).ok_or(ShortcutError::Gone)?;
+        let entry = self.data.remove(from);
+        self.data.insert(index.min(self.data.len()), entry);
+        Ok(())
+    }
 }
 
 fn valid_id(id: &str) -> bool {
@@ -720,6 +729,19 @@ pub fn hotkey_at(bound: &[Bound], modifiers: u8, vk: u16) -> Option<(&'static st
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_shortcut_moves_within_the_list_and_a_gone_one_is_an_error() {
+        let text = r#"{"version":1,"data":[{"id":"a","name":"A","keys":["WIN","TAB"]},{"id":"b","name":"B","keys":["WIN","D"]},{"id":"c","name":"C","keys":["WIN","G"]}]}"#;
+        let mut shortcuts = Shortcuts::parse(text).unwrap();
+        let order = |s: &Shortcuts| s.data.iter().map(|entry| entry.id.clone()).collect::<Vec<_>>().join("");
+        shortcuts.move_to("c", 0).unwrap();
+        assert_eq!(order(&shortcuts), "cab");
+        shortcuts.move_to("c", 99).unwrap();
+        assert_eq!(order(&shortcuts), "abc");
+        assert!(shortcuts.move_to("gone", 0).is_err());
+        assert_eq!(order(&shortcuts), "abc");
+    }
 
     #[test]
     fn android_document_round_trips_and_invalid_chords_do_not_replace_entries() {

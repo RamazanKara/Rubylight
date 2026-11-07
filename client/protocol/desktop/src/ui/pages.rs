@@ -18,9 +18,17 @@ impl Launcher {
         });
         ui.add_space(16.0);
         scroll_column(ui, "shortcuts", SETTINGS_W, |ui| {
-            for shortcut in &self.shortcuts.data {
+            let mut moved = None;
+            let last = self.shortcuts.data.len().saturating_sub(1);
+            for (index, shortcut) in self.shortcuts.data.iter().enumerate() {
                 row(ui, &shortcut.name, &shortcut.keys.join(" + "), |ui| {
                     ui.horizontal(|ui| {
+                        if ui.add_enabled_ui(index > 0, |ui| quiet_button(ui, "Move up")).inner.clicked() {
+                            moved = Some((shortcut.id.clone(), index - 1));
+                        }
+                        if ui.add_enabled_ui(index < last, |ui| quiet_button(ui, "Move down")).inner.clicked() {
+                            moved = Some((shortcut.id.clone(), index + 1));
+                        }
                         if quiet_button(ui, "Edit").clicked() {
                             self.dialog = Dialog::Shortcut {
                                 id: Some(shortcut.id.clone()), name: shortcut.name.clone(), chord: shortcut.keys.join(" + "), error: None,
@@ -35,6 +43,12 @@ impl Launcher {
                         button
                     }).inner
                 });
+            }
+            if let Some((id, to)) = moved {
+                match self.shortcuts.move_to(&id, to) {
+                    Ok(()) => commands.push(Command::SaveShortcuts),
+                    Err(error) => eprintln!("nightjar: could not move a shortcut: {error}"),
+                }
             }
         });
     }

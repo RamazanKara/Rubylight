@@ -364,6 +364,7 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
             for (Tile tile : tiles) known |= tile.id.equals(id) && !tile.place.equals("label");
             if (!known) return new Unknown(id);
         }
+        JSONObject buttons = buttons(in.optJSONObject("buttons"), offers);
         JSONArray grid = new JSONArray(), more = new JSONArray(), footer = new JSONArray().put("close");
         for (Tile tile : tiles) {
             JSONObject offer = offers.get(tile.id);
@@ -371,7 +372,12 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
             if (tile.place.equals("grid")) {
                 JSONObject cell = new JSONObject().put("id", tile.id);
                 if (offer.has("on")) cell.put("on", offer.getBoolean("on"));
-                if (tile.hotkey != null) cell.put("hotkey", tile.hotkey);
+                for (String key : BUTTONS) {
+                    if (tile.id.equals(buttons.optString(key, null))) {
+                        cell.put("hotkey", key);
+                        break;
+                    }
+                }
                 grid.put(new JSONObject().put("tile", cell));
             } else if (tile.place.equals("more")) {
                 more.put(tile.id);
@@ -385,7 +391,34 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
             for (int i = 0; i < count; i++) grid.put(new JSONObject().put("shortcut", i));
             if (count < KeyboardShortcuts.MAX_SHORTCUTS) grid.put("add");
         }
-        return new JSONObject().put("grid", grid).put("more", more).put("footer", footer);
+        return new JSONObject().put("grid", grid).put("more", more).put("footer", footer).put("buttons", buttons);
+    }
+
+    private static final String[] BUTTONS = {"y", "x", "lb", "rb"};
+
+    /** stream_menu::layout_with_buttons: what each button runs, with what the user chose for it. */
+    private JSONObject buttons(JSONObject chosen, Map<String, JSONObject> offers) throws JSONException {
+        JSONObject buttons = new JSONObject();
+        for (String key : BUTTONS) {
+            String id = chosen == null ? null : chosen.optString(key, null);
+            if ("none".equals(id)) continue;
+            Tile target = null;
+            for (Tile tile : tiles) {
+                boolean assignable = tile.labelKey != null && !tile.place.equals("more") && !tile.place.equals("label")
+                        && !tile.id.equals("rate_change");
+                if (assignable && tile.id.equals(id)) target = tile;
+            }
+            if (target == null) {
+                for (Tile tile : tiles) if (key.equals(tile.hotkey)) target = tile;
+            }
+            if (target == null) continue;
+            if (target.id.equals("bitrate") && !offers.containsKey("bitrate") && offers.containsKey("rate_change")) {
+                buttons.put(key, "rate_change");
+            } else if (offers.containsKey(target.id)) {
+                buttons.put(key, target.id);
+            }
+        }
+        return buttons;
     }
 
     private JSONArray builtIns(JSONArray saved) throws JSONException {

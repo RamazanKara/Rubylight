@@ -42,7 +42,8 @@ public class SettingsKeysTest {
             "checkbox_vibrate_fallback", "seekbar_vibrate_fallback_strength", "checkbox_gamepad_touchpad_as_mouse",
             "checkbox_mouse_emulation", "analog_scrolling", "checkbox_touchscreen_trackpad", "seekbar_trackpad_speed",
             "seekbar_mouse_speed", "checkbox_mouse_nav_buttons", "checkbox_absolute_mouse_mode",
-            "checkbox_show_onscreen_controls", "checkbox_vibrate_osc", "checkbox_only_show_L3R3",
+            "checkbox_show_onscreen_controls", "checkbox_vibrate_osc", "checkbox_only_show_L3R3", "checkbox_onscreen_own_player",
+            "list_stream_menu_button_y", "list_stream_menu_button_x", "list_stream_menu_button_lb", "list_stream_menu_button_rb",
             "checkbox_show_guide_button", "seekbar_osc_opacity", "reset_osc", "checkbox_enable_perf_overlay",
             "performance_overlay_mode", "list_audio_config", "checkbox_host_audio", "checkbox_enable_mic",
             "checkbox_enable_audiofx", "checkbox_enable_post_stream_toast", "checkbox_auto_reconnect",
@@ -76,6 +77,7 @@ public class SettingsKeysTest {
     // Stored settings that are read outside PreferenceConfiguration.
     private static final Set<String> READ_ELSEWHERE = new HashSet<>(Arrays.asList(
             "performance_overlay_mode", // Game and the overlay
+            "list_stream_menu_button_y", "list_stream_menu_button_x", "list_stream_menu_button_lb", "list_stream_menu_button_rb", // StreamMenu
             com.limelight.console.OpenPlay.SETTING, // the launch screen, before any stream
             com.limelight.ui.AppTheme.OLED_BLACK, // AppTheme, including activities opened directly
             com.limelight.ui.AppTheme.ALWAYS_DARK,
@@ -318,6 +320,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_show_onscreen_controls", new Read(false, true, c -> c.onscreenController));
         reads.put("checkbox_vibrate_osc", new Read(true, false, c -> c.vibrateOsc));
         reads.put("checkbox_only_show_L3R3", new Read(false, true, c -> c.onlyL3R3));
+        reads.put("checkbox_onscreen_own_player", new Read(false, true, c -> c.onscreenOwnPlayer));
         reads.put("checkbox_show_guide_button", new Read(true, false, c -> c.showGuideButton));
         reads.put("checkbox_show_touchpad_button", new Read(false, true, c -> c.showTouchpadButton));
         reads.put("seekbar_osc_opacity", new Read(90, 50, c -> c.oscOpacity));

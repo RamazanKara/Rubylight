@@ -960,6 +960,44 @@ public class StreamMenuTest {
     }
 
     @Test
+    public void theButtonsRunWhatTheUserGaveThemIncludingAWayOutOrNothing() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            android.preference.PreferenceManager.getDefaultSharedPreferences(activity).edit()
+                    .putString("list_stream_menu_button_y", "overlay")
+                    .putString("list_stream_menu_button_x", "disconnect")
+                    .putString("list_stream_menu_button_lb", "none")
+                    .putString("list_stream_menu_button_rb", "default")
+                    .apply();
+            StreamMenu.Options state = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+            state.appName = "Open World";
+            state.controllerMouseAvailable = true;
+            List<StreamMenu.Item> chosen = new ArrayList<>();
+            StreamMenu menu = new StreamMenu(activity, () -> state, chosen::add, null, new SavedShortcuts());
+            menu.show();
+
+            // Y shows on the tile it was given; Keyboard loses it.
+            assertEquals("Y", ((TileGrid.Tile) menu.row(OVERLAY)).hotkey());
+            assertNull(((TileGrid.Tile) menu.row(KEYBOARD)).hotkey());
+            press(menu, KeyEvent.KEYCODE_BUTTON_Y);
+            assertEquals(Arrays.asList(OVERLAY), chosen);
+            chosen.clear();
+            // LB is off: Shortcuts stays reachable by its tile but the button does nothing.
+            assertNull(((TileGrid.Tile) menu.row(SHORTCUTS)).hotkey());
+            press(menu, KeyEvent.KEYCODE_BUTTON_L1);
+            assertTrue(chosen.isEmpty());
+            // RB on Default keeps its own tile, so Overlay carries the first button that names it and still runs.
+            press(menu, KeyEvent.KEYCODE_BUTTON_R1);
+            assertEquals(Arrays.asList(OVERLAY), chosen);
+            chosen.clear();
+            // X is a way out under the grid.
+            press(menu, KeyEvent.KEYCODE_BUTTON_X);
+            assertEquals(Arrays.asList(DISCONNECT), chosen);
+        }
+    }
+
+    @Test
     public void theGridIsTheSharedModelsWithItsButtonsTheUsersShortcutsAndAddThenReturnAndTheWaysOut() {
         try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
             Activity activity = controller.get();

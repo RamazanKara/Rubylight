@@ -453,4 +453,14 @@
     <string name="continue_here_failed">Не вдалося продовжити тут</string>
     <string name="continue_here_came_back">Гра повернулася на цей пристрій</string>
     <string name="continue_here_did_not_move">Гра не перейшла на інший пристрій</string>
+    <string name="title_onscreen_own_player">Екранні елементи як окремий гравець</string>
+    <string name="summary_onscreen_own_player">Екранні елементи керування стають контролером 1 на ПК, а фізичні контролери рахуються з 2, щоб інструмент на кшталт Steam міг налаштувати їх окремо. Потрібен параметр Кілька контролерів, діє з наступної трансляції.</string>
+    <string name="keyboard_shortcuts_reorder">Перетягніть, щоб змінити порядок, або натисніть вгору чи вниз</string>
+    <string name="title_stream_menu_button_y">Y у меню трансляції</string>
+    <string name="title_stream_menu_button_x">X у меню трансляції</string>
+    <string name="title_stream_menu_button_lb">LB у меню трансляції</string>
+    <string name="title_stream_menu_button_rb">RB у меню трансляції</string>
+    <string name="summary_stream_menu_button">Що робить ця кнопка, поки відкрите меню трансляції. A вибирає, B закриває меню.</string>
+    <string name="stream_menu_button_default">За замовчуванням</string>
+    <string name="stream_menu_button_none">Вимк.</string>
 </resources>

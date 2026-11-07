@@ -65,7 +65,7 @@ impl PcAction {
         }
     }
 
-    fn command(self, id: u64) -> Command {
+    pub(super) fn command(self, id: u64) -> Command {
         match self {
             Self::Resume(app) => Command::Launch {
                 host: id,
@@ -303,7 +303,7 @@ fn action_words(
 }
 
 /// How wide a PC's action is: Resume is solid and roomier, Pair has no icon.
-fn action_width(ui: &Ui, action: PcAction, most: f32) -> f32 {
+pub(super) fn action_width(ui: &Ui, action: PcAction, most: f32) -> f32 {
     let words = ui
         .painter()
         .layout_no_wrap(
@@ -322,7 +322,7 @@ fn action_width(ui: &Ui, action: PcAction, most: f32) -> f32 {
 }
 
 /// A PC's action. Its halo paints after the page so the next card never cuts it.
-fn action_button(ui: &mut Ui, rect: Rect, id: Id, action: PcAction, said: &str) -> Response {
+pub(super) fn action_button(ui: &mut Ui, rect: Rect, id: Id, action: PcAction, said: &str) -> Response {
     let response = ui.interact(rect, id, Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), said));
     let ctx = ui.ctx().clone();

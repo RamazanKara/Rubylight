@@ -1423,4 +1423,5 @@ sudo sysctl -w net.core.rmem_max={}", "Bộ đệm nhận: hệ thống chỉ c�
     ("Wake", "Đánh thức"),
     ("Online", "Trực tuyến"),
     ("Not paired", "Chưa ghép đôi"),
+    ("Desktop", "Màn hình nền"),
 ];

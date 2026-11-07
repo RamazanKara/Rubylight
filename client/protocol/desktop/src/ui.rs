@@ -1095,7 +1095,12 @@ impl Launcher {
                     None => Want::Keep,
                 }
             }
-            Screen::AllGames | Screen::Apps(_) => Want::Keep,
+            // The game the PC runs lights its page; with none, what shows stays.
+            Screen::Apps(id) => match view.hosts.get(id).and_then(|host| Some((host, running_app_id(host)?))) {
+                Some((host, app)) => home::ambient_for(view, id, app as u32, &running_name(host)),
+                None => Want::Keep,
+            },
+            Screen::AllGames => Want::Keep,
             Screen::Hosts => Want::Sky(Moon::Low),
             _ => Want::Sky(Moon::High),
         }
@@ -1202,37 +1207,14 @@ impl Launcher {
     }
 
     /// The page's actions at the right edge of its row, registered left to right so Tab reaches
-    /// them in reading order. Their width is last frame's; a change repaints.
+    /// them in reading order. What the row's title leaves them is said to it next frame.
     pub(super) fn actions(&mut self, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>) {
-        let slot = ui.available_rect_before_wrap();
-        let width = self.header_width.min(slot.width());
-        let rect = Rect::from_min_max(pos2(slot.right() - width, slot.top()), slot.right_bottom());
-        let used = ui
-            .scope_builder(UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)), |ui| {
-                ui.spacing_mut().item_spacing.x = space::S;
-                if let Screen::Apps(id) = self.screen {
-                    if let Some(host) = view.hosts.get(id) {
-                        if header_button(ui, "Refresh", Icon::Refresh).clicked() {
-                            commands.push(Command::Refresh(id));
-                        }
-                        if host.running_app().is_some() && header_button(ui, "Quit running app", Icon::Stop).clicked() {
-                            self.dialog = Dialog::ConfirmQuit {
-                                host: id,
-                                start: None,
-                                running: running_name(host),
-                                resume: None,
-                                named: host.running_app(),
-                            };
-                            self.focus_dialog = true;
-                        }
-                    }
-                    if header_button(ui, "PC settings", Icon::Sliders).clicked() {
-                        commands.push(Command::HostSettings(id));
-                    }
-                }
-                ui.min_rect().width()
-            })
-            .inner;
+        let mut used = 0.0;
+        if let Screen::Apps(id) = self.screen {
+            if let Some(host) = view.hosts.get(id) {
+                used = self.running_actions(ui, host, commands);
+            }
+        }
         if (used - self.header_width).abs() > 0.5 {
             self.header_width = used;
             ui.ctx().request_repaint();

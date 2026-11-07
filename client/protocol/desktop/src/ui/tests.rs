@@ -3505,6 +3505,204 @@ fn ctrl_k_searches_from_pcs_and_add_pc_opens_its_dialog() {
     assert!(f.l.search_open);
 }
 
+/// A PC's page with `count` apps, some running.
+fn app_grid(count: i32, running: i32) -> Frames {
+    let games: Vec<_> = (1..=count).map(|id| nightjar_core::http::App { name: format!("App {id}"), ..game(id) }).collect();
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, running)), games);
+    let id = f.hosts.list[0].id;
+    f.size = vec2(1280.0, 800.0);
+    f.l.go(Screen::Apps(id));
+    f.settle();
+    f
+}
+
+/// Nothing of Back is clipped to its own square: that once showed as a dark box around the disc.
+#[test]
+fn backs_shadow_and_halo_leave_its_square() {
+    let mut f = store_mix();
+    f.l.go(Screen::AllGames);
+    f.settle();
+    let back = f.ctx.read_response(Id::unique("back")).expect("Back").rect;
+    assert!(f.shapes.iter().all(|s| s.clip_rect != back), "clipped to {back:?}");
+}
+
+#[test]
+fn an_app_grid_has_seven_fixed_columns_and_no_labels_on_art() {
+    let mut f = app_grid(15, 0);
+    let id = f.hosts.list[0].id;
+    for app in 2..=15 {
+        let art = demo_art(&f.ctx, app as usize);
+        f.hosts.get_mut(id).unwrap().art.insert(app, art);
+    }
+    f.hosts.get_mut(id).unwrap().art.insert(1, Art::Missing);
+    f.settle();
+    let (_, width) = crate::ui::cards::grid(1184.0);
+    assert_eq!(width, 155.0, "seven columns at the design's width");
+    // Art says its own title; no line is drawn under it, but a tile still holds the name.
+    assert!(!shows(&f, "App 2"), "{:?}", f.drawn);
+    assert!(f.drawn.iter().any(|t| t.contains("App 1")), "a tile holds it: {:?}", f.drawn);
+    // A screen reader still hears them all: the slot is a labelled button.
+    let first = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).expect("the first cover has focus").rect;
+    assert_eq!(first.size(), vec2(155.0, 232.0), "the slot is the cover");
+    assert_eq!(first.left(), 48.0, "at the margin");
+    f.press(Key::ArrowRight);
+    let second = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).unwrap().rect;
+    assert_eq!(second.left() - first.right(), 16.0, "the columns' gap");
+    assert_eq!(second.top(), first.top());
+    for _ in 0..5 {
+        f.press(Key::ArrowRight);
+    }
+    let last = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).unwrap().rect;
+    assert_eq!((last.top(), last.left()), (first.top(), first.left() + 6.0 * (155.0 + 16.0)), "seven to a row");
+    f.press(Key::ArrowDown);
+    for _ in 0..6 {
+        f.press(Key::ArrowLeft);
+    }
+    let below = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).unwrap().rect;
+    assert_eq!(below.left(), first.left(), "the next row starts under it");
+    assert_eq!(below.top() - first.bottom(), 18.0, "the rows' gap");
+}
+
+#[test]
+fn a_cover_without_its_art_yet_holds_its_name() {
+    let f = app_grid(3, 0);
+    assert!(!f.hosts.list[0].art.contains_key(&2));
+    assert!(shows(&f, "App 2"), "the placeholder names it: {:?}", f.drawn);
+}
+
+#[test]
+fn a_running_app_offers_resume_and_quit_game_beside_its_name() {
+    let mut f = app_grid(5, 3);
+    let name = "App 3";
+    assert_eq!(f.drawn.iter().filter(|t| **t == name).count(), 2, "its chip and its cover: {:?}", f.drawn);
+    assert!(shows(&f, "Resume") && shows(&f, "Quit game"), "{:?}", f.drawn);
+    for gone in ["Refresh", "Quit running app", "PC settings"] {
+        assert!(!shows(&f, gone), "{gone} lives in the PC's menu now: {:?}", f.drawn);
+    }
+    let at = |f: &Frames, word: &str| f.placed.iter().find(|(t, ..)| t == word).map(|p| p.1).unwrap();
+    let (resume, quit) = (at(&f, "Resume"), at(&f, "Quit game"));
+    assert!(resume.right() < quit.left(), "{resume:?} {quit:?}");
+    assert!(1280.0 - quit.right() < 80.0, "at the right edge: {quit:?}");
+    // The row does not grow for them: what runs does not move the grid.
+    let top = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).expect("the running cover has focus").rect.top();
+    let idle = app_grid(5, 0);
+    let idle_top = idle.ctx.memory(|m| m.focused()).and_then(|i| idle.ctx.read_response(i)).unwrap().rect.top();
+    assert_eq!(top, idle_top);
+    // Resume starts it again; Quit game asks first.
+    let commands = f.click_at(resume.center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::Launch { app: 3, resume: true, .. })));
+    let quit = at(&f, "Quit game");
+    f.click_at(quit.center(), egui::PointerButton::Primary);
+    assert!(matches!(f.l.dialog, Dialog::ConfirmQuit { start: None, .. }));
+}
+
+#[test]
+fn a_narrow_window_lets_the_running_name_go_before_the_title() {
+    let mut f = app_grid(5, 3);
+    f.size = vec2(560.0, 700.0);
+    f.settle();
+    f.settle();
+    let name = "App 3";
+    assert!(shows(&f, "Den"), "the title stays: {:?}", f.drawn);
+    assert!(shows(&f, "Resume") && shows(&f, "Quit game"), "{:?}", f.drawn);
+    let chips = visible(&f).iter().filter(|(t, r)| *t == name && r.top() < 150.0).count();
+    assert_eq!(chips, 0, "no chip in the row: {:?}", visible(&f));
+}
+
+#[test]
+fn a_running_app_the_list_does_not_know_offers_only_quit_game() {
+    let mut f = app_grid(5, 99);
+    f.settle();
+    assert!(!shows(&f, "Resume") && shows(&f, "Quit game") && shows(&f, "The running app"), "{:?}", f.drawn);
+}
+
+#[test]
+fn the_pc_capsule_speaks_of_the_pc_whose_page_it_is() {
+    let mut other = record("Attic", true, true);
+    other.address = "192.0.2.77".into();
+    other.unique_id = "attic".into();
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut l = launcher(false, false);
+    l.go(Screen::Hosts);
+    let mut hosts = Hosts::without_discovery(vec![record("Den", true, true), other], Arc::new(|| {}));
+    for host in &mut hosts.list {
+        host.reach = Reach::Online;
+        host.apps = Apps::Loaded(vec![game(1)]);
+    }
+    let attic = hosts.list[1].id;
+    let mut f = Frames::over(ctx, l, hosts);
+    f.l.go(Screen::Apps(attic));
+    f.settle();
+    let in_bar = |f: &Frames, word: &str| f.placed.iter().any(|(t, r, _)| t == word && r.top() < 68.0);
+    assert!(in_bar(&f, "Attic") && !in_bar(&f, "Den"), "{:?}", f.placed);
+}
+
+#[test]
+fn a_pc_with_no_apps_shows_one_line_and_the_desktop_tile() {
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 0)), Vec::new());
+    f.hosts.list[0].apps = Apps::Loaded(Vec::new());
+    let id = f.hosts.list[0].id;
+    f.l.go(Screen::Apps(id));
+    f.settle();
+    assert!(shows(&f, "This PC lists no apps.") && f.drawn.iter().any(|t| t == "Desktop"), "{:?}", f.drawn);
+    let tile = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).expect("the tile has focus").rect;
+    assert_eq!(tile.height(), crate::ui::cards::cover_height(tile.width()));
+    let line = f.placed.iter().find(|(t, ..)| t == "This PC lists no apps.").unwrap().1;
+    let focused = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).unwrap().rect;
+    let risen = crate::ui::glass::risen_rect(focused, design_tokens::FOCUS_SCALE_COVER).expand(design_tokens::FOCUS_GAP + design_tokens::FOCUS_RING_WIDTH);
+    assert!(line.bottom() <= risen.top(), "the line clear of the focused tile: {line:?} {risen:?}");
+    // No entry to start, so it asks and the launch answers out loud.
+    let commands = f.click_at(tile.center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::Launch { host, app: 0, resume: false } if *host == id)));
+}
+
+#[test]
+fn the_list_lands_where_its_places_were_held() {
+    let mut f = app_grid(9, 0);
+    let id = f.hosts.list[0].id;
+    let landed = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).unwrap().rect;
+    f.hosts.get_mut(id).unwrap().apps = Apps::Loading;
+    f.settle();
+    assert!(shows(&f, "Loading the library\u{2026}"), "{:?}", f.drawn);
+    let held = meshes_holding(&f.shapes, design_tokens::COVER_PLACEHOLDER);
+    assert!(held.iter().any(|r| (r.center() - landed.center()).length() < 0.5 && (r.width() - landed.width()).abs() <= 1.0), "{landed:?} among {held:?}");
+    assert!(held.len() >= 14, "two rows of seven: {held:?}");
+}
+
+/// The chips stay while the words narrow them, each counting what it would show.
+#[test]
+fn chip_counts_follow_the_search_and_the_chips_stay() {
+    let mut f = store_mix();
+    f.l.go(Screen::AllGames);
+    f.settle();
+    let before: Vec<String> = f.drawn.iter().filter(|t| ["All", "Steam", "Epic Games"].contains(&t.as_str())).cloned().collect();
+    let total = f.hosts.list[0].native.library.as_ref().unwrap().games.len();
+    assert!(shows(&f, &total.to_string()), "{:?}", f.drawn);
+    f.l.search_open = true;
+    f.l.library_query = "fort".into();
+    f.settle();
+    let after: Vec<String> = f.drawn.iter().filter(|t| ["All", "Steam", "Epic Games"].contains(&t.as_str())).cloned().collect();
+    assert_eq!(before, after, "the chips stay");
+    assert!(!shows(&f, &total.to_string()) && f.drawn.iter().any(|t| t == "1"), "only Fortnite counts: {:?}", f.drawn);
+}
+
+#[test]
+fn the_open_searchs_words_sit_on_the_closed_ones_line() {
+    let mut f = store_mix();
+    f.settle();
+    let closed = f.placed.iter().find(|(t, r, _)| t == "Search" && r.top() < 68.0).expect("the closed field").1;
+    f.l.open_search();
+    f.settle();
+    let open = f.placed.iter().find(|(t, r, _)| t == "Search" && r.top() < 68.0).expect("the field's hint").1;
+    assert!((open.center().y - closed.center().y).abs() <= 0.5, "open {open:?}, closed {closed:?}");
+    f.l.library_query = "Search".into();
+    f.settle();
+    let typed = f.placed.iter().find(|(t, r, _)| t == "Search" && r.top() < 68.0).expect("the typed words").1;
+    assert!((typed.center().y - closed.center().y).abs() <= 0.5, "typed {typed:?}, closed {closed:?}");
+}
+
 #[test]
 #[ignore = "writes PNGs; set NIGHTJAR_SHOTS"]
 fn page_screenshots() {
@@ -4671,6 +4869,7 @@ fn the_demo_library_reaches_every_page() {
             Page::Game => Screen::Game { host: pc, app: 1002 },
             Page::Pcs => Screen::Hosts,
             Page::Apps => Screen::Apps(pc),
+            Page::AppsEmpty => Screen::Apps(f.hosts.list[1].id),
             Page::Pc => Screen::HostDetails(pc),
             Page::Files => Screen::Files(pc),
             Page::Settings => Screen::Settings,

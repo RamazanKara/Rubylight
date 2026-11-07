@@ -1423,4 +1423,5 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("Wake", "起動"),
     ("Online", "オンライン"),
     ("Not paired", "未ペアリング"),
+    ("Desktop", "デスクトップ"),
 ];

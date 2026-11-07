@@ -1,11 +1,20 @@
 //! PCs, Home and a PC's library: the pages that list PCs and games, a game's page, and what
 //! selecting a PC or game does.
 
+use super::chrome::{capsule_width, control_capsule, info_chip, info_chip_width};
 use super::dialogs::{approve_dialog, short_device_name};
+use super::pcs::{action_button, action_width, PcAction};
 use super::*;
 
 /// How wide a List line grows: past it, the store and the date sit too far from the title.
 pub(super) const LIST_MAX_W: f32 = 760.0;
+/// The places a PC's list holds open while it loads.
+const LOADING_ROWS: usize = 2;
+/// The capsules at the right of a PC's page.
+const ACTION_H: f32 = 48.0;
+const ACTIONS_GAP: f32 = 14.0;
+/// What a page's title keeps before the name of the running game gives way.
+const MIN_TITLE_ROOM: f32 = 160.0;
 
 impl Launcher {
     pub(super) fn add_host_dialog(&mut self) {
@@ -22,13 +31,23 @@ impl Launcher {
             return;
         };
         let running = host.running_app();
+        let (columns, width) = grid(ui.available_width());
+        ui.spacing_mut().item_spacing.y = GRID_ROW_GAP;
         match &host.apps {
             Apps::NotLoaded | Apps::Loading => {
-                ui.add_space(40.0);
-                ui.horizontal(|ui| {
-                    spinner(ui, 10.0);
-                    ui.label(RichText::new(tr("Loading the library…")).color(ON_SURFACE_VARIANT));
-                });
+                // The covers' own places, so the list lands without a jump, under one word of what is
+                // going on.
+                let top = ui.cursor().min;
+                for _ in 0..LOADING_ROWS {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = POSTER_GAP;
+                        for _ in 0..columns {
+                            cover_placeholder(ui, width);
+                        }
+                    });
+                }
+                let room = Rect::from_min_size(top, vec2(ui.available_width(), LOADING_ROWS as f32 * (cover_height(width) + GRID_ROW_GAP)));
+                loading_chip(ui, room);
             }
             Apps::Failed(e) => {
                 ui.label(RichText::new(tr("The library could not be loaded.")).font(semibold(text::CARD_TITLE)));
@@ -39,11 +58,18 @@ impl Launcher {
             }
             Apps::Loaded(apps) => {
                 if apps.is_empty() {
-                    ui.label(RichText::new(tr("This PC lists no apps.")).color(ON_SURFACE_VARIANT));
+                    ui.label(RichText::new(tr("This PC lists no apps.")).font(regular(text::BODY)).color(ON_SURFACE));
+                    // Clear of the ring of the tile risen below it.
+                    ui.add_space(LIFT + space::M);
+                    let response = bare_poster(ui, tr("Desktop"), None, Badge::None, width);
+                    self.focus_card(&response, "apps-desktop", "apps-desktop", true);
+                    // There is no entry to start: the launch says so out loud rather than the tile
+                    // doing nothing.
+                    if response.clicked() {
+                        commands.push(Command::Launch { host: id, app: 0, resume: false });
+                    }
                     return;
                 }
-                ui.add_space(LIFT);
-                let (columns, width) = grid(ui.available_width());
                 // Hidden games stay out of the PC's list as off Home, unless asked for.
                 let source = Source::of(host);
                 let hides = |app: &nightjar_core::http::App| console::is_hidden(&source, &app.uuid, app.id as u32, &self.hidden_games);
@@ -55,12 +81,11 @@ impl Launcher {
                         for (i, app) in chunk.iter().enumerate() {
                             let is_running = running.is_some_and(|r| app.matches_running_app(r, None));
                             let art = shown_art(view, id, app.id as u32);
-                            let response = poster(ui, &app.name, art, if is_running { Badge::Running } else { Badge::None }, width);
+                            let response = bare_poster(ui, &app.name, art, if is_running { Badge::Running } else { Badge::None }, width);
                             let first = if running.is_some() { is_running } else { row == 0 && i == 0 };
                             let key = format!("app:{}", app.id);
                             self.focus_card(&response, &key, &key, first);
-                            let image = Rect::from_min_size(response.rect.min, vec2(width, cover_height(width)));
-                            let dots = cover_dots(ui, &response, image);
+                            let dots = cover_dots(ui, &response, response.rect);
                             if response.clicked() {
                                 if let Some(ask) = self.start_app(host, app, commands) {
                                     self.ask(ask);
@@ -71,7 +96,6 @@ impl Launcher {
                             }
                         }
                     });
-                    ui.add_space(space::XS);
                 }
                 // A focused-but-unloaded first poster still gets focus next frame.
                 if self.focus_screen && running.is_some() {
@@ -86,6 +110,54 @@ impl Launcher {
                 }
             }
         }
+    }
+
+    /// What a running game offers at the right of its PC's page: its name, Resume and Quit game. They
+    /// hang on the row's centre, so the row keeps its height whether something runs or not. Returns
+    /// how wide they are.
+    pub(super) fn running_actions(&mut self, ui: &mut Ui, host: &Host, commands: &mut Vec<Command>) -> f32 {
+        if host.running_app().is_none() {
+            return 0.0;
+        }
+        let slot = ui.available_rect_before_wrap();
+        let row = ui.min_rect();
+        let mid = row.center().y;
+        let name = at_sentence_start(&running_name(host));
+        let quit_words = tr("Quit game");
+        let quit_w = capsule_width(ui, quit_words);
+        // The list has to know the game for it to be started again.
+        let resume = running_app_id(host).map(|app| (app, action_width(ui, PcAction::Resume(app), f32::MAX)));
+        let mut wide = quit_w + resume.map_or(0.0, |(_, w)| w + ACTIONS_GAP);
+        let chip_w = info_chip_width(ui, Some(9.0), &name);
+        // The title of the page comes first: a narrow window drops the chip, the dot on the cover and
+        // Resume still say it.
+        let chip = slot.right() - row.left() - chrome::BACK_SIZE - wide - chip_w - ACTIONS_GAP >= MIN_TITLE_ROOM;
+        if chip {
+            wide += chip_w + ACTIONS_GAP;
+        }
+        let mut x = slot.right() - wide;
+        if chip {
+            info_chip(ui, x, mid, Some(*OK), &name);
+            x += chip_w + ACTIONS_GAP;
+        }
+        if let Some((app, w)) = resume {
+            let rect = Rect::from_min_size(pos2(x, mid - ACTION_H / 2.0), vec2(w, ACTION_H));
+            let said = trf("Resume {}", &[&name]);
+            let r = action_button(ui, rect, Id::unique(("apps-resume", host.id)), PcAction::Resume(app), &said);
+            self.focus_item(&r, "apps-resume", false);
+            if r.clicked() {
+                commands.push(PcAction::Resume(app).command(host.id));
+            }
+            x += w + ACTIONS_GAP;
+        }
+        let rect = Rect::from_min_size(pos2(x, mid - ACTION_H / 2.0), vec2(quit_w, ACTION_H));
+        let r = control_capsule(ui, rect, Id::unique(("apps-quit", host.id)), Icon::Power, quit_words, quit_words, true);
+        self.focus_item(&r, "apps-quit", false);
+        if r.clicked() {
+            self.dialog = Dialog::ConfirmQuit { host: host.id, start: None, running: running_name(host), resume: None, named: host.running_app() };
+            self.focus_dialog = true;
+        }
+        wide
     }
 
     /// "TV wants to pair" while a PC this device may approve for has a device waiting.
@@ -117,6 +189,7 @@ impl Launcher {
         if !hidden.is_empty() {
             chips.push(console::FilterChip { filter: console::LibraryFilter::Hidden, store_name: None, count: hidden.len() });
         }
+        let words = self.library_query.trim().to_lowercase();
         // A filter whose games went away falls back to all of them (with only hidden ones left, to those).
         if !chips.iter().any(|c| c.filter == self.library_filter) {
             self.library_filter = chips.first().map_or(console::LibraryFilter::All, |c| c.filter.clone());
@@ -131,6 +204,8 @@ impl Launcher {
             ui.label(RichText::new(tr("No games to show yet. They appear here once a PC that shares its game library is online.")).color(ON_SURFACE_VARIANT));
             return;
         }
+        // The chips stay as they are while words narrow them, only their counts follow.
+        count_chips(&mut chips, &entries, &hidden, &words);
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(space::S, space::S);
             for chip in &chips {
@@ -160,11 +235,7 @@ impl Launcher {
         // The room a raised cover's ring needs at the top of the scroll comes out of the gap.
         ui.add_space(space::L - LIFT);
         let pool = if self.library_filter == console::LibraryFilter::Hidden { &hidden } else { &entries };
-        let mut shown = console::filtered(pool, &self.library_filter);
-        let words = self.library_query.trim().to_lowercase();
-        if !words.is_empty() {
-            shown.retain(|entry| entry.title.to_lowercase().contains(&words));
-        }
+        let shown = matching(pool, &self.library_filter, &words);
         // Installed is offered while anything is not, so with nothing installed it holds no game.
         if shown.is_empty() {
             ui.add_space(LIFT);
@@ -173,6 +244,7 @@ impl Launcher {
         }
         ui.add_space(LIFT);
         let (columns, width) = grid(ui.available_width());
+        ui.spacing_mut().item_spacing.y = GRID_ROW_GAP;
         let mut first = true;
         for line in shown.chunks(columns) {
             ui.horizontal(|ui| {
@@ -181,7 +253,6 @@ impl Launcher {
                     self.library_cover(ui, view, None, entry, width, std::mem::take(&mut first), commands);
                 }
             });
-            ui.add_space(space::XS);
         }
         ui.add_space(space::L);
     }
@@ -226,7 +297,8 @@ impl Launcher {
         } else {
             Badge::None
         };
-        let response = poster(ui, &entry.title, art, badge, width);
+        // Home's shelves name their covers; the grid of all games lets the art say it.
+        let response = if row.is_some() { poster(ui, &entry.title, art, badge, width) } else { bare_poster(ui, &entry.title, art, badge, width) };
         if let Some(c) = cover {
             request_cover(ui, view, c.host, c.app_id, &c.cover_version, &response, commands);
         }
@@ -543,6 +615,40 @@ impl Launcher {
             ui.label(RichText::new(note).color(if blocker.is_some() { ERROR } else { ON_SURFACE_VARIANT }));
         });
     }
+}
+
+/// The games of `pool` under `filter` whose title holds the lowercase `words`.
+fn matching<'a>(pool: &'a [console::Entry], filter: &console::LibraryFilter, words: &str) -> Vec<&'a console::Entry> {
+    let mut shown = console::filtered(pool, filter);
+    if !words.is_empty() {
+        shown.retain(|entry| entry.title.to_lowercase().contains(words));
+    }
+    shown
+}
+
+/// What each chip would show for the words in the search.
+fn count_chips(chips: &mut [console::FilterChip], entries: &[console::Entry], hidden: &[console::Entry], words: &str) {
+    if words.is_empty() {
+        return;
+    }
+    for chip in chips {
+        let pool = if chip.filter == console::LibraryFilter::Hidden { hidden } else { entries };
+        chip.count = matching(pool, &chip.filter, words).len();
+    }
+}
+
+/// "Loading the library…" with its spinner, over the middle of the places held for the covers.
+fn loading_chip(ui: &mut Ui, room: Rect) {
+    const H: f32 = 40.0;
+    const R: f32 = 8.0;
+    let words = ui.painter().layout_no_wrap(tr("Loading the library…").to_owned(), regular(text::LABEL), *ON_SURFACE);
+    let rect = Rect::from_center_size(room.center(), vec2(14.0 + 2.0 * R + 10.0 + words.size().x + 18.0, H));
+    let mut out = Vec::new();
+    glass::control(&mut out, ui.ctx(), rect, H / 2.0);
+    ui.painter().extend(out);
+    let spinning = Rect::from_min_size(pos2(rect.left() + 14.0, rect.center().y - R), Vec2::splat(2.0 * R));
+    ui.scope_builder(UiBuilder::new().max_rect(spinning), |ui| spinner(ui, R));
+    ui.painter().galley(pos2(spinning.right() + 10.0, rect.center().y - words.size().y / 2.0), words, *ON_SURFACE);
 }
 
 /// What a game can do on its PC now ([`Launcher::play_state`]).

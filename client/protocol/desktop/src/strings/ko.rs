@@ -1423,4 +1423,5 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("Wake", "깨우기"),
     ("Online", "온라인"),
     ("Not paired", "페어링 안 됨"),
+    ("Desktop", "데스크톱"),
 ];

@@ -1423,4 +1423,5 @@ sudo sysctl -w net.core.rmem_max={}", "接收緩衝區：系統只分配了所�
     ("Wake", "喚醒"),
     ("Online", "線上"),
     ("Not paired", "未配對"),
+    ("Desktop", "桌面"),
 ];

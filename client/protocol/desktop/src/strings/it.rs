@@ -1423,4 +1423,5 @@ sudo sysctl -w net.core.rmem_max={}", "Buffer di ricezione: il sistema ha conces
     ("Wake", "Riattiva"),
     ("Online", "Online"),
     ("Not paired", "Non accoppiato"),
+    ("Desktop", "Desktop"),
 ];

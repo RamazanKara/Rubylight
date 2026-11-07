@@ -7,6 +7,8 @@ Write `client/notes.d/<topic>.md`, one file per topic, instead of editing the re
 - The stream menu opens with a long press on the screen.
 ```
 
+What Android users never see goes under `## desktop` instead of `## en`: it reaches the GitHub release text, not the store changelog and its 500 characters.
+
 At release time, after bumping `versionName` and `versionCode` in `client/app/build.gradle`:
 
 ```powershell

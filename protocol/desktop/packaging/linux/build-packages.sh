@@ -12,8 +12,8 @@
 #     nothing is fetched while it builds; no "linux" in the name, as the AppImage catalog asks):
 #     the archive plus libopus, and libva, libva-drm and libdrm as fallbacks AppRun uses only
 #     where the system has none;
-#   PKGBUILD and io.github.ramazankara.nightjar.yml: the AUR and Flatpak recipes of this
-#     folder with the version and the archive's SHA-256 filled in. They are not published.
+#   PKGBUILD (x86_64) and io.github.ramazankara.nightjar-<arch>.yml: the AUR and Flatpak recipes
+#     of this folder with the version and the archive's SHA-256 filled in. They are not published.
 #
 # Run it on the machine that built the archive (the release workflow's Ubuntu runner): the
 # packages' dependencies are read off the binaries there. The .deb names the Debian/Ubuntu

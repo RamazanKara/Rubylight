@@ -330,7 +330,7 @@ pub(crate) enum Page {
     PinStream,
     PinChoose,
     /// The PIN lock settings page, with a PIN and this mode or with none.
-    PinPage(Option<crate::pin_lock::Mode>),
+    PinLock(Option<crate::pin_lock::Mode>),
     /// The real stream menu's pages over a still standing in for the video.
     StreamMenu(DemoMenu),
 }
@@ -353,7 +353,7 @@ impl Page {
     /// A dialog or the PIN screen: what's under it doesn't scroll.
     #[cfg(test)]
     pub(crate) fn covers_the_page(self) -> bool {
-        matches!(self, Page::Dialog(_) | Page::PinStream | Page::PinChoose | Page::PinPage(_) | Page::StreamMenu(_))
+        matches!(self, Page::Dialog(_) | Page::PinStream | Page::PinChoose | Page::PinLock(_) | Page::StreamMenu(_))
     }
 
     pub(crate) const ALL: [(&'static str, Page); 39] = [
@@ -388,9 +388,9 @@ impl Page {
         ("dialog-pc-menu", Page::Dialog(DemoDialog::PcMenu)),
         ("pin-stream", Page::PinStream),
         ("pin-choose", Page::PinChoose),
-        ("pin-page-empty", Page::PinPage(None)),
-        ("pin-page", Page::PinPage(Some(crate::pin_lock::Mode::App))),
-        ("pin-page-selected", Page::PinPage(Some(crate::pin_lock::Mode::Selected))),
+        ("pin-page-empty", Page::PinLock(None)),
+        ("pin-page", Page::PinLock(Some(crate::pin_lock::Mode::App))),
+        ("pin-page-selected", Page::PinLock(Some(crate::pin_lock::Mode::Selected))),
         ("stream-menu", Page::StreamMenu(DemoMenu::Grid)),
         ("stream-menu-white", Page::StreamMenu(DemoMenu::White)),
         ("stream-menu-quality", Page::StreamMenu(DemoMenu::Quality)),
@@ -420,6 +420,7 @@ pub(crate) enum Step {
         path: PathBuf,
     },
     Contrast(bool),
+    Input(crate::input_source::InputSource),
     /// Writes the frames presented so far.
     Stats(PathBuf),
     Quit,
@@ -485,6 +486,13 @@ pub(crate) fn parse(line: &str) -> Result<Step, String> {
             },
         },
         "contrast" => Step::Contrast(rest == "on"),
+        "input" => Step::Input(match rest {
+            "keyboard" => crate::input_source::InputSource::Keyboard,
+            "pad" => crate::input_source::InputSource::Pad(crate::glyphs::Style::Xbox),
+            "sony" => crate::input_source::InputSource::Pad(crate::glyphs::Style::PlayStation),
+            "none" => crate::input_source::InputSource::None,
+            _ => return Err(format!("{line:?}: no such input")),
+        }),
         "stats" => Step::Stats(path()?),
         "quit" => Step::Quit,
         _ => return Err(format!("{line:?}: no such step")),
@@ -586,7 +594,7 @@ impl Launcher {
                 self.go(Screen::Hosts);
                 self.demo_menu = Some(menu);
             }
-            Page::PinPage(mode) => {
+            Page::PinLock(mode) => {
                 self.go(Screen::Hosts);
                 let dir = std::env::temp_dir().join("nightjar-demo-pin-page");
                 self.pin = Some(crate::pin_ui::PinLock::demo_page(&dir, mode));

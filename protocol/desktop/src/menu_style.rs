@@ -821,7 +821,10 @@ mod tests {
         let ctx = egui::Context::default();
         crate::theme::own_palette();
         crate::theme::apply(&ctx);
-        let shapes = (0..3).map(|_| run(&ctx, Vec::new(), |ui| drop(ui.label("A row")))).last().expect("three passes").shapes;
+        let mut shapes = Vec::new();
+        for _ in 0..3 {
+            shapes = run(&ctx, Vec::new(), |ui| drop(ui.label("A row"))).shapes;
+        }
         let wide = shapes.iter().any(|s| s.clip_rect == ctx.content_rect() && matches!(s.shape, egui::Shape::Vec(_)));
         assert!(wide, "the surface clips to the screen, not the window");
     }

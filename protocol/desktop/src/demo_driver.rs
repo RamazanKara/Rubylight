@@ -133,6 +133,7 @@ impl App {
                 self.window_changed = true;
             }
             Step::Contrast(on) => self.launcher.settings.high_contrast = on,
+            Step::Input(source) => self.launcher.input_source = source,
             Step::Stats(path) => {
                 if let Err(e) = std::fs::write(&path, format!("presents={}\n", self.demo.presents))
                 {

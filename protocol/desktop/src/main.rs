@@ -32,6 +32,7 @@ mod gui;
 mod handheld;
 mod host_page;
 mod hosts;
+mod input_source;
 mod keymap;
 mod live_glass;
 mod logfile;
@@ -523,7 +524,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         if window.is_null() {
             return Err(format!("No window: {}", sdl::error()));
         }
-        SDL_SetWindowMinimumSize(window, 720, 480);
+        window_place::set_minimum_size(window);
         if start.restore_place {
             window_place::apply(window, store.window_placement().as_ref());
         }
@@ -975,6 +976,13 @@ impl App {
         self.track_visibility(event);
         // SAFETY: reading the event type.
         self.window_changed |= window_needs_a_frame(SDL_EventType(unsafe { event.r#type }));
+        if let Some(source) = input_source::of(event, |id| self.pads.real_pad_type(id)) {
+            self.launcher.input_source = source;
+        }
+        // SAFETY: reading the event type.
+        if SDL_EventType(unsafe { event.r#type }) == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED {
+            window_place::set_minimum_size(self.window);
+        }
         // SAFETY: SDL cursor calls on the main thread.
         match self.pointer.input(pointer_input(event)) {
             Some(true) => unsafe { SDL_ShowCursor(); },

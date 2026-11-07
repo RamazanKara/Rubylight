@@ -639,6 +639,9 @@ impl Launcher {
         }
         let anchor = menu_request(ui, &card, Some(&more))
             .or_else(|| menu_request(ui, &action_response, None));
+        if action_response.has_focus() {
+            hint_here(ui.ctx(), pc_action(host).words());
+        }
         if let Some(anchor) = anchor {
             let beside_card = if matches!(anchor, Anchor::Beside(_)) {
                 Anchor::Beside(slot)

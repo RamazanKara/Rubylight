@@ -105,6 +105,24 @@ pub fn current(window: *mut SDL_Window, previous: Option<&Placement>) -> Option<
     }
 }
 
+/// The smallest window, in the launcher's points: every page is laid out and checked down to this.
+const MINIMUM: (f32, f32) = (720.0, 490.0);
+
+/// [`MINIMUM`] in the window's pixels on a display of this scale. A scale SDL could not read is 1.
+fn minimum_size(scale: f32) -> (i32, i32) {
+    let scale = scale.max(1.0);
+    ((MINIMUM.0 * scale).ceil() as i32, (MINIMUM.1 * scale).ceil() as i32)
+}
+
+/// Keeps the window at [`MINIMUM`] points on the display it is on now.
+pub fn set_minimum_size(window: *mut SDL_Window) {
+    // SAFETY: the window is alive, on the main thread.
+    unsafe {
+        let (width, height) = minimum_size(SDL_GetWindowDisplayScale(window));
+        SDL_SetWindowMinimumSize(window, width, height);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,5 +179,16 @@ mod tests {
         let saved = Placement { maximized: true, ..placement("LG", RIGHT, Rect { x: 1, y: 2, w: 3, h: 4 }) };
         let json = serde_json::to_string(&saved).unwrap();
         assert_eq!(serde_json::from_str::<Placement>(&json).unwrap(), saved);
+    }
+}
+#[cfg(test)]
+mod minimum_tests {
+    use super::*;
+
+    #[test]
+    fn the_minimum_stays_the_same_in_points_on_any_display() {
+        assert_eq!(minimum_size(1.0), (720, 490));
+        assert_eq!(minimum_size(1.5), (1080, 735));
+        assert_eq!(minimum_size(0.0), (720, 490), "a failed read");
     }
 }

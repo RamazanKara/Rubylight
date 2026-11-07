@@ -19,7 +19,6 @@ use crate::theme::high_contrast;
 
 /// A glass material of the spec.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code, reason = "menus and chips take their glass when their pages are redesigned")]
 pub enum Material {
     Chrome,
     Panel,
@@ -743,8 +742,14 @@ pub fn surface(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, material
 /// solid in high contrast. No backdrop of any kind, whichever tier the launcher runs on: nothing
 /// reads the video, and it is only painted while the menu is open.
 pub fn menu_surface(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32) {
+    without_backdrop(out, ctx, rect, r, Material::Menu);
+}
+
+/// The baked recipe of `material`, reading nothing behind it: for what floats over anything on any
+/// tier, and has no blur region of its own.
+pub fn without_backdrop(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, material: Material) {
     let tier = if tier(ctx) == Tier::Solid { Tier::Solid } else { Tier::Baked };
-    let recipe = recipe(Material::Menu, tier);
+    let recipe = recipe(material, tier);
     soft(out, ctx, rect.translate(vec2(0.0, recipe.shadow_y)), r, recipe.shadow_blur, recipe.shadow);
     finish(out, ctx, rect, r, &recipe);
 }

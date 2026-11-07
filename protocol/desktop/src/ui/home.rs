@@ -687,11 +687,8 @@ impl Launcher {
             app: game.app_id,
             favourite: false,
         };
-        let asked = menu_request(ui, &play, None);
-        if play.has_focus() {
-            hint_here(ui.ctx(), en("Play"));
-        }
-        if let Some(anchor) = asked {
+        let go = if state.resumes { en("Resume") } else { en("Play") };
+        if let Some(anchor) = menu_request_going(ui, &play, None, go) {
             self.open_menu(
                 Dialog::GameMenu {
                     host: host.id,
@@ -736,7 +733,7 @@ impl Launcher {
             *first = false;
         }
         self.focus_item(&r, "hero-star", star_first);
-        if let Some(anchor) = menu_request(ui, &r, None) {
+        if let Some(anchor) = menu_request_going(ui, &r, None, en("Favourite")) {
             self.open_menu(
                 Dialog::GameMenu {
                     host: host.id,
@@ -769,7 +766,7 @@ impl Launcher {
             );
             let end_first = !closing && std::mem::take(first);
             self.focus_item(&r, "hero-end", end_first);
-            if let Some(anchor) = menu_request(ui, &r, None) {
+            if let Some(anchor) = menu_request_going(ui, &r, None, en("Quit game")) {
                 self.open_menu(
                     Dialog::GameMenu {
                         host: host.id,

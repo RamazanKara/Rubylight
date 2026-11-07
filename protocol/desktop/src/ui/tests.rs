@@ -3249,7 +3249,8 @@ fn first_run_frames(records: Vec<crate::config::HostRecord>) -> Frames {
     Frames::over(ctx, l, hosts)
 }
 
-/// The first run is the moon, what is happening in one line, and one action; Home sends it there.
+/// The first run is the moon, what is happening in one line, one action and the way to help; Home
+/// sends it there.
 #[test]
 fn the_first_run_is_one_line_and_add_pc_from_home_too() {
     for screen in [Screen::Home, Screen::Hosts] {
@@ -3260,7 +3261,7 @@ fn the_first_run_is_one_line_and_add_pc_from_home_too() {
         assert!(shows(&f, "Searching for PCs\u{2026}"), "{:?}", f.drawn);
         let adds = f.placed.iter().filter(|(t, ..)| t == "Add PC").count();
         assert_eq!(adds, 1, "the page's, not the bar's as well: {:?}", f.drawn);
-        assert!(!shows(&f, "How to connect") && !f.drawn.iter().any(|t| t.to_lowercase().contains("host")), "{:?}", f.drawn);
+        assert!(shows(&f, "How to connect") && !f.drawn.iter().any(|t| t.to_lowercase().contains("host")), "{:?}", f.drawn);
         let add = f.placed.iter().find(|(t, ..)| t == "Add PC").map(|p| p.1).expect("Add PC");
         let focused = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).expect("Add PC has focus").rect;
         assert!(focused.contains(add.center()), "{focused:?}");
@@ -3316,6 +3317,43 @@ fn a_found_pc_rises_in_with_pair_and_add_pc_steps_down() {
     f.hosts = paired;
     f.settle();
     assert!(!shows(&f, "Searching for PCs\u{2026}"), "{:?}", f.drawn);
+}
+
+/// How to connect stays on the first run, searching and found: under Add PC, centred on it, by
+/// pointer and by keyboard; Tab scrolls it into a short window.
+#[test]
+fn the_first_run_links_how_to_connect_in_both_states() {
+    let link = |f: &Frames| f.placed.iter().find(|(t, ..)| t == "How to connect").map(|p| p.1);
+    let add = |f: &Frames| f.placed.iter().find(|(t, ..)| t == "Add PC").map(|p| p.1).expect("Add PC");
+    let opens = |commands: &[Command]| commands.iter().any(|c| matches!(c, Command::OpenGuide("pairing.md")));
+    for found in [false, true] {
+        for size in [vec2(1280.0, 800.0), vec2(853.0, 480.0)] {
+            let mut f = first_run_frames(if found { vec![record("Game Room", false, false)] } else { Vec::new() });
+            if found {
+                f.hosts.list[0].reach = Reach::Online;
+            }
+            f.size = size;
+            f.l.go(Screen::Hosts);
+            f.settle();
+            assert_eq!(shows(&f, "Pair"), found, "{:?}", f.drawn);
+            let mut tabbed = false;
+            for _ in 0..8 {
+                f.press(Key::Tab);
+                let focus = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i));
+                let on_link = link(&f).filter(|at| focus.is_some_and(|r| r.rect.contains(at.center())));
+                if let Some(at) = on_link {
+                    let under = add(&f);
+                    assert!(at.top() >= under.bottom(), "{at:?} under {under:?}");
+                    assert!((at.center().x - under.center().x).abs() < 16.0, "{at:?} over {under:?}");
+                    assert!(at.bottom() <= size.y, "{at:?} in {size:?}");
+                    assert!(opens(&f.press(Key::Enter)), "Enter on the link");
+                    tabbed = true;
+                    break;
+                }
+            }
+            assert!(tabbed, "Tab reaches it, found {found}");
+        }
+    }
 }
 
 /// A saved PC is on Home from the first frame, before it has answered: the first run never flashes on a start.
@@ -6696,6 +6734,64 @@ fn a_dialogs_buttons_sit_right_under_it_in_a_short_window() {
     let at = |text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1).unwrap_or_else(|| panic!("{text}"));
     assert!(at("Cancel").top() - at("0").bottom() < 60.0, "no empty row above the buttons: {:?} under {:?}", at("Cancel"), at("0"));
     assert!(at("Cancel").bottom() < 480.0, "in the window");
+}
+
+/// F, as on any card, opens a found PC's options from Pair, and the hints call Pair by its name.
+#[test]
+fn f_on_a_found_card_opens_its_options() {
+    let mut found = Hosts::without_discovery(vec![record("Game Room", false, false)], Arc::new(|| {}));
+    found.discovering = true;
+    found.list[0].reach = Reach::Online;
+    let mut f = first_run_frames(Vec::new());
+    f.hosts = found;
+    f.l.go(Screen::Hosts);
+    f.settle();
+    f.l.input_source = crate::input_source::InputSource::Keyboard;
+    f.settle();
+    let count = |f: &Frames, word: &str| f.placed.iter().filter(|(t, ..)| t == word).count();
+    assert_eq!(count(&f, "Pair"), 2, "the button and the hint: {:?}", f.placed);
+    assert_eq!(count(&f, "Open"), 0, "{:?}", f.placed);
+    f.press(Key::F);
+    assert!(matches!(f.l.dialog, Dialog::HostOptions { .. }));
+}
+
+/// The hint names what Go does: Play, Resume, Favourite and Quit game on the hero's buttons, Play or
+/// Resume on the game page's, and Open only on what opens.
+#[test]
+fn the_go_hint_names_what_the_control_does() {
+    let tab_until = |f: &mut Frames, word: &str, go: &str| {
+        let hint = |f: &Frames| f.placed.iter().filter(|(t, ..)| t == go).count();
+        for _ in 0..20 {
+            let focused = f.ctx.memory(|m| m.focused()).and_then(|i| f.ctx.read_response(i)).map(|r| r.rect);
+            let on = f.placed.iter().any(|(t, r, _)| t == word && focused.is_some_and(|at| at.contains(r.center())));
+            if on && f.placed.iter().any(|(t, ..)| t == "Options") {
+                let open = f.placed.iter().filter(|(t, ..)| t == "Open").count();
+                assert_eq!(open, 0, "{word} is no Open: {:?}", f.placed);
+                assert!(hint(f) >= 2, "{word} and the hint {go}: {:?}", f.placed);
+                return;
+            }
+            f.press(Key::Tab);
+            f.settle();
+        }
+        panic!("Tab never reached {word}: {:?}", f.placed);
+    };
+    let mut f = home_with_games(1);
+    f.l.input_source = crate::input_source::InputSource::Keyboard;
+    f.settle();
+    tab_until(&mut f, "Play", "Play");
+    tab_until(&mut f, "Favourite", "Favourite");
+    let pc = f.hosts.list[0].id;
+    f.l.go(Screen::Game { host: pc, app: 1000 });
+    f.settle();
+    tab_until(&mut f, "Play", "Play");
+    // A running game: Resume, and its Quit game by its name.
+    f.hosts.list[0].native.library.as_mut().unwrap().games[0].running = true;
+    f.settle();
+    tab_until(&mut f, "Resume", "Resume");
+    f.l.go(Screen::Home);
+    f.settle();
+    tab_until(&mut f, "Resume", "Resume");
+    tab_until(&mut f, "Quit game", "Quit game");
 }
 
 /// A key cap and a word for what has focus, for the device in the hand; nothing for a mouse.

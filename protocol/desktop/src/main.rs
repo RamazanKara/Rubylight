@@ -235,6 +235,11 @@ fn display_of(window: *mut SDL_Window) -> Display {
     }
 }
 
+/// Whether the window now stands on another display, or its display on another mode.
+fn another_display(kind: SDL_EventType) -> bool {
+    matches!(kind, SDL_EVENT_WINDOW_DISPLAY_CHANGED | SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED)
+}
+
 /// The display from SDL's current mode (width, height, pixel density, refresh rate), if it gave
 /// one. Without a mode or a refresh rate, pacing assumes 1920x1080 at 60 Hz, but the rate is not
 /// marked reported, so the overlay does not judge frames against a guess.
@@ -980,8 +985,12 @@ impl App {
             self.launcher.input_source = source;
         }
         // SAFETY: reading the event type.
-        if SDL_EventType(unsafe { event.r#type }) == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED {
+        let kind = SDL_EventType(unsafe { event.r#type });
+        if kind == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED || another_display(kind) {
             window_place::set_minimum_size(self.window);
+        }
+        if another_display(kind) {
+            self.gui.set_refresh(display_of(self.window).refresh_hz);
         }
         // SAFETY: SDL cursor calls on the main thread.
         match self.pointer.input(pointer_input(event)) {
@@ -3807,6 +3816,13 @@ mod tests {
         assert!(matches!(launch_app(&Apps::NotLoaded, 5), LaunchApp::Gone));
         // A reload that ends in an error is shown, not dropped.
         assert!(matches!(launch_app(&Apps::Failed("x".into()), 5), LaunchApp::Failed(why) if why == "x"));
+    }
+
+    #[test]
+    fn the_window_on_another_display_or_mode_is_told_apart() {
+        assert!(another_display(SDL_EVENT_WINDOW_DISPLAY_CHANGED));
+        assert!(another_display(SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED));
+        assert!(!another_display(SDL_EVENT_WINDOW_MOVED) && !another_display(SDL_EVENT_WINDOW_RESIZED));
     }
 
     #[test]

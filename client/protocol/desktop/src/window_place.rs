@@ -108,17 +108,41 @@ pub fn current(window: *mut SDL_Window, previous: Option<&Placement>) -> Option<
 /// The smallest window, in the launcher's points: every page is laid out and checked down to this.
 const MINIMUM: (f32, f32) = (720.0, 490.0);
 
-/// [`MINIMUM`] in the window's pixels on a display of this scale. A scale SDL could not read is 1.
-fn minimum_size(scale: f32) -> (i32, i32) {
+/// [`MINIMUM`] in the window's pixels on a display of this scale, no larger than the `room` the
+/// display has for it. A scale SDL could not read is 1.
+fn minimum_size(scale: f32, room: Option<(i32, i32)>) -> (i32, i32) {
     let scale = scale.max(1.0);
-    ((MINIMUM.0 * scale).ceil() as i32, (MINIMUM.1 * scale).ceil() as i32)
+    let (width, height) = ((MINIMUM.0 * scale).ceil() as i32, (MINIMUM.1 * scale).ceil() as i32);
+    match room {
+        Some((w, h)) => (width.min(w.max(1)), height.min(h.max(1))),
+        None => (width, height),
+    }
 }
 
-/// Keeps the window at [`MINIMUM`] points on the display it is on now.
+/// What the display the window is on leaves for its content: the usable area less its frame.
+fn usable_room(window: *mut SDL_Window) -> Option<(i32, i32)> {
+    let mut usable = SDL_Rect { x: 0, y: 0, w: 0, h: 0 };
+    let (mut top, mut left, mut bottom, mut right) = (0, 0, 0, 0);
+    // SAFETY: the window is alive, on the main thread; all out pointers are live.
+    unsafe {
+        if !SDL_GetDisplayUsableBounds(SDL_GetDisplayForWindow(window), &mut usable) {
+            eprintln!("nightjar: the display's usable area is unknown, the window's minimum is not capped");
+            return None;
+        }
+        // A window without a frame, or a system that does not say, has none to take off.
+        if !SDL_GetWindowBordersSize(window, &mut top, &mut left, &mut bottom, &mut right) {
+            (top, left, bottom, right) = (0, 0, 0, 0);
+        }
+    }
+    Some((usable.w - left - right, usable.h - top - bottom))
+}
+
+/// Keeps the window at [`MINIMUM`] points on the display it is on now, as far as that display can.
 pub fn set_minimum_size(window: *mut SDL_Window) {
+    let room = usable_room(window);
     // SAFETY: the window is alive, on the main thread.
     unsafe {
-        let (width, height) = minimum_size(SDL_GetWindowDisplayScale(window));
+        let (width, height) = minimum_size(SDL_GetWindowDisplayScale(window), room);
         SDL_SetWindowMinimumSize(window, width, height);
     }
 }
@@ -187,8 +211,16 @@ mod minimum_tests {
 
     #[test]
     fn the_minimum_stays_the_same_in_points_on_any_display() {
-        assert_eq!(minimum_size(1.0), (720, 490));
-        assert_eq!(minimum_size(1.5), (1080, 735));
-        assert_eq!(minimum_size(0.0), (720, 490), "a failed read");
+        assert_eq!(minimum_size(1.0, None), (720, 490));
+        assert_eq!(minimum_size(1.5, None), (1080, 735));
+        assert_eq!(minimum_size(0.0, None), (720, 490), "a failed read");
+        assert_eq!(minimum_size(1.0, Some((1920, 1040))), (720, 490), "room to spare");
+    }
+
+    #[test]
+    fn the_minimum_never_exceeds_what_the_display_can_show() {
+        assert_eq!(minimum_size(1.5, Some((1280, 680))), (1080, 680));
+        assert_eq!(minimum_size(3.0, Some((1920, 1040))), (1920, 1040), "a small display at 300%");
+        assert_eq!(minimum_size(1.0, Some((0, -4))), (1, 1), "a size SDL takes");
     }
 }

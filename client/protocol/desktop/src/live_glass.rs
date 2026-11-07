@@ -994,6 +994,47 @@ mod tests {
     }
 
     #[test]
+    fn another_refresh_rate_judges_the_chain_against_its_own_budget() {
+        let mut glass = Glass::live();
+        let mut stage = stage();
+        stage.ms = 10.0;
+        glass.set_refresh(60.0);
+        for n in 0..t::TIER_PROBE_FRAMES {
+            glass.paint(&mut stage, &chrome_frame(Color32::from_gray(n as u8)), false);
+        }
+        assert_eq!(glass.pass_tier(), Tier::Live, "10 ms holds at 60 Hz");
+        // The same rate changes nothing: no new timing.
+        glass.set_refresh(60.0);
+        stage.calls.clear();
+        glass.paint(&mut stage, &chrome_frame(Color32::GREEN), false);
+        assert!(stage.calls.contains(&Call::End { timed: false }), "{:?}", stage.calls);
+        glass.set_refresh(120.0);
+        for n in 0..t::TIER_PROBE_FRAMES {
+            glass.paint(&mut stage, &chrome_frame(Color32::from_rgb(n as u8, 1, 2)), false);
+        }
+        assert_eq!(glass.pass_tier(), Tier::Baked, "10 ms is over budget at 120 Hz");
+    }
+
+    #[test]
+    fn a_window_with_no_pixels_skips_the_frame_and_stays_live() {
+        let mut glass = Glass::live();
+        let mut stage = stage();
+        let size = stage.size;
+        for empty in [(0, 0), (0, 800), (1000, 0)] {
+            stage.size = empty;
+            stage.begin_fails = true;
+            glass.paint(&mut stage, &chrome_frame(Color32::RED), false);
+            assert!(stage.calls.is_empty(), "{empty:?}: {:?}", stage.calls);
+            assert_eq!(glass.pass_tier(), Tier::Live, "{empty:?}");
+            assert!(!glass.take_changed());
+        }
+        stage.size = size;
+        stage.begin_fails = false;
+        glass.paint(&mut stage, &chrome_frame(Color32::RED), false);
+        assert!(stage.calls.contains(&Call::Begin), "back with its pixels: {:?}", stage.calls);
+    }
+
+    #[test]
     fn a_failing_chain_lands_on_baked_with_the_content_still_drawn() {
         for fails in ["begin", "end"] {
             let mut glass = Glass::live();

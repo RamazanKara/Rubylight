@@ -66,6 +66,46 @@ public class ConnectingScreenTest {
         controller.pause().stop().destroy();
     }
 
+    /** The press that started the game can come twice: Cancel takes keys only after a moment, Back works from the start. */
+    @Test
+    public void aSecondPressRightAwayCancelsNothingButBackStillDoes() {
+        ActivityController<Stream> controller = Robolectric.buildActivity(Stream.class).setup();
+        AtomicInteger cancelled = new AtomicInteger();
+        ConnectingScreen screen = ConnectingScreen.show(controller.get(), "Racing Game", "PC", "Connecting", null, cancelled::incrementAndGet);
+        View cancel = screen.dialog().findViewById(R.id.conn_cancel);
+        assertFalse("no key can press Cancel yet", cancel.isFocusable());
+        ShadowLooper.idleMainLooper(500, java.util.concurrent.TimeUnit.MILLISECONDS);
+        assertFalse(cancel.isFocusable());
+        ShadowLooper.idleMainLooper(200, java.util.concurrent.TimeUnit.MILLISECONDS);
+        assertTrue("then Cancel is there for keys", cancel.isFocusable());
+        controller.pause().stop().destroy();
+
+        ActivityController<Stream> again = Robolectric.buildActivity(Stream.class).setup();
+        ConnectingScreen early = ConnectingScreen.show(again.get(), "Racing Game", "PC", "Connecting", null, cancelled::incrementAndGet);
+        early.dialog().onBackPressed();
+        ShadowLooper.idleMainLooper();
+        assertEquals("Back ends it at once", 1, cancelled.get());
+        again.pause().stop().destroy();
+    }
+
+    @Test
+    public void aCoverIsReadNoLargerThanTheWindowNeeds() {
+        assertEquals(1, ConnectingScreen.sampleSize(600, 900, 1080, 2340));
+        assertEquals(2, ConnectingScreen.sampleSize(2400, 3600, 1080, 1080));
+        assertEquals(4, ConnectingScreen.sampleSize(9000, 13500, 1920, 1080));
+        int[] sample = new int[1];
+        assertNull(ConnectingScreen.readCover("big.png", 1920, 1080, (path, options) -> {
+            if (options.inJustDecodeBounds) {
+                options.outWidth = 9000;
+                options.outHeight = 13500;
+                return null;
+            }
+            sample[0] = options.inSampleSize;
+            throw new OutOfMemoryError("test");
+        }));
+        assertEquals("sampled before it ran out", 4, sample[0]);
+    }
+
     @Test
     public void cancelEndsItAsBackDoes() {
         ActivityController<Stream> controller = Robolectric.buildActivity(Stream.class).setup();

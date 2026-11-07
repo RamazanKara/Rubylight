@@ -41,6 +41,8 @@ public final class ConnectingScreen {
         }
     }
 
+    private static final long CANCEL_FOCUS_MS = 600;
+
     private final Activity activity;
     private final Dialog dialog;
     private final String title;
@@ -126,8 +128,50 @@ public final class ConnectingScreen {
         screen.setDetail(detail);
         screen.dialog.show();
         screen.orbit.setMoving(true);
-        screen.focusFirst(screen.cancel);
+        screen.focusCancelSoon();
         return screen;
+    }
+
+    /** The press that started the game can come twice: for a moment Cancel can't be pressed by keys. Back and B work throughout. */
+    private void focusCancelSoon() {
+        cancel.setFocusable(false);
+        cancel.postDelayed(() -> {
+            cancel.setFocusable(true);
+            if (!dismissed) focusFirst(cancel);
+        }, CANCEL_FOCUS_MS);
+    }
+
+    /** Reads a cover at no more than the size this window can show, off the main thread. Null when there is none or no memory for it. */
+    public static Bitmap readCover(String path, int windowWidth, int windowHeight) {
+        return readCover(path, windowWidth, windowHeight, android.graphics.BitmapFactory::decodeFile);
+    }
+
+    @androidx.annotation.VisibleForTesting
+    interface CoverDecoder {
+        Bitmap decode(String path, android.graphics.BitmapFactory.Options options);
+    }
+
+    @androidx.annotation.VisibleForTesting
+    static Bitmap readCover(String path, int windowWidth, int windowHeight, CoverDecoder decoder) {
+        android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
+        try {
+            options.inJustDecodeBounds = true;
+            decoder.decode(path, options);
+            options.inJustDecodeBounds = false;
+            options.inSampleSize = sampleSize(options.outWidth, options.outHeight, windowWidth, windowHeight);
+            return decoder.decode(path, options);
+        } catch (OutOfMemoryError e) {
+            com.limelight.LimeLog.warning("No memory for the connecting cover " + options.outWidth + "x" + options.outHeight + ": " + e);
+            return null;
+        }
+    }
+
+    /** The largest power of two that still leaves the picture covering the window. */
+    @androidx.annotation.VisibleForTesting
+    static int sampleSize(int width, int height, int windowWidth, int windowHeight) {
+        int sample = 1;
+        while (windowWidth > 0 && windowHeight > 0 && width / (sample * 2) >= windowWidth && height / (sample * 2) >= windowHeight) sample *= 2;
+        return sample;
     }
 
     /** Opens straight on a failure, with the cover of what failed. */

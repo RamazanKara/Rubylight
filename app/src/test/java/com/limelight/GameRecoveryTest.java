@@ -1650,6 +1650,46 @@ public class GameRecoveryTest {
         }
     }
 
+    @Test public void aReconnectOverAnOpenConnectingWindowRemovesTheOldOne() throws Exception {
+        Game game = establishedGame();
+        try {
+            game.onPause();
+            game.onStop();
+            game.onResume();
+            com.limelight.ui.ConnectingScreen old = ReflectionHelpers.getField(game, "spinner");
+            assertNotNull(old);
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertTrue(old.dialog().isShowing());
+            ReflectionHelpers.setField(game, "spinner", game.streamConnection.showConnecting("again"));
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertFalse("the first window would be orphaned over the stream", old.dialog().isShowing());
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test public void aStartedStreamLetsTheConnectingCoverGoAndKeepsTheMenusCopy() throws Exception {
+        Game game = establishedGame();
+        try {
+            android.graphics.Bitmap full = android.graphics.Bitmap.createBitmap(600, 900, android.graphics.Bitmap.Config.ARGB_8888);
+            android.graphics.Bitmap small = android.graphics.Bitmap.createBitmap(60, 90, android.graphics.Bitmap.Config.ARGB_8888);
+            ReflectionHelpers.setField(game.streamConnection, "connectingCover", full);
+            ReflectionHelpers.setField(game.streamConnection, "menuCover", small);
+            assertSame(full, game.streamConnection.connectingCover());
+            ReflectionHelpers.setField(game, "connecting", true);
+            try {
+                game.streamConnection.connectionStarted();
+            } catch (NullPointerException later) {
+                // Past the connecting window the start goes on to the controllers, which this game has none of.
+                assertTrue(later.getMessage(), later.getMessage().contains("controllerHandler"));
+            }
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertSame("only the small copy is held while it streams", small, game.streamConnection.connectingCover());
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
     @Test public void leavingWhileConnectingRemovesTheConnectingWindow() throws Exception {
         Game game = establishedGame();
         game.onPause();

@@ -120,7 +120,23 @@ public class NightSkyView extends View {
         sky.setMoonShown(false);
         content.addView(sky, 0, new android.view.ViewGroup.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        // The content view carries the TV margin and the safe area as padding: the sky goes edge to edge past it, or the
+        // page stands as a lighter frame inset from the screen's edge.
+        sky.bleed = true;
+        content.setClipToPadding(false);
         return sky;
+    }
+
+    private boolean bleed;
+
+    @Override
+    public void layout(int l, int t, int r, int b) {
+        if (bleed && getParent() instanceof View) {
+            View parent = (View) getParent();
+            super.layout(0, 0, parent.getWidth(), parent.getHeight());
+        } else {
+            super.layout(l, t, r, b);
+        }
     }
 
     /** How far down the window's safe area starts: the moon keeps its place under a status bar or a notch. */

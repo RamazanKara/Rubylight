@@ -753,6 +753,10 @@ public class HostStreamSettings extends NightjarActivity {
     private void updateSaveState() {
         boolean changed = !savedProfile.equals(overrides.serialize());
         findViewById(R.id.host_profile_save).setEnabled(changed);
+        // Nothing to save, nothing at the foot: no grey bar under the groups, as in Settings. A change brings the moon.
+        int foot = changed ? View.VISIBLE : View.GONE;
+        findViewById(R.id.host_profile_save).setVisibility(foot);
+        findViewById(R.id.host_profile_status).setVisibility(foot);
         ((TextView) findViewById(R.id.host_profile_status)).setText(mode != Mode.PC ?
                 (changed ? R.string.layers_unsaved_context : R.string.layers_saved_context) : changed ?
                 R.string.settings_profile_unsaved_context : R.string.settings_profile_saved_context);
@@ -1052,8 +1056,8 @@ public class HostStreamSettings extends NightjarActivity {
         private void updateSummaries() {
             PreferenceConfiguration config = activity.effective();
             HostStreamProfile own = activity.overrides;
-            findPreference("resolution").setSummary(summary(HostStreamProfile.Field.RESOLUTION, own.nativeResolution != null, resolutionText(config)) +
-                    "\n" + getString(R.string.summary_resolution_list));
+            // The value alone, as in Settings: the picker shows the sizes.
+            findPreference("resolution").setSummary(summary(HostStreamProfile.Field.RESOLUTION, own.nativeResolution != null, resolutionText(config)));
             findPreference("refresh").setSummary(summary(HostStreamProfile.Field.REFRESH, own.refreshRateX100 != null, refreshText(config)));
             String bitrate = summary(HostStreamProfile.Field.BITRATE, own.bitrate != null,
                     HostStreamProfile.formatBitrateMbps(config.bitrate) + " Mbps");

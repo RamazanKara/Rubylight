@@ -60,6 +60,8 @@ public final class OverlayFit {
         return StaticLayout.Builder.obtain(text, 0, text.length(), paint, inner)
                 .setLineSpacing(view.getLineSpacingExtra(), view.getLineSpacingMultiplier())
                 .setIncludePad(view.getIncludeFontPadding())
+                .setBreakStrategy(view.getBreakStrategy())
+                .setHyphenationFrequency(view.getHyphenationFrequency())
                 .build();
     }
 

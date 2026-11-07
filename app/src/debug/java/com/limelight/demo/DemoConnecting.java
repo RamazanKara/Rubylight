@@ -24,7 +24,7 @@ public class DemoConnecting extends AppCompatActivity {
         String state = getIntent().getStringExtra("state");
         if ("conn-error".equals(state)) {
             screen = ConnectingScreen.failure(this, "Racing Game", "Living-room PC", cover(), getString(R.string.conn_error_title),
-                    "Stream failed to start.\nClose protected videos or restart the PC.\n\nError code: 5031", new ConnectingScreen.Failure() {
+                    getString(R.string.early_termination_error) + "\n\n" + getString(R.string.error_code_prefix) + " 5031", new ConnectingScreen.Failure() {
                         @Override public void onTryAgain() {
                             finish();
                         }

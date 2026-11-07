@@ -31,6 +31,9 @@ final class DemoConsole {
     /** App ids starred on start: "--es stars 3,4" shows the Favourites row. */
     static int[] starred = new int[0];
 
+    /** The device the demo's pairing banner names. The showcase is shot from these screens: no real device's name. */
+    static final String PAIRING_DEVICE = "Phone";
+
     private DemoConsole() {
     }
 

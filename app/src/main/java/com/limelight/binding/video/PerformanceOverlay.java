@@ -5,6 +5,7 @@ import android.graphics.Typeface;
 import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
+import android.text.TextUtils;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.StyleSpan;
 
@@ -185,6 +186,16 @@ public final class PerformanceOverlay {
         SpannableString text = new SpannableString(stream + '\n' + frames + '\n' + throughput + '\n' + network + '\n' + host + '\n' + client);
         text.setSpan(new StyleSpan(Typeface.BOLD), 0, stream.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return text;
+    }
+
+    /**
+     * The statistics with "Decoder drops: N frames, the decoder fell behind" on its own last line while the
+     * engine dropped frames over a full decode queue in the window; unchanged without. Those frames are
+     * this device's and never part of the frame loss above (nightjar#80).
+     */
+    public static CharSequence withDecoderDrops(Context context, CharSequence statistics, int decoderDrops) {
+        if (decoderDrops <= 0) return statistics;
+        return TextUtils.concat(statistics, "\n", context.getString(R.string.perf_overlay_decoder_drops, decoderDrops));
     }
 
     public static Health health(float shownFps, float receivedFps, float networkMs, float frameLossPercent,

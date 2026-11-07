@@ -433,7 +433,21 @@ pub struct RpPresentSchedule {
 /// `clock` is live.
 #[no_mangle]
 pub unsafe extern "C" fn rp_present_clock_schedule(clock: *mut PresentClock, rtp: u32, ready_us: u64) -> RpPresentSchedule {
-    let s = (*clock).schedule(rtp, ready_us);
+    present_schedule((*clock).schedule(rtp, ready_us))
+}
+
+/// As `rp_present_clock_schedule` for a frame that waited behind others in the decode queue:
+/// presented as soon as it is ready and left out of the lateness window
+/// (`PresentClock::schedule_behind`).
+///
+/// # Safety
+/// `clock` is live.
+#[no_mangle]
+pub unsafe extern "C" fn rp_present_clock_schedule_behind(clock: *mut PresentClock, rtp: u32, ready_us: u64) -> RpPresentSchedule {
+    present_schedule((*clock).schedule_behind(rtp, ready_us))
+}
+
+fn present_schedule(s: rubylight_protocol::present_clock::Schedule) -> RpPresentSchedule {
     RpPresentSchedule {
         present_us: s.present_us,
         hold_us: s.hold_us,
@@ -477,12 +491,30 @@ pub unsafe extern "C" fn rp_present_clock_schedule_on_grid(
     ready_us: u64,
     grid: *const RpPresentGrid,
 ) -> RpPresentGridSchedule {
-    let g = &*grid;
-    let s = (*clock).schedule_on_grid(
-        rtp,
-        ready_us,
-        Grid { anchor_us: g.anchor_us, interval_us: g.interval_us, lead_us: g.lead_us, slack_us: g.slack_us },
-    );
+    grid_schedule((*clock).schedule_on_grid(rtp, ready_us, grid_of(&*grid)))
+}
+
+/// As `rp_present_clock_schedule_on_grid` for a frame that waited behind others in the decode
+/// queue: released as soon as it is ready and left out of the lateness window
+/// (`PresentClock::schedule_on_grid_behind`).
+///
+/// # Safety
+/// `clock` is live and `grid` is readable.
+#[no_mangle]
+pub unsafe extern "C" fn rp_present_clock_schedule_on_grid_behind(
+    clock: *mut PresentClock,
+    rtp: u32,
+    ready_us: u64,
+    grid: *const RpPresentGrid,
+) -> RpPresentGridSchedule {
+    grid_schedule((*clock).schedule_on_grid_behind(rtp, ready_us, grid_of(&*grid)))
+}
+
+fn grid_of(g: &RpPresentGrid) -> Grid {
+    Grid { anchor_us: g.anchor_us, interval_us: g.interval_us, lead_us: g.lead_us, slack_us: g.slack_us }
+}
+
+fn grid_schedule(s: rubylight_protocol::present_clock::GridSchedule) -> RpPresentGridSchedule {
     RpPresentGridSchedule {
         release_us: s.release_us,
         vsync_us: s.vsync_us,

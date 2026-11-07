@@ -172,6 +172,11 @@ Java_com_limelight_nvstream_jni_MoonBridge_cGetPendingVideoFrames(JNIEnv *env, j
 }
 
 JNIEXPORT jlong JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_cGetDecoderDrops(JNIEnv *env, jclass clazz) {
+    return (jlong)LiGetDecoderDrops();
+}
+
+JNIEXPORT jlong JNICALL
 Java_com_limelight_nvstream_jni_MoonBridge_cGetWireBytesReceived(JNIEnv *env, jclass clazz) {
     return (jlong)LiGetWireBytesReceived();
 }

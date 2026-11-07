@@ -90,6 +90,7 @@
     <string name="perf_overlay_renderingfps">İşlenen: %1$.2f FPS</string>
     <string name="perf_overlay_hostprocessinglatency">Ana bilgisayar min/maks/ort: %1$.1f/%2$.1f/%3$.1f ms</string>
     <string name="perf_overlay_netdrops">Ağ kare kaybı: %%%1$.2f</string>
+    <string name="perf_overlay_decoder_drops">Kod çözücü kayıpları: %1$d kare, kod çözücü geride kaldı</string>
     <string name="perf_overlay_netlatency">Ağ: %1$d ms (±%2$d ms)</string>
     <string name="perf_overlay_dectime">Kod çözme süresi: %1$.2f ms</string>
     <string name="applist_connect_msg">Bilgisayara bağlanılıyor…</string>

@@ -713,6 +713,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     private long lastTimestampUs;
     private int lastFrameNumber;
+    // The engine's decoder drop count (MoonBridge.getDecoderDrops) at the last frame-number gap.
+    private long lastDecoderDrops;
     private long baseTimestampUs;
     private volatile int refreshRate;
     private volatile int streamFrameRateMilliHz;
@@ -4598,6 +4600,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             String network = context.getString(R.string.stats_throughput,
                     PerformanceOverlay.measurement(locale, receivedVideoMbps, "%.1f"),
                     PerformanceOverlay.measurement(locale, fps.lossPercent, "%.2f")) + '\n' +
+                    (fps.decoderDrops > 0 ? context.getString(R.string.perf_overlay_decoder_drops, fps.decoderDrops) + '\n' : "") +
                     (wire != null ? wire + '\n' : "") +
                     context.getString(R.string.stats_network,
                             PerformanceOverlay.measurement(locale, networkMs, "%.0f"),
@@ -4636,11 +4639,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             decode.append('\n').append(latencyOverlay);
             double[][] timings = latencySummary;
             perfListener.onPerfUpdate(video.toString(), network, decode.toString(),
-                    PerformanceOverlay.statisticsText(context, stream, PerformanceOverlay.renderedFps(frameRates),
-                            frameRates[0], receivedVideoMbps, wireMbps, fps.lossPercent,
-                            networkMs, varianceMs, shownHostProcessingMs,
-                            PerformanceOverlay.average(timings, FrameLatencyStats.HOST_SENT_STAGE), shownDecodeTimeMs,
-                            PerformanceOverlay.average(timings, 2), !mediaCodec),
+                    PerformanceOverlay.withDecoderDrops(context,
+                            PerformanceOverlay.statisticsText(context, stream, PerformanceOverlay.renderedFps(frameRates),
+                                    frameRates[0], receivedVideoMbps, wireMbps, fps.lossPercent,
+                                    networkMs, varianceMs, shownHostProcessingMs,
+                                    PerformanceOverlay.average(timings, FrameLatencyStats.HOST_SENT_STAGE), shownDecodeTimeMs,
+                                    PerformanceOverlay.average(timings, 2), !mediaCodec),
+                            fps.decoderDrops),
                     PerformanceOverlay.compactText(context, PerformanceOverlay.renderedFps(frameRates),
                             PerformanceOverlay.healthFps(frameRates), frameRates[0],
                             PerformanceOverlay.panelHz(vsyncNs, outputDisplay == null ? -1 :
@@ -4648,6 +4653,23 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                             outputDisplay.getMode().getRefreshRate() : outputDisplay.getRefreshRate()),
                             networkMs,
                             fps.lossPercent, decodeTimeMs));
+        }
+    }
+
+    /**
+     * Counts gap frames that never reached this renderer. When the engine's decode queue overflowed
+     * since the last gap (decoderOverflowed), the whole gap is the overflow's: the flushed queue, the
+     * overflowing frame and the frames dropped until the key frame it asked for. Those are decoder
+     * drops, this device's, and stay out of framesLost, which the loss figure, the stream doctor and
+     * the bitrate logic read as network loss (nightjar#80).
+     */
+    static void recordFrameGap(VideoStats window, int gap, boolean decoderOverflowed) {
+        window.totalFrames += gap;
+        if (decoderOverflowed) {
+            window.decoderDrops += gap;
+        } else {
+            window.framesLost += gap;
+            window.frameLossEvents++;
         }
     }
 
@@ -4704,15 +4726,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         if (lastFrameNumber == 0) {
             activeWindowVideoStats.measurementStartTimestamp = SystemClock.uptimeMillis();
+            lastDecoderDrops = MoonBridge.getDecoderDrops();
         } else if (frameNumber != lastFrameNumber && frameNumber != lastFrameNumber + 1 &&
                 // The frames dropped while waiting for the keyframe the net asked for were no network loss.
                 !(safetyNet != null && frameType == MoonBridge.FRAME_TYPE_IDR &&
                         safetyNet.takeAnsweredGap(frameNumber - lastFrameNumber - 1))) {
             // We can receive the same "frame" multiple times if it's an IDR frame.
             // In that case, each frame start NALU is submitted independently.
-            activeWindowVideoStats.framesLost += frameNumber - lastFrameNumber - 1;
-            activeWindowVideoStats.totalFrames += frameNumber - lastFrameNumber - 1;
-            activeWindowVideoStats.frameLossEvents++;
+            long decoderDrops = MoonBridge.getDecoderDrops();
+            recordFrameGap(activeWindowVideoStats, frameNumber - lastFrameNumber - 1, decoderDrops != lastDecoderDrops);
+            lastDecoderDrops = decoderDrops;
         }
 
         // Reset CSD data for each IDR frame

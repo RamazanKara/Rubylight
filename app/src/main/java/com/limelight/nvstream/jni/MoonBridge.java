@@ -863,6 +863,13 @@ public class MoonBridge {
     }
     private static native int cGetPendingVideoFrames();
 
+    // Frames the engine dropped because its decode queue overflowed (the overflowing frame and those
+    // dropped until the key frame it asked for), since the stream started: local, not network loss.
+    public static long getDecoderDrops() {
+        return rustStream ? RustBridge.getDecoderDrops() : cGetDecoderDrops();
+    }
+    private static native long cGetDecoderDrops();
+
     public static native int testClientConnectivity(String testServerHostName, int referencePort, int testFlags);
 
     public static native int getPortFlagsFromStage(int stage);

@@ -127,6 +127,10 @@ impl Streaming {
             }
             self.last_arrival = Some((decoded.rtp, decoded.receive_us));
             self.doctor.arrived(decoded.rtp, decoded.host_latency, decoded.receive_us, self.facts.fps.max(0) as u32);
+            // Frames still waiting to be decoded: this picture's lateness is the backlog's.
+            if self.pacer.mode == PacingMode::HostTimes {
+                self.pacer.set_decoder_behind(self.session.decode_queue_len() > 0);
+            }
             self.pacer.accept(decoded);
         }
         self.taken_frames = frames;

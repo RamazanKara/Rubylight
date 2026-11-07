@@ -19,6 +19,16 @@ import static org.junit.Assert.*;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 29, application = Application.class)
 public class StreamMenuHintTest {
+    /** The real TV's virtual-search: keyboard, D-pad and the gamepad bit, no axes, and only a remote in the hand. */
+    @Test
+    public void aDeviceWithNoAxesIsNoPad() {
+        assertFalse(StreamMenuHint.isPad(android.view.InputDevice.SOURCE_KEYBOARD | android.view.InputDevice.SOURCE_DPAD
+                | android.view.InputDevice.SOURCE_GAMEPAD));
+        assertFalse(StreamMenuHint.isPad(android.view.InputDevice.SOURCE_KEYBOARD | android.view.InputDevice.SOURCE_DPAD));
+        assertTrue(StreamMenuHint.isPad(android.view.InputDevice.SOURCE_GAMEPAD | android.view.InputDevice.SOURCE_JOYSTICK
+                | android.view.InputDevice.SOURCE_KEYBOARD | android.view.InputDevice.SOURCE_DPAD));
+    }
+
     private static Context context(Locale locale) {
         Context app = RuntimeEnvironment.getApplication();
         Configuration config = new Configuration(app.getResources().getConfiguration());

@@ -207,8 +207,9 @@ struct App {
     /// The 4:4:4 and 10-bit decoder check for a decoder, done at the first launch that asks: the
     /// decoder stays the same while Nightjar runs, and a renderer switch drops it.
     color_probed: Option<(Hardware, (u32, String))>,
-    /// The plain HEVC and AV1 decoder check (`color_probe::probe_base`), kept the same way.
-    base_probed: Option<(Hardware, stream::color_probe::Base)>,
+    /// The plain HEVC and AV1 decoder check (`color_probe::probe_base`), kept the same way for
+    /// the decoder and the formats it checked.
+    base_probed: Option<((Hardware, u32), stream::color_probe::Base)>,
     /// Linux's renderer as it was made ([`RendererState`]).
     #[cfg(unix)]
     renderer_state: RendererState,
@@ -2362,9 +2363,11 @@ impl App {
             (0, String::new())
         };
         // Offers follow what the decoder decodes here, not what it is said to.
-        let base_decodable = match self.hardware(&settings) {
-            Hardware::None => stream::color_probe::Base::software(),
-            hardware => probed_once(&mut self.base_probed, hardware, || stream::color_probe::probe_base(hardware)),
+        let base_decodable = match (self.hardware(&settings), stream::base_probe_formats(&settings)) {
+            (Hardware::None, _) => stream::color_probe::Base::software(),
+            (hardware, wanted) => {
+                probed_once(&mut self.base_probed, (hardware, wanted), || stream::color_probe::probe_base(hardware, wanted))
+            }
         };
         let (Some(identity), Some(host)) = (identity, self.hosts.get(host_id)) else {
             return;
@@ -3439,7 +3442,7 @@ fn small_stream(settings: &mut config::Settings) {
 }
 
 /// `probe`'s answer for `hardware`, from `cache` when it was the last decoder checked.
-fn probed_once<T: Clone>(cache: &mut Option<(Hardware, T)>, hardware: Hardware, probe: impl FnOnce() -> T) -> T {
+fn probed_once<K: PartialEq, T: Clone>(cache: &mut Option<(K, T)>, hardware: K, probe: impl FnOnce() -> T) -> T {
     match cache {
         Some((probed, result)) if *probed == hardware => result.clone(),
         _ => cache.insert((hardware, probe())).1.clone(),

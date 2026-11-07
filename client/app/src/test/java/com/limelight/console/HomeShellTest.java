@@ -1094,6 +1094,29 @@ public class HomeShellTest {
         }
     }
 
+    /** Right along the top of a TV: tabs, PC, View, search, then a wall. The remote has no other way up there. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionRightWalksTheWholeTopRow() {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            Object root = ReflectionHelpers.callInstanceMethod(home.getWindow().getDecorView(), "getViewRootImpl");
+            ReflectionHelpers.callInstanceMethod(root, "ensureTouchMode", ReflectionHelpers.ClassParameter.from(boolean.class, false));
+            home.findViewById(R.id.home_pc).setVisibility(View.VISIBLE);
+            layOut(home);
+            View at = home.findViewById(R.id.shell_settings);
+            for (int id : new int[] {R.id.home_pc, R.id.console_view, R.id.home_search}) {
+                View next = at.focusSearch(View.FOCUS_RIGHT);
+                assertEquals(home.findViewById(id), next);
+                at = next;
+            }
+            assertEquals("a wall", at, at.focusSearch(View.FOCUS_RIGHT));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     /** The first card of a shelf is where a TV starts: grown and ringed, it must not touch the shelf's heading. */
     @Test
     @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")

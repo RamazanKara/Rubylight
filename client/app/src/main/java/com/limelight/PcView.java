@@ -641,6 +641,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         noPcFoundLayout.setVisibility(empty ? View.VISIBLE : View.GONE);
         findViewById(R.id.pcFragmentContainer).setVisibility(empty ? View.GONE : View.VISIBLE);
         findViewById(R.id.manuallyAddPc).setVisibility(empty ? View.GONE : View.VISIBLE);
+        if (GlassForm.of(this) != GlassForm.PHONE) ShellBar.linkTopRow(this, R.id.manuallyAddPc);
         placeListFooter();
         boolean filled = listWasEmpty && !empty;
         listWasEmpty = empty;

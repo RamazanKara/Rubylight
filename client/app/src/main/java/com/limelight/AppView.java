@@ -522,6 +522,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
         ShellBar.install(this, ShellBar.Destination.PCS);
         // Last: the chrome reports the safe area at once, and that needs everything in its place.
         chrome = new PageChrome(this, host, R.id.library_tabs, R.id.library_top_row, R.id.library_bottom_row, R.id.library_foot_fade, this::layOutUnderChrome);
+        if (form != GlassForm.PHONE) ShellBar.linkTopRow(this, R.id.library_options, R.id.library_search_button);
         // This page is inside PCs: its tab goes back to the list.
         findViewById(R.id.shell_pcs).setOnClickListener(v -> finish());
         findViewById(R.id.library_chrome).addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> placeGrid(b));

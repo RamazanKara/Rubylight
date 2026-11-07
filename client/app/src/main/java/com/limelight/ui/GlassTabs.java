@@ -143,6 +143,22 @@ public class GlassTabs extends LinearLayout {
         }
     }
 
+    private final android.view.ViewTreeObserver.OnGlobalFocusChangeListener focusLeaves = (from, to) -> {
+        if ((from != null && from.getParent() == this) || (to != null && to.getParent() == this)) invalidate();
+    };
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        getViewTreeObserver().addOnGlobalFocusChangeListener(focusLeaves);
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        getViewTreeObserver().removeOnGlobalFocusChangeListener(focusLeaves);
+        super.onDetachedFromWindow();
+    }
+
     @Override
     public void requestChildFocus(View child, View focused) {
         super.requestChildFocus(child, focused);

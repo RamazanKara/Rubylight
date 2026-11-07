@@ -152,6 +152,27 @@ public final class ShellBar {
         }
     }
 
+    /**
+     * Right past the last tab goes on along the top row, for a remote that has no other way to reach those controls, and
+     * the row's end is the wall the last tab was. Focus skips what is hidden on the way; the wall is at the last shown now,
+     * so call it again when that one comes or goes.
+     */
+    public static void linkTopRow(Activity activity, int... ids) {
+        ViewGroup tabs = activity.findViewById(R.id.shell_bar_items);
+        if (tabs == null || tabs.getChildCount() == 0) return;
+        View previous = tabs.getChildAt(tabs.getChildCount() - 1);
+        View wall = previous;
+        for (int id : ids) {
+            View next = activity.findViewById(id);
+            if (next == null) continue;
+            previous.setNextFocusRightId(id);
+            next.setNextFocusLeftId(previous.getId());
+            previous = next;
+            if (next.getVisibility() == View.VISIBLE) wall = next;
+        }
+        wall.setNextFocusRightId(wall.getId());
+    }
+
     private static boolean isTelevision(Context context) {
         return (context.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_TYPE_MASK)
                 == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;

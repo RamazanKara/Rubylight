@@ -271,21 +271,22 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     private void setUpViewButton() {
         View button = findViewById(R.id.console_view);
         button.setOnClickListener(v -> showViewSheet());
-        // A TV's bar ends in a wall after its last tab; on Home, View is past it.
+        com.limelight.ui.GlassForm form = com.limelight.ui.GlassForm.of(this);
+        if (form != com.limelight.ui.GlassForm.PHONE) {
+            // A TV's layout has one search; the other forms' top row shows its own and hides the foot's.
+            View top = findViewById(R.id.home_search_top);
+            ShellBar.linkTopRow(this, R.id.home_pc, R.id.console_view,
+                    top != null && top.getVisibility() == View.VISIBLE ? R.id.home_search_top : R.id.home_search);
+            return;
+        }
+        // A phone's bar is at the foot: View is past its last tab.
         ViewGroup tabs = findViewById(R.id.shell_bar_items);
         if (tabs != null && tabs.getChildCount() > 0) {
             View last = tabs.getChildAt(tabs.getChildCount() - 1);
             last.setNextFocusRightId(R.id.console_view);
             button.setNextFocusLeftId(last.getId());
         }
-        View search = findViewById(R.id.home_search);
-        if (isTelevision() && search != null) {
-            button.setNextFocusRightId(R.id.home_search);
-            search.setNextFocusLeftId(R.id.console_view);
-            search.setNextFocusRightId(R.id.home_search);
-        } else {
-            button.setNextFocusRightId(R.id.console_view);
-        }
+        button.setNextFocusRightId(R.id.console_view);
     }
 
     /** For tests and the demo's captures: the view Home shows. */

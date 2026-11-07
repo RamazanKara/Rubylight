@@ -61,6 +61,17 @@ fn xusb_buttons_axes_and_triggers_match_vibepollo() {
 }
 
 #[test]
+fn a_report_built_on_the_stack_matches_the_xusb_submit_packet() {
+    let sticks = [i16::MIN, i16::MAX, -1, 0x1234];
+    let mut expected = packet(20, 0x0102_0304);
+    expected[8..].copy_from_slice(&xusb_report(0x9231, 17, 255, &sticks));
+    assert_eq!(
+        submit_packet(0x0102_0304, 0x9231, 17, 255, &sticks).to_vec(),
+        expected
+    );
+}
+
+#[test]
 fn notifications_use_a_vhf_xbox_pads_rumble_format() {
     assert_eq!(
         feedback_report(&[12, 0, 0, 0, 7, 0, 0, 0, 255, 128, 3, 0]),

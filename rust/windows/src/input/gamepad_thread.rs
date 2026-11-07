@@ -8,13 +8,18 @@ use butterpollo_core::steam_feedback::{SteamHaptic, SteamPads};
 use butterpollo_core::{controller_audio, haptics};
 use std::{
     collections::VecDeque,
+    os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle},
     sync::{
-        Arc, Condvar, Mutex,
+        Arc, Condvar, Mutex, MutexGuard,
         atomic::{AtomicBool, AtomicU16, Ordering},
         mpsc,
     },
     thread::JoinHandle,
     time::{Duration, Instant},
+};
+use windows::Win32::{
+    Foundation::{HANDLE, WAIT_FAILED},
+    System::Threading::{CreateEventW, INFINITE, SetEvent, WaitForMultipleObjects},
 };
 
 /// How often feedback is polled and the back button emulated while a pad is
@@ -27,6 +32,8 @@ const RETRY: Duration = Duration::from_secs(10);
 const QUEUE_LIMIT: usize = 1024;
 /// Moonlight's rumble packet, which synthesized Steam Controller rumble uses.
 const RUMBLE_DATA: u16 = 0x010b;
+/// How often the `gamepad timings` line is logged while pads are plugged.
+const STATS_EVERY: Duration = Duration::from_secs(5);
 
 /// What the gamepad thread hands back to the control stream.
 #[derive(Debug, PartialEq)]
@@ -53,6 +60,20 @@ pub(super) trait Pads {
     fn apply(&mut self, event: &Event) -> Result<()>;
     fn refresh(&mut self) -> Result<()>;
     fn feedback(&mut self) -> Vec<(u16, u16, Vec<u8>)>;
+    /// Feedback reports read from the driver since the last call, coalesced
+    /// or not.
+    fn feedback_drained(&mut self) -> usize {
+        0
+    }
+    /// Events a driver signals when feedback is waiting (ViGEmBus's
+    /// notification requests): the thread waits on them beside its queue
+    /// and polls at once instead of at the next tick.
+    fn wait_handles(&self, _handles: &mut Vec<HANDLE>) {}
+    /// Whether one of [`Pads::wait_handles`]' requests has completed and
+    /// waits for the next feedback poll.
+    fn feedback_ready(&self) -> bool {
+        false
+    }
     fn haptics(&mut self) -> Vec<haptics::Frame> {
         vec![]
     }
@@ -87,6 +108,15 @@ impl Pads for Gamepads {
     fn feedback(&mut self) -> Vec<(u16, u16, Vec<u8>)> {
         Gamepads::feedback(self)
     }
+    fn feedback_drained(&mut self) -> usize {
+        self.take_feedback_drained()
+    }
+    fn wait_handles(&self, handles: &mut Vec<HANDLE>) {
+        Gamepads::wait_handles(self, handles);
+    }
+    fn feedback_ready(&self) -> bool {
+        Gamepads::feedback_ready(self)
+    }
     fn haptics(&mut self) -> Vec<haptics::Frame> {
         Gamepads::haptics(self)
     }
@@ -113,6 +143,10 @@ impl Pads for Gamepads {
 struct Shared {
     warnings: Mutex<Arc<butterpollo_core::session::Warnings>>,
     queue: Mutex<Queue>,
+    /// Signalled with `wake` for the gamepad thread, which waits on it and
+    /// the drivers' feedback events together; `wake` stays for
+    /// [`GamepadThread::wait_ready`].
+    wake_event: OwnedHandle,
     feedback_waker: Mutex<Option<Arc<std::net::UdpSocket>>>,
     haptics: Mutex<haptics::Queue>,
     speaker: Mutex<haptics::Queue>,
@@ -124,6 +158,16 @@ struct Shared {
     haptics_on: AtomicBool,
     ready: AtomicU16,
     audio_ready: AtomicU16,
+}
+impl Shared {
+    /// Wake the gamepad thread and anyone waiting for its pads.
+    fn wake(&self) {
+        self.wake.notify_all();
+        // SAFETY: `wake_event` is an event handle Shared owns.
+        if let Err(error) = unsafe { SetEvent(HANDLE(self.wake_event.as_raw_handle())) } {
+            tracing::error!(%error, "could not wake the virtual controllers' thread");
+        }
+    }
 }
 struct AudioInput {
     id: u16,
@@ -224,6 +268,8 @@ struct Queue {
     release: bool,
     /// Whether events were dropped since the thread last took the queue.
     full: bool,
+    /// When the oldest event waiting was queued, for `gamepad timings`.
+    oldest: Option<Instant>,
 }
 impl Queue {
     /// Hand the worker one batch and give producers its empty spare buffer.
@@ -271,9 +317,27 @@ impl GamepadThread {
         open: impl FnMut() -> Result<P> + Send + 'static,
         warnings: Arc<butterpollo_core::session::Warnings>,
     ) -> std::io::Result<Self> {
+        Self::spawn_polled(open, warnings, POLL)
+    }
+    /// The thread with feedback polled every `poll`; tests stretch it.
+    fn spawn_polled<P: Pads + 'static>(
+        open: impl FnMut() -> Result<P> + Send + 'static,
+        warnings: Arc<butterpollo_core::session::Warnings>,
+        poll: Duration,
+    ) -> std::io::Result<Self> {
+        // SAFETY: CreateEventW returned a new auto-reset event, which only
+        // this OwnedHandle owns.
+        let wake_event = unsafe {
+            OwnedHandle::from_raw_handle(
+                CreateEventW(None, false, false, None)
+                    .map_err(std::io::Error::other)?
+                    .0,
+            )
+        };
         let shared = Arc::new(Shared {
             warnings: Mutex::new(warnings),
             queue: Mutex::default(),
+            wake_event,
             feedback_waker: Mutex::default(),
             haptics: Mutex::default(),
             speaker: Mutex::default(),
@@ -288,7 +352,7 @@ impl GamepadThread {
         let (sender, reports) = mpsc::channel();
         let thread = std::thread::Builder::new().name("gamepads".into()).spawn({
             let shared = shared.clone();
-            move || run(&shared, open, &sender)
+            move || run(&shared, open, &sender, poll)
         })?;
         Ok(Self {
             shared,
@@ -318,11 +382,14 @@ impl GamepadThread {
             );
         }
         let mut queue = self.shared.queue.lock().unwrap();
+        if queue.oldest.is_none() {
+            queue.oldest = Some(Instant::now());
+        }
         if !enqueue(&mut queue.events, event) && !std::mem::replace(&mut queue.full, true) {
             self.shared.warnings.lock().unwrap().event("input_gamepad_queue", "Virtual gamepad driver is not keeping up; controller input was dropped. Check the virtual gamepad driver or choose another supported profile.", butterpollo_core::session::EVENT_PERIOD);
         }
         drop(queue);
-        self.shared.wake.notify_all();
+        self.shared.wake();
     }
     /// Feedback and motion requests the thread has produced since the last call.
     pub fn reports(&self) -> impl Iterator<Item = PadReport> + '_ {
@@ -352,19 +419,20 @@ impl GamepadThread {
     pub(super) fn release_all(&self) {
         let mut queue = self.shared.queue.lock().unwrap();
         queue.events.clear();
+        queue.oldest = None;
         queue.release = true;
         self.shared.haptics.lock().unwrap().retain_controllers(0);
         self.shared.speaker.lock().unwrap().retain_controllers(0);
         self.shared.audio_input.lock().unwrap().release_pcm();
         drop(queue);
-        self.shared.wake.notify_all();
+        self.shared.wake();
     }
     /// Follow the client's Haptics setting: turning it off stops Steam
     /// Controller rumble and drops its pending pulses at the next poll.
     pub(super) fn set_haptics(&self, enabled: bool) {
         self.shared.haptics_on.store(enabled, Ordering::Release);
         drop(self.shared.queue.lock());
-        self.shared.wake.notify_all();
+        self.shared.wake();
     }
     /// Release controls immediately while keeping the device identity for reconnect.
     pub fn audio(&self, id: u16, kind: u16, payload: &[u8]) {
@@ -418,7 +486,7 @@ impl GamepadThread {
         self.shared.stop.store(true, Ordering::Release);
         // Taking the lock orders the flag before a wait that checked it.
         drop(self.shared.queue.lock());
-        self.shared.wake.notify_all();
+        self.shared.wake();
     }
     pub fn stop(&self) -> Option<JoinHandle<()>> {
         self.request_stop();
@@ -502,10 +570,91 @@ fn enqueue(events: &mut VecDeque<Event>, event: Event) -> bool {
     true
 }
 
+/// What the `gamepad timings` line reports: how long controller events
+/// waited from [`GamepadThread::send`] until the driver had them, and how
+/// much feedback each poll read.
+#[derive(Default)]
+struct Stats {
+    since: Option<Instant>,
+    /// Per batch: the oldest event's time from queued to submitted.
+    waits: Vec<Duration>,
+    depth_max: usize,
+    polls: usize,
+    drained: usize,
+    drained_max: usize,
+}
+impl Stats {
+    fn batch(&mut self, queued: Instant, depth: usize, now: Instant) {
+        self.since.get_or_insert(now);
+        if self.waits.len() < 1 << 16 {
+            self.waits.push(now.saturating_duration_since(queued));
+        }
+        self.depth_max = self.depth_max.max(depth);
+    }
+    fn poll(&mut self, drained: usize, now: Instant) {
+        self.since.get_or_insert(now);
+        self.polls += 1;
+        self.drained += drained;
+        self.drained_max = self.drained_max.max(drained);
+    }
+    /// The line for the window that ended, once STATS_EVERY has passed.
+    fn take_due(&mut self, now: Instant) -> Option<Self> {
+        let since = self.since?;
+        (now.saturating_duration_since(since) >= STATS_EVERY).then(|| std::mem::take(self))
+    }
+    fn log(mut self) {
+        let micros = |d: Option<&Duration>| d.map_or(0, |d| d.as_micros() as u64);
+        self.waits.sort_unstable();
+        let at = |q: usize| {
+            self.waits
+                .get((self.waits.len().saturating_sub(1)) * q / 100)
+        };
+        tracing::info!(
+            batches = self.waits.len(),
+            queued_p50_us = micros(at(50)),
+            queued_p99_us = micros(at(99)),
+            queued_max_us = micros(self.waits.last()),
+            queue_depth_max = self.depth_max,
+            feedback_polls = self.polls,
+            feedback_drained = self.drained,
+            feedback_drained_max = self.drained_max,
+            "gamepad timings"
+        );
+    }
+}
+
+/// Wait without the queue's lock until an event is queued, a driver signals
+/// feedback in `handles` (after the wake event at 0), or `timeout` passes.
+fn wait<'a>(
+    shared: &'a Shared,
+    queue: MutexGuard<'a, Queue>,
+    handles: &[HANDLE],
+    timeout: Option<Duration>,
+) -> MutexGuard<'a, Queue> {
+    drop(queue);
+    // Rounded up: a wait that ends before its deadline would only spin.
+    let ms = timeout.map_or(INFINITE, |timeout| {
+        u32::try_from(timeout.as_micros().div_ceil(1000))
+            .map_or(INFINITE - 1, |ms| ms.min(INFINITE - 1))
+    });
+    // SAFETY: the wake event lives in `shared`, and the drivers' events in
+    // the pads this thread owns and does not touch while it waits.
+    if unsafe { WaitForMultipleObjects(handles, false, ms) } == WAIT_FAILED {
+        // Only an invalid handle fails this: loud, and no busy loop.
+        tracing::error!(
+            error = %windows::core::Error::from_thread(),
+            "the virtual controllers' thread could not wait for events"
+        );
+        std::thread::sleep(timeout.unwrap_or(POLL).min(POLL));
+    }
+    shared.queue.lock().unwrap()
+}
+
 fn run<P: Pads>(
     shared: &Shared,
     mut open: impl FnMut() -> Result<P>,
     reports: &mpsc::Sender<PadReport>,
+    poll: Duration,
 ) {
     // Mock workers must not boost their priority or register a Windows task.
     #[cfg(not(test))]
@@ -538,6 +687,9 @@ fn run<P: Pads>(
     let mut polling = false;
     let mut known_controllers = 0u16;
     let mut events = VecDeque::new();
+    let mut handles = Vec::new();
+    let mut stats = Stats::default();
+    let mut queued = None;
     let stopping = || shared.stop.load(Ordering::Acquire);
     loop {
         let release = {
@@ -548,17 +700,29 @@ fn run<P: Pads>(
                     return;
                 }
                 if queue.release || !queue.events.is_empty() {
+                    queued = queue.oldest.take();
                     break queue.take_into(&mut events);
                 }
+                if pads
+                    .as_ref()
+                    .is_some_and(|pads| (polling || pads.plugged()) && pads.feedback_ready())
+                {
+                    break false;
+                }
+                handles.clear();
+                handles.push(HANDLE(shared.wake_event.as_raw_handle()));
+                if let Some(pads) = &pads {
+                    pads.wait_handles(&mut handles);
+                }
                 if !polling && !pads.as_ref().is_some_and(P::plugged) {
-                    queue = shared.wake.wait(queue).unwrap();
+                    queue = wait(shared, queue, &handles, None);
                     continue;
                 }
                 let now = Instant::now();
                 if now >= poll_at {
                     break false;
                 }
-                queue = shared.wake.wait_timeout(queue, poll_at - now).unwrap().0;
+                queue = wait(shared, queue, &handles, Some(poll_at - now));
             }
         };
         if release && let Some(pads) = &mut pads {
@@ -575,6 +739,7 @@ fn run<P: Pads>(
             steam.retain(0);
             send_steam(&mut steam);
         }
+        let depth = events.len();
         for event in events.drain(..) {
             if stopping() {
                 return;
@@ -662,11 +827,19 @@ fn run<P: Pads>(
             }
         }
         let now = Instant::now();
+        if let Some(queued) = queued.take()
+            && depth > 0
+            && pads.is_some()
+        {
+            stats.batch(queued, depth, now);
+        }
+        // A driver's completed feedback request is forwarded at once and its
+        // next request started, not left to the next tick.
         if let Some(pads) = &mut pads
             && (polling || pads.plugged())
-            && now >= poll_at
+            && (now >= poll_at || pads.feedback_ready())
         {
-            poll_at = now + POLL;
+            poll_at = now + poll;
             if let Err(error) = pads.refresh() {
                 tracing::debug!(%error, "controller refresh failed");
             }
@@ -675,6 +848,10 @@ fn run<P: Pads>(
                 .store(pads.audio_ready(), Ordering::Release);
             for (id, kind, data) in pads.feedback() {
                 report(PadReport::Feedback { id, kind, data });
+            }
+            stats.poll(pads.feedback_drained(), now);
+            if let Some(window) = stats.take_due(now) {
+                window.log();
             }
             let steam_haptics = pads.steam_haptics();
             if shared.haptics_on.load(Ordering::Acquire) && !shared.parked.load(Ordering::Acquire) {
@@ -1026,6 +1203,143 @@ pub(crate) mod tests {
         steam_tone(&reports);
         let rumbles = rumbles_until(&pads, Some(ON));
         assert_eq!(rumbles.last(), Some(&ON.to_vec()), "{rumbles:?}");
+    }
+
+    #[test]
+    fn gamepad_timings_cover_one_window_then_start_again() {
+        let mut stats = Stats::default();
+        let start = Instant::now();
+        for micros in 1..=100 {
+            stats.batch(start, micros, start + Duration::from_micros(micros as u64));
+        }
+        stats.poll(3, start);
+        stats.poll(1, start);
+        assert!(stats.take_due(start + Duration::from_secs(4)).is_none());
+        let window = stats
+            .take_due(start + STATS_EVERY + Duration::from_millis(1))
+            .unwrap();
+        assert_eq!(window.waits.len(), 100);
+        assert_eq!(window.waits[49], Duration::from_micros(50));
+        assert_eq!(window.depth_max, 100);
+        assert_eq!(
+            (window.polls, window.drained, window.drained_max),
+            (2, 4, 3)
+        );
+        // The next window starts with the next record, not the last one.
+        assert!(stats.since.is_none() && stats.waits.is_empty());
+        assert!(stats.take_due(start + STATS_EVERY * 3).is_none());
+    }
+
+    #[test]
+    fn a_batchs_wait_counts_from_its_oldest_event() {
+        let (pads, gate, _log) = fake();
+        // The first state waits at the gate; the second queues behind it and
+        // the third folds into the second, keeping its queue time.
+        pads.send(state(0, 1, 1, 0));
+        gate.wait_entered(1);
+        pads.send(state(0, 1, 0, 1));
+        let queued = pads.shared.queue.lock().unwrap().oldest.unwrap();
+        pads.send(state(0, 1, 0, 2));
+        assert_eq!(pads.shared.queue.lock().unwrap().oldest, Some(queued));
+        gate.open();
+        gate.wait_until(|| pads.shared.queue.lock().unwrap().oldest.is_none());
+        pads.release_all();
+        assert!(pads.shared.queue.lock().unwrap().oldest.is_none());
+    }
+
+    /// A pad whose driver signals an event when its feedback request
+    /// completes, as ViGEmBus's notification does.
+    struct Signalled {
+        event: Arc<OwnedHandle>,
+        ready: Arc<AtomicBool>,
+        plugged: bool,
+    }
+    impl Pads for Signalled {
+        fn apply(&mut self, _: &Event) -> Result<()> {
+            self.plugged = true;
+            Ok(())
+        }
+        fn refresh(&mut self) -> Result<()> {
+            Ok(())
+        }
+        fn feedback(&mut self) -> Vec<(u16, u16, Vec<u8>)> {
+            // Taking the report re-arms the request.
+            if self.ready.swap(false, Ordering::SeqCst) {
+                vec![(0, 4, vec![0xff; 8])]
+            } else {
+                vec![]
+            }
+        }
+        fn wait_handles(&self, handles: &mut Vec<HANDLE>) {
+            handles.push(HANDLE(self.event.as_raw_handle()));
+        }
+        fn feedback_ready(&self) -> bool {
+            self.ready.load(Ordering::SeqCst)
+        }
+        fn motion_supported(&self, _: u16) -> bool {
+            false
+        }
+        fn plugged(&self) -> bool {
+            self.plugged
+        }
+        fn release_all(&mut self) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_drivers_feedback_event_is_forwarded_without_waiting_for_the_poll() {
+        // SAFETY: CreateEventW returned a new manual-reset event, owned here.
+        let event = Arc::new(unsafe {
+            OwnedHandle::from_raw_handle(CreateEventW(None, true, false, None).unwrap().0)
+        });
+        let ready = Arc::new(AtomicBool::new(false));
+        // No poll comes within the test: only the event can bring the report.
+        let pads = GamepadThread::spawn_polled(
+            {
+                let (event, ready) = (event.clone(), ready.clone());
+                move || {
+                    Ok(Signalled {
+                        event: event.clone(),
+                        ready: ready.clone(),
+                        plugged: false,
+                    })
+                }
+            },
+            Default::default(),
+            Duration::from_secs(3600),
+        )
+        .unwrap();
+        pads.send(state(0, 1, 0, 0));
+        // The first tick runs with the first state; wait until it has.
+        Gate::default().wait_until(|| pads.shared.queue.lock().unwrap().events.is_empty());
+        std::thread::sleep(Duration::from_millis(20));
+        for _ in 0..3 {
+            ready.store(true, Ordering::SeqCst);
+            // SAFETY: the event is alive in `event`.
+            unsafe { SetEvent(HANDLE(event.as_raw_handle())).unwrap() };
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let report = loop {
+                if let Some(report) = pads.reports().next() {
+                    break report;
+                }
+                assert!(Instant::now() < deadline, "feedback waited for the poll");
+                std::thread::sleep(Duration::from_millis(1));
+            };
+            assert_eq!(
+                report,
+                PadReport::Feedback {
+                    id: 0,
+                    kind: 4,
+                    data: vec![0xff; 8]
+                }
+            );
+            // SAFETY: as above; the driver resets it as the next request starts.
+            unsafe {
+                windows::Win32::System::Threading::ResetEvent(HANDLE(event.as_raw_handle()))
+                    .unwrap()
+            };
+        }
     }
 
     #[test]

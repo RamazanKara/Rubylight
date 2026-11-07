@@ -173,6 +173,23 @@ impl Backend {
     }
 }
 
+impl Backend {
+    /// The event a pad's pending feedback request signals; VHF has none and
+    /// is polled.
+    pub(super) fn wait_handle(&self, slot: u32) -> Option<HANDLE> {
+        match self {
+            Self::Vigem(client) => client.wait_handle(slot),
+            Self::Vhf(_) => None,
+        }
+    }
+    pub(super) fn feedback_ready(&self, slot: u32) -> bool {
+        match self {
+            Self::Vigem(client) => client.feedback_ready(slot),
+            Self::Vhf(_) => false,
+        }
+    }
+}
+
 fn decode_feedback(result: windows::core::Result<Vec<u8>>) -> Result<Option<(u16, Vec<u8>)>> {
     let b = match result {
         // libvirtualgamepad's poll_feedback consumes one pending event, or

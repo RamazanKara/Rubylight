@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::VecDeque;
 #[test]
 fn feedback_failures_warn_per_pad_without_hiding_healthy_reports_or_flooding_logs() {
     let directory = tempfile::tempdir().unwrap();
@@ -129,6 +130,70 @@ fn feedback_failures_warn_per_pad_without_hiding_healthy_reports_or_flooding_log
         }));
         assert!(failures.values().all(|failure| failure.unreported == 0));
     });
+}
+#[test]
+fn feedback_drains_each_pads_backlog_and_forwards_the_newest_of_each_kind() {
+    // Pad 0 has a rumble, a light and the rumble's stop pending; pad 1 a
+    // game's rumble writes beyond what one poll reads.
+    let mut queues = BTreeMap::from([
+        (
+            2u32,
+            VecDeque::from([(4u16, vec![9]), (5, vec![1, 2, 3]), (4, vec![0])]),
+        ),
+        (5, (0..10u8).map(|n| (4, vec![n])).collect()),
+    ]);
+    let active = BTreeMap::from([(0, 2), (1, 5)]);
+    let mut last = BTreeMap::new();
+    let mut failures = BTreeMap::new();
+    let mut calls = 0;
+    let mut poll = |slot| {
+        calls += 1;
+        Ok(queues.get_mut(&slot).unwrap().pop_front())
+    };
+    let output = poll_feedback(
+        &active,
+        &mut last,
+        &mut failures,
+        "fake",
+        Instant::now(),
+        &mut poll,
+    );
+    // The stop is the last rumble pad 0 sends, so its motors don't stick.
+    assert_eq!(
+        output,
+        vec![
+            (0, 5, vec![1, 2, 3]),
+            (0, 4, vec![0]),
+            (1, 4, vec![FEEDBACK_DRAIN as u8 - 1])
+        ]
+    );
+    let output = poll_feedback(
+        &active,
+        &mut last,
+        &mut failures,
+        "fake",
+        Instant::now(),
+        &mut poll,
+    );
+    assert_eq!(output, vec![(1, 4, vec![9])]);
+    // Pad 0: three reports and the empty answer, then one empty answer;
+    // pad 1: a full drain, then the rest and the empty answer.
+    assert_eq!(calls, 4 + FEEDBACK_DRAIN + 1 + 3);
+
+    // A report read before a failing call still goes out, and the failure
+    // counts.
+    let mut answers = VecDeque::from([Ok(Some((4, vec![7]))), Err(anyhow::anyhow!("gone"))]);
+    let output = poll_feedback(
+        &BTreeMap::from([(0, 2)]),
+        &mut last,
+        &mut failures,
+        "fake",
+        Instant::now(),
+        |_| answers.pop_front().unwrap(),
+    );
+    assert_eq!(output, vec![(0, 4, vec![7])]);
+    assert_eq!(failures[&0].unreported, 0, "the first failure is logged");
+    assert!(failures[&0].reported.is_some());
 }
 fn submit_touch(
     pointers: &mut BTreeMap<(u8, u32), u8>,

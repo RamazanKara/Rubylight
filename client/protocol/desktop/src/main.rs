@@ -440,11 +440,12 @@ fn renderer_gpu_device(renderer: *mut SDL_Renderer) -> Option<stream::pipeline::
 /// Whether Linux needs the GPU renderer for Vulkan video, which decodes on its Vulkan device: when
 /// VAAPI cannot open a device (NVIDIA's driver without a VAAPI one) and the GPU SDL picks has the
 /// video extensions, or `NIGHTJAR_VULKAN_VIDEO=1` (`choice`); not when no stream can decode with it
-/// (`vulkan_video_possible`). A machine with VAAPI keeps its renderer. The reason goes to the log.
+/// (`vulkan_video_possible`) or `NIGHTJAR_VULKAN_VIDEO=0`. A machine with VAAPI keeps its
+/// renderer. The reason goes to the log.
 #[cfg(unix)]
 fn gpu_for_vulkan_video(possible: bool, choice: vulkan_video::Choice) -> bool {
     use vulkan_video::Choice;
-    if !possible {
+    if !possible || choice == Choice::Off {
         return false;
     }
     let why = match (choice, media::vaapi_device()) {
@@ -464,12 +465,19 @@ fn gpu_for_vulkan_video(possible: bool, choice: vulkan_video::Choice) -> bool {
     }
 }
 
-/// Whether a stream can decode with Vulkan video, so the GPU renderer's device is made with its
-/// video extensions and decode queues: on Linux, when a stream may decode in hardware
-/// (`any_hardware_decoding`) and `NIGHTJAR_VULKAN_VIDEO` is not 0 (`choice`).
+/// Whether a stream can decode with Vulkan video or map VAAPI's pictures into Vulkan images, so the
+/// GPU renderer's device is made with the extensions for them (video ones and decode queues unless
+/// `NIGHTJAR_VULKAN_VIDEO` is 0, `choice`; DMA-BUF import ones unless `NIGHTJAR_VAAPI_VULKAN_MAP`
+/// is 0, `map`): on Linux, when a stream may decode in hardware (`any_hardware_decoding`).
 #[cfg(any(unix, test))]
-fn vulkan_video_possible(hardware_decoding: bool, choice: vulkan_video::Choice) -> bool {
-    cfg!(unix) && hardware_decoding && choice != vulkan_video::Choice::Off
+fn vulkan_video_possible(hardware_decoding: bool, choice: vulkan_video::Choice, map: bool) -> bool {
+    cfg!(unix) && hardware_decoding && (choice != vulkan_video::Choice::Off || map)
+}
+
+/// `NIGHTJAR_VAAPI_VULKAN_MAP` from the environment (`vulkan_video::map_switched_on`).
+#[cfg(unix)]
+fn vaapi_map_switched_on() -> bool {
+    vulkan_video::map_switched_on(std::env::var_os(vulkan_video::MAP_ENVIRONMENT).as_deref())
 }
 
 /// Whether a stream may decode in hardware: the global decoder setting, or a profile's, a host's
@@ -536,7 +544,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     #[cfg(unix)]
     let vulkan_video = vulkan_video_possible(any_hardware_decoding(&settings, hosts.iter()
         .flat_map(|host| host.settings.iter().chain(host.app_settings.values()))
-        .chain(profiles.entries.iter().map(|profile| &profile.settings))), vulkan_choice);
+        .chain(profiles.entries.iter().map(|profile| &profile.settings))), vulkan_choice, vaapi_map_switched_on());
     // The Renderer setting decides, and at Auto what needs the GPU renderer.
     #[cfg(unix)]
     let gpu = handheld::starts_on_gpu(settings.renderer, settings.renderer == config::Renderer::Auto && (gpu || gpu_for_vulkan_video(vulkan_video, vulkan_choice)));
@@ -1863,7 +1871,7 @@ impl App {
             gpu_failed: state.gpu_failed.is_some(),
         };
         let vulkan_choice = vulkan_video::Choice::from_environment();
-        let vulkan_video = state.vulkan_video || vulkan_video_possible(settings.decoder != DecoderPreference::Software, vulkan_choice);
+        let vulkan_video = state.vulkan_video || vulkan_video_possible(settings.decoder != DecoderPreference::Software, vulkan_choice, vaapi_map_switched_on());
         // A stream decoding in hardware where every saved one decoded in software: Vulkan video
         // may need the GPU renderer, as at start.
         let need = settings.gpu_need().or_else(|| {
@@ -3863,17 +3871,21 @@ mod tests {
         assert!(any_hardware_decoding(&auto, [&decoder(DecoderPreference::Software)]), "other hosts still use the global setting");
     }
 
-    /// The GPU renderer's device gets Vulkan video's extensions and decode queues only when a stream
-    /// can decode with it: on Linux, with hardware decoding somewhere and `NIGHTJAR_VULKAN_VIDEO`
+    /// The GPU renderer's device gets Vulkan video's extensions and decode queues, or the DMA-BUF
+    /// import ones VAAPI's pictures are mapped with, only when a stream can use them: on Linux,
+    /// with hardware decoding somewhere and `NIGHTJAR_VULKAN_VIDEO` or `NIGHTJAR_VAAPI_VULKAN_MAP`
     /// not 0. Otherwise it is made as before Vulkan video (PyroWave's plan alone).
     #[test]
     fn the_renderer_asks_for_vulkan_video_only_when_a_stream_can_decode_with_it() {
         use super::{vulkan_video::Choice, vulkan_video_possible};
         for choice in [Choice::Default, Choice::First] {
-            assert_eq!(vulkan_video_possible(true, choice), cfg!(unix), "{choice:?}");
-            assert!(!vulkan_video_possible(false, choice), "{choice:?} with Software everywhere");
+            for map in [false, true] {
+                assert_eq!(vulkan_video_possible(true, choice, map), cfg!(unix), "{choice:?}");
+                assert!(!vulkan_video_possible(false, choice, map), "{choice:?} with Software everywhere");
+            }
         }
-        assert!(!vulkan_video_possible(true, Choice::Off), "NIGHTJAR_VULKAN_VIDEO=0");
+        assert!(!vulkan_video_possible(true, Choice::Off, false), "both switched off");
+        assert_eq!(vulkan_video_possible(true, Choice::Off, true), cfg!(unix), "NIGHTJAR_VULKAN_VIDEO=0 still maps VAAPI's pictures");
     }
 
     #[test]

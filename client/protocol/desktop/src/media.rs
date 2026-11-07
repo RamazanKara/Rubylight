@@ -144,6 +144,10 @@ pub struct Pictures {
     /// How many pictures the stream may keep waiting to be shown (`pipeline::pool_waiting`): a
     /// hardware pool gets these and two more beyond FFmpeg's minimum ([`pool_extra`]).
     pub waiting: usize,
+    /// The GPU renderer's DRM render node (`/dev/dri/renderD<minor>`) when its device can take
+    /// VAAPI's pictures mapped (`crate::vulkan_video::VaapiMap`): VAAPI opens there, on its GPU,
+    /// and its pool gets the surfaces the presenter keeps for its copies. Linux only.
+    pub vaapi_node: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -281,6 +285,23 @@ pub fn pool_extra(waiting: usize) -> i32 {
     (waiting.min(64) as i32 + 2).max(EXTRA_HW_FRAMES)
 }
 
+/// The surfaces a VAAPI pool gets beyond [`pool_extra`] when its pictures may be mapped for the
+/// GPU renderer (`Pictures::vaapi_node`): those the presenter keeps until their copies are done.
+fn mapped_extra(hardware: Hardware, pictures: Pictures) -> i32 {
+    #[cfg(unix)]
+    if hardware == Hardware::Vaapi && pictures.vaapi_node.is_some() {
+        return crate::vulkan_video::MAPPED_HELD;
+    }
+    let _ = (hardware, pictures);
+    0
+}
+
+/// The device path of DRM render node `minor`, for VAAPI.
+#[cfg(any(unix, test))]
+fn vaapi_node_path(minor: u32) -> std::ffi::CString {
+    std::ffi::CString::new(format!("/dev/dri/renderD{minor}")).expect("no NUL in a path of digits")
+}
+
 unsafe extern "C" fn select_format(
     context: *mut AVCodecContext,
     formats: *const AVPixelFormat,
@@ -383,6 +404,12 @@ pub struct VideoDecoder {
     /// import them (`export_dmabuf`).
     #[cfg(unix)]
     dmabuf: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// Whether VAAPI opened on the renderer's render node (`Pictures::vaapi_node`), or why not.
+    #[cfg(unix)]
+    vaapi_on_renderer: Result<(), String>,
+    /// VAAPI pictures go to the GPU renderer mapped into Vulkan images (`map_to_vulkan`).
+    #[cfg(unix)]
+    vulkan_map: Option<crate::vulkan_video::VaapiMap>,
     /// The empty frame of the last `receive` that brought no picture, for the next one: each
     /// decoded frame ends with such a call, so this saves an allocation per frame. Pictures
     /// themselves go to the presenter and are freed there.
@@ -549,6 +576,10 @@ impl VideoDecoder {
                 trims_padding: codec == Codec::Hevc,
                 #[cfg(unix)]
                 dmabuf: None,
+                #[cfg(unix)]
+                vaapi_on_renderer: Err("VAAPI was not asked to open on the renderer's GPU".into()),
+                #[cfg(unix)]
+                vulkan_map: None,
                 spare: None,
                 refused: false,
                 told: false,
@@ -617,6 +648,22 @@ impl VideoDecoder {
                             return Err("D3D11VA is only available on Windows.".into());
                         }
                     }
+                    #[cfg(unix)]
+                    Hardware::Vaapi if pictures.vaapi_node.is_some() => {
+                        let node = vaapi_node_path(pictures.vaapi_node.unwrap_or_default());
+                        let status = av_hwdevice_ctx_create(&mut context.hw_device_ctx, kind, node.as_ptr(), ptr::null_mut(), 0);
+                        if status < 0 {
+                            let why = format!("VAAPI does not open on {} ({})", node.to_string_lossy(), error(status));
+                            eprintln!("nightjar: {why}; it opens on the default device, and its pictures go through memory to the GPU renderer");
+                            video.vaapi_on_renderer = Err(why);
+                            let status = av_hwdevice_ctx_create(&mut context.hw_device_ctx, kind, ptr::null(), ptr::null_mut(), 0);
+                            if status < 0 {
+                                return Err(format!("no device: {}", error(status)));
+                            }
+                        } else {
+                            video.vaapi_on_renderer = Ok(());
+                        }
+                    }
                     Hardware::Vaapi | Hardware::Cuda => {
                         let status = av_hwdevice_ctx_create(
                             &mut context.hw_device_ctx,
@@ -643,7 +690,7 @@ impl VideoDecoder {
                     Hardware::None | Hardware::V4l2m2m | Hardware::Auto(_) => unreachable!(),
                 }
                 context.get_format = Some(select_format);
-                context.extra_hw_frames = pool_extra(pictures.waiting);
+                context.extra_hw_frames = pool_extra(pictures.waiting) + mapped_extra(hardware, pictures);
             }
             context.thread_count = if hardware == Hardware::None {
                 threads
@@ -713,6 +760,26 @@ impl VideoDecoder {
         match self.hardware {
             Hardware::D3d11(_) | Hardware::Vaapi | Hardware::Vulkan(_) => !self.refused(),
             _ => false,
+        }
+    }
+
+    /// Hands VAAPI pictures to the GPU renderer, the SDL GPU device `gpu`, mapped into Vulkan
+    /// images on its device instead of through memory (nightjar#80: 2.5 GB/s read back and
+    /// uploaded at 4K100 10-bit), unless `NIGHTJAR_VAAPI_VULKAN_MAP` is 0. Says which in the log,
+    /// with the reason when they keep going through memory. Only a VAAPI decoder on Linux.
+    #[cfg(unix)]
+    pub fn map_to_vulkan(&mut self, gpu: *mut c_void) {
+        if self.hardware != Hardware::Vaapi {
+            return;
+        }
+        let switched_on = crate::vulkan_video::map_switched_on(std::env::var_os(crate::vulkan_video::MAP_ENVIRONMENT).as_deref());
+        // SAFETY: The renderer keeps its device alive until the decoder has stopped.
+        match unsafe { crate::vulkan_video::VaapiMap::new(gpu.cast(), switched_on, self.vaapi_on_renderer.clone()) } {
+            Ok(map) => {
+                eprintln!("nightjar: VAAPI pictures go to the GPU renderer as mapped Vulkan images");
+                self.vulkan_map = Some(map);
+            }
+            Err(why) => eprintln!("nightjar: VAAPI pictures go through memory to the GPU renderer: {why}"),
         }
     }
 
@@ -806,6 +873,26 @@ impl VideoDecoder {
                         Err(error) => {
                             eprintln!("nightjar: VAAPI pictures cannot be exported as DMA-BUFs ({error}); mapping them to memory instead");
                             decline.store(true, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
+                }
+                #[cfg(unix)]
+                if let Some(map) = self.vulkan_map.as_mut() {
+                    let Some(target) = NonNull::new(av_frame_alloc()) else {
+                        return Received::Error;
+                    };
+                    let mapped = Frame::new(target);
+                    match map.map(raw.as_ptr(), target.as_ptr()) {
+                        Ok(()) => {
+                            // The mapped picture holds the surface; the decoded frame is empty
+                            // again for the next `receive`.
+                            av_frame_unref(raw.as_ptr());
+                            self.spare = Some(frame);
+                            return Received::Frame(mapped);
+                        }
+                        Err(why) => {
+                            eprintln!("nightjar: VAAPI pictures go through memory to the GPU renderer from now on: {why}");
+                            self.vulkan_map = None;
                         }
                     }
                 }
@@ -1374,6 +1461,18 @@ mod tests {
         // L1 maximum PQ 3000 of 4095.
         let peak = crate::stream::direct::pq_nits(3000.0 / 4095.0) as f32;
         assert!((rpu.peak.unwrap() - peak).abs() < 1.0, "{:?} against {peak}", rpu.peak);
+    }
+
+    /// A VAAPI pool whose pictures may be mapped for the GPU renderer gets the surfaces the
+    /// presenter keeps until their copies are done, and opens on the renderer's render node; no
+    /// other pool changes (nightjar#80).
+    #[test]
+    fn a_vaapi_pool_that_maps_keeps_surfaces_for_the_presenters_copies() {
+        let mapped = Pictures { vaapi_node: Some(129), ..Pictures::default() };
+        assert_eq!(mapped_extra(Hardware::Vaapi, mapped), if cfg!(unix) { crate::vulkan_video::MAPPED_HELD } else { 0 });
+        assert_eq!(mapped_extra(Hardware::Vaapi, Pictures::default()), 0);
+        assert_eq!(mapped_extra(Hardware::Cuda, mapped), 0);
+        assert_eq!(vaapi_node_path(129).to_str(), Ok("/dev/dri/renderD129"));
     }
 
     #[test]

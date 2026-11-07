@@ -34,10 +34,12 @@ use ash::vk::{self, Handle};
 use sdl3_sys::everything::*;
 
 use crate::media::ffi::{
-    av_buffer_unref, av_hwdevice_ctx_alloc, av_hwdevice_ctx_init, av_pix_fmt_desc_get,
+    av_buffer_unref, av_frame_clone, av_frame_copy_props, av_frame_free, av_frame_unref,
+    av_hwdevice_ctx_alloc, av_hwdevice_ctx_init, av_hwframe_map, av_pix_fmt_desc_get,
     avcodec_get_hw_frames_parameters, avutil_version, AVBufferRef, AVCodecContext, AVFrame,
-    AVHWDeviceContext, AVHWFramesContext, AVPixelFormat, AV_HWDEVICE_TYPE_VULKAN, AV_PIX_FMT_NV12,
-    AV_PIX_FMT_NV24, AV_PIX_FMT_P010LE, AV_PIX_FMT_P410LE, AV_PIX_FMT_VULKAN,
+    AVHWDeviceContext, AVHWFramesContext, AVPixelFormat, AV_HWDEVICE_TYPE_VULKAN,
+    AV_HWFRAME_MAP_READ, AV_PIX_FMT_NONE, AV_PIX_FMT_NV12, AV_PIX_FMT_NV24, AV_PIX_FMT_P010LE,
+    AV_PIX_FMT_P410LE, AV_PIX_FMT_VULKAN,
 };
 use crate::media::{Codec, Pictures};
 use crate::stream::pyrowave_sdk::zero_copy::{
@@ -81,17 +83,32 @@ impl Choice {
     }
 }
 
+/// Set to 0, VAAPI pictures on the GPU renderer go through memory as before (A/B runs);
+/// otherwise they are mapped into Vulkan images on the renderer's device (`VaapiMap`).
+pub const MAP_ENVIRONMENT: &str = "NIGHTJAR_VAAPI_VULKAN_MAP";
+
+/// What `MAP_ENVIRONMENT` asks for: the mapping, unless 0.
+pub fn map_switched_on(value: Option<&std::ffi::OsStr>) -> bool {
+    value.and_then(|value| value.to_str()) != Some("0")
+}
+
 /// The device extensions Vulkan video decoding uses (the video ones of plvk.cpp's
 /// `k_OptionalDeviceExtensions`), bit n for `EXTENSIONS[n]`: the first two are needed for any
-/// codec, then one per codec.
-const EXTENSIONS: [&CStr; 5] = [
+/// codec, then one per codec; then the three FFmpeg imports VAAPI's DMA-BUFs with (`VaapiMap`,
+/// hwcontext_vulkan's DRM mapping).
+const EXTENSIONS: [&CStr; 8] = [
     c"VK_KHR_video_queue",
     c"VK_KHR_video_decode_queue",
     c"VK_KHR_video_decode_h264",
     c"VK_KHR_video_decode_h265",
     c"VK_KHR_video_decode_av1",
+    c"VK_KHR_external_memory_fd",
+    c"VK_EXT_external_memory_dma_buf",
+    c"VK_EXT_image_drm_format_modifier",
 ];
 const QUEUE_EXTENSIONS: u32 = 0b11;
+const VIDEO_EXTENSIONS: u32 = 0b1_1111;
+const MAP_EXTENSIONS: u32 = 0b111 << 5;
 
 /// A set of `EXTENSIONS`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -112,13 +129,29 @@ impl Extensions {
         Self(self.0 & other.0)
     }
 
-    /// The set itself when it decodes at least one codec, else none.
+    /// The video extensions of the set when they decode at least one codec, else none.
     pub fn usable(self) -> Self {
-        if self.0 & QUEUE_EXTENSIONS == QUEUE_EXTENSIONS && self.0 & !QUEUE_EXTENSIONS != 0 {
-            self
+        let video = self.0 & VIDEO_EXTENSIONS;
+        if video & QUEUE_EXTENSIONS == QUEUE_EXTENSIONS && video & !QUEUE_EXTENSIONS != 0 {
+            Self(video)
         } else {
             Self(0)
         }
+    }
+
+    /// The set's DMA-BUF import extensions when it has all three (`VaapiMap`), else none.
+    pub fn mapping(self) -> Self {
+        if self.0 & MAP_EXTENSIONS == MAP_EXTENSIONS {
+            Self(MAP_EXTENSIONS)
+        } else {
+            Self(0)
+        }
+    }
+
+    /// The video extensions when `video`, the import ones when `map`: what the renderer asks
+    /// for with `NIGHTJAR_VULKAN_VIDEO` and `MAP_ENVIRONMENT` as they are.
+    pub fn wanted(video: bool, map: bool) -> Self {
+        Self(if video { VIDEO_EXTENSIONS } else { 0 } | if map { MAP_EXTENSIONS } else { 0 })
     }
 
     pub fn is_empty(self) -> bool {
@@ -359,7 +392,17 @@ pub unsafe fn device_context(
         codec,
         pictures,
     )?;
+    share(&sdl, extensions, &listed)
+}
 
+/// The renderer's device (`sdl`, made with `extensions`, its queue families `listed`) as FFmpeg's
+/// Vulkan device context.
+unsafe fn share(
+    sdl: &SdlVulkan,
+    extensions: Extensions,
+    listed: &[QueueFamily],
+) -> Result<*mut AVBufferRef, String> {
+    let get_instance_proc_addr = zero_copy::get_instance_proc_addr()?;
     let mut chain = Chain::new();
     chain.enable(sdl.features);
     let names: Vec<*const c_char> = extensions
@@ -388,7 +431,7 @@ pub unsafe fn device_context(
     vulkan.nb_enabled_dev_extensions = opaque.extensions.len() as c_int;
     vulkan.lock_queue = Some(lock_queue);
     vulkan.unlock_queue = Some(unlock_queue);
-    for (slot, family) in vulkan.qf.iter_mut().zip(&listed) {
+    for (slot, family) in vulkan.qf.iter_mut().zip(listed) {
         *slot = *family;
     }
     vulkan.nb_qf = listed.len().min(vulkan.qf.len()) as c_int;
@@ -402,6 +445,289 @@ pub unsafe fn device_context(
         ));
     }
     Ok(reference)
+}
+
+/// Whether VAAPI pictures can be mapped into Vulkan images on the renderer's device, or why not:
+/// `switched_on` is `MAP_ENVIRONMENT`, `renderer` the extensions the renderer's device was made
+/// with (or why it has none of ours), `same_gpu` whether VAAPI opened on the renderer's GPU
+/// (`media::VideoDecoder::open_for` opens it on the render node of `render_minor`).
+pub fn map_plan(
+    switched_on: bool,
+    renderer: Result<Extensions, String>,
+    same_gpu: Result<(), String>,
+) -> Result<(), String> {
+    if !switched_on {
+        return Err(format!("{MAP_ENVIRONMENT}=0"));
+    }
+    let made_with = renderer?;
+    let missing: Vec<_> = Extensions(MAP_EXTENSIONS & !made_with.0)
+        .names()
+        .iter()
+        .map(|name| name.to_string_lossy())
+        .collect();
+    if !missing.is_empty() {
+        return Err(format!(
+            "the renderer's Vulkan device was created without {}",
+            missing.join(", ")
+        ));
+    }
+    same_gpu.map_err(|why| format!("VAAPI does not decode on the renderer's GPU: {why}"))
+}
+
+/// The renderer's Vulkan device as FFmpeg's device context for mapping VAAPI pictures into it
+/// (`VaapiMap`), if `map_plan` says they are (`switched_on`, `same_gpu`): its own queue family
+/// only, the DMA-BUF import extensions enabled.
+///
+/// # Safety
+/// As `device_context`.
+pub unsafe fn map_device_context(
+    gpu: *mut SDL_GPUDevice,
+    switched_on: bool,
+    same_gpu: Result<(), String>,
+) -> Result<*mut AVBufferRef, String> {
+    let renderer = made_with(gpu);
+    map_plan(switched_on, renderer.as_ref().map(|&(_, extensions)| extensions).map_err(Clone::clone), same_gpu)?;
+    let (sdl, extensions) = renderer?;
+    let instance = ash::Instance::load(
+        &ash::StaticFn {
+            get_instance_proc_addr: zero_copy::get_instance_proc_addr()?,
+        },
+        sdl.instance,
+    );
+    let families = queue_families(&instance, sdl.physical_device);
+    share(&sdl, extensions, &listed_families(&families, sdl.family, 0))
+}
+
+/// The renderer's Vulkan device and the extensions of ours it was made with, if FFmpeg can share it.
+unsafe fn made_with(gpu: *mut SDL_GPUDevice) -> Result<(SdlVulkan, Extensions), String> {
+    ffmpeg_supported(avutil_version())?;
+    let sdl = SdlVulkan::of_device(gpu)?;
+    // The presenter's copy submits with vkQueueSubmit2 and waits on timeline semaphores.
+    sdl.require(Features::video())?;
+    let props = SDL_GetGPUDeviceProperties(gpu);
+    Ok((sdl, Extensions(SDL_GetNumberProperty(props, EXTENSIONS_PROPERTY.as_ptr(), 0) as u32)))
+}
+
+/// The DRM render node minor (`/dev/dri/renderD<minor>`) of the renderer's GPU, for opening VAAPI
+/// on the same GPU, or why it is not known (`VK_EXT_physical_device_drm`).
+///
+/// # Safety
+/// `gpu` must be null or a live SDL GPU device.
+pub unsafe fn render_minor(gpu: *mut SDL_GPUDevice) -> Result<u32, String> {
+    let sdl = SdlVulkan::of_device(gpu)?;
+    let instance = ash::Instance::load(
+        &ash::StaticFn {
+            get_instance_proc_addr: zero_copy::get_instance_proc_addr()?,
+        },
+        sdl.instance,
+    );
+    let listed = instance
+        .enumerate_device_extension_properties(sdl.physical_device)
+        .unwrap_or_default();
+    if !listed
+        .iter()
+        .any(|extension| extension.extension_name_as_c_str() == Ok(c"VK_EXT_physical_device_drm"))
+    {
+        return Err("the renderer's Vulkan driver does not name its DRM node (no VK_EXT_physical_device_drm)".into());
+    }
+    let mut drm = vk::PhysicalDeviceDrmPropertiesEXT::default();
+    let mut properties = vk::PhysicalDeviceProperties2::default().push_next(&mut drm);
+    instance.get_physical_device_properties2(sdl.physical_device, &mut properties);
+    render_node_minor(drm.has_render != vk::FALSE, drm.render_minor)
+}
+
+/// `render_minor`'s answer from the driver's `VkPhysicalDeviceDrmPropertiesEXT`.
+fn render_node_minor(has_render: bool, minor: i64) -> Result<u32, String> {
+    if !has_render {
+        return Err("the renderer's GPU has no DRM render node".into());
+    }
+    u32::try_from(minor).map_err(|_| format!("the renderer's GPU reports render node minor {minor}"))
+}
+
+/// VAAPI pictures mapped into Vulkan images of the renderer's device, for the presenter's GPU copy
+/// (`Planes::copy`) instead of the trip through memory: FFmpeg exports each surface as DMA-BUFs and
+/// imports them (`av_hwframe_map`, VAAPI to DRM PRIME to Vulkan, after `vaSyncSurface`, so the
+/// decode is done before the copy reads it). The mapped frame holds its VAAPI surface until it is
+/// freed, and freeing it waits for the image's timeline semaphore, which the copy signals
+/// (hwcontext_vulkan's `vulkan_frame_free`); `Planes` keeps it until its copy is done (`Held`).
+pub struct VaapiMap {
+    device: *mut AVBufferRef,
+    /// The frames context the mapped frames belong to, for the VAAPI pictures of `shape`.
+    frames: *mut AVBufferRef,
+    shape: (c_int, c_int, AVPixelFormat),
+}
+
+// SAFETY: Owned FFmpeg references, used from the decoder thread only.
+unsafe impl Send for VaapiMap {}
+
+impl VaapiMap {
+    /// # Safety
+    /// As `map_device_context`.
+    pub unsafe fn new(
+        gpu: *mut SDL_GPUDevice,
+        switched_on: bool,
+        same_gpu: Result<(), String>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            device: map_device_context(gpu, switched_on, same_gpu)?,
+            frames: ptr::null_mut(),
+            shape: (0, 0, AV_PIX_FMT_NONE),
+        })
+    }
+
+    /// Maps the VAAPI picture `source` into `target`, an empty frame, as a Vulkan picture.
+    ///
+    /// # Safety
+    /// `source` must be a live VAAPI frame and `target` an empty one.
+    pub unsafe fn map(&mut self, source: *const AVFrame, target: *mut AVFrame) -> Result<(), String> {
+        unsafe extern "C" {
+            fn av_hwframe_ctx_alloc(device: *mut AVBufferRef) -> *mut AVBufferRef;
+            fn av_hwframe_ctx_init(reference: *mut AVBufferRef) -> c_int;
+            fn av_buffer_ref(reference: *const AVBufferRef) -> *mut AVBufferRef;
+        }
+        let vaapi_ref = (*source).hw_frames_ctx;
+        if vaapi_ref.is_null() {
+            return Err("the VAAPI picture has no frames context".into());
+        }
+        let vaapi = &*(*vaapi_ref).data.cast::<AVHWFramesContext>();
+        let shape = (vaapi.width, vaapi.height, vaapi.sw_format);
+        if !mappable(shape.2) {
+            return Err(format!("VAAPI pictures of format {} are not two planes the presenter copies", shape.2));
+        }
+        if self.frames.is_null() || self.shape != shape {
+            av_buffer_unref(&mut self.frames);
+            let mut frames = av_hwframe_ctx_alloc(self.device);
+            if frames.is_null() {
+                return Err("FFmpeg cannot allocate a Vulkan frames context".into());
+            }
+            let context = &mut *(*frames).data.cast::<AVHWFramesContext>();
+            context.format = AV_PIX_FMT_VULKAN;
+            context.sw_format = vaapi.sw_format;
+            context.width = vaapi.width;
+            context.height = vaapi.height;
+            // Mapped frames only: no images of its own up front.
+            context.initial_pool_size = 0;
+            let status = av_hwframe_ctx_init(frames);
+            if status < 0 {
+                av_buffer_unref(&mut frames);
+                return Err(format!(
+                    "FFmpeg cannot make Vulkan frames for {}x{} pictures of format {} (error {status})",
+                    shape.0, shape.1, shape.2
+                ));
+            }
+            self.frames = frames;
+            self.shape = shape;
+        }
+        (*target).format = AV_PIX_FMT_VULKAN;
+        (*target).hw_frames_ctx = av_buffer_ref(self.frames);
+        if (*target).hw_frames_ctx.is_null() {
+            return Err("FFmpeg cannot reference the Vulkan frames context".into());
+        }
+        let status = av_hwframe_map(target, source, AV_HWFRAME_MAP_READ as c_int);
+        if status < 0 {
+            av_frame_unref(target);
+            return Err(format!("FFmpeg cannot map the VAAPI picture into a Vulkan image (error {status}); the driver may refuse its DRM format modifier"));
+        }
+        let status = av_frame_copy_props(target, source);
+        if status < 0 {
+            av_frame_unref(target);
+            return Err(format!("the mapped picture cannot take the VAAPI picture's properties (error {status})"));
+        }
+        Ok(())
+    }
+}
+
+impl Drop for VaapiMap {
+    fn drop(&mut self) {
+        // SAFETY: Our references; mapped frames hold their own.
+        unsafe {
+            av_buffer_unref(&mut self.frames);
+            av_buffer_unref(&mut self.device);
+        }
+    }
+}
+
+/// Whether VAAPI pictures of this format are mapped: the 4:2:0 two-plane ones the presenter copies
+/// (`Planes`); 4:4:4 VAAPI surfaces (AYUV, Y410) are one packed plane.
+fn mappable(sw_format: AVPixelFormat) -> bool {
+    [AV_PIX_FMT_NV12, AV_PIX_FMT_P010LE].contains(&sw_format)
+}
+
+/// How many mapped VAAPI pictures the presenter keeps beyond the one it shows, each until its
+/// copy is done (`Held`, one per copy slot): a VAAPI pool that maps gets this many more surfaces.
+pub const MAPPED_HELD: i32 = SLOTS as i32;
+
+/// Items kept per copy slot until that slot's copy is done: mapped VAAPI pictures, whose freeing
+/// would otherwise wait on the presenter's thread for the copy just submitted, and which give
+/// their VAAPI surface back to the decoder only once the GPU no longer reads it.
+struct Held<T> {
+    items: Vec<(usize, T)>,
+}
+
+impl<T> Held<T> {
+    fn new() -> Self {
+        Self { items: Vec::new() }
+    }
+
+    /// Keeps `item` for `slot`'s copy; what the slot held before comes back (its copy was waited
+    /// for before the slot was used again).
+    fn hold(&mut self, slot: usize, item: T) -> Option<T> {
+        let before = self.take(slot);
+        self.items.push((slot, item));
+        before
+    }
+
+    /// What `slot` held.
+    fn take(&mut self, slot: usize) -> Option<T> {
+        let at = self.items.iter().position(|&(held, _)| held == slot)?;
+        Some(self.items.swap_remove(at).1)
+    }
+
+    /// What the slots whose copies are `done` held.
+    fn release(&mut self, done: impl Fn(usize) -> bool) -> Vec<T> {
+        let mut released = Vec::new();
+        let mut index = 0;
+        while index < self.items.len() {
+            if done(self.items[index].0) {
+                released.push(self.items.swap_remove(index).1);
+            } else {
+                index += 1;
+            }
+        }
+        released
+    }
+
+    /// Everything still held, for after the device is idle.
+    fn drain(&mut self) -> Vec<T> {
+        self.items.drain(..).map(|(_, item)| item).collect()
+    }
+}
+
+/// A reference to a mapped picture, freed (unmapped) when dropped.
+struct HeldFrame(*mut AVFrame);
+
+impl Drop for HeldFrame {
+    fn drop(&mut self) {
+        // SAFETY: Our own reference (`av_frame_clone`).
+        unsafe { av_frame_free(&mut self.0) };
+    }
+}
+
+/// The old layout and the queue families of a picture image's barrier before the copy: an
+/// imported image (`VK_QUEUE_FAMILY_EXTERNAL`, FFmpeg's DMA-BUF import) is acquired from outside
+/// Vulkan by the renderer's `family`, from GENERAL when FFmpeg left it UNDEFINED (whose contents
+/// a transition may drop); FFmpeg's own images are shared and need no transfer.
+fn acquire(owner: u32, layout: vk::ImageLayout, family: u32) -> (vk::ImageLayout, u32, u32) {
+    if owner == vk::QUEUE_FAMILY_EXTERNAL {
+        let layout = if layout == vk::ImageLayout::UNDEFINED {
+            vk::ImageLayout::GENERAL
+        } else {
+            layout
+        };
+        (layout, vk::QUEUE_FAMILY_EXTERNAL, family)
+    } else {
+        (layout, vk::QUEUE_FAMILY_IGNORED, vk::QUEUE_FAMILY_IGNORED)
+    }
 }
 
 /// The two-plane format FFmpeg's Vulkan pictures of that depth and chroma are in (NV12, P010,
@@ -731,6 +1057,8 @@ pub struct Planes {
     pool: vk::CommandPool,
     slots: Vec<(vk::CommandBuffer, vk::Fence)>,
     next: usize,
+    /// Mapped VAAPI pictures, each until its slot's copy is done.
+    held: Held<HeldFrame>,
 }
 
 impl Planes {
@@ -770,6 +1098,7 @@ impl Planes {
             textures: [ptr::null_mut(); 2],
             pool: vk::CommandPool::null(),
             slots: Vec::new(),
+            held: Held::new(),
             next: 0,
         };
         planes.pool = planes
@@ -928,7 +1257,8 @@ impl Planes {
     /// (`renderer` is flushed first, so nothing SDL recorded before reads the new picture). The
     /// picture is the decoder's again once the copy is done, which its semaphore tells FFmpeg.
     /// FFmpeg's images are shared by every queue family it was given (or made in SDL's alone), so
-    /// no ownership moves; an image owned by another family is refused.
+    /// no ownership moves; an imported one (a mapped VAAPI picture, `VaapiMap`) is acquired from
+    /// outside Vulkan and kept until its copy is done; an image owned by another family is refused.
     ///
     /// # Safety
     /// `frame` must be a live Vulkan AVFrame made with `device_context` on this device, and
@@ -957,7 +1287,7 @@ impl Planes {
         };
         if let Some(&family) = (&(*source).queue_family)[..sources]
             .iter()
-            .find(|&&family| family != vk::QUEUE_FAMILY_IGNORED && family != self.family)
+            .find(|&&family| ![vk::QUEUE_FAMILY_IGNORED, vk::QUEUE_FAMILY_EXTERNAL, self.family].contains(&family))
         {
             return Err(format!("the picture is owned by queue family {family}, not shared with the renderer's ({})", self.family));
         }
@@ -974,6 +1304,10 @@ impl Planes {
                 crate::sdl::error()
             ));
         }
+        // Mapped pictures whose copies are done go back to the decoder.
+        let device = &self.device;
+        let slots = &self.slots;
+        drop(self.held.release(|slot| device.get_fence_status(slots[slot].1) == Ok(true)));
         let (commands, fence) = self.slots[self.next];
         match self.device.wait_for_fences(&[fence], true, COPY_WAIT.as_nanos() as u64) {
             Ok(()) => {}
@@ -985,10 +1319,21 @@ impl Planes {
         self.device
             .reset_command_buffer(commands, vk::CommandBufferResetFlags::empty())
             .map_err(|e| format!("the copy's command buffer cannot be reset ({e})"))?;
+        drop(self.held.take(self.next));
+        let imported = (&(*source).queue_family)[..sources].contains(&vk::QUEUE_FAMILY_EXTERNAL);
         lock_frame(frames, source);
         let result = self.record_and_submit(commands, fence, &mut *source);
         unlock_frame(frames, source);
         if result.is_ok() {
+            if imported {
+                let clone = av_frame_clone(frame);
+                if clone.is_null() {
+                    // Freed with the presenter's reference instead, which waits for the copy.
+                    eprintln!("nightjar: a mapped VAAPI picture cannot be kept for its copy (out of memory); it is freed after the copy instead");
+                } else {
+                    drop(self.held.hold(self.next, HeldFrame(clone)));
+                }
+            }
             self.next = (self.next + 1) % self.slots.len();
         }
         result
@@ -1020,8 +1365,11 @@ impl Planes {
                     .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
             )
             .map_err(|e| format!("the copy cannot be recorded ({e})"))?;
+        let family = self.family;
         let mut before: Vec<vk::ImageMemoryBarrier2> = (0..sources)
             .map(|index| {
+                let (old_layout, from, to) =
+                    acquire(source.queue_family[index], source.layout[index], family);
                 vk::ImageMemoryBarrier2::default()
                     .src_stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
                     .src_access_mask(vk::AccessFlags2::from_raw(u64::from(
@@ -1029,10 +1377,10 @@ impl Planes {
                     )))
                     .dst_stage_mask(vk::PipelineStageFlags2::COPY)
                     .dst_access_mask(vk::AccessFlags2::TRANSFER_READ)
-                    .old_layout(source.layout[index])
+                    .old_layout(old_layout)
                     .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-                    .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                    .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                    .src_queue_family_index(from)
+                    .dst_queue_family_index(to)
                     .image(source.img[index])
                     .subresource_range(range(vk::ImageAspectFlags::COLOR))
             })
@@ -1158,6 +1506,9 @@ impl Planes {
             source.sem_value[index] += 1;
             source.layout[index] = vk::ImageLayout::TRANSFER_SRC_OPTIMAL;
             source.access[index] = vk::AccessFlags::empty();
+            if source.queue_family[index] == vk::QUEUE_FAMILY_EXTERNAL {
+                source.queue_family[index] = family;
+            }
         }
         Ok(())
     }
@@ -1190,6 +1541,8 @@ impl Drop for Planes {
                 );
                 return;
             }
+            // The copies are done: the mapped pictures go back.
+            drop(self.held.drain());
             for &(image, memory) in &self.images {
                 self.device.destroy_image(image, None);
                 if memory != vk::DeviceMemory::null() {
@@ -1236,7 +1589,8 @@ mod tests {
     #[test]
     fn video_extensions_decode_a_codec_only_with_both_queue_extensions() {
         let all = Extensions::among(EXTENSIONS);
-        assert_eq!(all, Extensions(0b11111));
+        assert_eq!(all, Extensions(0b1111_1111));
+        assert_eq!(all.usable(), Extensions(0b1_1111), "the import extensions are not video ones");
         assert!([Codec::H264, Codec::Hevc, Codec::Av1]
             .into_iter()
             .all(|codec| all.decodes(codec)));
@@ -1264,6 +1618,73 @@ mod tests {
             no_codec.usable().is_empty(),
             "queues without a codec decode nothing"
         );
+    }
+
+    const IMPORT: [&CStr; 3] = [
+        c"VK_KHR_external_memory_fd",
+        c"VK_EXT_external_memory_dma_buf",
+        c"VK_EXT_image_drm_format_modifier",
+    ];
+
+    /// VAAPI pictures went through memory to the GPU renderer (2.5 GB/s at 4K100 10-bit,
+    /// nightjar#80): they are mapped where the renderer's device imports DMA-BUFs and VAAPI
+    /// decodes on its GPU, and every other case says why it keeps the readback.
+    #[test]
+    fn vaapi_pictures_are_mapped_only_with_the_import_extensions_on_the_renderers_gpu() {
+        let import = Extensions::among(IMPORT);
+        assert_eq!(import.mapping(), import);
+        assert!(import.usable().is_empty(), "importing decodes nothing");
+        assert_eq!(map_plan(true, Ok(import), Ok(())), Ok(()));
+        let video_and_import = Extensions::among(EXTENSIONS);
+        assert_eq!(map_plan(true, Ok(video_and_import), Ok(())), Ok(()));
+        assert_eq!(map_plan(false, Ok(import), Ok(())), Err("NIGHTJAR_VAAPI_VULKAN_MAP=0".into()));
+        let no_modifier = Extensions::among(IMPORT[..2].iter().copied());
+        assert!(no_modifier.mapping().is_empty());
+        let why = map_plan(true, Ok(no_modifier), Ok(())).unwrap_err();
+        assert!(why.contains("VK_EXT_image_drm_format_modifier") && !why.contains("dma_buf"), "{why}");
+        let why = map_plan(true, Ok(Extensions::among(EXTENSIONS[..5].iter().copied())), Ok(())).unwrap_err();
+        assert!(IMPORT.iter().all(|name| why.contains(name.to_str().unwrap())), "{why}");
+        let why = map_plan(true, Ok(import), Err("VAAPI does not open on /dev/dri/renderD129".into())).unwrap_err();
+        assert!(why.starts_with("VAAPI does not decode on the renderer's GPU") && why.contains("renderD129"), "{why}");
+        let why = map_plan(true, Err("the renderer draws with \"opengl\", not Vulkan".into()), Ok(())).unwrap_err();
+        assert!(why.contains("opengl"), "{why}");
+        // The switch and what the renderer asks for.
+        assert!(map_switched_on(None) && map_switched_on(Some("1".as_ref())) && !map_switched_on(Some("0".as_ref())));
+        assert_eq!(Extensions::wanted(true, true), Extensions::among(EXTENSIONS));
+        assert_eq!(Extensions::wanted(false, true), import);
+        assert_eq!(Extensions::wanted(true, false).mapping(), Extensions(0));
+        // The render node VAAPI opens on.
+        assert_eq!(render_node_minor(true, 129), Ok(129));
+        assert!(render_node_minor(false, 129).is_err());
+        assert!(render_node_minor(true, -1).is_err());
+    }
+
+    /// A mapped picture freed right after its copy was submitted would block the presenter until
+    /// the copy finished and give its VAAPI surface back while the GPU may still read it.
+    #[test]
+    fn mapped_pictures_are_kept_until_their_slots_copy_is_done() {
+        let mut held = Held::new();
+        assert_eq!(held.hold(0, "frame 1"), None);
+        assert_eq!(held.hold(1, "frame 2"), None);
+        assert!(held.release(|_| false).is_empty(), "nothing goes while copies run");
+        assert_eq!(held.release(|slot| slot == 0), ["frame 1"]);
+        assert_eq!(held.hold(0, "frame 3"), None, "slot 0's earlier picture went when its copy was done");
+        // A slot used again after its fence was waited for gives back what it held.
+        assert_eq!(held.take(1), Some("frame 2"));
+        assert_eq!(held.hold(0, "frame 4"), Some("frame 3"));
+        assert_eq!(held.drain(), ["frame 4"]);
+        assert!(held.release(|_| true).is_empty());
+    }
+
+    /// An imported image is FFmpeg's `VK_QUEUE_FAMILY_EXTERNAL` in UNDEFINED layout: the copy
+    /// acquires it from outside Vulkan without dropping its contents; decoder images move no family.
+    #[test]
+    fn an_imported_picture_is_acquired_from_outside_vulkan_and_a_decoded_one_is_not() {
+        let (layout, from, to) = acquire(vk::QUEUE_FAMILY_EXTERNAL, vk::ImageLayout::UNDEFINED, 0);
+        assert_eq!((layout.as_raw(), from, to), (vk::ImageLayout::GENERAL.as_raw(), vk::QUEUE_FAMILY_EXTERNAL, 0));
+        let (layout, from, to) = acquire(vk::QUEUE_FAMILY_IGNORED, vk::ImageLayout::VIDEO_DECODE_DPB_KHR, 0);
+        assert_eq!((layout.as_raw(), from, to), (vk::ImageLayout::VIDEO_DECODE_DPB_KHR.as_raw(), vk::QUEUE_FAMILY_IGNORED, vk::QUEUE_FAMILY_IGNORED));
+        assert_eq!(acquire(2, vk::ImageLayout::GENERAL, 2).1, vk::QUEUE_FAMILY_IGNORED);
     }
 
     #[test]

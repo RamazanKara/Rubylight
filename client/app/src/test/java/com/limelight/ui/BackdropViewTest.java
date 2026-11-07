@@ -118,6 +118,20 @@ public class BackdropViewTest {
     }
 
     @Test
+    public void aWindowThatTurnsBakesTheShownGameAgainForItsShape() {
+        layOut();
+        Bitmap[] toGlass = new Bitmap[1];
+        backdrop.setAmbientListener((bitmap, animate) -> toGlass[0] = bitmap);
+        backdrop.setBake(false, true);
+        backdrop.focus("a", cover(), false);
+        pass(1000);
+        assertTrue("tall for a portrait window", toGlass[0].getHeight() > toGlass[0].getWidth());
+        backdrop.setBake(false, false);
+        pass(1000);
+        assertTrue("wide once the window turned", toGlass[0].getWidth() > toGlass[0].getHeight());
+    }
+
+    @Test
     public void aDimStaysOverTheArtAloneSoTheFadeIsPaintedThen() {
         layOut();
         backdrop.setFade(0xFF000000, new float[] {0f, 1f}, new float[] {0f, 1f});

@@ -138,8 +138,15 @@ public class BackdropView extends FrameLayout {
 
     /** Which bake this screen wants: day or night, and portrait for a tall window. */
     public void setBake(boolean day, boolean portrait) {
+        if (this.day == day && this.portrait == portrait) return;
         this.day = day;
         this.portrait = portrait;
+        // A window that turned keeps no ambient baked for the other shape: the shown game is baked again for this one.
+        cache.evictAll();
+        if (shownKey != null) {
+            shownKey = null;
+            applyWanted();
+        }
     }
 
     /**

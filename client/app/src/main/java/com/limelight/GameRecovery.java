@@ -572,7 +572,7 @@ final class GameRecovery {
                     // Settings over the failed start would leave a stopped stream behind them: this start ends here, and
                     // Back from Settings is the library the game was started from.
                     @Override public void onStreamSettings() {
-                        game.startActivity(com.limelight.preferences.StreamSettings.atStreamSize(game));
+                        game.startActivities(settingsAfterFailedStart(game, game.getIntent(), game.isTaskRoot()));
                         game.finish();
                     }
                 });
@@ -580,5 +580,19 @@ final class GameRecovery {
         game.streamConnection.readCoverInto(screen);
         game.menuActions.showStreamDialog(screen.dialog());
         screen.showFailure();
+    }
+
+    /**
+     * Settings at the stream's size after a failed start. A game's shortcut starts the stream alone in its task: with
+     * nothing under it, the PC's library goes under Settings, so Back reaches it rather than leaving the app.
+     */
+    static android.content.Intent[] settingsAfterFailedStart(android.content.Context context, android.content.Intent start, boolean alone) {
+        android.content.Intent settings = com.limelight.preferences.StreamSettings.atStreamSize(context);
+        String uuid = start == null ? null : start.getStringExtra(Game.EXTRA_PC_UUID);
+        if (!alone || uuid == null || uuid.isEmpty()) return new android.content.Intent[] {settings};
+        android.content.Intent library = new android.content.Intent(context, AppView.class)
+                .putExtra(AppView.UUID_EXTRA, uuid)
+                .putExtra(AppView.NAME_EXTRA, start.getStringExtra(Game.EXTRA_PC_NAME));
+        return new android.content.Intent[] {library, settings};
     }
 }

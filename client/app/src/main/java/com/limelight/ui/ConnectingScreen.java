@@ -115,7 +115,10 @@ public final class ConnectingScreen {
             return true;
         });
         host.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
-            if (r - l != or - ol || b - t != ob - ot) v.post(this::fit);
+            if (r - l == or - ol && b - t == ob - ot) return;
+            // The stream rotates without a new window: the ambient follows the window's shape.
+            if (r > l && b > t) backdrop.setBake(false, b - t > r - l);
+            v.post(this::fit);
         });
         showCover(null);
     }

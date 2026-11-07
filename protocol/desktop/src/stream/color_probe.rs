@@ -118,6 +118,8 @@ pub fn probe_base(hardware: media::Hardware, wanted: u32) -> Base {
         backends: Vec::new(),
     };
     let mut failures = Vec::new();
+    // VAAPI on the GPU the stream will decode on.
+    let vaapi_node = media::vaapi_node(hardware);
     for (format, codec, name, data) in BASE_FIXTURES {
         if format & wanted == 0 {
             continue;
@@ -127,7 +129,7 @@ pub fn probe_base(hardware: media::Hardware, wanted: u32) -> Base {
             chroma444: false,
             packed: false,
             waiting: 0,
-            vaapi_node: None,
+            vaapi_node,
         };
         match decode(hardware, pictures, codec, data) {
             Ok((_, backend)) => {
@@ -153,6 +155,8 @@ pub fn probe(
 ) -> (u32, String) {
     let mut decodable = 0;
     let mut failures = Vec::new();
+    // VAAPI on the GPU the stream will decode on.
+    let vaapi_node = media::vaapi_node(hardware);
     for (format, codec, name, data) in FIXTURES {
         let yuv444 = format & VIDEO_FORMAT_MASK_YUV444 != 0;
         let pictures = media::Pictures {
@@ -160,7 +164,7 @@ pub fn probe(
             chroma444: yuv444,
             packed: false,
             waiting: 0,
-            vaapi_node: None,
+            vaapi_node,
         };
         match decode(hardware, pictures, codec, data)
             .and_then(|(info, _)| drawable(&info, yuv444, &planes))

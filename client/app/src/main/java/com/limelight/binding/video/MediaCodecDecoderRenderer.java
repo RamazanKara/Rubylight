@@ -5124,14 +5124,38 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return capabilities;
     }
 
+    /**
+     * The decoder that will run a negotiated format mask, in the handshake's order (AV1, then
+     * HEVC, then H.264), or null before negotiation or when no decoder is chosen for it.
+     */
+    MediaCodecInfo decoderForNegotiated(int formats) {
+        if ((formats & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0) {
+            return decoderFor(formats & MoonBridge.VIDEO_FORMAT_MASK_AV1);
+        }
+        if ((formats & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0) {
+            return decoderFor(formats & MoonBridge.VIDEO_FORMAT_MASK_H265);
+        }
+        if ((formats & MoonBridge.VIDEO_FORMAT_MASK_H264) != 0) {
+            return avcDecoder;
+        }
+        return null;
+    }
+
     private int capabilitiesFor(int format) {
         int capabilities = 0;
         boolean tenBit = tenBitSdr(format);
         boolean hevc = (format & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0;
         boolean av1 = (format & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0;
+        // Slices and direct submit follow the decoder that will run the negotiated format: a phone
+        // may pair a Codec2 AVC decoder with an OMX HEVC one. Before negotiation the AVC decoder's
+        // direct submit and the larger slice count stand in.
+        MediaCodecInfo runner = decoderForNegotiated(format);
+        byte slices = runner != null ? MediaCodecHelper.getDecoderOptimalSlicesPerFrame(runner.getName()) :
+                (tenBit && hevc ? optimalSlicesPerFrame10 : optimalSlicesPerFrame);
+        boolean submitDirect = runner != null ? MediaCodecHelper.decoderCanDirectSubmit(runner.getName()) : directSubmit;
 
         // Request the optimal number of slices per frame for this decoder
-        capabilities |= MoonBridge.CAPABILITY_SLICES_PER_FRAME(tenBit && hevc ? optimalSlicesPerFrame10 : optimalSlicesPerFrame);
+        capabilities |= MoonBridge.CAPABILITY_SLICES_PER_FRAME(slices);
 
         // Enable reference frame invalidation on supported hardware
         if (refFrameInvalidationAvc) {
@@ -5145,7 +5169,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         // Enable direct submit on supported hardware
-        if (directSubmit) {
+        if (submitDirect) {
             capabilities |= MoonBridge.CAPABILITY_DIRECT_SUBMIT;
         }
 

@@ -1682,6 +1682,8 @@ public class GameRecoveryTest {
         }
     }
 
+    // A started stream readies the host-loss watch, which asks MoonBridge whether the native check loaded.
+    @Config(shadows = PcViewLifecycleTest.NoNativeMoonBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
     @Test public void aStartedStreamLetsTheConnectingCoverGoAndKeepsTheMenusCopy() throws Exception {
         Game game = establishedGame();
         try {

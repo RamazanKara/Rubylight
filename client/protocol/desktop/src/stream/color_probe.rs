@@ -148,7 +148,7 @@ pub fn planes_drawable(renderer: *mut SDL_Renderer, ten_bit: bool) -> Result<(),
     {
         let device = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_GPU_DEVICE_POINTER);
         if device.is_null() {
-            return Err("drawing these pictures needs the SDL GPU renderer; restart Nightjar after turning the setting on".into());
+            return Err("drawing these pictures needs the SDL GPU renderer".into());
         }
         // SAFETY: The renderer's live GPU device, on the renderer's thread.
         unsafe { super::planes_gpu::PlanesPass::compiles(device.cast(), ten_bit) }

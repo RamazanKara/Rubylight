@@ -338,6 +338,13 @@ impl Glass {
         self.print = None;
     }
 
+    /// A new renderer (Linux's switch to the GPU renderer): the targets went with the old one, and
+    /// the tier is tried and measured again on this one, as at start.
+    #[cfg_attr(windows, allow(dead_code))]
+    pub fn renderer_changed(&mut self) {
+        *self = Self { over_video: self.over_video, budget_ms: self.budget_ms, changed: true, ..Self::new(self.forced) };
+    }
+
     /// Whether the tier changed since last asked.
     pub fn take_changed(&mut self) -> bool {
         std::mem::take(&mut self.changed)

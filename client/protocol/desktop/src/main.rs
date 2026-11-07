@@ -205,8 +205,13 @@ struct App {
     autostream: Option<autostream::Autostream>,
     cli: Option<cli::CliLaunch>,
     /// The 4:4:4 and 10-bit decoder check for a decoder, done at the first launch that asks: the
-    /// decoder and the renderer stay the same while Nightjar runs.
+    /// decoder stays the same while Nightjar runs, and a renderer switch drops it.
     color_probed: Option<(Hardware, (u32, String))>,
+    /// Linux's renderer as it was made ([`RendererState`]).
+    #[cfg(unix)]
+    renderer_state: RendererState,
+    /// Why this stream's switch to the GPU renderer failed, for the check that refuses it.
+    gpu_failure: Option<String>,
     /// The stream start that waits for the PIN screen.
     pin_pending: Option<PinPending>,
     /// Selecting a game waits for the PC to say who plays it.
@@ -220,6 +225,18 @@ struct App {
     title_bar: egui::Color32,
     /// The window changed since the last launcher frame: it needs one, whatever egui paints.
     window_changed: bool,
+}
+
+/// What Linux's renderer was made for, beyond what SDL says of it.
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug)]
+struct RendererState {
+    /// The Renderer setting last applied: a change is applied once, with nothing streaming.
+    choice: config::Renderer,
+    /// Made for an HDR stream with a display's HDR on (`handheld::RendererNow`).
+    made_for_hdr: bool,
+    /// Made with Vulkan video's extensions and queues, when it is the GPU renderer.
+    vulkan_video: bool,
 }
 
 fn display_of(window: *mut SDL_Window) -> Display {
@@ -513,14 +530,16 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     let vulkan_video = vulkan_video_possible(any_hardware_decoding(&settings, hosts.iter()
         .flat_map(|host| host.settings.iter().chain(host.app_settings.values()))
         .chain(profiles.entries.iter().map(|profile| &profile.settings))), vulkan_choice);
+    // The Renderer setting decides, and at Auto what needs the GPU renderer.
     #[cfg(unix)]
-    let gpu = gpu || gpu_for_vulkan_video(vulkan_video, vulkan_choice);
+    let gpu = handheld::starts_on_gpu(settings.renderer, settings.renderer == config::Renderer::Auto && (gpu || gpu_for_vulkan_video(vulkan_video, vulkan_choice)));
     #[cfg(not(unix))]
     let vulkan_video = false;
 
-    sdl::set_hdr_asked(any_hdr_asked(&settings, hosts.iter()
+    let hdr_asked = any_hdr_asked(&settings, hosts.iter()
         .flat_map(|host| host.settings.iter().chain(host.app_settings.values()))
-        .chain(profiles.entries.iter().map(|profile| &profile.settings))));
+        .chain(profiles.entries.iter().map(|profile| &profile.settings)));
+    sdl::set_hdr_asked(hdr_asked);
 
     // Steam's Game Mode: fullscreen without a border from the start (handheld.rs).
     let start = handheld::start_window(handheld::gamescope());
@@ -567,6 +586,9 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     });
 
     let mut gui = Gui::new();
+    // A stream's start or the Renderer setting may make the renderer again (`App::rebuild_renderer`).
+    #[cfg(unix)]
+    gui.keep_images();
     // Before the window shows: UI Automation's adapter has to be on it from the start.
     if let Err(e) = gui.attach_accessibility(window, waker.clone()) {
         eprintln!("nightjar: screen readers cannot read this window: {e}");
@@ -715,6 +737,13 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         open_play,
         cli,
         color_probed: None,
+        #[cfg(unix)]
+        renderer_state: RendererState {
+            choice: settings.renderer,
+            made_for_hdr: gpu && hdr_asked && sdl::any_display_hdr(),
+            vulkan_video,
+        },
+        gpu_failure: None,
         pin_pending: None,
         select_read: false,
         move_watch: Default::default(),
@@ -1046,6 +1075,8 @@ impl App {
     }
 
     fn launcher_frame(&mut self) {
+        #[cfg(unix)]
+        self.apply_renderer_choice();
         // Wait for input or a worker; animate the spinner while something runs.
         let busy = self.connecting.is_some() || self.waking.host().is_some() || self.network_launch.is_some() || self.network_test.is_some()
             || self.launcher.remote.running() || self.launcher.files.busy()
@@ -1798,6 +1829,121 @@ impl App {
         }
     }
 
+    /// Why the GPU renderer `need` asks for is missing, when a failed switch or the Renderer setting
+    /// at OpenGL is why; None otherwise (Windows, or the GPU renderer is there).
+    fn gpu_missing(&self, need: &str) -> Option<String> {
+        if let Some(why) = &self.gpu_failure {
+            return Some(trf("The GPU renderer could not be made: {}.", &[why]));
+        }
+        (cfg!(unix) && self.launcher.settings.renderer == config::Renderer::OpenGl && sdl::renderer_name(self.renderer) != "gpu")
+            .then(|| {
+                // "upscaling" opens the sentence.
+                let mut chars = need.chars();
+                let need: String = chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default();
+                trf("{} needs the GPU renderer. Set Renderer to Automatic or GPU (Vulkan).", &[&need])
+            })
+    }
+
+    /// Before a stream's checks on Linux: switches to the GPU renderer when the stream needs it
+    /// (`handheld::renderer_switch`). A failure keeps a renderer of the old kind and leaves why in
+    /// `gpu_failure`, which the check that refuses the stream then says.
+    #[cfg(unix)]
+    fn switch_for_stream(&mut self, settings: &config::Settings) {
+        self.apply_renderer_choice();
+        let gpu = sdl::renderer_name(self.renderer) == "gpu";
+        let state = self.renderer_state;
+        let now = handheld::RendererNow { gpu, hdr_swapchain: sdl::swapchain_takes_hdr(self.renderer), made_for_hdr: state.made_for_hdr };
+        let vulkan_choice = vulkan_video::Choice::from_environment();
+        let vulkan_video = state.vulkan_video || vulkan_video_possible(settings.decoder != DecoderPreference::Software, vulkan_choice);
+        // A stream decoding in hardware where every saved one decoded in software: Vulkan video
+        // may need the GPU renderer, as at start.
+        let need = settings.gpu_need().or_else(|| {
+            (!gpu && !state.vulkan_video && vulkan_video && state.choice == config::Renderer::Auto && gpu_for_vulkan_video(vulkan_video, vulkan_choice))
+                .then_some("Vulkan video")
+        });
+        let display_hdr = settings.hdr && sdl::any_display_hdr();
+        // The quit-and-start prompt's plan holds the renderer's device.
+        let busy = self.streaming.is_some() || self.connecting.is_some() || self.pending_replace.is_some();
+        let Some(switch) = handheld::renderer_switch(state.choice, now, need, settings.hdr, display_hdr, busy) else { return };
+        if let Err(why) = self.rebuild_renderer(true, settings.hdr, display_hdr, vulkan_video, switch.reason()) {
+            self.gpu_failure = Some(why);
+        }
+    }
+
+    /// A changed Renderer setting, applied once with nothing streaming (`handheld::renderer_for_choice`).
+    #[cfg(unix)]
+    fn apply_renderer_choice(&mut self) {
+        let choice = self.launcher.settings.renderer;
+        if choice == self.renderer_state.choice || self.streaming.is_some() || self.connecting.is_some() || self.pending_replace.is_some() {
+            return;
+        }
+        self.renderer_state.choice = choice;
+        let Some(gpu) = handheld::renderer_for_choice(choice, sdl::renderer_name(self.renderer) == "gpu") else { return };
+        if let Err(why) = self.rebuild_renderer(gpu, false, false, self.renderer_state.vulkan_video, "the Renderer setting") {
+            self.launcher.message(tr("Renderer"), trf("The renderer could not be made: {}.", &[&why]));
+        }
+    }
+
+    /// Makes Linux's renderer again on the same window, as the GPU renderer (`gpu`) or OpenGL, with
+    /// nothing streaming or launching on it: what the GUI made on the old one goes first and comes
+    /// back on the new one, and what run() took from the renderer is taken again. `hdr`: for an HDR
+    /// stream (`display_hdr`: a display has HDR on). When the renderer asked for cannot be made, one
+    /// of the old kind is, and the error says why; with none at all Nightjar ends, loudly.
+    #[cfg(unix)]
+    fn rebuild_renderer(&mut self, gpu: bool, hdr: bool, display_hdr: bool, vulkan_video: bool, reason: &str) -> Result<(), String> {
+        let from = sdl::renderer_name(self.renderer);
+        let wanted = if gpu { "gpu" } else { "opengl" };
+        self.gui.release_renderer();
+        // SAFETY: the renderer run() made, its textures freed, with no stream or launch using it.
+        unsafe { SDL_DestroyRenderer(self.renderer) };
+        if hdr {
+            sdl::set_hdr_asked(true);
+        }
+        let mut made = sdl::create_renderer_with(self.window, gpu, vulkan_video);
+        let failure = if made.is_null() {
+            Some(sdl::error())
+        } else if gpu && sdl::renderer_name(made) != "gpu" {
+            Some(sdl::gpu_renderer_failure().unwrap_or_else(|| format!("SDL made {:?} instead", sdl::renderer_name(made))))
+        } else {
+            None
+        };
+        if made.is_null() {
+            made = sdl::create_renderer_with(self.window, from == "gpu", self.renderer_state.vulkan_video);
+        }
+        if made.is_null() && from == "gpu" {
+            made = sdl::create_renderer_with(self.window, false, false);
+        }
+        if made.is_null() {
+            let why = format!("Nightjar has no renderer any more: the {wanted:?} renderer for {reason} and the {from:?} one before it could not be made ({})", sdl::error());
+            eprintln!("nightjar: {why}");
+            message_box(SDL_MESSAGEBOX_ERROR, &why);
+            logpipe::shutdown();
+            std::process::exit(1);
+        }
+        // SAFETY: the renderer just made.
+        unsafe { SDL_SetRenderVSync(made, 1) };
+        self.renderer = made;
+        self.gui.reupload(made);
+        self.launcher.gpu_device = renderer_gpu_device(made);
+        self.color_probed = None;
+        self.window_changed = true;
+        let to = sdl::renderer_name(made);
+        self.renderer_state.made_for_hdr = to == "gpu" && hdr && display_hdr;
+        if failure.is_none() {
+            self.renderer_state.vulkan_video = vulkan_video;
+        }
+        match failure {
+            None => {
+                eprintln!("nightjar: renderer switched from {from:?} to {to:?} for {reason}");
+                Ok(())
+            }
+            Some(why) => {
+                eprintln!("nightjar: renderer {from:?} could not switch to {wanted:?} for {reason} ({why}); drawing with {to:?}");
+                Err(why)
+            }
+        }
+    }
+
     /// The renderer's device, for PyroWave decoding on the GPU.
     fn gpu_device(&self) -> Option<stream::pipeline::GpuDevice> {
         renderer_gpu_device(self.renderer)
@@ -2091,6 +2237,16 @@ impl App {
         if mic_only {
             mic_only_settings(&mut settings);
         }
+        self.gpu_failure = None;
+        #[cfg(unix)]
+        {
+            self.switch_for_stream(&settings);
+            // HDR and PyroWave say it in their own checks below, with what they found.
+            if let Some(advice) = settings.gpu_need().filter(|&need| handheld::refused_without_gpu(need)).and_then(|need| self.gpu_missing(need)) {
+                self.launcher.message(tr("The stream could not start"), advice);
+                return;
+            }
+        }
         self.hdr_note = false;
         let hdr_output = sdl::hdr_available(self.renderer)
             || (settings.hdr && !handheld::gamescope() && sdl::await_window_hdr(self.renderer));
@@ -2099,9 +2255,10 @@ impl App {
                 let why = sdl::output_decision().and_then(Result::err).map_or("the compositor reports no HDR for this window", handheld::SdrReason::says);
                 eprintln!("nightjar: HDR asked for, refused: {why}");
                 let advice = match sdl::hdr_refusal(self.renderer) {
-                    handheld::HdrRefusal::TurnHdrOn => tr("Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output."),
-                    handheld::HdrRefusal::Restart => tr("Restart Nightjar to use HDR on this display."),
-                    handheld::HdrRefusal::MoveWindow => tr("Move this window to the display with HDR on, then start the stream again."),
+                    handheld::HdrRefusal::TurnHdrOn => tr("Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output.").to_owned(),
+                    handheld::HdrRefusal::RendererSdr => self.gpu_missing(tr("HDR"))
+                        .unwrap_or_else(|| trf("This display has HDR on, but the renderer cannot present HDR: {}.", &[&why])),
+                    handheld::HdrRefusal::MoveWindow => tr("Move this window to the display with HDR on, then start the stream again.").to_owned(),
                 };
                 self.launcher.message(tr("HDR output unavailable"), advice);
                 return;
@@ -2129,11 +2286,17 @@ impl App {
                 (Ok(()), config::PyroWaveDecoder::Gpu) => gpu_decoder = gpu_device,
                 (Ok(()), config::PyroWaveDecoder::Cpu) => {}
                 (Err(reason), config::PyroWaveDecoder::Cpu) => {
-                    self.launcher.message(tr("PyroWave output unavailable"), trf("{}. Restart Nightjar after selecting PyroWave so it can initialize the GPU renderer.", &[&reason]));
+                    let advice = self.gpu_missing("PyroWave").map_or_else(|| format!("{reason}."), |why| format!("{reason}. {why}"));
+                    self.launcher.message(tr("PyroWave output unavailable"), advice);
                     return;
                 }
                 (Err(reason), config::PyroWaveDecoder::Gpu) => {
-                    self.launcher.message(tr("PyroWave GPU decoding unavailable"), trf("{}. Switch the PyroWave decoder to CPU in the settings, or pick another codec.", &[&reason]));
+                    // The CPU decoder draws with the GPU renderer too: without it, switching would not help.
+                    let advice = match self.gpu_missing("PyroWave") {
+                        Some(why) => format!("{reason}. {why}"),
+                        None => trf("{}. Switch the PyroWave decoder to CPU in the settings, or pick another codec.", &[&reason]),
+                    };
+                    self.launcher.message(tr("PyroWave GPU decoding unavailable"), advice);
                     return;
                 }
             }

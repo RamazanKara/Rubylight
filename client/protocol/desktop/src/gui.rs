@@ -37,6 +37,9 @@ pub struct Gui {
     no_output_said: bool,
     /// The print of what the window shows; None after a frame that was not the launcher's.
     on_screen: Option<u64>,
+    /// Every texture's whole image, while the renderer may be made again (Linux, [`Self::keep_images`]):
+    /// egui sends only what changed, and a new renderer needs them all.
+    images: Option<HashMap<TextureId, egui::epaint::ImageDelta>>,
 }
 
 /// The system clipboard's text, or None when it holds none.
@@ -228,7 +231,40 @@ impl Gui {
             tier_set: None,
             no_output_said: false,
             on_screen: None,
+            images: None,
         }
+    }
+
+    /// Keeps a copy of every texture's image from here on, so [`Self::reupload`] can give a new
+    /// renderer all of them. Before the first frame.
+    #[cfg_attr(windows, allow(dead_code))]
+    pub fn keep_images(&mut self) {
+        self.images.get_or_insert_with(HashMap::new);
+    }
+
+    /// Frees everything made on the renderer, which is about to go; the images stay for
+    /// [`Self::reupload`].
+    #[cfg_attr(windows, allow(dead_code))]
+    pub fn release_renderer(&mut self) {
+        self.chain.release();
+        for (_, texture) in self.textures.drain() {
+            // SAFETY: textures we created, on the renderer still alive.
+            unsafe { SDL_DestroyTexture(texture) };
+        }
+    }
+
+    /// Makes every texture again on a new renderer from the kept images, and draws the next frame
+    /// whole: glass is tried and measured again on it, as at start.
+    #[cfg_attr(windows, allow(dead_code))]
+    pub fn reupload(&mut self, renderer: *mut SDL_Renderer) {
+        let images = self.images.take().unwrap_or_default();
+        for (&id, image) in &images {
+            self.set_texture(renderer, id, image);
+        }
+        self.images = Some(images);
+        self.glass.renderer_changed();
+        self.on_screen = None;
+        self.repaint_delay = Duration::ZERO;
     }
 
     /// The display's refresh rate: live glass has to fit its frame.
@@ -537,6 +573,9 @@ impl Gui {
         // SAFETY: a live renderer.
         unsafe { SDL_SetRenderClipRect(renderer, std::ptr::null()) };
         for id in output.textures_delta.free.drain() {
+            if let Some(images) = &mut self.images {
+                images.remove(&id);
+            }
             if let Some(texture) = self.textures.remove(&id) {
                 // SAFETY: a texture we created.
                 unsafe { SDL_DestroyTexture(texture) };
@@ -545,6 +584,9 @@ impl Gui {
     }
 
     fn set_texture(&mut self, renderer: *mut SDL_Renderer, id: TextureId, delta: &egui::epaint::ImageDelta) {
+        if let Some(images) = &mut self.images {
+            remember(images, id, delta);
+        }
         let egui::ImageData::Color(image) = &delta.image;
         let [w, h] = image.size;
         // SAFETY: SDL calls on a live renderer with a buffer of w*h RGBA pixels.
@@ -600,6 +642,25 @@ impl Gui {
             // SAFETY: cursors we created.
             unsafe { SDL_DestroyCursor(cursor) };
         }
+    }
+}
+
+/// Keeps `delta` in `images` as the texture's whole image: a whole image as it comes (its pixels
+/// shared, not copied), a patch drawn into the kept one.
+fn remember(images: &mut HashMap<TextureId, egui::epaint::ImageDelta>, id: TextureId, delta: &egui::epaint::ImageDelta) {
+    let Some([x, y]) = delta.pos else {
+        images.insert(id, delta.clone());
+        return;
+    };
+    let Some(kept) = images.get_mut(&id) else { return };
+    let (egui::ImageData::Color(patch), egui::ImageData::Color(whole)) = (&delta.image, &mut kept.image);
+    let whole = std::sync::Arc::make_mut(whole);
+    let [w, h] = whole.size;
+    for row in 0..patch.size[1].min(h.saturating_sub(y)) {
+        let width = patch.size[0].min(w.saturating_sub(x));
+        let from = row * patch.size[0];
+        let to = (y + row) * w + x;
+        whole.pixels[to..to + width].copy_from_slice(&patch.pixels[from..from + width]);
     }
 }
 
@@ -705,6 +766,30 @@ impl Stage for SdlStage<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A renderer made again (Linux's switch to the GPU renderer) gets every texture back whole,
+    /// with the patches egui sent since (the font atlas grows by them).
+    #[test]
+    fn kept_images_take_whole_images_and_patches() {
+        use egui::epaint::{ColorImage, ImageDelta};
+        use egui::{Color32, TextureOptions};
+        let id = TextureId::Managed(0);
+        let mut images = HashMap::new();
+        let patch = ImageDelta::partial([1, 1], ColorImage::new([2, 1], vec![Color32::RED; 2]), TextureOptions::NEAREST);
+        remember(&mut images, id, &patch);
+        assert!(images.is_empty(), "a patch of nothing kept is no image");
+        remember(&mut images, id, &ImageDelta::full(ColorImage::new([3, 2], vec![Color32::BLACK; 6]), TextureOptions::LINEAR));
+        remember(&mut images, id, &patch);
+        let kept = &images[&id];
+        assert_eq!(kept.pos, None, "kept as a whole image");
+        assert_eq!(kept.options, TextureOptions::LINEAR, "with the whole image's options");
+        let egui::ImageData::Color(image) = &kept.image;
+        assert_eq!(image.pixels, [Color32::BLACK, Color32::BLACK, Color32::BLACK, Color32::BLACK, Color32::RED, Color32::RED]);
+        let past_the_edge = ImageDelta::partial([2, 0], ColorImage::new([2, 1], vec![Color32::GREEN; 2]), TextureOptions::LINEAR);
+        remember(&mut images, id, &past_the_edge);
+        let egui::ImageData::Color(image) = &images[&id].image;
+        assert_eq!(image.pixels[..3], [Color32::BLACK, Color32::BLACK, Color32::GREEN], "clipped to the image");
+    }
 
     #[test]
     fn the_keys_the_launcher_listens_for_reach_egui() {

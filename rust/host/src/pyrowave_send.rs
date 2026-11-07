@@ -948,11 +948,14 @@ mod tests {
             }
             assert_eq!(transport::next_block(slot), None);
             // The blocks nobody sends go back to the pool: both untaken, or
-            // the one queued behind the frame in hand.
+            // the one queued behind the frame in hand. Pooled buffers are
+            // refilled whole, so their order does not matter.
             if taken {
                 assert_eq!(slot.pool.take(), block(2));
             } else {
-                assert_eq!((slot.pool.take(), slot.pool.take()), (block(1), block(2)));
+                let mut pooled = [slot.pool.take(), slot.pool.take()];
+                pooled.sort();
+                assert_eq!(pooled, [block(1), block(2)]);
             }
             assert!(slot.pool.take().is_empty());
         }

@@ -21,12 +21,18 @@ import static org.junit.Assert.*;
 public class StreamMenuHintTest {
     /** The real TV's virtual-search: keyboard, D-pad and the gamepad bit, no axes, and only a remote in the hand. */
     @Test
-    public void aDeviceWithNoAxesIsNoPad() {
-        assertFalse(StreamMenuHint.isPad(android.view.InputDevice.SOURCE_KEYBOARD | android.view.InputDevice.SOURCE_DPAD
-                | android.view.InputDevice.SOURCE_GAMEPAD));
-        assertFalse(StreamMenuHint.isPad(android.view.InputDevice.SOURCE_KEYBOARD | android.view.InputDevice.SOURCE_DPAD));
-        assertTrue(StreamMenuHint.isPad(android.view.InputDevice.SOURCE_GAMEPAD | android.view.InputDevice.SOURCE_JOYSTICK
-                | android.view.InputDevice.SOURCE_KEYBOARD | android.view.InputDevice.SOURCE_DPAD));
+    public void aBuiltInDeviceWithNoAxesIsNoPad() {
+        int search = android.view.InputDevice.SOURCE_KEYBOARD | android.view.InputDevice.SOURCE_DPAD | android.view.InputDevice.SOURCE_GAMEPAD;
+        assertFalse(StreamMenuHint.isPad(search, 34, false));
+        assertFalse(StreamMenuHint.isPad(android.view.InputDevice.SOURCE_KEYBOARD | android.view.InputDevice.SOURCE_DPAD, 34, true));
+        assertTrue(StreamMenuHint.isPad(search | android.view.InputDevice.SOURCE_JOYSTICK, 34, false));
+    }
+
+    @Test
+    public void anOutsidePadWithOnlyTheGamepadBitIsAPadFromApi29() {
+        assertTrue(StreamMenuHint.isPad(android.view.InputDevice.SOURCE_GAMEPAD, 29, true));
+        assertFalse("nothing says it is outside", StreamMenuHint.isPad(android.view.InputDevice.SOURCE_GAMEPAD, 28, true));
+        assertTrue("axes are enough on any API", StreamMenuHint.isPad(android.view.InputDevice.SOURCE_JOYSTICK, 28, false));
     }
 
     private static Context context(Locale locale) {

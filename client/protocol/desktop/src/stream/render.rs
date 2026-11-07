@@ -500,7 +500,8 @@ impl Streaming {
                 };
                 let aim_us = present::phase_lock_aim_us(skipping, exclusive, self.present_deadline_us, refresh_hz);
                 let timing = phase::aimed(phase::timing(renderer, refresh_hz), aim_us);
-                if let Some(report) = self.phase.sample(p.decoded.ready_us, begin, timing) {
+                let steady_windows = if skipping { self.phase_steady_windows } else { 0 };
+                if let Some(report) = self.phase.sample(p.decoded.ready_us, begin, timing, steady_windows) {
                     let _ = self.session.send(ClientMessage::PhaseLockReport(report));
                 }
             } else { self.phase.reset(); }
@@ -550,6 +551,7 @@ impl Streaming {
             let refresh_us = (1_000_000.0 / self.plan.display.refresh_hz.max(1.0)) as u64;
             self.miss_watch.presented(flip.present_count, flipped.issued_us);
             if self.miss_watch.seen(flip, refresh_us) {
+                self.phase.missed();
                 if let Some(hold) = self.skipped.missed(self.pacer.frame_us(), refresh_us) {
                     eprintln!("nightjar: pacing: many pictures miss their refresh here, each now waits its turn ({hold:?})");
                 }

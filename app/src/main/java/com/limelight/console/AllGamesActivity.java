@@ -64,6 +64,8 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
     private ShelfAdapter.Env env;
     private ShelfAdapter adapter;
     private GridLayoutManager grid;
+    /** On a TV, the room above the first row inside the grid's frame, which a focused row keeps for its glow; 0 elsewhere. */
+    private int roomAbove;
     private RecyclerView list;
     private LinearLayout filterRow;
     private View loading;
@@ -154,6 +156,7 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
             frame.setMarginStart(frame.getMarginStart() - room);
             frame.setMarginEnd(frame.getMarginEnd() - room);
             int above = grid.getPaddingTop() + room;
+            roomAbove = above;
             grid.setPaddingRelative(grid.getPaddingStart() + room, 0, grid.getPaddingEnd() + room, grid.getPaddingBottom());
             ((RecyclerView) grid).addItemDecoration(new RecyclerView.ItemDecoration() {
                 @Override
@@ -189,7 +192,18 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
             showFocused(item.game);
         };
         adapter = new ShelfAdapter(env);
-        grid = new GridLayoutManager(this, MAX_COLUMNS);
+        grid = new GridLayoutManager(this, MAX_COLUMNS) {
+            // A focused row scrolled to the frame's very top stood in the focus line, its title over the poster and its glow
+            // cut square: scrolling a card into view keeps the room the first row has above it.
+            @Override
+            public boolean requestChildRectangleOnScreen(@NonNull RecyclerView parent, @NonNull View child,
+                                                         @NonNull android.graphics.Rect rect, boolean immediate,
+                                                         boolean focusedChildVisible) {
+                android.graphics.Rect withRoom = new android.graphics.Rect(rect);
+                if (roomAbove > 0) withRoom.top = Math.min(rect.top, 0) - roomAbove;
+                return super.requestChildRectangleOnScreen(parent, child, withRoom, immediate, focusedChildVisible);
+            }
+        };
         list.setLayoutManager(grid);
         list.setItemAnimator(null);
         list.setAdapter(adapter);

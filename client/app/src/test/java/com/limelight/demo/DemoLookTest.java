@@ -30,6 +30,19 @@ public class DemoLookTest {
         return RuntimeEnvironment.getApplication();
     }
 
+    /** The showcase is shot from the demo: the failed start speaks the device's language and no real device is named. */
+    @Test @Config(sdk = 34, qualifiers = "de-night")
+    public void theDemoFailureSpeaksGermanAndNamesNoRealDevice() {
+        android.content.Intent intent = new android.content.Intent(context(), DemoConnecting.class).putExtra("state", "conn-error");
+        try (var screen = org.robolectric.Robolectric.buildActivity(DemoConnecting.class, intent).setup()) {
+            android.app.Dialog dialog = org.robolectric.shadows.ShadowDialog.getLatestDialog();
+            CharSequence message = ((android.widget.TextView) dialog.findViewById(R.id.conn_error_message)).getText();
+            assertTrue(message.toString(), message.toString().startsWith("Stream konnte nicht starten"));
+            assertTrue(message.toString(), message.toString().contains("Fehlercode: 5031"));
+        }
+        assertFalse(DemoConsole.PAIRING_DEVICE, DemoConsole.PAIRING_DEVICE.contains("Fold"));
+    }
+
     @Test public void aDarkSystemKeepsNightWithoutTheForce() {
         assertEquals(AppTheme.Look.NIGHT, AppTheme.look(new DemoContext(context())));
     }

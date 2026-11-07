@@ -45,7 +45,7 @@ public final class DemoConsoleHome extends ConsoleHomeActivity {
             com.limelight.nvstream.http.ComputerDetails pc = new com.limelight.nvstream.http.ComputerDetails();
             pc.name = "Living-room PC";
             showWaitingToPair(java.util.Collections.singletonList(new com.limelight.computers.PairingWatch.Waiting(pc,
-                    new com.limelight.nativeapi.NativePairing.Request("1", "Fold7", "192.168.4.2", 3))));
+                    new com.limelight.nativeapi.NativePairing.Request("1", DemoConsole.PAIRING_DEVICE, "192.168.4.2", 3))));
         }
         super.onResume();
         // Once: coming back from the PC settings the sheet is not wanted again.

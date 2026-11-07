@@ -406,6 +406,8 @@ pub(crate) enum Step {
     Zoom(u32),
     Size(i32, i32),
     Pointer(f32, f32),
+    /// The left button pressed and let go there.
+    Click(f32, f32),
     /// One wheel event, in points.
     Wheel(f32),
     /// A wheel event on each of the next `frames` frames.
@@ -463,6 +465,10 @@ pub(crate) fn parse(line: &str) -> Result<Step, String> {
         "pointer" => {
             let (x, y) = pair()?;
             Step::Pointer(number(x)?, number(y)?)
+        }
+        "click" => {
+            let (x, y) = pair()?;
+            Step::Click(number(x)?, number(y)?)
         }
         "wheel" => Step::Wheel(number(rest)?),
         "scroll" => {

@@ -109,6 +109,13 @@ impl App {
                 SDL_SetWindowSize(self.window, w, h);
             },
             Step::Pointer(x, y) => self.gui.push(egui::Event::PointerMoved(egui::pos2(x, y))),
+            Step::Click(x, y) => {
+                let pos = egui::pos2(x, y);
+                self.gui.push(egui::Event::PointerMoved(pos));
+                for pressed in [true, false] {
+                    self.gui.push(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+                }
+            }
             Step::Wheel(delta) => self.demo_wheel(delta),
             Step::Scroll { frames, delta } => {
                 self.demo.scroll_left = frames;

@@ -261,6 +261,8 @@ pub enum Dialog {
     ImportShortcuts(crate::shortcuts::Shortcuts),
     /// A PC's actions in one list, in the order of `host_options`.
     HostOptions { host: u64 },
+    /// The PCs, from the top bar's capsule with two or more: `current` is the one it shows.
+    PcSheet { current: u64 },
     /// A game's actions: its page, favourites, its settings, starting it.
     GameMenu { host: u64, game: GameTarget },
     Rename { host: u64, text: String },
@@ -1036,7 +1038,7 @@ impl Launcher {
         let ui = &mut child;
         self.cards.clear();
         // A menu by its card leaves the page as it is (it holds the input itself); a dialog dims it.
-        let menu = matches!(self.dialog, Dialog::HostOptions { .. } | Dialog::GameMenu { .. } | Dialog::HomeView) && self.menu_anchor != Anchor::Center;
+        let menu = matches!(self.dialog, Dialog::HostOptions { .. } | Dialog::PcSheet { .. } | Dialog::GameMenu { .. } | Dialog::HomeView) && self.menu_anchor != Anchor::Center;
         let blocked = (!matches!(self.dialog, Dialog::None) && !menu) || view.connecting.is_some() || view.waking.is_some();
         // Screens take focus only when nothing covers them.
         let held_focus = self.focus_screen;

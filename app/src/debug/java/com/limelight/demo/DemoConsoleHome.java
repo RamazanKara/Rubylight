@@ -182,6 +182,10 @@ public final class DemoConsoleHome extends ConsoleHomeActivity {
         if (onComplete != null) onComplete.run();
     }
 
+    @Override protected void close(com.limelight.nvstream.http.NvApp app, com.limelight.nvstream.http.ComputerDetails computer, java.util.function.Consumer<Boolean> onDone) {
+        onDone.accept(true);
+    }
+
     @Override protected Class<? extends GameDetailActivity> detailActivity() {
         return DemoGameDetail.class;
     }

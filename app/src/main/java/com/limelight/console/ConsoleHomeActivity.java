@@ -652,7 +652,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         if (uniqueId == null) {
             // No manager to read the PCs from; once Home stops waiting for it, it says there are none.
             if (!feed.waiting() && feed.binder() == null) {
-                show(++generation, HomeModel.empty(), true, true);
+                show(++generation, ConsoleSnapshot.empty(), HomeModel.empty(), true, true);
             }
             return;
         }
@@ -680,16 +680,17 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         worker.execute(() -> {
             try {
                 Set<String> denied = HomeModel.launchDenied(hosts);
-                show(mine, HomeModel.of(repo.cached(hosts), online, denied), hosts.isEmpty(), !refresh);
+                ConsoleSnapshot saved = repo.cached(hosts);
+                show(mine, saved, HomeModel.of(saved, online, denied), hosts.isEmpty(), !refresh);
                 if (refresh) {
                     ConsoleSnapshot fresh = repo.refresh(hosts);
-                    show(mine, HomeModel.of(fresh, online, denied), hosts.isEmpty(), true);
+                    show(mine, fresh, HomeModel.of(fresh, online, denied), hosts.isEmpty(), true);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             } catch (RuntimeException e) {
                 com.limelight.LimeLog.warning("Home could not load: " + e);
-                show(mine, HomeModel.empty(), hosts.isEmpty(), true);
+                show(mine, ConsoleSnapshot.empty(), HomeModel.empty(), hosts.isEmpty(), true);
             }
         });
     }
@@ -704,11 +705,12 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         return online;
     }
 
-    private void show(int mine, HomeModel model, boolean noHosts, boolean done) {
+    private void show(int mine, ConsoleSnapshot snapshot, HomeModel model, boolean noHosts, boolean done) {
         runOnUiThread(() -> {
             if (mine != generation || isFinishing() || isDestroyed()) {
                 return;
             }
+            shownSnapshot = snapshot;
             this.model = model;
             showHostCapsule(model);
             submitKeepingFocus(model);
@@ -822,6 +824,9 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
 
     private static final int FOCUS_TRIES = 8;
 
+    /** What {@link #model} was made from: the hero's Play reads it as the game's page reads its own. */
+    private ConsoleSnapshot shownSnapshot = ConsoleSnapshot.empty();
+
     private void openGame(HomeModel.GameCard card) {
         // A game in several PCs' libraries asks which one first; a found game that is not added opens as before.
         if (!card.notAdded() && card.hostCount > 1 && askHost(card)) {
@@ -841,8 +846,42 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             hostActions.showError(host.displayName(), getString(R.string.error_manager_not_running), null);
             return;
         }
-        play(CoverLoaders.appOf(card.title, card.appId, card.source), host,
-                card.badge == HomeModel.Badge.NONE ? LaunchSource.CONSOLE_PLAY : LaunchSource.CONSOLE_RESUME);
+        GameDetailModel page = HomeHero.modelOf(card, host, shownSnapshot);
+        if (!page.canStart()) {
+            // The page says why not.
+            openGame(card);
+            return;
+        }
+        com.limelight.nvstream.http.NvApp app = CoverLoaders.appOf(card.title, card.appId, card.source);
+        PlayPlan plan = HomeHero.planOf(page, app, host);
+        if (plan.kind == PlayPlan.Kind.START) {
+            play(app, host, card.badge == HomeModel.Badge.NONE ? LaunchSource.CONSOLE_PLAY : LaunchSource.CONSOLE_RESUME);
+            return;
+        }
+        // Starting closes what runs there, so it asks as the game's page does.
+        final String hostUuid = card.hostUuid;
+        UiHelper.showDialog(this, ReplaceRunningPrompt.ask(this, plan, page.title, app, new ReplaceRunningPrompt.Screen() {
+            @Override public ComputerDetails currentHost() {
+                return feed.host(hostUuid);
+            }
+
+            @Override public void start(com.limelight.nvstream.http.NvApp starting, ComputerDetails on) {
+                play(starting, on, LaunchSource.CONSOLE_PLAY);
+            }
+
+            @Override public void resume(com.limelight.nvstream.http.NvApp running, ComputerDetails on) {
+                play(running, on, LaunchSource.CONSOLE_RESUME);
+            }
+
+            @Override public void close(com.limelight.nvstream.http.NvApp running, ComputerDetails on, java.util.function.Consumer<Boolean> onDone) {
+                ConsoleHomeActivity.this.close(running, on, onDone);
+            }
+
+            @Override public void reload() {
+                refreshedSignature = null;
+                scheduleReload();
+            }
+        }));
     }
 
     /** Asks, then ends the game on its PC; Home reads the PC again once that answered. */
@@ -868,6 +907,11 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     /** Ends the game on the host, then calls {@code onComplete} on any thread. */
     protected void end(com.limelight.nvstream.http.NvApp app, ComputerDetails computer, Runnable onComplete) {
         ServerHelper.doQuit(this, computer, app, feed.binder(), onComplete);
+    }
+
+    /** Closes the game on the host; {@code onDone} learns on any thread whether it is closed. */
+    protected void close(com.limelight.nvstream.http.NvApp app, ComputerDetails computer, java.util.function.Consumer<Boolean> onDone) {
+        ServerHelper.doQuitReporting(this, computer, app, feed.binder(), onDone);
     }
 
     private void openGameOn(String hostUuid, int appId, String title, String hostName) {

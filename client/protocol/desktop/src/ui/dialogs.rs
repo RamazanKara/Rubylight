@@ -2093,15 +2093,20 @@ fn menu_shell(ctx: &egui::Context, name: &str, anchor: Anchor, add: impl FnOnce(
 fn menu_list(ui: &mut Ui, id: Id, room: f32, add: impl FnOnce(&mut Ui)) {
     // A thin bar that always shows when the list scrolls.
     ui.spacing_mut().scroll = egui::style::ScrollStyle { foreground_color: true, ..egui::style::ScrollStyle::thin() };
-    let list = egui::ScrollArea::vertical().id_salt(id.with("rows")).max_height(room).content_margin(Margin::same(4)).show(ui, |ui| {
+    let list = egui::ScrollArea::vertical().id_salt(id.with("rows")).max_height(room).content_margin(Margin::symmetric(MENU_RING as i8, (2.0 * MENU_RING) as i8)).show(ui, |ui| {
         let follow = id.with("focus");
         let mut last = ui.ctx().data(|d| d.get_temp::<Option<Id>>(follow)).flatten();
         crate::gui::follow_focus(ui, &mut last);
         ui.ctx().data_mut(|d| d.insert_temp(follow, last));
-        add(ui);
+        let ctx = ui.ctx().clone();
+        glass::with_halo_reach(&ctx, MENU_RING, || add(ui));
     });
     scroll_fades(ui, &list, MENU_FADE);
 }
+
+/// What a focused row's ring takes around it in a menu, and what its glow takes past that: the list
+/// keeps room for both, so neither ends in a hard line at the list's edge.
+const MENU_RING: f32 = design_tokens::FOCUS_GAP + design_tokens::FOCUS_RING_WIDTH;
 
 /// The PCs behind the top bar's capsule: a row for each with its status dot, its name and what it
 /// is doing, and a mark on `current`, the one the capsule shows. `focus_first` puts the ring on the

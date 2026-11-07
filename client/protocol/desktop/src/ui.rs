@@ -900,7 +900,9 @@ impl Launcher {
                 });
                 let rect = shown.response.rect;
                 let mut shapes = Vec::new();
-                glass::without_backdrop(&mut shapes, ctx, rect, rect.height() / 2.0, glass::Material::Chip);
+                // The stream menu's recipe, not the thin chip: with no blur, the words of a page under
+                // a chip read through a toast's own.
+                glass::without_backdrop(&mut shapes, ctx, rect, rect.height() / 2.0, glass::Material::Menu);
                 // The shadow falls past the area's clip.
                 let mut painter = ui.painter().clone();
                 painter.set_clip_rect(ctx.content_rect());

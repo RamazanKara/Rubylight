@@ -1109,6 +1109,22 @@ fn at_150_percent_the_longest_options_list_scrolls_to_the_option_with_focus() {
     assert!(matches!(f.l.dialog, Dialog::ConfirmRemove { .. }), "the last option is Remove");
 }
 
+/// The meshes drawn and their clips, nested shapes included.
+fn meshes_drawn(f: &Frames) -> Vec<(std::sync::Arc<egui::epaint::Mesh>, Rect)> {
+    fn walk(shape: &egui::Shape, clip: Rect, out: &mut Vec<(std::sync::Arc<egui::epaint::Mesh>, Rect)>) {
+        match shape {
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, clip, out)),
+            egui::Shape::Mesh(mesh) => out.push((mesh.clone(), clip)),
+            _ => {}
+        }
+    }
+    let mut found = Vec::new();
+    for clipped in &f.shapes {
+        walk(&clipped.shape, clipped.clip_rect, &mut found);
+    }
+    found
+}
+
 /// The rectangles drawn filled with `fill`, nested shapes included.
 fn rects_filled(f: &Frames, fill: Color32) -> Vec<Rect> {
     fn walk(shape: &egui::Shape, fill: Color32, out: &mut Vec<Rect>) {
@@ -1407,18 +1423,23 @@ fn a_toast_shows_over_the_launcher_and_goes_away() {
     assert!(f.l.toast.is_none() && !f.drawn.iter().any(|t| t == "gone"), "{:?}", f.drawn);
 }
 
-/// A toast is the hints' chip glass, shadow past its area and no fill of its own, and solid in
-/// high contrast as all glass is.
+/// A toast has no blur of its own, so the words of the page under it must not read through: glass
+/// nearly as dense as the stream menu's, its shadow past the area, no fill of its own.
 #[test]
-fn a_toast_stands_on_the_chip_glass() {
+fn a_toast_stands_on_glass_the_page_does_not_read_through() {
     let mut f = Frames::new(record("Den", true, true), Reach::Online);
     let screen = |f: &Frames| f.ctx.content_rect();
     f.l.toast("Saved".to_owned());
     f.settle();
     let whole = screen(&f);
-    let glass = f.shapes.iter().find(|s| s.clip_rect == whole && matches!(s.shape, egui::Shape::Vec(_)));
-    assert!(glass.is_some(), "the toast's glass clips to the window, not its area");
     let (at, ..) = f.placed.iter().find(|(t, ..)| t == "Saved").map(|p| (p.1, ())).expect("the words");
+    // Its area is still fading in, which takes a little off the menu fill's alpha of 240.
+    let glass = meshes_drawn(&f).into_iter().find(|(mesh, _)| {
+        let bounds = mesh.calc_bounds();
+        bounds.contains_rect(at) && bounds.height() < 80.0 && mesh.vertices.iter().any(|v| v.color.a() >= 220)
+    });
+    let (_, clip) = glass.expect("glass the page does not read through");
+    assert_eq!(clip, whole, "the toast's glass clips to the window, not its area");
     let filled = f.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Rect(r) if r.rect.contains_rect(at) && r.rect.height() < 80.0 && r.fill.a() > 0));
     assert!(!filled, "no fill of its own");
 }
@@ -3937,6 +3958,28 @@ fn keys_walk_the_pcs_from_the_first_row_and_back_to_the_capsule() {
     f.settle();
     assert!(f.no_dialog());
     assert_eq!(f.ctx.memory(|m| m.focused()), Some(Id::unique("top-pc")), "the focus goes back to the capsule");
+}
+
+/// A focused row's ring was cut thin at the list's top and its glow ended in a line across the panel.
+#[test]
+fn a_menu_rows_ring_and_glow_end_before_the_list_cuts_them() {
+    let (mut f, _) = three_pcs();
+    for key in [Key::Enter, Key::F2] {
+        focus_capsule(&mut f);
+        f.press(key);
+        f.settle();
+        assert!(!f.no_dialog(), "{key:?} opens a list");
+        let row = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).expect("the first row has the focus").rect;
+        let (glow, clip) = meshes_drawn(&f)
+            .iter()
+            .find(|(mesh, _)| mesh.vertices.first().is_some_and(|v| v.color == design_tokens::FOCUS_HALO_COLOR))
+            .map(|(mesh, clip)| (mesh.calc_bounds(), *clip))
+            .expect("the focused row glows");
+        assert!(glow.contains_rect(row.expand(design_tokens::FOCUS_GAP + design_tokens::FOCUS_RING_WIDTH)), "{glow:?} goes around the ring of {row:?}");
+        assert!(clip.expand(0.6).contains_rect(glow), "{glow:?} is cut by {clip:?}");
+        f.press(Key::Escape);
+        f.settle();
+    }
 }
 
 /// Enter on the card, on the PCs page: the card's own action.

@@ -798,7 +798,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         .info
         .capabilities
         .trusted_codec_mode_support(plan.info.server_codec_mode_support);
-    let offer = offered_formats(settings, scm, &plan.color_decodable);
+    let offer = offered_formats_decoding(settings, scm, &plan.color_decodable, plan.base_decodable.decodable);
     request.ten_bit_sdr = launches_ten_bit_sdr(settings, &offer);
     // The interface the system sends this host's traffic over decides, not the internet
     // connection; the connection is the fallback when that lookup tells nothing. Looked up before
@@ -1086,6 +1086,7 @@ mod replace_tests {
             gpu_decoder: None,
             packed_modes: 0,
             color_decodable: (0, String::new()),
+            base_decodable: color_probe::Base::software(),
             pacing: PacingMode::Immediate,
             vrr: false,
             gamepad_mask: 0,

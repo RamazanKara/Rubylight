@@ -155,7 +155,18 @@ pub fn probes_color(settings: &Settings) -> bool {
 /// add where this device (`decodable`, from the probe) and the PC (`scm`) both handle them.
 /// Packed full chroma offers the plain formats whatever the PC reports.
 pub(super) fn offered_formats(settings: &Settings, scm: u32, decodable: &(u32, String)) -> color::Offer {
-    let base = video_formats(settings.codec, settings.hdr, if settings.experimental_packed_444 { 0 } else { scm });
+    offered_formats_decoding(settings, scm, decodable, color_probe::BASE_FORMATS)
+}
+
+/// `offered_formats` without the plain HEVC and AV1 formats (and their Main10 ones) the stream's
+/// decoder cannot decode (`hardware_decodable`, of `color_probe::BASE_FORMATS`, from
+/// `color_probe::probe_base`): the PC then picks one the hardware decodes, H.264 at least, where
+/// FFmpeg would decode it in software. Packed full chroma checks its formats in its own probe.
+pub(super) fn offered_formats_decoding(settings: &Settings, scm: u32, decodable: &(u32, String), hardware_decodable: u32) -> color::Offer {
+    let mut base = video_formats(settings.codec, settings.hdr, if settings.experimental_packed_444 { 0 } else { scm });
+    if !settings.experimental_packed_444 {
+        base &= !(color_probe::BASE_FORMATS & !hardware_decodable);
+    }
     color::offer(base, color_wants(settings), decodable.0, &decodable.1, scm)
 }
 

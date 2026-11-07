@@ -44,6 +44,92 @@ const FIXTURES: [(u32, media::Codec, &str, &[u8]); 5] = [
     ),
 ];
 
+/// The plain HEVC and AV1 formats, and the Main10 ones HDR offers, whose hardware decoding
+/// [`probe_base`] checks before they are offered: 128x128 4:2:0 pictures.
+const BASE_FIXTURES: [(u32, media::Codec, &str, &[u8]); 4] = [
+    (
+        VIDEO_FORMAT_H265,
+        media::Codec::Hevc,
+        "HEVC",
+        include_bytes!("../../../../app/src/main/assets/packed444/hevc-8.bin"),
+    ),
+    (
+        VIDEO_FORMAT_H265_MAIN10,
+        media::Codec::Hevc,
+        "HEVC Main10",
+        include_bytes!("../../../../app/src/main/assets/packed444/hevc-10.bin"),
+    ),
+    (
+        VIDEO_FORMAT_AV1_MAIN8,
+        media::Codec::Av1,
+        "AV1",
+        include_bytes!("../../../../app/src/main/assets/packed444/av1-8.bin"),
+    ),
+    (
+        VIDEO_FORMAT_AV1_MAIN10,
+        media::Codec::Av1,
+        "AV1 Main10",
+        include_bytes!("../../../../app/src/main/assets/packed444/av1-10.bin"),
+    ),
+];
+
+/// The formats [`probe_base`] checks. H.264 is always offered.
+pub const BASE_FORMATS: u32 =
+    VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10 | VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10;
+
+/// What [`probe_base`] found: the formats of [`BASE_FORMATS`] the stream's decoder decodes, why
+/// the others are not offered, and the backend that decoded each (what reference frame
+/// invalidation is asked for by, `connect::video_capabilities`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Base {
+    pub decodable: u32,
+    pub reason: String,
+    pub backends: Vec<(u32, media::Hardware)>,
+}
+
+impl Base {
+    /// Software decoding: every format, by the software decoder.
+    pub fn software() -> Self {
+        Self {
+            decodable: BASE_FORMATS,
+            reason: String::new(),
+            backends: BASE_FIXTURES.iter().map(|&(format, ..)| (format, media::Hardware::None)).collect(),
+        }
+    }
+}
+
+/// The formats of [`BASE_FORMATS`] that `hardware` decodes in hardware. Each is decoded with the
+/// stream's decoder order as required hardware: without the check a format the GPU lacks (HEVC
+/// Main10 or AV1 on an older one) would be offered, and FFmpeg would decode it in software, or
+/// for AV1 not at all. Software decoding decodes them all and is not checked.
+pub fn probe_base(hardware: media::Hardware) -> Base {
+    if hardware == media::Hardware::None {
+        return Base::software();
+    }
+    let mut base = Base { decodable: 0, reason: String::new(), backends: Vec::new() };
+    let mut failures = Vec::new();
+    for (format, codec, name, data) in BASE_FIXTURES {
+        let pictures = media::Pictures {
+            ten_bit: format & VIDEO_FORMAT_MASK_10BIT != 0,
+            chroma444: false,
+            packed: false,
+            waiting: 0,
+        };
+        match decode(hardware, pictures, codec, data) {
+            Ok((_, backend)) => {
+                base.decodable |= format;
+                base.backends.push((format, backend));
+            }
+            Err(reason) => {
+                eprintln!("nightjar: {name} is not offered: no hardware decoder decodes it here: {reason}");
+                failures.push(format!("{name}: {reason}"));
+            }
+        }
+    }
+    base.reason = failures.join("; ");
+    base
+}
+
 /// The formats of `color::YUV444_FORMATS` and `color::SDR10_FORMATS` that `hardware` decodes into
 /// pictures the presenter draws, and why the others are not ("" when all are). `planes` says
 /// whether planar pictures (R16 planes when its argument is true) can be drawn.
@@ -62,7 +148,7 @@ pub fn probe(
             waiting: 0,
         };
         match decode(hardware, pictures, codec, data)
-            .and_then(|info| drawable(&info, yuv444, &planes))
+            .and_then(|(info, _)| drawable(&info, yuv444, &planes))
         {
             Ok(()) => decodable |= format,
             Err(reason) => {
@@ -79,7 +165,7 @@ fn decode(
     pictures: media::Pictures,
     codec: media::Codec,
     data: &[u8],
-) -> Result<media::FrameInfo, String> {
+) -> Result<(media::FrameInfo, media::Hardware), String> {
     // The stream's decoder order; the error names each backend that did not open.
     let mut decoder = match hardware {
         media::Hardware::None => media::VideoDecoder::open(codec, hardware, 1, false)?,
@@ -89,8 +175,18 @@ fn decode(
     if status < 0 {
         return Err(format!("the decoder rejected the fixture ({status})"));
     }
-    match decoder.receive() {
-        media::Received::Frame(frame) => Ok(frame.info()),
+    // An asynchronous decoder (V4L2 M2M) says "no picture yet" while the driver decodes: asked
+    // again for up to a quarter second.
+    let mut received = decoder.receive();
+    for _ in 0..if decoder.asynchronous() { 125 } else { 0 } {
+        if !matches!(received, media::Received::None) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        received = decoder.receive();
+    }
+    match received {
+        media::Received::Frame(frame) => Ok((frame.info(), decoder.hardware)),
         media::Received::None => Err("the decoder made no picture of the fixture".into()),
         media::Received::Error => Err("the decoder failed on the fixture".into()),
     }

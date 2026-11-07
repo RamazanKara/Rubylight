@@ -15,6 +15,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "decoder_fence.h"
 #include "frame_pacer.h"
 #include "hdr10plus_window.h"
 #include "ndk_api.h"
@@ -73,6 +74,9 @@ struct VideoFrame {
     // The frame's HDR10+ metadata (the T.35 payload from the country code on), or null without it:
     // the last the decoder side was given for this frame or an earlier one (noteHdr10Plus())
     std::shared_ptr<const std::vector<uint8_t>> hdr10Plus;
+    // The decoder's fence while the GPU is to wait for it (gpuDecodeWait_), until the image is
+    // known to be written
+    vkr::DecoderFence decodeFence;
 };
 using FramePtr = std::shared_ptr<VideoFrame>;
 
@@ -309,6 +313,10 @@ private:
     // After a failed submit: the slot's fence and semaphore are left in a state nothing will
     // signal or wait on, so they're replaced
     void recreateSlotSync(int slot);
+    bool syncFdImportable(VkPhysicalDevice device) const;
+    // The wait for the frame's decoder before its draw: on the GPU through decodeDone_[slot]
+    // (true in gpuWait), or here. False when the decoder never finished the frame.
+    bool waitForDecoder(VideoFrame& frame, int slot, bool* gpuWait);
     ImportedBuffer* importBuffer(AHardwareBuffer* buffer);
     void destroyImport(AHardwareBuffer* buffer, ImportedBuffer& imported);
     void evictImports();
@@ -349,6 +357,10 @@ private:
     bool frontBufferRequested_ = false;
     bool frontBufferAligned_ = false;
     bool hasSharedPresentExt_ = false;
+    // VK_KHR_external_semaphore_fd with sync fd import, asked for with debug.nightjar.vk_sync_fd:
+    // presenting on arrival, the GPU waits for the decoder instead of the image reader thread
+    bool hasSyncFdImport_ = false;
+    std::atomic<bool> gpuDecodeWait_ {false};
     std::atomic<bool> frontBuffer_ {false};
     std::atomic<bool> frontBufferUnavailable_ {false};
     VkImageLayout renderPassFinalLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -423,6 +435,8 @@ private:
     VkCommandBuffer commandBuffers_[kFramesInFlight] {};
     VkFence fences_[kFramesInFlight] {};
     VkSemaphore imageAcquired_[kFramesInFlight] {};
+    // The decoder's sync fence, imported for the GPU to wait on (waitForDecoder())
+    VkSemaphore decodeDone_[kFramesInFlight] {};
     FramePtr slotFrames_[kFramesInFlight];
     uint64_t frameCounter_ = 0;
 

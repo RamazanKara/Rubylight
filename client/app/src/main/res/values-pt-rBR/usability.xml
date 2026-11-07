@@ -20,7 +20,6 @@
     <string name="startup_launch_failed">Não foi possível iniciar o app. Confira se ele abre no PC e tente novamente.</string>
     <string name="applist_permission_required">Este dispositivo não pode listar apps. Permita a listagem de aplicativos para este dispositivo nas configurações ou na interface web do host. A biblioteca é atualizada automaticamente.</string>
     <string name="applist_load_failed">Não foi possível carregar os apps do PC. Verifique o host e a permissão de listar aplicativos deste dispositivo nas configurações ou na interface web dele. Tentando novamente de forma automática.</string>
-    <string name="applist_empty">Nenhum app disponível. Adicione apps à biblioteca do host e verifique a permissão de listar aplicativos deste dispositivo nas configurações ou na interface web do host.</string>
     <string name="host_profile_unsaved_title">Salvar configurações de transmissão?</string>
     <string name="host_profile_unsaved_message">Suas alterações nas configurações de transmissão deste PC não foram salvas. Um modo de tela confirmado na própria caixa de diálogo é salvo separadamente.</string>
     <string name="host_profile_discard">Descartar alterações</string>

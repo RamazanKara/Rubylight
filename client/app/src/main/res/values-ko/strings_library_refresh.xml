@@ -20,13 +20,4 @@
     <string name="library_discovery_title">내 게임을 이 화면에서</string>
     <string name="library_discovery_body">PC를 켜고 Apollo, Rubylight, Sunshine 같은 스트리밍 호스트를 실행하세요. 같은 네트워크에 있는 PC가 여기에 자동으로 표시됩니다.</string>
     <string name="library_discovery_hint">다른 네트워크에 있나요? 주소로 PC를 추가하세요.</string>
-    <plurals name="library_results">
-        <item quantity="other">게임 %2$d개 중 %1$d개</item>
-    </plurals>
-    <plurals name="library_showing_hidden">
-        <item quantity="other">게임 %1$d개 · 숨긴 게임 포함</item>
-    </plurals>
-    <plurals name="library_app_count">
-        <item quantity="other">게임 %d개</item>
-    </plurals>
 </resources>

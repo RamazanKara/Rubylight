@@ -20,19 +20,4 @@
     <string name="library_discovery_title">Vos jeux, sur cet écran</string>
     <string name="library_discovery_body">Allumez votre PC et lancez son hôte de streaming, comme Apollo, Rubylight ou Sunshine. Les PC du même réseau apparaissent ici automatiquement.</string>
     <string name="library_discovery_hint">Sur un autre réseau ? Ajoutez votre PC par son adresse.</string>
-    <plurals name="library_results">
-        <item quantity="one">%1$d jeu sur %2$d</item>
-        <item quantity="many">%1$d jeux sur %2$d</item>
-        <item quantity="other">%1$d jeux sur %2$d</item>
-    </plurals>
-    <plurals name="library_showing_hidden">
-        <item quantity="one">%1$d jeu · masqués inclus</item>
-        <item quantity="many">%1$d de jeux · masqués inclus</item>
-        <item quantity="other">%1$d jeux · masqués inclus</item>
-    </plurals>
-    <plurals name="library_app_count">
-        <item quantity="one">%d jeu</item>
-        <item quantity="many">%d de jeux</item>
-        <item quantity="other">%d jeux</item>
-    </plurals>
 </resources>

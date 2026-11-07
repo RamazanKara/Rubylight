@@ -20,13 +20,4 @@
     <string name="library_discovery_title">あなたのゲームをこの画面で</string>
     <string name="library_discovery_body">PC の電源を入れ、Apollo、Rubylight、Sunshine などのストリーミング ホストを起動してください。同じネットワーク上の PC がここに自動的に表示されます。</string>
     <string name="library_discovery_hint">別のネットワークにある場合は、アドレスを指定して PC を追加してください。</string>
-    <plurals name="library_results">
-        <item quantity="other">%2$d 本中 %1$d 本のゲーム</item>
-    </plurals>
-    <plurals name="library_showing_hidden">
-        <item quantity="other">%1$d 本のゲーム · 非表示を含む</item>
-    </plurals>
-    <plurals name="library_app_count">
-        <item quantity="other">%d 本のゲーム</item>
-    </plurals>
 </resources>

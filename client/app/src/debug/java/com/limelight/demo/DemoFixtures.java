@@ -23,6 +23,8 @@ public final class DemoFixtures {
     /** "--ez small false" on the launcher shows the large library tiles; "--ez roles true" adds the view-only and input-only tiles. */
     public static boolean smallTiles = true;
     public static boolean roleTiles;
+    /** No game has box art: the generated tile at every size. */
+    public static boolean noArt;
     public static final String PC_UUID = "d3e00000-0000-4000-8000-000000000001";
     public static final String[] TITLES = {"Desktop", "Racing Game", "Open World", "Space Sim",
             "Puzzle Night", "Retro Arcade", "Strategy", "Music Studio", "Ocean Explorer", "Skybound"};
@@ -126,6 +128,7 @@ public final class DemoFixtures {
         // cache's .png name: the box art loader reads whatever format the file holds.
         for (int i = 0; i < DemoConsole.LIBRARY.length; i++) {
             NvApp app = new NvApp(DemoConsole.LIBRARY[i][0], i + 1, true);
+            if (noArt) continue;
             try (InputStream input = context.getAssets().open("demo/art/" + (i + 1) + ".jpg");
                  OutputStream output = CacheHelper.openCacheFileForOutput(context.getCacheDir(),
                          "boxart", PC_UUID, app.getAssetCacheKey() + ".png")) {

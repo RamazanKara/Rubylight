@@ -80,6 +80,7 @@ public final class DemoLauncherActivity extends Activity {
         DemoFixtures.smallTiles = getIntent().getBooleanExtra("small", true);
         DemoFixtures.fourthPc = getIntent().getBooleanExtra("fourth", false);
         DemoFixtures.noApps = getIntent().getBooleanExtra("noapps", false);
+        DemoFixtures.noArt = getIntent().getBooleanExtra("noart", false);
         DemoFixtures.roleTiles = getIntent().getBooleanExtra("roles", false);
         DemoFixtures.sunshineHost = "sunshine".equals(getIntent().getStringExtra("host"));
         // "--ez asleep true": the Laptop is away with a saved library and wakes a few seconds after Wake (DemoAsleep).

@@ -20,7 +20,6 @@
     <string name="startup_launch_failed">No se ha podido iniciar la aplicación. Comprueba que se abre en el PC y vuelve a intentarlo.</string>
     <string name="applist_permission_required">Este dispositivo no puede ver la lista de aplicaciones. Permite ver aplicaciones a este dispositivo en los ajustes o en la interfaz web de tu servidor. La biblioteca se actualiza automáticamente.</string>
     <string name="applist_load_failed">No se han podido cargar las aplicaciones del PC. Comprueba el servidor y el permiso de lista de aplicaciones de este dispositivo en sus ajustes o en su interfaz web. Reintentando automáticamente.</string>
-    <string name="applist_empty">No hay aplicaciones disponibles. Añade aplicaciones a la biblioteca del servidor y comprueba el permiso de lista de aplicaciones de este dispositivo en los ajustes o en la interfaz web de tu servidor.</string>
     <string name="host_profile_unsaved_title">¿Guardar ajustes de transmisión?</string>
     <string name="host_profile_unsaved_message">No se han guardado los cambios en los ajustes de transmisión de este PC. Un modo de pantalla confirmado en su propio diálogo se guarda por separado.</string>
     <string name="host_profile_discard">Descartar cambios</string>

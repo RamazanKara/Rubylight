@@ -20,7 +20,6 @@
     <string name="startup_launch_failed">Uygulama başlatılamadı. Bilgisayarda açıldığını kontrol edip tekrar deneyin.</string>
     <string name="applist_permission_required">Bu cihaz uygulamaları listeleyemiyor. Ana bilgisayarınızın ayarlarında veya web arayüzünde bu cihaz için uygulama listelemeye izin verin. Kitaplık otomatik olarak yenilenir.</string>
     <string name="applist_load_failed">Bilgisayarın uygulamaları yüklenemedi. Ana bilgisayarı ve ayarlarında veya web arayüzünde bu cihazın uygulama listeleme iznini kontrol edin. Otomatik olarak yeniden deneniyor.</string>
-    <string name="applist_empty">Kullanılabilir uygulama yok. Ana bilgisayar kitaplığına uygulama ekleyin ve ana bilgisayarınızın ayarlarında veya web arayüzünde bu cihazın uygulama listeleme iznini kontrol edin.</string>
     <string name="host_profile_unsaved_title">Yayın ayarları kaydedilsin mi?</string>
     <string name="host_profile_unsaved_message">Bu bilgisayarın yayın ayarlarında yaptığınız değişiklikler kaydedilmedi. Kendi iletişim kutusunda onaylanan ekran modu ayrıca kaydedilir.</string>
     <string name="host_profile_discard">Değişiklikleri sil</string>

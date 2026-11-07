@@ -14,4 +14,6 @@
     <item name="gpu_driver_back" type="id" />
     <item name="spring_scale_x" type="id" />
     <item name="spring_scale_y" type="id" />
+    <item name="stream_menu_cover" type="id" />
+    <item name="stream_menu_close" type="id" />
 </resources>

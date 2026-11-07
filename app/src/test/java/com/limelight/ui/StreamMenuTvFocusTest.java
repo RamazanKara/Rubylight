@@ -31,8 +31,8 @@ import static org.junit.Assert.*;
 
 /**
  * The stream menu on a 1080p TV (nightjar#52, redesigned for nightjar#63): Back opens it with focus on its first
- * tile, Down walks the grid to Return to stream and then Disconnect, and Back again closes the menu without
- * leaving. Set NIGHTJAR_PREVIEW_OUTPUT to capture the sheet, on a TV and on a handheld held sideways.
+ * tile, Down walks the grid and its rows to Disconnect, Up from the first row reaches the X, and Back again closes
+ * the menu without leaving. Set NIGHTJAR_PREVIEW_OUTPUT to capture the sheet, on a TV and on a handheld held sideways.
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 34, application = Application.class, qualifiers = "w960dp-h540dp-land-television-xhdpi")
@@ -85,7 +85,7 @@ public class StreamMenuTvFocusTest {
     }
 
     @Test
-    public void focusStartsOnTheFirstTileAndDownWalksTheGridToReturnThenDisconnect() throws Exception {
+    public void focusStartsOnTheFirstTileAndDownWalksTheGridToTheWaysOut() throws Exception {
         try (var controller = Robolectric.buildActivity(Activity.class).setup().visible()) {
             Activity activity = controller.get();
             List<StreamMenu.Item> chosen = new ArrayList<>();
@@ -103,13 +103,14 @@ public class StreamMenuTvFocusTest {
             assertSame("Right is the next tile", menu.grid().getChildAt(1), focused.focusSearch(View.FOCUS_RIGHT));
 
             View next = focused;
-            for (int row = 0; row < 10 && next != null && next != menu.row(CLOSE); row++) {
+            for (int row = 0; row < 16 && next != null && next != menu.row(DISCONNECT); row++) {
                 // As a remote's press does, the grid scrolls the focused tile into view before the next move.
                 assertTrue(next.requestFocus());
                 next = next.focusSearch(View.FOCUS_DOWN);
             }
-            assertSame("Down through the grid reaches Return to stream", menu.row(CLOSE), next);
-            assertSame("then Disconnect", menu.row(DISCONNECT), next.focusSearch(View.FOCUS_DOWN));
+            assertSame("Down through the grid and its rows reaches Disconnect", menu.row(DISCONNECT), next);
+            assertTrue(focused.requestFocus());
+            assertSame("Up from the first row reaches the X", menu.row(CLOSE), focused.focusSearch(View.FOCUS_UP));
             assertTrue(focused.requestFocus());
             ShadowLooper.idleMainLooper(400, TimeUnit.MILLISECONDS);
             menu.row(KEYBOARD).jumpDrawablesToCurrentState();
@@ -122,16 +123,16 @@ public class StreamMenuTvFocusTest {
     }
 
     /**
-     * A handheld such as the Retroid Pocket held sideways: compact tiles, five or more to a row, so a dozen or more
-     * show above Return to stream and the ways out; then the shortcuts page.
+     * A handheld such as the Retroid Pocket held sideways: four tiles to a row, each low enough to show two rows of them
+     * above the status rows and the ways out; then the shortcuts page.
      */
     @Test @Config(qualifiers = "w640dp-h360dp-land-xxhdpi")
-    public void aHandheldShowsCompactTilesFiveOrMoreToARow() throws Exception {
+    public void aHandheldShowsCompactTilesFourToARow() throws Exception {
         try (var controller = Robolectric.buildActivity(Activity.class).setup().visible()) {
             Activity activity = controller.get();
             StreamMenu menu = open(activity, new ArrayList<>());
             layOut(menu);
-            assertTrue("columns: " + menu.grid().columns(), menu.grid().columns() >= 5);
+            assertEquals(4, menu.grid().columns());
             float density = activity.getResources().getDisplayMetrics().density;
             View tile = menu.row(KEYBOARD);
             assertTrue("a tile is compact: " + tile.getHeight() / density + "dp", tile.getHeight() <= 64 * density);
@@ -145,7 +146,7 @@ public class StreamMenuTvFocusTest {
         }
     }
 
-    /** German words run longest: every tile, Return to stream and the ways out keep their whole label. */
+    /** German words run longest: every tile and the ways out keep their whole label. */
     @Test @Config(qualifiers = "de-w640dp-h360dp-land-xxhdpi")
     public void germanLabelsFitTheirTiles() throws Exception {
         try (var controller = Robolectric.buildActivity(Activity.class).setup().visible()) {
@@ -176,7 +177,7 @@ public class StreamMenuTvFocusTest {
     private static void assertNoLabelCut(StreamMenu menu) {
         List<android.widget.TextView> labels = new ArrayList<>();
         for (int i = 0; i < menu.grid().getChildCount(); i++) labels.add((android.widget.TextView) menu.grid().getChildAt(i));
-        View footer = (View) menu.row(CLOSE).getParent();
+        View footer = (View) menu.row(DISCONNECT).getParent();
         for (int i = 0; i < ((android.view.ViewGroup) footer).getChildCount(); i++) {
             labels.add((android.widget.TextView) ((android.view.ViewGroup) footer).getChildAt(i));
         }

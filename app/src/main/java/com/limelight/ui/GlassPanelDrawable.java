@@ -24,7 +24,7 @@ import com.limelight.R;
  * Draws nothing per frame beyond its own three shapes: no blur, no layer.
  */
 public final class GlassPanelDrawable extends Drawable {
-    private final GlassSpec spec;
+    private GlassSpec spec;
     private final float[] radii;
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint sheen = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -32,6 +32,8 @@ public final class GlassPanelDrawable extends Drawable {
     private final Paint hairline = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path shape = new Path();
     private final Path rimShape = new Path();
+    // Set only for the stream menu, whose recipe can change while it is open.
+    private Context menuContext;
 
     private GlassPanelDrawable(Context context, float[] radii) {
         this.radii = radii;
@@ -44,6 +46,42 @@ public final class GlassPanelDrawable extends Drawable {
         hairline.setStyle(Paint.Style.STROKE);
         hairline.setStrokeWidth(Math.max(1f, context.getResources().getDisplayMetrics().density * 0.5f));
         hairline.setColor(spec.hairline);
+    }
+
+    private GlassPanelDrawable(Context context, float radius, boolean overBlur) {
+        radii = new float[] {radius, radius, radius, radius, radius, radius, radius, radius};
+        menuContext = context;
+        useMenuRecipe(overBlur);
+        rim.setStyle(Paint.Style.STROKE);
+        hairline.setStyle(Paint.Style.STROKE);
+    }
+
+    /**
+     * The stream menu: night in every theme. Over a system blur it is the see-through window recipe, otherwise near-opaque over
+     * the stream; high contrast is solid.
+     */
+    public static GlassPanelDrawable menu(Context context, boolean overBlur) {
+        return new GlassPanelDrawable(context, context.getResources().getDimension(R.dimen.nj_radius_panel), overBlur);
+    }
+
+    /** The system turned its blur on or off while the menu is open. */
+    void setOverBlur(boolean overBlur) {
+        if (menuContext == null) return;
+        useMenuRecipe(overBlur);
+        onBoundsChange(getBounds());
+        invalidateSelf();
+    }
+
+    private void useMenuRecipe(boolean overBlur) {
+        spec = AppTheme.isHighContrast(menuContext) ? GlassSpec.of(menuContext, "menu", GlassTier.SOLID, false)
+                : overBlur ? GlassSpec.menuWindow(menuContext) : GlassSpec.of(menuContext, "menu", GlassTier.BAKED, false);
+        fill.setColor(spec.fill);
+        rim.setStrokeWidth(spec.rimWidth);
+    }
+
+    /** What the panel is filled with now. */
+    int fillColor() {
+        return fill.getColor();
     }
 
     /** All corners round: a dialog. */

@@ -77,16 +77,11 @@ public class ActionSheetTest {
             var first = sheet.addAction(R.drawable.ic_play, "Play");
             var second = sheet.addAction(R.drawable.ic_settings, "Settings");
             sheet.show();
-            int ring = Math.round(3 * first.getResources().getDisplayMetrics().density);
-            int rest = Math.round(first.getResources().getDisplayMetrics().density);
             first.requestFocus();
-            first.jumpDrawablesToCurrentState();
-            assertEquals(ring, first.getStrokeWidth());
+            assertTrue(glass(first).ringShown());
             second.requestFocus();
-            first.jumpDrawablesToCurrentState();
-            second.jumpDrawablesToCurrentState();
-            assertEquals(rest, first.getStrokeWidth());
-            assertEquals(ring, second.getStrokeWidth());
+            assertFalse(glass(first).ringShown());
+            assertTrue(glass(second).ringShown());
             assertEquals(R.style.TvSheetAnimation, sheet.getWindow().getAttributes().windowAnimations);
             sheet.dismiss();
         }
@@ -111,7 +106,7 @@ public class ActionSheetTest {
                 assertTrue(button.isFocused());
                 assertEquals(1f, button.getScaleX(), 0.001f);
                 assertEquals(1f, button.getScaleY(), 0.001f);
-                assertEquals(Math.round(3 * button.getResources().getDisplayMetrics().density), button.getStrokeWidth());
+                assertTrue(glass(button).ringShown());
             }
             toggle.requestFocus();
             toggle.jumpDrawablesToCurrentState();
@@ -125,6 +120,7 @@ public class ActionSheetTest {
     public void tvMenuRowsInHighContrastTakeTheThickRingWithoutZooming() {
         try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
             controller.get().getTheme().applyStyle(R.style.ThemeOverlay_Nightjar_HighContrast, true);
+            android.preference.PreferenceManager.getDefaultSharedPreferences(controller.get()).edit().putBoolean(AppTheme.HIGH_CONTRAST, true).commit();
             ActionSheet sheet = new ActionSheet(controller.get(), "Menu");
             var row = sheet.addAction(R.drawable.ic_play, "Play");
             sheet.addAction(R.drawable.ic_settings, "Settings");
@@ -132,22 +128,29 @@ public class ActionSheetTest {
             row.requestFocus();
             row.jumpDrawablesToCurrentState();
             assertEquals(1f, row.getScaleX(), 0.001f);
-            assertEquals(Math.round(4 * row.getResources().getDisplayMetrics().density), row.getStrokeWidth());
+            assertTrue(glass(row).ringShown());
+            assertEquals(4 * row.getResources().getDisplayMetrics().density, glass(row).ringWidth(), 0.001f);
             sheet.dismiss();
         }
     }
 
-    /** A phone's menu rows keep their look: no TV ring and no zoom. */
+    private static GlassControlDrawable glass(View row) {
+        return (GlassControlDrawable) row.getBackground();
+    }
+
+    /** A phone's focused row had a fill and no ring: it takes the ring every other control has, with no zoom. */
     @Test
-    public void phoneMenuRowsTakeNoTvRing() {
+    public void aPhonesFocusedRowTakesTheSameRingWithoutAZoom() {
         try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
             ActionSheet sheet = new ActionSheet(controller.get(), "Menu");
-            var row = sheet.addAction(R.drawable.ic_play, "Play");
-            sheet.addAction(R.drawable.ic_settings, "Settings");
+            sheet.addAction(R.drawable.ic_play, "Play");
+            var row = sheet.addAction(R.drawable.ic_settings, "Settings");
             sheet.show();
+            assertFalse(glass(row).ringShown());
             row.requestFocus();
             row.jumpDrawablesToCurrentState();
-            assertEquals(0, row.getStrokeWidth());
+            assertTrue(glass(row).ringShown());
+            assertEquals(row.getResources().getDimension(R.dimen.dialog_button_ring), glass(row).ringWidth(), 0.001f);
             assertEquals(1f, row.getScaleX(), 0.001f);
             sheet.dismiss();
         }
@@ -248,7 +251,6 @@ public class ActionSheetTest {
         sheet.setSubtitle("1440p · 144 FPS");
         TileGrid grid = sheet.addTileGrid();
         for (int i = 0; i < 24; i++) grid.addTile(R.drawable.ic_settings, "Tile " + i, null, null, null);
-        sheet.addPrimaryAction(R.drawable.ic_play, "Return to stream", "B");
         sheet.addFooterAction(R.drawable.ic_settings, "Disconnect", false);
         sheet.addFooterAction(R.drawable.ic_stop, "Quit game", true);
         sheet.show();
@@ -280,10 +282,10 @@ public class ActionSheetTest {
         }
     }
 
-    /** The desktop menu's 480 dp where there is room; two thirds of a landscape window at most, never under 360 dp. */
+    /** The design's 452 dp where there is room; two thirds of a landscape window at most, never under 360 dp. */
     @Test public void aPanelIsAsWideAsTheDesktopMenuWhereThereIsRoom() {
-        assertEquals(960, ActionSheet.PanelFrame.panelWidth(1920, 1080, 16, 2f));
-        assertEquals(720, ActionSheet.PanelFrame.panelWidth(1600, 720, 16, 1.5f));
+        assertEquals(904, ActionSheet.PanelFrame.panelWidth(1920, 1080, 16, 2f));
+        assertEquals(678, ActionSheet.PanelFrame.panelWidth(1600, 720, 16, 1.5f));
         assertEquals(360, ActionSheet.PanelFrame.panelWidth(500, 400, 8, 1f));
         assertEquals("upright, the window's width less its margins", 688, ActionSheet.PanelFrame.panelWidth(720, 1600, 16, 2f));
     }
@@ -298,8 +300,8 @@ public class ActionSheetTest {
             ActionSheet sheet = panel(controller.get());
             ActionSheet.PanelFrame frame = layOut(sheet, 960, 540);
             View body = frame.getChildAt(0);
-            assertEquals(480, body.getWidth());
-            assertEquals("docked at the end edge", frame.getWidth() - frame.getPaddingRight() - 8, body.getRight());
+            assertEquals(452, body.getWidth());
+            assertEquals("docked at the end edge", frame.getWidth() - frame.getPaddingRight() - 12, body.getRight());
             assertTrue("the stream shows beside it", body.getLeft() > 400);
             assertTrue("it stays inside the window", body.getTop() >= 0 && body.getBottom() <= 540);
             assertEquals(View.GONE, sheet.findViewById(R.id.action_sheet_close).getVisibility());
@@ -319,10 +321,8 @@ public class ActionSheetTest {
             assertNotNull(footer);
             assertTrue(inScroll(grid));
             assertFalse(inScroll(footer));
-            assertEquals(3, footer.getChildCount());
-            assertEquals("Return to stream spans the panel", footer.getWidth() - footer.getPaddingLeft() - footer.getPaddingRight(),
-                    footer.getChildAt(0).getWidth());
-            View exit = footer.getChildAt(2);
+            assertEquals(2, footer.getChildCount());
+            View exit = footer.getChildAt(1);
             int[] where = new int[2];
             exit.getLocationInWindow(where);
             assertTrue("the last way out is on screen however long the grid is", where[1] + exit.getHeight() <= 540);
@@ -339,15 +339,14 @@ public class ActionSheetTest {
         try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
             ActionSheet sheet = panel(controller.get());
             View body = layOut(sheet, 400, 800).getChildAt(0);
-            assertEquals(384, body.getWidth());
-            assertEquals(8, body.getLeft());
+            assertEquals(376, body.getWidth());
+            assertEquals(12, body.getLeft());
             sheet.dismiss();
         }
     }
 
     /**
-     * A phone held sideways, as desktop Nightjar's panel: Return to stream a slim bar across the width, the ways out a
-     * slim row under it, each on one line, so the grid keeps most of the height.
+     * A phone held sideways: the ways out a slim row of capsules, each on one line, so the grid keeps most of the height.
      */
     @Test @Config(qualifiers = "w800dp-h360dp-land")
     @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
@@ -357,22 +356,17 @@ public class ActionSheetTest {
             View body = layOut(sheet, 800, 360).getChildAt(0);
             android.view.ViewGroup footer = (android.view.ViewGroup) ((android.view.ViewGroup) body).getChildAt(2);
             assertTrue(footer instanceof ActionSheet.FooterBar);
-            View back = footer.getChildAt(0), disconnect = footer.getChildAt(1), quit = footer.getChildAt(2);
+            View disconnect = footer.getChildAt(0), quit = footer.getChildAt(1);
             assertEquals("the ways out share a line", disconnect.getTop(), quit.getTop());
-            assertTrue("under Return to stream", disconnect.getTop() >= back.getBottom());
             assertEquals("side by side, as wide as each other", disconnect.getWidth(), quit.getWidth());
             float density = body.getResources().getDisplayMetrics().density;
-            assertTrue("Return to stream is slim: " + back.getHeight(), back.getHeight() <= 44 * density);
-            assertTrue("the ways out are slim: " + quit.getHeight(), quit.getHeight() <= 40 * density);
-            assertTrue("the footer leaves the grid most of the height: " + footer.getHeight(), footer.getHeight() <= 110 * density);
+            assertTrue("the ways out are slim: " + quit.getHeight(), quit.getHeight() <= 44 * density);
+            assertTrue("the footer leaves the grid most of the height: " + footer.getHeight(), footer.getHeight() <= 80 * density);
             for (int i = 0; i < footer.getChildCount(); i++) {
                 android.widget.TextView button = (android.widget.TextView) footer.getChildAt(i);
                 assertNotNull("the icon sits beside the label", button.getCompoundDrawablesRelative()[0]);
                 assertEquals("button " + i + " keeps its label whole", 0, button.getLayout().getEllipsisCount(0));
             }
-            assertEquals("Return to stream is filled", com.google.android.material.color.MaterialColors.getColor(
-                    footer, androidx.appcompat.R.attr.colorPrimary),
-                    ((com.google.android.material.button.MaterialButton) back).getBackgroundTintList().getDefaultColor());
             sheet.dismiss();
         }
     }

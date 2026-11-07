@@ -284,6 +284,9 @@ final class GameMenuActions {
     private com.limelight.ui.StreamMenu.Options streamMenuOptions() {
         com.limelight.ui.StreamMenu.Options options = new com.limelight.ui.StreamMenu.Options(game.app.getRole(), game.conn.getHostDetails());
         options.appName = game.app.getAppName();
+        options.cover = game.streamConnection.connectingCover();
+        options.bitrateKbps = game.currentBitrate == 0 ? game.prefConfig.bitrate : game.currentBitrate;
+        options.bitrateChange = game.adaptation::applyBitrateFromMenu;
         options.canSendInput = game.conn.canSendInput();
         options.nativeHostControl = game.conn.hasNativeHostControl();
         options.hostMenu = game.conn.hasNativeCouchMenu();

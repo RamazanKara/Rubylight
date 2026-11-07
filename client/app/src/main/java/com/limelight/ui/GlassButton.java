@@ -65,6 +65,11 @@ public class GlassButton extends MaterialButton {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) setDefaultFocusHighlightEnabled(false);
     }
 
+    /** This control floats over covers with nothing to frost it: the denser fill keeps its words readable on bright art. */
+    public void setOverArt() {
+        ((GradientDrawable) getBackground()).setColor(MaterialColors.getColor(getContext(), R.attr.glassControlOverArt, 0));
+    }
+
     @Override
     protected void onFocusChanged(boolean gainFocus, int direction, android.graphics.Rect previously) {
         super.onFocusChanged(gainFocus, direction, previously);

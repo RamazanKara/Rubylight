@@ -756,6 +756,20 @@ public class HomeShellTest {
             android.widget.FrameLayout.LayoutParams banner = (android.widget.FrameLayout.LayoutParams) root.getLayoutParams();
             assertEquals(android.view.Gravity.BOTTOM, banner.gravity & android.view.Gravity.VERTICAL_GRAVITY_MASK);
             assertTrue(banner.bottomMargin >= home.getResources().getDimensionPixelSize(R.dimen.nj_size_tab_bar_height));
+            // A pad's hints stand there too: they ran through each other. The banner rests on them, and comes back down.
+            View hints = home.findViewById(R.id.home_hints);
+            View decor = home.getWindow().getDecorView();
+            hints.setVisibility(View.VISIBLE);
+            hints.layout(0, 0, 100, 40);
+            decor.getViewTreeObserver().dispatchOnGlobalLayout();
+            assertTrue("lifted over the hints: " + root.getTranslationY(), root.getTranslationY() <= -40);
+            hints.setVisibility(View.GONE);
+            decor.getViewTreeObserver().dispatchOnGlobalLayout();
+            assertEquals(0f, root.getTranslationY(), 0f);
+            // Over a bright sky their words vanished, and a cover's label read through the chip.
+            int fill = ((android.graphics.drawable.GradientDrawable) root.getBackground()).getColor().getDefaultColor();
+            assertTrue("dense over art: " + Integer.toHexString(fill), android.graphics.Color.alpha(fill) >= 0xD0);
+            assertEquals(R.drawable.glass_chip_over_art, org.robolectric.Shadows.shadowOf(hints.getBackground()).getCreatedFromResId());
         } finally {
             controller.pause().stop().destroy();
         }

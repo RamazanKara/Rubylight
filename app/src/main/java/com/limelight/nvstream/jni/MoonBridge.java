@@ -81,7 +81,7 @@ public class MoonBridge {
     public static final int CLIENT_ERROR_PACKED_444_REFUSED = -106;
     // This device's own code, never sent by a PC: the video decoder failed and recovering it did not help
     public static final int CLIENT_ERROR_DECODER = -107;
-    // This device's own code, never sent by a PC: the PC shut down or crashed (HostLossWatch), not a dropout
+    // This device's own code, never sent by a PC: the PC said goodbye and shut down, or its host did not come back (HostLossWatch)
     public static final int CLIENT_ERROR_HOST_GONE = -108;
 
     public static final int ML_PORT_INDEX_TCP_47984 = 0;
@@ -855,38 +855,26 @@ public class MoonBridge {
 
     public static native String stringifyPortFlags(int portFlags, String separator);
 
-    // The RTT is in the top 32 bits, and the RTT variance is in the bottom 32 bits
-    // Milliseconds since anything came from the host on the control stream, 0 without a connection.
-    public static long getControlSilenceMs() {
-        return rustStream ? RustBridge.getControlSilenceMs() : cGetControlSilenceMs();
-    }
-    private static native long cGetControlSilenceMs();
-
-    // Ends the stream with CLIENT_ERROR_HOST_GONE: the engine's one termination callback.
-    public static void endStreamHostGone() {
-        if (rustStream) RustBridge.endStreamHostGone(); else cEndStreamHostGone();
-    }
-    private static native void cEndStreamHostGone();
-
-    /** Whether the connection ended with the host's disconnect (it is shutting down), not a silence. */
+    /** Whether this session's host's own disconnect ended the connection, not a silence past the timeout. */
     public static boolean hostSaidGoodbye() {
         return rustStream ? RustBridge.hostSaidGoodbye() : cHostSaidGoodbye();
     }
     private static native boolean cHostSaidGoodbye();
+
+    /** The address the running stream connected to (as text, no DNS), or null without one. */
+    public static String getHostAddress() {
+        return rustStream ? RustBridge.getHostAddress() : cGetHostAddress();
+    }
+    private static native String cGetHostAddress();
 
     /** nightjar_core::host_loss, for both engines: one round of connection attempts (about 750 ms), as its code. */
     public static int hostLossRound(String host, int port, String gateway) {
         return RustBridge.hostLossRound(host, port, gateway);
     }
 
-    /** The detector's next state after a round, -1 when the PC is gone; pings is 1, 0 or -1 (not asked). */
-    public static int hostLossDecide(long silenceMs, int round, int pings, int state) {
-        return RustBridge.hostLossDecide(silenceMs, round, pings, state);
-    }
-
-    /** The detector's first state, from whether the PC answered a ping as the stream started. */
-    public static int hostLossFirstState(boolean pings) {
-        return RustBridge.hostLossFirstState(pings);
+    /** nightjar_core::host_loss::after_goodbye: one round's verdict after the host's goodbye, as its code; pings is 1, 0 or -1 (not asked). */
+    public static int hostLossAfterGoodbye(boolean pingedAtStart, boolean onLink, int round, int pings, boolean closedBefore, long waitedMs) {
+        return RustBridge.hostLossAfterGoodbye(pingedAtStart, onLink, round, pings, closedBefore, waitedMs);
     }
 
     /** One ICMP echo through a datagram socket: 1 answered, 0 not, -1 when this device may not ping that way. */
@@ -898,6 +886,7 @@ public class MoonBridge {
         return RustBridge.isAvailable();
     }
 
+    // The RTT is in the top 32 bits, and the RTT variance is in the bottom 32 bits
     public static long getEstimatedRttInfo() {
         return rustStream ? RustBridge.getEstimatedRttInfo() : cGetEstimatedRttInfo();
     }

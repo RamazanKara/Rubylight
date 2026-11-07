@@ -47,6 +47,9 @@ pub const INPUT_CONTACT_LOST_AFTER: Duration = Duration::from_millis(1000);
 const DISCONNECT_RECEIVE_WAIT: Duration = Duration::from_millis(100);
 /// A disconnect handed back to ENet that ENet ignored (another session's) is forgotten after.
 const DISCONNECT_PROCESS_WAIT: Duration = Duration::from_secs(1);
+/// A host silent this long at the stop gets no linger: it will not acknowledge the disconnect. A
+/// short blip toward a live host stays below it, so a clean stop still reaches it.
+const SILENT_STOP_AFTER: Duration = Duration::from_secs(2);
 /// Longest sleep between ENet services, for its resend and ping timers.
 const MAX_SERVICE_INTERVAL: Duration = Duration::from_millis(5);
 /// Roaming datagrams set aside between services at most; the host sends one per PROBE.
@@ -227,8 +230,6 @@ struct Shared {
     stop: AtomicBool,
     contact_lost: AtomicBool,
     rtt: Mutex<Option<(Duration, Duration)>>,
-    /// When anything last came from the host.
-    last_contact: Mutex<Option<Instant>>,
     /// The connection ended with the host's disconnect ([`ControlHandle::said_goodbye`]).
     goodbye: AtomicBool,
     /// Both sides have roaming on.
@@ -288,14 +289,8 @@ impl ControlHandle {
         *lock(&self.shared.rtt)
     }
 
-    /// How long the host has been silent: not even an acknowledgement of ENet's pings. None until
-    /// it was first heard.
-    pub fn silence(&self) -> Option<Duration> {
-        lock(&self.shared.last_contact).map(|at| at.elapsed())
-    }
-
-    /// Whether the connection ended because the host disconnected (with or without a reason),
-    /// rather than going silent past the timeout.
+    /// Whether the connection ended because this session's host disconnected (with or without a
+    /// reason), rather than going silent past the timeout.
     pub fn said_goodbye(&self) -> bool {
         self.shared.goodbye.load(Ordering::SeqCst)
     }
@@ -447,8 +442,9 @@ struct ControlSocket {
     held_unsequenced: bool,
     reinject: Option<(SocketAddr, Vec<u8>)>,
     last_receive: Option<Instant>,
-    /// The host sent ENet's disconnect: it ended the stream, it did not go silent.
-    goodbye: bool,
+    /// When a host disconnect last went to ENet: the [`Event::Disconnect`] that follows within
+    /// [`DISCONNECT_PROCESS_WAIT`] is the host's goodbye ([`is_goodbye`]).
+    disconnect_handed: Option<Instant>,
     /// Set while the connect is in flight and the socket is still marked.
     marking: Option<Marking>,
     /// The QoS marking is on, for a socket the control thread moves to.
@@ -611,6 +607,7 @@ impl rusty_enet::Socket for ControlSocket {
         buffer: &mut [u8; MTU_MAX],
     ) -> io::Result<Option<(SocketAddr, PacketReceived)>> {
         if let Some((address, datagram)) = self.reinject.take() {
+            self.disconnect_handed = Some(Instant::now());
             buffer[..datagram.len()].copy_from_slice(&datagram);
             return Ok(Some((address, PacketReceived::Complete(datagram.len()))));
         }
@@ -640,7 +637,6 @@ impl rusty_enet::Socket for ControlSocket {
             // The host answered: the marking works, so stop watching it.
             self.marking = None;
             let disconnect = enet_disconnect(&buffer[..length]);
-            self.goodbye |= disconnect.is_some();
             if self.intercept && self.held_disconnect.is_none() {
                 if let Some(unsequenced) = disconnect {
                     self.held_disconnect = Some((address, buffer[..length].to_vec()));
@@ -648,16 +644,25 @@ impl rusty_enet::Socket for ControlSocket {
                     continue;
                 }
             }
+            if disconnect.is_some() {
+                self.disconnect_handed = Some(Instant::now());
+            }
             return Ok(Some((address, PacketReceived::Complete(length))));
         }
     }
 }
 
-/// Whether the stop's linger would wait for nothing: a host silent past
-/// [`INPUT_CONTACT_LOST_AFTER`] (ENet's pings go out several times a second) will not acknowledge
-/// the disconnect either.
+/// Whether the stop's linger would wait for nothing: a host silent past [`SILENT_STOP_AFTER`]
+/// (ENet's pings go out several times a second) will not acknowledge the disconnect either.
 fn lingers_for_nothing(last_receive: Option<Instant>, now: Instant) -> bool {
-    last_receive.is_some_and(|at| now.saturating_duration_since(at) >= INPUT_CONTACT_LOST_AFTER)
+    last_receive.is_some_and(|at| now.saturating_duration_since(at) >= SILENT_STOP_AFTER)
+}
+
+/// Whether an [`Event::Disconnect`] at `now` is the host's goodbye: a host disconnect went to ENet
+/// just before, and ENet took it. A disconnect ENet ignored (another session's) is forgotten after
+/// [`DISCONNECT_PROCESS_WAIT`], so a timeout later is no goodbye.
+fn is_goodbye(disconnect_handed: Option<Instant>, now: Instant) -> bool {
+    disconnect_handed.is_some_and(|at| now.saturating_duration_since(at) < DISCONNECT_PROCESS_WAIT)
 }
 
 /// The control thread's side: owns the ENet host.
@@ -764,7 +769,7 @@ pub fn connect(
         held_unsequenced: false,
         reinject: None,
         last_receive: None,
-        goodbye: false,
+        disconnect_handed: None,
         marking: Some(marking),
         marked: true,
         flow: priority::open_control_flow(|m| config.warn.say(m)),
@@ -797,7 +802,6 @@ pub fn connect(
         stop: AtomicBool::new(false),
         contact_lost: AtomicBool::new(false),
         rtt: Mutex::new(None),
-        last_contact: Mutex::new(None),
         goodbye: AtomicBool::new(false),
         roaming,
         roam_request: Mutex::new(None),
@@ -943,7 +947,8 @@ impl ControlClient {
                 }
                 Event::Disconnect { .. } => {
                     // Before the termination it brings, so whoever reports it can tell.
-                    self.shared.goodbye.store(self.host.socket().goodbye, Ordering::SeqCst);
+                    let goodbye = is_goodbye(self.host.socket().disconnect_handed, now);
+                    self.shared.goodbye.store(goodbye, Ordering::SeqCst);
                     session.disconnected();
                 }
                 Event::Connect { .. } => {}
@@ -1025,7 +1030,6 @@ impl ControlClient {
         let rtt = (peer.state() == PeerState::Connected)
             .then(|| (peer.round_trip_time(), peer.round_trip_time_variance()));
         *lock(&self.shared.rtt) = rtt;
-        *lock(&self.shared.last_contact) = self.host.socket().last_receive;
     }
 
     /// Hands a held host disconnect to ENet once receives have stopped for a moment.
@@ -1045,6 +1049,7 @@ impl ControlClient {
                 // ENet ignored it (another session's disconnect); the peer lives on.
                 self.disconnect_released_at = None;
                 socket.intercept = true;
+                socket.disconnect_handed = None;
             }
         }
     }
@@ -1170,7 +1175,7 @@ mod tests {
             held_unsequenced: false,
             reinject: None,
             last_receive: None,
-            goodbye: false,
+            disconnect_handed: None,
             marked: marking.is_some(),
             marking,
             flow: None,
@@ -1389,7 +1394,8 @@ mod tests {
         let now = Instant::now() + Duration::from_secs(10);
         assert!(!lingers_for_nothing(None, now), "never heard: ENet decides");
         assert!(!lingers_for_nothing(Some(now - Duration::from_millis(200)), now));
-        assert!(lingers_for_nothing(Some(now - INPUT_CONTACT_LOST_AFTER), now));
+        assert!(!lingers_for_nothing(Some(now - Duration::from_millis(1500)), now), "a short blip: a clean stop still reaches the host");
+        assert!(lingers_for_nothing(Some(now - SILENT_STOP_AFTER), now));
         assert!(lingers_for_nothing(Some(now - Duration::from_secs(5)), now), "a PC that is gone");
     }
 
@@ -1411,10 +1417,20 @@ mod tests {
             panic!("nothing arrived");
         };
         deliver(&mut control, &[0x00, 0x00, 0x46, 0xff, 0, 0, 0, 0, 0, 0]);
-        assert!(!control.goodbye);
+        assert!(control.disconnect_handed.is_none());
         // enet_peer_disconnect_now, reaching ENet here (no intercept).
         deliver(&mut control, &[0x10, 0x00, 0x44, 0xff, 0, 0, 0, 0, 0, 0]);
-        assert!(control.goodbye);
+        assert!(is_goodbye(control.disconnect_handed, Instant::now()));
+    }
+
+    #[test]
+    fn only_a_disconnect_event_right_after_the_hosts_disconnect_is_a_goodbye() {
+        let now = Instant::now() + Duration::from_secs(30);
+        assert!(!is_goodbye(None, now), "a timeout without any disconnect");
+        assert!(is_goodbye(Some(now - Duration::from_millis(20)), now), "ENet took the host's disconnect");
+        // Another session's disconnect ENet ignored, then the timeout much later: no goodbye.
+        assert!(!is_goodbye(Some(now - DISCONNECT_PROCESS_WAIT), now));
+        assert!(!is_goodbye(Some(now - Duration::from_secs(12)), now));
     }
 
     #[test]

@@ -86,12 +86,10 @@ final class RustBridge {
     static native void stopConnection();
     static native void interruptConnection();
     static native int networkChanged(boolean metered);
-    static native long getControlSilenceMs();
-    static native void endStreamHostGone();
     static native boolean hostSaidGoodbye();
+    static native String getHostAddress();
     static native int hostLossRound(String host, int port, String gateway);
-    static native int hostLossDecide(long silenceMs, int round, int pings, int state);
-    static native int hostLossFirstState(boolean pings);
+    static native int hostLossAfterGoodbye(boolean pingedAtStart, boolean onLink, int round, int pings, boolean closedBefore, long waitedMs);
     static native int hostLossPing(String host, int timeoutMs);
     static native void sendMouseMove(short deltaX, short deltaY);
     static native void sendMousePosition(short x, short y, short referenceWidth, short referenceHeight);

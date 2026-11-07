@@ -423,6 +423,22 @@ pub struct Streaming {
     /// at its own rate gets the pacing it would have without VRR (off under `NIGHTJAR_VRR_CHECK=0`,
     /// for measurement runs); and `NIGHTJAR_VRR_SYNC` on a VRR stream.
     vrr: present::VrrPacing,
+    /// False under `NIGHTJAR_PRESENT_SKIP=0`: every present waits behind the last, the A side of an
+    /// A/B run (`present::skips_instead_of_waiting`).
+    skip_over_waiting: bool,
+    /// `NIGHTJAR_PRESENT_DEADLINE_US` for measurement runs, in place of
+    /// `present::deadline_before_refresh`.
+    present_deadline_us: Option<i64>,
+    /// Whether the last present that tried it could go without waiting: not on Linux, nor on a
+    /// renderer without a DXGI swap chain.
+    no_wait_present: bool,
+    /// The picture skipped last, drawn after all if no newer one comes, and how long a refused
+    /// present tries again (from `NIGHTJAR_PRESENT_HOLD_US` for measurement runs).
+    skipped: present::SkippedPicture,
+    /// That picture, counted as shown if it is drawn after all and as replaced if a newer one comes.
+    skipped_picture: Option<present::Pending>,
+    /// Finds pictures that missed their refresh, for `skipped`.
+    miss_watch: present::MissWatch,
     /// Presents `VrrSync::Scan` held for a scan under way, and how long in all (ns).
     scan_waits: (u32, u64),
     /// The picture on the display's beam, while racing it is possible (see `sync_race`).
@@ -699,6 +715,12 @@ impl Streaming {
             race_probe: None,
             // The sync interval as `App::begin_stream` set it.
             vrr: present::VrrPacing::new(vrr_check, vrr_fallback, vrr_sync, connecting.pacing),
+            skip_over_waiting: env_flag("NIGHTJAR_PRESENT_SKIP").unwrap_or(true),
+            present_deadline_us: std::env::var("NIGHTJAR_PRESENT_DEADLINE_US").ok().and_then(|us| us.parse().ok()),
+            no_wait_present: false,
+            skipped: present::SkippedPicture::new(std::env::var("NIGHTJAR_PRESENT_HOLD_US").ok().and_then(|us| us.parse().ok()).map_or(present::REFUSED_HOLD, Duration::from_micros)),
+            skipped_picture: None,
+            miss_watch: present::MissWatch::default(),
             scan_waits: (0, 0),
             race_scan: None,
             racer: race::Racer::default(),
@@ -1003,8 +1025,15 @@ impl Streaming {
         true
     }
 
+    /// A new rate from the host: whether the stream has refreshes to spare, and what the hold learned.
+    fn stream_rate_changed(&mut self, fps: u32) {
+        self.pacer.set_fps(fps);
+        self.skipped.restart();
+    }
+
     pub fn follow_display(&mut self, display: Display) {
         self.pacer.clock.settings.min_interval_us = (1_000_000.0 / display.refresh_hz.max(1.0)) as i64;
+        if display.refresh_hz != self.plan.display.refresh_hz { self.skipped.restart(); }
         self.plan.display = display;
         if !self.facts.reconfigure || !self.display_change.is_some_and(|at| at.elapsed() >= Duration::from_millis(300)) { return; }
         self.display_change = None;
@@ -1340,6 +1369,7 @@ impl Streaming {
         }
         if let Some(fps_millihz) = answer.fps_millihz {
             self.facts.fps = fps_millihz.div_ceil(1000) as i32;
+            self.stream_rate_changed(self.facts.fps as u32);
             self.shared.fps_millihz.store(fps_millihz, Ordering::Relaxed);
             *lock(&self.shared.decode_window) = pipeline::DecodeWindow::default();
             self.decode_window_us = session::now_us();

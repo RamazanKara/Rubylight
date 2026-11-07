@@ -241,6 +241,145 @@ public class AllGamesScreenTest {
                 card[1] >= title[1] + grid.findViewById(R.id.all_games_focus).getHeight());
     }
 
+    /**
+     * On the real TV a lower row that took focus scrolled to the frame's very top, 40 dp up in the focus line: its title stood
+     * over the poster and the glow was cut square there. Walking down and back up, the focused row keeps that room.
+     */
+    @Test
+    public void onATelevisionALowerFocusedRowStaysUnderTheFocusLineWithItsGlowRoom() {
+        String[] games = new String[40];
+        for (int i = 0; i < games.length; i++) games[i] = game(i + 1, "Game " + (i + 1), "steam", true, null);
+        tower(games);
+        Grid grid = open(null);
+        RecyclerView list = list(grid);
+        View focusLine = grid.findViewById(R.id.all_games_focus);
+        int firstTop = list.getTop() + list.getFocusedChild().getTop();
+        int room = Math.round(AllGamesActivity.GLOW_ROOM_DP * grid.getResources().getDisplayMetrics().density);
+        assertTrue("the first row has the glow's room: " + firstTop, firstTop >= room);
+        boolean scrolled = false;
+        for (int direction : new int[] {View.FOCUS_DOWN, View.FOCUS_UP}) {
+            for (int step = 0; step < 4; step++) {
+                View next = HomeShellTest.focusAfter(grid, list.getFocusedChild(), direction);
+                assertNotNull("step " + step, next);
+                assertTrue(isInside(list, next));
+                next.requestFocus();
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+                HomeShellTest.focusAfter(grid, list.getFocusedChild(), direction);
+                scrolled |= list.computeVerticalScrollOffset() > 0;
+                View card = list.getFocusedChild();
+                int[] line = new int[2];
+                int[] at = new int[2];
+                focusLine.getLocationInWindow(line);
+                card.getLocationInWindow(at);
+                int top = list.getTop() + card.getTop();
+                String where = (direction == View.FOCUS_DOWN ? "down " : "up ") + step + ": card at " + top + " in the frame";
+                assertTrue(where + ", the first row's place " + firstTop, top >= firstTop);
+                // As drawn, with the focus scale: what a person sees stays under the focus line.
+                assertTrue(where + ", drawn at " + at[1] + ", under the focus line ending at " + (line[1] + focusLine.getHeight()),
+                        at[1] >= line[1] + focusLine.getHeight());
+            }
+        }
+        assertTrue("the grid scrolled at all", scrolled);
+    }
+
+    /**
+     * On the real TV the frame ended 120 px above the screen's bottom, and every focused row's ring and glow were cut there.
+     * The frame now reaches the TV's safe edge, and a poster is at most as tall as leaves its focused row as much room below
+     * as the first row has above, where the glow fits: walking down and back up, every focused row fits whole.
+     */
+    @Test
+    public void onATelevisionAFocusedRowsRingAndGlowFitTheFrame() {
+        String[] games = new String[40];
+        for (int i = 0; i < games.length; i++) games[i] = game(i + 1, "Game " + (i + 1), "steam", true, null);
+        tower(games);
+        Grid grid = open(null);
+        RecyclerView list = list(grid);
+        View frame = (View) list.getParent();
+        int screen = grid.getWindow().getDecorView().getHeight();
+        int[] at = new int[2];
+        frame.getLocationInWindow(at);
+        assertEquals("the frame ends at the safe edge", screen - Math.round(screen * AllGamesActivity.SAFE_EDGE),
+                at[1] + frame.getHeight());
+        int above = list.getFocusedChild().getTop();
+        int fitRoom = Math.round(AllGamesActivity.FIT_ROOM_DP * grid.getResources().getDisplayMetrics().density);
+        View cover = list.getFocusedChild().findViewById(R.id.console_cover_frame);
+        assertEquals("a poster stays 2:3", cover.getWidth() * 3 / 2, cover.getHeight(), 2);
+        for (int direction : new int[] {View.FOCUS_DOWN, View.FOCUS_RIGHT, View.FOCUS_UP}) {
+            for (int step = 0; step < (direction == View.FOCUS_RIGHT ? 3 : 6); step++) {
+                View card = list.getFocusedChild();
+                String where = direction + " step " + step + ": card " + card.getTop() + ".." + card.getBottom()
+                        + " in a frame of " + list.getHeight();
+                assertTrue(where + ", room above " + above, card.getTop() >= above);
+                assertTrue(where, list.getHeight() - card.getBottom() >= above + fitRoom);
+                View next = HomeShellTest.focusAfter(grid, card, direction);
+                assertNotNull(where, next);
+                next.requestFocus();
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+            }
+        }
+        // The last row comes up to the same place.
+        list.scrollToPosition(39);
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+        list.getLayoutManager().findViewByPosition(39).requestFocus();
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+        View last = list.getFocusedChild();
+        assertTrue("last row " + last.getTop() + ".." + last.getBottom() + " of " + list.getHeight(),
+                list.getHeight() - last.getBottom() >= above + fitRoom && last.getTop() >= above);
+    }
+
+    /** A phone keeps its frame and posters as wide as their columns: the TV's fit is the TV's. */
+    @Test
+    @Config(qualifiers = "w411dp-h891dp-xxhdpi")
+    public void onAPhoneTheGridKeepsItsFrameAndFullWidthPosters() {
+        String[] games = new String[12];
+        for (int i = 0; i < games.length; i++) games[i] = game(i + 1, "Game " + (i + 1), "steam", true, null);
+        tower(games);
+        Grid grid = open(null);
+        RecyclerView list = list(grid);
+        View frame = (View) list.getParent();
+        assertEquals(0, ((ViewGroup.MarginLayoutParams) frame.getLayoutParams()).bottomMargin);
+        assertEquals(((View) frame.getParent()).getHeight(), frame.getBottom());
+        int columns = ((androidx.recyclerview.widget.GridLayoutManager) list.getLayoutManager()).getSpanCount();
+        int content = list.getWidth() - list.getPaddingLeft() - list.getPaddingRight();
+        View card = list.getChildAt(0);
+        ViewGroup.MarginLayoutParams margins = (ViewGroup.MarginLayoutParams) card.getLayoutParams();
+        assertEquals(content / columns, card.getWidth() + margins.leftMargin + margins.rightMargin);
+    }
+
+    /** The frame's glow room stands over the focus line and filters: a touch there was the grid's on touch-capable TVs. */
+    @Test
+    public void onATelevisionATouchInTheGlowRoomIsForWhatLiesUnderIt() {
+        tower(DOOM, HADES, PORTAL);
+        Grid grid = open(null);
+        View frame = (View) list(grid).getParent();
+        int room = Math.round(AllGamesActivity.GLOW_ROOM_DP * grid.getResources().getDisplayMetrics().density);
+        List<String> got = new ArrayList<>();
+        list(grid).setOnTouchListener((v, e) -> got.add("grid") && false);
+        grid.findViewById(R.id.all_games_focus).setOnTouchListener((v, e) -> got.add("focus") && false);
+        grid.findViewById(R.id.all_games_filters_scroll).setOnTouchListener((v, e) -> got.add("filters") && false);
+        int[] at = new int[2];
+        frame.getLocationInWindow(at);
+        View decor = grid.getWindow().getDecorView();
+
+        touch(decor, at[0] + frame.getWidth() / 2f, at[1] + room / 2f);
+        assertFalse("the grid takes none of it: " + got, got.contains("grid"));
+        assertTrue("what lies under it does: " + got, got.contains("focus") || got.contains("filters"));
+
+        got.clear();
+        touch(decor, at[0] + frame.getWidth() / 2f, at[1] + room + 4);
+        assertTrue("below the strip it is the grid's: " + got, got.contains("grid"));
+    }
+
+    private static void touch(View root, float x, float y) {
+        long now = android.os.SystemClock.uptimeMillis();
+        for (int action : new int[] {android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_UP}) {
+            android.view.MotionEvent event = android.view.MotionEvent.obtain(now, now, action, x, y, 0);
+            event.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);
+            root.dispatchTouchEvent(event);
+            event.recycle();
+        }
+    }
+
     @Test
     public void theFirstGameHasFocusAndTheDpadMovesBetweenTheChipsAndTheGrid() {
         tower(DOOM, HADES, PORTAL);

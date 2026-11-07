@@ -69,6 +69,8 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     private View noPcFoundLayout;
     private AbsListView pcList;
     private boolean listWasEmpty = true;
+    /** Resumed and not yet back in the window's focus: the first focus after a stream or another screen. */
+    private boolean resumedFocusPending;
     private ActionSheet pcMenu;
     private PcGridAdapter pcGridAdapter;
     private ShortcutHelper shortcutHelper;
@@ -100,6 +102,8 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
                 row.wakeSentAt = 0;
                 pcGridAdapter.notifyDataSetChanged();
             }
+            // A form change waited for the wake.
+            followForm();
         }
         @Override public void pausePolling() { stopComputerUpdates(false); }
         @Override public void resumePolling() { startComputerUpdates(); }
@@ -230,6 +234,18 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     }
 
     private com.limelight.ui.ActionSheet addPcSheet;
+
+    /** Its chrome follows the form: a rotation into another form lays it out again. */
+    @Override
+    protected boolean followsForm() {
+        return true;
+    }
+
+    /** A pairing or a wake keeps this screen until it is done; it then follows the form. */
+    @Override
+    protected boolean holdsForm() {
+        return hostActions.isPairing() || hostActions.isWaking();
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -429,6 +445,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         UiHelper.showDecoderCrashDialog(this);
 
         inForeground = true;
+        resumedFocusPending = true;
         if (completeOnCreateCalled) {
             // A host's library can arrive while this screen is away, which makes Home available.
             ShellBar.refresh(this);
@@ -735,6 +752,31 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     private boolean focusIsLoose() {
         View focus = getCurrentFocus();
         return focus == null || isInside(focus, R.id.shell_bar) || isInside(focus, R.id.no_pc_found_layout);
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (!hasFocus || !resumedFocusPending) return;
+        resumedFocusPending = false;
+        // Back from a stream a pad or a remote drove (its menu's Disconnect), the PC that runs the game takes the ring, so A
+        // acts at once. This window can still be in the touch mode its last tap left: the keys of the screen before end it.
+        if (pcList == null || pcGridAdapter == null || pcGridAdapter.getCount() == 0) return;
+        boolean touch = pcList.isInTouchMode();
+        InputSource last = InputSource.last();
+        if (touch && (last == null || last == InputSource.NONE)) return;
+        boolean ringShown = !touch && pcList.hasFocus() && pcList.getSelectedItemPosition() != android.widget.AdapterView.INVALID_POSITION;
+        if (ringShown || (!pcList.hasFocus() && !focusIsLoose())) return;
+        // Out of touch mode first: a list in touch mode keeps no selection.
+        if (touch) pcList.requestFocusFromTouch();
+        for (int i = 0; i < pcGridAdapter.getCount(); i++) {
+            Object item = pcGridAdapter.getItem(i);
+            if (item instanceof ComputerObject && ((ComputerObject) item).rowState() == PcGridAdapter.RowState.RUNNING) {
+                pcList.setSelection(i);
+                break;
+            }
+        }
+        if (!touch) claimListFocus();
     }
 
     private void claimListFocus() {

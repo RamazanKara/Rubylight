@@ -109,7 +109,11 @@ pub(super) fn run(
             shared.pool.give(packets);
         }
         // The next frame's blocks may leave as they are built.
-        shared.ready.lock().unwrap().sending = false;
+        let abandoned = {
+            let mut ready = shared.ready.lock().unwrap();
+            ready.sending = false;
+            std::mem::take(&mut ready.abandoned)
+        };
         if batch.dropped != packets_dropped {
             host_dropped(&current, frame.wire_frame);
         }
@@ -120,6 +124,11 @@ pub(super) fn run(
             sent_packets,
             (sent + sent_packets * network_pacing::overhead(ipv6)) as u64,
         );
+        // The packetizer dropped the rest of it (and counted it dropped): no
+        // frame was sent.
+        if abandoned {
+            continue;
+        }
         current
             .stats
             .latency_us
@@ -160,13 +169,13 @@ pub(super) fn run(
 
 /// The next block of the streamed frame being sent, waiting while the
 /// packetizer builds it; none once the frame is complete or abandoned.
-fn next_block(shared: &Slot) -> Option<PacketBlock> {
+pub(super) fn next_block(shared: &Slot) -> Option<PacketBlock> {
     let mut ready = shared.ready.lock().unwrap();
     loop {
         if let Some(block) = ready.blocks.pop_front() {
             return Some(block);
         }
-        if !ready.open || shared.stop.load(Ordering::Acquire) {
+        if !ready.open || ready.abandoned || shared.stop.load(Ordering::Acquire) {
             return None;
         }
         ready = shared

@@ -68,6 +68,9 @@ struct Ready {
     open: bool,
     /// The paced sender has a frame in hand.
     sending: bool,
+    /// A block of the frame in hand failed: the sender sends no more of it
+    /// and does not count it as sent.
+    abandoned: bool,
 }
 impl Ready {
     /// Nothing is queued or sending: a frame's first block would leave at once.
@@ -149,6 +152,59 @@ struct Slot {
     error: Mutex<Option<String>>,
     stop: AtomicBool,
     stop_signal: Signal,
+}
+impl Slot {
+    /// Hand an idle sender each block of a frame as it is built; `first`
+    /// makes the frame from block 0. A failed block (`None`) abandons the
+    /// frame, whose index stays used as for a frame that is never sent: one
+    /// the sender has not taken is dropped, one in hand is flagged so the
+    /// sender stops there. Returns whether the whole frame was handed over.
+    fn hand_over(
+        &self,
+        blocks: impl Iterator<Item = Option<PacketBlock>>,
+        first: impl FnOnce(PacketBlock) -> Prepared,
+    ) -> bool {
+        let mut first = Some(first);
+        let mut complete = true;
+        for block in blocks {
+            let mut ready = self.ready.lock().unwrap();
+            match block {
+                None => {
+                    ready.open = false;
+                    for block in ready.blocks.drain(..) {
+                        self.pool.give(block);
+                    }
+                    // The packetizer only streams to an idle sender: a streamed
+                    // frame still queued is this one.
+                    match ready.frame.take_if(|frame| frame.streamed) {
+                        Some(frame) => {
+                            for block in frame.blocks {
+                                self.pool.give(block);
+                            }
+                        }
+                        None => ready.abandoned = ready.sending,
+                    }
+                    complete = false;
+                }
+                // The frame's details travel with block 0.
+                Some(block) => match first.take() {
+                    Some(first) => {
+                        ready.open = true;
+                        ready.frame = Some(first(block));
+                    }
+                    None => ready.blocks.push_back(block),
+                },
+            }
+            drop(ready);
+            self.ready_changed.notify_one();
+            if !complete {
+                return false;
+            }
+        }
+        self.ready.lock().unwrap().open = false;
+        self.ready_changed.notify_one();
+        true
+    }
 }
 pub struct Sender {
     slot: Arc<Slot>,
@@ -270,32 +326,8 @@ impl Sender {
                 // 4K frame leaves after 0.2 ms instead of 1.8). A busy one gets the whole frame,
                 // which a newer one can still replace.
                 if early_blocks && shared.ready.lock().unwrap().idle() {
-                    let mut first = true;
-                    for block in blocks {
-                        let block = dropped.prepared(block, frame.bytes.len(), Instant::now(), &current.launch.warnings);
-                        let mut ready = shared.ready.lock().unwrap();
-                        match block {
-                            // Packets of the frame may be out: the rest of it is abandoned,
-                            // and its index stays used, as for a frame that is never sent.
-                            None => {
-                                ready.open = false;
-                                drop(ready);
-                                shared.ready_changed.notify_one();
-                                continue 'frames;
-                            }
-                            // The frame's details travel with block 0.
-                            Some(block) if first => {
-                                first = false;
-                                ready.open = true;
-                                ready.frame = Some(details(vec![block], true));
-                            }
-                            Some(block) => ready.blocks.push_back(block),
-                        }
-                        drop(ready);
-                        shared.ready_changed.notify_one();
-                    }
-                    shared.ready.lock().unwrap().open = false;
-                    shared.ready_changed.notify_one();
+                    let blocks = blocks.map(|block| dropped.prepared(block, frame.bytes.len(), Instant::now(), &current.launch.warnings));
+                    shared.hand_over(blocks, |block| details(vec![block], true));
                     continue;
                 }
                 let mut ready = Vec::new();
@@ -849,6 +881,80 @@ mod tests {
                 (false, true, 0, packets)
             );
             assert_eq!(session.stats.frames_replaced.load(Ordering::Relaxed), 1);
+        }
+    }
+
+    /// Review 2026-11-07: a block that fails after block 0 left the frame to
+    /// go out in part and count as sent. One the sender has not taken is
+    /// dropped with its blocks; one in hand is flagged, and the sender takes
+    /// no more of it.
+    #[test]
+    fn a_failed_block_abandons_a_frame_handed_over_block_by_block() {
+        for taken in [false, true] {
+            let fixture = crate::state::test_support::Fixture::new();
+            let launch = fixture.launch(fixture.client(0), butterpollo_core::session::Role::Stream);
+            let session = Session::new(launch, Default::default());
+            let sender = Sender::packetizer(
+                session,
+                fixture.host.config.read().unwrap().clone(),
+                fixture.host.clone(),
+                Instant::now(),
+                None,
+            )
+            .unwrap();
+            let slot = &sender.slot;
+            let block = |tag: u8| vec![vec![tag; 4]];
+            let mut step = 0;
+            let blocks = std::iter::from_fn(|| {
+                step += 1;
+                match step {
+                    1 => Some(Some(block(1))),
+                    2 => {
+                        if taken {
+                            let mut ready = slot.ready.lock().unwrap();
+                            assert!(ready.frame.take().is_some());
+                            ready.sending = true;
+                        }
+                        Some(Some(block(2)))
+                    }
+                    3 => Some(None),
+                    _ => Some(Some(block(4))),
+                }
+            });
+            let now = Instant::now();
+            let handed = slot.hand_over(blocks, |block| Prepared {
+                blocks: vec![block],
+                peer: "127.0.0.1:12345".parse().unwrap(),
+                claimed: now,
+                processing: 0,
+                latency: 0,
+                age: 0,
+                wire_frame: 1,
+                demand: 0,
+                kbps: 0,
+                claim: None,
+                polled: now,
+                packetized: now,
+                prepared: now,
+                timestamp: 0,
+                streamed: true,
+            });
+            assert!(!handed);
+            assert_eq!(step, 3, "no block after the failed one");
+            {
+                let ready = slot.ready.lock().unwrap();
+                assert!(ready.frame.is_none() && ready.blocks.is_empty() && !ready.open);
+                assert_eq!(ready.abandoned, taken);
+            }
+            assert_eq!(transport::next_block(slot), None);
+            // The blocks nobody sends go back to the pool: both untaken, or
+            // the one queued behind the frame in hand.
+            if taken {
+                assert_eq!(slot.pool.take(), block(2));
+            } else {
+                assert_eq!((slot.pool.take(), slot.pool.take()), (block(1), block(2)));
+            }
+            assert!(slot.pool.take().is_empty());
         }
     }
 

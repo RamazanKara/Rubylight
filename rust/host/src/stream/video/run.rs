@@ -718,6 +718,7 @@ impl SessionThread<'_> {
                             let timing = window.snapshot();
                             let link = s.link_rate_snapshot();
                             let ms = |key: &str| timing[key].as_f64().unwrap_or(0.);
+                            let input = s.stats.input_latency.lock().unwrap().take();
                             // Pipeline frame rates since the last summary; none in the first.
                             let rates = pipeline_log.sample(Instant::now(), s.pipeline_counts(), Duration::from_secs(5));
                             let fps_of = |pick: fn(&butterpollo_core::pipeline_rates::PipelineRates) -> Option<u32>| {
@@ -827,6 +828,10 @@ impl SessionThread<'_> {
                                 link_rtt_floor_ms=link["rtt_floor_ms"].as_u64().unwrap_or(0),
                                 // Only with webrtc_loss_permille on: the video datagrams it has thrown away.
                                 webrtc_simulated_losses=webrtc_sender.as_ref().and_then(|sender| sender.simulated_losses()),
+                                // ENet keyboard, mouse, touch and pen passes: the control worker's
+                                // read of a pass's first datagram to its input injected, p50/p99/max ms.
+                                input_receive_to_injected_ms=%input,
+                                input_passes=input.passes,
                                 "stream timings"
                             );
                         }

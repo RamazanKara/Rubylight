@@ -31,10 +31,11 @@ pub(crate) use config::{device_config, effective_config, launch_app};
 #[cfg(test)]
 use control::{
     CONTROL_EVENT_LIMIT, ControlPeer, ControlSocket, FEEDBACK_CHANNEL, INPUT_OVERFLOW, INPUT_QUEUE,
-    MOTION_EVENT_REQUEST, PadSends, RUMBLE_MARKER, RumbleForwarded, SWALLOWED_PER_RECEIVE,
-    control_wait_timeout, drop_uninjectable_input, end_unattended_sessions, expects_enet_control,
-    expire_controllers, first_steam_attributes_refusal, haptics_negotiated, motion_requests,
-    pad_reports, queue_input, server_command,
+    MOTION_EVENT_REQUEST, PadSends, PeerConfig, RUMBLE_MARKER, RumbleForwarded,
+    SWALLOWED_PER_RECEIVE, ScaleLookup, control_wait_timeout, drop_uninjectable_input,
+    end_unattended_sessions, expects_enet_control, expire_controllers,
+    first_steam_attributes_refusal, haptics_negotiated, motion_requests, pad_reports, queue_input,
+    server_command,
 };
 pub(crate) use control::{RUMBLE_DATA, RUMBLE_TRIGGER_DATA, feedback_packets};
 pub(crate) use instance_audio::{InstanceRoutes, instance_routes, plays_on_pc, put_back};

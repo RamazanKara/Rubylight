@@ -19,9 +19,13 @@ impl Injector {
         if self.pending.inputs.is_empty() {
             return;
         }
-        let sent = (self.inject)(&self.pending.inputs);
-        let refused =
-            (sent < self.pending.inputs.len()).then(|| std::io::Error::last_os_error().to_string());
+        let (sent, refused) = {
+            let _order = SEND_ORDER.lock().unwrap();
+            let sent = (self.inject)(&self.pending.inputs);
+            let refused = (sent < self.pending.inputs.len())
+                .then(|| std::io::Error::last_os_error().to_string());
+            (sent, refused)
+        };
         self.pending.inputs.clear();
         let mut events = std::mem::take(&mut self.pending.events);
         for (end, press) in events.drain(..) {
@@ -290,14 +294,34 @@ impl Injector {
         owned: bool,
         input: INPUT,
     ) -> Result<()> {
+        // Decided under HELD, sent after it is released: SEND_ORDER keeps the send
+        // ahead of any later update's.
+        let _order = SEND_ORDER.lock().unwrap();
+        let mut send = None;
         Self::update_held(
             &mut HELD.lock().unwrap(),
             (keyboard, id),
             down,
             owned,
             input,
-            |inputs| self.send(inputs),
-        )
+            |inputs| {
+                send = Some(inputs[0]);
+                Ok(())
+            },
+        )?;
+        let Some(input) = send else {
+            return Ok(());
+        };
+        let sent = self.send(&[input]);
+        if sent.is_err() && down {
+            // A refused press is not held, as when it was sent under HELD.
+            let mut held = HELD.lock().unwrap();
+            match held.get(&(keyboard, id)).copied().unwrap_or(0) {
+                0 | 1 => held.remove(&(keyboard, id)),
+                count => held.insert((keyboard, id), count - 1),
+            };
+        }
+        sent
     }
     /// Teardown gets one extra release attempt while ownership remains
     /// locked. A new client cannot press between the failed up and its retry.
@@ -312,6 +336,7 @@ impl Injector {
         })
     }
     pub(super) fn release_owned(&self, keyboard: bool, id: u32, input: INPUT) -> Result<()> {
+        let _order = SEND_ORDER.lock().unwrap();
         Self::release_held(&mut HELD.lock().unwrap(), (keyboard, id), input, |inputs| {
             self.send(inputs)
         })

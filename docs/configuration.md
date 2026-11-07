@@ -456,6 +456,7 @@ Under **All settings → Audio & controls**:
 - **Keyboard layout** (`keyboard_layout`, default `client`) turns the device's keys into scan codes with the layout the device reports; `us` uses US English, or enter a Windows layout id.
 - **Native pen and touch** (`native_pen_touch`, default `true`) passes pen and touch to Windows as pen and touch. **Touch** (`touch_mode`, default `client`) takes touches as the device sends them, as a mouse, or as a trackpad, with **Touch sensitivity** (`touch_sensitivity`, `100` %) and **Touch gestures** (`touch_gestures`, two-finger scroll and right-click, default `true`). **Pen barrel roll** (`pen_barrel_roll`, default `true`) passes on how far a stylus is turned, for pens that report it.
 - **Device-drawn cursor** (`client_cursor`, default `true`) lets a device draw the mouse cursor itself, so it moves without waiting for the video. It needs Desktop Duplication capture; with other capture the cursor stays in the video.
+- `absolute_left_release_delay` (milliseconds, default `10`, at most `1000`; config file and device or app overrides only) holds a left-button release back that long after absolute mouse, touch or pen input, as Sunshine does, so a long press can right-click before the left click lands. Windows buttons act on the release, so every such click waits this long; `0` sends the release at once and gives up the long-press right-click.
 
 ## Controllers
 

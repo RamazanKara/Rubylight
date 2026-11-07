@@ -44,7 +44,7 @@ public final class NavigationDialogBuilder extends MaterialAlertDialogBuilder {
         // The platform's selector is a grey block, which is no focus language of ours.
         ListView list = dialog.getListView();
         if (list != null) list.setSelector(R.drawable.dialog_row_focus);
-        if (dialog.getWindow() != null) dialog.getWindow().setDimAmount(GlassPanelDrawable.backdropDim(getContext()));
+        if (dialog.getWindow() != null) dialog.getWindow().setDimAmount(GlassPanelDrawable.dialogBackdropDim(getContext()));
         // Builds the views now: the buttons exist, and their bar can be laid out for capsules.
         dialog.create();
         styleButtons(dialog);

@@ -113,6 +113,17 @@ public final class GlassPanelDrawable extends Drawable {
         return ColorUtils.compositeColors(materialFill, canvas);
     }
 
+    /**
+     * How dark the page behind a centred dialog goes. A TV's night page goes deeper than under a sheet: the dialog stands in
+     * the middle of a page seen from across the room, and the title and cards it covers must read as behind it, not cut.
+     */
+    public static float dialogBackdropDim(Context context) {
+        boolean television = (context.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_TYPE_MASK)
+                == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
+        if (!television || isDay(context)) return backdropDim(context);
+        return 1f - ResourcesCompat.getFloat(context.getResources(), R.dimen.nj_dialog_tv_backdrop_brightness);
+    }
+
     /** How dark the page behind a dialog goes: from the design's backdrop brightness, barely by day. */
     public static float backdropDim(Context context) {
         return 1f - ResourcesCompat.getFloat(context.getResources(),

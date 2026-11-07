@@ -155,6 +155,7 @@
   --nj-sheet-detent-large: 0.94;
   --nj-sheet-backdrop-scale: 0.93;
   --nj-sheet-backdrop-brightness: 0.72;
+  --nj-dialog-tv-backdrop-brightness: 0.5;
   --nj-tier-probe-frames: 60;
   --nj-tier-probe-p90-budget-fraction: 0.7;
   --nj-tier-baked-thumb-w: 96;

@@ -74,6 +74,23 @@ public class DialogGlassTest {
         return false;
     }
 
+    /**
+     * On the real TV the pairing dialog stood over the PCs page's title and card with the page only a little darker, so they
+     * read as cut behind it. A TV's night page goes to half brightness behind a dialog; elsewhere it keeps the sheet's dim.
+     */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void aTvDialogDimsThePageToHalf() {
+        AlertDialog dialog = confirm();
+        assertEquals(0.5f, dialog.getWindow().getAttributes().dimAmount, 0.001f);
+    }
+
+    @Test
+    public void offTvADialogKeepsTheSheetsDim() {
+        AlertDialog dialog = confirm();
+        assertEquals(GlassPanelDrawable.backdropDim(activity), dialog.getWindow().getAttributes().dimAmount, 0.001f);
+    }
+
     @Test
     public void oneMoonOneControl() {
         AlertDialog dialog = confirm();

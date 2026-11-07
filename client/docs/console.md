@@ -75,7 +75,7 @@ Open the stream menu during a stream and choose **Session and graphics**:
 The menu queries the host only while it is open, and the Radeon state at most once a second, never on the video, audio or input paths.
 
 <p align="center">
-  <img src="assets/shots/stream-menu-radeon.png" width="720" alt="Session and graphics during a stream: bitrate, the Wi-Fi link with its round trip, and Radeon Anti-Lag, Radeon Chill and Frame Rate Target Control settings from the PC (demo)">
+  <img src="assets/shots/stream-menu-radeon.png" width="720" alt="Session and graphics during a stream: the Wi-Fi link, and Radeon Anti-Lag, Radeon Chill with its maximum FPS and Frame Rate Target Control settings from the PC (demo)">
 </p>
 
 ### Radeon panel

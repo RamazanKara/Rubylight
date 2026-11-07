@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <a href="https://ramazankara.github.io/nightjar/assets/trailer-16x9.mp4"><img src="docs/assets/nightjar-trailer.webp" width="880" alt="Nightjar trailer: Home on a TV with games from every store, a game's page, a stream with the performance overlay and the stream menu, the feature list and the supported platforms (offline demo library)"></a><br>
+  <a href="https://ramazankara.github.io/nightjar/assets/trailer-16x9.mp4"><img src="docs/assets/nightjar-trailer.webp" width="880" alt="Nightjar trailer: Home on a TV, its glass tinted by each focused cover, a game's page, a handheld stream with the performance overlay, the stream menu, Radeon settings and the PC keyboard, picture-in-picture on a phone, the feature list and the supported platforms (offline demo library)"></a><br>
   <sub><a href="https://ramazankara.github.io/nightjar/assets/trailer-16x9.mp4"><b>▶ Watch the full trailer</b></a></sub>
 </p>
 
@@ -69,42 +69,52 @@ No accounts, advertising or analytics, and nothing sent to its developers. Video
 <table>
 <tr>
 <td width="50%" valign="top">
-  <img src="docs/assets/shots/tv-game-page.png" alt="A game's page on a TV: Racing Game running on Living-room PC, with Resume, Add to favourites, Quit game, the stream settings it will use and the switch to quit the game on leaving (demo library)"><br>
+  <img src="docs/assets/shots/tv-game-page.png" alt="A game's page on a TV, lit by the cover's sunset colours: Racing Game running on Living-room PC, with Resume, Add to favourites and Quit game, the stream settings it will use and the switch to quit the game on leaving (demo library)"><br>
   <sub><b>A page for every game.</b> Its store, the PC it runs on, whether it is running, and the exact settings the stream will use.</sub>
 </td>
 <td width="50%" valign="top">
-  <img src="docs/assets/shots/tv-all-games.png" alt="All games on a TV, filtered by store: All, Installed, Steam, Epic Games, GOG, Xbox and Other apps, with posters (demo library)"><br>
+  <img src="docs/assets/shots/tv-all-games.png" alt="All games on a TV under a starry night sky, filtered by store: All, Installed, Games, Steam, Epic Games, GOG and Xbox, with posters (demo library)"><br>
   <sub><b>Every store in one place.</b> Steam, Epic Games, GOG, EA app, Ubisoft Connect, Battle.net and Xbox, filtered with one press.</sub>
 </td>
 </tr>
 <tr>
 <td valign="top">
-  <img src="docs/assets/shots/stream-stats.png" alt="A stream with the Statistics overlay: resolution, codec, frame rate, bitrate, round trip, decode time and the PC's CPU and GPU readings (demo data)"><br>
+  <img src="docs/assets/shots/stream-stats.png" alt="A handheld stream with the Statistics overlay: resolution, codec, frame rate, bitrate, round trip, decode time and the PC's CPU and GPU readings (demo data)"><br>
   <sub><b>See every millisecond.</b> The performance overlay shows the network and decoding, and the PC's CPU and GPU readings from a host that sends them.</sub>
 </td>
 <td valign="top">
-  <img src="docs/assets/shots/stream-menu-radeon.png" alt="The Session and graphics menu during a stream: bitrate, the Wi-Fi link and the PC's Radeon settings such as Anti-Lag, Chill and Frame Rate Target Control (demo data)"><br>
+  <img src="docs/assets/shots/stream-menu-radeon.png" alt="The Session and graphics panel in glass beside the stream: the Wi-Fi link and the PC's Radeon settings, Anti-Lag, Chill, its maximum FPS and Frame Rate Target Control (demo data)"><br>
   <sub><b>Tune it while you play.</b> With a Rubylight 3.0 PC, change the bitrate, frame rate and the PC's Radeon graphics settings without leaving the game.</sub>
 </td>
 </tr>
 <tr>
 <td valign="top">
-  <img src="docs/assets/shots/stream-keyboard.png" alt="A stream with Nightjar's PC keyboard open: Esc, F1 to F12, arrows, navigation keys and modifiers (demo data)"><br>
+  <img src="docs/assets/shots/stream-keyboard.png" alt="A handheld stream with Nightjar's PC keyboard open: Esc, F1 to F12, arrows, navigation keys and modifiers, with G focused for a controller (demo data)"><br>
   <sub><b>A real PC keyboard.</b> Esc, F1 to F12, arrows and sticky modifiers, by touch, controller or TV remote.</sub>
 </td>
 <td valign="top">
-  <img src="docs/assets/shots/desktop-home.png" alt="Nightjar for Windows: Home with the game in progress and a row of cover art per store, under a top bar with Home, PCs, Settings and Help (demo library)"><br>
+  <img src="docs/assets/shots/desktop-home.png" alt="Nightjar for Windows: Home tinted by Racing Game's cover, the game in progress with Resume, Favourite and Quit game, a Continue list and a row of cover art per store, under a top bar with Home, PCs, Settings and Help (demo library)"><br>
   <sub><b>On the desktop too.</b> The same engine and settings on Windows and Linux, with VRR and beam racing, and a row per store on Home.</sub>
 </td>
 </tr>
 <tr>
 <td valign="top">
-  <img src="docs/assets/shots/desktop-settings.png" alt="Nightjar for Windows: Settings with sections on the left, a search field, and every video setting with a one-line explanation (demo data)"><br>
+  <img src="docs/assets/shots/desktop-settings.png" alt="Nightjar for Windows: Settings with sections on the left, a search field, and every video setting with a one-line explanation and a Reset beside each change (demo data)"><br>
   <sub><b>Settings you can find.</b> Sections on the left, a search that works with a controller, and every setting in plain words with a Reset beside each change.</sub>
 </td>
 <td valign="top">
   <img src="docs/assets/shots/desktop-help.png" alt="Nightjar for Windows: the Help page with getting started in three steps and every keyboard shortcut in the launcher and in a stream (demo data)"><br>
   <sub><b>Help built in.</b> F1 opens getting started, every keyboard shortcut, your controller's buttons and fixes for common problems.</sub>
+</td>
+</tr>
+<tr>
+<td valign="top">
+  <img src="docs/assets/shots/handheld-home.png" alt="Home on a handheld: Racing Game running, with Resume, Favourite and Quit game, a Continue playing list and the Recently played row, under a glass top bar (demo library)"><br>
+  <sub><b>Made for handhelds.</b> Home, the library and the stream menu follow the controller, with the button for each action on screen.</sub>
+</td>
+<td valign="top">
+  <img src="docs/assets/shots/themes.png" alt="Home on a phone in three looks: System on a light phone, Dark, and OLED black with true black behind the glass (demo library)"><br>
+  <sub><b>Your look.</b> System, Dark or OLED black; the glass takes its light from the game you pick.</sub>
 </td>
 </tr>
 </table>

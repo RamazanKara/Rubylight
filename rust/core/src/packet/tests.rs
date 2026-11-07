@@ -1080,3 +1080,65 @@ fn audio_frame_pieces_share_a_timestamp_and_fec_names_the_block_start() {
     assert!(fec.iter().all(|p| p.len() == 24 + 1028));
     assert_eq!(ac3.timestamp, 64);
 }
+
+/// `gf2p8affineqb` as Intel defines it: output bit `i` is the parity of the
+/// input byte and the matrix's byte `7 - i`.
+fn affine(matrix: u64, value: u8) -> u8 {
+    (0..8).fold(0, |out, bit| {
+        let row = (matrix >> (8 * (7 - bit))) as u8;
+        out | ((((row & value).count_ones() & 1) as u8) << bit)
+    })
+}
+
+/// The GFNI matrices multiply in nanors' field, on any CPU.
+#[test]
+fn the_gfni_matrices_multiply_in_the_fec_field() {
+    for coefficient in 0..=255u8 {
+        for value in 0..=255u8 {
+            assert_eq!(
+                affine(AFFINE[coefficient as usize], value),
+                gf_mul(coefficient, value),
+                "{coefficient} * {value}"
+            );
+        }
+    }
+}
+
+/// GFNI parity is bit-exact with the AVX2 parity, for every row group, both
+/// offsets and lengths with and without a tail. Skipped on a CPU without
+/// GFNI (Zen 3); Zen 4 and Intel Ice Lake or newer run it.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn gfni_parity_matches_the_avx2_parity() {
+    if !(std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("gfni")) {
+        eprintln!("skipped: this CPU has no GFNI");
+        return;
+    }
+    let mut state = 0x9e37_79b9_7f4a_7c15u64;
+    let mut random = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state as u8
+    };
+    for (data, parity, size) in [
+        (1, 1, 40),
+        (5, 3, 31),
+        (37, 7, 1072),
+        (200, 55, 1040),
+        (212, 43, 1440),
+        (10, 6, 1040 + 33),
+    ] {
+        let shards: Vec<Vec<u8>> = (0..data + parity)
+            .map(|_| (0..size).map(|_| random()).collect())
+            .collect();
+        let (mut with, mut without) = (shards.clone(), shards.clone());
+        cauchy_encode_with::<0>(&mut with, data, parity, true).unwrap();
+        cauchy_encode_with::<0>(&mut without, data, parity, false).unwrap();
+        assert_eq!(with, without, "{data}+{parity} x {size}");
+        let (mut with, mut without) = (shards.clone(), shards);
+        cauchy_encode_with::<32>(&mut with, data, parity, true).unwrap();
+        cauchy_encode_with::<32>(&mut without, data, parity, false).unwrap();
+        assert_eq!(with, without, "{data}+{parity} x {size}, offset 32");
+    }
+}

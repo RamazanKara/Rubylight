@@ -13,6 +13,12 @@ pub(crate) struct Pace {
 /// keyframe-loss pacing applies. Adaptive packet pacing is opt-in, or automatic
 /// for a client that reports a wireless route; the two are mutually exclusive.
 pub(crate) fn configure(session: &Session, config: &Config) -> bool {
+    // FEC parity, for this stream and the ones after it: GFNI where the CPU has it.
+    butterpollo_core::packet::use_gfni(config.boolean("fec_gfni", true));
+    tracing::info!(
+        gfni = butterpollo_core::packet::gfni_active(),
+        "FEC parity path"
+    );
     let (codec, wireless) = (session.config.codec, session.config.client_wireless);
     session.configure_automatic_pacing(config.adaptive_packet_pacing(codec, wireless));
     config.keyframe_loss_pacing(codec, wireless)

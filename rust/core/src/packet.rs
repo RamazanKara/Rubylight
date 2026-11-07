@@ -1138,6 +1138,51 @@ const fn inverses() -> [u8; 256] {
     values
 }
 static INVERSES: [u8; 256] = inverses();
+/// For each coefficient, the 8x8 bit matrix of multiplication by it in
+/// nanors' field (polynomial 0x11D, not GFNI's own 0x11B, so `gf2p8mulb` does
+/// not apply), as `gf2p8affineqb` takes it: byte `7 - i` holds the input bits
+/// that make output bit `i`.
+const fn affine_matrices() -> [u64; 256] {
+    let mut matrices = [0; 256];
+    let mut coefficient = 0;
+    while coefficient < 256 {
+        let mut matrix = 0u64;
+        let mut input = 0;
+        while input < 8 {
+            let column = gf_mul(coefficient as u8, 1 << input);
+            let mut output = 0;
+            while output < 8 {
+                if (column >> output) & 1 != 0 {
+                    matrix |= 1 << (8 * (7 - output) + input);
+                }
+                output += 1;
+            }
+            input += 1;
+        }
+        matrices[coefficient] = matrix;
+        coefficient += 1;
+    }
+    matrices
+}
+#[cfg_attr(not(target_arch = "x86_64"), allow(dead_code))]
+static AFFINE: [u64; 256] = affine_matrices();
+static GFNI: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+/// Whether FEC parity may use GFNI where the CPU has it (`fec_gfni`). Both
+/// paths produce the same bytes.
+pub fn use_gfni(enabled: bool) {
+    GFNI.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+/// FEC parity is computed with GFNI: allowed, and the CPU has it and AVX2.
+pub fn gfni_active() -> bool {
+    #[cfg(target_arch = "x86_64")]
+    {
+        GFNI.load(std::sync::atomic::Ordering::Relaxed)
+            && std::is_x86_feature_detected!("avx2")
+            && std::is_x86_feature_detected!("gfni")
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    false
+}
 fn axpy(out: &mut [u8], input: &[u8], coefficient: u8) {
     #[cfg(target_arch = "x86_64")]
     if std::is_x86_feature_detected!("avx2") {
@@ -1256,6 +1301,76 @@ unsafe fn parity_avx2<const ROWS: usize, const OFFSET: usize>(
                         table[(value & 15) as usize] ^ table[16 + (value >> 4) as usize];
                 }
             }
+        }
+    }
+}
+/// [`parity_avx2`] with one `gf2p8affineqb` per row in place of two nibble
+/// lookups and their masks: the same bytes.
+///
+/// # Safety
+/// As for [`parity_avx2`], and the CPU supports GFNI.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn parity_gfni<const ROWS: usize, const OFFSET: usize>(
+    source: &[Vec<u8>],
+    destination: &mut [Vec<u8>],
+    first: usize,
+    parity: usize,
+) {
+    use std::arch::x86_64::*;
+    // SAFETY: as in `parity_avx2`.
+    unsafe {
+        let size = source[0].len() - OFFSET;
+        let pointers: [*mut u8; ROWS] =
+            std::array::from_fn(|i| destination[i].as_mut_ptr().add(OFFSET));
+        for (column, input) in source.iter().enumerate() {
+            let input = &input[OFFSET..];
+            let coefficients: [u8; ROWS] =
+                std::array::from_fn(|row| INVERSES[(parity + column) ^ (first + row)]);
+            let matrices: [__m256i; ROWS] = std::array::from_fn(|row| {
+                _mm256_set1_epi64x(AFFINE[coefficients[row] as usize] as i64)
+            });
+            let mut position = 0;
+            while position + 32 <= size {
+                let value = _mm256_loadu_si256(input.as_ptr().add(position).cast());
+                for row in 0..ROWS {
+                    let product = _mm256_gf2p8affine_epi64_epi8::<0>(value, matrices[row]);
+                    let output = _mm256_loadu_si256(pointers[row].add(position).cast());
+                    _mm256_storeu_si256(
+                        pointers[row].add(position).cast(),
+                        _mm256_xor_si256(output, product),
+                    );
+                }
+                position += 32;
+            }
+            for (position, value) in input.iter().enumerate().skip(position) {
+                for row in 0..ROWS {
+                    let table = &NIBBLES[coefficients[row] as usize];
+                    *pointers[row].add(position) ^=
+                        table[(value & 15) as usize] ^ table[16 + (value >> 4) as usize];
+                }
+            }
+        }
+    }
+}
+/// One group of `ROWS` parity rows, with GFNI or AVX2.
+///
+/// # Safety
+/// As for [`parity_avx2`], and with `gfni` the CPU supports GFNI.
+#[cfg(target_arch = "x86_64")]
+unsafe fn parity_rows<const ROWS: usize, const OFFSET: usize>(
+    gfni: bool,
+    source: &[Vec<u8>],
+    destination: &mut [Vec<u8>],
+    first: usize,
+    parity: usize,
+) {
+    // SAFETY: the caller's guarantees.
+    unsafe {
+        if gfni {
+            parity_gfni::<ROWS, OFFSET>(source, destination, first, parity);
+        } else {
+            parity_avx2::<ROWS, OFFSET>(source, destination, first, parity);
         }
     }
 }
@@ -1404,6 +1519,15 @@ fn cauchy_encode_offset<const OFFSET: usize>(
     data: usize,
     parity: usize,
 ) -> Result<()> {
+    cauchy_encode_with::<OFFSET>(shards, data, parity, gfni_active())
+}
+/// [`cauchy_encode_offset`] with GFNI where the CPU has it, or without.
+fn cauchy_encode_with<const OFFSET: usize>(
+    shards: &mut [Vec<u8>],
+    data: usize,
+    parity: usize,
+    gfni: bool,
+) -> Result<()> {
     if data == 0 || data + parity != shards.len() || data + parity > 255 {
         bail!("invalid Cauchy shard count");
     }
@@ -1417,27 +1541,31 @@ fn cauchy_encode_offset<const OFFSET: usize>(
     }
     #[cfg(target_arch = "x86_64")]
     if std::is_x86_feature_detected!("avx2") {
+        let gfni = gfni && std::is_x86_feature_detected!("gfni");
         let (rows, remainder) = dest.as_chunks_mut::<4>();
         for (batch, out) in rows.iter_mut().enumerate() {
             // SAFETY: AVX2 is available; validation above guarantees disjoint,
             // equally sized buffers and at most 255 rows and columns, with
             // OFFSET within each allocation. Each group writes only its own rows.
+            // GFNI, when used, is available too.
             unsafe {
-                parity_avx2::<4, OFFSET>(source, out, batch * 4, parity);
+                parity_rows::<4, OFFSET>(gfni, source, out, batch * 4, parity);
             }
         }
         let first = parity - remainder.len();
         // SAFETY: as for the full groups above.
         unsafe {
             match remainder.len() {
-                1 => parity_avx2::<1, OFFSET>(source, remainder, first, parity),
-                2 => parity_avx2::<2, OFFSET>(source, remainder, first, parity),
-                3 => parity_avx2::<3, OFFSET>(source, remainder, first, parity),
+                1 => parity_rows::<1, OFFSET>(gfni, source, remainder, first, parity),
+                2 => parity_rows::<2, OFFSET>(gfni, source, remainder, first, parity),
+                3 => parity_rows::<3, OFFSET>(gfni, source, remainder, first, parity),
                 _ => (),
             }
         }
         return Ok(());
     }
+    #[cfg(not(target_arch = "x86_64"))]
+    let _ = gfni;
     for (row, out) in dest.iter_mut().enumerate() {
         for (i, input) in source.iter().enumerate() {
             let base = (parity + i) as u8 ^ row as u8;

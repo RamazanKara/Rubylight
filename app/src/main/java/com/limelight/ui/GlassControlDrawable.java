@@ -54,17 +54,28 @@ final class GlassControlDrawable extends Drawable {
     private final RectF rect = new RectF();
     private boolean focused, checked, active;
 
+    /** The fill at rest and the rim's top colour: for a test. */
+    int restFill() {
+        return fillColor;
+    }
+
+    int restRimTop() {
+        return rimTop;
+    }
+
     GlassControlDrawable(Context context, Kind kind, float radius) {
         this.kind = kind;
         this.radius = radius;
         android.content.res.Resources res = context.getResources();
         boolean highContrast = AppTheme.isHighContrast(context);
+        // Over a stream the app's overlays are not applied: high contrast's glass colours come from its overlay here.
+        Context glass = StreamGlass.themed(context);
         ringWidth = res.getDimension(highContrast ? R.dimen.nj_hc_focus_ring_width : R.dimen.dialog_button_ring);
         gapWidth = res.getDimension(R.dimen.dialog_button_gap) - ringWidth / 2f;
         // A row can stand on a day sheet, where a white lift would not show.
         lift = kind == Kind.ROW ? MaterialColors.getColor(context, androidx.appcompat.R.attr.colorControlHighlight, 0)
                 : ResourcesCompat.getColor(res, R.color.nj_focus_fill_lift, null);
-        int controlRim = MaterialColors.getColor(context, R.attr.glassControlRim, 0);
+        int controlRim = MaterialColors.getColor(glass, R.attr.glassControlRim, 0);
         switch (kind) {
             case DANGER:
                 fillColor = ResourcesCompat.getColor(res, R.color.nj_color_danger_fill, null);
@@ -75,35 +86,35 @@ final class GlassControlDrawable extends Drawable {
                 rimTop = rimMid = rimBottom = 0;
                 break;
             case GROUP:
-                fillColor = highContrast ? MaterialColors.getColor(context, R.attr.glassControlFill, 0)
+                fillColor = highContrast ? MaterialColors.getColor(glass, R.attr.glassControlFill, 0)
                         : ResourcesCompat.getColor(res, R.color.nj_tint_group_fill, null);
                 rimTop = highContrast ? controlRim : ResourcesCompat.getColor(res, R.color.nj_tint_group_rim_top, null);
                 rimMid = highContrast ? controlRim : ResourcesCompat.getColor(res, R.color.nj_tint_group_rim_mid, null);
                 rimBottom = highContrast ? controlRim : ResourcesCompat.getColor(res, R.color.nj_tint_group_rim_bottom, null);
                 break;
             case KEY:
-                fillColor = highContrast ? MaterialColors.getColor(context, R.attr.glassControlFill, 0)
+                fillColor = highContrast ? MaterialColors.getColor(glass, R.attr.glassControlFill, 0)
                         : ResourcesCompat.getColor(res, R.color.nj_color_surface_high, null);
                 rimTop = highContrast ? controlRim : ResourcesCompat.getColor(res, R.color.nj_tint_control_rim_top, null);
                 rimMid = highContrast ? controlRim : ResourcesCompat.getColor(res, R.color.nj_tint_control_rim_mid, null);
                 rimBottom = highContrast ? controlRim : ResourcesCompat.getColor(res, R.color.nj_tint_control_rim_bottom, null);
                 break;
             default:
-                fillColor = MaterialColors.getColor(context, R.attr.glassControlFill, 0);
+                fillColor = MaterialColors.getColor(glass, R.attr.glassControlFill, 0);
                 rimTop = highContrast ? controlRim : ResourcesCompat.getColor(res, R.color.nj_tint_control_rim_top, null);
                 rimMid = highContrast ? controlRim : ResourcesCompat.getColor(res, R.color.nj_tint_control_rim_mid, null);
                 rimBottom = highContrast ? controlRim : ResourcesCompat.getColor(res, R.color.nj_tint_control_rim_bottom, null);
                 break;
         }
-        int selected = MaterialColors.getColor(context, R.attr.glassSelectedFill, 0);
+        int selected = MaterialColors.getColor(glass, R.attr.glassSelectedFill, 0);
         // A key stays opaque when selected: the tint goes over its own fill.
         checkedFill = kind == Kind.KEY ? ColorUtils.compositeColors(selected, fillColor) : selected;
-        checkedRimTop = MaterialColors.getColor(context, R.attr.glassSelectedRim, 0);
+        checkedRimTop = MaterialColors.getColor(glass, R.attr.glassSelectedRim, 0);
         rim.setStyle(Paint.Style.STROKE);
         rim.setStrokeWidth(Math.max(1f, res.getDisplayMetrics().density));
         ring.setStyle(Paint.Style.STROKE);
         ring.setStrokeWidth(ringWidth);
-        ring.setColor(MaterialColors.getColor(context, kind == Kind.DANGER ? R.attr.glassRingOnMoon : R.attr.glassRing, 0));
+        ring.setColor(MaterialColors.getColor(glass, kind == Kind.DANGER ? R.attr.glassRingOnMoon : R.attr.glassRing, 0));
     }
 
     private float corner(float width, float height, float inset) {

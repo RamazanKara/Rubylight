@@ -436,15 +436,20 @@ pub unsafe extern "C" fn rp_present_clock_schedule(clock: *mut PresentClock, rtp
     present_schedule((*clock).schedule(rtp, ready_us))
 }
 
-/// As `rp_present_clock_schedule` for a frame that waited behind others in the decode queue:
-/// presented as soon as it is ready and left out of the lateness window
-/// (`PresentClock::schedule_behind`).
+/// As `rp_present_clock_schedule` given the frames still waiting in the decode queue: once it
+/// stayed non-empty for several frames in a row, the decoder is behind and frames are presented
+/// as soon as they are ready and left out of the lateness window (`PresentClock::schedule_queued`).
 ///
 /// # Safety
 /// `clock` is live.
 #[no_mangle]
-pub unsafe extern "C" fn rp_present_clock_schedule_behind(clock: *mut PresentClock, rtp: u32, ready_us: u64) -> RpPresentSchedule {
-    present_schedule((*clock).schedule_behind(rtp, ready_us))
+pub unsafe extern "C" fn rp_present_clock_schedule_queued(
+    clock: *mut PresentClock,
+    rtp: u32,
+    ready_us: u64,
+    queued: u32,
+) -> RpPresentSchedule {
+    present_schedule((*clock).schedule_queued(rtp, ready_us, queued as usize))
 }
 
 fn present_schedule(s: rubylight_protocol::present_clock::Schedule) -> RpPresentSchedule {
@@ -494,20 +499,20 @@ pub unsafe extern "C" fn rp_present_clock_schedule_on_grid(
     grid_schedule((*clock).schedule_on_grid(rtp, ready_us, grid_of(&*grid)))
 }
 
-/// As `rp_present_clock_schedule_on_grid` for a frame that waited behind others in the decode
-/// queue: released as soon as it is ready and left out of the lateness window
-/// (`PresentClock::schedule_on_grid_behind`).
+/// As `rp_present_clock_schedule_on_grid` given the frames still waiting in the decode queue, as
+/// `rp_present_clock_schedule_queued` (`PresentClock::schedule_on_grid_queued`).
 ///
 /// # Safety
 /// `clock` is live and `grid` is readable.
 #[no_mangle]
-pub unsafe extern "C" fn rp_present_clock_schedule_on_grid_behind(
+pub unsafe extern "C" fn rp_present_clock_schedule_on_grid_queued(
     clock: *mut PresentClock,
     rtp: u32,
     ready_us: u64,
     grid: *const RpPresentGrid,
+    queued: u32,
 ) -> RpPresentGridSchedule {
-    grid_schedule((*clock).schedule_on_grid_behind(rtp, ready_us, grid_of(&*grid)))
+    grid_schedule((*clock).schedule_on_grid_queued(rtp, ready_us, grid_of(&*grid), queued as usize))
 }
 
 fn grid_of(g: &RpPresentGrid) -> Grid {

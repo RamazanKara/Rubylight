@@ -130,9 +130,11 @@ void rp_present_clock_free(RpPresentClock *clock);
 // Feeds a 0x5537 reply received at client_receive_us; returns its round trip or -1.
 int64_t rp_present_clock_sync(RpPresentClock *clock, const uint8_t *data, size_t length, uint64_t client_receive_us);
 RpPresentSchedule rp_present_clock_schedule(RpPresentClock *clock, uint32_t rtp, uint64_t ready_us);
-// The same for a frame that waited behind others in the decode queue: presented as soon as it is
-// ready, its lateness (the backlog's) left out of the delay.
-RpPresentSchedule rp_present_clock_schedule_behind(RpPresentClock *clock, uint32_t rtp, uint64_t ready_us);
+// The same given the frames still waiting in the decode queue: once it stayed non-empty for several
+// frames in a row (a decoder behind the stream, not a network burst), frames are presented as soon
+// as they are ready, their lateness (the backlog's) left out of the delay.
+RpPresentSchedule rp_present_clock_schedule_queued(RpPresentClock *clock, uint32_t rtp, uint64_t ready_us,
+                                                   uint32_t queued);
 
 // The same onto a display's vsync grid (fixed refresh rate): vsyncs are at anchor_us plus whole
 // multiples of interval_us; a frame is released lead_us before its vsync (at once when it is
@@ -157,10 +159,10 @@ typedef struct RpPresentGridSchedule {
 
 RpPresentGridSchedule rp_present_clock_schedule_on_grid(RpPresentClock *clock, uint32_t rtp, uint64_t ready_us,
                                                        const RpPresentGrid *grid);
-// The same for a frame that waited behind others in the decode queue: released as soon as it is
-// ready for the first vsync it can make, its lateness left out of the delay.
-RpPresentGridSchedule rp_present_clock_schedule_on_grid_behind(RpPresentClock *clock, uint32_t rtp, uint64_t ready_us,
-                                                              const RpPresentGrid *grid);
+// The same given the decode queue, as rp_present_clock_schedule_queued: behind, a frame is released
+// as soon as it is ready for the first vsync it can make, its lateness left out of the delay.
+RpPresentGridSchedule rp_present_clock_schedule_on_grid_queued(RpPresentClock *clock, uint32_t rtp, uint64_t ready_us,
+                                                              const RpPresentGrid *grid, uint32_t queued);
 // Notes every frame's RTP timestamp, in order, for the content rate.
 void rp_present_clock_observe(RpPresentClock *clock, uint32_t rtp);
 // The rate the game presents at in millihertz once it held steady for two seconds, else 0.

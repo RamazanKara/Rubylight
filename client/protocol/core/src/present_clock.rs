@@ -258,6 +258,8 @@ pub struct PresentClock {
     on_grid: bool,
     rate: ContentRate,
     rate_unwrap: Option<(u32, i64)>,
+    /// Frames in a row scheduled while others waited in the decode queue.
+    queued_streak: u32,
 }
 
 impl Default for PresentClock {
@@ -285,6 +287,12 @@ const FALL_STEP_MAX_US: i64 = 100_000;
 /// after its present time still takes the first vsync it can make, so covering the worst
 /// frames of the window ([`Settings::percentile`]) only adds latency to all the others.
 const GRID_PERCENTILE: u8 = 75;
+/// Frames in a row that find others waiting in the decode queue before the decoder counts as
+/// behind. Wi-Fi often hands over a few frames at once, which leaves the queue non-empty for all
+/// of the burst's frames but the last: those are what host-time pacing spreads out, so they are
+/// scheduled as usual. A decoder slower than the stream keeps the queue non-empty frame after
+/// frame until it overflows at 15.
+pub const BEHIND_AFTER_FRAMES: u32 = 8;
 
 impl PresentClock {
     pub fn new(settings: Settings) -> Self {
@@ -307,6 +315,7 @@ impl PresentClock {
             on_grid: false,
             rate: ContentRate::new(),
             rate_unwrap: None,
+            queued_streak: 0,
         }
     }
 
@@ -325,6 +334,7 @@ impl PresentClock {
         self.step_us = 0;
         self.rate.reset();
         self.rate_unwrap = None;
+        self.queued_streak = 0;
     }
 
     /// The current delay from host present to client present, beyond the clocks' offset.
@@ -361,6 +371,34 @@ impl PresentClock {
     /// When to show the frame stamped `rtp` that was ready to present at `ready_us`.
     pub fn schedule(&mut self, rtp: u32, ready_us: u64) -> Schedule {
         self.schedule_frame(rtp, ready_us, true).0
+    }
+
+    /// [`schedule`](Self::schedule) given the frames waiting in the decode queue behind this one:
+    /// [`schedule_behind`](Self::schedule_behind) once the queue stayed non-empty for
+    /// [`BEHIND_AFTER_FRAMES`] frames in a row, so a network burst keeps normal scheduling.
+    pub fn schedule_queued(&mut self, rtp: u32, ready_us: u64, queued: usize) -> Schedule {
+        if self.decoder_behind(queued) {
+            self.schedule_behind(rtp, ready_us)
+        } else {
+            self.schedule(rtp, ready_us)
+        }
+    }
+
+    /// [`schedule_on_grid`](Self::schedule_on_grid) given the decode queue, as
+    /// [`schedule_queued`](Self::schedule_queued).
+    pub fn schedule_on_grid_queued(&mut self, rtp: u32, ready_us: u64, grid: Grid, queued: usize) -> GridSchedule {
+        if self.decoder_behind(queued) {
+            self.schedule_on_grid_behind(rtp, ready_us, grid)
+        } else {
+            self.schedule_on_grid(rtp, ready_us, grid)
+        }
+    }
+
+    /// Notes the decode queue's length at a frame: the decoder is behind once it stayed non-empty
+    /// for [`BEHIND_AFTER_FRAMES`] frames in a row, until it empties.
+    fn decoder_behind(&mut self, queued: usize) -> bool {
+        self.queued_streak = if queued > 0 { self.queued_streak.saturating_add(1) } else { 0 };
+        self.queued_streak >= BEHIND_AFTER_FRAMES
     }
 
     /// [`schedule`](Self::schedule) for a frame that waited behind others in the decode queue:

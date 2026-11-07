@@ -2925,10 +2925,49 @@ fn settings_has_no_back_but_its_sub_pages_do() {
     f.l.go(Screen::Settings);
     f.settle();
     let below_bar = |f: &Frames, name: &str| f.placed.iter().any(|(t, r, _)| t == name && r.center().y > 60.0 && r.center().y < 140.0);
-    assert!(shows(&f, "Settings") && !below_bar(&f, "Settings") && !shows(&f, "Back"), "{:?}", f.drawn);
+    assert!(shows(&f, "Settings") && !below_bar(&f, "Settings") && back_rect(&f).is_none(), "{:?}", f.drawn);
     f.l.open(Screen::Profiles);
     f.settle();
-    assert!(below_bar(&f, "Settings"), "Back leads to Settings by name: {:?}", f.placed);
+    assert!(back_rect(&f).is_some(), "Back is there on a sub-page");
+}
+
+/// Where the round Back shows, on a page that has one.
+fn back_rect(f: &Frames) -> Option<Rect> {
+    f.ctx.read_response(Id::unique("back")).map(|r| r.rect)
+}
+
+/// However far a long page scrolled, Back is one click away: it rises with the page, then holds in
+/// the bar where the brand gave way to it. It takes the click over the cover passing beneath.
+#[test]
+fn back_holds_in_the_bar_when_the_page_scrolled_far() {
+    let mut f = home_with_games(70);
+    f.l.open(Screen::AllGames);
+    f.settle();
+    let rest = back_rect(&f).expect("Back on All games");
+    assert_eq!(rest.top(), chrome::PAGE_TOP, "at rest it heads the page");
+    assert!(shows(&f, "Nightjar"), "the brand is there at rest: {:?}", f.drawn);
+    f.scroll_to_end();
+    let held = back_rect(&f).expect("Back after scrolling");
+    assert!((held.top() - 22.0).abs() < 0.5 && held.left() == rest.left(), "held in the bar: {held:?}");
+    assert!(!shows(&f, "Nightjar"), "the brand gave way: {:?}", f.drawn);
+    f.click_at(held.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.screen, Screen::Home, "the click left the page and opened no game");
+    assert_eq!(chrome::brand_alpha(Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 800.0)), None), 1.0, "Home keeps its brand");
+}
+
+/// The brand fades over the same stretch of scrolling each time, so Back never rides over its words.
+#[test]
+fn the_brand_is_gone_before_back_reaches_it() {
+    let screen = Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 800.0));
+    let alpha_at = |scrolled: f32| chrome::brand_alpha(screen, Some(chrome::PAGE_TOP - scrolled));
+    assert_eq!(alpha_at(0.0), 1.0);
+    assert_eq!(alpha_at(16.0), 1.0);
+    assert!(alpha_at(26.0) > 0.0 && alpha_at(26.0) < 1.0);
+    assert_eq!(alpha_at(36.0), 0.0);
+    // Back's top passes the mark's foot (59) at 29 scrolled: the brand is mostly gone by then.
+    assert!(alpha_at(29.0) < 0.4);
+    assert_eq!(chrome::back_top(screen, chrome::PAGE_TOP - 500.0), 22.0);
+    assert_eq!(chrome::back_top(screen, chrome::PAGE_TOP), chrome::PAGE_TOP);
 }
 
 /// Under a short list of PCs: the search goes on, and How to connect opens the pairing guide.

@@ -894,13 +894,17 @@ impl Launcher {
             .anchor(egui::Align2::CENTER_BOTTOM, vec2(0.0, -40.0))
             .interactable(false)
             .show(ctx, |ui| {
-                Frame::new()
-                    .fill(Color32::from_rgba_unmultiplied(0x28, 0x2A, 0x36, 235))
-                    .corner_radius(CornerRadius::same(18))
-                    .inner_margin(Margin::symmetric(18, 10))
-                    .show(ui, |ui| {
-                        ui.label(RichText::new(notice).font(regular(text::LABEL)).color(ON_SURFACE));
-                    });
+                let place = ui.painter().add(egui::Shape::Noop);
+                let shown = Frame::new().inner_margin(Margin::symmetric(18, 10)).show(ui, |ui| {
+                    ui.label(RichText::new(notice).font(regular(text::LABEL)).color(ON_SURFACE));
+                });
+                let rect = shown.response.rect;
+                let mut shapes = Vec::new();
+                glass::without_backdrop(&mut shapes, ctx, rect, rect.height() / 2.0, glass::Material::Chip);
+                // The shadow falls past the area's clip.
+                let mut painter = ui.painter().clone();
+                painter.set_clip_rect(ctx.content_rect());
+                painter.set(place, egui::Shape::Vec(shapes));
             });
         ctx.request_repaint_after(left);
     }

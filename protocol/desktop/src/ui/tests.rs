@@ -1407,6 +1407,22 @@ fn a_toast_shows_over_the_launcher_and_goes_away() {
     assert!(f.l.toast.is_none() && !f.drawn.iter().any(|t| t == "gone"), "{:?}", f.drawn);
 }
 
+/// A toast is the hints' chip glass, shadow past its area and no fill of its own, and solid in
+/// high contrast as all glass is.
+#[test]
+fn a_toast_stands_on_the_chip_glass() {
+    let mut f = Frames::new(record("Den", true, true), Reach::Online);
+    let screen = |f: &Frames| f.ctx.content_rect();
+    f.l.toast("Saved".to_owned());
+    f.settle();
+    let whole = screen(&f);
+    let glass = f.shapes.iter().find(|s| s.clip_rect == whole && matches!(s.shape, egui::Shape::Vec(_)));
+    assert!(glass.is_some(), "the toast's glass clips to the window, not its area");
+    let (at, ..) = f.placed.iter().find(|(t, ..)| t == "Saved").map(|p| (p.1, ())).expect("the words");
+    let filled = f.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Rect(r) if r.rect.contains_rect(at) && r.rect.height() < 80.0 && r.fill.a() > 0));
+    assert!(!filled, "no fill of its own");
+}
+
 #[test]
 fn waking_shows_the_pc_and_cancel_stops_it() {
     let mut f = Frames::new(record("Den", true, true), Reach::Offline);
@@ -5241,6 +5257,7 @@ fn the_demo_library_reaches_every_page() {
         }
         let expected = match page {
             Page::Home => Screen::Home,
+            Page::Toast => Screen::Home,
             Page::AllGames | Page::Search => Screen::AllGames,
             Page::Game => Screen::Game { host: pc, app: 1002 },
             Page::Pcs | Page::FirstRun | Page::FirstRunFound | Page::Dialog(_) | Page::PinStream | Page::PinChoose | Page::PinLock(_) | Page::StreamMenu(_) => Screen::Hosts,

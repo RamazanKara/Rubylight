@@ -36,6 +36,9 @@ pub const FIRST_PING_TIMEOUT: Duration = Duration::from_millis(1000);
 /// How long a host that said goodbye on a PC that still answers pings has to open its server again:
 /// a restart of the test host opened its HTTPS port again 1.7 to 2.2 s after the stop (2026-11-07), about a third.
 pub const RESTART_GRACE: Duration = Duration::from_secs(6);
+/// How long a host that said goodbye may still listen while it exits: the test host's process was
+/// gone 0.23 to 0.54 s after its stop (2026-11-07). A server still open after it only ended the stream.
+pub const HOST_EXIT_WINDOW: Duration = Duration::from_secs(2);
 /// Between two rounds after a goodbye.
 pub const GOODBYE_ROUND_GAP: Duration = Duration::from_millis(250);
 /// Where a gateway may answer: an accepted or refused connection both prove it is reachable.
@@ -107,6 +110,8 @@ pub fn after_goodbye(
     }
     match (round, pc_pings) {
         (Round::Answered, _) if closed_before => Goodbye::Back,
+        // A host on its way out still listens for a moment after its goodbye.
+        (Round::Answered, _) if waited < HOST_EXIT_WINDOW => Goodbye::Wait,
         // Still listening: only this stream ended.
         (Round::Answered, _) => Goodbye::Unknown,
         // This device's own link may be down, or the ping proves nothing.
@@ -147,7 +152,7 @@ pub fn watch_goodbye(
         if verdict != Goodbye::Wait {
             return verdict;
         }
-        closed_before = true;
+        closed_before |= round != Round::Answered;
         std::thread::sleep(GOODBYE_ROUND_GAP);
     }
     Goodbye::Unknown
@@ -366,8 +371,11 @@ mod tests {
     #[test]
     fn a_server_that_opens_again_is_a_restart_and_one_that_never_closed_only_ended_the_stream() {
         assert_eq!(after_goodbye(true, true, Round::Answered, UP, true, Duration::from_secs(4)), Goodbye::Back);
-        assert_eq!(after_goodbye(true, true, Round::Answered, UP, false, NOW), Goodbye::Unknown);
-        assert_eq!(after_goodbye(true, true, Round::Answered, None, false, NOW), Goodbye::Unknown);
+        // A host on its way out still listens for a moment after its goodbye.
+        assert_eq!(after_goodbye(true, true, Round::Answered, UP, false, NOW), Goodbye::Wait);
+        assert_eq!(after_goodbye(true, true, Round::Answered, None, false, HOST_EXIT_WINDOW - Duration::from_millis(1)), Goodbye::Wait);
+        assert_eq!(after_goodbye(true, true, Round::Answered, UP, false, HOST_EXIT_WINDOW), Goodbye::Unknown);
+        assert_eq!(after_goodbye(true, true, Round::Answered, None, false, HOST_EXIT_WINDOW), Goodbye::Unknown);
     }
 
     #[test]
@@ -418,10 +426,12 @@ mod tests {
     fn the_watch_after_a_goodbye_sees_a_restart_come_back() {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let host = listener.local_addr().unwrap();
-        drop(listener);
-        // The server comes back on the same port a moment later.
+        // The old host still listens right after its goodbye, then exits; the new one opens the
+        // same port a moment later.
         let reopen = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(600));
+            std::thread::sleep(Duration::from_millis(300));
+            drop(listener);
+            std::thread::sleep(Duration::from_millis(900));
             TcpListener::bind(host).ok().inspect(|_| std::thread::sleep(Duration::from_secs(3)))
         });
         let gateway = |_: IpAddr| Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)));

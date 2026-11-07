@@ -31,6 +31,8 @@ public class HostLossWatchTest {
         final List<Boolean> onLinkPassed = new ArrayList<>();
         final List<String> addresses = new ArrayList<>();
         int roundCode = 2; // SilentLinkUp
+        /** Each round's code in turn, then roundCode. */
+        final List<Integer> roundCodes = new ArrayList<>();
         String gateway = "192.168.4.1";
         /** The PC's answer to the first ping, then to every round's. */
         int firstPing = 1;
@@ -45,7 +47,7 @@ public class HostLossWatchTest {
             rounds++;
             addresses.add(address);
             onRound.run();
-            return roundCode;
+            return roundCodes.isEmpty() ? roundCode : roundCodes.remove(0);
         }
         @Override public int afterGoodbye(boolean pingedAtStart, boolean onLink, int round, int pings, boolean closedBefore, long waitedMs) {
             assertTrue(pingedAtStart);
@@ -87,6 +89,16 @@ public class HostLossWatchTest {
         assertEquals(3, script.rounds);
         assertEquals("only rounds after a closed one say so", Arrays.asList(false, true, true), script.closedPassed);
         assertEquals(Arrays.asList(1, 1, 1), script.pingsPassed);
+    }
+
+    @Test public void aHostStillListeningRightAfterItsGoodbyeIsNoClosedServer() throws Exception {
+        Script script = new Script();
+        script.roundPing = 1;
+        // Answered while the old host exits, refused once it is gone, answered by the new one.
+        script.roundCodes.addAll(Arrays.asList(HostLossWatch.ROUND_ANSWERED, HostLossWatch.ROUND_ANSWERED, 1, HostLossWatch.ROUND_ANSWERED));
+        script.verdicts.addAll(Arrays.asList(HostLossWatch.GOODBYE_WAIT, HostLossWatch.GOODBYE_WAIT, HostLossWatch.GOODBYE_WAIT, HostLossWatch.GOODBYE_BACK));
+        assertEquals(HostLossWatch.GOODBYE_BACK, started(script).afterGoodbye());
+        assertEquals(Arrays.asList(false, false, false, true), script.closedPassed);
     }
 
     @Test public void aSilenceIsNeverChecked() throws Exception {

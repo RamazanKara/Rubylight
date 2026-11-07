@@ -56,6 +56,7 @@ public class StreamProfilesActivity extends NightjarActivity {
         super.onCreate(state);
         UiHelper.setLocale(this);
         FrameLayout content = TopAppBar.setUpPage(this, R.string.profiles_title, this::finish);
+        com.limelight.ui.NightSkyView.behind(this);
         TopAppBar.configure(this, R.id.page_toolbar, getString(R.string.profiles_title), R.menu.host_profile)
                 .setOnMenuItemClickListener(item -> {
                     UiHelper.showDialog(this, new NavigationDialogBuilder(this).setTitle(R.string.profiles_title)
@@ -300,7 +301,7 @@ public class StreamProfilesActivity extends NightjarActivity {
         }
 
         private void confirmDelete(String id, String name) {
-            UiHelper.showDialog(activity, new NavigationDialogBuilder(activity)
+            UiHelper.showDialog(activity, new NavigationDialogBuilder(activity).startOnCancel()
                     .setTitle(getString(R.string.profiles_delete_title, name))
                     .setMessage(R.string.profiles_delete_message)
                     .setPositiveButton(R.string.profiles_delete, (dialog, which) -> {
@@ -384,7 +385,7 @@ public class StreamProfilesActivity extends NightjarActivity {
         }
 
         private void confirmRemoveHome(String name) {
-            UiHelper.showDialog(activity, new NavigationDialogBuilder(activity)
+            UiHelper.showDialog(activity, new NavigationDialogBuilder(activity).startOnCancel()
                     .setTitle(getString(R.string.profiles_home_remove_title, name))
                     .setPositiveButton(R.string.profiles_home_remove, (dialog, which) -> {
                         Set<String> names = new TreeSet<>(StreamProfiles.load(activity).homeWifi);
@@ -460,10 +461,10 @@ public class StreamProfilesActivity extends NightjarActivity {
         @Override
         public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle state) {
             View view = super.onCreateView(inflater, container, state);
-            ListView listView = view.findViewById(android.R.id.list);
+            ListView listView = GroupedListView.adopt(view);
             com.limelight.ui.UiNavigation.bindPreferences(listView);
             listView.setDivider(null);
-            listView.setSelector(R.drawable.list_focus_row);
+            listView.setSelector(R.drawable.settings_row_focus);
             listView.setPadding(0, 0, 0, getResources().getDimensionPixelSize(R.dimen.space_s));
             com.limelight.ui.SubPageFocus.apply(getActivity(), view);
             return view;

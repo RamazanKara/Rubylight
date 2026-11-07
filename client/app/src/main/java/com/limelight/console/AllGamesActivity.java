@@ -20,7 +20,6 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.button.MaterialButton;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.limelight.R;
 import com.limelight.nativeapi.ConsoleRepository;
 import com.limelight.nativeapi.ConsoleSnapshot;
@@ -50,6 +49,8 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
     private static final int COVER_WIDTH_DP = 140;
     /** The narrowest a poster's card gets before the grid drops a column. */
     private static final int MIN_CARD_WIDTH_DP = 120;
+    /** How far a focused TV poster's glow reaches past its 24 dp bleed: the grid's frame keeps that much room. */
+    static final int GLOW_ROOM_DP = 40;
     private static final long DEBOUNCE_MS = 250;
     private static final String SHELF = "all-games";
 
@@ -125,6 +126,36 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         findViewById(R.id.shell_home).setOnClickListener(v -> finish());
         if (isTelevision()) {
             getWindow().setBackgroundDrawable(new ColorDrawable(AppTheme.tvCanvas(this)));
+            // The sky of Home, PCs and Settings; the grid fills the screen, so no moon behind the posters.
+            com.limelight.ui.NightSkyView sky = findViewById(R.id.all_games_sky);
+            sky.setMoonShown(false);
+            sky.setVisibility(View.VISIBLE);
+            // Edge to edge, not inset by the TV margin as a lighter frame.
+            sky.bleedPastPadding();
+            // Rows scrolling up fade out under the heading and filters instead of stopping on a hard edge.
+            View grid = findViewById(R.id.all_games_grid);
+            grid.setVerticalFadingEdgeEnabled(true);
+            // The frame clips the grid. A focused poster's glow reaches past its 24 dp bleed and the row's top padding, and
+            // was cut square there: the frame stands further out at the top and sides, and the list pads by as much. The
+            // room above goes to the first row, not the padding: the fade starts at the padding's edge, and rows scrolled
+            // into an unfaded strip would stand under the focused title.
+            int room = Math.round(GLOW_ROOM_DP * getResources().getDisplayMetrics().density);
+            android.view.ViewGroup.MarginLayoutParams frame = (android.view.ViewGroup.MarginLayoutParams)
+                    ((View) grid.getParent()).getLayoutParams();
+            frame.topMargin -= room;
+            frame.setMarginStart(frame.getMarginStart() - room);
+            frame.setMarginEnd(frame.getMarginEnd() - room);
+            int above = grid.getPaddingTop() + room;
+            grid.setPaddingRelative(grid.getPaddingStart() + room, 0, grid.getPaddingEnd() + room, grid.getPaddingBottom());
+            ((RecyclerView) grid).addItemDecoration(new RecyclerView.ItemDecoration() {
+                @Override
+                public void getItemOffsets(@NonNull android.graphics.Rect out, @NonNull View card, @NonNull RecyclerView parent,
+                                           @NonNull RecyclerView.State state) {
+                    int at = parent.getChildAdapterPosition(card);
+                    out.top = at != RecyclerView.NO_POSITION && at < AllGamesActivity.this.grid.getSpanCount() ? above : 0;
+                }
+            });
+            grid.setFadingEdgeLength(getResources().getDimensionPixelSize(R.dimen.all_games_fade) + room);
         }
 
         loading = findViewById(R.id.all_games_loading);
@@ -471,7 +502,7 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         CharSequence star = getString(remove ? R.string.console_favourite_remove : R.string.console_favourite_add);
         CharSequence hiding = getString(hide ? R.string.applist_menu_hide_app : R.string.applist_menu_show_app);
         CharSequence openPlay = OpenPlay.menuLabel(this, card.hostUuid, card.appId);
-        UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this)
+        UiHelper.showDialog(this, new com.limelight.ui.NavigationDialogBuilder(this)
                 .setTitle(card.title)
                 .setItems(copies.isEmpty() ? new CharSequence[]{star, openPlay}
                         : new CharSequence[]{star, openPlay, hiding}, (dialog, which) -> {

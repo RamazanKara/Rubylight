@@ -28,7 +28,8 @@ import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.AdapterFragment;
 import com.limelight.ui.AdapterFragmentCallbacks;
 import com.limelight.console.HomeSettings;
-import com.limelight.ui.KeyCaps;
+import com.limelight.ui.GlassForm;
+import com.limelight.ui.InputSource;
 import com.limelight.ui.ShellBar;
 import com.limelight.ui.TopAppBar;
 import com.limelight.update.UpdateFlow;
@@ -191,21 +192,44 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         TopAppBar.configure(this, R.id.home_toolbar, getString(R.string.library_computers), 0);
         ShellBar.install(this, ShellBar.Destination.PCS);
         ShellBar.installBack(this, ShellBar.Destination.PCS);
-        findViewById(R.id.manuallyAddPc).setOnClickListener(v -> startActivity(new Intent(this, AddComputerManually.class)));
-        android.widget.TextView optionsHint = findViewById(R.id.pc_options_hint);
-        optionsHint.setText(KeyCaps.mark(this, getString(R.string.host_options_hint), "X", "⋮"));
+        findViewById(R.id.manuallyAddPc).setOnClickListener(v -> offerAddPc());
+        setUpGlass();
 
         getFragmentManager().beginTransaction()
             .replace(R.id.pcFragmentContainer, new AdapterFragment())
             .commitAllowingStateLoss();
 
         noPcFoundLayout = findViewById(R.id.no_pc_found_layout);
-        findViewById(R.id.discovery_add).setOnClickListener(v -> startActivity(new Intent(this, AddComputerManually.class)));
+        findViewById(R.id.discovery_add).setOnClickListener(v -> offerAddPc());
         findViewById(R.id.discovery_help).setOnClickListener(v -> showPairingGuide());
         findViewById(R.id.pc_list_help).setOnClickListener(v -> showPairingGuide());
         updateEmptyState();
         pcGridAdapter.notifyDataSetChanged();
     }
+
+    /** Type an address or scan the code a host shows. A device with no camera has only the first, so + goes straight to it. */
+    private void offerAddPc() {
+        Intent add = new Intent(this, AddComputerManually.class);
+        if (!getPackageManager().hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY)) {
+            startActivity(add);
+            return;
+        }
+        if (addPcSheet != null) return;
+        com.limelight.ui.ActionSheet sheet = new com.limelight.ui.ActionSheet(this, getString(R.string.title_add_pc));
+        addPcSheet = sheet;
+        sheet.addAction(R.drawable.ic_add, getString(R.string.title_add_pc)).setOnClickListener(v -> {
+            sheet.dismiss();
+            startActivity(add);
+        });
+        sheet.addAction(R.drawable.ic_glass_grid, getString(R.string.addpc_scan_code)).setOnClickListener(v -> {
+            sheet.dismiss();
+            startActivity(new Intent(this, AddComputerManually.class).putExtra(AddComputerManually.EXTRA_SCAN, true));
+        });
+        sheet.setOnDismissListener(dialog -> addPcSheet = null);
+        sheet.show();
+    }
+
+    private com.limelight.ui.ActionSheet addPcSheet;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -385,6 +409,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     public void onDestroy() {
         super.onDestroy();
 
+        if (chrome != null) chrome.stop();
         hostActions.destroy();
         if (serviceWaitThread != null) {
             serviceWaitThread.interrupt();
@@ -441,12 +466,165 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         Dialog.closeDialogs(PcView.this);
     }
 
-    // The hint about X and the three dots shows once a key or button was the last input, not a touch.
+    // What the keys do on the selected PC shows once a key or button was the last input, not a touch; a TV has only keys.
     private boolean keysAreLastInput;
+    private InputSource hintSource;
+    private int hintVendor;
+    private com.limelight.console.PageChrome chrome;
+
+    /** The sky, the glass and where everything goes on this form factor: the list stands under the chrome and over the tab bar. */
+    private void setUpGlass() {
+        com.limelight.ui.GlassHost host = findViewById(R.id.glass_host);
+        GlassForm form = GlassForm.of(this);
+        View title = findViewById(R.id.pc_title);
+        View add = findViewById(R.id.manuallyAddPc);
+        android.widget.TextView focusTitle = findViewById(R.id.pc_focus_title);
+        if (form == GlassForm.PHONE) {
+            // The keys' line floats over the tab bar.
+            View hint = findViewById(R.id.pc_options_hint);
+            ((android.view.ViewGroup) hint.getParent()).removeView(hint);
+            host.addView(hint, new android.widget.FrameLayout.LayoutParams(android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL));
+        } else {
+            // The tabs lead the row and the + closes it; the title below follows the selection.
+            title.setVisibility(View.INVISIBLE);
+            ((android.widget.LinearLayout.LayoutParams) title.getLayoutParams()).height = 0;
+            focusTitle.setVisibility(View.VISIBLE);
+            boolean television = form == GlassForm.TELEVISION;
+            focusTitle.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, getResources().getDimension(R.dimen.pcs_hero_title));
+            ((android.widget.LinearLayout.LayoutParams) focusTitle.getLayoutParams()).topMargin =
+                    Math.round(getResources().getDisplayMetrics().density * (television ? 26 : 10));
+        }
+        ((android.widget.LinearLayout.LayoutParams) add.getLayoutParams()).setMarginStart(getResources().getDimensionPixelSize(R.dimen.space_s));
+        hintSource = InputSource.last() != null ? InputSource.last() : com.limelight.ui.StreamMenuHint.hasGamepad() ? InputSource.PAD : InputSource.REMOTE;
+        keysAreLastInput = form == GlassForm.TELEVISION;
+        fitFirstRun();
+        com.limelight.ui.NightSkyView sky = findViewById(R.id.pc_sky);
+        host.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (r - l != or - ol || b - t != ob - ot) host.setAmbient(sky.bake(r - l, b - t), false, 0);
+        });
+        chrome = new com.limelight.console.PageChrome(this, host, R.id.pc_tabs, R.id.pc_top_row, R.id.pc_bottom_row, R.id.pc_foot_fade, this::layOutUnderChrome);
+    }
+
+    /** The orbit takes what the page has: wide on a phone, and over the word and the action on a short screen. */
+    private void fitFirstRun() {
+        View page = findViewById(R.id.no_pc_found_layout);
+        View orbit = findViewById(R.id.first_run_orbit);
+        android.view.ViewGroup column = findViewById(R.id.first_run);
+        page.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (column.getHeight() == 0) return;
+            int width = v.getWidth() - v.getPaddingLeft() - v.getPaddingRight();
+            int height = v.getHeight() - v.getPaddingTop() - v.getPaddingBottom();
+            int others = column.getChildAt(1).getHeight() + column.getChildAt(2).getHeight() + column.getChildAt(3).getHeight()
+                    + 2 * getResources().getDimensionPixelSize(R.dimen.space_l) + column.getPaddingBottom();
+            int size = Math.max(0, Math.min(width, height - others));
+            if (size != orbit.getLayoutParams().height) {
+                orbit.getLayoutParams().width = size;
+                orbit.getLayoutParams().height = size;
+                v.post(orbit::requestLayout);
+            }
+        });
+    }
+
+    /** Lays the content out edge to edge, inside what the chrome and the window leave. */
+    private void layOutUnderChrome(int left, int top, int right, int bottom) {
+        GlassForm form = GlassForm.of(this);
+        android.content.res.Resources res = getResources();
+        float density = res.getDisplayMetrics().density;
+        ((com.limelight.ui.NightSkyView) findViewById(R.id.pc_sky)).setSafeTop(top);
+        View row = findViewById(R.id.pc_top_row);
+        View frame = findViewById(R.id.pc_list_frame);
+        android.widget.FrameLayout.LayoutParams params = (android.widget.FrameLayout.LayoutParams) frame.getLayoutParams();
+        // First run's last action keeps its ring clear of the screen's edge, the gesture bar and a phone's tabs.
+        findViewById(R.id.first_run).setPadding(0, 0, 0, bottom + res.getDimensionPixelSize(R.dimen.space_l)
+                + (form == GlassForm.PHONE ? res.getDimensionPixelSize(R.dimen.nj_size_tab_bar_height) : 0));
+        if (form == GlassForm.PHONE) {
+            int edge = res.getDimensionPixelSize(R.dimen.glass_edge);
+            int rowTop = top + Math.round(39 * density);
+            row.setPaddingRelative(left + Math.round(20 * density), rowTop, right + edge, 0);
+            params.topMargin = rowTop + res.getDimensionPixelSize(R.dimen.glass_capsule) + Math.round(12 * density);
+            params.leftMargin = left;
+            params.rightMargin = right;
+            View bar = findViewById(R.id.pc_bottom_row);
+            bar.setPadding(left + res.getDimensionPixelSize(R.dimen.space_m), 0, right + res.getDimensionPixelSize(R.dimen.space_m),
+                    bottom + res.getDimensionPixelSize(R.dimen.space_s));
+            listFoot = bottom + res.getDimensionPixelSize(R.dimen.nj_size_tab_bar_height) + 3 * res.getDimensionPixelSize(R.dimen.space_m);
+            View fade = findViewById(R.id.pc_foot_fade);
+            android.view.ViewGroup.LayoutParams fadeSize = fade.getLayoutParams();
+            fadeSize.height = res.getDimensionPixelSize(R.dimen.home_foot_fade) + bottom;
+            fade.setLayoutParams(fadeSize);
+            View hint = findViewById(R.id.pc_options_hint);
+            ((android.widget.FrameLayout.LayoutParams) hint.getLayoutParams()).bottomMargin = bottom
+                    + res.getDimensionPixelSize(R.dimen.nj_size_tab_bar_height) + res.getDimensionPixelSize(R.dimen.space_m);
+        } else {
+            boolean television = form == GlassForm.TELEVISION;
+            int side = res.getDimensionPixelSize(R.dimen.shell_overscan_horizontal);
+            int inset = television ? 0 : Math.round(24 * density);
+            // The capsule stands where it stands on Home; only a handheld keeps a gap above the safe area.
+            int rowTop = television ? top : top + res.getDimensionPixelSize(R.dimen.space_m);
+            row.setPaddingRelative(left + inset, rowTop, right + inset, 0);
+            View focusTitle = findViewById(R.id.pc_focus_title);
+            focusTitle.setPaddingRelative(left + inset, 0, right + inset + Math.round(density * (television ? 300 : 200)), 0);
+            View hint = findViewById(R.id.pc_options_hint);
+            hint.setPaddingRelative(left + inset, hint.getPaddingTop(), 0, hint.getPaddingBottom());
+            params.topMargin = top + res.getDimensionPixelSize(R.dimen.pcs_list_top);
+            // A card pads itself with its glow: the card itself starts under the title, the glow past it.
+            int glow = res.getDimensionPixelSize(R.dimen.tile_glow);
+            params.leftMargin = left + side + inset - glow;
+            params.rightMargin = right + side + inset - glow;
+            ((com.limelight.ui.ContentFrame) frame).setMaxContentWidth(Integer.MAX_VALUE);
+            listFoot = bottom;
+        }
+        frame.setLayoutParams(params);
+        applyListFoot();
+    }
+
+    /** What the list keeps free under its last row. */
+    private int listFoot;
+
+    private void applyListFoot() {
+        if (pcList != null && listFoot != pcList.getPaddingBottom()) {
+            pcList.setPadding(pcList.getPaddingLeft(), pcList.getPaddingTop(), pcList.getPaddingRight(), listFoot);
+        }
+    }
+
+    /** The selected PC's name and what the keys do on it. */
+    private void showSelection() {
+        if (pcList == null) return;
+        Object item = pcList.getSelectedItem();
+        ComputerObject computer = item instanceof ComputerObject ? (ComputerObject) item : null;
+        android.widget.TextView title = findViewById(R.id.pc_focus_title);
+        if (title.getVisibility() == View.VISIBLE) {
+            CharSequence name = computer != null ? computer.details.displayName() : getString(R.string.library_computers);
+            if (!name.toString().contentEquals(title.getText())) title.setText(name);
+        }
+        android.widget.TextView hint = findViewById(R.id.pc_options_hint);
+        if (hintSource == null) return;
+        CharSequence line = computer == null ? null : com.limelight.console.HomeHints.line(this, hintSource, hintVendor,
+                goWord(computer), getString(R.string.console_hint_options));
+        hint.setText(line != null ? line : "");
+    }
+
+    /** What OK does on this PC, which is what a tap does: the word must not promise anything else. */
+    private CharSequence goWord(ComputerObject computer) {
+        PcGridAdapter.RowState state = computer.rowState();
+        if (LaunchPolicy.resumesOnPcTap(PreferenceConfiguration.readPreferences(this).quickResume, state == PcGridAdapter.RowState.RUNNING)) {
+            return getString(R.string.applist_menu_resume);
+        }
+        if (state == PcGridAdapter.RowState.RUNNING) return getString(R.string.console_hint_open);
+        int word = PcGridAdapter.actionWord(this, computer);
+        return word == 0 ? null : getString(word);
+    }
 
     @Override
     public boolean dispatchKeyEvent(android.view.KeyEvent event) {
         if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+            InputSource source = InputSource.of(event);
+            if (source != null) {
+                InputSource.remember(source);
+                hintSource = source;
+                hintVendor = InputSource.vendorOf(event);
+            }
             setKeysAreLastInput(true);
         }
         return super.dispatchKeyEvent(event);
@@ -463,6 +641,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     private void setKeysAreLastInput(boolean keys) {
         keysAreLastInput = keys;
         updateOptionsHint();
+        showSelection();
     }
 
     private void updateOptionsHint() {
@@ -484,8 +663,21 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         boolean empty = pcGridAdapter.getCount() == 0;
         updateOptionsHint();
         noPcFoundLayout.setVisibility(empty ? View.VISIBLE : View.GONE);
+        // With no PC there is no selection to name, and the selected tab already names the page.
+        if (GlassForm.of(this) != GlassForm.PHONE) {
+            findViewById(R.id.pc_focus_title).setVisibility(empty ? View.GONE : View.VISIBLE);
+            showSelection();
+        }
+        ((com.limelight.ui.OrbitView) findViewById(R.id.first_run_orbit)).setMoving(empty);
+        com.limelight.ui.NightSkyView sky = findViewById(R.id.pc_sky);
+        if (sky.isMoonShown() == empty) {
+            sky.setMoonShown(!empty);
+            com.limelight.ui.GlassHost host = findViewById(R.id.glass_host);
+            if (host.getWidth() > 0) host.setAmbient(sky.bake(host.getWidth(), host.getHeight()), false, 0);
+        }
         findViewById(R.id.pcFragmentContainer).setVisibility(empty ? View.GONE : View.VISIBLE);
         findViewById(R.id.manuallyAddPc).setVisibility(empty ? View.GONE : View.VISIBLE);
+        if (GlassForm.of(this) != GlassForm.PHONE) ShellBar.linkTopRow(this, R.id.manuallyAddPc);
         placeListFooter();
         boolean filled = listWasEmpty && !empty;
         listWasEmpty = empty;
@@ -496,17 +688,16 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     }
 
     /**
-     * Puts the footer just under the last PC, as long as every PC shows and the footer fits above Add PC; otherwise it
+     * Puts the footer just under the last PC, as long as every PC shows and the footer fits above the tab bar; otherwise it
      * waits, invisible. It fills the screen a few PCs leave empty with what a new user needs next: the list is still
      * looking, and how to connect a PC that does not appear. A TV has none: its tiles sit centred on the screen.
      * <p>It is placed by its top margin, not a translation, which focus search ignores; while it shows, Down from the
-     * last row and Up from Add PC go through its link.
+     * last row goes through its link.
      */
     @VisibleForTesting
     void placeListFooter() {
         View footer = findViewById(R.id.pc_list_footer);
         View container = findViewById(R.id.pcFragmentContainer);
-        View add = findViewById(R.id.manuallyAddPc);
         if (footer == null || pcList == null || pcGridAdapter == null) return;
         boolean television = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK)
                 == Configuration.UI_MODE_TYPE_TELEVISION;
@@ -517,7 +708,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
             View last = pcList.getChildAt(count - 1);
             int top = container.getTop() + pcList.getTop() + last.getBottom()
                     + getResources().getDimensionPixelSize(R.dimen.space_l);
-            int room = add.getVisibility() == View.VISIBLE ? add.getTop() : ((View) footer.getParent()).getHeight();
+            int room = ((View) footer.getParent()).getHeight() - listFoot;
             android.view.ViewGroup.MarginLayoutParams params = (android.view.ViewGroup.MarginLayoutParams) footer.getLayoutParams();
             if (params.topMargin != top) {
                 params.topMargin = top;
@@ -530,18 +721,13 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         linkListFooter(show);
     }
 
-    /** With the footer shown its link sits between the PCs and Add PC, for the D-pad and for a screen reader. */
+    /** With the footer shown its link sits under the PCs, for the D-pad and for a screen reader. */
     private void linkListFooter(boolean shown) {
-        View add = findViewById(R.id.manuallyAddPc);
         View help = findViewById(R.id.pc_list_help);
-        int before = shown ? R.id.pc_list_help : R.id.fragmentView;
         pcList.setNextFocusDownId(shown ? R.id.pc_list_help : View.NO_ID);
-        add.setNextFocusUpId(before);
         help.setNextFocusUpId(R.id.fragmentView);
-        help.setNextFocusDownId(R.id.manuallyAddPc);
         // Android 5.0 has no traversal order: a screen reader there reads the views in layout order, footer last.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-            add.setAccessibilityTraversalAfter(before);
             help.setAccessibilityTraversalAfter(R.id.fragmentView);
         }
     }
@@ -876,13 +1062,22 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
 
     @Override
     public int getAdapterFragmentLayoutId() {
-        return R.layout.pc_grid_view;
+        return GlassForm.of(this) == GlassForm.PHONE ? R.layout.pc_grid_view : R.layout.pc_grid_cards;
     }
 
     @Override
     public void receiveAbsListView(AbsListView listView) {
         pcList = listView;
         listView.setAdapter(pcGridAdapter);
+        applyListFoot();
+        pcGridAdapter.setActions(new PcGridAdapter.Actions() {
+            @Override public void onResume(ComputerObject computer) { onComputerAction(computer, RESUME_ID); }
+            @Override public void onMain(ComputerObject computer) { onComputerTapped(computer); }
+        });
+        listView.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) { showSelection(); }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { showSelection(); }
+        });
         listView.setOnItemClickListener((parent, view, position, id) ->
                 onComputerTapped((ComputerObject) pcGridAdapter.getItem(position)));
         listView.setOnItemLongClickListener((parent, view, position, id) -> {

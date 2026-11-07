@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A TV's PC is a card; so is a handheld's, which PcGridAdapter chooses in code as the form factor is. -->
+    <item name="pc_grid_item" type="layout">@layout/pc_grid_card</item>
+    <item name="pc_grid_view" type="layout">@layout/pc_grid_cards</item>
+</resources>

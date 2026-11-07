@@ -23,6 +23,7 @@ public final class TileGrid extends ViewGroup {
     private final int maxColumns;
     private final int minTile;
     private int columns = COLUMNS;
+    private boolean capsShown = true;
 
     /** The stream menu's grid, sized by {@code dimens_stream_menu} for this device. */
     public TileGrid(Context context) {
@@ -93,18 +94,20 @@ public final class TileGrid extends ViewGroup {
     }
 
     /**
-     * A tile: its icon over a label of up to two lines, a quieter line under it (a shortcut's keys), a small switch in
-     * the top end corner while it has a state, and the controller button that runs it in the top start corner. On, it
-     * takes the amber container colour; focused, an amber ring. Sized by {@code dimens_stream_menu}.
+     * A tile: its icon over a label of up to two lines, a quieter line under it (a shortcut's keys), and the controller
+     * button that runs it in the top start corner. On, it takes the selected tint and its ink; focused, the glass ring.
+     * Sized by {@code dimens_stream_menu}.
      */
     public static final class Tile extends MaterialButton {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF box = new RectF();
         private final float dp;
-        private final float capText, switchWidth, switchHeight, cornerInset;
+        private final float capText, cornerInset;
+        // A remote has no Y or RB: the caps only show while a controller is there to press them.
+        private boolean capShown = true;
         private String hotkey;
         private boolean hotkeyAtEnd;
-        private boolean capInLabelColour;
+        private boolean isSwitch;
 
         public Tile(Context context) {
             this(context, com.google.android.material.R.attr.materialButtonOutlinedStyle);
@@ -115,8 +118,6 @@ public final class TileGrid extends ViewGroup {
             android.content.res.Resources res = context.getResources();
             dp = res.getDisplayMetrics().density;
             capText = res.getDimension(R.dimen.stream_tile_cap_text);
-            switchWidth = res.getDimension(R.dimen.stream_tile_switch_width);
-            switchHeight = res.getDimension(R.dimen.stream_tile_switch_height);
             cornerInset = res.getDimension(R.dimen.stream_tile_corner_inset);
         }
 
@@ -132,14 +133,26 @@ public final class TileGrid extends ViewGroup {
             invalidate();
         }
 
-        /** The cap in the top corner in the label's colour, as on a filled button, instead of the quiet one. */
-        void setCapInLabelColour(boolean labelColour) {
-            capInLabelColour = labelColour;
+        /** Whether the cap is drawn; its button works either way. */
+        void setCapShown(boolean shown) {
+            capShown = shown;
             invalidate();
         }
 
         public String hotkey() {
             return hotkey;
+        }
+
+        // MaterialButton drops a change of checkable once a background of the app's own replaces its shape.
+        @Override
+        public void setCheckable(boolean checkable) {
+            isSwitch = checkable;
+            refreshDrawableState();
+        }
+
+        @Override
+        public boolean isCheckable() {
+            return isSwitch;
         }
 
         /** A switch's state, or null for an action. A switch flips {@code isChecked()} on click before its listener runs. */
@@ -175,29 +188,7 @@ public final class TileGrid extends ViewGroup {
             super.onDraw(canvas);
             int quiet = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant);
             boolean rtl = getLayoutDirection() == LAYOUT_DIRECTION_RTL;
-            if (isCheckable()) {
-                // A small switch: amber track with the knob at the end while on, an outline with it at the start while off.
-                float w = switchWidth, h = switchHeight;
-                float left = rtl ? cornerInset : getWidth() - cornerInset - w;
-                box.set(left, cornerInset, left + w, cornerInset + h);
-                boolean on = isChecked();
-                boolean knobRight = on != rtl;
-                if (on) {
-                    paint.setStyle(Paint.Style.FILL);
-                    paint.setColor(MaterialColors.getColor(this, androidx.appcompat.R.attr.colorPrimary));
-                    canvas.drawRoundRect(box, h / 2, h / 2, paint);
-                    paint.setColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnPrimary));
-                } else {
-                    paint.setStyle(Paint.Style.STROKE);
-                    paint.setStrokeWidth(dp);
-                    paint.setColor(quiet);
-                    canvas.drawRoundRect(box, h / 2, h / 2, paint);
-                }
-                paint.setStyle(Paint.Style.FILL);
-                float cx = knobRight ? box.right - h / 2 : box.left + h / 2;
-                canvas.drawCircle(cx, box.centerY(), h / 2 - (on ? 2 : 2.5f) * dp, paint);
-            }
-            if (hotkey != null) {
+            if (hotkey != null && capShown) {
                 paint.setStyle(Paint.Style.FILL);
                 paint.setTextSize(capText);
                 paint.setFakeBoldText(true);
@@ -209,7 +200,7 @@ public final class TileGrid extends ViewGroup {
                 box.set(left, top, left + w, top + h);
                 paint.setStyle(Paint.Style.STROKE);
                 paint.setStrokeWidth(dp);
-                paint.setColor(hotkeyAtEnd || capInLabelColour ? getCurrentTextColor() : quiet);
+                paint.setColor(hotkeyAtEnd || isChecked() ? getCurrentTextColor() : quiet);
                 canvas.drawRoundRect(box, 3 * dp, 3 * dp, paint);
                 paint.setStyle(Paint.Style.FILL);
                 Paint.FontMetrics metrics = paint.getFontMetrics();
@@ -219,7 +210,12 @@ public final class TileGrid extends ViewGroup {
         }
     }
 
-    /** A tile in this grid, filled like desktop Nightjar's tiles: no outline until focused, the amber container while on. */
+    /** Draws the controller caps on the tiles added from here on. */
+    public void setCapsShown(boolean shown) {
+        capsShown = shown;
+    }
+
+    /** A tile in this grid: the glass control fill, the selected tint while on, the ring on focus. */
     public Tile addTile(int icon, CharSequence label, CharSequence detail, Boolean on, String hotkey) {
         Context context = getContext();
         android.content.res.Resources res = context.getResources();
@@ -244,25 +240,19 @@ public final class TileGrid extends ViewGroup {
         tile.setMinimumHeight(minHeight);
         tile.setMinWidth(0);
         tile.setMinimumWidth(0);
-        // A rounded square, not the sheet's pill buttons: the corner caps sit inside it.
-        tile.setCornerRadius(res.getDimensionPixelSize(R.dimen.stream_tile_corner));
         tile.setInsetTop(0);
         tile.setInsetBottom(0);
         int side = res.getDimensionPixelSize(R.dimen.stream_tile_pad_side);
         tile.setPaddingRelative(side, res.getDimensionPixelSize(R.dimen.stream_tile_pad_top), side,
                 res.getDimensionPixelSize(R.dimen.stream_tile_pad_bottom));
         int[][] states = {new int[] {android.R.attr.state_checked}, new int[] {}};
-        int onSurface = MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, 0);
-        int amber = MaterialColors.getColor(context, androidx.appcompat.R.attr.colorPrimary, 0);
-        int surface = MaterialColors.getColor(context, com.google.android.material.R.attr.colorSurfaceContainerHigh, 0);
-        tile.setTextColor(onSurface);
-        // On, the icon takes the amber as desktop Nightjar's does; off, the label's colour.
-        tile.setIconTint(new android.content.res.ColorStateList(states, new int[] {amber, onSurface}));
-        // On, a quiet amber wash over the tile, as desktop Nightjar's (amber at a quarter over the tile's surface).
-        tile.setBackgroundTintList(new android.content.res.ColorStateList(states, new int[] {
-                MaterialColors.layer(surface, amber, 0.26f), surface}));
-        tile.setStrokeColor(androidx.appcompat.content.res.AppCompatResources.getColorStateList(context, R.color.stream_tile_stroke));
-        tile.setStrokeWidth(Math.round(2 * res.getDisplayMetrics().density));
+        android.content.res.ColorStateList ink = new android.content.res.ColorStateList(states, new int[] {
+                MaterialColors.getColor(context, R.attr.glassOnSelected, 0),
+                MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, 0)});
+        tile.setTextColor(ink);
+        tile.setIconTint(ink);
+        tile.setBackground(new GlassControlDrawable(context, GlassControlDrawable.Kind.CONTROL, res.getDimension(R.dimen.stream_tile_corner)));
+        tile.setCapShown(capsShown);
         tile.setOn(on);
         tile.setHotkey(hotkey);
         // On a TV the ring grows the tile a little, as the sheet's toggles do.

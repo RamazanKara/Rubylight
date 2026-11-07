@@ -23,6 +23,8 @@ public final class DemoFixtures {
     /** "--ez small false" on the launcher shows the large library tiles; "--ez roles true" adds the view-only and input-only tiles. */
     public static boolean smallTiles = true;
     public static boolean roleTiles;
+    /** No game has box art: the generated tile at every size. */
+    public static boolean noArt;
     public static final String PC_UUID = "d3e00000-0000-4000-8000-000000000001";
     public static final String[] TITLES = {"Desktop", "Racing Game", "Open World", "Space Sim",
             "Puzzle Night", "Retro Arcade", "Strategy", "Music Studio", "Ocean Explorer", "Skybound"};
@@ -62,9 +64,15 @@ public final class DemoFixtures {
         host.encoderBitrateSupported = true;
     }
 
+    /** "--ez fourth true": one more PC, online and paired with nothing running, so the PCs page shows all its states. */
+    public static boolean fourthPc;
+    /** "--ez nopcs true": first run, no PC known yet. */
+    public static boolean noPcs;
+
     public static List<ComputerDetails> computers() {
         List<ComputerDetails> computers = new ArrayList<>();
-        String[] names = {"Living-room PC", "Studio PC", "Laptop"};
+        if (noPcs) return computers;
+        String[] names = fourthPc ? new String[] {"Living-room PC", "Studio PC", "Laptop", "Office PC"} : new String[] {"Living-room PC", "Studio PC", "Laptop"};
         for (int i = 0; i < names.length; i++) {
             ComputerDetails pc = new ComputerDetails();
             pc.uuid = "d3e00000-0000-4000-8000-00000000000" + (i + 1);
@@ -75,12 +83,15 @@ public final class DemoFixtures {
             if (i == 1 && studioAddress) pc.activeAddress = new ComputerDetails.AddressTuple("192.0.2.20", 47989);
             pc.runningGameId = i == 0 ? 2 : 0;
             // The offline Laptop has no saved library: Home would repeat every game, without covers.
-            pc.rawAppList = i == 2 ? null : appList();
+            pc.rawAppList = i == 2 ? null : noApps ? "<root status_code=\"200\"></root>" : appList();
             if (i == 0) describeHost(pc);
             computers.add(pc);
         }
         return computers;
     }
+
+    /** "--ez noapps true": PCs that list nothing. */
+    public static boolean noApps;
 
     public static String appList() {
         StringBuilder xml = new StringBuilder("<root status_code=\"200\">");
@@ -120,6 +131,7 @@ public final class DemoFixtures {
         // cache's .png name: the box art loader reads whatever format the file holds.
         for (int i = 0; i < DemoConsole.LIBRARY.length; i++) {
             NvApp app = new NvApp(DemoConsole.LIBRARY[i][0], i + 1, true);
+            if (noArt) continue;
             try (InputStream input = context.getAssets().open("demo/art/" + (i + 1) + ".jpg");
                  OutputStream output = CacheHelper.openCacheFileForOutput(context.getCacheDir(),
                          "boxart", PC_UUID, app.getAssetCacheKey() + ".png")) {

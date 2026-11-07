@@ -30,6 +30,11 @@ final class ShelfLayoutManager extends LinearLayoutManager {
     interface RowFocus {
         /** The card of the shelf {@code row} to focus when focus comes from {@code from}, or null to leave it to the search. */
         View cardIn(RecyclerView rows, View row, View from);
+
+        /** What Up from the first row {@code row} goes to, or null to leave it to the search. */
+        default View aboveFirst(RecyclerView rows, View row, View from) {
+            return null;
+        }
     }
 
     private final boolean cards;
@@ -37,6 +42,8 @@ final class ShelfLayoutManager extends LinearLayoutManager {
     private final Interpolator interpolator;
     private RowFocus rowFocus;
     private RecyclerView attached;
+    /** The hero's carousel: the focused cover goes to the middle of the strip, not one short of its end. */
+    private boolean centred;
 
     /** A manager for one shelf's cards when {@code orientation} is horizontal, for the shelves when it is vertical. */
     ShelfLayoutManager(Context context, int orientation, BooleanSupplier instant) {
@@ -45,6 +52,10 @@ final class ShelfLayoutManager extends LinearLayoutManager {
         this.instant = instant;
         this.interpolator = android.view.animation.AnimationUtils.loadInterpolator(context, R.interpolator.tv_std);
         if (cards) setInitialPrefetchItemCount(7);
+    }
+
+    void setCentred(boolean centred) {
+        this.centred = centred;
     }
 
     void setRowFocus(RowFocus rowFocus) {
@@ -79,6 +90,7 @@ final class ShelfLayoutManager extends LinearLayoutManager {
 
     /** How far the list scrolls for a card that has just taken focus: the keyline of a shelf, the snap of a list of shelves. */
     int shiftFor(View child, int start, int end) {
+        if (centred) return (child.getLeft() + child.getRight()) / 2 - (start + end) / 2;
         return cards ? cardShift(child.getLeft(), child.getRight(), start, end) : child.getTop() - start;
     }
 
@@ -144,7 +156,11 @@ final class ShelfLayoutManager extends LinearLayoutManager {
         View row = rowOf(focused);
         if (row == null) return super.onInterceptFocusSearch(focused, direction);
         int next = getPosition(row) + (direction == View.FOCUS_DOWN ? 1 : -1);
-        if (next < 0 || next >= getItemCount()) return super.onInterceptFocusSearch(focused, direction);
+        if (next < 0) {
+            View above = rowFocus.aboveFirst(attached, row, focused);
+            return above != null ? above : super.onInterceptFocusSearch(focused, direction);
+        }
+        if (next >= getItemCount()) return super.onInterceptFocusSearch(focused, direction);
         View target = findViewByPosition(next);
         // A shelf that is not laid out yet is brought in by onFocusSearchFailed.
         return target == null ? null : cardOr(target, focused);

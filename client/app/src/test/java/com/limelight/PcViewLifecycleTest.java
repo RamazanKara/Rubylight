@@ -639,21 +639,17 @@ public class PcViewLifecycleTest {
             assertEquals(lastAt[1] + last.getHeight() + screen.getResources().getDimensionPixelSize(R.dimen.space_l), footerAt[1]);
 
             assertEquals(R.id.pc_list_help, grid.getNextFocusDownId());
-            assertEquals(R.id.pc_list_help, add.getNextFocusUpId());
-            assertEquals(R.id.pc_list_help, add.getAccessibilityTraversalAfter());
+            assertEquals(R.id.fragmentView, help.getAccessibilityTraversalAfter());
             assertTrue(grid.requestFocus());
             assertSame("Down from the last PC reaches the link", help, grid.focusSearch(android.view.View.FOCUS_DOWN));
-            assertSame("and Down again Add PC", add, help.focusSearch(android.view.View.FOCUS_DOWN));
-            assertTrue(add.requestFocus());
-            assertSame("Up from Add PC comes back through the link", help, add.focusSearch(android.view.View.FOCUS_UP));
             assertSame(grid, help.focusSearch(android.view.View.FOCUS_UP));
+            assertTrue("the + stays a stop", add.isFocusable());
 
             // Hidden (here: the list is replaced by the empty state), the link drops out of the path again.
             screen.findViewById(R.id.pcFragmentContainer).setVisibility(android.view.View.GONE);
             screen.placeListFooter();
             assertEquals(android.view.View.INVISIBLE, footer.getVisibility());
             assertEquals(android.view.View.NO_ID, grid.getNextFocusDownId());
-            assertEquals(R.id.fragmentView, add.getNextFocusUpId());
         } finally {
             controller.pause().stop().destroy();
         }
@@ -679,9 +675,14 @@ public class PcViewLifecycleTest {
             android.view.View settings = screen.findViewById(R.id.shell_settings);
             android.view.View pcs = screen.findViewById(R.id.shell_pcs);
             assertTrue(settings.requestFocus());
-            assertSame("Right on the last tab goes nowhere", settings, settings.focusSearch(android.view.View.FOCUS_RIGHT));
-            com.limelight.ui.TvScreensPreviewTest.key(screen, android.view.KeyEvent.KEYCODE_DPAD_RIGHT);
-            assertTrue("focus stays on Settings", settings.hasFocus());
+            android.view.View plus = screen.findViewById(R.id.manuallyAddPc);
+            if (plus.getVisibility() == android.view.View.VISIBLE) {
+                assertSame("Right on the last tab reaches +, never a tile", plus, settings.focusSearch(android.view.View.FOCUS_RIGHT));
+                assertSame("+ ends the row", plus, plus.focusSearch(android.view.View.FOCUS_RIGHT));
+                assertSame(settings, plus.focusSearch(android.view.View.FOCUS_LEFT));
+            } else {
+                assertSame("with no + the bar ends in a wall", settings, settings.focusSearch(android.view.View.FOCUS_RIGHT));
+            }
             assertSame("Left still walks the bar", pcs, settings.focusSearch(android.view.View.FOCUS_LEFT));
             android.view.View below = settings.focusSearch(android.view.View.FOCUS_DOWN);
             assertNotNull(below);
@@ -692,7 +693,149 @@ public class PcViewLifecycleTest {
         }
     }
 
-    /** Three PCs on a 1080p TV: one centred row across the width inside the overscan, with Add PC clear of it and still reachable. */
+    /** The row started at x=330 with the title at x=96, and the capsule 8 px below Home's. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionTheCapsuleIsHomesAndTheRowStartsUnderTheTitle() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            report(pc("b", "Beta", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED));
+            assertEquals(com.limelight.console.HomeShellTest.tvCapsule(), com.limelight.ui.TvAudit.topCapsule(screen));
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            int[] card = new int[2];
+            grid.getChildAt(0).findViewById(R.id.grid_card).getLocationInWindow(card);
+            int[] title = new int[2];
+            screen.findViewById(R.id.pc_focus_title).getLocationInWindow(title);
+            assertEquals(title[0], card[0]);
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** Bigger hosts' words: the update line wraps inside its card instead of ending in dots. */
+    @Test
+    @Config(qualifiers = "de-w960dp-h540dp-land-television-xhdpi")
+    public void aLongUpdateLineWrapsInsideItsCard() {
+        android.view.LayoutInflater inflater = android.view.LayoutInflater.from(new android.view.ContextThemeWrapper(
+                RuntimeEnvironment.getApplication(), R.style.AppTheme));
+        android.view.View card = inflater.inflate(R.layout.pc_grid_card, null);
+        android.widget.TextView update = card.findViewById(R.id.grid_update);
+        assertEquals(2, update.getMaxLines());
+    }
+
+    /** The tabs draw the ring themselves: when focus left for the page below, the ring stayed on Settings beside the new one. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void theTabsRingGoesWithFocus() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            Object root = ReflectionHelpers.callInstanceMethod(screen.getWindow().getDecorView(), "getViewRootImpl");
+            ReflectionHelpers.callInstanceMethod(root, "ensureTouchMode", ReflectionHelpers.ClassParameter.from(boolean.class, false));
+            android.view.View tabs = screen.findViewById(R.id.shell_bar_items);
+            android.view.View plus = screen.findViewById(R.id.manuallyAddPc);
+            plus.setVisibility(android.view.View.VISIBLE);
+            assertTrue(screen.findViewById(R.id.shell_settings).requestFocus());
+            org.robolectric.Shadows.shadowOf(tabs).clearWasInvalidated();
+            assertTrue(plus.requestFocus());
+            assertTrue(org.robolectric.Shadows.shadowOf(tabs).wasInvalidated());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** With a remote the sheet opens with the ring on its first row. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void theAddSheetOpensWithItsFirstRowFocused() {
+        org.robolectric.Shadows.shadowOf(RuntimeEnvironment.getApplication().getPackageManager())
+                .setSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY, true);
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            Object root = ReflectionHelpers.callInstanceMethod(screen.getWindow().getDecorView(), "getViewRootImpl");
+            ReflectionHelpers.callInstanceMethod(root, "ensureTouchMode", ReflectionHelpers.ClassParameter.from(boolean.class, false));
+            screen.findViewById(R.id.manuallyAddPc).performClick();
+            com.limelight.ui.ActionSheet sheet = ReflectionHelpers.getField(screen, "addPcSheet");
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            android.view.View dropped = sheet.getCurrentFocus();
+            if (dropped != null) dropped.clearFocus();
+            sheet.getWindow().getDecorView().clearFocus();
+            sheet.onWindowFocusChanged(true);
+            android.view.View focus = sheet.getCurrentFocus();
+            assertNotNull(focus);
+            assertTrue(focus.getClass().getName(), focus.isClickable());
+            sheet.dismiss();
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** The link wears the ring every control wears, not a Material stroke of its own. */
+    @Test
+    public void howToConnectWearsTheGlassRing() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            assertTrue(controller.get().findViewById(R.id.pc_list_help) instanceof com.limelight.ui.GlassButton);
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** The words of "How to connect" start where the words above them start, not a few dots beside them. */
+    @Test
+    public void howToConnectLinesUpWithTheLineAboveIt() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            android.view.View help = screen.findViewById(R.id.pc_list_help);
+            android.view.ViewGroup row = (android.view.ViewGroup) screen.findViewById(R.id.pc_list_spinner).getParent();
+            android.view.ViewGroup footer = (android.view.ViewGroup) help.getParent();
+            footer.measure(android.view.View.MeasureSpec.makeMeasureSpec(1000, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
+            footer.layout(0, 0, 1000, footer.getMeasuredHeight());
+            assertEquals(row.getLeft() + row.getChildAt(1).getLeft(), help.getLeft() + help.getPaddingLeft());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** + offers both ways in where there is a camera; with none there is one way, and + takes it. */
+    @Test
+    public void plusOffersAddAndScanWithACamera() {
+        org.robolectric.Shadows.shadowOf(RuntimeEnvironment.getApplication().getPackageManager())
+                .setSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY, true);
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            screen.findViewById(R.id.manuallyAddPc).performClick();
+            com.limelight.ui.ActionSheet sheet = ReflectionHelpers.getField(screen, "addPcSheet");
+            assertNotNull(sheet);
+            assertTrue(sheet.isShowing());
+            sheet.dismiss();
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void plusGoesStraightToAddWithNoCamera() {
+        org.robolectric.Shadows.shadowOf(RuntimeEnvironment.getApplication().getPackageManager())
+                .setSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY, false);
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            screen.findViewById(R.id.manuallyAddPc).performClick();
+            assertNull(ReflectionHelpers.getField(screen, "addPcSheet"));
+            assertEquals(com.limelight.preferences.AddComputerManually.class.getName(),
+                    org.robolectric.Shadows.shadowOf(screen).getNextStartedActivity().getComponent().getClassName());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** Three PCs on a 1080p TV: one row from the page's margin, inside the overscan, with Add PC clear of it and still reachable. */
     @Test
     @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
     public void onATelevisionThreePcsSitInOneRowAndAddPcStaysClearAndReachable() {
@@ -709,11 +852,12 @@ public class PcViewLifecycleTest {
             root.measure(android.view.View.MeasureSpec.makeMeasureSpec(w, android.view.View.MeasureSpec.EXACTLY),
                     android.view.View.MeasureSpec.makeMeasureSpec(h, android.view.View.MeasureSpec.EXACTLY));
             root.layout(0, 0, w, h);
-            assertEquals("one row", 3, grid.getNumColumns());
+            assertEquals("one row", grid.getChildAt(0).getTop(), grid.getChildAt(2).getTop());
             int[] at = new int[2];
             grid.getLocationInWindow(at);
             int overscan = screen.getResources().getDimensionPixelSize(R.dimen.shell_overscan_horizontal);
-            assertTrue("the grid stays inside the overscan", at[0] >= overscan && at[0] + grid.getWidth() <= w - overscan);
+            int glow = screen.getResources().getDimensionPixelSize(R.dimen.tile_glow);
+            assertTrue("the grid stays inside the overscan, past a card's own glow", at[0] >= overscan - glow && at[0] + grid.getWidth() <= w - overscan + glow);
             android.view.View add = screen.findViewById(R.id.manuallyAddPc);
             android.graphics.Rect addRect = new android.graphics.Rect();
             add.getGlobalVisibleRect(addRect);
@@ -974,6 +1118,86 @@ public class PcViewLifecycleTest {
         } finally {
             controller.pause().stop().destroy();
             if (worker != null) worker.join(5000);
+        }
+    }
+
+    /** First run's last action keeps its ring clear of the gesture bar and the screen's edge. */
+    @Test
+    public void firstRunLeavesRoomUnderItsLastAction() {
+        Application application = RuntimeEnvironment.getApplication();
+        GlPreferences gl = GlPreferences.readPreferences(application);
+        gl.savedFingerprint = Build.FINGERPRINT;
+        gl.glRenderer = "Test renderer";
+        gl.writePreferences();
+        application.getSharedPreferences("FirstRun", 0).edit().putBoolean("pairing_guide_shown", true).commit();
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class).setup();
+        try {
+            Library screen = controller.get();
+            org.robolectric.util.ReflectionHelpers.callInstanceMethod(com.limelight.PcView.class, screen, "layOutUnderChrome",
+                    org.robolectric.util.ReflectionHelpers.ClassParameter.from(int.class, 0),
+                    org.robolectric.util.ReflectionHelpers.ClassParameter.from(int.class, 0),
+                    org.robolectric.util.ReflectionHelpers.ClassParameter.from(int.class, 0),
+                    org.robolectric.util.ReflectionHelpers.ClassParameter.from(int.class, 48));
+            assertTrue(screen.findViewById(R.id.first_run).getPaddingBottom()
+                    >= 48 + screen.getResources().getDimensionPixelSize(R.dimen.space_l));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /**
+     * A real TV's first run: the large title was absent on Add PC and "PCs" on How to connect, because a focus change wrote it.
+     * With no PC there is no selection to name and the selected tab names the page, wherever focus is. The first PC brings it.
+     */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void aTvsFirstRunHasNoLargeTitleWhereverFocusIs() {
+        Application application = RuntimeEnvironment.getApplication();
+        GlPreferences gl = GlPreferences.readPreferences(application);
+        gl.savedFingerprint = Build.FINGERPRINT;
+        gl.glRenderer = "Test renderer";
+        gl.writePreferences();
+        application.getSharedPreferences("FirstRun", 0).edit().putBoolean("pairing_guide_shown", true).commit();
+        try (var empty = Robolectric.buildActivity(Library.class).setup().visible()) {
+            android.view.View title = empty.get().findViewById(R.id.pc_focus_title);
+            assertEquals(android.view.View.GONE, title.getVisibility());
+            empty.get().findViewById(R.id.discovery_help).requestFocus();
+            org.robolectric.shadows.ShadowLooper.shadowMainLooper().idle();
+            assertEquals(android.view.View.GONE, title.getVisibility());
+        }
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            assertEquals(android.view.View.VISIBLE, controller.get().findViewById(R.id.pc_focus_title).getVisibility());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** First run's one action offers what the page's + offers: the address, or the code a host shows. */
+    @Test
+    public void theFirstRunActionOffersWhatPlusOffers() {
+        Application application = RuntimeEnvironment.getApplication();
+        GlPreferences gl = GlPreferences.readPreferences(application);
+        gl.savedFingerprint = Build.FINGERPRINT;
+        gl.glRenderer = "Test renderer";
+        gl.writePreferences();
+        application.getSharedPreferences("FirstRun", 0).edit().putBoolean("pairing_guide_shown", true).commit();
+        Shadows.shadowOf(application.getPackageManager()).setSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY, true);
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class).setup();
+        try {
+            Library screen = controller.get();
+            assertEquals(android.view.View.VISIBLE, screen.findViewById(R.id.no_pc_found_layout).getVisibility());
+            assertTrue("the moon's dot goes round while discovery runs",
+                    screen.<com.limelight.ui.OrbitView>findViewById(R.id.first_run_orbit).isTurning() || !screen.findViewById(R.id.first_run_orbit).isShown());
+            screen.findViewById(R.id.discovery_add).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            android.app.Dialog sheet = ShadowDialog.getLatestDialog();
+            assertTrue("a sheet, not straight to the address page", sheet instanceof com.limelight.ui.ActionSheet);
+            assertTrue(sheet.isShowing());
+            assertNull(Shadows.shadowOf(screen).getNextStartedActivity());
+            sheet.dismiss();
+        } finally {
+            controller.pause().stop().destroy();
         }
     }
 

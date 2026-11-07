@@ -3,7 +3,6 @@
     <string name="shell_destinations">Основні розділи</string>
     <string name="shell_current_page">Поточна сторінка</string>
     <string name="host_menu_rename">Перейменувати</string>
-    <string name="host_options_hint">X або ⋮ для параметрів</string>
     <string name="host_rename_field">Назва</string>
     <string name="host_rename_help">Показується лише на цьому пристрої. Залиште порожнім, щоб використовувати власну назву ПК.</string>
     <string name="host_rename_save">Зберегти</string>

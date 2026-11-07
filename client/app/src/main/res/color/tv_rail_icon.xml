@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A TV settings rail icon: amber on the current section's row, with the rail's amber bar; quieter on the others. -->
+<!-- A rail row's icon: the selected fill's ink on the section shown; quieter on the others. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_activated="true" android:color="?attr/colorPrimary" />
+    <item android:state_activated="true" android:color="?attr/glassOnSelected" />
     <item android:color="?attr/colorOnSurfaceVariant" />
 </selector>

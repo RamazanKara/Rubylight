@@ -225,16 +225,21 @@ public class TvTransitionsTest {
     }
 
     /**
-     * Home clips at the list's own area, so a header scrolled away does not show under the tab bar, but the rows
-     * inside it do not clip each other: a focused card's glow spills past its row.
+     * The list runs under Home's glass chrome, which blurs what passes behind it, so nothing clips it there; the rows
+     * do not clip each other either: a focused card's glow spills past its row.
      */
     @Test
-    public void homeClipsTheListAreaButNotTheRowsSoTheFocusGlowIsKept() throws Exception {
+    public void homeClipsNeitherTheListNorItsRowsSoTheFocusGlowIsKept() throws Exception {
         Element layout = parse("src/main/res/layout/activity_console_home.xml");
-        NodeList lists = layout.getElementsByTagName("androidx.recyclerview.widget.RecyclerView");
+        NodeList lists = layout.getElementsByTagName("com.limelight.console.HomeList");
+        // Home's list and the search's results keep the glow alike.
         assertEquals(1, lists.getLength());
         Element list = (Element) lists.item(0);
+        assertEquals("@+id/console_list", list.getAttribute("android:id"));
         assertEquals("false", list.getAttribute("android:clipChildren"));
-        assertEquals("true", ((Element) list.getParentNode()).getAttribute("android:clipChildren"));
+        NodeList results = layout.getElementsByTagName("com.limelight.console.SearchResultsView");
+        assertEquals(1, results.getLength());
+        assertEquals("false", ((Element) results.item(0)).getAttribute("android:clipChildren"));
+        assertEquals("false", ((Element) list.getParentNode()).getAttribute("android:clipChildren"));
     }
 }

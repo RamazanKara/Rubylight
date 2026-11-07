@@ -25,9 +25,66 @@ public final class DemoConsoleHome extends ConsoleHomeActivity {
     }
 
     private boolean optionsOpened;
+    private DemoFocusLatency focusLatency;
+
+    @Override public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        if (focusLatency != null) focusLatency.onKey(event);
+        return super.dispatchKeyEvent(event);
+    }
+
+    @Override protected void onStart() {
+        super.onStart();
+        // "--ez focusLatency true": scripts/home-speed.py reads D-pad press to moved-focus frame from logcat.
+        if (focusLatency == null && DemoFocusLatency.wanted && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+            focusLatency = new DemoFocusLatency(this);
+        }
+    }
+
+    /** "--es state home --es dlg quit|delete|reconnect|error|list|three": one of the app's dialogs over Home, to look at. */
+    private void showDemoDialog() {
+        String dlg = getIntent().getStringExtra("dlg");
+        if (dlg == null) return;
+        getIntent().removeExtra("dlg");
+        switch (dlg) {
+            case "quit":
+                com.limelight.utils.UiHelper.displayQuitConfirmationDialog(this, () -> { }, () -> { });
+                break;
+            case "delete":
+                com.limelight.nvstream.http.ComputerDetails pc = new com.limelight.nvstream.http.ComputerDetails();
+                pc.name = "Living-room PC";
+                com.limelight.utils.UiHelper.displayDeletePcConfirmationDialog(this, pc, () -> { }, () -> { });
+                break;
+            case "reconnect":
+                new com.limelight.ui.NavigationDialogBuilder(this).setTitle(com.limelight.R.string.conn_terminated_title)
+                        .setMessage(getString(com.limelight.R.string.conn_terminated_msg)).setCancelable(false)
+                        .setNegativeButton(com.limelight.R.string.stream_disconnect, null)
+                        .setPositiveButton(com.limelight.R.string.stream_reconnect, null).show();
+                break;
+            case "error":
+                com.limelight.utils.Dialog.displayDialog(this, "Pairing failed", "The PC did not answer.", false);
+                break;
+            case "list":
+                new com.limelight.ui.NavigationDialogBuilder(this).setTitle(com.limelight.R.string.title_resolution_list)
+                        .setSingleChoiceItems(new String[] {"720p", "1080p", "1440p", "4K"}, 1, null)
+                        .setNegativeButton(android.R.string.cancel, null).show();
+                break;
+            case "three":
+                ReplaceDemo.show(this);
+                break;
+            default:
+                break;
+        }
+    }
 
     @Override protected void onResume() {
+        if (getIntent().getBooleanExtra("pairwait", false)) {
+            com.limelight.nvstream.http.ComputerDetails pc = new com.limelight.nvstream.http.ComputerDetails();
+            pc.name = "Living-room PC";
+            showWaitingToPair(java.util.Collections.singletonList(new com.limelight.computers.PairingWatch.Waiting(pc,
+                    new com.limelight.nativeapi.NativePairing.Request("1", DemoConsole.PAIRING_DEVICE, "192.168.4.2", 3))));
+        }
         super.onResume();
+        showDemoDialog();
         // Once: coming back from the PC settings the sheet is not wanted again.
         if (!optionsOpened && "options".equals(getIntent().getStringExtra("state"))) {
             optionsOpened = true;
@@ -113,6 +170,20 @@ public final class DemoConsoleHome extends ConsoleHomeActivity {
             }
         }
         return null;
+    }
+
+    @Override protected void play(com.limelight.nvstream.http.NvApp app, com.limelight.nvstream.http.ComputerDetails computer,
+                                  String source) {
+        startActivity(new Intent(this, DemoGameActivity.class).putExtra("state", "compact"));
+    }
+
+    @Override protected void end(com.limelight.nvstream.http.NvApp app, com.limelight.nvstream.http.ComputerDetails computer, Runnable onComplete) {
+        runOnUiThread(() -> Toast.makeText(this, R.string.demo_offline, Toast.LENGTH_SHORT).show());
+        if (onComplete != null) onComplete.run();
+    }
+
+    @Override protected void close(com.limelight.nvstream.http.NvApp app, com.limelight.nvstream.http.ComputerDetails computer, java.util.function.Consumer<Boolean> onDone) {
+        onDone.accept(true);
     }
 
     @Override protected Class<? extends GameDetailActivity> detailActivity() {

@@ -8,7 +8,7 @@
     <string name="console_hint_options">オプション</string>
     <string name="console_hint_open">開く</string>
     <string name="console_hint_key_ok">OK</string>
-    <string name="console_hint_key_menu">メニュー</string>
+    <string name="console_hint_key_hold_ok">OK長押し</string>
     <string name="console_hint_line">%1$s %2$s    %3$s %4$s</string>
     <string name="console_favourite_add">お気に入りに追加</string>
     <string name="console_favourite_remove">お気に入りから削除</string>
@@ -62,4 +62,7 @@
     <string name="console_wake_timeout">%1$s が時間内に起動しませんでした。Wake-on-LAN が設定されているか確認して、もう一度お試しください。</string>
     <string name="console_choose_pc">どの PC でプレイしますか？</string>
     <string name="console_badge_asleep">PC はスリープ中</string>
+    <string name="pc_status_online">オンライン</string>
+    <string name="pc_status_not_paired">未ペアリング</string>
+    <string name="pc_action_wake">起動</string>
 </resources>

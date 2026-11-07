@@ -95,15 +95,15 @@ public class TvSettingsScaleTest {
         int[] at = new int[2];
         tab.getLocationInWindow(at);
         // The first tab starts on the screen's inset, the edge of the rows below it (ShellNavigationTest).
-        int x = at[0] - screen.getResources().getDimensionPixelSize(R.dimen.shell_inset);
+        // The tab's own resources: Settings' screen resources are compact, its shell bar is not.
+        int x = at[0] - tab.getResources().getDimensionPixelSize(R.dimen.shell_inset);
         return new int[] {tab.getHeight(), Math.round(((TextView) tab).getTextSize()), x, at[1]};
     }
 
     @Test
     public void theShellBarAndTheOverscanMarginStayAsOnThePcs() {
         int[] pcs;
-        try (var screen = Robolectric.buildActivity(PcViewLifecycleTest.Library.class, HomeSettings.pcList(context))
-                .setup().visible()) {
+        try (var screen = Robolectric.buildActivity(PcViewLifecycleTest.Library.class, HomeSettings.pcList(context)).setup().visible()) {
             pcs = shellMetrics(screen.get());
         }
         try (var screen = Robolectric.buildActivity(StreamSettings.class, ShellBar.intentFor(context, Destination.SETTINGS))

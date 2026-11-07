@@ -245,6 +245,7 @@ public class HostStreamSettings extends NightjarActivity {
             exportRomsTree = romsTree != null ? Uri.parse(romsTree) : null;
         }
         setContentView(R.layout.activity_host_stream_settings);
+        com.limelight.ui.NightSkyView.behind(this);
         // The PC is the page: its name is the title, the host software and version the subtitle.
         // A profile or a game names the page the same way.
         String title = mode == Mode.PROFILE ? profiles.name(profileId) : mode == Mode.GAME ? appName : computer.displayName();
@@ -752,6 +753,10 @@ public class HostStreamSettings extends NightjarActivity {
     private void updateSaveState() {
         boolean changed = !savedProfile.equals(overrides.serialize());
         findViewById(R.id.host_profile_save).setEnabled(changed);
+        // Nothing to save, nothing at the foot: no grey bar under the groups, as in Settings. A change brings the moon.
+        int foot = changed ? View.VISIBLE : View.GONE;
+        findViewById(R.id.host_profile_save).setVisibility(foot);
+        findViewById(R.id.host_profile_status).setVisibility(foot);
         ((TextView) findViewById(R.id.host_profile_status)).setText(mode != Mode.PC ?
                 (changed ? R.string.layers_unsaved_context : R.string.layers_saved_context) : changed ?
                 R.string.settings_profile_unsaved_context : R.string.settings_profile_saved_context);
@@ -806,7 +811,7 @@ public class HostStreamSettings extends NightjarActivity {
             boolean pc = activity.mode == Mode.PC;
             int reset = pc ? R.string.host_profile_reset : R.string.layers_reset;
             row(stream, "reset", reset, () -> UiHelper.showDialog(activity,
-                    new NavigationDialogBuilder(activity).setTitle(reset)
+                    new NavigationDialogBuilder(activity).startOnCancel().setTitle(reset)
                             .setMessage(pc ? R.string.settings_profile_reset_message : R.string.layers_reset_message)
                             .setPositiveButton(reset, (dialog, which) -> {
                                 activity.overrides = new HostStreamProfile();
@@ -1051,8 +1056,8 @@ public class HostStreamSettings extends NightjarActivity {
         private void updateSummaries() {
             PreferenceConfiguration config = activity.effective();
             HostStreamProfile own = activity.overrides;
-            findPreference("resolution").setSummary(summary(HostStreamProfile.Field.RESOLUTION, own.nativeResolution != null, resolutionText(config)) +
-                    "\n" + getString(R.string.summary_resolution_list));
+            // The value alone, as in Settings: the picker shows the sizes.
+            findPreference("resolution").setSummary(summary(HostStreamProfile.Field.RESOLUTION, own.nativeResolution != null, resolutionText(config)));
             findPreference("refresh").setSummary(summary(HostStreamProfile.Field.REFRESH, own.refreshRateX100 != null, refreshText(config)));
             String bitrate = summary(HostStreamProfile.Field.BITRATE, own.bitrate != null,
                     HostStreamProfile.formatBitrateMbps(config.bitrate) + " Mbps");
@@ -1507,11 +1512,11 @@ public class HostStreamSettings extends NightjarActivity {
         @Override
         public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle state) {
             View view = super.onCreateView(inflater, container, state);
-            ListView list = view.findViewById(android.R.id.list);
+            ListView list = GroupedListView.adopt(view);
             com.limelight.ui.UiNavigation.bindPreferencesWhenReady(list);
             list.setNextFocusDownId(R.id.host_profile_save);
             list.setDivider(null);
-            list.setSelector(R.drawable.list_focus_row);
+            list.setSelector(R.drawable.settings_row_focus);
             list.setPadding(0, 0, 0, getResources().getDimensionPixelSize(R.dimen.space_s));
             return view;
         }

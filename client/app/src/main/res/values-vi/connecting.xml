@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="conn_back">Quay lại</string>
+    <string name="conn_test_network">Kiểm tra mạng</string>
+    <string name="nettest_text_clear">Không có gì chặn truyền phát.</string>
+    <string name="nettest_text_unknown">Không thể hoàn tất kiểm tra.</string>
+</resources>

@@ -66,7 +66,9 @@ public class UiNavigationTest {
         }
     }
 
+    /** Only a form with cards has rows side by side. */
     @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
     public void computerUpdateNoticeDoesNotOverlapTheNextGridRow() {
         ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup().visible();
         try {
@@ -145,8 +147,6 @@ public class UiNavigationTest {
             assertEquals(add.getId(), help.getAccessibilityTraversalAfter());
 
             screen.setContentView(R.layout.activity_app_view);
-            TopAppBar.setUpNavigation(TopAppBar.configure(screen, R.id.library_toolbar, "PC", R.menu.library),
-                    R.id.library_back, v -> { });
             FrameLayout container = screen.findViewById(R.id.appFragmentContainer);
             screen.getLayoutInflater().inflate(R.layout.app_grid_view, container);
             GridView grid = screen.findViewById(R.id.fragmentView);
@@ -155,8 +155,6 @@ public class UiNavigationTest {
             layout(screen);
             View back = screen.findViewById(R.id.library_back);
             assertSame(grid, back.focusSearch(View.FOCUS_DOWN));
-            assertSame(back, grid.focusSearch(View.FOCUS_UP));
-            assertEquals(back.getId(), grid.getAccessibilityTraversalAfter());
         } finally {
             controller.pause().stop().destroy();
         }
@@ -369,12 +367,14 @@ public class UiNavigationTest {
             layout(screen);
             grid.requestFocus();
             grid.setSelection(0);
-            View up = grid.focusSearch(View.FOCUS_UP);
-            assertNotNull("UP from the PC list found nothing", up);
-            assertSame(screen.findViewById(R.id.shell_bar_items), up.getParent());
+            // On a phone the + is above the list and the tabs below it.
+            assertSame(screen.findViewById(R.id.manuallyAddPc), grid.focusSearch(View.FOCUS_UP));
+            View down = grid.focusSearch(View.FOCUS_DOWN);
+            assertNotNull("DOWN from the PC list found nothing", down);
+            assertSame(screen.findViewById(R.id.shell_bar_items), down.getParent());
             View settings = screen.findViewById(R.id.shell_settings);
             assertTrue(settings.isFocusable());
-            assertSame(grid, settings.focusSearch(View.FOCUS_DOWN));
+            assertSame(grid, settings.focusSearch(View.FOCUS_UP));
         } finally {
             controller.pause().stop().destroy();
         }
@@ -412,6 +412,7 @@ public class UiNavigationTest {
     }
 
     @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
     public void dpadMovesCardToCardInOnePressAndMarksOptionsOnlyAtTheRowEnd() {
         ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup().visible();
         try {

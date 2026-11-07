@@ -8,7 +8,7 @@
     <string name="console_hint_options">옵션</string>
     <string name="console_hint_open">열기</string>
     <string name="console_hint_key_ok">확인</string>
-    <string name="console_hint_key_menu">메뉴</string>
+    <string name="console_hint_key_hold_ok">확인 길게</string>
     <string name="console_hint_line">%1$s %2$s    %3$s %4$s</string>
     <string name="console_favourite_add">즐겨찾기에 추가</string>
     <string name="console_favourite_remove">즐겨찾기에서 삭제</string>
@@ -62,4 +62,7 @@
     <string name="console_wake_timeout">%1$s이(가) 제때 켜지지 않았습니다. Wake-on-LAN이 설정되어 있는지 확인한 뒤 다시 시도하세요.</string>
     <string name="console_choose_pc">어느 PC에서 플레이할까요?</string>
     <string name="console_badge_asleep">PC 절전 중</string>
+    <string name="pc_status_online">온라인</string>
+    <string name="pc_status_not_paired">페어링 안 됨</string>
+    <string name="pc_action_wake">깨우기</string>
 </resources>

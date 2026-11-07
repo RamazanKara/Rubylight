@@ -7,6 +7,24 @@
         ThemePaletteTest checks that they match.
     -->
     <style name="Base.Theme.Nightjar" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="glassCanvas">@color/glass_canvas</item>
+        <item name="glassPlaceholder">@color/glass_placeholder</item>
+        <item name="glassSelectedFill">@color/glass_selectedfill</item>
+        <item name="glassSelectedRim">@color/glass_selectedrim</item>
+        <item name="glassOnSelected">@color/glass_onselected</item>
+        <item name="glassControlFill">@color/glass_controlfill</item>
+        <item name="glassControlRim">@color/glass_controlrim</item>
+        <item name="glassControlOverArt">@color/glass_control_over_art</item>
+        <item name="glassGroupOnArt">@color/glass_grouponart</item>
+        <item name="glassGroupRim">@color/glass_grouprim</item>
+        <item name="glassSeparator">@color/glass_separator</item>
+        <item name="glassRing">@color/glass_ring</item>
+        <item name="glassRingOnMoon">@color/glass_ringonmoon</item>
+        <item name="glassGap">@color/glass_gap</item>
+        <item name="glassHalo">@color/glass_halo</item>
+        <item name="glassOk">@color/glass_ok</item>
+        <item name="nightjarFace">sans-serif</item>
+        <item name="nightjarFaceStrong">sans-serif-medium</item>
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>
 
@@ -100,8 +118,8 @@
         <item name="nightjarButtonRestStroke">@android:color/transparent</item>
         <item name="nightjarCardFocusAnimator">@animator/tv_card_focus</item>
         <item name="nightjarControlFocusAnimator">@animator/tv_control_focus</item>
+        <item name="nightjarPinKeyStyle">@style/NightjarPinKey</item>
         <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus</item>
-        <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_small</item>
         <item name="nightjarPosterRing">@drawable/tv_poster_ring</item>
         <item name="nightjarPosterGlow">@drawable/tv_focus_glow_fade</item>
         <item name="nightjarTileFocusAnimator">@animator/tv_tile_focus</item>
@@ -130,6 +148,24 @@
         palette, whatever the system theme, so nothing light flashes over a game.
     -->
     <style name="Theme.Nightjar.Stream" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="glassCanvas">@color/night_glass_canvas</item>
+        <item name="glassPlaceholder">@color/night_glass_placeholder</item>
+        <item name="glassSelectedFill">@color/night_glass_selectedfill</item>
+        <item name="glassSelectedRim">@color/night_glass_selectedrim</item>
+        <item name="glassOnSelected">@color/night_glass_onselected</item>
+        <item name="glassControlFill">@color/night_glass_controlfill</item>
+        <item name="glassControlRim">@color/night_glass_controlrim</item>
+        <item name="glassControlOverArt">@color/night_glass_control_over_art</item>
+        <item name="glassGroupOnArt">@color/night_glass_grouponart</item>
+        <item name="glassGroupRim">@color/night_glass_grouprim</item>
+        <item name="glassSeparator">@color/night_glass_separator</item>
+        <item name="glassRing">@color/night_glass_ring</item>
+        <item name="glassRingOnMoon">@color/night_glass_ringonmoon</item>
+        <item name="glassGap">@color/night_glass_gap</item>
+        <item name="glassHalo">@color/night_glass_halo</item>
+        <item name="glassOk">@color/night_glass_ok</item>
+        <item name="nightjarFace">sans-serif</item>
+        <item name="nightjarFaceStrong">sans-serif-medium</item>
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>
 
@@ -222,8 +258,8 @@
         <item name="nightjarButtonRestStroke">@android:color/transparent</item>
         <item name="nightjarCardFocusAnimator">@animator/tv_card_focus</item>
         <item name="nightjarControlFocusAnimator">@animator/tv_control_focus</item>
+        <item name="nightjarPinKeyStyle">@style/NightjarPinKey</item>
         <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus</item>
-        <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_small</item>
         <item name="nightjarPosterRing">@drawable/tv_poster_ring</item>
         <item name="nightjarPosterGlow">@drawable/tv_focus_glow_fade</item>
         <item name="nightjarTileFocusAnimator">@animator/tv_tile_focus</item>
@@ -235,6 +271,25 @@
     <!-- Stream activity theme (Game and the debug stream fixtures). -->
     <style name="StreamTheme" parent="Theme.Nightjar.Stream" />
 
+    <!-- The stream menu's blur: an empty see-through window under the panel, rounded as the panel is. -->
+    <style name="StreamMenuBlurWindow" parent="@android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:windowBackground">@drawable/stream_menu_blur</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@style/TvSheetAnimation</item>
+    </style>
+
+    <!-- The window of connecting and a failed connection: the whole screen, no animation in front of the stream. -->
+    <style name="ConnectingScreen" parent="Theme.Nightjar.Stream">
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/night_glass_canvas</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
+
     <!-- The night palette's dark grey surfaces even when the system is light, as on most TVs. -->
     <style name="DarkTheme" parent="Theme.Nightjar.Stream">
         <item name="android:windowBackground">@color/night_surface</item>
@@ -243,6 +298,8 @@
 
     <!-- Full black surfaces, with the readable night palette even when the system is light. -->
     <style name="OledBlackTheme" parent="Theme.Nightjar.Stream">
+        <item name="glassCanvas">@color/nj_oled_tint_fade</item>
+        <item name="glassPlaceholder">@color/nj_oled_cover_placeholder</item>
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:colorBackground">@android:color/black</item>
         <item name="colorSurface">@android:color/black</item>
@@ -264,7 +321,39 @@
         and focus rings get thicker. AppTheme.apply layers this over OledBlackTheme, so surfaces are black.
         ContrastTest holds body text to 7:1 and focus rings to 3:1.
     -->
+    <!-- Figtree on the app's own screens, in the languages it covers (AppTheme.applyOverlays). The stream's menu
+         never gets it. -->
+    <style name="ThemeOverlay.Nightjar.Figtree" parent="">
+        <item name="nightjarFace">@font/figtree</item>
+        <item name="nightjarFaceStrong">@font/figtree_600</item>
+        <!-- Not android:fontFamily on the theme: a TextView reads that after its text appearance, and every strong
+             heading would come out regular. Text with no appearance of its own gets the face through this one. -->
+        <item name="android:textViewStyle">@style/Widget.Nightjar.FigtreeText</item>
+    </style>
+    <style name="Widget.Nightjar.FigtreeText" parent="android:Widget.TextView">
+        <item name="android:textAppearance">@style/TextAppearance.Nightjar.FigtreeOnly</item>
+    </style>
+    <style name="TextAppearance.Nightjar.FigtreeOnly" parent="">
+        <item name="android:fontFamily">@font/figtree</item>
+        <item name="fontFamily">@font/figtree</item>
+    </style>
+
     <style name="ThemeOverlay.Nightjar.HighContrast" parent="">
+        <item name="glassCanvas">@color/nj_hc_color_night</item>
+        <item name="glassSelectedFill">@color/nj_hc_color_moon</item>
+        <item name="glassSelectedRim">@color/nj_hc_color_moon</item>
+        <item name="glassOnSelected">@color/nj_hc_color_on_moon</item>
+        <item name="glassControlFill">@color/nj_glass_chrome_solid_fill</item>
+        <item name="glassControlRim">@color/nj_hc_color_rim</item>
+        <item name="glassControlOverArt">@color/nj_glass_chrome_solid_fill</item>
+        <item name="glassGroupOnArt">@color/nj_glass_chrome_solid_fill</item>
+        <item name="glassGroupRim">@color/nj_hc_color_rim</item>
+        <item name="glassRing">@color/nj_hc_focus_ring_color</item>
+        <item name="glassHalo">@color/nj_hc_focus_halo_color</item>
+        <item name="glassOk">@color/nj_hc_color_ok</item>
+        <item name="colorPrimary">@color/nj_hc_color_moon</item>
+        <item name="colorOnPrimary">@color/nj_hc_color_on_moon</item>
+        <item name="colorOnSurface">@color/nj_hc_color_label</item>
         <item name="colorOnSurfaceVariant">?attr/colorOnSurface</item>
         <item name="colorOutline">?attr/colorOnSurface</item>
         <item name="colorOutlineVariant">?attr/colorOnSurface</item>
@@ -290,7 +379,6 @@
         <item name="nightjarCardFocusAnimator">@animator/tv_card_focus_static</item>
         <item name="nightjarControlFocusAnimator">@animator/tv_control_focus_static</item>
         <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus_static</item>
-        <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_static</item>
         <item name="nightjarPosterRing">@drawable/tv_poster_ring_static</item>
         <item name="nightjarTileFocusAnimator">@animator/tv_poster_focus_static</item>
         <item name="nightjarTileRing">@drawable/tv_tile_ring_static</item>
@@ -302,7 +390,6 @@
         <item name="nightjarCardFocusAnimator">@animator/tv_card_focus_hc_static</item>
         <item name="nightjarControlFocusAnimator">@animator/tv_control_focus_hc_static</item>
         <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus_static</item>
-        <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_static</item>
         <item name="nightjarPosterRing">@drawable/tv_poster_ring_hc_static</item>
         <item name="nightjarTileFocusAnimator">@animator/tv_poster_focus_static</item>
         <item name="nightjarTileRing">@drawable/tv_tile_ring_hc_static</item>
@@ -313,7 +400,8 @@
     <style name="ThemeOverlay.Nightjar.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
         <!-- Dialog messages are read at arm's length or across a room: Body rather than Supporting. -->
         <item name="textAppearanceBodyMedium">@style/TextAppearance.Nightjar.Body</item>
-        <item name="buttonBarPositiveButtonStyle">@style/NightjarDialogButton</item>
+        <item name="textAppearanceHeadlineSmall">@style/TextAppearance.Nightjar.ScreenTitle</item>
+        <item name="buttonBarPositiveButtonStyle">@style/NightjarDialogButton.Moon</item>
         <item name="buttonBarNegativeButtonStyle">@style/NightjarDialogButton</item>
         <item name="buttonBarNeutralButtonStyle">@style/NightjarDialogButton</item>
     </style>
@@ -396,8 +484,41 @@
     <style name="NightjarDialogButton" parent="Widget.Material3.Button.TextButton.Dialog">
         <item name="android:textAllCaps">false</item>
         <item name="android:minHeight">@dimen/touch_target</item>
-        <item name="strokeWidth">?attr/nightjarFocusRingWidth</item>
-        <item name="strokeColor">@color/button_focus_ring</item>
+        <item name="android:minWidth">88dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:paddingLeft">@dimen/space_xl</item>
+        <item name="android:paddingRight">@dimen/space_xl</item>
+        <item name="android:layout_marginStart">@dimen/space_s</item>
+        <item name="android:background">@drawable/dialog_button_control</item>
+        <item name="backgroundTint">@null</item>
+        <item name="rippleColor">@null</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+        <item name="android:fontFamily">?attr/nightjarFaceStrong</item>
+        <item name="fontFamily">?attr/nightjarFaceStrong</item>
+        <item name="android:stateListAnimator">?attr/nightjarControlFocusAnimator</item>
+    </style>
+
+    <!-- A key of a PIN pad: a capsule in the control tint, with the dialogs' one focus ring. -->
+    <style name="NightjarPinKey" parent="Widget.Material3.Button">
+        <item name="android:background">@drawable/dialog_button_control</item>
+        <item name="backgroundTint">@null</item>
+        <item name="rippleColor">@null</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+        <item name="iconTint">?attr/colorOnSurface</item>
+        <item name="android:textAppearance">@style/TextAppearance.Nightjar.PinKey</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:padding">0dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:minHeight">@dimen/touch_target</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+
+    <!-- The dialog's one primary action. -->
+    <style name="NightjarDialogButton.Moon">
+        <item name="android:background">@drawable/dialog_button_moon</item>
+        <item name="android:textColor">@color/dialog_button_moon_text</item>
     </style>
 
     <style name="ShapeAppearance.Nightjar" parent="ShapeAppearance.Material3.MediumComponent">

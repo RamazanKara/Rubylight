@@ -26,6 +26,24 @@ public final class TvAudit {
     private TvAudit() {
     }
 
+    /**
+     * The tabs' capsule of a page with its tabs at the top: where it stands, how tall it is and how large and far apart its words are, as a
+     * line two pages can be compared by. A person sees any difference as the capsule jumping between them.
+     */
+    public static String topCapsule(android.app.Activity screen) {
+        int width = screen.getResources().getDisplayMetrics().widthPixels;
+        int height = screen.getResources().getDisplayMetrics().heightPixels;
+        View root = screen.getWindow().getDecorView();
+        root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
+        root.layout(0, 0, width, height);
+        View capsule = (View) screen.findViewById(R.id.shell_bar).getParent();
+        int[] at = new int[2];
+        capsule.getLocationInWindow(at);
+        TextView settings = screen.findViewById(R.id.shell_settings);
+        return "at " + at[0] + "," + at[1] + " height " + capsule.getHeight() + " text " + settings.getTextSize() + " gap " + ((ViewGroup.MarginLayoutParams) settings.getLayoutParams()).getMarginEnd();
+    }
+
     /** Lays {@code screen} out at its display size, as the TV shows it, and returns its problems. */
     public static List<String> findings(android.app.Activity screen) {
         int width = screen.getResources().getDisplayMetrics().widthPixels;

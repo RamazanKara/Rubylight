@@ -12,4 +12,8 @@
     <item name="qr_scan_back" type="id" />
     <item name="host_profile_back" type="id" />
     <item name="gpu_driver_back" type="id" />
+    <item name="spring_scale_x" type="id" />
+    <item name="spring_scale_y" type="id" />
+    <item name="stream_menu_cover" type="id" />
+    <item name="stream_menu_close" type="id" />
 </resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="conn_back">Назад</string>
+    <string name="conn_test_network">Перевірити мережу</string>
+    <string name="nettest_text_clear">Потоковому передаванню ніщо не заважає.</string>
+    <string name="nettest_text_unknown">Не вдалося завершити перевірку.</string>
+</resources>

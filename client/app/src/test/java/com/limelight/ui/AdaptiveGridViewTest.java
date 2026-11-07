@@ -19,6 +19,17 @@ import static org.junit.Assert.*;
         shadows = com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class,
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class AdaptiveGridViewTest {
+    /** Rows stop at the grid's top; only the selected card, which stands below it, may let its halo past. */
+    @Test
+    public void aLibraryClipsEveryRowButTheSelectedCard() {
+        AdaptiveGridView grid = new AdaptiveGridView(org.robolectric.RuntimeEnvironment.getApplication());
+        grid.setColumnPolicy(false, false);
+        assertTrue(grid.clipsAtTop(new android.view.View(grid.getContext())));
+        assertFalse("nothing selected, and the selected view is null", grid.clipsAtTop(null));
+        grid.setColumnPolicy(true, false);
+        assertFalse("PC cards have no such edge", grid.clipsAtTop(new android.view.View(grid.getContext())));
+    }
+
     private static void measure(View view, int width, int height) {
         view.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
@@ -39,14 +50,41 @@ public class AdaptiveGridViewTest {
 
             // 393 x 852 dp portrait at xhdpi, then the same phone in landscape.
             measure(container, 786, 1704);
-            assertEquals(2, grid.getNumColumns());
+            assertEquals(3, grid.getNumColumns());
             assertTrue(grid.getChildCount() > 0);
             assertFalse(grid.hasShortViewport());
 
             measure(container, 1704, 786);
-            assertEquals(4, grid.getNumColumns());
+            assertEquals(6, grid.getNumColumns());
             assertTrue("landscape grid lost its cards", grid.getChildCount() > 0);
             assertTrue(grid.hasShortViewport());
+        }
+    }
+
+    /**
+     * On the real TV a library's top row scrolled a little stopped on a hard line under the title: the platform's grid
+     * scaled its fade down to how far that row had passed the padding. Scrolled at all, the whole fade shows, as on All games.
+     */
+    @Test @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionAScrolledLibraryFadesOverTheWholeLength() {
+        try (var controller = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup().visible()) {
+            UiNavigationTest.Screen screen = controller.get();
+            FrameLayout container = new FrameLayout(screen);
+            screen.getLayoutInflater().inflate(R.layout.app_grid_view, container);
+            AdaptiveGridView grid = container.findViewById(R.id.fragmentView);
+            grid.setColumnPolicy(false, false);
+            String[] apps = new String[80];
+            for (int i = 0; i < apps.length; i++) apps[i] = "App " + i;
+            grid.setAdapter(new ArrayAdapter<>(screen, android.R.layout.simple_list_item_1, apps));
+            grid.setPadding(0, 40, 0, 40);
+            measure(container, 1920, 1080);
+            assertEquals(screen.getResources().getDimensionPixelSize(R.dimen.all_games_fade), grid.getVerticalFadingEdgeLength());
+            float rest = org.robolectric.util.ReflectionHelpers.callInstanceMethod(grid, "getTopFadingEdgeStrength");
+            assertEquals("no fade at rest", 0f, rest, 0f);
+            grid.scrollListBy(10);
+            measure(container, 1920, 1080);
+            float scrolled = org.robolectric.util.ReflectionHelpers.callInstanceMethod(grid, "getTopFadingEdgeStrength");
+            assertEquals("the whole fade once scrolled", 1f, scrolled, 0f);
         }
     }
 
@@ -57,8 +95,9 @@ public class AdaptiveGridViewTest {
             grid.setColumnPolicy(true, false);
             measure(grid, 786, 1704);
             assertEquals(1, grid.getNumColumns());
+            // The form decides, not the size of this measure: a phone's rows stay one list.
             measure(grid, 1704, 786);
-            assertEquals(2, grid.getNumColumns());
+            assertEquals(1, grid.getNumColumns());
         }
     }
 

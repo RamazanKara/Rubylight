@@ -79,24 +79,15 @@ public class Dialog implements Runnable {
             return;
         }
 
-        alert = new NavigationDialogBuilder(activity).create();
-
-        alert.setTitle(title);
-        alert.setMessage(message);
-        alert.setCancelable(true);
+        alert = new NavigationDialogBuilder(activity)
+                .setTitle(title)
+                .setMessage(message)
+                .setCancelable(true)
+                .setOnCancelListener(dialog -> complete(false))
+                .setPositiveButton(android.R.string.ok, (dialog, which) -> complete(false))
+                .setNeutralButton(R.string.help, (dialog, which) -> complete(true))
+                .create();
         alert.setCanceledOnTouchOutside(false);
-        alert.setOnCancelListener(dialog -> complete(false));
- 
-        alert.setButton(AlertDialog.BUTTON_POSITIVE, activity.getResources().getText(android.R.string.ok), new DialogInterface.OnClickListener() {
-              public void onClick(DialogInterface dialog, int which) {
-                  complete(false);
-              }
-        });
-        alert.setButton(AlertDialog.BUTTON_NEUTRAL, activity.getResources().getText(R.string.help), new DialogInterface.OnClickListener() {
-            public void onClick(DialogInterface dialog, int which) {
-                complete(true);
-            }
-        });
         alert.setOnShowListener(new DialogInterface.OnShowListener(){
 
             @Override

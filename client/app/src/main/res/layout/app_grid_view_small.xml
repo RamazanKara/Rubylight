@@ -1,9 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Columns come from the form factor (AdaptiveLayout.appColumns), fixed 2:3 slots, and each card draws its own focus ring, so the
+     selector is empty. AppView sets the padding: under the chrome and over the tabs. Rows fade out where they reach the chrome. -->
 <com.limelight.ui.AdaptiveGridView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/fragmentView" android:layout_width="match_parent" android:layout_height="match_parent"
-    android:nextFocusUp="@id/library_back" android:accessibilityTraversalAfter="@id/library_back"
-    android:numColumns="auto_fit" android:columnWidth="104dp" android:stretchMode="columnWidth"
-    android:horizontalSpacing="@dimen/app_grid_spacing" android:verticalSpacing="@dimen/app_grid_spacing"
-    android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter"
-    android:paddingTop="@dimen/grid_padding_top" android:paddingBottom="@dimen/grid_padding_bottom"
+    android:numColumns="3" android:stretchMode="columnWidth"
+    android:horizontalSpacing="@dimen/app_tile_gap" android:verticalSpacing="@dimen/app_tile_gap"
     android:focusable="true" android:focusableInTouchMode="true" android:clipToPadding="false" android:clipChildren="false"
-    android:listSelector="@drawable/grid_focus_ring" android:drawSelectorOnTop="true" android:gravity="center" />
+    android:requiresFadingEdge="vertical" android:fadingEdgeLength="@dimen/app_grid_fade" android:scrollbars="none"
+    android:listSelector="@android:color/transparent" android:drawSelectorOnTop="false" android:gravity="center" />

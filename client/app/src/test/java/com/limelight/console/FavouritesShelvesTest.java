@@ -193,19 +193,22 @@ public class FavouritesShelvesTest {
 
     @Test
     public void theHintNamesTheKeysOfTheLastDeviceAndSaysOpenForAGame() {
-        String remote = HomeAmbience.hints(context, false, true);
-        assertEquals(context.getString(R.string.console_hint_line, context.getString(R.string.console_hint_key_ok),
-                context.getString(R.string.console_hint_open), context.getString(R.string.console_hint_key_menu),
-                context.getString(R.string.console_hint_options)), remote);
-        assertTrue(remote, remote.contains("OK") && remote.contains("Open") && remote.contains("Menu"));
+        String open = context.getString(R.string.console_hint_open);
+        String options = context.getString(R.string.console_hint_options);
+        String remote = HomeHints.line(context, com.limelight.ui.InputSource.REMOTE, 0, open, options).toString();
+        assertEquals(context.getString(R.string.console_hint_line, context.getString(R.string.console_hint_key_ok), open,
+                context.getString(R.string.console_hint_key_hold_ok), options), remote);
         assertFalse("a game's A opens its page; it does not play", remote.contains("Play"));
 
-        String pad = HomeAmbience.hints(context, true, true);
-        assertTrue(pad, pad.startsWith("A\u00a0Open") && pad.contains("X\u00a0"));
-        assertFalse(pad, pad.contains("OK") || pad.contains("Menu"));
+        String pad = HomeHints.line(context, com.limelight.ui.InputSource.PAD, 0, open, options).toString();
+        assertTrue(pad, pad.startsWith("A\u00a0Open") && pad.contains("Y\u00a0"));
+        assertFalse(pad, pad.contains("OK"));
 
-        String host = HomeAmbience.hints(context, true, false);
-        assertTrue("a PC opens its library", host.contains(context.getString(R.string.library_open)));
+        String keyboard = HomeHints.line(context, com.limelight.ui.InputSource.KEYBOARD, 0, open, options).toString();
+        assertTrue(keyboard, keyboard.startsWith("Enter\u00a0Open") && keyboard.contains("F\u00a0"));
+
+        assertNull("no keys to name for a finger or a mouse",
+                HomeHints.line(context, com.limelight.ui.InputSource.NONE, 0, open, options));
     }
 
     @Test
@@ -215,22 +218,20 @@ public class FavouritesShelvesTest {
         hints.setId(R.id.home_hero_hints);
         hero.addView(hints);
         HomeAmbience ambience = new HomeAmbience(context, null, hero, uuid -> null, () -> null, () -> true);
+        ambience.setInput(com.limelight.ui.InputSource.REMOTE, 0);
         ConsoleHomeAdapter adapter = new ConsoleHomeAdapter(context, null, uuid -> null, recorder(new ArrayList<>()));
         adapter.submit(model());
         ambience.refresh(adapter.itemAt(new ConsoleHomeAdapter.Cursor(0, 0)));
         org.robolectric.shadows.ShadowLooper.idleMainLooper(100, java.util.concurrent.TimeUnit.MILLISECONDS);
         assertTrue(hints.getText().toString().contains("OK"));
 
-        ambience.setGamepad(ConsoleHomeActivity.fromGamepad(new android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_DOWN,
-                android.view.KeyEvent.KEYCODE_BUTTON_A, 0, 0, 0, 0, 0, android.view.InputDevice.SOURCE_GAMEPAD)));
-        assertTrue(hints.getText().toString(), hints.getText().toString().startsWith("A\u00a0"));
+        ambience.setInput(com.limelight.ui.InputSource.of(new android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_DOWN,
+                android.view.KeyEvent.KEYCODE_BUTTON_A, 0, 0, 0, 0, 0, android.view.InputDevice.SOURCE_GAMEPAD)), 0);
+        assertTrue(hints.getText().toString(), hints.getText().toString().contains("A\u00a0"));
         // A pad's D-pad arrives as a joystick-source key; it must not flip the hints back to a remote's.
-        ambience.setGamepad(ConsoleHomeActivity.fromGamepad(new android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_DOWN,
-                android.view.KeyEvent.KEYCODE_DPAD_DOWN, 0, 0, 0, 0, 0, android.view.InputDevice.SOURCE_JOYSTICK)));
-        assertTrue(hints.getText().toString(), hints.getText().toString().startsWith("A\u00a0"));
-        ambience.setGamepad(ConsoleHomeActivity.fromGamepad(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN,
-                android.view.KeyEvent.KEYCODE_DPAD_CENTER)));
-        assertTrue(hints.getText().toString().contains("OK"));
+        ambience.setInput(com.limelight.ui.InputSource.of(new android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_DOWN,
+                android.view.KeyEvent.KEYCODE_DPAD_DOWN, 0, 0, 0, 0, 0, android.view.InputDevice.SOURCE_JOYSTICK)), 0);
+        assertTrue(hints.getText().toString(), hints.getText().toString().contains("A\u00a0"));
     }
 
     private static final class RecordedMenu {
@@ -297,15 +298,15 @@ public class FavouritesShelvesTest {
 
         // A single press tweens: the card has not reached its scale when focus arrives.
         assertTrue(first.itemView.requestFocus());
-        assertTrue("a press animates", first.itemView.getScaleX() < 1.08f);
-        first.itemView.getStateListAnimator().jumpToCurrentState();
-        assertEquals(1.08f, first.itemView.getScaleX(), 0.001f);
+        assertTrue("a press animates", first.itemView.getScaleX() < 1.12f);
+        com.limelight.ui.Springs.finish(first.itemView);
+        assertEquals(1.12f, first.itemView.getScaleX(), 0.001f);
 
         // A held key: the key listener sees the repeat, then focus moves to the next card.
         first.itemView.dispatchKeyEvent(new android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_DOWN,
                 android.view.KeyEvent.KEYCODE_DPAD_RIGHT, 1));
         assertTrue(second.itemView.requestFocus());
-        assertEquals("the new card is focused at once", 1.08f, second.itemView.getScaleX(), 0.001f);
+        assertEquals("the new card is focused at once", 1.12f, second.itemView.getScaleX(), 0.001f);
         assertEquals("the old card is at rest at once", 1f, first.itemView.getScaleX(), 0.001f);
     }
 

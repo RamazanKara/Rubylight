@@ -1,6 +1,7 @@
 package com.limelight.ui;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
@@ -70,6 +71,100 @@ public class BackdropViewTest {
 
     private ImageView front() {
         return (ImageView) backdrop.getChildAt(1);
+    }
+
+    private void layOut() {
+        backdrop.measure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY));
+        backdrop.layout(0, 0, 1920, 1080);
+    }
+
+    @Test
+    public void theFadeIsBakedSoNoFullScreenGradientIsBlendedOnEachFrame() {
+        layOut();
+        backdrop.setFade(0xFF000000, new float[] {0f, 1f}, new float[] {0f, 1f});
+        Bitmap[] toGlass = new Bitmap[1];
+        backdrop.setAmbientListener((bitmap, animate) -> toGlass[0] = bitmap);
+        backdrop.focus("a", cover(), false);
+        pass(1000);
+
+        assertFalse(backdrop.paintsFade());
+        Bitmap showing = ((BitmapDrawable) back().getDrawable()).getBitmap();
+        int w = showing.getWidth();
+        int h = showing.getHeight();
+        assertTrue("the foot of the bitmap has the canvas in it", brightness(showing.getPixel(w / 2, h - 1)) < brightness(showing.getPixel(w / 2, 0)) / 4);
+        assertEquals("glass samples the ambient itself, as before", brightness(toGlass[0].getPixel(w / 2, 0)), brightness(toGlass[0].getPixel(w / 2, h - 1)), 4);
+    }
+
+    private static int brightness(int color) {
+        return (color >> 16 & 0xFF) + (color >> 8 & 0xFF) + (color & 0xFF);
+    }
+
+    @Test
+    public void aGameWithNoArtGivesTheAmbientItsTilesGradientNotThePlainCanvas() {
+        layOut();
+        backdrop.setCanvasColor(0xFF000000);
+        Bitmap[] toGlass = new Bitmap[1];
+        backdrop.setAmbientListener((bitmap, animate) -> toGlass[0] = bitmap);
+        backdrop.focus("tile", null, true, "Lunar Base", false);
+        pass(1000);
+        int w = toGlass[0].getWidth();
+        assertTrue("the gradient reached the ambient", brightness(toGlass[0].getPixel(w / 2, 0)) > 60);
+
+        // A PC or an All tile asks with no title: the canvas, as before.
+        toGlass[0] = null;
+        backdrop.focus("host", null, true, false);
+        pass(1000);
+        assertEquals(0, brightness(toGlass[0].getPixel(w / 2, 0)));
+    }
+
+    @Test
+    public void aWindowThatTurnsBakesTheShownGameAgainForItsShape() {
+        layOut();
+        Bitmap[] toGlass = new Bitmap[1];
+        backdrop.setAmbientListener((bitmap, animate) -> toGlass[0] = bitmap);
+        backdrop.setBake(false, true);
+        backdrop.focus("a", cover(), false);
+        pass(1000);
+        assertTrue("tall for a portrait window", toGlass[0].getHeight() > toGlass[0].getWidth());
+        backdrop.setBake(false, false);
+        pass(1000);
+        assertTrue("wide once the window turned", toGlass[0].getWidth() > toGlass[0].getHeight());
+    }
+
+    @Test
+    public void aDimStaysOverTheArtAloneSoTheFadeIsPaintedThen() {
+        layOut();
+        backdrop.setFade(0xFF000000, new float[] {0f, 1f}, new float[] {0f, 1f});
+        backdrop.setDim(0.85f);
+        backdrop.focus("a", cover(), false);
+        pass(1000);
+        assertTrue(backdrop.paintsFade());
+    }
+
+    @Test
+    public void aSizeUnknownAtTheBakeIsPaintedAndBakedOnceKnown() {
+        BackdropView unsized = new BackdropView(controller.get());
+        unsized.setWorker(Runnable::run);
+        unsized.setFade(0xFF000000, new float[] {0f, 1f}, new float[] {0f, 1f});
+        unsized.focus("a", cover(), false);
+        pass(1000);
+        assertTrue("no size yet: painted, so it is never missing", unsized.paintsFade());
+        unsized.layout(0, 0, 1920, 1080);
+        assertFalse(unsized.paintsFade());
+    }
+
+    @Test
+    public void theNextScreenAdoptsTheAmbientWithoutThisScreensFade() {
+        layOut();
+        backdrop.setFade(0xFF000000, new float[] {0f, 1f}, new float[] {0f, 1f});
+        Bitmap[] raw = new Bitmap[1];
+        backdrop.setAmbientListener((bitmap, animate) -> raw[0] = bitmap);
+        backdrop.focus("a", cover(), false);
+        pass(1000);
+
+        BackdropView next = new BackdropView(controller.get());
+        assertTrue(next.adopt("a"));
+        assertSame(raw[0], ((BitmapDrawable) ((ImageView) next.getChildAt(0)).getDrawable()).getBitmap());
     }
 
     @Test
@@ -144,7 +239,7 @@ public class BackdropViewTest {
         Bitmap first = ((BitmapDrawable) back().getDrawable()).getBitmap();
 
         backdrop.focus("b", cover(), false);
-        pass(BackdropView.SETTLE_MS + BackdropView.ZOOM_MS + 100);
+        pass(BackdropView.SETTLE_MS + BackdropView.FADE_MS + 100);
         assertEquals("the fade is over: the front layer is free", View.GONE, front().getVisibility());
         assertNull(front().getDrawable());
         assertEquals(1f, front().getScaleX(), 0f);
@@ -258,5 +353,5 @@ public class BackdropViewTest {
         assertEquals(1, page.changeCount());
     }
 
-    private static final long SETTLE_AND_FADE = BackdropView.SETTLE_MS + BackdropView.ZOOM_MS + 100;
+    private static final long SETTLE_AND_FADE = BackdropView.SETTLE_MS + BackdropView.FADE_MS + 100;
 }

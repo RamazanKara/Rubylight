@@ -48,9 +48,4 @@
     <string name="pin_key_delete">削除</string>
     <string name="pin_key_confirm">確定</string>
     <string name="pin_dots_description">%2$d 桁中 %1$d 桁入力済み</string>
-    <string name="pin_hint">上と下で行を選び、左、決定、右でその行のキーを押します。</string>
-    <string name="pin_row_1">1 行目: 1, 2, 3</string>
-    <string name="pin_row_2">2 行目: 4, 5, 6</string>
-    <string name="pin_row_3">3 行目: 7, 8, 9</string>
-    <string name="pin_row_4">4 行目: 削除, 0, 確定</string>
 </resources>

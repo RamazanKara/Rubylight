@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One screen for connecting, launching and a failed connection: stacked on a tall window. -->
+<com.limelight.ui.GlassHost xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto" android:id="@+id/conn_host"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:clipChildren="false">
+    <com.limelight.ui.BackdropView android:id="@+id/conn_backdrop" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:importantForAccessibility="no" />
+    <LinearLayout android:id="@+id/conn_column" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:orientation="vertical" android:gravity="center_horizontal" android:clipChildren="false" android:clipToPadding="false"
+        android:fitsSystemWindows="true">
+        <Space android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" />
+        <include layout="@layout/connecting_cover" />
+        <include layout="@layout/connecting_stage" />
+        <Space android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" />
+        <include layout="@layout/connecting_error" />
+        <com.limelight.ui.GlassButton android:id="@+id/conn_cancel" style="@style/Widget.Nightjar.Glass.Control"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="28dp"
+            android:minWidth="108dp" android:text="@android:string/cancel" />
+    </LinearLayout>
+</com.limelight.ui.GlassHost>

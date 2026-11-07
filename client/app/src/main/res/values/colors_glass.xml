@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The glass roles for the system theme; values-notnight has day's. The stream theme and its children name night's directly. -->
+<resources>
+    <color name="glass_canvas">@color/nj_tint_fade</color>
+    <color name="glass_placeholder">@color/nj_cover_placeholder</color>
+    <color name="glass_selectedfill">@color/nj_tint_selected_fill</color>
+    <color name="glass_selectedrim">@color/nj_tint_selected_rim_top</color>
+    <color name="glass_onselected">@color/nj_color_on_selected</color>
+    <color name="glass_controlfill">@color/nj_tint_control_fill</color>
+    <color name="glass_controlrim">@color/nj_tint_control_rim_top</color>
+    <!-- A control that floats over a cover with no frosting of its own: dense enough to read on the brightest art. -->
+    <color name="glass_control_over_art">#D914161F</color>
+    <color name="glass_grouponart">@color/nj_tint_group_on_art_fill</color>
+    <color name="glass_grouprim">@color/nj_tint_group_rim_top</color>
+    <color name="glass_separator">@color/nj_tint_separator</color>
+    <color name="glass_ring">@color/nj_focus_ring_color</color>
+    <color name="glass_ringonmoon">@color/nj_focus_ring_color_on_moon</color>
+    <color name="glass_gap">@color/nj_focus_gap_color</color>
+    <color name="glass_halo">@color/nj_focus_halo_color</color>
+    <color name="glass_ok">@color/nj_color_ok</color>
+    <color name="night_glass_canvas">@color/nj_tint_fade</color>
+    <color name="night_glass_placeholder">@color/nj_cover_placeholder</color>
+    <color name="night_glass_selectedfill">@color/nj_tint_selected_fill</color>
+    <color name="night_glass_selectedrim">@color/nj_tint_selected_rim_top</color>
+    <color name="night_glass_onselected">@color/nj_color_on_selected</color>
+    <color name="night_glass_controlfill">@color/nj_tint_control_fill</color>
+    <color name="night_glass_controlrim">@color/nj_tint_control_rim_top</color>
+    <color name="night_glass_control_over_art">#D914161F</color>
+    <color name="night_glass_grouponart">@color/nj_tint_group_on_art_fill</color>
+    <color name="night_glass_grouprim">@color/nj_tint_group_rim_top</color>
+    <color name="night_glass_separator">@color/nj_tint_separator</color>
+    <color name="night_glass_ring">@color/nj_focus_ring_color</color>
+    <color name="night_glass_ringonmoon">@color/nj_focus_ring_color_on_moon</color>
+    <color name="night_glass_gap">@color/nj_focus_gap_color</color>
+    <color name="night_glass_halo">@color/nj_focus_halo_color</color>
+    <color name="night_glass_ok">@color/nj_color_ok</color>
+    <!-- The moon gradient's low end (Play, a dialog's primary action). -->
+    <color name="glass_moon_low">#EE9F2E</color>
+</resources>

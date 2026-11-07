@@ -117,13 +117,21 @@ public final class StreamMenuHint {
         for (int id : InputDevice.getDeviceIds()) {
             InputDevice device = InputDevice.getDevice(id);
             if (device == null || device.isVirtual()) continue;
-            int sources = device.getSources();
-            if ((sources & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
-                    (sources & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK) {
-                return true;
-            }
+            int api = android.os.Build.VERSION.SDK_INT;
+            if (isPad(device.getSources(), api, api >= android.os.Build.VERSION_CODES.Q && device.isExternal())) return true;
         }
         return false;
+    }
+
+    /**
+     * A pad has axes, or the gamepad bit on a device plugged in or paired from outside: some report no axes. A TV's built-in
+     * {@code virtual-search} claims the gamepad bit next to its keyboard and D-pad, with no remote behind it but the one in the
+     * hand. Before API 29 nothing tells the two apart, so only axes count there.
+     */
+    static boolean isPad(int sources, int api, boolean external) {
+        if ((sources & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK) return true;
+        return api >= android.os.Build.VERSION_CODES.Q && external
+                && (sources & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD;
     }
 
     static boolean hasKeyboard() {

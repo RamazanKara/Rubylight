@@ -156,7 +156,7 @@ android {
         unitTests.all {
             maxParallelForks = 2
             // Robolectric keeps every locale's resource table in memory.
-            maxHeapSize = '1g'
+            maxHeapSize = '2g'
             // The suite takes about 5 minutes; a test that hangs fails the task here instead of
             // running into CI's 60-minute job limit.
             timeout = java.time.Duration.ofMinutes(20)
@@ -193,6 +193,8 @@ android {
         debug {
             // -PdebugIdSuffix=.n5 installs a side-by-side debug copy; the default stays ".debug".
             applicationIdSuffix project.findProperty("debugIdSuffix") ?: ".debug"
+            // -PdebugNotDebuggable keeps the debug sources (the demo) but runs at a user's speed, for frame-time A/Bs.
+            debuggable !project.hasProperty("debugNotDebuggable")
             resValue "string", "app_label", "${brandName} (Debug)"
             resValue "string", "app_label_root", "${brandName} (Root Debug)"
         }
@@ -513,6 +515,7 @@ androidComponents {
 dependencies {
     implementation 'androidx.window:window-java:1.4.0'
     implementation 'androidx.window:window-core:1.4.0'
+    implementation 'androidx.dynamicanimation:dynamicanimation:1.1.0'
     implementation('com.google.android.material:material:1.13.0') {
         // OkHttp already supplies the merged Kotlin 2.2 JVM standard library.
         exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'

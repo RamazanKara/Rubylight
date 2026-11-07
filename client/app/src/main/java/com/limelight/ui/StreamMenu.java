@@ -69,6 +69,15 @@ public final class StreamMenu {
         public final ComputerDetails host;
         /** The streamed app's name for the line under the title; null leaves only the PC's name. */
         public String appName;
+        /** The game's cover for the header; null leaves it out. */
+        public android.graphics.Bitmap cover;
+        /** The stream's bitrate for the slider on the first page, in kbps; 0 leaves the slider out. */
+        public int bitrateKbps;
+        /**
+         * Sends a bitrate the slider settled on and answers the rate the slider is to show: the one sent, or the one still applied
+         * when nothing could be sent. With no way to send it the slider is left out.
+         */
+        public java.util.function.IntUnaryOperator bitrateChange;
         public boolean canSendInput = true;
         public boolean microphoneOffered, microphoneMuted;
         /** The stream has a microphone button (not on a remote monitor), and whether it shows (its setting is on). */
@@ -429,6 +438,9 @@ public final class StreamMenu {
     // What the page was built from, so a refresh can tell a changed state from items that came or went.
     private List<Item> offeredItems = new ArrayList<>();
     private TileGrid grid;
+    // What each of the model's cells became: a tile or a status row. Hotkeys go by the model's order.
+    private android.view.View[] cells;
+    private StepSlider bitrateSlider;
     private TextView failure;
     // The shortcut being edited (null for a new one), and the editor's name and keys in their saved names.
     private KeyboardShortcuts.Shortcut editing;
@@ -537,6 +549,8 @@ public final class StreamMenu {
         rows.clear();
         keyCaps.clear();
         grid = null;
+        cells = null;
+        bitrateSlider = null;
         layout = null;
         failure = null;
         audioNote = null;
@@ -547,6 +561,8 @@ public final class StreamMenu {
                 ? activity.getString(editing == null ? R.string.keyboard_shortcuts_add : R.string.keyboard_shortcuts_edit)
                 : header != null ? header[0] : activity.getString(heading(target, o)));
         sheet.setSubtitle(header == null ? null : header[1]);
+        // The game's cover heads the first page only; a page below says where it is, its back button in the cover's place.
+        sheet.setCover(target == Page.MAIN && o.role == NvApp.Role.STREAM ? o.cover : null);
         sheet.setBackHandler(target == Page.MAIN ? null : this::back);
         if (target == Page.MAIN) renderGrid(o);
         else if (target == Page.SHORTCUTS) renderShortcuts();
@@ -605,9 +621,9 @@ public final class StreamMenu {
     }
 
     /**
-     * The first page: the grid the shared model lays out (the user's shortcuts and Add at its end), then Return to
-     * stream and the ways out of the session in the panel's footer. When the model cannot answer, the page says why and
-     * keeps the ways out.
+     * The first page: the grid the shared model lays out (the user's shortcuts and Add at its end), the bitrate and status
+     * rows, and the ways out of the session in the panel's footer; the header's X goes back to the stream. When the model
+     * cannot answer, the page says why and keeps the ways out.
      */
     private void renderGrid(Options o) {
         if (o.role == NvApp.Role.STREAM && o.hostAudioUnread) {
@@ -636,7 +652,16 @@ public final class StreamMenu {
             return;
         }
         grid = sheet.addTileGrid();
-        for (StreamMenuModel.Cell cell : layout.grid) {
+        // A remote has no face buttons: the caps show only while a controller could press them.
+        grid.setCapsShown(StreamMenuHint.hasGamepad());
+        cells = new android.view.View[layout.grid.size()];
+        List<StreamMenuModel.Cell> statusCells = new ArrayList<>();
+        for (int at = 0; at < layout.grid.size(); at++) {
+            StreamMenuModel.Cell cell = layout.grid.get(at);
+            if (cell.kind == StreamMenuModel.Cell.Kind.TILE && isStatusRow(cell.id)) {
+                statusCells.add(cell);
+                continue;
+            }
             MaterialButton tile;
             switch (cell.kind) {
                 case SHORTCUT: {
@@ -664,9 +689,60 @@ public final class StreamMenu {
                     tile.setOnClickListener(view -> choose(entry));
                 }
             }
+            cells[at] = tile;
             if (grid.getChildCount() == 1) sheet.setFirstAction(tile);
         }
+        addStatus(o, offered, statusCells, labels);
         addFooter(offered, layout.footer, labels);
+    }
+
+    // The model's cells that say something about the stream read better as rows with their value than as one more tile.
+    private static boolean isStatusRow(String id) {
+        return id.equals(id(Item.BITRATE)) || id.equals(id(Item.RATE_CHANGE))
+                || id.equals(id(Item.OVERLAY_PAGE)) || id.equals(id(Item.NATIVE_PAGE));
+    }
+
+    /** The bitrate slider and the status rows between the tiles and the ways out: the same items, in the model's words. */
+    private void addStatus(Options o, List<Entry> offered, List<StreamMenuModel.Cell> statusCells, java.util.Map<String, String> labels) {
+        if (statusCells.isEmpty()) return;
+        boolean native_ = false;
+        boolean quality = false;
+        for (StreamMenuModel.Cell cell : statusCells) {
+            native_ |= cell.id.equals(id(Item.NATIVE_PAGE));
+            quality |= cell.id.equals(id(Item.BITRATE)) || cell.id.equals(id(Item.RATE_CHANGE));
+        }
+        if (quality && o.bitrateKbps > 0 && o.bitrateChange != null) {
+            LinearLayout sliders = sheet.addRowGroup();
+            TextView[] shown = new TextView[1];
+            java.util.function.IntUnaryOperator change = o.bitrateChange;
+            bitrateSlider = BitrateSlider.inline(activity, o.bitrateKbps, text -> {
+                if (shown[0] != null) shown[0].setText(text);
+            }, change);
+            shown[0] = sheet.addSliderRow(sliders, activity.getString(R.string.stream_bitrate), BitrateSlider.text(activity, o.bitrateKbps), bitrateSlider);
+        }
+        LinearLayout group = sheet.addRowGroup();
+        String facts = o.connection == null ? null : o.connection.summary(activity);
+        for (StreamMenuModel.Cell cell : statusCells) {
+            Entry entry = find(offered, cell.id);
+            String value = null;
+            if (entry.item == Item.NATIVE_PAGE || (entry.item == Item.OVERLAY_PAGE && !native_)) value = facts;
+            else if ((entry.item == Item.BITRATE || entry.item == Item.RATE_CHANGE) && o.streamFps > 0) value = o.streamFps + " FPS";
+            MenuRow row = sheet.addStatusRow(group, label(labels, cell.id), value);
+            rows.put(entry.item, row);
+            entries.add(entry);
+            row.setOnClickListener(view -> choose(entry));
+            cells[layout.grid.indexOf(cell)] = row;
+        }
+    }
+
+    /** The view of the model's cell at this index on the first page. */
+    android.view.View cell(int index) {
+        return cells[index];
+    }
+
+    /** The first page's bitrate slider; null when it has none. */
+    StepSlider bitrateSlider() {
+        return bitrateSlider;
     }
 
     /**
@@ -738,19 +814,25 @@ public final class StreamMenu {
     }
 
     /**
-     * Return to stream, wide and filled, then the ways out in the model's order and in its words (all of them, in this
-     * client's words, when it failed). A way out only Android offers, a remote monitor's, keeps its own words.
+     * The round X back to the stream, then the ways out in the model's order and in its words (all of them, in this client's
+     * words, when it failed); the last that ends something is the one red control. A way out only Android offers, a remote
+     * monitor's, keeps its own words.
      */
     private void addFooter(List<Entry> offered, List<String> footer, java.util.Map<String, String> labels) {
         String back = labels != null ? label(labels, StreamMenuModel.CLOSE) : activity.getString(R.string.stream_menu_return);
-        MaterialButton close = sheet.addPrimaryAction(R.drawable.ic_play, back, "B");
+        MaterialButton close = sheet.panelClose();
+        close.setContentDescription(back + ", B");
         rows.put(Item.CLOSE, close);
-        close.setOnClickListener(view -> sheet.dismiss());
         if (grid == null) sheet.setFirstAction(close);
+        Entry red = null;
+        for (Entry entry : offered) {
+            if (entry.section == Section.SESSION && entry.destructive && (footer == null || footer.contains(id(entry.item)))) red = entry;
+        }
         for (Entry entry : offered) {
             if (entry.section != Section.SESSION || (footer != null && !footer.contains(id(entry.item)))) continue;
             String name = labels != null && labels.containsKey(id(entry.item)) ? label(labels, id(entry.item)) : activity.getString(entry.label);
-            MaterialButton button = sheet.addFooterAction(entry.icon, name, entry.destructive, footerHotkey(entry.item));
+            int icon = entry == red ? R.drawable.ic_glass_power : entry.item == Item.DISCONNECT ? R.drawable.ic_stream_leave : entry.icon;
+            MaterialButton button = sheet.addFooterAction(icon, name, entry == red, footerHotkey(entry.item));
             rows.put(entry.item, button);
             entries.add(entry);
             button.setOnClickListener(view -> choose(entry));
@@ -807,7 +889,7 @@ public final class StreamMenu {
         }
         int index = layout.hotkey(key);
         if (index >= 0) {
-            grid.getChildAt(index).performClick();
+            cells[index].performClick();
             return true;
         }
         String id = layout.buttons.get(key);

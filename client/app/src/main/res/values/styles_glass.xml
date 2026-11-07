@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="TextAppearance.Nightjar.Glass.Section" parent="TextAppearance.Nightjar.Title">
+        <item name="android:textSize">@dimen/nj_type_section_size</item>
+        <item name="lineHeight">@dimen/nj_type_section_line</item>
+    </style>
+    <style name="TextAppearance.Nightjar.Glass.PageTitle" parent="">
+        <item name="android:textSize">@dimen/pcs_hero_title</item>
+    </style>
+    <style name="TextAppearance.Nightjar.Glass.PageStatus" parent="">
+        <item name="android:textSize">14sp</item>
+    </style>
+    <style name="TextAppearance.Nightjar.Glass.PcsTitle" parent="">
+        <item name="android:textSize">36sp</item>
+    </style>
+    <style name="TextAppearance.Nightjar.Glass.Size15" parent="">
+        <item name="android:textSize">15sp</item>
+    </style>
+    <style name="TextAppearance.Nightjar.Supporting.TileUpdate">
+        <item name="android:textSize">@dimen/tile_update_text</item>
+    </style>
+    <!-- The section's name over a two-pane page. -->
+    <style name="TextAppearance.Nightjar.Glass.PaneTitle" parent="">
+        <item name="android:textSize">@dimen/nj_type_title_size</item>
+    </style>
+    <!-- A row of a TV's rail. -->
+    <style name="TextAppearance.Nightjar.Glass.TvRailRow" parent="TextAppearance.Nightjar.Title">
+        <item name="android:textSize">20sp</item>
+    </style>
+    <style name="TextAppearance.Nightjar.Glass.Size17" parent="">
+        <item name="android:textSize">17sp</item>
+    </style>
+    <style name="TextAppearance.Nightjar.Glass.Size16" parent="">
+        <item name="android:textSize">16sp</item>
+    </style>
+    <style name="TextAppearance.Nightjar.Glass.Hint" parent="TextAppearance.Nightjar.Label">
+        <item name="android:textSize">14sp</item>
+    </style>
+    <style name="TextAppearance.Nightjar.Glass.Tab" parent="TextAppearance.Nightjar.Label">
+        <item name="android:textSize">@dimen/nj_type_tab_size</item>
+        <item name="lineHeight">@dimen/nj_type_tab_line</item>
+    </style>
+    <style name="TextAppearance.Nightjar.Glass.Capsule" parent="TextAppearance.Nightjar.Label">
+        <item name="android:textSize">15sp</item>
+        <item name="lineHeight">20sp</item>
+    </style>
+    <style name="TextAppearance.Nightjar.Glass.Play" parent="TextAppearance.Nightjar.Label">
+        <item name="android:textSize">18sp</item>
+        <item name="lineHeight">24sp</item>
+    </style>
+    <style name="TextAppearance.Nightjar.Glass.Hero" parent="TextAppearance.Nightjar.Label">
+        <item name="android:textSize">39sp</item>
+        <item name="lineHeight">42sp</item>
+        <item name="android:letterSpacing">-0.02</item>
+    </style>
+    <style name="Widget.Nightjar.Glass.Play" parent="Widget.Material3.Button">
+        <item name="android:minHeight">@dimen/nj_size_play_height</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:paddingStart">30dp</item>
+        <item name="android:paddingEnd">30dp</item>
+        <item name="android:textAppearance">@style/TextAppearance.Nightjar.Glass.Play</item>
+        <item name="icon">@drawable/ic_glass_play</item>
+        <item name="iconSize">24dp</item>
+        <item name="iconPadding">12dp</item>
+        <item name="iconGravity">textStart</item>
+        <item name="glassMoon">true</item>
+        <item name="elevation">0dp</item>
+        <item name="android:stateListAnimator">@null</item>
+        <item name="rippleColor">@color/shell_item_ripple</item>
+    </style>
+    <!-- Words alone until focus puts the ring around them. -->
+    <style name="Widget.Nightjar.Glass.Link" parent="Widget.Nightjar.Glass.Control">
+        <item name="android:paddingLeft">12dp</item>
+        <item name="android:paddingRight">12dp</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:textColor">?attr/colorPrimary</item>
+        <item name="glassLink">true</item>
+    </style>
+    <style name="Widget.Nightjar.Glass.Control" parent="Widget.Material3.Button">
+        <item name="android:minHeight">@dimen/touch_target</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:paddingStart">18dp</item>
+        <item name="android:paddingEnd">18dp</item>
+        <item name="android:textAppearance">@style/TextAppearance.Nightjar.Glass.Capsule</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+        <item name="iconTint">?attr/colorOnSurface</item>
+        <item name="iconSize">20dp</item>
+        <item name="iconPadding">8dp</item>
+        <item name="iconGravity">textStart</item>
+        <item name="elevation">0dp</item>
+        <item name="android:stateListAnimator">@null</item>
+        <item name="rippleColor">@color/shell_item_ripple</item>
+    </style>
+</resources>

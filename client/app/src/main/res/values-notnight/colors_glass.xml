@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="glass_canvas">@color/nj_day_tint_fade</color>
+    <color name="glass_placeholder">@color/nj_cover_placeholder</color>
+    <color name="glass_selectedfill">@color/nj_day_tint_selected_fill</color>
+    <color name="glass_selectedrim">@color/nj_day_tint_selected_rim_top</color>
+    <color name="glass_onselected">@color/nj_day_color_on_selected</color>
+    <color name="glass_controlfill">@color/nj_day_tint_control_fill</color>
+    <color name="glass_controlrim">@color/nj_day_tint_control_rim_top</color>
+    <color name="glass_control_over_art">#E6FFFFFF</color>
+    <color name="glass_grouponart">@color/nj_day_tint_group_on_art_fill</color>
+    <color name="glass_grouprim">@color/nj_day_tint_group_rim_top</color>
+    <color name="glass_separator">@color/nj_day_tint_separator</color>
+    <color name="glass_ring">@color/nj_day_focus_ring_color</color>
+    <color name="glass_ringonmoon">@color/nj_day_focus_ring_color_on_moon</color>
+    <color name="glass_gap">@color/nj_day_focus_gap_color</color>
+    <color name="glass_halo">@color/nj_day_focus_halo_color</color>
+    <color name="glass_ok">@color/nj_day_color_ok</color>
+</resources>

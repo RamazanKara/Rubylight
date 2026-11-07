@@ -2,16 +2,23 @@ package com.limelight.grid;
 
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.graphics.Color;
+import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AdapterView;
+import android.widget.ImageButton;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
+import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat;
 
+import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.color.MaterialColors;
 import com.limelight.PcView;
 import com.limelight.R;
@@ -20,6 +27,12 @@ import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.PairingManager;
 import com.limelight.nvstream.wol.WakeTargets;
 import com.limelight.preferences.PreferenceConfiguration;
+import com.limelight.ui.AppTheme;
+import com.limelight.ui.GlassButton;
+import com.limelight.ui.GlassForm;
+import com.limelight.ui.NightSkyView;
+import com.limelight.ui.PcRow;
+import com.limelight.ui.PcScreen;
 import com.limelight.update.HostUpdateChecker;
 
 import java.util.Collections;
@@ -38,11 +51,15 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
     }
 
     public PcGridAdapter(Context context, PreferenceConfiguration prefs) {
-        super(context, R.layout.pc_grid_item);
+        super(context, layoutFor(context));
     }
 
     public void updateLayoutWithPreferences(Context context, PreferenceConfiguration prefs) {
-        setLayoutId(R.layout.pc_grid_item);
+        setLayoutId(layoutFor(context));
+    }
+
+    private static int layoutFor(Context context) {
+        return GlassForm.of(context) == GlassForm.PHONE ? R.layout.pc_grid_item : R.layout.pc_grid_card;
     }
 
     public void addComputer(PcView.ComputerObject computer) {
@@ -129,56 +146,106 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
         }
     }
 
+    /** What a PC's visible action does. */
+    public interface Actions {
+        /** The running PC's Resume. */
+        void onResume(PcView.ComputerObject computer);
+
+        /** What a tap on the row does: Open, Wake or Pair. */
+        void onMain(PcView.ComputerObject computer);
+    }
+
+    public void setActions(Actions actions) {
+        this.actions = actions;
+    }
+
+    /** The short line under a PC's name, real data only: the game it plays, or its state in a word. */
+    public static String shortStatus(Context context, PcView.ComputerObject computer) {
+        switch (computer.rowState()) {
+            case RUNNING:
+                return computer.runningGame != null ? computer.runningGame.getAppName() :
+                        context.getString(R.string.pc_status_playing_unknown);
+            case READY:
+                return context.getString(R.string.pc_status_online);
+            case NOT_PAIRED:
+                return context.getString(R.string.pc_status_not_paired);
+            case WAKING:
+                return context.getString(R.string.pc_status_waking);
+            case OFFLINE:
+                return context.getString(R.string.pc_offline);
+            default:
+                return context.getString(R.string.pc_checking);
+        }
+    }
+
+    /** The word on a PC's action, or 0 for none (a PC being checked, or away with nothing saved to wake it with). */
+    public static int actionWord(Context context, PcView.ComputerObject computer) {
+        switch (computer.rowState()) {
+            case RUNNING:
+                return R.string.applist_menu_resume;
+            case READY:
+                return R.string.console_hint_open;
+            case NOT_PAIRED:
+                return R.string.pcview_menu_pair_pc;
+            case OFFLINE:
+                return WakeTargets.hasMac(context, computer.details) ? R.string.pc_action_wake : 0;
+            default:
+                return 0;
+        }
+    }
+
     @Override
     public void populateView(View parentView, ImageView imgView, ProgressBar prgView, TextView txtView, PcView.ComputerObject obj) {
         RowState state = obj.rowState();
         boolean checking = state == RowState.CHECKING;
         boolean away = state == RowState.OFFLINE || state == RowState.WAKING;
-        imgView.setVisibility(checking ? View.INVISIBLE : View.VISIBLE);
+        boolean card = !(parentView instanceof PcRow);
+        boolean running = state == RowState.RUNNING;
+
+        // The glyph on the screen: a crescent while away, a lock until paired, a spinner while looking.
+        int glyph = away ? R.drawable.ic_glass_moon : state == RowState.NOT_PAIRED ? R.drawable.ic_glass_lock : 0;
+        imgView.setImageResource(glyph);
+        imgView.setImageTintList(ColorStateList.valueOf(away
+                ? MaterialColors.getColor(imgView, com.google.android.material.R.attr.colorOnSurfaceVariant) : Color.WHITE));
+        imgView.setVisibility(glyph == 0 ? View.INVISIBLE : View.VISIBLE);
         prgView.setVisibility(checking ? View.VISIBLE : View.GONE);
-        // A PC that doesn't answer steps back: its icon and name take the quieter colours.
-        imgView.setImageTintList(ColorStateList.valueOf(MaterialColors.getColor(imgView, away ?
-                com.google.android.material.R.attr.colorOutline : com.google.android.material.R.attr.colorOnSurfaceVariant)));
         txtView.setText(obj.details.displayName());
-        txtView.setTextColor(MaterialColors.getColor(txtView, away ?
-                com.google.android.material.R.attr.colorOnSurfaceVariant : com.google.android.material.R.attr.colorOnSurface));
 
         String status = statusText(context, obj);
         TextView statusView = parentView.findViewById(R.id.grid_status);
-        statusView.setText(status);
-        // A state is a word plus an icon, never colour alone; a PC playing a game reads in the ok colour, not the amber
-        // that marks actions and selection.
-        statusView.setTextColor(state == RowState.RUNNING ?
-                androidx.core.content.ContextCompat.getColor(context, R.color.status_ok) :
-                MaterialColors.getColor(statusView, com.google.android.material.R.attr.colorOnSurfaceVariant));
-        statusView.setCompoundDrawablesRelativeWithIntrinsicBounds(phoneDot(state), 0, 0, 0);
+        statusView.setText(shortStatus(context, obj));
+        statusView.setCompoundDrawablesRelativeWithIntrinsicBounds(statusDot(state), 0, 0, 0);
 
-        ImageView backdrop = parentView.findViewById(R.id.grid_backdrop);
-        if (backdrop != null) {
-            // A TV tile: its state is the dot's colour too, and the tile's background is the game it plays or its state's gradient.
-            statusView.setTextColor(MaterialColors.getColor(statusView, away ?
-                    com.google.android.material.R.attr.colorOnSurfaceVariant : com.google.android.material.R.attr.colorOnSurface));
-            statusView.setCompoundDrawablesRelativeWithIntrinsicBounds(dot(state), 0, 0, 0);
+        PcScreen screen = parentView.findViewById(R.id.grid_screen);
+        screen.bind(obj.details.displayName(), away);
+        if (tiles == null) tiles = new TileBackdrops(context);
+        ImageView face = parentView.findViewById(R.id.grid_backdrop);
+        if (card) {
             size(parentView.findViewById(R.id.grid_card), R.dimen.tile_height);
-            size(parentView.findViewById(R.id.grid_scrim), R.dimen.tile_scrim);
-            if (tiles == null) tiles = new TileBackdrops(context);
-            tiles.show(backdrop, obj.details.uuid, obj.runningGame, state);
+            MaterialCardView cardView = parentView.findViewById(R.id.grid_card);
+            cardView.setCardBackgroundColor(NightSkyView.groupFill(context));
+            if (AppTheme.isHighContrast(context)) {
+                cardView.setStrokeColor(ContextCompat.getColor(context, R.color.nj_hc_color_rim));
+                cardView.setStrokeWidth(context.getResources().getDimensionPixelSize(R.dimen.nj_glass_chrome_solid_rim_width));
+            }
+            tiles.show(face, obj.details.uuid, obj.runningGame, state, TileBackdrops.Cut.SCREEN);
+        } else {
+            bindRow((PcRow) parentView, obj, running);
+            ImageView cover = parentView.findViewById(R.id.grid_cover);
+            if (running && obj.runningGame != null) {
+                ((TextView) parentView.findViewById(R.id.grid_cover_text)).setText(obj.runningGame.getAppName());
+                tiles.show(cover, obj.details.uuid, obj.runningGame, state, TileBackdrops.Cut.COVER);
+                face.setImageDrawable(null);
+            } else {
+                cover.setImageDrawable(null);
+                tiles.show(face, obj.details.uuid, obj.runningGame, state, TileBackdrops.Cut.SCREEN);
+            }
         }
+        bindActions(parentView, obj);
 
         String update = HostUpdateChecker.availableVersion(context, obj.details.caps);
         TextView updateView = parentView.findViewById(R.id.grid_update);
-        int updateVisibility = update == null ? View.GONE : View.VISIBLE;
-        // Tiles have one height whatever they say, so a tile with no update keeps its name at the foot.
-        if (update == null && backdrop == null) {
-            // GridView advances to the next row using the last card's height.
-            for (PcView.ComputerObject computer : itemList) {
-                if (HostUpdateChecker.availableVersion(context, computer.details.caps) != null) {
-                    updateVisibility = View.INVISIBLE;
-                    break;
-                }
-            }
-        }
-        updateView.setVisibility(updateVisibility);
+        updateView.setVisibility(update == null ? View.GONE : View.VISIBLE);
         if (update != null) {
             updateView.setText(context.getString(R.string.host_update_available, update));
             status += ". " + updateView.getText();
@@ -197,6 +264,79 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
                 context.getString(R.string.pc_accessibility_actions), (view, arguments) -> openOptions(view));
     }
 
+    /** A phone's row: a running PC stands alone with its cover and the action row under its name, the rest share one group. */
+    private void bindRow(PcRow row, PcView.ComputerObject obj, boolean running) {
+        android.content.res.Resources res = context.getResources();
+        float density = res.getDisplayMetrics().density;
+        int position = itemList.indexOf(obj);
+        boolean next = position + 1 < itemList.size();
+        boolean starts = running || position == 0 || itemList.get(position - 1).rowState() == RowState.RUNNING;
+        boolean ends = running || !next;
+        row.setPlace(starts, ends, next, 104 * density);
+
+        boolean withCover = running && obj.runningGame != null;
+        row.findViewById(R.id.grid_cover_frame).setVisibility(withCover ? View.VISIBLE : View.GONE);
+        row.findViewById(R.id.grid_screen).setVisibility(withCover ? View.GONE : View.VISIBLE);
+        LinearLayout rowLine = row.findViewById(R.id.grid_row);
+        LinearLayout body = row.findViewById(R.id.grid_body);
+        LinearLayout actions = row.findViewById(R.id.grid_actions);
+        rowLine.setGravity(running ? Gravity.TOP : Gravity.CENTER_VERTICAL);
+        int pad = Math.round(density * (running ? 14 : 11));
+        rowLine.setPaddingRelative(Math.round(14 * density), pad, Math.round((running ? 14 : 8) * density), pad);
+        ViewGroup wanted = running ? body : rowLine;
+        if (actions.getParent() != wanted) {
+            ((ViewGroup) actions.getParent()).removeView(actions);
+            LinearLayout.LayoutParams params = running
+                    ? new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    : new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            if (running) params.topMargin = Math.round(12 * density);
+            else params.setMarginStart(Math.round(8 * density));
+            wanted.addView(actions, params);
+        }
+        ImageButton more = row.findViewById(R.id.grid_more);
+        LinearLayout.LayoutParams moreSize = (LinearLayout.LayoutParams) more.getLayoutParams();
+        int moreWidth = Math.round((running ? 48 : 40) * density);
+        if (moreSize.width != moreWidth) {
+            moreSize.width = moreWidth;
+            moreSize.setMarginStart(Math.round((running ? 10 : 2) * density));
+            more.setLayoutParams(moreSize);
+        }
+        more.setBackgroundResource(running ? R.drawable.pc_more_filled : R.drawable.pc_more_quiet);
+        TextView name = row.findViewById(R.id.grid_text);
+        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, running ? 19 : 17);
+    }
+
+    /** One action on a PC, and its look: the moon for Resume, the control for the rest, Pair in the moon's ink. A TV's keys say it instead. */
+    private void bindActions(View parent, PcView.ComputerObject obj) {
+        boolean television = GlassForm.of(context) == GlassForm.TELEVISION;
+        RowState state = obj.rowState();
+        View resume = parent.findViewById(R.id.grid_resume);
+        GlassButton action = parent.findViewById(R.id.grid_action);
+        int word = television ? 0 : actionWord(context, obj);
+        boolean running = state == RowState.RUNNING;
+        resume.setVisibility(running && word != 0 ? View.VISIBLE : View.GONE);
+        action.setVisibility(!running && word != 0 ? View.VISIBLE : View.GONE);
+        if (running && word != 0) {
+            resume.setOnClickListener(v -> {
+                if (actions != null) actions.onResume(obj);
+            });
+        } else if (word != 0) {
+            action.setText(word);
+            action.setTextColor(state == RowState.NOT_PAIRED ? NightSkyView.moonInk(context)
+                    : MaterialColors.getColor(action, com.google.android.material.R.attr.colorOnSurface));
+            action.setIconResource(state == RowState.OFFLINE ? R.drawable.ic_glass_power : 0);
+            action.setOnClickListener(v -> {
+                if (actions != null) actions.onMain(obj);
+            });
+        }
+    }
+
+    /** The dot beside a PC's state; a PC that is not paired has none, its screen shows a lock. */
+    static int statusDot(RowState state) {
+        return state == RowState.NOT_PAIRED ? 0 : state == RowState.RUNNING || state == RowState.READY ? R.drawable.pc_dot_on : R.drawable.pc_dot_off;
+    }
+
+    private Actions actions;
     private TileBackdrops tiles;
 
     /** A TV tile part's height at the current font scale: its height at scale 1, plus what the text stack grows by. */
@@ -217,19 +357,13 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
         }
     }
 
-    /**
-     * A phone row's status dot: the theme's ok colour for a PC that is up (the TV's green is the night tone, made for its
-     * dark tiles), and the TV's neutral dots otherwise.
-     */
+    /** The PC sheet's status dot: the theme's ok colour for a PC that is up, the neutral dots otherwise. */
     public static int phoneDot(RowState state) {
         int dot = dot(state);
         return dot == R.drawable.tv_dot_live ? R.drawable.status_dot_ok : dot;
     }
 
-    /**
-     * A TV tile's status dot: green for a PC that is up, a filled neutral dot for one waiting on something (not paired,
-     * waking, checking), and an outlined one for a PC that is offline.
-     */
+    /** Green for a PC that is up, a filled neutral dot for one waiting on something, an outlined one for a PC that is offline. */
     public static int dot(RowState state) {
         switch (state) {
             case RUNNING:

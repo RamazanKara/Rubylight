@@ -71,8 +71,7 @@ public class AdaptiveGridView extends GridView {
     private static final long ENTER_MS = 220;
     private static final long ENTER_STAGGER_MS = 18;
     private static final float ENTER_RISE_DP = 24;
-    private java.util.List<View> entering;
-    private final Runnable enterDone = () -> entering = null;
+    private android.animation.ValueAnimator entering;
 
     public AdaptiveGridView(Context context) {
         super(context);
@@ -91,6 +90,7 @@ public class AdaptiveGridView extends GridView {
         if (policySet && this.computers == computers && this.smallIcons == smallIcons) return;
         policySet = true;
         this.computers = computers;
+        setChildrenDrawingOrderEnabled(!computers);
         this.smallIcons = smallIcons;
         requestLayout();
     }
@@ -231,7 +231,7 @@ public class AdaptiveGridView extends GridView {
      * first. Meant for the first time a screen fills, once its list has been handed to the grid. Nothing with Reduce motion.
      */
     public void playEnter() {
-        if (computers || !isTelevision() || Motion.reduced(getContext())) return;
+        if (computers || Motion.reduced(getContext())) return;
         getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
             @Override public boolean onPreDraw() {
                 getViewTreeObserver().removeOnPreDrawListener(this);
@@ -246,33 +246,52 @@ public class AdaptiveGridView extends GridView {
         int count = Math.min(getChildCount(), ENTER_CARDS);
         if (count == 0 || !isAttachedToWindow()) return;
         int columns = Math.max(1, getNumColumns());
+        long longest = 0;
+        for (int i = 0; i < count; i++) longest = Math.max(longest, ENTER_STAGGER_MS * (i / columns + i % columns));
+        android.animation.ValueAnimator animator = android.animation.ValueAnimator.ofFloat(0f, longest + ENTER_MS);
+        animator.setDuration(longest + ENTER_MS);
+        animator.setInterpolator(new android.view.animation.LinearInterpolator());
+        animator.addUpdateListener(a -> { if (a == entering) applyEnter(); });
+        animator.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator a) {
+                if (a == entering) endEnter();
+            }
+        });
+        entering = animator;
+        applyEnter();
+        animator.start();
+    }
+
+    /**
+     * Each card from where the rise has got to, by its place and not by the view: the list's next pass, which a cover's
+     * arrival or the adapter's first refresh brings within the rise, hands out other views for the same places.
+     */
+    private void applyEnter() {
+        float at = (float) entering.getAnimatedValue();
+        int columns = Math.max(1, getNumColumns());
         float rise = ENTER_RISE_DP * getResources().getDisplayMetrics().density;
         android.view.animation.Interpolator settle = settleInterpolator();
-        java.util.List<View> cards = new java.util.ArrayList<>(count);
-        long longest = 0;
-        for (int i = 0; i < count; i++) {
+        for (int i = 0; i < getChildCount(); i++) {
             View card = getChildAt(i);
-            long delay = ENTER_STAGGER_MS * (i / columns + i % columns);
-            card.setAlpha(0f);
-            card.setTranslationY(rise);
-            card.animate().alpha(1f).translationY(0f).setStartDelay(delay).setDuration(ENTER_MS).setInterpolator(settle);
-            cards.add(card);
-            longest = Math.max(longest, delay);
+            float shown = 1f;
+            if (i < ENTER_CARDS) {
+                float part = (at - ENTER_STAGGER_MS * (i / columns + i % columns)) / ENTER_MS;
+                shown = settle.getInterpolation(Math.max(0f, Math.min(1f, part)));
+            }
+            card.setAlpha(shown);
+            card.setTranslationY(glideOffset + rise * (1f - shown));
         }
-        entering = cards;
-        postDelayed(enterDone, longest + ENTER_MS + 50);
     }
 
     /** Puts the rising cards where they are going, at once. */
     private void endEnter() {
-        java.util.List<View> cards = entering;
-        if (cards == null) return;
+        android.animation.ValueAnimator animator = entering;
+        if (animator == null) return;
         entering = null;
-        removeCallbacks(enterDone);
-        for (View card : cards) {
-            card.animate().cancel();
-            card.setAlpha(1f);
-            card.setTranslationY(glideOffset);
+        animator.cancel();
+        for (int i = 0; i < getChildCount(); i++) {
+            getChildAt(i).setAlpha(1f);
+            getChildAt(i).setTranslationY(glideOffset);
         }
     }
 
@@ -368,12 +387,31 @@ public class AdaptiveGridView extends GridView {
     protected void onFocusChanged(boolean gainFocus, int direction, android.graphics.Rect previouslyFocusedRect) {
         super.onFocusChanged(gainFocus, direction, previouslyFocusedRect);
         if (!gainFocus) markAction(null);
+        // A PC row's ring follows the grid's focus, not only its own selection.
+        for (int i = 0; i < getChildCount(); i++) {
+            View child = getChildAt(i);
+            if (child instanceof GridCover) ((GridCover) child).update();
+            else if (computers) child.invalidate();
+        }
     }
+
+    private final java.util.function.BooleanSupplier fastTravel = this::isFastTravel;
 
     @Override
     protected void layoutChildren() {
         View action = markedAction;
         super.layoutChildren();
+        // The grid sets a card's selection while it is off the view tree, where the card cannot ask about the grid's focus.
+        if (!computers) {
+            for (int i = 0; i < getChildCount(); i++) {
+                View child = getChildAt(i);
+                if (child instanceof GridCover) {
+                    GridCover cover = (GridCover) child;
+                    cover.setInstant(fastTravel);
+                    cover.update();
+                }
+            }
+        }
         // A rebuilt or recycled card no longer holds the marked button.
         if (action != null && action != selectedAction()) markAction(null);
         if (travel.isActive(SystemClock.uptimeMillis())) {
@@ -381,6 +419,7 @@ public class AdaptiveGridView extends GridView {
             for (int i = 0; i < getChildCount(); i++) FastTravel.settle(getChildAt(i));
         }
         if (glideOffset != 0) applyGlide();
+        if (entering != null) applyEnter();
         if (revealPending) {
             noteScroll();
             removeCallbacks(revealSelection);
@@ -388,6 +427,45 @@ public class AdaptiveGridView extends GridView {
         } else {
             contentY = contentY();
         }
+    }
+
+    /** The selected card lifts over its neighbours: its ring and halo reach past the gap. */
+    @Override
+    protected int getChildDrawingOrder(int childCount, int i) {
+        int selected = getSelectedItemPosition() - getFirstVisiblePosition();
+        if (selected < 0 || selected >= childCount) return i;
+        if (i == childCount - 1) return selected;
+        return i < selected ? i : i + 1;
+    }
+
+    /**
+     * A library's rows stop at the grid's top, where the chrome ends. The selected card's halo reaches past that, so the grid
+     * clips each row itself, cheaply, and leaves the selected card out: a parent's clip cut the halo in a straight line.
+     */
+    @Override
+    protected boolean drawChild(android.graphics.Canvas canvas, View child, long drawingTime) {
+        if (!clipsAtTop(child)) return super.drawChild(canvas, child, drawingTime);
+        int save = canvas.save();
+        canvas.clipRect(0, 0, getWidth(), getHeight());
+        boolean more = super.drawChild(canvas, child, drawingTime);
+        canvas.restoreToCount(save);
+        return more;
+    }
+
+    /**
+     * A TV library's rows fade under the title over the whole fade once the grid is scrolled at all, as All games' list
+     * does. The platform's grid scales the fade by how far its first row has passed the padding, so a row scrolled a little
+     * kept a fade as short as that and stopped on a hard line under the title.
+     */
+    @Override
+    protected float getTopFadingEdgeStrength() {
+        float strength = super.getTopFadingEdgeStrength();
+        return !computers && isTelevision() && strength > 0f ? 1f : strength;
+    }
+
+    /** Every card but the selected one at rest; one on its way in a glide may be up under the chrome. */
+    boolean clipsAtTop(View child) {
+        return !computers && (child != getSelectedView() || glideOffset != 0);
     }
 
     /** The overflow button of the selected card, if it shows one. */
@@ -451,37 +529,6 @@ public class AdaptiveGridView extends GridView {
         return height > 0 && height / getResources().getDisplayMetrics().density < SHORT_VIEWPORT_DP;
     }
 
-    /** The side padding the layout (or a later setPadding) gave, before {@link #centreTiles} adds to it. */
-    private int[] basePadding;
-    /** The side padding centreTiles last set: anything else on the view now came from outside and is the new base. */
-    private int[] centredPadding;
-
-    private int[] basePadding() {
-        int left = getPaddingLeft();
-        int right = getPaddingRight();
-        if (basePadding == null || centredPadding == null || left != centredPadding[0] || right != centredPadding[1]) {
-            basePadding = new int[] {left, right};
-        }
-        return basePadding;
-    }
-
-    /**
-     * TV PC tiles have a fixed width (pc_grid_view's columnWidth, no stretching): a few PCs sit as one centred row, and more
-     * fill rows from the left of a centred block. GridView has no centring of its own, so the side padding takes the rest.
-     */
-    private int centreTiles(int columns, int width, int[] base) {
-        android.widget.ListAdapter adapter = getAdapter();
-        int count = adapter == null ? 0 : adapter.getCount();
-        int used = Math.max(1, Math.min(columns, count));
-        int cell = getRequestedColumnWidth();
-        int side = cell <= 0 ? 0 : Math.max(0, (width - used * cell - (used - 1) * getRequestedHorizontalSpacing()) / 2);
-        int left = base[0] + side;
-        int right = base[1] + side;
-        centredPadding = new int[] {left, right};
-        if (left != getPaddingLeft() || right != getPaddingRight()) setPadding(left, getPaddingTop(), right, getPaddingBottom());
-        return used;
-    }
-
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         if (policySet && MeasureSpec.getMode(widthMeasureSpec) != MeasureSpec.UNSPECIFIED) {
@@ -490,11 +537,17 @@ public class AdaptiveGridView extends GridView {
             float fontScale = Math.max(1, configuration.fontScale);
             boolean television = (configuration.uiMode & Configuration.UI_MODE_TYPE_MASK)
                     == Configuration.UI_MODE_TYPE_TELEVISION;
-            int[] base = basePadding();
-            int width = Math.max(0, MeasureSpec.getSize(widthMeasureSpec) - base[0] - base[1]);
+            int width = Math.max(0, MeasureSpec.getSize(widthMeasureSpec) - getPaddingLeft() - getPaddingRight());
             int columns = AdaptiveLayout.gridColumns(width / density / fontScale,
                     MeasureSpec.getSize(heightMeasureSpec) / density, computers, smallIcons, television);
-            if (computers && television) columns = centreTiles(columns, width, base);
+            if (computers && GlassForm.of(getContext()) != GlassForm.PHONE) {
+                int cell = getRequestedColumnWidth();
+                columns = cell <= 0 ? columns : Math.max(1, width / cell);
+            } else if (computers) {
+                columns = 1;
+            } else {
+                columns = AdaptiveLayout.appColumns(GlassForm.of(getContext()), width / density, smallIcons);
+            }
             // A no-op when unchanged; otherwise the children are rebuilt by the layout that follows.
             setNumColumns(columns);
         }

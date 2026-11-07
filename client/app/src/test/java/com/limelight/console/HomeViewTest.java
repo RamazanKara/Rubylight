@@ -46,8 +46,8 @@ public class HomeViewTest {
     }
 
     @Test
-    public void nothingStoredKeepsEachDevicesLook() {
-        assertEquals(new HomeView(HomeView.Layout.GRID, HomeView.Group.NONE, HomeView.Size.MEDIUM),
+    public void nothingStoredShowsShelvesByStoreEverywhere() {
+        assertEquals(new HomeView(HomeView.Layout.ROWS, HomeView.Group.STORE, HomeView.Size.MEDIUM),
                 HomeView.read(prefs, false));
         assertEquals(new HomeView(HomeView.Layout.ROWS, HomeView.Group.STORE, HomeView.Size.MEDIUM),
                 HomeView.read(prefs, true));

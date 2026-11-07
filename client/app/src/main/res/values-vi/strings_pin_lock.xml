@@ -48,9 +48,4 @@
     <string name="pin_key_delete">Xóa</string>
     <string name="pin_key_confirm">Xác nhận</string>
     <string name="pin_dots_description">Đã nhập %1$d trên %2$d chữ số</string>
-    <string name="pin_hint">Lên và Xuống chọn một hàng. Trái, OK và Phải bấm các phím của hàng đó.</string>
-    <string name="pin_row_1">Hàng 1: 1, 2, 3</string>
-    <string name="pin_row_2">Hàng 2: 4, 5, 6</string>
-    <string name="pin_row_3">Hàng 3: 7, 8, 9</string>
-    <string name="pin_row_4">Hàng 4: Xóa, 0, Xác nhận</string>
 </resources>

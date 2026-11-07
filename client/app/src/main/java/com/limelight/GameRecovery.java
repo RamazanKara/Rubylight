@@ -8,7 +8,6 @@ import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.utils.LaunchSource;
-import com.limelight.utils.SpinnerDialog;
 import com.limelight.ui.NavigationDialogBuilder;
 import android.content.Intent;
 import android.os.SystemClock;
@@ -178,8 +177,7 @@ final class GameRecovery {
         final Thread stopping = game.connectionStopThread;
         final int generation = game.foregroundGeneration;
         final int recovery = recoveryGeneration;
-        game.spinner = SpinnerDialog.displayDialog(game, game.getString(R.string.conn_establishing_title),
-                game.getString(R.string.stream_reconnecting), true);
+        game.spinner = game.streamConnection.showConnecting(game.getString(R.string.stream_reconnecting));
         game.recoveryHandoffInProgress = true;
         new Thread(() -> {
             if (stopping != null) {
@@ -447,9 +445,9 @@ final class GameRecovery {
         game.touchInput.setInputGrabState(false);
         game.streamConnection.stopConnection();
         if (game.spinner != null) game.spinner.dismiss();
-        game.spinner = SpinnerDialog.displayDialog(game, game.getString(R.string.conn_establishing_title), tripResume ?
+        game.spinner = game.streamConnection.showConnecting(tripResume ?
                 game.getString(R.string.stream_reconnecting) :
-                game.getString(R.string.stream_recovery_attempt, game.recoveryPolicy.attempts(), StreamRecoveryPolicy.MAX_ATTEMPTS), true);
+                game.getString(R.string.stream_recovery_attempt, game.recoveryPolicy.attempts(), StreamRecoveryPolicy.MAX_ATTEMPTS));
         retry.putExtra(Game.EXTRA_MICROPHONE_MUTED, game.getIntent().getBooleanExtra(Game.EXTRA_MICROPHONE_MUTED, false));
         pendingRecoveryIntent = retry;
         final int generation = game.foregroundGeneration;
@@ -539,9 +537,62 @@ final class GameRecovery {
     }
 
     void showReconnectDialog(int title, String message) {
-        game.menuActions.showStreamDialog(new NavigationDialogBuilder(game).setTitle(title).setMessage(message)
-                .setCancelable(false)
-                .setNegativeButton(R.string.stream_disconnect, (dialog, which) -> game.finish())
-                .setPositiveButton(R.string.stream_reconnect, (dialog, which) -> reconnectFromPrompt()).create());
+        if (title != R.string.conn_error_title) {
+            // A stream that was running and ended: its message speaks of Reconnect, and this is no failed start.
+            game.menuActions.showStreamDialog(new NavigationDialogBuilder(game).setTitle(title).setMessage(message)
+                    .setCancelable(false)
+                    .setNegativeButton(R.string.stream_disconnect, (dialog, which) -> game.finish())
+                    .setPositiveButton(R.string.stream_reconnect, (dialog, which) -> reconnectFromPrompt()).create());
+            return;
+        }
+        android.content.Intent intent = game.getIntent();
+        com.limelight.ui.ConnectingScreen screen = com.limelight.ui.ConnectingScreen.failure(game, intent.getStringExtra(Game.EXTRA_APP_NAME),
+                intent.getStringExtra(Game.EXTRA_PC_NAME), game.streamConnection.connectingCover(), game.getString(title), message,
+                new com.limelight.ui.ConnectingScreen.Failure() {
+                    @Override public void onTryAgain() {
+                        reconnectFromPrompt();
+                    }
+
+                    @Override public CharSequence testNetwork() {
+                        int result = com.limelight.nvstream.jni.MoonBridge.testClientConnectivity(com.limelight.utils.ServerHelper.CONNECTION_TEST_SERVER, 443,
+                                com.limelight.nvstream.jni.MoonBridge.ML_PORT_FLAG_ALL);
+                        return game.getString(result == com.limelight.nvstream.jni.MoonBridge.ML_TEST_RESULT_INCONCLUSIVE ? R.string.nettest_text_unknown
+                                : result == 0 ? R.string.nettest_text_clear : R.string.nettest_text_blocked);
+                    }
+
+                    @Override public void onBack() {
+                        game.finish();
+                    }
+
+                    @Override public CharSequence streamSettings() {
+                        return com.limelight.ui.ConnectingScreen.settingsLine(game, game.prefConfig.width, game.prefConfig.height,
+                                game.prefConfig.fps, game.prefConfig.bitrate);
+                    }
+
+                    // Settings over the failed start would leave a stopped stream behind them: this start ends here, and
+                    // Back from Settings is the library the game was started from.
+                    @Override public void onStreamSettings() {
+                        game.startActivities(settingsAfterFailedStart(game, game.getIntent(), game.isTaskRoot()));
+                        game.finish();
+                    }
+                });
+        // After the stream ran only the menu's small copy is held: the panel reads the cover at its own size again.
+        game.streamConnection.readCoverInto(screen);
+        game.menuActions.showStreamDialog(screen.dialog());
+        screen.showFailure();
+    }
+
+    /**
+     * Settings at the stream's size after a failed start. A game's shortcut starts the stream alone in its task: with
+     * nothing under it, the PC's library goes under Settings, so Back reaches it rather than leaving the app.
+     */
+    static android.content.Intent[] settingsAfterFailedStart(android.content.Context context, android.content.Intent start, boolean alone) {
+        android.content.Intent settings = com.limelight.preferences.StreamSettings.atStreamSize(context);
+        String uuid = start == null ? null : start.getStringExtra(Game.EXTRA_PC_UUID);
+        if (!alone || uuid == null || uuid.isEmpty()) return new android.content.Intent[] {settings};
+        android.content.Intent library = new android.content.Intent(context, AppView.class)
+                .putExtra(AppView.UUID_EXTRA, uuid)
+                .putExtra(AppView.NAME_EXTRA, start.getStringExtra(Game.EXTRA_PC_NAME));
+        return new android.content.Intent[] {library, settings};
     }
 }

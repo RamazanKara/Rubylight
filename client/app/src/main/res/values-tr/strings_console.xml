@@ -8,7 +8,7 @@
     <string name="console_hint_options">Seçenekler</string>
     <string name="console_hint_open">Aç</string>
     <string name="console_hint_key_ok">OK</string>
-    <string name="console_hint_key_menu">Menü</string>
+    <string name="console_hint_key_hold_ok">OK basılı tut</string>
     <string name="console_hint_line">%1$s %2$s    %3$s %4$s</string>
     <string name="console_favourite_add">Favorilere ekle</string>
     <string name="console_favourite_remove">Favorilerden kaldır</string>
@@ -65,4 +65,7 @@
     <string name="console_wake_timeout">%1$s zamanında uyanmadı. Wake-on-LAN’ın kurulu olduğunu denetleyip yeniden deneyin.</string>
     <string name="console_choose_pc">Hangi bilgisayarda oynansın?</string>
     <string name="console_badge_asleep">Bilgisayar uykuda</string>
+    <string name="pc_status_online">Çevrimiçi</string>
+    <string name="pc_status_not_paired">Eşlenmedi</string>
+    <string name="pc_action_wake">Uyandır</string>
 </resources>

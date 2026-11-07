@@ -47,44 +47,60 @@ public final class KeyCaps {
 
     /** A key's text inside a rounded outline in the text's own colour, as tall as the line's glyphs. */
     static final class KeyCapSpan extends ReplacementSpan {
+        private static float capHeight(Paint paint) {
+            return paint.getTextSize() * 1.72f;
+        }
+
         private final float padding;
         private final float stroke;
         private final float radius;
         private final RectF rect = new RectF();
 
         KeyCapSpan(float density) {
-            padding = 6 * density;
+            padding = 8 * density;
             stroke = Math.max(1f, density);
-            radius = 4 * density;
+            radius = 999 * density;
         }
 
         @Override
         public int getSize(Paint paint, CharSequence text, int start, int end, Paint.FontMetricsInt fm) {
-            if (fm != null) paint.getFontMetricsInt(fm);
-            return Math.round(paint.measureText(text, start, end) + padding * 2);
+            if (fm != null) {
+                paint.getFontMetricsInt(fm);
+                // The cap stands a little past the glyphs; the line makes room, so neighbours never touch it.
+                int room = Math.round(paint.getTextSize() * 0.22f);
+                fm.ascent -= room;
+                fm.top = Math.min(fm.top, fm.ascent);
+                fm.descent += room;
+                fm.bottom = Math.max(fm.bottom, fm.descent);
+            }
+            return Math.max(Math.round(capHeight(paint)), Math.round(paint.measureText(text, start, end) + padding * 2));
         }
 
         @Override
         public void draw(Canvas canvas, CharSequence text, int start, int end, float x, int top, int y, int bottom,
                          Paint paint) {
             Paint.FontMetrics metrics = paint.getFontMetrics();
-            float width = paint.measureText(text, start, end) + padding * 2;
+            float textWidth = paint.measureText(text, start, end);
+            float height = capHeight(paint);
+            float width = Math.max(height, textWidth + padding * 2);
+            float middle = y + (metrics.ascent + metrics.descent) / 2;
             float inset = stroke / 2;
-            rect.set(x + inset, y + metrics.ascent + inset, x + width - inset, y + metrics.descent - inset);
+            rect.set(x + inset, middle - height / 2 + inset, x + width - inset, middle + height / 2 - inset);
             Paint.Style style = paint.getStyle();
             float strokeWidth = paint.getStrokeWidth();
             int alpha = paint.getAlpha();
+            // The control fill and rim in the text's own colour, so it holds on every look.
+            paint.setStyle(Paint.Style.FILL);
+            paint.setAlpha(alpha * 31 / 255);
+            canvas.drawRoundRect(rect, radius, radius, paint);
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(stroke);
-            paint.setAlpha(alpha * 3 / 4);
+            paint.setAlpha(alpha * 64 / 255);
             canvas.drawRoundRect(rect, radius, radius, paint);
             paint.setStyle(style);
             paint.setStrokeWidth(strokeWidth);
             paint.setAlpha(alpha);
-            boolean bold = paint.isFakeBoldText();
-            paint.setFakeBoldText(true);
-            canvas.drawText(text, start, end, x + padding, y, paint);
-            paint.setFakeBoldText(bold);
+            canvas.drawText(text, start, end, x + (width - textWidth) / 2, y, paint);
         }
     }
 }

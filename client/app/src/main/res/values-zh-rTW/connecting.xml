@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="conn_back">返回</string>
+    <string name="conn_test_network">測試網路</string>
+    <string name="nettest_text_clear">沒有任何項目阻擋串流。</string>
+    <string name="nettest_text_unknown">無法完成測試。</string>
+</resources>

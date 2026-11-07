@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Paper on the moon. Off, the label's ink: on a day page paper would vanish into the pale track. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_enabled="false" android:alpha="0.5" android:color="?attr/colorOnSurface" />
+    <item android:state_checked="true" android:color="@color/nj_color_paper" />
+    <item android:color="?attr/colorOnSurface" />
+</selector>

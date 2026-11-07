@@ -120,10 +120,7 @@ public class SettingsRailTest {
         assertFalse(rail(screen).sliding());
         // nightjar#7: the first focus is on that row too, not on Search above it.
         assertEquals(StreamSettings.RootFragment.positionOf(sections(screen), "input"), sections(screen).getSelectedItemPosition());
-        android.graphics.drawable.Drawable canvas = screen.getWindow().getDecorView().getBackground();
-        assertTrue("the window is the still radial light", canvas instanceof android.graphics.drawable.GradientDrawable
-                && ((android.graphics.drawable.GradientDrawable) canvas).getGradientType()
-                == android.graphics.drawable.GradientDrawable.RADIAL_GRADIENT);
+        assertEquals("the sky is the page's canvas", View.VISIBLE, screen.findViewById(R.id.settings_sky).getVisibility());
     }
 
     @Test
@@ -231,7 +228,7 @@ public class SettingsRailTest {
                 .inflate(R.layout.settings_category_tv, null, false);
         assertNull("no capitals", heading.getTransformationMethod());
         assertEquals(0f, heading.getLetterSpacing(), 0f);
-        assertEquals(16 * screen.getResources().getDisplayMetrics().scaledDensity, heading.getTextSize(), 0.5f);
+        assertEquals(screen.getResources().getDimension(R.dimen.nj_type_section_size), heading.getTextSize(), 0.5f);
 
         Intent intent = new Intent(screen, HostStreamSettings.class).putExtra("host_uuid", "den").putExtra("host_name", "Den PC");
         ActivityController<HostStreamSettings> host = Robolectric.buildActivity(HostStreamSettings.class, intent).setup();

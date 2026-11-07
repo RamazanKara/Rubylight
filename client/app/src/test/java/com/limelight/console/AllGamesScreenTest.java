@@ -186,6 +186,62 @@ public class AllGamesScreenTest {
     }
 
     @Test
+    public void onATelevisionThePageStandsOnTheSkyAndTheGridFadesUnderTheHeading() {
+        tower(DOOM, HADES, PORTAL);
+        Grid grid = open(null);
+        assertEquals("the night sky of the other pages, not a flat canvas", View.VISIBLE,
+                grid.findViewById(R.id.all_games_sky).getVisibility());
+        View rows = list(grid);
+        assertTrue("rows fade out at the grid's edge instead of a hard crop", rows.isVerticalFadingEdgeEnabled());
+        // Over the glow's room above the first row too, so no row stands unfaded under the focused title.
+        assertEquals(grid.getResources().getDimensionPixelSize(R.dimen.all_games_fade)
+                        + Math.round(AllGamesActivity.GLOW_ROOM_DP * grid.getResources().getDisplayMetrics().density),
+                rows.getVerticalFadingEdgeLength());
+        assertEquals("the fade starts at the frame's edge", 0, rows.getPaddingTop());
+        // On the real TV the bottom fade ended at the bottom padding's edge, a hard line with bright rows below it.
+        assertTrue("rows fade at the top only", rows instanceof TopFadeRecyclerView);
+        assertEquals(0f, ReflectionHelpers.<Float>callInstanceMethod(rows, "getBottomFadingEdgeStrength"), 0f);
+        // And the sky stopped at the TV margin, a lighter frame inset from the screen's edge.
+        HomeShellTest.focusAfter(grid, list(grid).getFocusedChild(), View.FOCUS_RIGHT);
+        View sky = grid.findViewById(R.id.all_games_sky);
+        View content = grid.findViewById(android.R.id.content);
+        assertTrue("the TV margin is there", content.getPaddingLeft() > 0);
+        int[] skyAt = new int[2];
+        int[] contentAt = new int[2];
+        sky.getLocationInWindow(skyAt);
+        content.getLocationInWindow(contentAt);
+        assertEquals("the sky runs edge to edge", contentAt[0], skyAt[0]);
+        assertEquals(contentAt[1], skyAt[1]);
+        assertEquals(content.getWidth(), sky.getWidth());
+        assertEquals(content.getHeight(), sky.getHeight());
+    }
+
+    /**
+     * On TV the focused poster's glow was cut square at the grid frame's top and left: the frame clipped 12 dp above the first
+     * row and 24 dp beside it. The frame stands 40 dp further out there, and the list pads by as much.
+     */
+    @Test
+    public void onATelevisionTheFocusedPostersGlowHasRoomInsideTheGridsFrame() {
+        tower(DOOM, HADES, PORTAL);
+        Grid grid = open(null);
+        View first = list(grid).getFocusedChild();
+        HomeShellTest.focusAfter(grid, first, View.FOCUS_RIGHT);
+        View frame = (View) list(grid).getParent();
+        int room = Math.round(40 * grid.getResources().getDisplayMetrics().density);
+        int top = list(grid).getTop() + first.getTop();
+        int start = list(grid).getLeft() + first.getLeft();
+        assertTrue("above the first row: " + top, top >= room);
+        assertTrue("beside the first poster: " + start, start >= room);
+        assertTrue("and at the end", list(grid).getPaddingRight() >= room && list(grid).getRight() == frame.getWidth());
+        int[] title = new int[2];
+        int[] card = new int[2];
+        grid.findViewById(R.id.all_games_focus).getLocationInWindow(title);
+        first.getLocationInWindow(card);
+        assertTrue("the first row stays under the focused title",
+                card[1] >= title[1] + grid.findViewById(R.id.all_games_focus).getHeight());
+    }
+
+    @Test
     public void theFirstGameHasFocusAndTheDpadMovesBetweenTheChipsAndTheGrid() {
         tower(DOOM, HADES, PORTAL);
         Grid grid = open(null);

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- PCs on a handheld: four cells that fit its 960dp, and no column cap. values-w600dp-land-television keeps a TV's. -->
+    <dimen name="pcs_max_width">4096dp</dimen>
+    <dimen name="tile_height">250dp</dimen>
+    <dimen name="tile_cell">216dp</dimen>
+    <dimen name="tile_screen">130dp</dimen>
+    <dimen name="tile_glyph">38dp</dimen>
+    <dimen name="tile_pad_top">16dp</dimen>
+    <dimen name="tile_name_top">10dp</dimen>
+</resources>

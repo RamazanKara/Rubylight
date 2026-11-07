@@ -1,32 +1,106 @@
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
-    <include android:id="@+id/library_toolbar" layout="@layout/view_top_app_bar" />
-    <androidx.appcompat.widget.SearchView android:id="@+id/library_search"
-        android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:layout_marginStart="@dimen/screen_gutter" android:layout_marginEnd="@dimen/screen_gutter"
-        android:layout_marginBottom="@dimen/space_s" android:minHeight="@dimen/touch_target"
-        android:background="@drawable/settings_search_background"
-        app:queryBackground="@android:color/transparent" app:submitBackground="@android:color/transparent"
-        android:visibility="gone" app:queryHint="@string/library_search" app:iconifiedByDefault="false"
-        android:inputType="text" android:imeOptions="actionSearch" />
-    <TextView android:id="@+id/library_summary" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter" android:paddingBottom="@dimen/space_s"
-        android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant"
-        android:visibility="gone" />
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A PC's games: the ambient of the game in focus, the grid over it, and the glass chrome on top. The first child of a GlassHost is
+     what the glass floats over. AppView places the tabs and search for the form factor and the grid under the chrome (PageChrome). -->
+<com.limelight.ui.GlassHost xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/glass_host" android:layout_width="match_parent" android:layout_height="match_parent">
+    <FrameLayout android:id="@+id/library_content" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:clipChildren="false" android:clipToPadding="false">
+        <com.limelight.ui.BackdropView android:id="@+id/library_backdrop" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:importantForAccessibility="no" />
+        <!-- Starts where the chrome ends. The grid clips its rows there itself, so the selected card's halo can reach past it. -->
+        <FrameLayout android:id="@+id/appFragmentContainer" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:clipChildren="false" android:clipToPadding="false" />
+        <View android:id="@+id/library_foot_fade" android:layout_width="match_parent" android:layout_height="@dimen/home_foot_fade"
+            android:layout_gravity="bottom" android:importantForAccessibility="no" />
+        <!-- Offline, nothing to show: one line and what can be done about it, in the middle of the page. -->
+        <LinearLayout android:id="@+id/library_status_panel" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_gravity="center" android:orientation="vertical" android:gravity="center_horizontal"
+            android:paddingStart="@dimen/space_xl" android:paddingEnd="@dimen/space_xl" android:visibility="gone">
+            <TextView android:id="@+id/app_list_status" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:gravity="center" android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurface"
+                android:accessibilityLiveRegion="polite" android:visibility="gone" />
+            <com.limelight.ui.GlassButton android:id="@+id/library_retry" style="@style/Widget.Nightjar.Glass.Control"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_l"
+                android:text="@string/library_retry" android:visibility="gone" />
+        </LinearLayout>
+    </FrameLayout>
     <ProgressBar android:id="@+id/library_loading" style="?android:attr/progressBarStyleHorizontal"
-        android:layout_width="match_parent" android:layout_height="4dp" android:indeterminate="true" />
-    <LinearLayout android:id="@+id/library_status_panel" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:orientation="vertical" android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter"
-        android:paddingTop="@dimen/space_m" android:paddingBottom="@dimen/space_s" android:visibility="gone">
-        <TextView android:id="@+id/app_list_status"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:textAppearance="@style/TextAppearance.Nightjar.Body"
-            android:accessibilityLiveRegion="polite" android:visibility="gone" />
-        <com.google.android.material.button.MaterialButton android:id="@+id/library_retry"
-            style="@style/Widget.Nightjar.Button.Text" android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:minHeight="@dimen/touch_target" android:text="@string/library_retry" android:visibility="gone" />
+        android:layout_width="match_parent" android:layout_height="3dp" android:indeterminate="true" android:visibility="gone" />
+    <!-- The top chrome. A phone's screen is named by the PC capsule; a handheld and a TV add the title of the game in focus and its keys. -->
+    <LinearLayout android:id="@+id/library_chrome" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"
+        android:clipToPadding="false" android:clipChildren="false" android:paddingTop="@dimen/shell_overscan_vertical">
+        <LinearLayout android:id="@+id/library_top_row" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center_vertical" android:clipChildren="false" android:clipToPadding="false">
+            <com.limelight.ui.GlassSurface android:id="@id/library_back" android:layout_width="@dimen/glass_capsule" android:layout_height="@dimen/glass_capsule"
+                android:layout_marginEnd="@dimen/space_s" android:focusable="true" android:clickable="true" android:defaultFocusHighlightEnabled="false"
+                android:contentDescription="@string/settings_navigate_up" android:nextFocusDown="@+id/fragmentView">
+                <ImageView android:layout_width="22dp" android:layout_height="22dp" android:layout_gravity="center"
+                    android:src="@drawable/ic_arrow_back" app:tint="?attr/colorOnSurface" android:importantForAccessibility="no" />
+            </com.limelight.ui.GlassSurface>
+            <Space android:id="@+id/library_space_before" android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" />
+            <com.limelight.ui.GlassSurface android:id="@+id/library_options" android:layout_width="wrap_content" android:layout_height="@dimen/glass_capsule"
+                android:focusable="true" android:clickable="true" android:defaultFocusHighlightEnabled="false"
+                android:contentDescription="@string/library_options" android:nextFocusDown="@+id/fragmentView">
+                <LinearLayout android:layout_width="wrap_content" android:layout_height="match_parent" android:orientation="horizontal"
+                    android:gravity="center_vertical" android:paddingStart="16dp" android:paddingEnd="14dp">
+                    <View android:id="@+id/library_pc_dot" android:layout_width="9dp" android:layout_height="9dp" />
+                    <TextView android:id="@+id/library_pc_name" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:layout_marginStart="9dp" android:layout_marginEnd="6dp" android:maxLines="1" android:ellipsize="end" android:maxWidth="220dp"
+                        android:textAppearance="@style/TextAppearance.Nightjar.Glass.Capsule" android:textColor="?attr/colorOnSurface" />
+                    <ImageView android:layout_width="17dp" android:layout_height="17dp" android:src="@drawable/ic_glass_down"
+                        app:tint="?attr/colorOnSurface" android:importantForAccessibility="no" />
+                </LinearLayout>
+            </com.limelight.ui.GlassSurface>
+            <Space android:id="@+id/library_space_after" android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" android:visibility="gone" />
+            <!-- One search: here on a handheld and a TV, beside the tabs at the foot on a phone, as on Home. -->
+            <com.limelight.ui.GlassSurface android:id="@+id/library_search_button" android:layout_width="@dimen/glass_capsule" android:layout_height="@dimen/glass_capsule"
+                android:layout_marginStart="@dimen/space_s" android:focusable="true" android:clickable="true" android:defaultFocusHighlightEnabled="false"
+                android:contentDescription="@string/library_search" android:nextFocusDown="@+id/fragmentView">
+                <ImageView android:layout_width="22dp" android:layout_height="22dp" android:layout_gravity="center"
+                    android:src="@drawable/ic_glass_search" app:tint="?attr/colorOnSurface" android:importantForAccessibility="no" />
+            </com.limelight.ui.GlassSurface>
+        </LinearLayout>
+        <androidx.appcompat.widget.SearchView android:id="@+id/library_search"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_s"
+            android:minHeight="@dimen/touch_target" android:background="@drawable/settings_search_background"
+            app:queryBackground="@android:color/transparent" app:submitBackground="@android:color/transparent"
+            android:visibility="gone" app:queryHint="@string/library_search" app:iconifiedByDefault="false"
+            android:inputType="text" android:imeOptions="actionSearch" />
+        <!-- What the grid holds when it is not simply every shown game: a search's matches, or hidden games shown. -->
+        <TextView android:id="@+id/library_summary" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:maxLines="1" android:ellipsize="end" android:textAppearance="@style/TextAppearance.Nightjar.Caption"
+            android:textColor="?attr/colorOnSurfaceVariant" android:accessibilityLiveRegion="polite" android:visibility="gone" />
+        <TextView android:id="@+id/library_focus_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:maxLines="1" android:ellipsize="end" android:textAppearance="@style/TextAppearance.Nightjar.Glass.PageTitle" android:fontFamily="?attr/nightjarFaceStrong"
+            android:letterSpacing="-0.02" android:textColor="?attr/colorOnSurface" android:shadowColor="#66000000" android:shadowRadius="12" android:shadowDy="2"
+            android:importantForAccessibility="no" android:visibility="gone" />
+        <!-- A fixed height, so keys coming and going never move the grid. -->
+        <TextView android:id="@+id/library_focus_status" android:layout_width="match_parent" android:layout_height="@dimen/library_hint_height"
+            android:gravity="center_vertical|start" android:maxLines="1" android:ellipsize="end" android:textAppearance="@style/TextAppearance.Nightjar.Glass.PageStatus" android:fontFamily="?attr/nightjarFaceStrong"
+            android:textColor="?attr/colorOnSurface" android:importantForAccessibility="no" android:visibility="gone" />
     </LinearLayout>
-    <FrameLayout android:id="@+id/appFragmentContainer"
-        android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
-</LinearLayout>
+    <!-- The running game, one press from coming back: above the tabs on a phone, alone at a handheld's foot. A TV's first tile does this. -->
+    <com.limelight.ui.GlassSurface android:id="@+id/library_resume" android:layout_width="match_parent" android:layout_height="@dimen/library_resume_height"
+        android:layout_gravity="bottom" android:visibility="gone" android:clipChildren="false" android:clipToPadding="false">
+        <!-- Resume's glow reaches past the button: a clip here would leave its corners square. -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="horizontal"
+            android:clipChildren="false" android:clipToPadding="false"
+            android:gravity="center_vertical" android:paddingStart="16dp" android:paddingEnd="6dp">
+            <View android:id="@+id/library_resume_dot" android:layout_width="9dp" android:layout_height="9dp" />
+            <TextView android:id="@+id/library_resume_name" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:layout_marginStart="12dp" android:layout_marginEnd="12dp" android:maxLines="1" android:ellipsize="end"
+                android:textAppearance="@style/TextAppearance.Nightjar.Glass.Capsule" android:textColor="?attr/colorOnSurface" />
+            <com.limelight.ui.GlassButton android:id="@+id/library_resume_button" style="@style/Widget.Nightjar.Glass.Play"
+                android:layout_width="wrap_content" android:layout_height="@dimen/library_resume_button" android:minHeight="@dimen/library_resume_button"
+                android:paddingStart="18dp" android:paddingEnd="20dp" android:text="@string/applist_menu_resume" app:iconSize="20dp" app:iconPadding="8dp" />
+        </LinearLayout>
+    </com.limelight.ui.GlassSurface>
+    <LinearLayout android:id="@+id/library_bottom_row" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_gravity="bottom" android:orientation="horizontal" android:gravity="center_vertical"
+        android:clipChildren="false" android:clipToPadding="false">
+        <com.limelight.ui.GlassSurface android:id="@+id/library_tabs" android:layout_width="0dp" android:layout_height="@dimen/nj_size_tab_bar_height"
+            android:layout_weight="1">
+            <include layout="@layout/view_shell_bar" android:layout_width="match_parent" android:layout_height="match_parent" />
+        </com.limelight.ui.GlassSurface>
+    </LinearLayout>
+</com.limelight.ui.GlassHost>

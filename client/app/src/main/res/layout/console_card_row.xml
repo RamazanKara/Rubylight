@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A game in the handheld hero's Continue panel: a small cover, its title and where it is. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal"
+    android:gravity="center_vertical" android:focusable="true" android:clickable="true"
+    android:minHeight="48dp" android:paddingTop="4dp" android:paddingBottom="4dp"
+    android:paddingStart="12dp" android:paddingEnd="12dp"
+    android:background="@drawable/glass_row" android:defaultFocusHighlightEnabled="false"
+    android:descendantFocusability="blocksDescendants">
+    <com.limelight.ui.CoverFrame android:id="@+id/console_cover_frame" android:layout_width="28dp" android:layout_height="42dp"
+        android:background="@drawable/glass_thumb" android:outlineProvider="background">
+        <com.limelight.ui.PosterImageView android:id="@+id/console_cover" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:scaleType="centerCrop" android:importantForAccessibility="no" />
+        <com.limelight.ui.NoArtTile android:id="@+id/console_cover_text" android:layout_width="match_parent" android:layout_height="match_parent" android:visibility="gone" android:importantForAccessibility="no" />
+        <com.limelight.ui.StatusDisc android:id="@+id/console_badge" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:visibility="gone" android:importantForAccessibility="no" />
+    </com.limelight.ui.CoverFrame>
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+        android:layout_marginStart="12dp" android:orientation="vertical">
+        <com.limelight.ui.MarqueeLabel android:id="@+id/console_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:maxLines="1" android:ellipsize="end"
+            android:textAppearance="@style/TextAppearance.Nightjar.Label" android:textColor="?attr/colorOnSurface"
+            android:importantForAccessibility="no" />
+        <TextView android:id="@+id/console_subtitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:maxLines="1" android:ellipsize="end"
+            android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurfaceVariant"
+            android:importantForAccessibility="no" />
+    </LinearLayout>
+</LinearLayout>

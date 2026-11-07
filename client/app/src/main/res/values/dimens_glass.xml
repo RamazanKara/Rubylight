@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The design's reference geometry in this app's dp, per form factor: TV and the handheld's layout scale the 1280 x 720
+     reference to their 960 dp width, which is why they read as 0.75 of the token. Handheld values are chosen in code. -->
+<resources>
+    <dimen name="glass_cover_radius">@dimen/nj_radius_cover</dimen>
+    <dimen name="glass_ring_width">@dimen/nj_focus_ring_width</dimen>
+    <dimen name="glass_ring_gap">@dimen/nj_focus_gap</dimen>
+    <dimen name="glass_halo_blur">@dimen/nj_focus_halo_blur</dimen>
+    <dimen name="glass_status_disc">22dp</dimen>
+    <dimen name="glass_status_dot">9dp</dimen>
+    <dimen name="glass_tab_inset">4dp</dimen>
+    <dimen name="glass_play_glow">28dp</dimen>
+    <dimen name="glass_edge">16dp</dimen>
+    <dimen name="glass_capsule">48dp</dimen>
+    <dimen name="shelf_card_width_handheld">146dp</dimen>
+    <!-- A dialog's capsule buttons: the ring and its gap lie inside the button. -->
+    <dimen name="dialog_button_ring">2dp</dimen>
+    <dimen name="dialog_button_gap">4dp</dimen>
+</resources>

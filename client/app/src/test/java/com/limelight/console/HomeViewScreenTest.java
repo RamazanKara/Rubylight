@@ -142,12 +142,12 @@ public class HomeViewScreenTest {
     }
 
     @Test
-    public void aPhoneKeepsItsGridOfOneLibrary() throws Exception {
+    public void aPhoneOpensOnShelvesByStore() throws Exception {
         HomeShellTest.Home home = home().get();
         assertEquals(HomeView.defaults(false), home.view());
         RecyclerView list = home.findViewById(R.id.console_list);
-        assertTrue(list.getLayoutManager() instanceof GridLayoutManager);
-        assertNull(ReflectionHelpers.getField(home, "shelves"));
+        assertFalse(list.getLayoutManager() instanceof GridLayoutManager);
+        assertNotNull(ReflectionHelpers.getField(home, "shelves"));
     }
 
     @Test
@@ -453,7 +453,7 @@ public class HomeViewScreenTest {
         ActivityController<HomeShellTest.Home> controller = home();
         HomeShellTest.Home home = controller.get();
         View button = home.findViewById(R.id.console_view);
-        assertEquals(home.getString(R.string.home_view), ((TextView) button).getText().toString());
+        assertEquals(home.getString(R.string.home_view), button.getContentDescription().toString());
         assertTrue(button.performClick());
         ActionSheet sheet = openSheet();
         assertNotNull(sheet);
@@ -471,8 +471,8 @@ public class HomeViewScreenTest {
         android.view.ViewGroup layouts = (android.view.ViewGroup) grid.getParent();
         assertEquals(java.util.Arrays.asList(0, 1, 2), java.util.Arrays.asList(layouts.indexOfChild(grid),
                 layouts.indexOfChild(lines), layouts.indexOfChild(rows)));
-        assertTrue(grid.isChecked());
-        assertFalse(rows.isChecked());
+        assertTrue(rows.isChecked());
+        assertFalse(grid.isChecked());
         // A list's lines have one size: Size goes while List is chosen, and comes back with the covers.
         View sizes = (View) button(content, home.getString(R.string.home_view_size_large)).getParent();
         assertEquals(View.VISIBLE, sizes.getVisibility());
@@ -491,12 +491,73 @@ public class HomeViewScreenTest {
         sheet.dismiss();
         shadowOf(Looper.getMainLooper()).idle();
         assertEquals("rows", prefs.getString(HomeView.KEY_LAYOUT, null));
-        assertEquals("none", prefs.getString(HomeView.KEY_GROUP, null));
+        assertEquals("store", prefs.getString(HomeView.KEY_GROUP, null));
         assertEquals("large", prefs.getString(HomeView.KEY_SIZE, null));
         HomeShellTest.Home rebuilt = controller.get();
-        assertEquals(new HomeView(HomeView.Layout.ROWS, HomeView.Group.NONE, HomeView.Size.LARGE), rebuilt.view());
+        assertEquals(new HomeView(HomeView.Layout.ROWS, HomeView.Group.STORE, HomeView.Size.LARGE), rebuilt.view());
         RecyclerView list = rebuilt.findViewById(R.id.console_list);
         assertTrue(list.getLayoutManager() instanceof ShelfLayoutManager);
+    }
+
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionTheViewSheetHangsUnderItsButtonNotOnTheFoot() {
+        HomeShellTest.Home home = home().get();
+        home.findViewById(R.id.console_view).performClick();
+        ActionSheet sheet = openSheet();
+        assertNotNull(sheet);
+        assertTrue("a panel, not a sheet across the bottom", sheet.isPanel());
+        sheet.dismiss();
+        shadowOf(Looper.getMainLooper()).idle();
+    }
+
+    /**
+     * On the real 1080p TV the View sheet's last part, Card size, was cut off inside its panel: its toggles ran past the
+     * panel's foot. With every part shown the whole sheet fits under its button with nothing to scroll.
+     */
+    @Test
+    @Config(qualifiers = "de-w960dp-h540dp-land-television-xhdpi")
+    @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    public void onATelevisionTheWholeViewSheetFitsWithNothingToScroll() {
+        HomeShellTest.Home home = home().get();
+        View root = home.getWindow().getDecorView();
+        root.measure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY));
+        root.layout(0, 0, 1920, 1080);
+        home.findViewById(R.id.console_view).performClick();
+        ActionSheet sheet = openSheet();
+        assertNotNull(sheet);
+        View decor = sheet.getWindow().getDecorView();
+        decor.measure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY));
+        decor.layout(0, 0, 1920, 1080);
+        View size = button(sheet.findViewById(android.R.id.content), home.getString(R.string.home_view_size_large));
+        assertEquals(View.VISIBLE, ((View) size.getParent()).getVisibility());
+        androidx.core.widget.NestedScrollView scroll = null;
+        for (android.view.ViewParent at = size.getParent(); at != null; at = at.getParent()) {
+            if (at instanceof androidx.core.widget.NestedScrollView) scroll = (androidx.core.widget.NestedScrollView) at;
+        }
+        assertNotNull(scroll);
+        assertTrue("rows " + scroll.getChildAt(0).getHeight() + " px in a scroll of " + scroll.getHeight(),
+                scroll.getChildAt(0).getHeight() <= scroll.getHeight());
+        View body = (View) scroll.getParent();
+        int[] at = new int[2];
+        body.getLocationInWindow(at);
+        assertTrue("the panel stays on screen: " + (at[1] + body.getHeight()), at[1] + body.getHeight() <= 1080);
+        sheet.dismiss();
+        shadowOf(Looper.getMainLooper()).idle();
+    }
+
+    @Test
+    public void aPhonesListFadesOutUnderTheTopRowOnlyAtTheTop() {
+        HomeShellTest.Home home = home().get();
+        shadowOf(Looper.getMainLooper()).idle();
+        HomeList list = home.findViewById(R.id.console_list);
+        assertTrue("scrolled rows fade under the PC capsule instead of passing whole under it", list.isVerticalFadingEdgeEnabled());
+        assertTrue(list.getPaddingTop() > 0);
+        assertEquals("the fade covers the top row, down to where the list rests", list.getPaddingTop(), list.getVerticalFadingEdgeLength());
+        assertEquals("the foot has its own fade over the tabs", 0f,
+                (float) ReflectionHelpers.callInstanceMethod(list, "getBottomFadingEdgeStrength"), 0f);
     }
 
     @Test

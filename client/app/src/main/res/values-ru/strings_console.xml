@@ -8,7 +8,7 @@
     <string name="console_hint_options">Параметры</string>
     <string name="console_hint_open">Открыть</string>
     <string name="console_hint_key_ok">OK</string>
-    <string name="console_hint_key_menu">Меню</string>
+    <string name="console_hint_key_hold_ok">Удерживать OK</string>
     <string name="console_hint_line">%1$s %2$s    %3$s %4$s</string>
     <string name="console_favourite_add">Добавить в избранное</string>
     <string name="console_favourite_remove">Убрать из избранного</string>
@@ -71,4 +71,7 @@
     <string name="console_wake_timeout">%1$s не проснулся вовремя. Проверьте, что Wake-on-LAN настроен, и попробуйте снова.</string>
     <string name="console_choose_pc">На каком ПК играть?</string>
     <string name="console_badge_asleep">ПК в спящем режиме</string>
+    <string name="pc_status_online">В сети</string>
+    <string name="pc_status_not_paired">Не сопряжён</string>
+    <string name="pc_action_wake">Разбудить</string>
 </resources>

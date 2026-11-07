@@ -8,7 +8,7 @@
     <string name="console_hint_options">Tùy chọn</string>
     <string name="console_hint_open">Mở</string>
     <string name="console_hint_key_ok">OK</string>
-    <string name="console_hint_key_menu">Menu</string>
+    <string name="console_hint_key_hold_ok">Giữ OK</string>
     <string name="console_hint_line">%1$s %2$s    %3$s %4$s</string>
     <string name="console_favourite_add">Thêm vào yêu thích</string>
     <string name="console_favourite_remove">Xóa khỏi yêu thích</string>
@@ -62,4 +62,7 @@
     <string name="console_wake_timeout">%1$s không thức dậy kịp. Hãy kiểm tra Wake-on-LAN đã được thiết lập, rồi thử lại.</string>
     <string name="console_choose_pc">Chơi trên PC nào?</string>
     <string name="console_badge_asleep">PC đang ngủ</string>
+    <string name="pc_status_online">Trực tuyến</string>
+    <string name="pc_status_not_paired">Chưa ghép đôi</string>
+    <string name="pc_action_wake">Đánh thức</string>
 </resources>

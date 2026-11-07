@@ -1,16 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- A TV PC tile. Three 280dp cells (the 248dp tile and its 16dp glow on each side) fit the 864dp a 1080p TV leaves
-         inside its overscan; PCs (AdaptiveLayout) and pc_grid_view use the cell. -->
-    <dimen name="tile_width">248dp</dimen>
-    <dimen name="tile_height">152dp</dimen>
-    <dimen name="tile_cell">280dp</dimen>
-    <!-- The scrim under the text, and the text stack (name, status and update lines) at font scale 1: a larger font
-         scale grows the tile and its scrim by the stack's growth, so the text never climbs into the glyph. -->
-    <dimen name="tile_scrim">120dp</dimen>
+    <!-- A PC card on a TV: four 296dp cells (the 276dp card and its 10dp glow on each side) fill the 1184dp a TV leaves inside its
+         overscan; AdaptiveGridView and pc_grid_cards use the cell. -->
+    <dimen name="tile_glow">10dp</dimen>
+    <dimen name="tile_glow_back">-10dp</dimen>
+    <dimen name="tile_height">272dp</dimen>
+    <dimen name="tile_cell">296dp</dimen>
+    <dimen name="tile_screen">204dp</dimen>
+    <dimen name="tile_glyph">60dp</dimen>
+    <dimen name="tile_pad_top">26dp</dimen>
+    <dimen name="tile_name_top">18dp</dimen>
+    <!-- The text stack (name, status and update lines) at font scale 1: a larger font scale grows the card by the stack's growth. -->
     <dimen name="tile_text_stack">80dp</dimen>
-    <!-- The PCs screen's column cap and how far its grid reaches past the screen margin; TV overrides both. -->
+    <!-- The gap between groups in a phone's list of PCs. -->
+    <dimen name="pc_group_gap">14dp</dimen>
+    <!-- The PCs screen's column cap and how far its grid reaches past the screen margin. -->
     <dimen name="pcs_max_width">@dimen/content_max_width</dimen>
     <dimen name="pcs_grid_bleed">0dp</dimen>
-    <bool name="pcs_clip">true</bool>
+    <dimen name="pcs_list_top">136dp</dimen>
+    <dimen name="pcs_hero_title">36sp</dimen>
+    <dimen name="tile_update_text">14sp</dimen>
 </resources>

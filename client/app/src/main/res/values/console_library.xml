@@ -9,13 +9,12 @@
     <color name="card_chip_text">#FFFFFFFF</color>
 
     <dimen name="card_chip_height">24dp</dimen>
-    <dimen name="card_chip_glyph">14dp</dimen>
 
     <style name="TextAppearance.Nightjar.CardChip" parent="TextAppearance.Nightjar.Caption">
         <item name="android:textSize">13sp</item>
         <item name="lineHeight">16sp</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="fontFamily">sans-serif-medium</item>
+        <item name="android:fontFamily">?attr/nightjarFaceStrong</item>
+        <item name="fontFamily">?attr/nightjarFaceStrong</item>
         <item name="android:textColor">@color/card_chip_text</item>
     </style>
 

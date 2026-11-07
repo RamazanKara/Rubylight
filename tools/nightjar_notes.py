@@ -6,7 +6,8 @@ usage: python tools/nightjar_notes.py --out FILE [--version-code N] [--force] [-
                                      [--changelog-en FILE]
 
 Each fragment (client/notes.d/<topic>.md, see the README there) has a "## en"
-list of bullets. Release notes are English only: a "## de" section left in a
+list of bullets, a "## desktop" list for what Android users never see (the GitHub
+release text only, never the store changelog), or both. Release notes are English only: a "## de" section left in a
 fragment written before that is ignored. In file name order the bullets
 become the "What's new" draft in --out (the GitHub release text; add the
 "Tested." paragraph) and the store changelog client/fastlane/metadata/
@@ -25,20 +26,24 @@ CHANGELOGS = 'client/fastlane/metadata/android/{locale}/changelogs/{code}.txt'
 LANGUAGES = {'en': 'en-US'}
 # German release notes were dropped; fragments from before still parse.
 IGNORED = {'de'}
+DESKTOP = 'desktop'
 PLAY_LIMIT = 500
 
 
 def read(directory):
-    """{language: [bullet, ...]} over every fragment in file name order, and the files."""
+    """{language or DESKTOP: [bullet, ...]} over every fragment in file name order, and the files."""
     files = sorted(p for p in pathlib.Path(directory).glob('*.md') if p.name.lower() != 'readme.md')
-    bullets = {language: [] for language in LANGUAGES}
+    bullets = {section: [] for section in (*LANGUAGES, DESKTOP)}
     for path in files:
         text = re.sub(r'(?s)<!--.*?-->', '', path.read_text(encoding='utf-8'))
         sections = dict(re.findall(r'(?ms)^## (\w+)\s*\n(.*?)(?=^## |\Z)', text))
-        unknown = set(sections) - set(LANGUAGES) - IGNORED
+        unknown = set(sections) - set(LANGUAGES) - IGNORED - {DESKTOP}
         if unknown:
-            raise SystemExit(f'{path}: unknown section {", ".join(sorted(unknown))}; use ## en')
-        for language in LANGUAGES:
+            raise SystemExit(f'{path}: unknown section {", ".join(sorted(unknown))}; use ## en or ## desktop')
+        for language in (*LANGUAGES, DESKTOP):
+            # A fragment needs bullets for the store unless it has only desktop ones.
+            if language not in sections and (language == DESKTOP or DESKTOP in sections):
+                continue
             lines = [line.rstrip() for line in sections.get(language, '').split('\n') if line.strip()]
             if not lines or any(not line.startswith('- ') and not line[:1].isspace() for line in lines):
                 raise SystemExit(f'{path}: "## {language}" needs a list of "- " bullets')
@@ -95,7 +100,7 @@ def main(argv=None, root=ROOT):
         if path.exists() and not args.force:
             raise SystemExit(f'{path.relative_to(root)} exists; bump versionCode first or pass --force')
         changelogs[path] = text
-    draft = "## What's new\n\n" + '\n'.join(f'- {b}' for b in bullets['en']) + '\n\n**Tested.** \n'
+    draft = "## What's new\n\n" + '\n'.join(f'- {b}' for b in bullets['en'] + bullets[DESKTOP]) + '\n\n**Tested.** \n'
     args.out.write_text(draft, encoding='utf-8', newline='\n')
     for path, text in changelogs.items():
         path.parent.mkdir(parents=True, exist_ok=True)

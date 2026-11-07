@@ -2,7 +2,7 @@
 # in the version and the archive's SHA-256 and writes the result beside the packages;
 # build-bundle.sh builds nightjar-desktop-<version>-<arch>.flatpak from it, which every release
 # carries. Build and install it by hand with
-#   flatpak-builder --user --install --install-deps-from=flathub build io.github.ramazankara.nightjar.yml
+#   flatpak-builder --user --install --install-deps-from=flathub build io.github.ramazankara.nightjar-<arch>.yml
 # The settings live in ~/.var/app/io.github.ramazankara.nightjar/config/nightjar, apart from a
 # native install's ~/.config/nightjar.
 id: io.github.ramazankara.nightjar

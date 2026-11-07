@@ -275,6 +275,16 @@ class NightjarNotes(unittest.TestCase):
         self.assertFalse(self.changelog('de').exists())
         self.assertEqual([p.name for p in self.notes.iterdir()], ['README.md'])
 
+    def test_desktop_bullets_reach_the_release_text_and_not_the_store(self):
+        notes = self.root / 'client/notes.d'
+        (notes / 'a.md').write_text('## en\n- For phones.\n', encoding='utf-8')
+        (notes / 'b.md').write_text('## desktop\n- ' + 'For Linux. ' * 60 + '\n', encoding='utf-8')
+        result = self.run_tool()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('- For phones.', self.out.read_text(encoding='utf-8'))
+        self.assertIn('For Linux.', self.out.read_text(encoding='utf-8'))
+        self.assertEqual(self.changelog('en-US').read_text(encoding='utf-8'), '\u2022 For phones.\n')
+
     def test_notes_assemble_without_german_and_ignore_a_left_over_german_section(self):
         # Release notes are English only; fragments written before still carry "## de".
         (self.notes / 'a-old.md').write_text('## de\n- Neues TV-Design.\n## en\n- A new TV design.\n',

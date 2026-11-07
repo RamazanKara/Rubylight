@@ -76,7 +76,11 @@ jobs:
     # Both architectures build natively, each with the same steps and start checks. The packaging
     # tools' hashes are the ones GitHub lists for each architecture's assets.
     needs: preflight
+    # An aarch64 failure shows as a failed leg and a warning at the release; x86_64, Windows and
+    # Android still ship.
+    continue-on-error: ${{ matrix.arch == 'aarch64' }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: x86_64
@@ -632,7 +636,10 @@ jobs:
           merge-multiple: true
       - name: Check the desktop packages
         run: |
-          for file in "desktop/nightjar-desktop-$VERSION-linux-"{x86_64,aarch64}.{tar.gz,deb,rpm} "desktop/nightjar-desktop-$VERSION-"{x86_64,aarch64}.{AppImage,flatpak} \
+          for file in "desktop/nightjar-desktop-$VERSION-linux-aarch64."{tar.gz,deb,rpm} "desktop/nightjar-desktop-$VERSION-aarch64."{AppImage,flatpak}; do
+            test -s "$file" || echo "::warning::$file is missing: the aarch64 leg failed, this release goes out without it"
+          done
+          for file in "desktop/nightjar-desktop-$VERSION-linux-x86_64."{tar.gz,deb,rpm} "desktop/nightjar-desktop-$VERSION-x86_64."{AppImage,flatpak} \
               "desktop/nightjar-desktop-$VERSION-windows-x86_64.zip" "desktop/nightjar-desktop-$VERSION-windows-x86_64-setup.exe"; do
             test -s "$file" || { echo "::error::$file is missing from the desktop artifacts"; exit 1; }
           done

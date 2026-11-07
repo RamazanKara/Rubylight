@@ -28,6 +28,9 @@ import org.robolectric.util.ReflectionHelpers;
 import org.robolectric.util.ReflectionHelpers.ClassParameter;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 
@@ -45,6 +48,9 @@ public class MediaCodecFailedSubmitTest {
     public static class RefusingCodec extends ShadowMediaCodec {
         static int queued;
         static boolean refuseNext;
+        static MediaCodecDecoderRenderer renderer;
+        // numFramesIn as each frame reached queueInputBuffer.
+        static final List<Integer> countedAtQueue = new ArrayList<>();
 
         @Implementation public void configure(MediaFormat format, Surface surface, MediaCrypto crypto, int flags) {}
         @Implementation public void start() {}
@@ -58,6 +64,7 @@ public class MediaCodecFailedSubmitTest {
             return null;
         }
         @Implementation public void queueInputBuffer(int index, int offset, int size, long timeUs, int flags) {
+            if (renderer != null) countedAtQueue.add(ReflectionHelpers.getField(renderer, "numFramesIn"));
             if (refuseNext) {
                 refuseNext = false;
                 // ACTION_TRANSIENT: the renderer keeps the buffer and asks for an IDR, no recovery.
@@ -80,6 +87,8 @@ public class MediaCodecFailedSubmitTest {
         ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
         RefusingCodec.queued = 0;
         RefusingCodec.refuseNext = false;
+        RefusingCodec.renderer = null;
+        RefusingCodec.countedAtQueue.clear();
         activity = Robolectric.buildActivity(Activity.class).create();
         texture = new SurfaceTexture(0);
         surface = new Surface(texture);
@@ -96,10 +105,12 @@ public class MediaCodecFailedSubmitTest {
                 ClassParameter.from(MediaCodecInfo.class, info),
                 ClassParameter.from(MediaFormat.class, MediaFormat.createVideoFormat("video/hevc", 1920, 1080)),
                 ClassParameter.from(boolean.class, true));
+        RefusingCodec.renderer = renderer;
     }
 
     @After
     public void tearDown() {
+        RefusingCodec.renderer = null;
         surface.release();
         texture.release();
         activity.close();
@@ -134,5 +145,8 @@ public class MediaCodecFailedSubmitTest {
         assertEquals(MoonBridge.DR_OK, submit(MoonBridge.FRAME_TYPE_IDR));
         assertEquals(2, RefusingCodec.queued);
         assertEquals(2, depth());
+        // Each frame is counted before it is queued: the decoder may hand it back before
+        // queueInputBuffer returns, and an output must never be counted before its input.
+        assertEquals(Arrays.asList(1, 2, 2), RefusingCodec.countedAtQueue);
     }
 }

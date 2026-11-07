@@ -62,6 +62,23 @@ fn vsync_steps(shown: &[(i64, GridSchedule)], interval: i64) -> Vec<i64> {
         .collect()
 }
 
+// Regression (nightjar#80, Android): behind a decode backlog the grid schedule held frames by the
+// lateness the backlog made.
+#[test]
+fn a_frame_behind_in_the_decode_queue_takes_the_first_vsync_and_is_not_learnt() {
+    let mut clock = PresentClock::default();
+    let shown = run_grid(&mut clock, 60, 60, 300, 0, |_| 0);
+    let (window, len, next, delay) = (clock.window, clock.len, clock.next, clock.delay_us());
+    let host = 300 * 16_666;
+    let ready = shown[299].0 + 16_666 + 40_000;
+    let g = grid(16_667, ready - 1_000);
+    let s = clock.schedule_on_grid_behind(rtp(host + 16_666), ready as u64, g);
+    assert_eq!((s.release_us as i64, s.hold_us), (ready, 0), "released as soon as it is ready");
+    assert_eq!(s.vsync_us as i64, ready - 1_000 + 16_667, "the first vsync it can make");
+    assert!(s.late && s.late_by_us >= 39_000, "{s:?}");
+    assert_eq!((clock.window, clock.len, clock.next, clock.delay_us()), (window, len, next, delay), "the window is unchanged");
+}
+
 #[test]
 fn snap_takes_the_first_vsync_at_or_after() {
     assert_eq!(snap(1_000, 0, 16_667), (16_667, 1));

@@ -1,0 +1,67 @@
+V4L2 M2M: P010 capture, for 10-bit streams on stateful decoders such as Qualcomm Iris
+(Linux 7.2 and later). FFmpeg 8.1 and its master have no P010 in v4l2_fmt.c, and keep the
+capture format at a source change that leaves the size alone.
+
+--- a/libavcodec/v4l2_buffers.c
++++ b/libavcodec/v4l2_buffers.c
+@@ -337,6 +337,7 @@ static int v4l2_buffer_buf_to_swframe(AVFrame *frame, V4L2Buffer *avbuf)
+     switch (avbuf->context->av_pix_fmt) {
+     case AV_PIX_FMT_NV12:
+     case AV_PIX_FMT_NV21:
++    case AV_PIX_FMT_P010LE:
+         if (avbuf->num_planes > 1)
+             break;
+         frame->linesize[1] = avbuf->plane_info[0].bytesperline;
+--- a/libavcodec/v4l2_context.c
++++ b/libavcodec/v4l2_context.c
+@@ -179,6 +179,8 @@ static int v4l2_handle_event(V4L2Context *ctx)
+     V4L2m2mContext *s = ctx_to_m2mctx(ctx);
+     struct v4l2_format cap_fmt = s->capture.format;
+     struct v4l2_event evt = { 0 };
++    enum AVPixelFormat pixfmt;
++    int format_changed;
+     int ret;
+ 
+     ret = ioctl(s->fd, VIDIOC_DQEVENT, &evt);
+@@ -201,7 +203,18 @@ static int v4l2_handle_event(V4L2Context *ctx)
+         return 0;
+     }
+ 
+-    if (v4l2_resolution_changed(&s->capture, &cap_fmt)) {
++    /* A 10-bit stream moves the capture queue to P010, at the same size or not. */
++    pixfmt = ff_v4l2_format_v4l2_to_avfmt(V4L2_TYPE_IS_MULTIPLANAR(cap_fmt.type) ?
++                                          cap_fmt.fmt.pix_mp.pixelformat : cap_fmt.fmt.pix.pixelformat,
++                                          AV_CODEC_ID_RAWVIDEO);
++    format_changed = pixfmt != AV_PIX_FMT_NONE && pixfmt != s->capture.av_pix_fmt;
++    if (format_changed) {
++        s->capture.av_pix_fmt = pixfmt;
++        if (s->avctx)
++            s->avctx->pix_fmt = pixfmt;
++    }
++
++    if (v4l2_resolution_changed(&s->capture, &cap_fmt) || format_changed) {
+         s->capture.height = v4l2_get_height(&cap_fmt);
+         s->capture.width = v4l2_get_width(&cap_fmt);
+         s->capture.sample_aspect_ratio = v4l2_get_sar(&s->capture);
+--- a/libavcodec/v4l2_fmt.c
++++ b/libavcodec/v4l2_fmt.c
+@@ -25,6 +25,11 @@
+ #include <search.h>
+ #include "v4l2_fmt.h"
+ 
++/* Headers older than Linux 6.3. */
++#ifndef V4L2_PIX_FMT_P010
++#define V4L2_PIX_FMT_P010 v4l2_fourcc('P', '0', '1', '0')
++#endif
++
+ #define V4L2_FMT(x) V4L2_PIX_FMT_##x
+ #define AV_CODEC(x) AV_CODEC_ID_##x
+ #define AV_FMT(x)   AV_PIX_FMT_##x
+@@ -62,6 +67,7 @@ static const struct fmt_conversion {
+ #ifdef V4L2_PIX_FMT_Y16
+     { AV_FMT(GRAY16LE),    AV_CODEC(RAWVIDEO),    V4L2_FMT(Y16) },
+ #endif
++    { AV_FMT(P010LE),      AV_CODEC(RAWVIDEO),    V4L2_FMT(P010) },
+ #ifdef V4L2_PIX_FMT_NV12M
+     { AV_FMT(NV12),        AV_CODEC(RAWVIDEO),    V4L2_FMT(NV12M) },
+ #endif

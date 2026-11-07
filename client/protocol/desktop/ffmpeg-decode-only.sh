@@ -53,6 +53,15 @@ else
   )
 fi
 
+# Nightjar's changes to FFmpeg (Linux only, they touch the V4L2 decoders); a second run on the same
+# source finds them applied.
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+if [[ -n $linux ]]; then
+  for change in "$here"/ffmpeg-patches/*.patch; do
+    patch -d "$source_dir" -p1 -R --dry-run -f <"$change" >/dev/null 2>&1 || patch -d "$source_dir" -p1 -f <"$change"
+  done
+fi
+
 build=$(mktemp -d)
 cd "$build"
 "$source_dir/configure" \
@@ -83,6 +92,8 @@ Built unmodified by protocol/desktop/ffmpeg-decode-only.sh of the Nightjar repos
 EOF
 
 if [[ -n $linux ]]; then
+  cp "$here"/ffmpeg-patches/*.patch "$prefix/licenses-ffmpeg/"
+  echo "Changed by the .patch files in this folder." >>"$prefix/licenses-ffmpeg/SOURCE.txt"
   for lib in "$prefix"/lib/lib*.so.*.*; do
     readelf -d "$lib" | grep -Eq '(RPATH|RUNPATH).*\[\$ORIGIN\]' || { echo "${lib##*/} has no run path \$ORIGIN" >&2; exit 1; }
   done

@@ -860,6 +860,23 @@ pub fn menu_surface(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32) {
     without_backdrop(out, ctx, rect, r, Material::Menu);
 }
 
+/// What stays up over a stream while it plays (the statistics, a notice): see-through with a lit
+/// rim, no shadow and nothing read behind it, so the video is never composed again for it; the
+/// menu's solid in high contrast.
+pub fn hud_surface(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32) {
+    let recipe = if tier(ctx) == Tier::Solid {
+        recipe(Material::Menu, Tier::Solid)
+    } else {
+        hud_recipe()
+    };
+    finish(out, ctx, rect, r, &recipe);
+}
+
+/// The HUD's recipe: `glass.menu.hud`.
+pub fn hud_recipe() -> Recipe {
+    recipe!(GLASS_MENU_HUD_BRIGHTNESS GLASS_MENU_HUD_FILL GLASS_MENU_HUD_SHEEN_TOP GLASS_MENU_HUD_SHEEN_END GLASS_MENU_HUD_RIM_TOP GLASS_MENU_HUD_RIM_MID GLASS_MENU_HUD_RIM_BOTTOM GLASS_MENU_HUD_RIM_WIDTH GLASS_MENU_HUD_SHADOW_COLOR GLASS_MENU_HUD_SHADOW_Y GLASS_MENU_HUD_SHADOW_BLUR)
+}
+
 /// The baked recipe of `material`, reading nothing behind it: for what floats over anything on any
 /// tier, and has no blur region of its own.
 pub fn without_backdrop(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, material: Material) {
@@ -1228,6 +1245,25 @@ mod tests {
                 assert!(through < 0.36, "{material:?} {tier:?} shows {through}");
             }
         }
+    }
+
+    #[test]
+    fn the_hud_lets_the_game_through_but_keeps_text_readable_and_casts_nothing() {
+        let r = hud_recipe();
+        assert!((0xB0..0xE0).contains(&r.fill.a()), "fill alpha {}", r.fill.a());
+        assert_eq!(r.shadow.a(), 0);
+        assert_eq!(r.shadow_blur, 0.0);
+        let through = r.brightness * (1.0 - f32::from(r.fill.a()) / 255.0)
+            + f32::from(r.fill.r()) / 255.0;
+        assert!(through < 0.36, "a white game shows {through}");
+        in_frame(|ctx| {
+            set_tier(ctx, Tier::Live);
+            let mut out = Vec::new();
+            hud_surface(&mut out, ctx, rect(), 12.0);
+            // Fill, sheen and rim only: no backdrop callback reads the stream.
+            assert!(!out.is_empty());
+            assert!(out.iter().all(|s| !matches!(s, Shape::Callback(_))));
+        });
     }
 
     #[test]

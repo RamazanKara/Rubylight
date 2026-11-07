@@ -54,6 +54,12 @@ pub fn give(buffer: Vec<u8>) {
         .give(buffer);
 }
 
+/// Free every kept buffer, as a stream ends: an idle host holds none.
+pub fn clear() {
+    let freed = std::mem::take(&mut POOL.lock().unwrap_or_else(PoisonError::into_inner).0);
+    drop(freed);
+}
+
 struct Pool(Vec<Vec<u8>>);
 
 impl Pool {
@@ -121,6 +127,36 @@ mod tests {
         pool.give(Vec::with_capacity(POOLED * 6));
         let refused = pool.give(Vec::with_capacity(POOLED)).unwrap();
         assert_eq!(refused.capacity(), POOLED);
+    }
+
+    #[test]
+    fn a_dropped_frame_returns_its_buffer_until_the_pool_is_cleared() {
+        // Larger than any other test's frame, so only this one fits it.
+        let size = LARGEST - 4096;
+        let frame = crate::encoder::Encoded {
+            bytes: Vec::with_capacity(size),
+            unit: crate::encoder::Unit::Whole,
+            idr: false,
+            after_invalidation: false,
+            frame_cap_bytes: None,
+            reencoded: false,
+            frame_cap_target: None,
+            latency: None,
+            presentation: None,
+        };
+        let address = frame.bytes.as_ptr();
+        drop(frame);
+        let reused = take(size);
+        assert_eq!(reused.as_ptr(), address);
+        give(reused);
+        clear();
+        assert!(
+            POOL.lock()
+                .unwrap()
+                .0
+                .iter()
+                .all(|kept| kept.capacity() < size)
+        );
     }
 
     #[test]

@@ -1135,7 +1135,9 @@ public final class ActionSheet extends BottomSheetDialog {
         }
         getBehavior().setMaxWidth(spacing * 75);
         android.view.View sheet = findViewById(com.google.android.material.R.id.design_bottom_sheet);
-        if (sheet != null) {
+        if (sheet != null && television) {
+            floatOnTelevision(sheet);
+        } else if (sheet != null) {
             GlassPanelDrawable glass = GlassPanelDrawable.sheet(getContext());
             sheet.setBackground(glass);
             // Material installs its surface during the first layout, replacing any other.
@@ -1145,6 +1147,32 @@ public final class ActionSheet extends BottomSheetDialog {
         }
         if (getWindow() != null) getWindow().setDimAmount(GlassPanelDrawable.backdropDim(getContext()));
         if (!content.isInTouchMode() && firstAction != null) firstAction.requestFocus();
+    }
+
+    /** The gap a TV's sheet keeps from the screen's top and bottom edges. */
+    int televisionGap() {
+        return spacing * 4;
+    }
+
+    // A TV's sheet is a rounded panel lifted off the bottom edge, never taller than the screen less a gap above and below:
+    // a long one (Home's Hold OK options) scrolls inside it and fades at its edge instead of running off the screen.
+    private void floatOnTelevision(android.view.View sheet) {
+        int gap = televisionGap();
+        getBehavior().setDraggable(false);
+        getBehavior().setMaxHeight(getContext().getResources().getDisplayMetrics().heightPixels - gap);
+        sheet.setBackground(null);
+        // Material installs its surface during the first layout, replacing the empty one.
+        sheet.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (view.getBackground() != null) view.setBackground(null);
+        });
+        if (body.getLayoutParams() instanceof android.view.ViewGroup.MarginLayoutParams) {
+            ((android.view.ViewGroup.MarginLayoutParams) body.getLayoutParams()).bottomMargin = gap;
+        }
+        body.setBackground(GlassPanelDrawable.dialog(getContext()));
+        body.setClipToOutline(true);
+        scroll.setVerticalFadingEdgeEnabled(true);
+        scroll.setFadingEdgeLength(spacing * 3);
+        sheet.requestLayout();
     }
 
     // The bottom sheet becomes a still, see-through layer over the whole window: the panel frame in it places the panel

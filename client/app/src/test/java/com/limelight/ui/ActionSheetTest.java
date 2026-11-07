@@ -192,6 +192,33 @@ public class ActionSheetTest {
         }
     }
 
+    /**
+     * Home's Hold OK options on a 1080p TV ran past the screen's bottom edge, the last row (Unpair) cut by it. A TV's sheet
+     * is a rounded panel a gap clear of both edges; the rows scroll inside it.
+     */
+    @Test @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void aLongTvSheetFitsTheScreenWithAGapAboveAndBelow() {
+        try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+            ActionSheet sheet = new ActionSheet(controller.get(), "Living-room PC");
+            for (int i = 0; i < 10; i++) sheet.addAction(R.drawable.ic_settings, "Action " + i);
+            sheet.show();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            View decor = sheet.getWindow().getDecorView();
+            decor.measure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY));
+            decor.layout(0, 0, 1920, 1080);
+            View body = org.robolectric.util.ReflectionHelpers.getField(sheet, "body");
+            int[] at = new int[2];
+            body.getLocationInWindow(at);
+            int gap = sheet.televisionGap();
+            assertTrue("clear of the top: " + at[1], at[1] >= gap);
+            assertTrue("clear of the bottom: " + (at[1] + body.getHeight()), at[1] + body.getHeight() <= 1080 - gap);
+            assertTrue("rounded all round", body.getBackground() instanceof GlassPanelDrawable && body.getClipToOutline());
+            assertNull(sheet.findViewById(com.google.android.material.R.id.design_bottom_sheet).getBackground());
+            sheet.dismiss();
+        }
+    }
+
     @Test @Config(sdk = 35) public void navigationInsetsReachTheMaterialSheet() {
         try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup()) {
             ActionSheet sheet = new ActionSheet(controller.get(), "PC actions");

@@ -6905,6 +6905,27 @@ fn try_again_on_a_failed_list_does_not_say_no_apps() {
     assert!(!shows(&f, "This PC lists no apps."), "the answer ended it: {:?}", f.drawn);
 }
 
+/// The smallest window holds the hero's whole row when Try again joins it.
+#[test]
+fn try_again_leaves_homes_row_in_the_smallest_window() {
+    for running in [0, 1000] {
+        let mut f = home_with_games(1);
+        f.hosts.list[0].info = Some(answer(true, running));
+        f.size = vec2(720.0, 490.0);
+        f.settle();
+        f.hosts.list[0].apps = Apps::Failed("The PC did not answer".into());
+        f.l.refocus();
+        f.settle();
+        let words = |f: &Frames| -> Vec<Rect> {
+            ["Resume", "Play", "Try again", "Favourite", "Quit game"].iter().filter_map(|w| f.placed.iter().find(|(t, ..)| t == w).map(|p| p.1)).collect()
+        };
+        let row = words(&f);
+        assert!(row.len() >= 3, "{:?}", f.drawn);
+        assert!(row.iter().all(|r| r.right() <= f.size.x), "running {running}: {row:?} in {:?}", f.size);
+        assert!(row.windows(2).all(|w| w[0].right() < w[1].left()), "running {running}: {row:?}");
+    }
+}
+
 /// Home's hero says what stops Play, as the game's page does, offers Try again and comes back from it.
 #[test]
 fn homes_play_says_what_stops_it_and_recovers() {

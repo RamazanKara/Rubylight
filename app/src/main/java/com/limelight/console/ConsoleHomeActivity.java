@@ -130,6 +130,8 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             this::sendWake, () -> {
         refreshedSignature = null;
         scheduleReload();
+        // A form change waited for the wake.
+        followForm();
     });
     /** A "which PC?" question is pending; further taps on games wait for its answer. */
     private boolean choosing;
@@ -149,6 +151,18 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     /** The data behind the screen; the debug demo overrides this with canned hosts. */
     protected ConsoleRepository createRepository(String uniqueId) {
         return ConsoleRepository.create(this, uniqueId);
+    }
+
+    /** Its chrome follows the form: a rotation into another form lays it out again. */
+    @Override
+    protected boolean followsForm() {
+        return true;
+    }
+
+    /** A pairing, a wake or a game being added keeps this screen until it is done; it then follows the form. */
+    @Override
+    protected boolean holdsForm() {
+        return hostActions.isPairing() || hostActions.isWaking() || wake.isWaiting() || !adding.isEmpty();
     }
 
     @Override

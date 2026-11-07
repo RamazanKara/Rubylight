@@ -465,6 +465,45 @@ public class PcViewLifecycleTest {
         }
     }
 
+    /** A rotation into another form recreated the page and cancelled the pairing; now the page waits for it. */
+    @Test
+    public void aRunningPairingKeepsThePageThroughAFormChangeThenThePageFollows() throws Exception {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(1), 47989);
+        Thread worker = null;
+        try {
+            Library screen = controller.get();
+            assertEquals(com.limelight.ui.GlassForm.PHONE, com.limelight.ui.GlassForm.of(screen));
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            screen.showComputerMenu((PcView.ComputerObject) grid.getItemAtPosition(0));
+            com.limelight.ui.ActionSheet sheet = (com.limelight.ui.ActionSheet) ShadowDialog.getLatestDialog();
+            button(sheet.findViewById(android.R.id.content), screen.getString(R.string.pcview_menu_pair_pc)).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            worker = ReflectionHelpers.getField(screen.hostActions(), "pairingThread");
+            AlertDialog dialog = ReflectionHelpers.getField(screen.hostActions(), "pairingDialog");
+            assertTrue(dialog.isShowing());
+
+            org.robolectric.RuntimeEnvironment.setQualifiers("w900dp-h700dp-land");
+            screen.onConfigurationChanged(screen.getResources().getConfiguration());
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(com.limelight.ui.GlassForm.HANDHELD, com.limelight.ui.GlassForm.of(screen));
+            assertFalse("the page waits for the pairing", ReflectionHelpers.<Boolean>getField(screen, "recreatingForForm"));
+            assertFalse(screen.isDestroyed());
+            assertTrue("the pairing still runs", screen.hostActions().isPairing());
+            assertTrue("its PIN still shows", dialog.isShowing());
+
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            worker.join(5000);
+            assertFalse(screen.hostActions().isPairing());
+            screen.onWindowFocusChanged(true);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertTrue("done: the page follows the form", ReflectionHelpers.<Boolean>getField(screen, "recreatingForForm"));
+        } finally {
+            controller.pause().stop().destroy();
+            if (worker != null) worker.join(5000);
+        }
+    }
+
     private static android.view.View button(android.view.View view, String label) {
         if (view instanceof com.google.android.material.button.MaterialButton
                 && label.contentEquals(((com.google.android.material.button.MaterialButton) view).getText())) {

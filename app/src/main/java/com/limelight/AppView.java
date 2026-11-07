@@ -334,6 +334,12 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
         }
     }
 
+    /** Its chrome follows the form: a rotation into another form lays it out again. */
+    @Override
+    protected boolean followsForm() {
+        return true;
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);

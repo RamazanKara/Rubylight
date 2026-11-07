@@ -112,6 +112,12 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         }
     };
 
+    /** Its chrome follows the form: a rotation into another form lays it out again. */
+    @Override
+    protected boolean followsForm() {
+        return true;
+    }
+
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);

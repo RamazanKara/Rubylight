@@ -69,18 +69,39 @@ public abstract class NightjarActivity extends AppCompatActivity {
     private GlassForm form;
 
     /**
-     * Rotating, split screen, folding or unfolding can move the window into another form: a screen that handles those
-     * changes itself is laid out again for the new form, as one the system recreates is. Saved state keeps focus and scroll.
+     * Rotating, split screen, folding or unfolding can move the window into another form: a shell page whose chrome
+     * follows the form is laid out again for the new one. Saved state keeps focus and scroll.
      */
     @Override
     public void onConfigurationChanged(android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
+        followForm();
+    }
+
+    /**
+     * Whether this screen is laid out again when the form changes. Only the shell pages whose chrome depends on the
+     * form say yes; every other screen survives a rotation as it is, with whatever it was doing.
+     */
+    protected boolean followsForm() {
+        return false;
+    }
+
+    /** Pairing, a wake or an add runs on this screen: a new form waits until it is done (see {@link #followForm}). */
+    protected boolean holdsForm() {
+        return false;
+    }
+
+    /**
+     * Lays the screen out again when it follows the form, the form changed and nothing on it holds the old one. A screen
+     * that held it calls this when its work is done; a resume and the window's focus coming back ask again.
+     */
+    protected final void followForm() {
+        if (!followsForm() || form == null || recreatingForForm || isFinishing() || isDestroyed()) return;
         GlassForm now = GlassForm.of(this);
-        if (form != null && now != form && !isFinishing() && !isDestroyed()) {
-            form = now;
-            recreatingForForm = true;
-            recreate();
-        }
+        if (now == form || holdsForm()) return;
+        form = now;
+        recreatingForForm = true;
+        recreate();
     }
 
     private boolean recreatingForForm;
@@ -102,6 +123,7 @@ public abstract class NightjarActivity extends AppCompatActivity {
         // Back on this screen: L1 and R1 may step again.
         shoulderStepping = false;
         refreshAppearance();
+        followForm();
         hideBarsOnForcedTelevision();
         if (!(this instanceof PairLinkActivity)) LinkGate.showWaiting(this);
     }
@@ -164,6 +186,8 @@ public abstract class NightjarActivity extends AppCompatActivity {
         if (!hasFocus) dpadEchoes.reset();
         else hideBarsOnForcedTelevision();
         super.onWindowFocusChanged(hasFocus);
+        // A pairing's dialogs closed: a form change it held can go ahead now.
+        if (hasFocus) followForm();
     }
 
     private void refreshAppearance() {

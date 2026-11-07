@@ -78,6 +78,11 @@ final class HomeWake {
         return true;
     }
 
+    /** A wake started here still waits for its PC. */
+    boolean isWaiting() {
+        return waker.isWaiting();
+    }
+
     void cancel() {
         waker.cancel();
     }

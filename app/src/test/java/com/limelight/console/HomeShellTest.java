@@ -290,6 +290,27 @@ public class HomeShellTest {
     }
 
     @Test
+    public void aRotationWhileAGameIsAddedKeepsHomeThenHomeFollowsTheNewForm() {
+        ActivityController<Home> controller = home();
+        try {
+            Home screen = controller.get();
+            Set<String> adding = ReflectionHelpers.getField(screen, "adding");
+            adding.add("tower:7");
+            RuntimeEnvironment.setQualifiers("w900dp-h700dp-land");
+            screen.onConfigurationChanged(screen.getResources().getConfiguration());
+            shadowOf(Looper.getMainLooper()).idle();
+            assertFalse("the add still runs on this page", (boolean) ReflectionHelpers.getField(screen, "recreatingForForm"));
+            assertFalse(screen.isDestroyed());
+
+            adding.clear();
+            screen.onWindowFocusChanged(true);
+            assertTrue("done: Home is laid out for the handheld", (boolean) ReflectionHelpers.getField(screen, "recreatingForForm"));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
     public void onAPortraitPhoneTheHeadingsAndCardsStartUnderTheFirstTab() throws Exception {
         assertHeadingsAndCardsStartUnderTheFirstTab();
     }

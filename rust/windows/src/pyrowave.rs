@@ -864,11 +864,12 @@ impl Encoder {
                     .bitstream
                     .get(packet.offset..end)
                     .context("invalid codec record range")?;
-                let framed = pyrowave::record_frame_with(
+                let framed = pyrowave::record_frame_into(
                     raw,
                     pyrowave::aligned_payload(self.config.packet_size),
                     limit,
                     self.config.pyrowave_row_order,
+                    crate::frame_pool::take(raw.len()),
                 )?;
                 if framed.len() <= budget {
                     framed
@@ -905,7 +906,8 @@ impl Encoder {
                                 );
                             }
                         }
-                        raw.to_vec()
+                        crate::frame_pool::give(framed);
+                        crate::frame_pool::copy(raw)
                     }
                 }
             } else {
@@ -932,6 +934,7 @@ impl Encoder {
                         bytes.len()
                     );
                 }
+                crate::frame_pool::give(bytes);
                 return Ok(vec![]);
             }
             Ok(vec![Encoded {

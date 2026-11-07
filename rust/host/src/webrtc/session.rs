@@ -187,7 +187,7 @@ impl Sender {
             return Ok(());
         }
         let polled = Instant::now();
-        for frame in frames {
+        for mut frame in frames {
             ensure!(
                 matches!(frame.unit, Unit::Whole),
                 "WebRTC takes whole access units, not slices"
@@ -198,7 +198,9 @@ impl Sender {
             let capture = monotonic(&self.last, frame.presentation.unwrap_or(claimed));
             let bytes = frame.bytes.len() as u64;
             let submitted = self.media.submit_video(VideoFrame {
-                data: frame.bytes.into(),
+                // Encoded returns its buffer to the encoders' pool on drop;
+                // this one leaves with the frame instead.
+                data: std::mem::take(&mut frame.bytes).into(),
                 capture,
                 keyframe: frame.idr,
             });

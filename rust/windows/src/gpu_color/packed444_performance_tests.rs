@@ -156,7 +156,7 @@ float4 pixel(float4 position : SV_Position) : SV_Target {
                 let mut observed = 0;
                 let mut consume = |output: Vec<crate::encoder::Encoded>| -> Result<usize> {
                     let count = output.len();
-                    for frame in output {
+                    for mut frame in output {
                         observed += 1;
                         let shards: usize = packetizer
                             .block_layout(frame.bytes.len())
@@ -167,7 +167,8 @@ float4 pixel(float4 position : SV_Position) : SV_Target {
                         // Ethernet framing, preamble and interpacket gap (the host's budget).
                         let bytes = shards * (packetizer.packet_size + 16 + 32 + 40 + 8 + 38);
                         if observed == 1 {
-                            first_packet = Some((frame.bytes, frame.idr, bytes));
+                            first_packet =
+                                Some((std::mem::take(&mut frame.bytes), frame.idr, bytes));
                         }
                         if observed > fps {
                             latencies.push(

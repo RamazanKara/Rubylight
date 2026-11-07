@@ -38,6 +38,13 @@ pub struct Encoded {
     pub latency: Option<std::time::Duration>,
     pub presentation: Option<std::time::Instant>,
 }
+/// A large frame's buffer goes back to the encoders' pool
+/// ([`crate::frame_pool`]) when the sender is done with it.
+impl Drop for Encoded {
+    fn drop(&mut self) {
+        crate::frame_pool::give(std::mem::take(&mut self.bytes));
+    }
+}
 
 /// A stream size the encoder cannot take: no driver update or sign in helps,
 /// a lower resolution on the device does.

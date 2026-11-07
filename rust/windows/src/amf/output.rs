@@ -293,7 +293,11 @@ impl Encoder {
                     frame_cap_bytes,
                     idr,
                 );
-                (spliced.unwrap_or_else(|| sent.into_owned()), cap)
+                let owned = || match sent {
+                    std::borrow::Cow::Borrowed(bytes) => crate::frame_pool::copy(bytes),
+                    std::borrow::Cow::Owned(bytes) => bytes,
+                };
+                (spliced.unwrap_or_else(owned), cap)
             };
             (v.Release.unwrap())(buffer);
             self.frame_completed(timing, !bytes.is_empty());

@@ -1961,7 +1961,7 @@ impl Session {
                 };
                 Ok((
                     Encoded {
-                        bytes: written[sent..].to_vec(),
+                        bytes: crate::frame_pool::copy(&written[sent..]),
                         unit,
                         idr: whole && idr,
                         after_invalidation: whole && pending.after_invalidation && !idr,

@@ -1,5 +1,5 @@
-r"""What Nightjar does when its host goes away: a PC shutting down ends the stream, a host that crashes or restarts
-reconnects, and a blip on either side is ridden out (catalog case nj-host-gone).
+r"""What Nightjar does when its host goes away: a PC shutting down or a host that stops or restarts ends the stream at
+once, a host that crashes recovers, and a blip on either side is ridden out (catalog case nj-host-gone).
 
   host_gone.py run --event kill|stop|restart|path|wifi|suspend|pathblip [--hold S] [--engine rust|classic] [--tag T]
   host_gone.py restart-time [--count N]
@@ -14,9 +14,9 @@ event, then the app's own log says when it noticed and what it did. Events:
   pathblip  the same for --hold seconds only (path and pathblip need an elevated shell)
   wifi      the device's Wi-Fi off for --hold seconds, then on again (adb is on USB)
   suspend   the host process frozen for --hold seconds (a stalled host: the OS still answers)
-kill passes when no message comes and the recovery takes over; stop when the message comes once the restart grace
-is out (the PC still answers pings, its host stays closed); restart when the stream reconnects without the message;
-pathblip, wifi and suspend when the stream survives. path (a PC switched off) is recorded only: the connection's
+kill passes when no message comes and the recovery takes over; stop and restart when the message comes (its server
+closed after the goodbye; a restarted host could not resume the stream); pathblip, wifi and suspend when the stream
+survives. path (a PC switched off) is recorded only: the connection's
 timeout and the recovery decide it, as before. A real power-off can't be run here.
 restart-time measures how long a restart of the test host takes to answer on its HTTPS port again, without a device.
 Results: <out>\results.jsonl, per run <tag>-logcat.txt, -end.png, -host.log.
@@ -121,8 +121,7 @@ def focus():
 
 
 # App log lines that mark a moment of the end. The first of each counts.
-MARKS = {'noticed': 'Stream disconnected', 'gone': 'The PC is gone', 'back': "the PC's host restarted",
-         'stopping': 'Stream stopping'}
+MARKS = {'noticed': 'Stream disconnected', 'gone': 'The PC is gone', 'stopping': 'Stream stopping'}
 
 
 def analyse(logcat, t0, offset):
@@ -147,10 +146,8 @@ def verdict(event, result):
     marks, last = result['marks'], (result.get('focus_trace') or [(0, '?')])[-1][1]
     if event == 'kill':
         return 'gone' not in marks and result['recovery_lines'] > 0
-    if event == 'stop':
+    if event in ('stop', 'restart'):
         return 'gone' in marks
-    if event == 'restart':
-        return 'gone' not in marks and 'noticed' in marks and 'Game' in last
     if event in ('pathblip', 'wifi', 'suspend'):
         return 'noticed' not in marks and 'Game' in last
     return None

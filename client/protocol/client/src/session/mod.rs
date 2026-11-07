@@ -63,8 +63,9 @@ pub mod error {
     /// Packed 4:4:4 cannot be streamed with this host ([`crate::rtsp::RtspError::PackedRefused`],
     /// Java's `CLIENT_ERROR_PACKED_444_REFUSED`): the client may reconnect without it.
     pub const PACKED_444_REFUSED: i32 = -106;
-    /// The PC is gone: it said goodbye and shut down, or its host did not come back
-    /// ([`crate::host_loss`], Java's `CLIENT_ERROR_HOST_GONE`). Nothing reconnects on its own.
+    /// The PC is gone: its host said goodbye and closed its server (the PC shuts down, the host
+    /// stopped or restarts; [`crate::host_loss`], Java's `CLIENT_ERROR_HOST_GONE`). Nothing
+    /// reconnects on its own.
     pub const HOST_GONE: i32 = -108;
     /// A failure without an OS error code.
     pub const FAILED: i32 = -1;
@@ -362,9 +363,6 @@ struct HostWatch {
     control: ControlHandle,
     host: SocketAddr,
     gateway: Arc<dyn Fn(IpAddr) -> Option<IpAddr> + Send + Sync>,
-    ping: crate::host_loss::Pinger,
-    /// The PC answered a ping as the stream started (set once that ping is back).
-    pinged: Arc<AtomicBool>,
 }
 
 enum StartGate {
@@ -415,15 +413,13 @@ impl Shared {
         let _ = std::thread::Builder::new()
             .name("AsyncTerm".into())
             .spawn(move || {
-                // After this session's host said goodbye: a PC shutting down, or a host that did not
-                // come back within the restart grace, ends here. A host that went silent past the
-                // timeout is left to the recovery, like one this can't tell.
+                // After this session's host said goodbye: a server that closed (a PC shutting
+                // down, a host that stopped or restarts) ends here. A host that went silent past
+                // the timeout is left to the recovery, like one this can't tell.
                 let verdict = watch.map(|w| {
                     crate::host_loss::watch_goodbye(
                         w.host,
                         &*w.gateway,
-                        &w.ping,
-                        w.pinged.load(Ordering::SeqCst),
                         &|| stopping.load(Ordering::SeqCst),
                         &|line| listener.log(line),
                     )
@@ -669,45 +665,19 @@ impl Session {
     }
 
     /// Readies the check after the host's goodbye ([`crate::host_loss`]): `port` is the PC's HTTPS
-    /// port, `gateway` this device's gateway while the PC is on its link, `ping` this platform's
-    /// ping, which goes out once now. A connection that ends with the goodbye of a host on a PC
-    /// shutting down, or one that does not come back within the restart grace, then reports
-    /// [`error::HOST_GONE`]. For clients that run the check here; the Android app runs its own over
-    /// both of its engines.
-    pub fn watch_host(
-        &self,
-        port: u16,
-        gateway: impl Fn(IpAddr) -> Option<IpAddr> + Send + Sync + 'static,
-        ping: crate::host_loss::Pinger,
-    ) -> io::Result<()> {
-        let shared = self.parts.shared.clone();
+    /// port, `gateway` this device's gateway while the PC is on its link. A connection that ends
+    /// with the goodbye of a host whose server then closes (the PC shuts down, the host stops or
+    /// restarts) reports [`error::HOST_GONE`]. For clients that run the check here; the Android app
+    /// runs its own over both of its engines.
+    pub fn watch_host(&self, port: u16, gateway: impl Fn(IpAddr) -> Option<IpAddr> + Send + Sync + 'static) {
         let (Some(remote), Some(control)) = (self.parts.remote, self.parts.control.clone()) else {
-            return Ok(());
+            return;
         };
-        let host = SocketAddr::new(remote.ip(), port);
-        let gateway: Arc<dyn Fn(IpAddr) -> Option<IpAddr> + Send + Sync> = Arc::new(gateway);
-        let pinged = Arc::new(AtomicBool::new(false));
-        *shared.host_watch.lock().unwrap_or_else(|p| p.into_inner()) = Some(HostWatch {
+        *self.parts.shared.host_watch.lock().unwrap_or_else(|p| p.into_inner()) = Some(HostWatch {
             control,
-            host,
-            gateway: gateway.clone(),
-            ping: ping.clone(),
-            pinged: pinged.clone(),
+            host: SocketAddr::new(remote.ip(), port),
+            gateway: Arc::new(gateway),
         });
-        std::thread::Builder::new().name("Host watch".into()).spawn(move || {
-            // Only a PC on this device's link that answers a ping now can be told gone later.
-            let first = gateway(host.ip()).and_then(|_| ping(host.ip(), crate::host_loss::FIRST_PING_TIMEOUT));
-            pinged.store(first == Some(true), Ordering::SeqCst);
-            shared.log(&format!(
-                "Host watch: the PC {} a ping",
-                match first {
-                    Some(true) => "answers",
-                    Some(false) => "does not answer",
-                    None => "is off this device's link or can't get",
-                }
-            ));
-        })?;
-        Ok(())
     }
 
     fn control(&self) -> &ControlHandle {

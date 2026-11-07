@@ -26,18 +26,11 @@ public class HostLossWatchTest {
     /** Rounds and verdicts scripted per round; the watch runs on the test's thread. */
     private static final class Script implements HostLossWatch.Probes {
         final List<Integer> verdicts = new ArrayList<>();
-        final List<Boolean> closedPassed = new ArrayList<>();
-        final List<Integer> pingsPassed = new ArrayList<>();
-        final List<Boolean> onLinkPassed = new ArrayList<>();
+        final List<Integer> roundsPassed = new ArrayList<>();
+        final List<Long> waitedPassed = new ArrayList<>();
         final List<String> addresses = new ArrayList<>();
         int roundCode = 2; // SilentLinkUp
-        /** Each round's code in turn, then roundCode. */
-        final List<Integer> roundCodes = new ArrayList<>();
         String gateway = "192.168.4.1";
-        /** The PC's answer to the first ping, then to every round's. */
-        int firstPing = 1;
-        int roundPing = 0;
-        int pinged;
         int rounds;
         boolean goodbye = true;
         long clock;
@@ -47,18 +40,13 @@ public class HostLossWatchTest {
             rounds++;
             addresses.add(address);
             onRound.run();
-            return roundCodes.isEmpty() ? roundCode : roundCodes.remove(0);
+            return roundCode;
         }
-        @Override public int afterGoodbye(boolean pingedAtStart, boolean onLink, int round, int pings, boolean closedBefore, long waitedMs) {
-            assertTrue(pingedAtStart);
-            onLinkPassed.add(onLink);
-            pingsPassed.add(pings);
-            closedPassed.add(closedBefore);
+        @Override public int afterGoodbye(boolean onLink, int round, long waitedMs) {
+            assertTrue("only a PC on this link gets a round", onLink);
+            roundsPassed.add(round);
+            waitedPassed.add(waitedMs);
             return verdicts.isEmpty() ? HostLossWatch.GOODBYE_UNKNOWN : verdicts.remove(0);
-        }
-        @Override public synchronized int ping(String address, int timeoutMs) {
-            addresses.add(address);
-            return pinged++ == 0 ? firstPing : roundPing;
         }
         @Override public boolean saidGoodbye() { return goodbye; }
         @Override public String gatewayToward(InetAddress host) { return gateway; }
@@ -66,95 +54,63 @@ public class HostLossWatchTest {
         @Override public void sleep(long ms) { clock += ms + 750; }
     }
 
-    private static HostLossWatch started(Script script) throws Exception {
-        HostLossWatch watch = new HostLossWatch(script, InetAddress.getByName("192.168.4.69"), 47984);
-        ReflectionHelpers.callInstanceMethod(watch, "firstPing");
-        return watch;
+    private static HostLossWatch watch(Script script) throws Exception {
+        return new HostLossWatch(script, InetAddress.getByName("192.168.4.69"), 47984);
     }
 
-    @Test public void aPcShuttingDownEndsAfterOneRound() throws Exception {
+    @Test public void aClosedServerEndsAfterOneRound() throws Exception {
         Script script = new Script();
         script.verdicts.add(HostLossWatch.GOODBYE_GONE);
-        assertEquals(HostLossWatch.GOODBYE_GONE, started(script).afterGoodbye());
+        assertEquals(HostLossWatch.GOODBYE_GONE, watch(script).afterGoodbye());
         assertEquals(1, script.rounds);
-        assertEquals("the round pinged the PC and passed its answer", Arrays.asList(0), script.pingsPassed);
-        assertEquals(Arrays.asList(false), script.closedPassed);
+        assertEquals(Arrays.asList(2), script.roundsPassed);
+        assertEquals(Arrays.asList(0L), script.waitedPassed);
     }
 
-    @Test public void aRestartIsWaitedForAndComesBack() throws Exception {
+    @Test public void aHostStillExitingGetsMoreRoundsWithTheTimeWaited() throws Exception {
         Script script = new Script();
-        script.roundPing = 1;
-        script.verdicts.addAll(Arrays.asList(HostLossWatch.GOODBYE_WAIT, HostLossWatch.GOODBYE_WAIT, HostLossWatch.GOODBYE_BACK));
-        assertEquals(HostLossWatch.GOODBYE_BACK, started(script).afterGoodbye());
+        script.roundCode = 0; // Answered
+        script.verdicts.addAll(Arrays.asList(HostLossWatch.GOODBYE_WAIT, HostLossWatch.GOODBYE_WAIT, HostLossWatch.GOODBYE_UNKNOWN));
+        assertEquals(HostLossWatch.GOODBYE_UNKNOWN, watch(script).afterGoodbye());
         assertEquals(3, script.rounds);
-        assertEquals("only rounds after a closed one say so", Arrays.asList(false, true, true), script.closedPassed);
-        assertEquals(Arrays.asList(1, 1, 1), script.pingsPassed);
-    }
-
-    @Test public void aHostStillListeningRightAfterItsGoodbyeIsNoClosedServer() throws Exception {
-        Script script = new Script();
-        script.roundPing = 1;
-        // Answered while the old host exits, refused once it is gone, answered by the new one.
-        script.roundCodes.addAll(Arrays.asList(HostLossWatch.ROUND_ANSWERED, HostLossWatch.ROUND_ANSWERED, 1, HostLossWatch.ROUND_ANSWERED));
-        script.verdicts.addAll(Arrays.asList(HostLossWatch.GOODBYE_WAIT, HostLossWatch.GOODBYE_WAIT, HostLossWatch.GOODBYE_WAIT, HostLossWatch.GOODBYE_BACK));
-        assertEquals(HostLossWatch.GOODBYE_BACK, started(script).afterGoodbye());
-        assertEquals(Arrays.asList(false, false, false, true), script.closedPassed);
-    }
-
-    @Test public void aQuietFirstRoundDidNotFindTheServerOpen() throws Exception {
-        Script script = new Script();
-        script.roundPing = 1;
-        // A quiet moment on the link while a fast restart's server was closed, then the new host.
-        script.roundCodes.addAll(Arrays.asList(3, HostLossWatch.ROUND_ANSWERED));
-        script.verdicts.addAll(Arrays.asList(HostLossWatch.GOODBYE_WAIT, HostLossWatch.GOODBYE_BACK));
-        assertEquals(HostLossWatch.GOODBYE_BACK, started(script).afterGoodbye());
-        assertEquals(Arrays.asList(false, true), script.closedPassed);
+        assertEquals(Arrays.asList(0L, 1000L, 2000L), script.waitedPassed);
     }
 
     @Test public void aSilenceIsNeverChecked() throws Exception {
         Script script = new Script();
         script.goodbye = false;
-        assertEquals(HostLossWatch.GOODBYE_UNKNOWN, started(script).afterGoodbye());
-        assertEquals(0, script.rounds);
-    }
-
-    @Test public void aPcThatNeverAnsweredAPingIsTheOldBehaviour() throws Exception {
-        Script script = new Script();
-        script.firstPing = 0;
         script.verdicts.add(HostLossWatch.GOODBYE_GONE);
-        assertEquals(HostLossWatch.GOODBYE_UNKNOWN, started(script).afterGoodbye());
+        assertEquals(HostLossWatch.GOODBYE_UNKNOWN, watch(script).afterGoodbye());
         assertEquals(0, script.rounds);
     }
 
-    @Test public void aPcOffThisLinkIsNeverPinged() throws Exception {
+    @Test public void aPcOffThisLinkIsTheOldBehaviour() throws Exception {
         // A relay, a VPN or a routed PC: no gateway to compare with, so the old behaviour decides.
         Script script = new Script();
         script.gateway = null;
-        assertEquals(HostLossWatch.GOODBYE_UNKNOWN, started(script).afterGoodbye());
-        assertEquals(0, script.pinged);
+        script.verdicts.add(HostLossWatch.GOODBYE_GONE);
+        assertEquals(HostLossWatch.GOODBYE_UNKNOWN, watch(script).afterGoodbye());
         assertEquals(0, script.rounds);
     }
 
-    @Test public void aLinkThatGoesQuietMidWayPassesThatOn() throws Exception {
+    @Test public void aLinkThatGoesAwayMidWayIsTheOldBehaviour() throws Exception {
         Script script = new Script();
-        script.verdicts.add(HostLossWatch.GOODBYE_WAIT);
+        script.verdicts.addAll(Arrays.asList(HostLossWatch.GOODBYE_WAIT, HostLossWatch.GOODBYE_GONE));
         script.onRound = () -> script.gateway = null;
-        started(script).afterGoodbye();
-        assertEquals(Arrays.asList(true, false), script.onLinkPassed);
-        assertEquals(HostLossWatch.NOT_PINGED, (int) script.pingsPassed.get(1));
+        assertEquals(HostLossWatch.GOODBYE_UNKNOWN, watch(script).afterGoodbye());
+        assertEquals(1, script.rounds);
     }
 
     @Test public void aStopEndsTheWaitWithTheOldBehaviour() throws Exception {
         Script script = new Script();
-        script.roundPing = 1;
         for (int i = 0; i < 100; i++) script.verdicts.add(HostLossWatch.GOODBYE_WAIT);
-        HostLossWatch watch = started(script);
+        HostLossWatch watch = watch(script);
         script.onRound = () -> { if (script.rounds == 2) watch.stop(); };
         assertEquals(HostLossWatch.GOODBYE_UNKNOWN, watch.afterGoodbye());
-        assertEquals("the verdict of a round that ran into the stop is dropped", 1, script.closedPassed.size());
+        assertEquals("the verdict of a round that ran into the stop is dropped", 1, script.roundsPassed.size());
 
         Script before = new Script();
-        HostLossWatch stopped = started(before);
+        HostLossWatch stopped = watch(before);
         stopped.stop();
         assertEquals(HostLossWatch.GOODBYE_UNKNOWN, stopped.afterGoodbye());
         assertEquals(0, before.rounds);
@@ -163,7 +119,7 @@ public class HostLossWatchTest {
     @Test public void theStreamsAddressIsUsedAsIsAndNeverLookedUp() throws Exception {
         Script script = new Script();
         script.verdicts.add(HostLossWatch.GOODBYE_GONE);
-        started(script).afterGoodbye();
+        watch(script).afterGoodbye();
         for (String address : script.addresses) assertEquals("192.168.4.69", address);
         assertEquals(InetAddress.getByName("192.168.4.69"), HostLossWatch.parse("192.168.4.69"));
         assertEquals(InetAddress.getByName("fe80::1"), HostLossWatch.parse("fe80::1"));

@@ -404,7 +404,7 @@ cases:
 
   - id: nj-host-gone
     device: retroid
-    title: A host that crashes or restarts reconnects, one that stops for good on a PC that stays up ends after the restart grace, and blips on either side do not end the stream
+    title: A host that crashes recovers, one that stops or restarts ends the stream at once, and blips on either side do not end the stream
     command: |
       & {{python}} tools\hw\host_gone.py restart-time --count 4
       & {{python}} tools\hw\host_gone.py run --event kill --engine rust --tag kill-rust
@@ -418,7 +418,7 @@ cases:
       & {{python}} tools\hw\host_gone.py run --event wifi --hold 8 --tag wifi8
       & {{python}} tools\hw\host_gone.py run --event suspend --hold 6 --tag suspend6
     preconditions: [idle, isolated-ports]
-    pass: every run's "pass" is true in results.jsonl. kill recovers without the message; restart reconnects without it (restart-time stays well inside the restart grace); stop ends with the message after the restart grace (the PC still answers pings); the stream survives pathblip 6 and 9, wifi and suspend
+    pass: every run's "pass" is true in results.jsonl. kill recovers without the message; stop and restart end with the message within about 2 s of the goodbye; the stream survives pathblip 6 and 9, wifi and suspend
     output: '{{out}}\results.jsonl under unified\nj-host-gone'
     note: 'Takes GPU-LOCK and RETROID-LOCK per run, host and pairing as nj-fec-wifi (fec_wifi_ab.py setup once). pathblip adds a host route on this PC: run from an elevated shell. A real power-off cannot be run here.'
 

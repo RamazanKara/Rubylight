@@ -453,4 +453,14 @@
     <string name="continue_here_failed">No se pudo continuar aquí</string>
     <string name="continue_here_came_back">El juego ha vuelto a este dispositivo</string>
     <string name="continue_here_did_not_move">La partida no pasó al otro dispositivo</string>
+    <string name="title_onscreen_own_player">Controles en pantalla como jugador propio</string>
+    <string name="summary_onscreen_own_player">Los controles en pantalla son el mando 1 en el PC y los mandos físicos cuentan desde el 2, para que una herramienta como Steam los asigne por separado. Requiere Varios mandos y se aplica en la próxima transmisión.</string>
+    <string name="keyboard_shortcuts_reorder">Arrastra para cambiar el orden, o pulsa arriba o abajo</string>
+    <string name="title_stream_menu_button_y">Y en el menú de la transmisión</string>
+    <string name="title_stream_menu_button_x">X en el menú de la transmisión</string>
+    <string name="title_stream_menu_button_lb">LB en el menú de la transmisión</string>
+    <string name="title_stream_menu_button_rb">RB en el menú de la transmisión</string>
+    <string name="summary_stream_menu_button">Lo que hace este botón mientras el menú de la transmisión está abierto. A selecciona y B cierra el menú.</string>
+    <string name="stream_menu_button_default">Predeterminado</string>
+    <string name="stream_menu_button_none">Desactivado</string>
 </resources>

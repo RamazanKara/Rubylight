@@ -252,6 +252,34 @@
             android:entries="@array/gamepad_quit_combo_names"
             android:entryValues="@array/gamepad_quit_combo_values"
             android:defaultValue="off" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_stream_menu_button_y"
+            android:title="@string/title_stream_menu_button_y"
+            android:dialogMessage="@string/summary_stream_menu_button"
+            android:entries="@array/stream_menu_button_names"
+            android:entryValues="@array/stream_menu_button_values"
+            android:defaultValue="default" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_stream_menu_button_x"
+            android:title="@string/title_stream_menu_button_x"
+            android:dialogMessage="@string/summary_stream_menu_button"
+            android:entries="@array/stream_menu_button_names"
+            android:entryValues="@array/stream_menu_button_values"
+            android:defaultValue="default" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_stream_menu_button_lb"
+            android:title="@string/title_stream_menu_button_lb"
+            android:dialogMessage="@string/summary_stream_menu_button"
+            android:entries="@array/stream_menu_button_names"
+            android:entryValues="@array/stream_menu_button_values"
+            android:defaultValue="default" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_stream_menu_button_rb"
+            android:title="@string/title_stream_menu_button_rb"
+            android:dialogMessage="@string/summary_stream_menu_button"
+            android:entries="@array/stream_menu_button_names"
+            android:entryValues="@array/stream_menu_button_values"
+            android:defaultValue="default" />
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_deadzone"
             android:defaultValue="7"
@@ -515,6 +543,12 @@
             android:dependency="checkbox_show_onscreen_controls"
             android:title="@string/title_only_l3r3"
             android:dialogMessage="@string/summary_only_l3r3"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_onscreen_own_player"
+            android:dependency="checkbox_show_onscreen_controls"
+            android:title="@string/title_onscreen_own_player"
+            android:dialogMessage="@string/summary_onscreen_own_player"
             android:defaultValue="false" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_show_guide_button"

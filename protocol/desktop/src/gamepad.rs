@@ -320,6 +320,7 @@ pub struct Gamepads {
     pub mappings: std::collections::BTreeMap<String, Mapping>,
     back_opens_menu: bool,
     quit_combo: crate::config::GamepadQuitCombo,
+    menu_buttons: nightjar_policy::stream_menu::Buttons,
     mouse_emulation: bool,
     analog_scrolling: crate::config::AnalogScrolling,
     mouse_fixed_step: bool,
@@ -356,6 +357,7 @@ impl Gamepads {
         self.motion = settings.controller_motion;
         self.back_opens_menu = settings.back_opens_menu;
         self.quit_combo = settings.gamepad_quit_combo;
+        self.menu_buttons.clone_from(&settings.stream_menu_buttons);
         self.mouse_emulation = settings.controller_mouse;
         self.analog_scrolling = settings.analog_scrolling;
         self.mouse_fixed_step = settings.mouse_fixed_step;
@@ -877,6 +879,11 @@ impl Gamepads {
     }
 
     /// The buttons that disconnect, as the settings chose them.
+    /// What the user chose for the controller's buttons in the stream menu.
+    pub fn menu_buttons(&self) -> &nightjar_policy::stream_menu::Buttons {
+        &self.menu_buttons
+    }
+
     pub fn quit_combo(&self) -> crate::config::GamepadQuitCombo {
         self.quit_combo
     }

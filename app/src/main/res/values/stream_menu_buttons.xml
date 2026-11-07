@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_stream_menu_button_y">Y in the stream menu</string>
+    <string name="title_stream_menu_button_x">X in the stream menu</string>
+    <string name="title_stream_menu_button_lb">LB in the stream menu</string>
+    <string name="title_stream_menu_button_rb">RB in the stream menu</string>
+    <string name="summary_stream_menu_button">What this button runs while the stream menu is open. A selects and B closes the menu.</string>
+    <string name="stream_menu_button_default">Default</string>
+    <string name="stream_menu_button_none">Off</string>
+    <!-- The stream menu's first page, in its order (protocol/policy stream_menu::assignable, which a test holds this to). -->
+    <string-array name="stream_menu_button_names">
+        <item>@string/stream_menu_button_default</item>
+        <item>@string/stream_menu_button_none</item>
+        <item>@string/stream_tile_keyboard</item>
+        <item>@string/stream_tile_pc_keyboard</item>
+        <item>@string/stream_tile_mouse</item>
+        <item>@string/stream_tile_overlay</item>
+        <item>@string/stream_tile_shortcuts</item>
+        <item>@string/stream_tile_microphone</item>
+        <item>@string/stream_tile_touch_mode</item>
+        <item>@string/stream_tile_onscreen_controls</item>
+        <item>@string/stream_tile_quality</item>
+        <item>@string/stream_tile_video_output</item>
+        <item>@string/stream_tile_zoom</item>
+        <item>@string/stream_tile_send_clipboard</item>
+        <item>@string/stream_tile_get_clipboard</item>
+        <item>@string/stream_tile_pc_commands</item>
+        <item>@string/stream_tile_diagnostics</item>
+        <item>@string/stream_tile_session_graphics</item>
+        <item>@string/stream_tile_disconnect</item>
+        <item>@string/stream_tile_end_session</item>
+        <item>@string/stream_tile_close_game</item>
+        <item>@string/stream_tile_quit_game</item>
+    </string-array>
+    <string-array name="stream_menu_button_values" translatable="false">
+        <item>default</item>
+        <item>none</item>
+        <item>keyboard</item>
+        <item>pc_keyboard</item>
+        <item>controller_mouse</item>
+        <item>overlay</item>
+        <item>shortcuts</item>
+        <item>microphone</item>
+        <item>touch_mode</item>
+        <item>onscreen_controls</item>
+        <item>bitrate</item>
+        <item>video_output</item>
+        <item>zoom</item>
+        <item>clipboard_send</item>
+        <item>clipboard_receive</item>
+        <item>server_commands</item>
+        <item>overlay_page</item>
+        <item>native_page</item>
+        <item>disconnect</item>
+        <item>end_host_session</item>
+        <item>close_game</item>
+        <item>quit_game</item>
+    </string-array>
+</resources>

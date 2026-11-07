@@ -453,4 +453,14 @@
     <string name="continue_here_failed">Impossible de continuer ici</string>
     <string name="continue_here_came_back">Le jeu est revenu sur cet appareil</string>
     <string name="continue_here_did_not_move">Le jeu n\'est pas passé sur l\'autre appareil</string>
+    <string name="title_onscreen_own_player">Commandes à l’écran comme joueur à part</string>
+    <string name="summary_onscreen_own_player">Les commandes à l’écran sont la manette 1 sur le PC et les manettes physiques comptent à partir de 2, pour qu’un outil comme Steam les configure séparément. Nécessite Plusieurs manettes, prend effet au prochain stream.</string>
+    <string name="keyboard_shortcuts_reorder">Faites glisser pour changer l’ordre, ou appuyez sur haut ou bas</string>
+    <string name="title_stream_menu_button_y">Y dans le menu du stream</string>
+    <string name="title_stream_menu_button_x">X dans le menu du stream</string>
+    <string name="title_stream_menu_button_lb">LB dans le menu du stream</string>
+    <string name="title_stream_menu_button_rb">RB dans le menu du stream</string>
+    <string name="summary_stream_menu_button">Ce que fait ce bouton quand le menu du stream est ouvert. A sélectionne et B ferme le menu.</string>
+    <string name="stream_menu_button_default">Par défaut</string>
+    <string name="stream_menu_button_none">Désactivé</string>
 </resources>

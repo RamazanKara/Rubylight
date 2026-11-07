@@ -30,6 +30,22 @@ public class KeyboardShortcutsTest {
         assertArrayEquals(new int[] {KeyEvent.KEYCODE_MOVE_HOME, KeyEvent.KEYCODE_MOVE_END}, KeyboardShortcuts.parseChord("HOME + END"));
     }
 
+    @Test public void moveKeepsTheOtherShortcutsInOrderAndLeavesAGoneOneAlone() {
+        android.content.Context context = org.robolectric.RuntimeEnvironment.getApplication();
+        KeyboardShortcuts.save(context, java.util.Arrays.asList(
+                new KeyboardShortcuts.Shortcut("a", "A", KeyboardShortcuts.parseChord("WIN + A")),
+                new KeyboardShortcuts.Shortcut("b", "B", KeyboardShortcuts.parseChord("WIN + B")),
+                new KeyboardShortcuts.Shortcut("c", "C", KeyboardShortcuts.parseChord("WIN + C"))));
+        KeyboardShortcuts.move(context, "c", 0);
+        assertEquals("c", KeyboardShortcuts.load(context).get(0).id);
+        assertEquals("a", KeyboardShortcuts.load(context).get(1).id);
+        KeyboardShortcuts.move(context, "c", 99);
+        assertEquals("c", KeyboardShortcuts.load(context).get(2).id);
+        KeyboardShortcuts.move(context, "gone", 0);
+        assertEquals("a", KeyboardShortcuts.load(context).get(0).id);
+        assertEquals(3, KeyboardShortcuts.load(context).size());
+    }
+
     @Test public void importsCommonArtemisVirtualKeys() {
         List<KeyboardShortcuts.Shortcut> entries = KeyboardShortcuts.parse(
                 "{\"data\":[{\"id\":\"copy\",\"name\":\"Copy\",\"keys\":[\"VK_LCONTROL\",\"VK_C\"]}]}");

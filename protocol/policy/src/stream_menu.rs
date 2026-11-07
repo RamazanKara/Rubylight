@@ -8,6 +8,8 @@
 //! Android's `StreamMenu` asks through `StreamMenuModel` (protocol/android, [`json::call`]);
 //! desktop Nightjar's stream menu (main.rs) calls [`layout`] directly.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::shortcuts::{self, ShortcutError};
@@ -27,7 +29,7 @@ pub enum Place {
 }
 
 /// A controller button that runs a tile while the menu shows its first page. B closes the menu.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Hotkey {
     Y,
@@ -220,6 +222,31 @@ pub struct Layout {
     pub more: Vec<&'static str>,
     /// Close, then the ways out of the session.
     pub footer: Vec<&'static str>,
+    /// What each button runs now, in the grid or under it: only what is offered.
+    pub buttons: BTreeMap<Hotkey, &'static str>,
+}
+
+/// A button's choice in [`Buttons`] that leaves it doing nothing in the menu.
+pub const NO_TILE: &str = "none";
+
+/// What the user chose for the controller's buttons in the menu, by tile ID or [`NO_TILE`]. A
+/// button without a choice keeps its tile from [`TILES`], and so does one whose choice this version
+/// cannot assign, as a settings file from another version may name.
+pub type Buttons = BTreeMap<Hotkey, String>;
+
+/// Whether a button can be given this tile: what shows on the first page, in the grid or under it.
+/// Quality is one choice, as `bitrate`; [`layout_with_buttons`] finds whichever a stream offers.
+pub fn assignable(tile: &Tile) -> bool {
+    tile.label.is_some() && tile.place != Place::More && tile.id != "rate_change"
+}
+
+fn button_tile(key: Hotkey, buttons: &Buttons) -> Option<&'static str> {
+    let default = || TILES.iter().find(|t| t.hotkey == Some(key)).map(|t| t.id);
+    match buttons.get(&key).map(String::as_str) {
+        Some(NO_TILE) => None,
+        Some(id) => tile(id).filter(|t| assignable(t)).map(|t| t.id).or_else(default),
+        None => default(),
+    }
 }
 
 /// An offer this model does not know: the client and the model disagree, which a test catches.
@@ -236,16 +263,35 @@ impl std::fmt::Display for UnknownTile {
 /// `None` where shortcuts cannot be sent (no keyboard permission, a remote monitor): then
 /// neither they nor Add show.
 pub fn layout(offers: &[Offer], shortcuts: Option<usize>) -> Result<Layout, UnknownTile> {
+    layout_with_buttons(offers, shortcuts, &Buttons::new())
+}
+
+/// [`layout`] with the user's choices for the controller's buttons.
+pub fn layout_with_buttons(offers: &[Offer], shortcuts: Option<usize>, buttons: &Buttons) -> Result<Layout, UnknownTile> {
     for offer in offers {
         if offer.id == MORE || offer.id == CLOSE || tile(&offer.id).is_none() {
             return Err(UnknownTile(offer.id.clone()));
         }
     }
     let mut layout = Layout { footer: vec![CLOSE], ..Layout::default() };
+    for key in Hotkey::ALL {
+        let offered = |id: &str| offers.iter().any(|o| o.id == id);
+        let target = button_tile(key, buttons).and_then(|id| match id {
+            "bitrate" if !offered("bitrate") && offered("rate_change") => Some("rate_change"),
+            id => offered(id).then_some(id),
+        });
+        if let Some(id) = target {
+            layout.buttons.insert(key, id);
+        }
+    }
     for tile in TILES {
         let Some(offer) = offers.iter().find(|o| o.id == tile.id) else { continue };
         match tile.place {
-            Place::Grid => layout.grid.push(Cell::Tile { id: tile.id, on: offer.on, hotkey: tile.hotkey }),
+            Place::Grid => {
+                // A tile with two buttons shows the first.
+                let hotkey = Hotkey::ALL.into_iter().find(|key| layout.buttons.get(key) == Some(&tile.id));
+                layout.grid.push(Cell::Tile { id: tile.id, on: offer.on, hotkey });
+            }
             Place::More => layout.more.push(tile.id),
             Place::Footer => layout.footer.push(tile.id),
         }
@@ -263,9 +309,11 @@ pub fn layout(offers: &[Offer], shortcuts: Option<usize>) -> Result<Layout, Unkn
 }
 
 impl Layout {
-    /// The grid cell a controller button runs, if a tile with that button is offered.
+    /// The grid cell a controller button runs, if a tile with that button is offered. A way out
+    /// under the grid has no cell: see [`Self::buttons`].
     pub fn hotkey(&self, key: Hotkey) -> Option<usize> {
-        self.grid.iter().position(|cell| matches!(cell, Cell::Tile { hotkey: Some(k), .. } if *k == key))
+        let id = *self.buttons.get(&key)?;
+        self.grid.iter().position(|cell| matches!(cell, Cell::Tile { id: tile, .. } if *tile == id))
     }
 
     /// The tile ID in a grid cell, or None for a shortcut or Add.
@@ -351,7 +399,7 @@ pub mod json {
     #[serde(tag = "op", rename_all = "snake_case")]
     enum Request {
         /// The menu: `offers` and the saved shortcuts' count (absent when they cannot be sent).
-        Layout { offers: Vec<Offer>, shortcuts: Option<usize> },
+        Layout { offers: Vec<Offer>, shortcuts: Option<usize>, #[serde(default)] buttons: Buttons },
         /// The built-ins not saved under a name of their own, given each saved shortcut's keys.
         BuiltIns { saved: Vec<Vec<String>> },
         /// The key picker's keys.
@@ -402,7 +450,7 @@ pub mod json {
 
     fn answer(request: Request) -> Result<Value, Refusal> {
         Ok(match request {
-            Request::Layout { offers, shortcuts } => match layout(&offers, shortcuts) {
+            Request::Layout { offers, shortcuts, buttons } => match layout_with_buttons(&offers, shortcuts, &buttons) {
                 Ok(layout) => serde_json::to_value(layout).expect("layout serializes"),
                 Err(UnknownTile(id)) => return Err(ShortcutError::Invalid(format!("unknown tile {id}")).into()),
             },
@@ -467,6 +515,23 @@ pub mod json {
 mod tests {
     use super::*;
 
+    /// Android's setting lists every choice, in the menu's order, under the tile's own name.
+    #[test]
+    fn androids_button_setting_offers_every_assignable_tile() {
+        let xml = include_str!("../../../app/src/main/res/values/stream_menu_buttons.xml");
+        let items = |array: &str| -> Vec<String> {
+            let body = xml.split(&format!("name=\"{array}\"")).nth(1).unwrap().split("</string-array>").next().unwrap();
+            body.split("<item>").skip(1).map(|item| item.split("</item>").next().unwrap().to_string()).collect()
+        };
+        let tiles: Vec<&Tile> = TILES.iter().filter(|tile| assignable(tile)).filter(|tile| tile.id != "rate_change").collect();
+        let mut values = vec!["default".to_string(), NO_TILE.to_string()];
+        values.extend(tiles.iter().map(|tile| tile.id.to_string()));
+        assert_eq!(items("stream_menu_button_values"), values);
+        let mut names = vec!["@string/stream_menu_button_default".to_string(), "@string/stream_menu_button_none".to_string()];
+        names.extend(tiles.iter().map(|tile| format!("@string/stream_tile_{}", tile.label.unwrap().key)));
+        assert_eq!(items("stream_menu_button_names"), names);
+    }
+
     fn ids(layout: &Layout) -> Vec<String> {
         layout.grid.iter().map(|cell| match cell {
             Cell::Tile { id, .. } => id.to_string(),
@@ -484,6 +549,63 @@ mod tests {
         assert_eq!(layout.more, ["reconnect"]);
         assert_eq!(layout.footer, ["close", "disconnect", "quit_game"]);
         assert_eq!(layout.grid[2], Cell::Tile { id: "overlay", on: Some(true), hotkey: Some(Hotkey::Rb) });
+    }
+
+    #[test]
+    fn a_button_runs_the_tile_the_user_chose_for_it() {
+        let offers = [Offer::action("keyboard"), Offer::switch("controller_mouse", false), Offer::switch("overlay", false),
+            Offer::action("shortcuts"), Offer::action("bitrate"), Offer::action("disconnect"), Offer::action("reconnect")];
+        let buttons = Buttons::from([
+            (Hotkey::Y, "bitrate".to_string()),
+            (Hotkey::X, NO_TILE.to_string()),
+            (Hotkey::Lb, "disconnect".to_string()),
+        ]);
+        let menu = layout_with_buttons(&offers, Some(0), &buttons).unwrap();
+        // The tile shows its button; a way out under the grid has none to show, and still runs.
+        assert_eq!(menu.hotkey(Hotkey::Y).and_then(|i| menu.tile_id(i)), Some("bitrate"));
+        assert_eq!(menu.grid[4], Cell::Tile { id: "bitrate", on: None, hotkey: Some(Hotkey::Y) });
+        assert_eq!(menu.grid[0], Cell::Tile { id: "keyboard", on: None, hotkey: None });
+        assert_eq!(menu.grid[1], Cell::Tile { id: "controller_mouse", on: Some(false), hotkey: None });
+        assert_eq!(menu.hotkey(Hotkey::X), None);
+        assert_eq!(menu.buttons.get(&Hotkey::X), None);
+        assert_eq!(menu.hotkey(Hotkey::Lb), None);
+        assert_eq!(menu.buttons[&Hotkey::Lb], "disconnect");
+        // A button without a choice keeps its tile.
+        assert_eq!(menu.hotkey(Hotkey::Rb).and_then(|i| menu.tile_id(i)), Some("overlay"));
+    }
+
+    #[test]
+    fn a_button_cannot_be_given_what_the_menu_does_not_show_on_its_first_page() {
+        let offers = [Offer::action("keyboard"), Offer::action("reconnect")];
+        for id in ["reconnect", "more", "close", "rate_change", "from_a_later_version"] {
+            let buttons = Buttons::from([(Hotkey::Y, id.to_string())]);
+            let menu = layout_with_buttons(&offers, None, &buttons).unwrap();
+            assert_eq!(menu.buttons[&Hotkey::Y], "keyboard", "{id}");
+        }
+        // A tile this stream does not offer leaves the button doing nothing, not something else.
+        let buttons = Buttons::from([(Hotkey::Y, "zoom".to_string())]);
+        assert_eq!(layout_with_buttons(&offers, None, &buttons).unwrap().buttons.get(&Hotkey::Y), None);
+        // Quality is whichever tile this stream has for it.
+        let offers = [Offer::action("rate_change")];
+        let buttons = Buttons::from([(Hotkey::Rb, "bitrate".to_string())]);
+        assert_eq!(layout_with_buttons(&offers, None, &buttons).unwrap().buttons[&Hotkey::Rb], "rate_change");
+    }
+
+    #[test]
+    fn two_buttons_on_one_tile_show_the_first_and_both_run_it() {
+        let offers = [Offer::switch("overlay", false)];
+        let menu = layout_with_buttons(&offers, None, &Buttons::from([(Hotkey::Y, "overlay".to_string())])).unwrap();
+        assert_eq!(menu.grid[0], Cell::Tile { id: "overlay", on: Some(false), hotkey: Some(Hotkey::Y) });
+        assert_eq!(menu.hotkey(Hotkey::Y), Some(0));
+        assert_eq!(menu.hotkey(Hotkey::Rb), Some(0));
+    }
+
+    #[test]
+    fn the_json_call_takes_the_users_buttons() {
+        let answer = json::call(r#"{"op":"layout","offers":[{"id":"zoom"},{"id":"keyboard"}],"buttons":{"y":"zoom"}}"#);
+        let answer: serde_json::Value = serde_json::from_str(&answer).unwrap();
+        assert_eq!(answer["ok"]["buttons"]["y"], "zoom");
+        assert_eq!(answer["ok"]["grid"][1]["tile"]["hotkey"], "y");
     }
 
     #[test]

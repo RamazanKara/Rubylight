@@ -453,4 +453,14 @@
     <string name="continue_here_failed">Konnte hier nicht fortgesetzt werden</string>
     <string name="continue_here_came_back">Das Spiel ist zu diesem Gerät zurückgekehrt</string>
     <string name="continue_here_did_not_move">Das Spiel wurde nicht auf das andere Gerät verschoben</string>
+    <string name="title_onscreen_own_player">Bildschirmtasten als eigener Spieler</string>
+    <string name="summary_onscreen_own_player">Die Bildschirmtasten sind am PC Controller 1, physische Controller zählen ab 2, damit ein Tool wie Steam sie getrennt belegen kann. Braucht Mehrere Controller und gilt ab dem nächsten Stream.</string>
+    <string name="keyboard_shortcuts_reorder">Ziehen, um die Reihenfolge zu ändern, oder nach oben oder unten drücken</string>
+    <string name="title_stream_menu_button_y">Y im Streammenü</string>
+    <string name="title_stream_menu_button_x">X im Streammenü</string>
+    <string name="title_stream_menu_button_lb">LB im Streammenü</string>
+    <string name="title_stream_menu_button_rb">RB im Streammenü</string>
+    <string name="summary_stream_menu_button">Was diese Taste ausführt, solange das Streammenü offen ist. A wählt aus und B schließt das Menü.</string>
+    <string name="stream_menu_button_default">Standard</string>
+    <string name="stream_menu_button_none">Aus</string>
 </resources>

@@ -453,4 +453,14 @@
     <string name="continue_here_failed">여기서 계속할 수 없습니다</string>
     <string name="continue_here_came_back">게임이 이 기기로 돌아왔습니다</string>
     <string name="continue_here_did_not_move">게임이 다른 기기로 옮겨지지 않았습니다</string>
+    <string name="title_onscreen_own_player">화면 컨트롤을 별도 플레이어로</string>
+    <string name="summary_onscreen_own_player">화면 컨트롤이 PC에서 컨트롤러 1이 되고 실제 컨트롤러는 2부터 셉니다. Steam 같은 도구에서 따로 매핑할 수 있습니다. 여러 컨트롤러가 필요하며 다음 스트림부터 적용됩니다.</string>
+    <string name="keyboard_shortcuts_reorder">끌어서 순서를 바꾸거나 위 또는 아래를 누르세요</string>
+    <string name="title_stream_menu_button_y">스트림 메뉴의 Y</string>
+    <string name="title_stream_menu_button_x">스트림 메뉴의 X</string>
+    <string name="title_stream_menu_button_lb">스트림 메뉴의 LB</string>
+    <string name="title_stream_menu_button_rb">스트림 메뉴의 RB</string>
+    <string name="summary_stream_menu_button">스트림 메뉴가 열려 있을 때 이 버튼이 실행할 동작입니다. A는 선택, B는 메뉴를 닫습니다.</string>
+    <string name="stream_menu_button_default">기본값</string>
+    <string name="stream_menu_button_none">끔</string>
 </resources>

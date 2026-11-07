@@ -453,4 +453,14 @@
     <string name="continue_here_failed">Impossibile continuare qui</string>
     <string name="continue_here_came_back">Il gioco è tornato su questo dispositivo</string>
     <string name="continue_here_did_not_move">Il gioco non è passato all\'altro dispositivo</string>
+    <string name="title_onscreen_own_player">Controlli a schermo come giocatore a sé</string>
+    <string name="summary_onscreen_own_player">I controlli a schermo sono il controller 1 sul PC e i controller fisici contano da 2, così uno strumento come Steam può mapparli separatamente. Richiede Più controller e vale dal prossimo stream.</string>
+    <string name="keyboard_shortcuts_reorder">Trascina per cambiare l’ordine, o premi su o giù</string>
+    <string name="title_stream_menu_button_y">Y nel menu dello stream</string>
+    <string name="title_stream_menu_button_x">X nel menu dello stream</string>
+    <string name="title_stream_menu_button_lb">LB nel menu dello stream</string>
+    <string name="title_stream_menu_button_rb">RB nel menu dello stream</string>
+    <string name="summary_stream_menu_button">Cosa fa questo pulsante quando il menu dello stream è aperto. A seleziona e B chiude il menu.</string>
+    <string name="stream_menu_button_default">Predefinito</string>
+    <string name="stream_menu_button_none">Disattivato</string>
 </resources>

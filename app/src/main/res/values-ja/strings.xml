@@ -453,4 +453,14 @@
     <string name="continue_here_failed">ここで続けられませんでした</string>
     <string name="continue_here_came_back">ゲームはこのデバイスに戻りました</string>
     <string name="continue_here_did_not_move">ゲームは別のデバイスに移動しませんでした</string>
+    <string name="title_onscreen_own_player">オンスクリーンコントロールを別プレイヤーにする</string>
+    <string name="summary_onscreen_own_player">オンスクリーンコントロールが PC のコントローラ 1 になり、物理コントローラは 2 から数えます。Steam などのツールで別々に割り当てられます。複数のコントローラが必要で、次のストリームから有効です。</string>
+    <string name="keyboard_shortcuts_reorder">ドラッグするか上下を押して順番を変更</string>
+    <string name="title_stream_menu_button_y">ストリームメニューの Y</string>
+    <string name="title_stream_menu_button_x">ストリームメニューの X</string>
+    <string name="title_stream_menu_button_lb">ストリームメニューの LB</string>
+    <string name="title_stream_menu_button_rb">ストリームメニューの RB</string>
+    <string name="summary_stream_menu_button">ストリームメニューを開いているときにこのボタンで実行する操作。A で選択、B でメニューを閉じます。</string>
+    <string name="stream_menu_button_default">デフォルト</string>
+    <string name="stream_menu_button_none">オフ</string>
 </resources>

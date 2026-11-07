@@ -619,7 +619,7 @@ public final class StreamMenu {
         List<KeyboardShortcuts.Shortcut> saved = shortcuts != null && o.canSendInput ? shortcuts.saved() : null;
         java.util.Map<String, String> labels;
         try {
-            layout = StreamMenuModel.layout(offers(offered), saved == null ? null : saved.size());
+            layout = StreamMenuModel.layout(offers(offered), saved == null ? null : saved.size(), buttonChoices(activity));
             labels = StreamMenuModel.labels();
         } catch (StreamMenuModel.Refused e) {
             // Without the model the stream still runs (the C engine needs no libnightjar_core): every entry stays
@@ -783,7 +783,18 @@ public final class StreamMenu {
         return KeyboardShortcuts.format(keys).split(" \\+ ");
     }
 
-    /** A controller button on the first page runs the tile that shows it: Y, X, LB or RB. */
+    /** What the user chose in Settings for the controller's buttons here: by button, the buttons left on Default out. */
+    static java.util.Map<String, String> buttonChoices(android.content.Context context) {
+        android.content.SharedPreferences prefs = android.preference.PreferenceManager.getDefaultSharedPreferences(context);
+        java.util.Map<String, String> choices = new java.util.HashMap<>();
+        for (String key : new String[] {"y", "x", "lb", "rb"}) {
+            String choice = prefs.getString("list_stream_menu_button_" + key, "default");
+            if (!"default".equals(choice)) choices.put(key, choice);
+        }
+        return choices;
+    }
+
+    /** A controller button on the first page runs its tile, or a way out under the grid: Y, X, LB or RB. */
     public boolean hotkey(int keyCode) {
         if (page != Page.MAIN || layout == null || grid == null) return false;
         String key;
@@ -795,9 +806,19 @@ public final class StreamMenu {
             default: return false;
         }
         int index = layout.hotkey(key);
-        if (index < 0) return false;
-        grid.getChildAt(index).performClick();
-        return true;
+        if (index >= 0) {
+            grid.getChildAt(index).performClick();
+            return true;
+        }
+        String id = layout.buttons.get(key);
+        for (Entry entry : entries) {
+            MaterialButton row = rows.get(entry.item);
+            if (row != null && id(entry.item).equals(id)) {
+                row.performClick();
+                return true;
+            }
+        }
+        return false;
     }
 
     // The shortcuts page: the user's, in their order, then the built-ins not saved under a name of their own, Add, then a

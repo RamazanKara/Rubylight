@@ -71,6 +71,21 @@ public final class KeyboardShortcuts {
         PreferenceManager.getDefaultSharedPreferences(context).edit().putString(PREF, encode(entries)).apply();
     }
 
+    /**
+     * Puts the shortcut {@code id} at {@code index} of the saved list, within its ends, as the stream menu
+     * will show them. A shortcut that is gone leaves the list as it was.
+     */
+    public static void move(Context context, String id, int index) {
+        List<Shortcut> entries = load(context);
+        for (int i = 0; i < entries.size(); i++) {
+            if (!entries.get(i).id.equals(id)) continue;
+            Shortcut entry = entries.remove(i);
+            entries.add(Math.max(0, Math.min(index, entries.size())), entry);
+            save(context, entries);
+            return;
+        }
+    }
+
     public static List<Shortcut> read(InputStream input) throws IOException {
         if (input == null) throw new IOException("Cannot open shortcuts");
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();

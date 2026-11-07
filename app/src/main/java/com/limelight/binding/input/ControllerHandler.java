@@ -164,6 +164,14 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
      * and the pad's type must not flip mid-game.
      */
     private final boolean touchpadButtonSession;
+    /**
+     * Whether the on-screen controls are their own player this session: controller 1 stays theirs
+     * and every pad, built-in ones too, takes controller 2 and up. Fixed at launch for the reason
+     * above: the stream menu's on and off must not renumber pads mid-game.
+     */
+    private final boolean onscreenOwnPlayerSession;
+    /** The slot whose pad may use this device's motors and sensors: the first one a pad can have. */
+    private final short deviceFallbackSlot;
     private final boolean rumbleAllowed;
     private short currentControllers, initialControllers;
 
@@ -173,6 +181,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         this.gestures = gestures;
         this.prefConfig = prefConfig;
         this.touchpadButtonSession = prefConfig.showTouchpadButton && !prefConfig.onlyL3R3;
+        this.onscreenOwnPlayerSession = onscreenOwnsPlayerOne(prefConfig);
+        this.deviceFallbackSlot = (short) (onscreenOwnPlayerSession ? 1 : 0);
         this.rumbleAllowed = RumblePolicy.allows(prefConfig.disableRumble);
 		
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -248,6 +258,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         // currentControllers set which will allow them to properly unplug
         // if they are removed.
         initialControllers = getAttachedControllerMask(activityContext);
+        if (onscreenOwnPlayerSession) currentControllers |= 1;
 
         // Register ourselves for input device notifications
         inputManager.registerInputDeviceListener(this, null);
@@ -603,7 +614,12 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             }
         }
 
-        if (PreferenceConfiguration.readPreferences(context).onscreenController) {
+        if (onscreenOwnsPlayerOne(config)) {
+            // The pads counted above arrive from controller 2 up.
+            mask = (short) (mask << 1);
+        }
+
+        if (config.onscreenController) {
             LimeLog.info("Counting OSC gamepad");
             mask |= 1;
         }
@@ -612,8 +628,16 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         return mask;
     }
 
+    /**
+     * Whether the on-screen controls get controller 1 to themselves. Needs Multiple controllers,
+     * where each pad has its own number, and more than the L3 and R3 that exist to join a pad.
+     */
+    static boolean onscreenOwnsPlayerOne(PreferenceConfiguration config) {
+        return config.onscreenOwnPlayer && config.multiController && config.onscreenController && !config.onlyL3R3;
+    }
+
     private void releaseControllerNumber(GenericControllerContext context) {
-        if (deviceVibratorForPlayerOne && context.assignedControllerNumber && context.controllerNumber == 0) {
+        if (deviceVibratorForPlayerOne && context.assignedControllerNumber && context.controllerNumber == deviceFallbackSlot) {
             deviceVibratorForPlayerOne = false;
             deviceVibrator.cancel();
         }
@@ -689,7 +713,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             InputDeviceContext devContext = (InputDeviceContext) context;
 
             LimeLog.info(devContext.name+" ("+context.id+") needs a controller number assigned");
-            if (!devContext.external) {
+            if (!devContext.external && !onscreenOwnPlayerSession) {
                 LimeLog.info("Built-in buttons hardcoded as controller 0");
                 // Shared, never reserved, as upstream: tablets and TV boxes have built-in or
                 // virtual devices that look like gamepads (#29, #30). Reserving player 1 for
@@ -761,6 +785,21 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
                     LimeLog.info("Propagated controller number from "+associatedDeviceContext.name);
                 }
+                else if (onscreenOwnPlayerSession) {
+                    // Controller 1 is the on-screen controls' alone.
+                    for (short i = 1; i < MAX_GAMEPADS; i++) {
+                        if ((currentControllers & (1 << i)) == 0) {
+                            currentControllers |= (1 << i);
+                            initialControllers &= ~(1 << i);
+                            context.controllerNumber = i;
+                            context.reservedControllerNumber = true;
+                            break;
+                        }
+                    }
+                    if (!context.reservedControllerNumber) {
+                        return;
+                    }
+                }
             }
             else {
                 LimeLog.info("Not reserving a controller number");
@@ -768,7 +807,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             }
 
             // If the gamepad doesn't have motion sensors, use the on-device sensors as a fallback for player 1
-            if (prefConfig.gamepadMotionSensorsFallbackToDevice && context.controllerNumber == 0 && devContext.sensorManager == null &&
+            if (prefConfig.gamepadMotionSensorsFallbackToDevice && context.controllerNumber == deviceFallbackSlot && devContext.sensorManager == null &&
                     !dropsMotionAndTouchpad(devContext.buttonMap) && !deviceSensorsInUse()) {
                 devContext.sensorManager = deviceSensorManager;
             }
@@ -808,7 +847,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             UsbDeviceContext usbContext = (UsbDeviceContext) context;
             // A USB pad without motion sensors uses this device's for player 1, as an input device does
             if (deviceSensorManager != null && !deviceSensorsInUse() &&
-                    takesDeviceMotion(prefConfig.gamepadMotionSensorsFallbackToDevice, context.controllerNumber,
+                    takesDeviceMotion(prefConfig.gamepadMotionSensorsFallbackToDevice, (short) (context.controllerNumber - deviceFallbackSlot),
                             usbContext.device.getCapabilities(), usbContext.buttonMap)) {
                 usbContext.deviceSensors = deviceSensorManager;
                 if (motionOverridesType(usbContext.device.getType(), true, usbContext.buttonMap)) {
@@ -1531,6 +1570,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
      * slot announces player 1 instead.
      */
     private boolean announcesOnscreenPad() {
+        if (onscreenOwnPlayerSession) return true;
         if (!showsTouchpadButton()) return false;
         for (InputDeviceContext context : inputDeviceContexts.values()) {
             if (context.assignedControllerNumber && context.controllerNumber == 0) return false;
@@ -1539,6 +1579,20 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             if (context.assignedControllerNumber && context.controllerNumber == 0) return false;
         }
         return true;
+    }
+
+    private void sendOnscreenPadArrival() {
+        conn.sendControllerArrivalEvent((byte) 0, getActiveControllerMask(), onscreenPadType(),
+                onscreenPadButtons(), (short) 0);
+    }
+
+    // Its own player without the Touchpad button: the host's default pad, announced for its number.
+    private byte onscreenPadType() {
+        return showsTouchpadButton() ? MoonBridge.LI_CTYPE_PS : MoonBridge.LI_CTYPE_UNKNOWN;
+    }
+
+    private int onscreenPadButtons() {
+        return showsTouchpadButton() ? ONSCREEN_PAD_BUTTONS : ONSCREEN_PAD_BUTTONS & ~ControllerPacket.TOUCHPAD_FLAG;
     }
 
     private synchronized short getActiveControllerMask() {
@@ -2800,15 +2854,15 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             }
         }
 
-        // We may decide to rumble the device for player 1
-        if (controllerNumber == 0) {
+        // We may decide to rumble the device for player 1, or the first pad after on-screen controls of their own
+        if (controllerNumber == 0 || controllerNumber == deviceFallbackSlot) {
             // If we didn't find a matching device, it must be the on-screen
             // controls that triggered the rumble. Vibrate the device if
             // the user has requested that behavior.
-            if (!foundMatchingDevice && prefConfig.onscreenController && !prefConfig.onlyL3R3 && prefConfig.vibrateOsc) {
+            if (controllerNumber == 0 && !foundMatchingDevice && prefConfig.onscreenController && !prefConfig.onlyL3R3 && prefConfig.vibrateOsc) {
                 rumbleSingleVibrator(deviceVibrator, lowFreqMotor, highFreqMotor);
             }
-            else if (foundMatchingDevice && !vibrated && prefConfig.vibrateFallbackToDevice) {
+            else if (controllerNumber == deviceFallbackSlot && foundMatchingDevice && !vibrated && prefConfig.vibrateFallbackToDevice) {
                 // We found a device to vibrate but it didn't have rumble support. The user
                 // has requested us to vibrate the device in this case.
 
@@ -2904,7 +2958,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                         context.device.getSupportedButtonFlags() | context.buttonMap.targetButtonFlags());
             }
             if (controllers[0] == null && announcesOnscreenPad()) {
-                controllers[0] = launchController((short) 0, MoonBridge.LI_CTYPE_PS, (short) 0, ONSCREEN_PAD_BUTTONS);
+                controllers[0] = launchController((short) 0, onscreenPadType(), (short) 0, onscreenPadButtons());
             }
             StringBuilder result = new StringBuilder();
             for (String controller : controllers) {
@@ -2981,6 +3035,12 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     public synchronized void resendControllerArrivals() {
         if (stopped || !conn.canSendControllerInput()) return;
         connectionStarted = true;
+        if (onscreenOwnPlayerSession) {
+            // Before any pad, so the PC's own numbering starts with it too. The neutral state is
+            // for hosts that plug a controller at its first input instead of at its arrival.
+            sendOnscreenPadArrival();
+            sendControllerInputPacket(defaultContext);
+        }
         for (InputDeviceContext context : inputDeviceContexts.values()) {
             if (context.assignedControllerNumber) context.sendControllerArrival();
         }
@@ -2989,10 +3049,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
         // Newly assigned pads announce themselves here.
         prepareInputDevices();
-        if (announcesOnscreenPad()) {
-            conn.sendControllerArrivalEvent((byte) 0, getActiveControllerMask(), MoonBridge.LI_CTYPE_PS,
-                    ONSCREEN_PAD_BUTTONS, (short) 0);
-        }
+        if (!onscreenOwnPlayerSession && announcesOnscreenPad()) sendOnscreenPadArrival();
         for (InputDeviceContext context : inputDeviceContexts.values()) {
             if (context.assignedControllerNumber) sendControllerInputPacket(context);
         }
@@ -3052,7 +3109,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     // Player 1's controller gyroscope gets a liveness check when its demand may move to the device
     // gyroscope, the way Moonlight V+ does it.
     boolean checksGyroLiveness(short controllerNumber, SensorManager controllerSensors) {
-        return controllerNumber == 0 && controllerSensors != deviceSensorManager &&
+        return controllerNumber == deviceFallbackSlot && controllerSensors != deviceSensorManager &&
                 prefConfig.gamepadMotionSensorsFallbackToDevice && deviceSensorManager != null &&
                 deviceSensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE) != null;
     }

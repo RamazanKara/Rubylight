@@ -101,6 +101,7 @@ public class PreferenceConfiguration {
     static final String VIDEO_FORMAT_PREF_STRING = "video_format";
     private static final String ONSCREEN_CONTROLLER_PREF_STRING = "checkbox_show_onscreen_controls";
     private static final String ONLY_L3_R3_PREF_STRING = "checkbox_only_show_L3R3";
+    private static final String ONSCREEN_OWN_PLAYER_PREF_STRING = "checkbox_onscreen_own_player";
     private static final String SHOW_GUIDE_BUTTON_PREF_STRING = "checkbox_show_guide_button";
     private static final String SHOW_TOUCHPAD_BUTTON_PREF_STRING = "checkbox_show_touchpad_button";
     private static final String LEGACY_DISABLE_FRAME_DROP_PREF_STRING = "checkbox_disable_frame_drop";
@@ -228,6 +229,7 @@ public class PreferenceConfiguration {
 
     private static final boolean ONSCREEN_CONTROLLER_DEFAULT = false;
     private static final boolean ONLY_L3_R3_DEFAULT = false;
+    private static final boolean ONSCREEN_OWN_PLAYER_DEFAULT = false;
     private static final boolean SHOW_GUIDE_BUTTON_DEFAULT = true;
     private static final boolean SHOW_TOUCHPAD_BUTTON_DEFAULT = false;
     private static final boolean DEFAULT_ENABLE_HDR = false;
@@ -306,6 +308,7 @@ public class PreferenceConfiguration {
     public boolean usbForwarding;
     public boolean onscreenController;
     public boolean onlyL3R3;
+    public boolean onscreenOwnPlayer;
     public boolean showGuideButton;
     /** The on-screen controller's Touchpad button: a PlayStation pad's touchpad click. */
     public boolean showTouchpadButton;
@@ -1459,6 +1462,7 @@ public class PreferenceConfiguration {
         config.usbForwarding = prefs.getBoolean(USB_FORWARDING_PREF_STRING, false);
         config.onscreenController = prefs.getBoolean(ONSCREEN_CONTROLLER_PREF_STRING, ONSCREEN_CONTROLLER_DEFAULT);
         config.onlyL3R3 = prefs.getBoolean(ONLY_L3_R3_PREF_STRING, ONLY_L3_R3_DEFAULT);
+        config.onscreenOwnPlayer = prefs.getBoolean(ONSCREEN_OWN_PLAYER_PREF_STRING, ONSCREEN_OWN_PLAYER_DEFAULT);
         config.showGuideButton = prefs.getBoolean(SHOW_GUIDE_BUTTON_PREF_STRING, SHOW_GUIDE_BUTTON_DEFAULT);
         config.showTouchpadButton = prefs.getBoolean(SHOW_TOUCHPAD_BUTTON_PREF_STRING, SHOW_TOUCHPAD_BUTTON_DEFAULT);
         config.enableHdr = prefs.getBoolean(ENABLE_HDR_PREF_STRING, DEFAULT_ENABLE_HDR) && !isShieldAtvFirmwareWithBrokenHdr();

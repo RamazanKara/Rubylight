@@ -453,4 +453,14 @@
     <string name="continue_here_failed">Không thể tiếp tục tại đây</string>
     <string name="continue_here_came_back">Trò chơi đã quay lại thiết bị này</string>
     <string name="continue_here_did_not_move">Trò chơi không chuyển sang thiết bị kia</string>
+    <string name="title_onscreen_own_player">Điều khiển trên màn hình là người chơi riêng</string>
+    <string name="summary_onscreen_own_player">Điều khiển trên màn hình là tay cầm 1 trên PC và tay cầm thật được đếm từ 2, để công cụ như Steam ánh xạ riêng. Cần bật Nhiều tay cầm điều khiển và áp dụng từ lần phát tiếp theo.</string>
+    <string name="keyboard_shortcuts_reorder">Kéo để đổi thứ tự, hoặc nhấn lên hay xuống</string>
+    <string name="title_stream_menu_button_y">Y trong menu phát</string>
+    <string name="title_stream_menu_button_x">X trong menu phát</string>
+    <string name="title_stream_menu_button_lb">LB trong menu phát</string>
+    <string name="title_stream_menu_button_rb">RB trong menu phát</string>
+    <string name="summary_stream_menu_button">Việc nút này thực hiện khi menu phát đang mở. A để chọn và B để đóng menu.</string>
+    <string name="stream_menu_button_default">Mặc định</string>
+    <string name="stream_menu_button_none">Tắt</string>
 </resources>

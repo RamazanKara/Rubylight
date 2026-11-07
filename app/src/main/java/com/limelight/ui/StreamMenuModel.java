@@ -147,17 +147,21 @@ public final class StreamMenuModel {
         public final List<String> more;
         /** Close, then the ways out of the session. */
         public final List<String> footer;
+        /** The tile id each controller button runs now, in the grid or under it. */
+        public final java.util.Map<String, String> buttons;
 
-        Layout(List<Cell> grid, List<String> more, List<String> footer) {
+        Layout(List<Cell> grid, List<String> more, List<String> footer, java.util.Map<String, String> buttons) {
             this.grid = Collections.unmodifiableList(grid);
             this.more = Collections.unmodifiableList(more);
             this.footer = Collections.unmodifiableList(footer);
+            this.buttons = Collections.unmodifiableMap(buttons);
         }
 
         /** The grid cell a controller button ({@code "y"}, {@code "x"}, {@code "lb"}, {@code "rb"}) runs, or -1. */
         public int hotkey(String key) {
-            for (int i = 0; i < grid.size(); i++) {
-                if (key.equals(grid.get(i).hotkey)) return i;
+            String id = buttons.get(key);
+            for (int i = 0; id != null && i < grid.size(); i++) {
+                if (id.equals(grid.get(i).id)) return i;
             }
             return -1;
         }
@@ -172,6 +176,11 @@ public final class StreamMenuModel {
      * cannot be sent; then neither they nor Add show.
      */
     public static Layout layout(List<Offer> offers, Integer shortcuts) throws Refused {
+        return layout(offers, shortcuts, Collections.emptyMap());
+    }
+
+    /** The same with the user's choices for the controller's buttons, by button and tile id. */
+    public static Layout layout(List<Offer> offers, Integer shortcuts, java.util.Map<String, String> buttons) throws Refused {
         try {
             JSONArray list = new JSONArray();
             for (Offer offer : offers) {
@@ -181,6 +190,7 @@ public final class StreamMenuModel {
             }
             JSONObject request = op("layout").put("offers", list);
             if (shortcuts != null) request.put("shortcuts", shortcuts.intValue());
+            if (!buttons.isEmpty()) request.put("buttons", new JSONObject(buttons));
             JSONObject answer = (JSONObject) ask(request);
             List<Cell> grid = new ArrayList<>();
             JSONArray cells = answer.getJSONArray("grid");
@@ -200,7 +210,13 @@ public final class StreamMenuModel {
             Collections.addAll(more, strings(answer.getJSONArray("more")));
             List<String> footer = new ArrayList<>();
             Collections.addAll(footer, strings(answer.getJSONArray("footer")));
-            return new Layout(grid, more, footer);
+            java.util.Map<String, String> running = new java.util.HashMap<>();
+            JSONObject chosen = answer.getJSONObject("buttons");
+            for (java.util.Iterator<String> keys = chosen.keys(); keys.hasNext(); ) {
+                String key = keys.next();
+                running.put(key, chosen.getString(key));
+            }
+            return new Layout(grid, more, footer, running);
         } catch (JSONException | ClassCastException e) {
             throw new Refused("invalid", "unreadable layout: " + e.getMessage());
         }

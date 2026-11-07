@@ -294,6 +294,8 @@ pub struct Settings {
     /// press still goes to the PC. 0 is off (one of [`GUIDE_HOLD_MS`], Android's stored values).
     pub guide_hold_ms: u32,
     pub gamepad_quit_combo: GamepadQuitCombo,
+    /// What Y, X, LB and RB run while the stream menu is open; a button not here keeps its own.
+    pub stream_menu_buttons: nightjar_policy::stream_menu::Buttons,
     pub controller_mouse: bool,
     pub analog_scrolling: AnalogScrolling,
     pub mouse_fixed_step: bool,
@@ -770,6 +772,7 @@ impl Default for Settings {
             // 1 s, Android's default (`list_guide_menu_hold`); a lone press reaches the PC on release.
             guide_hold_ms: 1000,
             gamepad_quit_combo: GamepadQuitCombo::StartSelectLbRb,
+            stream_menu_buttons: Default::default(),
             controller_mouse: true,
             analog_scrolling: AnalogScrolling::Right,
             mouse_fixed_step: false,

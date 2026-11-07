@@ -41,6 +41,14 @@ public class DemoConnecting extends AppCompatActivity {
                         @Override public void onBack() {
                             finish();
                         }
+
+                        @Override public CharSequence streamSettings() {
+                            return ConnectingScreen.settingsLine(DemoConnecting.this, 1920, 1080, 60, 20000);
+                        }
+
+                        @Override public void onStreamSettings() {
+                            finish();
+                        }
                     });
             screen.showFailure();
             return;

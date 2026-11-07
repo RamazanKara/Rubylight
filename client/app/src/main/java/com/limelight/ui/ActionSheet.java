@@ -599,19 +599,27 @@ public final class ActionSheet extends BottomSheetDialog {
         Context context = getContext();
         android.content.res.Resources res = context.getResources();
         LinearLayout group = new LinearLayout(context);
-        group.setOrientation(LinearLayout.VERTICAL);
-        group.setBackground(new GlassControlDrawable(context, GlassControlDrawable.Kind.GROUP, res.getDimension(R.dimen.nj_radius_control)));
-        android.graphics.drawable.GradientDrawable line = new android.graphics.drawable.GradientDrawable();
-        line.setColor(MaterialColors.getColor(context, R.attr.glassSeparator, 0));
-        line.setSize(0, Math.max(1, Math.round(res.getDisplayMetrics().density)));
-        group.setDividerDrawable(line);
-        group.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
-        group.setDividerPadding(spacing * 2);
+        styleRowGroup(group);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
         params.setMargins(spacing, res.getDimensionPixelSize(R.dimen.stream_menu_group_gap) - spacing / 2, spacing, spacing / 2);
         content.addView(group, params);
         return group;
+    }
+
+    /** The flat tint and hairlines of {@link #addRowGroup}, also for a group a layout holds. */
+    static void styleRowGroup(LinearLayout group) {
+        Context context = group.getContext();
+        android.content.res.Resources res = context.getResources();
+        float density = res.getDisplayMetrics().density;
+        group.setOrientation(LinearLayout.VERTICAL);
+        group.setBackground(new GlassControlDrawable(context, GlassControlDrawable.Kind.GROUP, res.getDimension(R.dimen.nj_radius_control)));
+        android.graphics.drawable.GradientDrawable line = new android.graphics.drawable.GradientDrawable();
+        line.setColor(MaterialColors.getColor(context, R.attr.glassSeparator, 0));
+        line.setSize(0, Math.max(1, Math.round(density)));
+        group.setDividerDrawable(line);
+        group.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
+        group.setDividerPadding(Math.round(16 * density));
     }
 
     /** A status row in {@link #addRowGroup}: its name, a value at its end, a chevron. */

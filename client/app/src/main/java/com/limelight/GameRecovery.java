@@ -563,6 +563,18 @@ final class GameRecovery {
                     @Override public void onBack() {
                         game.finish();
                     }
+
+                    @Override public CharSequence streamSettings() {
+                        return com.limelight.ui.ConnectingScreen.settingsLine(game, game.prefConfig.width, game.prefConfig.height,
+                                game.prefConfig.fps, game.prefConfig.bitrate);
+                    }
+
+                    // Settings over the failed start would leave a stopped stream behind them: this start ends here, and
+                    // Back from Settings is the library the game was started from.
+                    @Override public void onStreamSettings() {
+                        game.startActivity(com.limelight.preferences.StreamSettings.atStreamSize(game));
+                        game.finish();
+                    }
                 });
         game.menuActions.showStreamDialog(screen.dialog());
         screen.showFailure();

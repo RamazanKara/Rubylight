@@ -204,6 +204,11 @@ public class StreamSettings extends NightjarActivity {
         if (key != null && searchQuery.isEmpty()) showSection(key);
     };
 
+    /** Settings at the stream's size, for a start that failed. */
+    public static Intent atStreamSize(Context context) {
+        return intent(context, null, PreferenceConfiguration.RESOLUTION_PREF_STRING);
+    }
+
     /** The intent for {@link #open}; {@code section} and {@code focusKey} may be null. */
     public static Intent intent(Context context, String section, String focusKey) {
         Intent intent = new Intent(context, StreamSettings.class);

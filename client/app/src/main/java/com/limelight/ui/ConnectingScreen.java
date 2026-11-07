@@ -30,6 +30,15 @@ public final class ConnectingScreen {
         CharSequence testNetwork();
 
         void onBack();
+
+        /** The stream's size, rate and bitrate for the row that opens its settings; null shows no such row. */
+        default CharSequence streamSettings() {
+            return null;
+        }
+
+        /** The row was pressed: this start has ended, and the settings take over. */
+        default void onStreamSettings() {
+        }
     }
 
     private final Activity activity;
@@ -137,6 +146,11 @@ public final class ConnectingScreen {
         return orbit.isTurning();
     }
 
+    /** The stream's settings in a line, {@code 1920 × 1080, 60 FPS, 20 Mbps}. */
+    public static String settingsLine(android.content.Context context, int width, int height, int fps, int bitrateKbps) {
+        return width + " × " + height + ", " + fps + " FPS, " + BitrateSlider.text(context, bitrateKbps);
+    }
+
     /** The word changes when the protocol's stage does. The small line says only what the first word needs. */
     public void setWord(String text) {
         activity.runOnUiThread(() -> word.setText(text));
@@ -188,6 +202,17 @@ public final class ConnectingScreen {
         what.setText(pc.getText().length() == 0 ? title : title + ", " + pc.getText());
         what.setVisibility(what.getText().length() == 0 ? View.GONE : View.VISIBLE);
         ((TextView) dialog.findViewById(R.id.conn_error_message)).setText(message);
+        ActionSheet.styleRowGroup(dialog.findViewById(R.id.conn_rows));
+        MenuRow settings = dialog.findViewById(R.id.conn_settings);
+        CharSequence facts = actions.streamSettings();
+        settings.setVisibility(facts == null ? View.GONE : View.VISIBLE);
+        if (facts != null) {
+            settings.setDetail(activity.getString(R.string.console_detail_profile), facts);
+            settings.setOnClickListener(v -> {
+                dismiss();
+                actions.onStreamSettings();
+            });
+        }
         View retry = dialog.findViewById(R.id.conn_retry);
         retry.setOnClickListener(v -> {
             dismiss();
@@ -198,13 +223,13 @@ public final class ConnectingScreen {
         View test = dialog.findViewById(R.id.conn_test);
         View working = dialog.findViewById(R.id.conn_test_working);
         test.setOnClickListener(v -> {
-            test.setEnabled(false);
+            // Stays enabled, a disabled row would hand a remote's focus to the row above it.
+            if (working.getVisibility() == View.VISIBLE) return;
             working.setVisibility(View.VISIBLE);
             result.setVisibility(View.GONE);
             new Thread(() -> {
                 CharSequence words = actions.testNetwork();
                 activity.runOnUiThread(() -> {
-                    test.setEnabled(true);
                     working.setVisibility(View.GONE);
                     result.setText(words);
                     result.setVisibility(View.VISIBLE);

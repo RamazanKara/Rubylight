@@ -624,6 +624,12 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
                 head.setMinimumHeight(res.getDimensionPixelSize(R.dimen.home_head_handheld));
                 cards.setPaddingRelative(res.getDimensionPixelSize(R.dimen.glass_edge), 0, cards.getPaddingEnd(), 0);
             }
+            if (type == ROW && form == com.limelight.ui.GlassForm.TELEVISION) {
+                // The focused cover grows by a tenth of its height and wears a ring: its heading must stay clear of that.
+                android.content.res.Resources res = view.getResources();
+                head.setMinimumHeight(res.getDimensionPixelSize(R.dimen.home_head_tv));
+                head.setPaddingRelative(head.getPaddingStart(), res.getDimensionPixelSize(R.dimen.home_head_tv_drop), head.getPaddingEnd(), 0);
+            }
             cards.setAdapter(adapter);
             cards.setRecycledViewPool(pool);
             cards.setItemAnimator(null);

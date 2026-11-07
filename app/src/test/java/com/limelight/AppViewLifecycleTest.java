@@ -554,6 +554,25 @@ public class AppViewLifecycleTest {
     }
 
     /** The grid's clip cut the selected card's halo in a straight line under the hints; it reaches past the grid's top now. */
+    /** Resume's glow reaches past the button; a clip on the way up left its corners square in the capsule. */
+    @Test
+    public void resumesGlowIsNotCutInItsCapsule() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.NAME_EXTRA, "Tower").putExtra(AppView.UUID_EXTRA, "uuid");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            android.view.View capsule = controller.get().findViewById(R.id.library_resume);
+            android.view.View view = controller.get().findViewById(R.id.library_resume_button);
+            while (view != capsule) {
+                android.view.ViewGroup parent = (android.view.ViewGroup) view.getParent();
+                assertFalse(parent.getClipChildren());
+                view = parent;
+            }
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     @Test
     @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
     public void theHaloIsNotCutWhereTheChromeEnds() {

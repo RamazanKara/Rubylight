@@ -1094,6 +1094,36 @@ public class HomeShellTest {
         }
     }
 
+    /** The first card of a shelf is where a TV starts: grown and ringed, it must not touch the shelf's heading. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionAFocusedCoverStaysClearOfItsHeading() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            RecyclerView list = showHosts(home, 12, NativeApiFixtures.nativeHost("tower", "Tower", true));
+            layOut(home);
+            shadowOf(Looper.getMainLooper()).idle();
+            layOut(home);
+            boolean seen = false;
+            for (int i = 0; i < list.getChildCount() && !seen; i++) {
+                View shelf = list.getChildAt(i);
+                View title = shelf.findViewById(R.id.shelf_title);
+                ViewGroup cards = shelf.findViewById(R.id.shelf_cards);
+                if (title == null || cards == null || cards.getChildCount() == 0 || !(title.getParent() == shelf.findViewById(R.id.shelf_head))) continue;
+                seen = true;
+                View card = cards.getChildAt(0);
+                float density = home.getResources().getDisplayMetrics().density;
+                float grown = card.getHeight() * 0.06f + 2 * density;
+                int titleBottom = shelf.findViewById(R.id.shelf_head).getTop() + title.getBottom();
+                assertTrue("title ends at " + titleBottom + ", the ring starts at " + (cards.getTop() - grown), titleBottom <= cards.getTop() - grown);
+            }
+            assertTrue("a shelf was laid out", seen);
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     /** One game on two shelves: a refresh leaves focus on the shelf it was on, not on the first place the game is. */
     @Test
     @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")

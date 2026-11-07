@@ -77,8 +77,10 @@
     </LinearLayout>
     <!-- The running game, one press from coming back: above the tabs on a phone, alone at a handheld's foot. A TV's first tile does this. -->
     <com.limelight.ui.GlassSurface android:id="@+id/library_resume" android:layout_width="match_parent" android:layout_height="@dimen/library_resume_height"
-        android:layout_gravity="bottom" android:visibility="gone">
+        android:layout_gravity="bottom" android:visibility="gone" android:clipChildren="false" android:clipToPadding="false">
+        <!-- Resume's glow reaches past the button: a clip here would leave its corners square. -->
         <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="horizontal"
+            android:clipChildren="false" android:clipToPadding="false"
             android:gravity="center_vertical" android:paddingStart="16dp" android:paddingEnd="6dp">
             <View android:id="@+id/library_resume_dot" android:layout_width="9dp" android:layout_height="9dp" />
             <TextView android:id="@+id/library_resume_name" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"

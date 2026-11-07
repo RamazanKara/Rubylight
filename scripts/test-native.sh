@@ -46,7 +46,7 @@ for mode in plain sanitized; do
         "$out/$test-$mode"
         echo "$test ($mode): passed"
     done
-    for test in aaudio_queue control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags input_only_ping surround_params; do
+    for test in aaudio_queue control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags input_only_ping surround_params stream_thread_priority; do
         cc "${flags[@]}" "${extra[@]}" -fno-builtin "$tests/${test}_test.c" -o "$out/$test-$mode"
     done
     cc "${flags[@]}" "${extra[@]}" -c "$tests/control_packet_types_test.c" -o "$out/control_packet_types-$mode.o"
@@ -77,7 +77,7 @@ for mode in plain sanitized; do
         "$common/src/PlatformSockets.c" -lpthread -o "$out/input_only_ping_thread-$mode"
     cc "${flags[@]}" "${extra[@]}" "$tests/socket_dscp_test.c" "$common/src/Platform.c" \
         "$common/src/PlatformSockets.c" -lpthread -o "$out/socket_dscp-$mode"
-    for test in aaudio_queue aaudio_output control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags rtsp_duplicate audio_reorder video_shutdown pyrowave_depacketizer control_termination enet_termination network_grace control_send microphone_packet input_queue input_contact input_only_ping input_only_ping_thread surround_params socket_dscp; do
+    for test in aaudio_queue aaudio_output control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags rtsp_duplicate audio_reorder video_shutdown pyrowave_depacketizer control_termination enet_termination network_grace control_send microphone_packet input_queue input_contact input_only_ping input_only_ping_thread surround_params socket_dscp stream_thread_priority; do
         "$out/$test-$mode"
         echo "$test ($mode): passed"
     done

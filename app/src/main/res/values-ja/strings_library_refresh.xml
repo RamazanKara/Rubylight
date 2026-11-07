@@ -17,7 +17,4 @@
     <string name="library_offline">この PC はオフラインです。保存済みのライブラリは引き続き表示されます。プレイするには再接続してください。</string>
     <string name="library_hidden_notice">ゲームをライブラリで非表示にしました</string>
     <string name="library_undo">元に戻す</string>
-    <string name="library_discovery_title">あなたのゲームをこの画面で</string>
-    <string name="library_discovery_body">PC の電源を入れ、Apollo、Rubylight、Sunshine などのストリーミング ホストを起動してください。同じネットワーク上の PC がここに自動的に表示されます。</string>
-    <string name="library_discovery_hint">別のネットワークにある場合は、アドレスを指定して PC を追加してください。</string>
 </resources>

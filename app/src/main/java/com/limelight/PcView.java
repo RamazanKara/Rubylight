@@ -200,7 +200,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
             .commitAllowingStateLoss();
 
         noPcFoundLayout = findViewById(R.id.no_pc_found_layout);
-        findViewById(R.id.discovery_add).setOnClickListener(v -> startActivity(new Intent(this, AddComputerManually.class)));
+        findViewById(R.id.discovery_add).setOnClickListener(v -> offerAddPc());
         findViewById(R.id.discovery_help).setOnClickListener(v -> showPairingGuide());
         findViewById(R.id.pc_list_help).setOnClickListener(v -> showPairingGuide());
         updateEmptyState();
@@ -498,11 +498,32 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         ((android.widget.LinearLayout.LayoutParams) add.getLayoutParams()).setMarginStart(getResources().getDimensionPixelSize(R.dimen.space_s));
         hintSource = InputSource.last() != null ? InputSource.last() : com.limelight.ui.StreamMenuHint.hasGamepad() ? InputSource.PAD : InputSource.REMOTE;
         keysAreLastInput = form == GlassForm.TELEVISION;
+        fitFirstRun();
         com.limelight.ui.NightSkyView sky = findViewById(R.id.pc_sky);
         host.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
             if (r - l != or - ol || b - t != ob - ot) host.setAmbient(sky.bake(r - l, b - t), false, 0);
         });
         chrome = new com.limelight.console.PageChrome(this, host, R.id.pc_tabs, R.id.pc_top_row, R.id.pc_bottom_row, R.id.pc_foot_fade, this::layOutUnderChrome);
+    }
+
+    /** The orbit takes what the page has: wide on a phone, and over the word and the action on a short screen. */
+    private void fitFirstRun() {
+        View page = findViewById(R.id.no_pc_found_layout);
+        View orbit = findViewById(R.id.first_run_orbit);
+        android.view.ViewGroup column = findViewById(R.id.first_run);
+        page.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (column.getHeight() == 0) return;
+            int width = v.getWidth() - v.getPaddingLeft() - v.getPaddingRight();
+            int height = v.getHeight() - v.getPaddingTop() - v.getPaddingBottom();
+            int others = column.getChildAt(1).getHeight() + column.getChildAt(2).getHeight() + column.getChildAt(3).getHeight()
+                    + 2 * getResources().getDimensionPixelSize(R.dimen.space_l);
+            int size = Math.max(0, Math.min(width, height - others));
+            if (size != orbit.getLayoutParams().height) {
+                orbit.getLayoutParams().width = size;
+                orbit.getLayoutParams().height = size;
+                v.post(orbit::requestLayout);
+            }
+        });
     }
 
     /** Lays the content out edge to edge, inside what the chrome and the window leave. */
@@ -639,6 +660,13 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         boolean empty = pcGridAdapter.getCount() == 0;
         updateOptionsHint();
         noPcFoundLayout.setVisibility(empty ? View.VISIBLE : View.GONE);
+        ((com.limelight.ui.OrbitView) findViewById(R.id.first_run_orbit)).setMoving(empty);
+        com.limelight.ui.NightSkyView sky = findViewById(R.id.pc_sky);
+        if (sky.isMoonShown() == empty) {
+            sky.setMoonShown(!empty);
+            com.limelight.ui.GlassHost host = findViewById(R.id.glass_host);
+            if (host.getWidth() > 0) host.setAmbient(sky.bake(host.getWidth(), host.getHeight()), false, 0);
+        }
         findViewById(R.id.pcFragmentContainer).setVisibility(empty ? View.GONE : View.VISIBLE);
         findViewById(R.id.manuallyAddPc).setVisibility(empty ? View.GONE : View.VISIBLE);
         if (GlassForm.of(this) != GlassForm.PHONE) ShellBar.linkTopRow(this, R.id.manuallyAddPc);

@@ -17,7 +17,4 @@
     <string name="library_offline">此电脑处于离线状态。你保存的游戏库仍在此处。重新连接后即可开始玩。</string>
     <string name="library_hidden_notice">已从游戏库中隐藏游戏</string>
     <string name="library_undo">撤消</string>
-    <string name="library_discovery_title">你的游戏，尽在此屏幕</string>
-    <string name="library_discovery_body">请打开电脑并启动其串流主机，例如 Apollo、Rubylight 或 Sunshine。同一网络中的电脑会自动显示在这里。</string>
-    <string name="library_discovery_hint">在不同的网络中？请通过地址添加电脑。</string>
 </resources>

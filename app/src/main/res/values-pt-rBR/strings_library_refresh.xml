@@ -17,7 +17,4 @@
     <string name="library_offline">Este PC está off-line. Sua biblioteca salva continua aqui. Reconecte para jogar.</string>
     <string name="library_hidden_notice">Jogo ocultado da sua biblioteca</string>
     <string name="library_undo">Desfazer</string>
-    <string name="library_discovery_title">Seus jogos, nesta tela</string>
-    <string name="library_discovery_body">Ligue seu PC e inicie o host de transmissão dele, como Apollo, Rubylight ou Sunshine. PCs na mesma rede aparecem aqui automaticamente.</string>
-    <string name="library_discovery_hint">Em outra rede? Adicione seu PC pelo endereço.</string>
 </resources>

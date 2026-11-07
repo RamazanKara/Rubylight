@@ -17,7 +17,4 @@
     <string name="library_offline">Este PC no está conectado. Tu biblioteca guardada sigue aquí. Vuelve a conectarte para jugar.</string>
     <string name="library_hidden_notice">Juego ocultado de tu biblioteca</string>
     <string name="library_undo">Deshacer</string>
-    <string name="library_discovery_title">Tus juegos, en esta pantalla</string>
-    <string name="library_discovery_body">Enciende tu PC e inicia su servidor de streaming, como Apollo, Rubylight o Sunshine. Los PCs de la misma red aparecen aquí automáticamente.</string>
-    <string name="library_discovery_hint">¿Estás en otra red? Añade tu PC por su dirección.</string>
 </resources>

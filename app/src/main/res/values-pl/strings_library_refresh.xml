@@ -17,7 +17,4 @@
     <string name="library_offline">Ten komputer jest offline. Zapisana biblioteka nadal tu jest. Połącz się ponownie, aby grać.</string>
     <string name="library_hidden_notice">Gra ukryta w bibliotece</string>
     <string name="library_undo">Cofnij</string>
-    <string name="library_discovery_title">Twoje gry na tym ekranie</string>
-    <string name="library_discovery_body">Włącz komputer i uruchom na nim host do strumieniowania, np. Apollo, Rubylight lub Sunshine. Komputery w tej samej sieci pojawią się tu automatycznie.</string>
-    <string name="library_discovery_hint">Inna sieć? Dodaj komputer po adresie.</string>
 </resources>

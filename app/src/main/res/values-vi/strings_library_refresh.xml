@@ -17,7 +17,4 @@
     <string name="library_offline">PC này đang ngoại tuyến. Thư viện đã lưu của bạn vẫn còn đây. Hãy kết nối lại để chơi.</string>
     <string name="library_hidden_notice">Đã ẩn trò chơi khỏi thư viện</string>
     <string name="library_undo">Hoàn tác</string>
-    <string name="library_discovery_title">Trò chơi của bạn, ngay trên màn hình này</string>
-    <string name="library_discovery_body">Bật PC và khởi động máy chủ stream trên đó, chẳng hạn Apollo, Rubylight hoặc Sunshine. Các PC trong cùng mạng sẽ tự động xuất hiện ở đây.</string>
-    <string name="library_discovery_hint">Ở mạng khác? Hãy thêm PC bằng địa chỉ.</string>
 </resources>

@@ -17,7 +17,4 @@
     <string name="library_offline">Ce PC est hors ligne. Votre bibliothèque enregistrée reste disponible. Reconnectez-vous pour jouer.</string>
     <string name="library_hidden_notice">Jeu masqué de votre bibliothèque</string>
     <string name="library_undo">Annuler</string>
-    <string name="library_discovery_title">Vos jeux, sur cet écran</string>
-    <string name="library_discovery_body">Allumez votre PC et lancez son hôte de streaming, comme Apollo, Rubylight ou Sunshine. Les PC du même réseau apparaissent ici automatiquement.</string>
-    <string name="library_discovery_hint">Sur un autre réseau ? Ajoutez votre PC par son adresse.</string>
 </resources>

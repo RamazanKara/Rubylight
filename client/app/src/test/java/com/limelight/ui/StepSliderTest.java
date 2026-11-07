@@ -90,7 +90,7 @@ public class StepSliderTest {
                 .findViewById(R.id.osc_opacity_slider);
         StepSlider slider = new StepSlider(context);
         assertTrue(slider instanceof Slider);
-        assertEquals(LabelFormatter.LABEL_GONE, slider.getLabelBehavior());
+        assertEquals(LabelFormatter.LABEL_FLOATING, slider.getLabelBehavior());
         assertEquals(reference.getLabelBehavior(), slider.getLabelBehavior());
         assertEquals(reference.isTickVisible(), slider.isTickVisible());
         assertEquals(reference.getTrackHeight(), slider.getTrackHeight());
@@ -115,6 +115,50 @@ public class StepSliderTest {
         assertEquals(1, bar.getKeyStep());
         bar.onKeyDown(KeyEvent.KEYCODE_DPAD_RIGHT, key(KeyEvent.KEYCODE_DPAD_RIGHT));
         assertEquals("one step above 20 Mbps", "22", field.getText().toString());
+        assertEquals("its value floats in the menu's words", "22 Mbps", label(bar, bar.getValue()));
+    }
+
+    @Test
+    public void aKeyStepShowsTheValueOverTheThumbForAWhile() {
+        try (ActivityController<android.app.Activity> controller =
+                     Robolectric.buildActivity(android.app.Activity.class).setup()) {
+            StepSlider slider = new StepSlider(themed());
+            controller.get().setContentView(slider);
+            slider.setMax(100);
+            slider.setPositionText(position -> position + " %");
+            assertFalse(slider.showsValue());
+
+            assertTrue(slider.onKeyDown(KeyEvent.KEYCODE_DPAD_RIGHT, key(KeyEvent.KEYCODE_DPAD_RIGHT)));
+            assertTrue("a remote's step shows the value", slider.showsValue());
+            assertEquals("5 %", label(slider, slider.getValue()));
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(StepSlider.KEY_VALUE_MS - 100));
+            assertTrue(slider.onKeyDown(KeyEvent.KEYCODE_DPAD_RIGHT, key(KeyEvent.KEYCODE_DPAD_RIGHT)));
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(StepSlider.KEY_VALUE_MS - 100));
+            assertTrue("each step keeps it up", slider.showsValue());
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(200));
+            assertFalse("then it goes", slider.showsValue());
+        }
+    }
+
+    @Test
+    public void everyMaterialSliderShowsItsValueWhileItMoves() throws Exception {
+        List<File> sources = new ArrayList<>();
+        collectSources(new File("src/main"), sources);
+        int sliders = 0;
+        for (File file : sources) {
+            String source = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+            assertFalse(file.getPath(), source.contains("LABEL_GONE"));
+            assertFalse(file.getPath(), source.contains("labelBehavior=\"gone\""));
+            if (source.contains("<com.google.android.material.slider.Slider")) {
+                sliders++;
+                assertTrue(file.getPath(), source.contains("labelBehavior=\"floating\""));
+            }
+            if (source.contains("new Slider(")) {
+                sliders++;
+                assertTrue("a code-built slider gets its value text: " + file.getPath(), source.contains("StepSlider.showValue("));
+            }
+        }
+        assertTrue("the opacity panels and the code-built sliders were found", sliders >= 4);
     }
 
     @Test
@@ -156,6 +200,27 @@ public class StepSliderTest {
             assertFalse(path, source.contains("android.widget.SeekBar"));
             assertFalse(path, source.contains("new SeekBar("));
             assertTrue(path, source.contains("new StepSlider("));
+        }
+    }
+
+    private static void collectSources(File dir, List<File> into) {
+        File[] files = dir.listFiles();
+        if (files == null) return;
+        for (File file : files) {
+            if (file.isDirectory()) collectSources(file, into);
+            else if (file.getName().endsWith(".java") || file.getName().endsWith(".xml")) into.add(file);
+        }
+    }
+
+    /** The text a slider floats over its thumb and TalkBack reads at {@code value}. */
+    static String label(Slider slider, float value) {
+        try {
+            // BaseSlider, which keeps it, is not public.
+            java.lang.reflect.Field field = Slider.class.getSuperclass().getDeclaredField("formatter");
+            field.setAccessible(true);
+            return ((LabelFormatter) field.get(slider)).getFormattedValue(value);
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
         }
     }
 

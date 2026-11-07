@@ -53,6 +53,7 @@ import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.PairingManager;
 import com.limelight.nvstream.wol.WakeTargets;
 import com.limelight.ui.HostFeatureGate;
+import com.limelight.ui.StepSlider;
 import com.google.android.material.slider.Slider;
 import com.limelight.utils.FrontendExporter;
 import com.limelight.utils.FrontendLauncher;
@@ -1359,6 +1360,7 @@ public class HostStreamSettings extends NightjarActivity {
             slider.setValueTo(100);
             slider.setStepSize(1);
             slider.setValue(config.upscalingSharpness);
+            StepSlider.showValue(slider, strength -> getString(R.string.upscaling_sharpness_value, strength));
             slider.setEnabled(!allPcs.isChecked());
             slider.addOnChangeListener((view, strength, fromUser) ->
                     value.setText(getString(R.string.upscaling_sharpness_value, Math.round(strength))));

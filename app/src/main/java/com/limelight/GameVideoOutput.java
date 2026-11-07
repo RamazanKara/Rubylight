@@ -240,8 +240,8 @@ final class GameVideoOutput {
             game.prefConfig.fps = com.limelight.binding.video.DisplayFrameRatePolicy.streamFrameRate(game.panelMaxRefreshRate);
             game.prefConfig.launchRefreshRateX100 = Math.max(100, Math.min(100000, Math.round(game.panelMaxRefreshRate * 100)));
         }
-        game.fpsFollowsDisplay = game.prefConfig.vrr || game.prefConfig.fps ==
-                com.limelight.binding.video.DisplayFrameRatePolicy.streamFrameRate(game.panelMaxRefreshRate);
+        game.fpsFollowsDisplay = com.limelight.binding.video.DisplayFrameRatePolicy.fpsFollowsDisplay(game.prefConfig.vrr,
+                game.prefConfig.fps, com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(getVideoDisplay()));
         game.streamView.initializeSurface(game.prefConfig.useTextureView);
     }
 

@@ -174,8 +174,9 @@ final class GameConnection {
         // Fixed presets keep their size; anything else is the phone's own resolution and follows it.
         game.nativeResolutionStream = game.prefConfig.resolutionFollowsScreen ||
                 PreferenceConfiguration.isNativeResolution(game.prefConfig.width, game.prefConfig.height);
-        game.fpsFollowsDisplay = game.prefConfig.vrr ||
-                game.prefConfig.fps == com.limelight.binding.video.DisplayFrameRatePolicy.streamFrameRate(game.panelMaxRefreshRate);
+        game.fpsFollowsDisplay = com.limelight.binding.video.DisplayFrameRatePolicy.fpsFollowsDisplay(game.prefConfig.vrr,
+                game.prefConfig.fps, com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(
+                        game.videoOutput.getVideoDisplay()));
         game.nativeTouchEnabled = !game.prefConfig.touchscreenTrackpad &&
                 PreferenceManager.getDefaultSharedPreferences(game).getBoolean("checkbox_native_touch", false);
         game.tombstonePrefs = game.getSharedPreferences("DecoderTombstone", 0);

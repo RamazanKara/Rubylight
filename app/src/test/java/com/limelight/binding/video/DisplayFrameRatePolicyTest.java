@@ -350,4 +350,12 @@ public class DisplayFrameRatePolicyTest {
         assertTrue(DisplayFrameRatePolicy.modeFitsStream(1920, 1080, 1920, 1080, 3840, 2160));
         assertTrue(DisplayFrameRatePolicy.modeFitsStream(1280, 720, 3840, 2160, 0, 0));
     }
+
+    @Test
+    public void aDefaultTopRateStillFollowsTheDisplay() {
+        // A TV listing 1080p120 beside 4K60: the default fps is 120 (any size) and keeps following.
+        assertTrue(DisplayFrameRatePolicy.fpsFollowsDisplay(false, 120, 120f));
+        assertFalse(DisplayFrameRatePolicy.fpsFollowsDisplay(false, 60, 120f));
+        assertTrue(DisplayFrameRatePolicy.fpsFollowsDisplay(true, 60, 120f));
+    }
 }

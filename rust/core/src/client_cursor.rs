@@ -62,6 +62,9 @@ struct Session {
     shown: Option<Shown>,
     /// The display the scale was read for, and its scale in percent.
     scale: Option<(String, u16)>,
+    /// Whether the pending shape waits for its display's scale, read elsewhere: no
+    /// deadline then, as the reader wakes the caller once it is known.
+    scale_pending: bool,
 }
 
 #[derive(Clone)]
@@ -99,6 +102,7 @@ impl ClientCursor {
                 sent: Vec::new(),
                 shown: None,
                 scale: None,
+                scale_pending: false,
             });
         } else if state.session.as_ref().is_some_and(|s| s.owner == owner) {
             state.session = None;
@@ -157,13 +161,18 @@ impl ClientCursor {
             output: output.to_owned(),
         }));
         session.dirty = true;
+        // Due again: the next take asks for the scale anew.
+        session.scale_pending = false;
         true
     }
 
     /// When a coalesced change is due, for the control loop's wait.
     pub fn next_due(&self) -> Option<Instant> {
         let state = self.state.lock().unwrap();
-        let session = state.session.as_ref().filter(|s| s.dirty)?;
+        let session = state
+            .session
+            .as_ref()
+            .filter(|s| s.dirty && !s.scale_pending)?;
         session.sent_at.map(|at| at + INTERVAL)
     }
 
@@ -193,7 +202,11 @@ impl ClientCursor {
                 .as_ref()
                 .is_none_or(|(output, _)| *output != noted.output)
         {
-            let percent = match scale(&noted.output)? {
+            let Some(percent) = scale(&noted.output) else {
+                session.scale_pending = true;
+                return None;
+            };
+            let percent = match percent {
                 Ok(percent) => percent,
                 Err(error) => {
                     tracing::warn!(output = %noted.output, error = %format!("{error:#}"), "display scale unavailable for the client cursor; sent at 100%");
@@ -203,6 +216,7 @@ impl ClientCursor {
             session.scale = Some((noted.output.clone(), clamp_scale(percent)));
         }
         session.dirty = false;
+        session.scale_pending = false;
         let shape = match noted {
             None => CursorShape::Hide,
             Some(noted) => {
@@ -607,8 +621,10 @@ mod tests {
         cursor.on_request(&request(true, 96), true, 1);
         let a = solid(4, 4, [1, 1, 1, 255]);
         cursor.note(Some(pointer(&a, 4, 4)), "D1");
-        // The control thread never waits for the lookup: the shape stays due.
+        // The control thread never waits for the lookup: the shape stays pending,
+        // with no deadline that would spin the loop meanwhile.
         assert_eq!(cursor.take(1, now, |_| None), None);
+        assert_eq!(cursor.next_due(), None);
         assert_eq!(cursor.take(1, now, |_| None), None);
         match decoded(cursor.take(1, now, scale(150))) {
             CursorShape::Image { image, .. } => assert_eq!(image.scale, 150),
@@ -620,6 +636,18 @@ mod tests {
             decoded(cursor.take(1, now + INTERVAL, |_| panic!("no scale needed"))),
             CursorShape::Hide
         );
+        // A display change after a sent shape: its deadline has passed, yet while the
+        // new display's scale is read the loop gets no deadline to spin on.
+        cursor.note(Some(pointer(&a, 4, 4)), "D3");
+        assert_eq!(cursor.next_due(), Some(now + INTERVAL * 2));
+        assert_eq!(cursor.take(1, now + INTERVAL * 3, |_| None), None);
+        assert_eq!(cursor.next_due(), None);
+        // The next take after the reader's wake sends it.
+        assert!(matches!(
+            decoded(cursor.take(1, now + INTERVAL * 3, scale(125))),
+            CursorShape::Image { .. } | CursorShape::Show { .. }
+        ));
+        assert_eq!(cursor.next_due(), None);
     }
 
     fn converted(noted: Noted, max_edge: u16, scale: u16) -> CursorImage {

@@ -1583,28 +1583,12 @@ fn a_cursor_scale_is_looked_up_off_the_control_thread() {
     wakes
         .recv_timeout(Duration::from_secs(5))
         .expect("the lookup woke the loop");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let scale = loop {
-        if let Some(scale) = lookup.poll("D1", slow, wake(&woken)) {
-            break scale;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "the finished lookup was not taken"
-        );
-        std::thread::sleep(Duration::from_millis(1));
-    };
-    assert_eq!(scale.unwrap(), 150);
+    // The woken pass has the result: it was stored before the wake.
+    let scale = lookup.poll("D1", slow, wake(&woken));
+    assert_eq!(scale.unwrap().unwrap(), 150);
     // Another display is looked up afresh, and its failure reaches the caller.
     assert!(lookup.poll("D2", slow, wake(&woken)).is_none());
     wakes.recv_timeout(Duration::from_secs(5)).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let failed = loop {
-        if let Some(scale) = lookup.poll("D2", slow, wake(&woken)) {
-            break scale;
-        }
-        assert!(Instant::now() < deadline);
-        std::thread::sleep(Duration::from_millis(1));
-    };
-    assert!(failed.is_err());
+    let failed = lookup.poll("D2", slow, wake(&woken));
+    assert!(failed.unwrap().is_err());
 }

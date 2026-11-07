@@ -1894,12 +1894,15 @@ impl PeerConfig {
 
 /// A display's scale for the client-drawn cursor, looked up on its own thread: the
 /// lookup enumerates every display (1.6 ms, once 21 ms) and held up the control
-/// thread's input on the first shape and after display changes. The finished thread
-/// wakes the control loop, whose next pass sends the shape.
+/// thread's input on the first shape and after display changes. The thread stores its
+/// result before it wakes the control loop, whose next pass sends the shape.
 #[derive(Default)]
 pub(super) struct ScaleLookup {
-    running: Option<(String, std::thread::JoinHandle<Result<u32>>)>,
+    running: Option<(String, ScaleSlot)>,
 }
+
+/// Where a lookup thread leaves its result for the control loop.
+type ScaleSlot = Arc<std::sync::Mutex<Option<Result<u32>>>>;
 
 impl ScaleLookup {
     /// `output`'s scale once a lookup for it finished; None while it runs, after
@@ -1910,30 +1913,29 @@ impl ScaleLookup {
         lookup: fn(&str) -> Result<u32>,
         wake: impl FnOnce() + Send + 'static,
     ) -> Option<Result<u32>> {
-        if let Some((looked_up, thread)) = &self.running
+        if let Some((looked_up, result)) = &self.running
             && looked_up == output
         {
-            if !thread.is_finished() {
-                return None;
+            let scale = result.lock().unwrap().take();
+            if scale.is_some() {
+                self.running = None;
             }
-            let (_, thread) = self.running.take()?;
-            return Some(
-                thread
-                    .join()
-                    .unwrap_or_else(|_| Err(anyhow::anyhow!("the display scale lookup panicked"))),
-            );
+            return scale;
         }
         let name = output.to_owned();
+        let result: ScaleSlot = Arc::new(std::sync::Mutex::new(None));
+        let slot = result.clone();
         let started = thread::Builder::new()
             .name("cursor scale".into())
             .spawn(move || {
-                let scale = lookup(&name);
+                let scale = std::panic::catch_unwind(|| lookup(&name))
+                    .unwrap_or_else(|_| Err(anyhow::anyhow!("the display scale lookup panicked")));
+                *slot.lock().unwrap() = Some(scale);
                 wake();
-                scale
             });
         match started {
-            Ok(thread) => {
-                self.running = Some((output.to_owned(), thread));
+            Ok(_) => {
+                self.running = Some((output.to_owned(), result));
                 None
             }
             Err(error) => {

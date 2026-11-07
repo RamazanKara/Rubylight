@@ -340,6 +340,8 @@ public class ShellNavigationTest {
         ActivityController<StreamSettings> settings = Robolectric.buildActivity(StreamSettings.class).setup().visible();
         try {
             assertOverscan(context, (ViewGroup) pcs.get().findViewById(R.id.home_toolbar).getParent(), 48, 27);
+            // Settings' panes are compact on a TV; its glass chrome keeps the app's size and the same overscan.
+            assertOverscan(context, settings.get().findViewById(R.id.settings_chrome), 48, 27);
         } finally {
             pcs.pause().stop().destroy();
             settings.pause().stop().destroy();
@@ -641,6 +643,21 @@ public class ShellNavigationTest {
             com.google.android.material.appbar.MaterialToolbar toolbar = screen.findViewById(R.id.settings_toolbar);
             assertNull("the selected tab names the page, no heading over it", toolbar.getTitle());
             assertEquals(screen.getString(R.string.settings), screen.getTitle().toString());
+            int tab = contentLeft(root, screen.findViewById(R.id.shell_bar));
+            // The rail's focus ring is drawn on the row's pill, which starts on the tabs' edge.
+            android.widget.ListView rail = screen.getFragmentManager().findFragmentById(R.id.settings_sections).getView()
+                    .findViewById(android.R.id.list);
+            android.graphics.Rect padding = new android.graphics.Rect();
+            rail.getSelector().getPadding(padding);
+            View row = rail.getChildAt(0);
+            android.graphics.Rect ring = new android.graphics.Rect(0, 0, row.getWidth(), row.getHeight());
+            root.offsetDescendantRectToMyCoords(row, ring);
+            // AbsListView widens the selector by its padding around the row; the drawable insets the shape back.
+            android.graphics.drawable.Drawable selector = rail.getSelector().getCurrent();
+            selector.setBounds(ring.left - padding.left, ring.top - padding.top, ring.right + padding.right,
+                    ring.bottom + padding.bottom);
+            // At the compact density each inset truncates on its own: up to 2px off, not 4dp.
+            assertEquals("the ring sits on the tabs' edge", tab, ringLeft(selector), 2);
             // Search sits at the end of the tab row, and Right from the last tab reaches it.
             View search = screen.findViewById(R.id.settings_search_button);
             assertNotNull(search);

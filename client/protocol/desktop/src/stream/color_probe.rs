@@ -105,8 +105,9 @@ impl Base {
 /// The formats of [`BASE_FORMATS`] that `hardware` decodes in hardware. Each is decoded with the
 /// stream's decoder order as required hardware: without the check a format the GPU lacks (HEVC
 /// Main10 or AV1 on an older one) would be offered, and FFmpeg would decode it in software, or
-/// for AV1 not at all. Software decoding decodes them all and is not checked.
-pub fn probe_base(hardware: media::Hardware) -> Base {
+/// for AV1 not at all. Software decoding decodes them all and is not checked. Only the formats of
+/// `wanted` are decoded (`negotiate::base_probe_formats`): the others are not offered anyway.
+pub fn probe_base(hardware: media::Hardware, wanted: u32) -> Base {
     if hardware == media::Hardware::None {
         return Base::software();
     }
@@ -117,6 +118,9 @@ pub fn probe_base(hardware: media::Hardware) -> Base {
     };
     let mut failures = Vec::new();
     for (format, codec, name, data) in BASE_FIXTURES {
+        if format & wanted == 0 {
+            continue;
+        }
         let pictures = media::Pictures {
             ten_bit: format & VIDEO_FORMAT_MASK_10BIT != 0,
             chroma444: false,

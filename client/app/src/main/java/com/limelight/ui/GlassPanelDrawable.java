@@ -37,7 +37,8 @@ public final class GlassPanelDrawable extends Drawable {
     // Over a stream: the menu's recipes, or the HUD's.
     private boolean overStream;
     private int baseFill;
-    private float fillOpacity = 1f;
+    /** The user's opacity for the fill, or below 0 for the recipe's own. */
+    private float fillOpacity = -1f;
 
     private GlassPanelDrawable(Context context, float[] radii) {
         this.radii = radii;
@@ -93,7 +94,10 @@ public final class GlassPanelDrawable extends Drawable {
         return overStream;
     }
 
-    /** A user's opacity setting for the panel (0 to 1), on top of the recipe's own fill. */
+    /**
+     * A user's opacity setting for the panel (0 to 1): the fill's own alpha, so 1 is opaque and the recipe's colour stays.
+     * Only the fill: what stands on the panel keeps its own.
+     */
     public void setFillOpacity(float opacity) {
         fillOpacity = Math.max(0f, Math.min(1f, opacity));
         setFill(baseFill);
@@ -102,7 +106,7 @@ public final class GlassPanelDrawable extends Drawable {
 
     private void setFill(int color) {
         baseFill = color;
-        fill.setColor(ColorUtils.setAlphaComponent(color, Math.round((color >>> 24) * fillOpacity)));
+        fill.setColor(fillOpacity < 0f ? color : ColorUtils.setAlphaComponent(color, Math.round(255 * fillOpacity)));
     }
 
     /**

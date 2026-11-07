@@ -129,7 +129,8 @@ public class DesktopControlsPanel extends LinearLayout {
         mouseViews.clear();
         trackpad = null;
         if (!bankEnabled(bank)) bank = "typing";
-        // The stream's glass for what stays up while the game plays: no blur, the keys carry their own fill.
+        // The stream's glass for what stays up while the game plays: no blur, the keys carry their own fill. The opacity
+        // setting is the panel fill's alpha, as before; the keys stay opaque.
         GlassPanelDrawable background = GlassPanelDrawable.hud(getContext(), new float[] {dp(18), dp(18), dp(18), dp(18), 0, 0, 0, 0});
         background.setFillOpacity(config.opacityPercent / 100f);
         setBackground(background);
@@ -523,7 +524,8 @@ public class DesktopControlsPanel extends LinearLayout {
         button.setSelected(selected);
         if (button.getBackground() instanceof GlassControlDrawable) {
             // A key's own drawable shows it selected.
-            button.setTextColor(ContextCompat.getColor(getContext(), selected ? R.color.nj_color_on_selected : R.color.nj_color_label));
+            button.setTextColor(selected ? MaterialColors.getColor(StreamGlass.themed(getContext()), R.attr.glassOnSelected, 0)
+                    : ContextCompat.getColor(getContext(), AppTheme.isHighContrast(getContext()) ? R.color.nj_hc_color_label : R.color.nj_color_label));
             return;
         }
         button.setBackgroundTintList(ColorStateList.valueOf(selected ?

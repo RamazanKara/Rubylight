@@ -449,7 +449,7 @@ impl DecodedPicture for media::Frame {
 
 /// What one frame did in the FFmpeg decoder ([`feed`]).
 #[derive(Debug, Default, PartialEq)]
-struct Fed {
+struct FedFrame {
     /// The decoder did not take the frame, after its ready pictures were read on EAGAIN.
     refused: bool,
     /// `avcodec_receive_frame` failed.
@@ -483,17 +483,17 @@ fn feed<D: PictureDecoder>(
     wait_us: u64,
     mut poll: impl FnMut(),
     mut picture: impl FnMut(D::Picture),
-) -> Fed {
+) -> FedFrame {
     let number = (pts >> 32) as u32;
     let polls = if decoder.asynchronous() { wait_us / ASYNC_POLL_US } else { 0 };
-    let mut fed = Fed::default();
-    let mut receive = |decoder: &mut D, fed: &mut Fed, done: &dyn Fn(&Fed) -> bool| {
+    let mut fed = FedFrame::default();
+    let mut receive = |decoder: &mut D, fed: &mut FedFrame, done: &dyn Fn(&FedFrame) -> bool| {
         let mut polls = polls;
         loop {
             match decoder.receive() {
                 Received::Frame(out) => {
                     // Frame numbers wrap: this frame's picture or a later one.
-                    fed.own |= number.wrapping_sub((out.pts() >> 32) as u32) as i32 <= 0;
+                    fed.own |= (number.wrapping_sub((out.pts() >> 32) as u32) as i32) <= 0;
                     fed.corrupt += u32::from(out.corrupt());
                     fed.pictures += 1;
                     picture(out);
@@ -532,7 +532,7 @@ fn feed<D: PictureDecoder>(
 /// M2M) makes the picture of each frame it is sent, so once it has made one (`steady`), a frame
 /// without a picture failed as much as a damaged picture did: the stream has no periodic key
 /// frames, and without recovery the damage stays. An asynchronous one's pictures come later.
-fn frame_status(fed: &Fed, asynchronous: bool, steady: bool) -> DecodeStatus {
+fn frame_status(fed: &FedFrame, asynchronous: bool, steady: bool) -> DecodeStatus {
     let damaged = !asynchronous && (fed.corrupt > 0 || (steady && fed.pictures == 0));
     if fed.refused || fed.failed || damaged {
         DecodeStatus::NeedIdr
@@ -925,7 +925,7 @@ impl Decoder {
         let setup = self.setup.expect("decoder setup precedes frames");
         self.refused.push((refused, setup.format));
         let codec = codec_of(&setup);
-        let rest = backends_after(self.hardware.order(), refused);
+        let rest: Vec<_> = backends_after(self.hardware.order(), refused).into_iter().filter(|&backend| !self.refused.contains(&(backend, setup.format))).collect();
         let hardware = if rest.is_empty() {
             Err("no other hardware decoder".to_owned())
         } else {
@@ -1852,7 +1852,7 @@ mod tests {
 
     /// Feeds frame `number` with `wait_us`, returning what it did, the pictures that came out and
     /// how often it waited.
-    fn feed_frame(decoder: &mut FakeDecoder, number: u32, wait_us: u64) -> (Fed, Vec<FakePicture>, u32) {
+    fn feed_frame(decoder: &mut FakeDecoder, number: u32, wait_us: u64) -> (FedFrame, Vec<FakePicture>, u32) {
         let (mut pictures, mut polls) = (Vec::new(), 0);
         let fed = feed(decoder, &[0; 4], pts(number), wait_us, || polls += 1, |picture| pictures.push(picture));
         (fed, pictures, polls)
@@ -1927,11 +1927,11 @@ mod tests {
         let (fed, _, _) = feed_frame(&mut decoder, 5, 0);
         assert_eq!(frame_status(&fed, false, true), DecodeStatus::Ok);
         // The asynchronous decoder's frames are not judged that way.
-        assert_eq!(frame_status(&Fed { corrupt: 1, pictures: 1, ..Fed::default() }, true, true), DecodeStatus::Ok);
+        assert_eq!(frame_status(&FedFrame { corrupt: 1, pictures: 1, ..FedFrame::default() }, true, true), DecodeStatus::Ok);
         // Failures stay failures for both.
         for asynchronous in [false, true] {
-            assert_eq!(frame_status(&Fed { refused: true, ..Fed::default() }, asynchronous, false), DecodeStatus::NeedIdr);
-            assert_eq!(frame_status(&Fed { failed: true, pictures: 1, ..Fed::default() }, asynchronous, false), DecodeStatus::NeedIdr);
+            assert_eq!(frame_status(&FedFrame { refused: true, ..FedFrame::default() }, asynchronous, false), DecodeStatus::NeedIdr);
+            assert_eq!(frame_status(&FedFrame { failed: true, pictures: 1, ..FedFrame::default() }, asynchronous, false), DecodeStatus::NeedIdr);
         }
     }
 

@@ -47,6 +47,7 @@ import android.media.MediaCodec.BufferInfo;
 import android.media.MediaCodec.CodecException;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Debug;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
@@ -3536,12 +3537,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     BufferInfo info = new BufferInfo();
                     while (!stopping) {
                         long workStartNs = 0;
+                        long workCpuStartNs = 0;
                         try {
                             // Try to output a frame
                             int outIndex = videoDecoder.dequeueOutputBuffer(info, 50000);
                             if (outIndex >= 0) {
                                 // Waiting for decoder output is idle time, not work for ADPF.
                                 workStartNs = System.nanoTime();
+                                // ADPF gets this thread's CPU time: the debt wait for a newer
+                                // output and blocking releases inside the hand-off are waits too.
+                                workCpuStartNs = Debug.threadCpuTimeNanos();
                                 // This separate elapsed clock includes scheduling/suspend delays;
                                 // frame timestamps and ADPF durations keep their existing clock.
                                 long outputDrainStartNs = SystemClock.elapsedRealtimeNanos();
@@ -3576,7 +3581,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             if (workStartNs != 0) {
                                 // Report the complete handoff once, after presenting. Reporting each
                                 // discarded output adds work while we are trying to leave catch-up.
-                                performanceHints.reportWorkDuration(System.nanoTime() - workStartNs, refreshRate);
+                                performanceHints.reportWorkDuration(Debug.threadCpuTimeNanos() - workCpuStartNs, refreshRate);
                             }
                             checkUpscaling();
                             doCodecRecoveryIfRequired(CR_FLAG_RENDER_THREAD);

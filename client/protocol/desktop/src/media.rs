@@ -1388,13 +1388,16 @@ mod tests {
             assert_eq!(decoder.send(bytes, 7), 0, "{codec:?}");
             let Received::Frame(frame) = decoder.receive() else { panic!("{codec:?}: no decoded frame") };
             let info = frame.info();
-            assert_eq!((info.kind, info.ten_bit, info.width, info.height), (FRAME_YUV444P, 0, 64, 64), "{codec:?}");
-            // The fixtures are lossless: every plane is the full-size source plane.
+            // 256x256: a 64x64 probe was under NVDEC's minimum size and never offered NVIDIA 4:4:4.
+            assert_eq!((info.kind, info.ten_bit, info.width, info.height), (FRAME_YUV444P, 0, 256, 256), "{codec:?}");
+            // The fixtures are lossless: every plane is the full-size 64x64 source plane, each
+            // sample scaled up to 4x4.
             for plane in 0..3 {
-                for y in 0..64 {
-                    // SAFETY: a 64x64 4:4:4 picture's planes hold 64 bytes per row.
-                    let row = unsafe { std::slice::from_raw_parts(info.data[plane].add(y * info.linesize[plane] as usize), 64) };
-                    assert_eq!(row, &source[(plane * 64 + y) * 64..][..64], "{codec:?} plane {plane} row {y}");
+                for y in 0..256 {
+                    // SAFETY: a 256x256 4:4:4 picture's planes hold 256 bytes per row.
+                    let row = unsafe { std::slice::from_raw_parts(info.data[plane].add(y * info.linesize[plane] as usize), 256) };
+                    let expected: Vec<u8> = (0..256).map(|x| source[(plane * 64 + y / 4) * 64 + x / 4]).collect();
+                    assert_eq!(row, &expected[..], "{codec:?} plane {plane} row {y}");
                 }
             }
         }

@@ -282,6 +282,70 @@ public class AllGamesScreenTest {
         assertTrue("the grid scrolled at all", scrolled);
     }
 
+    /**
+     * On the real TV the frame ended 120 px above the screen's bottom, and every focused row's ring and glow were cut there.
+     * The frame now reaches the TV's safe edge, and a poster is at most as tall as leaves its focused row as much room below
+     * as the first row has above, where the glow fits: walking down and back up, every focused row fits whole.
+     */
+    @Test
+    public void onATelevisionAFocusedRowsRingAndGlowFitTheFrame() {
+        String[] games = new String[40];
+        for (int i = 0; i < games.length; i++) games[i] = game(i + 1, "Game " + (i + 1), "steam", true, null);
+        tower(games);
+        Grid grid = open(null);
+        RecyclerView list = list(grid);
+        View frame = (View) list.getParent();
+        int screen = grid.getWindow().getDecorView().getHeight();
+        int[] at = new int[2];
+        frame.getLocationInWindow(at);
+        assertEquals("the frame ends at the safe edge", screen - Math.round(screen * AllGamesActivity.SAFE_EDGE),
+                at[1] + frame.getHeight());
+        int above = list.getFocusedChild().getTop();
+        int fitRoom = Math.round(AllGamesActivity.FIT_ROOM_DP * grid.getResources().getDisplayMetrics().density);
+        View cover = list.getFocusedChild().findViewById(R.id.console_cover_frame);
+        assertEquals("a poster stays 2:3", cover.getWidth() * 3 / 2, cover.getHeight(), 2);
+        for (int direction : new int[] {View.FOCUS_DOWN, View.FOCUS_RIGHT, View.FOCUS_UP}) {
+            for (int step = 0; step < (direction == View.FOCUS_RIGHT ? 3 : 6); step++) {
+                View card = list.getFocusedChild();
+                String where = direction + " step " + step + ": card " + card.getTop() + ".." + card.getBottom()
+                        + " in a frame of " + list.getHeight();
+                assertTrue(where + ", room above " + above, card.getTop() >= above);
+                assertTrue(where, list.getHeight() - card.getBottom() >= above + fitRoom);
+                View next = HomeShellTest.focusAfter(grid, card, direction);
+                assertNotNull(where, next);
+                next.requestFocus();
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+            }
+        }
+        // The last row comes up to the same place.
+        list.scrollToPosition(39);
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+        list.getLayoutManager().findViewByPosition(39).requestFocus();
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+        View last = list.getFocusedChild();
+        assertTrue("last row " + last.getTop() + ".." + last.getBottom() + " of " + list.getHeight(),
+                list.getHeight() - last.getBottom() >= above + fitRoom && last.getTop() >= above);
+    }
+
+    /** A phone keeps its frame and posters as wide as their columns: the TV's fit is the TV's. */
+    @Test
+    @Config(qualifiers = "w411dp-h891dp-xxhdpi")
+    public void onAPhoneTheGridKeepsItsFrameAndFullWidthPosters() {
+        String[] games = new String[12];
+        for (int i = 0; i < games.length; i++) games[i] = game(i + 1, "Game " + (i + 1), "steam", true, null);
+        tower(games);
+        Grid grid = open(null);
+        RecyclerView list = list(grid);
+        View frame = (View) list.getParent();
+        assertEquals(0, ((ViewGroup.MarginLayoutParams) frame.getLayoutParams()).bottomMargin);
+        assertEquals(((View) frame.getParent()).getHeight(), frame.getBottom());
+        int columns = ((androidx.recyclerview.widget.GridLayoutManager) list.getLayoutManager()).getSpanCount();
+        int content = list.getWidth() - list.getPaddingLeft() - list.getPaddingRight();
+        View card = list.getChildAt(0);
+        ViewGroup.MarginLayoutParams margins = (ViewGroup.MarginLayoutParams) card.getLayoutParams();
+        assertEquals(content / columns, card.getWidth() + margins.leftMargin + margins.rightMargin);
+    }
+
     /** The frame's glow room stands over the focus line and filters: a touch there was the grid's on touch-capable TVs. */
     @Test
     public void onATelevisionATouchInTheGlowRoomIsForWhatLiesUnderIt() {

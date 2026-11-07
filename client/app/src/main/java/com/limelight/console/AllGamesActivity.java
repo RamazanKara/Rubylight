@@ -51,6 +51,10 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
     private static final int MIN_CARD_WIDTH_DP = 120;
     /** How far a focused TV poster's glow reaches past its 24 dp bleed: the grid's frame keeps that much room. */
     static final int GLOW_ROOM_DP = 40;
+    /** A TV's safe edge, the usual overscan margin: this share of the screen's height in from its bottom. */
+    static final float SAFE_EDGE = 0.05f;
+    /** The room a focused TV row keeps between its glow and the frame's bottom. */
+    static final int FIT_ROOM_DP = 4;
     private static final long DEBOUNCE_MS = 250;
     private static final String SHELF = "all-games";
 
@@ -88,6 +92,9 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
     /** Each focus request outdates the ones still posted. */
     private int focusTicket;
     private int lastWidthPx;
+    private int lastHeightPx;
+    /** Each column's width; on a TV a poster shrunk to fit the frame's height is narrower, the slack spread between. */
+    private int slotPx;
     private final Runnable reload = this::reloadNow;
 
     /** The data behind the screen; the debug demo overrides this with canned hosts. */
@@ -157,16 +164,31 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
             frame.setMarginEnd(frame.getMarginEnd() - room);
             int above = grid.getPaddingTop() + room;
             roomAbove = above;
-            grid.setPaddingRelative(grid.getPaddingStart() + room, 0, grid.getPaddingEnd() + room, grid.getPaddingBottom());
+            // The last row can come up to the place every focused row takes: as much room below it as above (fitColumns).
+            int fitRoom = Math.round(FIT_ROOM_DP * getResources().getDisplayMetrics().density);
+            grid.setPaddingRelative(grid.getPaddingStart() + room, 0, grid.getPaddingEnd() + room, above + fitRoom);
             ((RecyclerView) grid).addItemDecoration(new RecyclerView.ItemDecoration() {
                 @Override
                 public void getItemOffsets(@NonNull android.graphics.Rect out, @NonNull View card, @NonNull RecyclerView parent,
                                            @NonNull RecyclerView.State state) {
                     int at = parent.getChildAdapterPosition(card);
-                    out.top = at != RecyclerView.NO_POSITION && at < AllGamesActivity.this.grid.getSpanCount() ? above : 0;
+                    int columns = AllGamesActivity.this.grid.getSpanCount();
+                    out.top = at != RecyclerView.NO_POSITION && at < columns ? above : 0;
+                    // Posters narrower than their columns keep the first at the start and the last at the end, the gaps even.
+                    int slack = Math.max(0, slotPx - env.cardWidthPx);
+                    if (at == RecyclerView.NO_POSITION || slack == 0 || columns < 2) return;
+                    int start = at % columns * slack / (columns - 1);
+                    boolean rtl = parent.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
+                    out.left = rtl ? slack - start : start;
+                    out.right = rtl ? start : slack - start;
                 }
             });
             grid.setFadingEdgeLength(getResources().getDimensionPixelSize(R.dimen.all_games_fade) + room);
+            // The frame ends at the TV's safe edge, so a focused row's ring and glow fit whole. As the page's weighted last
+            // child it ended the glow room short of the page's margin: a LinearLayout gives a negative margin no space.
+            ((View) grid.getParent()).addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+                if (t != ot || b != ob) v.post(() -> reachSafeEdge(v));
+            });
         }
 
         loading = findViewById(R.id.all_games_loading);
@@ -207,7 +229,7 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         list.setLayoutManager(grid);
         list.setItemAnimator(null);
         list.setAdapter(adapter);
-        list.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> fitColumns(r - l));
+        list.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> fitColumns(r - l, b - t));
         feed.bind();
     }
 
@@ -239,20 +261,61 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         return Math.max(2, Math.min(MAX_COLUMNS, contentWidthPx / Math.max(1, minCardWidthPx)));
     }
 
-    /** Each poster fills its column, so the grid spans the screen's width whatever it is. */
-    private void fitColumns(int widthPx) {
-        if (widthPx <= 0 || widthPx == lastWidthPx) return;
+    /**
+     * Each poster fills its column, so the grid spans the screen's width whatever it is. On a TV a poster is at most as
+     * tall as lets a focused row's ring and glow fit the frame; one shrunk for that is narrower than its column.
+     */
+    private void fitColumns(int widthPx, int heightPx) {
+        if (widthPx <= 0 || (widthPx == lastWidthPx && heightPx == lastHeightPx)) return;
         lastWidthPx = widthPx;
+        lastHeightPx = heightPx;
         int content = widthPx - list.getPaddingLeft() - list.getPaddingRight();
         int count = columnsFor(content, Math.round(MIN_CARD_WIDTH_DP * getResources().getDisplayMetrics().density));
-        int card = content / count;
-        if (count == grid.getSpanCount() && card == env.cardWidthPx) return;
+        int slot = content / count;
+        int cover = ShelfAdapter.coverHeight(this, isTelevision(), slot);
+        int card = slot;
+        int tallest = roomAbove > 0 ? tallestCover(heightPx) : 0;
+        if (tallest > 0 && cover > tallest) {
+            int poster = tallest * 2 / 3;
+            cover = poster * 3 / 2;
+            card = poster + 2 * getResources().getDimensionPixelSize(R.dimen.cover_inset);
+        }
+        if (count == grid.getSpanCount() && slot == slotPx && card == env.cardWidthPx && cover == env.coverHeightPx) return;
+        int width = card;
+        int height = cover;
         list.post(() -> {
-            env.cardWidthPx = card;
-            env.coverHeightPx = ShelfAdapter.coverHeight(this, isTelevision(), card);
+            slotPx = slot;
+            env.cardWidthPx = width;
+            env.coverHeightPx = height;
             grid.setSpanCount(count);
             adapter.notifyDataSetChanged();
+            list.invalidateItemDecorations();
         });
+    }
+
+    /**
+     * The tallest TV poster whose focused ring and glow fit the frame of the given height. A focused poster grows about its
+     * middle, so they reach as far below it as above; above, the first row's room holds them, so the frame keeps as much
+     * below the poster, and a little room.
+     */
+    private int tallestCover(int frameHeightPx) {
+        int inset = getResources().getDimensionPixelSize(R.dimen.cover_inset);
+        int fitRoom = Math.round(FIT_ROOM_DP * getResources().getDisplayMetrics().density);
+        return frameHeightPx - 2 * (roomAbove + inset) - fitRoom;
+    }
+
+    /** Gives the grid's frame the height that ends it at the TV's safe edge. */
+    private static void reachSafeEdge(View frame) {
+        int screen = frame.getRootView().getHeight();
+        if (screen <= 0) return;
+        int[] at = new int[2];
+        frame.getLocationInWindow(at);
+        int height = screen - Math.round(screen * SAFE_EDGE) - at[1];
+        LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) frame.getLayoutParams();
+        if (height <= 0 || (params.height == height && params.weight == 0)) return;
+        params.height = height;
+        params.weight = 0;
+        frame.setLayoutParams(params);
     }
 
     @Override

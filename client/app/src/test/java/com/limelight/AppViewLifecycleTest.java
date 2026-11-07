@@ -330,6 +330,20 @@ public class AppViewLifecycleTest {
         }
     }
 
+    /** A PC's cached list is in the adapter before the grid exists: its cards came in without their rise. */
+    @Test public void aListThatWasCachedStillBringsItsCardsIn() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.UUID_EXTRA, "running-host").putExtra(AppView.NAME_EXTRA, "PC");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            Library screen = controller.get();
+            libraryWithRunningGame(screen, "sunshine-serverinfo.xml");
+            assertTrue(ReflectionHelpers.<Boolean>getField(screen, "enterPlayed"));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     @Test public void aControllersXOpensTheSelectedGamesMenuLikeALongPress() {
         Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
                 .putExtra(AppView.UUID_EXTRA, "running-host").putExtra(AppView.NAME_EXTRA, "PC");

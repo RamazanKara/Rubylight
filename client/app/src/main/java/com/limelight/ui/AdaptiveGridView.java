@@ -71,8 +71,7 @@ public class AdaptiveGridView extends GridView {
     private static final long ENTER_MS = 220;
     private static final long ENTER_STAGGER_MS = 18;
     private static final float ENTER_RISE_DP = 24;
-    private java.util.List<View> entering;
-    private final Runnable enterDone = () -> entering = null;
+    private android.animation.ValueAnimator entering;
 
     public AdaptiveGridView(Context context) {
         super(context);
@@ -247,33 +246,52 @@ public class AdaptiveGridView extends GridView {
         int count = Math.min(getChildCount(), ENTER_CARDS);
         if (count == 0 || !isAttachedToWindow()) return;
         int columns = Math.max(1, getNumColumns());
+        long longest = 0;
+        for (int i = 0; i < count; i++) longest = Math.max(longest, ENTER_STAGGER_MS * (i / columns + i % columns));
+        android.animation.ValueAnimator animator = android.animation.ValueAnimator.ofFloat(0f, longest + ENTER_MS);
+        animator.setDuration(longest + ENTER_MS);
+        animator.setInterpolator(new android.view.animation.LinearInterpolator());
+        animator.addUpdateListener(a -> { if (a == entering) applyEnter(); });
+        animator.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator a) {
+                if (a == entering) endEnter();
+            }
+        });
+        entering = animator;
+        applyEnter();
+        animator.start();
+    }
+
+    /**
+     * Each card from where the rise has got to, by its place and not by the view: the list's next pass, which a cover's
+     * arrival or the adapter's first refresh brings within the rise, hands out other views for the same places.
+     */
+    private void applyEnter() {
+        float at = (float) entering.getAnimatedValue();
+        int columns = Math.max(1, getNumColumns());
         float rise = ENTER_RISE_DP * getResources().getDisplayMetrics().density;
         android.view.animation.Interpolator settle = settleInterpolator();
-        java.util.List<View> cards = new java.util.ArrayList<>(count);
-        long longest = 0;
-        for (int i = 0; i < count; i++) {
+        for (int i = 0; i < getChildCount(); i++) {
             View card = getChildAt(i);
-            long delay = ENTER_STAGGER_MS * (i / columns + i % columns);
-            card.setAlpha(0f);
-            card.setTranslationY(rise);
-            card.animate().alpha(1f).translationY(0f).setStartDelay(delay).setDuration(ENTER_MS).setInterpolator(settle);
-            cards.add(card);
-            longest = Math.max(longest, delay);
+            float shown = 1f;
+            if (i < ENTER_CARDS) {
+                float part = (at - ENTER_STAGGER_MS * (i / columns + i % columns)) / ENTER_MS;
+                shown = settle.getInterpolation(Math.max(0f, Math.min(1f, part)));
+            }
+            card.setAlpha(shown);
+            card.setTranslationY(glideOffset + rise * (1f - shown));
         }
-        entering = cards;
-        postDelayed(enterDone, longest + ENTER_MS + 50);
     }
 
     /** Puts the rising cards where they are going, at once. */
     private void endEnter() {
-        java.util.List<View> cards = entering;
-        if (cards == null) return;
+        android.animation.ValueAnimator animator = entering;
+        if (animator == null) return;
         entering = null;
-        removeCallbacks(enterDone);
-        for (View card : cards) {
-            card.animate().cancel();
-            card.setAlpha(1f);
-            card.setTranslationY(glideOffset);
+        animator.cancel();
+        for (int i = 0; i < getChildCount(); i++) {
+            getChildAt(i).setAlpha(1f);
+            getChildAt(i).setTranslationY(glideOffset);
         }
     }
 
@@ -401,6 +419,7 @@ public class AdaptiveGridView extends GridView {
             for (int i = 0; i < getChildCount(); i++) FastTravel.settle(getChildAt(i));
         }
         if (glideOffset != 0) applyGlide();
+        if (entering != null) applyEnter();
         if (revealPending) {
             noteScroll();
             removeCallbacks(revealSelection);

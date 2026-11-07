@@ -914,7 +914,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
     }
 
-    /** debug.nightjar.covering_max: size the adaptive maximum for a fold or turn up front (on by default). */
+    /**
+     * debug.nightjar.covering_max 1: size the adaptive maximum for a fold or turn up front. Off by
+     * default until measured: the foldable it is for is the Galaxy Fold7, and the configure retry
+     * catches a refused configure or start, not a failure later in the stream.
+     */
     static final String COVERING_SWITCH = "covering_max";
 
     /**
@@ -924,7 +928,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
      * extra IDR. Null, or the switch off, keeps the maximum at the stream size.
      */
     public void setCoveringSize(int[] covering) {
-        if (covering != null && !MediaCodecHelper.debugSwitch(COVERING_SWITCH, true)) {
+        if (covering != null && !MediaCodecHelper.debugSwitch(COVERING_SWITCH, false)) {
             covering = null;
         }
         coveringSize = covering;
@@ -2707,21 +2711,22 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 break;
             }
 
-            if (coveringApplied) {
-                // The covering maximum must never cost the stream its decoder: the same try again
-                // at the stream's own maximum, which then grows only when asked.
-                LimeLog.warning("Decoder " + selectedDecoderInfo.getName() + " refused try " + tryNumber + " with the " +
-                        maxDecodeWidth + "x" + maxDecodeHeight + " covering maximum; the same try at " +
-                        streamMax[0] + "x" + streamMax[1]);
-                maxDecodeWidth = streamMax[0];
-                maxDecodeHeight = streamMax[1];
-                coveringApplied = false;
-                coveringRefused = true;
-                tryNumber--;
-                continue;
-            }
-
             if (!newFormat) {
+                if (coveringApplied) {
+                    // The covering maximum stays through the low-latency ladder (try 0 mostly fails on
+                    // vendor keys, not on it), so a decoder that takes some try pays nothing extra. Only
+                    // when every try failed with it does the ladder run again at the stream's own
+                    // maximum, which then grows only when asked: it must never cost the stream its decoder.
+                    LimeLog.warning("Decoder " + selectedDecoderInfo.getName() + " refused every try with the " +
+                            maxDecodeWidth + "x" + maxDecodeHeight + " covering maximum; retrying at " +
+                            streamMax[0] + "x" + streamMax[1]);
+                    maxDecodeWidth = streamMax[0];
+                    maxDecodeHeight = streamMax[1];
+                    coveringApplied = false;
+                    coveringRefused = true;
+                    tryNumber = -1;
+                    continue;
+                }
                 if (dolbyVision) {
                     dolbyVisionFailed = true;
                     LimeLog.warning("Dolby Vision decoder " + selectedDecoderInfo.getName() +
@@ -3636,14 +3641,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY);
                 try (DecoderPerformanceHints performanceHints =
                              new DecoderPerformanceHints(context, prefs.phonePerformanceHints, refreshRate)) {
+                    // debug.nightjar.adpf_cpu_time 0 reports the hand-off's wall time, as before.
+                    boolean cpuTime = prefs.phonePerformanceHints &&
+                            MediaCodecHelper.debugSwitch(DecoderPerformanceHints.CPU_TIME_SWITCH, true);
                     BufferInfo info = new BufferInfo();
                     while (!stopping) {
                         long workStartNs = 0;
                         long workCpuStartNs = 0;
                         try {
-                    // debug.nightjar.adpf_cpu_time 0 reports the hand-off's wall time, as before.
-                    boolean cpuTime = prefs.phonePerformanceHints &&
-                            MediaCodecHelper.debugSwitch(DecoderPerformanceHints.CPU_TIME_SWITCH, true);
                             // Try to output a frame
                             int outIndex = videoDecoder.dequeueOutputBuffer(info, 50000);
                             if (outIndex >= 0) {
@@ -4459,28 +4464,28 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                          long enqueueTimeNs, char hostProcessingLatency, long hostRtpUs) {
         boolean codecRecovered;
 
-        try {
-            if ((codecFlags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
-                frameLatencyStats.onDecoderInput(frameNumber, timestampUs, receiveTimeNs, enqueueTimeNs,
-                        System.nanoTime(), hostProcessingLatency, hostRtpUs);
-            }
-            videoDecoder.queueInputBuffer(nextInputBufferIndex,
-                    0, nextInputBuffer.position(),
-                    timestampUs, codecFlags);
-            if ((codecFlags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
         // Counted before queueing, as the decoder may hand the frame back before queueInputBuffer
         // returns and the renderer must never count an output before its input; taken back when
         // the queue fails, so a refused frame does not leave the depth waiting for its output.
         boolean counted = false;
         boolean queued = false;
-                frameLatencyStats.onDecoderQueued(timestampUs, System.nanoTime());
+        try {
+            if ((codecFlags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
+                frameLatencyStats.onDecoderInput(frameNumber, timestampUs, receiveTimeNs, enqueueTimeNs,
+                        System.nanoTime(), hostProcessingLatency, hostRtpUs);
                 numFramesIn++;
                 counted = true;
+            }
+            videoDecoder.queueInputBuffer(nextInputBufferIndex,
+                    0, nextInputBuffer.position(),
+                    timestampUs, codecFlags);
+            queued = true;
+            if ((codecFlags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
+                frameLatencyStats.onDecoderQueued(timestampUs, System.nanoTime());
             }
 
             // We need a new buffer now
             nextInputBufferIndex = -1;
-            queued = true;
             nextInputBuffer = null;
         } catch (IllegalStateException e) {
             frameLatencyStats.discard(timestampUs, "input_failed");
@@ -4498,6 +4503,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
             return false;
         } finally {
+            // Taken back before a recovery sets the depth base from the counts.
+            if (counted && !queued) numFramesIn--;
             codecRecovered = doCodecRecoveryIfRequired(CR_FLAG_INPUT_THREAD);
         }
 
@@ -4507,8 +4514,6 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             return false;
         }
 
-            // Taken back before a recovery sets the depth base from the counts.
-            if (counted && !queued) numFramesIn--;
         // Fetch a new input buffer now while we have some time between frames
         // to have it ready immediately when the next frame arrives.
         //

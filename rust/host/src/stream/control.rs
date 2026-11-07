@@ -1036,12 +1036,7 @@ impl Media {
                 if p.inputs.is_empty() || !ready || s.stopping() {
                     continue;
                 }
-                if let Some(i) = &mut p.injector {
-                    // Absolute input follows the stream's display and size, as below.
-                    i.set_output(&s.output.read().unwrap());
-                    let mode = s.stream_mode();
-                    i.set_stream_size(mode.width, mode.height);
-                }
+                follow_session(&h, p, &s);
                 apply_input(&h, p, &s, &mut menus, received);
             }
             for commit in host.socket_mut().roaming.take_commits() {
@@ -1424,28 +1419,7 @@ impl Media {
                             Err(e) => s.launch.warnings.set("input_initialization", format!("Input initialization failed ({e:#}); controls are unavailable. Check Input settings and the selected display, then reconnect.")),
                         }
                     }
-                    // The keyboard layout follows saves of `keyboard_layout` and a coalesced
-                    // report; it is read here, and the injector only takes it.
-                    p.keyboard_layout.follow(
-                        h.config_version.load(Ordering::Acquire),
-                        &s.launch.warnings,
-                        Instant::now(),
-                        || *s.keyboard_layout.lock().unwrap(),
-                        || effective_config(&h, &s.launch),
-                    );
-                    if let Some(i) = &mut p.injector {
-                        // The stream's display can be created or renamed after
-                        // input began; absolute input follows it.
-                        i.set_output(&s.output.read().unwrap());
-                        // So does the stream's size, which the client can change (0x5532).
-                        let mode = s.stream_mode();
-                        i.set_stream_size(mode.width, mode.height);
-                        // And keys the device's keyboard layout (0x553E).
-                        if let Some(layout) = p.keyboard_layout.take() {
-                            i.set_keyboard_layout(layout);
-                        }
-                        i.follow_keyboard_layout();
-                    }
+                    follow_session(&h, p, &s);
                     p.audio_haptics.follow(
                         h.config_version.load(Ordering::Acquire),
                         &s.launch.warnings,
@@ -1614,6 +1588,32 @@ impl Media {
             drop(p);
         }
         Ok(())
+    }
+}
+
+/// Before `p`'s input is applied: the keyboard layout follows saves of `keyboard_layout`
+/// and a coalesced report (read here; the injector only takes it), and the injector
+/// follows the stream's display and size. Again in the same pass it changes nothing.
+fn follow_session(h: &Shared, p: &mut ControlPeer, s: &Session) {
+    p.keyboard_layout.follow(
+        h.config_version.load(Ordering::Acquire),
+        &s.launch.warnings,
+        Instant::now(),
+        || *s.keyboard_layout.lock().unwrap(),
+        || effective_config(h, &s.launch),
+    );
+    if let Some(i) = &mut p.injector {
+        // The stream's display can be created or renamed after
+        // input began; absolute input follows it.
+        i.set_output(&s.output.read().unwrap());
+        // So does the stream's size, which the client can change (0x5532).
+        let mode = s.stream_mode();
+        i.set_stream_size(mode.width, mode.height);
+        // And keys the device's keyboard layout (0x553E).
+        if let Some(layout) = p.keyboard_layout.take() {
+            i.set_keyboard_layout(layout);
+        }
+        i.follow_keyboard_layout();
     }
 }
 

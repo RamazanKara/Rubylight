@@ -230,6 +230,8 @@ final class HomeChrome {
         if (form == GlassForm.TELEVISION) {
             topRow.setPadding(left, top, right, 0);
             list.setPadding(left + list.getPaddingLeft(), list.getPaddingTop(), right + list.getPaddingRight(), list.getPaddingBottom());
+            ViewGroup.MarginLayoutParams row = (ViewGroup.MarginLayoutParams) topRow.getLayoutParams();
+            placeSearch(left, right, top + row.topMargin, capsule, gap, bottom + res.getDimensionPixelSize(R.dimen.space_xl), row.getMarginStart());
             return;
         }
         boolean handheld = form == GlassForm.HANDHELD;
@@ -259,19 +261,18 @@ final class HomeChrome {
             params.height = res.getDimensionPixelSize(R.dimen.home_foot_fade) + bottom;
             fade.setLayoutParams(params);
         }
-        placeSearch(left, right, rowTop, capsule, gap, foot, handheld);
+        placeSearch(left, right, rowTop, capsule, gap, foot, res.getDimensionPixelSize(handheld ? R.dimen.space_xl : R.dimen.glass_edge));
         placeHints(rowTop, capsule, bottom, handheld);
     }
 
-    private void placeSearch(int left, int right, int rowTop, int capsule, int gap, int foot, boolean handheld) {
+    private void placeSearch(int left, int right, int rowTop, int capsule, int gap, int foot, int side) {
         android.content.res.Resources res = activity.getResources();
-        int side = res.getDimensionPixelSize(handheld ? R.dimen.space_xl : R.dimen.glass_edge);
         ViewGroup.MarginLayoutParams bar = (ViewGroup.MarginLayoutParams) activity.findViewById(R.id.home_search_bar).getLayoutParams();
         bar.setMargins(left + side, rowTop, right + side, 0);
         if (search == null) return;
         // The covers line up under the field: each card stands in its slot by this much on every side.
         int inset = res.getDimensionPixelSize(R.dimen.space_s);
-        search.setPadding(left + side - inset, rowTop + capsule + gap, right + side - inset, foot);
+        search.place(left + side - inset, rowTop + capsule, gap, right + side - inset, foot);
     }
 
     private boolean bannerRestsOnHints;

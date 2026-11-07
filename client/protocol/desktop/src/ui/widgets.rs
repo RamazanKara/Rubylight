@@ -394,7 +394,7 @@ pub(super) fn spinner(ui: &mut Ui, radius: f32) {
 
 /// What a page's scroll position does this frame.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum ToTop {
+pub(crate) enum ToTop {
     No,
     Glide,
     Now,
@@ -404,6 +404,11 @@ pub(super) enum ToTop {
 /// runs out at the window's edges, and the wheel works anywhere on it. Only the words and covers keep
 /// the margin. Returns how far it has scrolled.
 pub(super) fn page_scroll(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debug + Copy, to_top: ToTop, add: impl FnOnce(&mut Ui)) -> f32 {
+    page_scroll_from(ui, id, to_top, chrome::PAGE_TOP, add)
+}
+
+/// [`page_scroll`] for a page whose head starts `top` down, with no chrome to clear.
+pub(crate) fn page_scroll_from(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debug + Copy, to_top: ToTop, top: f32, add: impl FnOnce(&mut Ui)) -> f32 {
     let full = ui.ctx().content_rect();
     let margin = chrome::page_margin(full.width());
     ui.scope_builder(egui::UiBuilder::new().max_rect(full), |ui| {
@@ -412,14 +417,14 @@ pub(super) fn page_scroll(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debu
             area = area.vertical_scroll_offset(0.0);
         }
         area.show(ui, |ui| {
-            crate::gui::follow_focus_under(ui, id, chrome::PAGE_TOP);
+            crate::gui::follow_focus_under(ui, id, top);
             let page = ui.available_rect_before_wrap();
             if to_top == ToTop::Glide {
                 ui.scroll_to_rect(Rect::from_min_size(page.min, Vec2::splat(1.0)), Some(Align::TOP));
             }
             let inside = Rect::from_min_max(Pos2::new(page.left() + margin, page.top()), Pos2::new(page.right() - margin, page.bottom()));
             ui.scope_builder(egui::UiBuilder::new().max_rect(inside), |ui| {
-                ui.add_space(chrome::PAGE_TOP);
+                ui.add_space(top);
                 add(ui);
                 ui.add_space(space::XXL);
             });
@@ -432,7 +437,7 @@ pub(super) fn page_scroll(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debu
 }
 
 /// A column of rows `width` wide in a page that scrolls whole.
-pub(super) fn column(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui)) {
+pub(crate) fn column(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui)) {
     ui.vertical(|ui| {
         ui.set_max_width(width.min(ui.available_width()));
         add(ui);
@@ -474,7 +479,7 @@ pub(super) fn detail(ui: &mut Ui, label: &str, value: &str) {
     });
 }
 
-pub(super) fn section(ui: &mut Ui, title: &str) {
+pub(crate) fn section(ui: &mut Ui, title: &str) {
     section_at(ui, title, &mut None);
 }
 
@@ -520,7 +525,7 @@ struct RowRun {
 
 /// One row of a settings group, as wide as the column up to [`SETTINGS_W`]. A row placed right
 /// after another joins its group. `add` draws what the row holds, inside its margins.
-pub(super) fn group_row(ui: &mut Ui, add: impl FnOnce(&mut Ui)) -> Rect {
+pub(crate) fn group_row(ui: &mut Ui, add: impl FnOnce(&mut Ui)) -> Rect {
     let run_id = egui::Id::unique("settings-row-run");
     let pass = ui.ctx().cumulative_pass_nr();
     let gap = ui.spacing().item_spacing.y;
@@ -618,17 +623,23 @@ pub(super) const COMBO_HEIGHT: f32 = 40.0;
 
 /// A settings row: label and description on the left, the control on the right.
 /// Every row takes the settings column's width at most, so rows line up on every page.
-pub(super) fn row(ui: &mut Ui, label: &str, description: &str, control: impl FnOnce(&mut Ui) -> Response) -> Response {
+pub(crate) fn row(ui: &mut Ui, label: &str, description: &str, control: impl FnOnce(&mut Ui) -> Response) -> Response {
     let mut out = None;
     group_row(ui, |ui| {
         ui.horizontal(|ui| {
             let control_width = 240.0;
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = 2.0;
-                ui.set_width((ui.available_width() - control_width - 16.0).max(200.0));
+            if description.is_empty() {
+                // A label alone stands in the middle of the row, beside its control.
+                ui.set_min_height(design_tokens::SIZE_ROW_HEIGHT - 2.0 * 8.0);
                 ui.label(RichText::new(tr(label)).font(semibold(text::BODY)).color(ON_SURFACE));
-                ui.label(RichText::new(tr(description)).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
-            });
+            } else {
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    ui.set_width((ui.available_width() - control_width - 16.0).max(200.0));
+                    ui.label(RichText::new(tr(label)).font(semibold(text::BODY)).color(ON_SURFACE));
+                    ui.label(RichText::new(tr(description)).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
+                });
+            }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let response = control(ui);
                 name_for_readers(ui, &response, label, description);

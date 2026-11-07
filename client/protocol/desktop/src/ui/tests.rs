@@ -5125,7 +5125,7 @@ fn the_demo_library_reaches_every_page() {
             Page::Home => Screen::Home,
             Page::AllGames | Page::Search => Screen::AllGames,
             Page::Game => Screen::Game { host: pc, app: 1002 },
-            Page::Pcs | Page::FirstRun | Page::FirstRunFound | Page::Dialog(_) | Page::PinStream | Page::PinChoose => Screen::Hosts,
+            Page::Pcs | Page::FirstRun | Page::FirstRunFound | Page::Dialog(_) | Page::PinStream | Page::PinChoose | Page::PinPage(_) => Screen::Hosts,
             Page::Apps => Screen::Apps(pc),
             Page::AppsEmpty => Screen::Apps(f.hosts.list[1].id),
             Page::Pc => Screen::HostDetails(pc),
@@ -6381,6 +6381,96 @@ fn the_pin_screen_has_its_keys_in_the_window_delete_at_the_bottom_right() {
         assert!(delete.x1 - delete.x0 > 44.0, "a key to hit at {size:?}");
     }
     std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn the_pin_page_takes_the_keys_and_escape_leaves_a_list_before_the_page() {
+    let dir = std::env::temp_dir().join(format!("nightjar-pin-page-{}", std::process::id()));
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    f.ctx.enable_accesskit();
+    let key = |key| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+    f.l.pin = Some(crate::pin_ui::PinLock::demo_page(&dir, None));
+    f.settle();
+    let said: Vec<String> = read_out(&f).into_iter().map(|(said, _)| said).collect();
+    assert!(said.iter().any(|s| s == "Set PIN") && said.iter().any(|s| s == "Back to Settings"), "{said:?}");
+    assert!(!said.iter().any(|s| s == "Lock"), "with no PIN nothing is there to lock: {said:?}");
+    assert!(f.ctx.memory(|m| m.focused()).is_some(), "the page opens on its first action");
+
+    f.l.pin = Some(crate::pin_ui::PinLock::demo_page(&dir, Some(crate::pin_lock::Mode::App)));
+    f.settle();
+    let said: Vec<String> = read_out(&f).into_iter().map(|(said, _)| said).collect();
+    for name in ["Change PIN", "Remove PIN", "Lock", "Ask again after"] {
+        assert!(said.iter().any(|s| s == name), "{name} in {said:?}");
+    }
+    // Change, Remove, then the list: by Tab alone.
+    f.frame(vec![key(Key::Tab)]);
+    f.frame(vec![key(Key::Tab)]);
+    f.settle();
+    f.frame(vec![key(Key::Enter)]);
+    f.settle();
+    assert!(egui::Popup::is_any_open(&f.ctx), "Enter opens the list");
+    f.frame(vec![key(Key::Escape)]);
+    f.settle();
+    assert!(!egui::Popup::is_any_open(&f.ctx), "Escape closes the list");
+    assert!(f.l.pin.as_ref().unwrap().up(), "and only the list");
+    f.frame(vec![key(Key::Escape)]);
+    f.settle();
+    assert!(!f.l.pin.as_ref().unwrap().up(), "the next one leaves the page");
+    std::fs::remove_dir_all(dir).ok();
+}
+
+/// The screen's share of the live chain's first region in the last frame.
+fn blurred_share(f: &Frames) -> f32 {
+    let boundary = f.shapes.iter().find_map(|c| match &c.shape {
+        egui::Shape::Callback(call) => (call.callback.as_ref() as &dyn std::any::Any).downcast_ref::<crate::live_glass::Boundary>(),
+        _ => None,
+    });
+    let regions = &boundary.expect("the live tier paints a boundary").regions;
+    regions[0].area() / (f.size.x * f.size.y)
+}
+
+#[test]
+fn a_panel_blurs_the_whole_screen_from_the_pass_after_it_opens() {
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    crate::live_glass::set_tier(&f.ctx, crate::live_glass::Tier::Live);
+    f.settle();
+    assert!(blurred_share(&f) < 0.5, "at rest: the bar");
+    assert!(!f.ctx.has_requested_repaint(), "and no frames");
+    // A click opens the dialog after this pass's boundary went out. The pass after it, which any
+    // input brings, has the whole blur: no panel stays on the bar's until the pointer moves.
+    let add = f.placed.iter().find(|(t, ..)| t == "Add PC").map(|p| p.1).expect("Add PC");
+    let press = |pressed| egui::Event::PointerButton { pos: add.center(), button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+    f.frame(vec![egui::Event::PointerMoved(add.center())]);
+    f.settle();
+    f.frame(vec![press(true)]);
+    f.frame(vec![press(false)]);
+    assert!(!matches!(f.l.dialog, Dialog::None), "the click opened Add a PC");
+    assert!(f.ctx.has_requested_repaint(), "so the next pass comes");
+    f.frame(vec![]);
+    assert!(blurred_share(&f) > 0.99);
+
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    crate::live_glass::set_tier(&f.ctx, crate::live_glass::Tier::Live);
+    f.settle();
+    f.waking = Some("PC".to_owned());
+    f.frame(vec![]);
+    assert!(blurred_share(&f) > 0.99, "the waking card stands anywhere as a dialog does");
+    f.waking = None;
+    f.frame(vec![]);
+    assert!(blurred_share(&f) < 0.5, "and the bar alone once it is gone");
+}
+
+#[test]
+fn add_and_rename_say_what_a_field_takes_in_its_placeholder() {
+    let mut f = Frames::new(record("Desk", true, false), Reach::Online);
+    f.l.add_host_dialog();
+    f.settle();
+    assert!(shows(&f, "IP address or name"), "{:?}", f.drawn);
+    assert!(f.drawn.iter().all(|t| !t.trim_end().ends_with('.')), "no sentence: {:?}", f.drawn);
+    f.l.dialog = Dialog::Rename { host: f.hosts.list[0].id, text: String::new() };
+    f.settle();
+    assert!(shows(&f, "Desk"), "the name an empty field leaves: {:?}", f.drawn);
+    assert!(f.drawn.iter().all(|t| !t.trim_end().ends_with('.')), "no sentence: {:?}", f.drawn);
 }
 
 #[test]

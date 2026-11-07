@@ -375,19 +375,17 @@ impl Launcher {
                 let own = view.hosts.get(id).map_or(String::new(), |h| h.record.name.clone());
                 modal(ctx, "rename", |ui| {
                     ui.set_width(420.0);
-                    ui.label(RichText::new(tr("Rename PC")).font(semibold(text::SECTION)));
-                    ui.label(
-                        RichText::new(tr("The name is kept on this device only. Leave it empty to use the PC's own name."))
-                            .color(ON_SURFACE_VARIANT),
-                    );
+                    let title = ui.label(RichText::new(tr("Rename PC")).font(semibold(text::SECTION)));
                     ui.add_space(8.0);
+                    // Left empty, the PC goes by the name the placeholder shows.
                     let edit = ui.add(
                         egui::TextEdit::singleline(text)
                             .hint_text(own.as_str())
                             .char_limit(crate::config::ALIAS_MAX_CHARS)
                             .desired_width(f32::INFINITY)
                             .margin(Margin::symmetric(12, 10)),
-                    );
+                    )
+                    .labelled_by(title.id);
                     if focus_first {
                         edit.request_focus();
                         focused = true;
@@ -1116,22 +1114,15 @@ impl Launcher {
             Dialog::AddHost { text, error } => {
                 modal(ctx, "add-host", |ui| {
                     ui.set_width(420.0);
-                    ui.label(RichText::new(tr("Add a PC")).font(semibold(text::SECTION)));
-                    ui.label(
-                        RichText::new(tr("Its IP address or name, with :port if the host uses another HTTP port."))
-                            .color(ON_SURFACE_VARIANT),
-                    );
-                    ui.label(
-                        RichText::new(tr("Or paste the pairing link from the PC's QR code to add and pair it at once."))
-                            .color(ON_SURFACE_VARIANT),
-                    );
+                    let title = ui.label(RichText::new(tr("Add a PC")).font(semibold(text::SECTION)));
                     ui.add_space(8.0);
                     let edit = ui.add(
                         egui::TextEdit::singleline(text)
-                            .hint_text("192.168.1.20")
+                            .hint_text(tr("IP address or name"))
                             .desired_width(f32::INFINITY)
                             .margin(Margin::symmetric(12, 10)),
-                    );
+                    )
+                    .labelled_by(title.id);
                     if focus_first {
                         edit.request_focus();
                         focused = true;

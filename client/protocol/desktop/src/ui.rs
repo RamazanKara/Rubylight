@@ -43,7 +43,8 @@ use dialogs::*;
 pub use dialogs::moves_in_hotkey_dialog;
 pub use library::{asked_start, join_target, playing_elsewhere, policy_role, running_name};
 use library::*;
-pub(crate) use widgets::{focus_ring, focus_ring_around, glass_behind, name_for_readers, pin_key, pin_slots, primary_button, quiet_button, round_button, toggle, Tone, DIALOG_MARGIN};
+pub(crate) use widgets::{column, focus_ring, focus_ring_around, glass_behind, group_row, name_for_readers, page_scroll_from, pin_key, pin_slots, primary_button, quiet_button, round_button, row, section, toggle, Combo, ToTop, Tone, DIALOG_MARGIN};
+pub(crate) use chrome::{BACK_SIZE, PAGE_TITLE};
 use widgets::*;
 pub(crate) use icons::Icon;
 
@@ -461,7 +462,7 @@ const CONTENT_MAX: f32 = 1760.0;
 const PAIR_LINK_DELAY: f64 = 1.0;
 /// The column of settings rows takes what the page gives it up to this, so that on a very wide
 /// window a row's label and its control stay in one glance. No window under about 1400 reaches it.
-const SETTINGS_W: f32 = 1300.0;
+pub(crate) const SETTINGS_W: f32 = 1300.0;
 
 impl Launcher {
     pub fn new(settings: Settings, profiles: Profiles, shortcuts: crate::shortcuts::Shortcuts, display: Display) -> Self {
@@ -968,7 +969,7 @@ impl Launcher {
         // above run under them, so a check, transfer or join in flight still ends or is cancelled.
         if let Some(pin) = &mut self.pin {
             let pcs: Vec<(String, String)> = view.hosts.list.iter().map(|h| (h.record.unique_id.clone(), h.display_name().to_owned())).collect();
-            if pin.pad_up() {
+            if pin.up() {
                 ui.painter().extend(self.ambient.paint(&ctx, backdrop::Want::Sky(backdrop::Moon::High)));
             }
             if pin.ui(ui, &pcs, &mut commands) {
@@ -1089,6 +1090,11 @@ impl Launcher {
         }
         self.draw_toast(&ctx);
         commands
+    }
+
+    /// A dialog or a connecting or waking card is over the page.
+    fn panel_is_up(&self, view: &View<'_>) -> bool {
+        !matches!(self.dialog, Dialog::None) || view.connecting.is_some() || view.waking.is_some()
     }
 
     /// Focus that went up into the chrome brings the page back to its top.

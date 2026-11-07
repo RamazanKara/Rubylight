@@ -660,6 +660,7 @@ fn slice_middle(side: egui::Rangef, baked: f32) -> (f32, f32) {
 /// The focus language of every page: a dark gap, a thick ring, a warm halo behind them. High
 /// contrast: a thicker ring, no halo. `on_moon`: the paper ring that reads against the Play button.
 /// The halo stays outside the rectangle, so it goes before or after the focused thing's own shapes.
+/// Under [`with_halo_reach`] it fades out within that reach.
 pub fn focus(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, on_moon: bool) {
     let high = high_contrast();
     let (ring, width, gap) = if high {
@@ -684,7 +685,8 @@ pub fn focus(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, on_moon: b
             ctx,
             rect.expand(spread),
             r + spread,
-            t::FOCUS_HALO_BLUR,
+            ctx.data(|d| d.get_temp(halo_reach_id()))
+                .unwrap_or(t::FOCUS_HALO_BLUR),
             t::FOCUS_HALO_COLOR,
         );
     }
@@ -692,6 +694,19 @@ pub fn focus(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, on_moon: b
     rim(out, ctx, gap_rect, r + gap, gap, &|_| t::FOCUS_GAP_COLOR);
     let ring_rect = rect.expand(gap + width);
     rim(out, ctx, ring_rect, r + gap + width, width, &|_| ring);
+}
+
+fn halo_reach_id() -> Id {
+    Id::unique("nightjar-halo-reach")
+}
+
+/// Runs `add` with every focus halo fading out within `reach` points of its ring: for a panel whose
+/// edge would otherwise cut the glow in a hard line.
+pub fn with_halo_reach<R>(ctx: &Context, reach: f32, add: impl FnOnce() -> R) -> R {
+    ctx.data_mut(|d| d.insert_temp(halo_reach_id(), reach));
+    let inner = add();
+    ctx.data_mut(|d| d.remove::<f32>(halo_reach_id()));
+    inner
 }
 
 /// The glass surface of `material`: shadow, backdrop, fill, sheen, rim. Solid in high contrast.

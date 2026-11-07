@@ -628,6 +628,53 @@ mod tests {
         (nodes, focus)
     }
 
+    /// The shot over a bright frame showed a hard line above the focused tile: the launcher's glow
+    /// reaches further than a menu page's clip. Tabbing through the whole panel, every glow ends
+    /// inside what clips it and inside the panel, and a glow outside a menu keeps its reach.
+    #[test]
+    fn a_focused_controls_glow_ends_before_anything_cuts_it() {
+        let ctx = egui::Context::default();
+        crate::theme::own_palette();
+        crate::theme::apply(&ctx);
+        let layout = layout(&everything(), 0);
+        let saved = Shortcuts::default();
+        let mut seen = std::collections::HashSet::new();
+        for pass in 0..48 {
+            let events = if pass < 3 {
+                Vec::new()
+            } else {
+                vec![egui::Event::Key { key: egui::Key::Tab, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }]
+            };
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1280.0, 800.0))), events, ..Default::default() };
+            let mut output = ctx.run_ui(input, |ui| {
+                menu_style::show(ui.ctx(), "Stream controls", "glow-test", |ui| {
+                    menu_style::head(ui, "Racing Game", "1080p");
+                    let reserve = menu_style::pinned_room(ui.ctx(), "glow-footer");
+                    menu_style::body_above(ui, reserve, |ui| grid(ui, &layout, &saved, None, pass == 0));
+                    menu_style::pinned(ui, "glow-footer", |ui| footer(ui, &layout));
+                });
+            });
+            output.textures_delta.clear();
+            let panel = ctx.memory(|m| m.area_rect(egui::Id::unique("glow-test"))).expect("the panel's place");
+            for shape in &output.shapes {
+                let egui::Shape::Mesh(mesh) = &shape.shape else { continue };
+                if mesh.vertices.first().is_none_or(|v| v.color != crate::ui::design_tokens::FOCUS_HALO_COLOR) {
+                    continue;
+                }
+                let glow = mesh.calc_bounds();
+                seen.insert((glow.left() as i32, glow.top() as i32));
+                assert!(shape.clip_rect.expand(0.6).contains_rect(glow), "{glow:?} is cut by its clip {:?}", shape.clip_rect);
+                assert!(panel.expand(0.6).contains_rect(glow), "{glow:?} leaves the panel {panel:?}");
+            }
+        }
+        assert!(seen.len() > 8, "the tiles, the close and the ways out each took the focus: {seen:?}");
+        let mut out = Vec::new();
+        crate::ui::glass::focus(&mut out, &ctx, egui::Rect::from_min_size(egui::pos2(100.0, 100.0), vec2(80.0, 40.0)), 12.0, false);
+        let egui::Shape::Mesh(mesh) = &out[0] else { panic!("the glow comes first") };
+        let reach = 100.0 - crate::ui::design_tokens::FOCUS_GAP - crate::ui::design_tokens::FOCUS_RING_WIDTH - mesh.calc_bounds().left();
+        assert!((reach - crate::ui::design_tokens::FOCUS_HALO_BLUR).abs() < 1.0, "outside a menu the glow keeps its reach: {reach}");
+    }
+
     /// Return to stream across the width, and under it Disconnect and the game's ways out side by
     /// side in equal widths, as Starwire's menu has them.
     #[test]

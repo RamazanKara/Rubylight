@@ -25,6 +25,9 @@ const OUTER: f32 = 24.0;
 const CORNER: f32 = 32.0;
 /// How far the focus ring reaches outside a control: a page keeps this much room inside its clip.
 const HALO: f32 = 10.0;
+/// How far the ring's glow reaches here: it fades out inside the panel's margin, and so inside a
+/// page's clip and the panel's round corners. The launcher's wider glow would be cut in a line.
+const HALO_REACH: f32 = MARGIN - t::FOCUS_GAP - t::FOCUS_RING_WIDTH;
 /// A row's inner padding left and right, so its icon, label and control sit inside its hover fill.
 pub const PAD: f32 = 12.0;
 /// An action row's height.
@@ -50,7 +53,8 @@ pub fn show(ctx: &egui::Context, title: &str, id: &str, add: impl FnOnce(&mut Ui
         .show(ctx, |ui| {
             let place = ui.painter().add(Shape::Noop);
             ui.set_width(inside);
-            add(ui);
+            let ctx = ui.ctx().clone();
+            glass::with_halo_reach(&ctx, HALO_REACH, || add(ui));
             let mut shapes = Vec::new();
             glass::menu_surface(&mut shapes, ui.ctx(), ui.min_rect().expand(MARGIN), CORNER);
             // The window's clip stops at its edge, and the shadow falls past that.

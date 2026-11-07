@@ -326,6 +326,47 @@ public class GameRateChangeTest {
         }
     }
 
+    /** A host without the stream's rate changes takes the menu's bitrate over HTTP: the same rule for its toast. */
+    @Test
+    public void anAppliedLegacyBitrateFromTheOpenMenuShowsNoToastOverTheMenu() throws Exception {
+        int[] answer = {32_000};
+        NvConnection connection = new NvConnection(null, new ComputerDetails.AddressTuple("192.0.2.1", 47989), 47984,
+                "test", new StreamConfiguration.Builder().setApp(new NvApp("Game", 73, false)).build(), null, null) {
+            @Override public void stop() {}
+            @Override public int setBitrate(int kbps) { return answer[0]; }
+        };
+        ReflectionHelpers.setField(connection, "hostDetails", TestHosts.details("rubylight-serverinfo.xml"));
+        ReflectionHelpers.setField(game, "conn", connection);
+        StreamMenuModel.use(new RustStreamMenuModel());
+        try {
+            game.showStreamMenu();
+            assertNotNull("the menu is open", ReflectionHelpers.getField(game.menuActions, "streamMenuSheet"));
+            int toasts = ShadowToast.shownToastCount();
+            assertEquals(32_000, game.adaptation.applyBitrateFromMenu(32_000));
+            awaitHostAction();
+            assertEquals("the slider shows it", toasts, ShadowToast.shownToastCount());
+            assertEquals(32_000, (int) ReflectionHelpers.getField(game, "currentBitrate"));
+
+            // A rate the host lowered is news the slider cannot show.
+            answer[0] = 20_000;
+            game.adaptation.applyBitrateFromMenu(90_000);
+            awaitHostAction();
+            assertEquals(toasts + 1, ShadowToast.shownToastCount());
+        } finally {
+            StreamMenuModel.use(null);
+        }
+    }
+
+    // The legacy bitrate goes out on its own thread; its answer comes back to the UI thread.
+    private void awaitHostAction() throws InterruptedException {
+        for (int i = 0; i < 500; i++) {
+            ShadowLooper.idleMainLooper();
+            if (!(boolean) ReflectionHelpers.getField(game, "hostActionInProgress")) return;
+            Thread.sleep(10);
+        }
+        throw new AssertionError("the bitrate request never finished");
+    }
+
     @Test
     public void clampedValuesSayWhatLimitsThem() {
         RateChangeResult result = new RateChangeResult(1, 80_000, 90_000, STATUS_CLAMPED, REASON_ENCODER_LIMIT,

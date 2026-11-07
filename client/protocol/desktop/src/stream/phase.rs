@@ -68,6 +68,8 @@ impl Phase {
             self.reset(); return None;
         };
         if now_us.saturating_sub(ready_us) > 250_000 { self.reset(); return None; }
+        // A place kept before the stream stopped skipping is stale once it skips again.
+        if steady_windows == 0 { self.steady = SteadyReports::default(); }
         if self.last_frame == 0 || now_us.saturating_sub(self.last_frame) > 250_000 { self.reset(); self.last_report = now_us; }
         self.last_frame = now_us;
         self.window.push((latch_us - ready_us as i64) * 1000, period_ns);
@@ -262,6 +264,24 @@ mod tests {
             // Frames move a quarter of a refresh every second.
             let ready = now - if n < 200 { 2000 } else { 4500 };
             if let Some(report) = phase.sample(ready, now, Some((now as i64, 10_000_000)), 0) { leads.push(report.lead_ns); }
+        }
+        assert_eq!(leads.last(), Some(&4_500_000));
+    }
+
+    #[test]
+    fn a_stream_that_skips_again_finds_its_place_unheld() {
+        let mut phase = Phase::default();
+        let mut leads = Vec::new();
+        for n in 1..=700u64 {
+            let now = n * 10_000;
+            // Settled while skipping, then 2 s with refreshes to spare, then skipping a quarter of a
+            // refresh later.
+            let (ready, windows) = match n {
+                ..=400 => (now - 2000, STEADY_WINDOWS),
+                401..=600 => (now - 2000, 0),
+                _ => (now - 4500, STEADY_WINDOWS),
+            };
+            if let Some(report) = phase.sample(ready, now, Some((now as i64, 10_000_000)), windows) { leads.push(report.lead_ns); }
         }
         assert_eq!(leads.last(), Some(&4_500_000));
     }

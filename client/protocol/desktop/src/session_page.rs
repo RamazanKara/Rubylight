@@ -80,7 +80,7 @@ impl HostExit {
     pub fn label(self) -> &'static str {
         match self {
             HostExit::End => en("End session"),
-            HostExit::CloseGame => en("Close game"),
+            HostExit::CloseGame => en("Quit game"),
             HostExit::QuitApp => en("Quit game"),
         }
     }

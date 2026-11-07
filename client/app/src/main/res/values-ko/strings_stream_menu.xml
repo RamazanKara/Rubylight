@@ -77,7 +77,7 @@
     <string name="stream_tile_add_shortcut">단축키 추가</string>
     <string name="stream_tile_disconnect">연결 끊기</string>
     <string name="stream_tile_end_session">세션 종료</string>
-    <string name="stream_tile_close_game">게임 닫기</string>
+    <string name="stream_tile_close_game">게임 종료</string>
     <string name="stream_tile_quit_game">게임 종료</string>
     <string name="stream_shortcut_key_unsupported">%1$s 키는 단축키에 쓸 수 없습니다. 눌러서 빼세요.</string>
     <string name="stream_shortcut_no_keyboard">단축키를 보내지 못했습니다: 이 기기는 PC에 키보드 입력을 보낼 권한이 없습니다.</string>

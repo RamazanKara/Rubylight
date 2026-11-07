@@ -77,7 +77,7 @@
     <string name="stream_tile_add_shortcut">Додати комбінацію</string>
     <string name="stream_tile_disconnect">Відключитися</string>
     <string name="stream_tile_end_session">Завершити сеанс</string>
-    <string name="stream_tile_close_game">Закрити гру</string>
+    <string name="stream_tile_close_game">Вийти з гри</string>
     <string name="stream_tile_quit_game">Вийти з гри</string>
     <string name="stream_shortcut_key_unsupported">%1$s не можна використати в комбінації: торкніться, щоб прибрати.</string>
     <string name="stream_shortcut_no_keyboard">Комбінацію не надіслано: цьому пристрою не дозволено надсилати введення з клавіатури на ПК.</string>

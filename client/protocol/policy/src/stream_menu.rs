@@ -143,7 +143,7 @@ pub const TILES: &[Tile] = &[
     more("reconnect"),
     footer("disconnect", Some(l("disconnect", "Disconnect"))),
     footer("end_host_session", Some(l("end_session", "End session"))),
-    footer("close_game", Some(l("close_game", "Close game"))),
+    footer("close_game", Some(l("close_game", "Quit game"))),
     footer("quit_game", Some(l("quit_game", "Quit game"))),
     footer("end_session", None),
 ];
@@ -698,6 +698,8 @@ mod tests {
             assert!(label(id).is_some(), "{id}");
         }
         assert_eq!(label("bitrate"), label("rate_change"), "both change the quality");
+        // The native Close game and the classic Quit end the same game: one word for both.
+        assert_eq!(label("close_game").map(|l| l.en), label("quit_game").map(|l| l.en));
         assert_eq!(label("controller_mouse").map(|l| l.en), Some("Mouse"));
         assert_eq!(label("server_commands").map(|l| l.en), Some("PC commands"));
         assert_eq!(label("clipboard_receive").map(|l| l.en), Some("Get clipboard"));

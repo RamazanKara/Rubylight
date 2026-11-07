@@ -77,7 +77,7 @@
     <string name="stream_tile_add_shortcut">新增快速鍵</string>
     <string name="stream_tile_disconnect">中斷連線</string>
     <string name="stream_tile_end_session">結束工作階段</string>
-    <string name="stream_tile_close_game">關閉遊戲</string>
+    <string name="stream_tile_close_game">結束遊戲</string>
     <string name="stream_tile_quit_game">結束遊戲</string>
     <string name="stream_shortcut_key_unsupported">%1$s 無法用於快速鍵：點一下即可移除。</string>
     <string name="stream_shortcut_no_keyboard">快速鍵未傳送：此裝置無權向電腦傳送鍵盤輸入。</string>

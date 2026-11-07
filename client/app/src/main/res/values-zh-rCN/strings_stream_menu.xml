@@ -77,7 +77,7 @@
     <string name="stream_tile_add_shortcut">添加快捷键</string>
     <string name="stream_tile_disconnect">断开连接</string>
     <string name="stream_tile_end_session">结束会话</string>
-    <string name="stream_tile_close_game">关闭游戏</string>
+    <string name="stream_tile_close_game">退出游戏</string>
     <string name="stream_tile_quit_game">退出游戏</string>
     <string name="stream_shortcut_key_unsupported">%1$s 不能用于快捷键：点按将其移除。</string>
     <string name="stream_shortcut_no_keyboard">快捷键未发送：此设备无权向电脑发送键盘输入。</string>

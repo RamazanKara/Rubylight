@@ -334,7 +334,7 @@ pub(crate) mod tests {
     // ---- The table against the sources. ----
 
     /// The UI sources, up to their test modules.
-    const SOURCES: [(&str, &str); 33] = [
+    const SOURCES: [(&str, &str); 34] = [
         ("open_play.rs", include_str!("open_play.rs")),
         ("autostart.rs", include_str!("autostart.rs")),
         ("ui.rs", include_str!("ui.rs")),
@@ -346,6 +346,7 @@ pub(crate) mod tests {
         ("ui/demo.rs", include_str!("ui/demo.rs")),
         ("ui/library.rs", include_str!("ui/library.rs")),
         ("ui/pages.rs", include_str!("ui/pages.rs")),
+        ("ui/pcs.rs", include_str!("ui/pcs.rs")),
         ("ui/settings.rs", include_str!("ui/settings.rs")),
         ("ui/dialogs.rs", include_str!("ui/dialogs.rs")),
         ("host_page.rs", include_str!("host_page.rs")),
@@ -683,7 +684,7 @@ pub(crate) mod tests {
         "Host", "Jitter", "Offline", "PCs", "Streaming", "App", "Relay (DERP)", "Store", "Bitrate", "Debug", "Headset", "Overlay",
         "Frame pacing", "Input-only", "Mouse", "Display ({} Hz)", "X / West", "Paddle 1", "Paddle 2", "Paddle 3", "Paddle 4", "Type",
         "Options", "Axes", "Compact", "Direct", "{} minutes", "Passphrase", "Home", "Upscaling", "Folder", "Layout", "Logs", "Link",
-        "5.1 surround", "7.1 surround", "7.1.4 surround", "Game Bar", "Collection",
+        "5.1 surround", "7.1 surround", "7.1.4 surround", "Game Bar", "Collection", "Online",
     ];
 
     #[test]

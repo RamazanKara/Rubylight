@@ -1420,4 +1420,7 @@ sudo sysctl -w net.core.rmem_max={}", "Bộ đệm nhận: hệ thống chỉ c�
     ("Hidden", "Đã ẩn"),
     ("Show hidden games", "Hiện trò chơi đã ẩn"),
     ("Hide hidden games", "Ẩn trò chơi đã ẩn"),
+    ("Wake", "Đánh thức"),
+    ("Online", "Trực tuyến"),
+    ("Not paired", "Chưa ghép đôi"),
 ];

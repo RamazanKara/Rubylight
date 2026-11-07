@@ -1420,4 +1420,7 @@ sudo sysctl -w net.core.rmem_max={2}"),
     ("Hidden", "Ausgeblendet"),
     ("Show hidden games", "Ausgeblendete Spiele anzeigen"),
     ("Hide hidden games", "Ausgeblendete Spiele verbergen"),
+    ("Wake", "Aufwecken"),
+    ("Online", "Online"),
+    ("Not paired", "Nicht gekoppelt"),
 ];

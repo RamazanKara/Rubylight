@@ -1420,4 +1420,7 @@ sudo sysctl -w net.core.rmem_max={}", "Буфер приймання: систе
     ("Hidden", "Приховані"),
     ("Show hidden games", "Показати приховані ігри"),
     ("Hide hidden games", "Сховати приховані ігри"),
+    ("Wake", "Пробудити"),
+    ("Online", "У мережі"),
+    ("Not paired", "Не сполучено"),
 ];

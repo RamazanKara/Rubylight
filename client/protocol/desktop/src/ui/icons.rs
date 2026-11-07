@@ -38,6 +38,7 @@ pub enum Icon {
     Dots,
     Back,
     Mic,
+    Lock,
 }
 
 /// Draws `icon` into the square `rect` in `color`.
@@ -204,6 +205,19 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             }
         }
         Icon::Back => line(vec![p(15.0, 5.0), p(8.0, 12.0), p(15.0, 19.0)]),
+        Icon::Lock => {
+            // A body and its shackle.
+            painter.rect_stroke(
+                Rect::from_min_max(p(5.0, 11.0), p(19.0, 21.0)),
+                CornerRadius::same((2.5 * s) as u8),
+                stroke,
+                StrokeKind::Middle,
+            );
+            let mut shackle = vec![p(8.0, 11.0)];
+            shackle.extend(arc(12.0, 7.0, 4.0, PI, 2.0 * PI));
+            shackle.push(p(16.0, 11.0));
+            line(shackle);
+        }
         Icon::Mic => {
             // A capsule on a stand.
             closed(stadium(&p, 12.0, 9.0, 3.2, 3.2, PI / 2.0));
@@ -313,7 +327,7 @@ fn gear(p: &impl Fn(f32, f32) -> Pos2) -> Vec<Pos2> {
 mod tests {
     use super::*;
 
-    const ALL: [Icon; 26] = [
+    const ALL: [Icon; 27] = [
         Icon::Search,
         Icon::Down,
         Icon::Gamepad,
@@ -340,6 +354,7 @@ mod tests {
         Icon::Plus,
         Icon::Dots,
         Icon::Back,
+        Icon::Lock,
     ];
 
     #[test]

@@ -79,7 +79,7 @@ const FIRST_APP: u32 = 1000;
 const PROFILE: u64 = 1;
 pub(crate) const PAD: &str = "054c:0ce6";
 
-/// The PCs: the library's, one asleep, one not paired yet.
+/// The PCs: the library's, one up and idle, one asleep, one not paired yet.
 pub(crate) fn records() -> Vec<HostRecord> {
     let pc = |name: &str, address: &str, paired: bool, mac: bool| HostRecord {
         unique_id: format!("demo-{name}"),
@@ -92,8 +92,9 @@ pub(crate) fn records() -> Vec<HostRecord> {
     };
     vec![
         pc("Living Room PC", "192.0.2.10", true, true),
-        pc("Studio PC", "192.0.2.11", true, true),
-        pc("Office PC", "192.0.2.12", false, false),
+        pc("Studio PC", "192.0.2.13", true, true),
+        pc("Office PC", "192.0.2.11", true, true),
+        pc("Game Room PC", "192.0.2.12", false, false),
     ]
 }
 
@@ -212,9 +213,17 @@ pub(crate) fn fill(hosts: &mut Hosts, launcher: &mut Launcher, ctx: &egui::Conte
             )),
         );
     }
-    hosts.list[1].reach = Reach::Offline;
-    hosts.list[2].reach = Reach::Online;
-    hosts.list[2].info = Some(answer(false, 0));
+    let idle = &mut hosts.list[1];
+    idle.reach = Reach::Online;
+    idle.info = Some(answer(true, 0));
+    idle.native.library = Some(Library {
+        revision: "demo".into(),
+        games: Vec::new(),
+    });
+    idle.apps = Apps::Loaded(Vec::new());
+    hosts.list[2].reach = Reach::Offline;
+    hosts.list[3].reach = Reach::Online;
+    hosts.list[3].info = Some(answer(false, 0));
     launcher.identity_ready = true;
     launcher.settings.console_home = true;
     // What the captures show, whatever this PC's language.

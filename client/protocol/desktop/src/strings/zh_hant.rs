@@ -1420,4 +1420,7 @@ sudo sysctl -w net.core.rmem_max={}", "接收緩衝區：系統只分配了所�
     ("Hidden", "已隱藏"),
     ("Show hidden games", "顯示隱藏的遊戲"),
     ("Hide hidden games", "不顯示隱藏的遊戲"),
+    ("Wake", "喚醒"),
+    ("Online", "線上"),
+    ("Not paired", "未配對"),
 ];

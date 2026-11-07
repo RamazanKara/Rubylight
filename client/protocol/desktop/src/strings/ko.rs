@@ -1420,4 +1420,7 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("Hidden", "숨김"),
     ("Show hidden games", "숨긴 게임 표시"),
     ("Hide hidden games", "숨긴 게임 숨기기"),
+    ("Wake", "깨우기"),
+    ("Online", "온라인"),
+    ("Not paired", "페어링 안 됨"),
 ];

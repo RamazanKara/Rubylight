@@ -2579,14 +2579,14 @@ fn header_stops(f: &mut Frames) -> Vec<Rect> {
 #[test]
 fn tab_walks_the_header_left_to_right_and_the_actions_sit_at_the_right_edge() {
     // PCs: Home hides while there is no library; the destinations sit together beside the brand,
-    // and the search and the PC capsule at the right edge. Add PC is the page's own, under them.
+    // and Add PC at the right edge, where the search and the PC capsule are elsewhere.
     let mut f = Frames::new(record("Paired", true, false), Reach::Online);
     let stops = header_stops(&mut f);
-    assert_eq!(stops.len(), 5, "PCs, Settings, Help, the search and the PC: {stops:?}");
+    assert_eq!(stops.len(), 4, "PCs, Settings, Help and Add PC: {stops:?}");
     assert!(stops.windows(2).all(|w| w[0].right() <= w[1].left()), "in reading order: {stops:?}");
     assert!(stops[1].right() < 640.0, "the destinations sit at the left: {stops:?}");
-    assert!(1280.0 - stops[4].right() < 80.0, "the PC is at the right edge: {:?}", stops[4]);
-    assert!(shows(&f, "Add PC"), "{:?}", f.drawn);
+    assert!(1280.0 - stops[3].right() < 80.0, "Add PC is at the right edge: {:?}", stops[3]);
+    assert!(shows(&f, "Add PC") && !shows(&f, "Ctrl K"), "{:?}", f.drawn);
     // Hit targets a finger or a pointer finds: no destination is shorter than 36 points.
     assert!(stops.iter().all(|r| r.height() >= 36.0), "{stops:?}");
 
@@ -3333,20 +3333,6 @@ fn collect_visible(shape: &egui::Shape, out: &mut Vec<(String, Rect)>) {
     }
 }
 
-/// A PC with a long IPv6 address and GPU name; `zoomed` is the smallest window SDL allows at 150 %, in German.
-fn long_detail_card(zoomed: bool) -> (Frames, String) {
-    let address = "fd12:3456:789a:bcde:f012:3456:789a:bcde";
-    let mut info = answer(true, 0);
-    info.gpu_type = Some("AMD Radeon RX 7900 XTX Phantom Gaming OC".into());
-    let mut f = Frames::with(HostRecord { address: address.into(), ..record("Living Room PC", true, true) }, Reach::Online, Some(info), Vec::new());
-    if zoomed {
-        fit_150(&mut f);
-        f.size = vec2(720.0 / 1.5, 480.0 / 1.5);
-    }
-    f.settle();
-    (f, format!("{address}  ·  AMD Radeon RX 7900 XTX Phantom Gaming OC"))
-}
-
 fn visible(f: &Frames) -> Vec<(String, Rect)> {
     let mut shown = Vec::new();
     for clipped in &f.shapes {
@@ -3362,35 +3348,161 @@ fn hover_card(f: &mut Frames, card: Rect) {
     }
 }
 
+/// The card of the only PC, by its own id.
+fn pc_card_rect(f: &Frames) -> Rect {
+    let id = f.hosts.list[0].id;
+    f.ctx.read_response(Id::unique(("pc-card", id))).expect("the card").rect
+}
+
 #[test]
-fn a_long_address_and_gpu_end_in_an_ellipsis_inside_the_card_and_the_tooltip_shows_them_whole() {
+fn a_long_pc_name_ends_in_an_ellipsis_inside_the_card_and_the_tooltip_shows_it_whole() {
     for zoomed in [false, true] {
-        let (mut f, full) = long_detail_card(zoomed);
-        let (card, _) = f.card_and_dots();
+        let full = "The Very Long Name Of The Living Room Gaming PC Under The Television";
+        let mut f = Frames::new(record(full, true, true), Reach::Online);
+        if zoomed {
+            fit_150(&mut f);
+            f.size = vec2(720.0 / 1.5, 480.0 / 1.5);
+        }
+        f.settle();
+        let card = pc_card_rect(&f);
         assert!(card.right() <= f.size.x, "{zoomed}: the card {card:?} fits the window");
-        let (line, rect) = visible(&f).into_iter().find(|(t, _)| t.starts_with("fd12:")).expect("the address line is drawn");
-        assert!(line.ends_with('…') && line.chars().count() < full.chars().count(), "{zoomed}: the line is cut: {line}");
-        assert!(rect.right() <= card.right() - CARD_PAD + 0.5, "{zoomed}: {line} ends at {} in a card ending at {}", rect.right(), card.right());
-        assert!(rect.left() >= card.left(), "{zoomed}: the line starts inside the card");
-        // The state line above it still fits whole.
-        let status = host_status(&f.hosts.list[0]).0;
-        assert!(visible(&f).iter().any(|(t, _)| *t == status), "{zoomed}: {status} is drawn whole");
-        hover_card(&mut f, card);
-        assert!(visible(&f).iter().any(|(t, _)| *t == full), "{zoomed}: the tooltip shows the whole line: {:?}", visible(&f));
+        let (line, rect) = visible(&f).into_iter().find(|(t, _)| t.starts_with("The Very")).expect("the name is drawn");
+        assert!(line.ends_with('\u{2026}'), "{zoomed}: the name is cut: {line}");
+        assert!(rect.right() <= card.right() + 0.5, "{zoomed}: {line} ends at {} in a card ending at {}", rect.right(), card.right());
+        // Up to the card's top, away from its action and More.
+        let over = pos2(card.left() + 8.0, card.top() + 8.0);
+        f.frame(vec![egui::Event::PointerMoved(over)]);
+        for _ in 0..30 {
+            f.frame(Vec::new());
+        }
+        assert!(visible(&f).iter().any(|(t, _)| t.starts_with(full)), "{zoomed}: the tooltip shows it whole: {:?}", visible(&f));
     }
 }
 
 #[test]
-fn a_short_detail_line_is_drawn_whole_with_no_tooltip() {
-    let (mut f, _) = long_detail_card(false);
-    f.hosts.list[0].record.address = "192.0.2.7".into();
-    f.hosts.list[0].info.as_mut().expect("the answer").gpu_type = Some("RX 7900 XT".into());
-    f.settle();
-    let (card, _) = f.card_and_dots();
+fn a_short_pc_name_is_drawn_whole_with_no_tooltip() {
+    let mut f = Frames::new(record("Den", true, true), Reach::Online);
+    let card = pc_card_rect(&f);
     hover_card(&mut f, card);
     let shown = visible(&f);
-    let lines: Vec<_> = shown.iter().filter(|(t, _)| t == "192.0.2.7  ·  RX 7900 XT").collect();
-    assert_eq!(lines.len(), 1, "drawn once, whole, and no tooltip: {shown:?}");
+    assert!(shown.iter().any(|(t, _)| t == "Den"), "{shown:?}");
+    assert!(!shown.iter().any(|(t, _)| t.starts_with("Den, ")), "no tooltip: {shown:?}");
+}
+
+/// A PC's one action says what the screen and the line say, and does it.
+#[test]
+fn a_pc_offers_the_one_action_its_state_calls_for() {
+    let action_of = |f: &Frames| crate::ui::pcs::pc_action(&f.hosts.list[0]);
+    let line_of = |f: &Frames| crate::ui::pcs::pc_line_of(&f.hosts.list[0]);
+    use crate::ui::pcs::{PcAction, PcLine};
+    let click_action = |f: &mut Frames| {
+        let at = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).expect("the action has focus").rect.center();
+        f.click_at(at, egui::PointerButton::Primary)
+    };
+    // Up and paired, idle: Open, a green "Online", and no made-up latency.
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 0)), vec![game(7)]);
+    assert_eq!(action_of(&f), PcAction::Open);
+    assert_eq!(line_of(&f), PcLine::Online);
+    assert!(shows(&f, "Open") && shows(&f, "Online") && !f.drawn.iter().any(|t| t.ends_with(" ms")), "{:?}", f.drawn);
+    let id = f.hosts.list[0].id;
+    assert!(click_action(&mut f).iter().any(|c| matches!(c, Command::OpenApps(h) if *h == id)));
+
+    // Running a game of its known list: Resume starts it again, the line names the game.
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 7)), vec![game(7)]);
+    f.hosts.list[0].apps = Apps::Loaded(vec![game(7)]);
+    f.settle();
+    assert_eq!(action_of(&f), PcAction::Resume(7));
+    assert!(matches!(line_of(&f), PcLine::Running(_)));
+    assert!(shows(&f, "Resume"), "{:?}", f.drawn);
+    let commands = click_action(&mut f);
+    assert!(commands.iter().any(|c| matches!(c, Command::Launch { app: 7, resume: true, .. })));
+
+    // Running but the list is not known: it asks for it, and offers what still works.
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 7)), Vec::new());
+    f.hosts.list[0].apps = Apps::NotLoaded;
+    let commands = f.settle();
+    assert_eq!(action_of(&f), PcAction::Open);
+    assert!(commands.iter().any(|c| matches!(c, Command::LoadApps(_))));
+
+    // Asleep with a saved address: Wake. Without one: Try again, which checks again.
+    let mut f = Frames::new(HostRecord { mac: Some("00:1a:2b:3c:4d:5e".into()), ..record("Den", true, true) }, Reach::Offline);
+    assert_eq!((action_of(&f), line_of(&f)), (PcAction::Wake, PcLine::Offline));
+    assert!(shows(&f, "Wake") && shows(&f, "Offline"), "{:?}", f.drawn);
+    assert!(click_action(&mut f).iter().any(|c| matches!(c, Command::Wake(_))));
+    let mut f = Frames::new(HostRecord { mac: None, ..record("Den", true, true) }, Reach::Offline);
+    assert_eq!(action_of(&f), PcAction::TryAgain);
+    assert!(click_action(&mut f).iter().any(|c| matches!(c, Command::Refresh(_))));
+
+    // Up and not paired: Pair, and the lock says why.
+    let mut f = Frames::new(record("Den", false, false), Reach::Online);
+    assert_eq!((action_of(&f), line_of(&f)), (PcAction::Pair, PcLine::NotPaired));
+    assert!(shows(&f, "Not paired"), "{:?}", f.drawn);
+    assert!(click_action(&mut f).iter().any(|c| matches!(c, Command::Pair(_))));
+}
+
+/// The rest of the card still does what selecting a PC always did.
+#[test]
+fn selecting_a_pcs_card_opens_it_and_a_right_click_offers_its_menu() {
+    let mut f = Frames::new(record("Den", true, true), Reach::Online);
+    let card = pc_card_rect(&f);
+    let commands = f.click_at(card.right_top() + vec2(-20.0, 20.0), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::OpenApps(_))));
+    let mut f = Frames::new(record("Den", true, true), Reach::Online);
+    let card = pc_card_rect(&f);
+    f.click_at(card.right_top() + vec2(-20.0, 20.0), egui::PointerButton::Secondary);
+    assert!(f.options_open(), "its menu");
+}
+
+/// Tab meets each card's action, then its More. The card itself takes no focus.
+#[test]
+fn a_pcs_card_has_two_stops_for_focus() {
+    let mut f = Frames::new(record("Den", true, true), Reach::Online);
+    let (action, more) = f.card_and_dots();
+    let card = pc_card_rect(&f);
+    assert!(card.contains_rect(action) && card.contains_rect(more), "{action:?} {more:?} in {card:?}");
+    assert!((action.left() - card.left() - 22.0).abs() < 0.5 && (card.right() - more.right() - 22.0).abs() < 0.5, "{action:?} {more:?} in {card:?}");
+    assert_eq!((more.width(), more.height()), (48.0, 48.0));
+    f.press(Key::Tab);
+    let focused = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).unwrap();
+    assert_eq!(focused.rect, more, "More comes after the action");
+}
+
+/// The halo of a focused action paints over the card beside it, so no neighbour cuts it.
+#[test]
+fn a_focused_actions_halo_paints_after_the_next_card() {
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut l = launcher(false, false);
+    l.go(Screen::Hosts);
+    let mut second = record("Attic", true, true);
+    second.address = "192.0.2.77".into();
+    second.unique_id = "attic".into();
+    let hosts = Hosts::without_discovery(vec![record("Den", true, true), second], Arc::new(|| {}));
+    let mut f = Frames::over(ctx, l, hosts);
+    f.settle();
+    let ring = f.shapes.iter().position(|s| !meshes_holding(std::slice::from_ref(s), design_tokens::FOCUS_RING_COLOR).is_empty()).expect("the ring");
+    let neighbour = f.shapes.iter().position(|s| {
+        let mut shown = Vec::new();
+        collect_visible(&s.shape, &mut shown);
+        shown.iter().any(|(t, _)| t == "Attic")
+    });
+    assert!(neighbour.is_some_and(|at| at < ring), "ring at {ring}, the next card at {neighbour:?}");
+}
+
+/// Ctrl+K still opens the search from PCs, where the field gave way to Add PC.
+#[test]
+fn ctrl_k_searches_from_pcs_and_add_pc_opens_its_dialog() {
+    let mut f = Frames::new(record("Den", true, true), Reach::Online);
+    let add = f.placed.iter().find(|(t, ..)| t == "Add PC").map(|p| p.1).expect("Add PC");
+    assert!(add.top() < 68.0, "in the bar: {add:?}");
+    f.click_at(add.center(), egui::PointerButton::Primary);
+    assert!(matches!(f.l.dialog, Dialog::AddHost { .. }));
+    f.press(Key::Escape);
+    f.frame(vec![egui::Event::Key { key: Key::K, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND }]);
+    f.settle();
+    assert_eq!(f.l.screen, Screen::AllGames);
+    assert!(f.l.search_open);
 }
 
 #[test]
@@ -5138,7 +5250,7 @@ fn a_menu_by_its_card_leaves_the_page_undimmed_and_out_of_reach() {
     assert!(f.options_open());
     assert!(rects_filled(&f, Color32::from_black_alpha(150)).is_empty(), "no backdrop over the page");
     let rename = f.placed.iter().find(|(t, ..)| t == "Rename").map(|p| p.1).unwrap();
-    assert!(rename.top() > dots.bottom() && rename.left() < dots.right(), "under the dots: {rename:?} below {dots:?}");
+    assert!(rename.left() < dots.right(), "by the dots: {rename:?} by {dots:?}");
     // A click on the card under the page closes the menu without starting anything.
     let commands = f.click_at(card.left_center() + vec2(20.0, 0.0), egui::PointerButton::Primary);
     assert!(f.no_dialog(), "a press outside closes the menu");
@@ -5336,13 +5448,14 @@ fn leaving_a_files_page_by_the_top_bar_asks_while_a_transfer_runs() {
 #[test]
 fn hover_lightens_a_card_and_focus_adds_one_ring_without_resizing() {
     let mut f = Frames::new(record("Desk", true, true), Reach::Online);
-    let (card, _) = f.card_and_dots();
-    let card_id = f.ctx.memory(|m| m.focused()).unwrap();
+    let (action, _) = f.card_and_dots();
+    let card = pc_card_rect(&f);
+    let card_id = Id::unique(("pc-card", f.hosts.list[0].id));
     let rings = |f: &Frames| -> Vec<Rect> { meshes_holding(&f.shapes, design_tokens::FOCUS_RING_COLOR).into_iter().filter(|r| r.intersects(card)).collect() };
-    // Focused (the first card has focus on arrival): one ring around it, with a gap.
+    // Focused (the first action has focus on arrival): one ring around it, with a gap.
     let around = rings(&f);
     assert_eq!(around.len(), 1, "one ring: {around:?}");
-    assert!(around[0].contains_rect(card) && around[0] != card, "outside the card: {around:?} around {card:?}");
+    assert!(around[0].contains_rect(action) && around[0] != action, "outside the action: {around:?} around {action:?}");
     // Moved off and hovered: lighter, no outline of any colour, same rect.
     let rest = meshes_holding(&f.shapes, design_tokens::HOVER_FILL_LIFT).len();
     f.ctx.memory_mut(|m| m.surrender_focus(m.focused().unwrap()));

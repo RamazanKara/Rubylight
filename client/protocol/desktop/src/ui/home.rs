@@ -15,6 +15,8 @@ const TITLE_SIZE: f32 = 50.0;
 const TITLE_LINE: f32 = 54.0;
 const CHIP_H: f32 = 32.0;
 const BUTTON_H: f32 = 52.0;
+/// From the line that says what stops Play to the buttons.
+const PROBLEM_GAP: f32 = 10.0;
 const PANEL_W: f32 = 280.0;
 const PANEL_HEAD: f32 = 38.0;
 const PANEL_ROW: f32 = 73.0;
@@ -615,6 +617,15 @@ impl Launcher {
             buttons_y,
         } = at;
         let state = self.play_state(host, source, game);
+        // What stops Play stands above the buttons, as on the game's page; the words above it rise.
+        let problem = state.list_problem(host);
+        let rise = problem.as_ref().map_or(0.0, |why| {
+            let line = ui.painter().layout(why.clone(), regular(t::TYPE_SUB_SIZE), *ERROR, right - left);
+            let (h, ink) = (line.size().y, *ERROR);
+            ui.painter().galley(pos2(left, buttons_y - PROBLEM_GAP - h), line, ink);
+            h + PROBLEM_GAP
+        });
+        let (chips_y, title_y) = (chips_y - rise, title_y - rise);
         // Play starts from the PC's app list: read it while the player is here, not on the press.
         if state.detail.can_start && matches!(host.apps, Apps::NotLoaded) {
             commands.push(Command::LoadApps(host.id));
@@ -690,10 +701,19 @@ impl Launcher {
                 "hero-play".into(),
             );
         }
+        let mut next_x = play_rect.right() + 10.0;
+        if problem.is_some() {
+            let rect = Rect::from_min_size(
+                pos2(next_x, buttons_y),
+                vec2(capsule_width(ui, tr("Try again")), BUTTON_H),
+            );
+            self.list_retry(ui, rect, "hero-retry", std::mem::take(first), host.id, commands);
+            next_x = rect.right() + 10.0;
+        }
         let star = console::favourite_of(source, game);
         let starred = console::is_starred(source, game, &self.favourites);
         let star_rect = Rect::from_min_size(
-            pos2(play_rect.right() + 10.0, buttons_y),
+            pos2(next_x, buttons_y),
             vec2(capsule_width(ui, tr("Favourite")), BUTTON_H),
         );
         let said = if starred {

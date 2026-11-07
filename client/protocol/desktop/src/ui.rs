@@ -149,6 +149,8 @@ pub enum Command {
     Unpair(u64),
     Remove(u64),
     Refresh(u64),
+    /// Reads the PC's app list again, also one that came without the game.
+    ReadAppsAgain(u64),
     OpenApps(u64),
     /// Fetch a cover that scrolled into view (a new `version` fetches again).
     RequestArt { host: u64, app: i32, version: String },

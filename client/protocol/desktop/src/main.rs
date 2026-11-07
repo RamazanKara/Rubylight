@@ -1744,6 +1744,10 @@ impl App {
                     _ => {}
                 }
             }
+            Command::ReadAppsAgain(host) => {
+                self.hosts.poll_one(host);
+                self.hosts.load_apps(host);
+            }
             Command::RequestArt { host, app, version } => self.hosts.request_art(host, app, &version, &self.store),
             Command::CloseGame(host) => self.hosts.session_action(host, ActionId::CloseGame),
             Command::LoadApps(host) => {

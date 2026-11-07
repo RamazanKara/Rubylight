@@ -169,7 +169,7 @@ pub fn button_cap(layout: &Layout, way: Leave) -> Option<&'static str> {
 
 /// What the desktop's stream menu can give a controller button, for its setting: the ids and how
 /// they read. A desktop has no on-screen keyboard or controls, so those are left out.
-pub const ASSIGNABLE: [(&str, &str); 13] = [
+pub const ASSIGNABLE: [(&str, &str); 12] = [
     ("controller_mouse", en("Mouse")),
     ("overlay", en("Overlay")),
     ("shortcuts", en("Shortcuts")),
@@ -181,7 +181,6 @@ pub const ASSIGNABLE: [(&str, &str); 13] = [
     ("native_page", en("Session and graphics")),
     ("disconnect", en("Disconnect")),
     ("end_host_session", en("End session")),
-    ("close_game", en("Quit game")),
     ("quit_game", en("Quit game")),
 ];
 
@@ -697,6 +696,13 @@ mod tests {
             }
             let android = android_tile_labels(&folder);
             assert_eq!(android.get("close_game"), android.get("quit_game"), "{folder}: Android's two ways to quit the game");
+            // The confirmation and the game page name it as the menu does.
+            let xml = std::fs::read_to_string(dir.path().join("strings_stream_menu.xml")).unwrap();
+            let text = |name: &str| xml.lines().find_map(|line| line.trim().strip_prefix(&format!("<string name=\"{name}\">"))?.strip_suffix("</string>").map(str::to_owned));
+            assert_eq!(text("stream_close_game"), text("stream_quit_game"), "{folder}: stream_close_game");
+            if folder == "values" {
+                assert_eq!(text("stream_close_game").as_deref(), Some("Quit game"));
+            }
             locales += 1;
         }
         assert!(locales >= 14, "{locales} locales");

@@ -1610,6 +1610,8 @@ fn stream_menu_button_name(choice: Option<&str>) -> String {
     match choice {
         None => tr("Default").to_owned(),
         Some(NO_TILE) => tr("Off").to_owned(),
+        // Saved before Quit game was one choice: it runs Quit game now.
+        Some("close_game") => tr("Quit game").to_owned(),
         Some(id) => crate::stream_menu::ASSIGNABLE.iter().find(|(tile, _)| *tile == id).map_or(id, |(_, name)| tr(name)).to_owned(),
     }
 }
@@ -1986,6 +1988,14 @@ mod tests {
         }
         assert_eq!(value_text("fps", &Settings::default(), &display, crate::glyphs::Style::Xbox), "Display (60 Hz)");
         assert_eq!(value_text("overlay", &Settings { overlay_mode: crate::config::OverlayMode::Debug, ..Settings::default() }, &display, crate::glyphs::Style::Xbox), "Off");
+    }
+
+    /// A button given Close game before it became Quit game reads as the one Quit game choice.
+    #[test]
+    fn a_saved_close_game_button_reads_quit_game() {
+        assert_eq!(stream_menu_button_name(Some("close_game")), "Quit game");
+        assert_eq!(stream_menu_button_name(Some("quit_game")), "Quit game");
+        assert_eq!(crate::stream_menu::ASSIGNABLE.iter().filter(|(_, name)| *name == "Quit game").count(), 1, "one Quit game in the list");
     }
 }
 

@@ -26,7 +26,7 @@
     <string name="stream_end_session">Terminer la session</string>
     <string name="stream_end_session_confirm">Terminer la session de streaming sur le PC ?
 Le jeu continue de tourner.</string>
-    <string name="stream_close_game">Fermer le jeu</string>
+    <string name="stream_close_game">Quitter le jeu</string>
     <string name="stream_close_game_confirm">Fermer le jeu sur le PC ?
 La progression non enregistrée sera perdue.</string>
     <string name="stream_choice_selected">Sélectionné</string>

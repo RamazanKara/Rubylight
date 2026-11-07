@@ -26,7 +26,7 @@
     <string name="stream_end_session">Encerrar sessão</string>
     <string name="stream_end_session_confirm">Encerrar a sessão de streaming no PC?
 O jogo continua em execução.</string>
-    <string name="stream_close_game">Fechar jogo</string>
+    <string name="stream_close_game">Encerrar jogo</string>
     <string name="stream_close_game_confirm">Fechar o jogo no PC?
 O progresso não salvo será perdido.</string>
     <string name="stream_choice_selected">Selecionado</string>

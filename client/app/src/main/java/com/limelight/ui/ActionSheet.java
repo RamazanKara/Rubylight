@@ -59,7 +59,19 @@ public final class ActionSheet extends BottomSheetDialog {
 
     @Override
     public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        // The screen behind learns what chose here: a pad's Disconnect in the stream menu leaves a PC list a pad can act on.
+        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) rememberInput(InputSource.of(event));
         return dpadEchoes.drop(event) || super.dispatchKeyEvent(event);
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(android.view.MotionEvent event) {
+        if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) rememberInput(InputSource.of(event));
+        return super.dispatchTouchEvent(event);
+    }
+
+    private static void rememberInput(InputSource source) {
+        if (source != null) InputSource.remember(source);
     }
 
     private boolean focusPlaced;

@@ -285,8 +285,29 @@ pub fn pool_extra(waiting: usize) -> i32 {
     (waiting.min(64) as i32 + 2).max(EXTRA_HW_FRAMES)
 }
 
-/// The surfaces a VAAPI pool gets beyond [`pool_extra`] when its pictures may be mapped for the
-/// GPU renderer (`Pictures::vaapi_node`): those the presenter keeps until their copies are done.
+/// The render node VAAPI opens on for `hardware` (`Pictures::vaapi_node`): the GPU renderer's
+/// when its device will take VAAPI's pictures mapped (`crate::vulkan_video::map_node`), else none
+/// (the default device). The probes and the stream ask the same, so they decode on one GPU; why
+/// not goes to the log.
+pub fn vaapi_node(hardware: Hardware) -> Option<u32> {
+    #[cfg(unix)]
+    if let Hardware::Auto(gpu) = hardware {
+        if !gpu.is_null() {
+            let switched_on = crate::vulkan_video::map_switched_on(std::env::var_os(crate::vulkan_video::MAP_ENVIRONMENT).as_deref());
+            // SAFETY: The renderer keeps its device alive while streams and probes use it.
+            match unsafe { crate::vulkan_video::map_node(gpu.cast(), switched_on) } {
+                Ok(minor) => return Some(minor),
+                Err(why) => crate::vulkan_video::note(&format!("VAAPI opens on the default device: {why}")),
+            }
+        }
+    }
+    let _ = hardware;
+    None
+}
+
+/// The surfaces a VAAPI pool gets beyond [`pool_extra`] when its pictures will be mapped for the
+/// GPU renderer (`Pictures::vaapi_node`, set only then): those the presenter keeps until their
+/// copies are done.
 fn mapped_extra(hardware: Hardware, pictures: Pictures) -> i32 {
     #[cfg(unix)]
     if hardware == Hardware::Vaapi && pictures.vaapi_node.is_some() {

@@ -607,6 +607,8 @@ impl VaapiMap {
             context.height = vaapi.height;
             // Mapped frames only: no images of its own up front.
             context.initial_pool_size = 0;
+            // What `Planes::copy` knows the mapped pictures by (`mapped_frames`).
+            context.user_opaque = MAPPED.as_ptr().cast_mut().cast();
             let status = av_hwframe_ctx_init(frames);
             if status < 0 {
                 av_buffer_unref(&mut frames);
@@ -645,6 +647,26 @@ impl Drop for VaapiMap {
             av_buffer_unref(&mut self.device);
         }
     }
+}
+
+/// The mark of `VaapiMap`'s frames contexts (`AVHWFramesContext::user_opaque`).
+static MAPPED: [u8; 1] = [0];
+
+/// Whether pictures of this frames context are mapped VAAPI pictures (`VaapiMap`), which the copy
+/// keeps until it is done (`Held`) whatever FFmpeg did to the image's queue family and layout.
+fn mapped_frames(context: &AVHWFramesContext) -> bool {
+    ptr::eq(context.user_opaque.cast_const().cast::<u8>(), MAPPED.as_ptr())
+}
+
+/// The render node VAAPI opens on for the renderer `gpu`, when `map_plan` says its pictures will
+/// be mapped into the renderer's device (`switched_on`, the extensions the device was made with);
+/// otherwise why not, and VAAPI opens on the default device, as the probes did.
+///
+/// # Safety
+/// `gpu` must be null or a live SDL GPU device.
+pub unsafe fn map_node(gpu: *mut SDL_GPUDevice, switched_on: bool) -> Result<u32, String> {
+    map_plan(switched_on, made_with(gpu).map(|(_, extensions)| extensions), Ok(()))?;
+    render_minor(gpu)
 }
 
 /// Whether VAAPI pictures of this format are mapped: the 4:2:0 two-plane ones the presenter copies
@@ -1320,7 +1342,7 @@ impl Planes {
             .reset_command_buffer(commands, vk::CommandBufferResetFlags::empty())
             .map_err(|e| format!("the copy's command buffer cannot be reset ({e})"))?;
         drop(self.held.take(self.next));
-        let imported = (&(*source).queue_family)[..sources].contains(&vk::QUEUE_FAMILY_EXTERNAL);
+        let imported = mapped_frames(&*(*frames_ref).data.cast::<AVHWFramesContext>());
         lock_frame(frames, source);
         let result = self.record_and_submit(commands, fence, &mut *source);
         unlock_frame(frames, source);
@@ -1674,6 +1696,32 @@ mod tests {
         assert_eq!(held.hold(0, "frame 4"), Some("frame 3"));
         assert_eq!(held.drain(), ["frame 4"]);
         assert!(held.release(|_| true).is_empty());
+    }
+
+    /// Mapped pictures were kept only while their image still said `VK_QUEUE_FAMILY_EXTERNAL`: one
+    /// FFmpeg had moved itself was freed at once, blocking on its copy. They are known by their
+    /// frames context instead.
+    #[test]
+    fn mapped_pictures_are_known_by_their_frames_context() {
+        // SAFETY: A plain C struct, all-zero is valid.
+        let mut context: AVHWFramesContext = unsafe { std::mem::zeroed() };
+        assert!(!mapped_frames(&context), "a decoder's frames context");
+        context.user_opaque = MAPPED.as_ptr().cast_mut().cast();
+        assert!(mapped_frames(&context));
+        let other = [0u8];
+        context.user_opaque = other.as_ptr().cast_mut().cast();
+        assert!(!mapped_frames(&context), "another user's mark");
+    }
+
+    /// Release builds' FFmpeg had no libdrm, so `av_hwframe_map` was ENOSYS and every shipped
+    /// Linux build read VAAPI pictures back.
+    #[test]
+    fn the_shipped_ffmpeg_is_built_with_libdrm_for_the_mapping() {
+        let script = include_str!("../ffmpeg-decode-only.sh");
+        let linux = script.split("platform=(").nth(1).expect("the Linux options");
+        let linux = &linux[..linux.find(')').expect("their end")];
+        assert!(linux.split_whitespace().any(|option| option == "--enable-libdrm"), "{linux}");
+        assert!(script.contains("does not link libdrm"), "the build checks libavutil links it");
     }
 
     /// An imported image is FFmpeg's `VK_QUEUE_FAMILY_EXTERNAL` in UNDEFINED layout: the copy

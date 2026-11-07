@@ -386,6 +386,45 @@ impl PresentClock {
         }
     }
 
+    /// [`schedule_on_grid`](Self::schedule_on_grid) for a frame that waited behind others in the
+    /// decode queue, as [`schedule_behind`](Self::schedule_behind): released as soon as it is ready
+    /// for the first vsync it can make, and left out of the lateness window.
+    pub fn schedule_on_grid_behind(&mut self, rtp: u32, ready_us: u64, grid: Grid) -> GridSchedule {
+        let base = self.schedule_behind(rtp, ready_us);
+        let host = self.unwrap.map_or(0, |(_, ticks)| ticks * 100 / 9);
+        let late_by_us = self.delay_us.map_or(0, |delay| (ready_us as i64 - (host + delay)).max(0));
+        let release = base.present_us as i64;
+        if grid.interval_us <= 0 {
+            return GridSchedule {
+                release_us: base.present_us,
+                vsync_us: base.present_us,
+                vsync_index: 0,
+                late: base.late,
+                late_by_us,
+                shares_vsync: false,
+                hold_us: base.hold_us,
+                latency_us: base.latency_us,
+            };
+        }
+        let interval = grid.interval_us;
+        let (vsync, index) = snap(release, grid.anchor_us, interval);
+        let shares = self.last_vsync_us.is_some_and(|last| {
+            (last - grid.anchor_us + interval / 2).div_euclid(interval) >= index
+        });
+        self.last_vsync_us = Some(vsync);
+        self.last_bumped = false;
+        GridSchedule {
+            release_us: base.present_us,
+            vsync_us: vsync as u64,
+            vsync_index: index,
+            late: base.late,
+            late_by_us,
+            shares_vsync: shares,
+            hold_us: base.hold_us,
+            latency_us: self.offset.offset_at(vsync).map(|offset| vsync - (host + offset)),
+        }
+    }
+
     /// Moves the host clock on to `host`: the step since the previous frame, also into the
     /// average frame step.
     fn advance(&mut self, host: i64) -> i64 {

@@ -140,7 +140,7 @@ pub enum SdrReason {
 impl SdrReason {
     pub fn says(self) -> &'static str {
         match self {
-            Self::NoGpuRenderer => "the GPU renderer is not used",
+            Self::NoGpuRenderer => "the GPU renderer is not used (Nightjar picks it at start when a saved setting asks for HDR)",
             Self::DisplayNotHdr => "the compositor reports no HDR for this window",
             Self::NotOffered => "the swapchain offers neither scRGB nor HDR10",
             Self::PqFailed => "HDR10 is offered but the PQ renderer could not be made",
@@ -262,6 +262,14 @@ pub enum HdrStream {
 }
 
 /// The window's HDR report can still turn HDR on: the swapchain took HDR and a display has it on.
+/// Whether the renderer's swapchain can take HDR. With an SDL GPU device (Linux's "gpu" renderer)
+/// its swapchain decides (`swapchain_hdr`). Without one, Windows' Direct3D 11 renderer follows the
+/// window, while Linux's OpenGL renderer never presents HDR: Nightjar picks it at start when no
+/// saved setting asks for HDR, so turning HDR on later needs a restart, not another display.
+pub fn renderer_takes_hdr(windows: bool, gpu_device: bool, swapchain_hdr: bool) -> bool {
+    if gpu_device { swapchain_hdr } else { windows }
+}
+
 pub fn hdr_report_can_come(swapchain_hdr: bool, display_hdr: bool) -> bool {
     swapchain_hdr && display_hdr
 }
@@ -412,6 +420,19 @@ mod tests {
         assert_eq!(hdr_refusal(false, true), HdrRefusal::Restart, "HDR came on after the renderer was chosen");
         assert_eq!(hdr_refusal(true, false), HdrRefusal::TurnHdrOn);
         assert_eq!(hdr_refusal(false, false), HdrRefusal::TurnHdrOn);
+    }
+
+    /// Nightjar issue 80: HDR switched on after a start without it left KDE on the OpenGL
+    /// renderer, and the dialog said to move the window to the HDR display it was already on.
+    #[test]
+    fn the_opengl_renderer_never_takes_hdr_so_a_restart_helps() {
+        let opengl = renderer_takes_hdr(false, false, false);
+        assert!(!opengl);
+        assert!(!hdr_report_can_come(opengl, true), "no window report can help OpenGL");
+        assert_eq!(hdr_refusal(opengl, true), HdrRefusal::Restart);
+        assert!(renderer_takes_hdr(true, false, false), "Direct3D 11 follows the window");
+        assert!(renderer_takes_hdr(false, true, true));
+        assert!(!renderer_takes_hdr(false, true, false));
     }
 
     #[test]

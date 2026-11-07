@@ -333,6 +333,8 @@ pub(crate) enum Page {
     PinLock(Option<crate::pin_lock::Mode>),
     /// The real stream menu's pages over a still standing in for the video.
     StreamMenu(DemoMenu),
+    /// Home with a toast up.
+    Toast,
 }
 
 /// The dialogs the demo can open.
@@ -356,7 +358,7 @@ impl Page {
         matches!(self, Page::Dialog(_) | Page::PinStream | Page::PinChoose | Page::PinLock(_) | Page::StreamMenu(_))
     }
 
-    pub(crate) const ALL: [(&'static str, Page); 39] = [
+    pub(crate) const ALL: [(&'static str, Page); 40] = [
         ("home", Page::Home),
         ("all-games", Page::AllGames),
         ("game", Page::Game),
@@ -396,6 +398,7 @@ impl Page {
         ("stream-menu-quality", Page::StreamMenu(DemoMenu::Quality)),
         ("stream-menu-more", Page::StreamMenu(DemoMenu::More)),
         ("stream-menu-confirm", Page::StreamMenu(DemoMenu::Confirm)),
+        ("toast", Page::Toast),
     ];
 }
 
@@ -604,6 +607,10 @@ impl Launcher {
                 self.go(Screen::Hosts);
                 let dir = std::env::temp_dir().join("nightjar-demo-pin-page");
                 self.pin = Some(crate::pin_ui::PinLock::demo_page(&dir, mode));
+            }
+            Page::Toast => {
+                self.go(Screen::Home);
+                self.toast(crate::strings::trf("Quitting {} on the PC…", &[&"Racing Game"]));
             }
             Page::Search => {
                 self.go(Screen::Home);

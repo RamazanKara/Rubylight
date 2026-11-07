@@ -10,7 +10,7 @@ use sdl3_sys::everything::*;
 
 use crate::media;
 
-/// The fixtures: 64x64 lossless 4:4:4 pictures and 128x128 Main10 ones.
+/// The fixtures: 64x64 lossless 4:4:4 pictures and 256x256 Main10 ones.
 const FIXTURES: [(u32, media::Codec, &str, &[u8]); 5] = [
     (
         VIDEO_FORMAT_H264_HIGH8_444,
@@ -34,42 +34,43 @@ const FIXTURES: [(u32, media::Codec, &str, &[u8]); 5] = [
         VIDEO_FORMAT_H265_MAIN10,
         media::Codec::Hevc,
         "HEVC Main10",
-        include_bytes!("../../../../app/src/main/assets/packed444/hevc-10.bin"),
+        include_bytes!("../../tests/fixtures/hevc-420-10.bin"),
     ),
     (
         VIDEO_FORMAT_AV1_MAIN10,
         media::Codec::Av1,
         "AV1 Main10",
-        include_bytes!("../../../../app/src/main/assets/packed444/av1-10.bin"),
+        include_bytes!("../../tests/fixtures/av1-420-10.bin"),
     ),
 ];
 
 /// The plain HEVC and AV1 formats, and the Main10 ones HDR offers, whose hardware decoding
-/// [`probe_base`] checks before they are offered: 128x128 4:2:0 pictures.
+/// [`probe_base`] checks before they are offered: single 256x256 4:2:0 key frames, above every
+/// backend's smallest picture (NVDEC's HEVC minimum is 144x144, which 128x128 ones were under).
 const BASE_FIXTURES: [(u32, media::Codec, &str, &[u8]); 4] = [
     (
         VIDEO_FORMAT_H265,
         media::Codec::Hevc,
         "HEVC",
-        include_bytes!("../../../../app/src/main/assets/packed444/hevc-8.bin"),
+        include_bytes!("../../tests/fixtures/hevc-420-8.bin"),
     ),
     (
         VIDEO_FORMAT_H265_MAIN10,
         media::Codec::Hevc,
         "HEVC Main10",
-        include_bytes!("../../../../app/src/main/assets/packed444/hevc-10.bin"),
+        include_bytes!("../../tests/fixtures/hevc-420-10.bin"),
     ),
     (
         VIDEO_FORMAT_AV1_MAIN8,
         media::Codec::Av1,
         "AV1",
-        include_bytes!("../../../../app/src/main/assets/packed444/av1-8.bin"),
+        include_bytes!("../../tests/fixtures/av1-420-8.bin"),
     ),
     (
         VIDEO_FORMAT_AV1_MAIN10,
         media::Codec::Av1,
         "AV1 Main10",
-        include_bytes!("../../../../app/src/main/assets/packed444/av1-10.bin"),
+        include_bytes!("../../tests/fixtures/av1-420-10.bin"),
     ),
 ];
 
@@ -173,19 +174,64 @@ fn decode(
     codec: media::Codec,
     data: &[u8],
 ) -> Result<(media::FrameInfo, media::Hardware), String> {
-    // The stream's decoder order; the error names each backend that did not open.
-    let mut decoder = match hardware {
-        media::Hardware::None => media::VideoDecoder::open(codec, hardware, 1, false)?,
-        hardware => media::VideoDecoder::open_first(codec, pictures, hardware, true, |_, _| {})?,
-    };
+    if hardware == media::Hardware::None {
+        let mut decoder = media::VideoDecoder::open(codec, hardware, 1, false)?;
+        return decode_with(&mut decoder, data).map(|info| (info, hardware));
+    }
+    // The stream's decoder order, as the stream goes on after a backend that fails mid-stream.
+    first_that_decodes(hardware.order(), |order| {
+        let mut decoder = media::VideoDecoder::open_any(codec, pictures, order, true, |_, _| {})?;
+        Ok((decoder.hardware, decode_with(&mut decoder, data)))
+    })
+}
+
+/// The first backend of `order` that decodes: `attempt` opens the first of the backends it is
+/// given that opens (the error names each that did not) and decodes with it. A backend that opens
+/// but fails on the fixture has the ones after it tried, not just the first that opens.
+fn first_that_decodes<T>(
+    mut order: Vec<media::Hardware>,
+    mut attempt: impl FnMut(
+        Vec<media::Hardware>,
+    ) -> Result<(media::Hardware, Result<T, String>), String>,
+) -> Result<(T, media::Hardware), String> {
+    let mut failures = Vec::new();
+    loop {
+        match attempt(order.clone()) {
+            Ok((backend, Ok(decoded))) => return Ok((decoded, backend)),
+            Ok((backend, Err(reason))) => {
+                failures.push(format!("{}: {reason}", backend.label()));
+                order = super::pipeline::backends_after(order, backend);
+                if order.is_empty() {
+                    break;
+                }
+            }
+            Err(reason) => {
+                failures.push(reason);
+                break;
+            }
+        }
+    }
+    Err(failures.join("; "))
+}
+
+/// Decodes the fixture `data` with `decoder`, required to stay its backend.
+fn decode_with(decoder: &mut media::VideoDecoder, data: &[u8]) -> Result<media::FrameInfo, String> {
     let status = decoder.send(data, 0);
     if status < 0 {
         return Err(format!("the decoder rejected the fixture ({status})"));
     }
-    // An asynchronous decoder (V4L2 M2M) says "no picture yet" while the driver decodes: asked
-    // again for up to a quarter second.
+    // An asynchronous decoder (V4L2 M2M) holds a lone frame until it is told the input ended,
+    // then says "no picture yet" while the driver decodes: asked again for up to a quarter second.
+    let tries = if decoder.asynchronous() {
+        let status = decoder.drain();
+        if status < 0 {
+            return Err(format!("the decoder refused the end of input ({status})"));
+        }
+        125
+    } else {
+        0
+    };
     let mut received = decoder.receive();
-    let tries = if decoder.asynchronous() { 125 } else { 0 };
     for _ in 0..tries {
         if !matches!(received, media::Received::None) {
             break;
@@ -194,7 +240,10 @@ fn decode(
         received = decoder.receive();
     }
     match received {
-        media::Received::Frame(frame) => Ok((frame.info(), decoder.hardware)),
+        media::Received::Frame(_) if decoder.refused() => {
+            Err("the picture came out in memory, not the hardware decoder's".into())
+        }
+        media::Received::Frame(frame) => Ok(frame.info()),
         media::Received::None => Err("the decoder made no picture of the fixture".into()),
         media::Received::Error => Err("the decoder failed on the fixture".into()),
     }
@@ -297,6 +346,47 @@ mod tests {
             }
         });
         assert_eq!(decodable, YUV444_FORMATS);
+    }
+
+    /// The 128x128 fixtures were under NVDEC's smallest HEVC picture (144x144), so the probe
+    /// refused HEVC on every NVIDIA GPU.
+    #[test]
+    fn the_4_2_0_fixtures_are_above_every_backends_smallest_picture_and_stay_small() {
+        let plain = FIXTURES.iter().filter(|fixture| fixture.0 & VIDEO_FORMAT_MASK_YUV444 == 0);
+        for &(_, codec, name, data) in BASE_FIXTURES.iter().chain(plain) {
+            let (info, _) = decode(media::Hardware::None, media::Pictures::default(), codec, data)
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+            assert!(info.width >= 256 && info.height >= 256, "{name}: {}x{}", info.width, info.height);
+            assert!(data.len() <= 8 * 1024, "{name}: {} bytes", data.len());
+        }
+    }
+
+    /// The probe stopped at the first backend that opened, so a backend that opens but cannot
+    /// decode the format (Vulkan video without the profile) hid the ones after it.
+    #[test]
+    fn a_backend_that_opens_but_fails_has_the_ones_after_it_tried() {
+        use media::Hardware::{Cuda, V4l2m2m, Vaapi, Vulkan};
+        let gpu = std::ptr::dangling_mut::<std::ffi::c_void>();
+        let mut asked = Vec::new();
+        let decoded = first_that_decodes(vec![Vulkan(gpu), Vaapi, V4l2m2m, Cuda], |order| {
+            asked.push(order.clone());
+            match order[0] {
+                Vulkan(_) => Ok((order[0], Err("no picture".to_owned()))),
+                // VAAPI does not open, so V4L2 M2M is the first that does.
+                Vaapi => Ok((V4l2m2m, Ok(7))),
+                _ => unreachable!(),
+            }
+        });
+        assert_eq!(decoded, Ok((7, V4l2m2m)));
+        assert_eq!(asked, [vec![Vulkan(gpu), Vaapi, V4l2m2m, Cuda], vec![Vaapi, V4l2m2m, Cuda]]);
+        // Every backend failing, or none opening, names each reason.
+        let failed = first_that_decodes(vec![Vaapi, Cuda], |order| {
+            Ok::<_, String>((order[0], Err::<(), _>(format!("{} failed", order[0].label()))))
+        });
+        let reason = failed.unwrap_err();
+        assert!(reason.contains("VAAPI failed") && reason.contains("NVDEC failed"), "{reason}");
+        let unopened = first_that_decodes(vec![Vaapi], |_| Err::<(_, Result<(), _>), _>("nothing opens".to_owned()));
+        assert_eq!(unopened, Err("nothing opens".to_owned()));
     }
 
     #[test]

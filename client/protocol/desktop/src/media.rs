@@ -731,6 +731,12 @@ impl VideoDecoder {
         }
     }
 
+    /// Says the input has ended (an empty packet), so the decoder hands out what it still holds:
+    /// a V4L2 M2M decoder keeps a lone frame until more input or this comes.
+    pub fn drain(&mut self) -> i32 {
+        unsafe { avcodec_send_packet(self.context, ptr::null()) }
+    }
+
     pub fn receive(&mut self) -> Received {
         unsafe {
             #[allow(unused_mut)]

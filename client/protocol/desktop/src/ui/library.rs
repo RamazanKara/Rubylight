@@ -42,7 +42,7 @@ impl Launcher {
         match &host.apps {
             // Read again from an empty list: the same place, its button at work.
             Apps::NotLoaded | Apps::Loading if self.refreshing_empty == Some(id) => {
-                self.bare_list(ui, id, tr("This PC lists no apps."), None, tr("Refresh"), true, commands);
+                self.bare_list(ui, id, tr("This PC lists no apps."), None, tr("Refresh"), true, false, commands);
             }
             Apps::NotLoaded | Apps::Loading => {
                 // The covers' own places, so the list lands without a jump, under one word of what is
@@ -61,15 +61,15 @@ impl Launcher {
             }
             Apps::Failed(e) => {
                 self.refreshing_empty = None;
-                self.bare_list(ui, id, tr("The library could not be loaded."), Some(e), tr("Try again"), false, commands);
+                self.bare_list(ui, id, tr("The library could not be loaded."), Some(e), tr("Try again"), false, false, commands);
             }
             Apps::Loaded(apps) => {
+                self.refreshing_empty = None;
                 if apps.is_empty() {
                     // Nothing listed is nothing to start, so no tile: the way on is to read it again.
-                    self.bare_list(ui, id, tr("This PC lists no apps."), None, tr("Refresh"), false, commands);
+                    self.bare_list(ui, id, tr("This PC lists no apps."), None, tr("Refresh"), false, true, commands);
                     return;
                 }
-                self.refreshing_empty = None;
                 // Hidden games stay out of the PC's list as off Home, unless asked for.
                 let source = Source::of(host);
                 let hides = |app: &nightjar_core::http::App| console::is_hidden(&source, &app.uuid, app.id as u32, &self.hidden_games);
@@ -114,9 +114,9 @@ impl Launcher {
 
     /// A PC's page with no list to show: one line (and what went wrong) and the action that reads the
     /// list again, in the middle of the room the covers would have had. A press holds the page as it
-    /// is, its action at work, until the answer.
+    /// is, its action at work, until the answer; only an empty list's (`empty`) stays that page.
     #[allow(clippy::too_many_arguments)]
-    fn bare_list(&mut self, ui: &mut Ui, id: u64, line: &str, error: Option<&str>, action: &str, working: bool, commands: &mut Vec<Command>) {
+    fn bare_list(&mut self, ui: &mut Ui, id: u64, line: &str, error: Option<&str>, action: &str, working: bool, empty: bool, commands: &mut Vec<Command>) {
         const GAP: f32 = 20.0;
         let top = ui.cursor().top();
         let room = (ui.ctx().content_rect().bottom() - top - BARE_FOOT).max(BARE_LEAST);
@@ -143,7 +143,7 @@ impl Launcher {
         }
         self.focus_item(&r, "bare-list", true);
         if r.clicked() {
-            self.refreshing_empty = Some(id);
+            self.refreshing_empty = empty.then_some(id);
             commands.push(Command::Refresh(id));
         }
     }
@@ -443,11 +443,15 @@ impl Launcher {
     }
 
     /// A Play that waited for the list: starts once the entry is there, and says so out loud if it
-    /// cannot be. Leaving the page where it was pressed lets it go.
+    /// cannot be. Leaving the page where it was pressed lets it go; an open dialog holds it, so no
+    /// stream starts under a menu and no typed text gets replaced.
     pub(super) fn settle_play(&mut self, view: &View<'_>, sources: &[Source<'_>], commands: &mut Vec<Command>) {
         let Some(pending) = self.pending_play else { return };
         if self.screen != pending.screen {
             self.pending_play = None;
+            return;
+        }
+        if !matches!(self.dialog, Dialog::None) {
             return;
         }
         let host = view.hosts.get(pending.host);

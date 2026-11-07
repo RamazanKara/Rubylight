@@ -4034,7 +4034,7 @@ fn a_pc_with_no_apps_shows_one_line_and_refresh() {
     let at = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).unwrap().1;
     assert!(focused.contains(at(&f, "Refresh").center()), "{focused:?}");
     assert!(at(&f, "This PC lists no apps.").bottom() < focused.top());
-    let commands = f.press(Key::Enter);
+    let commands = f.frame(crate::gui::tap(Key::Enter).to_vec());
     assert!(commands.iter().any(|c| matches!(c, Command::Refresh(host) if *host == id)));
     assert!(!commands.iter().any(|c| matches!(c, Command::Launch { .. })));
     // While the answer is on its way the page holds still: no covers' places for a list that had none.
@@ -6773,6 +6773,64 @@ fn a_launch_with_no_list_read_loads_it_or_fails_out_loud() {
     hosts.set_identity(Arc::new(nightjar_core::http::ClientIdentity::generate().expect("a key")));
     assert!(crate::read_list_for_launch(&mut hosts, id), "the launch holds for this read");
     assert!(matches!(crate::launch_target(&hosts.list[0], 5, false), crate::LaunchApp::Wait));
+}
+
+/// Try again on a failed list reads as a read, not as "no apps": only the empty page's own Refresh
+/// holds that page, and it goes when the list has answered, empty or not.
+#[test]
+fn try_again_on_a_failed_list_does_not_say_no_apps() {
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 0)), Vec::new());
+    let id = f.hosts.list[0].id;
+    f.hosts.list[0].apps = Apps::Failed("The PC did not answer".into());
+    f.l.go(Screen::Apps(id));
+    f.settle();
+    assert!(f.press(Key::Enter).iter().any(|c| matches!(c, Command::Refresh(_))), "Try again has the focus");
+    f.hosts.list[0].apps = Apps::Loading;
+    f.settle();
+    assert!(!shows(&f, "This PC lists no apps."), "{:?}", f.drawn);
+    // The empty page's Refresh, answered empty, then read by something else.
+    f.hosts.list[0].apps = Apps::Loaded(Vec::new());
+    f.l.refocus();
+    f.settle();
+    // The launcher reads it before the next frame, as main does with the command.
+    assert!(f.frame(crate::gui::tap(Key::Enter).to_vec()).iter().any(|c| matches!(c, Command::Refresh(_))));
+    f.hosts.list[0].apps = Apps::Loading;
+    f.settle();
+    assert!(shows(&f, "This PC lists no apps."), "held while it reads: {:?}", f.drawn);
+    f.hosts.list[0].apps = Apps::Loaded(Vec::new());
+    f.settle();
+    f.hosts.list[0].apps = Apps::Loading;
+    f.settle();
+    assert!(!shows(&f, "This PC lists no apps."), "the answer ended it: {:?}", f.drawn);
+}
+
+/// A waiting Play holds while a dialog is open: no stream starts under it and no typed text goes.
+#[test]
+fn a_waiting_play_holds_while_a_dialog_is_open() {
+    let entry = nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) };
+    for (landing, launches) in [(Apps::Loaded(vec![entry]), true), (Apps::Failed("The PC did not answer".into()), false)] {
+        let mut f = home_with_games(1);
+        let pc = f.hosts.list[0].id;
+        f.hosts.list[0].apps = Apps::Loading;
+        f.l.go(Screen::Game { host: pc, app: 1000 });
+        f.settle();
+        f.press(Key::Enter);
+        assert!(f.l.playing_soon(pc, 1000));
+        f.l.dialog = Dialog::AddHost { text: "typed".into(), error: None };
+        f.hosts.list[0].apps = landing;
+        for _ in 0..3 {
+            assert!(!f.frame(Vec::new()).iter().any(|c| matches!(c, Command::Launch { .. })), "not under a dialog");
+        }
+        assert!(matches!(&f.l.dialog, Dialog::AddHost { text, .. } if text == "typed"), "the words stay");
+        assert!(f.l.playing_soon(pc, 1000), "still waiting");
+        f.l.dialog = Dialog::None;
+        let commands = f.frame(Vec::new());
+        assert_eq!(commands.iter().any(|c| matches!(c, Command::Launch { app: 1000, .. })), launches);
+        assert!(!f.l.playing_soon(pc, 1000));
+        if !launches {
+            assert!(matches!(f.l.dialog, Dialog::Message { .. }), "and now it says why");
+        }
+    }
 }
 
 /// A control tile that carries the running id is not the running game: Resume never fires its

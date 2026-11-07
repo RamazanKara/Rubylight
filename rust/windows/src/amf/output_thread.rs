@@ -10,7 +10,6 @@ use std::sync::{
     Arc, Mutex, PoisonError,
     atomic::{AtomicBool, Ordering},
 };
-use windows::Win32::System::Threading::WaitForSingleObject;
 
 /// A query that comes back this fast with nothing did not wait in the
 /// driver (some ignore QueryTimeout); the thread then pauses as the stream
@@ -40,6 +39,8 @@ unsafe impl Send for Component {}
 pub(super) struct OutputThread {
     shared: Arc<Shared>,
     thread: Option<std::thread::JoinHandle<()>>,
+    /// The stream thread's high-resolution wait for queued output.
+    waiter: crate::timing::Timer,
 }
 
 impl OutputThread {
@@ -115,6 +116,7 @@ impl OutputThread {
         Ok(Self {
             shared,
             thread: Some(thread),
+            waiter: crate::timing::Timer::new()?,
         })
     }
     /// Frames are (or are no longer) in flight. A submission wakes an idle
@@ -154,17 +156,39 @@ impl OutputThread {
         };
         &self.shared.ready
     }
-    /// Wait up to `timeout` (rounded up to whole milliseconds) for output.
+    /// Wait up to `timeout` for output.
     pub(super) fn wait(&self, timeout: Duration) {
-        let event = self.event();
-        let ms = timeout
-            .as_nanos()
-            .div_ceil(1_000_000)
-            .min(u128::from(u32::MAX - 1)) as u32;
-        // SAFETY: The event is open while `self` is borrowed.
-        unsafe {
-            WaitForSingleObject(event.raw(), ms);
+        let deadline = Instant::now() + timeout;
+        if self
+            .waiter
+            .until_or_event(deadline, Some(self.event()))
+            .is_err()
+        {
+            // A failed kernel wait must not turn the caller's loop into a spin.
+            std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
         }
+    }
+    /// The next result as a query on the stream thread would return it:
+    /// an empty queue reads as a query that found nothing.
+    pub(super) fn next(&self) -> (AMF_RESULT, *mut AMFData) {
+        self.take()
+            .unwrap_or((AMF_RESULT_AMF_REPEAT, ptr::null_mut()))
+    }
+    /// With nothing in flight: release what the thread queued for frames
+    /// already given up, and report a failed query, which would otherwise
+    /// wait unseen until the next frame's stall.
+    pub(super) fn check_idle(&self) -> Result<()> {
+        let mut failure = Ok(());
+        while let Some((code, data)) = self.take() {
+            if !data.is_null() {
+                // SAFETY: The queue held the one reference QueryOutput handed over.
+                unsafe { ((*(*data).pVtbl).Release.unwrap())(data) };
+            }
+            if failure.is_ok() && code != AMF_RESULT_AMF_OK {
+                failure = check(code).context("AMF output thread QueryOutput");
+            }
+        }
+        failure
     }
 }
 
@@ -233,10 +257,15 @@ mod tests {
         let started = Instant::now();
         thread.wait(Duration::from_millis(5));
         assert!(started.elapsed() >= Duration::from_millis(4));
-        // A failure is queued and ends the thread's querying.
+        assert_eq!(thread.next(), (AMF_RESULT_AMF_REPEAT, ptr::null_mut()));
+        // A failure is queued and ends the thread's querying; with nothing
+        // in flight it is reported by the next poll's idle check.
+        assert!(thread.check_idle().is_ok());
         answers.send((AMF_RESULT_AMF_FAIL, 0)).unwrap();
         thread.wait(Duration::from_secs(2));
-        assert_eq!(thread.take(), Some((AMF_RESULT_AMF_FAIL, ptr::null_mut())));
+        let error = thread.check_idle().unwrap_err();
+        assert!(format!("{error:#}").contains("output thread"), "{error:#}");
+        assert!(thread.take().is_none());
         let after = queried.load(Ordering::SeqCst);
         std::thread::sleep(Duration::from_millis(10));
         assert_eq!(

@@ -100,15 +100,14 @@ impl Encoder {
             if self.in_flight.is_empty() {
                 if let Some(thread) = &self.output_thread {
                     thread.want(false);
+                    thread.check_idle()?;
                 }
                 return Ok(output);
             }
             let (code, data) = match &self.output_thread {
                 // Its queue answers at once; empty, it reads as a query that
                 // found nothing.
-                Some(thread) => thread
-                    .take()
-                    .unwrap_or((AMF_RESULT_AMF_REPEAT, ptr::null_mut())),
+                Some(thread) => thread.next(),
                 None => {
                     let mut data = ptr::null_mut();
                     let code = timed("AMF QueryOutput", || {

@@ -74,6 +74,20 @@ class Plan(unittest.TestCase):
         self.assertTrue(spec.startswith('path+file:///'), spec)
         self.assertTrue(spec.endswith('/client/protocol/core#rubylight-protocol'), spec)
 
+    def test_desktop_client_gets_clippy_as_ci_runs_it(self):
+        test, clippy = dev.client_commands(ROOT, ['nightjar-desktop', 'nightjar-policy'])
+        self.assertEqual(test[:2], ['cargo', 'test'])
+        self.assertEqual(clippy[:2], ['cargo', 'clippy'])
+        self.assertEqual(clippy[-3:], ['--', '-D', 'warnings'])
+        self.assertIn('--all-targets', clippy)
+        linted = [clippy[i + 1] for i, a in enumerate(clippy) if a == '-p']
+        self.assertEqual(len(linted), 1)
+        self.assertTrue(linted[0].endswith('#nightjar-desktop'), linted)
+
+    def test_client_crates_ci_does_not_lint_get_tests_only(self):
+        commands = dev.client_commands(ROOT, ['rubylight-protocol'])
+        self.assertEqual([c[1] for c in commands], ['test'])
+
     def test_app_sources_map_to_their_unit_tests(self):
         test = 'client/app/src/test/java/com/limelight/AppViewLifecycleTest.java'
         planned, _ = checks(test)

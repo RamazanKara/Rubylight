@@ -8,18 +8,6 @@ use super::*;
 /// The settings sections in the order Android lists them (App only on the main settings).
 pub(super) const SETTINGS_SECTIONS: [&str; 8] = [en("Video"), en("Display & image"), en("Controls"), en("Audio"), en("Streaming"), en("App"), en("Advanced"), en("Debug")];
 
-/// What each section is for, under its title.
-const SECTION_ABOUT: [&str; 8] = [
-    en("How sharp and smooth the picture is, and how much of your network it uses."),
-    en("How the stream fills this screen, and the display it uses on the PC."),
-    en("Mouse, keyboard and controllers."),
-    en("Sound from the PC, and your microphone."),
-    en("The connection to the PC, profiles and the performance overlay."),
-    en("Nightjar itself: where it starts, its language, the PIN lock and accessibility."),
-    en("For special setups. The defaults suit almost everyone."),
-    en("Rarely needed settings for troubleshooting."),
-];
-
 /// Every setting row's keys, by section, in the order the page draws them; the first key names
 /// the row. Rows that show only with another setting (Custom resolution, Bitrate, the controller
 /// mouse's options) share their keys or are listed where they show. A test keeps this equal to
@@ -60,7 +48,9 @@ pub(super) const CUSTOM_FPS: std::ops::RangeInclusive<u32> = 10..=500;
 
 /// The page lays the section list beside the rows from this width on; below it, chips.
 const SIDE_LIST_FROM: f32 = 940.0;
-const SIDE_LIST_W: f32 = 212.0;
+const SIDE_LIST_W: f32 = 236.0;
+const SIDE_INSET: f32 = 6.0;
+const SIDE_ITEM_H: f32 = 44.0;
 /// The width a row's control column takes, as on the other settings pages.
 const CONTROL_W: f32 = 240.0;
 
@@ -268,10 +258,10 @@ impl Launcher {
     /// Above a PC's, game's or profile's settings: what its rows mean, how many it sets, and the
     /// way to clear them all.
     fn layer_header(&mut self, ui: &mut Ui) {
-        let (about, clear) = match self.screen {
-            Screen::ProfileSettings(_) => (en("Settings with “In this profile” ticked are part of this profile. The others follow your main settings."), en("Clear all in this profile")),
-            Screen::HostSettings(_) => (en("Settings with “For this PC” ticked apply to this PC only. The others follow the profile in use and your main settings."), en("Clear all for this PC")),
-            _ => (en("Settings with “For this game” ticked apply to this game only. The others follow this PC, the profile in use and your main settings."), en("Clear all for this game")),
+        let clear = match self.screen {
+            Screen::ProfileSettings(_) => en("Clear all in this profile"),
+            Screen::HostSettings(_) => en("Clear all for this PC"),
+            _ => en("Clear all for this game"),
         };
         // The rows set here, and the settings set here that have no row (beam racing set from the
         // stream menu): Clear all clears those too.
@@ -293,8 +283,7 @@ impl Launcher {
         let confirm = &mut self.settings_view.confirm_reset;
         let mut cleared = false;
         banner(ui, |ui| {
-            ui.label(RichText::new(tr(about)).font(regular(text::LABEL)).color(ON_SURFACE));
-            ui.label(RichText::new(count).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
+            ui.label(RichText::new(count).font(regular(text::LABEL)).color(ON_SURFACE));
             if let Some(hidden) = hidden {
                 ui.label(RichText::new(hidden).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
             }
@@ -330,8 +319,11 @@ impl Launcher {
         let (rect, _) = ui.allocate_exact_size(vec2(width, CONTROL_HEIGHT), Sense::hover());
         let focused = ui.memory(|m| m.has_focus(search_id()));
         let hovered = ui.rect_contains_pointer(rect);
-        let fill = if focused || hovered { *SURFACE_HIGH } else { *SURFACE };
-        ui.painter().rect_filled(rect, CornerRadius::same(radius::CONTROL), fill);
+        let round = rect.height() / 2.0;
+        let mut shapes = Vec::new();
+        glass::control(&mut shapes, ui.ctx(), rect, round);
+        lift_shapes(&mut shapes, ui.ctx(), rect, round, focused || hovered, false);
+        ui.painter().extend(shapes);
         // The magnifier: a ring and its handle.
         let glass = Pos2::new(rect.left() + 22.0, rect.center().y - 1.5);
         let stroke = Stroke::new(2.0, *ON_SURFACE_VARIANT);
@@ -392,7 +384,7 @@ impl Launcher {
             }
         }
         if edit.has_focus() {
-            ui.painter().rect_stroke(rect.expand(3.0), CornerRadius::same(radius::CONTROL + 3), Stroke::new(focus_ring_width(), MOON), StrokeKind::Outside);
+            focus_ring_around(ui, rect, round as u8);
         }
         view.search_focused = edit.has_focus();
     }
@@ -403,6 +395,9 @@ impl Launcher {
     fn section_list(&mut self, ui: &mut Ui, sections: &[&'static str], layered: bool) -> Vec<(&'static str, Id)> {
         let searching = self.settings_view.searching();
         let mut entries = Vec::new();
+        let under = ui.painter().add(egui::Shape::Noop);
+        let top = ui.cursor().top();
+        ui.add_space(SIDE_INSET);
         for name in sections {
             let at = SETTINGS_SECTIONS.iter().position(|s| s == name).unwrap_or(0);
             let badge = if searching {
@@ -420,6 +415,11 @@ impl Launcher {
                 self.settings_view.open(name);
             }
         }
+        ui.add_space(SIDE_INSET - ui.spacing().item_spacing.y);
+        let list = Rect::from_min_max(Pos2::new(ui.max_rect().left(), top), Pos2::new(ui.max_rect().right(), ui.cursor().top()));
+        let mut shapes = Vec::new();
+        glass::group(&mut shapes, ui.ctx(), list, f32::from(radius::PANEL), rows_fill());
+        ui.painter().set(under, egui::Shape::Vec(shapes));
         entries
     }
 
@@ -475,9 +475,9 @@ impl Launcher {
             if searching {
                 ui.label(RichText::new(trf("Results for “{}”", &[&self.settings_view.query.trim()])).font(semibold(text::SECTION)).color(PAPER));
             } else {
-                let at = SETTINGS_SECTIONS.iter().position(|s| *s == open).unwrap_or(0);
-                ui.label(RichText::new(tr(open)).font(semibold(text::SECTION)).color(PAPER));
-                ui.label(RichText::new(tr(SECTION_ABOUT[at])).font(regular(text::LABEL)).color(ON_SURFACE_VARIANT));
+                // Under a layer's own title and notice, the section is one step down.
+                let size = if layered { text::SECTION } else { chrome::PAGE_TITLE };
+                ui.label(RichText::new(tr(open)).font(semibold(size)).color(PAPER));
             }
             ui.add_space(space::M);
 
@@ -494,7 +494,7 @@ impl Launcher {
             let mut chose = None;
             setting_row(ui, s, &mut rows, &["width", "height"], "Resolution", "The picture size the PC sends. Native matches this screen; a smaller size needs less network and PC power.", |ui, s| {
                 // Taller than egui's default menu; it scrolls where the window is shorter.
-                egui::ComboBox::from_id_salt("resolution")
+                Combo::from_id_salt("resolution")
                     .selected_text(current)
                     .height(640.0)
                     .show_ui(ui, |ui| {
@@ -540,7 +540,7 @@ impl Launcher {
             };
             let mut chose = None;
             setting_row(ui, s, &mut rows, &["fps"], "Frame rate", "Pictures per second. Display matches this monitor; a higher rate looks smoother and needs a faster network.", |ui, s| {
-                egui::ComboBox::from_id_salt("fps")
+                Combo::from_id_salt("fps")
                     .selected_text(fps_text)
                     .height(640.0)
                     .show_ui(ui, |ui| {
@@ -589,7 +589,7 @@ impl Launcher {
                 setting_row(ui, s, &mut rows, &["bitrate_kbps"], "Bitrate",
                     note,
                     |ui, s| {
-                        let r = slider(ui, &mut mbps, 0.5..=2000.0, 0.5,
+                        let r = log_slider(ui, &mut mbps, 0.5..=2000.0, 0.5,
                             |rail| rail.logarithmic(true).step_by(0.5),
                             |field| field.suffix(" Mbps").max_decimals(1).speed(0.5));
                         if r.changed() {
@@ -616,7 +616,7 @@ impl Launcher {
             };
             let gpu_decoder_error = if s.codec.is_pyrowave() { gpu_probe(ui) } else { None };
             setting_row(ui, s, &mut rows, &["codec"], "Codec", "How the video is compressed. Automatic suits most setups: it picks HEVC, then H.264. PyroWave needs a very high bitrate and GPU rendering; on Linux, restart Nightjar after choosing it.", |ui, s| {
-                egui::ComboBox::from_id_salt("codec")
+                Combo::from_id_salt("codec")
                     .selected_text(codec_name(s.codec))
                     .show_ui(ui, |ui| {
                         for codec in [CodecPreference::Auto, CodecPreference::H264, CodecPreference::Hevc, CodecPreference::Av1] {
@@ -635,9 +635,9 @@ impl Launcher {
                 "Streams in HDR to an HDR screen, for brighter highlights and richer color. Turn on HDR in the system's display settings first.",
                 |ui, s| toggle(ui, &mut s.hdr),
             );
-            rows.group(ui, "Fine-tuning", en("Change these only if the picture doesn't look right or your setup needs it."));
+            rows.group(en("Fine-tuning"));
             setting_row(ui, s, &mut rows, &["adaptive_quality"], "Automatic quality", "Lowers the resolution or frame rate while the PC or network can't keep up, and raises them again later. Works with PCs that can change a stream while it runs.", |ui, s| {
-                egui::ComboBox::from_id_salt("quality").selected_text(tr(s.adaptive_quality.label())).show_ui(ui, |ui| {
+                Combo::from_id_salt("quality").selected_text(tr(s.adaptive_quality.label())).show_ui(ui, |ui| {
                     for mode in [crate::config::QualityMode::Off, crate::config::QualityMode::Motion, crate::config::QualityMode::Detail, crate::config::QualityMode::Battery] {
                         ui.selectable_value(&mut s.adaptive_quality, mode, tr(mode.label()));
                     }
@@ -657,7 +657,7 @@ impl Launcher {
                 en("How a stream smaller than the window is enlarged. FSR 1 and SGSR 1 look sharper than Bilinear; HDR always uses Bilinear. On Linux, restart Nightjar after turning it on.")
             };
             setting_row(ui, s, &mut rows, &["upscaling"], "Upscaling", upscaling_help, |ui, s| {
-                egui::ComboBox::from_id_salt("upscaling").selected_text(tr(s.upscaling.label())).show_ui(ui, |ui| {
+                Combo::from_id_salt("upscaling").selected_text(tr(s.upscaling.label())).show_ui(ui, |ui| {
                     // AI enhancement is offered only where the GPU's probe finds the vendor's super
                     // resolution or RTX Video HDR. It loads the AMF runtime, so it runs once per
                     // renderer device, in the background, when the menu is first opened.
@@ -688,7 +688,7 @@ impl Launcher {
                 None => tr("Only for PyroWave. GPU decodes on the graphics card and never falls back to the processor. CPU decodes on the processor and finishes on the graphics card.").to_owned(),
             };
             setting_row(ui, s, &mut rows, &["pyrowave_decoder"], "PyroWave decoder", &decoder_note, |ui, s| {
-                egui::ComboBox::from_id_salt("pyrowave-decoder")
+                Combo::from_id_salt("pyrowave-decoder")
                     .selected_text(tr(s.pyrowave_decoder.label()))
                     .show_ui(ui, |ui| {
                         for mode in [crate::config::PyroWaveDecoder::Cpu, crate::config::PyroWaveDecoder::Gpu] {
@@ -700,7 +700,7 @@ impl Launcher {
 
             rows.section(en("Display & image"));
             setting_row(ui, s, &mut rows, &["window_mode"], "Window", "Borderless covers the screen without changing the display's mode, so switching to other apps stays quick.", |ui, s| {
-                egui::ComboBox::from_id_salt("window")
+                Combo::from_id_salt("window")
                     .selected_text(window_name(s.window_mode))
                     .show_ui(ui, |ui| {
                         for mode in [WindowMode::Fullscreen, WindowMode::Borderless, WindowMode::Windowed] {
@@ -711,7 +711,7 @@ impl Launcher {
             });
             setting_row(ui, s, &mut rows, &["video_scaling"], "Video size", "How the picture fits the window. Fit shows all of it, Fill crops the edges, Stretch fills the window out of shape, Native pixels shows one screen pixel per stream pixel.", |ui, s| {
                 use crate::config::VideoScaling;
-                egui::ComboBox::from_id_salt("video-scaling").selected_text(tr(s.video_scaling.label())).show_ui(ui, |ui| {
+                Combo::from_id_salt("video-scaling").selected_text(tr(s.video_scaling.label())).show_ui(ui, |ui| {
                     for mode in [VideoScaling::Fit, VideoScaling::Fill, VideoScaling::Stretch, VideoScaling::Native] {
                         ui.selectable_value(&mut s.video_scaling, mode, tr(mode.label()));
                     }
@@ -723,10 +723,10 @@ impl Launcher {
                 en("This system can't show frames with tearing, which VRR needs here.")
             };
             setting_row(ui, s, &mut rows, &["vrr"], "Variable refresh rate", vrr_note, |ui, s| toggle(ui, &mut s.vrr));
-            rows.group(ui, "On the PC", en("The display the PC streams from."));
+            rows.group(en("On the PC"));
             setting_row(ui, s, &mut rows, &["virtual_display"], "Virtual display", "Asks the PC for a separate virtual display that matches the stream. Works with PCs that support it.", |ui, s| toggle(ui, &mut s.virtual_display));
             setting_row(ui, s, &mut rows, &["host_display"], "Display arrangement", "How the PC arranges the streamed display with its own screens. Only for normal streams on PCs that support display modes.", |ui, s| {
-                egui::ComboBox::from_id_salt("host-display")
+                Combo::from_id_salt("host-display")
                     .selected_text(tr(host_display_name(s.host_display)))
                     .show_ui(ui, |ui| {
                         for mode in [HostDisplay::HostDefault, HostDisplay::Exclusive, HostDisplay::ExtendedPrimary,
@@ -748,7 +748,7 @@ impl Launcher {
                 };
                 rows.when(note.is_none(), "");
                 setting_row(ui, s, &mut rows, &["virtual_display_dpi"], "PC display scaling", &description, |ui, s| {
-                    egui::ComboBox::from_id_salt("virtual-display-dpi")
+                    Combo::from_id_salt("virtual-display-dpi")
                         .selected_text(display_scale_name(s.virtual_display_dpi))
                         .show_ui(ui, |ui| {
                             for percent in crate::config::DISPLAY_SCALES {
@@ -758,7 +758,7 @@ impl Launcher {
                 });
                 rows.always();
             }
-            rows.group(ui, "Fine-tuning", en("Change these only if motion looks uneven or the picture tears."));
+            rows.group(en("Fine-tuning"));
             setting_row(ui, s, &mut rows, &["align_video_top"], "Align video to top", "Puts Fit and Native pixels video at the top of the window instead of the middle.", |ui, s| toggle(ui, &mut s.align_video_top));
             let immediate_packed = cfg!(windows) && s.experimental_packed_444 && tearing;
             rows.when(s.vrr || immediate_packed, en("Turn on Variable refresh rate to use this."));
@@ -776,7 +776,7 @@ impl Launcher {
             setting_row(ui, s, &mut rows, &["frame_pacing"], "Frame pacing",
                 "Without VRR: Lowest latency shows the newest frame at once. Balanced waits for the screen's refresh. With an FPS limit, early frames wait their turn. Smoothest video shows every frame in turn and adds up to a frame of delay.",
                 |ui, s| {
-                    egui::ComboBox::from_id_salt("frame-pacing").selected_text(tr(s.frame_pacing.label())).show_ui(ui, |ui| {
+                    Combo::from_id_salt("frame-pacing").selected_text(tr(s.frame_pacing.label())).show_ui(ui, |ui| {
                         for mode in crate::config::FramePacing::ALL {
                             ui.selectable_value(&mut s.frame_pacing, mode, tr(mode.label()));
                         }
@@ -792,7 +792,7 @@ impl Launcher {
             rows.section(en("Controls"));
             let mouse = with_hotkey(tr("Captured suits games: the pointer stays in the stream. Desktop pointer suits remote work."), crate::shortcuts::Action::MouseMode);
             setting_row(ui, s, &mut rows, &["mouse_mode"], "Mouse", &mouse, |ui, s| {
-                egui::ComboBox::from_id_salt("mouse")
+                Combo::from_id_salt("mouse")
                     .selected_text(mouse_name(s.mouse_mode))
                     .show_ui(ui, |ui| {
                         for mode in [MouseMode::Capture, MouseMode::Absolute] {
@@ -820,10 +820,10 @@ impl Launcher {
             }
             // How the stream menu opens and what it holds, as Android's Stream menu group. Android's floating menu
             // button has no desktop row: a window has a pointer and keys to open the menu.
-            rows.group(ui, "Stream menu", "");
+            rows.group(en("Stream menu"));
             rows.when(s.controllers, en("Turn on Controllers to use this."));
             setting_row(ui, s, &mut rows, &["guide_hold_ms"], "Hold Guide to open the stream menu", "A short press still goes to the PC.", |ui, s| {
-                egui::ComboBox::from_id_salt("guide-hold").selected_text(guide_hold_name(s.guide_hold_ms)).show_ui(ui, |ui| {
+                Combo::from_id_salt("guide-hold").selected_text(guide_hold_name(s.guide_hold_ms)).show_ui(ui, |ui| {
                     for ms in crate::config::GUIDE_HOLD_MS {
                         ui.selectable_value(&mut s.guide_hold_ms, ms, guide_hold_name(ms));
                     }
@@ -839,7 +839,7 @@ impl Launcher {
                     shortcuts
                 });
             }
-            rows.group(ui, "Mouse and keyboard", "");
+            rows.group(en("Mouse and keyboard"));
             if !layered {
                 setting_row(ui, s, &mut rows, &[], "Stream hotkeys", "Nightjar's own key combinations in a stream.", |ui, _| {
                     let hotkeys = quiet_button(ui, "Change");
@@ -858,10 +858,10 @@ impl Launcher {
                 setting_row(ui, s, &mut rows, &["native_touchpad"], "Touchpad gestures on the PC", "Sends your touchpad's fingers to a PC that accepts them, so its gestures work there. Other PCs get a normal pointer.", |ui, s| toggle(ui, &mut s.native_touchpad));
             }
             setting_row(ui, s, &mut rows, &["right_alt_as_meta"], "Right Alt as Windows key", "Use Right Alt for Windows-key shortcuts on the PC.", |ui, s| toggle(ui, &mut s.right_alt_as_meta));
-            rows.group(ui, "Controllers", "");
+            rows.group(en("Controllers"));
             rows.when(s.controllers, en("Turn on Controllers to use this."));
             setting_row(ui, s, &mut rows, &["gamepad_quit_combo"], "Buttons to leave the stream", "Hold these buttons together to leave the stream. Pick others if a game or your controller needs these.", |ui, s| {
-                egui::ComboBox::from_id_salt("gamepad-quit-combo").selected_text(style.quit_combo(s.gamepad_quit_combo)).show_ui(ui, |ui| {
+                Combo::from_id_salt("gamepad-quit-combo").selected_text(style.quit_combo(s.gamepad_quit_combo)).show_ui(ui, |ui| {
                     for combo in crate::config::GamepadQuitCombo::ALL {
                         ui.selectable_value(&mut s.gamepad_quit_combo, combo, style.quit_combo(combo));
                     }
@@ -871,7 +871,7 @@ impl Launcher {
             if s.controller_mouse {
                 setting_row(ui, s, &mut rows, &["analog_scrolling"], "Stick for scrolling", "In controller mouse mode this stick scrolls and the other moves the pointer. Off lets both sticks move it.", |ui, s| {
                     use crate::config::AnalogScrolling;
-                    egui::ComboBox::from_id_salt("analog-scrolling").selected_text(scrolling_name(s.analog_scrolling)).show_ui(ui, |ui| {
+                    Combo::from_id_salt("analog-scrolling").selected_text(scrolling_name(s.analog_scrolling)).show_ui(ui, |ui| {
                         for stick in [AnalogScrolling::Off, AnalogScrolling::Left, AnalogScrolling::Right] {
                             ui.selectable_value(&mut s.analog_scrolling, stick, scrolling_name(stick));
                         }
@@ -896,7 +896,7 @@ impl Launcher {
 
             rows.section(en("Audio"));
             setting_row(ui, s, &mut rows, &["audio"], "Channels", "Stereo suits most speakers and headphones. Surround needs a PC and speakers that support it.", |ui, s| {
-                egui::ComboBox::from_id_salt("audio")
+                Combo::from_id_salt("audio")
                     .selected_text(audio_name(s.audio))
                     .show_ui(ui, |ui| {
                         for channels in [AudioChannels::Stereo, AudioChannels::Surround51, AudioChannels::Surround71] {
@@ -914,12 +914,12 @@ impl Launcher {
             setting_row(ui, s, &mut rows, &["microphone"], "Microphone", "Sends this device's default microphone to the PC while streaming. Works with PCs that support it.", |ui, s| {
                 toggle(ui, &mut s.microphone)
             });
-            rows.group(ui, "Fine-tuning", "");
+            rows.group(en("Fine-tuning"));
             rows.when(s.microphone, en("Turn on Microphone to use this."));
             setting_row(ui, s, &mut rows, &["mic_echo_cancel"], "Echo cancellation",
                 "Keeps the stream's sound from your speakers out of the microphone. On Windows, Automatic turns it off for headphones and headsets. On Linux it needs PipeWire's or PulseAudio's echo-cancel module.",
                 |ui, s| {
-                    egui::ComboBox::from_id_salt("mic-echo-cancel").selected_text(tr(s.mic_echo_cancel.label())).show_ui(ui, |ui| {
+                    Combo::from_id_salt("mic-echo-cancel").selected_text(tr(s.mic_echo_cancel.label())).show_ui(ui, |ui| {
                         for mode in crate::config::MicEcho::ALL {
                             ui.selectable_value(&mut s.mic_echo_cancel, mode, tr(mode.label()));
                         }
@@ -937,7 +937,7 @@ impl Launcher {
             let overlay = with_hotkey(tr("Shows how the stream is doing. Compact is one line; Statistics adds frame rates, network and decode times; Debug shows every measurement."), crate::shortcuts::Action::Overlay);
             setting_row(ui, s, &mut rows, &["overlay", "overlay_mode"], "Performance overlay", &overlay, |ui, s| {
                 let shown = if s.overlay { tr(s.overlay_mode.label()) } else { tr("Off") };
-                egui::ComboBox::from_id_salt("overlay-mode").selected_text(shown).show_ui(ui, |ui| {
+                Combo::from_id_salt("overlay-mode").selected_text(shown).show_ui(ui, |ui| {
                     if ui.selectable_label(!s.overlay, tr("Off")).clicked() { s.overlay = false; }
                     for mode in crate::config::OverlayMode::ALL {
                         if ui.selectable_label(s.overlay && s.overlay_mode == mode, tr(mode.label())).clicked() {
@@ -948,7 +948,7 @@ impl Launcher {
             });
             rows.when(s.overlay, en("Turn on the performance overlay to use this."));
             setting_row(ui, s, &mut rows, &["overlay_position"], "Overlay position", "The corner the performance overlay sits in.", |ui, s| {
-                egui::ComboBox::from_id_salt("overlay-position").selected_text(tr(s.overlay_position.label())).show_ui(ui, |ui| {
+                Combo::from_id_salt("overlay-position").selected_text(tr(s.overlay_position.label())).show_ui(ui, |ui| {
                     for corner in crate::config::OverlayCorner::ALL {
                         ui.selectable_value(&mut s.overlay_position, corner, tr(corner.label()));
                     }
@@ -968,7 +968,7 @@ impl Launcher {
                     manage
                 });
             }
-            rows.group(ui, "Connection", "");
+            rows.group(en("Connection"));
             setting_row(ui, s, &mut rows, &["client_roaming"], "Keep streaming when the network changes", "The stream carries on when this device switches networks, such as from Wi-Fi to Ethernet. Works with PCs that support it.", |ui, s| {
                 toggle(ui, &mut s.client_roaming)
             });
@@ -978,7 +978,7 @@ impl Launcher {
                 });
             }
             setting_row(ui, s, &mut rows, &["network_grace_ms"], "Wait through network dropouts", "How long the stream waits through a brief network dropout before it gives up.", |ui, s| {
-                egui::ComboBox::from_id_salt("network-grace")
+                Combo::from_id_salt("network-grace")
                     .selected_text(trf("{} seconds", &[&(s.network_grace_ms / 1000)]))
                     .show_ui(ui, |ui| {
                         for ms in [0, 3000, 5000, 10000, 15000] {
@@ -987,7 +987,7 @@ impl Launcher {
                     }).response
             });
             if let Some(host) = test_host {
-                rows.group(ui, "Network tests", "");
+                rows.group(en("Network tests"));
                 let online = host.paired() && host.reach == Reach::Online;
                 setting_row(ui, s, &mut rows, &[], "Network speed test", "Downloads 32 MiB from this PC to measure the connection. Uses network data, and needs a paired PC that supports it.", |ui, _| {
                     let enabled = online && host.bandwidth_test();
@@ -1007,7 +1007,7 @@ impl Launcher {
                     }).inner
                 });
             }
-            rows.group(ui, "Fine-tuning", "");
+            rows.group(en("Fine-tuning"));
             setting_row(ui, s, &mut rows, &["usb_forwarding"], "USB forwarding", "Lets you attach USB devices plugged into this computer to the PC from the stream menu. The PC must allow USB devices for this device. On Windows, a device needs the WinUSB driver.", |ui, s| {
                 toggle(ui, &mut s.usb_forwarding)
             });
@@ -1029,7 +1029,7 @@ impl Launcher {
                     button
                 });
                 setting_row(ui, s, &mut rows, &["language"], "Language", "The language of Nightjar's menus. System default follows the operating system.", |ui, s| {
-                    egui::ComboBox::from_id_salt("language")
+                    Combo::from_id_salt("language")
                         .selected_text(drawable_language_name(ui, s.language))
                         .show_ui(ui, |ui| {
                             for language in Language::ALL {
@@ -1038,14 +1038,14 @@ impl Launcher {
                         })
                         .response
                 });
-                rows.group(ui, "Starting up", "");
+                rows.group(en("Starting up"));
                 let open_game = self.open_game.as_ref().map(|g| g.title.clone());
                 let open_name = |choice: crate::config::OpenOnStart| match (choice, &open_game) {
                     (crate::config::OpenOnStart::Chosen, Some(title)) => title.clone(),
                     _ => tr(choice.label()).to_owned(),
                 };
                 setting_row(ui, s, &mut rows, &["open_on_start"], "When Nightjar opens", "Your PCs, or a 3-second countdown into a game.", |ui, s| {
-                    egui::ComboBox::from_id_salt("open-on-start")
+                    Combo::from_id_salt("open-on-start")
                         .selected_text(open_name(s.open_on_start))
                         .show_ui(ui, |ui| {
                             for choice in crate::config::OpenOnStart::ALL {
@@ -1064,9 +1064,9 @@ impl Launcher {
                         response
                     });
                 }
-                rows.group(ui, "Accessibility", "");
+                rows.group(en("Accessibility"));
                 setting_row(ui, s, &mut rows, &["ui_zoom"], "Text and button size", "Makes everything in Nightjar bigger or smaller. Ctrl+= and Ctrl+- change it, Ctrl+0 resets it.", |ui, s| {
-                    egui::ComboBox::from_id_salt("ui-zoom")
+                    Combo::from_id_salt("ui-zoom")
                         .selected_text(format!("{}%", crate::config::nearest_zoom(s.ui_zoom)))
                         .show_ui(ui, |ui| {
                             for step in UI_ZOOM_STEPS {
@@ -1079,7 +1079,7 @@ impl Launcher {
                     toggle(ui, &mut s.high_contrast)
                 });
                 setting_row(ui, s, &mut rows, &["reduce_motion"], "Reduce motion", "Stops fades, slides and the spinning wheel. Follow system uses the Windows animation setting; other systems don't report one, so motion stays on.", |ui, s| {
-                    egui::ComboBox::from_id_salt("reduce-motion")
+                    Combo::from_id_salt("reduce-motion")
                         .selected_text(reduce_motion_name(s.reduce_motion))
                         .show_ui(ui, |ui| {
                             for mode in [ReduceMotion::System, ReduceMotion::Reduce, ReduceMotion::Full] {
@@ -1088,7 +1088,7 @@ impl Launcher {
                         })
                         .response
                 });
-                rows.group(ui, "Fine-tuning", "");
+                rows.group(en("Fine-tuning"));
                 setting_row(ui, s, &mut rows, &["input_only_any_host"], "Input-only on any PC", "Adds Input-only to a game’s menu on PCs without an Input-only mode of their own. The PC still sends video and audio at the smallest size, under 1 Mbit/s, which Nightjar doesn’t show or play.", |ui, s| {
                     toggle(ui, &mut s.input_only_any_host)
                 });
@@ -1136,7 +1136,7 @@ impl Launcher {
             rows.section(en("Debug"));
             // Android's main rows first, in its order.
             setting_row(ui, s, &mut rows, &["error_correction"], "Error correction", "Recovery data the PC adds so lost packets don't break up the picture. Automatic follows this device's losses. PCs that don't take this choice use their own setting.", |ui, s| {
-                egui::ComboBox::from_id_salt("error-correction")
+                Combo::from_id_salt("error-correction")
                     .selected_text(error_correction_name(s.error_correction))
                     .show_ui(ui, |ui| {
                         let fixed = ErrorCorrection::PERCENTAGES.map(ErrorCorrection::Percent);
@@ -1164,10 +1164,10 @@ impl Launcher {
                 toggle(ui, &mut s.unbatched_input)
             });
             setting_row(ui, s, &mut rows, &["full_range"], "Full color range", "Asks the PC for the full range of brightness levels. Turn on only if dark scenes look washed out or crushed.", |ui, s| toggle(ui, &mut s.full_range));
-            rows.group(ui, "Fine-tuning", "");
+            rows.group(en("Fine-tuning"));
             rows.when(!s.codec.is_pyrowave(), en("Not used with PyroWave."));
             setting_row(ui, s, &mut rows, &["decoder"], "Video decoding", "Automatic decodes on the graphics card when it can. Software uses the processor; try it only if the picture shows errors.", |ui, s| {
-                egui::ComboBox::from_id_salt("decoder")
+                Combo::from_id_salt("decoder")
                     .selected_text(decoder_name(s.decoder))
                     .show_ui(ui, |ui| {
                         for decoder in [DecoderPreference::Auto, DecoderPreference::Software] {
@@ -1480,7 +1480,7 @@ pub(super) struct Rows<'a> {
     group: &'static str,
     /// The heading waiting for the first row drawn under it: the section's while searching
     /// (true), a group's title and note.
-    heading: Option<(bool, &'static str, &'static str)>,
+    heading: Option<(bool, &'static str)>,
     /// Rows drawn, per section.
     found: [usize; 8],
     /// Whether the rows that follow can be changed, and why not.
@@ -1507,22 +1507,21 @@ impl Rows<'_> {
     /// Starts `title`'s rows.
     fn section(&mut self, title: &'static str) {
         (self.section, self.group) = (title, "");
-        self.heading = self.searching().then_some((true, title, ""));
+        self.heading = self.searching().then_some((true, title));
         self.always();
     }
 
-    /// Starts a group of rows inside the section, such as Fine-tuning, with a line saying what
-    /// it holds (or none).
-    fn group(&mut self, _ui: &Ui, title: &'static str, note: &'static str) {
+    /// Starts a group of rows inside the section, such as Fine-tuning.
+    fn group(&mut self, title: &'static str) {
         self.group = title;
         let section = match self.heading {
-            Some((true, section, _)) => Some(section),
+            Some((true, section)) => Some(section),
             _ => None,
         };
         self.heading = match section {
             // Searching, with no row of the section drawn yet: the section's heading still comes first.
-            Some(section) => Some((true, section, "")),
-            None => Some((false, title, note)),
+            Some(section) => Some((true, section)),
+            None => Some((false, title)),
         };
         self.always();
     }
@@ -1551,15 +1550,15 @@ impl Rows<'_> {
         if !visible {
             return false;
         }
-        if let Some((section, title, note)) = self.heading.take() {
+        if let Some((section, title)) = self.heading.take() {
             if section {
                 search_heading(ui, title);
                 // The group this row is in, right under the section, as close as a row would be.
                 if !self.group.is_empty() {
-                    group_heading(ui, self.group, "", 0.0);
+                    group_heading(ui, self.group, 0.0);
                 }
             } else {
-                group_heading(ui, title, note, space::XL);
+                group_heading(ui, title, space::XL);
             }
         }
         self.found[at] += 1;
@@ -1578,18 +1577,14 @@ impl Rows<'_> {
 /// A section's heading among search results.
 fn search_heading(ui: &mut Ui, title: &str) {
     ui.add_space(space::L);
-    ui.label(RichText::new(tr(title)).font(semibold(text::CARD_TITLE)).color(ON_SURFACE));
+    ui.label(RichText::new(tr(title)).font(semibold(text::SECTION)).color(ON_SURFACE));
     ui.add_space(space::XS);
 }
 
-/// A group's heading inside a section: its title in capitals and what it holds, `above` apart
-/// from what comes before it.
-fn group_heading(ui: &mut Ui, title: &str, note: &str, above: f32) {
+/// A group's heading inside a section, `above` apart from what comes before it.
+fn group_heading(ui: &mut Ui, title: &str, above: f32) {
     ui.add_space(above);
-    ui.label(RichText::new(tr(title).to_uppercase()).font(semibold(text::CAPTION)).color(MOON));
-    if !note.is_empty() {
-        ui.label(RichText::new(tr(note)).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
-    }
+    ui.label(RichText::new(tr(title)).font(semibold(text::SECTION)).color(ON_SURFACE));
     ui.add_space(space::XS);
 }
 
@@ -1722,39 +1717,34 @@ fn settings_row(
     control: impl FnOnce(&mut Ui) -> Response,
 ) -> Response {
     let mut out = None;
-    let width = ui.available_width();
-    let frame = Frame::new()
-        .fill(*SURFACE)
-        .corner_radius(CornerRadius::same(radius::CONTROL))
-        .inner_margin(Margin::symmetric(18, 12))
-        .show(ui, |ui| {
-            ui.set_width(width - 36.0);
-            ui.horizontal(|ui| {
-                let text_w = (ui.available_width() - CONTROL_W - reset_w - space::L).max(180.0);
-                ui.vertical(|ui| {
-                    ui.set_width(text_w);
-                    let dim = |c: Color32| if enabled { c } else { c.gamma_multiply(0.6) };
-                    ui.label(RichText::new(tr(label)).font(semibold(text::BODY)).color(dim(*ON_SURFACE)));
-                    ui.label(RichText::new(tr(description)).font(regular(text::CAPTION)).color(dim(*ON_SURFACE_VARIANT)));
-                    if let Some(why) = why {
-                        ui.add_space(2.0);
-                        ui.label(RichText::new(tr(why)).font(semibold(text::CAPTION)).color(TERTIARY));
-                    }
-                    if let Some((state, color)) = &state {
-                        ui.add_space(2.0);
-                        ui.label(RichText::new(state).font(regular(text::CAPTION)).color(*color));
-                    }
-                });
-                let align = if state.is_some() { Align::Min } else { Align::Center };
-                ui.with_layout(Layout::right_to_left(align), |ui| out = Some(control(ui)));
+    let rect = group_row(ui, |ui| {
+        ui.horizontal(|ui| {
+            let text_w = (ui.available_width() - CONTROL_W - reset_w - space::L).max(180.0);
+            // Where a list choice's box lands under it: where the value comes from sits beside it.
+            let to_state = COMBO_HEIGHT + 18.0;
+            ui.vertical(|ui| {
+                let top = ui.cursor().top();
+                ui.spacing_mut().item_spacing.y = 2.0;
+                ui.set_width(text_w);
+                let dim = |c: Color32| if enabled { c } else { c.gamma_multiply(0.6) };
+                ui.label(RichText::new(tr(label)).font(semibold(text::BODY)).color(dim(*ON_SURFACE)));
+                ui.label(RichText::new(tr(description)).font(regular(text::CAPTION)).color(dim(*ON_SURFACE_VARIANT)));
+                if let Some(why) = why {
+                    ui.label(RichText::new(tr(why)).font(semibold(text::CAPTION)).color(TERTIARY));
+                }
+                if let Some((state, color)) = &state {
+                    ui.add_space((top + to_state - ui.cursor().top()).max(0.0));
+                    ui.label(RichText::new(state).font(regular(text::CAPTION)).color(*color));
+                }
             });
+            let align = if state.is_some() { Align::Min } else { Align::Center };
+            ui.with_layout(Layout::right_to_left(align), |ui| out = Some(control(ui)));
         });
+    });
     if own {
-        let rect = frame.response.rect;
         let bar = Rect::from_min_size(Pos2::new(rect.left() + 6.0, rect.top() + 12.0), vec2(3.0, rect.height() - 24.0));
         ui.painter().rect_filled(bar, CornerRadius::same(2), MOON);
     }
-    ui.add_space(2.0);
     out.expect("control drawn")
 }
 
@@ -1805,9 +1795,27 @@ enum Badge {
     Set(usize),
 }
 
-/// A section in the list beside the rows: the current one on a lighter surface with an amber bar.
+/// A section's mark in the list beside the rows.
+fn section_icon(name: &str) -> Icon {
+    match name {
+        n if n == en("Video") => Icon::Video,
+        n if n == en("Display & image") => Icon::Sun,
+        n if n == en("Controls") => Icon::Gamepad,
+        n if n == en("Audio") => Icon::Speaker,
+        n if n == en("Streaming") => Icon::Wifi,
+        n if n == en("App") => Icon::App,
+        n if n == en("Advanced") => Icon::Sliders,
+        _ => Icon::Info,
+    }
+}
+
+/// A section in the list beside the rows: the current one in the selection's tint.
 fn section_item(ui: &mut Ui, name: &str, current: bool, badge: Badge) -> Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
+    let width = ui.max_rect().width() - 2.0 * SIDE_INSET;
+    let (_, slot) = ui.allocate_space(vec2(ui.available_width(), SIDE_ITEM_H));
+    let rect = Rect::from_min_size(Pos2::new(ui.max_rect().left() + SIDE_INSET, slot.top()), vec2(width, SIDE_ITEM_H));
+    let response = ui.interact(rect, ui.next_auto_id(), Sense::click());
+    ui.skip_ahead_auto_ids(1);
     let words = tr(name);
     let spoken = match badge {
         Badge::Found(n) => trf("{}, {} found", &[&words, &n]),
@@ -1816,30 +1824,28 @@ fn section_item(ui: &mut Ui, name: &str, current: bool, badge: Badge) -> Respons
     };
     response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Tab, true, current, &spoken));
     let pressed = response.is_pointer_button_down_on();
-    let fill = if pressed {
-        Some(*SURFACE_HIGHEST)
-    } else if current {
-        Some(*SURFACE_HIGH)
-    } else if response.hovered() {
-        Some(*SURFACE)
-    } else {
-        None
-    };
-    let painter = ui.painter();
-    if let Some(fill) = fill {
-        painter.rect_filled(rect, CornerRadius::same(radius::CONTROL), fill);
-    }
+    let round = f32::from(radius::CONTROL);
+    let mut shapes = Vec::new();
     if current {
-        let bar = Rect::from_center_size(Pos2::new(rect.left() + 4.0, rect.center().y), vec2(3.0, 18.0));
-        painter.rect_filled(bar, CornerRadius::same(2), MOON);
+        glass::solid(&mut shapes, ui.ctx(), rect, round, if high_contrast() { *MOON_CONTAINER } else { design_tokens::TINT_SELECTED_FILL });
     }
+    lift_shapes(&mut shapes, ui.ctx(), rect, round, response.hovered(), pressed);
+    let painter = ui.painter();
+    painter.extend(shapes);
     // While searching, a section with rows found stands out; one without stays as dim as any
     // other entry, with no count.
     let found = matches!(badge, Badge::Found(n) if n > 0);
-    let color = if current || found { *ON_SURFACE } else { *ON_SURFACE_VARIANT };
+    let color = if current {
+        *ON_MOON_CONTAINER
+    } else if found {
+        *ON_SURFACE
+    } else {
+        *ON_SURFACE_VARIANT
+    };
     let font = if current { semibold(text::BODY) } else { regular(text::BODY) };
+    icons::paint(painter, section_icon(name), Rect::from_center_size(Pos2::new(rect.left() + 22.0, rect.center().y), Vec2::splat(20.0)), color);
     let galley = painter.layout_no_wrap(words.to_owned(), font, color);
-    painter.galley(Pos2::new(rect.left() + 16.0, rect.center().y - galley.size().y / 2.0), galley, color);
+    painter.galley(Pos2::new(rect.left() + 44.0, rect.center().y - galley.size().y / 2.0), galley, color);
     let count = match badge {
         Badge::Found(n) if n > 0 => Some((n.to_string(), *ON_SURFACE_VARIANT, None)),
         Badge::Set(n) if n > 0 => Some((n.to_string(), *ON_MOON_CONTAINER, Some(*MOON_CONTAINER))),
@@ -1876,21 +1882,15 @@ fn section_chip(ui: &mut Ui, name: &str, current: bool) -> Response {
 /// A card across the page above the rows: words on the left, an action on the right.
 fn banner(ui: &mut Ui, words: impl FnOnce(&mut Ui), action: impl FnOnce(&mut Ui) -> Response) -> Response {
     let mut out = None;
-    let width = ui.available_width();
-    Frame::new()
-        .fill(*SURFACE)
-        .corner_radius(CornerRadius::same(radius::PANEL))
-        .inner_margin(Margin::symmetric(18, 12))
-        .show(ui, |ui| {
-            ui.set_width(width - 36.0);
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.set_width((ui.available_width() - 300.0).max(200.0));
-                    words(ui);
-                });
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| out = Some(action(ui)));
+    group_row(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.set_width((ui.available_width() - 300.0).max(200.0));
+                words(ui);
             });
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| out = Some(action(ui)));
         });
+    });
     ui.add_space(space::M);
     out.expect("action drawn")
 }

@@ -775,7 +775,7 @@ fn settings_show_a_sections_every_row_with_the_rarer_ones_in_groups_after() {
     f.size = vec2(1280.0, 12000.0);
     f.l.go(Screen::Settings);
     f.settle();
-    for text in ["Lower bitrate when the network is busy", "FINE-TUNING", "Automatic quality", "PyroWave decoder"] {
+    for text in ["Lower bitrate when the network is busy", "Fine-tuning", "Automatic quality", "PyroWave decoder"] {
         assert!(shows(&f, text), "{text}: nothing is folded away: {:?}", f.drawn);
     }
     assert!(!shows(&f, "Recover interrupted streams") && !shows(&f, "More Video settings (6)"), "one section at a time, no fold");

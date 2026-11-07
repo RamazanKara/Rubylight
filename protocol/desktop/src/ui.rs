@@ -43,7 +43,7 @@ use dialogs::*;
 pub use dialogs::moves_in_hotkey_dialog;
 pub use library::{asked_start, join_target, playing_elsewhere, policy_role, running_name};
 use library::*;
-pub(crate) use widgets::{focus_ring, name_for_readers, primary_button, quiet_button, toggle};
+pub(crate) use widgets::{focus_ring, focus_ring_around, name_for_readers, primary_button, quiet_button, toggle};
 use widgets::*;
 use icons::Icon;
 
@@ -459,8 +459,9 @@ pub struct View<'a> {
 const CONTENT_MAX: f32 = 1760.0;
 /// Seconds a pairing link's question shows before Pair can be chosen.
 const PAIR_LINK_DELAY: f64 = 1.0;
-/// The column of settings rows: settings, a PC's details, the profile and shortcut lists.
-const SETTINGS_W: f32 = 760.0;
+/// The column of settings rows takes what the page gives it up to this, so that on a very wide
+/// window a row's label and its control stay in one glance. No window under about 1400 reaches it.
+const SETTINGS_W: f32 = 1300.0;
 
 impl Launcher {
     pub fn new(settings: Settings, profiles: Profiles, shortcuts: crate::shortcuts::Shortcuts, display: Display) -> Self {

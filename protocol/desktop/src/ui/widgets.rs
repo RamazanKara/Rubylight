@@ -5,7 +5,7 @@ use super::*;
 
 /// A switch in the brand colours; returns whether it changed.
 pub(crate) fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
-    let size = vec2(44.0, 24.0);
+    let size = vec2(design_tokens::SIZE_SWITCH_W, design_tokens::SIZE_SWITCH_H);
     let (rect, mut response) = ui.allocate_exact_size(size, Sense::click());
     if response.clicked() {
         *on = !*on;
@@ -15,13 +15,26 @@ pub(crate) fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
     response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Switch, ui.is_enabled(), *on, ""));
     let t = ui.ctx().animate_bool_responsive(response.id, *on);
     let enabled = ui.is_enabled();
-    let track: Color32 = if *on { *MOON } else { *SURFACE_HIGHEST };
+    let round = rect.height() / 2.0;
+    let track = if *on {
+        *MOON
+    } else if high_contrast() {
+        *SURFACE_HIGHEST
+    } else {
+        design_tokens::TINT_TRACK_FILL
+    };
     let track = if enabled { track } else { track.gamma_multiply(0.4) };
-    ui.painter().rect_filled(rect, CornerRadius::same(12), track);
-    let knob_x = egui::lerp(rect.left() + 12.0..=rect.right() - 12.0, t);
-    let knob = if *on { *ON_MOON } else { *OUTLINE };
-    ui.painter().circle_filled(Pos2::new(knob_x, rect.center().y), 8.0, knob);
-    focus_ring(ui, rect, &response, 12);
+    let mut shapes = Vec::new();
+    glass::solid(&mut shapes, ui.ctx(), rect, round, track);
+    if high_contrast() {
+        glass::rim(&mut shapes, ui.ctx(), rect, round, 1.5, &|_| design_tokens::HC_COLOR_RIM);
+    }
+    let thumb = round - 3.0;
+    let knob_x = egui::lerp(rect.left() + round..=rect.right() - round, t);
+    let knob = if enabled { *PAPER } else { PAPER.gamma_multiply(0.6) };
+    shapes.push(egui::Shape::circle_filled(Pos2::new(knob_x, rect.center().y), thumb, knob));
+    ui.painter().extend(shapes);
+    focus_ring(ui, rect, &response, round as u8);
     response
 }
 
@@ -32,6 +45,11 @@ pub(crate) fn focus_ring(ui: &Ui, rect: Rect, response: &Response, radius: u8) {
     if response.has_focus() {
         paint_focus_ring(ui.painter(), rect, radius);
     }
+}
+
+/// [`focus_ring`] for a spot inside a widget, such as a slider's thumb.
+pub(crate) fn focus_ring_around(ui: &Ui, rect: Rect, radius: u8) {
+    paint_focus_ring(ui.painter(), rect, radius);
 }
 
 pub(crate) fn paint_focus_ring(painter: &egui::Painter, rect: Rect, radius: u8) {
@@ -57,11 +75,6 @@ pub(super) fn lift_shapes(out: &mut Vec<egui::Shape>, ctx: &egui::Context, rect:
 pub(super) fn last_state(ui: &Ui) -> (bool, bool) {
     let id = ui.next_auto_id();
     ui.ctx().read_response(id).map_or((false, false), |r| (r.hovered() || r.has_focus(), r.is_pointer_button_down_on()))
-}
-
-/// The outline every control has: none in the night palette, a visible one in high contrast.
-pub(super) fn control_stroke() -> Stroke {
-    if high_contrast() { Stroke::new(1.5, OUTLINE_VARIANT) } else { Stroke::NONE }
 }
 
 /// What a button is filled with, and so how it reacts.
@@ -324,7 +337,7 @@ pub(super) fn page_scroll(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debu
 /// A column of rows `width` wide in a page that scrolls whole.
 pub(super) fn column(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui)) {
     ui.vertical(|ui| {
-        ui.set_max_width(width);
+        ui.set_max_width(width.min(ui.available_width()));
         add(ui);
     });
 }
@@ -370,15 +383,15 @@ pub(super) fn section(ui: &mut Ui, title: &str) {
 
 /// A section heading, white as every label (amber is the action's); scrolls itself to the top when `jump` names it (a section chip was used).
 pub(super) fn section_at(ui: &mut Ui, title: &str, jump: &mut Option<&'static str>) {
-    ui.add_space(14.0);
+    ui.add_space(space::L);
     if jump.is_some_and(|j| j == title) {
         // It lands below the chrome, not beneath it.
         let at = ui.cursor().top() - chrome::PAGE_TOP;
         ui.scroll_to_rect(Rect::from_min_size(Pos2::new(ui.cursor().left(), at), Vec2::splat(1.0)), Some(Align::TOP));
         *jump = None;
     }
-    ui.label(RichText::new(tr(title)).font(semibold(text::CARD_TITLE)).color(ON_SURFACE));
-    ui.add_space(2.0);
+    ui.label(RichText::new(tr(title)).font(semibold(text::SECTION)).color(ON_SURFACE));
+    ui.add_space(space::XS);
 }
 
 /// What a group of rows or a card on the night sky is filled with: the sky shows through a little.
@@ -386,34 +399,146 @@ pub(super) fn group_fill() -> Color32 {
     if high_contrast() { *SURFACE } else { design_tokens::TINT_GROUP_ON_SKY_FILL }
 }
 
+/// What a group of settings rows is filled with. A row's words may pass over the moon, and text
+/// reads over the worst backdrop: dark enough for the secondary colour on amber, and the sky still
+/// shows through a little.
+pub(super) fn rows_fill() -> Color32 {
+    if high_contrast() { *SURFACE } else { design_tokens::COLOR_SURFACE_LOW.gamma_multiply(ROWS_ALPHA) }
+}
+
+const ROWS_ALPHA: f32 = 0.9;
+
+/// The run of rows being drawn: rows that follow each other share one rounded group, with a
+/// separator between them, whichever page or scope draws them.
+#[derive(Clone, Copy)]
+struct RowRun {
+    pass: u64,
+    layer: egui::LayerId,
+    background: egui::layers::ShapeIdx,
+    top: f32,
+    bottom: f32,
+    left: f32,
+    right: f32,
+}
+
+/// One row of a settings group, as wide as the column up to [`SETTINGS_W`]. A row placed right
+/// after another joins its group. `add` draws what the row holds, inside its margins.
+pub(super) fn group_row(ui: &mut Ui, add: impl FnOnce(&mut Ui)) -> Rect {
+    let run_id = egui::Id::unique("settings-row-run");
+    let pass = ui.ctx().cumulative_pass_nr();
+    let gap = ui.spacing().item_spacing.y;
+    let width = ui.available_width().min(SETTINGS_W);
+    let (left, top) = (ui.cursor().left(), ui.cursor().top());
+    let earlier = ui.data(|d| d.get_temp::<RowRun>(run_id)).filter(|run| {
+        run.pass == pass
+            && run.layer == ui.layer_id()
+            && (run.bottom + gap - top).abs() < 0.5
+            && (run.left - left).abs() < 0.5
+            && (run.right - (left + width)).abs() < 0.5
+    });
+    // Not this `ui`'s painter: a switched-off row would fade the whole group with it.
+    let painter = ui.ctx().layer_painter(ui.layer_id()).with_clip_rect(ui.clip_rect());
+    let run = match earlier {
+        Some(run) => {
+            ui.add_space(-gap);
+            let line = Rect::from_min_max(Pos2::new(run.left + 18.0, run.bottom - 0.5), Pos2::new(run.right, run.bottom + 0.5));
+            painter.rect_filled(line, CornerRadius::ZERO, design_tokens::TINT_SEPARATOR);
+            run
+        }
+        None => RowRun {
+            pass,
+            layer: ui.layer_id(),
+            background: painter.add(egui::Shape::Noop),
+            top,
+            bottom: top,
+            left,
+            right: left + width,
+        },
+    };
+    let rect = Frame::new()
+        .inner_margin(Margin::symmetric(18, 8))
+        .show(ui, |ui| {
+            // The frame's margin comes on top of the width set inside it.
+            ui.set_width(width - 2.0 * 18.0);
+            ui.set_min_height(design_tokens::SIZE_ROW_HEIGHT - 2.0 * 8.0);
+            add(ui);
+        })
+        .response
+        .rect;
+    let run = RowRun { bottom: rect.bottom(), ..run };
+    let group = Rect::from_min_max(Pos2::new(run.left, run.top), Pos2::new(run.right, run.bottom));
+    let mut shapes = Vec::new();
+    glass::group(&mut shapes, ui.ctx(), group, f32::from(radius::PANEL), rows_fill());
+    painter.set(run.background, egui::Shape::Vec(shapes));
+    ui.data_mut(|d| d.insert_temp(run_id, run));
+    rect
+}
+
+/// A list choice in a row: egui's combo box as a tinted capsule with a chevron, in the focus
+/// language of every other control. What it opens is egui's own list, in the launcher's style.
+pub(crate) struct Combo<'a>(egui::ComboBox<'a>);
+
+impl<'a> Combo<'a> {
+    pub(crate) fn from_id_salt(id: impl egui::AsIdSalt) -> Self {
+        Self(egui::ComboBox::from_id_salt(id).icon(|ui, rect, visuals, _open| {
+            let at = Rect::from_center_size(rect.center(), Vec2::splat(16.0));
+            icons::paint(ui.painter(), Icon::Down, at, visuals.fg_stroke.color);
+        }))
+    }
+
+    pub(crate) fn selected_text(self, text: impl egui::IntoAtoms<'a>) -> Self {
+        Self(self.0.selected_text(text))
+    }
+
+    pub(crate) fn height(self, height: f32) -> Self {
+        Self(self.0.height(height))
+    }
+
+    pub(crate) fn show_ui<R>(self, ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> egui::InnerResponse<Option<R>> {
+        let under = ui.painter().add(egui::Shape::Noop);
+        let shown = ui.scope(|ui| {
+            ui.spacing_mut().interact_size.y = COMBO_HEIGHT;
+            let widgets = &mut ui.visuals_mut().widgets;
+            for look in [&mut widgets.inactive, &mut widgets.hovered, &mut widgets.active, &mut widgets.open] {
+                look.weak_bg_fill = Color32::TRANSPARENT;
+                look.bg_stroke = Stroke::NONE;
+            }
+            self.0.show_ui(ui, add)
+        });
+        let response = &shown.inner.response;
+        let (rect, round) = (response.rect, response.rect.height() / 2.0);
+        let mut shapes = Vec::new();
+        glass::control(&mut shapes, ui.ctx(), rect, round);
+        let lifted = response.hovered() || response.has_focus();
+        lift_shapes(&mut shapes, ui.ctx(), rect, round, lifted && ui.is_enabled(), response.is_pointer_button_down_on());
+        ui.painter().set(under, egui::Shape::Vec(shapes));
+        focus_ring(ui, rect, response, round as u8);
+        shown.inner
+    }
+}
+
+pub(super) const COMBO_HEIGHT: f32 = 40.0;
+
 /// A settings row: label and description on the left, the control on the right.
 /// Every row takes the settings column's width at most, so rows line up on every page.
 pub(super) fn row(ui: &mut Ui, label: &str, description: &str, control: impl FnOnce(&mut Ui) -> Response) -> Response {
     let mut out = None;
-    // The frame's margin comes on top of the width set inside it.
-    let width = ui.available_width().min(SETTINGS_W) - 2.0 * 18.0;
-    Frame::new()
-        .fill(group_fill())
-        .stroke(control_stroke())
-        .corner_radius(CornerRadius::same(radius::CONTROL))
-        .inner_margin(Margin::symmetric(18, 12))
-        .show(ui, |ui| {
-            ui.set_width(width);
-            ui.horizontal(|ui| {
-                let control_width = 240.0;
-                ui.vertical(|ui| {
-                    ui.set_width((ui.available_width() - control_width - 16.0).max(200.0));
-                    ui.label(RichText::new(tr(label)).font(semibold(text::BODY)).color(ON_SURFACE));
-                    ui.label(RichText::new(tr(description)).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
-                });
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let response = control(ui);
-                    name_for_readers(ui, &response, label, description);
-                    out = Some(response);
-                });
+    group_row(ui, |ui| {
+        ui.horizontal(|ui| {
+            let control_width = 240.0;
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 2.0;
+                ui.set_width((ui.available_width() - control_width - 16.0).max(200.0));
+                ui.label(RichText::new(tr(label)).font(semibold(text::BODY)).color(ON_SURFACE));
+                ui.label(RichText::new(tr(description)).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
+            });
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let response = control(ui);
+                name_for_readers(ui, &response, label, description);
+                out = Some(response);
             });
         });
-    ui.add_space(2.0);
+    });
     out.expect("control drawn")
 }
 

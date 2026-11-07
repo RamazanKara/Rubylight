@@ -142,7 +142,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends meson ninja-build pkg-config libclang-dev \
-            nasm libopus-dev libva-dev libx11-dev libxext-dev libxrandr-dev \
+            nasm patch libopus-dev libva-dev libx11-dev libxext-dev libxrandr-dev \
             libxcursor-dev libxi-dev libxss-dev libxfixes-dev libxtst-dev libxkbcommon-dev libwayland-dev \
             wayland-protocols libegl-dev libgl-dev libgles-dev libdrm-dev libgbm-dev libpulse-dev \
             libasound2-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libdecor-0-dev \
@@ -163,7 +163,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ffprefix
-          key: ffmpeg-decode-only-linux-${{ matrix.arch }}-${{ steps.image.outputs.os }}-${{ env.FFMPEG_VERSION }}-${{ env.FFMPEG_SHA256 }}-${{ hashFiles('protocol/desktop/ffmpeg-decode-only.sh', 'protocol/desktop/ffmpeg-deps-linux.sh') }}
+          key: ffmpeg-decode-only-linux-${{ matrix.arch }}-${{ steps.image.outputs.os }}-${{ env.FFMPEG_VERSION }}-${{ env.FFMPEG_SHA256 }}-${{ hashFiles('protocol/desktop/ffmpeg-decode-only.sh', 'protocol/desktop/ffmpeg-deps-linux.sh', 'protocol/desktop/ffmpeg-patches/*.patch') }}
       - name: Build the decode-only FFmpeg
         if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
         run: |
@@ -175,6 +175,8 @@ jobs:
       - name: Check the FFmpeg source note
         run: |
           grep -qx "SHA-256: $FFMPEG_SHA256" ffprefix/licenses-ffmpeg/SOURCE.txt || { echo "::error::ffprefix/licenses-ffmpeg/SOURCE.txt has no SHA-256 $FFMPEG_SHA256"; exit 1; }
+      - name: Check V4L2 P010 against a fake decoder
+        run: bash protocol/desktop/ffmpeg-patches/test-v4l2-p010.sh ffprefix
       - name: PyroWave SDK cache
         id: sdk-cache
         if: github.ref_type != 'tag'

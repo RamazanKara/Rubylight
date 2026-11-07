@@ -71,7 +71,7 @@ Everything below works on Windows and Linux unless a platform is named.
 
 **Picture**
 
-- H.264, HEVC and AV1 with hardware decoding: D3D11VA on Windows; VA-API, then Vulkan video (GPUs without a VA-API driver, such as NVIDIA's), then V4L2 M2M, then NVDEC on Linux. A fallback to software decoding is announced. PyroWave decodes on the GPU or the CPU, with a bandwidth test and a frame-pace calibration per network.
+- H.264, HEVC and AV1 with hardware decoding: D3D11VA on Windows; VA-API, then Vulkan video (GPUs without a VA-API driver, such as NVIDIA's), then V4L2 M2M (10-bit HEVC where the driver offers P010, through `ffmpeg-patches/`, tested with a fake decoder by `test-v4l2-p010.sh`), then NVDEC on Linux. A fallback to software decoding is announced. PyroWave decodes on the GPU or the CPU, with a bandwidth test and a frame-pace calibration per network.
 - HDR: HDR10 and HLG, plus Dolby Vision profiles 8.1 and 10.1 on Windows from hosts that send them. On Linux the client requests an HDR surface from the compositor and draws HLG for hardware-decoded pictures. 10-bit SDR, YUV 4:4:4 and full chroma where the host and decoder support them.
 - Upscaling with bilinear, FSR 1, SGSR 1 or AI enhancement (the GPU vendor's video super resolution).
 - Variable refresh rate with frames shown at the PC's frame times, frame pacing modes and V-Sync without VRR, fractional refresh rates, virtual displays and PC display modes.

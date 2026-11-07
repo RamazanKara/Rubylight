@@ -3384,6 +3384,35 @@ async fn launch_app(h: &Harness, client: usize, id: u32) -> Result<String> {
         .text()
         .await?)
 }
+/// #56: the launch that reaches a background stream's session no longer asks
+/// to play on the PC, whatever the device does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_background_launch_never_plays_its_game_on_the_pc() -> Result<()> {
+    let (h, _pc, _entry) = coop_harness().await?;
+    let portal = h.h.apps.read().unwrap().last().unwrap().id();
+    let launch = || {
+        h.clients[0]
+            .get(format!("https://127.0.0.1:{}/launch", h.ports.https))
+            .query(&[
+                ("appid", portal.to_string()),
+                ("rikey", hex::encode(crypto::random::<16>())),
+                ("rikeyid", "1".into()),
+                ("corever", "1".into()),
+                ("mode", "1281x721x60".into()),
+                ("localAudioPlayMode", "1".into()),
+            ])
+            .send()
+    };
+    h.h.paired.write().unwrap().clients[0]
+        .extra
+        .insert("background_stream".into(), true.into());
+    let reply = launch().await?.text().await?;
+    assert!(reply.contains("status_code=\"200\""), "{reply}");
+    let pending = pending_of(&h, 0).unwrap();
+    assert_eq!(pending.background, Some(true));
+    assert!(!pending.host_audio);
+    Ok(())
+}
 /// A harness whose host has Nucleus Co-op (the fake) and Portal 2, which it
 /// has a handler for; client 1 may join co-op and client 0 has it turned off.
 /// Returns the co-op entry's id.

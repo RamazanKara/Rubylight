@@ -1526,6 +1526,16 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
     let driver_ready = result.is_ok() && butterpollo_windows::display::virtual_display_available();
     launch_response(result, requested, reply, resume, driver_ready)
 }
+/// A background stream leaves the PC to whoever uses it, so its game is heard
+/// only on the stream, whatever the device's "play audio on the PC" says: that
+/// setting stays for its normal streams (#56). A co-op player's choice stands.
+fn keep_background_sound_off_the_pc(launch: &mut Launch) {
+    if launch.background == Some(true) && launch.host_audio {
+        tracing::info!(client = %launch.client.name, "background stream: the game's sound stays off the PC, whatever the device asks");
+        launch.host_audio = false;
+    }
+}
+
 /// What a launch does once its client is known and the request is parsed, the same for a
 /// Moonlight and a WebRTC launch: end the sessions it replaces, wait for their resources, begin
 /// the session state, queue the launch, prepare the display, controllers and app, and keep the
@@ -1537,16 +1547,6 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
     clippy::too_many_arguments,
     reason = "the launch's parts, as both transports parse them"
 )]
-/// A background stream leaves the PC to whoever uses it, so its game is heard
-/// only on the stream, whatever the device's "play audio on the PC" says: that
-/// setting stays for its normal streams (#56). A co-op player's choice stands.
-fn keep_background_sound_off_the_pc(launch: &mut Launch) {
-    if launch.background == Some(true) && launch.host_audio {
-        tracing::info!(client = %launch.client.name, "background stream: the game's sound stays off the PC, whatever the device asks");
-        launch.host_audio = false;
-    }
-}
-
 fn launch_back_half(
     h: &Shared,
     args: &Args,

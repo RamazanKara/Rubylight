@@ -232,7 +232,6 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Check again", "再確認"),
     ("Remove PC", "PC を削除"),
     ("Play", "プレイ"),
-    ("Close game", "ゲームを閉じる"),
     ("Quit game", "ゲームを終了"),
     ("Search", "検索"),
     ("Favourite", "お気に入り"),

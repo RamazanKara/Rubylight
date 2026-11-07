@@ -232,7 +232,6 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Check again", "Verificar de novo"),
     ("Remove PC", "Remover PC"),
     ("Play", "Jogar"),
-    ("Close game", "Fechar jogo"),
     ("Quit game", "Encerrar jogo"),
     ("Search", "Buscar"),
     ("Favourite", "Favorito"),

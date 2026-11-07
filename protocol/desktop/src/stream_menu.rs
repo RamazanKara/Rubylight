@@ -181,7 +181,7 @@ pub const ASSIGNABLE: [(&str, &str); 13] = [
     ("native_page", en("Session and graphics")),
     ("disconnect", en("Disconnect")),
     ("end_host_session", en("End session")),
-    ("close_game", en("Close game")),
+    ("close_game", en("Quit game")),
     ("quit_game", en("Quit game")),
 ];
 
@@ -685,6 +685,24 @@ mod tests {
         for label in model::labels() {
             assert_eq!(english.get(label.key).map(String::as_str), Some(label.en), "Android has no stream_tile_{}", label.key);
         }
+        // The native Close game and the classic Quit end the same game: one word for both, in every
+        // language on both clients.
+        assert_eq!(HostExit::CloseGame.label(), HostExit::QuitApp.label());
+        let res = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/src/main/res");
+        let mut locales = 0;
+        for dir in std::fs::read_dir(&res).unwrap().flatten() {
+            let folder = dir.file_name().into_string().unwrap();
+            if !dir.path().join("strings_stream_menu.xml").exists() {
+                continue;
+            }
+            let android = android_tile_labels(&folder);
+            assert_eq!(android.get("close_game"), android.get("quit_game"), "{folder}: Android's two ways to quit the game");
+            locales += 1;
+        }
+        assert!(locales >= 14, "{locales} locales");
+        for lang in Lang::all() {
+            assert_eq!(with_lang(lang, || tr(HostExit::CloseGame.label())), with_lang(lang, || tr(HostExit::QuitApp.label())), "{lang:?}");
+        }
     }
 
     /// nightjar#63: every way out the model may put in the footer runs on the desktop (no footer ID
@@ -782,10 +800,10 @@ mod tests {
         }
         // The loop: the last way out wraps to the head's close, and the close to the first tile.
         let said: Vec<&str> = order.iter().map(|(_, on)| on.as_str()).collect();
-        let last = said.iter().position(|on| on.starts_with("Close game")).expect("Close game");
+        let last = said.iter().position(|on| on.starts_with("Quit game")).expect("Quit game");
         assert_eq!(said.get(last + 1), Some(&"Return to stream"), "after the last way out: {said:?}");
         assert!(said.get(last + 2).is_some_and(|on| on.starts_with("Mouse")), "{said:?}");
-        for way in ["Return to stream", "Disconnect", "End session", "Close game"] {
+        for way in ["Return to stream", "Disconnect", "End session", "Quit game"] {
             assert!(buttons.iter().any(|b| b.starts_with(way)), "{way} in {buttons:?}");
         }
         assert!(buttons.len() > 8, "the tiles too: {buttons:?}");
@@ -815,12 +833,12 @@ mod tests {
             .0;
         }
         let find = |name: &str| nodes.iter().find(|(label, _)| label.starts_with(name)).map(|(_, r)| *r).unwrap_or_else(|| panic!("{name} in {nodes:#?}"));
-        let (disconnect, end, close) = (find("Disconnect"), find("End session"), find("Close game"));
+        let (disconnect, end, close) = (find("Disconnect"), find("End session"), find("Quit game"));
         for other in [end, close] {
             assert!((other.top() - disconnect.top()).abs() < 1.0, "one row: {other:?} beside {disconnect:?}");
             assert!((other.width() - disconnect.width()).abs() < 1.5, "equal widths");
         }
-        assert!(disconnect.right() < end.left() && end.right() < close.left(), "Disconnect, End session, Close game");
+        assert!(disconnect.right() < end.left() && end.right() < close.left(), "Disconnect, End session, Quit game");
         assert!(!nodes.iter().any(|(label, _)| label.starts_with("Return to stream")), "the head's round close does that");
         let spoken = nodes.iter().find(|(label, _)| label.starts_with("Disconnect")).unwrap().0.clone();
         assert!(spoken.starts_with("Disconnect, "), "Disconnect's keys are read out: {spoken}");
@@ -868,9 +886,9 @@ mod tests {
             nodes.extend(all);
             focus = focused.or(focus);
         }
-        assert!(nodes.iter().any(|(label, _)| label == tr("Close game")), "{nodes:#?}");
+        assert!(nodes.iter().any(|(label, _)| label == tr("Quit game")), "{nodes:#?}");
         assert_eq!(focus.as_deref(), Some(tr("Cancel")));
-        assert_eq!(Page::Confirm(HostExit::CloseGame).title(), tr("Close game"));
+        assert_eq!(Page::Confirm(HostExit::CloseGame).title(), tr("Quit game"));
     }
 
     #[test]

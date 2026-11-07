@@ -30,6 +30,8 @@ final class HostLossWatch {
     static final int FIRST_PING_TIMEOUT_MS = 1000;
     /** nightjar_core::host_loss::GOODBYE_ROUND_GAP. */
     static final long ROUND_GAP_MS = 250;
+    /** nightjar_core::host_loss::Round::Answered's code: the PC accepted a connection. */
+    static final int ROUND_ANSWERED = 0;
     /** A round's ping: not asked. */
     static final int NOT_PINGED = -1;
     /** nightjar_core::host_loss::Goodbye's codes. */
@@ -147,7 +149,8 @@ final class HostLossWatch {
                     if (verdict == GOODBYE_GONE) LimeLog.info("The PC is gone: it said goodbye and its host did not come back");
                     return verdict;
                 }
-                closedBefore = true;
+                // A host on its way out still listens for a moment: only a closed server counts.
+                closedBefore |= round != ROUND_ANSWERED;
                 probes.sleep(ROUND_GAP_MS);
             }
         } catch (InterruptedException e) {

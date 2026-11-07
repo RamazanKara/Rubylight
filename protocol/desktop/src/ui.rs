@@ -410,6 +410,8 @@ pub struct Launcher {
     page_to_top: bool,
     /// Back was used on the page header this frame.
     back_pressed: bool,
+    /// The PC whose empty list is being read again: its page holds still until the answer.
+    refreshing_empty: Option<u64>,
     /// Where the page's Back has its slot this frame: None on a page without one.
     back_slot: Option<f32>,
     /// The display's tearing support, for the VRR setting's note.
@@ -508,6 +510,7 @@ impl Launcher {
             page_scrolled: 0.0,
             page_to_top: false,
             back_pressed: false,
+            refreshing_empty: None,
             back_slot: None,
             tearing_supported: false,
             gpu_device: None,

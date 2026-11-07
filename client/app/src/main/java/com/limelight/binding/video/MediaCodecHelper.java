@@ -988,7 +988,8 @@ public class MediaCodecHelper {
     /**
      * Splits the requested low-latency keys into ones the decoder confirmed (echoed back, declared
      * as a vendor parameter, or advertised as FEATURE_LowLatency) and ones nothing confirms.
-     * Element 2 is the mode: "android+vendor", "android", "vendor" or "off".
+     * Element 2 is the mode: "android+vendor", "android", "vendor", "requested" (keys were asked
+     * for and nothing can confirm them) or "off".
      */
     static String[] getDecoderLowLatencyOptions(MediaFormat requested, MediaFormat accepted,
                                                 List<String> vendorParams, boolean featureLowLatency) {

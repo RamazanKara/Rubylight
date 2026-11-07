@@ -156,7 +156,7 @@ final class GameConnection {
         game.overlays.showStreamLayers(game.prefConfig, startNetwork == null);
         game.streamRecovery.readRecoveryBudget(SystemClock.elapsedRealtime());
         game.panelMaxRefreshRate = com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(
-                game.videoOutput.getVideoDisplay());
+                game.videoOutput.getVideoDisplay(), game.prefConfig.width, game.prefConfig.height);
         if (game.prefConfig.vrr) {
             game.prefConfig.fps = com.limelight.binding.video.DisplayFrameRatePolicy.streamFrameRate(game.panelMaxRefreshRate);
             game.prefConfig.launchRefreshRateX100 = Math.max(100, Math.min(100000, Math.round(game.panelMaxRefreshRate * 100)));

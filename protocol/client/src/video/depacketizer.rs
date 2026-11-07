@@ -139,6 +139,15 @@ impl Depacketizer {
         self.data.reserve(bytes);
     }
 
+    /// Strict key-frame recovery from now on (`VideoReceiver::recover_with_idr_only`); a wait
+    /// for an invalidation becomes a wait for a key frame.
+    pub(super) fn require_idr(&mut self) {
+        self.strict_idr_frame_wait = true;
+        if std::mem::take(&mut self.waiting_for_ref_inval_frame) {
+            self.waiting_for_idr_frame = true;
+        }
+    }
+
     pub(super) fn idr_frame_processed(&mut self) {
         self.idr_frame_processed = true;
     }

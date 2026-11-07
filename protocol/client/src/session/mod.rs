@@ -196,6 +196,13 @@ pub trait VideoDecoder: Send {
     /// [`crate::video::VideoSink::chunk`]. Chunks the decoder never sees (a full queue) are
     /// caught by the frame itself, which carries them all.
     fn chunk(&mut self, _first: bool, _flags: u32, _payload: &[u8]) {}
+    /// Whether the decoder now decoding recovers with reference frame invalidation. Asked
+    /// after each frame: a decoder replaced mid-stream by one that never asked for it answers
+    /// false, and the rest of the stream recovers from losses with key frames only
+    /// ([`crate::video::VideoReceiver::recover_with_idr_only`]).
+    fn recovers_with_rfi(&self) -> bool {
+        true
+    }
     fn stop(&mut self) {}
     fn cleanup(&mut self) {}
 }

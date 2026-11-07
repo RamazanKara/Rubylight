@@ -449,7 +449,7 @@ pub(super) fn env_flag(name: &str) -> Option<bool> {
 
 /// Whether a backend recovers from a lost frame with reference frame invalidation: D3D11VA, VAAPI
 /// and software, as moonlight-qt asks. Vulkan video, V4L2 M2M and NVDEC do not ask.
-fn takes_rfi(backend: Hardware) -> bool {
+pub(super) fn takes_rfi(backend: Hardware) -> bool {
     matches!(backend, Hardware::D3d11(_) | Hardware::Vaapi | Hardware::None)
 }
 

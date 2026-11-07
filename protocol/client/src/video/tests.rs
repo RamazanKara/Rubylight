@@ -246,6 +246,46 @@ fn lost_frame_requests_idr_without_rfi() {
         .any(|e| matches!(e, VideoEvent::Signal(VideoSignal::RequestIdr))));
 }
 
+/// A stream that negotiated RFI whose decoder was replaced mid-stream by one that never asked
+/// for it (a refused hardware decoder's fallback) recovers from a loss with a key frame, not an
+/// invalidation the new decoder may not survive.
+#[test]
+fn a_lost_frame_after_rfi_is_given_up_requests_idr_not_an_invalidation() {
+    let lose_one = |give_up: bool| {
+        let mut host = Host::new();
+        let mut rx = VideoReceiver::new(VideoConfig {
+            rfi: true,
+            ..config(0x1)
+        });
+        let mut events = Vec::new();
+        for packet in host.frame(&h264_idr(), 2) {
+            rx.receive(&packet, 1, &mut events);
+        }
+        rx.frame_decoded(FrameType::Idr);
+        if give_up {
+            rx.recover_with_idr_only();
+        }
+        let _lost = host.frame(&h264_p(100), 1);
+        for packet in host.frame(&h264_p(100), 1) {
+            rx.receive(&packet, 2, &mut events);
+        }
+        let invalidated = events
+            .iter()
+            .any(|e| matches!(e, VideoEvent::Signal(VideoSignal::InvalidateFrames { .. })));
+        let idr = events
+            .iter()
+            .any(|e| matches!(e, VideoEvent::Signal(VideoSignal::RequestIdr)));
+        (invalidated, idr, frames(&events).len())
+    };
+    assert!(lose_one(false).0, "with RFI a loss is invalidated");
+    let (invalidated, idr, frames) = lose_one(true);
+    assert!(
+        !invalidated && idr,
+        "after RFI is given up a loss asks for a key frame"
+    );
+    assert_eq!(frames, 1, "and waits for it");
+}
+
 #[test]
 fn a_late_packet_in_a_block_without_parity_is_not_a_lost_frame() {
     // Retroid on Wi-Fi, November 1: with statistical FEC at 0 % a packet overtaken by the next

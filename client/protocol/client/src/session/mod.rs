@@ -861,6 +861,12 @@ impl Session {
             .roam_control_only(local)
     }
 
+    /// Frames waiting in the decode queue now ([`SessionStats::decode_queue_len`] without the
+    /// rest of the statistics): non-zero while the decoder is behind the stream.
+    pub fn decode_queue_len(&self) -> usize {
+        self.parts.video_shared.as_ref().map_or(0, |video| video.queue.len())
+    }
+
     pub fn stats(&self) -> SessionStats {
         let control = self.control();
         let mut stats = SessionStats {

@@ -363,6 +363,39 @@ impl PresentClock {
         self.schedule_frame(rtp, ready_us, true).0
     }
 
+    /// [`schedule`](Self::schedule) for a frame that waited behind others in the decode queue:
+    /// shown as soon as it is ready (never before the frame before it) and left out of the
+    /// lateness window. Its lateness is this device's decoder falling behind, not the path's or
+    /// the game's; learnt, it held every frame up to `max_hold_us` once the decoder caught up
+    /// (nightjar#80: 72 ms display p95 behind a decoder at 43 of 100 fps).
+    pub fn schedule_behind(&mut self, rtp: u32, ready_us: u64) -> Schedule {
+        let ready = ready_us as i64;
+        let host = self.host_us(rtp);
+        self.start_us.get_or_insert(host);
+        self.advance(host);
+        let present = self.last_present.map_or(ready, |last| ready.max(last));
+        let late = self.delay_us.is_some_and(|delay| ready > host + delay);
+        self.last_present = Some(present);
+        self.frames += 1;
+        self.late_frames += u64::from(late);
+        Schedule {
+            present_us: present as u64,
+            late,
+            hold_us: present - ready,
+            latency_us: self.offset.offset_at(present).map(|offset| present - (host + offset)),
+        }
+    }
+
+    /// Moves the host clock on to `host`: the step since the previous frame, also into the
+    /// average frame step.
+    fn advance(&mut self, host: i64) -> i64 {
+        let step = self.last_host_us.replace(host).map_or(0, |last| host - last);
+        if step > 0 && step <= FALL_STEP_MAX_US {
+            self.step_us = if self.step_us == 0 { step } else { self.step_us + (step - self.step_us) / 16 };
+        }
+        step
+    }
+
     /// Notes a frame with RTP timestamp `rtp` for the content rate. Call it for every frame in
     /// presentation order as it arrives, whether or not frames are scheduled.
     pub fn observe(&mut self, rtp: u32) {
@@ -479,10 +512,7 @@ impl PresentClock {
         let host = self.host_us(rtp);
         let lateness = ready - host;
         let start = *self.start_us.get_or_insert(host);
-        let step = self.last_host_us.replace(host).map_or(0, |last| host - last);
-        if step > 0 && step <= FALL_STEP_MAX_US {
-            self.step_us = if self.step_us == 0 { step } else { self.step_us + (step - self.step_us) / 16 };
-        }
+        let step = self.advance(host);
         let mut present = if host - start < WARMUP_US {
             ready + self.settings.margin_us
         } else {

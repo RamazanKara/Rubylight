@@ -60,6 +60,8 @@ These keys are read from the configuration file (`sunshine.conf` in the profile 
 | `video_slice_delivery` | `auto` | Sends H.264 and HEVC P-frames in 2 or 4 FEC blocks as their slices leave the encoder; `auto` uses 4 for pictures of 4K size. See [Capture and video](#capture-and-video). |
 | `webrtc_pacing`, `webrtc_rtx` | `true` | Send pacing and retransmission for the WebRTC server. |
 | `webrtc_loss_permille` | `0` | Drops WebRTC video packets on purpose, in thousandths, for tests. Leave it at 0. |
+| `gamepad_feedback_fast_poll` | `false` | After a game's rumble, lights or trigger effects, polls the virtual pads every 2 ms instead of 8 ms for 250 ms, so the next change reaches the device sooner. Costs a few more driver calls; not measured yet. |
+| `gamepad_driver_host_priority` | `false` | While a VHF pad is plugged in, runs the Windows process that hosts the gamepad driver (WUDFHost) at high priority, so a busy game delays controller input less. It changes another process, and other drivers Windows hosts in the same one run raised too; the host log names them. Not measured yet. |
 
 Webhooks have their own console page; see [Webhooks](webhooks.md).
 

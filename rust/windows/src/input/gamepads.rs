@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod driver_host;
+
 pub fn open_interface(guid: GUID) -> Result<HANDLE> {
     // SAFETY: The sized SetupAPI structures and aligned detail buffer remain live through each call; the terminated device path is consumed before the device set is destroyed.
     unsafe {
@@ -67,6 +69,8 @@ pub struct Gamepads {
     feedback_failures: BTreeMap<u16, FeedbackFailure>,
     /// Feedback reports read from the driver since the thread last asked.
     feedback_drained: usize,
+    /// `gamepad_driver_host_priority` while a VHF pad is plugged.
+    driver_host: Option<driver_host::DriverHostPriority>,
     /// Steam Deck clients' controllers attached as real Steam Decks.
     pub(super) decks: BTreeMap<u16, steam_deck_pad::DeckPad>,
     /// Controllers a Steam Deck could not be attached for; they keep their
@@ -200,6 +204,7 @@ impl Gamepads {
             last_feedback: BTreeMap::new(),
             feedback_failures: BTreeMap::new(),
             feedback_drained: 0,
+            driver_host: None,
             decks: BTreeMap::new(),
             deck_failed: BTreeSet::new(),
             dualsenses: BTreeMap::new(),
@@ -659,6 +664,16 @@ impl Gamepads {
             );
         }
         reports
+    }
+    /// Hold the gamepad driver's WUDFHost raised while a VHF pad is plugged,
+    /// with `gamepad_driver_host_priority` on.
+    pub(super) fn follow_driver_host(&mut self) {
+        let wanted = self.policy.driver_host_priority
+            && self.backend.hosted_by_wudfhost()
+            && !self.active.is_empty();
+        if wanted != self.driver_host.is_some() {
+            self.driver_host = wanted.then(driver_host::DriverHostPriority::acquire);
+        }
     }
     /// The events of the plugged pads' pending feedback requests.
     pub(super) fn wait_handles(&self, handles: &mut Vec<HANDLE>) {

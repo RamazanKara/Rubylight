@@ -182,6 +182,10 @@ impl Backend {
             Self::Vhf(_) => None,
         }
     }
+    /// Whether the pads are the UMDF VHF driver's, which WUDFHost runs.
+    pub(super) fn hosted_by_wudfhost(&self) -> bool {
+        matches!(self, Self::Vhf(Some(_)))
+    }
     pub(super) fn feedback_ready(&self, slot: u32) -> bool {
         match self {
             Self::Vigem(client) => client.feedback_ready(slot),

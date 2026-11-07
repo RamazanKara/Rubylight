@@ -32,6 +32,10 @@ const RETRY: Duration = Duration::from_secs(10);
 const QUEUE_LIMIT: usize = 1024;
 /// Moonlight's rumble packet, which synthesized Steam Controller rumble uses.
 const RUMBLE_DATA: u16 = 0x010b;
+/// With `gamepad_feedback_fast_poll`, feedback is polled this often for
+/// FAST_SPAN after a driver had some.
+const FAST_POLL: Duration = Duration::from_millis(2);
+const FAST_SPAN: Duration = Duration::from_millis(250);
 /// How often the `gamepad timings` line is logged while pads are plugged.
 const STATS_EVERY: Duration = Duration::from_secs(5);
 
@@ -100,7 +104,9 @@ impl Pads for Gamepads {
         self.set_warnings(warnings);
     }
     fn apply(&mut self, event: &Event) -> Result<()> {
-        Gamepads::apply(self, event)
+        let applied = Gamepads::apply(self, event);
+        self.follow_driver_host();
+        applied
     }
     fn refresh(&mut self) -> Result<()> {
         Gamepads::refresh(self)
@@ -306,24 +312,38 @@ impl GamepadThread {
     ) -> std::io::Result<Self> {
         let unmapped_grips = policy.unmapped_back_grips();
         let pad_warnings = warnings.clone();
-        let mut thread = Self::spawn_reported(
+        let polling = Polling {
+            every: POLL,
+            fast: policy.feedback_fast_poll,
+        };
+        let mut thread = Self::spawn_polled(
             move || Gamepads::open_options(profile, policy.clone(), pad_warnings.clone()),
             warnings,
+            polling,
         )?;
         thread.unmapped_grips = unmapped_grips;
         Ok(thread)
     }
+    /// Test pads, polled as the VHF pads are by default.
+    #[cfg(test)]
     fn spawn_reported<P: Pads + 'static>(
         open: impl FnMut() -> Result<P> + Send + 'static,
         warnings: Arc<butterpollo_core::session::Warnings>,
     ) -> std::io::Result<Self> {
-        Self::spawn_polled(open, warnings, POLL)
+        Self::spawn_polled(
+            open,
+            warnings,
+            Polling {
+                every: POLL,
+                fast: false,
+            },
+        )
     }
-    /// The thread with feedback polled every `poll`; tests stretch it.
+    /// The thread with feedback polled as `poll` says; tests stretch it.
     fn spawn_polled<P: Pads + 'static>(
         open: impl FnMut() -> Result<P> + Send + 'static,
         warnings: Arc<butterpollo_core::session::Warnings>,
-        poll: Duration,
+        poll: Polling,
     ) -> std::io::Result<Self> {
         // SAFETY: CreateEventW returned a new auto-reset event, which only
         // this OwnedHandle owns.
@@ -570,6 +590,25 @@ fn enqueue(events: &mut VecDeque<Event>, event: Event) -> bool {
     true
 }
 
+/// How often the thread polls feedback while pads are plugged.
+#[derive(Clone, Copy)]
+struct Polling {
+    every: Duration,
+    /// `gamepad_feedback_fast_poll`: every FAST_POLL for FAST_SPAN after a
+    /// driver had feedback.
+    fast: bool,
+}
+impl Polling {
+    fn next(&self, now: Instant, fast_until: Option<Instant>) -> Instant {
+        let fast = self.fast && fast_until.is_some_and(|until| now < until);
+        now + if fast {
+            FAST_POLL.min(self.every)
+        } else {
+            self.every
+        }
+    }
+}
+
 /// What the `gamepad timings` line reports: how long controller events
 /// waited from [`GamepadThread::send`] until the driver had them, and how
 /// much feedback each poll read.
@@ -654,7 +693,7 @@ fn run<P: Pads>(
     shared: &Shared,
     mut open: impl FnMut() -> Result<P>,
     reports: &mpsc::Sender<PadReport>,
-    poll: Duration,
+    poll: Polling,
 ) {
     // Mock workers must not boost their priority or register a Windows task.
     #[cfg(not(test))]
@@ -690,6 +729,7 @@ fn run<P: Pads>(
     let mut handles = Vec::new();
     let mut stats = Stats::default();
     let mut queued = None;
+    let mut fast_until = None;
     let stopping = || shared.stop.load(Ordering::Acquire);
     loop {
         let release = {
@@ -839,17 +879,22 @@ fn run<P: Pads>(
             && (polling || pads.plugged())
             && (now >= poll_at || pads.feedback_ready())
         {
-            poll_at = now + poll;
             if let Err(error) = pads.refresh() {
                 tracing::debug!(%error, "controller refresh failed");
             }
             shared
                 .audio_ready
                 .store(pads.audio_ready(), Ordering::Release);
-            for (id, kind, data) in pads.feedback() {
+            let feedback = pads.feedback();
+            let drained = pads.feedback_drained();
+            if !feedback.is_empty() || drained > 0 {
+                fast_until = Some(now + FAST_SPAN);
+            }
+            poll_at = poll.next(now, fast_until);
+            for (id, kind, data) in feedback {
                 report(PadReport::Feedback { id, kind, data });
             }
-            stats.poll(pads.feedback_drained(), now);
+            stats.poll(drained, now);
             if let Some(window) = stats.take_due(now) {
                 window.log();
             }
@@ -1206,6 +1251,22 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn fast_polling_follows_feedback_only_when_switched_on() {
+        let now = Instant::now();
+        let feedback = Some(now + FAST_SPAN);
+        let off = Polling {
+            every: POLL,
+            fast: false,
+        };
+        let on = Polling { fast: true, ..off };
+        assert_eq!(off.next(now, feedback), now + POLL);
+        assert_eq!(on.next(now, None), now + POLL);
+        assert_eq!(on.next(now, feedback), now + FAST_POLL);
+        // Back to the normal poll once the span has passed.
+        assert_eq!(on.next(now + FAST_SPAN, feedback), now + FAST_SPAN + POLL);
+    }
+
+    #[test]
     fn gamepad_timings_cover_one_window_then_start_again() {
         let mut stats = Stats::default();
         let start = Instant::now();
@@ -1307,7 +1368,10 @@ pub(crate) mod tests {
                 }
             },
             Default::default(),
-            Duration::from_secs(3600),
+            Polling {
+                every: Duration::from_secs(3600),
+                fast: false,
+            },
         )
         .unwrap();
         pads.send(state(0, 1, 0, 0));

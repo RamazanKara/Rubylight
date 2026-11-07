@@ -379,6 +379,26 @@ fn broken_pads() -> Gamepads {
     pads
 }
 #[test]
+fn only_a_plugged_vhf_driver_pad_raises_the_driver_host_and_only_when_asked() {
+    let config =
+        butterpollo_core::config::Config::parse("gamepad_driver_host_priority=true\n").unwrap();
+    let policy = butterpollo_core::input_policy::Policy::resolve(&config).unwrap();
+    assert!(policy.driver_host_priority);
+    assert!(
+        !butterpollo_core::input_policy::Policy::resolve(&Default::default())
+            .unwrap()
+            .driver_host_priority,
+        "off by default"
+    );
+    // A USB/IP DualSense's pads are not the UMDF driver's: nothing to raise.
+    let mut pads = broken_pads();
+    pads.policy = policy;
+    pads.active.insert(0, 15);
+    pads.follow_driver_host();
+    assert!(pads.driver_host.is_none());
+    pads.active.clear();
+}
+#[test]
 fn a_pad_that_will_not_unplug_at_session_end_keeps_its_slot_until_it_does() {
     let slot = Slot::reserve().unwrap();
     let global = slot.id();

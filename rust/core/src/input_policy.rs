@@ -152,6 +152,13 @@ pub struct Policy {
     pub forward_rumble: bool,
     pub motion_as_ds4: bool,
     pub touchpad_as_ds4: bool,
+    /// `gamepad_feedback_fast_poll`: poll pad feedback every 2 ms for a
+    /// moment after feedback came, not every 8 ms. Off until measured.
+    pub feedback_fast_poll: bool,
+    /// `gamepad_driver_host_priority`: the gamepad driver's WUDFHost at high
+    /// priority while a VHF pad is plugged. Off until measured: it changes
+    /// another process.
+    pub driver_host_priority: bool,
     /// None: the host does not repeat held keys.
     pub repeat_delay: Option<Duration>,
     pub repeat_period: Duration,
@@ -213,6 +220,8 @@ impl Policy {
             forward_rumble: config.boolean("forward_rumble", true),
             motion_as_ds4: config.boolean("motion_as_ds4", true),
             touchpad_as_ds4: config.boolean("touchpad_as_ds4", true),
+            feedback_fast_poll: config.boolean("gamepad_feedback_fast_poll", false),
+            driver_host_priority: config.boolean("gamepad_driver_host_priority", false),
             // As in Vibepollo: 0 turns host key repeat off and a negative
             // value keeps the default. Clamping 0 to an immediate repeat
             // typed two or three characters per tap for imported profiles

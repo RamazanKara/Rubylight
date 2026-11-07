@@ -864,9 +864,9 @@ public class MoonBridge {
 
     // Ends the stream with CLIENT_ERROR_HOST_GONE: the engine's one termination callback.
     public static void endStreamHostGone() {
-        if (rustStream) RustBridge.endStreamHostGone(); else cEndStream(CLIENT_ERROR_HOST_GONE);
+        if (rustStream) RustBridge.endStreamHostGone(); else cEndStreamHostGone();
     }
-    private static native void cEndStream(int errorCode);
+    private static native void cEndStreamHostGone();
 
     /** nightjar_core::host_loss, for both engines: the detector's next state, -1 when the PC is gone. */
     public static int hostLossStep(long silenceMs, String host, int port, String gateway, int state) {

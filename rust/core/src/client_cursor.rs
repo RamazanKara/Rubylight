@@ -168,13 +168,14 @@ impl ClientCursor {
     }
 
     /// The message to send control peer `owner` now (0x5541), if any: only the peer that
-    /// enabled the session gets its shapes. `scale` reads a display's scale in percent, once
-    /// a display a session.
+    /// enabled the session gets its shapes. `scale` gives a display's scale in percent, once
+    /// a display a session; None while it is still being read, and the shape waits for the
+    /// caller's next pass.
     pub fn take(
         &self,
         owner: usize,
         now: Instant,
-        scale: impl FnOnce(&str) -> anyhow::Result<u32>,
+        scale: impl FnOnce(&str) -> Option<anyhow::Result<u32>>,
     ) -> Option<Vec<u8>> {
         let mut state = self.state.lock().unwrap();
         let session = state.session.as_mut().filter(|s| s.owner == owner)?;
@@ -185,25 +186,26 @@ impl ClientCursor {
         {
             return None;
         }
-        session.dirty = false;
         let noted = session.noted.clone().flatten();
+        if let Some(noted) = &noted
+            && session
+                .scale
+                .as_ref()
+                .is_none_or(|(output, _)| *output != noted.output)
+        {
+            let percent = match scale(&noted.output)? {
+                Ok(percent) => percent,
+                Err(error) => {
+                    tracing::warn!(output = %noted.output, error = %format!("{error:#}"), "display scale unavailable for the client cursor; sent at 100%");
+                    100
+                }
+            };
+            session.scale = Some((noted.output.clone(), clamp_scale(percent)));
+        }
+        session.dirty = false;
         let shape = match noted {
             None => CursorShape::Hide,
             Some(noted) => {
-                if session
-                    .scale
-                    .as_ref()
-                    .is_none_or(|(output, _)| *output != noted.output)
-                {
-                    let percent = match scale(&noted.output) {
-                        Ok(percent) => percent,
-                        Err(error) => {
-                            tracing::warn!(output = %noted.output, error = %format!("{error:#}"), "display scale unavailable for the client cursor; sent at 100%");
-                            100
-                        }
-                    };
-                    session.scale = Some((noted.output.clone(), clamp_scale(percent)));
-                }
                 let display_scale = session.scale.as_ref().map_or(MIN_SCALE, |s| s.1);
                 match image(&noted, session.max_edge, display_scale) {
                     Converted::Hidden => CursorShape::Hide,
@@ -423,8 +425,8 @@ mod tests {
         }
     }
 
-    fn scale(percent: u32) -> impl FnOnce(&str) -> anyhow::Result<u32> {
-        move |_| Ok(percent)
+    fn scale(percent: u32) -> impl FnOnce(&str) -> Option<anyhow::Result<u32>> {
+        move |_| Some(Ok(percent))
     }
 
     fn decoded(message: Option<Vec<u8>>) -> CursorShape {
@@ -585,7 +587,9 @@ mod tests {
         cursor.note(Some(pointer(&a, 4, 4)), "D2");
         now += INTERVAL;
         assert_eq!(
-            scale_of(decoded(cursor.take(1, now, |_| anyhow::bail!("gone")))),
+            scale_of(decoded(
+                cursor.take(1, now, |_| Some(Err(anyhow::anyhow!("gone"))))
+            )),
             100
         );
         cursor.note(Some(pointer(&b, 4, 4)), "D3");
@@ -593,6 +597,28 @@ mod tests {
         assert_eq!(
             scale_of(decoded(cursor.take(1, now, scale(900)))),
             MAX_SCALE
+        );
+    }
+
+    #[test]
+    fn a_shape_waits_while_its_display_scale_is_read_elsewhere() {
+        let cursor = ClientCursor::default();
+        let now = Instant::now();
+        cursor.on_request(&request(true, 96), true, 1);
+        let a = solid(4, 4, [1, 1, 1, 255]);
+        cursor.note(Some(pointer(&a, 4, 4)), "D1");
+        // The control thread never waits for the lookup: the shape stays due.
+        assert_eq!(cursor.take(1, now, |_| None), None);
+        assert_eq!(cursor.take(1, now, |_| None), None);
+        match decoded(cursor.take(1, now, scale(150))) {
+            CursorShape::Image { image, .. } => assert_eq!(image.scale, 150),
+            other => panic!("{other:?}"),
+        }
+        // Hiding the pointer needs no scale.
+        cursor.note(None, "D2");
+        assert_eq!(
+            decoded(cursor.take(1, now + INTERVAL, |_| panic!("no scale needed"))),
+            CursorShape::Hide
         );
     }
 

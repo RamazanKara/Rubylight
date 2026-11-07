@@ -1267,6 +1267,7 @@ fn a_roaming_flood_does_not_hold_the_control_receive() {
     }
     client.send_to(b"enet", host).unwrap();
     let mut buffer = [0; rusty_enet::MTU_MAX];
+    let before = Instant::now();
     let deadline = Instant::now() + Duration::from_secs(2);
     let mut empty = 0;
     let received = loop {
@@ -1274,11 +1275,20 @@ fn a_roaming_flood_does_not_hold_the_control_receive() {
         match rusty_enet::Socket::receive(&mut socket, &mut buffer).unwrap() {
             Some((from, rusty_enet::PacketReceived::Complete(size))) => break (from, size),
             Some(_) => unreachable!(),
-            None => empty += 1,
+            None => {
+                empty += 1;
+                // Roaming datagrams are no input: they start no latency stamp.
+                assert!(socket.first_received.is_none());
+            }
         }
     };
     assert_eq!(received, (client.local_addr().unwrap(), 4));
     assert!(empty >= 1, "the flood ended a receive");
+    // The pass's first datagram for ENet is stamped for the input latency; hold()
+    // starts the next pass.
+    assert!(socket.first_received.is_some_and(|at| at >= before));
+    socket.hold();
+    assert!(socket.first_received.is_none());
 }
 #[test]
 fn held_control_datagrams_go_out_in_order_once_released() {
@@ -1508,4 +1518,93 @@ fn an_arrived_pad_is_asked_for_the_sensors_it_has() {
         [(MOTION_EVENT_REQUEST, vec![1, 0, 200, 0, 2])]
     );
     assert!(motion_requests(1, 0x0f).is_empty());
+}
+
+#[test]
+fn a_peer_config_is_made_once_per_settings_change_and_calibration_period() {
+    let mut cache = PeerConfig::default();
+    let made = std::cell::Cell::new(0);
+    let load = || {
+        made.set(made.get() + 1);
+        Ok(Config::default())
+    };
+    let start = Instant::now();
+    let first = cache.get(1, start, None, load).unwrap();
+    let again = cache
+        .get(1, start + Duration::from_secs(600), None, load)
+        .unwrap();
+    assert!(Arc::ptr_eq(&first, &again));
+    assert_eq!(made.get(), 1);
+    // A saved setting or app.
+    cache.get(2, start, None, load).unwrap();
+    assert_eq!(made.get(), 2);
+    // An HDR calibration is read again once its period passed.
+    let refresh = Some(Duration::from_secs(30));
+    cache
+        .get(2, start + Duration::from_secs(29), refresh, load)
+        .unwrap();
+    assert_eq!(made.get(), 2);
+    cache
+        .get(2, start + Duration::from_secs(30), refresh, load)
+        .unwrap();
+    assert_eq!(made.get(), 3);
+    // A failure is not kept: the next packet tries again.
+    assert!(
+        cache
+            .get(3, start, None, || anyhow::bail!("unreadable"))
+            .is_err()
+    );
+    cache.get(3, start, None, load).unwrap();
+    assert_eq!(made.get(), 4);
+}
+
+#[test]
+fn a_cursor_scale_is_looked_up_off_the_control_thread() {
+    static RELEASE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    fn slow(output: &str) -> Result<u32> {
+        while !RELEASE.load(Ordering::Acquire) {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        match output {
+            "D1" => Ok(150),
+            _ => anyhow::bail!("no such display"),
+        }
+    }
+    let (woken, wakes) = std::sync::mpsc::channel();
+    let mut lookup = ScaleLookup::default();
+    let wake = |woken: &std::sync::mpsc::Sender<()>| {
+        let woken = woken.clone();
+        move || woken.send(()).unwrap()
+    };
+    // Never blocks: the first ask starts the lookup, later ones see it running.
+    assert!(lookup.poll("D1", slow, wake(&woken)).is_none());
+    assert!(lookup.poll("D1", slow, wake(&woken)).is_none());
+    RELEASE.store(true, Ordering::Release);
+    wakes
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the lookup woke the loop");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let scale = loop {
+        if let Some(scale) = lookup.poll("D1", slow, wake(&woken)) {
+            break scale;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the finished lookup was not taken"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    };
+    assert_eq!(scale.unwrap(), 150);
+    // Another display is looked up afresh, and its failure reaches the caller.
+    assert!(lookup.poll("D2", slow, wake(&woken)).is_none());
+    wakes.recv_timeout(Duration::from_secs(5)).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let failed = loop {
+        if let Some(scale) = lookup.poll("D2", slow, wake(&woken)) {
+            break scale;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(1));
+    };
+    assert!(failed.is_err());
 }

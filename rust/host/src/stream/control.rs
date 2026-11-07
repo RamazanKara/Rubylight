@@ -118,6 +118,9 @@ pub(super) struct ControlSocket {
     /// that sendto delayed every input by its cost.
     holding: bool,
     held: Vec<(SocketAddr, Vec<u8>)>,
+    /// When this pass read its first datagram for ENet, for the input latency in
+    /// `stream timings`; cleared by hold().
+    pub(super) first_received: Option<Instant>,
     /// Client roaming: what a moved client's datagrams map to.
     pub(super) roaming: roaming::Roaming,
 }
@@ -128,12 +131,14 @@ impl ControlSocket {
             socket,
             holding: false,
             held: Vec::new(),
+            first_received: None,
             roaming: Default::default(),
         }
     }
-    /// Hold back what ENet sends until release().
+    /// Hold back what ENet sends until release(), and start a pass.
     pub(super) fn hold(&mut self) {
         self.holding = true;
+        self.first_received = None;
     }
     /// Send what was held, in order, and stop holding. A datagram that is
     /// lost is logged; any other error ends the worker, as it would have
@@ -203,6 +208,7 @@ impl rusty_enet::Socket for ControlSocket {
             };
             // ENet answers before it knows the session: learn from every datagram.
             self.socket.answer_from(from, local);
+            self.first_received.get_or_insert_with(Instant::now);
             return Ok(Some((peer, rusty_enet::PacketReceived::Complete(size))));
         }
         Ok(None)
@@ -375,6 +381,8 @@ impl Media {
                                     cursor_owner: peer.id().0,
                                     focus_watch: None,
                                     clipboard_sync: Default::default(),
+                                    config: Default::default(),
+                                    cursor_scale: Default::default(),
                                 },
                             );
                         } else {
@@ -485,7 +493,7 @@ impl Media {
                                 }
                                 if kind == controller_audio::CONTROL {
                                     if let Some((id, flags)) = controller_audio::status(&payload) {
-                                        let Ok(config) = effective_config(&h, &s.launch) else {
+                                        let Ok(config) = p.config(&h, &s) else {
                                             continue;
                                         };
                                         let policy = controller_audio::status_policy(
@@ -662,7 +670,7 @@ impl Media {
                             // Keyboard follows focus: only for a device that may type, and
                             // the text around the cursor only over encrypted control.
                             butterpollo_core::text_input::TEXT_INPUT_MESSAGE_TYPE => {
-                                let Ok(config) = effective_config(&h, &s.launch) else {
+                                let Ok(config) = p.config(&h, &s) else {
                                     continue;
                                 };
                                 let offered = crate::extensions::offered(&h, &config).text_input
@@ -702,7 +710,7 @@ impl Media {
                             butterpollo_core::clipboard_sync::CLIPBOARD_SYNC_MESSAGE_TYPE
                                 if encrypted =>
                             {
-                                let Ok(config) = effective_config(&h, &s.launch) else {
+                                let Ok(config) = p.config(&h, &s) else {
                                     continue;
                                 };
                                 let allowed = clipboard_sync::allowed(&config, &s.launch.client);
@@ -711,7 +719,7 @@ impl Media {
                             }
                             // The latest report wins; the injector maps keys with it.
                             butterpollo_core::keyboard_layout::KEYBOARD_LAYOUT_MESSAGE_TYPE => {
-                                let Ok(config) = effective_config(&h, &s.launch) else {
+                                let Ok(config) = p.config(&h, &s) else {
                                     continue;
                                 };
                                 if !crate::extensions::offered(&h, &config).keyboard_layout {
@@ -763,7 +771,7 @@ impl Media {
                             // The device draws the cursor (0x5540): the stream leaves it
                             // out of the video, and the pass below sends its shapes.
                             butterpollo_core::client_cursor::CURSOR_SHAPE_REQUEST_MESSAGE_TYPE => {
-                                let Ok(config) = effective_config(&h, &s.launch) else {
+                                let Ok(config) = p.config(&h, &s) else {
                                     continue;
                                 };
                                 let offered = crate::extensions::offered(&h, &config).cursor_shape;
@@ -861,7 +869,7 @@ impl Media {
                                     );
                                     continue;
                                 };
-                                let config = effective_config(&h, &s.launch);
+                                let config = p.config(&h, &s);
                                 let mut reconfigure = s.reconfigure.lock().unwrap();
                                 let requested = reconfigure.requested();
                                 let current = reconfigure.current().fps_millihz;
@@ -1015,6 +1023,26 @@ impl Media {
                         }
                     }
                 }
+            }
+            // Input first, for every peer: none waits for another peer's housekeeping
+            // below (feedback, notices, cursor shapes, USB answers).
+            let received = host.socket().first_received;
+            for p in peers.values_mut() {
+                let Some(s) = p.session.clone() else { continue };
+                let ready = match s.launch.nucleus {
+                    Some(_) => p.coop.is_some(),
+                    None => p.injector.is_some(),
+                };
+                if p.inputs.is_empty() || !ready || s.stopping() {
+                    continue;
+                }
+                if let Some(i) = &mut p.injector {
+                    // Absolute input follows the stream's display and size, as below.
+                    i.set_output(&s.output.read().unwrap());
+                    let mode = s.stream_mode();
+                    i.set_stream_size(mode.width, mode.height);
+                }
+                apply_input(&h, p, &s, &mut menus, received);
             }
             for commit in host.socket_mut().roaming.take_commits() {
                 follow_roam(&h, self, &mut host, &peers, &socket, commit);
@@ -1280,7 +1308,14 @@ impl Media {
                     let shape = s
                         .client_cursor
                         .take(p.cursor_owner, Instant::now(), |output| {
-                            butterpollo_windows::display::output_scale(output)
+                            let wake = self.control_wake.clone();
+                            p.cursor_scale.poll(
+                                output,
+                                butterpollo_windows::display::output_scale,
+                                move || {
+                                    let _ = wake.send(&[1]);
+                                },
+                            )
                         });
                     if let Some(shape) = shape {
                         match p.encrypt(
@@ -1422,37 +1457,9 @@ impl Media {
                             let _ = wake.send(&[1]);
                         });
                     }
-                    // Nor the couch menu, which the PC's display would show.
-                    if s.launch.nucleus.is_some() {
-                        let events = std::mem::take(&mut p.inputs);
-                        if let Some(player) = &mut p.coop {
-                            for event in events {
-                                player.input(event, &s.launch.warnings);
-                            }
-                        }
-                    }
-                    // The couch menu takes what it needs; the game gets the rest.
-                    let injecting = Instant::now();
-                    let batch = crate::couch_menu::apply_batch(
-                        &mut p.couch,
-                        p.injector.as_mut(),
-                        &mut p.inputs,
-                        injecting,
-                    );
-                    p.inject_max = p.inject_max.max(injecting.elapsed());
-                    if let Some(reason) = batch.refused {
-                        tracing::warn!(client = %s.launch.client.name, "{reason}");
-                        s.launch.warnings.event(
-                            "couch_menu",
-                            reason,
-                            butterpollo_core::session::EVENT_PERIOD,
-                        );
-                    }
-                    menus.send(&h, &s, batch.nav);
-                    for e in batch.errors {
-                        s.launch.warnings.event("input_injection", format!("Input injection failed ({e:#}); keyboard, mouse, touch or pen actions may be missing. Unlock the desktop and check Windows input permissions or disable native touch/pen if unsupported."), butterpollo_core::session::EVENT_PERIOD);
-                    }
-                    p.inputs.clear();
+                    // What the pass above left: input of a peer whose injector or
+                    // co-op player was made just now, and the couch menu's timers.
+                    apply_input(&h, p, &s, &mut menus, received);
                     if !poll_feedback
                         && let Some(i) = &mut p.injector
                         && let Err(e) = i.due()
@@ -1610,6 +1617,53 @@ impl Media {
     }
 }
 
+/// Applies `p`'s queued input: a co-op player's goes to its slot, and otherwise the
+/// couch menu takes what it needs and the game gets the rest. `received` is when the
+/// pass read its first datagram; the wait to injection goes to `stream timings`.
+fn apply_input(
+    h: &Shared,
+    p: &mut ControlPeer,
+    s: &Arc<Session>,
+    menus: &mut crate::couch_menu::Workers,
+    received: Option<Instant>,
+) {
+    let measured = !p.inputs.is_empty() && (p.injector.is_some() || p.coop.is_some());
+    // Nor the couch menu, which the PC's display would show.
+    if s.launch.nucleus.is_some() {
+        let events = std::mem::take(&mut p.inputs);
+        if let Some(player) = &mut p.coop {
+            for event in events {
+                player.input(event, &s.launch.warnings);
+            }
+        }
+    }
+    let injecting = Instant::now();
+    let batch =
+        crate::couch_menu::apply_batch(&mut p.couch, p.injector.as_mut(), &mut p.inputs, injecting);
+    let injected = Instant::now();
+    p.inject_max = p.inject_max.max(injected - injecting);
+    if measured && let Some(received) = received {
+        s.stats
+            .input_latency
+            .lock()
+            .unwrap()
+            .record(injected.saturating_duration_since(received));
+    }
+    if let Some(reason) = batch.refused {
+        tracing::warn!(client = %s.launch.client.name, "{reason}");
+        s.launch.warnings.event(
+            "couch_menu",
+            reason,
+            butterpollo_core::session::EVENT_PERIOD,
+        );
+    }
+    menus.send(h, s, batch.nav);
+    for e in batch.errors {
+        s.launch.warnings.event("input_injection", format!("Input injection failed ({e:#}); keyboard, mouse, touch or pen actions may be missing. Unlock the desktop and check Windows input permissions or disable native touch/pen if unsupported."), butterpollo_core::session::EVENT_PERIOD);
+    }
+    p.inputs.clear();
+}
+
 /// Carries out a client's validated move (`roaming`): the session's media follow the
 /// client to its new address, ENet checks the path at once, and the client hears MIGRATED.
 fn follow_roam(
@@ -1702,6 +1756,10 @@ pub(super) struct ControlPeer {
     focus_watch: Option<butterpollo_windows::text_focus::FocusWatch>,
     /// Clipboard sync (0x5508), from the device's first frame; its worker ends with the peer.
     clipboard_sync: clipboard_sync::PeerSync,
+    /// The session's settings for control packets that read them.
+    config: PeerConfig,
+    /// The display scale a client-drawn cursor's shapes are sized for, read off this thread.
+    cursor_scale: ScaleLookup,
 }
 
 impl Drop for ControlPeer {
@@ -1717,6 +1775,25 @@ impl Drop for ControlPeer {
 }
 
 impl ControlPeer {
+    /// The session's effective configuration, made once per settings change (see
+    /// `PeerConfig`).
+    fn config(&mut self, h: &Shared, s: &Session) -> Result<Arc<Config>> {
+        // As the stream loop: an HDR calibration's peak is read again every 30 s.
+        let refresh = s
+            .launch
+            .client
+            .extra
+            .get("hdr_profile")
+            .and_then(serde_json::Value::as_str)
+            .filter(|profile| !profile.is_empty())
+            .map(|_| CALIBRATION_REFRESH);
+        self.config.get(
+            h.config_version.load(Ordering::Acquire),
+            Instant::now(),
+            refresh,
+            || effective_config(h, &s.launch),
+        )
+    }
     /// Starts, pauses or resumes the text field watcher after a client's text input request
     /// (0x553B): one thread per peer however often the client toggles. The watcher notes the
     /// newest focus in the session and wakes this loop, which sends the notice; one that was
@@ -1778,6 +1855,93 @@ impl ControlPeer {
             payload,
             s.config.encryption & 1 != 0,
         )
+    }
+}
+
+/// How often a cached configuration of a device with an HDR calibration is made again.
+pub(super) const CALIBRATION_REFRESH: Duration = Duration::from_secs(30);
+
+/// A peer's effective configuration for its control packets, made again when the
+/// host's settings or apps change (`config_version`) and, with `refresh`, after that
+/// long. Text input, clipboard, keyboard layout, cursor, rate change and controller
+/// audio packets each cloned the whole configuration, and with an HDR calibration read
+/// its file, on the input thread. A failure is not kept: the next packet tries again.
+#[derive(Default)]
+pub(super) struct PeerConfig {
+    cached: Option<(u64, Instant, Arc<Config>)>,
+}
+
+impl PeerConfig {
+    pub(super) fn get(
+        &mut self,
+        version: u64,
+        now: Instant,
+        refresh: Option<Duration>,
+        load: impl FnOnce() -> Result<Config>,
+    ) -> Result<Arc<Config>> {
+        if let Some((cached_version, made, config)) = &self.cached
+            && *cached_version == version
+            && refresh.is_none_or(|refresh| now.saturating_duration_since(*made) < refresh)
+        {
+            return Ok(config.clone());
+        }
+        self.cached = None;
+        let config = Arc::new(load()?);
+        self.cached = Some((version, now, config.clone()));
+        Ok(config)
+    }
+}
+
+/// A display's scale for the client-drawn cursor, looked up on its own thread: the
+/// lookup enumerates every display (1.6 ms, once 21 ms) and held up the control
+/// thread's input on the first shape and after display changes. The finished thread
+/// wakes the control loop, whose next pass sends the shape.
+#[derive(Default)]
+pub(super) struct ScaleLookup {
+    running: Option<(String, std::thread::JoinHandle<Result<u32>>)>,
+}
+
+impl ScaleLookup {
+    /// `output`'s scale once a lookup for it finished; None while it runs, after
+    /// starting it with `lookup`, which runs here only if no thread can start.
+    pub(super) fn poll(
+        &mut self,
+        output: &str,
+        lookup: fn(&str) -> Result<u32>,
+        wake: impl FnOnce() + Send + 'static,
+    ) -> Option<Result<u32>> {
+        if let Some((looked_up, thread)) = &self.running
+            && looked_up == output
+        {
+            if !thread.is_finished() {
+                return None;
+            }
+            let (_, thread) = self.running.take()?;
+            return Some(
+                thread
+                    .join()
+                    .unwrap_or_else(|_| Err(anyhow::anyhow!("the display scale lookup panicked"))),
+            );
+        }
+        let name = output.to_owned();
+        let started = thread::Builder::new()
+            .name("cursor scale".into())
+            .spawn(move || {
+                let scale = lookup(&name);
+                wake();
+                scale
+            });
+        match started {
+            Ok(thread) => {
+                self.running = Some((output.to_owned(), thread));
+                None
+            }
+            Err(error) => {
+                tracing::warn!(%error, "display scale lookup thread did not start; looked up inline");
+                self.running = None;
+                Some(lookup(output))
+            }
+        }
     }
 }
 

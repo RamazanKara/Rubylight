@@ -71,6 +71,9 @@ pub(super) struct Depacketizer {
     drop_state_pending: bool,
     idr_frame_processed: bool,
     consecutive_frame_drops: u32,
+    /// The decode queue overflowed and no frame has reached the sink since: drops until then
+    /// are the decoder's backlog, not network loss.
+    decoder_overflow: bool,
 
     pyro_last_block: u8,
     pyro_last_block_ended: bool,
@@ -129,6 +132,7 @@ impl Depacketizer {
             drop_state_pending: false,
             idr_frame_processed: false,
             consecutive_frame_drops: 0,
+            decoder_overflow: false,
             pyro_last_block: 0,
             pyro_last_block_ended: false,
             held: Vec::new(),
@@ -160,7 +164,11 @@ impl Depacketizer {
     /// Drops the frame in progress and decides whether recovery needs a key frame or RFI.
     fn drop_frame_state<S: VideoSink>(&mut self, io: &mut Io<S>) {
         self.drop_state_pending = false;
-        io.stats.frame_drops += 1;
+        if self.decoder_overflow {
+            io.stats.decoder_drops += 1;
+        } else {
+            io.stats.frame_drops += 1;
+        }
 
         if self.strict_idr_frame_wait
             || !self.idr_frame_processed
@@ -384,8 +392,10 @@ impl Depacketizer {
             buffers,
         };
         if let Err(frame) = io.sink.frame(frame) {
-            // The decode queue overflowed: recover with a key frame.
+            // The decode queue overflowed: recover with a key frame. This frame and every one
+            // dropped until the next one reaches the sink count as decoder drops.
             self.waiting_for_idr_frame = true;
+            self.decoder_overflow = true;
             io.pools.recycle_frame(frame.data, frame.buffers);
             self.drop_frame_state(io);
             io.sink.flush_frames();
@@ -393,6 +403,7 @@ impl Depacketizer {
             return;
         }
         io.stats.frames_completed += 1;
+        self.decoder_overflow = false;
         io.sink.signal(VideoSignal::FrameReceived {
             frame: frame_number,
             ltr: frame_is_ltr,

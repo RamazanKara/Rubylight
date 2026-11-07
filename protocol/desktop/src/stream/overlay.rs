@@ -28,6 +28,8 @@ pub struct Measures {
     pub host_to_network_ms: Option<f32>,
     pub decode_ms: Option<f32>,
     pub render_ms: Option<f32>,
+    /// Frames dropped because the decode queue overflowed: this device's, never in `loss_percent`.
+    pub decoder_drops: Option<u64>,
 }
 
 /// The Compact line: the mark's health and the values after it, empty until one is measured.
@@ -102,7 +104,16 @@ pub fn statistics(stream: &str, m: &Measures) -> Vec<(String, String)> {
         lines.push(("Host incl. send".into(), format!("{} ms", value(m.host_to_network_ms, 1))));
     }
     lines.push(("Client".into(), format!("{} ms decode · {} ms render", value(m.decode_ms, 2), value(m.render_ms, 2))));
+    if let Some(drops) = m.decoder_drops {
+        lines.push(("Decoder drops".into(), decoder_drops_line(drops)));
+    }
     lines
+}
+
+/// "12 frames, the decoder fell behind": frames dropped over a full decode queue, apart from the
+/// network's loss.
+pub fn decoder_drops_line(drops: u64) -> String {
+    format!("{drops} frame{}, the decoder fell behind", if drops == 1 { "" } else { "s" })
 }
 
 /// "On the wire: 53.0 Mbps with FEC and audio", in Statistics and Debug once measured.
@@ -164,7 +175,18 @@ mod tests {
             host_to_network_ms: None,
             decode_ms: Some(1.234),
             render_ms: Some(0.5),
+            decoder_drops: None,
         }
+    }
+
+    // Regression (nightjar#80): a decoder that fell behind showed its queue drops as network loss.
+    #[test]
+    fn decoder_drops_get_their_own_line_not_the_loss() {
+        let lines = statistics("s", &Measures { decoder_drops: Some(5), ..measured() });
+        assert_eq!(lines.last().unwrap(), &("Decoder drops".to_string(), "5 frames, the decoder fell behind".to_string()));
+        assert!(lines.iter().any(|(_, v)| v.ends_with("0.12% loss")));
+        assert_eq!(decoder_drops_line(1), "1 frame, the decoder fell behind");
+        assert!(!statistics("s", &measured()).iter().any(|(k, _)| k == "Decoder drops"));
     }
 
     #[test]

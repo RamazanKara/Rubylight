@@ -459,7 +459,8 @@ impl Launcher {
             if r.clicked() {
                 self.press_play(host, game, state, commands);
             }
-            if let Some(anchor) = menu_request(ui, &r, None) {
+            let go = if state.resumes { en("Resume") } else { en("Play") };
+            if let Some(anchor) = menu_request_going(ui, &r, None, go) {
                 self.open_menu(
                     Dialog::GameMenu {
                         host: host.id,

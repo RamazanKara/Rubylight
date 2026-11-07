@@ -36,6 +36,9 @@ const STILL_SEARCHING_GAP: f32 = 24.0;
 const STEPPED_DOWN_GAP: f32 = 34.0;
 const STEPPED_DOWN_H: f32 = 48.0;
 const LINE_H: f32 = 20.0;
+/// How to connect under Add PC.
+const LINK_GAP: f32 = 8.0;
+const LINK_H: f32 = 32.0;
 const TIGHT_UNDER_MOON: f32 = 16.0;
 const TIGHT_GAP: f32 = 10.0;
 
@@ -104,7 +107,7 @@ impl Launcher {
         }
         self.found_shown = found;
         let foot = match state {
-            FirstRun::Searching => self.first_run_searching(ui, view),
+            FirstRun::Searching => self.first_run_searching(ui, view, commands),
             FirstRun::Found => self.first_run_found(ui, view, commands),
         };
         let page = ui.max_rect();
@@ -125,7 +128,28 @@ impl Launcher {
         }
     }
 
-    fn first_run_searching(&mut self, ui: &mut Ui, view: &View<'_>) -> f32 {
+    /// How to connect, centred at `top`, as Android's search card has it. Returns where it ends.
+    fn first_run_link(&mut self, ui: &mut Ui, top: f32, commands: &mut Vec<Command>) -> f32 {
+        let page = ui.max_rect();
+        let room = Rect::from_min_max(pos2(page.left(), top), pos2(page.right(), top + LINK_H));
+        let help = ui
+            .scope_builder(
+                UiBuilder::new()
+                    .max_rect(room)
+                    .layout(Layout::top_down(Align::Center)),
+                |ui| how_to_connect(ui, commands),
+            )
+            .inner;
+        self.focus_item(&help, "how-to-connect", false);
+        room.bottom()
+    }
+
+    fn first_run_searching(
+        &mut self,
+        ui: &mut Ui,
+        view: &View<'_>,
+        commands: &mut Vec<Command>,
+    ) -> f32 {
         let (center, r) = backdrop::moon_disc(ui.ctx().content_rect(), Moon::Searching);
         let dy = -self.page_scrolled;
         let (words, fine) = self.search_words(view);
@@ -162,7 +186,7 @@ impl Launcher {
         if add.clicked() {
             self.add_host_dialog();
         }
-        rect.bottom()
+        self.first_run_link(ui, rect.bottom() + LINK_GAP, commands)
     }
 
     fn first_run_found(
@@ -179,8 +203,14 @@ impl Launcher {
         let lines = list.len().div_ceil(columns) as f32;
         let cards_h = lines * (CARD_H + CARD_GAP) - CARD_GAP;
         let under = center.y + r * ORBIT + CARD_UNDER_RING;
-        let needs =
-            under + cards_h + STILL_SEARCHING_GAP + LINE_H + STEPPED_DOWN_GAP + STEPPED_DOWN_H;
+        let needs = under
+            + cards_h
+            + STILL_SEARCHING_GAP
+            + LINE_H
+            + STEPPED_DOWN_GAP
+            + STEPPED_DOWN_H
+            + LINK_GAP
+            + LINK_H;
         // A short window keeps it all in view: the card comes over the ring, the gaps close up.
         let tight = needs + space::M > ui.ctx().content_rect().bottom();
         let (card_top, still_gap, step_gap) = if tight {
@@ -231,7 +261,7 @@ impl Launcher {
         if add.clicked() {
             self.add_host_dialog();
         }
-        rect.bottom()
+        self.first_run_link(ui, rect.bottom() + LINK_GAP, commands)
     }
 
     /// A PC found: its screen, its name and its line, and Pair.
@@ -319,11 +349,9 @@ impl Launcher {
         } else if card.clicked() {
             host_clicked(host, self.settings.quick_resume, commands);
         }
-        let keys = pair.has_focus()
-            && ui.input(|i| {
-                i.key_pressed(Key::F2) || (i.modifiers.shift && i.key_pressed(Key::F10))
-            });
-        let asked = menu_request(ui, &card, None).or(keys.then_some(Anchor::Beside(card.rect)));
+        // Pair holds the focus for its card: its keys, its word, and the options by the card.
+        let keys = menu_request_going(ui, &pair, None, action.words()).map(|_| Anchor::Beside(card.rect));
+        let asked = menu_request(ui, &card, None).or(keys);
         if let Some(anchor) = asked {
             self.open_menu(
                 Dialog::HostOptions { host: host.id },

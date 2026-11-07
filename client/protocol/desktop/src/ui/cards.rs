@@ -110,6 +110,11 @@ pub(super) fn cover_dots(ui: &mut Ui, cover: &Response, image: Rect, badge: Badg
 /// Where a menu asked for on a card opens, if one was: under its ⋮ when that was clicked, at the
 /// pointer for a right-click, beside the card for F2, Shift+F10 or the controller's Y or X.
 pub(super) fn menu_request(ui: &Ui, card: &Response, dots: Option<&Response>) -> Option<Anchor> {
+    menu_request_going(ui, card, dots, en("Open"))
+}
+
+/// [`menu_request`] for a control that does `go` rather than open something: the hints name that.
+pub(super) fn menu_request_going(ui: &Ui, card: &Response, dots: Option<&Response>, go: &'static str) -> Option<Anchor> {
     if let Some(dots) = dots.filter(|d| d.clicked()) {
         return Some(Anchor::Below(dots.rect));
     }
@@ -119,7 +124,7 @@ pub(super) fn menu_request(ui: &Ui, card: &Response, dots: Option<&Response>) ->
     }
     let focused = card.has_focus() || dots.is_some_and(Response::has_focus);
     if focused {
-        hint_here(ui.ctx(), en("Open"));
+        hint_here(ui.ctx(), go);
     }
     let keys = focused && ui.input(|i| {
         crate::shortcuts::pressed(i, crate::shortcuts::Action::Options, false) && !(i.modifiers.ctrl || i.modifiers.alt || i.modifiers.command)

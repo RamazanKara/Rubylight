@@ -368,6 +368,7 @@ public class PairingApprovalTest {
             Transcript transcript = new Transcript();
             AlertDialog dialog = dialogs(controller.get(), transcript).showPin(tv(), client(transcript, ""));
             idle();
+            assertEquals("wide enough for the slots beside the pad", 1280, dialog.getWindow().getAttributes().width);
             View decor = dialog.getWindow().getDecorView();
             float density = controller.get().getResources().getDisplayMetrics().density;
             decor.measure(View.MeasureSpec.makeMeasureSpec((int) (960 * density), View.MeasureSpec.AT_MOST),

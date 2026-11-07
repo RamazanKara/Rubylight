@@ -108,6 +108,8 @@ final class PairingDialogs {
                 .show();
     }
 
+    private static final int PIN_WIDE_DP = 640;
+
     /** Approve stays off until the PIN is whole, and takes the focus then. Back leaves the request waiting. */
     @VisibleForTesting
     AlertDialog showPin(final PairingWatch.Waiting waiting, final SleepFlow.Client client) {
@@ -172,6 +174,13 @@ final class PairingDialogs {
             pad.getChildAt(0).requestFocus();
         });
         dialog.show();
+        // Beside the pad's width in landscape, the slots and who asks need their own, or the four slots stand as slits.
+        if (activity.getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            android.content.res.Resources res = activity.getResources();
+            int wide = Math.round(PIN_WIDE_DP * res.getDisplayMetrics().density);
+            int room = res.getDisplayMetrics().widthPixels - 2 * res.getDimensionPixelSize(R.dimen.space_l);
+            dialog.getWindow().setLayout(Math.min(wide, room), ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
         return dialog;
     }
 

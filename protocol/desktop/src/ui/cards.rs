@@ -153,7 +153,12 @@ pub(super) fn host_card(ui: &mut Ui, host: &Host, line: &str, width: f32) -> Res
         format!("{status}  \u{b7}  {line}")
     };
     let cut = card_line(&painter, rect, 58.0, &both, regular(text::LABEL), *color);
-    focus_ring(ui, rect, &response, radius::PANEL);
+    if response.has_focus() {
+        // Past the scroll area's edge when the card sits at it, as every focused thing does.
+        let mut halo = Vec::new();
+        glass::focus(&mut halo, ui.ctx(), rect, f32::from(radius::PANEL), false);
+        glass::defer_focused(ui, halo);
+    }
     if cut {
         response.on_hover_text(both)
     } else {
@@ -504,7 +509,11 @@ pub(super) fn list_row(ui: &mut Ui, name: &str, line: &str, art: Option<&Art>, b
     card_line(&inside, words, LIST_ROW_H / 2.0 - 12.0, name, semibold(text::CARD_TITLE), *ON_SURFACE);
     let below = if badge == Badge::NotInstalled { format!("{line} · {}", tr("Not installed")) } else { line.to_owned() };
     card_line(&inside, words, LIST_ROW_H / 2.0 + 14.0, &below, regular(text::LABEL), *ON_SURFACE_VARIANT);
-    focus_ring(ui, rect, &response, radius::PANEL);
+    if response.has_focus() {
+        let mut halo = Vec::new();
+        glass::focus(&mut halo, ui.ctx(), rect, f32::from(radius::PANEL), false);
+        glass::defer_focused(ui, halo);
+    }
     response
 }
 

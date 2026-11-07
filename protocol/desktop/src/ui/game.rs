@@ -447,7 +447,7 @@ impl Launcher {
             } else {
                 tr("Play")
             };
-            let working = false;
+            let working = self.playing_soon(host.id, game.app_id);
             let w = play_width(ui, label).max(PLAY_LEAST_W);
             let rect = flow.place(w, PLAY_H);
             let r = play_button(

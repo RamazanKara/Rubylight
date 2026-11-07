@@ -654,8 +654,7 @@ impl Launcher {
             Rect::from_min_size(pos2(left, buttons_y), vec2(play_width(ui, label), BUTTON_H));
         // A game that can start takes the focus even while its app list is on the way, so the first
         // press is never spent on the star. A list that came without it is no way to start it.
-        let could_play = state.detail.can_start
-            && (state.classic.is_some() || matches!(host.apps, Apps::NotLoaded | Apps::Loading));
+        let could_play = state.could_play(host);
         let play = play_button(
             ui,
             play_rect,
@@ -663,7 +662,7 @@ impl Launcher {
             Icon::Play,
             label,
             could_play,
-            false,
+            self.playing_soon(host.id, game.app_id),
         );
         let play_first = *first && could_play;
         if play_first {

@@ -169,7 +169,7 @@ final class HomeChrome {
         ViewGroup items = activity.findViewById(R.id.shell_bar_items);
         items.getLayoutParams().height = ViewGroup.LayoutParams.MATCH_PARENT;
         boolean phone = form == GlassForm.PHONE;
-        float density = activity.getResources().getDisplayMetrics().density;
+        float density = items.getResources().getDisplayMetrics().density;
         for (int i = 0; i < items.getChildCount(); i++) {
             MaterialButton tab = (MaterialButton) items.getChildAt(i);
             LinearLayout.LayoutParams params = phone

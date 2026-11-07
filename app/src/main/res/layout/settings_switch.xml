@@ -1,4 +1,4 @@
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="wrap_content" android:layout_height="wrap_content" android:gravity="center_vertical">
     <!-- Opens the switch's explanation; shown only when it has one. D-pad and keyboard users open it
          with Right or F1 on the row, accessibility services through the row's own action. -->
@@ -8,5 +8,7 @@
         android:focusable="false" android:importantForAccessibility="no" />
     <com.google.android.material.materialswitch.MaterialSwitch
         android:id="@+id/preference_switch" android:layout_width="wrap_content" android:layout_height="48dp"
+        app:trackTint="@color/settings_switch_track" app:thumbTint="@color/settings_switch_thumb"
+        app:trackDecorationTint="@android:color/transparent"
         android:clickable="false" android:focusable="false" android:importantForAccessibility="no" />
 </LinearLayout>

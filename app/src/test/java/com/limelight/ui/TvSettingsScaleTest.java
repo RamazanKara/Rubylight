@@ -95,18 +95,24 @@ public class TvSettingsScaleTest {
         int[] at = new int[2];
         tab.getLocationInWindow(at);
         // The first tab starts on the screen's inset, the edge of the rows below it (ShellNavigationTest).
-        int x = at[0] - screen.getResources().getDimensionPixelSize(R.dimen.shell_inset);
+        // The tab's own resources: Settings' screen resources are compact, its shell bar is not.
+        int x = at[0] - tab.getResources().getDimensionPixelSize(R.dimen.shell_inset);
         return new int[] {tab.getHeight(), Math.round(((TextView) tab).getTextSize()), x, at[1]};
     }
 
-    /** The PCs page has moved to the glass tabs; Settings keeps its bar inside the overscan margin until it follows. */
     @Test
-    public void theShellBarStaysInsideTheOverscanMargin() {
+    public void theShellBarAndTheOverscanMarginStayAsOnThePcs() {
+        int[] pcs;
+        try (var screen = Robolectric.buildActivity(PcViewLifecycleTest.Library.class, HomeSettings.pcList(context)).setup().visible()) {
+            pcs = shellMetrics(screen.get());
+        }
         try (var screen = Robolectric.buildActivity(StreamSettings.class, ShellBar.intentFor(context, Destination.SETTINGS))
                 .setup().visible()) {
             int[] settings = shellMetrics(screen.get());
-            assertEquals("the bar's edge", true, settings[2] >= screen.get().getResources().getDimensionPixelSize(R.dimen.shell_overscan_horizontal));
-            assertEquals("tab y", true, settings[3] >= screen.get().getResources().getDimensionPixelSize(R.dimen.shell_overscan_vertical));
+            assertEquals("tab height", pcs[0], settings[0]);
+            assertEquals("tab text size", pcs[1], settings[1]);
+            assertEquals("the bar's edge: overscan and TV margin", pcs[2], settings[2]);
+            assertEquals("tab y", pcs[3], settings[3]);
         }
     }
 }

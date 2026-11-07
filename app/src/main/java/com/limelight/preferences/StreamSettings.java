@@ -64,7 +64,11 @@ import com.limelight.binding.video.DecoderBenchmark;
 import com.limelight.binding.video.PyroWaveDecoderRenderer;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.UiHelper;
+import com.limelight.ui.GlassForm;
+import com.limelight.ui.GlassHost;
+import com.limelight.ui.NightSkyView;
 import com.limelight.ui.ShellBar;
+import androidx.core.view.ViewCompat;
 import com.limelight.ui.TopAppBar;
 import com.limelight.ui.StreamOrientation;
 import com.limelight.ui.VideoScaling;
@@ -461,10 +465,121 @@ public class StreamSettings extends NightjarActivity {
         }
         // The shell bar belongs to the list of sections, and its Settings tab is the title there; a section or the search
         // results keep the back arrow and their title.
-        com.limelight.ui.TopAppBar.showShellBar(this, toolbar, overview && searchQuery.isEmpty(), title);
+        boolean atRoot = overview && searchQuery.isEmpty();
+        toolbar.setTitle(atRoot ? null : title);
+        setTitle(title);
         toolbar.setNavigationContentDescription(returnSearchQuery != null ? R.string.settings_back_to_search :
                 overview ? R.string.settings_navigate_up : R.string.settings_back_to_overview);
+        // The words under the title count search results; everything else speaks for itself.
+        contextLabel.setVisibility(searchQuery.isEmpty() ? View.GONE : View.VISIBLE);
+        TextView large = findViewById(R.id.settings_title);
+        if (twoPane) large.setText(searchQuery.isEmpty() && section != null ? sectionTitle(section) : R.string.settings_search_results);
         updateNavigation();
+        updateChips();
+    }
+
+    /** Where a phone's section chips stand and which is selected. */
+    private void updateChips() {
+        ViewGroup chips = findViewById(R.id.settings_chips);
+        if (chips == null) return;
+        boolean shown = section != null && searchQuery.isEmpty();
+        findViewById(R.id.settings_chips_scroll).setVisibility(shown ? View.VISIBLE : View.GONE);
+        if (!shown) return;
+        if (chips.getChildCount() == 0) {
+            LayoutInflater inflater = LayoutInflater.from(this);
+            for (String key : visibleSections()) {
+                TextView chip = (TextView) inflater.inflate(R.layout.settings_chip, chips, false);
+                chip.setText(sectionTitle(key));
+                chip.setTag(key);
+                chip.setOnClickListener(v -> {
+                    if (!key.equals(section)) showSection(key);
+                });
+                chips.addView(chip);
+            }
+        }
+        for (int i = 0; i < chips.getChildCount(); i++) {
+            View chip = chips.getChildAt(i);
+            boolean selected = chip.getTag().equals(section);
+            chip.setSelected(selected);
+            ViewCompat.setStateDescription(chip, selected ? getString(R.string.shell_current_page) : null);
+            if (selected) chip.post(() -> chip.requestRectangleOnScreen(new android.graphics.Rect(0, 0, chip.getWidth(), chip.getHeight()), true));
+        }
+    }
+
+    /** The sections a chip stands for, as the list of sections has them. */
+    private List<String> visibleSections() {
+        return new ArrayList<>(SECTIONS.keySet());
+    }
+
+    /** The chrome's search takes the place of the bar's menu item; the toolbar only carries the back arrow and a title. */
+    private void setUpGlass() {
+        GlassHost host = findViewById(R.id.glass_host);
+        Context full = fullSizeContext();
+        LayoutInflater.from(full).inflate(R.layout.view_settings_chrome, host, true);
+        ShellBar.install(this, ShellBar.Destination.SETTINGS);
+        View search = findViewById(R.id.settings_search_button);
+        search.setOnClickListener(v -> openSearch());
+        GlassForm form = GlassForm.of(this);
+        if (form == GlassForm.PHONE) {
+            android.content.res.Resources res = full.getResources();
+            ((ViewGroup) search.getParent()).removeView(search);
+            int size = res.getDimensionPixelSize(R.dimen.nj_size_tab_bar_height);
+            android.widget.LinearLayout.LayoutParams params = new android.widget.LinearLayout.LayoutParams(size, size);
+            params.setMarginStart(res.getDimensionPixelSize(R.dimen.space_s));
+            ((ViewGroup) findViewById(R.id.settings_bottom_row)).addView(search, params);
+            findViewById(R.id.settings_chrome).setVisibility(View.GONE);
+        }
+        NightSkyView sky = findViewById(R.id.settings_sky);
+        // A rail and a pane fill the screen: the moon would stand behind the rows' text. A phone's stands over its title.
+        if (form != GlassForm.PHONE) sky.setMoonShown(false);
+        host.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (r - l != or - ol || b - t != ob - ot) host.setAmbient(sky.bake(r - l, b - t), false, 0);
+        });
+        chrome = new com.limelight.console.PageChrome(this, host, R.id.settings_tabs, R.id.settings_top_row, R.id.settings_bottom_row, R.id.settings_foot_fade, this::layOutUnderChrome);
+        if (form != GlassForm.PHONE) ShellBar.linkTopRow(this, R.id.settings_search_button);
+    }
+
+    private com.limelight.console.PageChrome chrome;
+    /** What a list keeps free under its last row: the phone's tab bar. */
+    private int listFoot;
+
+    /** The panes take what the chrome and the window leave. The chrome is at full size, the panes may be compact. */
+    private void layOutUnderChrome(int left, int top, int right, int bottom) {
+        android.content.res.Resources res = fullSizeContext().getResources();
+        float density = res.getDisplayMetrics().density;
+        GlassForm form = GlassForm.of(this);
+        ((NightSkyView) findViewById(R.id.settings_sky)).setSafeTop(top);
+        View frame = findViewById(R.id.settings_frame);
+        if (form == GlassForm.PHONE) {
+            frame.setPadding(left, top + Math.round(24 * density), right, 0);
+            View bar = findViewById(R.id.settings_bottom_row);
+            int edge = res.getDimensionPixelSize(R.dimen.space_m);
+            bar.setPadding(left + edge, 0, right + edge, bottom + res.getDimensionPixelSize(R.dimen.space_s));
+            listFoot = bottom + res.getDimensionPixelSize(R.dimen.nj_size_tab_bar_height) + 3 * edge;
+            View fade = findViewById(R.id.settings_foot_fade);
+            ViewGroup.LayoutParams size = fade.getLayoutParams();
+            size.height = res.getDimensionPixelSize(R.dimen.home_foot_fade) + bottom;
+            fade.setLayoutParams(size);
+        } else {
+            boolean television = form == GlassForm.TELEVISION;
+            int inset = television ? 0 : Math.round(24 * density);
+            int rowTop = television ? top : top + res.getDimensionPixelSize(R.dimen.space_m);
+            findViewById(R.id.settings_top_row).setPaddingRelative(left + inset, rowTop, right + inset, 0);
+            int side = res.getDimensionPixelSize(R.dimen.shell_overscan_horizontal);
+            int vertical = res.getDimensionPixelSize(R.dimen.shell_overscan_vertical);
+            // The group's edge stands under the tabs' edge: the list keeps its gutter, so the frame gives it back.
+            int gutter = getResources().getDimensionPixelSize(R.dimen.screen_gutter);
+            frame.setPaddingRelative(Math.max(0, left + side + inset - gutter),
+                    rowTop + vertical + res.getDimensionPixelSize(R.dimen.glass_capsule) + res.getDimensionPixelSize(R.dimen.space_m),
+                    right + side + inset, 0);
+            listFoot = bottom + vertical;
+        }
+        applyListFoot(listOf(R.id.stream_settings));
+        applyListFoot(listOf(R.id.settings_sections));
+    }
+
+    private void applyListFoot(ListView list) {
+        if (list != null) list.setPadding(list.getPaddingLeft(), list.getPaddingTop(), list.getPaddingRight(), listFoot);
     }
 
     /**
@@ -474,6 +589,9 @@ public class StreamSettings extends NightjarActivity {
     private void updateNavigation() {
         boolean topLevel = fromShell && searchQuery.isEmpty() && returnSearchQuery == null
                 && searchView.getVisibility() != View.VISIBLE && (section == null || twoPane);
+        // A top-level page needs no bar at all: its tab names it, and a phone's large title stands in its place.
+        toolbar.setVisibility(topLevel ? View.GONE : View.VISIBLE);
+        if (!twoPane) findViewById(R.id.settings_title).setVisibility(section == null && searchQuery.isEmpty() ? View.VISIBLE : View.GONE);
         if (topLevel == (toolbar.getNavigationIcon() == null)) return;
         toolbar.setNavigationIcon(topLevel ? null
                 : androidx.appcompat.content.res.AppCompatResources.getDrawable(toolbar.getContext(), R.drawable.ic_arrow_back));
@@ -729,16 +847,11 @@ public class StreamSettings extends NightjarActivity {
         twoPane = findViewById(R.id.settings_sections) != null;
         rail = SettingsRail.attach(this);
         dropMisplacedPanes();
-        keepShellFullSize();
-        toolbar = TopAppBar.configure(this, R.id.settings_toolbar, getString(R.string.settings), R.menu.settings);
+        toolbar = TopAppBar.configure(this, R.id.settings_toolbar, getString(R.string.settings), 0);
         TopAppBar.setUpNavigation(toolbar, R.id.settings_back, v -> navigateBack());
-        ShellBar.install(this, ShellBar.Destination.SETTINGS);
+        setUpGlass();
         // Search sits at the end of the tab row: Right from the last tab reaches it, also where the bar ends in a wall (TV).
         findViewById(R.id.shell_settings).setNextFocusRightId(R.id.settings_search_button);
-        toolbar.setOnMenuItemClickListener(item -> {
-            openSearch();
-            return true;
-        });
         contextLabel = findViewById(R.id.settings_context);
         searchView = findViewById(R.id.settings_search);
         searchView.setVisibility(searchQuery.isEmpty() ? View.GONE : View.VISIBLE);
@@ -776,30 +889,6 @@ public class StreamSettings extends NightjarActivity {
         updateHeader();
 
         UiHelper.notifyNewRootView(this);
-    }
-
-    /**
-     * Compact on a TV, Settings keeps the shell bar and the TV's overscan margin at the size they have on the other tabs:
-     * it is the same bar, and switching tabs must not move or shrink it. The bar is inflated again at the full size, but
-     * its first tab starts on the screen's own inset, the edge of the line below and of the rail's rings.
-     */
-    private void keepShellFullSize() {
-        Context full = fullSizeContext();
-        View frame = findViewById(R.id.settings_frame);
-        View old = findViewById(R.id.settings_toolbar);
-        if (full == this || frame == null || old == null || old.getParent() != frame) return;
-        ViewGroup parent = (ViewGroup) frame;
-        int index = parent.indexOfChild(old);
-        View bar = LayoutInflater.from(full).inflate(R.layout.view_shell_app_bar, parent, false);
-        bar.setId(R.id.settings_toolbar);
-        MaterialToolbar toolbar = (MaterialToolbar) bar;
-        toolbar.setContentInsetsRelative(getResources().getDimensionPixelSize(R.dimen.shell_inset), toolbar.getContentInsetEnd());
-        parent.removeViewAt(index);
-        parent.addView(bar, index, old.getLayoutParams());
-        android.content.res.Resources resources = full.getResources();
-        int horizontal = resources.getDimensionPixelSize(R.dimen.shell_overscan_horizontal);
-        int vertical = resources.getDimensionPixelSize(R.dimen.shell_overscan_vertical);
-        parent.setPaddingRelative(horizontal, vertical, horizontal, vertical);
     }
 
     /** A recreated activity gets back the fragments of the layout it had; the other layout has no place for them. */
@@ -1041,6 +1130,11 @@ public class StreamSettings extends NightjarActivity {
         stylePreferences(group, hasRail(activity) ? R.layout.settings_category_tv : R.layout.settings_category);
     }
 
+    /** By form, not by a resource qualifier: a TV is past w840dp, which outranks television in resource matching. */
+    private static int sectionLayout(Context context) {
+        return GlassForm.of(context) == GlassForm.TELEVISION ? R.layout.settings_section_tv : R.layout.settings_section;
+    }
+
     private static void stylePreferences(PreferenceGroup group, int categoryLayout) {
         for (int i = 0; i < group.getPreferenceCount(); i++) {
             Preference preference = group.getPreference(i);
@@ -1050,7 +1144,7 @@ public class StreamSettings extends NightjarActivity {
                 preference.setLayoutResource(TextUtils.isEmpty(preference.getTitle()) ?
                         R.layout.settings_category_spacer : categoryLayout);
             } else {
-                preference.setLayoutResource(R.layout.settings_preference);
+                preference.setLayoutResource(preference instanceof ListPreference ? R.layout.settings_preference_value : R.layout.settings_preference);
             }
             if (preference instanceof PreferenceGroup) {
                 stylePreferences((PreferenceGroup) preference, categoryLayout);
@@ -1075,7 +1169,7 @@ public class StreamSettings extends NightjarActivity {
     }
 
     private static void stylePreferenceList(View view, android.app.Activity activity, boolean contentPane) {
-        ListView list = view.findViewById(android.R.id.list);
+        ListView list = GroupedListView.adopt(view);
         com.limelight.ui.UiNavigation.bindPreferencesWhenReady(list);
         View search = activity.findViewById(R.id.settings_search);
         linkListToSearch(list, search);
@@ -1097,12 +1191,10 @@ public class StreamSettings extends NightjarActivity {
         }
         list.setDivider(null);
         list.setDividerHeight(0);
-        // TV Settings: the rail's ring takes its pill shape, and the right pane's focused row is filled as well as ringed.
-        boolean tvRail = activity.findViewById(R.id.settings_rail) != null;
-        list.setSelector(!tvRail ? R.drawable.list_focus_row :
-                contentPane ? R.drawable.tv_settings_row_focus : R.drawable.tv_settings_rail_focus);
-        // Rows reach the edges and carry the screen gutter themselves (layout/settings_*.xml).
-        list.setPadding(0, 0, 0, view.getResources().getDimensionPixelSize(R.dimen.grid_padding_bottom));
+        list.setSelector(R.drawable.settings_row_focus);
+        // The selector's inset puts rows on their group's edge; under the last one, what the chrome keeps.
+        int foot = ((StreamSettings) activity).listFoot;
+        list.setPadding(0, 0, 0, foot > 0 ? foot : view.getResources().getDimensionPixelSize(R.dimen.grid_padding_bottom));
         list.setClipToPadding(false);
     }
 
@@ -1162,9 +1254,8 @@ public class StreamSettings extends NightjarActivity {
             for (String key : SECTIONS.keySet()) {
                 Preference row = findPreference(key);
                 if (row == null) continue;
-                row.setLayoutResource(R.layout.settings_section);
-                // Only the TV rail's rows have a place for an icon (layout-television/settings_section).
-                if (isTelevision(getActivity())) row.setIcon(SettingsRail.iconOf(key));
+                row.setLayoutResource(sectionLayout(getActivity()));
+                row.setIcon(SettingsRail.iconOf(key));
                 row.setOnPreferenceClickListener(preference -> {
                     ListView list = (ListView) getView().findViewById(android.R.id.list);
                     ((StreamSettings) getActivity()).activateSection(key, list.hasFocus());
@@ -1173,8 +1264,8 @@ public class StreamSettings extends NightjarActivity {
             }
             // Profiles opens its own screen, with a section's look: a title, what is in use, a chevron.
             Preference profiles = findPreference(PROFILES_KEY);
-            profiles.setLayoutResource(R.layout.settings_section);
-            if (isTelevision(getActivity())) profiles.setIcon(SettingsRail.iconOf(PROFILES_KEY));
+            profiles.setLayoutResource(sectionLayout(getActivity()));
+            profiles.setIcon(SettingsRail.iconOf(PROFILES_KEY));
             profiles.setOnPreferenceClickListener(preference -> {
                 startActivity(new Intent(getActivity(), StreamProfilesActivity.class));
                 return true;

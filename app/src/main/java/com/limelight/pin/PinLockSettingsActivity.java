@@ -327,10 +327,10 @@ public class PinLockSettingsActivity extends NightjarActivity {
         @Override
         public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle state) {
             View view = super.onCreateView(inflater, container, state);
-            ListView listView = view.findViewById(android.R.id.list);
+            ListView listView = com.limelight.preferences.GroupedListView.adopt(view);
             com.limelight.ui.UiNavigation.bindPreferences(listView);
             listView.setDivider(null);
-            listView.setSelector(R.drawable.list_focus_row);
+            listView.setSelector(R.drawable.settings_row_focus);
             listView.setPadding(0, 0, 0, getResources().getDimensionPixelSize(R.dimen.space_s));
             com.limelight.ui.SubPageFocus.apply(getActivity(), view);
             return view;

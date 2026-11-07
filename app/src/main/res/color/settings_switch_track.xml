@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tints only: moon while on, the control's tint while off. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_enabled="false" android:alpha="0.38" android:color="?attr/glassControlFill" />
+    <item android:state_checked="true" android:color="@color/nj_color_moon" />
+    <item android:color="?attr/glassControlFill" />
+</selector>

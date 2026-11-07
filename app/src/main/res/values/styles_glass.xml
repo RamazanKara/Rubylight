@@ -19,6 +19,14 @@
     <style name="TextAppearance.Nightjar.Supporting.TileUpdate">
         <item name="android:textSize">@dimen/tile_update_text</item>
     </style>
+    <!-- The section's name over a two-pane page. -->
+    <style name="TextAppearance.Nightjar.Glass.PaneTitle" parent="">
+        <item name="android:textSize">@dimen/nj_type_title_size</item>
+    </style>
+    <!-- A row of a TV's rail. -->
+    <style name="TextAppearance.Nightjar.Glass.TvRailRow" parent="TextAppearance.Nightjar.Title">
+        <item name="android:textSize">20sp</item>
+    </style>
     <style name="TextAppearance.Nightjar.Glass.Size17" parent="">
         <item name="android:textSize">17sp</item>
     </style>

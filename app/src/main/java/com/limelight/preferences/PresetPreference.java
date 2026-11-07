@@ -18,7 +18,9 @@ import com.limelight.binding.video.DisplayFrameRatePolicy;
 public class PresetPreference extends Preference {
     public PresetPreference(Context context, AttributeSet attrs) {
         super(context, attrs);
-        setLayoutResource(R.layout.settings_presets);
+        // By form: a TV is past w840dp, which outranks television in resource matching.
+        setLayoutResource(com.limelight.ui.GlassForm.of(context) == com.limelight.ui.GlassForm.TELEVISION
+                ? R.layout.settings_presets_tv : R.layout.settings_presets);
         setSelectable(true);
     }
 
@@ -51,7 +53,7 @@ public class PresetPreference extends Preference {
         super.onBindView(view);
         float refresh = DisplayFrameRatePolicy.maxRefreshRate(((Activity) getContext()).getWindowManager().getDefaultDisplay());
         String nativeResolution = PreferenceConfiguration.nativeResolution(getContext());
-        // TV's rail row (layout-television/settings_presets) has no chips or info button: Select opens the list.
+        // A rail's row has no chips or info button: Select opens the list.
         ChipGroup group = view.findViewById(R.id.preset_chips);
         if (group != null) group.removeAllViews();
         String[] names = getContext().getResources().getStringArray(R.array.stream_preset_names);
@@ -67,6 +69,11 @@ public class PresetPreference extends Preference {
             chip.setEllipsize(TextUtils.TruncateAt.END);
             chip.setCheckable(true);
             chip.setEnsureMinTouchTargetSize(true);
+            chip.setChipBackgroundColorResource(R.color.settings_preset_chip_fill);
+            chip.setTextColor(androidx.appcompat.content.res.AppCompatResources.getColorStateList(getContext(), R.color.settings_preset_chip_text));
+            chip.setChipStrokeWidth(0);
+            chip.setCheckedIconVisible(false);
+            chip.setChipCornerRadius(getContext().getResources().getDimension(R.dimen.nj_radius_control));
             group.addView(chip);
             if (preset.matches(getSharedPreferences(), nativeResolution, refresh)) {
                 chip.setChecked(true);

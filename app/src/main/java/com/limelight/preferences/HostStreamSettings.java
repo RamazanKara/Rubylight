@@ -1507,11 +1507,11 @@ public class HostStreamSettings extends NightjarActivity {
         @Override
         public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle state) {
             View view = super.onCreateView(inflater, container, state);
-            ListView list = view.findViewById(android.R.id.list);
+            ListView list = GroupedListView.adopt(view);
             com.limelight.ui.UiNavigation.bindPreferencesWhenReady(list);
             list.setNextFocusDownId(R.id.host_profile_save);
             list.setDivider(null);
-            list.setSelector(R.drawable.list_focus_row);
+            list.setSelector(R.drawable.settings_row_focus);
             list.setPadding(0, 0, 0, getResources().getDimensionPixelSize(R.dimen.space_s));
             return view;
         }

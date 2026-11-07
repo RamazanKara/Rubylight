@@ -242,28 +242,25 @@ public class SettingsPanesTest {
         } finally { controller.pause().stop().destroy(); }
     }
 
-    /** A TV caps summaries to keep rows compact, so the row under the D-pad shows all of its text. */
+    /** PreferenceFragment sets the theme's divider after onCreateView; a line past the group's edge came back with it. */
     @Test @Config(qualifiers = TV)
-    public void theSelectedRowShowsItsWholeSummaryWhileTheListHasFocus() {
+    public void aGroupedListKeepsNoDividerOfItsOwn() {
         ActivityController<StreamSettings> controller = open();
         try {
-            StreamSettings screen = controller.get();
-            ListView list = sections(screen);
-            list.requestFocus();
-            list.setSelection(row(list, "audio"));
-            settle(screen);
-            View selected = list.getSelectedView();
-            android.widget.TextView summary = selected.findViewById(android.R.id.summary);
-            assertEquals(Integer.MAX_VALUE, summary.getMaxLines());
+            assertEquals(null, content(controller.get()).getDivider());
+            assertEquals(null, sections(controller.get()).getDivider());
+        } finally { controller.pause().stop().destroy(); }
+    }
+
+    /** A rail's row is an icon and a name: the pane beside it says the rest. */
+    @Test @Config(qualifiers = TV)
+    public void aRailRowCarriesNoSummary() {
+        ActivityController<StreamSettings> controller = open();
+        try {
+            ListView list = sections(controller.get());
             for (int i = 0; i < list.getChildCount(); i++) {
-                View child = list.getChildAt(i);
-                android.widget.TextView other = child.findViewById(android.R.id.summary);
-                if (child != selected && other != null) assertEquals(1, other.getMaxLines());
+                assertEquals(null, list.getChildAt(i).findViewById(android.R.id.summary));
             }
-            key(screen, KeyEvent.KEYCODE_DPAD_RIGHT);
-            settle(screen);
-            assertTrue(content(screen).hasFocus());
-            assertEquals("capped again once focus leaves the list", 1, summary.getMaxLines());
         } finally { controller.pause().stop().destroy(); }
     }
 
@@ -278,7 +275,7 @@ public class SettingsPanesTest {
                 if (summary != null) assertEquals(Integer.MAX_VALUE, summary.getMaxLines());
             }
             View row = screen.getLayoutInflater().inflate(R.layout.settings_section, list, false);
-            assertEquals(Math.round(80 * screen.getResources().getDisplayMetrics().density), row.getMinimumHeight());
+            assertEquals(Math.round(64 * screen.getResources().getDisplayMetrics().density), row.getMinimumHeight());
         } finally { controller.pause().stop().destroy(); }
     }
 

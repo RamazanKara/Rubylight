@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings' glass: inflated from the full-size context so that a TV's compact Settings keeps the tabs of the other pages.
+     PageChrome places the tabs for the form factor; search closes the top row, or stands beside a phone's tab bar. -->
+<merge xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <LinearLayout android:id="@+id/settings_chrome" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:clipToPadding="false" android:clipChildren="false"
+        android:paddingStart="@dimen/shell_overscan_horizontal" android:paddingEnd="@dimen/shell_overscan_horizontal"
+        android:paddingTop="@dimen/shell_overscan_vertical" android:paddingBottom="@dimen/shell_overscan_vertical">
+        <LinearLayout android:id="@+id/settings_top_row" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center_vertical" android:clipChildren="false" android:clipToPadding="false">
+            <Space android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" />
+            <com.limelight.ui.GlassSurface android:id="@+id/settings_search_button" android:layout_width="@dimen/glass_capsule" android:layout_height="@dimen/glass_capsule"
+                android:focusable="true" android:clickable="true" android:defaultFocusHighlightEnabled="false"
+                android:contentDescription="@string/settings_search_hint">
+                <ImageView android:layout_width="22dp" android:layout_height="22dp" android:layout_gravity="center"
+                    android:src="@drawable/ic_glass_search" android:importantForAccessibility="no" />
+            </com.limelight.ui.GlassSurface>
+        </LinearLayout>
+    </LinearLayout>
+    <LinearLayout android:id="@+id/settings_bottom_row" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_gravity="bottom" android:orientation="horizontal" android:gravity="center_vertical"
+        android:clipChildren="false" android:clipToPadding="false">
+        <com.limelight.ui.GlassSurface android:id="@+id/settings_tabs" android:layout_width="0dp" android:layout_height="@dimen/nj_size_tab_bar_height"
+            android:layout_weight="1">
+            <include layout="@layout/view_shell_bar" android:layout_width="match_parent" android:layout_height="match_parent" />
+        </com.limelight.ui.GlassSurface>
+    </LinearLayout>
+</merge>

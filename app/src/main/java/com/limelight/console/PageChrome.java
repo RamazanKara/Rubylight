@@ -68,7 +68,8 @@ public final class PageChrome {
     private void placeTabs(int tabsId, int topRowId, int bottomRowId, int fadeId) {
         View tabs = activity.findViewById(tabsId);
         if (form != GlassForm.PHONE) {
-            Resources res = activity.getResources();
+            // The tabs' own resources: on a screen that is compact on a TV they keep the full size.
+            Resources res = tabs.getResources();
             ((ViewGroup) tabs.getParent()).removeView(tabs);
             int capsule = res.getDimensionPixelSize(R.dimen.glass_capsule);
             ((ViewGroup) activity.findViewById(topRowId)).addView(tabs, 0, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, capsule));

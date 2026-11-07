@@ -11,14 +11,13 @@ import android.view.animation.Interpolator;
 import android.widget.ListView;
 
 import com.limelight.R;
-import com.limelight.ui.AppTheme;
 import com.limelight.ui.Motion;
 
 /**
- * The motion of TV Settings, which is all it has: the amber bar that marks the current section on the rail, and the right
- * pane coming in when the section changes. The bar is one view over the rail (layout/activity_stream_settings_tv, which
+ * The motion of TV Settings, which is all it has: the selected pill of the current section on the rail, and the right
+ * pane coming in when the section changes. The pill is one view behind the rail's list (layout/activity_stream_settings_tv, which
  * TVs get as activity_stream_settings): it slides to a new section's row over 160 ms and follows the list's scrolling at once. Nothing moves under Reduce motion;
- * the bar and the panes are still there. Focus is not touched here (PaneFocus and StreamSettings own it).
+ * the pill and the panes are still there. Focus is not touched here (PaneFocus and StreamSettings own it).
  */
 final class SettingsRail implements ViewTreeObserver.OnPreDrawListener {
     static final long BAR_MS = 160;
@@ -71,9 +70,6 @@ final class SettingsRail implements ViewTreeObserver.OnPreDrawListener {
         this.rail = rail;
         this.bar = bar;
         this.pane = pane;
-        // The still radial light is the window's, so it reaches the screen's edges past the content's TV margin.
-        // OLED black keeps the theme's black window: the light would lift it to grey.
-        if (!AppTheme.isOledBlack(activity)) activity.getWindow().setBackgroundDrawableResource(R.drawable.tv_settings_canvas);
         rail.getViewTreeObserver().addOnPreDrawListener(this);
     }
 

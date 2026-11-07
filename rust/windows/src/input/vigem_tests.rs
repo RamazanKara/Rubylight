@@ -72,6 +72,36 @@ fn a_report_built_on_the_stack_matches_the_xusb_submit_packet() {
 }
 
 #[test]
+fn a_notification_that_will_not_re_arm_keeps_the_report_that_arrived() -> Result<()> {
+    // A request that completed with a rumble, on a bus no new request starts on.
+    let bus = INVALID_HANDLE_VALUE;
+    let mut data = [0; 16];
+    data[..12].copy_from_slice(&[12, 0, 0, 0, 1, 0, 0, 0, 255, 128, 0, 0]);
+    let mut notification = Notification {
+        bus,
+        event: event()?,
+        pending: Box::new(Pending {
+            overlapped: OVERLAPPED {
+                Internal: 0,
+                InternalHigh: NOTIFICATION_SIZE as usize,
+                ..Default::default()
+            },
+            data,
+        }),
+        running: true,
+    };
+    assert!(notification.completed());
+    assert_eq!(
+        notification.poll()?,
+        Some((4, vec![255, 255, 128, 128, 0, 0, 0, 0]))
+    );
+    assert!(!notification.running);
+    // The next poll starts it again and reports why it will not start.
+    assert!(notification.poll().is_err());
+    Ok(())
+}
+
+#[test]
 fn notifications_use_a_vhf_xbox_pads_rumble_format() {
     assert_eq!(
         feedback_report(&[12, 0, 0, 0, 7, 0, 0, 0, 255, 128, 3, 0]),

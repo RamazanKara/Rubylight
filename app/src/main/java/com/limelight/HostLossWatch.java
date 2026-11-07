@@ -30,10 +30,8 @@ final class HostLossWatch {
     static final int FIRST_PING_TIMEOUT_MS = 1000;
     /** nightjar_core::host_loss::GOODBYE_ROUND_GAP. */
     static final long ROUND_GAP_MS = 250;
-    /** nightjar_core::host_loss::Round's codes: Answered, Refused, SilentLinkUp. */
+    /** nightjar_core::host_loss::Round::Answered's code: the PC accepted a connection. */
     static final int ROUND_ANSWERED = 0;
-    static final int ROUND_REFUSED = 1;
-    static final int ROUND_SILENT_LINK_UP = 2;
     /** A round's ping: not asked. */
     static final int NOT_PINGED = -1;
     /** nightjar_core::host_loss::Goodbye's codes. */
@@ -120,7 +118,8 @@ final class HostLossWatch {
      * goodbye and its PC is shutting down or the host did not come back within the restart grace,
      * GOODBYE_BACK when it restarted (the recovery reconnects), and GOODBYE_UNKNOWN for the old
      * behaviour: a silence, a server that still listens, a PC off this link. On the caller's
-     * thread, which may wait through the restart grace and a round; stop() ends it early.
+     * thread, which may wait through the restart grace and a round (2 s more while this device's
+     * link is quiet); stop() ends it early.
      */
     int afterGoodbye() {
         if (stopped || !probes.saidGoodbye()) return GOODBYE_UNKNOWN;
@@ -151,9 +150,9 @@ final class HostLossWatch {
                     if (verdict == GOODBYE_GONE) LimeLog.info("The PC is gone: it said goodbye and its host did not come back");
                     return verdict;
                 }
-                // A host on its way out still listens for a moment, and a quiet link says nothing:
-                // only a closed server counts.
-                closedBefore |= round == ROUND_REFUSED || round == ROUND_SILENT_LINK_UP;
+                // A host on its way out still listens for a moment; any other round did not find
+                // it open (a quiet first round can be all a fast restart leaves to see).
+                closedBefore |= round != ROUND_ANSWERED;
                 probes.sleep(ROUND_GAP_MS);
             }
         } catch (InterruptedException e) {

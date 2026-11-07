@@ -454,8 +454,11 @@
     <string name="continue_here_came_back">游戏已回到此设备</string>
     <string name="continue_here_did_not_move">游戏没有转移到另一台设备</string>
     <string name="title_onscreen_own_player">屏幕控制作为独立玩家</string>
-    <string name="summary_onscreen_own_player">屏幕控制在电脑上是手柄 1，实体手柄从 2 开始计数，方便 Steam 等工具分别映射。需要开启多个手柄，下次串流生效。</string>
-    <string name="keyboard_shortcuts_reorder">拖动或按上下键来调整顺序</string>
+    <string name="summary_onscreen_own_player">屏幕控制在电脑上是手柄 1，实体手柄从 2 开始计数，方便 Steam 等工具分别映射。需要开启多个手柄和显示屏幕控制按钮：未开启时，游戏自己的触控布局仍与手柄 1 共用。下次串流生效。</string>
+    <string name="keyboard_shortcuts_reorder">拖动，或选中后按上下键来调整顺序</string>
+    <string name="keyboard_shortcuts_move_up">上移</string>
+    <string name="keyboard_shortcuts_move_down">下移</string>
+    <string name="stream_disconnect_confirm">要断开串流吗？</string>
     <string name="title_stream_menu_button_y">串流菜单中的 Y</string>
     <string name="title_stream_menu_button_x">串流菜单中的 X</string>
     <string name="title_stream_menu_button_lb">串流菜单中的 LB</string>

@@ -43,7 +43,7 @@ public final class StreamMenu {
         BITRATE, RATE_CHANGE, AUTOMATIC_QUALITY, AUTOMATIC_BITRATE,
         HOST_MENU, SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, IMAGE_CLIPBOARD_SEND, IMAGE_CLIPBOARD_RECEIVE,
         USB_DEVICES, FILES, HOST_WEB_UI, HOST_STATUS,
-        RECONNECT, DISCONNECT, QUIT_GAME, END_SESSION, END_HOST_SESSION, CLOSE_GAME,
+        RECONNECT, DISCONNECT, CONFIRM_DISCONNECT, QUIT_GAME, END_SESSION, END_HOST_SESSION, CLOSE_GAME,
         NATIVE_PAGE, NATIVE_RESUME, SHORTCUTS, MORE, CLOSE,
         OVERLAY_OFF, OVERLAY_COMPACT, OVERLAY_STATISTICS, OVERLAY_DEBUG,
         OVERLAY_TOP_LEFT, OVERLAY_TOP_RIGHT, OVERLAY_BOTTOM_LEFT, OVERLAY_BOTTOM_RIGHT, OVERLAY_COPY, STREAM_HEALTH, LATENCY_TEST
@@ -750,7 +750,7 @@ public final class StreamMenu {
         for (Entry entry : offered) {
             if (entry.section != Section.SESSION || (footer != null && !footer.contains(id(entry.item)))) continue;
             String name = labels != null && labels.containsKey(id(entry.item)) ? label(labels, id(entry.item)) : activity.getString(entry.label);
-            MaterialButton button = sheet.addFooterAction(entry.icon, name, entry.destructive);
+            MaterialButton button = sheet.addFooterAction(entry.icon, name, entry.destructive, footerHotkey(entry.item));
             rows.put(entry.item, button);
             entries.add(entry);
             button.setOnClickListener(view -> choose(entry));
@@ -814,11 +814,23 @@ public final class StreamMenu {
         for (Entry entry : entries) {
             MaterialButton row = rows.get(entry.item);
             if (row != null && id(entry.item).equals(id)) {
-                row.performClick();
+                // From a button Disconnect asks first, as Quit, Close and End always do: a stray press must not end the stream.
+                if (entry.item == Item.DISCONNECT) listener.onStreamMenuItem(Item.CONFIRM_DISCONNECT);
+                else row.performClick();
                 return true;
             }
         }
         return false;
+    }
+
+    /** The controller button the user gave this way out under the grid, as its cap ({@code "Y"}), or null. */
+    private String footerHotkey(Item item) {
+        if (layout == null) return null;
+        // In the buttons' own order, as a tile shows the first button that names it.
+        for (String key : new String[] {"y", "x", "lb", "rb"}) {
+            if (id(item).equals(layout.buttons.get(key))) return key.toUpperCase(Locale.ROOT);
+        }
+        return null;
     }
 
     // The shortcuts page: the user's, in their order, then the built-ins not saved under a name of their own, Add, then a

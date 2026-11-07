@@ -497,6 +497,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("End the stream session on the PC?\nThe game keeps running.", "PCのストリーミングセッションを終了しますか？\nゲームは実行されたままです。"),
     ("Close the game on the PC?\nUnsaved progress will be lost.", "PC上のゲームを閉じますか？\n保存されていない進行状況は失われます。"),
     ("Quit the game on the PC?\nUnsaved progress will be lost.", "PC 上のゲームを終了しますか？\n保存していない進行状況は失われます。"),
+    ("Disconnect from the stream?", "ストリームから切断しますか？"),
     ("This session belongs to another device.", "このセッションは別のデバイスのものです。"),
     ("There is no session to end.", "終了するセッションがありません。"),
     ("Turn on Host control for this device on the host.", "ホストでこの端末のホスト制御をオンにしてください。"),

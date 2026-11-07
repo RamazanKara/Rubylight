@@ -497,6 +497,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("End the stream session on the PC?\nThe game keeps running.", "要结束电脑上的串流会话吗？\n游戏将继续运行。"),
     ("Close the game on the PC?\nUnsaved progress will be lost.", "要关闭电脑上的游戏吗？\n未保存的进度将会丢失。"),
     ("Quit the game on the PC?\nUnsaved progress will be lost.", "要退出电脑上的游戏吗？\n未保存的进度将会丢失。"),
+    ("Disconnect from the stream?", "要断开串流吗？"),
     ("This session belongs to another device.", "此会话属于另一台设备。"),
     ("There is no session to end.", "没有可结束的会话。"),
     ("Turn on Host control for this device on the host.", "请在主机上为此设备开启主机控制。"),

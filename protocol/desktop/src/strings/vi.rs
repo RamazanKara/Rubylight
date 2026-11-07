@@ -497,6 +497,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("End the stream session on the PC?\nThe game keeps running.", "Kết thúc phiên stream trên PC?\nTrò chơi vẫn tiếp tục chạy."),
     ("Close the game on the PC?\nUnsaved progress will be lost.", "Đóng trò chơi trên PC?\nTiến trình chưa lưu sẽ bị mất."),
     ("Quit the game on the PC?\nUnsaved progress will be lost.", "Thoát trò chơi trên PC?\nTiến trình chưa lưu sẽ bị mất."),
+    ("Disconnect from the stream?", "Ngắt kết nối khỏi luồng phát?"),
     ("This session belongs to another device.", "Phiên này thuộc về thiết bị khác."),
     ("There is no session to end.", "Không có phiên nào để kết thúc."),
     ("Turn on Host control for this device on the host.", "Hãy bật điều khiển máy chủ cho thiết bị này trên máy chủ."),

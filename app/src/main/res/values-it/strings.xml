@@ -454,8 +454,11 @@
     <string name="continue_here_came_back">Il gioco è tornato su questo dispositivo</string>
     <string name="continue_here_did_not_move">Il gioco non è passato all\'altro dispositivo</string>
     <string name="title_onscreen_own_player">Controlli a schermo come giocatore a sé</string>
-    <string name="summary_onscreen_own_player">I controlli a schermo sono il controller 1 sul PC e i controller fisici contano da 2, così uno strumento come Steam può mapparli separatamente. Richiede Più controller e vale dal prossimo stream.</string>
-    <string name="keyboard_shortcuts_reorder">Trascina per cambiare l’ordine, o premi su o giù</string>
+    <string name="summary_onscreen_own_player">I controlli a schermo sono il controller 1 sul PC e i controller fisici contano da 2, così uno strumento come Steam può mapparli separatamente. Richiede Più controller e Mostra controlli a schermo: senza, il layout touch di un gioco condivide ancora il controller 1. Vale dal prossimo stream.</string>
+    <string name="keyboard_shortcuts_reorder">Trascina, o seleziona e premi su o giù, per cambiare l’ordine</string>
+    <string name="keyboard_shortcuts_move_up">Sposta su</string>
+    <string name="keyboard_shortcuts_move_down">Sposta giù</string>
+    <string name="stream_disconnect_confirm">Disconnettersi dallo stream?</string>
     <string name="title_stream_menu_button_y">Y nel menu dello stream</string>
     <string name="title_stream_menu_button_x">X nel menu dello stream</string>
     <string name="title_stream_menu_button_lb">LB nel menu dello stream</string>

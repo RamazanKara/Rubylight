@@ -172,6 +172,13 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     private final boolean onscreenOwnPlayerSession;
     /** The slot whose pad may use this device's motors and sensors: the first one a pad can have. */
     private final short deviceFallbackSlot;
+    /**
+     * Input with no pad of its own: a handheld's system Back as Guide and events from no device. The
+     * default context, unless the on-screen controls have controller 1 to themselves; then a context
+     * of its own on the built-in pad's number (see {@link #handheldContext()}), so Guide chords with
+     * the built-in buttons still reach one pad.
+     */
+    private final InputDeviceContext handheldContext;
     private final boolean rumbleAllowed;
     private short currentControllers, initialControllers;
 
@@ -232,26 +239,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         this.triggerDeadzone = prefConfig.triggerDeadzonePercentage / 100f;
 
         // Initialize the default context for events with no device
-        defaultContext.leftStickXAxis = MotionEvent.AXIS_X;
-        defaultContext.leftStickYAxis = MotionEvent.AXIS_Y;
-        defaultContext.leftStickDeadzoneRadius = (float) stickDeadzone;
-        defaultContext.rightStickXAxis = MotionEvent.AXIS_Z;
-        defaultContext.rightStickYAxis = MotionEvent.AXIS_RZ;
-        defaultContext.rightStickDeadzoneRadius = (float) stickDeadzone;
-        defaultContext.triggerDeadzone = triggerDeadzone;
-        defaultContext.leftTriggerAxis = MotionEvent.AXIS_BRAKE;
-        defaultContext.rightTriggerAxis = MotionEvent.AXIS_GAS;
-        defaultContext.hatXAxis = MotionEvent.AXIS_HAT_X;
-        defaultContext.hatYAxis = MotionEvent.AXIS_HAT_Y;
-        defaultContext.controllerNumber = (short) 0;
-        defaultContext.assignedControllerNumber = true;
-        defaultContext.external = false;
-
-        // Some devices (GPD XD) have a back button which sends input events
-        // with device ID == 0. This hits the default context which would normally
-        // consume these. Instead, let's ignore them since that's probably the
-        // most likely case.
-        defaultContext.ignoreBack = true;
+        initNoDeviceContext(defaultContext, (short) 0);
+        handheldContext = onscreenOwnPlayerSession ? new InputDeviceContext() : defaultContext;
+        if (handheldContext != defaultContext) initNoDeviceContext(handheldContext, deviceFallbackSlot);
 
         // Get the initially attached set of gamepads. As each gamepad receives
         // its initial InputEvent, we will move these from this set onto the
@@ -262,6 +252,29 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         // Register ourselves for input device notifications
         inputManager.registerInputDeviceListener(this, null);
+    }
+
+    private void initNoDeviceContext(InputDeviceContext context, short controllerNumber) {
+        context.leftStickXAxis = MotionEvent.AXIS_X;
+        context.leftStickYAxis = MotionEvent.AXIS_Y;
+        context.leftStickDeadzoneRadius = (float) stickDeadzone;
+        context.rightStickXAxis = MotionEvent.AXIS_Z;
+        context.rightStickYAxis = MotionEvent.AXIS_RZ;
+        context.rightStickDeadzoneRadius = (float) stickDeadzone;
+        context.triggerDeadzone = triggerDeadzone;
+        context.leftTriggerAxis = MotionEvent.AXIS_BRAKE;
+        context.rightTriggerAxis = MotionEvent.AXIS_GAS;
+        context.hatXAxis = MotionEvent.AXIS_HAT_X;
+        context.hatYAxis = MotionEvent.AXIS_HAT_Y;
+        context.controllerNumber = controllerNumber;
+        context.assignedControllerNumber = true;
+        context.external = false;
+
+        // Some devices (GPD XD) have a back button which sends input events
+        // with device ID == 0. This hits the default context which would normally
+        // consume these. Instead, let's ignore them since that's probably the
+        // most likely case.
+        context.ignoreBack = true;
     }
 
     private static InputDevice.MotionRange getMotionRangeForJoystickAxis(InputDevice dev, int axis) {
@@ -345,6 +358,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         usbDeviceContexts.clear();
         inputDeviceContexts.clear();
         defaultContext.destroy();
+        if (handheldContext != defaultContext) handheldContext.destroy();
         deviceVibratorForPlayerOne = false;
         deviceVibrator.cancel();
     }
@@ -430,6 +444,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         layoutLeftTrigger = layoutRightTrigger = 0;
         layoutLeftStickX = layoutLeftStickY = layoutRightStickX = layoutRightStickY = 0;
         releaseInput(defaultContext);
+        if (handheldContext != defaultContext) releaseInput(handheldContext);
     }
 
     private void releaseUsbInput(UsbDeviceContext context) {
@@ -636,6 +651,42 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         return config.onscreenOwnPlayer && config.multiController && config.onscreenController && !config.onlyL3R3;
     }
 
+    /**
+     * The built-in pad, the built-in device with sticks, numbered; null without one. While the on-screen
+     * controls have controller 1, the handheld's other built-in devices and its system Back join it. With
+     * {@code prepare}, a built-in pad without a number gets one first.
+     */
+    private InputDeviceContext builtInPad(boolean prepare) {
+        for (InputDeviceContext context : inputDeviceContexts.values()) {
+            if (!context.external && context.hasJoystickAxes && context.assignedControllerNumber) return context;
+        }
+        if (prepare) {
+            for (int id : InputDevice.getDeviceIds()) {
+                InputDevice device = InputDevice.getDevice(id);
+                if (device == null || isExternal(device) || !hasJoystickAxes(device)) continue;
+                InputDeviceContext context = prepareInputDevice(id);
+                if (context != null && context.assignedControllerNumber) return context;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The context for input with no pad of its own. With the on-screen controls on controller 1 it takes
+     * the number of the built-in pad, or of any built-in device without one, or else the first a pad can
+     * have; it changes only while nothing is held on it, so a press never splits.
+     */
+    private synchronized InputDeviceContext handheldContext() {
+        if (handheldContext != defaultContext && handheldContext.inputMap == 0 && handheldContext.guideTapEnd == null) {
+            InputDeviceContext builtIn = builtInPad(false);
+            for (InputDeviceContext context : inputDeviceContexts.values()) {
+                if (builtIn == null && !context.external && context.assignedControllerNumber) builtIn = context;
+            }
+            handheldContext.controllerNumber = builtIn != null ? builtIn.controllerNumber : deviceFallbackSlot;
+        }
+        return handheldContext;
+    }
+
     private void releaseControllerNumber(GenericControllerContext context) {
         if (deviceVibratorForPlayerOne && context.assignedControllerNumber && context.controllerNumber == deviceFallbackSlot) {
             deviceVibratorForPlayerOne = false;
@@ -713,6 +764,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             InputDeviceContext devContext = (InputDeviceContext) context;
 
             LimeLog.info(devContext.name+" ("+context.id+") needs a controller number assigned");
+            // With the on-screen controls on controller 1, built-in buttons on a device of their own (some
+            // handhelds put Start, Select and Home on one) join the built-in pad: a number of their own would
+            // show the PC one more controller mid-game. Without a built-in pad they are a pad of their own.
+            InputDeviceContext builtInPad = onscreenOwnPlayerSession && !devContext.external && !devContext.hasJoystickAxes ?
+                    builtInPad(true) : null;
             if (!devContext.external && !onscreenOwnPlayerSession) {
                 LimeLog.info("Built-in buttons hardcoded as controller 0");
                 // Shared, never reserved, as upstream: tablets and TV boxes have built-in or
@@ -720,6 +776,10 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 // them pushed the real controller to player 2. getActiveControllerMask()
                 // still reports player 1 while a built-in device sits on it.
                 context.controllerNumber = 0;
+            }
+            else if (builtInPad != null) {
+                LimeLog.info("Built-in buttons join the built-in pad "+builtInPad.name);
+                context.controllerNumber = builtInPad.controllerNumber;
             }
             else if (prefConfig.multiController && (devContext.hasJoystickAxes ||
                     (hasGamepadButtons(devContext.inputDevice) &&
@@ -1092,31 +1152,33 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             return true;
         }
 
+        // The built-in pad's own Guide: with the on-screen controls on controller 1, its number, not theirs
+        InputDeviceContext context = handheldContext();
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             boolean repeat = event.getRepeatCount() > 0;
             if (!repeat) {
-                endGuideTap(defaultContext);
+                endGuideTap(context);
                 // No key event to replay: a chord sends the flag itself (sendHeldGuideOn)
-                defaultContext.guideHeldDown = null;
+                context.guideHeldDown = null;
             }
-            if (holdGuide(defaultContext, repeat)) {
+            if (holdGuide(context, repeat)) {
                 return true;
             }
-            defaultContext.inputMap |= ControllerPacket.SPECIAL_BUTTON_FLAG;
+            context.inputMap |= ControllerPacket.SPECIAL_BUTTON_FLAG;
         }
         else if (event.getAction() == KeyEvent.ACTION_UP) {
-            GuideHold.Release release = releaseGuide(defaultContext);
+            GuideHold.Release release = releaseGuide(context);
             if (release == GuideHold.Release.TAP) {
-                tapDefaultGuide();
+                tapDefaultGuide(context);
             }
             if (release != GuideHold.Release.PASS) {
                 return true;
             }
             // Firmware injects the press and release together; hold Guide long enough for games to see it
             holdForMinimumPress(event);
-            defaultContext.inputMap &= ~ControllerPacket.SPECIAL_BUTTON_FLAG;
+            context.inputMap &= ~ControllerPacket.SPECIAL_BUTTON_FLAG;
         }
-        sendControllerInputPacket(defaultContext);
+        sendControllerInputPacket(context);
         return true;
     }
 
@@ -1424,8 +1486,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             return null;
         }
         else if (event.getDeviceId() == 0) {
-            // Unknown devices use the default context
-            return defaultContext;
+            // Unknown devices use the default context, or the built-in pad's with the on-screen controls on controller 1
+            return handheldContext();
         }
         else if (event.getDevice() == null) {
             // During device removal, sometimes we can get events after the
@@ -1437,7 +1499,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         // HACK for https://issuetracker.google.com/issues/163120692
         if (Build.VERSION.SDK_INT == Build.VERSION_CODES.R) {
             if (event.getDeviceId() == -1) {
-                return defaultContext;
+                return handheldContext();
             }
         }
 
@@ -1937,6 +1999,15 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             leftStickY = maxByMagnitude(leftStickY, layoutLeftStickY);
             rightStickX = maxByMagnitude(rightStickX, layoutRightStickX);
             rightStickY = maxByMagnitude(rightStickY, layoutRightStickY);
+        }
+        if (handheldContext != defaultContext && handheldContext.controllerNumber == controllerNumber) {
+            inputMap |= handheldContext.inputMap;
+            leftTrigger = maxByMagnitude(leftTrigger, handheldContext.leftTrigger);
+            rightTrigger = maxByMagnitude(rightTrigger, handheldContext.rightTrigger);
+            leftStickX = maxByMagnitude(leftStickX, handheldContext.leftStickX);
+            leftStickY = maxByMagnitude(leftStickY, handheldContext.leftStickY);
+            rightStickX = maxByMagnitude(rightStickX, handheldContext.rightStickX);
+            rightStickY = maxByMagnitude(rightStickY, handheldContext.rightStickY);
         }
 
         short activeControllerMask = getActiveControllerMask();
@@ -3641,20 +3712,20 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     }
 
     // The same for a handheld's system Back as Guide, which has no mapping.
-    private void tapDefaultGuide() {
-        defaultContext.inputMap |= ControllerPacket.SPECIAL_BUTTON_FLAG;
-        sendControllerInputPacket(defaultContext);
+    private void tapDefaultGuide(InputDeviceContext context) {
+        context.inputMap |= ControllerPacket.SPECIAL_BUTTON_FLAG;
+        sendControllerInputPacket(context);
         Runnable end = new Runnable() {
             @Override
             public void run() {
-                if (defaultContext.guideTapEnd != this) return;
-                defaultContext.guideTapEnd = null;
+                if (context.guideTapEnd != this) return;
+                context.guideTapEnd = null;
                 if (stopped) return;
-                defaultContext.inputMap &= ~ControllerPacket.SPECIAL_BUTTON_FLAG;
-                sendControllerInputPacket(defaultContext);
+                context.inputMap &= ~ControllerPacket.SPECIAL_BUTTON_FLAG;
+                sendControllerInputPacket(context);
             }
         };
-        defaultContext.guideTapEnd = end;
+        context.guideTapEnd = end;
         mainThreadHandler.postDelayed(end, MINIMUM_BUTTON_DOWN_TIME_MS);
     }
 
@@ -3671,11 +3742,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     /**
      * Another button or the D-pad went down while Guide waits for the hold time: a chord such as
      * Steam's Guide+RB. Guide goes to the host now, before that button, on this pad and on a
-     * handheld's system Back as Guide (controller 0).
+     * handheld's system Back as Guide (controller 0, or the built-in pad's with the on-screen controls on it).
      */
     private void sendHeldGuide(InputDeviceContext context) {
         sendHeldGuideOn(context);
-        if (context != defaultContext) sendHeldGuideOn(defaultContext);
+        if (context != handheldContext) sendHeldGuideOn(handheldContext);
     }
 
     private void sendHeldGuideOn(InputDeviceContext context) {
@@ -4213,6 +4284,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     private List<GenericControllerContext> mouseContexts() {
         List<GenericControllerContext> contexts = new ArrayList<>();
         contexts.add(defaultContext);
+        if (handheldContext != defaultContext) contexts.add(handheldContext);
         contexts.addAll(inputDeviceContexts.values());
         contexts.addAll(usbDeviceContexts.values());
         return contexts;
@@ -4244,7 +4316,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         // The first controller is the lowest numbered pad, not whichever the map lists first.
         GenericControllerContext first = null;
         for (GenericControllerContext context : mouseContexts()) {
-            if (context == defaultContext || !context.assignedControllerNumber) continue;
+            if (context == defaultContext || context == handheldContext || !context.assignedControllerNumber) continue;
             if (first == null || context.controllerNumber < first.controllerNumber) first = context;
         }
         if (first != null) first.toggleMouseEmulation();

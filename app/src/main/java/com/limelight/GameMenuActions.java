@@ -387,6 +387,7 @@ final class GameMenuActions {
             case HOST_MENU: action = this::openHostMenu; break;
             case RECONNECT: action = game.streamRecovery::reconnectStream; break;
             case DISCONNECT: action = this::leaveStream; break;
+            case CONFIRM_DISCONNECT: action = this::confirmDisconnect; break;
             case QUIT_GAME: action = this::confirmQuitApp; break;
             case END_HOST_SESSION: action = this::confirmEndHostSession; break;
             case CLOSE_GAME: action = this::confirmCloseGame; break;
@@ -602,6 +603,14 @@ final class GameMenuActions {
 
     private void confirmEndHostSession() {
         confirmHostExit(R.string.stream_end_session, R.string.stream_end_session_confirm, this::endHostSession);
+    }
+
+    // A controller button in the stream menu that runs Disconnect asks first, as the ways out that end the game do:
+    // a stray press must not end the stream.
+    private void confirmDisconnect() {
+        showStreamDialog(new NavigationDialogBuilder(game).setTitle(R.string.stream_disconnect)
+                .setMessage(R.string.stream_disconnect_confirm).setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.stream_disconnect, (prompt, which) -> game.streamMenuAction = this::leaveStream).create());
     }
 
     private void confirmHostExit(int title, int message, Runnable exit) {

@@ -454,8 +454,11 @@
     <string name="continue_here_came_back">ゲームはこのデバイスに戻りました</string>
     <string name="continue_here_did_not_move">ゲームは別のデバイスに移動しませんでした</string>
     <string name="title_onscreen_own_player">オンスクリーンコントロールを別プレイヤーにする</string>
-    <string name="summary_onscreen_own_player">オンスクリーンコントロールが PC のコントローラ 1 になり、物理コントローラは 2 から数えます。Steam などのツールで別々に割り当てられます。複数のコントローラが必要で、次のストリームから有効です。</string>
-    <string name="keyboard_shortcuts_reorder">ドラッグするか上下を押して順番を変更</string>
+    <string name="summary_onscreen_own_player">オンスクリーンコントロールが PC のコントローラ 1 になり、物理コントローラは 2 から数えます。Steam などのツールで別々に割り当てられます。複数のコントローラとオンスクリーンコントロールを表示が必要です。表示しない場合、ゲーム専用のタッチレイアウトは引き続きコントローラ 1 を共有します。次のストリームから有効です。</string>
+    <string name="keyboard_shortcuts_reorder">ドラッグするか、選択して上下を押して順番を変更</string>
+    <string name="keyboard_shortcuts_move_up">上へ移動</string>
+    <string name="keyboard_shortcuts_move_down">下へ移動</string>
+    <string name="stream_disconnect_confirm">ストリームから切断しますか？</string>
     <string name="title_stream_menu_button_y">ストリームメニューの Y</string>
     <string name="title_stream_menu_button_x">ストリームメニューの X</string>
     <string name="title_stream_menu_button_lb">ストリームメニューの LB</string>

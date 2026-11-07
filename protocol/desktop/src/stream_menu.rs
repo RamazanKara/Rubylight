@@ -27,6 +27,8 @@ pub enum Page {
     Editor(Draft),
     /// Asks before a way out that ends the PC's session or game.
     Confirm(HostExit),
+    /// Asks before Disconnect run from a controller button, so a stray press never ends the stream.
+    ConfirmDisconnect,
 }
 
 impl Page {
@@ -40,6 +42,7 @@ impl Page {
             Page::Editor(draft) if draft.id.is_some() => tr("Edit shortcut"),
             Page::Editor(_) => tr("New shortcut"),
             Page::Confirm(exit) => tr(exit.label()),
+            Page::ConfirmDisconnect => tr("Disconnect"),
         }
     }
 }
@@ -155,6 +158,12 @@ pub fn layout(a: &Available, saved: usize, buttons: &model::Buttons) -> Layout {
 /// The way out under the grid a controller button runs, when the user gave it one.
 pub fn button_leave(layout: &Layout, key: Hotkey) -> Option<Leave> {
     leave(layout.buttons.get(&key)?)
+}
+
+/// The controller button the user gave a way out under the grid, as a tile's corner shows it; the
+/// first in Y, X, LB, RB order when several name it.
+pub fn button_cap(layout: &Layout, way: Leave) -> Option<&'static str> {
+    layout.buttons.iter().find(|(_, id)| leave(id) == Some(way)).map(|(key, _)| key.cap())
 }
 
 /// What the desktop's stream menu can give a controller button, for its setting: the ids and how
@@ -322,10 +331,13 @@ pub fn footer(ui: &mut Ui, layout: &Layout) -> Option<Leave> {
         for leave in exits {
             let response = match leave {
                 Leave::Disconnect => {
-                    let keys = crate::shortcuts::chord_for(crate::shortcuts::Scope::Stream, crate::shortcuts::Action::Disconnect).map(crate::shortcuts::Chord::text);
+                    // The button the user gave it shows instead of the keyboard's chord, as on a tile.
+                    let keys = button_cap(layout, leave).map(str::to_owned).or_else(|| {
+                        crate::shortcuts::chord_for(crate::shortcuts::Scope::Stream, crate::shortcuts::Action::Disconnect).map(crate::shortcuts::Chord::text)
+                    });
                     menu_style::exit_button(ui, width, Icon::Power, tr("Disconnect"), keys.as_deref())
                 }
-                Leave::Exit(exit) => menu_style::exit_button(ui, width, Icon::Power, tr(exit.label()), None),
+                Leave::Exit(exit) => menu_style::exit_button(ui, width, Icon::Power, tr(exit.label()), button_cap(layout, leave)),
                 Leave::Close => continue,
             };
             if response.clicked() {
@@ -339,7 +351,16 @@ pub fn footer(ui: &mut Ui, layout: &Layout) -> Option<Leave> {
 /// Asks before `exit` runs, in the words the Session and graphics page uses: Some(true) to go on,
 /// Some(false) to go back to the grid.
 pub fn confirm(ui: &mut Ui, exit: HostExit, focus_first: bool) -> Option<bool> {
-    menu_style::text_block(ui, tr(exit.confirm()));
+    ask(ui, tr(exit.confirm()), tr(exit.label()), focus_first)
+}
+
+/// Asks before Disconnect run from a controller button, as [`confirm`] does.
+pub fn confirm_disconnect(ui: &mut Ui, focus_first: bool) -> Option<bool> {
+    ask(ui, tr("Disconnect from the stream?"), tr("Disconnect"), focus_first)
+}
+
+fn ask(ui: &mut Ui, question: &str, action: &str, focus_first: bool) -> Option<bool> {
+    menu_style::text_block(ui, question);
     ui.add_space(space::M);
     let mut answer = None;
     ui.horizontal(|ui| {
@@ -351,7 +372,7 @@ pub fn confirm(ui: &mut Ui, exit: HostExit, focus_first: bool) -> Option<bool> {
         if cancel.clicked() {
             answer = Some(false);
         }
-        if menu_style::button(ui, tr(exit.label())).clicked() {
+        if menu_style::button(ui, action).clicked() {
             answer = Some(true);
         }
     });
@@ -557,6 +578,12 @@ mod tests {
         assert_eq!(menu.hotkey(Hotkey::Lb).and_then(|index| menu.tile_id(index)), Some("microphone"));
         assert_eq!(button_leave(&menu, Hotkey::Rb), None);
         assert_eq!(menu.hotkey(Hotkey::Rb), None);
+        // The ways out show the button that runs them; one without a button shows none.
+        assert_eq!(button_cap(&menu, Leave::Exit(HostExit::CloseGame)), Some("Y"));
+        assert_eq!(button_cap(&menu, Leave::Disconnect), Some("X"));
+        assert_eq!(button_cap(&menu, Leave::Exit(HostExit::QuitApp)), None);
+        assert_eq!(button_cap(&super::layout(&everything(), 0, &model::Buttons::new()), Leave::Disconnect), None);
+        assert_eq!(Page::ConfirmDisconnect.title(), tr("Disconnect"));
     }
 
     #[test]

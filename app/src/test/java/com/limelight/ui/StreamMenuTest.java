@@ -535,8 +535,9 @@ public class StreamMenuTest {
             options.rateChange = true;
             reachable.addAll(items(StreamMenu.mainPage(options)));
         }
-        // The menu adds the Shortcuts and More tiles and Return to stream itself (see the grid test).
-        reachable.addAll(EnumSet.of(SHORTCUTS, MORE, CLOSE));
+        // The menu adds the Shortcuts and More tiles and Return to stream itself (see the grid test), and asks before
+        // Disconnect run from a controller button (see the buttons test).
+        reachable.addAll(EnumSet.of(SHORTCUTS, MORE, CLOSE, StreamMenu.Item.CONFIRM_DISCONNECT));
         assertEquals(EnumSet.allOf(StreamMenu.Item.class), reachable);
     }
 
@@ -991,8 +992,13 @@ public class StreamMenuTest {
             press(menu, KeyEvent.KEYCODE_BUTTON_R1);
             assertEquals(Arrays.asList(OVERLAY), chosen);
             chosen.clear();
-            // X is a way out under the grid.
+            // X is a way out under the grid: it shows the button, and from the button Disconnect asks first.
+            assertEquals("X", ((TileGrid.Tile) menu.row(DISCONNECT)).hotkey());
             press(menu, KeyEvent.KEYCODE_BUTTON_X);
+            assertEquals(Arrays.asList(StreamMenu.Item.CONFIRM_DISCONNECT), chosen);
+            chosen.clear();
+            // Its own row still disconnects at once, as before.
+            menu.row(DISCONNECT).performClick();
             assertEquals(Arrays.asList(DISCONNECT), chosen);
         }
     }

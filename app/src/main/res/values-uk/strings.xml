@@ -454,8 +454,11 @@
     <string name="continue_here_came_back">Гра повернулася на цей пристрій</string>
     <string name="continue_here_did_not_move">Гра не перейшла на інший пристрій</string>
     <string name="title_onscreen_own_player">Екранні елементи як окремий гравець</string>
-    <string name="summary_onscreen_own_player">Екранні елементи керування стають контролером 1 на ПК, а фізичні контролери рахуються з 2, щоб інструмент на кшталт Steam міг налаштувати їх окремо. Потрібен параметр Кілька контролерів, діє з наступної трансляції.</string>
-    <string name="keyboard_shortcuts_reorder">Перетягніть, щоб змінити порядок, або натисніть вгору чи вниз</string>
+    <string name="summary_onscreen_own_player">Екранні елементи керування стають контролером 1 на ПК, а фізичні контролери рахуються з 2, щоб інструмент на кшталт Steam міг налаштувати їх окремо. Потрібні параметри Кілька контролерів і Показувати екранні елементи керування: без них власна сенсорна розкладка гри й далі ділить контролер 1. Діє з наступної трансляції.</string>
+    <string name="keyboard_shortcuts_reorder">Перетягніть або виберіть і натисніть вгору чи вниз, щоб змінити порядок</string>
+    <string name="keyboard_shortcuts_move_up">Перемістити вгору</string>
+    <string name="keyboard_shortcuts_move_down">Перемістити вниз</string>
+    <string name="stream_disconnect_confirm">Відключитися від трансляції?</string>
     <string name="title_stream_menu_button_y">Y у меню трансляції</string>
     <string name="title_stream_menu_button_x">X у меню трансляції</string>
     <string name="title_stream_menu_button_lb">LB у меню трансляції</string>

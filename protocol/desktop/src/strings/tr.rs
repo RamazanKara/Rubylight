@@ -497,6 +497,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("End the stream session on the PC?\nThe game keeps running.", "PC üzerindeki yayın oturumu sonlandırılsın mı?\nOyun çalışmaya devam eder."),
     ("Close the game on the PC?\nUnsaved progress will be lost.", "PC üzerindeki oyun kapatılsın mı?\nKaydedilmemiş ilerleme kaybolur."),
     ("Quit the game on the PC?\nUnsaved progress will be lost.", "Bilgisayardaki oyundan çıkılsın mı?\nKaydedilmemiş ilerleme kaybolur."),
+    ("Disconnect from the stream?", "Yayının bağlantısı kesilsin mi?"),
     ("This session belongs to another device.", "Bu oturum başka bir cihaza ait."),
     ("There is no session to end.", "Bitirilecek oturum yok."),
     ("Turn on Host control for this device on the host.", "Ana makinede bu cihaza ana makine denetimini açın."),

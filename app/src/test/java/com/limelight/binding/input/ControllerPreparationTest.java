@@ -297,6 +297,210 @@ public class ControllerPreparationTest {
         }
     }
 
+    private static ControllerHandler handheld(Activity activity, Connection connection, PreferenceConfiguration prefs) {
+        return new ControllerHandler(activity, connection, null, prefs) {
+            @Override protected boolean[] findInternalGamepadAndSelect() { return new boolean[] {true, true, true}; }
+        };
+    }
+
+    private static android.view.KeyEvent systemBack(int action) {
+        return new android.view.KeyEvent(1000, 1000, action, android.view.KeyEvent.KEYCODE_BACK, 0, 0, -1, 0, 0,
+                InputDevice.SOURCE_KEYBOARD);
+    }
+
+    private static void send(ControllerHandler handler, ControllerHandler.GenericControllerContext context) {
+        ReflectionHelpers.callInstanceMethod(handler, "sendControllerInputPacket",
+                ReflectionHelpers.ClassParameter.from(ControllerHandler.GenericControllerContext.class, context));
+    }
+
+    @Test public void onscreenOwnPlayerSendsAHandheldsBackAsGuideAndDeviceLessInputOnItsBuiltInPad() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            addInputDevice(activity.get(), 2, true, JOYPAD);
+            addInputDevice(activity.get(), 8, false, JOYPAD);
+            PreferenceConfiguration prefs = onscreenOwnPlayerPrefs(activity.get());
+            prefs.backAsGuide = true;
+            // Guide at once, not held back for Hold Guide to open the stream menu
+            prefs.guideMenuHoldMs = 0;
+            Connection connection = new Connection(73);
+            ControllerHandler handler = handheld(activity.get(), connection, prefs);
+            try {
+                handler.prepareControllersForLaunch();
+                handler.resendControllerArrivals();
+                ControllerHandler.InputDeviceContext builtIn = contexts(handler).get(8);
+                assertEquals(2, builtIn.controllerNumber);
+
+                connection.events.clear();
+                assertTrue(handler.handleHandheldBackAsGuide(systemBack(android.view.KeyEvent.ACTION_DOWN)));
+                assertEquals(Collections.singletonList("input 2 " + ControllerPacket.SPECIAL_BUTTON_FLAG), connection.events);
+                // A chord with the built-in buttons reaches the PC as one pad.
+                builtIn.inputMap = ControllerPacket.RB_FLAG;
+                send(handler, builtIn);
+                assertEquals("input 2 " + (ControllerPacket.SPECIAL_BUTTON_FLAG | ControllerPacket.RB_FLAG),
+                        connection.events.get(connection.events.size() - 1));
+                builtIn.inputMap = 0;
+                assertTrue(handler.handleHandheldBackAsGuide(systemBack(android.view.KeyEvent.ACTION_UP)));
+                assertEquals("input 2 0", connection.events.get(connection.events.size() - 1));
+                for (String event : connection.events) assertFalse(event, event.startsWith("input 0 "));
+
+                // Events from no device join the built-in pad too, not the on-screen controls.
+                ControllerHandler.InputDeviceContext noDevice = ReflectionHelpers.callInstanceMethod(handler, "getContextForEvent",
+                        ReflectionHelpers.ClassParameter.from(android.view.InputEvent.class, new android.view.KeyEvent(0, 0,
+                                android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_BUTTON_A, 0, 0, 0, 0)));
+                assertNotSame(ReflectionHelpers.getField(handler, "defaultContext"), noDevice);
+                assertEquals(2, noDevice.controllerNumber);
+            } finally { handler.destroy(); }
+        }
+    }
+
+    @Test public void onscreenOwnPlayerSendsBackAsGuideOnTheFirstPadNumberWithoutABuiltInPad() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            PreferenceConfiguration prefs = onscreenOwnPlayerPrefs(activity.get());
+            prefs.backAsGuide = true;
+            prefs.guideMenuHoldMs = 0;
+            Connection connection = new Connection(73);
+            ControllerHandler handler = handheld(activity.get(), connection, prefs);
+            try {
+                handler.resendControllerArrivals();
+                connection.events.clear();
+                assertTrue(handler.handleHandheldBackAsGuide(systemBack(android.view.KeyEvent.ACTION_DOWN)));
+                assertEquals(Collections.singletonList("input 1 " + ControllerPacket.SPECIAL_BUTTON_FLAG), connection.events);
+                assertTrue(handler.handleHandheldBackAsGuide(systemBack(android.view.KeyEvent.ACTION_UP)));
+            } finally { handler.destroy(); }
+        }
+    }
+
+    @Test public void onscreenOwnPlayerJoinsStickLessBuiltInButtonsToTheBuiltInPad() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            addInputDevice(activity.get(), 2, true, JOYPAD);
+            addInputDevice(activity.get(), 8, false, JOYPAD);
+            // Start, Select and Home on a kernel device of their own, as on some handhelds.
+            addInputDevice(activity.get(), 9, false, InputDevice.SOURCE_GAMEPAD | InputDevice.SOURCE_DPAD);
+            PreferenceConfiguration prefs = onscreenOwnPlayerPrefs(activity.get());
+            Connection connection = new Connection(73);
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            try {
+                assertEquals(3, handler.prepareControllersForLaunch().split(",").length);
+                handler.resendControllerArrivals();
+                assertEquals(7, connection.activeMask);
+                int arrivals = connection.arrivals;
+
+                // What its first button press does (Robolectric's KeyEvent has no device).
+                ControllerHandler.InputDeviceContext buttons = ReflectionHelpers.callInstanceMethod(handler,
+                        "createInputDeviceContextForDevice",
+                        ReflectionHelpers.ClassParameter.from(InputDevice.class, InputDevice.getDevice(9)));
+                contexts(handler).put(9, buttons);
+                buttons.inputMap = ControllerPacket.PLAY_FLAG;
+                send(handler, buttons);
+                assertEquals(contexts(handler).get(8).controllerNumber, buttons.controllerNumber);
+                assertFalse(buttons.reservedControllerNumber);
+                // No controller more on the PC.
+                assertEquals(7, connection.activeMask);
+                assertEquals("input 2 " + ControllerPacket.PLAY_FLAG, connection.events.get(connection.events.size() - 1));
+
+                // Gone again, the built-in pad keeps its number.
+                handler.onInputDeviceRemoved(9);
+                assertEquals(7, connection.activeMask);
+                assertTrue(connection.arrivals >= arrivals);
+            } finally { handler.destroy(); }
+        }
+    }
+
+    @Test public void onscreenOwnPlayerGivesStickLessBuiltInButtonsANumberOfTheirOwnWithoutABuiltInPad() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            addInputDevice(activity.get(), 9, false, InputDevice.SOURCE_GAMEPAD | InputDevice.SOURCE_DPAD);
+            PreferenceConfiguration prefs = onscreenOwnPlayerPrefs(activity.get());
+            Connection connection = new Connection(73);
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            try {
+                handler.resendControllerArrivals();
+                ControllerHandler.InputDeviceContext buttons = ReflectionHelpers.callInstanceMethod(handler,
+                        "createInputDeviceContextForDevice",
+                        ReflectionHelpers.ClassParameter.from(InputDevice.class, InputDevice.getDevice(9)));
+                contexts(handler).put(9, buttons);
+                buttons.inputMap = ControllerPacket.A_FLAG;
+                send(handler, buttons);
+                // Active on the PC, or hosts drop its packets.
+                assertEquals(1, buttons.controllerNumber);
+                assertTrue(buttons.reservedControllerNumber);
+                assertEquals(3, connection.activeMask);
+            } finally { handler.destroy(); }
+        }
+    }
+
+    @Test public void onscreenOwnPlayerGivesTheDevicesMotorsAndSensorsToTheFirstPadNotTheOnscreenControls() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            android.hardware.SensorManager sensors = (android.hardware.SensorManager)
+                    activity.get().getSystemService(Context.SENSOR_SERVICE);
+            for (int type : new int[] {android.hardware.Sensor.TYPE_ACCELEROMETER, android.hardware.Sensor.TYPE_GYROSCOPE}) {
+                org.robolectric.Shadows.shadowOf(sensors).addSensor(org.robolectric.shadows.ShadowSensor.newInstance(type));
+            }
+            android.os.Vibrator vibrator = (android.os.Vibrator) activity.get().getSystemService(Context.VIBRATOR_SERVICE);
+            addInputDevice(activity.get(), 2, true, JOYPAD);
+            addInputDevice(activity.get(), 4, true, JOYPAD);
+            PreferenceConfiguration prefs = onscreenOwnPlayerPrefs(activity.get());
+            prefs.gamepadMotionSensors = true;
+            prefs.gamepadMotionSensorsFallbackToDevice = true;
+            prefs.vibrateFallbackToDevice = true;
+            prefs.vibrateOsc = true;
+            Connection connection = new Connection(73);
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            try {
+                handler.prepareControllersForLaunch();
+                ControllerHandler.InputDeviceContext first = contexts(handler).get(2);
+                ControllerHandler.InputDeviceContext second = contexts(handler).get(4);
+                assertEquals(1, first.controllerNumber);
+                assertEquals(2, second.controllerNumber);
+                // Motion: the first pad streams the device's sensors, and its own gyroscope gets the liveness check.
+                assertSame(sensors, first.sensorManager);
+                assertNotSame(sensors, second.sensorManager);
+                assertTrue(handler.checksGyroLiveness((short) 1, null));
+                assertFalse(handler.checksGyroLiveness((short) 0, null));
+                assertFalse(handler.checksGyroLiveness((short) 2, null));
+
+                // Rumble: the second pad without a motor leaves the phone still.
+                handler.handleRumble((short) 2, (short) 0x8000, (short) 0x8000);
+                assertFalse(org.robolectric.Shadows.shadowOf(vibrator).isVibrating());
+                // The first pad without a motor vibrates the phone, and its removal stops it.
+                handler.handleRumble((short) 1, (short) 0x8000, (short) 0x8000);
+                assertTrue(org.robolectric.Shadows.shadowOf(vibrator).isVibrating());
+                assertTrue(ReflectionHelpers.<Boolean>getField(handler, "deviceVibratorForPlayerOne"));
+                handler.onInputDeviceRemoved(2);
+                assertFalse(org.robolectric.Shadows.shadowOf(vibrator).isVibrating());
+                // Controller 1 has no pad: a game's rumble for it is the on-screen controls' own.
+                handler.handleRumble((short) 0, (short) 0x8000, (short) 0x8000);
+                assertTrue(org.robolectric.Shadows.shadowOf(vibrator).isVibrating());
+                assertFalse(ReflectionHelpers.<Boolean>getField(handler, "deviceVibratorForPlayerOne"));
+            } finally { handler.destroy(); }
+        }
+    }
+
+    @Test public void onscreenOwnPlayerGivesTheDevicesSensorsToAUsbPadOnTheFirstPadNumber() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            android.hardware.SensorManager sensors = (android.hardware.SensorManager)
+                    activity.get().getSystemService(Context.SENSOR_SERVICE);
+            for (int type : new int[] {android.hardware.Sensor.TYPE_ACCELEROMETER, android.hardware.Sensor.TYPE_GYROSCOPE}) {
+                org.robolectric.Shadows.shadowOf(sensors).addSensor(org.robolectric.shadows.ShadowSensor.newInstance(type));
+            }
+            PreferenceConfiguration prefs = onscreenOwnPlayerPrefs(activity.get());
+            prefs.gamepadMotionSensors = true;
+            prefs.gamepadMotionSensorsFallbackToDevice = true;
+            Connection connection = new Connection(73);
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            try {
+                Pad first = new Pad(42, (short) 0);
+                Pad second = new Pad(43, (short) 0);
+                handler.deviceAdded(first);
+                handler.deviceAdded(second);
+                handler.prepareControllersForLaunch();
+                java.util.Map<Integer, ControllerHandler.UsbDeviceContext> usb = ReflectionHelpers.getField(handler, "usbDeviceContexts");
+                assertEquals(1, usb.get(42).controllerNumber);
+                assertEquals(2, usb.get(43).controllerNumber);
+                assertSame(sensors, ReflectionHelpers.getField(usb.get(42), "deviceSensors"));
+                assertNull(ReflectionHelpers.getField(usb.get(43), "deviceSensors"));
+            } finally { handler.destroy(); }
+        }
+    }
+
     @Test public void sharedPlayerOneIsPreparedOnlyOnce() {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             addInputDevice(activity.get(), 2, true, InputDevice.SOURCE_GAMEPAD);

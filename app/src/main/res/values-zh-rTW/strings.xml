@@ -454,8 +454,11 @@
     <string name="continue_here_came_back">遊戲已回到此裝置</string>
     <string name="continue_here_did_not_move">遊戲沒有轉移到另一台裝置</string>
     <string name="title_onscreen_own_player">螢幕控制作為獨立玩家</string>
-    <string name="summary_onscreen_own_player">螢幕控制在電腦上是控制器 1，實體控制器從 2 開始計數，方便 Steam 等工具分別對應。需要開啟多個控制器，下次串流生效。</string>
-    <string name="keyboard_shortcuts_reorder">拖曳或按上下鍵來調整順序</string>
+    <string name="summary_onscreen_own_player">螢幕控制在電腦上是控制器 1，實體控制器從 2 開始計數，方便 Steam 等工具分別對應。需要開啟多個控制器和顯示螢幕控制按鈕：未開啟時，遊戲自己的觸控配置仍與控制器 1 共用。下次串流生效。</string>
+    <string name="keyboard_shortcuts_reorder">拖曳，或選取後按上下鍵來調整順序</string>
+    <string name="keyboard_shortcuts_move_up">上移</string>
+    <string name="keyboard_shortcuts_move_down">下移</string>
+    <string name="stream_disconnect_confirm">要中斷串流嗎？</string>
     <string name="title_stream_menu_button_y">串流選單中的 Y</string>
     <string name="title_stream_menu_button_x">串流選單中的 X</string>
     <string name="title_stream_menu_button_lb">串流選單中的 LB</string>

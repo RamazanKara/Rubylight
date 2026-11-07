@@ -454,8 +454,11 @@
     <string name="continue_here_came_back">Gra wróciła na to urządzenie</string>
     <string name="continue_here_did_not_move">Gra nie została przeniesiona na drugie urządzenie</string>
     <string name="title_onscreen_own_player">Sterowanie ekranowe jako osobny gracz</string>
-    <string name="summary_onscreen_own_player">Sterowanie ekranowe jest na PC kontrolerem 1, a fizyczne kontrolery liczą się od 2, więc narzędzie takie jak Steam może je mapować osobno. Wymaga opcji Wiele kontrolerów i działa od następnej transmisji.</string>
-    <string name="keyboard_shortcuts_reorder">Przeciągnij, aby zmienić kolejność, lub naciśnij w górę albo w dół</string>
+    <string name="summary_onscreen_own_player">Sterowanie ekranowe jest na PC kontrolerem 1, a fizyczne kontrolery liczą się od 2, więc narzędzie takie jak Steam może je mapować osobno. Wymaga opcji Wiele kontrolerów i Pokaż sterowanie ekranowe: bez niej własny układ dotykowy gry nadal dzieli kontroler 1. Działa od następnej transmisji.</string>
+    <string name="keyboard_shortcuts_reorder">Przeciągnij albo wybierz i naciśnij w górę lub w dół, aby zmienić kolejność</string>
+    <string name="keyboard_shortcuts_move_up">Przenieś w górę</string>
+    <string name="keyboard_shortcuts_move_down">Przenieś w dół</string>
+    <string name="stream_disconnect_confirm">Rozłączyć się ze streamem?</string>
     <string name="title_stream_menu_button_y">Y w menu transmisji</string>
     <string name="title_stream_menu_button_x">X w menu transmisji</string>
     <string name="title_stream_menu_button_lb">LB w menu transmisji</string>

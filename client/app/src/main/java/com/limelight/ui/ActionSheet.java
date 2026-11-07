@@ -494,10 +494,19 @@ public final class ActionSheet extends BottomSheetDialog {
      * error colour when {@code destructive}; in a sheet it is a row like {@link #addAction} or {@link #addDestructiveAction}.
      */
     public MaterialButton addFooterAction(int icon, CharSequence label, boolean destructive) {
-        if (footer == null) return destructive ? addDestructiveAction(icon, label) : addAction(icon, label);
+        return addFooterAction(icon, label, destructive, null);
+    }
+
+    /** The same with the controller button that runs it ({@code "Y"}) at its end, or null for none. */
+    public MaterialButton addFooterAction(int icon, CharSequence label, boolean destructive, String hotkey) {
+        if (footer == null) {
+            MaterialButton row = destructive ? addDestructiveAction(icon, label) : addAction(icon, label);
+            if (hotkey != null) row.setText(label + "  " + hotkey);
+            return row;
+        }
         Context context = getContext();
         android.content.res.Resources res = context.getResources();
-        MaterialButton button = new MaterialButton(context, null, com.google.android.material.R.attr.materialButtonStyle);
+        TileGrid.Tile button = new TileGrid.Tile(context, com.google.android.material.R.attr.materialButtonStyle);
         int ink = MaterialColors.getColor(context, destructive ? androidx.appcompat.R.attr.colorError
                 : com.google.android.material.R.attr.colorOnSurface, 0);
         button.setText(label);
@@ -519,7 +528,10 @@ public final class ActionSheet extends BottomSheetDialog {
         button.setCornerRadius(res.getDimensionPixelSize(R.dimen.stream_tile_corner));
         button.setInsetTop(0);
         button.setInsetBottom(0);
-        button.setPaddingRelative(spacing, 0, spacing, 0);
+        button.setPaddingRelative(spacing, 0, hotkey == null ? spacing : spacing * 5, 0);
+        button.setHotkey(hotkey);
+        button.setHotkeyAtEnd(true);
+        if (hotkey != null) button.setContentDescription(label + ", " + hotkey);
         button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(MaterialColors.getColor(context,
                 com.google.android.material.R.attr.colorSurfaceContainerHigh, 0)));
         styleRow(button);

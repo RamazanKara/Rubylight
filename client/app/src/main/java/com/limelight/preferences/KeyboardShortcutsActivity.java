@@ -13,6 +13,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
+import androidx.core.view.ViewCompat;
 import com.limelight.ui.NightjarActivity;
 import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.MutableLiveData;
@@ -53,6 +54,8 @@ public final class KeyboardShortcutsActivity extends NightjarActivity {
     private AlertDialog editDialog;
     private EditText editName, editChord;
     private String editId;
+    /** The shortcut picked up with the keys to move with up and down, or null. */
+    private String heldId;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -122,13 +125,16 @@ public final class KeyboardShortcutsActivity extends NightjarActivity {
         LinearLayout rows = new LinearLayout(this);
         rows.setOrientation(LinearLayout.VERTICAL);
         content.addView(rows);
-        for (Shortcut entry : entries) rows.addView(shortcutRow(entry, !busy));
+        for (int i = 0; i < entries.size(); i++) rows.addView(shortcutRow(entries.get(i), !busy, i, entries.size()));
         com.limelight.ui.SubPageFocus.apply(this, findViewById(R.id.page_content));
     }
 
-    /** A shortcut's row: its handle, which drags the row or moves it with up and down, and the button that edits it. */
-    @android.annotation.SuppressLint("ClickableViewAccessibility") // The handle's click is only for focus; dragging has the keys' way too.
-    private LinearLayout shortcutRow(Shortcut entry, boolean enabled) {
+    /**
+     * A shortcut's row: its handle, which drags the row, or with the keys picks it up on select, moves it with up and
+     * down and puts it down on select or back, and the button that edits it.
+     */
+    @android.annotation.SuppressLint("ClickableViewAccessibility") // TalkBack has Move up and Move down instead of the drag.
+    private LinearLayout shortcutRow(Shortcut entry, boolean enabled, int index, int count) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -140,20 +146,45 @@ public final class KeyboardShortcutsActivity extends NightjarActivity {
         handle.setEnabled(enabled);
         handle.setOnTouchListener(new RowDrag(row, entry.id));
         handle.setOnKeyListener((view, keyCode, event) -> {
-            if (keyCode != android.view.KeyEvent.KEYCODE_DPAD_UP && keyCode != android.view.KeyEvent.KEYCODE_DPAD_DOWN) return false;
-            int step = keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP ? -1 : 1;
-            LinearLayout rows = (LinearLayout) row.getParent();
-            int to = rows.indexOfChild(row) + step;
-            // At either end the focus moves on, as from any other control.
-            if (to < 0 || to >= rows.getChildCount()) return false;
+            boolean held = entry.id.equals(heldId);
+            if (isSelect(keyCode) || (held && (keyCode == android.view.KeyEvent.KEYCODE_BACK
+                    || keyCode == android.view.KeyEvent.KEYCODE_BUTTON_B))) {
+                if (event.getAction() == android.view.KeyEvent.ACTION_UP) {
+                    heldId = held ? null : entry.id;
+                    showHeld(row, !held);
+                }
+                return true;
+            }
+            // Not picked up, up and down move the focus as from any other control.
+            if (!held || (keyCode != android.view.KeyEvent.KEYCODE_DPAD_UP && keyCode != android.view.KeyEvent.KEYCODE_DPAD_DOWN)) {
+                return false;
+            }
+            // Picked up, they move the row; at either end it stays, and so does the focus.
             if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
-                KeyboardShortcuts.move(this, entry.id, to);
-                refresh();
-                View moved = content.findViewWithTag(entry.id);
-                if (moved != null) moved.requestFocus();
+                moveBy(entry.id, keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP ? -1 : 1);
             }
             return true;
         });
+        handle.setOnFocusChangeListener((view, focused) -> {
+            if (focused || !entry.id.equals(heldId)) return;
+            // A move rebuilds the page and focuses the new handle; only a focus that went elsewhere puts the row down.
+            content.post(() -> {
+                View now = heldId == null ? null : content.findViewWithTag(heldId);
+                if (now != null && !now.isFocused()) {
+                    heldId = null;
+                    showHeld((View) now.getParent(), false);
+                }
+            });
+        });
+        if (index > 0) {
+            ViewCompat.addAccessibilityAction(handle, getString(R.string.keyboard_shortcuts_move_up),
+                    (view, arguments) -> moveBy(entry.id, -1));
+        }
+        if (index + 1 < count) {
+            ViewCompat.addAccessibilityAction(handle, getString(R.string.keyboard_shortcuts_move_down),
+                    (view, arguments) -> moveBy(entry.id, 1));
+        }
+        if (entry.id.equals(heldId)) showHeld(row, true);
         row.addView(handle, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         MaterialButton edit = new MaterialButton(this, null, R.attr.nightjarButtonTextStyle);
         edit.setText(entry.name + "\n" + KeyboardShortcuts.format(entry.keys()));
@@ -173,6 +204,8 @@ public final class KeyboardShortcutsActivity extends NightjarActivity {
         private final LinearLayout row;
         private final String id;
         private float lastY;
+        /** Where the row is drawn, from the top of the rows; the layout lags behind the swaps. */
+        private float top;
 
         RowDrag(LinearLayout row, String id) {
             this.row = row;
@@ -185,11 +218,12 @@ public final class KeyboardShortcutsActivity extends NightjarActivity {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     lastY = event.getRawY();
+                    top = slotTop(rows, rows.indexOfChild(row)) + row.getTranslationY();
                     rows.requestDisallowInterceptTouchEvent(true);
                     row.setElevation(8 * getResources().getDisplayMetrics().density);
                     return true;
                 case MotionEvent.ACTION_MOVE:
-                    row.setTranslationY(row.getTranslationY() + event.getRawY() - lastY);
+                    top += event.getRawY() - lastY;
                     lastY = event.getRawY();
                     swapPassed(rows);
                     return true;
@@ -208,31 +242,72 @@ public final class KeyboardShortcutsActivity extends NightjarActivity {
             }
         }
 
+        /** Swaps the row past every neighbour whose middle it passed: a fast finger passes several in one move. */
         private void swapPassed(LinearLayout rows) {
-            int index = rows.indexOfChild(row);
-            float center = row.getTop() + row.getTranslationY() + row.getHeight() / 2f;
-            int passed = passedIndex(index, center, rows);
-            if (passed == index) return;
+            float center = top + row.getHeight() / 2f;
+            for (int index = rows.indexOfChild(row), passed; (passed = passedIndex(index, center, rows)) != index; index = passed) {
+                View neighbour = rows.getChildAt(passed);
+                rows.removeViewAt(passed);
+                rows.addView(neighbour, index);
+            }
             // The row keeps its place on screen while the layout puts it in the new slot.
-            View neighbour = rows.getChildAt(passed);
-            int newTop = passed > index ? neighbour.getBottom() - row.getHeight() : neighbour.getTop();
-            row.setTranslationY(row.getTop() + row.getTranslationY() - newTop);
-            rows.removeViewAt(passed);
-            rows.addView(neighbour, index);
+            row.setTranslationY(top - slotTop(rows, rows.indexOfChild(row)));
         }
+    }
+
+    /**
+     * Where the child at {@code index} goes once the rows are laid out: views moved since the last layout still report
+     * their old place, so this adds up the heights before it.
+     */
+    private static float slotTop(LinearLayout rows, int index) {
+        float top = rows.getPaddingTop();
+        for (int i = 0; i < index; i++) top += rows.getChildAt(i).getHeight();
+        return top;
     }
 
     /** The neighbour of {@code index} whose middle a row centred at {@code center} has passed, or {@code index}. */
     private static int passedIndex(int index, float center, LinearLayout rows) {
         if (index + 1 < rows.getChildCount()) {
             View next = rows.getChildAt(index + 1);
-            if (center > next.getTop() + next.getHeight() / 2f) return index + 1;
+            if (center > slotTop(rows, index + 1) + next.getHeight() / 2f) return index + 1;
         }
         if (index > 0) {
             View previous = rows.getChildAt(index - 1);
-            if (center < previous.getTop() + previous.getHeight() / 2f) return index - 1;
+            if (center < slotTop(rows, index - 1) + previous.getHeight() / 2f) return index - 1;
         }
         return index;
+    }
+
+    private static boolean isSelect(int keyCode) {
+        return keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER || keyCode == android.view.KeyEvent.KEYCODE_ENTER
+                || keyCode == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER || keyCode == android.view.KeyEvent.KEYCODE_BUTTON_A;
+    }
+
+    /** A row picked up with the keys stands out as one being dragged does. */
+    private void showHeld(View row, boolean held) {
+        row.setElevation(held ? 8 * getResources().getDisplayMetrics().density : 0);
+    }
+
+    /**
+     * Moves the shortcut {@code id} one place up ({@code -1}) or down, keeping the focus on its handle; false at either
+     * end, where nothing moves.
+     */
+    private boolean moveBy(String id, int step) {
+        List<Shortcut> entries = KeyboardShortcuts.load(this);
+        int index = -1;
+        for (int i = 0; i < entries.size(); i++) {
+            if (entries.get(i).id.equals(id)) index = i;
+        }
+        int to = index + step;
+        if (index < 0 || to < 0 || to >= entries.size()) return false;
+        KeyboardShortcuts.move(this, id, to);
+        refresh();
+        View moved = content.findViewWithTag(id);
+        if (moved != null) {
+            moved.requestFocus();
+            moved.sendAccessibilityEvent(android.view.accessibility.AccessibilityEvent.TYPE_VIEW_FOCUSED);
+        }
+        return true;
     }
 
     private MaterialButton button(int styleAttr, String text, boolean enabled, Runnable action) {

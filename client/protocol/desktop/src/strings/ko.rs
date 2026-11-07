@@ -497,6 +497,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("End the stream session on the PC?\nThe game keeps running.", "PC의 스트리밍 세션을 종료할까요?\n게임은 계속 실행됩니다."),
     ("Close the game on the PC?\nUnsaved progress will be lost.", "PC의 게임을 닫을까요?\n저장되지 않은 진행 상황은 사라집니다."),
     ("Quit the game on the PC?\nUnsaved progress will be lost.", "PC에서 게임을 종료할까요?\n저장하지 않은 진행 상황은 사라집니다."),
+    ("Disconnect from the stream?", "스트림 연결을 끊을까요?"),
     ("This session belongs to another device.", "이 세션은 다른 기기의 것입니다."),
     ("There is no session to end.", "끝낼 세션이 없습니다."),
     ("Turn on Host control for this device on the host.", "호스트에서 이 기기의 호스트 제어를 켜 주세요."),

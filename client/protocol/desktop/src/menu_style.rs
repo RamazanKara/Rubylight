@@ -788,7 +788,8 @@ fn ").unwrap_or(main.len() - start)];
         let footer = &menu[menu.find("pub fn footer(").expect("the footer")..];
         let at = |needle: &str| footer.find(needle).unwrap_or_else(|| panic!("{needle} in the footer"));
         assert!(at("tr(\"Return to stream\")") < at("tr(\"Disconnect\")"), "Return to stream, then Disconnect");
-        assert_eq!(menu.matches("tr(\"Disconnect\")").count(), 1, "Disconnect is drawn once");
+        // Once in the footer; the button's question page names it too.
+        assert_eq!(footer[..footer.find("\n}\n").unwrap()].matches("tr(\"Disconnect\")").count(), 1, "Disconnect is drawn once");
         assert!(!overlay.contains("tr(\"Disconnect\")"), "Disconnect is the footer's");
         let grid = &menu[menu.find("pub fn grid(").expect("the grid")..];
         assert!(grid[..grid.find("

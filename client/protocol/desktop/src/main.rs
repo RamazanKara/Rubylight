@@ -2728,7 +2728,8 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
             let mut next = None;
             let grid_page = page == stream_menu::Page::Grid;
             let (heading, line) = if grid_page { s.menu_header() } else { (page.title().to_owned(), title.clone()) };
-            let mut leave = if grid_page { s.menu_hotkey.and_then(|key| stream_menu::button_leave(&layout, key)) } else { None };
+            let button = if grid_page { s.menu_hotkey.and_then(|key| stream_menu::button_leave(&layout, key)) } else { None };
+            let mut leave = None;
             menu_style::window(tr("Stream controls"), "stream-controls")
                 .show(&ctx, |ui| {
                 // On the grid the header and the ways out stay in view; only the tiles scroll.
@@ -2774,6 +2775,11 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                 s.end_on_host(*exit);
                                 next = Some(stream_menu::Page::Grid);
                             }
+                            Some(false) => next = Some(stream_menu::Page::Grid),
+                            None => {}
+                        },
+                        stream_menu::Page::ConfirmDisconnect => match stream_menu::confirm_disconnect(ui, focus_first) {
+                            Some(true) => s.exit = Some(Exit::User),
                             Some(false) => next = Some(stream_menu::Page::Grid),
                             None => {}
                         },
@@ -3002,7 +3008,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                             }
                         }
                     }
-                    if !matches!(page, stream_menu::Page::Grid | stream_menu::Page::Confirm(_)) {
+                    if !matches!(page, stream_menu::Page::Grid | stream_menu::Page::Confirm(_) | stream_menu::Page::ConfirmDisconnect) {
                         ui.add_space(theme::space::M);
                         if menu_style::action_keys(ui, Icon::Back, tr("Back"), Some(crate::shortcuts::Key::Escape.cap().as_ref())).clicked() {
                             next = Some(stream_menu::Page::Grid);
@@ -3010,9 +3016,18 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     }
                 });
                 if grid_page {
-                    leave = menu_style::pinned(ui, "stream-menu-footer", |ui| stream_menu::footer(ui, &layout)).or(leave);
+                    leave = menu_style::pinned(ui, "stream-menu-footer", |ui| stream_menu::footer(ui, &layout));
                 }
                 });
+            // From a button Disconnect asks first, as the ways out that end the game do.
+            let leave = match (leave, button) {
+                (None, Some(stream_menu::Leave::Disconnect)) => {
+                    next = Some(stream_menu::Page::ConfirmDisconnect);
+                    None
+                }
+                (None, button) => button,
+                (clicked, _) => clicked,
+            };
             match leave {
                 Some(stream_menu::Leave::Close) => s.toggle_menu(window, pads),
                 Some(stream_menu::Leave::Disconnect) => s.exit = Some(Exit::User),

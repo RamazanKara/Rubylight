@@ -497,6 +497,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("End the stream session on the PC?\nThe game keeps running.", "Encerrar a sessão de streaming no PC?\nO jogo continua em execução."),
     ("Close the game on the PC?\nUnsaved progress will be lost.", "Fechar o jogo no PC?\nO progresso não salvo será perdido."),
     ("Quit the game on the PC?\nUnsaved progress will be lost.", "Encerrar o jogo no PC?\nO progresso não salvo será perdido."),
+    ("Disconnect from the stream?", "Desconectar da transmissão?"),
     ("This session belongs to another device.", "Esta sessão pertence a outro dispositivo."),
     ("There is no session to end.", "Não há sessão para encerrar."),
     ("Turn on Host control for this device on the host.", "Ative o controle do host para este dispositivo no host."),

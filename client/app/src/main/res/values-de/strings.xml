@@ -454,8 +454,11 @@
     <string name="continue_here_came_back">Das Spiel ist zu diesem Gerät zurückgekehrt</string>
     <string name="continue_here_did_not_move">Das Spiel wurde nicht auf das andere Gerät verschoben</string>
     <string name="title_onscreen_own_player">Bildschirmtasten als eigener Spieler</string>
-    <string name="summary_onscreen_own_player">Die Bildschirmtasten sind am PC Controller 1, physische Controller zählen ab 2, damit ein Tool wie Steam sie getrennt belegen kann. Braucht Mehrere Controller und gilt ab dem nächsten Stream.</string>
-    <string name="keyboard_shortcuts_reorder">Ziehen, um die Reihenfolge zu ändern, oder nach oben oder unten drücken</string>
+    <string name="summary_onscreen_own_player">Die Bildschirmtasten sind am PC Controller 1, physische Controller zählen ab 2, damit ein Tool wie Steam sie getrennt belegen kann. Braucht Mehrere Controller und Bildschirmtasten anzeigen: das eigene Touch-Layout eines Spiels teilt sich ohne sie weiter Controller 1. Gilt ab dem nächsten Stream.</string>
+    <string name="keyboard_shortcuts_reorder">Ziehen oder auswählen und nach oben oder unten drücken, um die Reihenfolge zu ändern</string>
+    <string name="keyboard_shortcuts_move_up">Nach oben</string>
+    <string name="keyboard_shortcuts_move_down">Nach unten</string>
+    <string name="stream_disconnect_confirm">Die Verbindung zum Stream trennen?</string>
     <string name="title_stream_menu_button_y">Y im Streammenü</string>
     <string name="title_stream_menu_button_x">X im Streammenü</string>
     <string name="title_stream_menu_button_lb">LB im Streammenü</string>

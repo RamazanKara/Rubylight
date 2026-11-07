@@ -209,7 +209,7 @@
     <string name="title_only_l3r3">Only show L3 and R3</string>
     <string name="summary_only_l3r3">Hide all virtual buttons except L3 and R3</string>
     <string name="title_onscreen_own_player">On-screen controls as their own player</string>
-    <string name="summary_onscreen_own_player">The on-screen controls are controller 1 on the PC and physical controllers count from 2, so a tool like Steam can map them separately. Needs Multiple controllers, and takes effect on the next stream.</string>
+    <string name="summary_onscreen_own_player">The on-screen controls are controller 1 on the PC and physical controllers count from 2, so a tool like Steam can map them separately. Needs Multiple controllers and Show on-screen controls: a game’s own touch layout without them still shares controller 1. Takes effect on the next stream.</string>
     <string name="title_show_guide_button">Show Guide button</string>
     <string name="title_show_touchpad_button">Show Touchpad button</string>
     <string name="summary_show_touchpad_button">Clicks the touchpad of a PlayStation controller on the PC: while it is on, player 1 connects as one. In the modern style, move or hide it in the layout editor.</string>
@@ -503,7 +503,10 @@
     <string name="keyboard_shortcuts_summary">Buttons for the extra keyboard toolbar</string>
     <string name="keyboard_shortcuts_help">Create up to 32 shortcuts for Extra keyboard keys in the stream menu. Enter keys separated by +, for example CTRL + SHIFT + ESC or WIN + D. Each button presses the keys in order and releases them in reverse order.</string>
     <string name="keyboard_shortcuts_add">Add shortcut</string>
-    <string name="keyboard_shortcuts_reorder">Drag to change the order, or press up or down</string>
+    <string name="keyboard_shortcuts_reorder">Drag, or select and press up or down, to change the order</string>
+    <string name="keyboard_shortcuts_move_up">Move up</string>
+    <string name="keyboard_shortcuts_move_down">Move down</string>
+    <string name="stream_disconnect_confirm">Disconnect from the stream?</string>
     <string name="keyboard_shortcuts_edit">Edit shortcut</string>
     <string name="keyboard_shortcuts_save">Save</string>
     <string name="keyboard_shortcuts_delete">Delete</string>

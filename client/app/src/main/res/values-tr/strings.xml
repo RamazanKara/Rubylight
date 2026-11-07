@@ -454,8 +454,11 @@
     <string name="continue_here_came_back">Oyun bu cihaza geri döndü</string>
     <string name="continue_here_did_not_move">Oyun diğer cihaza geçmedi</string>
     <string name="title_onscreen_own_player">Ekran kontrolleri ayrı oyuncu olsun</string>
-    <string name="summary_onscreen_own_player">Ekran kontrolleri PC’de 1. kumanda olur ve fiziksel kumandalar 2’den başlar; böylece Steam gibi bir araç onları ayrı eşleyebilir. Birden fazla kumanda gerekir ve bir sonraki yayında geçerli olur.</string>
-    <string name="keyboard_shortcuts_reorder">Sırayı değiştirmek için sürükleyin ya da yukarı veya aşağı basın</string>
+    <string name="summary_onscreen_own_player">Ekran kontrolleri PC’de 1. kumanda olur ve fiziksel kumandalar 2’den başlar; böylece Steam gibi bir araç onları ayrı eşleyebilir. Birden fazla kumanda ve Ekran kontrollerini göster gerekir: bunlar olmadan bir oyunun kendi dokunmatik düzeni 1. kumandayı paylaşmaya devam eder. Bir sonraki yayında geçerli olur.</string>
+    <string name="keyboard_shortcuts_reorder">Sırayı değiştirmek için sürükleyin ya da seçip yukarı veya aşağı basın</string>
+    <string name="keyboard_shortcuts_move_up">Yukarı taşı</string>
+    <string name="keyboard_shortcuts_move_down">Aşağı taşı</string>
+    <string name="stream_disconnect_confirm">Yayının bağlantısı kesilsin mi?</string>
     <string name="title_stream_menu_button_y">Yayın menüsünde Y</string>
     <string name="title_stream_menu_button_x">Yayın menüsünde X</string>
     <string name="title_stream_menu_button_lb">Yayın menüsünde LB</string>

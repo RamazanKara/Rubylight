@@ -454,8 +454,11 @@
     <string name="continue_here_came_back">Le jeu est revenu sur cet appareil</string>
     <string name="continue_here_did_not_move">Le jeu n\'est pas passé sur l\'autre appareil</string>
     <string name="title_onscreen_own_player">Commandes à l’écran comme joueur à part</string>
-    <string name="summary_onscreen_own_player">Les commandes à l’écran sont la manette 1 sur le PC et les manettes physiques comptent à partir de 2, pour qu’un outil comme Steam les configure séparément. Nécessite Plusieurs manettes, prend effet au prochain stream.</string>
-    <string name="keyboard_shortcuts_reorder">Faites glisser pour changer l’ordre, ou appuyez sur haut ou bas</string>
+    <string name="summary_onscreen_own_player">Les commandes à l’écran sont la manette 1 sur le PC et les manettes physiques comptent à partir de 2, pour qu’un outil comme Steam les configure séparément. Nécessite Plusieurs manettes et Afficher les commandes à l’écran : sans elles, la disposition tactile propre à un jeu partage toujours la manette 1. Prend effet au prochain stream.</string>
+    <string name="keyboard_shortcuts_reorder">Faites glisser, ou sélectionnez puis appuyez sur haut ou bas, pour changer l’ordre</string>
+    <string name="keyboard_shortcuts_move_up">Monter</string>
+    <string name="keyboard_shortcuts_move_down">Descendre</string>
+    <string name="stream_disconnect_confirm">Se déconnecter du stream ?</string>
     <string name="title_stream_menu_button_y">Y dans le menu du stream</string>
     <string name="title_stream_menu_button_x">X dans le menu du stream</string>
     <string name="title_stream_menu_button_lb">LB dans le menu du stream</string>

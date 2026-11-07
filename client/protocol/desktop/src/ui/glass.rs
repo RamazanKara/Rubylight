@@ -137,6 +137,11 @@ impl CrossFade {
         self.started = ctx.input(|i| i.time);
     }
 
+    /// The layers [`Self::backdrop`] handed out this frame.
+    pub fn layers(&self, ctx: &Context) -> Backdrop {
+        backdrop(ctx)
+    }
+
     /// This frame's layers, covering `area` of the screen; also hands them to glass.
     pub fn backdrop(&mut self, ctx: &Context, area: Rect) -> Backdrop {
         let ms = if spring::motion(ctx) {

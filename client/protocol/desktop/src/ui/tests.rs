@@ -4248,14 +4248,6 @@ fn a_long_word_on_a_tile_stays_whole() {
     assert_eq!(rows, [1], "one line");
 }
 
-/// The page darkens where it passes beneath the chrome, only once it has moved there.
-#[test]
-fn the_scrim_under_the_chrome_comes_with_scrolling() {
-    let screen = Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 800.0));
-    assert!(chrome::top_scrim(screen, 0.0).is_none());
-    assert!(chrome::top_scrim(screen, 100.0).is_some());
-}
-
 /// The demo library in a window of this size, on Home.
 fn demo_frames(size: egui::Vec2) -> Frames {
     crate::theme::own_palette();
@@ -4346,7 +4338,8 @@ fn every_page_scrolls_whole_beneath_the_chrome() {
         // A card may clip its own words; the page's are cut by the window alone.
         let window = |clip: &Rect| clip.top() <= 0.5 && clip.bottom() >= size.y - 0.5;
         assert!(moved.iter().any(|(_, _, clip)| window(clip)), "{name}: a clip of its own: {:?}", moved.iter().map(|m| m.2).collect::<Vec<_>>());
-        assert!(chrome::top_scrim(Rect::from_min_size(Pos2::ZERO, size), f.l.page_scrolled).is_some(), "{name}: the scrim comes with scrolling");
+        let screen = Rect::from_min_size(Pos2::ZERO, size);
+        assert!(!f.l.ambient.veil(&f.ctx, screen, chrome::brand_rect(screen), f.l.page_scrolled).is_empty(), "{name}: the veil comes with scrolling");
         wheel(&mut f, Pos2::new(990.0, 280.0), 4000.0);
         assert!(f.l.page_scrolled < 0.5, "{name} comes back to its top");
     }

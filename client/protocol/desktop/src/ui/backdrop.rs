@@ -62,6 +62,18 @@ const FADE_NEAR_ALPHA: f32 = 0.95;
 /// How far the moon's glow reaches, in moon radii.
 const MOON_GLOW: f32 = 6.0;
 const RING_FACTORS: [f32; 4] = [1.7, 2.5, 3.3, 4.1];
+/// The veil where the page passes beneath the chrome: how far it reaches down the window, how much
+/// of the backdrop it brings at the top and behind the brand, how far past the brand its pool goes
+/// and how far the page has scrolled when it is whole.
+const VEIL_FRACTION: f32 = 0.19;
+const VEIL_LEAST: f32 = 88.0;
+const VEIL_MOST: f32 = 190.0;
+const VEIL_TOP_ALPHA: f32 = 0.82;
+const VEIL_BRAND_ALPHA: f32 = 0.96;
+const VEIL_BRAND_REACH: f32 = 54.0;
+const VEIL_WHOLE_AT: f32 = 40.0;
+const VEIL_ROWS: u32 = 24;
+const VEIL_COLUMNS: u32 = 24;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Shows {
@@ -202,14 +214,184 @@ impl Ambient {
     }
 }
 
+fn smoothstep(from: f32, to: f32, x: f32) -> f32 {
+    let t = ((x - from) / (to - from)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// How much of the backdrop lies over the page at `p`, with the page fully scrolled: a long ease from
+/// the window's top, and a soft pool behind the brand, which has no glass of its own.
+fn veil_at(screen: Rect, brand: Rect, p: Pos2) -> f32 {
+    let foot = screen.top() + veil_height(screen);
+    let ramp = VEIL_TOP_ALPHA * (1.0 - smoothstep(screen.top(), foot, p.y));
+    let reach = brand.size() / 2.0 + vec2(VEIL_BRAND_REACH, VEIL_BRAND_REACH * 0.7);
+    let away = (p - brand.center()) / reach;
+    let pool = VEIL_BRAND_ALPHA * (1.0 - smoothstep(0.5, 1.0, away.length()));
+    ramp.max(pool)
+}
+
+/// The ramp ends above where the moon can hang and where the page colour starts to rise.
+fn veil_height(screen: Rect) -> f32 {
+    (screen.height() * VEIL_FRACTION).clamp(VEIL_LEAST, VEIL_MOST)
+}
+
+impl Ambient {
+    /// Where the page passes beneath the chrome it dissolves into the backdrop: the same textures in
+    /// the same place, laid over the page, so with nothing passing there it cannot be seen at all and
+    /// over a bright cover it is a long soft ramp, never a bar. `brand` keeps its words readable.
+    /// None with the page at its start.
+    pub(super) fn veil(
+        &self,
+        ctx: &Context,
+        screen: Rect,
+        brand: Rect,
+        scrolled: f32,
+    ) -> Vec<Shape> {
+        let strength = (scrolled / VEIL_WHOLE_AT).min(1.0);
+        if strength <= 0.0 {
+            return Vec::new();
+        }
+        let alpha = |p: Pos2| veil_at(screen, brand, p) * strength;
+        let foot = screen.top() + veil_height(screen).max(brand.bottom() + VEIL_BRAND_REACH);
+        // Rows close enough for the ease; columns only where the pool bends, the ramp is level.
+        let rows: Vec<f32> = (0..=VEIL_ROWS)
+            .map(|i| egui::lerp(screen.top()..=foot, i as f32 / VEIL_ROWS as f32))
+            .collect();
+        let mut columns: Vec<f32> = (0..=VEIL_COLUMNS)
+            .map(|i| {
+                let end = brand.right() + 2.0 * VEIL_BRAND_REACH;
+                egui::lerp(screen.left()..=end, i as f32 / VEIL_COLUMNS as f32)
+            })
+            .collect();
+        columns.push(screen.right());
+        let grid = |texture: TextureId, area: Option<Rect>, layer: f32, plain: Color32| {
+            let mut mesh = Mesh::with_texture(texture);
+            for y in &rows {
+                for x in &columns {
+                    let pos = pos2(*x, *y);
+                    let uv = area.map_or(WHITE_UV, |a| {
+                        pos2(
+                            (pos.x - a.min.x) / a.width(),
+                            (pos.y - a.min.y) / a.height(),
+                        )
+                    });
+                    mesh.vertices.push(Vertex {
+                        pos,
+                        uv,
+                        color: plain.gamma_multiply(alpha(pos) * layer),
+                    });
+                }
+            }
+            let across = columns.len() as u32;
+            for row in 0..rows.len() as u32 - 1 {
+                for column in 0..across - 1 {
+                    let a = row * across + column;
+                    mesh.indices
+                        .extend([a, a + 1, a + across + 1, a, a + across + 1, a + across]);
+                }
+            }
+            Shape::mesh(mesh)
+        };
+        if crate::theme::high_contrast() {
+            return vec![grid(TextureId::default(), None, 1.0, *crate::theme::NIGHT)];
+        }
+        let behind = self.fade.layers(ctx);
+        let mut out = Vec::new();
+        if behind.base.is_none() && behind.top.is_none() {
+            out.push(grid(TextureId::default(), None, 1.0, t::COLOR_CANVAS));
+        }
+        for layer in [behind.base, behind.top].into_iter().flatten() {
+            out.push(grid(
+                layer.texture,
+                Some(layer.area),
+                layer.alpha,
+                Color32::WHITE,
+            ));
+        }
+        // What the sky has over its texture comes back with it.
+        if let Some(Shows::Sky(moon)) = self.shows {
+            let along = behind.top.map_or(1.0, |top| top.alpha);
+            sky_through_veil(&mut out, screen, moon, along, foot, &alpha);
+        }
+        out
+    }
+}
+
+/// The stars and rings over the sky's texture, as strong as the veil over them, so they neither dim
+/// nor shift when the page moves. The moon's disc stays below the veil's foot.
+fn sky_through_veil(
+    out: &mut Vec<Shape>,
+    screen: Rect,
+    moon: Moon,
+    along: f32,
+    foot: f32,
+    alpha: &dyn Fn(Pos2) -> f32,
+) {
+    for star in stars(screen, along) {
+        if let Shape::Circle(mut circle) = star {
+            if circle.center.y < foot {
+                let over = alpha(circle.center);
+                circle.fill = circle.fill.gamma_multiply(over);
+                out.push(Shape::Circle(circle));
+            }
+        }
+    }
+    let (center, r) = moon_disc(screen, moon);
+    let ink = t::SKY_RING.gamma_multiply(along);
+    let mut mesh = Mesh::default();
+    for factor in RING_FACTORS {
+        let radius = r * factor;
+        // Only the arc above the foot: the rest of the ring already shows as it is.
+        let base = mesh.vertices.len() as u32;
+        let steps = 240u32;
+        for i in 0..=steps {
+            let turn = i as f32 / steps as f32 * std::f32::consts::TAU;
+            let n = vec2(turn.cos(), turn.sin());
+            let on = center + n * radius;
+            let over = if on.y < foot { alpha(on) } else { 0.0 };
+            for (d, shade) in [
+                (-1.0, Color32::TRANSPARENT),
+                (0.0, ink.gamma_multiply(over)),
+                (1.0, Color32::TRANSPARENT),
+            ] {
+                mesh.vertices.push(Vertex {
+                    pos: on + n * d,
+                    uv: WHITE_UV,
+                    color: shade,
+                });
+            }
+        }
+        for i in 0..steps {
+            let (a, b) = (base + i * 3, base + (i + 1) * 3);
+            if mesh.vertices[a as usize + 1].color.a() == 0
+                && mesh.vertices[b as usize + 1].color.a() == 0
+            {
+                continue;
+            }
+            for k in 0..2 {
+                mesh.indices
+                    .extend([a + k, b + k, b + k + 1, a + k, b + k + 1, a + k + 1]);
+            }
+        }
+    }
+    out.push(Shape::mesh(mesh));
+}
+
+/// The moon's middle and radius in this window.
+fn moon_disc(screen: Rect, moon: Moon) -> (Pos2, f32) {
+    let ([x, y], r) = moon.place();
+    (
+        pos2(
+            screen.left() + screen.width() * x,
+            screen.top() + screen.height() * y,
+        ),
+        r * (screen.height() / 800.0).clamp(0.75, 1.5),
+    )
+}
+
 /// The moon, its rings and a few stars, all as faint as the sky is far along.
 fn paint_moon(out: &mut Vec<Shape>, ctx: &Context, screen: Rect, moon: Moon, alpha: f32) {
-    let ([x, y], r) = moon.place();
-    let r = r * (screen.height() / 800.0).clamp(0.75, 1.5);
-    let center = pos2(
-        screen.left() + screen.width() * x,
-        screen.top() + screen.height() * y,
-    );
+    let (center, r) = moon_disc(screen, moon);
     out.extend(stars(screen, alpha));
     for factor in RING_FACTORS {
         out.push(Shape::circle_stroke(
@@ -387,6 +569,103 @@ mod tests {
         );
         frame(&ctx, &mut ambient, art("a", &a), 3.0);
         assert!(ctx.has_requested_repaint(), "the art fades back");
+    }
+
+    fn veil_of(ctx: &Context, ambient: &Ambient, scrolled: f32) -> Vec<Shape> {
+        let screen = ctx.content_rect();
+        let brand = Rect::from_min_size(pos2(48.0, 29.0), vec2(118.0, 30.0));
+        ambient.veil(ctx, screen, brand, scrolled)
+    }
+
+    /// The flaw it replaces: a dark band with a hard foot. This is the backdrop itself, in its own
+    /// place, so where nothing passes beneath it there is nothing to see.
+    #[test]
+    fn the_veil_is_the_backdrop_itself_in_its_own_place_and_nothing_at_the_top() {
+        crate::theme::own_palette();
+        let ctx = Context::default();
+        let mut ambient = Ambient::default();
+        let a = texture(&ctx, 40);
+        frame(&ctx, &mut ambient, art("a", &a), 0.0);
+        let shapes = frame(&ctx, &mut ambient, art("a", &a), 5.0);
+        let Shape::Mesh(layer) = &shapes[1] else {
+            panic!("the layer")
+        };
+        assert_eq!(layer.texture_id, a.id());
+        let first = layer.vertices[0];
+        let last = layer.vertices[layer.vertices.len() - 1];
+        let uv = |p: Pos2| {
+            pos2(
+                egui::remap(p.x, first.pos.x..=last.pos.x, first.uv.x..=last.uv.x),
+                egui::remap(p.y, first.pos.y..=last.pos.y, first.uv.y..=last.uv.y),
+            )
+        };
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            assert!(veil_of(ui.ctx(), &ambient, 0.0).is_empty(), "at the top");
+            let veil = veil_of(ui.ctx(), &ambient, 200.0);
+            assert_eq!(veil.len(), 1, "one layer, no dark fill: {veil:?}");
+            let Shape::Mesh(mesh) = &veil[0] else {
+                panic!("a mesh")
+            };
+            assert_eq!(mesh.texture_id, a.id());
+            let foot = mesh.vertices.iter().map(|v| v.pos.y).fold(0.0, f32::max);
+            for v in &mesh.vertices {
+                let want = uv(v.pos);
+                assert!((v.uv - want).length() < 1e-3, "{v:?} wants {want:?}");
+                if v.pos.y >= foot - 0.01 {
+                    assert_eq!(v.color.a(), 0, "no edge at its foot: {v:?}");
+                }
+            }
+        });
+        let mut delta = output.textures_delta;
+        delta.clear();
+    }
+
+    /// A long ramp, not a bar: no step between rows anywhere, half gone by the foot of the top bar.
+    #[test]
+    fn the_veil_eases_away_and_stays_deepest_behind_the_brand() {
+        let screen = Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 800.0));
+        let brand = Rect::from_min_size(pos2(48.0, 29.0), vec2(118.0, 30.0));
+        let at = |x: f32, y: f32| veil_at(screen, brand, pos2(x, y));
+        let mut last = at(800.0, 0.0);
+        for y in 1..200 {
+            let here = at(800.0, y as f32);
+            assert!(here <= last && last - here < 0.02, "at {y}: {last} to {here}");
+            last = here;
+        }
+        assert!(at(800.0, 68.0) < 0.6, "{}", at(800.0, 68.0));
+        assert_eq!(at(800.0, veil_height(screen)), 0.0);
+        assert!(at(100.0, 44.0) > 0.9, "the wordmark stands on the backdrop");
+        assert!(at(800.0, 44.0) < 0.75, "what passes under the glass still shows");
+    }
+
+    #[test]
+    fn the_veil_ends_above_where_the_moon_and_the_page_colour_start() {
+        for height in [600.0, 800.0, 1080.0, 1440.0] {
+            let screen = Rect::from_min_size(Pos2::ZERO, vec2(1280.0, height));
+            let (center, r) = moon_disc(screen, Moon::High);
+            let foot = veil_height(screen);
+            assert!(foot <= center.y - r, "{height}: {foot}");
+            assert!(foot <= height * FADE_FROM, "{height}: {foot}");
+        }
+    }
+
+    #[test]
+    fn with_high_contrast_the_veil_is_plain_night() {
+        crate::theme::own_palette();
+        crate::theme::set_high_contrast(true);
+        let ctx = Context::default();
+        let ambient = Ambient::default();
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let veil = veil_of(ui.ctx(), &ambient, 200.0);
+            assert_eq!(veil.len(), 1);
+            let Shape::Mesh(mesh) = &veil[0] else {
+                panic!("a mesh")
+            };
+            assert_eq!(mesh.texture_id, TextureId::default());
+        });
+        let mut delta = output.textures_delta;
+        delta.clear();
+        crate::theme::set_high_contrast(false);
     }
 
     #[test]

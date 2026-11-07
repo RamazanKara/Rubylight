@@ -81,6 +81,17 @@ public class DialogGlassTest {
         assertEquals(R.drawable.dialog_button_control, backgroundOf(dialog.getButton(DialogInterface.BUTTON_NEGATIVE)));
     }
 
+    /** Day's Approve, off, passed for Deny beside it; night's nearly vanished. Off, the moon's ink gives way to the dimmed one. */
+    @Test
+    public void aMoonButtonThatIsOffLooksOff() {
+        Button moon = confirm().getButton(DialogInterface.BUTTON_POSITIVE);
+        assertEquals(activity.getColor(R.color.nj_color_on_moon), moon.getCurrentTextColor());
+        moon.setEnabled(false);
+        assertEquals("dimmed", 0x61, android.graphics.Color.alpha(moon.getCurrentTextColor()));
+        assertTrue("the page's ink, not the moon's",
+                (moon.getCurrentTextColor() & 0xFFFFFF) != (activity.getColor(R.color.nj_color_on_moon) & 0xFFFFFF));
+    }
+
     @Test
     public void aDestructiveDialogIsRedAndDoesNotStartOnTheRed() {
         AlertDialog dialog = confirm();

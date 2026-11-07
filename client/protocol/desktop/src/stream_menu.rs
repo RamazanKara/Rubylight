@@ -696,12 +696,21 @@ mod tests {
             }
             let android = android_tile_labels(&folder);
             assert_eq!(android.get("close_game"), android.get("quit_game"), "{folder}: Android's two ways to quit the game");
-            // The confirmation and the game page name it as the menu does.
-            let xml = std::fs::read_to_string(dir.path().join("strings_stream_menu.xml")).unwrap();
+            // One wording per language for quitting a game: the menu's tiles, its confirmation, the game
+            // page and the app list's Quit, on Android and in the desktop's table.
+            let mut xml = std::fs::read_to_string(dir.path().join("strings_stream_menu.xml")).unwrap();
+            xml += &std::fs::read_to_string(dir.path().join("strings.xml")).unwrap_or_default();
             let text = |name: &str| xml.lines().find_map(|line| line.trim().strip_prefix(&format!("<string name=\"{name}\">"))?.strip_suffix("</string>").map(str::to_owned));
-            assert_eq!(text("stream_close_game"), text("stream_quit_game"), "{folder}: stream_close_game");
+            let code = folder.strip_prefix("values-").map(|code| code.replace("-r", "-")).unwrap_or_else(|| "en".to_owned());
+            let lang = crate::strings::from_code(&code).unwrap_or_else(|| panic!("{folder} is no desktop language"));
+            let desktop = with_lang(lang, || tr("Quit game").to_owned());
             if folder == "values" {
-                assert_eq!(text("stream_close_game").as_deref(), Some("Quit game"));
+                assert_eq!(desktop, "Quit game");
+            }
+            assert_eq!(android.get("quit_game"), text("stream_quit_game").as_ref(), "{folder}: the tile and the confirmation word it alike");
+            assert_eq!(android.get("quit_game"), Some(&desktop), "{folder}: Android and the desktop word it alike");
+            for name in ["stream_tile_close_game", "stream_tile_quit_game", "stream_close_game", "stream_quit_game", "applist_menu_quit"] {
+                assert_eq!(text(name).as_deref(), Some(desktop.as_str()), "{folder}: {name} words Quit game otherwise");
             }
             locales += 1;
         }

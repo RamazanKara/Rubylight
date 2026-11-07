@@ -862,6 +862,7 @@ fn rail_position(value: f64, low: f64, high: f64, ratios: bool) -> f32 {
     if along.is_finite() { along.clamp(0.0, 1.0) as f32 } else { 0.0 }
 }
 
+#[allow(clippy::too_many_arguments)] // the slider's value, range, step and look, passed as egui takes them
 fn slider_along<N: egui::emath::Numeric>(
     ui: &mut egui::Ui,
     value: &mut N,
@@ -1042,7 +1043,7 @@ mod tests {
     fn dragging_a_slider_floats_its_value_and_letting_go_hides_it() {
         let ctx = egui::Context::default();
         let mut value = 20.0;
-        let (_, rail) = slider_frame(&ctx, &mut value, 1.0, Vec::new());
+        let _ = slider_frame(&ctx, &mut value, 1.0, Vec::new());
         let (drawn, rail) = slider_frame(&ctx, &mut value, 1.1, Vec::new());
         assert!(!drawn.iter().any(|t| t.ends_with("units")), "at rest only the field shows it: {drawn:?}");
         let start = egui::pos2(rail.left() + 30.0, rail.center().y);

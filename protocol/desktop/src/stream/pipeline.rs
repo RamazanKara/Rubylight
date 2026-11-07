@@ -917,23 +917,13 @@ impl Decoder {
         }
     }
 
-    /// The GPU renderer's render node, for VAAPI to open on the GPU its pictures are mapped to
-    /// (`media::VideoDecoder::map_to_vulkan`): with the renderer's SDL GPU device, unpacked
-    /// pictures and `NIGHTJAR_VAAPI_VULKAN_MAP` not 0. Why it is not known goes to the log.
+    /// The render node VAAPI opens on (`media::vaapi_node`, as the probes ask), for unpacked
+    /// pictures; packed ones open on the default device, as their probe does.
     fn vaapi_node(&self, setup: &VideoSetup) -> Option<u32> {
-        #[cfg(unix)]
-        if let Hardware::Auto(gpu) = self.hardware {
-            let switched_on = crate::vulkan_video::map_switched_on(std::env::var_os(crate::vulkan_video::MAP_ENVIRONMENT).as_deref());
-            if !gpu.is_null() && setup.chroma_packing == 0 && switched_on {
-                // SAFETY: The renderer keeps its device alive until the decoder has stopped.
-                match unsafe { crate::vulkan_video::render_minor(gpu.cast()) } {
-                    Ok(minor) => return Some(minor),
-                    Err(why) => crate::vulkan_video::note(&format!("VAAPI opens on the default device: {why}")),
-                }
-            }
+        if setup.chroma_packing != 0 {
+            return None;
         }
-        let _ = setup;
-        None
+        media::vaapi_node(self.hardware)
     }
 
     /// Makes `decoder` the stream's FFmpeg decoder.

@@ -223,6 +223,293 @@ pub fn sync_interval(mode: PacingMode, sync: VrrSync) -> i32 {
     }
 }
 
+/// How long a picture a V-Sync present refused tries again before it gives way to the next one.
+/// A picture later than the desktop's deadline misses the refresh whatever happens, so it may as
+/// well wait for its turn; skipping it would show the last picture twice. Earlier than that, the next
+/// picture comes in time for the same refresh, so nothing is lost. A source faster than the stream
+/// moves a phase-locked stream a picture at a time, 4.2 ms from a 240 Hz monitor, which at 120 Hz
+/// lands up to 5 ms past a refresh: 3 ms repeated up to 1.9% there, 5 ms up to 0.65%.
+pub const REFUSED_HOLD: std::time::Duration = std::time::Duration::from_millis(5);
+
+/// Refused presents in a row before one waits after all. The display takes a picture every refresh,
+/// so this many means the GPU is behind, and only a waiting present holds its work back.
+const REFUSED_IN_A_ROW: u32 = 4;
+
+/// Refused presents among the last 64 that say the hold is too short here. A picture every refresh
+/// is refused rarely, where one is late (0.5 to 1%). Too short a hold refuses far more: a stream
+/// arriving later than the hold but before the desktop's deadline loses every other picture.
+const REFUSED_OF_64_WIDENS: u32 = 8;
+/// How much longer the hold gets each time.
+const HOLD_STEP_US: u64 = 500;
+/// Pictures between looks at a hold that grew. A bad spell on the network passes, and half a minute
+/// apart the cost on a display that needs the longer hold is small.
+const PICTURES_SHORTEN: u32 = 4096;
+/// Refused presents among those that let it get a step shorter: late pictures now and then (0.5 to
+/// 1.6%) must not keep it long for good, where too short a hold refuses far more.
+const REFUSED_SHORTEN: u32 = 64;
+
+/// Refreshes that showed a picture again, among `MISSED_OF` pictures, before each picture waits its
+/// turn (`SkippedPicture::missed`): 1.5%, two windows in a row. Once settled, a window at 120 Hz
+/// missed at most 5 of 1024, and at 60 Hz 8, where borderless at 120 Hz missed 15 to 37. A spell on
+/// Wi-Fi reached 17 and passed. The first `MISSED_OF` pictures don't count: everywhere they missed 11
+/// to 23, and most of a run's misses are there.
+const MISSED_WAIT: u32 = 15;
+const MISSED_OF: u32 = 1024;
+
+/// How long before a refresh the phase lock aims a stream with no refreshes to spare, ahead of its
+/// own margin. A composed window's picture must be ready before the desktop's deadline, not the
+/// refresh: 4.5 ms before it at 120 Hz and 5.2 ms at 60 Hz on the 780M laptop, and softer at 60 Hz, so
+/// 5 ms at 120 Hz still repeated 0.25% and at 60 Hz 2.7%, where 7 ms repeated 0.2%. At most 3/5 of a
+/// refresh: any later and a picture of the lock's whole range comes round behind the one before it.
+pub fn deadline_before_refresh(refresh_hz: f32) -> i64 {
+    if refresh_hz <= 0.0 { return 0; }
+    let refresh_us = 1_000_000.0 / f64::from(refresh_hz);
+    (3_000.0 + refresh_us / 4.0).min(refresh_us * 3.0 / 5.0) as i64
+}
+
+/// How far ahead of the refresh the phase lock aims: `set_us` (a measurement run's) or that deadline,
+/// for a stream whose presents skip. A waiting present and exclusive fullscreen, which nothing
+/// composes, keep the refresh itself.
+pub fn phase_lock_aim_us(skipping: bool, exclusive: bool, set_us: Option<i64>, refresh_hz: f32) -> i64 {
+    if !skipping || exclusive { return 0; }
+    set_us.unwrap_or_else(|| deadline_before_refresh(refresh_hz))
+}
+
+/// Whether a stream of `frame_us` a frame on a display of `refresh_hz` skips a picture instead of
+/// waiting behind the one before it, at V-Sync with a frame pacing that shows the newest picture.
+///
+/// A present waits while the last picture has not reached the display. With a picture every
+/// refresh that wait never drains: each picture waits behind the last for good, and the wait holds
+/// the D3D11 lock, so the decoder's next picture waits as well. 120 fps on a 120 Hz panel took 22 ms
+/// from arrival to the display that way, and 7 ms when pictures that would wait are skipped. A
+/// slower stream has refreshes to spare, so it never builds this up and keeps every picture. The
+/// in-order frame pacings keep theirs too.
+pub fn skips_instead_of_waiting(mode: PacingMode, frame_pacing: FramePacing, frame_us: u64, refresh_hz: f32) -> bool {
+    mode == PacingMode::Vsync
+        && matches!(frame_pacing, FramePacing::Latency | FramePacing::Balanced)
+        && refresh_hz > 0.0
+        && frame_us as f64 <= 1_020_000.0 / f64::from(refresh_hz)
+}
+
+/// What a present that never waits behind the last picture did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoWait {
+    Shown,
+    /// The last picture has not reached the display: this one was not presented, and the back
+    /// buffer still holds it.
+    Refused,
+    /// Something else went wrong. SDL's own present recovers from what can be recovered from.
+    Failed,
+}
+
+/// Presents at the next refresh unless the last picture still waits for one, trying again for
+/// `hold`.
+///
+/// # Safety
+/// `renderer` is the live D3D11 renderer of this thread.
+#[cfg(windows)]
+pub unsafe fn present_without_waiting(renderer: *mut SDL_Renderer, hold: std::time::Duration) -> NoWait {
+    use windows::core::Interface;
+    use windows::Win32::Graphics::Dxgi::{IDXGISwapChain, DXGI_ERROR_WAS_STILL_DRAWING, DXGI_PRESENT_DO_NOT_WAIT};
+    let chain = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_SWAPCHAIN_POINTER);
+    let Some(chain) = IDXGISwapChain::from_raw_borrowed(&chain) else { return NoWait::Failed };
+    if !SDL_FlushRenderer(renderer) { return NoWait::Failed; }
+    let begun = std::time::Instant::now();
+    let result = loop {
+        let result = chain.Present(1, DXGI_PRESENT_DO_NOT_WAIT);
+        if result != DXGI_ERROR_WAS_STILL_DRAWING || begun.elapsed() >= hold { break result; }
+        // It waits for a refresh anyway, and has until the next deadline: a sleep costs nothing.
+        SDL_DelayNS(500_000);
+    };
+    // A present unbinds the back buffer's view: this makes SDL's next draw bind it again.
+    SDL_FlushRenderer(renderer);
+    if result == DXGI_ERROR_WAS_STILL_DRAWING {
+        NoWait::Refused
+    } else if result.is_ok() {
+        NoWait::Shown
+    } else {
+        NoWait::Failed
+    }
+}
+
+/// Only Windows has this present: SDL's own takes over elsewhere.
+///
+/// # Safety
+/// Nothing to uphold here; the signature is the Windows one's.
+#[cfg(not(windows))]
+pub unsafe fn present_without_waiting(_renderer: *mut SDL_Renderer, _hold: std::time::Duration) -> NoWait { NoWait::Failed }
+
+/// A stream faster than the display is refused by design: to wait there is the queue again.
+fn a_picture_a_refresh(frame_us: u64, refresh_us: u64) -> bool {
+    frame_us * 10 >= refresh_us * 9
+}
+
+/// A picture skipped for one that was still waiting. The next picture takes its place, but a still
+/// desktop may send none: then this one is drawn after all, a little later than the next would
+/// have come, or the screen would stay a picture behind.
+#[derive(Debug)]
+pub struct SkippedPicture {
+    due_us: Option<u64>,
+    in_a_row: u32,
+    /// How long a refused present tries again.
+    hold_us: u64,
+    /// What the hold starts at, and comes back to.
+    base_us: u64,
+    /// One bit for each of the last pictures, set where it was refused.
+    recent: u64,
+    /// Pictures since the last look at the hold, and how many of them were refused.
+    pictures: u32,
+    refused: u32,
+    /// Pictures toward `MISSED_OF`, and the misses among them.
+    missed_of: u32,
+    missed: u32,
+    /// Whether the last window reached `MISSED_WAIT`.
+    missed_often: bool,
+    /// Pictures until misses count, on a new stream or display.
+    settling: u32,
+}
+
+impl SkippedPicture {
+    pub fn new(hold: std::time::Duration) -> Self {
+        let hold_us = hold.as_micros() as u64;
+        Self { due_us: None, in_a_row: 0, hold_us, base_us: hold_us, recent: 0, pictures: 0, refused: 0, missed_of: 0, missed: 0, missed_often: false, settling: MISSED_OF }
+    }
+
+    /// Another display or stream rate: what the hold grew to says nothing about its deadline.
+    pub fn restart(&mut self) {
+        self.hold_us = self.base_us;
+        self.recent = 0;
+        self.pictures = 0;
+        self.refused = 0;
+        self.missed_of = 0;
+        self.missed = 0;
+        self.missed_often = false;
+        self.settling = MISSED_OF;
+    }
+
+    /// A refresh showed the last picture again although this one was on its way: it came too late
+    /// for the desktop's deadline. Now and then that is the price of no queue in front of the
+    /// display. Often, on a display whose deadline the stream keeps crossing, each picture waits its
+    /// turn instead, a hold of a whole refresh: a picture behind, which never repeats one and still
+    /// leaves the decoder alone. It comes back a step at a time, like any hold that grew. Returns
+    /// the new hold when it grew.
+    pub fn missed(&mut self, frame_us: u64, refresh_us: u64) -> Option<std::time::Duration> {
+        if self.settling > 0 || !a_picture_a_refresh(frame_us, refresh_us) { return None; }
+        self.missed += 1;
+        if self.missed < MISSED_WAIT || !self.missed_often || self.hold_us > refresh_us { return None; }
+        self.missed = 0;
+        self.hold_us = refresh_us + HOLD_STEP_US;
+        Some(self.hold())
+    }
+
+    /// One more picture toward the next look at the hold.
+    fn count(&mut self, refused: bool) {
+        self.settling = self.settling.saturating_sub(1);
+        self.missed_of += 1;
+        if self.missed_of >= MISSED_OF {
+            self.missed_of = 0;
+            self.missed_often = self.missed >= MISSED_WAIT;
+            self.missed = 0;
+        }
+        self.pictures += 1;
+        self.refused += u32::from(refused);
+        if self.pictures >= PICTURES_SHORTEN {
+            if self.refused <= REFUSED_SHORTEN {
+                self.hold_us = self.hold_us.saturating_sub(HOLD_STEP_US).max(self.base_us);
+            }
+            self.pictures = 0;
+            self.refused = 0;
+        }
+    }
+
+    pub fn hold(&self) -> std::time::Duration {
+        std::time::Duration::from_micros(self.hold_us)
+    }
+
+    /// A picture was refused. Refused often on a stream with a picture a refresh, the hold grows
+    /// until they stop: at a whole refresh it always gets its turn, like the present it replaces.
+    /// A stream faster than the display is refused by design. Returns the new hold when it grew.
+    pub fn skipped(&mut self, now_us: u64, frame_us: u64, refresh_us: u64) -> Option<std::time::Duration> {
+        self.due_us = Some(now_us + frame_us + frame_us / 2);
+        self.in_a_row += 1;
+        self.count(true);
+        self.recent = self.recent << 1 | 1;
+        if self.recent.count_ones() < REFUSED_OF_64_WIDENS || !a_picture_a_refresh(frame_us, refresh_us) || self.hold_us > refresh_us { return None; }
+        self.recent = 0;
+        self.hold_us += HOLD_STEP_US;
+        Some(self.hold())
+    }
+
+    /// A picture was presented: nothing is left to draw.
+    pub fn shown(&mut self) {
+        self.due_us = None;
+        self.in_a_row = 0;
+        self.recent <<= 1;
+        self.count(false);
+    }
+
+    /// Whether the next present waits for its turn.
+    pub fn must_wait(&self) -> bool {
+        self.in_a_row >= REFUSED_IN_A_ROW
+    }
+
+    pub fn due_us(&self) -> Option<u64> {
+        self.due_us
+    }
+
+    /// Whether the skipped picture is to be drawn now, once. That present waits for its turn: no
+    /// later picture would take its place.
+    pub fn take_due(&mut self, now_us: u64) -> bool {
+        let due = self.due_us.is_some_and(|due| now_us >= due);
+        if due {
+            self.due_us = None;
+            self.in_a_row = REFUSED_IN_A_ROW;
+        }
+        due
+    }
+}
+
+/// Finds the refreshes that showed a picture again although the next one was already presented, from
+/// the swap chain's statistics. A gap in the stream repeats a picture too, but then the next one came
+/// late and reaches the display within a refresh.
+#[derive(Debug, Default)]
+pub struct MissWatch {
+    /// The last presents: their count and when each was issued.
+    issued: [(u32, u64); 4],
+    next: usize,
+    /// The picture last seen on the display: its present count and refresh.
+    shown: Option<(u32, u32)>,
+}
+
+impl MissWatch {
+    pub fn presented(&mut self, count: u32, issued_us: u64) {
+        self.issued[self.next % self.issued.len()] = (count, issued_us);
+        self.next += 1;
+    }
+
+    /// New statistics: whether they show a picture that missed its refresh.
+    pub fn seen(&mut self, flip: crate::timing_csv::Flip, refresh_us: u64) -> bool {
+        let (count, refresh) = (flip.stat_present_count, flip.stat_present_refresh);
+        if count == 0 || refresh == 0 || flip.stat_sync_us == 0 { return false; }
+        let Some((last_count, last_refresh)) = self.shown.replace((count, refresh)) else { return false };
+        let pictures = count.wrapping_sub(last_count);
+        if pictures == 0 || refresh.wrapping_sub(last_refresh) <= pictures { return false; }
+        let Some(&(_, issued_us)) = self.issued.iter().find(|(issued, _)| *issued == count) else { return false };
+        let behind = u64::from(flip.stat_sync_refresh.wrapping_sub(refresh)) * refresh_us;
+        flip.stat_sync_us.saturating_sub(behind).saturating_sub(issued_us) > refresh_us
+    }
+}
+
+/// The picture to draw now, and how many it replaced. A newer one that is due takes the place of the
+/// one kept after a refused present; with none, the kept one is drawn once it is overdue.
+pub fn take_over_kept<T>(due: Option<T>, kept: &mut Option<T>, overdue: bool) -> (Option<T>, u32) {
+    match due {
+        Some(newer) => (Some(newer), u32::from(kept.take().is_some())),
+        None if overdue => (kept.take(), 0),
+        None => (None, 0),
+    }
+}
+
 /// A picture with its present time.
 pub struct Pending {
     pub decoded: Decoded,
@@ -273,6 +560,17 @@ impl Pacer {
         self.frame_us = frame_us(fps);
         self
     }
+
+    /// Whether this stream skips a picture that would wait behind the last one, on this display.
+    pub fn skips_instead_of_waiting(&self, refresh_hz: f32) -> bool {
+        skips_instead_of_waiting(self.mode, self.frame_pacing, self.frame_us, refresh_hz)
+    }
+
+    /// One frame of the stream.
+    pub fn frame_us(&self) -> u64 { self.frame_us }
+
+    /// The stream's frame rate changed.
+    pub fn set_fps(&mut self, fps: u32) { self.frame_us = frame_us(fps); }
 
     /// Whether the frame pacing setting shapes this stream's presents now.
     fn paced(&self, pacing: FramePacing) -> bool {
@@ -2407,6 +2705,377 @@ pub(crate) mod tests {
         assert_eq!(pacing(&vrr, true), (PacingMode::Immediate, true), "VRR ignores frame pacing, as on Android");
         assert_eq!(frame_us(60), 16_666);
         assert_eq!(frame_us(0), 250_000, "an unknown rate holds at most 250 ms");
+    }
+
+    /// The report: 120 fps on a 120 Hz panel took 22 ms from arrival to the display, 7 ms when it
+    /// skips the pictures that would wait, and a 240 Hz panel never waited.
+    #[test]
+    fn a_stream_with_no_refreshes_to_spare_skips_instead_of_waiting() {
+        let skips = |pacing, fps, hz| skips_instead_of_waiting(PacingMode::Vsync, pacing, frame_us(fps), hz);
+        for pacing in [FramePacing::Latency, FramePacing::Balanced] {
+            for (fps, hz) in [(120, 120.0), (60, 60.0), (60, 59.94), (60, 60.5), (240, 240.0), (120, 60.0), (144, 120.0)] {
+                assert!(skips(pacing, fps, hz), "{pacing:?} {fps} fps at {hz} Hz has none to spare");
+            }
+            for (fps, hz) in [(120, 240.0), (60, 120.0), (90, 120.0), (120, 144.0), (30, 60.0), (115, 120.0)] {
+                assert!(!skips(pacing, fps, hz), "{pacing:?} {fps} fps at {hz} Hz drains by itself, and keeps every picture");
+            }
+            assert!(!skips(pacing, 120, 0.0), "no refresh rate known");
+        }
+        for pacing in [FramePacing::CapFps, FramePacing::Smoothness] {
+            assert!(!skips(pacing, 120, 120.0), "{pacing:?} keeps its pictures in order");
+        }
+        for mode in [PacingMode::Immediate, PacingMode::HostTimes, PacingMode::BeamRace] {
+            assert!(!skips_instead_of_waiting(mode, FramePacing::Latency, frame_us(120), 120.0), "{mode:?} does not wait");
+        }
+        let pacer = Pacer::new(PacingMode::Vsync, 8_333).with_frame_pacing(FramePacing::Latency, 120);
+        assert!(pacer.skips_instead_of_waiting(120.0));
+        assert!(!pacer.skips_instead_of_waiting(240.0));
+    }
+
+    /// A stream dragged to a faster display, or changed by automatic quality, follows its new rate.
+    #[test]
+    fn a_new_frame_rate_decides_whether_a_stream_skips() {
+        let mut pacer = Pacer::new(PacingMode::Vsync, 16_666).with_frame_pacing(FramePacing::Latency, 60);
+        assert!(!pacer.skips_instead_of_waiting(120.0), "60 fps has refreshes to spare at 120 Hz");
+        pacer.set_fps(120);
+        assert!(pacer.skips_instead_of_waiting(120.0), "120 fps has none");
+        assert_eq!(pacer.frame_us(), frame_us(120));
+        pacer.set_fps(60);
+        assert!(!pacer.skips_instead_of_waiting(120.0));
+    }
+
+    /// The next picture replaces a refused one, which is shown after all only if none comes.
+    #[test]
+    fn a_kept_picture_gives_way_to_a_newer_one_and_is_drawn_once_when_none_comes() {
+        let mut kept = Some(1);
+        assert_eq!(take_over_kept(None, &mut kept, false), (None, 0), "not yet");
+        assert_eq!(kept, Some(1));
+        assert_eq!(take_over_kept(None, &mut kept, true), (Some(1), 0), "drawn, so not replaced");
+        assert_eq!(kept, None);
+        assert_eq!(take_over_kept(None, &mut kept, true), (None, 0), "once");
+
+        let mut kept = Some(1);
+        assert_eq!(take_over_kept(Some(2), &mut kept, false), (Some(2), 1), "replaced");
+        assert_eq!(kept, None);
+        let mut kept = Some(1);
+        assert_eq!(take_over_kept(Some(2), &mut kept, true), (Some(2), 1), "the newer one wins when both are due");
+        let mut kept = None;
+        assert_eq!(take_over_kept(Some(2), &mut kept, false), (Some(2), 0), "nothing to replace");
+    }
+
+    /// A still desktop sends no next picture, and the screen must not stay one behind.
+    #[test]
+    fn a_skipped_picture_is_drawn_after_all_unless_a_newer_one_reaches_the_display() {
+        let mut skipped = SkippedPicture::new(REFUSED_HOLD);
+        assert!(!skipped.take_due(u64::MAX));
+        skipped.skipped(1_000, 8_333, 8_333);
+        assert_eq!(skipped.due_us(), Some(13_499), "after the next picture would have come");
+        assert!(!skipped.take_due(13_498));
+        assert!(!skipped.must_wait());
+        assert!(skipped.take_due(13_499));
+        assert!(skipped.must_wait(), "nothing later would take its place, so it gets its turn");
+        assert!(!skipped.take_due(u64::MAX), "once");
+        skipped.shown();
+        assert!(!skipped.must_wait());
+        skipped.skipped(1_000, 8_333, 8_333);
+        skipped.shown();
+        assert_eq!(skipped.due_us(), None);
+        assert!(!skipped.take_due(u64::MAX), "a newer one showed");
+    }
+
+    /// A GPU that is behind gets its work held back: pictures nobody sees would pile up on it.
+    #[test]
+    fn presents_refused_again_and_again_wait_once() {
+        let mut skipped = SkippedPicture::new(REFUSED_HOLD);
+        for _ in 0..REFUSED_IN_A_ROW {
+            assert!(!skipped.must_wait());
+            skipped.skipped(1_000, 8_333, 8_333);
+        }
+        assert!(skipped.must_wait());
+        skipped.shown();
+        assert!(!skipped.must_wait());
+    }
+
+    /// At 60 Hz the stream arrived 1.6 ms before the refresh: no hold showed 37 pictures a second,
+    /// a 1 ms hold 50, 3 ms 60. A display whose deadline is earlier must not stay at half the rate.
+    #[test]
+    fn too_short_a_hold_grows_until_every_other_picture_stops_being_refused() {
+        let (frame, refresh) = (16_666, 16_666);
+        let mut skipped = SkippedPicture::new(std::time::Duration::ZERO);
+        let mut grew = 0;
+        for _ in 0..4_000 {
+            if skipped.hold_us >= 3_000 { break; }
+            if skipped.skipped(0, frame, refresh).is_some() { grew += 1; }
+            skipped.shown();
+        }
+        assert_eq!((skipped.hold_us, grew), (3_000, 6), "half the pictures refused: it grows step by step");
+    }
+
+    #[test]
+    fn a_hold_that_grew_comes_back_once_the_pictures_stop_being_refused() {
+        let mut skipped = SkippedPicture::new(REFUSED_HOLD);
+        while skipped.skipped(0, 8_333, 8_333).is_none() {}
+        assert_eq!(skipped.hold_us, 5_500);
+        let left = PICTURES_SHORTEN - skipped.pictures;
+        for _ in 0..left - 1 { skipped.shown(); }
+        assert_eq!(skipped.hold_us, 5_500);
+        skipped.shown();
+        assert_eq!(skipped.hold(), REFUSED_HOLD, "a step shorter");
+        for _ in 0..PICTURES_SHORTEN { skipped.shown(); }
+        assert_eq!(skipped.hold(), REFUSED_HOLD, "never below where it started");
+    }
+
+    /// A late picture is refused now and then for good, or the hold would only ever grow.
+    #[test]
+    fn late_pictures_now_and_then_do_not_keep_a_hold_long() {
+        let mut skipped = SkippedPicture::new(REFUSED_HOLD);
+        while skipped.skipped(0, 8_333, 8_333).is_none() {}
+        assert_eq!(skipped.hold_us, 5_500);
+        for n in 0..2 * PICTURES_SHORTEN {
+            if n % 100 == 0 { skipped.skipped(0, 8_333, 8_333); } else { skipped.shown(); }
+        }
+        assert_eq!(skipped.hold(), REFUSED_HOLD, "1 in 100 refused");
+        // More than that, and it stays: this display needs it.
+        while skipped.skipped(0, 8_333, 8_333).is_none() {}
+        assert_eq!(skipped.hold_us, 5_500);
+        for n in 0..2 * PICTURES_SHORTEN {
+            if n % 16 == 0 { skipped.skipped(0, 8_333, 8_333); } else { skipped.shown(); }
+        }
+        assert_eq!(skipped.hold_us, 5_500, "1 in 16 refused");
+    }
+
+    /// Frame statistics for a picture on `refresh`, read on the same refresh.
+    fn on_display(count: u32, refresh: u32, at_us: u64) -> crate::timing_csv::Flip {
+        crate::timing_csv::Flip { present_count: count.wrapping_add(1), stat_present_count: count, stat_present_refresh: refresh, stat_sync_refresh: refresh, stat_sync_us: at_us }
+    }
+
+    /// The report: a picture presented 4 ms into a refresh reached the display two refreshes later.
+    #[test]
+    fn a_picture_a_refresh_late_counts_as_missed_and_a_gap_in_the_stream_does_not() {
+        const REFRESH: u64 = 8_333;
+        let mut watch = MissWatch::default();
+        watch.presented(10, 1_000);
+        assert!(!watch.seen(on_display(10, 100, 8_333), REFRESH), "the first statistics have nothing before them");
+        watch.presented(11, 9_400);
+        assert!(!watch.seen(on_display(11, 101, 16_666), REFRESH), "the next refresh");
+        assert!(!watch.seen(on_display(11, 101, 16_666), REFRESH), "the same picture again");
+        watch.presented(12, 20_700);
+        assert!(watch.seen(on_display(12, 103, 33_332), REFRESH), "presented 12.6 ms before it was shown, and a refresh repeated");
+        // The stream paused: the next picture came just before its refresh.
+        watch.presented(13, 78_000);
+        assert!(!watch.seen(on_display(13, 109, 83_330), REFRESH), "a gap, not a miss");
+        // Read a refresh after the flip.
+        watch.presented(14, 92_000);
+        let read_later = crate::timing_csv::Flip { stat_sync_refresh: 112, stat_sync_us: 108_329, ..on_display(14, 111, 0) };
+        assert!(!watch.seen(read_later, REFRESH), "under a refresh from the present to the flip, whenever it was read");
+        // Statistics that skipped a picture still add up.
+        let mut watch = MissWatch::default();
+        assert!(!watch.seen(on_display(20, 200, 8_333), REFRESH));
+        watch.presented(22, 0);
+        assert!(!watch.seen(on_display(22, 202, 25_000), REFRESH), "two pictures on two refreshes");
+        // The counters wrap.
+        let mut watch = MissWatch::default();
+        assert!(!watch.seen(on_display(u32::MAX, u32::MAX, 8_333), REFRESH));
+        watch.presented(1, 0);
+        assert!(watch.seen(on_display(1, 2, 33_000), REFRESH), "two pictures on three refreshes, across the wrap");
+        // A renderer without statistics.
+        assert!(!MissWatch::default().seen(Default::default(), REFRESH));
+    }
+
+    #[test]
+    fn many_missed_refreshes_make_each_picture_wait_its_turn() {
+        const REFRESH: u64 = 8_333;
+        let mut skipped = SkippedPicture::new(REFUSED_HOLD);
+        for _ in 0..MISSED_OF { skipped.shown(); }
+        for _ in 0..2 * MISSED_WAIT { assert_eq!(skipped.missed(REFRESH, REFRESH), None, "one bad spell passes"); }
+        for _ in 0..MISSED_OF { skipped.shown(); }
+        for _ in 0..MISSED_WAIT - 1 { assert_eq!(skipped.missed(REFRESH, REFRESH), None); }
+        assert_eq!(skipped.hold(), REFUSED_HOLD, "now and then is the price of no queue");
+        assert_eq!(skipped.missed(REFRESH, REFRESH), Some(std::time::Duration::from_micros(REFRESH + HOLD_STEP_US)));
+        assert!(skipped.hold() > std::time::Duration::from_micros(REFRESH), "a whole refresh always gets its turn");
+        for _ in 0..2 * MISSED_WAIT { assert_eq!(skipped.missed(REFRESH, REFRESH), None, "it holds no longer than that"); }
+        // It comes back, and tries again.
+        let mut looks = 0;
+        while skipped.hold() > REFUSED_HOLD {
+            for _ in 0..PICTURES_SHORTEN { skipped.shown(); }
+            looks += 1;
+        }
+        assert_eq!(looks, 8, "half a minute a step at 120 Hz");
+    }
+
+    #[test]
+    fn misses_spread_over_many_pictures_leave_the_hold_as_it_is() {
+        let mut skipped = SkippedPicture::new(REFUSED_HOLD);
+        for _ in 0..MISSED_OF { skipped.shown(); }
+        for _ in 0..20 {
+            for _ in 0..MISSED_WAIT - 1 { assert_eq!(skipped.missed(8_333, 8_333), None); }
+            for _ in 0..MISSED_OF { skipped.shown(); }
+        }
+        assert_eq!(skipped.hold(), REFUSED_HOLD);
+    }
+
+    /// A spell on Wi-Fi: a window of many misses among clean ones.
+    #[test]
+    fn a_bad_spell_now_and_then_leaves_the_hold_as_it_is() {
+        let mut skipped = SkippedPicture::new(REFUSED_HOLD);
+        for _ in 0..MISSED_OF { skipped.shown(); }
+        for _ in 0..10 {
+            for _ in 0..2 * MISSED_WAIT { assert_eq!(skipped.missed(8_333, 8_333), None); }
+            for _ in 0..2 * MISSED_OF { skipped.shown(); }
+        }
+        assert_eq!(skipped.hold(), REFUSED_HOLD);
+    }
+
+    /// Every run missed most in its first seconds, while the window was still being placed.
+    #[test]
+    fn misses_while_a_stream_settles_do_not_count() {
+        let mut skipped = SkippedPicture::new(REFUSED_HOLD);
+        for _ in 0..MISSED_OF - 1 {
+            assert_eq!(skipped.missed(8_333, 8_333), None);
+            skipped.shown();
+        }
+        assert_eq!(skipped.hold(), REFUSED_HOLD);
+        skipped.shown();
+        for _ in 0..MISSED_WAIT - 1 { assert_eq!(skipped.missed(8_333, 8_333), None, "the count starts here"); }
+        assert_eq!(skipped.missed(8_333, 8_333), None, "the first window of many");
+        for _ in 0..MISSED_OF { skipped.shown(); }
+        for _ in 0..MISSED_WAIT - 1 { assert_eq!(skipped.missed(8_333, 8_333), None); }
+        assert!(skipped.missed(8_333, 8_333).is_some(), "the second in a row");
+    }
+
+    #[test]
+    fn the_desktop_deadline_stays_under_most_of_a_refresh() {
+        assert_eq!(deadline_before_refresh(60.0), 7_166);
+        assert_eq!(deadline_before_refresh(120.0), 5_000);
+        assert_eq!(deadline_before_refresh(240.0), 2_500);
+        assert_eq!(deadline_before_refresh(0.0), 0, "no display timing");
+    }
+
+    #[test]
+    fn the_phase_lock_aims_at_the_deadline_only_where_a_picture_has_to_make_it() {
+        assert_eq!(phase_lock_aim_us(true, false, None, 120.0), 5_000);
+        assert_eq!(phase_lock_aim_us(true, false, Some(1_000), 120.0), 1_000, "a measurement run's");
+        assert_eq!(phase_lock_aim_us(false, false, None, 120.0), 0, "a present that waits, Linux's among them");
+        assert_eq!(phase_lock_aim_us(true, true, None, 120.0), 0, "exclusive fullscreen");
+    }
+
+    /// 120 fps on 60 Hz waiting its turn was the 51 ms queue.
+    #[test]
+    fn a_stream_faster_than_the_display_never_waits_for_its_misses() {
+        let mut skipped = SkippedPicture::new(REFUSED_HOLD);
+        for _ in 0..MISSED_OF { skipped.shown(); }
+        for _ in 0..4 {
+            for _ in 0..2 * MISSED_WAIT { assert_eq!(skipped.missed(8_333, 16_666), None); }
+            for _ in 0..MISSED_OF { skipped.shown(); }
+        }
+        assert_eq!(skipped.hold(), REFUSED_HOLD);
+    }
+
+    /// 17 ms grown at 60 Hz would be a queue at 120 Hz.
+    #[test]
+    fn another_display_starts_from_the_first_hold() {
+        let mut skipped = SkippedPicture::new(REFUSED_HOLD);
+        while skipped.skipped(0, 16_666, 16_666).is_none() {}
+        assert!(skipped.hold() > REFUSED_HOLD);
+        skipped.restart();
+        assert_eq!(skipped.hold(), REFUSED_HOLD);
+        for _ in 0..REFUSED_OF_64_WIDENS - 1 { assert_eq!(skipped.skipped(0, 8_333, 8_333), None, "what it counted went too"); }
+        // The new display settles as a new stream does.
+        let mut skipped = SkippedPicture::new(REFUSED_HOLD);
+        for _ in 0..MISSED_OF { skipped.shown(); }
+        skipped.restart();
+        for _ in 0..2 * MISSED_WAIT { assert_eq!(skipped.missed(8_333, 8_333), None); }
+        for _ in 0..MISSED_OF { skipped.shown(); }
+        for _ in 0..MISSED_WAIT { assert_eq!(skipped.missed(8_333, 8_333), None, "those did not count"); }
+    }
+
+    #[test]
+    fn a_late_picture_now_and_then_leaves_the_hold_as_it_is() {
+        let (frame, refresh) = (8_333, 8_333);
+        let mut skipped = SkippedPicture::new(REFUSED_HOLD);
+        for n in 0..100_000 {
+            if n % 16 == 0 {
+                assert_eq!(skipped.skipped(0, frame, refresh), None, "1 in 16, more than the 0.5 to 1% of the runs");
+            }
+            skipped.shown();
+        }
+        assert_eq!(skipped.hold(), REFUSED_HOLD);
+    }
+
+    #[test]
+    fn the_hold_stops_at_a_refresh_and_never_grows_on_a_stream_faster_than_the_display() {
+        let mut skipped = SkippedPicture::new(REFUSED_HOLD);
+        for _ in 0..100_000 {
+            skipped.skipped(0, 8_333, 8_333);
+        }
+        assert_eq!(skipped.hold_us, 8_500, "a hold longer than a refresh always gets its turn");
+        let mut faster = SkippedPicture::new(REFUSED_HOLD);
+        for _ in 0..100_000 {
+            assert_eq!(faster.skipped(0, 8_333, 16_666), None, "120 fps at 60 Hz is refused by design");
+        }
+    }
+
+    /// The real swap chain: presents back to back never wait for a refresh, the ones the display
+    /// has no room for say so, and SDL's next draw still reaches the back buffer. Needs a display
+    /// that shows the window, which a hidden one is not.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "requires a Direct3D 11 display, and shows a small window"]
+    fn a_present_without_waiting_is_refused_while_the_last_picture_waits() {
+        let _guard = crate::sdl::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // SAFETY: This test owns SDL and all its resources on one thread.
+        unsafe {
+            assert!(SDL_Init(SDL_INIT_VIDEO), "{}", crate::sdl::error());
+            SDL_SetHint(SDL_HINT_RENDER_DRIVER, c"direct3d11".as_ptr());
+            let window = SDL_CreateWindow(c"Present test".as_ptr(), 128, 64, SDL_WindowFlags(0));
+            let renderer = crate::sdl::create_renderer(window, true);
+            assert!(!renderer.is_null(), "{}", crate::sdl::error());
+            assert!(SDL_SetRenderVSync(renderer, 1));
+            let clear = |red: u8| {
+                assert!(SDL_SetRenderDrawColor(renderer, red, 0, 0, 255));
+                assert!(SDL_RenderClear(renderer));
+            };
+            // Reading back takes longer than a refresh, so not during the burst.
+            let drawn = |red: u8| {
+                clear(red);
+                let surface = SDL_RenderReadPixels(renderer, std::ptr::null());
+                assert!(!surface.is_null(), "{}", crate::sdl::error());
+                let (mut r, mut g, mut b, mut a) = (0, 0, 0, 0);
+                assert!(SDL_ReadSurfacePixel(surface, 0, 0, &mut r, &mut g, &mut b, &mut a));
+                SDL_DestroySurface(surface);
+                assert_eq!(r, red, "the draw after a present must reach the back buffer");
+            };
+            let settle = |renderer| for _ in 0..5 { SDL_PumpEvents(); SDL_RenderPresent(renderer); };
+            settle(renderer);
+            let (mut shown, mut refused, mut longest) = (0, 0, std::time::Duration::ZERO);
+            for n in 0..60u8 {
+                clear(n + 1);
+                let begun = std::time::Instant::now();
+                match present_without_waiting(renderer, std::time::Duration::ZERO) {
+                    NoWait::Shown => shown += 1,
+                    NoWait::Refused => refused += 1,
+                    NoWait::Failed => panic!("the present failed"),
+                }
+                longest = longest.max(begun.elapsed());
+                // A burst over several refreshes: some find the last picture gone, most do not.
+                SDL_DelayPrecise(1_000_000);
+            }
+            assert!(shown >= 1, "shown {shown}, refused {refused}");
+            assert!(refused >= 1, "a picture a millisecond, the display has no room for all: shown {shown}");
+            assert!(longest < std::time::Duration::from_millis(4), "a present waited {longest:?}, shown {shown}, refused {refused}");
+            drawn(99);
+            // With a hold as long as a refresh it gets its turn.
+            let before = shown;
+            for _ in 0..3 {
+                drawn(200);
+                if present_without_waiting(renderer, std::time::Duration::from_millis(100)) == NoWait::Shown { shown += 1; }
+            }
+            assert_eq!(shown, before + 3, "a hold longer than a refresh always gets its turn");
+            drawn(201);
+            SDL_DestroyRenderer(renderer);
+            SDL_DestroyWindow(window);
+            SDL_Quit();
+        }
     }
 
     #[test]

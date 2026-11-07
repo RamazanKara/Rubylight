@@ -30,6 +30,11 @@ impl Phase {
     pub fn reset(&mut self) { *self = Self::default(); }
 }
 
+/// The latch moved `aim_us` ahead of the refresh: slack is reported to that point.
+pub fn aimed(timing: Option<(i64, i64)>, aim_us: i64) -> Option<(i64, i64)> {
+    timing.map(|(latch_us, period_ns)| (latch_us - aim_us, period_ns))
+}
+
 #[cfg(windows)]
 pub fn timing(renderer: *mut SDL_Renderer, refresh_hz: f32) -> Option<(i64, i64)> {
     use windows::core::Interface;
@@ -132,5 +137,16 @@ mod tests {
         assert_eq!(phase.lead_us, None);
         assert_eq!(phase.sample(800_000, 800_000, Some((800_000, 10_000_000))), None);
         assert_eq!(phase.sample(800_000, 1_100_000, Some((1_100_000, 10_000_000))), None);
+    }
+
+    #[test]
+    fn slack_is_reported_to_the_point_the_lock_aims_at() {
+        let mut phase = Phase::default();
+        let mut report = None;
+        for n in 1..=61 {
+            let now = n * 10_000;
+            report = phase.sample(now - 7000, now, aimed(Some((now as i64, 10_000_000)), 5_000)).or(report);
+        }
+        assert_eq!(report.unwrap().lead_ns, 2_000_000, "ready 7 ms before the refresh is 2 ms before a deadline 5 ms ahead of it");
     }
 }

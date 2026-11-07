@@ -61,6 +61,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | D3D11 4:2:0 fallback | [October 12 single-pass conversion](#october-12-single-pass-d3d11-420-conversion) |
 | Real laptop client over Wi-Fi | [2.2.9 current receiver](PERFORMANCE_WORK.md#real-wi-fi-hardware-receiver-streams-october-12) · [Render to received, rc.24](PERFORMANCE_WORK.md#october-8-real-client-picture-age-over-wi-fi-rc24-laptop) |
 | Other Sunshine hosts | [Vibepollo 2.0 baseline](#against-vibepollo-20) · [rc.24 on the same GPU](PERFORMANCE_WORK.md#rc24-against-vibepollo-20-on-the-same-gpu) |
+| Nightjar desktop at the display's own rate | [November 6, Nightjar desktop's rate](#november-6-nightjar-desktop-at-the-displays-own-rate) |
 | Android video decryption with the phone's AES instructions | [November 6, Android video decryption](#november-6-android-video-decryption-with-the-phones-aes-instructions) |
 | Nightjar desktop's video scheduling on Windows, not landed | [November 6, video scheduling](#november-6-nightjar-desktops-video-scheduling-on-windows-left-as-it-was) |
 | Automatic pacing that stays under a rate that lost, not landed | [November 6, automatic pacing](#november-6-automatic-pacing-that-stays-under-a-rate-that-lost-left-as-it-was) |
@@ -69,6 +70,80 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## November 6: Nightjar desktop at the display's own rate
+
+AV1 at 1080p120 took 13 ms longer from arrival to the display than HEVC at 1080p60 on the 780M laptop. AV1 has nothing to do with it: the stream's rate does, against the display's. Kept: on Windows at V-Sync with Lowest latency or Balanced, a stream with no refreshes to spare skips a picture instead of queueing behind the last one, and its phase lock aims for the desktop's deadline instead of the refresh. Windows only: Linux's V-Sync path is unchanged and unmeasured, and Android has no such path.
+
+Release builds of Nightjar desktop on a Ryzen 7 8845HS laptop with a 780M, windowed at 960x540 in a corner of its 120 Hz panel unless "borderless", 1080p at 50 Mbps at 120 fps and 30 Mbps at 60 fps, motion probe with noise, 45 s per run with the first 5 s discarded. Times in ms. Arrival to display (r2f) runs from a frame's first packet to its flip, from the swap chain's statistics, not a camera. Call is the present call. Repeats are refreshes that showed a picture again.
+
+**Where it goes.** Loopback against a 3.7.0 test host, before the fix, single runs:
+
+| Stream | r2f p50 / p95 / p99 | Decode p50 | Call p50 |
+| --- | --- | ---: | ---: |
+| AV1 120 | 22.43 / 24.45 / 25.07 | 5.29 | 8.07 |
+| HEVC 120 | 22.85 / 24.43 / 26.18 | 6.42 | 8.12 |
+| HEVC 120, 30 Mbps | 23.34 / 24.46 / 25.01 | 6.89 | 8.12 |
+| AV1 120, 20 Mbps | 16.16 / 24.28 / 25.10 | 0.23 | 7.80 |
+| AV1 120, 10 Mbps | 16.07 / 24.15 / 24.83 | 0.20 | 7.74 |
+| AV1 120, no noise | 22.52 / 24.62 / 25.20 | 4.92 | 8.09 |
+| AV1 90 | 6.39 / 10.64 / 12.72 | 0.15 | 0.32 |
+| AV1 60 | 9.61 / 11.01 / 12.13 | 0.17 | 0.33 |
+| HEVC 60 | 9.42 / 10.98 / 16.25 | 0.20 | 0.34 |
+| HEVC 60, 50 Mbps | 9.57 / 11.87 / 18.49 | 0.21 | 0.35 |
+
+HEVC at 120 fps reads like AV1, the p95 stays at 24 at every bitrate, and the call stays at 8 ms. Under 30 Mbps the decoder's work no longer collides with the wait, so the p50 falls to 16, and that's all a lower bitrate changes. With a stream rate equal to the panel's there is no refresh to spare, so once a picture misses one, each present waits behind the last for good: 8 ms a call. That wait holds the D3D11 lock, so FFmpeg's D3D11VA submit waits for it as well, and that wait reads as decode time. With V-Sync off, the same streams decode in 0.15 to 0.20 ms and call in 0.31.
+
+What the present can do about it, AV1 120: `Present(0, 0)` 21.09 / 24.58 / 26.52 with call 8.05, a frame latency of 3 on top 38.25 / 41.24 / 42.75 with call 8.00, `Present(1, DXGI_PRESENT_DO_NOT_WAIT)` 6.81 / 7.91 / 8.26 with call 0.33. 120 fps on the panel at 60 Hz has the same queue: 51.59 / 88.87 / 121.93 and 51.52 / 153.41 / 188.10 with 531 and 504 pictures lost before, 18.52 / 20.84 / 26.14 and 18.47 / 20.68 / 26.14 with 133 and 107 after.
+
+**Against a real host.** Loopback can't show the phase lock, because the source sets the rate there. A 3.8.0 host on the RX 7900 XT PC, capturing the probe's window on a 240 Hz monitor, client on the laptop over Wi-Fi, A = the old present, S = the final build, ABBA:
+
+| Leg | Arm | fps | Decode p50 | Call p50 | r2f p50 / p95 / p99 / max | Repeats | Lost |
+| --- | --- | ---: | ---: | ---: | --- | ---: | ---: |
+| AV1 120 | A | 119.87 | 0.12 | 4.37 | 12.78 / 18.70 / 23.11 / 24.01 | 5 of 4793 | 0 |
+| AV1 120 | S | 119.48 | 0.11 | 1.81 | 9.57 / 13.14 / 13.78 / 14.40 | 21 of 4759 | 16 |
+| AV1 120 | S | 119.26 | 0.11 | 2.92 | 11.26 / 12.68 / 13.23 / 20.13 | 31 of 4742 | 15 |
+| AV1 120 | A | 120.01 | 0.11 | 5.95 | 14.40 / 15.50 / 15.83 / 16.48 | 0 of 4770 | 0 |
+| HEVC 120 | A | 119.89 | 0.13 | 4.71 | 15.96 / 17.22 / 17.57 / 18.51 | 4 of 4782 | 0 |
+| HEVC 120 | S | 119.75 | 0.14 | 2.06 | 10.24 / 11.54 / 11.98 / 14.71 | 10 of 4775 | 8 |
+| HEVC 120 | S | 119.69 | 0.13 | 2.79 | 12.62 / 13.92 / 14.32 / 14.79 | 12 of 4773 | 8 |
+| HEVC 120 | A | 119.91 | 0.14 | 4.81 | 15.36 / 18.91 / 19.80 / 24.18 | 4 of 4783 | 0 |
+| HEVC 60 on 60 Hz | A | 60.02 | 8.61 | 16.38 | 41.87 / 49.76 / 52.59 / 55.38 | 2 of 2397 | 36 |
+| HEVC 60 on 60 Hz | S | 59.94 | 0.21 | 0.33 | 11.29 / 14.32 / 15.37 / 22.49 | 4 of 2397 | 4 |
+| HEVC 60 on 60 Hz | S | 60.00 | 0.25 | 0.38 | 11.65 / 14.45 / 15.39 / 20.60 | 1 of 2400 | 1 |
+| HEVC 60 on 60 Hz | A | 60.01 | 8.86 | 16.43 | 42.47 / 50.08 / 53.01 / 54.67 | 0 of 2399 | 34 |
+| AV1 120 borderless | A | 119.86 | 0.12 | 5.71 | 17.16 / 21.18 / 22.37 / 23.01 | 6 of 4792 | 0 |
+| AV1 120 borderless | S | 119.69 | 0.11 | 2.80 | 12.26 / 15.60 / 15.96 / 20.53 | 12 of 4773 | 9 |
+| AV1 120 borderless | S | 119.84 | 0.12 | 1.85 | 9.82 / 11.03 / 11.36 / 18.15 | 7 of 4777 | 7 |
+| AV1 120 borderless | A | 119.83 | 0.13 | 4.17 | 12.66 / 16.48 / 19.86 / 21.85 | 7 of 4777 | 0 |
+
+At 60 Hz arrival to display improves by 30 ms at p50 and lost pictures fall from about 35 to 1 and 4, with repeats within noise, 4 and 1 against 2 and 0 (one earlier A run sat a refresh lower, at 20.73, and S still leads it by 9). At 120 Hz arrival to display falls by 3 to 4 ms at p50 and 4 to 6 at p95, pooled per leg. The price is there: repeats go from 0 to 0.15% to 0.15 to 0.65%, and 7 to 16 of about 4770 pictures are lost where none were. Each repeat is one refresh, 8 ms, at worst one more every 1.3 s than before. Pictures the host moves a picture later, 4.2 ms from a 240 Hz source, sit anywhere in that range, which is why S spreads from 9.6 to 12.6 between runs. Client CPU reads the same in both arms, 1.9 to 3.0% of the machine.
+
+**Why the phase lock had to change.** It held the stream's early edge 1.5 ms before the refresh. A composed window's picture has to be ready well before that: with the present at 4 ms past a refresh at 120 Hz, 22 of 30 missed and at 3 ms none of 90, so 4.5 ms before the refresh. At 60 Hz it is softer, none of 1338 up to 9 ms past the refresh, 12 to 27% at 12 ms, 27 to 79% at 13 ms, so about 5 ms. So the lock's own margin put pictures past the deadline. The client now reports its slack to the deadline instead, 3 ms plus a quarter of a refresh before the refresh and at most 3/5 of a refresh: no host change, and a Rubylight host of any version follows it. At 60 Hz a target of 5 ms repeated 61 to 69 of 2340 and 7 ms 1 to 5. A later target is no better, 8.5 ms at 60 Hz repeated 91 and took 19 ms. At 120 Hz 5.5 ms lost 223. The time a refused present tries again went from 3 ms to 5 ms because of the same lock: 3 ms repeated 0, 12 and 88 of about 4750, 5 ms 10, 16, 21 and 31.
+
+**Without a phase lock.** Loopback stands in for a source the lock can't steer. S = final build, A from the build before, whose old path is the same code:
+
+| Leg | Arm | fps | Decode p50 | Call p50 | r2f p50 / p95 / p99 / max | Repeats | Lost |
+| --- | --- | ---: | ---: | ---: | --- | ---: | ---: |
+| AV1 120 | A | 120.01 | 4.46 | 8.06 | 21.10 / 24.44 / 25.02 / 29.46 | 0 of 4798 | 37 |
+| AV1 120 | A | 119.99 | 4.88 | 8.09 | 22.44 / 24.53 / 25.84 / 31.78 | 1 of 4797 | 42 |
+| AV1 120 | S | 119.91 | 0.17 | 0.36 | 6.76 / 11.71 / 13.84 / 14.92 | 4 of 4795 | 19 |
+| AV1 120 | S | 119.92 | 0.17 | 0.35 | 6.70 / 11.13 / 13.44 / 14.69 | 4 of 4795 | 23 |
+| HEVC 120 | A | 120.02 | 6.52 | 8.13 | 22.95 / 24.34 / 25.28 / 29.51 | 0 of 4798 | 41 |
+| HEVC 120 | A | 120.02 | 6.78 | 8.12 | 23.21 / 24.39 / 25.41 / 32.00 | 0 of 4798 | 35 |
+| HEVC 120 | S | 119.99 | 0.19 | 0.34 | 6.59 / 7.95 / 12.95 / 14.83 | 1 of 4797 | 18 |
+| HEVC 60 on 60 Hz | A | 60.01 | 2.08 | 16.48 | 35.03 / 47.09 / 51.27 / 55.03 | 0 of 2399 | 17 |
+| HEVC 60 on 60 Hz | A | 60.02 | 2.14 | 16.48 | 35.00 / 42.02 / 50.73 / 55.14 | 0 of 2399 | 15 |
+| HEVC 60 on 60 Hz | S | 60.03 | 0.22 | 0.35 | 10.08 / 18.30 / 19.26 / 23.16 | 0 of 2400 | 1 |
+| HEVC 60 on 60 Hz | S | 59.92 | 0.20 | 1.40 | 18.08 / 19.17 / 21.19 / 27.21 | 4 of 2393 | 30 |
+
+With a hold of 3 ms the AV1 120 p95 read 7.95 and p99 8.57 and 11.28, with 9 and 6 repeats: the longer hold costs up to 4 ms at p95 and 5.3 at p99 there, and saves repeats. It stays well under the old path, and the phase-locked stream is what it is for.
+
+**Where it stops, and the rest.** A borderless window with the host on the same iGPU, which is composed like a window, had 1.1 to 2.4% repeats. That is what the guard is for: each picture waits its turn again where 15 of 1024 miss twice in a row, after the first 1024. Tripped, in an earlier build with a hold of 3 ms, it still beat the old path there: r2f 15.66 / 16.73 / 17.04 and 15.69 / 16.66 / 16.93 with no repeats against 15.72 / 16.82 / 24.29 with none. A first version with one window tripped on every run, and most misses fall in a stream's first seconds. Controls on the same build, gated off, so the old path: HEVC 60 on 120 Hz r2f p50 9.40 against earlier runs' 9.2 to 9.9, AV1 90 on 120 Hz 6.54 against 6.32 to 6.40, single runs. A bursty source (2, 30, 2, 30, 50 ms) 6.80 / 8.43 / 13.75 with 22 lost, against 15.82 / 24.20 / 24.90 and 15.57 / 24.01 / 24.80 with 25 and 12. A GPU overloaded by another program, at about 16 fps either way: 175.45 / 183.34 / 225.67 with 574 lost, against 289.08 / 303.86 / 351.72 and 288.82 / 314.10 / 351.16 with 521 and 462.
+
+**Not settled.** One of four runs with a deadline of about 7 ms at 60 Hz, 3 s after the lab switched the panel, stayed a refresh behind for its whole 40 s: r2f 33.40 with no repeats and call 0.30, under the old path's 42 but over the other runs' 11, with no cause found and none in the two final runs. Not measured: exclusive fullscreen (a lab artefact here, and it keeps aiming at the refresh, since nothing composes it), a 240 Hz client, NVIDIA or Intel clients, a source that isn't a 240 Hz window, a wired laptop. FPS limit and Smoothest video keep their queue.
+
+Raw runs: `C:\src\butterpollo-release\unified\nj780m`: `runs10`, `runs12`, `runs13` loopback, `runs14` real host and final (`-j1`, `-j2`), `pc-j\pc-host.log` the host's phase lock reports.
 
 ## November 6: Android video decryption with the phone's AES instructions
 

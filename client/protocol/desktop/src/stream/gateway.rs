@@ -70,17 +70,24 @@ fn icmp_echo(ip: Ipv4Addr, timeout: std::time::Duration) -> Option<bool> {
             reply.len() as u32,
             timeout.as_millis().clamp(1, u128::from(u32::MAX)) as u32,
         );
+        // Read before IcmpCloseHandle, which may set its own.
+        let error = windows::Win32::Foundation::GetLastError();
         let _ = IcmpCloseHandle(handle);
         if replies == 0 {
             // A timeout or an unreachable address is no answer; a failed call proves nothing.
-            let error = windows::Win32::Foundation::GetLastError();
-            // IP_REQ_TIMED_OUT, IP_DEST_HOST_UNREACHABLE, IP_DEST_NET_UNREACHABLE.
-            return matches!(error.0, 11010 | 11003 | 11002).then_some(false);
+            return unanswered(error.0).then_some(false);
         }
         // IP_SUCCESS: an echo reply, not an ICMP error from a router on the way.
         let first = std::ptr::read_unaligned(reply.as_ptr().cast::<ICMP_ECHO_REPLY>());
         Some(first.Status == 0)
     }
+}
+
+/// IP_REQ_TIMED_OUT, IP_DEST_HOST_UNREACHABLE, IP_DEST_NET_UNREACHABLE: the echo went out and
+/// nothing answered.
+#[cfg(windows)]
+fn unanswered(error: u32) -> bool {
+    matches!(error, 11010 | 11003 | 11002)
 }
 
 #[cfg(target_os = "linux")]
@@ -137,6 +144,16 @@ mod tests {
             // Linux pings only within net.ipv4.ping_group_range.
             assert!(answered);
         }
+    }
+
+    // TEST-NET-1 has no host: the echo times out (or no route answers it), which is no answer, not
+    // a ping that could not go out.
+    #[cfg(windows)]
+    #[test]
+    fn an_unanswered_ping_is_no_answer() {
+        assert_eq!(pinger()(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 200)), std::time::Duration::from_millis(300)), Some(false));
+        assert!(unanswered(11010) && unanswered(11003) && unanswered(11002));
+        assert!(!unanswered(0) && !unanswered(87), "a failed call proves nothing");
     }
 
     #[test]

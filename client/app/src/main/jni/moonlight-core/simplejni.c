@@ -209,19 +209,31 @@ Java_com_limelight_nvstream_jni_MoonBridge_stringifyPortFlags(JNIEnv *env, jclas
     return (*env)->NewStringUTF(env, outputBuffer);
 }
 
-JNIEXPORT jlong JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_cGetControlSilenceMs(JNIEnv *env, jclass clazz) {
-    return (jlong)LiGetControlSilenceMs();
-}
-
-JNIEXPORT void JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_cEndStreamHostGone(JNIEnv *env, jclass clazz) {
-    LiEndStream(-108); // MoonBridge.CLIENT_ERROR_HOST_GONE
-}
-
 JNIEXPORT jboolean JNICALL
 Java_com_limelight_nvstream_jni_MoonBridge_cHostSaidGoodbye(JNIEnv *env, jclass clazz) {
     return LiHostSaidGoodbye() ? JNI_TRUE : JNI_FALSE;
+}
+
+// Connection.c's: the address LiStartConnection() resolved and streams from.
+extern struct sockaddr_storage RemoteAddr;
+
+JNIEXPORT jstring JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_cGetHostAddress(JNIEnv *env, jclass clazz) {
+    char text[INET6_ADDRSTRLEN];
+    const void* address;
+    if (RemoteAddr.ss_family == AF_INET) {
+        address = &((struct sockaddr_in*)&RemoteAddr)->sin_addr;
+    }
+    else if (RemoteAddr.ss_family == AF_INET6) {
+        address = &((struct sockaddr_in6*)&RemoteAddr)->sin6_addr;
+    }
+    else {
+        return NULL;
+    }
+    if (inet_ntop(RemoteAddr.ss_family, address, text, sizeof(text)) == NULL) {
+        return NULL;
+    }
+    return (*env)->NewStringUTF(env, text);
 }
 
 JNIEXPORT jlong JNICALL

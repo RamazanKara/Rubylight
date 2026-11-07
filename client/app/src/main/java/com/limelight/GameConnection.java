@@ -649,7 +649,7 @@ final class GameConnection {
     private androidx.appcompat.app.AlertDialog launchConfirmationDialog;
 
     // The stream's network is lost: the overlay says so until one returns (or the stream ends).
-    private volatile boolean streamNetworkLost;
+    private boolean streamNetworkLost;
 
     // Asks a host that sends per-frame timing reports (0x5536) for them, once per connection.
     // Feeds the overlay's host latency line and the latency CSV; the stream description's
@@ -724,16 +724,22 @@ final class GameConnection {
 
     private HostLossWatch hostLossWatch;
 
-    // A chosen network drop tolerance asks to wait through any silence, so nothing ends it early.
+    // Readies the check after a host's goodbye: the address the stream connected to, and the first ping.
     private void startHostLossWatch() {
-        if (game.conn == null || game.prefConfig == null || NetworkGrace.enabled(game.prefConfig.networkGraceSeconds)) return;
+        if (hostLossWatch != null) hostLossWatch.stop();
+        hostLossWatch = null;
+        if (game.conn == null) return;
         if (!MoonBridge.hostLossAvailable()) {
-            LimeLog.warning("A PC that is gone is noticed only by the connection's timeout: libnightjar_core.so did not load");
+            LimeLog.warning("A PC that shuts down is told only by the recovery running out: libnightjar_core.so did not load");
+            return;
+        }
+        java.net.InetAddress host = HostLossWatch.parse(MoonBridge.getHostAddress());
+        if (host == null) {
+            LimeLog.warning("A PC that shuts down is told only by the recovery running out: the stream's address is unknown");
             return;
         }
         android.net.ConnectivityManager connectivity = game.getSystemService(android.net.ConnectivityManager.class);
-        if (hostLossWatch != null) hostLossWatch.stop();
-        hostLossWatch = new HostLossWatch(new HostLossWatch.Live(connectivity, () -> streamNetworkLost), game.conn.hostAddress(), game.conn.hostHttpsPort());
+        hostLossWatch = new HostLossWatch(new HostLossWatch.Live(connectivity), host, game.conn.hostHttpsPort());
         hostLossWatch.start();
     }
 
@@ -934,14 +940,18 @@ final class GameConnection {
         } else {
             LimeLog.severe("Connection terminated: " + Game.terminationDescription(reportedErrorCode));
         }
-        // A PC gone for good ends here, with nothing to ask it or retry. A host that disconnected and
-        // closed its server is shutting down: checked first, because the other checks would wait on it.
+        // After this session's host said goodbye: a PC shutting down, or a host that did not come back
+        // within the restart grace, ends here with nothing to ask it or retry; a host that restarted
+        // reconnects (its idle server would otherwise read as an ended session). Checked first,
+        // because the other checks would wait on a PC that is gone.
         final HostLossWatch hostLoss = hostLossWatch;
-        final boolean hostGone = !exitRequested && (reportedErrorCode == MoonBridge.CLIENT_ERROR_HOST_GONE ||
-                (game.connected && hostLoss != null && StreamRecoveryPolicy.transportTermination(reportedErrorCode) && hostLoss.goneAfterGoodbye()));
+        final int goodbye = !exitRequested && game.connected && hostLoss != null &&
+                StreamRecoveryPolicy.transportTermination(reportedErrorCode) ? hostLoss.afterGoodbye() : HostLossWatch.GOODBYE_UNKNOWN;
+        final boolean hostGone = goodbye == HostLossWatch.GOODBYE_GONE;
+        if (goodbye == HostLossWatch.GOODBYE_BACK) LimeLog.info("Connection terminated: the PC's host restarted, reconnecting");
         // Some hosts close the transport before their graceful termination packet arrives.
         // Verify an idle host before either retrying or showing an error, even with recovery off.
-        final boolean endedSession = !hostGone && !exitRequested && game.connected &&
+        final boolean endedSession = !hostGone && goodbye != HostLossWatch.GOODBYE_BACK && !exitRequested && game.connected &&
                 StreamRecoveryPolicy.transportTermination(reportedErrorCode) &&
                 game.conn != null && game.conn.hasEndedSession();
         final int errorCode = hostGone ? MoonBridge.CLIENT_ERROR_HOST_GONE : exitRequested || endedSession ?

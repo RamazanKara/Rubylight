@@ -63,8 +63,8 @@ pub mod error {
     /// Packed 4:4:4 cannot be streamed with this host ([`crate::rtsp::RtspError::PackedRefused`],
     /// Java's `CLIENT_ERROR_PACKED_444_REFUSED`): the client may reconnect without it.
     pub const PACKED_444_REFUSED: i32 = -106;
-    /// The PC is gone: it shut down or crashed ([`crate::host_loss`], Java's
-    /// `CLIENT_ERROR_HOST_GONE`). Not a dropout, so nothing reconnects on its own.
+    /// The PC is gone: it said goodbye and shut down, or its host did not come back
+    /// ([`crate::host_loss`], Java's `CLIENT_ERROR_HOST_GONE`). Nothing reconnects on its own.
     pub const HOST_GONE: i32 = -108;
     /// A failure without an OS error code.
     pub const FAILED: i32 = -1;
@@ -337,13 +337,10 @@ pub struct SessionStats {
     pub input_contact_lost: bool,
 }
 
-/// Between two looks at the control stream's silence ([`Session::watch_host`]).
-const HOST_WATCH_TICK: Duration = Duration::from_millis(250);
-
 /// State every session thread shares.
 pub(crate) struct Shared {
     listener: Arc<dyn Listener>,
-    stopping: AtomicBool,
+    stopping: Arc<AtomicBool>,
     terminated: AtomicBool,
     /// A termination that came while [`Session::start`] still ran, held until it returns: a
     /// failed start reports only its stage failure, a started one reports the termination
@@ -365,6 +362,9 @@ struct HostWatch {
     control: ControlHandle,
     host: SocketAddr,
     gateway: Arc<dyn Fn(IpAddr) -> Option<IpAddr> + Send + Sync>,
+    ping: crate::host_loss::Pinger,
+    /// The PC answered a ping as the stream started (set once that ping is back).
+    pinged: Arc<AtomicBool>,
 }
 
 enum StartGate {
@@ -376,7 +376,7 @@ impl Shared {
     fn new(listener: Arc<dyn Listener>, network_priority: bool) -> Self {
         Self {
             listener,
-            stopping: AtomicBool::new(false),
+            stopping: Arc::new(AtomicBool::new(false)),
             terminated: AtomicBool::new(false),
             start_gate: Mutex::new(StartGate::Starting(None)),
             network_priority,
@@ -411,12 +411,24 @@ impl Shared {
             .then(|| self.host_watch.lock().unwrap_or_else(|p| p.into_inner()).clone())
             .flatten()
             .filter(|w| w.control.said_goodbye());
+        let stopping = self.stopping.clone();
         let _ = std::thread::Builder::new()
             .name("AsyncTerm".into())
             .spawn(move || {
-                // A host that disconnected and took its server along is shutting down: nothing to
-                // recover. One that went silent past the timeout is left to the recovery.
-                let gone = watch.is_some_and(|w| crate::host_loss::server_left(w.host, (w.gateway)(w.host.ip())));
+                // After this session's host said goodbye: a PC shutting down, or a host that did not
+                // come back within the restart grace, ends here. A host that went silent past the
+                // timeout is left to the recovery, like one this can't tell.
+                let verdict = watch.map(|w| {
+                    crate::host_loss::watch_goodbye(
+                        w.host,
+                        &*w.gateway,
+                        &w.ping,
+                        w.pinged.load(Ordering::SeqCst),
+                        &|| stopping.load(Ordering::SeqCst),
+                        &|line| listener.log(line),
+                    )
+                });
+                let gone = verdict == Some(crate::host_loss::Goodbye::Gone);
                 listener.connection_terminated(if gone { error::HOST_GONE } else { code });
             });
     }
@@ -650,28 +662,18 @@ impl Session {
         }
     }
 
-    /// How long the host has been silent on the control stream ([`ControlHandle::silence`]);
-    /// zero until it was first heard.
-    pub fn host_silence(&self) -> Duration {
-        self.control().silence().unwrap_or(Duration::ZERO)
-    }
-
-    /// Ends the stream with [`error::HOST_GONE`]: reported once, like any termination.
-    pub fn end_host_gone(&self) {
-        self.parts.shared.terminate(error::HOST_GONE);
-    }
-
-    /// Whether the connection ended with the host's disconnect rather than a silence
+    /// Whether the connection ended with this session's host's disconnect rather than a silence
     /// ([`ControlHandle::said_goodbye`]).
     pub fn host_said_goodbye(&self) -> bool {
         self.control().said_goodbye()
     }
 
-    /// Watches for a PC that is gone ([`crate::host_loss`]) until the stream ends: `port` is the
-    /// PC's HTTPS port, `gateway` this device's gateway while the PC is on its link, `ping` this
-    /// platform's ping. A connection that ends with the host's goodbye, its server gone with it,
-    /// then reports [`error::HOST_GONE`] too. For clients that run the watch here; the Android app runs its own
-    /// over both of its engines.
+    /// Readies the check after the host's goodbye ([`crate::host_loss`]): `port` is the PC's HTTPS
+    /// port, `gateway` this device's gateway while the PC is on its link, `ping` this platform's
+    /// ping, which goes out once now. A connection that ends with the goodbye of a host on a PC
+    /// shutting down, or one that does not come back within the restart grace, then reports
+    /// [`error::HOST_GONE`]. For clients that run the check here; the Android app runs its own over
+    /// both of its engines.
     pub fn watch_host(
         &self,
         port: u16,
@@ -684,11 +686,18 @@ impl Session {
         };
         let host = SocketAddr::new(remote.ip(), port);
         let gateway: Arc<dyn Fn(IpAddr) -> Option<IpAddr> + Send + Sync> = Arc::new(gateway);
-        *shared.host_watch.lock().unwrap_or_else(|p| p.into_inner()) =
-            Some(HostWatch { control: control.clone(), host, gateway: gateway.clone() });
+        let pinged = Arc::new(AtomicBool::new(false));
+        *shared.host_watch.lock().unwrap_or_else(|p| p.into_inner()) = Some(HostWatch {
+            control,
+            host,
+            gateway: gateway.clone(),
+            ping: ping.clone(),
+            pinged: pinged.clone(),
+        });
         std::thread::Builder::new().name("Host watch".into()).spawn(move || {
             // Only a PC on this device's link that answers a ping now can be told gone later.
             let first = gateway(host.ip()).and_then(|_| ping(host.ip(), crate::host_loss::FIRST_PING_TIMEOUT));
+            pinged.store(first == Some(true), Ordering::SeqCst);
             shared.log(&format!(
                 "Host watch: the PC {} a ping",
                 match first {
@@ -697,35 +706,6 @@ impl Session {
                     None => "is off this device's link or can't get",
                 }
             ));
-            let mut detector = crate::host_loss::Detector::new(first == Some(true));
-            let mut bytes = shared.wire_bytes.load(Ordering::Relaxed);
-            while !shared.stopping.load(Ordering::SeqCst) && !shared.terminated.load(Ordering::SeqCst) {
-                std::thread::sleep(HOST_WATCH_TICK);
-                let silence = control.silence().unwrap_or(Duration::ZERO);
-                // Media still arriving is a host too, whatever the control stream says.
-                let seen = shared.wire_bytes.load(Ordering::Relaxed);
-                let heard = seen != bytes;
-                bytes = seen;
-                if !detector.wants_round(if heard { Duration::ZERO } else { silence }) {
-                    continue;
-                }
-                let gateway = gateway(host.ip());
-                let (round, pings) =
-                    crate::host_loss::probe_with_ping(host, gateway, detector.wants_ping().then_some(&ping));
-                let silence = control.silence().unwrap_or(Duration::ZERO);
-                shared.log(&format!(
-                    "Host check after {} ms of silence: {round:?}, ping {pings:?} (PC {host}, gateway {})",
-                    silence.as_millis(),
-                    gateway.map_or_else(|| "none".to_owned(), |g| g.to_string())
-                ));
-                if detector.step(silence, round, pings)
-                    && silence >= crate::host_loss::PROBE_AFTER
-                    && shared.wire_bytes.load(Ordering::Relaxed) == bytes
-                {
-                    shared.terminate(error::HOST_GONE);
-                    return;
-                }
-            }
         })?;
         Ok(())
     }

@@ -1594,17 +1594,12 @@ public class NvConnection {
         return details;
     }
 
-    /** Confirm an intentional host exit without mistaking an unreachable host for an idle one. */
-    /** The address this stream's host was reached at. */
-    public String hostAddress() {
-        return context.serverAddress.address;
-    }
-
     /** The HTTPS port this stream's host answered on when the stream started. */
     public int hostHttpsPort() {
         return context.httpsPort;
     }
 
+    /** Confirm an intentional host exit without mistaking an unreachable host for an idle one. */
     public boolean hasEndedSession() {
         NvHTTP connection;
         synchronized (this) {

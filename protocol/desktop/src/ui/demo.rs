@@ -20,7 +20,7 @@ use crate::hosts::{Apps, Art, Hosts, Reach, Waker};
 
 /// Title, store, installed: `DemoConsole.LIBRARY` in the Android demo.
 pub(crate) const GAMES: [(&str, Option<&str>, bool); 36] = [
-    ("Desktop", None, true),
+    (crate::strings::en("Desktop"), None, true),
     ("Racing Game", Some("steam"), true),
     ("Open World", Some("steam"), true),
     ("Space Sim", Some("epic"), true),
@@ -165,7 +165,7 @@ pub(crate) fn fill(hosts: &mut Hosts, launcher: &mut Launcher, ctx: &egui::Conte
         ("Next window", "Alt+Tab"),
         (crate::strings::en("Close window"), "Alt+F4"),
         (crate::strings::en("Fullscreen"), "F11"),
-        ("Desktop", "Win+D"),
+        (crate::strings::en("Desktop"), "Win+D"),
         ("Screenshot", "Win+PrintScreen"),
     ] {
         if let Err(why) = crate::shortcuts::save(&mut launcher.shortcuts, None, name, chord) {
@@ -296,6 +296,7 @@ pub(crate) enum Page {
     Game,
     Pcs,
     Apps,
+    AppsEmpty,
     Pc,
     Files,
     Settings,
@@ -311,12 +312,13 @@ pub(crate) enum Page {
 }
 
 impl Page {
-    pub(crate) const ALL: [(&'static str, Page); 17] = [
+    pub(crate) const ALL: [(&'static str, Page); 18] = [
         ("home", Page::Home),
         ("all-games", Page::AllGames),
         ("game", Page::Game),
         ("pcs", Page::Pcs),
         ("apps", Page::Apps),
+        ("apps-empty", Page::AppsEmpty),
         ("pc", Page::Pc),
         ("files", Page::Files),
         ("settings", Page::Settings),
@@ -438,6 +440,7 @@ impl Launcher {
             }),
             Page::Pcs => self.go(Screen::Hosts),
             Page::Apps => self.go(Screen::Apps(id)),
+            Page::AppsEmpty => self.go(Screen::Apps(hosts.list[1].id)),
             Page::Pc => self.go(Screen::HostDetails(id)),
             Page::Files => {
                 let base = pc

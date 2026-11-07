@@ -1423,4 +1423,5 @@ sudo sysctl -w net.core.rmem_max={}", "Búfer de recepción: el sistema concedi�
     ("Wake", "Activar"),
     ("Online", "En línea"),
     ("Not paired", "Sin vincular"),
+    ("Desktop", "Escritorio"),
 ];

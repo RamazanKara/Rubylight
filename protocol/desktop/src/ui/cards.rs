@@ -20,6 +20,8 @@ pub(super) const POSTER_H: f32 = 240.0;
 pub(super) const POSTER_MAX_W: f32 = 170.0;
 /// The gap between covers in a grid.
 pub(super) const POSTER_GAP: f32 = 16.0;
+/// The gap between the rows of a grid of bare covers.
+pub(super) const GRID_ROW_GAP: f32 = 18.0;
 /// Room under a cover for its title: the gap and one line.
 pub(super) const POSTER_CAPTION: f32 = 27.0;
 /// How far above its slot a focused cover's ring reaches. A grid at the top of a scroll leaves this
@@ -345,8 +347,37 @@ pub(super) enum Badge {
 /// the whole title instead). Pointed at it rises a little and its rim brightens; focus springs it
 /// bigger, over its neighbours, with the ring. Its slot never changes size.
 pub(super) fn poster(ui: &mut Ui, name: &str, art: Option<&Art>, badge: Badge, width: f32) -> Response {
+    cover_slot(ui, name, art, badge, width, true)
+}
+
+/// A cover of an app grid: no label, as its art carries its title and so does a tile. Until the art
+/// comes the placeholder holds the name; a screen reader always hears it.
+pub(super) fn bare_poster(ui: &mut Ui, name: &str, art: Option<&Art>, badge: Badge, width: f32) -> Response {
+    cover_slot(ui, name, art, badge, width, false)
+}
+
+/// A place in a grid while the list is on its way: where a cover will land, so nothing moves.
+pub(super) fn cover_placeholder(ui: &mut Ui, width: f32) {
+    let (rect, _) = ui.allocate_exact_size(vec2(width, cover_height(width)), Sense::hover());
+    let mut shapes = Vec::new();
+    cover_shapes(ui, &mut shapes, rect, width, t::RADIUS_COVER, "", Some(&Art::Loading), 1.0);
+    ui.painter().extend(shapes);
+}
+
+/// The placeholder's words: a game's name until its art says it.
+fn placeholder_title(ui: &Ui, out: &mut Vec<Shape>, rect: Rect, name: &str) {
+    let inset = rect.width() * t::TILE_INSET_SCALE;
+    let mut job = egui::text::LayoutJob::simple(name.to_owned(), semibold(text::LABEL), *ON_SURFACE_VARIANT, rect.width() - 2.0 * inset);
+    job.wrap.max_rows = 3;
+    job.wrap.overflow_character = Some('\u{2026}');
+    let galley = ui.painter().layout_job(job);
+    out.push(Shape::galley(rect.left_top() + Vec2::splat(inset), galley, *ON_SURFACE_VARIANT));
+}
+
+fn cover_slot(ui: &mut Ui, name: &str, art: Option<&Art>, badge: Badge, width: f32, captioned: bool) -> Response {
     let height = cover_height(width);
-    let (rect, response) = ui.allocate_exact_size(vec2(width, height + POSTER_CAPTION), Sense::click());
+    let caption = if captioned { POSTER_CAPTION } else { 0.0 };
+    let (rect, response) = ui.allocate_exact_size(vec2(width, height + caption), Sense::click());
     let said = match badge {
         Badge::Running => trf("{}, running", &[&name]),
         Badge::NotInstalled => trf("{}, not installed", &[&name]),
@@ -364,6 +395,9 @@ pub(super) fn poster(ui: &mut Ui, name: &str, art: Option<&Art>, badge: Badge, w
     let boost = if feel.hovered || feel.focused { t::HOVER_RIM_BOOST } else { 1.0 };
     let mut shapes = Vec::new();
     cover_shapes(ui, &mut shapes, shown, width, t::RADIUS_COVER, name, art, boost);
+    if !captioned && matches!(art, Some(Art::Loading)) {
+        placeholder_title(ui, &mut shapes, shown, name);
+    }
     match badge {
         Badge::None => {}
         Badge::Running => running_dot(&mut shapes, shown),
@@ -386,7 +420,7 @@ pub(super) fn poster(ui: &mut Ui, name: &str, art: Option<&Art>, badge: Badge, w
     } else {
         ui.painter().extend(shapes);
     }
-    if poster_caption(art) {
+    if captioned && poster_caption(art) {
         let active = response.has_focus() || response.contains_pointer();
         let color = if active { ON_SURFACE } else { ON_SURFACE_VARIANT };
         let at = Pos2::new(rect.left() + 2.0, rect.top() + height + space::S);

@@ -1423,4 +1423,5 @@ sudo sysctl -w net.core.rmem_max={}", "Buffer de recepção: o sistema concedeu 
     ("Wake", "Ligar"),
     ("Online", "On-line"),
     ("Not paired", "Não pareado"),
+    ("Desktop", "Área de trabalho"),
 ];

@@ -1423,4 +1423,5 @@ sudo sysctl -w net.core.rmem_max={2}"),
     ("Wake", "Aufwecken"),
     ("Online", "Online"),
     ("Not paired", "Nicht gekoppelt"),
+    ("Desktop", "Desktop"),
 ];

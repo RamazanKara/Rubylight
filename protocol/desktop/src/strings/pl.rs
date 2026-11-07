@@ -1423,4 +1423,5 @@ sudo sysctl -w net.core.rmem_max={}", "Bufor odbioru: system przydzielił {0} Ki
     ("Wake", "Wybudź"),
     ("Online", "Online"),
     ("Not paired", "Niesparowany"),
+    ("Desktop", "Pulpit"),
 ];

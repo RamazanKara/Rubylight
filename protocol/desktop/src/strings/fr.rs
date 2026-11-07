@@ -1423,4 +1423,5 @@ sudo sysctl -w net.core.rmem_max={}", "Tampon de réception : le système a acco
     ("Wake", "Réveiller"),
     ("Online", "En ligne"),
     ("Not paired", "Non associé"),
+    ("Desktop", "Bureau"),
 ];

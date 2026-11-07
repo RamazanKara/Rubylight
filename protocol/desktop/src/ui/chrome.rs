@@ -277,11 +277,13 @@ impl Launcher {
             pos2(slot.left(), back_top(ctx.content_rect(), slot.top())),
             Vec2::splat(BACK_SIZE),
         );
-        let ui = Ui::new(
+        let mut ui = Ui::new(
             ctx.clone(),
             Id::unique("sticky-back"),
             UiBuilder::new().layer_id(top_bar_layer()).max_rect(rect),
         );
+        // A new Ui clips to its rect, which would square off the shadow and the focus halo.
+        ui.set_clip_rect(ctx.content_rect());
         let enabled = page.is_enabled();
         let sense = if enabled {
             Sense::click()
@@ -514,9 +516,10 @@ impl Launcher {
                 Vec2::splat(ICON),
             );
             icons::paint(ui.painter(), Icon::Search, icon, *ON_SURFACE);
+            // The whole height, centred: its words on the line the icon and the closed field's sit on.
             let field = Rect::from_min_max(
-                pos2(icon.right() + 9.0, rect.top() + 12.0),
-                pos2(rect.right() - 16.0, rect.bottom() - 12.0),
+                pos2(icon.right() + 9.0, rect.top()),
+                pos2(rect.right() - 16.0, rect.bottom()),
             );
             // Down leaves the field for the results: a D-pad has no other way out.
             let field_id = Id::unique(SEARCH_ID);
@@ -531,6 +534,9 @@ impl Launcher {
                 .hint_text(tr("Search"))
                 .font(regular(TAB_FONT))
                 .text_color(*ON_SURFACE)
+                .margin(egui::Margin::ZERO)
+                .align(egui::Align2::LEFT_CENTER)
+                .min_size(field.size())
                 .desired_width(field.width());
             let response = ui.put(field, edit);
             if std::mem::take(&mut self.search_focus) {
@@ -598,11 +604,16 @@ impl Launcher {
         }
     }
 
-    /// The PC the capsule speaks of: the hero's, else the first that is up and paired, else the first.
+    /// The PC the capsule speaks of: the page's, else the hero's, else the first that is up and
+    /// paired, else the first.
     fn capsule_host<'a>(&self, view: &'a View<'_>) -> Option<&'a Host> {
-        self.hero
-            .as_ref()
-            .and_then(|hero| view.hosts.get(hero.host))
+        let page = match self.screen {
+            Screen::Apps(id) | Screen::HostDetails(id) | Screen::Files(id) => Some(id),
+            Screen::Game { host, .. } => Some(host),
+            _ => None,
+        };
+        page.and_then(|id| view.hosts.get(id))
+            .or_else(|| self.hero.as_ref().and_then(|hero| view.hosts.get(hero.host)))
             .or_else(|| {
                 view.hosts
                     .list
@@ -829,6 +840,12 @@ pub(super) fn control_capsule(
         paint_focus_ring(ui.painter(), shown, r as u8);
     }
     response
+}
+
+/// How wide an [`info_chip`] with a `dot` of that size and `label` is.
+pub(super) fn info_chip_width(ui: &Ui, dot: Option<f32>, label: &str) -> f32 {
+    let dot_room = dot.map_or(0.0, |d| d + 7.0);
+    13.0 + dot_room + measure(ui, label, semibold(t::TYPE_SUB_SIZE)) + 13.0
 }
 
 /// A chip over a title: a state or a store. Takes no focus.

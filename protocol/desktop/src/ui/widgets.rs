@@ -129,7 +129,6 @@ pub(crate) struct Size {
 
 impl Size {
     pub(crate) const CONTROL: Size = Size { height: CONTROL_HEIGHT, pad: 16.0, radius: 22, font: text::LABEL };
-    pub(crate) const HEADER: Size = Size { height: 40.0, pad: 16.0, radius: 20, font: text::LABEL };
     pub(crate) const CHIP: Size = Size { height: 34.0, pad: 14.0, radius: 17, font: text::LABEL };
 }
 
@@ -255,12 +254,6 @@ pub(super) fn how_to_connect(ui: &mut Ui, commands: &mut Vec<Command>) -> Respon
         commands.push(Command::OpenGuide("pairing.md"));
     }
     help
-}
-
-/// An action in the header (Add PC, Refresh): a filled button with its icon, so it never reads as
-/// one of the destinations beside it, at the header's height.
-pub(super) fn header_button(ui: &mut Ui, text: &str, icon: Icon) -> Response {
-    button(ui, Some(icon), tr(text), Tone::Raised, Size::HEADER)
 }
 
 /// A small pill that jumps to a section of the settings.

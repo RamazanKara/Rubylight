@@ -67,12 +67,12 @@
             android:visibility="gone" app:queryHint="@string/library_search" app:iconifiedByDefault="false"
             android:inputType="text" android:imeOptions="actionSearch" />
         <TextView android:id="@+id/library_focus_title" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:maxLines="1" android:ellipsize="end" android:textSize="@dimen/pcs_hero_title" android:fontFamily="?attr/nightjarFaceStrong"
+            android:maxLines="1" android:ellipsize="end" android:textAppearance="@style/TextAppearance.Nightjar.Glass.PageTitle" android:fontFamily="?attr/nightjarFaceStrong"
             android:letterSpacing="-0.02" android:textColor="?attr/colorOnSurface" android:shadowColor="#66000000" android:shadowRadius="12" android:shadowDy="2"
             android:importantForAccessibility="no" android:visibility="gone" />
         <!-- A fixed height, so keys coming and going never move the grid. -->
         <TextView android:id="@+id/library_focus_status" android:layout_width="match_parent" android:layout_height="@dimen/library_hint_height"
-            android:gravity="center_vertical|start" android:maxLines="1" android:ellipsize="end" android:textSize="14sp" android:fontFamily="?attr/nightjarFaceStrong"
+            android:gravity="center_vertical|start" android:maxLines="1" android:ellipsize="end" android:textAppearance="@style/TextAppearance.Nightjar.Glass.PageStatus" android:fontFamily="?attr/nightjarFaceStrong"
             android:textColor="?attr/colorOnSurface" android:importantForAccessibility="no" android:visibility="gone" />
     </LinearLayout>
     <!-- The running game, one press from coming back: above the tabs on a phone, alone at a handheld's foot. A TV's first tile does this. -->

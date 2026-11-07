@@ -33,7 +33,7 @@
             android:layout_marginTop="10dp" android:clipChildren="false" android:clipToPadding="false">
             <com.limelight.ui.GlassButton android:id="@+id/hero_play" style="@style/Widget.Nightjar.Glass.Play"
                 android:layout_width="wrap_content" android:layout_height="wrap_content" android:minWidth="147dp"
-                android:minHeight="48dp" android:textSize="15sp" android:paddingStart="20dp" android:paddingEnd="20dp"
+                android:minHeight="48dp" android:textAppearance="@style/TextAppearance.Nightjar.Glass.Size15" android:paddingStart="20dp" android:paddingEnd="20dp"
                 app:iconSize="20dp" app:iconPadding="8dp" android:text="@string/library_play" />
             <com.limelight.ui.GlassButton android:id="@+id/hero_favourite" style="@style/Widget.Nightjar.Glass.Control"
                 android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="9dp"

@@ -156,7 +156,7 @@ android {
         unitTests.all {
             maxParallelForks = 2
             // Robolectric keeps every locale's resource table in memory.
-            maxHeapSize = '1g'
+            maxHeapSize = '2g'
             // The suite takes about 5 minutes; a test that hangs fails the task here instead of
             // running into CI's 60-minute job limit.
             timeout = java.time.Duration.ofMinutes(20)

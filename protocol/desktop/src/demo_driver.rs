@@ -147,6 +147,24 @@ impl App {
                     eprintln!("nightjar: demo driver: {}: {e}", path.display());
                 }
             }
+            Step::Setting(key, value) => {
+                let mut values = serde_json::to_value(&self.launcher.settings).expect("settings serialize");
+                values[key.as_str()] = value;
+                match serde_json::from_value(values) {
+                    Ok(settings) => self.launcher.settings = settings,
+                    Err(why) => eprintln!("nightjar: demo driver: setting {key}: {why}"),
+                }
+            }
+            Step::Launch => {
+                let first = self.hosts.list.iter().find_map(|host| match &host.apps {
+                    hosts::Apps::Loaded(apps) => apps.first().map(|app| (host.id, app.id)),
+                    _ => None,
+                });
+                match first {
+                    Some((host, app)) => self.launch_ready(host, app, false, LaunchKind::Stream),
+                    None => eprintln!("nightjar: demo driver: no PC has a game list to launch from"),
+                }
+            }
             Step::Quit => self.running = false,
         }
     }

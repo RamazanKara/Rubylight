@@ -428,6 +428,11 @@ pub(crate) enum Step {
     Input(crate::input_source::InputSource),
     /// Writes the frames presented so far.
     Stats(PathBuf),
+    /// Sets one main setting as the settings page would: its key and a JSON value.
+    Setting(String, serde_json::Value),
+    /// Starts the first game of the first PC with a game list, as its Play does, as far as a demo
+    /// PC goes: the stream's checks run (and Linux's renderer switch), no PC is asked.
+    Launch,
     Quit,
 }
 
@@ -503,6 +508,11 @@ pub(crate) fn parse(line: &str) -> Result<Step, String> {
             _ => return Err(format!("{line:?}: no such input")),
         }),
         "stats" => Step::Stats(path()?),
+        "setting" => {
+            let (key, value) = pair()?;
+            Step::Setting(key.to_owned(), serde_json::from_str(value).map_err(|e| format!("{line:?}: {e}"))?)
+        }
+        "launch" => Step::Launch,
         "quit" => Step::Quit,
         _ => return Err(format!("{line:?}: no such step")),
     })
@@ -820,7 +830,11 @@ mod tests {
             Ok(Step::Stats("C:\\s.txt".into()))
         );
         assert_eq!(parse("quit"), Ok(Step::Quit));
+        assert_eq!(parse("setting renderer \"Gpu\""), Ok(Step::Setting("renderer".into(), serde_json::json!("Gpu"))));
+        assert_eq!(parse("launch"), Ok(Step::Launch));
         for bad in [
+            "setting hdr",
+            "setting hdr maybe",
             "go nowhere",
             "zoom big",
             "size 1280",

@@ -432,7 +432,7 @@ The desktop client's **Settings** has the same eight sections in the same order,
 
 A PC's, game's or profile's settings show the same rows (no App section, Debug last). Each row has a box, **For this PC**, **For this game** or **In this profile**: ticked, the row keeps its own value and says what it would otherwise be; unticked, it says where its value comes from (**From main settings**, **From profile …**, **Set for this PC**). Choosing another value ticks the box; opening a menu and backing out changes nothing. The section list counts the rows set there, and **Clear all** at the top unticks every row after a confirmation. **Streaming → Profiles → Manage profiles** selects the active profile by hand or, with **Choose automatically**, by network (mobile data, home Wi-Fi, other Wi-Fi); while one is in use, the main settings say so at the top. **Mobile data bitrate limit** caps the bitrate on metered networks after all overrides. Settings are stored in `settings.json` in `%APPDATA%\Nightjar\config` on Windows or `~/.config/nightjar` on Linux; `NIGHTJAR_CONFIG_DIR` overrides the folder.
 
-Settings marked "Linux: restart" take effect on Linux after Nightjar restarts. Defaults are those of a fresh installation. Rows below a group name are listed after the section's main rows.
+Defaults are those of a fresh installation. Rows below a group name are listed after the section's main rows.
 
 ### Video
 
@@ -442,15 +442,15 @@ Settings marked "Linux: restart" take effect on Linux after Nightjar restarts. D
 | Frame rate | Display (the monitor's refresh rate) | Display, common rates, Custom | Fractional refresh rates are followed. |
 | Automatic bitrate, Bitrate | Automatic: recommended for the resolution and frame rate | 0.5–2000 Mbps | With PyroWave, a bitrate below PyroWave's minimum is flagged. |
 | Lower bitrate when the network is busy | Off | On, Off | Lowers the bitrate under sustained congestion and recovers gradually. Needs a compatible host, as on Android. |
-| Codec | Automatic (HEVC, then H.264) | Automatic, H.264, HEVC, AV1, PyroWave 4:2:0, PyroWave 4:4:4 | PyroWave is listed when this computer can render it on the GPU, and streams only from hosts that offer it. Linux: restart after selecting PyroWave. |
+| Codec | Automatic (HEVC, then H.264) | Automatic, H.264, HEVC, AV1, PyroWave 4:2:0, PyroWave 4:4:4 | PyroWave is listed when this computer can render it on the GPU, and streams only from hosts that offer it. |
 | HDR | Off | On, Off | 10-bit HDR to an HDR-enabled display; turn HDR on in the operating system first. HDR10 on Windows, plus HLG and Dolby Vision from a Rubylight 3.0 PC. |
 | *Fine-tuning:* Automatic quality | Off | Off, Prefer motion, Prefer detail, Save power | Adjusts resolution and frame rate under sustained load; needs a host that supports live stream changes. |
 | Minimum resolution | 720 px | 256–2160 px (shortest edge) | Shown with Automatic quality. Never raises the selected size. |
 | Minimum frame rate | 30 fps | 15–240 fps | Shown with Automatic quality. |
-| Upscaling | Bilinear | Bilinear, FSR 1, SGSR 1, AI enhancement | For smaller SDR streams; HDR uses bilinear. AI enhancement uses the GPU's video upscaling for SDR and HDR. Linux: restart. |
+| Upscaling | Bilinear | Bilinear, FSR 1, SGSR 1, AI enhancement | For smaller SDR streams; HDR uses bilinear. AI enhancement uses the GPU's video upscaling for SDR and HDR. |
 | Sharpness | 50 % | 0–100 % | Shown for FSR 1 and SGSR 1. |
-| Sharper colored text (YUV 4:4:4) | Off | On, Off | When the PC and this device support it; HDR takes priority. Not used with PyroWave or Full chroma. Linux: restart. |
-| Less color banding (10-bit SDR) | Off | On, Off | SDR in 10-bit HEVC or AV1. Needs a Main10 decoder; the PC's display must be in SDR. Linux: restart. |
+| Sharper colored text (YUV 4:4:4) | Off | On, Off | When the PC and this device support it; HDR takes priority. Not used with PyroWave or Full chroma. |
+| Less color banding (10-bit SDR) | Off | On, Off | SDR in 10-bit HEVC or AV1. Needs a Main10 decoder; the PC's display must be in SDR. |
 | PyroWave decoder | GPU | CPU, GPU | GPU decodes with the PyroWave SDK and never falls back to the CPU; the row says why GPU decoding is unavailable. |
 
 ### Display & image
@@ -542,7 +542,7 @@ The Controllers group can be changed while **Controllers** is on. On-screen cont
 
 | Setting | Default | Choices | Notes |
 | --- | --- | --- | --- |
-| Full chroma | Off | On, Off | Requires the host's Full chroma option and HEVC or AV1. Not used with PyroWave. Linux: restart. |
+| Full chroma | Off | On, Off | Requires the host's Full chroma option and HEVC or AV1. Not used with PyroWave. |
 | Test the link before starting | Off | On, Off | A new stream at the automatic bitrate tests the link to a Rubylight PC first. |
 
 ### Debug
@@ -559,6 +559,7 @@ Rarely needed settings, last in the section list. The search finds them like any
 | Instant mouse and pen input | On | On, Off | Sends mouse and pen motion immediately instead of batching it. |
 | Full color range | Off | On, Off | Requests the full RGB range from the host. |
 | *Fine-tuning:* Video decoding | Automatic | Automatic, Software | Automatic uses hardware decoding: D3D11VA on Windows, VA-API, Vulkan video, V4L2 M2M or NVDEC on Linux. A fallback to software decoding is announced. Not used with PyroWave. |
+| *Fine-tuning:* Renderer | Automatic | Automatic, OpenGL, GPU (Vulkan) | Linux only, for the whole app. Automatic starts on OpenGL, where 8-bit VA-API pictures arrive without copies, unless a saved setting needs the GPU renderer, and switches to the GPU renderer when a stream needs it (HDR, upscaling, PyroWave, 4:4:4, 10-bit SDR, full chroma). OpenGL never switches, so such streams are refused; GPU (Vulkan) draws with the GPU renderer from the start. A change applies at once, never during a stream. |
 | *Fine-tuning:* Local cursor | On | On, Off | In Desktop pointer mode, draws the PC's cursor shape locally, without video delay, on hosts that send cursor shapes. |
 
 Beam racing and early decode for PyroWave have no row on the Settings page. Both are off by default and are set with the `beam_race` and `early_decode` keys in `settings.json`, or the `NIGHTJAR_BEAM_RACE` and `NIGHTJAR_EARLY_DECODE` environment variables; see [beam racing](beam-racing.md) and [early decode](early-decode.md).

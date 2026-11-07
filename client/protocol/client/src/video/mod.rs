@@ -511,6 +511,12 @@ impl VideoReceiver {
         self.queue.rfi = false;
     }
 
+    /// Whether losses still recover with reference frame invalidation (`recover_with_idr_only`).
+    #[cfg(test)]
+    pub(crate) fn rfi_recovery(&self) -> bool {
+        self.queue.rfi
+    }
+
     /// The host display's HDR mode from the control stream; frames report it and use BT.2020
     /// while it is on.
     pub fn set_hdr_active(&mut self, active: bool) {

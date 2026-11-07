@@ -814,6 +814,7 @@ mod tests {
         seen: mpsc::Sender<Seen>,
         envelope: Vec<u8>,
         status: DecodeStatus,
+        rfi: bool,
     }
 
     impl Recorder {
@@ -822,6 +823,7 @@ mod tests {
                 seen,
                 envelope: Vec::new(),
                 status: DecodeStatus::Ok,
+                rfi: true,
             }
         }
     }
@@ -856,6 +858,10 @@ mod tests {
                 })
                 .unwrap();
             std::mem::replace(&mut self.status, DecodeStatus::Ok)
+        }
+
+        fn recovers_with_rfi(&self) -> bool {
+            self.rfi
         }
     }
 
@@ -1018,5 +1024,25 @@ mod tests {
         let seen = running.finish();
         assert!(matches!(seen.last(), Some(Seen::Frame { whole: true, .. })), "{seen:?}");
         assert_eq!(shared.counters.need_idr.load(Ordering::Relaxed), 1);
+    }
+
+    /// A decoder replaced mid-stream by one that never asked for reference frame invalidation
+    /// has the rest of the stream recover with key frames; one that did keeps RFI.
+    #[test]
+    fn a_decoder_without_rfi_turns_the_receivers_rfi_recovery_off() {
+        for rfi in [true, false] {
+            let mut config = crate::video::tests::config(0x01_0000);
+            (config.pyrowave_records, config.early_chunks, config.rfi) = (true, true, true);
+            let shared = Arc::new(VideoShared::new(VideoReceiver::new(config)));
+            assert!(lock(&shared.receiver).rfi_recovery());
+            let (tx, rx) = mpsc::channel();
+            let mut recorder = Recorder::new(tx);
+            recorder.rfi = rfi;
+            let running = Running::start(&shared, recorder, rx);
+            feed(&shared, &flat(Blocks::new().frame(&[8, 6], 1)));
+            let seen = running.finish();
+            assert_eq!(frames_seen(&seen).len(), 1, "{seen:?}");
+            assert_eq!(lock(&shared.receiver).rfi_recovery(), rfi, "decoder with rfi {rfi}");
+        }
     }
 }

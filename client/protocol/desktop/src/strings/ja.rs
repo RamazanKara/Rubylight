@@ -1405,4 +1405,7 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("Desktop", "デスクトップ"),
     ("Searching for PCs…", "PC を検索しています…"),
     ("Can't search this network for PCs", "このネットワークでは PC を検索できません"),
+    ("{} cannot decode this stream. Now decoding with {}.", "{0}ではこのストリームをデコードできません。{1}でデコードします。"),
+    ("{} cannot decode this stream. Now decoding in software.", "{}ではこのストリームをデコードできません。ソフトウェアでデコードします。"),
+    ("{} cannot decode this stream, and no other decoder opens: {}", "{0}ではこのストリームをデコードできず、ほかのデコーダーも開けません：{1}"),
 ];

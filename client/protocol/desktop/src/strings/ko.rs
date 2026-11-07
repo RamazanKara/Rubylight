@@ -1405,4 +1405,7 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("Desktop", "데스크톱"),
     ("Searching for PCs…", "PC 검색 중…"),
     ("Can't search this network for PCs", "이 네트워크에서 PC를 검색할 수 없습니다"),
+    ("{} cannot decode this stream. Now decoding with {}.", "{0}(으)로 이 스트림을 디코딩할 수 없습니다. 이제 {1}(으)로 디코딩합니다."),
+    ("{} cannot decode this stream. Now decoding in software.", "{}(으)로 이 스트림을 디코딩할 수 없습니다. 이제 소프트웨어로 디코딩합니다."),
+    ("{} cannot decode this stream, and no other decoder opens: {}", "{0}(으)로 이 스트림을 디코딩할 수 없고 다른 디코더도 열리지 않습니다: {1}"),
 ];

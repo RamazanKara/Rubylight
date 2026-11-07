@@ -1405,4 +1405,7 @@ sudo sysctl -w net.core.rmem_max={2}"),
     ("Desktop", "Desktop"),
     ("Searching for PCs…", "Suche nach PCs…"),
     ("Can't search this network for PCs", "Dieses Netzwerk kann nicht nach PCs durchsucht werden"),
+    ("{} cannot decode this stream. Now decoding with {}.", "{0} kann diesen Stream nicht decodieren. Jetzt decodiert {1}."),
+    ("{} cannot decode this stream. Now decoding in software.", "{} kann diesen Stream nicht decodieren. Jetzt wird in Software decodiert."),
+    ("{} cannot decode this stream, and no other decoder opens: {}", "{0} kann diesen Stream nicht decodieren, und kein anderer Decoder öffnet sich: {1}"),
 ];

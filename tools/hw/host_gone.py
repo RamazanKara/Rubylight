@@ -1,21 +1,27 @@
-r"""How long Nightjar takes to say the PC is gone, and that it stays quiet when the PC is not (catalog case nj-host-gone).
+r"""What Nightjar does when its host goes away: a PC shutting down ends the stream, a host that crashes or restarts
+reconnects, and a blip on either side is ridden out (catalog case nj-host-gone).
 
-  host_gone.py run --event kill|stop|path|wifi|suspend|pathblip [--hold S] [--engine rust|classic] [--tag T]
+  host_gone.py run --event kill|stop|restart|path|wifi|suspend|pathblip [--hold S] [--engine rust|classic] [--tag T]
+  host_gone.py restart-time [--count N]
 
 One locked run on the Retroid against the isolated test host of fec_wifi_ab.py (run its setup once): a stream, then the
 event, then the app's own log says when it noticed and what it did. Events:
   kill      the host process killed outright (nothing sent, its ports closed, the PC still up: a crash)
-  stop      the host closed the way a service stop does (its control stream says goodbye)
+  stop      the host closed the way a service stop does (its control stream says goodbye), the PC still up
+  restart   the same stop, then the host started again at once, as a service restart does
   path      answers to this device blackholed on the PC (a host route to an unused address), the device's own link fine:
             a PC switched off or unplugged. The route goes when the run ends
   pathblip  the same for --hold seconds only (path and pathblip need an elevated shell)
   wifi      the device's Wi-Fi off for --hold seconds, then on again (adb is on USB)
   suspend   the host process frozen for --hold seconds (a stalled host: the OS still answers)
-stop and path pass when the message comes at all, and print the time; kill (a crash on a PC that still answers pings)
-passes when no message comes and the recovery takes over; the others pass when the stream survives.
+kill passes when no message comes and the recovery takes over; stop when the message comes once the restart grace
+is out (the PC still answers pings, its host stays closed); restart when the stream reconnects without the message;
+pathblip, wifi and suspend when the stream survives. path (a PC switched off) is recorded only: the connection's
+timeout and the recovery decide it, as before. A real power-off can't be run here.
+restart-time measures how long a restart of the test host takes to answer on its HTTPS port again, without a device.
 Results: <out>\results.jsonl, per run <tag>-logcat.txt, -end.png, -host.log.
 """
-import argparse, ctypes, datetime, json, pathlib, re, shutil, subprocess, sys, time
+import argparse, ctypes, datetime, json, pathlib, re, shutil, socket, subprocess, sys, time
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import fec_wifi_ab as fec
@@ -25,6 +31,32 @@ fec.OUT = fec.REL / 'unified' / 'nj-host-gone'
 OUT = fec.OUT
 DEVICE_IP = '192.168.4.107'
 UNUSED_ON_LINK = '192.168.4.250'
+HTTPS_PORT = fec.PORT - 5
+
+
+def https_open():
+    try:
+        socket.create_connection((fec.BIND, HTTPS_PORT), 0.3).close()
+        return True
+    except OSError:
+        return False
+
+
+def restart(host, tag):
+    """A host service restart: the stop's goodbye, then a new process as soon as the old one is gone. Returns the new
+    process and the seconds from the stop to its exit and to its HTTPS port answering again."""
+    t = time.time()
+    ctrl_c(host.pid)
+    host.wait(20)
+    exited = time.time() - t
+    if (fec.PROFILE / 'logs' / 'butterpollo.log').exists():
+        shutil.copy(fec.PROFILE / 'logs' / 'butterpollo.log', OUT / f'{tag}-host-before.log')
+    new = fec.start_host(f'{tag}-restarted', settle=0)
+    while not https_open():
+        if new.poll() is not None or time.time() - t > 60:
+            raise SystemExit('the restarted host did not open its port')
+        time.sleep(0.05)
+    return new, round(exited, 2), round(time.time() - t, 2)
 
 
 def device_time_offset():
@@ -89,7 +121,8 @@ def focus():
 
 
 # App log lines that mark a moment of the end. The first of each counts.
-MARKS = {'noticed': 'Stream disconnected', 'gone': 'The PC is gone', 'stopping': 'Stream stopping'}
+MARKS = {'noticed': 'Stream disconnected', 'gone': 'The PC is gone', 'back': "the PC's host restarted",
+         'stopping': 'Stream stopping'}
 
 
 def analyse(logcat, t0, offset):
@@ -109,6 +142,19 @@ def analyse(logcat, t0, offset):
     return marks, attempts
 
 
+def verdict(event, result):
+    marks, last = result['marks'], (result.get('focus_trace') or [(0, '?')])[-1][1]
+    if event == 'kill':
+        return 'gone' not in marks and result['recovery_lines'] > 0
+    if event == 'stop':
+        return 'gone' in marks
+    if event == 'restart':
+        return 'gone' not in marks and 'noticed' in marks and 'Game' in last
+    if event in ('pathblip', 'wifi', 'suspend'):
+        return 'noticed' not in marks and 'Game' in last
+    return None
+
+
 def run(args):
     OUT.mkdir(parents=True, exist_ok=True)
     tag = args.tag or f'{args.event}-{args.hold or 0}s-{args.engine or "default"}-{datetime.datetime.now():%H%M%S}'
@@ -119,6 +165,10 @@ def run(args):
     result = {'tag': tag, 'event': args.event, 'hold': args.hold, 'engine': args.engine}
     try:
         fec.installed_host_idle()
+        if args.apk:
+            # Inside the lock: another run may have put its own build on the device since.
+            fec.adb('install', '-r', '-t', str(args.apk))
+            result['apk'] = str(args.apk)
         fec.sh('input keyevent KEYCODE_WAKEUP'); fec.sh('svc power stayon true'); fec.sh('wm dismiss-keyguard', check=False)
         fec.sh(f'am force-stop {fec.PACKAGE}')
         set_prefs(args.engine)
@@ -139,6 +189,8 @@ def run(args):
             subprocess.run(['taskkill', '/F', '/PID', str(host_pid())], check=True, capture_output=True)
         elif args.event == 'stop':
             ctrl_c(host_pid())
+        elif args.event == 'restart':
+            host, result['exited_s'], result['reopened_s'] = restart(host, tag)
         elif args.event in ('path', 'pathblip'):
             blackhole(True); routed = True
         elif args.event == 'wifi':
@@ -161,7 +213,7 @@ def run(args):
             if not trace or trace[-1][1] != now:
                 trace.append((round(time.time() - t0, 2), now))
             # The answer is in: the stream ended and the app is back on its own screen.
-            if args.event in ('kill', 'stop', 'path') and 'Game' not in now and trace[-1][0] > 0.5:
+            if args.event in ('stop', 'path') and 'Game' not in now and trace[-1][0] > 0.5:
                 time.sleep(1)  # The message fades in.
                 break
             time.sleep(0.25)
@@ -183,24 +235,47 @@ def run(args):
         fec.sh('svc power stayon false', check=False)
     text = (OUT / f'{tag}-logcat.txt').read_text(encoding='utf-8', errors='replace')
     result['marks'], result['recovery_lines'] = analyse(text, t0, offset)
+    result['pass'] = verdict(args.event, result)
     with open(OUT / 'results.jsonl', 'a') as f:
         f.write(json.dumps(result) + '\n')
     print(json.dumps(result), flush=True)
+
+
+def restart_time(args):
+    """How long a restart of the test host takes to open its HTTPS port again: no device, no stream."""
+    fec.installed_host_idle()
+    fec.take_locks(args.lock_wait)
+    host = None
+    try:
+        host = fec.start_host('restart-time')
+        for i in range(args.count):
+            # A host only just started has no Ctrl+C handler yet, and probes its encoders first.
+            time.sleep(12)
+            host, exited, reopened = restart(host, f'restart-time-{i}')
+            print(json.dumps({'exited_s': exited, 'reopened_s': reopened}), flush=True)
+    finally:
+        if host is not None:
+            fec.stop_host(host)
+        fec.release_locks()
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest='cmd', required=True)
     r = sub.add_parser('run')
-    r.add_argument('--event', required=True, choices=['kill', 'stop', 'path', 'pathblip', 'wifi', 'suspend'])
+    r.add_argument('--event', required=True, choices=['kill', 'stop', 'restart', 'path', 'pathblip', 'wifi', 'suspend'])
     r.add_argument('--hold', type=float, default=0)
     r.add_argument('--engine', choices=['rust', 'classic'])
     r.add_argument('--tag')
+    r.add_argument('--apk', help=f'installed first ({fec.PACKAGE}: build with -PdebugIdSuffix=.njrf)')
     r.add_argument('--warmup', type=float, default=15)
     r.add_argument('--watch', type=float, default=40)
     r.add_argument('--lock-wait', type=float, default=600)
+    t = sub.add_parser('restart-time')
+    t.add_argument('--count', type=int, default=5)
+    t.add_argument('--lock-wait', type=float, default=600)
     args = p.parse_args()
-    run(args)
+    (run if args.cmd == 'run' else restart_time)(args)
 
 
 if __name__ == '__main__':

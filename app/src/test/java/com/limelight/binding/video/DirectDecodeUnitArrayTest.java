@@ -53,7 +53,8 @@ public class DirectDecodeUnitArrayTest {
     public void submitDecodeUnitGivesADirectFrameItsArrayBeforeReadingIt() throws Exception {
         String source = new String(Files.readAllBytes(
                 Paths.get("src/main/java/com/limelight/binding/video/MediaCodecDecoderRenderer.java")), StandardCharsets.UTF_8);
-        int submit = source.indexOf("public int submitDecodeUnit(byte[] decodeUnitData");
+        // submitDecodeUnit wraps queueDecodeUnit for the submit-thread hint; the body lives there.
+        int submit = source.indexOf("private int queueDecodeUnit(byte[] decodeUnitData");
         int end = source.indexOf("holdForInputSpacing();", submit);
         assertTrue(submit >= 0 && end > submit);
         String body = source.substring(submit, end);

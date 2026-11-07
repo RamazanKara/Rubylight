@@ -68,16 +68,16 @@ pub(super) fn card_grid(width: f32, gap: f32) -> (usize, f32) {
     (columns as usize, ((width - gap * (columns - 1.0)) / columns).floor().clamp(CARD_W.min(width), CARD_MAX_W))
 }
 
-/// Where a cover's ⋮ goes on `shown`, the cover as it stands this frame. The art's logotype lives at
-/// the top and the running dot at the bottom right, so it takes the bottom left; only the Not installed
-/// pill is there, and a cover with that one has no running dot.
+/// Where a cover's ⋮ goes on `shown`, the cover as it stands this frame. Logotypes sit at the top or
+/// the bottom left, so it takes the bottom right; only a running cover has its dot there, and that one
+/// takes the bottom left.
 pub(super) fn dots_rect(shown: Rect, badge: Badge) -> Rect {
     const SIZE: f32 = 30.0;
     const INSET: f32 = 8.0;
     let y = shown.bottom() - INSET - SIZE;
     let x = match badge {
-        Badge::NotInstalled => shown.right() - INSET - SIZE,
-        Badge::None | Badge::Running => shown.left() + INSET,
+        Badge::Running => shown.left() + INSET,
+        Badge::None | Badge::NotInstalled => shown.right() - INSET - SIZE,
     };
     Rect::from_min_size(pos2(x, y), Vec2::splat(SIZE))
 }

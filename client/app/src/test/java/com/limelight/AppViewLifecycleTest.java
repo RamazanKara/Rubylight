@@ -539,6 +539,30 @@ public class AppViewLifecycleTest {
         }
     }
 
+    /**
+     * On the real TV a focused poster on the bottom row ran into the screen's edge, ring and all: the grid kept only 12 dp
+     * under its last row, too little to scroll by. It keeps the overscan plus room for the focus growth and ring, so the
+     * focused card can scroll that far clear of the edge.
+     */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionTheGridKeepsRoomUnderItsLastRowForTheFocusedCard() throws Exception {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.UUID_EXTRA, "running-host").putExtra(AppView.NAME_EXTRA, "PC");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup().visible();
+        try {
+            Library screen = controller.get();
+            android.widget.GridView grid = libraryWithRunningGame(screen, "sunshine-serverinfo.xml");
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            float density = screen.getResources().getDisplayMetrics().density;
+            int edge = screen.getResources().getDimensionPixelSize(R.dimen.shell_overscan_vertical);
+            assertTrue("room under the last row: " + grid.getPaddingBottom(),
+                    grid.getPaddingBottom() >= edge + Math.round(24 * density));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     /** The tabs were installed again after the chrome styled them: larger words, another width, stacked on PCs and inline here. */
     @Test
     @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")

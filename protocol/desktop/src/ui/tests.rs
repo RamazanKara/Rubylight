@@ -6804,6 +6804,45 @@ fn try_again_on_a_failed_list_does_not_say_no_apps() {
     assert!(!shows(&f, "This PC lists no apps."), "the answer ended it: {:?}", f.drawn);
 }
 
+/// Home's hero says what stops Play, as the game's page does, offers Try again and comes back from it.
+#[test]
+fn homes_play_says_what_stops_it_and_recovers() {
+    let entry = nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) };
+    let cases: [(fn() -> Apps, &str); 2] = [
+        (|| Apps::Failed("The PC did not answer".into()), "The app list could not be loaded. The PC did not answer"),
+        (|| Apps::Loaded(vec![game(77)]), "The PC's app list has no entry for this game."),
+    ];
+    for (list, why) in cases {
+        for screen in ["Home", "Game"] {
+            let mut f = home_with_games(1);
+            let pc = f.hosts.list[0].id;
+            if screen == "Game" {
+                f.l.go(Screen::Game { host: pc, app: 1000 });
+            }
+            f.settle();
+            f.hosts.list[0].apps = list();
+            f.l.refocus();
+            f.settle();
+            assert!(shows(&f, why), "{screen}: {:?}", f.drawn);
+            let at = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1);
+            let retry = at(&f, "Try again").unwrap_or_else(|| panic!("{screen}: {:?}", f.drawn));
+            assert!(at(&f, why).unwrap().bottom() <= at(&f, "Play").unwrap().top() + 1.0, "{screen}: above the buttons");
+            assert!(at(&f, "Game 00").map_or(true, |t| t.bottom() <= at(&f, why).unwrap().top()), "{screen}: under the title");
+            // The press reads the list again, also one that came without the game.
+            let commands = f.click_at(retry.center(), egui::PointerButton::Primary);
+            assert!(commands.iter().any(|c| matches!(c, Command::ReadAppsAgain(host) if *host == pc)), "{screen}");
+            f.hosts.list[0].apps = Apps::Loading;
+            f.settle();
+            assert!(!shows(&f, why) && !shows(&f, "Try again"), "{screen}: {:?}", f.drawn);
+            f.hosts.list[0].apps = Apps::Loaded(vec![entry.clone()]);
+            f.settle();
+            let play = at(&f, "Play").expect("Play");
+            let commands = f.click_at(play.center(), egui::PointerButton::Primary);
+            assert!(commands.iter().any(|c| matches!(c, Command::Launch { app: 1000, .. })), "{screen}: it plays again");
+        }
+    }
+}
+
 /// A waiting Play holds while a dialog is open: no stream starts under it and no typed text goes.
 #[test]
 fn a_waiting_play_holds_while_a_dialog_is_open() {

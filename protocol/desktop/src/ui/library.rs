@@ -464,18 +464,25 @@ impl Launcher {
         let state = self.play_state(host, source, game);
         let why = if !state.detail.can_start {
             Some(pc_line_of(host).words().to_owned())
+        } else if matches!(host.apps, Apps::NotLoaded | Apps::Loading) {
+            return;
         } else {
-            match &host.apps {
-                Apps::NotLoaded | Apps::Loading => return,
-                Apps::Failed(e) => Some(trf("The app list could not be loaded. {}", &[&e])),
-                Apps::Loaded(_) if state.classic.is_none() => Some(tr("The PC's app list has no entry for this game.").to_owned()),
-                Apps::Loaded(_) => None,
-            }
+            state.list_problem(host)
         };
         self.pending_play = None;
         match why {
             Some(why) => self.message(tr("The stream could not start"), why),
             None => self.press_play(host, game, &state, commands),
+        }
+    }
+
+    /// Try again beside a Play the list stopped: reads the list again, whatever it last said.
+    pub(super) fn list_retry(&mut self, ui: &mut Ui, rect: Rect, key: &'static str, first: bool, host: u64, commands: &mut Vec<Command>) {
+        let words = tr("Try again");
+        let r = control_capsule(ui, rect, Id::unique(key), Icon::Refresh, words, words, true);
+        self.focus_item(&r, key, first);
+        if r.clicked() {
+            commands.push(Command::ReadAppsAgain(host));
         }
     }
 
@@ -553,6 +560,18 @@ impl PlayState {
     /// Whether Play is on: the PC can start it, and its app list has the entry or may yet.
     pub(super) fn could_play(&self, host: &Host) -> bool {
         self.detail.can_start && (self.classic.is_some() || matches!(host.apps, Apps::NotLoaded | Apps::Loading))
+    }
+
+    /// Why the PC's app list stops a game that could start, once the list has had its say.
+    pub(super) fn list_problem(&self, host: &Host) -> Option<String> {
+        if !self.detail.can_start || self.classic.is_some() {
+            return None;
+        }
+        match &host.apps {
+            Apps::Failed(e) => Some(trf("The app list could not be loaded. {}", &[&e])),
+            Apps::Loaded(_) => Some(tr("The PC's app list has no entry for this game.").to_owned()),
+            Apps::NotLoaded | Apps::Loading => None,
+        }
     }
 }
 

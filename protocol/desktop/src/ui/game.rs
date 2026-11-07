@@ -293,14 +293,9 @@ impl Launcher {
         y = self.pc_words(ui, host, &state, source.name, left, y, room) + 22.0;
 
         // One line, only when there is something to know.
-        let list_problem = state.detail.can_start
-            && state.classic.is_none()
-            && matches!(host.apps, Apps::Failed(_) | Apps::Loaded(_));
-        let note = if list_problem {
-            let why = match &host.apps {
-                Apps::Failed(e) => trf("The app list could not be loaded. {}", &[&e]),
-                _ => tr("The PC's app list has no entry for this game.").to_owned(),
-            };
+        let problem = state.list_problem(host);
+        let list_problem = problem.is_some();
+        let note = if let Some(why) = problem {
             Some((why, *ERROR))
         } else {
             state
@@ -476,22 +471,9 @@ impl Launcher {
             }
         }
         if list_problem {
-            let words = tr("Try again");
-            let rect = flow.place(capsule_width(ui, words), CAPSULE_H);
-            let r = control_capsule(
-                ui,
-                rect,
-                Id::unique("game-retry"),
-                Icon::Refresh,
-                words,
-                words,
-                true,
-            );
-            self.focus_item(&r, "retry", !any_first);
+            let rect = flow.place(capsule_width(ui, tr("Try again")), CAPSULE_H);
+            self.list_retry(ui, rect, "game-retry", !any_first, host.id, commands);
             any_first = true;
-            if r.clicked() {
-                commands.push(Command::Refresh(host.id));
-            }
         }
         let star = console::favourite_of(source, game);
         let starred = console::is_starred(source, game, &self.favourites);

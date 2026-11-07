@@ -663,6 +663,11 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         boolean empty = pcGridAdapter.getCount() == 0;
         updateOptionsHint();
         noPcFoundLayout.setVisibility(empty ? View.VISIBLE : View.GONE);
+        // With no PC there is no selection to name, and the selected tab already names the page.
+        if (GlassForm.of(this) != GlassForm.PHONE) {
+            findViewById(R.id.pc_focus_title).setVisibility(empty ? View.GONE : View.VISIBLE);
+            showSelection();
+        }
         ((com.limelight.ui.OrbitView) findViewById(R.id.first_run_orbit)).setMoving(empty);
         com.limelight.ui.NightSkyView sky = findViewById(R.id.pc_sky);
         if (sky.isMoonShown() == empty) {

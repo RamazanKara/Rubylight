@@ -1145,6 +1145,34 @@ public class PcViewLifecycleTest {
         }
     }
 
+    /**
+     * A real TV's first run: the large title was absent on Add PC and "PCs" on How to connect, because a focus change wrote it.
+     * With no PC there is no selection to name and the selected tab names the page, wherever focus is. The first PC brings it.
+     */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void aTvsFirstRunHasNoLargeTitleWhereverFocusIs() {
+        Application application = RuntimeEnvironment.getApplication();
+        GlPreferences gl = GlPreferences.readPreferences(application);
+        gl.savedFingerprint = Build.FINGERPRINT;
+        gl.glRenderer = "Test renderer";
+        gl.writePreferences();
+        application.getSharedPreferences("FirstRun", 0).edit().putBoolean("pairing_guide_shown", true).commit();
+        try (var empty = Robolectric.buildActivity(Library.class).setup().visible()) {
+            android.view.View title = empty.get().findViewById(R.id.pc_focus_title);
+            assertEquals(android.view.View.GONE, title.getVisibility());
+            empty.get().findViewById(R.id.discovery_help).requestFocus();
+            org.robolectric.shadows.ShadowLooper.shadowMainLooper().idle();
+            assertEquals(android.view.View.GONE, title.getVisibility());
+        }
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            assertEquals(android.view.View.VISIBLE, controller.get().findViewById(R.id.pc_focus_title).getVisibility());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     /** First run's one action offers what the page's + offers: the address, or the code a host shows. */
     @Test
     public void theFirstRunActionOffersWhatPlusOffers() {

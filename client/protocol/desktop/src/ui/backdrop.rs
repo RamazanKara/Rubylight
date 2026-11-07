@@ -43,6 +43,8 @@ pub(super) enum Want {
     Art {
         key: String,
         texture: TextureHandle,
+        /// What its cover glows with, taken from the same bake.
+        glow: Color32,
     },
     /// A game without art: its tile's gradient.
     Tile {
@@ -88,8 +90,12 @@ pub(super) struct Ambient {
     /// What showed before the fade now running, for the page colour over art to fade with it.
     before: Option<Shows>,
     key: u64,
-    tiles: HashMap<String, TextureHandle>,
+    tiles: HashMap<String, (TextureHandle, Color32)>,
     skies: [Option<TextureHandle>; 2],
+    /// The cover's glow with what shows, and the one it fades from. This frame's value in `glow_now`.
+    glow: Color32,
+    glow_before: Color32,
+    glow_now: Color32,
 }
 
 fn hash_of(value: impl Hash) -> u64 {
@@ -109,26 +115,34 @@ fn layer_mesh(texture: TextureId, area: Rect, alpha: f32) -> Shape {
 }
 
 impl Ambient {
-    fn show(&mut self, ctx: &Context, key: u64, texture: TextureHandle, shows: Shows) {
+    fn show(&mut self, ctx: &Context, key: u64, texture: TextureHandle, shows: Shows, glow: Color32) {
         if self.shows.is_some() && self.key == key {
             return;
         }
         self.before = self.shows;
         self.shows = Some(shows);
         self.key = key;
+        self.glow_before = self.glow_now;
+        self.glow = glow;
         self.fade.show(ctx, key, texture);
     }
 
-    fn tile(&mut self, ctx: &Context, title: &str) -> TextureHandle {
+    /// The cover's glow this frame, fading as the ambient does. Nothing on the sky and in high contrast.
+    pub(super) fn glow(&self) -> Color32 {
+        self.glow_now
+    }
+
+    fn tile(&mut self, ctx: &Context, title: &str) -> (TextureHandle, Color32) {
         self.tiles
             .entry(title.to_owned())
             .or_insert_with(|| {
                 let pair = nightjar_core::tile::tile_pair(nightjar_core::tile::title_hash(title));
                 let (top, bottom) = super::cards::tile_colors(pair);
-                ctx.load_texture(
-                    "ambient-tile",
-                    ambient::bake_tile(top, bottom),
-                    TextureOptions::LINEAR,
+                let baked = ambient::bake_tile(top, bottom);
+                let glow = ambient::glow_of(&baked);
+                (
+                    ctx.load_texture("ambient-tile", baked, TextureOptions::LINEAR),
+                    glow,
                 )
             })
             .clone()
@@ -155,15 +169,16 @@ impl Ambient {
             // Ambient and sky are off: black, and solid glass needs no backdrop.
             out.push(Shape::rect_filled(screen, 0.0, *crate::theme::NIGHT));
             glass::set_backdrop(ctx, glass::Backdrop::default());
+            self.glow_now = Color32::TRANSPARENT;
             return out;
         }
         match want {
-            Want::Art { key, texture } => {
-                self.show(ctx, hash_of(("art", key)), texture, Shows::Art)
+            Want::Art { key, texture, glow } => {
+                self.show(ctx, hash_of(("art", key)), texture, Shows::Art, glow)
             }
             Want::Tile { title } => {
-                let texture = self.tile(ctx, &title);
-                self.show(ctx, hash_of(("tile", title)), texture, Shows::Art);
+                let (texture, glow) = self.tile(ctx, &title);
+                self.show(ctx, hash_of(("tile", title)), texture, Shows::Art, glow);
             }
             Want::Keep => {
                 // Nothing to keep yet: the sky rather than a bare canvas.
@@ -174,6 +189,7 @@ impl Ambient {
                         hash_of(("sky", Moon::High.index())),
                         texture,
                         Shows::Sky(Moon::High),
+                        Color32::TRANSPARENT,
                     );
                 }
             }
@@ -184,6 +200,7 @@ impl Ambient {
                     hash_of(("sky", moon.index())),
                     texture,
                     Shows::Sky(moon),
+                    Color32::TRANSPARENT,
                 );
             }
         }
@@ -191,6 +208,11 @@ impl Ambient {
         let area = screen.expand2(screen.size() * OVERSCAN);
         let backdrop = self.fade.backdrop(ctx, area);
         let along = backdrop.top.map_or(1.0, |top| top.alpha);
+        self.glow_now = if backdrop.base.is_some() {
+            self.glow_before.lerp_to_gamma(self.glow, along)
+        } else {
+            self.glow
+        };
         if let Some(base) = backdrop.base {
             out.push(layer_mesh(base.texture, area, 1.0));
         }
@@ -490,7 +512,28 @@ mod tests {
         Want::Art {
             key: key.to_owned(),
             texture: texture.clone(),
+            glow: Color32::from_rgba_premultiplied(60, 20, 20, 60),
         }
+    }
+
+    #[test]
+    fn the_glow_comes_with_the_ambient_and_rests_when_it_does() {
+        crate::theme::own_palette();
+        let ctx = Context::default();
+        let mut ambient = Ambient::default();
+        let a = texture(&ctx, 10);
+        frame(&ctx, &mut ambient, Want::Sky(Moon::High), 0.0);
+        assert_eq!(ambient.glow(), Color32::TRANSPARENT, "no cover on the sky");
+        frame(&ctx, &mut ambient, Want::Sky(Moon::High), 5.0);
+        frame(&ctx, &mut ambient, art("a", &a), 6.0);
+        let midway = 6.0 + f64::from(t::MOTION_AMBIENT_MS) / 2000.0;
+        frame(&ctx, &mut ambient, art("a", &a), midway);
+        let half = ambient.glow();
+        assert!(half.a() > 0 && half.a() < 60, "it fades in with it: {half:?}");
+        frame(&ctx, &mut ambient, art("a", &a), 10.0);
+        frame(&ctx, &mut ambient, art("a", &a), 10.1);
+        assert_eq!(ambient.glow().a(), 60);
+        assert!(!ctx.has_requested_repaint(), "no idle repaint");
     }
 
     #[test]

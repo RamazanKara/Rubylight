@@ -775,6 +775,34 @@ fn uv_in(area: Rect, rect: Rect) -> Rect {
     Rect::from_min_max(at(rect.min), at(rect.max))
 }
 
+/// What lies under a hero's cover: the colour of its ambient glowing all round (`glow`, as wide as
+/// `glow_blur`) and a dark shadow below it. Both are baked nine-slices, the same on every tier that
+/// has art; high contrast has neither.
+#[allow(clippy::too_many_arguments, reason = "two shadows, each with its own shape")]
+pub fn cover_glow(
+    out: &mut Vec<Shape>,
+    ctx: &Context,
+    rect: Rect,
+    r: f32,
+    glow: Color32,
+    glow_blur: f32,
+    shadow_y: f32,
+    shadow_blur: f32,
+) {
+    if high_contrast() {
+        return;
+    }
+    soft(out, ctx, rect, r, glow_blur, glow);
+    soft(
+        out,
+        ctx,
+        rect.translate(vec2(0.0, shadow_y)),
+        r,
+        shadow_blur,
+        Color32::from_black_alpha(140),
+    );
+}
+
 /// A flat tint inside glass or on art: the rim of a group. No blur, no nesting.
 pub fn group(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, fill: Color32) {
     if high_contrast() {

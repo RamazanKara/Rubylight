@@ -192,11 +192,14 @@ pub(crate) fn fill(hosts: &mut Hosts, launcher: &mut Launcher, ctx: &egui::Conte
             [image.width() as usize, image.height() as usize],
             &image,
         );
+        let ambient = crate::ambient::bake(&image);
+        pc.ambient_glow
+            .insert(app.id, crate::ambient::glow_of(&ambient));
         pc.ambient.insert(
             app.id,
             ctx.load_texture(
                 format!("demo-ambient-{n}"),
-                crate::ambient::bake(&image),
+                ambient,
                 egui::TextureOptions::LINEAR,
             ),
         );

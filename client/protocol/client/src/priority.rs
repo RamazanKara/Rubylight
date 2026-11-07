@@ -21,6 +21,8 @@
 //!   stream traffic" is on.
 //! - Windows raises the same threads with "prioritize stream traffic" on: the decoding thread
 //!   to `THREAD_PRIORITY_HIGHEST`, the others to `THREAD_PRIORITY_ABOVE_NORMAL`.
+//! - A Linux process that may not lower its nice value (Flatpak, an unprivileged desktop) asks
+//!   the desktop portal and then RealtimeKit over D-Bus instead ([`raise_current_thread`]).
 //! - The decode priority switch ([`decode_priority_switch`], default on) turns the direct
 //!   submission level and everything Windows does off, for A/B runs.
 //!
@@ -488,21 +490,269 @@ pub fn windows_thread_priority(level: ThreadLevel) -> Option<i32> {
     }
 }
 
-/// Raises the calling thread to `level`. On Linux `setpriority(PRIO_PROCESS, 0)` is the calling
-/// thread only; on Windows a relative `SetThreadPriority`, which needs no undoing when the thread
-/// ends (MMCSS would, and it throttles the other network traffic while a task is registered).
-pub fn raise_current_thread(level: ThreadLevel) -> io::Result<()> {
+/// What raised a thread.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RaisedBy {
+    /// `setpriority` on Linux and Android, `SetThreadPriority` on Windows.
+    Os,
+    /// xdg-desktop-portal's `org.freedesktop.portal.Realtime` on the session bus, which works
+    /// inside Flatpak.
+    Portal,
+    /// `org.freedesktop.RealtimeKit1` on the system bus.
+    RealtimeKit,
+}
+
+impl std::fmt::Display for RaisedBy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            RaisedBy::Os if cfg!(windows) => "SetThreadPriority",
+            RaisedBy::Os => "setpriority",
+            RaisedBy::Portal => "the desktop portal",
+            RaisedBy::RealtimeKit => "RealtimeKit",
+        })
+    }
+}
+
+/// A raised thread: by what, and to which nice value (Windows: thread priority).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Raised {
+    pub by: RaisedBy,
+    pub value: i32,
+}
+
+impl std::fmt::Display for Raised {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = if cfg!(windows) { "priority" } else { "nice" };
+        write!(f, "{kind} {} by {}", self.value, self.by)
+    }
+}
+
+/// Raises the calling thread to `level`; `None` when the level leaves it alone. On Linux
+/// `setpriority(PRIO_PROCESS, 0)` is the calling thread only, and a process without the right to
+/// lower its nice value (a Flatpak, any unprivileged desktop) asks the desktop portal and then
+/// RealtimeKit instead ([`raise_nice_with`]). On Windows a relative `SetThreadPriority`, which
+/// needs no undoing when the thread ends (MMCSS would, and it throttles the other network traffic
+/// while a task is registered). Called once per thread, as it starts.
+pub fn raise_current_thread(level: ThreadLevel) -> io::Result<Option<Raised>> {
     #[cfg(windows)]
-    let result = windows_thread::set_current(windows_thread_priority(level));
+    let result = match windows_thread_priority(level) {
+        None => Ok(None),
+        Some(value) => windows_thread::set_current(value).map(|()| {
+            Some(Raised {
+                by: RaisedBy::Os,
+                value,
+            })
+        }),
+    };
     #[cfg(not(windows))]
-    let result = match level {
-        ThreadLevel::Normal => Ok(()),
-        ThreadLevel::Stream => set_thread_nice(THREAD_NICE),
-        ThreadLevel::Decode => {
-            set_thread_nice(DECODE_NICE).or_else(|_| set_thread_nice(DECODE_FALLBACK_NICE))
-        }
+    let result = {
+        let (nice, fallback) = match level {
+            ThreadLevel::Normal => return Ok(None),
+            ThreadLevel::Stream => (THREAD_NICE, None),
+            ThreadLevel::Decode => (DECODE_NICE, Some(DECODE_FALLBACK_NICE)),
+        };
+        #[cfg(target_os = "linux")]
+        let services = [RaisedBy::Portal, RaisedBy::RealtimeKit]
+            .into_iter()
+            .map(|by| (by, realtime::service(by)));
+        // Android apps have no D-Bus: setpriority only.
+        #[cfg(not(target_os = "linux"))]
+        let services = std::iter::empty();
+        raise_nice_with(nice, fallback, set_thread_nice, services, current_thread_id).map(Some)
     };
     result
+}
+
+/// A D-Bus service that raises a thread of an unprivileged process: the desktop portal's
+/// `org.freedesktop.portal.Realtime` or `org.freedesktop.RealtimeKit1`.
+#[cfg_attr(windows, allow(dead_code))]
+pub(crate) trait RealtimeService {
+    /// The service's `MinNiceLevel` property: the lowest nice value it grants.
+    fn min_nice_level(&self) -> Result<i32, String>;
+    /// `MakeThreadHighPriorityWithPID` (portal) or `MakeThreadHighPriority` (RealtimeKit).
+    fn make_thread_high_priority(&self, tid: u64, nice: i32) -> Result<(), String>;
+}
+
+/// `nice` clamped to a service's `MinNiceLevel`; `None` when that is no raise at all.
+#[cfg_attr(windows, allow(dead_code))]
+fn clamp_nice(nice: i32, min_nice_level: i32) -> Option<i32> {
+    let nice = nice.max(min_nice_level);
+    (nice < 0).then_some(nice)
+}
+
+/// Tries `set_nice(nice)`, then `set_nice(fallback)`, then, only when the kernel refused for lack
+/// of privilege (EPERM, EACCES), each service in turn at `nice` clamped to its `MinNiceLevel`.
+/// A service is opened only when the one before it failed. The error lists every reason.
+#[cfg_attr(windows, allow(dead_code))]
+fn raise_nice_with<'a>(
+    nice: i32,
+    fallback: Option<i32>,
+    set_nice: impl Fn(i32) -> io::Result<()>,
+    services: impl IntoIterator<Item = (RaisedBy, Result<&'a dyn RealtimeService, String>)>,
+    tid: impl Fn() -> u64,
+) -> io::Result<Raised> {
+    let refused = match set_nice(nice) {
+        Ok(()) => {
+            return Ok(Raised {
+                by: RaisedBy::Os,
+                value: nice,
+            })
+        }
+        Err(e) => e,
+    };
+    if let Some(value) = fallback.filter(|&value| set_nice(value).is_ok()) {
+        return Ok(Raised {
+            by: RaisedBy::Os,
+            value,
+        });
+    }
+    if refused.kind() != io::ErrorKind::PermissionDenied {
+        return Err(refused);
+    }
+    let mut reasons = vec![format!("setpriority: {refused}")];
+    for (by, service) in services {
+        let raised = service.and_then(|service| {
+            let min = service.min_nice_level()?;
+            let value =
+                clamp_nice(nice, min).ok_or(format!("grants no raise (MinNiceLevel {min})"))?;
+            service.make_thread_high_priority(tid(), value)?;
+            Ok(value)
+        });
+        match raised {
+            Ok(value) => return Ok(Raised { by, value }),
+            Err(e) => reasons.push(format!("{by}: {e}")),
+        }
+    }
+    Err(io::Error::new(refused.kind(), reasons.join("; ")))
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn current_thread_id() -> u64 {
+    // SAFETY: gettid takes no arguments and cannot fail.
+    unsafe { libc::syscall(libc::SYS_gettid) as u64 }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
+fn current_thread_id() -> u64 {
+    0
+}
+
+/// The D-Bus services behind [`raise_nice_with`]: one connection per bus, opened at the first
+/// thread that needs it and kept (a failure too, so later threads don't wait on it again).
+#[cfg(target_os = "linux")]
+mod realtime {
+    use super::{RaisedBy, RealtimeService};
+    use std::sync::OnceLock;
+    use std::time::Duration;
+    use zbus::blocking::{connection::Builder, Connection};
+
+    /// Per call: a thread's start waits at most this long per service.
+    const TIMEOUT: Duration = Duration::from_millis(500);
+
+    struct Service {
+        connection: Connection,
+        destination: &'static str,
+        path: &'static str,
+        interface: &'static str,
+        /// The portal's call takes the process id; RealtimeKit's takes it from the bus.
+        with_pid: bool,
+    }
+
+    impl RealtimeService for Service {
+        fn min_nice_level(&self) -> Result<i32, String> {
+            let reply = self
+                .connection
+                .call_method(
+                    Some(self.destination),
+                    self.path,
+                    Some("org.freedesktop.DBus.Properties"),
+                    "Get",
+                    &(self.interface, "MinNiceLevel"),
+                )
+                .map_err(|e| e.to_string())?;
+            let value: zbus::zvariant::OwnedValue =
+                reply.body().deserialize().map_err(|e| e.to_string())?;
+            i32::try_from(value).map_err(|e| e.to_string())
+        }
+
+        fn make_thread_high_priority(&self, tid: u64, nice: i32) -> Result<(), String> {
+            // getpid and gettid as seen inside a Flatpak sandbox are what the portal takes: it
+            // maps them to the host's ids itself, which SDL relies on too (SDL_threadprio.c).
+            let result = if self.with_pid {
+                let pid = u64::from(std::process::id());
+                self.connection.call_method(
+                    Some(self.destination),
+                    self.path,
+                    Some(self.interface),
+                    "MakeThreadHighPriorityWithPID",
+                    &(pid, tid, nice),
+                )
+            } else {
+                self.connection.call_method(
+                    Some(self.destination),
+                    self.path,
+                    Some(self.interface),
+                    "MakeThreadHighPriority",
+                    &(tid, nice),
+                )
+            };
+            result.map(drop).map_err(|e| e.to_string())
+        }
+    }
+
+    pub(super) fn service(by: RaisedBy) -> Result<&'static dyn RealtimeService, String> {
+        static PORTAL: OnceLock<Result<Service, String>> = OnceLock::new();
+        static REALTIME_KIT: OnceLock<Result<Service, String>> = OnceLock::new();
+        let service = match by {
+            RaisedBy::Portal => PORTAL.get_or_init(|| {
+                open(
+                    true,
+                    "org.freedesktop.portal.Desktop",
+                    "/org/freedesktop/portal/desktop",
+                    "org.freedesktop.portal.Realtime",
+                    true,
+                )
+            }),
+            RaisedBy::RealtimeKit => REALTIME_KIT.get_or_init(|| {
+                open(
+                    false,
+                    "org.freedesktop.RealtimeKit1",
+                    "/org/freedesktop/RealtimeKit1",
+                    "org.freedesktop.RealtimeKit1",
+                    false,
+                )
+            }),
+            RaisedBy::Os => return Err("not a D-Bus service".into()),
+        };
+        match service {
+            Ok(service) => Ok(service),
+            Err(e) => Err(e.clone()),
+        }
+    }
+
+    fn open(
+        session: bool,
+        destination: &'static str,
+        path: &'static str,
+        interface: &'static str,
+        with_pid: bool,
+    ) -> Result<Service, String> {
+        let builder = if session {
+            Builder::session()
+        } else {
+            Builder::system()
+        };
+        let connection = builder
+            .and_then(|builder| builder.method_timeout(TIMEOUT).build())
+            .map_err(|e| format!("{} bus: {e}", if session { "session" } else { "system" }))?;
+        Ok(Service {
+            connection,
+            destination,
+            path,
+            interface,
+            with_pid,
+        })
+    }
 }
 
 #[cfg(windows)]
@@ -518,10 +768,7 @@ mod windows_thread {
         fn GetThreadPriority(thread: isize) -> i32;
     }
 
-    pub(super) fn set_current(priority: Option<i32>) -> io::Result<()> {
-        let Some(priority) = priority else {
-            return Ok(());
-        };
+    pub(super) fn set_current(priority: i32) -> io::Result<()> {
         // SAFETY: the calling thread's pseudo handle, which needs no closing.
         if unsafe { SetThreadPriority(GetCurrentThread(), priority) } == 0 {
             Err(io::Error::last_os_error())
@@ -706,6 +953,145 @@ pub(crate) mod tests {
         assert!(switch_on(Some("1")));
         assert!(!switch_on(Some("0")));
         assert!(!switch_on(Some(" 0\n")));
+    }
+
+    /// A fake portal or RealtimeKit that records its calls.
+    struct FakeService {
+        min_nice_level: Result<i32, String>,
+        answer: Result<(), String>,
+        calls: std::cell::RefCell<Vec<(u64, i32)>>,
+    }
+
+    impl FakeService {
+        fn new(min_nice_level: Result<i32, String>, answer: Result<(), String>) -> Self {
+            Self {
+                min_nice_level,
+                answer,
+                calls: Default::default(),
+            }
+        }
+    }
+
+    impl RealtimeService for FakeService {
+        fn min_nice_level(&self) -> Result<i32, String> {
+            self.min_nice_level.clone()
+        }
+
+        fn make_thread_high_priority(&self, tid: u64, nice: i32) -> Result<(), String> {
+            self.calls.borrow_mut().push((tid, nice));
+            self.answer.clone()
+        }
+    }
+
+    fn denied(_: i32) -> io::Result<()> {
+        Err(io::Error::from(io::ErrorKind::PermissionDenied))
+    }
+
+    fn raise_through(
+        set_nice: impl Fn(i32) -> io::Result<()>,
+        portal: Result<&dyn RealtimeService, String>,
+        kit: Result<&dyn RealtimeService, String>,
+    ) -> io::Result<Raised> {
+        let services = [(RaisedBy::Portal, portal), (RaisedBy::RealtimeKit, kit)];
+        raise_nice_with(
+            DECODE_NICE,
+            Some(DECODE_FALLBACK_NICE),
+            set_nice,
+            services,
+            || 42,
+        )
+    }
+
+    #[test]
+    fn setpriority_comes_first_and_no_service_is_asked() {
+        let portal = FakeService::new(Ok(-15), Ok(()));
+        let raised = raise_through(|_| Ok(()), Ok(&portal), Err("unused".into())).unwrap();
+        assert_eq!((raised.by, raised.value), (RaisedBy::Os, DECODE_NICE));
+        // A kernel that allows -4 but not -8 (RLIMIT_NICE) keeps the old fallback.
+        let raised = raise_through(
+            |nice| {
+                if nice == DECODE_NICE {
+                    denied(nice)
+                } else {
+                    Ok(())
+                }
+            },
+            Ok(&portal),
+            Err("unused".into()),
+        )
+        .unwrap();
+        assert_eq!(
+            (raised.by, raised.value),
+            (RaisedBy::Os, DECODE_FALLBACK_NICE)
+        );
+        assert!(portal.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_refused_setpriority_asks_the_portal_then_realtimekit() {
+        let portal = FakeService::new(Ok(-15), Ok(()));
+        let kit = FakeService::new(Ok(-15), Ok(()));
+        let raised = raise_through(denied, Ok(&portal), Ok(&kit)).unwrap();
+        assert_eq!((raised.by, raised.value), (RaisedBy::Portal, DECODE_NICE));
+        assert_eq!(*portal.calls.borrow(), [(42, DECODE_NICE)]);
+        assert!(kit.calls.borrow().is_empty());
+
+        let refusing = FakeService::new(Ok(-15), Err("AccessDenied".into()));
+        let raised = raise_through(denied, Ok(&refusing), Ok(&kit)).unwrap();
+        assert_eq!(
+            (raised.by, raised.value),
+            (RaisedBy::RealtimeKit, DECODE_NICE)
+        );
+        // No session bus (or no portal) at all.
+        let raised = raise_through(denied, Err("session bus: none".into()), Ok(&kit)).unwrap();
+        assert_eq!(raised.by, RaisedBy::RealtimeKit);
+        assert_eq!(raised.to_string(), "nice -8 by RealtimeKit");
+    }
+
+    #[test]
+    fn a_service_raise_is_clamped_to_its_min_nice_level() {
+        assert_eq!(clamp_nice(-8, -15), Some(-8));
+        assert_eq!(clamp_nice(-8, -5), Some(-5));
+        assert_eq!(clamp_nice(-8, 0), None);
+        let portal = FakeService::new(Ok(-5), Ok(()));
+        let raised = raise_through(denied, Ok(&portal), Err("unused".into())).unwrap();
+        assert_eq!((raised.by, raised.value), (RaisedBy::Portal, -5));
+        assert_eq!(*portal.calls.borrow(), [(42, -5)]);
+        // A service that grants nothing is skipped without a call.
+        let stingy = FakeService::new(Ok(0), Ok(()));
+        let kit = FakeService::new(Ok(-11), Ok(()));
+        let raised = raise_through(denied, Ok(&stingy), Ok(&kit)).unwrap();
+        assert_eq!((raised.by, raised.value), (RaisedBy::RealtimeKit, -8));
+        assert!(stingy.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn every_reason_is_said_when_nothing_raises() {
+        let unreadable = FakeService::new(Err("UnknownProperty".into()), Ok(()));
+        let e = raise_through(denied, Ok(&unreadable), Err("system bus: none".into())).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::PermissionDenied);
+        let message = e.to_string();
+        for part in [
+            "setpriority:",
+            "the desktop portal: UnknownProperty",
+            "RealtimeKit: system bus: none",
+        ] {
+            assert!(message.contains(part), "{message}");
+        }
+        assert!(unreadable.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn only_a_privilege_refusal_asks_a_service() {
+        let portal = FakeService::new(Ok(-15), Ok(()));
+        let e = raise_through(
+            |_| Err(io::Error::from(io::ErrorKind::InvalidInput)),
+            Ok(&portal),
+            Err("unused".into()),
+        )
+        .unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidInput);
+        assert!(portal.calls.borrow().is_empty());
     }
 
     #[cfg(windows)]

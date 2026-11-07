@@ -1,2 +1,0 @@
-# Controllers
-- **Xbox 360 (ViGEmBus) controller type.** For tools such as reWASD that look for USB controllers and may not see the standard virtual pads. It needs ViGEmBus installed separately, which is retired upstream; without it controllers stop working and the stream says why, with no other pad in its place. Checked here through XInput, rumble and Windows' device list; we have no reWASD to test it with.

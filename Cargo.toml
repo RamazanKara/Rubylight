@@ -13,7 +13,7 @@ resolver = "3"
 rusty_enet = { path = "rust/vendor/rusty_enet" }
 
 [workspace.package]
-version = "3.8.0"
+version = "3.9.0"
 edition = "2024"
 rust-version = "1.88"
 license = "GPL-3.0-only"

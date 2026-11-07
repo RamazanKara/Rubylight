@@ -5,7 +5,7 @@
 # replaces it and keeps those settings, then uninstalls it. The release workflow runs it as root
 # in a fresh, privileged Fedora container (bubblewrap needs the namespaces):
 #
-#   check-bundle.sh <nightjar-desktop-<version>-x86_64.flatpak> <version> <check-start.sh>
+#   check-bundle.sh <nightjar-desktop-<version>-<arch>.flatpak> <version> <check-start.sh>
 #
 # The runtime comes from Flathub, which the bundle names. Installs flatpak, Xvfb, xwininfo and xprop
 # with dnf when missing.

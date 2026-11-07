@@ -10,7 +10,7 @@ for dir in libva libdrm; do
 	for lib in "$here/lib/fallback/$dir"/*; do
 		soname=${lib##*/}
 		case $cache in
-			*"$soname (libc6,x86-64)"*) ;;
+			*"$soname (libc6,"*) ;;
 			*) fallback=$fallback${fallback:+:}$here/lib/fallback/$dir; break ;;
 		esac
 	done

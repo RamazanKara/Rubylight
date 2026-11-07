@@ -155,7 +155,7 @@ The release then receives these assets:
 | `nightjar-<version>-root.apk`, `nightjar-<version>.aab` | The root APK and the non-root bundle |
 | `nightjar-<version>-mapping.txt`, `nightjar-<version>-native-debug-symbols.zip` | R8 mapping and native symbols of the non-root build, for reading crash traces |
 | `nightjar-desktop-<version>-windows-x86_64-setup.exe`, `…-windows-x86_64.zip` | The Windows installer and portable archive |
-| `nightjar-desktop-<version>-linux-x86_64.deb`, `.rpm`, `.tar.gz`, `nightjar-desktop-<version>-x86_64.AppImage` | The Linux packages |
+| `nightjar-desktop-<version>-linux-<x86_64 or aarch64>.deb`, `.rpm`, `.tar.gz`, `nightjar-desktop-<version>-<x86_64 or aarch64>.AppImage`, `.flatpak` | The Linux packages |
 | `SHA256SUMS-<version>.txt` | SHA-256 of every file above |
 
 A tag with a `-` suffix publishes a prerelease that is not marked Latest. CI replaces assets only on a draft release; on a published release it refuses to overwrite an existing asset. If the release does not exist, the workflow creates it with placeholder text; replace that with `gh release edit <tag> --notes-file <file>`. The release job does not run tests, so tag a commit whose `android.yml` run on main is green. Running the workflow by hand with `dry_run` (the default) builds and verifies everything without publishing; do that before the first real tag of a release.

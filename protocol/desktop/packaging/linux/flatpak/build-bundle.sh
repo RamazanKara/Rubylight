@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Builds the Flatpak bundle from the release tar.gz that package-linux.sh made:
 #
-#   build-bundle.sh [-o <folder>] <nightjar-desktop-<version>-linux-x86_64.tar.gz>
+#   build-bundle.sh [-o <folder>] <nightjar-desktop-<version>-linux-<arch>.tar.gz>
 #
-# Writes nightjar-desktop-<version>-x86_64.flatpak beside the archive (or into -o). The manifest is
+# Writes nightjar-desktop-<version>-<arch>.flatpak (for the machine building it) beside the archive (or into -o). The manifest is
 # io.github.ramazankara.nightjar.yml.in with the archive itself as its source (the release it will
 # be downloaded from is not published yet while the release job runs), so the bundle carries
 # exactly the archive's files. The bundle names Flathub as its runtime's repository, so
-# `flatpak install --user nightjar-desktop-<version>-x86_64.flatpak` fetches
+# `flatpak install --user nightjar-desktop-<version>-<arch>.flatpak` fetches
 # org.freedesktop.Platform (the manifest's runtime-version, 25.08) where it is missing. Needs flatpak and flatpak-builder; the
 # runtime and SDK come from Flathub (added as a user remote when missing).
 set -euo pipefail
@@ -24,8 +24,10 @@ shift $((OPTIND - 1))
 [[ $# == 1 ]] || { echo "usage: build-bundle.sh [-o <folder>] <tar.gz>" >&2; exit 2; }
 archive=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 name=$(basename "$archive" .tar.gz)
-[[ $name =~ ^nightjar-desktop-(.+)-linux-x86_64$ ]] || { echo "error: $archive is not named nightjar-desktop-<version>-linux-x86_64.tar.gz" >&2; exit 2; }
+[[ $name =~ ^nightjar-desktop-(.+)-linux-(x86_64|aarch64)$ ]] || { echo "error: $archive is not named nightjar-desktop-<version>-linux-<x86_64 or aarch64>.tar.gz" >&2; exit 2; }
 version=${BASH_REMATCH[1]}
+arch=${BASH_REMATCH[2]}
+[[ $arch == "$(uname -m)" ]] || { echo "error: $archive is for $arch, this machine is $(uname -m)" >&2; exit 2; }
 [[ -n $out ]] || out=$(dirname "$archive")
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
@@ -39,7 +41,7 @@ trap 'rm -rf "$work"' EXIT
 manifest=$work/$app_id.yml
 sha=$(sha256sum "$archive" | cut -d' ' -f1)
 # The download source becomes the local archive; a template without that line fails here.
-sed -e "s|^\( *\)url: .*\$|\1path: $archive|" -e "s/@VERSION@/$version/g" -e "s/@SHA256@/$sha/g" "$here/$app_id.yml.in" >"$manifest"
+sed -e "s|^\( *\)url: .*\$|\1path: $archive|" -e "s/@VERSION@/$version/g" -e "s/@ARCH@/$arch/g" -e "s/@SHA256@/$sha/g" "$here/$app_id.yml.in" >"$manifest"
 grep -q "path: $archive" "$manifest" || { echo "error: the manifest template has no url line to replace" >&2; exit 1; }
 branch=$(bash "$here/runtime-version.sh")
 # Flathub is the one download a release depends on here: three tries, 20 and 40 s apart, for the
@@ -54,6 +56,6 @@ for try in 1 2 3; do
 done
 flatpak-builder --user --install-deps-from=flathub --disable-rofiles-fuse --force-clean --repo="$work/repo" --state-dir="$work/state" "$work/build" "$manifest" >"$work/builder.log" 2>&1 ||
 	{ tail -n 40 "$work/builder.log" >&2; exit 1; }
-bundle=$out/nightjar-desktop-$version-x86_64.flatpak
+bundle=$out/nightjar-desktop-$version-$arch.flatpak
 flatpak build-bundle --runtime-repo="$flathub" "$work/repo" "$bundle" "$app_id"
 echo "$bundle: $(du -h "$bundle" | cut -f1)"

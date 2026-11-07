@@ -1,6 +1,6 @@
 # Nightjar for Linux from the release tar.gz, as a Flatpak. packaging/linux/build-packages.sh fills
 # in the version and the archive's SHA-256 and writes the result beside the packages;
-# build-bundle.sh builds nightjar-desktop-<version>-x86_64.flatpak from it, which every release
+# build-bundle.sh builds nightjar-desktop-<version>-<arch>.flatpak from it, which every release
 # carries. Build and install it by hand with
 #   flatpak-builder --user --install --install-deps-from=flathub build io.github.ramazankara.nightjar.yml
 # The settings live in ~/.var/app/io.github.ramazankara.nightjar/config/nightjar, apart from a
@@ -47,5 +47,5 @@ modules:
       - ln -s /app/lib/nightjar/nightjar /app/bin/nightjar
     sources:
       - type: archive
-        url: https://github.com/RamazanKara/nightjar/releases/download/v@VERSION@/nightjar-desktop-@VERSION@-linux-x86_64.tar.gz
+        url: https://github.com/RamazanKara/nightjar/releases/download/v@VERSION@/nightjar-desktop-@VERSION@-linux-@ARCH@.tar.gz
         sha256: '@SHA256@'

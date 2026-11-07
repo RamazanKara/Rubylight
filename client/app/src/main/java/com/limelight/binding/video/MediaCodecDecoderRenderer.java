@@ -3641,6 +3641,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         long workStartNs = 0;
                         long workCpuStartNs = 0;
                         try {
+                    // debug.nightjar.adpf_cpu_time 0 reports the hand-off's wall time, as before.
+                    boolean cpuTime = prefs.phonePerformanceHints &&
+                            MediaCodecHelper.debugSwitch(DecoderPerformanceHints.CPU_TIME_SWITCH, true);
                             // Try to output a frame
                             int outIndex = videoDecoder.dequeueOutputBuffer(info, 50000);
                             if (outIndex >= 0) {
@@ -3648,7 +3651,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                 workStartNs = System.nanoTime();
                                 // ADPF gets this thread's CPU time: the debt wait for a newer
                                 // output and blocking releases inside the hand-off are waits too.
-                                workCpuStartNs = Debug.threadCpuTimeNanos();
+                                if (cpuTime) workCpuStartNs = Debug.threadCpuTimeNanos();
                                 // This separate elapsed clock includes scheduling/suspend delays;
                                 // frame timestamps and ADPF durations keep their existing clock.
                                 long outputDrainStartNs = SystemClock.elapsedRealtimeNanos();
@@ -3683,13 +3686,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             if (workStartNs != 0) {
                                 // Report the complete handoff once, after presenting. Reporting each
                                 // discarded output adds work while we are trying to leave catch-up.
-                                long workCpuNs = Debug.threadCpuTimeNanos() - workCpuStartNs;
+                                long workNs = cpuTime ? Debug.threadCpuTimeNanos() - workCpuStartNs :
+                                        System.nanoTime() - workStartNs;
                                 if (submitHints) {
                                     // The submissions since the last report are this frame's work too.
                                     performanceHints.setSubmitThread(submitWork.threadId());
-                                    workCpuNs += submitWork.take();
+                                    workNs += submitWork.take();
                                 }
-                                performanceHints.reportWorkDuration(workCpuNs, refreshRate);
+                                performanceHints.reportWorkDuration(workNs, refreshRate);
                             }
                             checkUpscaling();
                             doCodecRecoveryIfRequired(CR_FLAG_RENDER_THREAD);

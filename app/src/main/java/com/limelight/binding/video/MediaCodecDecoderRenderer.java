@@ -4464,14 +4464,19 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     0, nextInputBuffer.position(),
                     timestampUs, codecFlags);
             if ((codecFlags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
-                // Only a queued frame is in the decoder: a failed queue or a frame too large for
-                // the buffer must not leave the depth waiting for an output that never comes.
-                numFramesIn++;
+        // Counted before queueing, as the decoder may hand the frame back before queueInputBuffer
+        // returns and the renderer must never count an output before its input; taken back when
+        // the queue fails, so a refused frame does not leave the depth waiting for its output.
+        boolean counted = false;
+        boolean queued = false;
                 frameLatencyStats.onDecoderQueued(timestampUs, System.nanoTime());
+                numFramesIn++;
+                counted = true;
             }
 
             // We need a new buffer now
             nextInputBufferIndex = -1;
+            queued = true;
             nextInputBuffer = null;
         } catch (IllegalStateException e) {
             frameLatencyStats.discard(timestampUs, "input_failed");
@@ -4498,6 +4503,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             return false;
         }
 
+            // Taken back before a recovery sets the depth base from the counts.
+            if (counted && !queued) numFramesIn--;
         // Fetch a new input buffer now while we have some time between frames
         // to have it ready immediately when the next frame arrives.
         //

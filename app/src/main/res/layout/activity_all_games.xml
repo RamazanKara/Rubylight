@@ -41,7 +41,7 @@
             android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="?attr/colorOnSurface" />
     </LinearLayout>
     <!-- As on Home, the grid reaches 24 dp past the content on both sides so a focused poster's ring and glow show whole. -->
-    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+    <com.limelight.console.GridFrame android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
         android:layout_marginStart="-24dp" android:layout_marginEnd="-24dp" android:layout_marginTop="@dimen/space_xs"
         android:clipChildren="true">
         <com.limelight.console.TopFadeRecyclerView android:id="@+id/all_games_grid"
@@ -54,6 +54,6 @@
             android:layout_gravity="center" android:gravity="center" android:padding="@dimen/space_xl"
             android:text="@string/console_all_games_empty" android:visibility="gone"
             android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurfaceVariant" />
-    </FrameLayout>
+    </com.limelight.console.GridFrame>
 </LinearLayout>
 </FrameLayout>

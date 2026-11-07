@@ -149,6 +149,8 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
             android.view.ViewGroup.MarginLayoutParams frame = (android.view.ViewGroup.MarginLayoutParams)
                     ((View) grid.getParent()).getLayoutParams();
             frame.topMargin -= room;
+            // That room lies over the focus line and filters: a touch there is theirs, not the grid's.
+            ((GridFrame) grid.getParent()).passTouchesAbove(room);
             frame.setMarginStart(frame.getMarginStart() - room);
             frame.setMarginEnd(frame.getMarginEnd() - room);
             int above = grid.getPaddingTop() + room;

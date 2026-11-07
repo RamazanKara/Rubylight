@@ -1805,7 +1805,8 @@ mod tests {
     /// A fake FFmpeg decoder. Synchronous, each frame's picture comes out at the first receive
     /// after its send; asynchronous, as FFmpeg's V4L2 M2M decoder: a frame's picture is ready
     /// only after `ready_after` more receives (the driver's decode time), "no picture yet" until
-    /// then, and with `queue` frames in the driver a send says EAGAIN.
+    /// then, and with `queue` frames in the driver a send says EAGAIN, the pts rescaled as FFmpeg
+    /// rescales it.
     struct FakeDecoder {
         asynchronous: bool,
         ready_after: u32,
@@ -1841,6 +1842,8 @@ mod tests {
                 return media::AGAIN;
             }
             if !self.missing.contains(&((pts >> 32) as u32)) {
+                // V4L2 M2M carries the pts through the driver in microseconds (`media::packet_timebase`).
+                let pts = if self.asynchronous { media::v4l2_pts_round_trip(pts, media::packet_timebase(Hardware::V4l2m2m)) } else { pts };
                 self.pending.push_back((pts, self.ready_after));
             }
             0

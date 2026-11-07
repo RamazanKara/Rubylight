@@ -292,9 +292,52 @@ fn relative_mouse_releases_a_deferred_absolute_click_before_moving() {
         ]
     );
     assert!(!HELD.lock().unwrap().contains_key(&(false, 1)));
+
 }
 // HELD is shared by every injector: each test below uses its own keys
 // and buttons.
+
+thread_local! {
+    /// Whether HELD was free while the stand-in below sent.
+    static HELD_FREE: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+/// SendInput's stand-in that notes whether HELD was free meanwhile. Another
+/// test's thread holds it only briefly, so a few tries tell it from this one.
+fn record_held_free(inputs: &[INPUT]) -> usize {
+    let free = (0..200).any(|_| {
+        let free = HELD.try_lock().is_ok();
+        if !free {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        free
+    });
+    HELD_FREE.set(Some(free));
+    record(inputs)
+}
+#[test]
+fn a_delayed_release_is_sent_after_the_shared_key_lock_is_released() {
+    let mut injector = recording();
+    injector.apply(&click(6, true)).unwrap();
+    calls();
+    injector.inject = record_held_free;
+    injector
+        .held(false, 6, false, true, Injector::button(6, false))
+        .unwrap();
+    assert_eq!(HELD_FREE.get(), Some(true));
+    assert_eq!(calls(), [described(&[Injector::button(6, false)])]);
+    assert!(!HELD.lock().unwrap().contains_key(&(false, 6)));
+    // A press Windows refuses is still not held.
+    TAKES.set(0);
+    assert!(
+        injector
+            .held(false, 6, true, false, Injector::button(6, true))
+            .is_err()
+    );
+    TAKES.set(usize::MAX);
+    assert!(!HELD.lock().unwrap().contains_key(&(false, 6)));
+    injector.buttons.remove(&6);
+    calls();
+}
 
 #[test]
 fn overlapping_keybindings_keep_the_destination_held_and_repeating() {

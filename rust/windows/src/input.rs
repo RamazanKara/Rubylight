@@ -52,6 +52,10 @@ pub use usbip_pad::UsbipDriver;
 
 static HELD: std::sync::Mutex<BTreeMap<(bool, u32), usize>> =
     std::sync::Mutex::new(BTreeMap::new());
+/// Keeps sends in the order of their HELD updates without holding HELD through
+/// SendInput, which another injector's thread waited behind: a delayed send holds it
+/// from its update to its send, and a pass's send waits for it. Taken before HELD.
+static SEND_ORDER: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 pub fn capabilities(config: &butterpollo_core::config::Config) -> u32 {
     use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};

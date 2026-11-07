@@ -140,6 +140,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // Mid-stream reconfigure (0x5532): the adaptive-playback maximum, which grows when a larger
     // size is asked for; the size the host was last asked for; and the size being shown.
     private int maxDecodeWidth, maxDecodeHeight;
+    // The size covering every size this stream may switch to (a fold or a turn), set before
+    // setup; null when it only changes on request. coveringRefused: a configure refused it.
+    private int[] coveringSize;
+    private boolean coveringRefused;
     private volatile boolean reconfigureRequested;
     private volatile int expectedWidth, expectedHeight;
     private volatile int streamWidth, streamHeight;
@@ -908,6 +912,61 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
             return new int[] {maxWidth, maxHeight, caps.getWidthAlignment(), caps.getHeightAlignment()};
         }
+    }
+
+    /** debug.nightjar.covering_max: size the adaptive maximum for a fold or turn up front (on by default). */
+    static final String COVERING_SWITCH = "covering_max";
+
+    /**
+     * The size covering every size this stream may switch to without being asked, such as a
+     * foldable's other panel or the turned size with Rotate with device. A decoder with adaptive
+     * playback is configured for it up front, so the first fold or turn needs no restart and no
+     * extra IDR. Null, or the switch off, keeps the maximum at the stream size.
+     */
+    public void setCoveringSize(int[] covering) {
+        if (covering != null && !MediaCodecHelper.debugSwitch(COVERING_SWITCH, true)) {
+            covering = null;
+        }
+        coveringSize = covering;
+        coveringRefused = false;
+    }
+
+    /**
+     * The adaptive-playback maximum to configure for a width x height stream given the covering
+     * size: the two covered, rounded up to the decoder's alignment, and only when the decoder takes
+     * that size (H.264 also no larger than 4096, which initializeDecoder() enforces). Otherwise the
+     * stream size, so configure never fails because of it.
+     */
+    static int[] upFrontMax(int width, int height, int[] covering, MediaCodecInfo.VideoCapabilities caps, boolean h264) {
+        if (caps == null) {
+            return new int[] {width, height};
+        }
+        return upFrontMax(width, height, covering, caps.getWidthAlignment(), caps.getHeightAlignment(),
+                caps::isSizeSupported, h264);
+    }
+
+    interface SizeCheck {
+        boolean takes(int width, int height);
+    }
+
+    static int[] upFrontMax(int width, int height, int[] covering, int widthAlignment, int heightAlignment,
+                            SizeCheck decoder, boolean h264) {
+        int[] stream = {width, height};
+        if (covering == null || (covering[0] <= width && covering[1] <= height)) {
+            return stream;
+        }
+        int[] max = StreamResizePolicy.coveringMax(width, height, covering[0], covering[1]);
+        int maxWidth = alignUp(max[0], widthAlignment);
+        int maxHeight = alignUp(max[1], heightAlignment);
+        if ((h264 && (maxWidth > 4096 || maxHeight > 4096)) || !decoder.takes(maxWidth, maxHeight)) {
+            LimeLog.info("Decoder takes no " + maxWidth + "x" + maxHeight + " maximum; it grows when asked");
+            return stream;
+        }
+        return new int[] {maxWidth, maxHeight};
+    }
+
+    private static int alignUp(int value, int alignment) {
+        return alignment > 1 ? (value + alignment - 1) / alignment * alignment : value;
     }
 
     // Gets the decoder ready for an IDR of width x height before the host is asked for one.
@@ -2199,8 +2258,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             videoFormat.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, maxInputSize);
         }
 
-        // Populate keys for adaptive playback. The maximum starts at the stream size and only
-        // grows when a mid-stream reconfigure asks for more.
+        // Populate keys for adaptive playback. The maximum starts at the stream size, or the size
+        // covering a fold or turn (setCoveringSize), and grows when a mid-stream reconfigure asks for more.
         if (adaptivePlayback) {
             videoFormat.setInteger(MediaFormat.KEY_MAX_WIDTH, maxDecodeWidth);
             videoFormat.setInteger(MediaFormat.KEY_MAX_HEIGHT, maxDecodeHeight);
@@ -2571,6 +2630,28 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         vividSeiDropLogged = false;
         adaptivePlayback = MediaCodecHelper.decoderSupportsAdaptivePlayback(selectedDecoderInfo, mimeType);
         fusedIdrFrame = MediaCodecHelper.decoderSupportsFusedIdrFrame(selectedDecoderInfo, mimeType);
+        // A fold or turn this stream follows on its own: the maximum covers it from the start.
+        int[] streamMax = {maxDecodeWidth, maxDecodeHeight};
+        boolean coveringApplied = false;
+        if (adaptivePlayback && coveringSize != null && !coveringRefused && !wantVulkan && vulkanRenderer == null &&
+                packing == null && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0 &&
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            MediaCodecInfo.VideoCapabilities caps = null;
+            try {
+                caps = selectedDecoderInfo.getCapabilitiesForType(mimeType).getVideoCapabilities();
+            } catch (RuntimeException e) {
+                LimeLog.warning("Cannot read decoder sizes for a covering maximum: " + e);
+            }
+            int[] max = upFrontMax(initialWidth, initialHeight, coveringSize, caps,
+                    (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_H264) != 0);
+            if (max[0] > maxDecodeWidth || max[1] > maxDecodeHeight) {
+                maxDecodeWidth = Math.max(maxDecodeWidth, max[0]);
+                maxDecodeHeight = Math.max(maxDecodeHeight, max[1]);
+                coveringApplied = true;
+                LimeLog.info("Decoder configured for sizes up to " + maxDecodeWidth + "x" + maxDecodeHeight +
+                        " for a fold or turn (stream " + initialWidth + "x" + initialHeight + ")");
+            }
+        }
 
         boolean retryWithoutUpscaling = false;
         List<String> firstTryKeys = null;
@@ -2601,7 +2682,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             // Throw the underlying codec exception on the last attempt if the caller requested it
             // A Dolby Vision decoder that refuses every try falls back to HEVC or AV1 below instead of throwing.
             if (tryConfigureDecoder(selectedDecoderInfo, mediaFormat,
-                    !newFormat && upscaler == null && throwOnCodecError && !dolbyVision)) {
+                    !newFormat && upscaler == null && throwOnCodecError && !dolbyVision && !coveringApplied)) {
                 boolean androidLowLatency = MediaCodecHelper.asksForAndroidLowLatency(mediaFormat);
                 outputBufferQueueLimit = DecoderQueuePolicy.outputLimit(selectedDecoderInfo.getName(),
                         androidLowLatency && MediaCodecHelper.decoderSupportsAndroidRLowLatency(selectedDecoderInfo, mimeType),
@@ -2624,6 +2705,20 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             " vendor low-latency mode, stop() and configure() leave it without input buffers");
                 }
                 break;
+            }
+
+            if (coveringApplied) {
+                // The covering maximum must never cost the stream its decoder: the same try again
+                // at the stream's own maximum, which then grows only when asked.
+                LimeLog.warning("Decoder " + selectedDecoderInfo.getName() + " refused try " + tryNumber + " with the " +
+                        maxDecodeWidth + "x" + maxDecodeHeight + " covering maximum; the same try at " +
+                        streamMax[0] + "x" + streamMax[1]);
+                maxDecodeWidth = streamMax[0];
+                maxDecodeHeight = streamMax[1];
+                coveringApplied = false;
+                coveringRefused = true;
+                tryNumber--;
+                continue;
             }
 
             if (!newFormat) {

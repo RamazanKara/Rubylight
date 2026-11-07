@@ -34,6 +34,10 @@ public final class GlassPanelDrawable extends Drawable {
     private final Path rimShape = new Path();
     // Set only for the stream menu, whose recipe can change while it is open.
     private Context menuContext;
+    // Over a stream: the menu's recipes, or the HUD's.
+    private boolean overStream;
+    private int baseFill;
+    private float fillOpacity = 1f;
 
     private GlassPanelDrawable(Context context, float[] radii) {
         this.radii = radii;
@@ -51,9 +55,54 @@ public final class GlassPanelDrawable extends Drawable {
     private GlassPanelDrawable(Context context, float radius, boolean overBlur) {
         radii = new float[] {radius, radius, radius, radius, radius, radius, radius, radius};
         menuContext = context;
+        overStream = true;
         useMenuRecipe(overBlur);
         rim.setStyle(Paint.Style.STROKE);
         hairline.setStyle(Paint.Style.STROKE);
+    }
+
+    private GlassPanelDrawable(Context context, float[] radii, GlassSpec spec) {
+        this.radii = radii;
+        this.spec = spec;
+        overStream = true;
+        setFill(spec.fill);
+        rim.setStyle(Paint.Style.STROKE);
+        rim.setStrokeWidth(spec.rimWidth);
+        hairline.setStyle(Paint.Style.STROKE);
+        hairline.setStrokeWidth(Math.max(1f, context.getResources().getDisplayMetrics().density * 0.5f));
+        hairline.setColor(spec.hairline);
+    }
+
+    /**
+     * What stays up over a stream while it plays: the statistics and the keyboards. See-through on every tier and never
+     * over a blur, which would compose each stream frame on the GPU; high contrast is solid.
+     */
+    public static GlassPanelDrawable hud(Context context, float[] radii) {
+        return new GlassPanelDrawable(context, radii, AppTheme.isHighContrast(context)
+                ? GlassSpec.of(context, "menu", GlassTier.SOLID, false) : GlassSpec.hud(context));
+    }
+
+    /** A modal surface over the stream with no blur of its own, such as the controller editor's panel: the menu's near-opaque glass. */
+    public static GlassPanelDrawable stream(Context context, float[] radii) {
+        return new GlassPanelDrawable(context, radii, GlassSpec.of(context, "menu",
+                AppTheme.isHighContrast(context) ? GlassTier.SOLID : GlassTier.BAKED, false));
+    }
+
+    /** Whether this is a surface over a stream rather than over a page. */
+    boolean overStream() {
+        return overStream;
+    }
+
+    /** A user's opacity setting for the panel (0 to 1), on top of the recipe's own fill. */
+    public void setFillOpacity(float opacity) {
+        fillOpacity = Math.max(0f, Math.min(1f, opacity));
+        setFill(baseFill);
+        invalidateSelf();
+    }
+
+    private void setFill(int color) {
+        baseFill = color;
+        fill.setColor(ColorUtils.setAlphaComponent(color, Math.round((color >>> 24) * fillOpacity)));
     }
 
     /**
@@ -75,7 +124,7 @@ public final class GlassPanelDrawable extends Drawable {
     private void useMenuRecipe(boolean overBlur) {
         spec = AppTheme.isHighContrast(menuContext) ? GlassSpec.of(menuContext, "menu", GlassTier.SOLID, false)
                 : overBlur ? GlassSpec.menuWindow(menuContext) : GlassSpec.of(menuContext, "menu", GlassTier.BAKED, false);
-        fill.setColor(spec.fill);
+        setFill(spec.fill);
         rim.setStrokeWidth(spec.rimWidth);
     }
 

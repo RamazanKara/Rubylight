@@ -46,6 +46,11 @@ final class GlassSpec {
         return of(context, "nj_glass_menu_window_", false);
     }
 
+    /** What stays up over a stream while it plays (statistics, keyboards): see-through, never over a blur. */
+    static GlassSpec hud(Context context) {
+        return of(context, "nj_glass_menu_hud_", false);
+    }
+
     private static GlassSpec of(Context context, String prefix, boolean dayTokens) {
         Resources res = context.getResources();
         String key = prefix + res.getDisplayMetrics().density;

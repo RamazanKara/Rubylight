@@ -13,4 +13,6 @@
     <dimen name="home_head_tv">60dp</dimen>
     <dimen name="home_head_tv_drop">4dp</dimen>
     <dimen name="home_foot_fade">136dp</dimen>
+    <!-- How far TV All games' rows fade out under the heading and at the foot. -->
+    <dimen name="all_games_fade">56dp</dimen>
 </resources>

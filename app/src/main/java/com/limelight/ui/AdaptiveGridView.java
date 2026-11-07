@@ -452,6 +452,17 @@ public class AdaptiveGridView extends GridView {
         return more;
     }
 
+    /**
+     * A TV library's rows fade under the title over the whole fade once the grid is scrolled at all, as All games' list
+     * does. The platform's grid scales the fade by how far its first row has passed the padding, so a row scrolled a little
+     * kept a fade as short as that and stopped on a hard line under the title.
+     */
+    @Override
+    protected float getTopFadingEdgeStrength() {
+        float strength = super.getTopFadingEdgeStrength();
+        return !computers && isTelevision() && strength > 0f ? 1f : strength;
+    }
+
     /** Every card but the selected one at rest; one on its way in a glide may be up under the chrome. */
     boolean clipsAtTop(View child) {
         return !computers && (child != getSelectedView() || glideOffset != 0);

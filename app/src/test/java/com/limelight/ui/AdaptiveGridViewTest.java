@@ -61,6 +61,33 @@ public class AdaptiveGridViewTest {
         }
     }
 
+    /**
+     * On the real TV a library's top row scrolled a little stopped on a hard line under the title: the platform's grid
+     * scaled its fade down to how far that row had passed the padding. Scrolled at all, the whole fade shows, as on All games.
+     */
+    @Test @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionAScrolledLibraryFadesOverTheWholeLength() {
+        try (var controller = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup().visible()) {
+            UiNavigationTest.Screen screen = controller.get();
+            FrameLayout container = new FrameLayout(screen);
+            screen.getLayoutInflater().inflate(R.layout.app_grid_view, container);
+            AdaptiveGridView grid = container.findViewById(R.id.fragmentView);
+            grid.setColumnPolicy(false, false);
+            String[] apps = new String[80];
+            for (int i = 0; i < apps.length; i++) apps[i] = "App " + i;
+            grid.setAdapter(new ArrayAdapter<>(screen, android.R.layout.simple_list_item_1, apps));
+            grid.setPadding(0, 40, 0, 40);
+            measure(container, 1920, 1080);
+            assertEquals(screen.getResources().getDimensionPixelSize(R.dimen.all_games_fade), grid.getVerticalFadingEdgeLength());
+            float rest = org.robolectric.util.ReflectionHelpers.callInstanceMethod(grid, "getTopFadingEdgeStrength");
+            assertEquals("no fade at rest", 0f, rest, 0f);
+            grid.scrollListBy(10);
+            measure(container, 1920, 1080);
+            float scrolled = org.robolectric.util.ReflectionHelpers.callInstanceMethod(grid, "getTopFadingEdgeStrength");
+            assertEquals("the whole fade once scrolled", 1f, scrolled, 0f);
+        }
+    }
+
     @Test
     public void computerCardsStayInOneColumnOnPortraitPhones() {
         try (var controller = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup()) {

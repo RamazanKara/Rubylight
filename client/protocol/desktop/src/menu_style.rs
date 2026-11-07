@@ -939,7 +939,7 @@ fn ").unwrap_or(main.len() - start)];
                     .paint_at(ui, screen);
                 if what == "stats" {
                     // The statistics as main.rs draws them over the game: the HUD glass under the text, no menu.
-                    egui::Area::new(egui::Id::new("overlay")).anchor(egui::Align2::LEFT_TOP, vec2(16.0, 16.0)).show(ui.ctx(), |ui| {
+                    egui::Area::new(egui::Id::unique("overlay")).anchor(egui::Align2::LEFT_TOP, vec2(16.0, 16.0)).show(ui.ctx(), |ui| {
                         let place = ui.painter().add(egui::Shape::Noop);
                         let frame = egui::Frame::new().inner_margin(egui::Margin::symmetric(14, 10)).show(ui, |ui| {
                             use crate::theme;

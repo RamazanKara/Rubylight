@@ -932,6 +932,10 @@ fn run<P: Pads>(
                 }
             }
             polling = pads.plugged();
+            if !polling {
+                // The last pad left: the next line covers only the next pads.
+                stats = Stats::default();
+            }
         }
     }
 }

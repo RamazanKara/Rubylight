@@ -1883,10 +1883,20 @@ fn section_chip(ui: &mut Ui, name: &str, current: bool) -> Response {
 fn banner(ui: &mut Ui, words: impl FnOnce(&mut Ui), action: impl FnOnce(&mut Ui) -> Response) -> Response {
     let mut out = None;
     group_row(ui, |ui| {
-        ui.horizontal(|ui| {
+        // The words take the action's middle. A column starts at its top, so how far down comes from
+        // their height, known from the last pass.
+        let memory = ui.next_auto_id().with("banner-words");
+        let tall = ui.ctx().data(|d| d.get_temp::<f32>(memory)).unwrap_or(0.0);
+        let size = vec2(ui.available_width(), CONTROL_HEIGHT);
+        ui.allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
             ui.vertical(|ui| {
                 ui.set_width((ui.available_width() - 300.0).max(200.0));
-                words(ui);
+                ui.add_space(((CONTROL_HEIGHT - tall) / 2.0).max(0.0));
+                let height = ui.vertical(words).response.rect.height();
+                if (height - tall).abs() > 0.5 {
+                    ui.ctx().data_mut(|d| d.insert_temp(memory, height));
+                    ui.ctx().request_repaint();
+                }
             });
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| out = Some(action(ui)));
         });
@@ -1898,9 +1908,6 @@ fn banner(ui: &mut Ui, words: impl FnOnce(&mut Ui), action: impl FnOnce(&mut Ui)
 /// A notice above the main settings, with the button that deals with it.
 fn notice(ui: &mut Ui, text: &str, button: &'static str) -> Response {
     banner(ui, |ui| {
-        // A line or two beside the taller button's middle, not at its top.
-        let height = ui.painter().layout(text.to_owned(), regular(text::LABEL), *ON_SURFACE, ui.available_width()).size().y;
-        ui.add_space(((CONTROL_HEIGHT - height) / 2.0).max(0.0));
         ui.label(RichText::new(text).font(regular(text::LABEL)).color(ON_SURFACE));
     }, |ui| quiet_button(ui, button))
 }
@@ -1946,5 +1953,26 @@ mod tests {
         }
         assert_eq!(value_text("fps", &Settings::default(), &display, crate::glyphs::Style::Xbox), "Display (60 Hz)");
         assert_eq!(value_text("overlay", &Settings { overlay_mode: crate::config::OverlayMode::Debug, ..Settings::default() }, &display, crate::glyphs::Style::Xbox), "Off");
+    }
+}
+
+#[cfg(test)]
+mod banner_tests {
+    use super::*;
+
+    #[test]
+    fn a_banners_words_and_action_share_a_middle() {
+        let ctx = egui::Context::default();
+        crate::theme::own_palette();
+        crate::theme::apply(&ctx);
+        let (mut words, mut action) = (Rect::NOTHING, Rect::NOTHING);
+        for _ in 0..3 {
+            let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(1000.0, 400.0))), ..Default::default() };
+            let mut output = ctx.run_ui(input, |ui| {
+                action = banner(ui, |ui| words = ui.label("A line").rect, |ui| ui.add(egui::Button::new("Go").min_size(vec2(80.0, CONTROL_HEIGHT)))).rect;
+            });
+            output.textures_delta.clear();
+        }
+        assert!((words.center().y - action.center().y).abs() <= 1.0, "words {words:?}, action {action:?}");
     }
 }

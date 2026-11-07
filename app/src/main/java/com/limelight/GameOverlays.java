@@ -177,30 +177,8 @@ final class GameOverlays {
     }
 
     private void showOverlayText(CharSequence text, float textSp, boolean mayBeLong) {
-        TextView first = game.performanceOverlayView;
-        TextView second = secondOverlayColumn();
-        View scroll = game.performanceOverlayScroll;
-        View parent = scroll != null ? (View) scroll.getParent() : null;
-        int margin = Math.round(16 * game.getResources().getDisplayMetrics().density);
-        int width = parent != null ? parent.getWidth() - margin - scroll.getPaddingLeft() - scroll.getPaddingRight() : 0;
-        int height = parent != null ? parent.getHeight() - margin - scroll.getPaddingTop() - scroll.getPaddingBottom() : 0;
-        // Not laid out yet: the next second's update fits it.
-        if (!mayBeLong || width <= 0 || height <= 0 || overlayCanScroll()) {
-            first.setTextSize(textSp);
-            first.setText(text);
-            second.setVisibility(View.GONE);
-            first.setMaxWidth(game.getResources().getDimensionPixelSize(R.dimen.stream_overlay_column));
-            return;
-        }
-        com.limelight.ui.OverlayFit fit = com.limelight.ui.OverlayFit.fit(first, text, textSp, width, height,
-                game.getResources().getDimensionPixelSize(R.dimen.stream_overlay_column));
-        first.setTextSize(fit.textSp);
-        first.setMaxWidth(fit.columnWidthPx);
-        first.setText(fit.first);
-        second.setTextSize(fit.textSp);
-        second.setMaxWidth(fit.columnWidthPx);
-        second.setText(fit.second);
-        second.setVisibility(fit.second != null ? View.VISIBLE : View.GONE);
+        com.limelight.ui.OverlayFit.show(game.performanceOverlayView, secondOverlayColumn(), game.performanceOverlayScroll, text,
+                textSp, mayBeLong, overlayCanScroll());
     }
 
     // The on-screen gamepad, its layout button, per-game buttons and the key toolbar stay uncovered.

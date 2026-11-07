@@ -100,7 +100,7 @@ Android needs no scan-line check: SurfaceFlinger never flips mid-scan, and a pan
 | Stream health report and bitrate trial | Yes | Yes | Yes | |
 | Connection test | Yes | Partial | Partial | The desktop's **Remote access** check verifies the paired PC over HTTPS; it has no network path or delay test. |
 | Play away from home | Yes | Partial | Partial | Android has the Tailscale setup guide; the desktop has the **Remote access** check only. |
-| Stream traffic priority | Yes | N/A | Yes | The engine sets socket and thread priorities on Android and Linux. |
+| Stream traffic priority | Yes | N/A | Yes | The engine sets socket and thread priorities on Android and Linux, and thread priorities on Windows. |
 
 ## Sound
 

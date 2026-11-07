@@ -163,8 +163,6 @@ struct Press {
     /// The modifiers pressed around a key that repeats.
     repeat: Option<u8>,
 }
-/// How long a left release waits after absolute input, as in Sunshine.
-const LEFT_RELEASE_DELAY: std::time::Duration = std::time::Duration::from_millis(10);
 /// How often a display's rectangle is read again, and a missing display
 /// looked up again: the lookup enumerates every display.
 const RECT_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
@@ -655,10 +653,12 @@ impl Injector {
                 // right press right after a left release for a long press: the
                 // left click would land first and open a link. Hold the left
                 // release back briefly and click right meanwhile, as Sunshine does.
-                if *button == 1 && self.absolute {
+                // `absolute_left_release_delay` = 0 sends it at once.
+                if *button == 1 && self.absolute && !self.policy.left_release_delay.is_zero() {
                     if !*down && self.buttons.contains(button) {
                         self.buttons.remove(button);
-                        self.left_release = Some(std::time::Instant::now() + LEFT_RELEASE_DELAY);
+                        self.left_release =
+                            Some(std::time::Instant::now() + self.policy.left_release_delay);
                         return Ok(None);
                     }
                     if *down && self.left_release.take().is_some() {

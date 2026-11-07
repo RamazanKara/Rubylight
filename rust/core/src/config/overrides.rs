@@ -24,6 +24,7 @@ pub fn override_allowed(key: &str) -> bool {
         "key_rightalt_to_key_win",
         "mouse",
         "high_resolution_scrolling",
+        "absolute_left_release_delay",
         "native_pen_touch",
         "keybindings",
         "couch_menu",

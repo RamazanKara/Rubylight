@@ -293,6 +293,31 @@ fn relative_mouse_releases_a_deferred_absolute_click_before_moving() {
     );
     assert!(!HELD.lock().unwrap().contains_key(&(false, 1)));
 
+    // Here, as the shared left button's other checks: with
+    // absolute_left_release_delay = 0 an absolute click releases at once.
+    first.policy.left_release_delay = Duration::ZERO;
+    first.apply(&absolute_move()).unwrap();
+    calls();
+    first.apply(&click(1, true)).unwrap();
+    first.apply(&click(1, false)).unwrap();
+    assert!(first.absolute && first.left_release.is_none());
+    assert_eq!(
+        calls(),
+        [
+            described(&[Injector::button(1, true)]),
+            described(&[Injector::button(1, false)]),
+        ]
+    );
+    assert!(!HELD.lock().unwrap().contains_key(&(false, 1)));
+}
+/// An absolute move, which sets absolute mode even before the display exists.
+fn absolute_move() -> Event {
+    Event::Absolute {
+        x: 50,
+        y: 50,
+        width: 100,
+        height: 100,
+    }
 }
 // HELD is shared by every injector: each test below uses its own keys
 // and buttons.

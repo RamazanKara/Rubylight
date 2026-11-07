@@ -155,6 +155,9 @@ pub struct Policy {
     /// None: the host does not repeat held keys.
     pub repeat_delay: Option<Duration>,
     pub repeat_period: Duration,
+    /// How long a left release waits after absolute input, so a long press can
+    /// right-click first (`absolute_left_release_delay`); zero sends it at once.
+    pub left_release_delay: Duration,
     pub back_button_timeout: Option<Duration>,
     /// What each back grip presses, in [`PADDLES`] order.
     pub back_grips: [Option<GripTarget>; 4],
@@ -223,6 +226,13 @@ impl Policy {
                 ms => Some(Duration::from_millis(ms.min(60000) as u64)),
             },
             repeat_period,
+            // Sunshine's 10 ms; a negative value keeps it, as for key repeat.
+            left_release_delay: Duration::from_millis(
+                match config.integer("absolute_left_release_delay", 10) {
+                    ms if ms < 0 => 10,
+                    ms => ms.min(1000) as u64,
+                },
+            ),
             back_button_timeout: back_button_timeout(config),
             back_grips: BACK_GRIP_KEYS.map(|key| grip_target(key, config.get(key, "none"))),
             steam_deck: deck_pad(config.get("steam_deck_controller", "auto")),
@@ -623,6 +633,23 @@ mod tests {
             Policy::resolve(&Config::default()).unwrap().repeat_delay,
             Some(Duration::from_millis(500))
         );
+    }
+    #[test]
+    fn the_absolute_left_release_delay_defaults_to_sunshines_and_zero_turns_it_off() {
+        let delay = |value: &str| {
+            let config = Config::parse(&format!("absolute_left_release_delay={value}\n")).unwrap();
+            Policy::resolve(&config).unwrap().left_release_delay
+        };
+        assert_eq!(
+            Policy::resolve(&Config::default())
+                .unwrap()
+                .left_release_delay,
+            Duration::from_millis(10)
+        );
+        assert_eq!(delay("0"), Duration::ZERO);
+        assert_eq!(delay("-1"), Duration::from_millis(10));
+        assert_eq!(delay("40"), Duration::from_millis(40));
+        assert_eq!(delay("999999"), Duration::from_millis(1000));
     }
     #[test]
     fn key_repeat_frequency_cannot_overflow_the_repeat_timer() {

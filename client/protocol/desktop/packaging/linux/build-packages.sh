@@ -2,13 +2,13 @@
 # Builds the Linux packages from the release tar.gz that package-linux.sh made, so every package
 # carries exactly the archive's files:
 #
-#   build-packages.sh [-o <folder>] [-n <nfpm>] [-a <appimagetool>] [-r <AppImage runtime>] <nightjar-desktop-<version>-linux-x86_64.tar.gz>
+#   build-packages.sh [-o <folder>] [-n <nfpm>] [-a <appimagetool>] [-r <AppImage runtime>] <nightjar-desktop-<version>-linux-<arch>.tar.gz>
 #
 # Writes beside the archive (or into -o):
-#   nightjar-desktop-<version>-linux-x86_64.deb and .rpm (nfpm): the archive in /opt/nightjar,
+#   nightjar-desktop-<version>-linux-<arch>.deb and .rpm (nfpm): the archive in /opt/nightjar,
 #     /usr/bin/nightjar, and the archive's share/ (the desktop entry, the icon in the hicolor sizes
 #     and the AppStream data) in /usr/share;
-#   nightjar-desktop-<version>-x86_64.AppImage (appimagetool with the type 2 runtime given, so
+#   nightjar-desktop-<version>-<arch>.AppImage (appimagetool with the type 2 runtime given, so
 #     nothing is fetched while it builds; no "linux" in the name, as the AppImage catalog asks):
 #     the archive plus libopus, and libva, libva-drm and libdrm as fallbacks AppRun uses only
 #     where the system has none;
@@ -43,8 +43,10 @@ shift $((OPTIND - 1))
 [[ $# == 1 ]] || { echo "usage: build-packages.sh [-o <folder>] [-n <nfpm>] [-a <appimagetool>] [-r <runtime>] <tar.gz>" >&2; exit 2; }
 archive=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 name=$(basename "$archive" .tar.gz)
-[[ $name =~ ^nightjar-desktop-(.+)-linux-x86_64$ ]] || { echo "error: $archive is not named nightjar-desktop-<version>-linux-x86_64.tar.gz" >&2; exit 2; }
+[[ $name =~ ^nightjar-desktop-(.+)-linux-(x86_64|aarch64)$ ]] || { echo "error: $archive is not named nightjar-desktop-<version>-linux-<x86_64 or aarch64>.tar.gz" >&2; exit 2; }
 version=${BASH_REMATCH[1]}
+arch=${BASH_REMATCH[2]}
+if [[ $arch == aarch64 ]]; then nfpm_arch=arm64; else nfpm_arch=amd64; fi
 [[ -n $out ]] || out=$(dirname "$archive")
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
@@ -76,10 +78,12 @@ dlopened="libvulkan.so.1 libEGL.so.1 libGL.so.1 libwayland-client.so.0 libwaylan
 libxkbcommon.so.0 libdecor-0.so.0 libXcursor.so.1 libXi.so.6 libXrandr.so.2 libXss.so.1 libXfixes.so.3
 libpulse.so.0 libpipewire-0.3.so.0 libudev.so.1 libdbus-1.so.3"
 
+# The word ldconfig -p prints for this architecture.
+if [[ $arch == aarch64 ]]; then ldconfig_abi=AArch64; else ldconfig_abi=x86-64; fi
 # The Debian/Ubuntu package of an installed library, by soname.
 deb_owner() {
 	local path candidate
-	path=$(ldconfig -p | sed -n "s|^[[:space:]]*$1 (libc6,x86-64) => ||p" | head -n1)
+	path=$(ldconfig -p | sed -n "s|^[[:space:]]*$1 (libc6,$ldconfig_abi) => ||p" | head -n1)
 	[[ -n $path ]] || return 0
 	# dpkg knows a file by the path its package ships (/usr/lib or /lib, before or after the
 	# merged /usr): try the name ldconfig gives, then the resolved one, then the /usr form.
@@ -154,7 +158,7 @@ share_files() {
 # nfpm takes semver: 4.0.0-rc.1 becomes 4.0.0~rc.1 in the .deb and 4.0.0~rc.1 in the .rpm.
 cat >"$work/nfpm.yaml" <<EOF
 name: nightjar
-arch: amd64
+arch: $nfpm_arch
 platform: linux
 version: "$version"
 version_schema: semver
@@ -213,7 +217,7 @@ EOF
 # AppImage: the archive as the AppDir, started by AppRun (the executable's run path $ORIGIN/lib
 # and the PyroWave SDK beside it resolve inside the mounted image).
 appdir=$work/AppDir
-appimage=$out/nightjar-desktop-$version-x86_64.AppImage
+appimage=$out/nightjar-desktop-$version-$arch.AppImage
 cp -a "$stage" "$appdir"
 install -m 755 "$here/AppRun" "$appdir/AppRun"
 cp "$share/applications/$app_id.desktop" "$appdir/"
@@ -222,7 +226,7 @@ ln -s "$app_id.png" "$appdir/.DirIcon"
 mkdir "$appdir/usr"
 cp -r "$share" "$appdir/usr/share"
 # An installed library's path, by soname.
-lib_path() { ldconfig -p | sed -n "s|^[[:space:]]*${1//./\\.} (libc6,x86-64) => ||p" | head -n1; }
+lib_path() { ldconfig -p | sed -n "s|^[[:space:]]*${1//./\\.} (libc6,$ldconfig_abi) => ||p" | head -n1; }
 # libopus keeps one soname everywhere and has no plugins: carrying it lets the AppImage start
 # where it is not installed. libva and libdrm go to lib/fallback, which AppRun puts on the library
 # path only where the system has no copy: the system's libva finds its VA-API drivers, and Mesa
@@ -233,15 +237,18 @@ for lib in libopus.so.0:lib libva.so.2:lib/fallback/libva libva-drm.so.2:lib/fal
 	mkdir -p "$appdir/${lib#*:}"
 	cp -L "$path" "$appdir/${lib#*:}/${lib%%:*}"
 done
-ARCH=x86_64 "$appimagetool" --no-appstream --runtime-file "$runtime" "$appdir" "$appimage" >"$work/appimagetool.log" 2>&1 ||
+ARCH=$arch "$appimagetool" --no-appstream --runtime-file "$runtime" "$appdir" "$appimage" >"$work/appimagetool.log" 2>&1 ||
 	{ cat "$work/appimagetool.log" >&2; exit 1; }
 chmod +x "$appimage"
 
 # The AUR and Flatpak recipes with this archive's version and hash.
 sha=$(sha256sum "$archive" | cut -d' ' -f1)
 pkgver=${version//-/_}
-sed -e "s/@VERSION@/$version/g" -e "s/@PKGVER@/$pkgver/g" -e "s/@SHA256@/$sha/g" "$here/aur/PKGBUILD.in" >"$out/PKGBUILD"
-sed -e "s/@VERSION@/$version/g" -e "s/@SHA256@/$sha/g" "$here/flatpak/$app_id.yml.in" >"$out/$app_id.yml"
+# The AUR recipe is for x86_64 only.
+if [[ $arch == x86_64 ]]; then
+	sed -e "s/@VERSION@/$version/g" -e "s/@PKGVER@/$pkgver/g" -e "s/@SHA256@/$sha/g" "$here/aur/PKGBUILD.in" >"$out/PKGBUILD"
+fi
+sed -e "s/@VERSION@/$version/g" -e "s/@ARCH@/$arch/g" -e "s/@SHA256@/$sha/g" "$here/flatpak/$app_id.yml.in" >"$out/$app_id-$arch.yml"
 
 echo "deb depends: ${deb_depends[*]}"
 echo "rpm depends: ${rpm_depends[*]}"

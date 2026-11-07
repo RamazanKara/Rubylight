@@ -1,7 +1,7 @@
 name: Release
 
 # A pushed v* tag builds the signed release APKs and bundle and the desktop client
-# (Windows zip and installer; Linux tar.gz, .deb, .rpm, AppImage and Flatpak) and attaches them to the
+# (Windows zip and installer; Linux tar.gz, .deb, .rpm, AppImage and Flatpak for x86_64 and aarch64) and attaches them to the
 # GitHub release for that tag
 # (created here when it does not exist yet). The desktop jobs run first and the
 # release job needs them, so a tag publishes everything or nothing.
@@ -67,14 +67,31 @@ jobs:
     # The Linux desktop client: protocol/desktop/package-linux.sh builds it (SDL3 from
     # source, linked statically; the decode-only FFmpeg of protocol/desktop/ffmpeg-decode-only.sh,
     # shipped in lib/ so the machine's own FFmpeg does not matter) and packs
-    # nightjar-desktop-<version>-linux-x86_64.tar.gz; packaging/linux/build-packages.sh makes the
+    # nightjar-desktop-<version>-linux-<arch>.tar.gz; packaging/linux/build-packages.sh makes the
     # .deb, .rpm and AppImage from that archive, and each is installed and started here. A fixed
     # Ubuntu, the oldest LTS still in standard support: the glibc it builds against is the
     # packages' floor (2.35), the AppImage catalog tests on it, and the .deb's dependency names are
     # read off it. Its dav1d, NVIDIA and Vulkan headers are too old for FFmpeg 8, so
     # ffmpeg-deps-linux.sh provides all three, and its cmake is too old for the PyroWave SDK (3.27): the runner's newer one builds.
+    # Both architectures build natively, each with the same steps and start checks. The packaging
+    # tools' hashes are the ones GitHub lists for each architecture's assets.
     needs: preflight
-    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-22.04
+            nfpm_asset: x86_64
+            nfpm_sha256: 6d7f9a28b2f397934403950fcbba83f598b08d02edbe79a0815b3b4897341750
+            appimagetool_sha256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+            appimage_runtime_sha256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
+          - arch: aarch64
+            runner: ubuntu-22.04-arm
+            nfpm_asset: arm64
+            nfpm_sha256: a9a75213763783b7669719e505474c748c5ad7dc66591a195619deb50f85c2f4
+            appimagetool_sha256: f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158
+            appimage_runtime_sha256: 00cbdfcf917cc6c0ff6d3347d59e0ca1f7f45a6df1a428a0d6d8a78664d87444
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     permissions:
       contents: read
@@ -85,20 +102,22 @@ jobs:
       RUBYLIGHT_SHA: 957ace5a9cdb14b5f39cffbe662f0df1dcb41caf
       FFMPEG_VERSION: 8.1.2
       FFMPEG_SHA256: 464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c
-      # The packaging tools, pinned by version and SHA-256 (the hashes GitHub lists for the assets).
+      NJ_ARCH: ${{ matrix.arch }}
+      # The packaging tools, pinned by version and SHA-256.
       NFPM_VERSION: 2.48.0
-      NFPM_SHA256: 6d7f9a28b2f397934403950fcbba83f598b08d02edbe79a0815b3b4897341750
+      NFPM_ASSET: ${{ matrix.nfpm_asset }}
+      NFPM_SHA256: ${{ matrix.nfpm_sha256 }}
       APPIMAGETOOL_VERSION: 1.9.1
-      APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+      APPIMAGETOOL_SHA256: ${{ matrix.appimagetool_sha256 }}
       APPIMAGE_RUNTIME_VERSION: '20251108'
-      APPIMAGE_RUNTIME_SHA256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
+      APPIMAGE_RUNTIME_SHA256: ${{ matrix.appimage_runtime_sha256 }}
       # The clean distribution the .rpm and the AppImage are installed and started in, pinned by
       # the digest of its image index.
       FEDORA_IMAGE: fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814
       # A clean Ubuntu for the .deb's start check (the runner has most libraries installed already).
       UBUNTU_IMAGE: ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c
       # The runner's Ubuntu, clean, as the AppImage catalog tests on it: the AppImage must start there.
-      UBUNTU_OLDEST_IMAGE: ubuntu:22.04@sha256:8a2321a92b438238f93b4346fff61bc4259c99fdd4d9b52ee86f153fee0c344f
+      UBUNTU_OLDEST_IMAGE: ubuntu:22.04@sha256:076e7bf82319619f28dd0aa9c02ab34b055ad37100395b4f49a2ffba04fb5e11
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -133,7 +152,8 @@ jobs:
       # branch run cached can end up in a published package. Only the downloaded crates
       # (~/.cargo/registry, checked by Cargo.lock) are restored.
       # The cached FFmpeg and its dav1d, the PyroWave SDK and the target (SDL3's C objects) are
-      # built against this image's glibc and libraries: every such cache is keyed by the image.
+      # built against this image's glibc and libraries: every such cache is keyed by the image and
+      # the architecture.
       - name: Runner image
         id: image
         run: echo "os=$ImageOS" >> "$GITHUB_OUTPUT"
@@ -143,7 +163,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ffprefix
-          key: ffmpeg-decode-only-linux-${{ steps.image.outputs.os }}-${{ env.FFMPEG_VERSION }}-${{ env.FFMPEG_SHA256 }}-${{ hashFiles('protocol/desktop/ffmpeg-decode-only.sh', 'protocol/desktop/ffmpeg-deps-linux.sh') }}
+          key: ffmpeg-decode-only-linux-${{ matrix.arch }}-${{ steps.image.outputs.os }}-${{ env.FFMPEG_VERSION }}-${{ env.FFMPEG_SHA256 }}-${{ hashFiles('protocol/desktop/ffmpeg-decode-only.sh', 'protocol/desktop/ffmpeg-deps-linux.sh') }}
       - name: Build the decode-only FFmpeg
         if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
         run: |
@@ -164,7 +184,7 @@ jobs:
             pyrowave-sdk/libpyrowave-shared.so
             pyrowave-sdk/build-info.txt
             pyrowave-sdk/licenses
-          key: pyrowave-sdk-linux-${{ steps.image.outputs.os }}-${{ env.RUBYLIGHT_SHA }}-${{ hashFiles('protocol/desktop/pyrowave-sdk.pin', 'scripts/build-pyrowave-sdk.sh', 'app/src/main/jni/pyrowave-renderer/patches/*.patch') }}
+          key: pyrowave-sdk-linux-${{ matrix.arch }}-${{ steps.image.outputs.os }}-${{ env.RUBYLIGHT_SHA }}-${{ hashFiles('protocol/desktop/pyrowave-sdk.pin', 'scripts/build-pyrowave-sdk.sh', 'app/src/main/jni/pyrowave-renderer/patches/*.patch') }}
       - name: Build the PyroWave SDK
         if: steps.sdk-cache.outputs.cache-hit != 'true'
         run: bash scripts/build-pyrowave-sdk.sh -o "$GITHUB_WORKSPACE/pyrowave-sdk" -H "$GITHUB_WORKSPACE/rubylight-host"
@@ -184,8 +204,8 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: protocol/target
-          key: desktop-linux-${{ steps.image.outputs.os }}-${{ steps.rustc.outputs.version }}-${{ hashFiles('protocol/Cargo.lock') }}
-          restore-keys: desktop-linux-${{ steps.image.outputs.os }}-${{ steps.rustc.outputs.version }}-
+          key: desktop-linux-${{ matrix.arch }}-${{ steps.image.outputs.os }}-${{ steps.rustc.outputs.version }}-${{ hashFiles('protocol/Cargo.lock') }}
+          restore-keys: desktop-linux-${{ matrix.arch }}-${{ steps.image.outputs.os }}-${{ steps.rustc.outputs.version }}-
       # package-linux.sh checks the SDK against the pin, then runs the unpacked archive as
       # `nightjar --check-pyrowave`: the library must load (a runner has no Vulkan device). It also
       # fails when the unpacked executable loads an FFmpeg library from outside the archive.
@@ -193,7 +213,7 @@ jobs:
         run: bash protocol/desktop/package-linux.sh -f "$GITHUB_WORKSPACE/ffprefix" -s "$GITHUB_WORKSPACE/pyrowave-sdk" -v "$VERSION" -o "$GITHUB_WORKSPACE/dist"
       - name: Check the package
         run: |
-          name="nightjar-desktop-$VERSION-linux-x86_64"
+          name="nightjar-desktop-$VERSION-linux-$NJ_ARCH"
           tar -tzf "dist/$name.tar.gz" | tee contents.txt
           for file in nightjar README.md LINUX-RUNTIME.txt libpyrowave-shared.so pyrowave-sdk-build-info.txt licenses-pyrowave/LICENSE \
               licenses-ffmpeg/COPYING.LGPLv2.1 licenses-ffmpeg/SOURCE.txt licenses-dav1d/COPYING; do
@@ -218,10 +238,10 @@ jobs:
           tools="$RUNNER_TEMP/packaging-tools"
           mkdir -p "$tools"
           cd "$tools"
-          curl -sSLf --retry 5 --retry-all-errors -o nfpm.tar.gz "https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz"
-          curl -sSLf --retry 5 --retry-all-errors -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-x86_64.AppImage"
-          curl -sSLf --retry 5 --retry-all-errors -o runtime-x86_64 "https://github.com/AppImage/type2-runtime/releases/download/$APPIMAGE_RUNTIME_VERSION/runtime-x86_64"
-          printf '%s  %s\n' "$NFPM_SHA256" nfpm.tar.gz "$APPIMAGETOOL_SHA256" appimagetool "$APPIMAGE_RUNTIME_SHA256" runtime-x86_64 | sha256sum -c -
+          curl -sSLf --retry 5 --retry-all-errors -o nfpm.tar.gz "https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION/nfpm_${NFPM_VERSION}_Linux_$NFPM_ASSET.tar.gz"
+          curl -sSLf --retry 5 --retry-all-errors -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-$NJ_ARCH.AppImage"
+          curl -sSLf --retry 5 --retry-all-errors -o appimage-runtime "https://github.com/AppImage/type2-runtime/releases/download/$APPIMAGE_RUNTIME_VERSION/runtime-$NJ_ARCH"
+          printf '%s  %s\n' "$NFPM_SHA256" nfpm.tar.gz "$APPIMAGETOOL_SHA256" appimagetool "$APPIMAGE_RUNTIME_SHA256" appimage-runtime | sha256sum -c -
           tar -xzf nfpm.tar.gz nfpm
           chmod +x nfpm appimagetool
       # Made from the tar.gz above, so they carry its files. The runner has no FUSE for
@@ -231,8 +251,8 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: '1'
         run: |
           tools="$RUNNER_TEMP/packaging-tools"
-          bash protocol/desktop/packaging/linux/build-packages.sh -n "$tools/nfpm" -a "$tools/appimagetool" -r "$tools/runtime-x86_64" \
-            "dist/nightjar-desktop-$VERSION-linux-x86_64.tar.gz"
+          bash protocol/desktop/packaging/linux/build-packages.sh -n "$tools/nfpm" -a "$tools/appimagetool" -r "$tools/appimage-runtime" \
+            "dist/nightjar-desktop-$VERSION-linux-$NJ_ARCH.tar.gz"
       # Each package installs, answers --version (no window needed) and uninstalls without
       # leftovers: the .deb on this Ubuntu runner, the .rpm in a clean Fedora. The AppImage runs in
       # a Fedora of its own without libva and libdrm, and in a clean Ubuntu 22.04 without libva, the
@@ -245,7 +265,7 @@ jobs:
       # weak dependencies).
       - name: Install, start and remove the packages
         run: |
-          name="nightjar-desktop-$VERSION-linux-x86_64"
+          name="nightjar-desktop-$VERSION-linux-$NJ_ARCH"
           depends=$(dpkg-deb -f "dist/$name.deb" Depends)
           for pkg in libasound2t64 libx11-6 libxext6; do
             grep -Eq "(^|, )$pkg( |,|$)" <<<"$depends" || { echo "::error::the .deb does not depend on $pkg: $depends"; exit 1; }
@@ -264,7 +284,7 @@ jobs:
           test -s /usr/share/icons/hicolor/256x256/apps/io.github.ramazankara.nightjar.png || { echo "::error::the .deb has no icon"; exit 1; }
           sudo apt-get remove -y -qq nightjar
           if test -e /opt/nightjar || test -e /usr/bin/nightjar; then echo "::error::removing the .deb left files behind"; exit 1; fi
-          appimage="nightjar-desktop-$VERSION-x86_64.AppImage"
+          appimage="nightjar-desktop-$VERSION-$NJ_ARCH.AppImage"
           APPIMAGE_EXTRACT_AND_RUN=1 "./dist/$appimage" --version | grep -qx "Nightjar $VERSION" || { echo "::error::the AppImage does not start"; exit 1; }
           docker run --rm -e VERSION -e name="$name" -v "$PWD/dist:/dist:ro" -v "$PWD/protocol/desktop/packaging/linux/check-start.sh:/check-start.sh:ro" "$FEDORA_IMAGE" bash -euo pipefail -c '
             requires=$(rpm -qp --requires "/dist/$name.rpm")
@@ -305,14 +325,14 @@ jobs:
       - name: Build the Flatpak bundle
         run: |
           sudo apt-get install -y -qq --no-install-recommends flatpak flatpak-builder >/dev/null
-          bash protocol/desktop/packaging/linux/flatpak/build-bundle.sh "dist/nightjar-desktop-$VERSION-linux-x86_64.tar.gz"
+          bash protocol/desktop/packaging/linux/flatpak/build-bundle.sh "dist/nightjar-desktop-$VERSION-linux-$NJ_ARCH.tar.gz"
       - name: Install and start the Flatpak bundle
         run: |
           docker run --rm --privileged -e VERSION -v "$PWD/dist:/dist:ro" -v "$PWD/protocol/desktop/packaging/linux:/linux:ro" "$FEDORA_IMAGE" \
-            bash /linux/flatpak/check-bundle.sh "/dist/nightjar-desktop-$VERSION-x86_64.flatpak" "$VERSION" /linux/check-start.sh
+            bash /linux/flatpak/check-bundle.sh "/dist/nightjar-desktop-$VERSION-$NJ_ARCH.flatpak" "$VERSION" /linux/check-start.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: desktop-linux
+          name: desktop-linux-${{ matrix.arch }}
           path: |
             dist/*.tar.gz
             dist/*.deb
@@ -610,7 +630,7 @@ jobs:
           merge-multiple: true
       - name: Check the desktop packages
         run: |
-          for file in "desktop/nightjar-desktop-$VERSION-linux-x86_64".{tar.gz,deb,rpm} "desktop/nightjar-desktop-$VERSION-x86_64.AppImage" "desktop/nightjar-desktop-$VERSION-x86_64.flatpak" \
+          for file in "desktop/nightjar-desktop-$VERSION-linux-"{x86_64,aarch64}.{tar.gz,deb,rpm} "desktop/nightjar-desktop-$VERSION-"{x86_64,aarch64}.{AppImage,flatpak} \
               "desktop/nightjar-desktop-$VERSION-windows-x86_64.zip" "desktop/nightjar-desktop-$VERSION-windows-x86_64-setup.exe"; do
             test -s "$file" || { echo "::error::$file is missing from the desktop artifacts"; exit 1; }
           done

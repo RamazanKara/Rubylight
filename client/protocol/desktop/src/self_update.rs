@@ -96,10 +96,15 @@ impl CopyKind {
     pub fn asset_name(&self, version: &str) -> Option<String> {
         match self {
             Self::Installed => Some(format!("nightjar-desktop-{version}-windows-x86_64-setup.exe")),
-            Self::AppImage(_) => Some(format!("nightjar-desktop-{version}-x86_64.AppImage")),
+            Self::AppImage(_) => Some(appimage_asset(version, std::env::consts::ARCH)),
             Self::Portable | Self::Managed => None,
         }
     }
+}
+
+/// The AppImage of one architecture (the names of `std::env::consts::ARCH`): an update stays on it.
+fn appimage_asset(version: &str, arch: &str) -> String {
+    format!("nightjar-desktop-{version}-{arch}.AppImage")
 }
 
 /// This process's kind of copy, decided once.
@@ -585,7 +590,9 @@ mod tests {
     #[test]
     fn the_asset_names_are_the_ones_the_release_publishes() {
         assert_eq!(CopyKind::Installed.asset_name("4.7.0").unwrap(), "nightjar-desktop-4.7.0-windows-x86_64-setup.exe");
-        assert_eq!(CopyKind::AppImage("x".into()).asset_name("4.7.0").unwrap(), "nightjar-desktop-4.7.0-x86_64.AppImage");
+        assert_eq!(appimage_asset("4.7.0", "x86_64"), "nightjar-desktop-4.7.0-x86_64.AppImage");
+        assert_eq!(appimage_asset("4.7.0", "aarch64"), "nightjar-desktop-4.7.0-aarch64.AppImage", "an ARM handheld must not update to the x86_64 image");
+        assert_eq!(CopyKind::AppImage("x".into()).asset_name("4.7.0").unwrap(), appimage_asset("4.7.0", std::env::consts::ARCH));
     }
 
     #[test]

@@ -17,4 +17,12 @@
     <string name="library_offline">Bu bilgisayar çevrimdışı. Kayıtlı kitaplığınız hâlâ burada. Oynamak için yeniden bağlanın.</string>
     <string name="library_hidden_notice">Oyun kitaplığınızdan gizlendi</string>
     <string name="library_undo">Geri al</string>
+    <plurals name="library_results">
+        <item quantity="one">%1$d / %2$d oyun</item>
+        <item quantity="other">%1$d / %2$d oyun</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="one">%1$d oyun · gizliler dahil</item>
+        <item quantity="other">%1$d oyun · gizliler dahil</item>
+    </plurals>
 </resources>

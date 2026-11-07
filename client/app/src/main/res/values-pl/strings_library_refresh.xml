@@ -17,4 +17,16 @@
     <string name="library_offline">Ten komputer jest offline. Zapisana biblioteka nadal tu jest. Połącz się ponownie, aby grać.</string>
     <string name="library_hidden_notice">Gra ukryta w bibliotece</string>
     <string name="library_undo">Cofnij</string>
+    <plurals name="library_results">
+        <item quantity="one">Gry: %1$d z %2$d</item>
+        <item quantity="few">Gry: %1$d z %2$d</item>
+        <item quantity="many">Gry: %1$d z %2$d</item>
+        <item quantity="other">Gry: %1$d z %2$d</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="one">%1$d gra · z ukrytymi</item>
+        <item quantity="few">%1$d gry · z ukrytymi</item>
+        <item quantity="many">%1$d gier · z ukrytymi</item>
+        <item quantity="other">%1$d gry · z ukrytymi</item>
+    </plurals>
 </resources>

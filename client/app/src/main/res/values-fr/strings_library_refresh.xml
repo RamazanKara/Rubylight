@@ -17,4 +17,14 @@
     <string name="library_offline">Ce PC est hors ligne. Votre bibliothèque enregistrée reste disponible. Reconnectez-vous pour jouer.</string>
     <string name="library_hidden_notice">Jeu masqué de votre bibliothèque</string>
     <string name="library_undo">Annuler</string>
+    <plurals name="library_results">
+        <item quantity="one">%1$d jeu sur %2$d</item>
+        <item quantity="many">%1$d jeux sur %2$d</item>
+        <item quantity="other">%1$d jeux sur %2$d</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="one">%1$d jeu · masqués inclus</item>
+        <item quantity="many">%1$d de jeux · masqués inclus</item>
+        <item quantity="other">%1$d jeux · masqués inclus</item>
+    </plurals>
 </resources>

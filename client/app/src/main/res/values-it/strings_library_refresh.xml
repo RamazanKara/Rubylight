@@ -17,4 +17,14 @@
     <string name="library_offline">Questo PC è offline. La libreria salvata è ancora qui. Riconnettiti per giocare.</string>
     <string name="library_hidden_notice">Gioco nascosto dalla libreria</string>
     <string name="library_undo">Annulla</string>
+    <plurals name="library_results">
+        <item quantity="one">%1$d di %2$d gioco</item>
+        <item quantity="many">%1$d di %2$d giochi</item>
+        <item quantity="other">%1$d di %2$d giochi</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="one">%1$d gioco · inclusi i nascosti</item>
+        <item quantity="many">%1$d giochi · inclusi i nascosti</item>
+        <item quantity="other">%1$d giochi · inclusi i nascosti</item>
+    </plurals>
 </resources>

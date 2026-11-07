@@ -66,6 +66,10 @@
             app:queryBackground="@android:color/transparent" app:submitBackground="@android:color/transparent"
             android:visibility="gone" app:queryHint="@string/library_search" app:iconifiedByDefault="false"
             android:inputType="text" android:imeOptions="actionSearch" />
+        <!-- What the grid holds when it is not simply every shown game: a search's matches, or hidden games shown. -->
+        <TextView android:id="@+id/library_summary" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:maxLines="1" android:ellipsize="end" android:textAppearance="@style/TextAppearance.Nightjar.Caption"
+            android:textColor="?attr/colorOnSurfaceVariant" android:accessibilityLiveRegion="polite" android:visibility="gone" />
         <TextView android:id="@+id/library_focus_title" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:maxLines="1" android:ellipsize="end" android:textAppearance="@style/TextAppearance.Nightjar.Glass.PageTitle" android:fontFamily="?attr/nightjarFaceStrong"
             android:letterSpacing="-0.02" android:textColor="?attr/colorOnSurface" android:shadowColor="#66000000" android:shadowRadius="12" android:shadowDy="2"

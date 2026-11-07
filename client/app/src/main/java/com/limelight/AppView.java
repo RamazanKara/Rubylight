@@ -562,6 +562,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
             row.setPaddingRelative(left + edge, top + Math.round(8 * density), right + edge, 0);
             ((android.view.ViewGroup.MarginLayoutParams) librarySearch.getLayoutParams()).setMarginStart(left + edge);
             ((android.view.ViewGroup.MarginLayoutParams) librarySearch.getLayoutParams()).setMarginEnd(right + edge);
+            placeSummary(left + edge, right + edge);
             gridStart = left + edge;
             gridEnd = right + edge;
             findViewById(R.id.library_bottom_row).setPadding(left + res.getDimensionPixelSize(R.dimen.space_m), 0,
@@ -582,12 +583,30 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
             line.setMarginEnd(right + side);
             ((android.view.ViewGroup.MarginLayoutParams) librarySearch.getLayoutParams()).setMarginStart(left + side);
             ((android.view.ViewGroup.MarginLayoutParams) librarySearch.getLayoutParams()).setMarginEnd(right + side);
+            placeSummary(left + side, right + side);
             gridStart = left + side;
             gridEnd = right + side;
         }
         android.widget.FrameLayout.LayoutParams loading = (android.widget.FrameLayout.LayoutParams) findViewById(R.id.library_loading).getLayoutParams();
         loading.topMargin = top;
         placeFoot();
+    }
+
+    private void placeSummary(int start, int end) {
+        android.view.ViewGroup.MarginLayoutParams at = (android.view.ViewGroup.MarginLayoutParams) findViewById(R.id.library_summary).getLayoutParams();
+        at.setMarginStart(start);
+        at.setMarginEnd(end);
+    }
+
+    /**
+     * The caption over the grid: a search's matches out of the games it looked through, or the count with hidden games
+     * shown. Null when the grid simply shows every game that is not hidden, or shows nothing (the status panel speaks).
+     */
+    static String librarySummary(android.content.res.Resources res, String query, boolean showHidden, int shown, int searched) {
+        if (shown == 0) return null;
+        if (!query.trim().isEmpty()) return res.getQuantityString(R.plurals.library_results, searched, shown, searched);
+        if (showHidden) return res.getQuantityString(R.plurals.library_showing_hidden, shown, shown);
+        return null;
     }
 
     /** The capsule of the running game and the keys' line above the tabs, and what the grid keeps free under its last row. */
@@ -730,6 +749,15 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
         }
         placeFoot();
         findViewById(R.id.library_loading).setVisibility(loadingApps ? View.VISIBLE : View.GONE);
+        String summary = appGridAdapter == null ? null
+                : librarySummary(getResources(), searchQuery, showHiddenApps, visible, appGridAdapter.getLibraryCount());
+        TextView summaryLine = findViewById(R.id.library_summary);
+        if (summary == null) {
+            summaryLine.setVisibility(View.GONE);
+        } else {
+            if (!summary.contentEquals(summaryLine.getText())) summaryLine.setText(summary);
+            summaryLine.setVisibility(View.VISIBLE);
+        }
 
         int message = libraryStatus;
         int action = R.string.library_retry;

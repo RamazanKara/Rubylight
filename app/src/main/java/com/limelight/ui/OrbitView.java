@@ -93,8 +93,18 @@ public class OrbitView extends FrameLayout {
     }
 
     private boolean shouldRun() {
-        return moving && isAttachedToWindow() && isShown() && !Motion.reduced(getContext());
+        return moving && windowVisible && isAttachedToWindow() && isShown() && !Motion.reduced(getContext());
     }
+
+    /** A stopped activity's window goes away with its views still "shown": nothing else would stop the turn. */
+    @Override
+    protected void onWindowVisibilityChanged(int visibility) {
+        super.onWindowVisibilityChanged(visibility);
+        windowVisible = visibility == VISIBLE;
+        if (dot != null) updateMotion();
+    }
+
+    private boolean windowVisible = true;
 
     private float orbitRadius() {
         return Math.min(getWidth(), getHeight()) * 0.5f - dotSize;

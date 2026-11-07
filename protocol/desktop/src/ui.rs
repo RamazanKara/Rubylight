@@ -409,6 +409,8 @@ pub struct Launcher {
     page_to_top: bool,
     /// Back was used on the page header this frame.
     back_pressed: bool,
+    /// Where the page's Back has its slot this frame: None on a page without one.
+    back_slot: Option<f32>,
     /// The display's tearing support, for the VRR setting's note.
     pub tearing_supported: bool,
     /// The renderer's Direct3D 11 device, which the PyroWave GPU decoder's settings probe runs on.
@@ -505,6 +507,7 @@ impl Launcher {
             page_scrolled: 0.0,
             page_to_top: false,
             back_pressed: false,
+            back_slot: None,
             tearing_supported: false,
             gpu_device: None,
             display,
@@ -1001,7 +1004,8 @@ impl Launcher {
         if blocked {
             self.focus_screen = false;
         }
-        self.top_bar(&ctx, &view, logo, blocked, &mut commands);
+        let brand = self.top_bar(&ctx, &view, blocked, &mut commands);
+        self.back_slot = None;
         // Every page scrolls whole beneath the chrome, so whatever is revealed rests below it.
         self.scroll_inset = chrome::PAGE_TOP;
         ui.add_enabled_ui(!blocked, |ui| {
@@ -1036,6 +1040,7 @@ impl Launcher {
             if std::mem::take(&mut self.back_pressed) {
                 self.back(&mut commands, false);
             }
+            self.paint_brand(&ctx, brand, logo);
             // What rose over its neighbours, under the chrome and whatever covers the page.
             glass::flush_deferred(ui);
             let veil = self.ambient.veil(&ctx, full, chrome::brand_rect(full), self.page_scrolled);
@@ -1095,6 +1100,11 @@ impl Launcher {
         }
     }
 
+    /// Whether the page leads back: anything below the top level.
+    fn has_back(&self) -> bool {
+        !matches!(self.screen, Screen::Home | Screen::Hosts | Screen::Settings | Screen::Help)
+    }
+
     /// Under the chrome, below the top level: a row that leads back and names the page, with that
     /// page's actions at its right.
     fn header(&mut self, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>) {
@@ -1111,22 +1121,25 @@ impl Launcher {
             Screen::StreamHotkeys => tr("Stream hotkeys").to_owned(),
         };
         ui.horizontal(|ui| {
-            ui.set_min_height(40.0);
-            // Back names where it leads when that is a destination's page.
-            let (to, said) = match self.screen {
-                Screen::Apps(_) if self.trail.last().is_none_or(|(s, _)| *s == Screen::Hosts) => (en("PCs"), en("Back to PCs")),
-                Screen::Profiles | Screen::Controllers | Screen::Shortcuts | Screen::StreamHotkeys => (en("Settings"), en("Back to Settings")),
-                _ => (en("Back"), en("Back")),
+            ui.spacing_mut().item_spacing.x = 14.0;
+            ui.set_min_height(chrome::BACK_SIZE);
+            // Back names where it leads when that is a destination's page, so a screen reader tells
+            // it from the destination of the same name in the row above.
+            let said = match self.screen {
+                Screen::Apps(_) if self.trail.last().is_none_or(|(s, _)| *s == Screen::Hosts) => en("Back to PCs"),
+                Screen::Profiles | Screen::Controllers | Screen::Shortcuts | Screen::StreamHotkeys => en("Back to Settings"),
+                _ => en("Back"),
             };
-            let back = button(ui, Some(Icon::Back), tr(to), Tone::Plain, Size { pad: 12.0, ..Size::HEADER });
-            // A screen reader tells it from the destination of the same name in the row above.
-            back.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tr(said)));
-            if back.clicked() {
+            let (slot, _) = ui.allocate_exact_size(Vec2::splat(chrome::BACK_SIZE), Sense::hover());
+            if self.sticky_back(ui, slot, tr(said)).clicked() {
                 self.back_pressed = true;
             }
             if !title.is_empty() {
-                ui.add_space(space::S);
-                ui.label(RichText::new(title).font(semibold(text::SECTION)).color(PAPER));
+                // A long name ends in an ellipsis before the page's actions.
+                let room = ui.available_width() - self.header_width - 2.0 * space::M;
+                ui.allocate_ui(vec2(room.max(0.0), chrome::BACK_SIZE), |ui| {
+                    ui.add(egui::Label::new(RichText::new(title).font(semibold(chrome::PAGE_TITLE)).color(PAPER)).truncate());
+                });
             }
             self.actions(ui, view, commands);
         });

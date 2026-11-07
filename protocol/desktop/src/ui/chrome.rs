@@ -14,6 +14,14 @@ pub(super) const BAR_H: f32 = t::SIZE_TOP_CAPSULE_HEIGHT;
 pub(super) const PAGE_TOP: f32 = 88.0;
 /// The brand's width with its wordmark, near enough.
 const BRAND_WORDED_W: f32 = 118.0;
+/// The round Back, at rest at the head of a page and held in the brand's place once scrolled there.
+pub(super) const BACK_SIZE: f32 = 44.0;
+const BACK_HELD_AT: f32 = BAR_TOP + (BAR_H - BACK_SIZE) / 2.0;
+/// How far a page has scrolled when the brand starts to give way to Back, and when it is gone.
+const BRAND_FADES_FROM: f32 = 16.0;
+const BRAND_GONE_AT: f32 = 36.0;
+/// A page's title beside Back.
+pub(super) const PAGE_TITLE: f32 = 30.0;
 const CAPSULE_GAP: f32 = 14.0;
 const SEARCH_W: f32 = 220.0;
 /// Below this window width the search field folds to its icon, below the second the wordmark goes.
@@ -71,6 +79,29 @@ pub(super) fn brand_rect(screen: Rect) -> Rect {
     )
 }
 
+/// Where Back shows with its page's slot starting at `slot_top`: with the page, then held in the bar.
+pub(super) fn back_top(screen: Rect, slot_top: f32) -> f32 {
+    slot_top.max(screen.top() + BACK_HELD_AT)
+}
+
+/// The brand's strength with Back's slot at `slot_top`, None on a page without Back. The mark never
+/// shows through Back.
+pub(super) fn brand_alpha(screen: Rect, slot_top: Option<f32>) -> f32 {
+    slot_top.map_or(1.0, |top| {
+        let scrolled = screen.top() + PAGE_TOP - top;
+        1.0 - ((scrolled - BRAND_FADES_FROM) / (BRAND_GONE_AT - BRAND_FADES_FROM)).clamp(0.0, 1.0)
+    })
+}
+
+/// All the places Back can show, for the live chain: from its rest down the page to the bar.
+fn back_column(screen: Rect) -> Rect {
+    let margin = page_margin(screen.width());
+    Rect::from_min_size(
+        pos2(screen.left() + margin, screen.top() + BACK_HELD_AT),
+        vec2(BACK_SIZE, PAGE_TOP - BACK_HELD_AT + BACK_SIZE),
+    )
+}
+
 fn extend(ui: &Ui, shapes: Vec<Shape>) {
     ui.painter().extend(shapes);
 }
@@ -117,6 +148,11 @@ fn hover_lift(ui: &Ui, rect: Rect, r: f32, feel: glass::Feel) {
     extend(ui, out);
 }
 
+/// The layer of the chrome over every page.
+fn top_bar_layer() -> egui::LayerId {
+    egui::LayerId::new(egui::Order::Middle, Id::unique("top-bar"))
+}
+
 impl Launcher {
     /// The chrome, in an area above the page so content scrolls beneath it and pointer and focus
     /// reach it first. Its first shape is the boundary the live chain blurs up to.
@@ -124,10 +160,9 @@ impl Launcher {
         &mut self,
         ctx: &egui::Context,
         view: &View<'_>,
-        logo: egui::TextureId,
         blocked: bool,
         commands: &mut Vec<Command>,
-    ) {
+    ) -> egui::layers::ShapeIdx {
         let screen = ctx.content_rect();
         let margin = page_margin(screen.width());
         let bar = Rect::from_min_size(
@@ -140,20 +175,22 @@ impl Launcher {
             .constrain(false)
             .show(ctx, |ui| {
                 ui.set_min_size(bar.size());
-                glass::boundary(ui.painter(), vec![bar]);
+                let mut regions = vec![bar];
+                if self.has_back() {
+                    regions.push(back_column(screen));
+                }
+                glass::boundary(ui.painter(), regions);
                 let sense = if blocked {
                     Sense::hover()
                 } else {
                     Sense::click()
                 };
                 let mut x = bar.left();
-                // The brand.
-                let mark = Rect::from_min_size(pos2(x, bar.center().y - 15.0), Vec2::splat(30.0));
-                egui::Image::from_texture((logo, mark.size())).paint_at(ui, mark);
-                x = mark.right() + 10.0;
+                // The brand's place: what it shows waits for the page, which tells how far it scrolled.
+                let brand = ui.painter().add(Shape::Noop);
+                x += 30.0 + 10.0;
                 if screen.width() >= WORDMARK_GOES_BELOW {
-                    x +=
-                        paint_text(ui, x, bar.center().y, "Nightjar", semibold(19.0), *PAPER) + 6.0;
+                    x += measure(ui, "Nightjar", semibold(19.0)) + 6.0;
                 }
                 x += CAPSULE_GAP;
                 // The right end: the PC capsule, then the search field left of it.
@@ -175,7 +212,76 @@ impl Launcher {
                 );
                 self.search_capsule(ui, search, folds, sense, blocked);
                 self.pc_capsule(ui, pc, view, sense);
-            });
+                brand
+            })
+            .inner
+    }
+
+    /// The brand in the place [`Self::top_bar`] kept for it, giving way to Back as a page scrolls.
+    pub(super) fn paint_brand(
+        &self,
+        ctx: &egui::Context,
+        place: egui::layers::ShapeIdx,
+        logo: egui::TextureId,
+    ) {
+        let screen = ctx.content_rect();
+        let alpha = brand_alpha(screen, self.back_slot);
+        if alpha <= 0.0 {
+            return;
+        }
+        let area = brand_rect(screen);
+        let mark = Rect::from_min_size(area.min, Vec2::splat(30.0));
+        let uv = Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0));
+        let tint = Color32::WHITE.gamma_multiply(alpha);
+        let mut shapes = vec![Shape::image(logo, mark, uv, tint)];
+        if screen.width() >= WORDMARK_GOES_BELOW {
+            let ink = PAPER.gamma_multiply(alpha);
+            let word =
+                ctx.fonts_mut(|f| f.layout_no_wrap("Nightjar".to_owned(), semibold(19.0), ink));
+            let at = pos2(mark.right() + 10.0, mark.center().y - word.size().y / 2.0);
+            shapes.push(Shape::galley(at, word, ink));
+        }
+        ctx.layer_painter(top_bar_layer())
+            .set(place, Shape::Vec(shapes));
+    }
+
+    /// Back, in the chrome's layer so it passes over the page and takes the pointer first, drawn from
+    /// the page's own header so its slot's place is this frame's and Tab meets it first. `slot` is the
+    /// room the header keeps for it.
+    pub(super) fn sticky_back(&mut self, page: &Ui, slot: Rect, said: &str) -> Response {
+        let ctx = page.ctx().clone();
+        self.back_slot = Some(slot.top());
+        let rect = Rect::from_min_size(
+            pos2(slot.left(), back_top(ctx.content_rect(), slot.top())),
+            Vec2::splat(BACK_SIZE),
+        );
+        let ui = Ui::new(
+            ctx.clone(),
+            Id::unique("sticky-back"),
+            UiBuilder::new().layer_id(top_bar_layer()).max_rect(rect),
+        );
+        let enabled = page.is_enabled();
+        let sense = if enabled {
+            Sense::click()
+        } else {
+            Sense::hover()
+        };
+        let response = ui.interact(rect, Id::unique("back"), sense);
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, said));
+        let r = BACK_SIZE / 2.0;
+        let feel = glass::feel(&ctx, &response, 1.0, 1.0);
+        let mut out = Vec::new();
+        glass::surface(&mut out, &ctx, rect, r, glass::Material::Chrome);
+        extend(&ui, out);
+        hover_lift(&ui, rect, r, feel);
+        icons::paint(
+            ui.painter(),
+            Icon::Back,
+            Rect::from_center_size(rect.center(), Vec2::splat(21.0)),
+            *ON_SURFACE,
+        );
+        focus_ring(&ui, rect, &response, r as u8);
+        response.on_hover_text(said)
     }
 
     fn nav_capsule(

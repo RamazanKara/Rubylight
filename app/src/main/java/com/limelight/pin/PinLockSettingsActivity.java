@@ -56,6 +56,7 @@ public class PinLockSettingsActivity extends NightjarActivity {
         verified = state != null && state.getBoolean(STATE_VERIFIED);
         awaiting = state != null && state.getBoolean(STATE_AWAITING);
         content = TopAppBar.setUpPage(this, R.string.pin_lock_title, this::finish);
+        com.limelight.ui.NightSkyView.behind(this);
         if (state == null) {
             getFragmentManager().beginTransaction().replace(content.getId(), new LockFragment()).commit();
         }
@@ -148,7 +149,7 @@ public class PinLockSettingsActivity extends NightjarActivity {
     }
 
     void removePin() {
-        UiHelper.showDialog(this, new NavigationDialogBuilder(this).setTitle(R.string.pin_remove_title)
+        UiHelper.showDialog(this, new NavigationDialogBuilder(this).startOnCancel().setTitle(R.string.pin_remove_title)
                 .setMessage(R.string.pin_remove_message)
                 .setPositiveButton(R.string.pin_remove, (dialog, which) ->
                         startActivityForResult(PinLockActivity.forVerify(this), REQUEST_REMOVE))
@@ -327,10 +328,10 @@ public class PinLockSettingsActivity extends NightjarActivity {
         @Override
         public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle state) {
             View view = super.onCreateView(inflater, container, state);
-            ListView listView = view.findViewById(android.R.id.list);
+            ListView listView = com.limelight.preferences.GroupedListView.adopt(view);
             com.limelight.ui.UiNavigation.bindPreferences(listView);
             listView.setDivider(null);
-            listView.setSelector(R.drawable.list_focus_row);
+            listView.setSelector(R.drawable.settings_row_focus);
             listView.setPadding(0, 0, 0, getResources().getDimensionPixelSize(R.dimen.space_s));
             com.limelight.ui.SubPageFocus.apply(getActivity(), view);
             return view;

@@ -2,11 +2,17 @@
 <resources>
     <!-- Home's shelves. A card's width includes its inset; a shelf keeps its last card clear of the end by the keyline so the
          next card peeks in. -->
-    <dimen name="shelf_card_width">144dp</dimen>
+    <dimen name="shelf_card_width">192dp</dimen>
     <dimen name="shelf_host_width">288dp</dimen>
     <dimen name="shelf_keyline">24dp</dimen>
     <dimen name="hero_height">0dp</dimen>
     <!-- The phone list's side padding: with a heading's and a card's own space_s, its content starts on the screen gutter,
          where the shell bar's first tab is. -->
     <dimen name="home_list_inset">8dp</dimen>
+    <dimen name="home_head_handheld">36dp</dimen>
+    <dimen name="home_head_tv">60dp</dimen>
+    <dimen name="home_head_tv_drop">4dp</dimen>
+    <dimen name="home_foot_fade">136dp</dimen>
+    <!-- How far TV All games' rows fade out under the heading and at the foot. -->
+    <dimen name="all_games_fade">56dp</dimen>
 </resources>

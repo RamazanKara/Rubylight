@@ -62,6 +62,32 @@ public abstract class NightjarActivity extends AppCompatActivity {
         appearance = AppTheme.appearance(this);
         AppTheme.apply(this);
         super.onCreate(state);
+        form = GlassForm.of(this);
+    }
+
+    /** The form this screen was laid out for. */
+    private GlassForm form;
+
+    /**
+     * Rotating, split screen, folding or unfolding can move the window into another form: a screen that handles those
+     * changes itself is laid out again for the new form, as one the system recreates is. Saved state keeps focus and scroll.
+     */
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        GlassForm now = GlassForm.of(this);
+        if (form != null && now != form && !isFinishing() && !isDestroyed()) {
+            form = now;
+            recreatingForForm = true;
+            recreate();
+        }
+    }
+
+    private boolean recreatingForForm;
+
+    /** This screen is being laid out again for a new form: a subclass's own handling of the change has nothing left to do. */
+    protected boolean recreatingForForm() {
+        return recreatingForForm;
     }
 
     @Override

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Where a group's words start, from its edge. -->
+    <dimen name="settings_row_inset">14dp</dimen>
+    <!-- A page title stands on the words of the rows under it. -->
+    <dimen name="settings_title_inset">@dimen/screen_gutter</dimen>
+    <dimen name="settings_value_max_width">180dp</dimen>
+    <dimen name="settings_rail_width">260dp</dimen>
+    <dimen name="settings_rail_row">44dp</dimen>
+</resources>

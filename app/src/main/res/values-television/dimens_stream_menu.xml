@@ -10,13 +10,19 @@
     <dimen name="stream_tile_pad_top">12dp</dimen>
     <dimen name="stream_tile_pad_bottom">8dp</dimen>
     <dimen name="stream_tile_pad_side">6dp</dimen>
-    <dimen name="stream_tile_corner">12dp</dimen>
+    <dimen name="stream_tile_corner">14dp</dimen>
     <dimen name="stream_tile_cap_text">11sp</dimen>
-    <dimen name="stream_tile_switch_width">22dp</dimen>
-    <dimen name="stream_tile_switch_height">12dp</dimen>
-    <dimen name="stream_tile_corner_inset">7dp</dimen>
-    <dimen name="stream_menu_return_height">48dp</dimen>
-    <dimen name="stream_menu_exit_height">44dp</dimen>
+    <dimen name="stream_tile_corner_inset">9dp</dimen>
+    <dimen name="stream_menu_exit_height">54dp</dimen>
+    <dimen name="stream_menu_close">44dp</dimen>
+    <dimen name="stream_menu_margin">24dp</dimen>
+    <dimen name="stream_menu_cover_width">44dp</dimen>
+    <dimen name="stream_menu_cover_height">66dp</dimen>
+    <dimen name="stream_menu_row_height">50dp</dimen>
+    <dimen name="stream_menu_row_value">15sp</dimen>
+    <dimen name="stream_menu_group_gap">12dp</dimen>
+    <dimen name="stream_menu_title">24sp</dimen>
+    <dimen name="stream_menu_title_line">30sp</dimen>
     <dimen name="stream_menu_footer_icon">20dp</dimen>
-    <dimen name="stream_menu_edge">24dp</dimen>
+    <dimen name="stream_menu_edge">20dp</dimen>
 </resources>

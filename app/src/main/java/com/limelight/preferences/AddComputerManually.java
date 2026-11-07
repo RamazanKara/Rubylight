@@ -63,6 +63,8 @@ public class AddComputerManually extends NightjarActivity {
     // Opened to pair a link the user confirmed in PairLinkActivity: the link stays in memory, and this mark in the
     // intent also tells a screen back from Recents that it leaves to the PC list.
     static final String EXTRA_FROM_LINK = "com.limelight.preferences.FROM_LINK";
+    /** Opens the camera at once: the + on the PCs page offers it. */
+    public static final String EXTRA_SCAN = "com.limelight.preferences.SCAN_PAIRING_CODE";
     private boolean openedFromLink;
     // Pairs a PC added from a QR pairing link (Experimental); a typed address only adds it.
     private final HostActions hostActions = new HostActions(this, new HostActions.Callbacks() {
@@ -440,6 +442,11 @@ public class AddComputerManually extends NightjarActivity {
                     ComputerManagerService.class), serviceConnection, Service.BIND_AUTO_CREATE);
 
         openedFromLink = getIntent().getBooleanExtra(EXTRA_FROM_LINK, false);
+        // Once: coming back from the camera, the address field is the way on.
+        if (savedInstanceState == null && getIntent().getBooleanExtra(EXTRA_SCAN, false)
+                && getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
+            scanQr();
+        }
     }
 
     /** A screen opened for a link has nothing under it when the app was closed: the PC list comes next. */

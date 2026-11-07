@@ -70,6 +70,13 @@ import java.util.Set;
 @Config(sdk = 28, application = Application.class, shadows = PcViewLifecycleTest.NoNativeMoonBridge.class,
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class HomeShellTest {
+    /** The tabs' capsule on a 960 x 540 dp TV (xhdpi), which PCs and a PC's games must match. */
+    public static String tvCapsule() {
+        return TV_CAPSULE;
+    }
+
+    private static final String TV_CAPSULE = "at 96,54 height 80 text 26.0 gap 0";
+
     @Rule public TemporaryFolder temporary = new TemporaryFolder();
 
     /** Home without the computer manager service: tests report hosts themselves. */
@@ -293,8 +300,9 @@ public class HomeShellTest {
         assertHeadingsAndCardsStartUnderTheFirstTab();
     }
 
-    /** The shell bar's first tab, the section headings' text and the cards' edges all sit on the screen gutter. */
+    /** In the grid the section headings' text and the cards' edges sit on the screen gutter. */
     private void assertHeadingsAndCardsStartUnderTheFirstTab() throws Exception {
+        chooseGrid();
         ActivityController<Home> controller = home();
         try {
             Home home = controller.get();
@@ -304,9 +312,7 @@ public class HomeShellTest {
             root.measure(View.MeasureSpec.makeMeasureSpec(metrics.widthPixels, View.MeasureSpec.EXACTLY),
                     View.MeasureSpec.makeMeasureSpec(metrics.heightPixels, View.MeasureSpec.EXACTLY));
             root.layout(0, 0, metrics.widthPixels, metrics.heightPixels);
-            int tab = leftIn(root, home.findViewById(R.id.shell_home));
-            assertEquals("the first tab is on the gutter",
-                    home.getResources().getDimensionPixelSize(R.dimen.screen_gutter), tab);
+            int tab = home.getResources().getDimensionPixelSize(R.dimen.screen_gutter);
             RecyclerView list = home.findViewById(R.id.console_list);
             int headings = 0;
             int firstCard = Integer.MAX_VALUE;
@@ -675,6 +681,7 @@ public class HomeShellTest {
 
     @Test
     public void onAPhoneWithAGamepadTheDpadReachesTheShellBarFromTheTopCardAndBack() throws Exception {
+        chooseGrid();
         ActivityController<Home> controller = home();
         try {
             Home home = controller.get();
@@ -684,8 +691,8 @@ public class HomeShellTest {
             RecyclerView.ViewHolder top = list(home).findViewHolderForAdapterPosition(adapter.initialFocus());
             assertNotNull(top);
             View above = focusAfter(home, top.itemView, View.FOCUS_UP);
-            assertNotNull("up from the first card reaches the bar", above);
-            assertTrue("a button of the bar", isInside(home.findViewById(R.id.shell_bar), above));
+            assertNotNull("up from the first card reaches the top row", above);
+            assertTrue("a control of the top row (the tabs are at the foot)", isInside(home.findViewById(R.id.home_top_row), above));
             View below = focusAfter(home, above, View.FOCUS_DOWN);
             assertNotNull("down from the bar reaches a card", below);
             assertTrue("a card of the list", isInside(list(home), below));
@@ -712,7 +719,7 @@ public class HomeShellTest {
             }
             View now = home.getWindow().getDecorView().findFocus();
             assertNotNull("focus after step " + i + " from " + at, now);
-            if (isInside(home.findViewById(R.id.shell_bar), now)) return now;
+            if (isInside(home.findViewById(R.id.home_top_row), now)) return now;
             // A press may only scroll the list to the header above the first row; the next one moves on.
             if (now == at && ++stuck > 2) return at;
             if (now != at) stuck = 0;
@@ -721,8 +728,56 @@ public class HomeShellTest {
         return at;
     }
 
+    /** Home waits for the first key to place its start. Once a key has placed focus, a refresh must not take it back there. */
+    @Test
+    public void aRefreshLeavesFocusWhereAKeyPutIt() {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            View tab = home.findViewById(R.id.shell_home);
+            assertTrue(tab.requestFocusFromTouch());
+            org.robolectric.util.ReflectionHelpers.setField(home, "focusPending", true);
+            home.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_LEFT));
+            assertFalse(org.robolectric.util.ReflectionHelpers.<Boolean>getField(home, "focusPending"));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** On a phone the hero fills the width under the top row, so the pairing banner rests on the bar instead of covering the art. */
+    @Test
+    public void onAPhoneThePairingBannerStaysOffTheHero() {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            View root = home.findViewById(R.id.home_pairing_banner);
+            androidx.core.view.ViewCompat.dispatchApplyWindowInsets(home.getWindow().getDecorView(), new androidx.core.view.WindowInsetsCompat.Builder().build());
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            android.widget.FrameLayout.LayoutParams banner = (android.widget.FrameLayout.LayoutParams) root.getLayoutParams();
+            assertEquals(android.view.Gravity.BOTTOM, banner.gravity & android.view.Gravity.VERTICAL_GRAVITY_MASK);
+            assertTrue(banner.bottomMargin >= home.getResources().getDimensionPixelSize(R.dimen.nj_size_tab_bar_height));
+            // A pad's hints stand there too: they ran through each other. The banner rests on them, and comes back down.
+            View hints = home.findViewById(R.id.home_hints);
+            View decor = home.getWindow().getDecorView();
+            hints.setVisibility(View.VISIBLE);
+            hints.layout(0, 0, 100, 40);
+            decor.getViewTreeObserver().dispatchOnGlobalLayout();
+            assertTrue("lifted over the hints: " + root.getTranslationY(), root.getTranslationY() <= -40);
+            hints.setVisibility(View.GONE);
+            decor.getViewTreeObserver().dispatchOnGlobalLayout();
+            assertEquals(0f, root.getTranslationY(), 0f);
+            // Over a bright sky their words vanished, and a cover's label read through the chip.
+            int fill = ((android.graphics.drawable.GradientDrawable) root.getBackground()).getColor().getDefaultColor();
+            assertTrue("dense over art: " + Integer.toHexString(fill), android.graphics.Color.alpha(fill) >= 0xD0);
+            assertEquals(R.drawable.glass_chip_over_art, org.robolectric.Shadows.shadowOf(hints.getBackground()).getCreatedFromResId());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     @Test
     public void onAPhoneUpFromALongLibraryReachesTheShellBar() throws Exception {
+        chooseGrid();
         ActivityController<Home> controller = home();
         try {
             Home home = controller.get();
@@ -736,7 +791,7 @@ public class HomeShellTest {
             assertTrue(holder.itemView.requestFocus());
             View end = walkUp(home, holder.itemView, 40);
             assertNotNull("focus does not get stuck", end);
-            assertTrue("ends on the current tab of the bar, not on " + end, end == home.findViewById(R.id.shell_home));
+            assertTrue("ends in the top row (the tabs are at the foot), not on " + end, isInside(home.findViewById(R.id.home_top_row), end));
         } finally {
             controller.pause().stop().destroy();
         }
@@ -1005,6 +1060,12 @@ public class HomeShellTest {
         }
     }
 
+    /** Shelves are the default now; these tests are about the grid, which stays a choice. */
+    private static void chooseGrid() {
+        new HomeView(HomeView.Layout.GRID, HomeView.Group.NONE, HomeView.Size.MEDIUM)
+                .save(PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()));
+    }
+
     private static RecyclerView list(Home home) {
         return home.findViewById(R.id.console_list);
     }
@@ -1031,5 +1092,163 @@ public class HomeShellTest {
         } finally {
             controller.pause().stop().destroy();
         }
+    }
+
+    /** The capsule the other pages are held to: Home's, at the overscan. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void theCapsuleOnATelevisionStandsAtTheOverscan() {
+        ActivityController<Home> controller = home();
+        try {
+            assertEquals(TV_CAPSULE, com.limelight.ui.TvAudit.topCapsule(controller.get()));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /**
+     * The second launch on the real TV: what was saved came first, the hosts' answer right after it, and the place on the list
+     * asked for under the first landed on another game in the second. Steam at the top, sideways, and no ring.
+     */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void theStartFollowsTheHostsAnswerUntilAKeyIsPressed() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            RecyclerView list = showHosts(home, 12, NativeApiFixtures.nativeHost("tower", "Tower", true));
+            Object root = ReflectionHelpers.callInstanceMethod(home.getWindow().getDecorView(), "getViewRootImpl");
+            ReflectionHelpers.callInstanceMethod(root, "ensureTouchMode",
+                    ReflectionHelpers.ClassParameter.from(boolean.class, false));
+            ConsoleHomeAdapter shelves = ReflectionHelpers.getField(home, "shelves");
+            layOut(home);
+            ConsoleHomeAdapter.Cursor last = new ConsoleHomeAdapter.Cursor(0, shelves.cardCount(0) - 1);
+            // A stale wish: asked for before the hosts answered, run after.
+            ReflectionHelpers.callInstanceMethod(home, "restoreFocus",
+                    ReflectionHelpers.ClassParameter.from(ConsoleHomeAdapter.Cursor.class, last),
+                    ReflectionHelpers.ClassParameter.from(int.class, 0));
+            ReflectionHelpers.callInstanceMethod(home, "focusFirstCard",
+                    ReflectionHelpers.ClassParameter.from(boolean.class, false));
+            for (int i = 0; i < 10; i++) {
+                shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(32));
+                layOut(home);
+            }
+            ConsoleHomeAdapter.Cursor focused = shelves.focusedCard(list);
+            assertNotNull("a card has the ring", focused);
+            assertEquals("the start, not the stale place", shelves.keyAt(shelves.initialFocus()), shelves.keyAt(focused));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** A TV's lens opened All games, which has no field: it searches on the page, as every other form does, and comes back. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionTheLensSearchesOnThePage() {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            layOut(home);
+            androidx.core.view.ViewCompat.dispatchApplyWindowInsets(home.getWindow().getDecorView(), new androidx.core.view.WindowInsetsCompat.Builder().build());
+            View lens = home.findViewById(R.id.home_search);
+            lens.performClick();
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertNull("no other page", org.robolectric.Shadows.shadowOf(home).getNextStartedActivity());
+            View bar = home.findViewById(R.id.home_search_bar);
+            assertEquals(View.VISIBLE, bar.getVisibility());
+            assertEquals(View.INVISIBLE, home.findViewById(R.id.home_top_row).getVisibility());
+            assertEquals("the title makes room", View.INVISIBLE, home.findViewById(R.id.home_hero).getVisibility());
+            layOut(home);
+            int foot = ((ViewGroup.MarginLayoutParams) bar.getLayoutParams()).topMargin + bar.getHeight();
+            View results = home.findViewById(R.id.home_search_results);
+            assertEquals("covers end at the field's foot and go no further", foot, results.getTop());
+            assertEquals(new android.graphics.Rect(0, 0, results.getWidth(), results.getHeight()), results.getClipBounds());
+            assertEquals("a fading edge stands at the padding", 0, results.getPaddingTop());
+            home.getOnBackPressedDispatcher().onBackPressed();
+            assertEquals(View.GONE, bar.getVisibility());
+            assertEquals(View.VISIBLE, home.findViewById(R.id.home_top_row).getVisibility());
+            assertEquals(View.VISIBLE, home.findViewById(R.id.home_hero).getVisibility());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** Right along the top of a TV: tabs, PC, View, search, then a wall. The remote has no other way up there. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionRightWalksTheWholeTopRow() {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            Object root = ReflectionHelpers.callInstanceMethod(home.getWindow().getDecorView(), "getViewRootImpl");
+            ReflectionHelpers.callInstanceMethod(root, "ensureTouchMode", ReflectionHelpers.ClassParameter.from(boolean.class, false));
+            home.findViewById(R.id.home_pc).setVisibility(View.VISIBLE);
+            layOut(home);
+            View at = home.findViewById(R.id.shell_settings);
+            for (int id : new int[] {R.id.home_pc, R.id.console_view, R.id.home_search}) {
+                View next = at.focusSearch(View.FOCUS_RIGHT);
+                assertEquals(home.findViewById(id), next);
+                at = next;
+            }
+            assertEquals("a wall", at, at.focusSearch(View.FOCUS_RIGHT));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** The first card of a shelf is where a TV starts: grown and ringed, it must not touch the shelf's heading. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionAFocusedCoverStaysClearOfItsHeading() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            RecyclerView list = showHosts(home, 12, NativeApiFixtures.nativeHost("tower", "Tower", true));
+            layOut(home);
+            shadowOf(Looper.getMainLooper()).idle();
+            layOut(home);
+            boolean seen = false;
+            for (int i = 0; i < list.getChildCount() && !seen; i++) {
+                View shelf = list.getChildAt(i);
+                View title = shelf.findViewById(R.id.shelf_title);
+                ViewGroup cards = shelf.findViewById(R.id.shelf_cards);
+                if (title == null || cards == null || cards.getChildCount() == 0 || !(title.getParent() == shelf.findViewById(R.id.shelf_head))) continue;
+                seen = true;
+                View card = cards.getChildAt(0);
+                float density = home.getResources().getDisplayMetrics().density;
+                float grown = card.getHeight() * 0.06f + 2 * density;
+                int titleBottom = shelf.findViewById(R.id.shelf_head).getTop() + title.getBottom();
+                assertTrue("title ends at " + titleBottom + ", the ring starts at " + (cards.getTop() - grown), titleBottom <= cards.getTop() - grown);
+            }
+            assertTrue("a shelf was laid out", seen);
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** One game on two shelves: a refresh leaves focus on the shelf it was on, not on the first place the game is. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void aRefreshKeepsFocusOnItsShelf() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            showHosts(home, 3, NativeApiFixtures.nativeHost("tower", "Tower", true));
+            ConsoleHomeAdapter shelves = ReflectionHelpers.getField(home, "shelves");
+            int row = 0;
+            String key = shelves.keyAt(new ConsoleHomeAdapter.Cursor(row, 0));
+            assertEquals(row, shelves.positionOfKey(shelves.rowKey(row), key).row);
+            assertEquals("a shelf that is gone: the first place it is", row, shelves.positionOfKey("shelf:gone", key).row);
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    private static void layOut(Home home) {
+        View root = home.getWindow().getDecorView();
+        int w = home.getResources().getDisplayMetrics().widthPixels;
+        int h = home.getResources().getDisplayMetrics().heightPixels;
+        root.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY));
+        root.layout(0, 0, w, h);
     }
 }

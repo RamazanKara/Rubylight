@@ -1022,7 +1022,11 @@ public class StreamMenuTest {
             // The tiles in the model's order, each the row of its item; the buttons on the model's tiles.
             StreamMenuModel.Layout layout = menu.layout();
             TileGrid grid = menu.grid();
-            assertEquals(layout.grid.size(), grid.getChildCount());
+            int statusRows = 0;
+            for (StreamMenuModel.Cell cell : layout.grid) {
+                if (menu.cell(layout.grid.indexOf(cell)) instanceof MenuRow) statusRows++;
+            }
+            assertEquals(layout.grid.size(), grid.getChildCount() + statusRows);
             assertSame(menu.row(KEYBOARD), grid.getChildAt(0));
             assertEquals("Y", ((TileGrid.Tile) menu.row(KEYBOARD)).hotkey());
             assertEquals("X", ((TileGrid.Tile) menu.row(CONTROLLER_MOUSE)).hotkey());
@@ -1039,13 +1043,13 @@ public class StreamMenuTest {
             assertEquals(activity.getString(R.string.keyboard_shortcuts_add), text(grid.getChildAt(more + 3)));
             assertTrue(items(menu.entries()).containsAll(Arrays.asList(KEYBOARD, OVERLAY, DISCONNECT)));
             assertFalse("Rarely used items wait on the More page", items(menu.entries()).contains(RECONNECT));
-            // Return to stream under the grid, then Disconnect, in the panel's footer outside the part that scrolls.
+            // The round X in the header goes back; Disconnect stands in the panel's footer, outside the part that scrolls.
             assertTrue(menu.sheet().isPanel());
-            assertEquals(activity.getString(R.string.stream_menu_return), text(menu.row(CLOSE)));
-            android.view.ViewGroup footer = (android.view.ViewGroup) menu.row(CLOSE).getParent();
+            assertSame(menu.sheet().panelClose(), menu.row(CLOSE));
+            assertEquals(activity.getString(R.string.stream_tile_return) + ", B", menu.row(CLOSE).getContentDescription().toString());
+            assertFalse("the header does not scroll", inScroll(menu.row(CLOSE)));
+            android.view.ViewGroup footer = (android.view.ViewGroup) menu.row(DISCONNECT).getParent();
             assertTrue(footer instanceof ActionSheet.FooterBar);
-            assertSame(footer, menu.row(DISCONNECT).getParent());
-            assertTrue(footer.indexOfChild(menu.row(CLOSE)) < footer.indexOfChild(menu.row(DISCONNECT)));
             assertTrue("the grid scrolls", inScroll(grid));
             assertFalse("the ways out do not", inScroll(footer));
 
@@ -1066,7 +1070,7 @@ public class StreamMenuTest {
             assertEquals(StreamMenu.Page.MAIN, menu.page());
             press(menu, KeyEvent.KEYCODE_BUTTON_Y);
             assertEquals(Arrays.asList(OVERLAY, KEYBOARD), chosen);
-            // Return to stream closes without choosing anything.
+            // The X closes without choosing anything.
             menu.row(CLOSE).performClick();
             assertFalse(menu.sheet().isShowing());
             assertEquals(Arrays.asList(OVERLAY, KEYBOARD), chosen);

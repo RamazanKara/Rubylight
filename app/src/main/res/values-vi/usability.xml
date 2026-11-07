@@ -20,7 +20,6 @@
     <string name="startup_launch_failed">Không thể mở ứng dụng. Hãy kiểm tra ứng dụng mở được trên PC rồi thử lại.</string>
     <string name="applist_permission_required">Thiết bị này không thể liệt kê ứng dụng. Hãy cho phép thiết bị này liệt kê ứng dụng trong cài đặt hoặc giao diện web của máy chủ. Thư viện sẽ tự động làm mới.</string>
     <string name="applist_load_failed">Không thể tải ứng dụng của PC. Hãy kiểm tra máy chủ và quyền liệt kê ứng dụng của thiết bị này trong cài đặt hoặc giao diện web của máy chủ. Đang tự động thử lại.</string>
-    <string name="applist_empty">Không có ứng dụng nào. Hãy thêm ứng dụng vào thư viện của máy chủ và kiểm tra quyền liệt kê ứng dụng của thiết bị này trong cài đặt hoặc giao diện web của máy chủ.</string>
     <string name="host_profile_unsaved_title">Lưu cài đặt stream?</string>
     <string name="host_profile_unsaved_message">Các thay đổi cài đặt stream của PC này chưa được lưu. Chế độ hiển thị đã xác nhận trong hộp thoại riêng được lưu riêng.</string>
     <string name="host_profile_discard">Hủy thay đổi</string>

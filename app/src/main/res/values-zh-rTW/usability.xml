@@ -20,7 +20,6 @@
     <string name="startup_launch_failed">無法啟動應用程式。請確認它能在電腦上開啟，然後再試一次。</string>
     <string name="applist_permission_required">這部裝置無法列出應用程式。請在主機的設定或網頁 UI 中，允許這部裝置列出應用程式。遊戲庫會自動重新整理。</string>
     <string name="applist_load_failed">無法載入電腦的應用程式。請在主機的設定或網頁 UI 中檢查主機狀態及這部裝置的應用程式清單權限。正在自動重試。</string>
-    <string name="applist_empty">沒有可用的應用程式。請將應用程式新增至主機的遊戲庫，並在主機的設定或網頁 UI 中檢查這部裝置的應用程式清單權限。</string>
     <string name="host_profile_unsaved_title">要儲存串流設定嗎？</string>
     <string name="host_profile_unsaved_message">你對這部電腦串流設定所做的變更尚未儲存。在顯示模式對話方塊中確認的顯示模式會另外儲存。</string>
     <string name="host_profile_discard">捨棄變更</string>

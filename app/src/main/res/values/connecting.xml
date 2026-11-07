@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="conn_back">Back</string>
+    <string name="conn_test_network">Test the network</string>
+    <string name="nettest_text_clear">Nothing is blocking streaming.</string>
+    <string name="nettest_text_unknown">The test could not finish.</string>
+</resources>

@@ -20,7 +20,6 @@
     <string name="startup_launch_failed">无法启动应用。请确认它能在电脑上打开，然后重试。</string>
     <string name="applist_permission_required">此设备无法列出应用。请在主机的设置或网页界面中允许此设备列出应用。游戏库会自动刷新。</string>
     <string name="applist_load_failed">无法加载电脑的应用。请在主机的设置或网页界面中检查主机及此设备的应用列表权限。正在自动重试。</string>
-    <string name="applist_empty">没有可用的应用。请将应用添加到主机的游戏库，并在主机的设置或网页界面中检查此设备的应用列表权限。</string>
     <string name="host_profile_unsaved_title">要保存串流设置吗？</string>
     <string name="host_profile_unsaved_message">你对此电脑串流设置所做的更改尚未保存。在其自身对话框中确认的显示模式会单独保存。</string>
     <string name="host_profile_discard">舍弃更改</string>

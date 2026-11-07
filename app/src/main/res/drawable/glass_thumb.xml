@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The small cover in a panel row: rounded like a cover at its scale. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="?attr/glassPlaceholder" />
+    <corners android:radius="5dp" />
+</shape>

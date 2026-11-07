@@ -1,35 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A game in the Home library: cover, a state chip, its title and where it is. ConsoleHomeAdapter sets the cover height. -->
-<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto" app:cardPreventCornerOverlap="false" android:clipToOutline="true"
-    android:layout_width="match_parent" android:layout_height="wrap_content" style="@style/LibraryCard"
+<!-- A game: its 2:3 cover and a caption. ShelfAdapter sets the cover's height. -->
+<com.limelight.ui.CoverCard xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
     android:layout_margin="@dimen/space_s" android:focusable="true" android:clickable="true"
-    android:foreground="@drawable/grid_focus_ring" android:descendantFocusability="blocksDescendants">
-    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
-        <FrameLayout android:id="@+id/console_cover_frame" android:layout_width="match_parent" android:layout_height="160dp"
-            android:background="?attr/colorSurfaceContainerHigh">
+    android:defaultFocusHighlightEnabled="false" android:descendantFocusability="blocksDescendants">
+    <com.limelight.ui.CoverFrame android:id="@+id/console_cover_frame" android:layout_width="match_parent" android:layout_height="160dp">
             <com.limelight.ui.PosterImageView android:id="@+id/console_cover" android:layout_width="match_parent" android:layout_height="match_parent"
                 android:scaleType="centerCrop" android:importantForAccessibility="no" />
-            <TextView android:id="@+id/console_cover_text" android:layout_width="match_parent" android:layout_height="match_parent"
-                android:gravity="center" android:padding="@dimen/space_m"
-                android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="?attr/colorOnSurface"
-                android:maxLines="4" android:ellipsize="end" android:importantForAccessibility="no" />
-            <TextView android:id="@+id/console_badge" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:layout_gravity="top|start" android:layout_margin="@dimen/space_xs"
-                android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
-                android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_xs" android:background="@drawable/bg_chip"
-                android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurface"
-                android:visibility="gone" android:importantForAccessibility="no" />
-        </FrameLayout>
-        <com.limelight.ui.MarqueeLabel android:id="@+id/console_title" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s" android:paddingTop="@dimen/space_s"
-            android:maxLines="1" android:ellipsize="end"
-            android:textAppearance="@style/TextAppearance.Nightjar.Label" android:textColor="?attr/colorOnSurface"
-            android:importantForAccessibility="no" />
-        <TextView android:id="@+id/console_subtitle" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s" android:paddingBottom="@dimen/space_s"
-            android:maxLines="1" android:ellipsize="end"
-            android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurfaceVariant"
-            android:importantForAccessibility="no" />
-    </LinearLayout>
-</com.google.android.material.card.MaterialCardView>
+            <com.limelight.ui.NoArtTile android:id="@+id/console_cover_text" android:layout_width="match_parent" android:layout_height="match_parent" android:importantForAccessibility="no" />
+            <!-- The foot's end, where they hide no title: a favourite's star, then Running or Suspended as a dot. The store is in the hero's line. -->
+            <LinearLayout android:id="@+id/console_marks" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:layout_gravity="bottom|end"
+                android:layout_margin="7dp" android:orientation="horizontal" android:gravity="center_vertical">
+                <ImageView android:id="@+id/console_star" android:layout_width="@dimen/card_chip_height"
+                    android:layout_height="@dimen/card_chip_height" android:layout_marginEnd="@dimen/space_xs"
+                    android:padding="5dp" android:background="@drawable/bg_card_star"
+                    android:src="@drawable/ic_star_filled" app:tint="@color/nj_color_moon"
+                    android:visibility="gone" android:importantForAccessibility="no" />
+                <com.limelight.ui.StatusDisc android:id="@+id/console_badge" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:visibility="gone" android:importantForAccessibility="no" />
+            </LinearLayout>
+            <!-- Not installed, or what adding takes. -->
+            <TextView android:id="@+id/console_store" style="@style/Widget.Nightjar.CardChip"
+                android:layout_gravity="bottom|start" android:layout_margin="@dimen/space_s"
+                android:visibility="gone" />
+    </com.limelight.ui.CoverFrame>
+    <com.limelight.ui.MarqueeLabel android:id="@+id/console_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_s" android:paddingStart="2dp" android:paddingEnd="2dp"
+        android:maxLines="1" android:ellipsize="end"
+        android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant"
+        android:importantForAccessibility="no" />
+    <TextView android:id="@+id/console_subtitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:paddingStart="2dp" android:paddingEnd="2dp" android:visibility="gone"
+        android:maxLines="1" android:ellipsize="end"
+        android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurfaceVariant"
+        android:importantForAccessibility="no" />
+</com.limelight.ui.CoverCard>

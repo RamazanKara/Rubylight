@@ -31,14 +31,27 @@ final class DemoConsole {
     /** App ids starred on start: "--es stars 3,4" shows the Favourites row. */
     static int[] starred = new int[0];
 
+    /** The device the demo's pairing banner names. The showcase is shot from these screens: no real device's name. */
+    static final String PAIRING_DEVICE = "Phone";
+
     private DemoConsole() {
+    }
+
+    private static final long DAY_MS = 86_400_000L;
+    /** The app ids Continue lists under the running game, last the newest. */
+    private static final int[] PLAYED = {4, 9, 3};
+
+    private static long daysAgo(int appId) {
+        return Long.parseLong(LIBRARY[appId - 1][3]);
     }
 
     static ConsoleRepository repository(Context context) {
         PreferencesRecentsStore recents = new PreferencesRecentsStore(context);
-        // Open World and Space Sim were played before; Racing Game is the running one.
-        recents.record(new RecentsStore.Recent(DemoFixtures.PC_UUID, "Living-room PC", 3, "Open World", 1_000L));
-        recents.record(new RecentsStore.Recent(DemoFixtures.PC_UUID, "Living-room PC", 4, "Space Sim", 2_000L));
+        // Racing Game is the running one; these were played lately, the newest recorded last.
+        long now = System.currentTimeMillis();
+        for (int app : PLAYED) {
+            recents.record(new RecentsStore.Recent(DemoFixtures.PC_UUID, "Living-room PC", app, titleOf(app), now - daysAgo(app) * DAY_MS));
+        }
         DemoAsleep.recordRecent(recents);
         PreferencesFavouritesStore favourites = new PreferencesFavouritesStore(context);
         for (int app : starred) {
@@ -65,19 +78,19 @@ final class DemoConsole {
      * portrait, landscape and square.
      */
     static final String[][] LIBRARY = {
-            // title, store, installed, last played (unix seconds)
+            // title, store, installed, last played (days ago, so the panel reads Yesterday, a weekday and Last week)
             {"Desktop", null, "1", null},
             {"Racing Game", "steam", "1", null},
-            {"Open World", "steam", "1", "1761300000"},
-            {"Space Sim", "epic", "1", "1761200000"},
+            {"Open World", "steam", "1", "1"},
+            {"Space Sim", "epic", "1", "9"},
             {"Puzzle Night", "gog", "1", null},
             {"Retro Arcade", "steam", "1", null},
             {"Strategy", "microsoft", "1", null},
             {"Music Studio", null, "1", null},
-            {"Ocean Explorer", "epic", "1", null},
+            {"Ocean Explorer", "epic", "1", "3"},
             {"Skybound", "steam", "1", null},
             {"Ashfall", "steam", "1", null},
-            {"Brightwater", "steam", "1", "1761100000"},
+            {"Brightwater", "steam", "1", "12"},
             {"Cinder Road", "steam", "0", null},
             {"Deep Field", "steam", "1", null},
             {"Ember Keep", "steam", "1", null},
@@ -95,10 +108,10 @@ final class DemoConsole {
             {"Quiet Engine", "steam", "0", null},
             {"Red Mesa", "steam", "1", null},
             {"Salt Flats Rally", "steam", "1", null},
-            {"Tidebreaker", "epic", "1", "1761000000"},
+            {"Tidebreaker", "epic", "1", "20"},
             {"Under Ice", "epic", "0", null},
             {"Vector Bloom", "epic", "1", null},
-            {"Wild Meridian", "gog", "1", "1760900000"},
+            {"Wild Meridian", "gog", "1", "45"},
             {"Xeno Farm", "gog", "0", null},
             {"Yard Sale Hero", "microsoft", "1", null},
             {"Zero Gravity Golf", "microsoft", "1", null},
@@ -150,7 +163,8 @@ final class DemoConsole {
             appendStore(games, game[1], i + 1);
             games.append("\"installed\":").append("1".equals(game[2]))
                     .append(",\"running\":").append(racingRuns && i == 1)
-                    .append(",\"added\":true,\"last_played\":").append(game[3] == null ? "null" : game[3])
+                    .append(",\"added\":true,\"last_played\":")
+                    .append(game[3] == null ? "null" : String.valueOf((System.currentTimeMillis() - Long.parseLong(game[3]) * DAY_MS) / 1000L))
                     .append(",\"artwork\":{\"cover\":\"/api/native/v1/cover/demo-").append(i + 1)
                     .append("\",\"version\":\"\"}}");
         }

@@ -3,7 +3,6 @@
     <string name="shell_destinations">主要區段</string>
     <string name="shell_current_page">目前頁面</string>
     <string name="host_menu_rename">重新命名</string>
-    <string name="host_options_hint">按 X 或 ⋮ 查看選項</string>
     <string name="host_rename_field">名稱</string>
     <string name="host_rename_help">只會顯示在這台裝置上。留空則使用電腦本身的名稱。</string>
     <string name="host_rename_save">儲存</string>

@@ -649,7 +649,7 @@ public final class HostActions {
             public void confirm(Runnable sleep) {
                 dismissSleepProgress();
                 if (gone()) return;
-                new NavigationDialogBuilder(activity)
+                new NavigationDialogBuilder(activity).startOnCancel()
                         .setTitle(activity.getString(R.string.host_sleep_title, computer.displayName()))
                         .setMessage(R.string.host_sleep_message)
                         .setNegativeButton(android.R.string.cancel, null)
@@ -881,7 +881,7 @@ public final class HostActions {
     /** A question whose Cancel holds the focus, so a stray press on a D-pad or controller never confirms it. */
     private void confirmWithCancelFocused(String title, String message, int confirm, Runnable go) {
         if (gone()) return;
-        AlertDialog dialog = new NavigationDialogBuilder(activity)
+        AlertDialog dialog = new NavigationDialogBuilder(activity).startOnCancel()
                 .setTitle(title)
                 .setMessage(message)
                 .setNegativeButton(android.R.string.cancel, null)
@@ -1258,7 +1258,7 @@ public final class HostActions {
 
     /** Unpair asks the PC to drop this device, so it asks first; the PC stays in the list. */
     public void confirmUnpair(final ComputerDetails computer) {
-        new NavigationDialogBuilder(activity)
+        new NavigationDialogBuilder(activity).startOnCancel()
                 .setTitle(activity.getString(R.string.host_unpair_title, computer.displayName()))
                 .setMessage(R.string.host_unpair_message)
                 .setNegativeButton(android.R.string.cancel, null)

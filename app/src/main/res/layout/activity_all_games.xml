@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- All games: the library of every paired host as one poster grid under a row of filters (All, Installed, each store,
-     Other apps, Not added). Above the grid, the focused poster's title and line, since a TV poster carries no text. -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+     Other apps, Not added). Above the grid, the focused poster's title and line, since a TV poster carries no text.
+     On a TV it stands on the night sky of the other pages, and the grid fades out under the heading. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent">
+<com.limelight.ui.NightSkyView android:id="@+id/all_games_sky" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:importantForAccessibility="no" android:visibility="gone" />
+<LinearLayout android:id="@+id/all_games_page"
     android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical"
     android:clipChildren="false" android:clipToPadding="false"
     android:paddingStart="@dimen/shell_overscan_horizontal" android:paddingEnd="@dimen/shell_overscan_horizontal"
@@ -39,7 +44,7 @@
     <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
         android:layout_marginStart="-24dp" android:layout_marginEnd="-24dp" android:layout_marginTop="@dimen/space_xs"
         android:clipChildren="true">
-        <androidx.recyclerview.widget.RecyclerView android:id="@+id/all_games_grid"
+        <com.limelight.console.TopFadeRecyclerView android:id="@+id/all_games_grid"
             android:layout_width="match_parent" android:layout_height="match_parent"
             android:clipToPadding="false" android:clipChildren="false" android:overScrollMode="never"
             android:paddingStart="24dp" android:paddingEnd="24dp" android:paddingTop="@dimen/space_m"
@@ -51,3 +56,4 @@
             android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurfaceVariant" />
     </FrameLayout>
 </LinearLayout>
+</FrameLayout>

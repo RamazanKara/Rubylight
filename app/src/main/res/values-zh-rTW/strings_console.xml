@@ -8,7 +8,7 @@
     <string name="console_hint_options">選項</string>
     <string name="console_hint_open">開啟</string>
     <string name="console_hint_key_ok">確定</string>
-    <string name="console_hint_key_menu">選單</string>
+    <string name="console_hint_key_hold_ok">長按確定</string>
     <string name="console_hint_line">%1$s %2$s    %3$s %4$s</string>
     <string name="console_favourite_add">加入我的最愛</string>
     <string name="console_favourite_remove">從我的最愛移除</string>
@@ -62,4 +62,7 @@
     <string name="console_wake_timeout">%1$s 未能及時喚醒。請檢查是否已設定 Wake-on-LAN，然後重試。</string>
     <string name="console_choose_pc">要在哪部電腦上玩？</string>
     <string name="console_badge_asleep">電腦已休眠</string>
+    <string name="pc_status_online">線上</string>
+    <string name="pc_status_not_paired">未配對</string>
+    <string name="pc_action_wake">喚醒</string>
 </resources>

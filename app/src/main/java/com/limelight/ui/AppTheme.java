@@ -176,10 +176,38 @@ public final class AppTheme {
         applyOverlays(activity, activity.getTheme());
     }
 
+    /**
+     * Whether the bundled Figtree (Latin-1) has the language's letters. Elsewhere the whole interface keeps the system
+     * face, so a word never mixes two fonts. Same list as the desktop client's.
+     */
+    static boolean figtreeCovers(java.util.Locale locale) {
+        if (locale == null) return true;
+        switch (locale.getLanguage()) {
+            case "pl": case "tr": case "vi": case "ru": case "uk": case "ja": case "ko": case "zh":
+                return false;
+            default:
+                return true;
+        }
+    }
+
+    /** The look of an app screen; the design's tokens come in these sets. High contrast wins over everything. */
+    public enum Look { NIGHT, DAY, OLED, HIGH_CONTRAST }
+
+    public static Look look(Context context) {
+        if (isHighContrast(context)) return Look.HIGH_CONTRAST;
+        if (isOledBlack(context)) return Look.OLED;
+        return !isDark(context) && context.getResources().getBoolean(R.bool.light_system_bars) ? Look.DAY : Look.NIGHT;
+    }
+
     /** The overlays {@link #apply} puts on an app screen's theme. */
     static void applyOverlays(Context context, android.content.res.Resources.Theme theme) {
         // OledBlackTheme is the stream's too, so it names no window animation: the app's screens get theirs here.
         if (isOledBlack(context)) theme.applyStyle(R.style.ThemeOverlay_Nightjar_WindowAnimation, true);
+        // Robolectric's native graphics cannot build a font family from a resource.
+        if (!"robolectric".equals(android.os.Build.FINGERPRINT)
+                && figtreeCovers(androidx.core.os.ConfigurationCompat.getLocales(context.getResources().getConfiguration()).get(0))) {
+            theme.applyStyle(R.style.ThemeOverlay_Nightjar_Figtree, true);
+        }
         boolean highContrast = isHighContrast(context);
         boolean reduced = Motion.reduced(context);
         if (highContrast) theme.applyStyle(R.style.ThemeOverlay_Nightjar_HighContrast, true);

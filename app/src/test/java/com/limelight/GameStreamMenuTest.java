@@ -227,7 +227,7 @@ public class GameStreamMenuTest {
     public void quitGameAsksFirstInTheErrorColour() {
         Game game = streamingGame("rubylight-serverinfo.xml");
         StreamMenu menu = open(game);
-        MaterialButtonColors.assertErrorColour(menu.row(StreamMenu.Item.QUIT_GAME));
+        MaterialButtonColors.assertRedCapsule(menu.row(StreamMenu.Item.QUIT_GAME));
         ReflectionHelpers.callInstanceMethod(game.menuActions, "confirmQuitApp");
         androidx.appcompat.app.AlertDialog dialog = ReflectionHelpers.getField(game, "streamMenu");
         try {
@@ -266,12 +266,14 @@ public class GameStreamMenuTest {
         com.limelight.binding.input.KeyboardShortcuts.save(game, java.util.Collections.singletonList(new com.limelight.binding.input.KeyboardShortcuts.Shortcut(
                 "a", "Switch", com.limelight.binding.input.KeyboardShortcuts.parseChord("ALT+TAB"))));
         StreamMenu menu = open(game);
-        int at = -1;
-        for (int i = 0; i < menu.layout().grid.size(); i++) {
-            if (menu.layout().grid.get(i).kind == StreamMenuModel.Cell.Kind.SHORTCUT) at = i;
+        // Status cells of the model are rows, so a cell's index is not its tile's: the tile goes by its name.
+        View tile = null;
+        for (int i = 0; i < menu.grid().getChildCount(); i++) {
+            View child = menu.grid().getChildAt(i);
+            if (((android.widget.TextView) child).getText().toString().contains("Switch")) tile = child;
         }
-        assertTrue("the saved shortcut is a tile", at >= 0);
-        menu.grid().getChildAt(at).performClick();
+        assertNotNull("the saved shortcut is a tile", tile);
+        tile.performClick();
         assertFalse(menu.sheet().isShowing());
         assertTrue("nothing goes out while the menu is up", keys.isEmpty());
         runMenuAction(game);
@@ -319,11 +321,11 @@ public class GameStreamMenuTest {
         org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
     }
 
-    /** The destructive row's text uses the theme's error colour. */
+    /** The one way out that ends the game is the panel's red capsule, in the ink that reads on its fill. */
     static final class MaterialButtonColors {
-        static void assertErrorColour(com.google.android.material.button.MaterialButton button) {
-            int error = com.google.android.material.color.MaterialColors.getColor(button, androidx.appcompat.R.attr.colorError);
-            assertEquals(error, button.getCurrentTextColor());
+        static void assertRedCapsule(com.google.android.material.button.MaterialButton button) {
+            int ink = androidx.core.content.ContextCompat.getColor(button.getContext(), R.color.nj_color_on_danger_fill);
+            assertEquals(ink, button.getCurrentTextColor());
         }
     }
 }

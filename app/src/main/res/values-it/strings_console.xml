@@ -8,7 +8,7 @@
     <string name="console_hint_options">Opzioni</string>
     <string name="console_hint_open">Apri</string>
     <string name="console_hint_key_ok">OK</string>
-    <string name="console_hint_key_menu">Menu</string>
+    <string name="console_hint_key_hold_ok">Tieni premuto OK</string>
     <string name="console_hint_line">%1$s %2$s    %3$s %4$s</string>
     <string name="console_favourite_add">Aggiungi ai preferiti</string>
     <string name="console_favourite_remove">Rimuovi dai preferiti</string>
@@ -68,4 +68,7 @@
     <string name="console_wake_timeout">%1$s non si è riattivato in tempo. Controlla che Wake-on-LAN sia configurato e riprova.</string>
     <string name="console_choose_pc">Su quale PC vuoi giocare?</string>
     <string name="console_badge_asleep">PC in standby</string>
+    <string name="pc_status_online">Online</string>
+    <string name="pc_status_not_paired">Non associato</string>
+    <string name="pc_action_wake">Riattiva</string>
 </resources>

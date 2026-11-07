@@ -1,81 +1,108 @@
-<!-- On TV (values-television/dimens_tile.xml) the column has no cap and the PCs grid bleeds past the screen margin to
-     the overscan, so three tiles fit one row; the bars and Add PC keep the margin. Elsewhere the values change nothing. -->
-<com.limelight.ui.ContentFrame xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="match_parent" android:layout_height="match_parent" android:maxWidth="@dimen/pcs_max_width">
-    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical"
-        android:clipToPadding="@bool/pcs_clip" android:clipChildren="@bool/pcs_clip"
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PCs: the night sky, the list over it, and the glass chrome on top. The first child of a GlassHost is what the glass floats
+     over. PcView places the tabs for the form factor and the list under the chrome (PageChrome). -->
+<com.limelight.ui.GlassHost xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/glass_host" android:layout_width="match_parent" android:layout_height="match_parent">
+    <FrameLayout android:id="@+id/pc_content" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:clipChildren="false" android:clipToPadding="false">
+        <com.limelight.ui.NightSkyView android:id="@+id/pc_sky" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:importantForAccessibility="no" />
+        <com.limelight.ui.ContentFrame android:id="@+id/pc_list_frame" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:maxWidth="@dimen/pcs_max_width" android:clipChildren="false" android:clipToPadding="false">
+            <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent"
+                android:clipChildren="false" android:clipToPadding="false">
+                <FrameLayout android:id="@+id/pcFragmentContainer"
+                    android:layout_width="match_parent" android:layout_height="match_parent"
+                    android:layout_marginStart="@dimen/pcs_grid_bleed" android:layout_marginEnd="@dimen/pcs_grid_bleed"
+                    android:clipChildren="false" android:clipToPadding="false" />
+                <!-- Under the last PC while it fits (PcView.placeListFooter): discovery is still looking, and the way to a PC
+                     that does not show up. Not on a TV, whose tiles sit centred on the screen. -->
+                <LinearLayout android:id="@+id/pc_list_footer" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_gravity="top" android:orientation="vertical" android:visibility="invisible"
+                    android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter">
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingStart="@dimen/space_l" android:paddingEnd="@dimen/space_l">
+                        <!-- The dim track keeps a whole ring on screen while the arc runs, so the spinner never shrinks to a dot. -->
+                        <com.google.android.material.progressindicator.CircularProgressIndicator android:id="@+id/pc_list_spinner"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content" android:indeterminate="true"
+                            app:indicatorSize="16dp" app:indicatorInset="0dp" app:trackThickness="2dp" app:indicatorColor="?attr/colorOnSurfaceVariant"
+                            app:trackColor="?attr/colorOutlineVariant" app:indicatorTrackGapSize="0dp" app:indeterminateTrackVisible="true"
+                            android:importantForAccessibility="no" />
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                            android:layout_marginStart="@dimen/space_m" android:text="@string/pc_list_searching"
+                            android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant" />
+                    </LinearLayout>
+                    <com.limelight.ui.GlassButton android:id="@+id/pc_list_help"
+                        style="@style/Widget.Nightjar.Glass.Link" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/space_xxl"
+                        android:text="@string/discovery_connect_help" />
+                </LinearLayout>
+                <!-- First run: the moon, one word, one moon action. -->
+                <ScrollView android:id="@+id/no_pc_found_layout" android:layout_width="match_parent"
+                    android:layout_height="match_parent" android:fillViewport="true" android:clipToPadding="false" android:clipChildren="false"
+                    android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter" android:scrollbars="none">
+                    <LinearLayout android:id="@+id/first_run" android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="vertical" android:gravity="center" android:clipChildren="false" android:clipToPadding="false">
+                        <com.limelight.ui.OrbitView android:id="@+id/first_run_orbit" android:layout_width="300dp" android:layout_height="300dp"
+                            app:orbitMoon="true" android:importantForAccessibility="no" />
+                        <TextView android:id="@+id/discovery_message" android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:gravity="center" android:text="@string/searching_pc" android:accessibilityLiveRegion="polite"
+                            android:textAppearance="@style/TextAppearance.Nightjar.Glass.Size17" android:textColor="?attr/colorOnSurface" />
+                        <com.limelight.ui.GlassButton android:id="@+id/discovery_add"
+                            style="@style/Widget.Nightjar.Glass.Play" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:nextFocusDown="@+id/discovery_help" android:nextFocusForward="@id/discovery_help"
+                            android:layout_marginTop="@dimen/space_l" android:minWidth="147dp" android:minHeight="48dp"
+                            android:paddingStart="24dp" android:paddingEnd="24dp" app:iconSize="20dp" app:iconPadding="8dp"
+                            android:text="@string/title_add_pc" app:icon="@drawable/ic_glass_plus" />
+                        <com.limelight.ui.GlassButton android:id="@+id/discovery_help"
+                            style="@style/Widget.Nightjar.Glass.Link" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:nextFocusUp="@id/discovery_add" android:accessibilityTraversalAfter="@id/discovery_add"
+                            android:layout_marginTop="@dimen/space_s" android:text="@string/discovery_connect_help" />
+                    </LinearLayout>
+                </ScrollView>
+            </FrameLayout>
+        </com.limelight.ui.ContentFrame>
+        <View android:id="@+id/pc_foot_fade" android:layout_width="match_parent" android:layout_height="@dimen/home_foot_fade"
+            android:layout_gravity="bottom" android:importantForAccessibility="no" />
+    </FrameLayout>
+    <!-- The top chrome. The screen's name is the large title on a phone and the selected tab on a TV, whose title follows the
+         focused PC; PcView still configures the hidden toolbar and the window title names the page for screen readers. -->
+    <LinearLayout android:id="@+id/pc_chrome" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"
+        android:clipToPadding="false" android:clipChildren="false"
         android:paddingStart="@dimen/shell_overscan_horizontal" android:paddingEnd="@dimen/shell_overscan_horizontal"
         android:paddingTop="@dimen/shell_overscan_vertical" android:paddingBottom="@dimen/shell_overscan_vertical">
-        <!-- The screen's title is the shell bar's selected tab, so the toolbar stays hidden; PcView still configures it
-             and the window title names the page for screen readers. -->
         <include android:id="@+id/home_toolbar" layout="@layout/view_top_app_bar" android:visibility="gone" />
-        <include layout="@layout/view_shell_bar" />
-        <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
-            android:clipChildren="@bool/pcs_clip">
-            <FrameLayout android:id="@+id/pcFragmentContainer"
-                android:layout_width="match_parent" android:layout_height="match_parent"
-                android:layout_marginStart="@dimen/pcs_grid_bleed" android:layout_marginEnd="@dimen/pcs_grid_bleed" />
-            <!-- Under the last PC while it fits above Add PC (PcView.placeListFooter): discovery is still looking, and
-                 the way to a PC that does not show up. Not on a TV, whose tiles sit centred on the screen. -->
-            <LinearLayout android:id="@+id/pc_list_footer" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_gravity="top" android:orientation="vertical" android:visibility="invisible"
-                android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter">
-                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="horizontal" android:gravity="center_vertical"
-                    android:paddingStart="@dimen/space_l" android:paddingEnd="@dimen/space_l">
-                    <!-- The dim track keeps a whole ring on screen while the arc runs, so the spinner never shrinks to a dot. -->
-                    <com.google.android.material.progressindicator.CircularProgressIndicator android:id="@+id/pc_list_spinner"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content" android:indeterminate="true"
-                        app:indicatorSize="16dp" app:trackThickness="2dp" app:indicatorColor="?attr/colorOnSurfaceVariant"
-                        app:trackColor="?attr/colorOutlineVariant" app:indicatorTrackGapSize="0dp" app:indeterminateTrackVisible="true"
-                        android:importantForAccessibility="no" />
-                    <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
-                        android:layout_marginStart="@dimen/space_m" android:text="@string/pc_list_searching"
-                        android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant" />
-                </LinearLayout>
-                <com.google.android.material.button.MaterialButton android:id="@+id/pc_list_help"
-                    style="@style/Widget.Nightjar.Button.Text" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:layout_marginStart="@dimen/space_xxl" android:minHeight="@dimen/touch_target"
-                    android:text="@string/discovery_connect_help" />
-            </LinearLayout>
-            <ScrollView android:id="@+id/no_pc_found_layout" android:layout_width="match_parent"
-                android:layout_height="match_parent" android:fillViewport="true" android:clipToPadding="false"
-                android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter"
-                android:paddingTop="@dimen/space_l" android:paddingBottom="@dimen/space_l">
-                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center">
-                    <com.google.android.material.card.MaterialCardView style="@style/LibraryCard"
-                        android:layout_width="match_parent" android:layout_height="wrap_content">
-                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                            android:orientation="vertical" android:padding="@dimen/space_xl">
-                            <TextView android:id="@+id/discovery_message" android:layout_width="match_parent" android:layout_height="wrap_content"
-                                android:text="@string/library_discovery_title" android:textAppearance="@style/TextAppearance.Nightjar.ScreenTitle" />
-                            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                                android:layout_marginTop="@dimen/space_l" android:text="@string/library_discovery_body"
-                                android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurfaceVariant" />
-                            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                                android:layout_marginTop="@dimen/space_l" android:text="@string/library_discovery_hint"
-                                android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurfaceVariant" />
-                            <com.google.android.material.button.MaterialButton android:id="@+id/discovery_add"
-                                android:nextFocusDown="@+id/discovery_help" android:nextFocusForward="@id/discovery_help"
-                                android:layout_width="match_parent" android:layout_height="wrap_content"
-                                android:layout_marginTop="@dimen/space_xl" android:minHeight="@dimen/touch_target" android:text="@string/title_add_pc" app:icon="@drawable/ic_add" />
-                            <com.google.android.material.button.MaterialButton android:id="@+id/discovery_help"
-                                android:nextFocusUp="@id/discovery_add" android:accessibilityTraversalAfter="@id/discovery_add"
-                                style="@style/Widget.Nightjar.Button.Text" android:layout_width="match_parent" android:layout_height="wrap_content"
-                                android:layout_marginTop="@dimen/space_s" android:minHeight="@dimen/touch_target" android:text="@string/discovery_connect_help" />
-                        </LinearLayout>
-                    </com.google.android.material.card.MaterialCardView>
-                </LinearLayout>
-            </ScrollView>
-            <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton android:id="@+id/manuallyAddPc"
-                android:nextFocusUp="@id/fragmentView" android:accessibilityTraversalAfter="@id/fragmentView"
-                android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="bottom|end"
-                android:layout_margin="@dimen/screen_gutter" android:minHeight="@dimen/extended_fab_min_height" android:text="@string/title_add_pc" app:icon="@drawable/ic_add" />
-        </FrameLayout>
-        <TextView android:id="@+id/pc_options_hint" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter"
-            android:paddingTop="@dimen/space_s" android:paddingBottom="@dimen/space_s" android:text="@string/host_options_hint"
-            android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant"
+        <LinearLayout android:id="@+id/pc_top_row" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center_vertical" android:clipChildren="false" android:clipToPadding="false">
+            <TextView android:id="@+id/pc_title" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:text="@string/library_computers" android:maxLines="1" android:ellipsize="end"
+                android:textAppearance="@style/TextAppearance.Nightjar.Glass.PcsTitle" android:lineHeight="42sp" android:fontFamily="?attr/nightjarFaceStrong" android:letterSpacing="-0.02"
+                android:textColor="?attr/colorOnSurface" />
+            <com.limelight.ui.GlassSurface android:id="@+id/manuallyAddPc" android:layout_width="@dimen/glass_capsule" android:layout_height="@dimen/glass_capsule"
+                android:focusable="true" android:clickable="true" android:defaultFocusHighlightEnabled="false"
+                android:contentDescription="@string/title_add_pc" android:nextFocusDown="@id/fragmentView">
+                <ImageView android:layout_width="24dp" android:layout_height="24dp" android:layout_gravity="center"
+                    android:src="@drawable/ic_glass_plus" app:tint="?attr/colorOnSurface" android:importantForAccessibility="no" />
+            </com.limelight.ui.GlassSurface>
+        </LinearLayout>
+        <!-- A handheld and a TV: the PC with the selection, and what the keys do on it. -->
+        <TextView android:id="@+id/pc_focus_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:maxLines="1" android:ellipsize="end" android:visibility="gone"
+            android:fontFamily="?attr/nightjarFaceStrong" android:letterSpacing="-0.02" android:textColor="?attr/colorOnSurface"
+            android:importantForAccessibility="no" />
+        <TextView android:id="@+id/pc_options_hint" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:gravity="center" android:paddingTop="4dp" android:paddingBottom="4dp"
+            android:maxLines="1" android:importantForAccessibility="no"
+            android:textAppearance="@style/TextAppearance.Nightjar.Glass.Hint" android:textColor="?attr/colorOnSurface"
             android:visibility="gone" />
     </LinearLayout>
-</com.limelight.ui.ContentFrame>
+    <LinearLayout android:id="@+id/pc_bottom_row" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_gravity="bottom" android:orientation="horizontal" android:gravity="center_vertical"
+        android:clipChildren="false" android:clipToPadding="false">
+        <com.limelight.ui.GlassSurface android:id="@+id/pc_tabs" android:layout_width="0dp" android:layout_height="@dimen/nj_size_tab_bar_height"
+            android:layout_weight="1">
+            <include layout="@layout/view_shell_bar" android:layout_width="match_parent" android:layout_height="match_parent" />
+        </com.limelight.ui.GlassSurface>
+    </LinearLayout>
+</com.limelight.ui.GlassHost>

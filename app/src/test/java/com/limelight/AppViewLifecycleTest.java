@@ -108,9 +108,14 @@ public class AppViewLifecycleTest {
             ReflectionHelpers.callInstanceMethod(screen, "updateUiWithAppList",
                     ReflectionHelpers.ClassParameter.from(List.class, Collections.emptyList()));
             assertEquals(View.GONE, screen.findViewById(R.id.library_loading).getVisibility());
-                assertEquals(View.VISIBLE, screen.findViewById(R.id.library_retry).getVisibility());
+            // One line and a Refresh, and no tile: a PC that lists nothing has no entry a tile could launch.
+            TextView refresh = screen.findViewById(R.id.library_retry);
+            assertEquals(View.VISIBLE, refresh.getVisibility());
+            assertEquals(screen.getString(R.string.library_refresh), refresh.getText().toString());
+            AppGridAdapter adapter = ReflectionHelpers.getField(screen, "appGridAdapter");
+            assertEquals(0, adapter.getCount());
             TextView status = screen.findViewById(R.id.app_list_status);
-            assertEquals(screen.getString(R.string.applist_empty), status.getText().toString());
+            assertEquals(screen.getString(R.string.library_no_apps), status.getText().toString());
             assertEquals(View.VISIBLE, status.getVisibility());
         } finally {
             controller.pause().stop().destroy();
@@ -325,6 +330,20 @@ public class AppViewLifecycleTest {
         }
     }
 
+    /** A PC's cached list is in the adapter before the grid exists: its cards came in without their rise. */
+    @Test public void aListThatWasCachedStillBringsItsCardsIn() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.UUID_EXTRA, "running-host").putExtra(AppView.NAME_EXTRA, "PC");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            Library screen = controller.get();
+            libraryWithRunningGame(screen, "sunshine-serverinfo.xml");
+            assertTrue(ReflectionHelpers.<Boolean>getField(screen, "enterPlayed"));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     @Test public void aControllersXOpensTheSelectedGamesMenuLikeALongPress() {
         Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
                 .putExtra(AppView.UUID_EXTRA, "running-host").putExtra(AppView.NAME_EXTRA, "PC");
@@ -361,11 +380,8 @@ public class AppViewLifecycleTest {
             TextView chip = tile.findViewById(R.id.grid_status);
             assertEquals(View.VISIBLE, chip.getVisibility());
             assertEquals(screen.getString(R.string.app_running), chip.getText().toString());
-            // Live, not an action: the green live dot on the art scrim, never the amber fill.
-            assertEquals(androidx.core.content.ContextCompat.getColor(screen, R.color.card_chip_text), chip.getCurrentTextColor());
-            assertEquals(androidx.core.content.ContextCompat.getColor(screen, R.color.card_chip_scrim),
-                    androidx.core.view.ViewCompat.getBackgroundTintList(chip).getDefaultColor());
-            assertNotNull(chip.getCompoundDrawablesRelative()[0]);
+            assertTrue("the dot, not a chip", chip instanceof com.limelight.ui.StatusDisc);
+            assertTrue(chip.isActivated());
             assertEquals("Racing Game, " + screen.getString(R.string.app_running), tile.getContentDescription().toString());
             View other = grid.getAdapter().getView(position(grid, "Desktop"), null, grid);
             assertEquals(View.GONE, ((TextView) other.findViewById(R.id.grid_status)).getVisibility());
@@ -434,6 +450,62 @@ public class AppViewLifecycleTest {
     }
 
     /** A PC's app grid on a 1080p TV: readable text, nothing read or focused in the overscan band. */
+    private ActivityController<Library> runningLibrary() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.UUID_EXTRA, "running-host").putExtra(AppView.NAME_EXTRA, "PC");
+        return Robolectric.buildActivity(Library.class, intent).setup().visible();
+    }
+
+    @Test
+    public void onAPhoneTheRunningGameHasACapsuleAndTheOneSearchSitsBesideTheTabs() {
+        ActivityController<Library> controller = runningLibrary();
+        try {
+            Library screen = controller.get();
+            android.widget.GridView grid = libraryWithRunningGame(screen, "sunshine-serverinfo.xml");
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            assertSame("Up from the grid reaches Back", screen.findViewById(R.id.library_back), grid.focusSearch(View.FOCUS_UP));
+            assertEquals(R.id.library_back, grid.getAccessibilityTraversalAfter());
+            assertEquals(View.VISIBLE, screen.findViewById(R.id.library_resume).getVisibility());
+            assertEquals("Racing Game", ((TextView) screen.findViewById(R.id.library_resume_name)).getText().toString());
+            assertEquals(screen.getString(R.string.applist_menu_resume), ((TextView) screen.findViewById(R.id.library_resume_button)).getText().toString());
+            assertSame(screen.findViewById(R.id.library_bottom_row), screen.findViewById(R.id.library_search_button).getParent());
+            assertEquals(View.VISIBLE, screen.findViewById(R.id.library_back).getVisibility());
+            assertEquals("no hero on a phone", View.GONE, screen.findViewById(R.id.library_focus_title).getVisibility());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void thePcsTabGoesBackToTheListOfPcs() {
+        ActivityController<Library> controller = runningLibrary();
+        try {
+            Library screen = controller.get();
+            assertTrue(screen.findViewById(R.id.shell_pcs).performClick());
+            assertTrue(screen.isFinishing());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionTheRunningGameIsResumedFromItsTileWithTheKeysSayingSo() {
+        ActivityController<Library> controller = runningLibrary();
+        try {
+            Library screen = controller.get();
+            libraryWithRunningGame(screen, "sunshine-serverinfo.xml");
+            org.robolectric.shadows.ShadowLooper.idleMainLooper(100, java.util.concurrent.TimeUnit.MILLISECONDS);
+            assertEquals(View.GONE, screen.findViewById(R.id.library_resume).getVisibility());
+            assertEquals("Racing Game", ((TextView) screen.findViewById(R.id.library_focus_title)).getText().toString());
+            String line = ((TextView) screen.findViewById(R.id.library_focus_status)).getText().toString();
+            assertTrue(line, line.startsWith(screen.getString(R.string.app_running)));
+            assertTrue(line, line.contains(screen.getString(R.string.applist_menu_resume)));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     @Test
     @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
     @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
@@ -447,9 +519,9 @@ public class AppViewLifecycleTest {
             org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
             assertEquals(Collections.emptyList(), com.limelight.ui.TvAudit.findings(screen));
             com.limelight.ui.TvScreensPreviewTest.previewIfRequested(screen, "AppView-library");
-            // The bar moved in to the overscan line and stays one press away: Up from the first row reaches it, and
-            // Right walks from Back over Search to the menu, and Left walks back.
-            View back = screen.findViewById(R.id.library_back);
+            // The chrome stays one press away: Up from the first row reaches it. The tabs name the page, so a TV has no Back button:
+            // Right walks from the capsule to search, and Left walks back.
+            assertEquals(View.GONE, screen.findViewById(R.id.library_back).getVisibility());
             View search = screen.findViewById(R.id.library_search_button);
             View options = screen.findViewById(R.id.library_options);
             com.limelight.ui.TvScreensPreviewTest.leaveTouchMode(screen);
@@ -457,11 +529,136 @@ public class AppViewLifecycleTest {
             grid.setSelection(0);
             com.limelight.ui.TvScreensPreviewTest.settle(screen);
             View up = grid.focusSearch(View.FOCUS_UP);
-            assertTrue("Up from the grid reaches the bar: " + up, up == back || up == search || up == options);
-            assertSame(search, back.focusSearch(View.FOCUS_RIGHT));
-            assertSame(options, search.focusSearch(View.FOCUS_RIGHT));
-            assertSame(search, options.focusSearch(View.FOCUS_LEFT));
-            assertSame(back, search.focusSearch(View.FOCUS_LEFT));
+            boolean inTabs = false;
+            for (android.view.ViewParent at = up.getParent(); at != null; at = at.getParent()) inTabs |= at == screen.findViewById(R.id.shell_bar);
+            assertTrue("Up from the grid reaches the chrome: " + up, up == search || up == options || inTabs);
+            assertSame(search, options.focusSearch(View.FOCUS_RIGHT));
+            assertSame(options, search.focusSearch(View.FOCUS_LEFT));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /**
+     * On the real TV a focused poster on the bottom row ran into the screen's edge, ring and all: the grid kept only 12 dp
+     * under its last row, too little to scroll by. It keeps the overscan plus room for the focus growth and ring, so the
+     * focused card can scroll that far clear of the edge.
+     */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionTheGridKeepsRoomUnderItsLastRowForTheFocusedCard() throws Exception {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.UUID_EXTRA, "running-host").putExtra(AppView.NAME_EXTRA, "PC");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup().visible();
+        try {
+            Library screen = controller.get();
+            android.widget.GridView grid = libraryWithRunningGame(screen, "sunshine-serverinfo.xml");
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            float density = screen.getResources().getDisplayMetrics().density;
+            int edge = screen.getResources().getDimensionPixelSize(R.dimen.shell_overscan_vertical);
+            assertTrue("room under the last row: " + grid.getPaddingBottom(),
+                    grid.getPaddingBottom() >= edge + Math.round(24 * density));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /**
+     * On the real TV the scrolled grid's top row stopped on a hard line under the title: its fade was 14 dp. Rows fade out
+     * under the title over All games' length, from the grid's own top edge.
+     */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionScrolledRowsFadeUnderTheTitleAsOnAllGames() throws Exception {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.UUID_EXTRA, "running-host").putExtra(AppView.NAME_EXTRA, "PC");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup().visible();
+        try {
+            Library screen = controller.get();
+            android.widget.GridView grid = libraryWithRunningGame(screen, "sunshine-serverinfo.xml");
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            assertTrue(grid.isVerticalFadingEdgeEnabled());
+            assertEquals(screen.getResources().getDimensionPixelSize(R.dimen.all_games_fade), grid.getVerticalFadingEdgeLength());
+            assertFalse("the fade starts at the grid's edge, past its padding", grid.getClipToPadding());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** The tabs were installed again after the chrome styled them: larger words, another width, stacked on PCs and inline here. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionTheCapsuleIsTheSameAsOnHome() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.NAME_EXTRA, "Tower").putExtra(AppView.UUID_EXTRA, "uuid");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            assertEquals(com.limelight.console.HomeShellTest.tvCapsule(), com.limelight.ui.TvAudit.topCapsule(controller.get()));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w412dp-h915dp-port-xxhdpi")
+    public void onAPhoneTheTabsStackIconOverWord() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.NAME_EXTRA, "Tower").putExtra(AppView.UUID_EXTRA, "uuid");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            com.google.android.material.button.MaterialButton tab = controller.get().findViewById(R.id.shell_settings);
+            assertEquals(com.google.android.material.button.MaterialButton.ICON_GRAVITY_TEXT_TOP, tab.getIconGravity());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** The grid's clip cut the selected card's halo in a straight line under the hints; it reaches past the grid's top now. */
+    /** A remote reaches the PC capsule and search from the tabs, and they end in a wall. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionRightWalksTheTopRow() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.NAME_EXTRA, "Tower").putExtra(AppView.UUID_EXTRA, "uuid");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            Library screen = controller.get();
+            assertEquals(R.id.library_options, screen.findViewById(R.id.shell_settings).getNextFocusRightId());
+            assertEquals(R.id.library_search_button, screen.findViewById(R.id.library_options).getNextFocusRightId());
+            assertEquals(R.id.library_search_button, screen.findViewById(R.id.library_search_button).getNextFocusRightId());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** Resume's glow reaches past the button; a clip on the way up left its corners square in the capsule. */
+    @Test
+    public void resumesGlowIsNotCutInItsCapsule() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.NAME_EXTRA, "Tower").putExtra(AppView.UUID_EXTRA, "uuid");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            android.view.View capsule = controller.get().findViewById(R.id.library_resume);
+            android.view.View view = controller.get().findViewById(R.id.library_resume_button);
+            while (view != capsule) {
+                android.view.ViewGroup parent = (android.view.ViewGroup) view.getParent();
+                assertFalse(parent.getClipChildren());
+                view = parent;
+            }
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void theHaloIsNotCutWhereTheChromeEnds() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.NAME_EXTRA, "Tower").putExtra(AppView.UUID_EXTRA, "uuid");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            android.view.ViewGroup frame = controller.get().findViewById(R.id.appFragmentContainer);
+            assertFalse(frame.getClipChildren());
         } finally {
             controller.pause().stop().destroy();
         }

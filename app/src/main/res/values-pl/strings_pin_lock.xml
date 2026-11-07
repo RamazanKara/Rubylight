@@ -51,9 +51,4 @@
     <string name="pin_key_delete">Usuń</string>
     <string name="pin_key_confirm">Potwierdź</string>
     <string name="pin_dots_description">Wpisano cyfr: %1$d z %2$d</string>
-    <string name="pin_hint">Góra i Dół wybierają rząd. Lewo, OK i Prawo naciskają jego klawisze.</string>
-    <string name="pin_row_1">Rząd 1: 1, 2, 3</string>
-    <string name="pin_row_2">Rząd 2: 4, 5, 6</string>
-    <string name="pin_row_3">Rząd 3: 7, 8, 9</string>
-    <string name="pin_row_4">Rząd 4: Usuń, 0, Potwierdź</string>
 </resources>

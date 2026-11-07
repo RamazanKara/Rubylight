@@ -9,7 +9,7 @@ import android.widget.TextView;
 import com.limelight.R;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.ui.BackdropView;
-import com.limelight.ui.KeyCaps;
+import com.limelight.ui.InputSource;
 import com.limelight.ui.Motion;
 
 import java.util.function.BooleanSupplier;
@@ -35,7 +35,8 @@ final class HomeAmbience implements ShelfAdapter.FocusListener, Choreographer.Fr
     private ShelfAdapter.Item pending;
     private String shown;
     private boolean queued;
-    private boolean gamepad;
+    private InputSource input = InputSource.NONE;
+    private int vendor;
 
     /** Either part may be missing (a layout without the backdrop or the hero, as on a phone). */
     HomeAmbience(Context context, BackdropView backdrop, View hero, Function<String, ComputerDetails> hosts,
@@ -102,7 +103,7 @@ final class HomeAmbience implements ShelfAdapter.FocusListener, Choreographer.Fr
         ComputerDetails host = CoverLoaders.coverHost(hosts.apply(card.hostUuid), card.source);
         com.limelight.nvstream.http.NvApp app = CoverLoaders.appOf(card.title, card.appId, card.source);
         backdrop.focus(gameKey(card.hostUuid, card.appId, card.title), loaders == null ? null : loaders.peek(host, app),
-                loaders != null && loaders.lacksArt(host, app), fast.getAsBoolean());
+                loaders != null && loaders.lacksArt(host, app), card.title, fast.getAsBoolean());
     }
 
     /** No card has focus (the shelves are empty). */
@@ -160,34 +161,41 @@ final class HomeAmbience implements ShelfAdapter.FocusListener, Choreographer.Fr
     private void write(ShelfAdapter.Item item) {
         setText(meta, metaOf(item));
         setText(title, titleOf(item));
-        setText(hints, hintText(item.game != null));
+        setText(hints, hintText(item));
         written = text(item);
     }
 
-    /**
-     * The keys under the hero: what the select key and the options key do. A gamepad's are A and X; a remote's and a
-     * keyboard's are OK and Menu. A game opens its page, a PC its library.
-     */
-    static String hints(Context context, boolean gamepad, boolean game) {
-        String select = gamepad ? "A" : context.getString(R.string.console_hint_key_ok);
-        String menu = gamepad ? "X" : context.getString(R.string.console_hint_key_menu);
-        String open = context.getString(game ? R.string.console_hint_open : R.string.library_open);
-        return context.getString(R.string.console_hint_line, select, open, menu, context.getString(R.string.console_hint_options));
+    /** What Go does on a card: a game opens its page, a PC its library. */
+    static CharSequence goWord(Context context, boolean game) {
+        return context.getString(game ? R.string.console_hint_open : R.string.library_open);
     }
 
-    /** The hint line with its keys drawn as keycaps. */
-    private CharSequence hintText(boolean game) {
-        return KeyCaps.mark(context, hints(context, gamepad, game),
-                gamepad ? "A" : context.getString(R.string.console_hint_key_ok),
-                gamepad ? "X" : context.getString(R.string.console_hint_key_menu));
+    /** The line under the title: a game's store and state, then the keys of the device in the hand (none for touch and a mouse). */
+    private CharSequence hintText(ShelfAdapter.Item item) {
+        CharSequence line = HomeHints.line(context, input, vendor, goWord(context, item.game != null), context.getString(R.string.console_hint_options));
+        String facts = item.game == null ? null : factsOf(context, item.game);
+        if (facts == null) return line == null ? "" : line;
+        android.text.SpannableStringBuilder text = new android.text.SpannableStringBuilder(facts);
+        text.setSpan(new android.text.style.ForegroundColorSpan(androidx.core.content.ContextCompat.getColor(context, R.color.nj_color_label_secondary)),
+                0, facts.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return line == null ? text : text.append("    ").append(line);
     }
 
-    /** The last key came from a gamepad (A and X), or from a remote or keyboard (OK and Menu). */
-    void setGamepad(boolean gamepad) {
-        if (this.gamepad == gamepad) return;
-        this.gamepad = gamepad;
+    /** What a poster no longer says: the store and Running or Suspended. Null for a game with neither. */
+    static String factsOf(Context context, HomeModel.GameCard card) {
+        String store = card.storeName();
+        CharSequence state = ShelfAdapter.CardHolder.stateOf(context, card);
+        if (store == null) return state == null ? null : state.toString();
+        return state == null ? store : store + " · " + state;
+    }
+
+    /** The next input came from {@code source} (null says nothing): the hints name that device's keys, at once. */
+    void setInput(InputSource source, int padVendor) {
+        if (source == null || (source == input && padVendor == vendor)) return;
+        input = source;
+        vendor = padVendor;
         ShelfAdapter.Item item = pending;
-        if (item != null) setText(hints, hintText(item.game != null));
+        if (item != null) setText(hints, hintText(item));
     }
 
     /** Drops the pending frame callback: the screen is going away. */

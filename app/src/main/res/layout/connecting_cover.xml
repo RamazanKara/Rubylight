@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<merge xmlns:android="http://schemas.android.com/apk/res/android">
+    <com.limelight.ui.OrbitView android:id="@+id/conn_orbit" android:layout_width="280dp" android:layout_height="280dp"
+        android:importantForAccessibility="no">
+        <com.limelight.ui.CoverCard android:id="@+id/conn_cover" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_gravity="center" android:defaultFocusHighlightEnabled="false" android:descendantFocusability="blocksDescendants"
+            android:importantForAccessibility="yes">
+            <com.limelight.ui.CoverFrame android:id="@+id/console_cover_frame" android:layout_width="160dp" android:layout_height="240dp">
+                <com.limelight.ui.PosterImageView android:id="@+id/conn_cover_image" android:layout_width="match_parent" android:layout_height="match_parent"
+                    android:scaleType="centerCrop" android:importantForAccessibility="no" />
+                <com.limelight.ui.NoArtTile android:id="@+id/conn_cover_tile" android:layout_width="match_parent" android:layout_height="match_parent"
+                    android:importantForAccessibility="no" android:visibility="gone" />
+            </com.limelight.ui.CoverFrame>
+        </com.limelight.ui.CoverCard>
+    </com.limelight.ui.OrbitView>
+</merge>

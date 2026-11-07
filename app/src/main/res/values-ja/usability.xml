@@ -20,7 +20,6 @@
     <string name="startup_launch_failed">アプリを起動できませんでした。PC でアプリが開くことを確認してから、もう一度お試しください。</string>
     <string name="applist_permission_required">このデバイスはアプリの一覧を取得できません。ホストの設定またはウェブ UI で、このデバイスにアプリの一覧表示を許可してください。ライブラリは自動的に更新されます。</string>
     <string name="applist_load_failed">PC のアプリを読み込めませんでした。ホストの設定またはウェブ UI で、ホストとこのデバイスのアプリ一覧の権限を確認してください。自動的に再試行しています。</string>
-    <string name="applist_empty">利用できるアプリがありません。ホストのライブラリにアプリを追加し、ホストの設定またはウェブ UI でこのデバイスのアプリ一覧の権限を確認してください。</string>
     <string name="host_profile_unsaved_title">ストリーミング設定を保存しますか？</string>
     <string name="host_profile_unsaved_message">この PC のストリーミング設定の変更は保存されていません。専用ダイアログで確定した表示モードは別途保存されます。</string>
     <string name="host_profile_discard">変更を破棄</string>

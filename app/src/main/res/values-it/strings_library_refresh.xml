@@ -12,13 +12,11 @@
     <string name="library_hide_hidden">Nascondi giochi nascosti</string>
     <string name="library_no_matches">Nessun gioco corrisponde alla ricerca.</string>
     <string name="library_clear_search">Cancella ricerca</string>
-    <string name="library_all_hidden">I tuoi giochi sono nascosti. Mostra i giochi nascosti per farli ricomparire.</string>
+    <string name="library_all_hidden">Tutti i giochi sono nascosti</string>
+    <string name="library_no_apps">Nessuna app su questo PC</string>
     <string name="library_offline">Questo PC è offline. La libreria salvata è ancora qui. Riconnettiti per giocare.</string>
     <string name="library_hidden_notice">Gioco nascosto dalla libreria</string>
     <string name="library_undo">Annulla</string>
-    <string name="library_discovery_title">I tuoi giochi, su questo schermo</string>
-    <string name="library_discovery_body">Accendi il PC e avvia il suo host di streaming, come Apollo, Rubylight o Sunshine. I PC sulla stessa rete compaiono qui automaticamente.</string>
-    <string name="library_discovery_hint">Su un’altra rete? Aggiungi il PC tramite indirizzo.</string>
     <plurals name="library_results">
         <item quantity="one">%1$d di %2$d gioco</item>
         <item quantity="many">%1$d di %2$d giochi</item>
@@ -28,10 +26,5 @@
         <item quantity="one">%1$d gioco · inclusi i nascosti</item>
         <item quantity="many">%1$d giochi · inclusi i nascosti</item>
         <item quantity="other">%1$d giochi · inclusi i nascosti</item>
-    </plurals>
-    <plurals name="library_app_count">
-        <item quantity="one">%d gioco</item>
-        <item quantity="many">%d giochi</item>
-        <item quantity="other">%d giochi</item>
     </plurals>
 </resources>

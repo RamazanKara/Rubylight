@@ -85,6 +85,34 @@ public final class BitrateSlider {
     }
 
     /**
+     * A slider at {@code kbps} in the stream menu itself: {@code shown} hears each step in the text the menu shows, and
+     * {@code commit} the bitrate once it settles. A rate {@code commit} could not send snaps the slider back to the one it answers.
+     */
+    public static StepSlider inline(Context context, int kbps, java.util.function.Consumer<String> shown, java.util.function.IntUnaryOperator commit) {
+        StepSlider bar = new StepSlider(context);
+        bar.setMax(MAX_PROGRESS);
+        bar.setPosition(progress(kbps));
+        bar.setKeyStep(1);
+        bar.setPositionText(progress -> text(context, kbps(progress)));
+        Settle settle = new Settle(chosen -> shown.accept(text(context, chosen)), () -> {
+            int chosen = kbps(bar.getPosition());
+            int applied = commit.applyAsInt(chosen);
+            if (applied != chosen) {
+                bar.setPosition(progress(applied));
+                shown.accept(text(context, applied));
+            }
+        }, new Handler(Looper.getMainLooper()));
+        bar.setOnPositionChangeListener(settle);
+        bar.addOnSliderTouchListener(settle);
+        return bar;
+    }
+
+    /** A bitrate as the menu shows it, {@code 80 Mbps}. */
+    public static String text(Context context, int kbps) {
+        return mbpsText(kbps) + " " + context.getString(com.limelight.R.string.suffix_seekbar_bitrate_mbps);
+    }
+
+    /**
      * D-pad Up and Down on a one-line number field move the focus to the row above or below, like on
      * the slider, rather than first moving the text cursor to an end of the field (nightjar #65).
      */
@@ -102,13 +130,17 @@ public final class BitrateSlider {
     }
 
     static final class Settle implements StepSlider.OnPositionChangeListener, Slider.OnSliderTouchListener {
-        private final EditText field;
+        private final java.util.function.IntConsumer chosen;
         private final Handler handler;
         private final Runnable settled;
         private boolean tracking, pending;
 
         Settle(EditText field, Runnable commit, Handler handler) {
-            this.field = field;
+            this(kbps -> field.setText(mbpsText(kbps)), commit, handler);
+        }
+
+        Settle(java.util.function.IntConsumer chosen, Runnable commit, Handler handler) {
+            this.chosen = chosen;
             this.handler = handler;
             this.settled = () -> {
                 if (!pending) return;
@@ -120,7 +152,7 @@ public final class BitrateSlider {
         // Only the user's own changes arrive here.
         @Override
         public void onPositionChanged(StepSlider bar, int progress) {
-            field.setText(mbpsText(kbps(progress)));
+            chosen.accept(kbps(progress));
             pending = true;
             handler.removeCallbacks(settled);
             if (!tracking) handler.postDelayed(settled, SETTLE_MS);

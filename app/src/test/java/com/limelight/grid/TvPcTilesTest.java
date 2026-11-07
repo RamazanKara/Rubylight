@@ -1,7 +1,6 @@
 package com.limelight.grid;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -44,7 +43,7 @@ import org.robolectric.shadows.ShadowLooper;
 import java.io.File;
 import java.io.FileOutputStream;
 
-/** The PCs screen on TV: fixed-size tiles in a centred row, their focus, their state and the game they are running. */
+/** The PCs screen on TV: fixed-size tiles in a row from the page margin, their focus, their state and the game they are running. */
 @RunWith(RobolectricTestRunner.class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = 30, application = Application.class, qualifiers = "w960dp-h540dp-land-television-xhdpi",
@@ -143,9 +142,41 @@ public class TvPcTilesTest {
         assertEquals(R.drawable.status_dot_ok, PcGridAdapter.phoneDot(PcGridAdapter.RowState.READY));
         assertEquals(R.drawable.tv_dot_suspended, PcGridAdapter.phoneDot(PcGridAdapter.RowState.CHECKING));
         assertEquals(R.drawable.tv_dot_idle, PcGridAdapter.phoneDot(PcGridAdapter.RowState.OFFLINE));
-        assertEquals(R.drawable.tv_tile_bg_live, TileBackdrops.gradient(PcGridAdapter.RowState.READY));
-        assertEquals(R.drawable.tv_tile_bg_attention, TileBackdrops.gradient(PcGridAdapter.RowState.NOT_PAIRED));
-        assertEquals(R.drawable.tv_tile_bg_idle, TileBackdrops.gradient(PcGridAdapter.RowState.OFFLINE));
+    }
+
+    @Test
+    public void aPcsWordsSayItsStateAndItsOneAction() {
+        MotionTest.Screen screen = screen();
+        NvApp game = new NvApp("Racing Game", 2, false);
+        PcView.ComputerObject playing = pc("a", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED, game);
+        assertEquals("Racing Game", PcGridAdapter.shortStatus(screen, playing));
+        assertEquals(R.string.applist_menu_resume, PcGridAdapter.actionWord(screen, playing));
+        PcView.ComputerObject ready = pc("b", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED, null);
+        assertEquals(screen.getString(R.string.pc_status_online), PcGridAdapter.shortStatus(screen, ready));
+        assertEquals(R.string.console_hint_open, PcGridAdapter.actionWord(screen, ready));
+        PcView.ComputerObject locked = pc("c", ComputerDetails.State.ONLINE, PairingManager.PairState.NOT_PAIRED, null);
+        assertEquals(screen.getString(R.string.pc_status_not_paired), PcGridAdapter.shortStatus(screen, locked));
+        assertEquals(R.string.pcview_menu_pair_pc, PcGridAdapter.actionWord(screen, locked));
+        // Away with no address saved: no Wake to promise.
+        PcView.ComputerObject away = pc("d", ComputerDetails.State.OFFLINE, PairingManager.PairState.PAIRED, null);
+        assertEquals(screen.getString(R.string.pc_offline), PcGridAdapter.shortStatus(screen, away));
+        assertEquals(0, PcGridAdapter.actionWord(screen, away));
+    }
+
+    @Test
+    public void aSelectedCardsGlowLeavesTheCardItselfAlone() {
+        MotionTest.Screen screen = screen();
+        View tile = screen.getLayoutInflater().inflate(R.layout.pc_grid_item, new FrameLayout(screen), false);
+        View glow = tile.findViewById(R.id.grid_glow);
+        assertTrue(glow instanceof com.limelight.ui.OutsideGlow);
+        int reach = -screen.getResources().getDimensionPixelSize(R.dimen.tile_glow_back);
+        glow.setBackground(new android.graphics.drawable.ColorDrawable(0xFFFFFFFF));
+        glow.measure(View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(300, View.MeasureSpec.EXACTLY));
+        glow.layout(0, 0, 400, 300);
+        Bitmap drawn = Bitmap.createBitmap(400, 300, Bitmap.Config.ARGB_8888);
+        glow.draw(new android.graphics.Canvas(drawn));
+        assertEquals("the glow around the card", 0xFFFFFFFF, drawn.getPixel(reach / 2, 150));
+        assertEquals("nothing inside it", 0, drawn.getPixel(200, 150));
     }
 
     private static View bind(MotionTest.Screen screen, PcGridAdapter adapter, int position) {
@@ -153,7 +184,7 @@ public class TvPcTilesTest {
     }
 
     @Test
-    public void aPcPlayingAGameShowsItsBlurredCoverAndTheOthersTheirGradient() throws Exception {
+    public void aPcPlayingAGameShowsItsCoverOnTheScreenAndTheOthersNone() throws Exception {
         MotionTest.Screen screen = screen();
         NvApp game = new NvApp("Racing Game", 2, false);
         writeCover(screen, "live", game, 0xFFCC4422);
@@ -166,22 +197,16 @@ public class TvPcTilesTest {
         ImageView backdrop = playing.findViewById(R.id.grid_backdrop);
         assertTrue(backdrop.getDrawable() instanceof BitmapDrawable);
         Bitmap shown = ((BitmapDrawable) backdrop.getDrawable()).getBitmap();
-        assertEquals(96, shown.getWidth());
-        assertEquals(54, shown.getHeight());
-        int pixel = shown.getPixel(48, 27);
-        assertTrue("the cover's red, darkened", ((pixel >> 16) & 0xFF) > (pixel & 0xFF));
-        assertTrue("darkened", ((pixel >> 16) & 0xFF) < 0xCC);
-        assertNull("the opaque cover replaces the gradient, no overdraw", backdrop.getBackground());
+        assertTrue("cut for the monitor's wide face", shown.getWidth() > shown.getHeight());
+        assertEquals("the cover's own colour, not darkened", 0xFFCC4422, shown.getPixel(shown.getWidth() / 2, shown.getHeight() / 2));
         TextView status = playing.findViewById(R.id.grid_status);
         assertNotNull("the dot", status.getCompoundDrawablesRelative()[0]);
         // Bound again from the cache: still the cover alone.
         ImageView again = bind(screen, adapter, 0).findViewById(R.id.grid_backdrop);
         assertTrue(again.getDrawable() instanceof BitmapDrawable);
-        assertNull(again.getBackground());
 
         View away = bind(screen, adapter, 1);
         assertNull(((ImageView) away.findViewById(R.id.grid_backdrop)).getDrawable());
-        assertNotNull(away.findViewById(R.id.grid_backdrop).getBackground());
         assertEquals("a tile keeps its name at the foot when no PC has an update",
                 View.GONE, away.findViewById(R.id.grid_update).getVisibility());
     }
@@ -195,7 +220,6 @@ public class TvPcTilesTest {
         ShadowLooper.idleMainLooper();
         ImageView backdrop = tile.findViewById(R.id.grid_backdrop);
         assertNull(backdrop.getDrawable());
-        assertNotNull(backdrop.getBackground());
     }
 
     @Test
@@ -211,8 +235,7 @@ public class TvPcTilesTest {
         View tile = bind(screen, adapter, 0);
         ShadowLooper.idleMainLooper();
         ImageView backdrop = tile.findViewById(R.id.grid_backdrop);
-        assertNull("no blurred grey box", backdrop.getDrawable());
-        assertNotNull(backdrop.getBackground());
+        assertNull("no grey box", backdrop.getDrawable());
     }
 
     private static void writeCover(MotionTest.Screen screen, String uuid, NvApp game, int color) throws Exception {
@@ -246,7 +269,6 @@ public class TvPcTilesTest {
         ShadowLooper.idleMainLooper();
         ImageView backdrop = tile.findViewById(R.id.grid_backdrop);
         assertTrue(backdrop.getDrawable() instanceof BitmapDrawable);
-        assertNull(backdrop.getBackground());
     }
 
     @Test
@@ -279,15 +301,9 @@ public class TvPcTilesTest {
         return rect;
     }
 
-    private static double luminance(int color) {
-        double[] c = {((color >> 16) & 0xFF) / 255.0, ((color >> 8) & 0xFF) / 255.0, (color & 0xFF) / 255.0};
-        for (int i = 0; i < 3; i++) c[i] = c[i] <= 0.03928 ? c[i] / 12.92 : Math.pow((c[i] + 0.055) / 1.055, 2.4);
-        return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
-    }
-
+    /** The cover is on the monitor's face now, so the name never has to read over a white one. */
     @Test
-    @Config(qualifiers = "+night")
-    public void aTilesNameReadsAtFourAndAHalfToOneOverAWhiteCover() throws Exception {
+    public void aTilesNameSitsUnderTheCoverNotOnIt() throws Exception {
         MotionTest.Screen screen = screen();
         NvApp game = new NvApp("Snow Game", 3, false);
         writeCover(screen, "white", game, 0xFFFFFFFF);
@@ -297,23 +313,7 @@ public class TvPcTilesTest {
         ShadowLooper.idleMainLooper();
         assertTrue(((ImageView) tile.findViewById(R.id.grid_backdrop)).getDrawable() instanceof BitmapDrawable);
         layOutTile(tile, screen);
-        Bitmap drawn = Bitmap.createBitmap(tile.getWidth(), tile.getHeight(), Bitmap.Config.ARGB_8888);
-        tile.draw(new android.graphics.Canvas(drawn));
-
-        TextView name = tile.findViewById(R.id.grid_text);
-        android.graphics.Rect rect = rectIn(tile, name);
-        // The name's line, right of the glyphs: the brightest the background gets behind the text.
-        int textEnd = rect.left + name.getPaddingStart() + Math.round(name.getPaint().measureText(name.getText().toString()));
-        double background = 0;
-        for (int y = rect.top; y < rect.bottom; y++) {
-            for (int x = Math.max(textEnd + 4, rect.right - rect.width() / 3); x < rect.right; x++) {
-                background = Math.max(background, luminance(drawn.getPixel(x, y)));
-            }
-        }
-        assertTrue("the TV's dark theme: light text", luminance(name.getCurrentTextColor()) > 0.7);
-        double text = luminance(name.getCurrentTextColor());
-        double ratio = (Math.max(text, background) + 0.05) / (Math.min(text, background) + 0.05);
-        assertTrue("name contrast " + ratio, ratio >= 4.5);
+        assertTrue(rectIn(tile, tile.findViewById(R.id.grid_text)).top >= rectIn(tile, tile.findViewById(R.id.grid_screen)).bottom);
     }
 
     private void textStaysClearOfTheGlyph(float fontScale) {
@@ -330,8 +330,6 @@ public class TvPcTilesTest {
         android.graphics.Rect name = rectIn(tile, tile.findViewById(R.id.grid_text));
         assertTrue("at " + fontScale + " the name (" + name.top + ") stays below the glyph (" + glyph.bottom + ")",
                 name.top >= glyph.bottom);
-        android.graphics.Rect scrim = rectIn(tile, tile.findViewById(R.id.grid_scrim));
-        assertTrue("and the scrim reaches above the name", scrim.top <= name.top);
     }
 
     @Test
@@ -364,21 +362,6 @@ public class TvPcTilesTest {
         return grid;
     }
 
-    @Test
-    public void paddingSetAfterTheFirstMeasureBecomesTheNewBase() {
-        AdaptiveGridView grid = grid(screen(), 2);
-        measure(grid);
-        int extra = 40;
-        grid.setPadding(extra, grid.getPaddingTop(), extra, grid.getPaddingBottom());
-        measure(grid);
-        assertEquals(2, grid.getNumColumns());
-        assertEquals(extra + (CONTENT - 2 * extra - 2 * CELL) / 2, grid.getPaddingLeft());
-        assertEquals(grid.getPaddingLeft(), grid.getPaddingRight());
-        grid.setPaddingRelative(0, grid.getPaddingTop(), 0, grid.getPaddingBottom());
-        measure(grid);
-        assertEquals((CONTENT - 2 * CELL) / 2, grid.getPaddingLeft());
-    }
-
     /** The visible colour a selector draws for a focused, selected item: 0 when it draws nothing. */
     private static int focusedSelectorAlpha(android.graphics.drawable.Drawable selector) {
         selector.setState(new int[]{android.R.attr.state_focused, android.R.attr.state_selected, android.R.attr.state_enabled});
@@ -400,45 +383,24 @@ public class TvPcTilesTest {
 
     /** The width a 1080p TV leaves inside its overscan: 864dp, at xhdpi. */
     private static final int CONTENT = 864 * 2;
-    private static final int CELL = 280 * 2;
+    private static final int CELL = 212 * 2;
 
     private static void measure(View grid) {
         grid.measure(View.MeasureSpec.makeMeasureSpec(CONTENT, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(900, View.MeasureSpec.EXACTLY));
     }
 
+    /** The row starts at the page's margin with the title, however many PCs there are: as many columns as fit, no padding added. */
     @Test
-    public void twoPcsSitAsACentredPair() {
-        AdaptiveGridView grid = grid(screen(), 2);
-        measure(grid);
-        assertEquals(2, grid.getNumColumns());
-        assertEquals((CONTENT - 2 * CELL) / 2, grid.getPaddingLeft());
-        assertEquals(grid.getPaddingLeft(), grid.getPaddingRight());
-    }
-
-    @Test
-    public void onePcSitsInTheMiddle() {
-        AdaptiveGridView grid = grid(screen(), 1);
-        measure(grid);
-        assertEquals(1, grid.getNumColumns());
-        assertEquals((CONTENT - CELL) / 2, grid.getPaddingLeft());
-    }
-
-    @Test
-    public void morePcsFillThreeColumnsOfACentredBlockAndTheBlockFollowsTheCount() {
-        AdaptiveGridView grid = grid(screen(), 5);
-        measure(grid);
-        assertEquals(3, grid.getNumColumns());
-        assertEquals((CONTENT - 3 * CELL) / 2, grid.getPaddingLeft());
-        // Down to two PCs: the padding comes from the layout's own, not from the last centring.
-        PcGridAdapter adapter = (PcGridAdapter) grid.getAdapter();
-        adapter.removeComputer((PcView.ComputerObject) adapter.getItem(0));
-        adapter.removeComputer((PcView.ComputerObject) adapter.getItem(0));
-        adapter.removeComputer((PcView.ComputerObject) adapter.getItem(0));
-        adapter.notifyDataSetChanged();
-        measure(grid);
-        assertEquals(2, grid.getNumColumns());
-        assertEquals((CONTENT - 2 * CELL) / 2, grid.getPaddingLeft());
-        assertNotEquals(0, grid.getPaddingLeft());
+    public void pcsStartAtTheMarginWhateverTheirCount() {
+        for (int count : new int[] {1, 2, 5}) {
+            AdaptiveGridView grid = grid(screen(), count);
+            measure(grid);
+            assertEquals(4, grid.getNumColumns());
+            assertEquals(0, grid.getPaddingLeft());
+            assertEquals(0, grid.getPaddingRight());
+            controller.close();
+            controller = null;
+        }
     }
 }

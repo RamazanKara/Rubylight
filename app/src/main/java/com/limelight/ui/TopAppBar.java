@@ -39,27 +39,6 @@ public final class TopAppBar {
     }
 
     /**
-     * For layout/view_shell_app_bar.xml. Shown, the shell bar's selected tab names the page: the bar drops its title and
-     * is only as tall as the tab row it shares with its actions, so the tabs sit where they do on the screens without a
-     * bar; hidden, the title is back at the bar's usual height. The window keeps {@code title} for screen readers.
-     */
-    public static void showShellBar(Activity activity, MaterialToolbar toolbar, boolean shown, CharSequence title) {
-        View bar = toolbar.findViewById(R.id.shell_bar);
-        int top = bar.getPaddingTop();
-        // The bar's own resources: a screen that is compact on a TV keeps its bar at the full size.
-        int below = toolbar.getResources().getDimensionPixelSize(R.dimen.space_s);
-        bar.setVisibility(shown ? View.VISIBLE : View.GONE);
-        // The bar's content inset already puts the first tab on the shell inset, where a title would start. The tab
-        // row's extra space below moves to the bar, so the actions centre on the tabs rather than on the row.
-        bar.setPaddingRelative(0, top, 0, top);
-        toolbar.setPaddingRelative(toolbar.getPaddingStart(), toolbar.getPaddingTop(), toolbar.getPaddingEnd(),
-                shown ? Math.max(0, below - top) : 0);
-        toolbar.setMinimumHeight(shown ? 0 : toolbar.getResources().getDimensionPixelSize(R.dimen.top_app_bar_height));
-        toolbar.setTitle(shown ? null : title);
-        activity.setTitle(title);
-    }
-
-    /**
      * Adds the leading navigation button and gives it {@code buttonId}, so layouts can name it in
      * nextFocus attributes and tests and the smoke run can find it.
      */

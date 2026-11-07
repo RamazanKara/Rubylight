@@ -284,6 +284,9 @@ final class GameMenuActions {
     private com.limelight.ui.StreamMenu.Options streamMenuOptions() {
         com.limelight.ui.StreamMenu.Options options = new com.limelight.ui.StreamMenu.Options(game.app.getRole(), game.conn.getHostDetails());
         options.appName = game.app.getAppName();
+        options.cover = game.streamConnection.connectingCover();
+        options.bitrateKbps = game.currentBitrate == 0 ? game.prefConfig.bitrate : game.currentBitrate;
+        options.bitrateChange = game.adaptation::applyBitrateFromMenu;
         options.canSendInput = game.conn.canSendInput();
         options.nativeHostControl = game.conn.hasNativeHostControl();
         options.hostMenu = game.conn.hasNativeCouchMenu();
@@ -614,7 +617,7 @@ final class GameMenuActions {
     }
 
     private void confirmHostExit(int title, int message, Runnable exit) {
-        androidx.appcompat.app.AlertDialog dialog = new NavigationDialogBuilder(game).setTitle(title)
+        androidx.appcompat.app.AlertDialog dialog = new NavigationDialogBuilder(game).startOnCancel().setTitle(title)
                 .setMessage(message).setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(title, (prompt, which) -> game.streamMenuAction = exit).create();
         showStreamDialog(dialog);
@@ -949,7 +952,7 @@ final class GameMenuActions {
         showStreamDialog(new NavigationDialogBuilder(game).setTitle(R.string.stream_server_commands)
                 .setItems(names, (dialog, index) -> {
                     dialog.dismiss();
-                    showStreamDialog(new NavigationDialogBuilder(game).setTitle(names[index])
+                    showStreamDialog(new NavigationDialogBuilder(game).startOnCancel().setTitle(names[index])
                             .setMessage(R.string.stream_command_confirm)
                             .setNegativeButton(android.R.string.cancel, null)
                             .setPositiveButton(R.string.stream_command_run, (confirmation, which) -> {

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Search on the page: takes the top row's place while it is open. HomeChrome places it. -->
+<com.limelight.ui.GlassSurface xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto" android:id="@+id/home_search_bar" android:layout_width="match_parent" android:layout_height="@dimen/glass_capsule"
+    android:visibility="gone">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="horizontal"
+        android:gravity="center_vertical" android:paddingStart="16dp" android:paddingEnd="6dp">
+        <ImageView android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_glass_search"
+            android:importantForAccessibility="no" />
+        <EditText android:id="@+id/home_search_field" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+            android:layout_marginStart="10dp" android:background="@null" android:hint="@string/library_search"
+            android:importantForAutofill="no" android:imeOptions="actionSearch|flagNoExtractUi" android:inputType="text|textNoSuggestions"
+            android:maxLines="1" android:textAppearance="@style/TextAppearance.Nightjar.Glass.Capsule"
+            android:textColor="?attr/colorOnSurface" android:textColorHint="?attr/colorOnSurfaceVariant" />
+        <com.limelight.ui.GlassIconButton android:id="@+id/home_search_clear" android:layout_width="36dp" android:layout_height="36dp" android:padding="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless" android:scaleType="fitCenter" android:src="@drawable/ic_close"
+            android:contentDescription="@string/library_clear_search" android:visibility="gone"
+            app:tint="?attr/colorOnSurfaceVariant" />
+    </LinearLayout>
+</com.limelight.ui.GlassSurface>

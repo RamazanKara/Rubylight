@@ -37,7 +37,7 @@ public class ContrastTest {
     // The palette, read from the XML so the numbers in palette.xml's comment cannot drift from the colours.
     private static Map<String, String> colors() throws Exception {
         Map<String, String> colors = new HashMap<>();
-        for (String file : new String[] {"palette.xml", "brand_colors.xml"}) {
+        for (String file : new String[] {"palette.xml", "brand_colors.xml", "design_tokens.xml"}) {
             Document document = DocumentBuilderFactory.newInstance().newDocumentBuilder()
                     .parse(new File("src/main/res/values/" + file));
             NodeList list = document.getElementsByTagName("color");

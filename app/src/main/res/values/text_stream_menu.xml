@@ -4,9 +4,15 @@
     <style name="TextAppearance.Nightjar.Tile" parent="TextAppearance.Material3.LabelMedium">
         <item name="android:textSize">12sp</item>
         <item name="lineHeight">14sp</item>
-        <item name="android:fontFamily">sans-serif</item>
-        <item name="fontFamily">sans-serif</item>
+        <item name="android:fontFamily">?attr/nightjarFaceStrong</item>
+        <item name="fontFamily">?attr/nightjarFaceStrong</item>
         <item name="android:letterSpacing">0</item>
+    </style>
+
+    <!-- The game's name at the head of the stream menu. A TV's is a size up, for the distance. -->
+    <style name="TextAppearance.Nightjar.StreamMenuTitle" parent="TextAppearance.Nightjar.Title">
+        <item name="android:textSize">@dimen/stream_menu_title</item>
+        <item name="lineHeight">@dimen/stream_menu_title_line</item>
     </style>
 
     <style name="TextAppearance.Nightjar.TileDetail" parent="TextAppearance.Nightjar.Tile">

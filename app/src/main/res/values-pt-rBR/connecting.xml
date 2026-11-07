@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="conn_back">Voltar</string>
+    <string name="conn_test_network">Testar a rede</string>
+    <string name="nettest_text_clear">Nada está bloqueando a transmissão.</string>
+    <string name="nettest_text_unknown">Não foi possível concluir o teste.</string>
+</resources>

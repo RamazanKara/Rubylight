@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A PC on a handheld and a TV: a flat card on the sky with its monitor, its name and its state. As with a library poster, the
+     root's padding is the glow's reach, the ring is a view around the card in that padding, and the root's animator scales and
+     lifts the lot. The ids are the phone row's, so PcGridAdapter fills both. A TV says what OK does in the hints line; a handheld,
+     which is also touched, shows the action on the card (PcGridAdapter). -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:padding="@dimen/tile_glow" android:clipChildren="false" android:clipToPadding="false"
+    android:stateListAnimator="?attr/nightjarTileFocusAnimator" android:descendantFocusability="blocksDescendants">
+    <com.limelight.ui.OutsideGlow android:id="@+id/grid_glow" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:layout_marginStart="@dimen/tile_glow_back" android:layout_marginEnd="@dimen/tile_glow_back" android:layout_marginTop="@dimen/tile_glow_back" android:layout_marginBottom="@dimen/tile_glow_back"
+        android:background="?attr/nightjarPosterGlow" android:duplicateParentState="true" android:importantForAccessibility="no" />
+    <com.google.android.material.card.MaterialCardView android:id="@+id/grid_card" style="@style/LibraryPoster"
+        android:layout_width="match_parent" android:layout_height="@dimen/tile_height"
+        app:cardCornerRadius="@dimen/nj_radius_panel" app:cardPreventCornerOverlap="false"
+        app:cardBackgroundColor="@android:color/transparent" android:clipToOutline="true" android:duplicateParentState="true">
+        <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent" android:duplicateParentState="true">
+            <LinearLayout android:id="@+id/grid_row" android:layout_width="match_parent" android:layout_height="match_parent"
+                android:orientation="vertical" android:gravity="center_horizontal" android:clipChildren="false" android:clipToPadding="false"
+                android:paddingStart="@dimen/space_l" android:paddingEnd="@dimen/space_l" android:paddingTop="@dimen/tile_pad_top">
+                <com.limelight.ui.PcScreen android:id="@+id/grid_screen" android:layout_width="@dimen/tile_screen" android:layout_height="wrap_content"
+                    android:importantForAccessibility="noHideDescendants">
+                    <ImageView android:id="@+id/grid_backdrop" android:layout_width="match_parent" android:layout_height="match_parent"
+                        android:scaleType="centerCrop" android:importantForAccessibility="no" />
+                    <ImageView android:id="@+id/grid_image" android:layout_width="@dimen/tile_glyph" android:layout_height="@dimen/tile_glyph" android:layout_gravity="center"
+                        android:importantForAccessibility="no" />
+                    <ProgressBar android:id="@+id/grid_spinner" android:layout_width="@dimen/tile_glyph" android:layout_height="@dimen/tile_glyph" android:layout_gravity="center"
+                        android:visibility="gone" />
+                </com.limelight.ui.PcScreen>
+                <TextView android:id="@+id/grid_text" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/tile_name_top" android:gravity="center"
+                    android:textAppearance="@style/TextAppearance.Nightjar.TileName" android:textColor="?attr/colorOnSurface"
+                    android:maxLines="1" android:ellipsize="end" android:importantForAccessibility="no" />
+                <TextView android:id="@+id/grid_status" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp" android:drawablePadding="@dimen/space_s" android:gravity="center"
+                    android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant"
+                    android:maxLines="1" android:ellipsize="end" android:importantForAccessibility="no" />
+                <TextView android:id="@+id/grid_update" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center"
+                    android:layout_marginStart="-14dp" android:layout_marginEnd="-14dp"
+                    android:textAppearance="@style/TextAppearance.Nightjar.Supporting.TileUpdate" android:textColor="?attr/colorPrimary"
+                    android:maxLines="2" android:ellipsize="end" android:visibility="gone" android:importantForAccessibility="no" />
+                <com.limelight.ui.GlassButton android:id="@+id/grid_resume" style="@style/Widget.Nightjar.Glass.Play"
+                    android:layout_width="wrap_content" android:layout_height="40dp" android:minHeight="40dp" android:layout_marginTop="10dp"
+                    android:paddingStart="20dp" android:paddingEnd="20dp" android:textAppearance="@style/TextAppearance.Nightjar.Glass.Size15" android:maxLines="1" android:focusable="false"
+                    android:text="@string/applist_menu_resume" app:iconSize="17dp" app:iconPadding="6dp" android:visibility="gone" />
+                <com.limelight.ui.GlassButton android:id="@+id/grid_action" style="@style/Widget.Nightjar.Glass.Control"
+                    android:layout_width="wrap_content" android:layout_height="40dp" android:minHeight="40dp" android:layout_marginTop="10dp"
+                    android:paddingStart="18dp" android:paddingEnd="18dp" android:textAppearance="@style/TextAppearance.Nightjar.Glass.Size15" android:maxLines="1" android:focusable="false"
+                    app:iconSize="17dp" app:iconPadding="6dp" android:visibility="gone" />
+            </LinearLayout>
+            <ImageButton android:id="@+id/grid_more" android:layout_width="44dp" android:layout_height="44dp" android:layout_gravity="top|end"
+                android:background="@drawable/pc_more_quiet" android:focusable="false" android:scaleType="center"
+                android:importantForAccessibility="yes" android:src="@drawable/ic_glass_more"
+                android:contentDescription="@string/library_options" app:tint="?attr/colorOnSurfaceVariant" />
+        </FrameLayout>
+    </com.google.android.material.card.MaterialCardView>
+    <View android:id="@+id/grid_ring" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:layout_marginStart="-5dp" android:layout_marginEnd="-5dp" android:layout_marginTop="-5dp" android:layout_marginBottom="-5dp"
+        android:background="?attr/nightjarTileRing" android:duplicateParentState="true" android:importantForAccessibility="no" />
+</FrameLayout>

@@ -49,9 +49,4 @@
     <string name="pin_key_delete">Elimina</string>
     <string name="pin_key_confirm">Conferma</string>
     <string name="pin_dots_description">%1$d cifre su %2$d inserite</string>
-    <string name="pin_hint">Su e Giù scelgono una riga. Sinistra, OK e Destra premono i suoi tasti.</string>
-    <string name="pin_row_1">Riga 1: 1, 2, 3</string>
-    <string name="pin_row_2">Riga 2: 4, 5, 6</string>
-    <string name="pin_row_3">Riga 3: 7, 8, 9</string>
-    <string name="pin_row_4">Riga 4: Elimina, 0, Conferma</string>
 </resources>

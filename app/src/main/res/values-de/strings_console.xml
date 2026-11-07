@@ -8,7 +8,7 @@
     <string name="console_hint_options">Optionen</string>
     <string name="console_hint_open">Öffnen</string>
     <string name="console_hint_key_ok">OK</string>
-    <string name="console_hint_key_menu">Menü</string>
+    <string name="console_hint_key_hold_ok">OK halten</string>
     <string name="console_hint_line">%1$s %2$s    %3$s %4$s</string>
     <string name="console_favourite_add">Zu Favoriten hinzufügen</string>
     <string name="console_favourite_remove">Aus Favoriten entfernen</string>
@@ -65,4 +65,7 @@
     <string name="console_wake_timeout">%1$s ist nicht rechtzeitig aufgewacht. Prüfe, ob Wake-on-LAN eingerichtet ist, und versuche es erneut.</string>
     <string name="console_choose_pc">Auf welchem PC spielen?</string>
     <string name="console_badge_asleep">PC im Ruhezustand</string>
+    <string name="pc_status_online">Online</string>
+    <string name="pc_status_not_paired">Nicht gekoppelt</string>
+    <string name="pc_action_wake">Aufwecken</string>
 </resources>

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The amber bar at the start of the TV settings rail's current row. -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="?attr/colorPrimary" />
-    <corners android:radius="1.5dp" />
+<!-- The section shown on a TV's rail: the selected fill, one view that slides between rows (SettingsRail). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="@dimen/nj_radius_control" />
+    <solid android:color="?attr/glassSelectedFill" />
 </shape>

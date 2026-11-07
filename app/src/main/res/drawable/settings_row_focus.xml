@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A settings list's selector. The inset is the page's gutter: a list pads its rows by its selector's padding and widens the
+     selector by it again, so rows stand on the group's edge and the ring on the row, inside the group. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <inset android:insetLeft="@dimen/screen_gutter" android:insetRight="@dimen/screen_gutter">
+            <shape android:shape="rectangle">
+                <corners android:radius="@dimen/nj_radius_control" />
+                <solid android:color="?attr/colorControlHighlight" />
+            </shape>
+        </inset>
+    </item>
+    <item android:state_focused="true">
+        <inset android:insetLeft="@dimen/screen_gutter" android:insetRight="@dimen/screen_gutter">
+            <shape android:shape="rectangle">
+                <corners android:radius="@dimen/nj_radius_control" />
+                <solid android:color="?attr/glassControlFill" />
+                <stroke android:width="?attr/nightjarFocusRingWidth" android:color="?attr/glassRing" />
+            </shape>
+        </inset>
+    </item>
+    <item>
+        <inset android:insetLeft="@dimen/screen_gutter" android:insetRight="@dimen/screen_gutter">
+            <color android:color="@android:color/transparent" />
+        </inset>
+    </item>
+</selector>

@@ -42,6 +42,20 @@ public class GameRecoveryTest {
         assertEquals(0, info.flags & ActivityInfo.FLAG_NO_HISTORY);
     }
 
+    @Test public void settingsAfterAShortcutsFailedStartHaveTheLibraryUnderThem() {
+        Application app = org.robolectric.RuntimeEnvironment.getApplication();
+        Intent start = new Intent(app, Game.class).putExtra(Game.EXTRA_PC_UUID, "pc-1").putExtra(Game.EXTRA_PC_NAME, "Desk");
+        Intent[] alone = GameRecovery.settingsAfterFailedStart(app, start, true);
+        assertEquals("a shortcut's stream had nothing under it: the library goes under Settings", 2, alone.length);
+        assertEquals(AppView.class.getName(), alone[0].getComponent().getClassName());
+        assertEquals("pc-1", alone[0].getStringExtra(AppView.UUID_EXTRA));
+        assertEquals("Desk", alone[0].getStringExtra(AppView.NAME_EXTRA));
+        assertEquals(com.limelight.preferences.StreamSettings.class.getName(), alone[1].getComponent().getClassName());
+        Intent[] fromLibrary = GameRecovery.settingsAfterFailedStart(app, start, false);
+        assertEquals("started from the library, which is still under it", 1, fromLibrary.length);
+        assertEquals(com.limelight.preferences.StreamSettings.class.getName(), fromLibrary[0].getComponent().getClassName());
+    }
+
     private Game recoveryGame() {
         Game game = Robolectric.buildActivity(Game.class).get();
         game.setTheme(R.style.AppTheme);
@@ -1638,15 +1652,72 @@ public class GameRecoveryTest {
             game.onPause();
             game.onStop();
             game.onResume();
-            com.limelight.utils.SpinnerDialog spinner = ReflectionHelpers.getField(game, "spinner");
+            com.limelight.ui.ConnectingScreen spinner = ReflectionHelpers.getField(game, "spinner");
             assertNotNull(spinner);
-            spinner.onCancel(null);
+            spinner.dialog().cancel();
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
             assertTrue(game.isFinishing());
             org.robolectric.shadows.ShadowLooper.idleMainLooper(15, java.util.concurrent.TimeUnit.SECONDS);
             assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
         } finally {
             cleanupRecovery(game);
         }
+    }
+
+    @Test public void aReconnectOverAnOpenConnectingWindowRemovesTheOldOne() throws Exception {
+        Game game = establishedGame();
+        try {
+            game.onPause();
+            game.onStop();
+            game.onResume();
+            com.limelight.ui.ConnectingScreen old = ReflectionHelpers.getField(game, "spinner");
+            assertNotNull(old);
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertTrue(old.dialog().isShowing());
+            ReflectionHelpers.setField(game, "spinner", game.streamConnection.showConnecting("again"));
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertFalse("the first window would be orphaned over the stream", old.dialog().isShowing());
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test public void aStartedStreamLetsTheConnectingCoverGoAndKeepsTheMenusCopy() throws Exception {
+        Game game = establishedGame();
+        try {
+            android.graphics.Bitmap full = android.graphics.Bitmap.createBitmap(600, 900, android.graphics.Bitmap.Config.ARGB_8888);
+            android.graphics.Bitmap small = android.graphics.Bitmap.createBitmap(60, 90, android.graphics.Bitmap.Config.ARGB_8888);
+            ReflectionHelpers.setField(game.streamConnection, "connectingCover", full);
+            ReflectionHelpers.setField(game.streamConnection, "menuCover", small);
+            assertSame(full, game.streamConnection.connectingCover());
+            ReflectionHelpers.setField(game, "connecting", true);
+            try {
+                game.streamConnection.connectionStarted();
+            } catch (NullPointerException later) {
+                // Past the connecting window the start goes on to the controllers, which this game has none of.
+                assertTrue(later.getMessage(), later.getMessage().contains("controllerHandler"));
+            }
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertSame("only the small copy is held while it streams", small, game.streamConnection.connectingCover());
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test public void leavingWhileConnectingRemovesTheConnectingWindow() throws Exception {
+        Game game = establishedGame();
+        game.onPause();
+        game.onStop();
+        game.onResume();
+        com.limelight.ui.ConnectingScreen spinner = ReflectionHelpers.getField(game, "spinner");
+        assertNotNull(spinner);
+        android.app.Dialog window = spinner.dialog();
+        org.robolectric.shadows.ShadowLooper.idleMainLooper();
+        assertTrue(window.isShowing());
+        cleanupRecovery(game);
+        game.onDestroy();
+        org.robolectric.shadows.ShadowLooper.idleMainLooper();
+        assertFalse("a stale window would sit over whatever comes next", window.isShowing());
     }
 
     @Test public void lifecycleResumeRequiresAnEstablishedEligibleSessionAndEnabledRecovery() {

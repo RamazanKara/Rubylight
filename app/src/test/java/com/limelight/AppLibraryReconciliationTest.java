@@ -252,6 +252,28 @@ public class AppLibraryReconciliationTest {
         assertEquals("", search.getQuery().toString());
     }
 
+    @Test public void theCaptionCountsASearchsMatchesAndSaysWhenHiddenGamesShow() {
+        receive(app("Hidden game", 10, "hidden"), app("Portal", 20, "portal"), app("Portal 2", 30, "portal2"));
+        android.widget.TextView caption = screen.findViewById(R.id.library_summary);
+        ReflectionHelpers.callInstanceMethod(screen, "updateLibraryState");
+        assertEquals("every game shown: nothing to say", android.view.View.GONE, caption.getVisibility());
+
+        androidx.appcompat.widget.SearchView search = screen.findViewById(R.id.library_search);
+        search.setQuery("portal", false);
+        assertEquals(android.view.View.VISIBLE, caption.getVisibility());
+        assertEquals(screen.getResources().getQuantityString(R.plurals.library_results, 3, 2, 3), caption.getText().toString());
+        search.setQuery("no matching game", false);
+        assertEquals("the status panel speaks for an empty grid", android.view.View.GONE, caption.getVisibility());
+        search.setQuery("", false);
+
+        adapter.updateHiddenApps(Collections.singleton(10), true);
+        ReflectionHelpers.callInstanceMethod(screen, "updateLibraryState");
+        assertEquals(android.view.View.GONE, caption.getVisibility());
+        ReflectionHelpers.callInstanceMethod(screen, "setShowHiddenApps", ReflectionHelpers.ClassParameter.from(boolean.class, true));
+        assertEquals(android.view.View.VISIBLE, caption.getVisibility());
+        assertEquals(screen.getResources().getQuantityString(R.plurals.library_showing_hidden, 3, 3), caption.getText().toString());
+    }
+
     @Test public void searchReconcilesRenamedAndRemovedAppsOutsideTheVisibleResults() {
         receive(app("Portal", 10, "portal"), app("Other", 20, "other"));
         adapter.setSearchQuery("Portal");

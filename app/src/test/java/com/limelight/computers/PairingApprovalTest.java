@@ -310,7 +310,7 @@ public class PairingApprovalTest {
         ViewGroup pad = dialog.findViewById(R.id.pairing_pin_pad);
         for (int i = 0; i < pad.getChildCount(); i++) {
             View child = pad.getChildAt(i);
-            if (String.valueOf(digit).contentEquals(((MaterialButton) child).getText())) {
+            if (child instanceof MaterialButton && String.valueOf(digit).contentEquals(((MaterialButton) child).getText())) {
                 return child;
             }
         }
@@ -368,6 +368,7 @@ public class PairingApprovalTest {
             Transcript transcript = new Transcript();
             AlertDialog dialog = dialogs(controller.get(), transcript).showPin(tv(), client(transcript, ""));
             idle();
+            assertEquals("wide enough for the slots beside the pad", 1280, dialog.getWindow().getAttributes().width);
             View decor = dialog.getWindow().getDecorView();
             float density = controller.get().getResources().getDisplayMetrics().density;
             decor.measure(View.MeasureSpec.makeMeasureSpec((int) (960 * density), View.MeasureSpec.AT_MOST),
@@ -390,12 +391,16 @@ public class PairingApprovalTest {
                     .showPin(named("A long name ".repeat(11).substring(0, 128)), client(transcript, ""));
             idle();
             TextView title = dialog.findViewById(androidx.appcompat.R.id.alertTitle);
-            TextView value = dialog.findViewById(R.id.pairing_pin_value);
             // AppCompat's DialogTitle: one line, two in smaller text when that one is cut off.
             assertEquals("the title", 1, title.getMaxLines());
             assertEquals(android.text.TextUtils.TruncateAt.END, title.getEllipsize());
-            assertEquals("the waiting line", 2, value.getMaxLines());
-            assertEquals(android.text.TextUtils.TruncateAt.END, value.getEllipsize());
+            // Approving names the device again on the line under the title, while the PC answers.
+            TextView line = dialog.findViewById(R.id.pairing_pin_from);
+            for (int digit : new int[] {1, 2, 3, 4}) digit(dialog, digit).performClick();
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            assertTrue(line.getText().toString().contains("A long name"));
+            assertEquals("the waiting line", 2, line.getMaxLines());
+            assertEquals(android.text.TextUtils.TruncateAt.END, line.getEllipsize());
             dialog.dismiss();
         }
     }
@@ -408,9 +413,9 @@ public class PairingApprovalTest {
             AlertDialog dialog = dialogs(controller.get(), transcript).showPin(tv(), client(transcript, ""));
             idle();
             ViewGroup pad = dialog.findViewById(R.id.pairing_pin_pad);
-            assertEquals(11, pad.getChildCount());
+            assertEquals("the digits, delete, and the gap before the 0", 12, pad.getChildCount());
             for (int i = 0; i < pad.getChildCount(); i++) {
-                assertTrue(pad.getChildAt(i).isFocusable());
+                assertTrue(pad.getChildAt(i) instanceof android.widget.Space || pad.getChildAt(i).isFocusable());
             }
             assertTrue("the pad opens focused", pad.getChildAt(0).hasFocus());
             assertFalse(dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled());
@@ -432,7 +437,7 @@ public class PairingApprovalTest {
             assertFalse(dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled());
             digit(dialog, 4).performClick();
             digit(dialog, 5).performClick();
-            assertEquals("1234", ((TextView) dialog.findViewById(R.id.pairing_pin_value)).getText().toString());
+            assertEquals("1234", ((com.limelight.ui.PinSlots) dialog.findViewById(R.id.pairing_pin_value)).shown().toString());
             assertTrue(dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled());
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
             idle();
@@ -450,11 +455,14 @@ public class PairingApprovalTest {
             Transcript transcript = new Transcript();
             AlertDialog dialog = dialogs(controller.get(), transcript).showPin(tv(), client(transcript, ""));
             idle();
-            TextView value = dialog.findViewById(R.id.pairing_pin_value);
-            assertEquals("", value.getText().toString());
-            assertEquals("\u2013 \u2013 \u2013 \u2013", value.getHint().toString());
+            com.limelight.ui.PinSlots value = dialog.findViewById(R.id.pairing_pin_value);
+            assertEquals("", value.shown().toString());
+            assertEquals(4, value.getChildCount());
+            assertTrue("the next slot is ringed", value.getChildAt(0).isActivated());
             digit(dialog, 1).performClick();
-            assertEquals("1", value.getText().toString());
+            assertEquals("1", value.shown().toString());
+            assertTrue(value.getChildAt(1).isActivated());
+            assertFalse(value.getChildAt(0).isActivated());
             dialog.dismiss();
         }
     }
@@ -468,12 +476,12 @@ public class PairingApprovalTest {
             AlertDialog dialog = dialogs(controller.get(), transcript).showPin(tv(), client(transcript, ""));
             idle();
             ViewGroup pad = dialog.findViewById(R.id.pairing_pin_pad);
-            assertEquals(11, pad.getChildCount());
+            assertEquals(12, pad.getChildCount());
             assertEquals(LinearLayout.HORIZONTAL, ((LinearLayout) pad.getParent()).getOrientation());
-            TextView value = dialog.findViewById(R.id.pairing_pin_value);
-            assertEquals("\u2013 \u2013 \u2013 \u2013", value.getHint().toString());
+            com.limelight.ui.PinSlots value = dialog.findViewById(R.id.pairing_pin_value);
+            assertEquals(4, value.getChildCount());
             digit(dialog, 1).performClick();
-            assertEquals("1", value.getText().toString());
+            assertEquals("1", value.shown().toString());
             dialog.dismiss();
         }
     }
@@ -488,7 +496,7 @@ public class PairingApprovalTest {
             key(dialog, KeyEvent.KEYCODE_7);
             key(dialog, KeyEvent.KEYCODE_NUMPAD_8);
             key(dialog, KeyEvent.KEYCODE_DEL);
-            assertEquals("7", ((TextView) dialog.findViewById(R.id.pairing_pin_value)).getText().toString());
+            assertEquals("7", ((com.limelight.ui.PinSlots) dialog.findViewById(R.id.pairing_pin_value)).shown().toString());
             dialog.dismiss();
         }
     }

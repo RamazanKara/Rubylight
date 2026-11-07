@@ -267,6 +267,37 @@ public class ConsoleRepositoryTest {
     }
 
     @Test
+    public void theRepaintFromStorageBetweenTwoReadsKeepsTheRunningGame() throws Exception {
+        transport.reply("tower", "library", ok(library("t", game("t-portal", 11, "Portal", "steam:400", false))));
+        transport.reply("tower", "session", ok(session("streaming", "you",
+                "{\"install_id\":\"t-portal\",\"app_id\":11,\"title\":\"Portal\"}", "[]")));
+        repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", true)));
+
+        ConsoleSnapshot repaint = repository.cached(Collections.singletonList(nativeHost("tower", "Tower", true)));
+        assertEquals(ConsoleSnapshot.Status.CACHED, repaint.host("tower").status);
+        assertEquals(1, repaint.continuePlaying.size());
+        assertEquals(ConsoleSnapshot.ContinueKind.RUNNING, repaint.continuePlaying.get(0).kind);
+
+        // Gone offline, nothing is known to run there any more.
+        ConsoleSnapshot offline = repository.cached(Collections.singletonList(nativeHost("tower", "Tower", false)));
+        assertNull(offline.host("tower").session);
+        assertTrue(offline.continuePlaying.isEmpty());
+    }
+
+    @Test
+    public void aReadThatFindsNoSessionForgetsTheRunningGame() throws Exception {
+        transport.reply("tower", "library", ok(library("t", game("t-portal", 11, "Portal", "steam:400", false))));
+        transport.reply("tower", "session", ok(session("streaming", "you",
+                "{\"install_id\":\"t-portal\",\"app_id\":11,\"title\":\"Portal\"}", "[]")));
+        repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", true)));
+
+        transport.reply("tower", "session", "{\"error\":{\"kind\":\"status\",\"message\":\"boom\",\"http_status\":500}}");
+        repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", true)));
+
+        assertNull(repository.cached(Collections.singletonList(nativeHost("tower", "Tower", true))).host("tower").session);
+    }
+
+    @Test
     public void aSessionThatFailsToLoadDoesNotCostTheLibrary() throws Exception {
         transport.reply("tower", "library", ok(library("t", game("t-portal", 11, "Portal", null, false))));
         transport.reply("tower", "session", "{\"error\":{\"kind\":\"status\",\"message\":\"boom\",\"http_status\":500}}");

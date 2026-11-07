@@ -175,6 +175,14 @@ public final class AdaptiveLayout {
         if (margin > 0 && root instanceof android.view.ViewGroup) ((android.view.ViewGroup) root).setClipToPadding(false);
         int width = root.getWidth();
         int height = root.getHeight();
+        // A screen with glass runs edge to edge: its host lays the chrome and lists out in the safe area.
+        GlassHost glass = root instanceof android.view.ViewGroup && ((android.view.ViewGroup) root).getChildAt(0) instanceof GlassHost
+                ? (GlassHost) ((android.view.ViewGroup) root).getChildAt(0) : null;
+        if (glass != null && fold == null) {
+            root.setPadding(0, 0, 0, 0);
+            glass.setSafeArea(insets.left, insets.top, insets.right, insets.bottom);
+            return;
+        }
         if (fold == null || width == 0 || height == 0) {
             // The safe area alone needs no frame, so the first inset dispatch already gets it right.
             root.setPadding(insets.left + margin, insets.top + margin, insets.right + margin, insets.bottom + margin);
@@ -234,6 +242,26 @@ public final class AdaptiveLayout {
         // A TV's posters and PC tiles have no gap of their own: each pads itself with its glow (see poster_glow).
         int spacing = television ? 0 : 8;
         return Math.max(1, (int) ((widthDp + spacing) / (cellWidth + spacing)));
+    }
+
+    /**
+     * A PC's games: 3 columns on a phone and 7 on a TV, whatever their size, so a slot's place never depends on the screen. A wider
+     * phone (a fold, landscape) and a handheld keep the cover's size and take more. Small icons add to each.
+     */
+    public static int appColumns(GlassForm form, float widthDp, boolean smallIcons) {
+        int columns;
+        switch (form) {
+            case TELEVISION:
+                columns = 7;
+                break;
+            case HANDHELD:
+                columns = Math.max(5, (int) (widthDp / 150));
+                break;
+            default:
+                columns = Math.max(3, (int) (widthDp / 130));
+                break;
+        }
+        return smallIcons ? columns + (form == GlassForm.PHONE ? 1 : 2) : columns;
     }
 
     /** The width a grid column is sized for, in dp; the grid stretches columns to fill the row. */

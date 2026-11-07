@@ -152,6 +152,56 @@ public final class ShellBar {
         }
     }
 
+    /**
+     * Right past the last tab goes on along the top row, for a remote that has no other way to reach those controls, and
+     * the row's end is the wall the last tab was. Focus skips what is hidden on the way; the wall is at the last shown now,
+     * so call it again when that one comes or goes.
+     */
+    public static void linkTopRow(Activity activity, int... ids) {
+        ViewGroup tabs = activity.findViewById(R.id.shell_bar_items);
+        if (tabs == null || tabs.getChildCount() == 0) return;
+        View previous = tabs.getChildAt(tabs.getChildCount() - 1);
+        View wall = previous;
+        for (int id : ids) {
+            View next = activity.findViewById(id);
+            if (next == null) continue;
+            previous.setNextFocusRightId(id);
+            next.setNextFocusLeftId(previous.getId());
+            previous = next;
+            if (next.getVisibility() == View.VISIBLE) wall = next;
+        }
+        wall.setNextFocusRightId(wall.getId());
+    }
+
+    /** The control of the top row straight above {@code from}: the selected tab, or one of {@code ids} where shown. */
+    public static View nearestInTopRow(Activity activity, View from, int... ids) {
+        ViewGroup tabs = activity.findViewById(R.id.shell_bar_items);
+        View best = null;
+        if (tabs != null) {
+            for (int i = 0; i < tabs.getChildCount(); i++) {
+                if (tabs.getChildAt(i).isSelected()) best = tabs.getChildAt(i);
+            }
+        }
+        int centre = centreAcross(from);
+        int distance = best == null ? Integer.MAX_VALUE : Math.abs(centreAcross(best) - centre);
+        for (int id : ids) {
+            View view = activity.findViewById(id);
+            if (view == null || view.getVisibility() != View.VISIBLE) continue;
+            int d = Math.abs(centreAcross(view) - centre);
+            if (d < distance) {
+                distance = d;
+                best = view;
+            }
+        }
+        return best;
+    }
+
+    private static int centreAcross(View view) {
+        int[] where = new int[2];
+        view.getLocationInWindow(where);
+        return where[0] + view.getWidth() / 2;
+    }
+
     private static boolean isTelevision(Context context) {
         return (context.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_TYPE_MASK)
                 == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;

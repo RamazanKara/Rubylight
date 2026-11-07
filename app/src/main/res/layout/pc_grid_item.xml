@@ -1,24 +1,34 @@
-<!-- One PC on the home screen: what it is, one line of state, and its menu. Tapping the row does the
-     state's main action; PcGridAdapter fills the row and PcView handles the tap. -->
-<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="match_parent" android:layout_height="wrap_content" style="@style/LibraryCard"
-    android:descendantFocusability="blocksDescendants">
-    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_gravity="center_vertical"
-        android:paddingStart="@dimen/space_l" android:paddingEnd="@dimen/space_xs"
-        android:paddingTop="@dimen/space_m" android:paddingBottom="@dimen/space_m">
-        <FrameLayout android:layout_width="@dimen/icon_size" android:layout_height="@dimen/icon_size"
-            android:layout_marginEnd="@dimen/space_l" android:importantForAccessibility="noHideDescendants">
-            <ImageView android:id="@+id/grid_image" android:layout_width="match_parent" android:layout_height="match_parent"
-                android:src="@drawable/ic_computer" app:tint="?attr/colorOnSurfaceVariant" android:importantForAccessibility="no" />
-            <ProgressBar android:id="@+id/grid_spinner" android:layout_width="match_parent" android:layout_height="match_parent" android:visibility="gone" />
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A PC in a phone's grouped list: its monitor (or, while it plays, the game's cover), its name and state, one action and More.
+     Tapping the row does the state's main action; PcGridAdapter fills the row and PcView handles the tap. A running PC stands in
+     its own group with the action row under its name; PcGridAdapter moves grid_actions there. -->
+<com.limelight.ui.PcRow xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="wrap_content" android:descendantFocusability="blocksDescendants">
+    <LinearLayout android:id="@+id/grid_row" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:gravity="center_vertical" android:minHeight="84dp" android:orientation="horizontal" android:clipChildren="false" android:clipToPadding="false"
+        android:paddingStart="14dp" android:paddingEnd="8dp" android:paddingTop="11dp" android:paddingBottom="11dp">
+        <FrameLayout android:id="@+id/grid_cover_frame" android:layout_width="92dp" android:layout_height="138dp"
+            android:layout_marginEnd="14dp" android:foreground="@drawable/pc_cover_rim" android:visibility="gone" android:importantForAccessibility="noHideDescendants">
+            <com.limelight.ui.NoArtTile android:id="@+id/grid_cover_text" android:layout_width="match_parent" android:layout_height="match_parent"
+                android:importantForAccessibility="no" />
+            <ImageView android:id="@+id/grid_cover" android:layout_width="match_parent" android:layout_height="match_parent"
+                android:scaleType="centerCrop" android:importantForAccessibility="no" />
         </FrameLayout>
-        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
-            android:orientation="vertical">
+        <com.limelight.ui.PcScreen android:id="@+id/grid_screen" android:layout_width="76dp" android:layout_height="wrap_content"
+            android:layout_marginEnd="14dp" android:importantForAccessibility="noHideDescendants">
+            <ImageView android:id="@+id/grid_backdrop" android:layout_width="match_parent" android:layout_height="match_parent"
+                android:scaleType="centerCrop" android:importantForAccessibility="no" />
+            <ImageView android:id="@+id/grid_image" android:layout_width="22dp" android:layout_height="22dp" android:layout_gravity="center"
+                android:importantForAccessibility="no" />
+            <ProgressBar android:id="@+id/grid_spinner" android:layout_width="22dp" android:layout_height="22dp" android:layout_gravity="center" android:visibility="gone" />
+        </com.limelight.ui.PcScreen>
+        <LinearLayout android:id="@+id/grid_body" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:orientation="vertical" android:clipChildren="false" android:clipToPadding="false">
             <TextView android:id="@+id/grid_text" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="?attr/colorOnSurface"
+                android:textAppearance="@style/TextAppearance.Nightjar.Glass.Size17" android:lineHeight="22sp" android:fontFamily="?attr/nightjarFaceStrong" android:textColor="?attr/colorOnSurface"
                 android:maxLines="2" android:ellipsize="end" android:importantForAccessibility="no" />
             <TextView android:id="@+id/grid_status" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:drawablePadding="@dimen/space_s" android:gravity="center_vertical|start"
+                android:layout_marginTop="2dp" android:drawablePadding="7dp" android:gravity="center_vertical|start"
                 android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant"
                 android:maxLines="2" android:ellipsize="end" android:importantForAccessibility="no" />
             <TextView android:id="@+id/grid_update" android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -26,7 +36,21 @@
                 android:lines="1" android:ellipsize="end"
                 android:visibility="gone" android:importantForAccessibility="no" />
         </LinearLayout>
-        <ImageButton android:id="@+id/grid_more" style="@style/ToolbarIcon" android:focusable="false"
-            android:importantForAccessibility="yes" android:src="@drawable/ic_library_more" android:contentDescription="@string/library_options" />
+        <LinearLayout android:id="@+id/grid_actions" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:gravity="center_vertical" android:orientation="horizontal" android:clipChildren="false" android:clipToPadding="false"
+            android:layout_marginStart="8dp">
+            <com.limelight.ui.GlassButton android:id="@+id/grid_resume" style="@style/Widget.Nightjar.Glass.Play"
+                android:layout_width="0dp" android:layout_height="48dp" android:layout_weight="1" android:minHeight="48dp"
+                android:paddingStart="12dp" android:paddingEnd="12dp" android:textAppearance="@style/TextAppearance.Nightjar.Glass.Size16" android:maxLines="1" android:focusable="false"
+                android:text="@string/applist_menu_resume" app:iconSize="19dp" app:iconPadding="8dp" android:visibility="gone" />
+            <com.limelight.ui.GlassButton android:id="@+id/grid_action" style="@style/Widget.Nightjar.Glass.Control"
+                android:layout_width="wrap_content" android:layout_height="44dp" android:minHeight="44dp"
+                android:paddingStart="14dp" android:paddingEnd="14dp" android:textAppearance="@style/TextAppearance.Nightjar.Glass.Size15" android:maxLines="1" android:focusable="false"
+                app:iconSize="17dp" app:iconPadding="6dp" android:visibility="gone" />
+            <ImageButton android:id="@+id/grid_more" android:layout_width="40dp" android:layout_height="48dp" android:layout_marginStart="2dp"
+                android:background="@drawable/pc_more_quiet" android:focusable="false" android:scaleType="center"
+                android:importantForAccessibility="yes" android:src="@drawable/ic_glass_more" android:contentDescription="@string/library_options"
+                app:tint="?attr/colorOnSurfaceVariant" />
+        </LinearLayout>
     </LinearLayout>
-</com.google.android.material.card.MaterialCardView>
+</com.limelight.ui.PcRow>

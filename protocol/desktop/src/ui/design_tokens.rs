@@ -159,6 +159,7 @@ mod values {
     pub const SHEET_DETENT_LARGE: f32 = 0.94;
     pub const SHEET_BACKDROP_SCALE: f32 = 0.93;
     pub const SHEET_BACKDROP_BRIGHTNESS: f32 = 0.72;
+    pub const DIALOG_TV_BACKDROP_BRIGHTNESS: f32 = 0.5;
     pub const TIER_PROBE_FRAMES: u32 = 60;
     pub const TIER_PROBE_P90_BUDGET_FRACTION: f32 = 0.7;
     pub const TIER_BAKED_THUMB_W: u32 = 96;

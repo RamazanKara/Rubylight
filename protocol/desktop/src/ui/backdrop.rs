@@ -92,10 +92,10 @@ pub(super) struct Ambient {
     key: u64,
     tiles: HashMap<String, (TextureHandle, Color32)>,
     skies: [Option<TextureHandle>; 2],
-    /// The cover's glow with what shows, and the one it fades from. This frame's value in `glow_now`.
+    /// The cover's glow this frame, the one it fades to with what shows, and the one it fades from.
     glow: Color32,
+    glow_to: Color32,
     glow_before: Color32,
-    glow_now: Color32,
 }
 
 fn hash_of(value: impl Hash) -> u64 {
@@ -122,14 +122,14 @@ impl Ambient {
         self.before = self.shows;
         self.shows = Some(shows);
         self.key = key;
-        self.glow_before = self.glow_now;
-        self.glow = glow;
+        self.glow_before = self.glow;
+        self.glow_to = glow;
         self.fade.show(ctx, key, texture);
     }
 
     /// The cover's glow this frame, fading as the ambient does. Nothing on the sky and in high contrast.
     pub(super) fn glow(&self) -> Color32 {
-        self.glow_now
+        self.glow
     }
 
     fn tile(&mut self, ctx: &Context, title: &str) -> (TextureHandle, Color32) {
@@ -169,7 +169,7 @@ impl Ambient {
             // Ambient and sky are off: black, and solid glass needs no backdrop.
             out.push(Shape::rect_filled(screen, 0.0, *crate::theme::NIGHT));
             glass::set_backdrop(ctx, glass::Backdrop::default());
-            self.glow_now = Color32::TRANSPARENT;
+            self.glow = Color32::TRANSPARENT;
             return out;
         }
         match want {
@@ -208,10 +208,10 @@ impl Ambient {
         let area = screen.expand2(screen.size() * OVERSCAN);
         let backdrop = self.fade.backdrop(ctx, area);
         let along = backdrop.top.map_or(1.0, |top| top.alpha);
-        self.glow_now = if backdrop.base.is_some() {
-            self.glow_before.lerp_to_gamma(self.glow, along)
+        self.glow = if backdrop.base.is_some() {
+            self.glow_before.lerp_to_gamma(self.glow_to, along)
         } else {
-            self.glow
+            self.glow_to
         };
         if let Some(base) = backdrop.base {
             out.push(layer_mesh(base.texture, area, 1.0));

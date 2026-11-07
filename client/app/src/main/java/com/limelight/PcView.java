@@ -102,6 +102,8 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
                 row.wakeSentAt = 0;
                 pcGridAdapter.notifyDataSetChanged();
             }
+            // A form change waited for the wake.
+            followForm();
         }
         @Override public void pausePolling() { stopComputerUpdates(false); }
         @Override public void resumePolling() { startComputerUpdates(); }
@@ -232,6 +234,18 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     }
 
     private com.limelight.ui.ActionSheet addPcSheet;
+
+    /** Its chrome follows the form: a rotation into another form lays it out again. */
+    @Override
+    protected boolean followsForm() {
+        return true;
+    }
+
+    /** A pairing or a wake keeps this screen until it is done; it then follows the form. */
+    @Override
+    protected boolean holdsForm() {
+        return hostActions.isPairing() || hostActions.isWaking();
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -762,7 +776,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
                 break;
             }
         }
-        claimListFocus();
+        if (!touch) claimListFocus();
     }
 
     private void claimListFocus() {

@@ -168,6 +168,12 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         ServerHelper.doQuitReporting(this, computer, app, feed.binder(), onDone);
     }
 
+    /** Its chrome follows the form: a rotation into another form lays it out again. */
+    @Override
+    protected boolean followsForm() {
+        return true;
+    }
+
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);

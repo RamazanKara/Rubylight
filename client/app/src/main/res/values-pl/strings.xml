@@ -90,6 +90,7 @@
     <string name="perf_overlay_renderingfps">Renderowane: %1$.2f FPS</string>
     <string name="perf_overlay_hostprocessinglatency">Host min./maks./śr.: %1$.1f/%2$.1f/%3$.1f ms</string>
     <string name="perf_overlay_netdrops">Utrata klatek w sieci: %1$.2f%%</string>
+    <string name="perf_overlay_decoder_drops">Klatki pominięte przez dekoder: %1$d, dekoder nie nadążał</string>
     <string name="perf_overlay_netlatency">Sieć: %1$d ms (±%2$d ms)</string>
     <string name="perf_overlay_dectime">Czas dekodowania: %1$.2f ms</string>
     <string name="applist_connect_msg">Łączenie z komputerem…</string>

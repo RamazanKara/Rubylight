@@ -90,6 +90,7 @@
     <string name="perf_overlay_renderingfps">轉譯：%1$.2f FPS</string>
     <string name="perf_overlay_hostprocessinglatency">主機最小/最大/平均：%1$.1f/%2$.1f/%3$.1f ms</string>
     <string name="perf_overlay_netdrops">網路影格遺失：%1$.2f%%</string>
+    <string name="perf_overlay_decoder_drops">解碼器丟棄：%1$d 個影格，解碼器跟不上</string>
     <string name="perf_overlay_netlatency">網路：%1$d ms (±%2$d ms)</string>
     <string name="perf_overlay_dectime">解碼時間：%1$.2f ms</string>
     <string name="applist_connect_msg">正在連線至電腦…</string>

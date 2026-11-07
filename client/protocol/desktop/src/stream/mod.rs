@@ -593,7 +593,7 @@ pub struct Streaming {
     host_average: HostAverage,
     /// Early frames and fallbacks at the last overlay update.
     last_early: (u64, u64),
-    last_video: (u64, u64),
+    last_video: (u64, u64, u64),
     started: Instant,
     first_frame: bool,
     /// Pictures shown at least once since the last overlay redraw.
@@ -833,7 +833,7 @@ impl Streaming {
             last_wire_bytes: 0,
             host_average: HostAverage::default(),
             last_early: (0, 0),
-            last_video: (0, 0),
+            last_video: (0, 0, 0),
             started: Instant::now(),
             first_frame: false,
             needs_redraw: true,

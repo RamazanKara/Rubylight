@@ -90,6 +90,7 @@
     <string name="perf_overlay_renderingfps">Renderizados: %1$.2f FPS</string>
     <string name="perf_overlay_hostprocessinglatency">Servidor mín./máx./media: %1$.1f/%2$.1f/%3$.1f ms</string>
     <string name="perf_overlay_netdrops">Pérdida de fotogramas en la red: %1$.2f %%</string>
+    <string name="perf_overlay_decoder_drops">Descartes del decodificador: %1$d fotogramas, el decodificador se quedó atrás</string>
     <string name="perf_overlay_netlatency">Red: %1$d ms (±%2$d ms)</string>
     <string name="perf_overlay_dectime">Tiempo de decodificación: %1$.2f ms</string>
     <string name="applist_connect_msg">Conectando con el PC…</string>

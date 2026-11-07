@@ -250,6 +250,9 @@ fn first_opened<T>(
 struct Format {
     hardware: AVPixelFormat,
     required: bool,
+    /// `select_format` found no way to decode the stream with `hardware` and gave FFmpeg a
+    /// software format instead (`VideoDecoder::refused`).
+    software: std::cell::Cell<bool>,
     /// D3D11VA: make the decoder's textures readable by shaders (`stream::direct`).
     #[cfg(windows)]
     bind_textures: bool,
@@ -286,7 +289,7 @@ unsafe extern "C" fn select_format(
             #[cfg(unix)]
             if let Some(pictures) = wanted.vulkan {
                 if let Err(reason) = crate::vulkan_video::frames_context(context, pictures) {
-                    // `receive` then names the software fallback on the overlay.
+                    // The decoder then says it was refused, and the stream opens the next backend.
                     eprintln!("nightjar: Vulkan video cannot decode into the presenter's format: {reason}");
                     break;
                 }
@@ -302,6 +305,9 @@ unsafe extern "C" fn select_format(
             if !descriptor.is_null()
                 && (*descriptor).flags & u64::from(AV_PIX_FMT_FLAG_HWACCEL) == 0
             {
+                // Decoded in software, or (AV1, which has no software path in this decoder) not
+                // at all: never silently under the hardware decoder's name.
+                wanted.software.set(true);
                 return *next;
             }
             next = next.add(1);
@@ -372,8 +378,9 @@ pub struct VideoDecoder {
     /// decoded frame ends with such a call, so this saves an allocation per frame. Pictures
     /// themselves go to the presenter and are freed there.
     spare: Option<Frame>,
-    /// A Vulkan decoder made a picture in memory: FFmpeg could not decode the stream with Vulkan
-    /// video after all and went to software. `told` once `renamed` has said so.
+    /// A hardware decoder made a picture that is not its hardware format: FFmpeg could not decode
+    /// the stream with this backend after all and went to software. `told` once `renamed` has
+    /// said so.
     refused: bool,
     told: bool,
 }
@@ -395,14 +402,30 @@ fn access_unit(data: &[u8]) -> &[u8] {
     &data[..end]
 }
 
+/// Whether a picture of `format` from a decoder opened for the hardware format `hardware` (none
+/// for software and V4L2 M2M decoders) says FFmpeg went to software.
+fn refused_by(hardware: AVPixelFormat, format: AVPixelFormat) -> bool {
+    hardware != AV_PIX_FMT_NONE && format != hardware
+}
+
+/// A refused decoder's name: its codec, with the backend that refused it.
+fn refused_name(name: &str, hardware: Hardware) -> String {
+    let codec = name.rsplit_once(' ').map_or(name, |(codec, _)| codec);
+    format!("{codec} (software, {} refused)", hardware.label())
+}
+
 // An AVCodecContext moves between threads but is only accessed by its decoder thread.
 unsafe impl Send for VideoDecoder {}
 
-pub enum Received {
-    Frame(Frame),
+pub enum Received<F = Frame> {
+    Frame(F),
     None,
     Error,
 }
+
+/// `avcodec_send_packet` and `avcodec_receive_frame`'s AVERROR(EAGAIN): output must be read
+/// before more input goes in, or no output is there yet.
+pub const AGAIN: i32 = -11;
 
 impl VideoDecoder {
     /// Opens the first backend of `hardware.order()` that opens, logging each that does not
@@ -414,7 +437,18 @@ impl VideoDecoder {
         require_hardware: bool,
         failed: impl FnMut(Hardware, &str),
     ) -> Result<Self, String> {
-        first_opened(hardware.order(), |backend| Self::open_for(codec, pictures, backend, 1, require_hardware), failed)
+        Self::open_any(codec, pictures, hardware.order(), require_hardware, failed)
+    }
+
+    /// `open_first` for the backends of `order`.
+    pub fn open_any(
+        codec: Codec,
+        pictures: Pictures,
+        order: Vec<Hardware>,
+        require_hardware: bool,
+        failed: impl FnMut(Hardware, &str),
+    ) -> Result<Self, String> {
+        first_opened(order, |backend| Self::open_for(codec, pictures, backend, 1, require_hardware), failed)
     }
 
     pub fn open(
@@ -471,6 +505,7 @@ impl VideoDecoder {
                 _format: Box::new(Format {
                     hardware: AV_PIX_FMT_NONE,
                     required: require_hardware,
+                    software: Default::default(),
                     #[cfg(windows)]
                     bind_textures: false,
                     #[cfg(unix)]
@@ -605,22 +640,36 @@ impl VideoDecoder {
         }
     }
 
-    /// The decoder's new name, once, when it is no longer the backend it opened with (a Vulkan
-    /// decoder FFmpeg took to software), for the overlay.
+    /// Whether FFmpeg took this hardware decoder to software: it found no hardware format for the
+    /// stream (`select_format`; AV1, which has no software path here, then fails every frame), or
+    /// a picture came out that is not the backend's.
+    pub fn refused(&self) -> bool {
+        self.refused || self._format.software.get()
+    }
+
+    /// The decoder's new name, once, when it is no longer the backend it opened with (a hardware
+    /// decoder FFmpeg took to software), for the overlay and the log.
     pub fn renamed(&mut self) -> Option<&str> {
-        if !self.refused || std::mem::replace(&mut self.told, true) {
+        if !self.refused() || std::mem::replace(&mut self.told, true) {
             return None;
         }
+        self.name = refused_name(&self.name, self.hardware);
+        eprintln!("nightjar: FFmpeg cannot decode this stream with {} after all: {}", self.hardware.label(), self.name);
         Some(&self.name)
+    }
+
+    /// Whether pictures come out of it on their own time, not the frame they were sent with: the
+    /// V4L2 M2M decoders answer "no picture yet" while the driver still takes input.
+    pub fn asynchronous(&self) -> bool {
+        self.hardware == Hardware::V4l2m2m
     }
 
     /// Whether its pictures hold a surface of the decoder's fixed pool until they are dropped
     /// (D3D11VA, VAAPI, Vulkan video): only [`EXTRA_HW_FRAMES`] are there beyond what the decoder
-    /// itself needs. NVDEC's are copied out.
+    /// itself needs. NVDEC's are copied out, and a refused decoder's are in memory.
     pub fn pooled(&self) -> bool {
         match self.hardware {
-            Hardware::D3d11(_) | Hardware::Vaapi => true,
-            Hardware::Vulkan(_) => !self.refused,
+            Hardware::D3d11(_) | Hardware::Vaapi | Hardware::Vulkan(_) => !self.refused(),
             _ => false,
         }
     }
@@ -690,18 +739,14 @@ impl VideoDecoder {
             if status < 0 {
                 // avcodec_receive_frame unreferences the frame first, so it is empty again.
                 self.spare = Some(frame);
-                return if status == -11 || status == -541478725 {
+                return if status == AGAIN || status == -541478725 {
                     Received::None
                 } else {
                     Received::Error
                 };
             }
             let format = (*raw.as_ptr()).format;
-            if matches!(self.hardware, Hardware::Vulkan(_)) && format != AV_PIX_FMT_VULKAN && !self.refused {
-                self.refused = true;
-                eprintln!("nightjar: FFmpeg cannot decode this stream with Vulkan video after all; it decodes in software");
-                self.name = format!("{} (software, Vulkan refused)", self.name.trim_end_matches(" vulkan"));
-            }
+            self.refused |= refused_by(self._format.hardware, format);
             if format == AV_PIX_FMT_VAAPI {
                 #[cfg(unix)]
                 if let Some(decline) = self.dmabuf.as_ref().filter(|d| !d.load(std::sync::atomic::Ordering::Relaxed)) {
@@ -788,6 +833,14 @@ impl Frame {
                 && av_frame_copy_props(memory.raw.as_ptr(), self.raw.as_ptr()) >= 0)
                 .then_some(memory)
         }
+    }
+
+    /// Whether FFmpeg says the picture is damaged: flagged corrupt (missing references, concealed
+    /// slices) or with decode error flags.
+    pub fn corrupt(&self) -> bool {
+        // SAFETY: a live frame.
+        let frame = unsafe { self.raw.as_ref() };
+        frame.flags & AV_FRAME_FLAG_CORRUPT as c_int != 0 || frame.decode_error_flags != 0
     }
 
     /// The exported DMA-BUFs of a `FRAME_DMABUF` picture.
@@ -1401,6 +1454,36 @@ mod tests {
         // ff_dovi_guess_profile_hevc: RPU profile 0 with a full-range base layer is profile 5.
         assert!(DolbyVision::of(0, 1, Some(3079), 0).ipt);
         assert!(!DolbyVision::of(1, 1, Some(3079), 0).ipt && !DolbyVision::of(0, 0, Some(3079), 0).ipt);
+    }
+
+    /// FFmpeg takes a hardware decoder to software without an error (HEVC Main10 on a GPU without
+    /// it): a picture that is not the backend's says so for every backend, not only Vulkan.
+    #[test]
+    fn a_picture_in_memory_from_any_hardware_decoder_says_it_was_refused() {
+        for hardware in [AV_PIX_FMT_D3D11, AV_PIX_FMT_VAAPI, AV_PIX_FMT_VULKAN, AV_PIX_FMT_CUDA] {
+            assert!(!refused_by(hardware, hardware));
+            assert!(refused_by(hardware, AV_PIX_FMT_NV12));
+            assert!(refused_by(hardware, AV_PIX_FMT_YUV420P10LE));
+        }
+        // Software and V4L2 M2M decoders have no hardware format to be refused.
+        assert!(!refused_by(AV_PIX_FMT_NONE, AV_PIX_FMT_NV12));
+        let device = ptr::dangling_mut::<c_void>();
+        assert_eq!(refused_name("hevc d3d11va", Hardware::D3d11(device)), "hevc (software, D3D11VA refused)");
+        assert_eq!(refused_name("av1 vaapi", Hardware::Vaapi), "av1 (software, VAAPI refused)");
+        assert_eq!(refused_name("hevc vulkan", Hardware::Vulkan(device)), "hevc (software, Vulkan refused)");
+        assert_eq!(refused_name("h264 nvdec", Hardware::Cuda), "h264 (software, NVDEC refused)");
+    }
+
+    /// A software decoder is synchronous and never refused; a clean picture is not damaged.
+    #[test]
+    fn a_software_decoder_is_synchronous_and_its_clean_pictures_are_not_damaged() {
+        let mut decoder = VideoDecoder::open(Codec::Hevc, Hardware::None, 1, false).unwrap();
+        assert!(!decoder.asynchronous() && !decoder.refused() && !decoder.pooled());
+        assert!(decoder.send(include_bytes!("../../../app/src/main/assets/packed444/hevc-8.bin"), 7 << 32) >= 0);
+        let Received::Frame(frame) = decoder.receive() else { panic!("no decoded frame") };
+        assert!(!frame.corrupt());
+        assert_eq!(frame.info().pts, 7 << 32);
+        assert!(!decoder.refused() && decoder.renamed().is_none());
     }
 
     #[test]

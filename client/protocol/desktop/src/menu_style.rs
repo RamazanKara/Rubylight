@@ -562,6 +562,14 @@ pub fn sheet(ui: &mut Ui, style: Style, quit: GamepadQuitCombo, back_opens: bool
 mod tests {
     use super::*;
 
+    /// Whether `seen` is `colour` under some opacity: premultiplied, its channels keep their ratio.
+    fn same_colour(seen: Color32, colour: Color32) -> bool {
+        let scale = seen.a() as f32 / colour.a() as f32;
+        [(seen.r(), colour.r()), (seen.g(), colour.g()), (seen.b(), colour.b())]
+            .iter()
+            .all(|(s, c)| (*s as f32 - *c as f32 * scale).abs() <= 2.0)
+    }
+
     fn run(ctx: &egui::Context, events: Vec<egui::Event>, add: impl FnMut(&mut Ui)) -> egui::FullOutput {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1280.0, 800.0))),
@@ -638,11 +646,17 @@ mod tests {
         // The window is still fading in here, so its colours carry its opacity: compare without it.
         let row = fills(&shapes).into_iter().find(|(r, _)| *r == rest).map(|(_, c)| c).expect("the row's fill");
         assert!(row.a() > 0 && row.a() <= t::TINT_CONTROL_FILL.a(), "hover lays a tint on the row: {row:?}");
+        assert!(same_colour(row, t::TINT_CONTROL_FILL), "the control tint under any opacity: {row:?}");
         frame(vec![egui::Event::PointerMoved(Pos2::new(5.0, 5.0))], true);
         let (shapes, rect) = frame(Vec::new(), true);
         assert_eq!(rect, rest, "focus does not move or resize the row");
-        let ring = shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Mesh(m) if m.calc_bounds().contains_rect(rest) && m.calc_bounds() != rest));
-        assert!(ring, "focus is the ring around the row");
+        let around = |colour: Color32| {
+            shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Mesh(m) if m.calc_bounds().contains_rect(rest)
+                && m.calc_bounds() != rest
+                && m.vertices.iter().any(|v| v.color.a() > 0 && same_colour(v.color, colour))))
+        };
+        assert!(around(t::FOCUS_RING_COLOR), "focus is the amber ring around the row");
+        assert!(around(t::FOCUS_HALO_COLOR), "with its glow");
     }
 
     /// A disabled main action (Resume while End or Close game runs) loses its amber and says so to

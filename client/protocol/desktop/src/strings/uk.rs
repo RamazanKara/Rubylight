@@ -200,6 +200,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Replace your {} saved shortcuts with {} from this file.", "Замінити ваші збережені комбінації ({0}) комбінаціями з цього файлу ({1})."),
     ("Pair with {}", "Сполучитися з {}"),
     ("Address: {}", "Адреса: {}"),
+    ("Address", "Адреса"),
     ("{} quits on the PC. Unsaved progress is lost.", "{} закриється на ПК. Незбережений прогрес буде втрачено."),
     ("Quit {} and start {}?", "Вийти з {0} і запустити {1}?"),
     ("Close {} and start {}?", "Закрити {0} і запустити {1}?"),

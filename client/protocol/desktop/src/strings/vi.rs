@@ -200,6 +200,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Replace your {} saved shortcuts with {} from this file.", "Thay {0} phím tắt đã lưu của bạn bằng {1} phím tắt từ tệp này."),
     ("Pair with {}", "Ghép đôi với {}"),
     ("Address: {}", "Địa chỉ: {}"),
+    ("Address", "Địa chỉ"),
     ("{} quits on the PC. Unsaved progress is lost.", "{} sẽ thoát trên PC. Tiến trình chưa lưu sẽ bị mất."),
     ("Quit {} and start {}?", "Thoát {0} và bắt đầu {1}?"),
     ("Close {} and start {}?", "Đóng {0} và bắt đầu {1}?"),

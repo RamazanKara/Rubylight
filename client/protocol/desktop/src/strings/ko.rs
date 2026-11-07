@@ -200,6 +200,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Replace your {} saved shortcuts with {} from this file.", "저장된 단축키 {0}개를 이 파일의 {1}개로 바꿉니다."),
     ("Pair with {}", "{}와(과) 페어링"),
     ("Address: {}", "주소: {}"),
+    ("Address", "주소"),
     ("{} quits on the PC. Unsaved progress is lost.", "PC에서 {}이(가) 종료됩니다. 저장하지 않은 진행 상황은 사라집니다."),
     ("Quit {} and start {}?", "{0}을(를) 종료하고 {1}을(를) 시작할까요?"),
     ("Close {} and start {}?", "{0}을(를) 닫고 {1}을(를) 시작할까요?"),

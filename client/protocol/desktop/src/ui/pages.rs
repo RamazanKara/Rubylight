@@ -196,6 +196,10 @@ impl Launcher {
         column(ui, SETTINGS_W, |ui| {
             section(ui, "Host");
             detail(ui, tr("Host software"), &software);
+            detail(ui, tr("Address"), &host.record.address);
+            if let Some(gpu) = host.info.as_ref().and_then(|info| info.gpu_type.as_deref()).filter(|gpu| !gpu.is_empty()) {
+                detail(ui, tr("GPU"), gpu);
+            }
             ui.add_space(8.0);
             match &web_ui {
                 None => {}

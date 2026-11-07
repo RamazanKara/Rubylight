@@ -638,9 +638,15 @@ mod tests {
         crate::theme::apply(&ctx);
         let layout = layout(&everything(), 0);
         let saved = Shortcuts::default();
-        let mut seen = std::collections::HashSet::new();
-        for pass in 0..48 {
-            let events = if pass < 3 {
+        ctx.enable_accesskit();
+        let mut buttons = std::collections::BTreeSet::new();
+        let mut focused = std::collections::BTreeSet::new();
+        // Every control in the order Tab reached them.
+        let mut order: Vec<(egui::accesskit::NodeId, String)> = Vec::new();
+        // The panel fades in first, and a glow carries its opacity. A Tab, then a pass with no key,
+        // as a real press comes.
+        for pass in 0..120 {
+            let events = if pass < 30 || pass % 2 == 1 {
                 Vec::new()
             } else {
                 vec![egui::Event::Key { key: egui::Key::Tab, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }]
@@ -650,11 +656,17 @@ mod tests {
                 menu_style::show(ui.ctx(), "Stream controls", "glow-test", |ui| {
                     menu_style::head(ui, "Racing Game", "1080p");
                     let reserve = menu_style::pinned_room(ui.ctx(), "glow-footer");
-                    menu_style::body_above(ui, reserve, |ui| grid(ui, &layout, &saved, None, pass == 0));
+                    // As the real menu asks it.
+                    let focus_first = ui.ctx().memory(|m| m.focused().is_none());
+                    menu_style::body_above(ui, reserve, |ui| grid(ui, &layout, &saved, None, focus_first));
                     menu_style::pinned(ui, "glow-footer", |ui| footer(ui, &layout));
                 });
             });
             output.textures_delta.clear();
+            let tree = output.platform_output.accesskit_update.clone().expect("the tree");
+            buttons.extend(tree.nodes.iter().filter(|(_, n)| n.role() == egui::accesskit::Role::Button).filter_map(|(_, n)| n.label().map(str::to_owned)));
+            let on = tree.nodes.iter().find(|(id, _)| *id == tree.focus).and_then(|(_, n)| n.label()).map(str::to_owned);
+            let mut glows = 0;
             let panel = ctx.memory(|m| m.area_rect(egui::Id::unique("glow-test"))).expect("the panel's place");
             for shape in &output.shapes {
                 let egui::Shape::Mesh(mesh) = &shape.shape else { continue };
@@ -662,12 +674,31 @@ mod tests {
                     continue;
                 }
                 let glow = mesh.calc_bounds();
-                seen.insert((glow.left() as i32, glow.top() as i32));
+                glows += 1;
                 assert!(shape.clip_rect.expand(0.6).contains_rect(glow), "{glow:?} is cut by its clip {:?}", shape.clip_rect);
                 assert!(panel.expand(0.6).contains_rect(glow), "{glow:?} leaves the panel {panel:?}");
             }
+            if pass >= 30 {
+                if let Some(on) = on {
+                    assert_eq!(glows, 1, "{on} glows");
+                    if order.last().is_none_or(|(id, _)| *id != tree.focus) {
+                        order.push((tree.focus, on.clone()));
+                    }
+                    focused.insert(on);
+                }
+            }
         }
-        assert!(seen.len() > 8, "the tiles, the close and the ways out each took the focus: {seen:?}");
+        // The loop: the last way out wraps to the head's close, and the close to the first tile.
+        let said: Vec<&str> = order.iter().map(|(_, on)| on.as_str()).collect();
+        let last = said.iter().position(|on| on.starts_with("Close game")).expect("Close game");
+        assert_eq!(said.get(last + 1), Some(&"Return to stream"), "after the last way out: {said:?}");
+        assert!(said.get(last + 2).is_some_and(|on| on.starts_with("Mouse")), "{said:?}");
+        for way in ["Return to stream", "Disconnect", "End session", "Close game"] {
+            assert!(buttons.iter().any(|b| b.starts_with(way)), "{way} in {buttons:?}");
+        }
+        assert!(buttons.len() > 8, "the tiles too: {buttons:?}");
+        let missed: Vec<_> = buttons.difference(&focused).collect();
+        assert!(missed.is_empty(), "the tiles, the close and the ways out each take the focus by Tab; not {missed:?}");
         let mut out = Vec::new();
         crate::ui::glass::focus(&mut out, &ctx, egui::Rect::from_min_size(egui::pos2(100.0, 100.0), vec2(80.0, 40.0)), 12.0, false);
         let egui::Shape::Mesh(mesh) = &out[0] else { panic!("the glow comes first") };

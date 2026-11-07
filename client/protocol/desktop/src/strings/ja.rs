@@ -200,6 +200,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Replace your {} saved shortcuts with {} from this file.", "保存済みの{0}個のショートカットを、このファイルの{1}個で置き換えます。"),
     ("Pair with {}", "{}とペアリング"),
     ("Address: {}", "アドレス: {}"),
+    ("Address", "アドレス"),
     ("{} quits on the PC. Unsaved progress is lost.", "{} は PC で終了します。保存していない進行状況は失われます。"),
     ("Quit {} and start {}?", "{0}を終了して{1}を開始しますか？"),
     ("Close {} and start {}?", "{0}を閉じて{1}を開始しますか？"),

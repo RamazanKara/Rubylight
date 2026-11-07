@@ -200,6 +200,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Replace your {} saved shortcuts with {} from this file.", "Zastąp {0} zapisanych skrótów {1} skrótami z tego pliku."),
     ("Pair with {}", "Sparuj z {}"),
     ("Address: {}", "Adres: {}"),
+    ("Address", "Adres"),
     ("{} quits on the PC. Unsaved progress is lost.", "{} zakończy się na komputerze. Niezapisany postęp przepadnie."),
     ("Quit {} and start {}?", "Zakończyć {0} i uruchomić {1}?"),
     ("Close {} and start {}?", "Zamknąć {0} i uruchomić {1}?"),

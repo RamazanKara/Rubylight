@@ -930,6 +930,7 @@ impl App {
     }
 
     fn handle_launcher_event(&mut self, event: &SDL_Event) {
+        log_window_hdr(event);
         self.track_visibility(event);
         // SAFETY: SDL cursor calls on the main thread.
         match self.pointer.input(pointer_input(event)) {
@@ -1982,6 +1983,8 @@ impl App {
         self.hdr_note = false;
         match handheld::hdr_stream(settings.hdr, sdl::hdr_available(self.renderer), handheld::gamescope()) {
             handheld::HdrStream::Refuse => {
+                let why = sdl::output_decision().and_then(Result::err).map_or("the compositor reports no HDR for this window", handheld::SdrReason::says);
+                eprintln!("nightjar: HDR asked for, refused: {why}");
                 self.launcher.message(tr("HDR output unavailable"), tr("Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output."));
                 return;
             }
@@ -2461,6 +2464,7 @@ impl App {
             }
             return;
         }
+        log_window_hdr(event);
         if matches!(
             kind,
             SDL_EVENT_WINDOW_RESIZED
@@ -3087,6 +3091,16 @@ fn probed_once(cache: &mut Option<(Hardware, (u32, String))>, hardware: Hardware
     match cache {
         Some((probed, result)) if *probed == hardware => result.clone(),
         _ => cache.insert((hardware, probe())).1.clone(),
+    }
+}
+
+/// A Wayland window learns its HDR state after it is mapped: the log says when, launcher or stream.
+fn log_window_hdr(event: &SDL_Event) {
+    // SAFETY: union members read by event type.
+    unsafe {
+        if SDL_EventType(event.r#type) == SDL_EVENT_WINDOW_HDR_STATE_CHANGED {
+            eprintln!("nightjar: the compositor reports window HDR {}", if event.window.data1 != 0 { "on" } else { "off" });
+        }
     }
 }
 

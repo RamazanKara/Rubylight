@@ -47,6 +47,7 @@ import android.media.MediaCodec.BufferInfo;
 import android.media.MediaCodec.CodecException;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Debug;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
@@ -139,6 +140,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // Mid-stream reconfigure (0x5532): the adaptive-playback maximum, which grows when a larger
     // size is asked for; the size the host was last asked for; and the size being shown.
     private int maxDecodeWidth, maxDecodeHeight;
+    // The size covering every size this stream may switch to (a fold or a turn), set before
+    // setup; null when it only changes on request. coveringRefused: a configure refused it.
+    private int[] coveringSize;
+    private boolean coveringRefused;
     private volatile boolean reconfigureRequested;
     private volatile int expectedWidth, expectedHeight;
     private volatile int streamWidth, streamHeight;
@@ -767,6 +772,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile int numFramesIn;
     private volatile int numFramesOut;
     private volatile int decoderDepthBase;
+    // debug.nightjar.submit_adpf: the submit thread's CPU time goes into the renderer's ADPF report.
+    private volatile boolean submitHints;
+    private final DecoderPerformanceHints.SubmitWork submitWork = new DecoderPerformanceHints.SubmitWork();
 
     /** The decoder for 10-bit HEVC streams: the one chosen for 10-bit SDR, else the usual one. */
     private MediaCodecInfo tenBitHevcDecoder() {
@@ -904,6 +912,61 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
             return new int[] {maxWidth, maxHeight, caps.getWidthAlignment(), caps.getHeightAlignment()};
         }
+    }
+
+    /** debug.nightjar.covering_max: size the adaptive maximum for a fold or turn up front (on by default). */
+    static final String COVERING_SWITCH = "covering_max";
+
+    /**
+     * The size covering every size this stream may switch to without being asked, such as a
+     * foldable's other panel or the turned size with Rotate with device. A decoder with adaptive
+     * playback is configured for it up front, so the first fold or turn needs no restart and no
+     * extra IDR. Null, or the switch off, keeps the maximum at the stream size.
+     */
+    public void setCoveringSize(int[] covering) {
+        if (covering != null && !MediaCodecHelper.debugSwitch(COVERING_SWITCH, true)) {
+            covering = null;
+        }
+        coveringSize = covering;
+        coveringRefused = false;
+    }
+
+    /**
+     * The adaptive-playback maximum to configure for a width x height stream given the covering
+     * size: the two covered, rounded up to the decoder's alignment, and only when the decoder takes
+     * that size (H.264 also no larger than 4096, which initializeDecoder() enforces). Otherwise the
+     * stream size, so configure never fails because of it.
+     */
+    static int[] upFrontMax(int width, int height, int[] covering, MediaCodecInfo.VideoCapabilities caps, boolean h264) {
+        if (caps == null) {
+            return new int[] {width, height};
+        }
+        return upFrontMax(width, height, covering, caps.getWidthAlignment(), caps.getHeightAlignment(),
+                caps::isSizeSupported, h264);
+    }
+
+    interface SizeCheck {
+        boolean takes(int width, int height);
+    }
+
+    static int[] upFrontMax(int width, int height, int[] covering, int widthAlignment, int heightAlignment,
+                            SizeCheck decoder, boolean h264) {
+        int[] stream = {width, height};
+        if (covering == null || (covering[0] <= width && covering[1] <= height)) {
+            return stream;
+        }
+        int[] max = StreamResizePolicy.coveringMax(width, height, covering[0], covering[1]);
+        int maxWidth = alignUp(max[0], widthAlignment);
+        int maxHeight = alignUp(max[1], heightAlignment);
+        if ((h264 && (maxWidth > 4096 || maxHeight > 4096)) || !decoder.takes(maxWidth, maxHeight)) {
+            LimeLog.info("Decoder takes no " + maxWidth + "x" + maxHeight + " maximum; it grows when asked");
+            return stream;
+        }
+        return new int[] {maxWidth, maxHeight};
+    }
+
+    private static int alignUp(int value, int alignment) {
+        return alignment > 1 ? (value + alignment - 1) / alignment * alignment : value;
     }
 
     // Gets the decoder ready for an IDR of width x height before the host is asked for one.
@@ -2195,8 +2258,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             videoFormat.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, maxInputSize);
         }
 
-        // Populate keys for adaptive playback. The maximum starts at the stream size and only
-        // grows when a mid-stream reconfigure asks for more.
+        // Populate keys for adaptive playback. The maximum starts at the stream size, or the size
+        // covering a fold or turn (setCoveringSize), and grows when a mid-stream reconfigure asks for more.
         if (adaptivePlayback) {
             videoFormat.setInteger(MediaFormat.KEY_MAX_WIDTH, maxDecodeWidth);
             videoFormat.setInteger(MediaFormat.KEY_MAX_HEIGHT, maxDecodeHeight);
@@ -2567,6 +2630,28 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         vividSeiDropLogged = false;
         adaptivePlayback = MediaCodecHelper.decoderSupportsAdaptivePlayback(selectedDecoderInfo, mimeType);
         fusedIdrFrame = MediaCodecHelper.decoderSupportsFusedIdrFrame(selectedDecoderInfo, mimeType);
+        // A fold or turn this stream follows on its own: the maximum covers it from the start.
+        int[] streamMax = {maxDecodeWidth, maxDecodeHeight};
+        boolean coveringApplied = false;
+        if (adaptivePlayback && coveringSize != null && !coveringRefused && !wantVulkan && vulkanRenderer == null &&
+                packing == null && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0 &&
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            MediaCodecInfo.VideoCapabilities caps = null;
+            try {
+                caps = selectedDecoderInfo.getCapabilitiesForType(mimeType).getVideoCapabilities();
+            } catch (RuntimeException e) {
+                LimeLog.warning("Cannot read decoder sizes for a covering maximum: " + e);
+            }
+            int[] max = upFrontMax(initialWidth, initialHeight, coveringSize, caps,
+                    (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_H264) != 0);
+            if (max[0] > maxDecodeWidth || max[1] > maxDecodeHeight) {
+                maxDecodeWidth = Math.max(maxDecodeWidth, max[0]);
+                maxDecodeHeight = Math.max(maxDecodeHeight, max[1]);
+                coveringApplied = true;
+                LimeLog.info("Decoder configured for sizes up to " + maxDecodeWidth + "x" + maxDecodeHeight +
+                        " for a fold or turn (stream " + initialWidth + "x" + initialHeight + ")");
+            }
+        }
 
         boolean retryWithoutUpscaling = false;
         List<String> firstTryKeys = null;
@@ -2597,7 +2682,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             // Throw the underlying codec exception on the last attempt if the caller requested it
             // A Dolby Vision decoder that refuses every try falls back to HEVC or AV1 below instead of throwing.
             if (tryConfigureDecoder(selectedDecoderInfo, mediaFormat,
-                    !newFormat && upscaler == null && throwOnCodecError && !dolbyVision)) {
+                    !newFormat && upscaler == null && throwOnCodecError && !dolbyVision && !coveringApplied)) {
                 boolean androidLowLatency = MediaCodecHelper.asksForAndroidLowLatency(mediaFormat);
                 outputBufferQueueLimit = DecoderQueuePolicy.outputLimit(selectedDecoderInfo.getName(),
                         androidLowLatency && MediaCodecHelper.decoderSupportsAndroidRLowLatency(selectedDecoderInfo, mimeType),
@@ -2620,6 +2705,20 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             " vendor low-latency mode, stop() and configure() leave it without input buffers");
                 }
                 break;
+            }
+
+            if (coveringApplied) {
+                // The covering maximum must never cost the stream its decoder: the same try again
+                // at the stream's own maximum, which then grows only when asked.
+                LimeLog.warning("Decoder " + selectedDecoderInfo.getName() + " refused try " + tryNumber + " with the " +
+                        maxDecodeWidth + "x" + maxDecodeHeight + " covering maximum; the same try at " +
+                        streamMax[0] + "x" + streamMax[1]);
+                maxDecodeWidth = streamMax[0];
+                maxDecodeHeight = streamMax[1];
+                coveringApplied = false;
+                coveringRefused = true;
+                tryNumber--;
+                continue;
             }
 
             if (!newFormat) {
@@ -2679,6 +2778,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             this.maxDecodeHeight = this.expectedHeight = this.streamHeight = height;
             this.videoFormat = format;
             this.refreshRate = redrawRate;
+            // PyroWave has its own session on its submit path.
+            this.submitHints = prefs.phonePerformanceHints && (format & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0 &&
+                    MediaCodecHelper.debugSwitch(DecoderPerformanceHints.SUBMIT_SWITCH, false);
             if (streamStartMs < 0) {
                 streamStartMs = System.currentTimeMillis();
                 streamStartUptimeMs = SystemClock.uptimeMillis();
@@ -2816,6 +2918,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 frameLatencyStats.discardPending("codec_reset");
                 // Frames inside the codec are gone; the scheduler counts from here.
                 decoderDepthBase = numFramesIn - numFramesOut;
+                submitWork.reset();
                 debt.reset();
                 if (hostFrameTimes) {
                     hostFrameClock.reset();
@@ -3536,12 +3639,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     BufferInfo info = new BufferInfo();
                     while (!stopping) {
                         long workStartNs = 0;
+                        long workCpuStartNs = 0;
                         try {
                             // Try to output a frame
                             int outIndex = videoDecoder.dequeueOutputBuffer(info, 50000);
                             if (outIndex >= 0) {
                                 // Waiting for decoder output is idle time, not work for ADPF.
                                 workStartNs = System.nanoTime();
+                                // ADPF gets this thread's CPU time: the debt wait for a newer
+                                // output and blocking releases inside the hand-off are waits too.
+                                workCpuStartNs = Debug.threadCpuTimeNanos();
                                 // This separate elapsed clock includes scheduling/suspend delays;
                                 // frame timestamps and ADPF durations keep their existing clock.
                                 long outputDrainStartNs = SystemClock.elapsedRealtimeNanos();
@@ -3576,7 +3683,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             if (workStartNs != 0) {
                                 // Report the complete handoff once, after presenting. Reporting each
                                 // discarded output adds work while we are trying to leave catch-up.
-                                performanceHints.reportWorkDuration(System.nanoTime() - workStartNs, refreshRate);
+                                long workCpuNs = Debug.threadCpuTimeNanos() - workCpuStartNs;
+                                if (submitHints) {
+                                    // The submissions since the last report are this frame's work too.
+                                    performanceHints.setSubmitThread(submitWork.threadId());
+                                    workCpuNs += submitWork.take();
+                                }
+                                performanceHints.reportWorkDuration(workCpuNs, refreshRate);
                             }
                             checkUpscaling();
                             doCodecRecoveryIfRequired(CR_FLAG_RENDER_THREAD);
@@ -4351,6 +4464,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     0, nextInputBuffer.position(),
                     timestampUs, codecFlags);
             if ((codecFlags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
+                // Only a queued frame is in the decoder: a failed queue or a frame too large for
+                // the buffer must not leave the depth waiting for an output that never comes.
+                numFramesIn++;
                 frameLatencyStats.onDecoderQueued(timestampUs, System.nanoTime());
             }
 
@@ -4537,9 +4653,27 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         window.totalHostProcessingLatency += frameHostProcessingLatency;
     }
 
-    @SuppressWarnings("deprecation")
     @Override
     public int submitDecodeUnit(byte[] decodeUnitData, int decodeUnitLength, int decodeUnitType,
+                                int frameNumber, int frameType, char frameHostProcessingLatency,
+                                long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs,
+                                long presentationTimeUs) {
+        if (!submitHints) {
+            return queueDecodeUnit(decodeUnitData, decodeUnitLength, decodeUnitType, frameNumber, frameType,
+                    frameHostProcessingLatency, receiveTimeUs, enqueueTimeUs, receiveTimeNs, presentationTimeUs);
+        }
+        // The renderer thread reports this thread's CPU time with its hand-off; see SubmitWork.
+        long cpuStartNs = Debug.threadCpuTimeNanos();
+        try {
+            return queueDecodeUnit(decodeUnitData, decodeUnitLength, decodeUnitType, frameNumber, frameType,
+                    frameHostProcessingLatency, receiveTimeUs, enqueueTimeUs, receiveTimeNs, presentationTimeUs);
+        } finally {
+            submitWork.add(Process.myTid(), Debug.threadCpuTimeNanos() - cpuStartNs);
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private int queueDecodeUnit(byte[] decodeUnitData, int decodeUnitLength, int decodeUnitType,
                                 int frameNumber, int frameType, char frameHostProcessingLatency,
                                 long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs,
                                 long presentationTimeUs) {
@@ -4696,8 +4830,6 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             timestampUs = lastTimestampUs + 1;
         }
         lastTimestampUs = timestampUs;
-
-        numFramesIn++;
 
         // The FEC padding after a Dolby Vision RPU breaks MediaTek's RPU parser; see HdrBitstream.
         boolean dolbyVision = dolbyVisionActive && HdrBitstream.endsAtRpu(videoFormat);
@@ -5124,14 +5256,38 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return capabilities;
     }
 
+    /**
+     * The decoder that will run a negotiated format mask, in the handshake's order (AV1, then
+     * HEVC, then H.264), or null before negotiation or when no decoder is chosen for it.
+     */
+    MediaCodecInfo decoderForNegotiated(int formats) {
+        if ((formats & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0) {
+            return decoderFor(formats & MoonBridge.VIDEO_FORMAT_MASK_AV1);
+        }
+        if ((formats & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0) {
+            return decoderFor(formats & MoonBridge.VIDEO_FORMAT_MASK_H265);
+        }
+        if ((formats & MoonBridge.VIDEO_FORMAT_MASK_H264) != 0) {
+            return avcDecoder;
+        }
+        return null;
+    }
+
     private int capabilitiesFor(int format) {
         int capabilities = 0;
         boolean tenBit = tenBitSdr(format);
         boolean hevc = (format & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0;
         boolean av1 = (format & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0;
+        // Slices and direct submit follow the decoder that will run the negotiated format: a phone
+        // may pair a Codec2 AVC decoder with an OMX HEVC one. Before negotiation the AVC decoder's
+        // direct submit and the larger slice count stand in.
+        MediaCodecInfo runner = decoderForNegotiated(format);
+        byte slices = runner != null ? MediaCodecHelper.getDecoderOptimalSlicesPerFrame(runner.getName()) :
+                (tenBit && hevc ? optimalSlicesPerFrame10 : optimalSlicesPerFrame);
+        boolean submitDirect = runner != null ? MediaCodecHelper.decoderCanDirectSubmit(runner.getName()) : directSubmit;
 
         // Request the optimal number of slices per frame for this decoder
-        capabilities |= MoonBridge.CAPABILITY_SLICES_PER_FRAME(tenBit && hevc ? optimalSlicesPerFrame10 : optimalSlicesPerFrame);
+        capabilities |= MoonBridge.CAPABILITY_SLICES_PER_FRAME(slices);
 
         // Enable reference frame invalidation on supported hardware
         if (refFrameInvalidationAvc) {
@@ -5145,7 +5301,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         // Enable direct submit on supported hardware
-        if (directSubmit) {
+        if (submitDirect) {
             capabilities |= MoonBridge.CAPABILITY_DIRECT_SUBMIT;
         }
 

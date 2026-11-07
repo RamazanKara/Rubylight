@@ -387,6 +387,7 @@ final class GameConnection {
                 glPrefs.glRenderer,
                 game, game.videoOutput.getVideoDisplay());
         game.decoderRenderer.setPackedFailureListener(game.streamRecovery::onPackedChromaFailure);
+        if (mediaStream) game.decoderRenderer.setCoveringSize(game.videoOutput.coveringStreamSize());
         game.decoderRenderer.setStreamSizeListener(new MediaCodecDecoderRenderer.StreamSizeListener() {
             @Override
             public void onStreamSizeChanged(int width, int height) {

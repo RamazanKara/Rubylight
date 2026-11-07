@@ -142,4 +142,30 @@ public final class StreamResizePolicy {
     public static int[] coveringMax(int maxWidth, int maxHeight, int width, int height) {
         return new int[] {Math.max(maxWidth, width), Math.max(maxHeight, height)};
     }
+
+    /**
+     * The size covering what a stream switches to on its own, for the decoder's maximum up front;
+     * null when nothing is known. A stream that turns with the device takes either orientation of
+     * its launch size. A foldable's stream at its own resolution takes any of its panels' sizes, in
+     * the launch orientation, or in either when it also turns. Sizes are {width, height}.
+     */
+    public static int[] coveringSize(int launchWidth, int launchHeight, boolean turns, int[][] panels) {
+        int[] covering = null;
+        if (turns) {
+            int side = Math.max(launchWidth, launchHeight);
+            covering = new int[] {side, side};
+        }
+        if (panels != null) {
+            boolean landscape = launchWidth >= launchHeight;
+            for (int[] panel : panels) {
+                if (panel[0] <= 0 || panel[1] <= 0) continue;
+                int longSide = Math.max(panel[0], panel[1]);
+                int shortSide = Math.min(panel[0], panel[1]);
+                int[] size = turns ? new int[] {longSide, longSide} :
+                        landscape ? new int[] {longSide, shortSide} : new int[] {shortSide, longSide};
+                covering = covering == null ? size : coveringMax(covering[0], covering[1], size[0], size[1]);
+            }
+        }
+        return covering;
+    }
 }

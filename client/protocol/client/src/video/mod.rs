@@ -295,8 +295,12 @@ pub struct VideoStats {
     pub decrypt_failures: u64,
     /// Frames handed to the sink.
     pub frames_completed: u64,
-    /// Times the depacketizer dropped its frame state (each lost or skipped frame).
+    /// Times the depacketizer dropped its frame state (each lost or skipped frame), except
+    /// [`VideoStats::decoder_drops`]: network loss only.
     pub frame_drops: u64,
+    /// Frames dropped because the decode queue overflowed: the overflowing frame and every frame
+    /// dropped while waiting for the key frame it requested. Local, not network loss.
+    pub decoder_drops: u64,
 }
 
 /// A packet waiting in the RTP queue. The buffer holds `packet_size + 16` bytes.

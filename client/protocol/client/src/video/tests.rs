@@ -435,6 +435,79 @@ fn fec_status_wire_format() {
     assert_eq!(bytes[20], 3);
 }
 
+/// A decode queue that hands frames back while `full`.
+#[derive(Default)]
+struct BoundedSink {
+    full: bool,
+    events: Vec<VideoEvent>,
+}
+
+impl VideoSink for BoundedSink {
+    fn frame(&mut self, frame: Frame) -> Result<(), Frame> {
+        if self.full {
+            return Err(frame);
+        }
+        self.events.push(VideoEvent::Frame(frame));
+        Ok(())
+    }
+
+    fn flush_frames(&mut self) {
+        self.events.flush_frames();
+    }
+
+    fn signal(&mut self, signal: VideoSignal) {
+        self.events.signal(signal);
+    }
+}
+
+/// A decoder that falls behind overflows the queue; that frame and the P-frames dropped until
+/// the key frame it asked for are decoder drops, not network loss, and the host still gets the
+/// key frame request.
+#[test]
+fn decode_queue_overflow_counts_decoder_drops_not_network_loss() {
+    const P_FRAMES: u64 = 4;
+    let mut host = Host::new();
+    let mut rx = VideoReceiver::new(config(0x1));
+    let mut sink = BoundedSink::default();
+    for packet in host.frame(&h264_idr(), 2) {
+        rx.receive(&packet, 1, &mut sink);
+    }
+    rx.frame_decoded(FrameType::Idr);
+
+    sink.full = true;
+    for packet in host.frame(&h264_p(100), 1) {
+        rx.receive(&packet, 2, &mut sink);
+    }
+    assert!(sink
+        .events
+        .iter()
+        .any(|e| matches!(e, VideoEvent::Signal(VideoSignal::RequestIdr))));
+    sink.full = false;
+    for _ in 0..P_FRAMES {
+        for packet in host.frame(&h264_p(100), 1) {
+            rx.receive(&packet, 3, &mut sink);
+        }
+    }
+    for packet in host.frame(&h264_idr(), 2) {
+        rx.receive(&packet, 4, &mut sink);
+    }
+
+    let stats = rx.stats();
+    assert_eq!(stats.frame_drops, 0);
+    assert_eq!(stats.decoder_drops, P_FRAMES + 1);
+    let delivered = frames(&sink.events);
+    assert_eq!(delivered.len(), 1, "the queue flush leaves only the key frame");
+    assert_eq!(delivered[0].frame_type, FrameType::Idr);
+
+    // A later network loss is network loss again.
+    let _lost = host.frame(&h264_p(100), 1);
+    for packet in host.frame(&h264_p(100), 1) {
+        rx.receive(&packet, 5, &mut sink);
+    }
+    assert!(rx.stats().frame_drops >= 1);
+    assert_eq!(rx.stats().decoder_drops, P_FRAMES + 1);
+}
+
 mod dolby_vision;
 pub(crate) mod early_chunks;
 mod sei;

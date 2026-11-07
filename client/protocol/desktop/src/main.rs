@@ -2307,6 +2307,8 @@ impl App {
             return;
         };
         let host = streaming.host_id;
+        // The launcher didn't see the window move while the stream had it.
+        self.gui.set_refresh(display_of(self.window).refresh_hz);
         self.open_play.left_by_player = matches!(exit, Exit::User | Exit::CloseWindow);
         // Microphone only has no video; it is going once connected.
         let reconnect = if matches!(exit, Exit::Reconnect) || exit.retryable(streaming.video_started() || streaming.mic_only()) {

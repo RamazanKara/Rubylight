@@ -1,0 +1,5 @@
+- A new look: moonlit glass on phones, handhelds and TVs, with System, Dark and OLED themes.
+- Button hints follow your remote, controller or keyboard.
+- A PC that shuts down ends the stream at once; TV stats fit the screen.
+- The on-screen pad can be its own player; reorder shortcuts; Y, X, LB and RB run stream menu entries.
+- Faster encrypted video on the new engine; the low-latency switch works below Android 11.

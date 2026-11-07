@@ -241,6 +241,40 @@ public class AllGamesScreenTest {
                 card[1] >= title[1] + grid.findViewById(R.id.all_games_focus).getHeight());
     }
 
+    /** The frame's glow room stands over the focus line and filters: a touch there was the grid's on touch-capable TVs. */
+    @Test
+    public void onATelevisionATouchInTheGlowRoomIsForWhatLiesUnderIt() {
+        tower(DOOM, HADES, PORTAL);
+        Grid grid = open(null);
+        View frame = (View) list(grid).getParent();
+        int room = Math.round(AllGamesActivity.GLOW_ROOM_DP * grid.getResources().getDisplayMetrics().density);
+        List<String> got = new ArrayList<>();
+        list(grid).setOnTouchListener((v, e) -> got.add("grid") && false);
+        grid.findViewById(R.id.all_games_focus).setOnTouchListener((v, e) -> got.add("focus") && false);
+        grid.findViewById(R.id.all_games_filters_scroll).setOnTouchListener((v, e) -> got.add("filters") && false);
+        int[] at = new int[2];
+        frame.getLocationInWindow(at);
+        View decor = grid.getWindow().getDecorView();
+
+        touch(decor, at[0] + frame.getWidth() / 2f, at[1] + room / 2f);
+        assertFalse("the grid takes none of it: " + got, got.contains("grid"));
+        assertTrue("what lies under it does: " + got, got.contains("focus") || got.contains("filters"));
+
+        got.clear();
+        touch(decor, at[0] + frame.getWidth() / 2f, at[1] + room + 4);
+        assertTrue("below the strip it is the grid's: " + got, got.contains("grid"));
+    }
+
+    private static void touch(View root, float x, float y) {
+        long now = android.os.SystemClock.uptimeMillis();
+        for (int action : new int[] {android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_UP}) {
+            android.view.MotionEvent event = android.view.MotionEvent.obtain(now, now, action, x, y, 0);
+            event.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);
+            root.dispatchTouchEvent(event);
+            event.recycle();
+        }
+    }
+
     @Test
     public void theFirstGameHasFocusAndTheDpadMovesBetweenTheChipsAndTheGrid() {
         tower(DOOM, HADES, PORTAL);

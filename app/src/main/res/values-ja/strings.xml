@@ -90,6 +90,7 @@
     <string name="perf_overlay_renderingfps">レンダリング: %1$.2f FPS</string>
     <string name="perf_overlay_hostprocessinglatency">ホスト 最小/最大/平均: %1$.1f/%2$.1f/%3$.1f ms</string>
     <string name="perf_overlay_netdrops">ネットワークのフレーム損失: %1$.2f%%</string>
+    <string name="perf_overlay_decoder_drops">デコーダーの破棄: %1$d フレーム（デコーダーが追いつきませんでした）</string>
     <string name="perf_overlay_netlatency">ネットワーク: %1$d ms（±%2$d ms）</string>
     <string name="perf_overlay_dectime">デコード時間: %1$.2f ms</string>
     <string name="applist_connect_msg">PC に接続しています…</string>

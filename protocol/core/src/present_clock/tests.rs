@@ -141,6 +141,76 @@ fn a_late_burst_at_the_start_does_not_hold_the_stream() {
     assert_eq!(late_again.hold_us, clock.settings.margin_us);
 }
 
+// Regression (nightjar#80): a decoder behind the stream made frames late by its queue, the clock
+// learnt that lateness and held every frame up to the longest hold.
+#[test]
+fn a_frame_behind_in_the_decode_queue_is_shown_at_once_and_not_learnt() {
+    let mut clock = PresentClock::default();
+    let mut noise = Lcg(9);
+    let shown = run(&mut clock, 300, |_| 10_000, |_| noise.next(1_000), 0);
+    let (window, len, next, delay) = (clock.window, clock.len, clock.next, clock.delay_us());
+    let host = shown[299].0;
+    let mut behind = Vec::new();
+    for i in 1..=20 {
+        // 30 ms behind and more, as a queue that fills.
+        let ready = host + i * 10_000 + 987_654_321 + 20_000 + 30_000 + i * 3_000;
+        behind.push(clock.schedule_behind(rtp(host + i * 10_000), ready as u64));
+    }
+    assert!(behind.iter().all(|s| s.hold_us == 0), "{behind:?}");
+    assert!(behind.iter().all(|s| s.late), "still counted late");
+    assert_eq!((clock.window, clock.len, clock.next, clock.delay_us()), (window, len, next, delay), "the window is unchanged");
+
+    // Caught up (once the queue drained, a second later): the next frame is held as before the
+    // backlog, not by its lateness.
+    let host = host + 120 * 10_000;
+    let next = clock.schedule(rtp(host), (host + 987_654_321 + 20_000) as u64);
+    assert!(next.hold_us <= 2_000, "held {} us", next.hold_us);
+}
+
+// Review of nightjar#80: Wi-Fi hands over a few frames at once, leaving the decode queue briefly
+// non-empty. Those frames are what host-time pacing spreads out; only a queue that stays
+// non-empty is a decoder behind the stream.
+#[test]
+fn a_network_burst_keeps_normal_scheduling_and_a_sustained_backlog_switches() {
+    let mut clock = PresentClock::default();
+    let mut noise = Lcg(11);
+    let shown = run(&mut clock, 300, |_| 10_000, |_| noise.next(1_000), 0);
+    let mut host = shown[299].0;
+
+    // Three frames in one burst: two still queued, then one, then none. Paced and learnt as usual.
+    for queued in [2, 1, 0] {
+        host += 10_000;
+        let ready = (987_654_321 + 20_000 + 30_000 + host - 10_000 * queued as i64) as u64;
+        let mut normal = clock.clone();
+        let expected = normal.schedule(rtp(host), ready);
+        assert_eq!(clock.schedule_queued(rtp(host), ready, queued), expected, "a burst is paced as usual");
+        assert_eq!((clock.len, clock.next, clock.delay_us()), (normal.len, normal.next, normal.delay_us()));
+    }
+
+    // A decoder that cannot keep up: the queue stays non-empty. The first frames are still
+    // learnt; from the BEHIND_AFTER_FRAMES-th on they are shown at once and not learnt.
+    for i in 1..=20u32 {
+        host += 10_000;
+        let ready = (987_654_321 + 20_000 + 30_000 + host + i64::from(i) * 3_000) as u64;
+        let learnt = clock.next;
+        let got = clock.schedule_queued(rtp(host), ready, 3);
+        if i < BEHIND_AFTER_FRAMES {
+            assert_ne!(clock.next, learnt, "frame {i} is learnt before the switch");
+        } else {
+            assert_eq!(clock.next, learnt, "frame {i} is not learnt after the switch");
+            assert_eq!(got.hold_us, 0, "frame {i} is shown at once");
+        }
+    }
+
+    // The queue empties: normal scheduling again.
+    host += 10_000;
+    let ready = (987_654_321 + 20_000 + host) as u64;
+    let learnt = clock.next;
+    let expected = clock.clone().schedule(rtp(host), ready);
+    assert_eq!(clock.schedule_queued(rtp(host), ready, 0), expected);
+    assert_ne!(clock.next, learnt, "learnt again once the queue empties");
+}
+
 /// The fixed part of a frame's ready time: the clocks' offset and the 20 ms path.
 const BASE_US: i64 = 987_654_321 + 20_000;
 

@@ -73,6 +73,7 @@ typedef VkQueueGlobalPriorityKHR VkQueueGlobalPriority;
 #include "schedule.h"
 #include "present_timing.h"
 #include "device_path.h"
+#include "image_hold.h"
 #include "rubylight_protocol.h"
 #include "../window-dataspace/window_dataspace.h"
 
@@ -852,6 +853,7 @@ namespace {
             submissionDiagnostics.configure();
             presentationDiagnostics.configure(submissionDiagnostics.isEnabled());
             pacingDiagnostics.configure(submissionDiagnostics.isEnabled());
+            configurePreacquire();
             return apiVersionSupported() && createInstanceAndSurface() && createDevice() &&
                    createSwapchain() && checkDecoderLimits() && createDecoder() && createPlanes() &&
                    createPipeline() && createUpscaler() && createFrameResources() && warmUpDecoder() &&
@@ -1333,6 +1335,9 @@ namespace {
         }
 
         bool createSwapchain() {
+            // An image taken ahead goes with the old swapchain; its fence must signal before the
+            // new swapchain's first acquire uses it.
+            if (swapchain != VK_NULL_HANDLE && !imageHold.release([this] { return settleAcquireFence(); })) return false;
             VkSurfaceCapabilitiesKHR caps;
             if (!check(vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &caps), "surface capabilities")) {
                 return false;
@@ -2082,23 +2087,22 @@ namespace {
             refreshDisplayClock();
             uint32_t imageIndex = 0;
             const uint64_t beforeAcquire = nowUs();
-            // A fence rather than a semaphore: the CPU waits for the display to free an image, so
-            // the GPU queue never holds a draw that blocks the next decode behind it.
-            auto acquired = vk.AcquireNextImageKHR(device, swapchain, ACQUIRE_TIMEOUT_NS, VK_NULL_HANDLE, acquireFence, &imageIndex);
-            if (acquired == VK_ERROR_OUT_OF_DATE_KHR) {
+            // The image taken ahead after the last present, else a fresh one (image_hold.h).
+            const PyroAcquire acquired = imageHold.take(&imageIndex,
+                    [this](uint32_t *image) { return acquireImage(image, ACQUIRE_TIMEOUT_NS); },
+                    [this] { return settleAcquireFence(); });
+            if (acquired == PyroAcquire::OUT_OF_DATE) {
                 dropSlot(index);
                 return recreateSwapchain();
             }
-            if (acquired == VK_TIMEOUT || acquired == VK_NOT_READY) {
+            if (acquired == PyroAcquire::NOT_READY) {
                 dropSlot(index);  // The next frame replaces it anyway.
                 return true;
             }
-            if (acquired != VK_SUCCESS && acquired != VK_SUBOPTIMAL_KHR) {
+            if (acquired != PyroAcquire::READY) {
                 dropSlot(index);
-                return check(acquired, "vkAcquireNextImageKHR");
+                return false;
             }
-            if (!check(vk.WaitForFences(device, 1, &acquireFence, VK_TRUE, FENCE_TIMEOUT_NS), "acquire fence") ||
-                !check(vk.ResetFences(device, 1, &acquireFence), "reset acquire fence")) return false;
             const uint64_t afterAcquire = nowUs();
 
             // Immediate mode keeps the freshest output. Paced modes retain the selected
@@ -2260,7 +2264,41 @@ namespace {
             if (surfaceSizeChanged(frameEnd)) {
                 return recreateSwapchain();
             }
+            if (shown && preacquireImages) {
+                // Only an image free now: the next frame's own acquire waits if none is.
+                imageHold.preacquire([this](uint32_t *image) { return acquireImage(image, 0); });
+            }
             return shown || check(presented, "vkQueuePresentKHR");
+        }
+
+        // A fence rather than a semaphore: the CPU waits for the display to free an image, so
+        // the GPU queue never holds a draw that blocks the next decode behind it. The fence is
+        // settled (settleAcquireFence) before the image is drawn to.
+        PyroAcquire acquireImage(uint32_t *imageIndex, uint64_t timeoutNs) {
+            const VkResult acquired = vk.AcquireNextImageKHR(device, swapchain, timeoutNs, VK_NULL_HANDLE,
+                                                             acquireFence, imageIndex);
+            if (acquired == VK_SUCCESS || acquired == VK_SUBOPTIMAL_KHR) return PyroAcquire::READY;
+            if (acquired == VK_TIMEOUT || acquired == VK_NOT_READY) return PyroAcquire::NOT_READY;
+            if (acquired == VK_ERROR_OUT_OF_DATE_KHR) return PyroAcquire::OUT_OF_DATE;
+            check(acquired, "vkAcquireNextImageKHR");
+            return PyroAcquire::FAILED;
+        }
+
+        bool settleAcquireFence() {
+            return check(vk.WaitForFences(device, 1, &acquireFence, VK_TRUE, FENCE_TIMEOUT_NS), "acquire fence") &&
+                   check(vk.ResetFences(device, 1, &acquireFence), "reset acquire fence");
+        }
+
+        // Pre-acquire is off unless debug.nightjar.pyro_preacquire is 1 (it came out with the
+        // 3.2.3 decode reverts), and only presents on arrival take it: paced modes acquire per frame.
+        void configurePreacquire() {
+            char value[PROP_VALUE_MAX] = {};
+            __system_property_get("debug.nightjar.pyro_preacquire", value);
+            const bool requested = std::strcmp(value, "1") == 0;
+            preacquireImages = requested && framePacingMode == 0;
+            if (requested) {
+                LOGI("PyroWave swapchain pre-acquire %s", preacquireImages ? "on" : "asked for, but off in paced modes");
+            }
         }
 
         // Presenter-owned scheduler input. Android's callback samples are copied by
@@ -2356,6 +2394,11 @@ namespace {
             }
             if (device != VK_NULL_HANDLE) {
                 destroySwapchainResources();
+                // A fence with an acquire's signal on the way must not be destroyed.
+                if (acquireFence != VK_NULL_HANDLE && swapchain != VK_NULL_HANDLE &&
+                    !imageHold.release([this] { return settleAcquireFence(); })) {
+                    LOGE("PyroWave acquire fence never signalled before teardown");
+                }
                 if (swapchain != VK_NULL_HANDLE) vk.DestroySwapchainKHR(device, swapchain, nullptr);
                 if (acquireFence != VK_NULL_HANDLE) vk.DestroyFence(device, acquireFence, nullptr);
                 if (startupFence != VK_NULL_HANDLE) vk.DestroyFence(device, startupFence, nullptr);
@@ -2525,6 +2568,9 @@ namespace {
         bool legacySync = false;
         VkSemaphore decodeSemaphore = VK_NULL_HANDLE;
         VkFence acquireFence = VK_NULL_HANDLE;
+        // Present thread, or teardown after it ended: the image between acquire and present.
+        PyroWaveImageHold imageHold;
+        bool preacquireImages = false;
 
         // This command buffer only initializes plane layouts before workers start.
         // SDK-owned per-pass GPU timings are logged; completion times remain in CSV.
@@ -2975,6 +3021,33 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeSubmitFrame(JNIEn
     }
     timing.framing(length >= 4 && pyroReadLe32(frame.data()) == 0);
     timing.result = renderer->submit(frame.data(), frame.size(), ptsUs, hostPresentationTimeUs, vsyncNs, intervalNs);
+    return timing.result;
+}
+
+// The Rust engine's frame in place (debug.nightjar.pyro_direct, on by default): a direct buffer
+// over its own memory, valid for this call. submit() parses the frame and the SDK copies the
+// records it keeps before this returns, so neither Java nor this side copies the frame first,
+// whether early push finished it or it goes whole. The copy stage then only finds the address.
+JNIEXPORT jlong JNICALL
+Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeSubmitDirectFrame(JNIEnv *env, jclass, jlong handle,
+                                                                                 jobject data, jint length, jlong ptsUs,
+                                                                                 jlong hostPresentationTimeUs,
+                                                                                 jlong vsyncNs, jlong intervalNs) {
+    auto *renderer = reinterpret_cast<Renderer *>(handle);
+    if (renderer == nullptr) return SUBMIT_ERROR;
+    SubmissionDiagnostics::Frame timing(renderer->submissionDiagnostics, length > 0 ? size_t(length) : 0);
+    if (data == nullptr || length <= 0) return SUBMIT_ERROR;
+    const uint8_t *bytes;
+    {
+        SubmissionDiagnostics::Stage copy(renderer->submissionDiagnostics, SubmissionDiagnostics::COPY);
+        bytes = static_cast<const uint8_t *>(env->GetDirectBufferAddress(data));
+        if (bytes == nullptr || jlong(length) > env->GetDirectBufferCapacity(data)) {
+            LOGE("PyroWave frame handed over in place without a direct buffer of %d bytes", length);
+            return SUBMIT_ERROR;
+        }
+    }
+    timing.framing(length >= 4 && pyroReadLe32(bytes) == 0);
+    timing.result = renderer->submit(bytes, size_t(length), ptsUs, hostPresentationTimeUs, vsyncNs, intervalNs);
     return timing.result;
 }
 

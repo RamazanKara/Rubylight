@@ -444,7 +444,18 @@ impl Drop for Poller {
 fn poll_controllers(state: &(Mutex<PollState>, Condvar)) {
     // SAFETY: sets this thread's priority.
     if !unsafe { SDL_SetCurrentThreadPriority(SDL_THREAD_PRIORITY_HIGH) } {
-        eprintln!("nightjar: the controller thread keeps normal priority: {}", crate::sdl::error());
+        let sdl = crate::sdl::error();
+        // A Flatpak or other unprivileged Linux process may not lower its nice value, and SDL's
+        // own attempt failed: the shared fallback asks the desktop portal and RealtimeKit, at
+        // the decode thread's level.
+        #[cfg(target_os = "linux")]
+        match nightjar_core::priority::raise_current_thread(nightjar_core::priority::ThreadLevel::Decode) {
+            Ok(Some(raised)) => eprintln!("nightjar: raised the controller thread to {raised}"),
+            Ok(None) => {}
+            Err(e) => eprintln!("nightjar: the controller thread keeps normal priority: {sdl}; {e}"),
+        }
+        #[cfg(not(target_os = "linux"))]
+        eprintln!("nightjar: the controller thread keeps normal priority: {sdl}");
     }
     let (state, wake) = state;
     loop {

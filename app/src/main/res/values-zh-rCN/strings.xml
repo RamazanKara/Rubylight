@@ -90,6 +90,7 @@
     <string name="perf_overlay_renderingfps">渲染：%1$.2f FPS</string>
     <string name="perf_overlay_hostprocessinglatency">主机 最小/最大/平均：%1$.1f/%2$.1f/%3$.1f ms</string>
     <string name="perf_overlay_netdrops">网络丢帧：%1$.2f%%</string>
+    <string name="perf_overlay_decoder_drops">解码器丢帧：%1$d 帧，解码器跟不上</string>
     <string name="perf_overlay_netlatency">网络：%1$d ms（±%2$d ms）</string>
     <string name="perf_overlay_dectime">解码时间：%1$.2f ms</string>
     <string name="applist_connect_msg">正在连接电脑…</string>

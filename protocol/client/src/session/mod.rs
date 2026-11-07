@@ -196,6 +196,13 @@ pub trait VideoDecoder: Send {
     /// [`crate::video::VideoSink::chunk`]. Chunks the decoder never sees (a full queue) are
     /// caught by the frame itself, which carries them all.
     fn chunk(&mut self, _first: bool, _flags: u32, _payload: &[u8]) {}
+    /// Whether the decoder now decoding recovers with reference frame invalidation. Asked
+    /// after each frame: a decoder replaced mid-stream by one that never asked for it answers
+    /// false, and the rest of the stream recovers from losses with key frames only
+    /// ([`crate::video::VideoReceiver::recover_with_idr_only`]).
+    fn recovers_with_rfi(&self) -> bool {
+        true
+    }
     fn stop(&mut self) {}
     fn cleanup(&mut self) {}
 }
@@ -349,6 +356,8 @@ pub(crate) struct Shared {
     start_gate: Mutex<StartGate>,
     /// "Prioritize stream traffic" ([`SessionConfig::network_priority`]).
     network_priority: bool,
+    /// The decode priority switch ([`priority::decode_priority_switch`]), read once per session.
+    decode_priority: bool,
     /// Bytes of every video and audio datagram received, FEC parity included: what the stream
     /// takes on the wire ([`Session::wire_bytes`]).
     wire_bytes: AtomicU64,
@@ -378,6 +387,7 @@ impl Shared {
             terminated: AtomicBool::new(false),
             start_gate: Mutex::new(StartGate::Starting(None)),
             network_priority,
+            decode_priority: priority::decode_priority_switch(),
             wire_bytes: AtomicU64::new(0),
             host_watch: Mutex::new(None),
         }
@@ -466,18 +476,27 @@ impl Shared {
     /// Raises the calling session thread when "prioritize stream traffic" is on, and says so
     /// in the log if the OS refuses.
     pub(crate) fn prioritize_thread(&self) {
-        if let Err(e) = priority::prioritize_current_thread(self.network_priority) {
-            self.warn(&format!(
-                "Could not raise the priority of {}: {e}",
-                std::thread::current().name().unwrap_or("a stream thread")
-            ));
-        }
+        self.raise_thread(priority::StreamThread::Other);
+    }
+
+    /// Raises the video receive thread: to the decoder's level when it runs the decoder.
+    pub(crate) fn prioritize_receive_thread(&self, direct_submit: bool) {
+        self.raise_thread(priority::StreamThread::VideoReceive { direct_submit });
     }
 
     /// Raises the queued video decode thread; a refusal is logged, not fatal.
     pub(crate) fn prioritize_decode_thread(&self) {
-        if let Err(e) = priority::prioritize_decode_thread() {
-            self.warn(&format!("Could not raise the priority of VideoDec: {e}"));
+        self.raise_thread(priority::StreamThread::VideoDecode);
+    }
+
+    /// Says once per thread what raised it, or why nothing did.
+    fn raise_thread(&self, thread: priority::StreamThread) {
+        let level = priority::thread_level(thread, self.network_priority, self.decode_priority);
+        let name = std::thread::current().name().unwrap_or("a stream thread").to_owned();
+        match priority::raise_current_thread(level) {
+            Ok(Some(raised)) => self.log(&format!("Raised {name} to {raised}")),
+            Ok(None) => {}
+            Err(e) => self.warn(&format!("Could not raise the priority of {name}: {e}")),
         }
     }
 }
@@ -841,6 +860,12 @@ impl Session {
             .as_ref()
             .ok_or_else(|| io::Error::from(io::ErrorKind::Unsupported))?
             .roam_control_only(local)
+    }
+
+    /// Frames waiting in the decode queue now ([`SessionStats::decode_queue_len`] without the
+    /// rest of the statistics): non-zero while the decoder is behind the stream.
+    pub fn decode_queue_len(&self) -> usize {
+        self.parts.video_shared.as_ref().map_or(0, |video| video.queue.len())
     }
 
     pub fn stats(&self) -> SessionStats {

@@ -7,6 +7,7 @@
 #include <time.h>
 #include "rubylight_protocol.h"
 #include "clock_sync.h"
+#include <Limelight.h>
 
 static pthread_mutex_t presentClockMutex = PTHREAD_MUTEX_INITIALIZER;
 static RpPresentClock* presentClock;
@@ -73,7 +74,10 @@ Java_com_limelight_nvstream_jni_MoonBridge_cPresentClockSchedule(JNIEnv* env, jc
         pthread_mutex_unlock(&presentClockMutex);
         return JNI_FALSE;
     }
-    RpPresentSchedule s = rp_present_clock_schedule(presentClock, rtp, (uint64_t)readyNs / 1000);
+    // A decode queue that stays non-empty: this frame's lateness is the backlog's, so it is shown
+    // at once and not learnt (nightjar#80). A network burst keeps normal scheduling.
+    RpPresentSchedule s = rp_present_clock_schedule_queued(presentClock, rtp, (uint64_t)readyNs / 1000,
+                                                           (uint32_t)LiGetPendingVideoFrames());
     pthread_mutex_unlock(&presentClockMutex);
     // Keep the ready time's sub-microsecond part so a frame that is on time is not shown early.
     jlong presentNs = s.present_us == (uint64_t)readyNs / 1000 ? readyNs : (jlong)s.present_us * 1000;
@@ -103,7 +107,8 @@ Java_com_limelight_nvstream_jni_MoonBridge_cPresentClockScheduleOnGrid(JNIEnv* e
         pthread_mutex_unlock(&presentClockMutex);
         return JNI_FALSE;
     }
-    RpPresentGridSchedule s = rp_present_clock_schedule_on_grid(presentClock, rtp, (uint64_t)readyNs / 1000, &grid);
+    RpPresentGridSchedule s = rp_present_clock_schedule_on_grid_queued(presentClock, rtp, (uint64_t)readyNs / 1000,
+                                                                       &grid, (uint32_t)LiGetPendingVideoFrames());
     pthread_mutex_unlock(&presentClockMutex);
     jlong vsyncNs = anchorNs + (jlong)s.vsync_index * intervalNs;
     jlong releaseNs = vsyncNs - leadNs;

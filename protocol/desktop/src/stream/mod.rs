@@ -101,7 +101,7 @@ use connect::*;
 use negotiate::*;
 use stats::*;
 pub use connect::{end_before, host_ended_stream, offers_714, termination_text, ConnectFailed, Connecting, LEAVE_WAIT};
-pub use negotiate::{codec_name, probes_color, pyrowave_bitrate_warning, pyrowave_notice, stream_mode};
+pub use negotiate::{base_probe_formats, codec_name, probes_color, pyrowave_bitrate_warning, pyrowave_notice, stream_mode};
 
 /// What the display offers, for "native" resolution and "display" refresh.
 #[derive(Clone, Copy, Debug)]
@@ -156,6 +156,9 @@ pub struct LaunchPlan {
     /// The 4:4:4 and 10-bit formats this device decodes and draws, and why the others are not
     /// (`color_probe::probe`); `(0, "")` when neither setting asks for them.
     pub color_decodable: (u32, String),
+    /// The plain HEVC and AV1 formats (and Main10) the stream's decoder decodes, and by which
+    /// backend (`color_probe::probe_base`).
+    pub base_decodable: color_probe::Base,
     pub pacing: PacingMode,
     pub vrr: bool,
     pub gamepad_mask: u32,
@@ -590,7 +593,7 @@ pub struct Streaming {
     host_average: HostAverage,
     /// Early frames and fallbacks at the last overlay update.
     last_early: (u64, u64),
-    last_video: (u64, u64),
+    last_video: (u64, u64, u64),
     started: Instant,
     first_frame: bool,
     /// Pictures shown at least once since the last overlay redraw.
@@ -830,7 +833,7 @@ impl Streaming {
             last_wire_bytes: 0,
             host_average: HostAverage::default(),
             last_early: (0, 0),
-            last_video: (0, 0),
+            last_video: (0, 0, 0),
             started: Instant::now(),
             first_frame: false,
             needs_redraw: true,
@@ -2488,6 +2491,54 @@ mod tests {
         assert!(!probes_color(&Settings { hdr: true, ..on.clone() }));
         assert!(!probes_color(&Settings { experimental_packed_444: true, ..on.clone() }));
         assert!(!probes_color(&Settings { codec: CodecPreference::PyroWave, ..on }));
+    }
+
+    /// The launch decoded HEVC and AV1 fixtures on the UI thread whatever the stream could use.
+    #[test]
+    fn the_base_probe_checks_only_formats_the_launch_can_offer() {
+        let with = |codec, hdr| base_probe_formats(&Settings { codec, hdr, ..Default::default() });
+        assert_eq!(with(CodecPreference::H264, true), 0, "H.264 is not checked");
+        assert_eq!(with(CodecPreference::Hevc, false), VIDEO_FORMAT_H265, "AV1 only when chosen");
+        assert_eq!(with(CodecPreference::Auto, true), VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10);
+        assert_eq!(with(CodecPreference::Av1, false), VIDEO_FORMAT_AV1_MAIN8);
+        assert_eq!(with(CodecPreference::Av1, true), VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10);
+        assert_eq!(with(CodecPreference::PyroWave, false), VIDEO_FORMAT_H265, "the HEVC PyroWave falls back to");
+        let packed = Settings { experimental_packed_444: true, codec: CodecPreference::Av1, ..Default::default() };
+        assert_eq!(base_probe_formats(&packed), 0);
+        // What is not checked is not offered either: each launch's offer stays within it.
+        for codec in [CodecPreference::H264, CodecPreference::Hevc, CodecPreference::Av1, CodecPreference::Auto, CodecPreference::PyroWave] {
+            for hdr in [false, true] {
+                let settings = Settings { codec, hdr, ..Default::default() };
+                let offered = offered_formats(&settings, 0, &decodes_all()).formats;
+                assert_eq!(offered & color_probe::BASE_FORMATS & !base_probe_formats(&settings), 0, "{codec:?} hdr {hdr}");
+            }
+        }
+        assert!(color_probe::probe_base(Hardware::None, 0).decodable == color_probe::BASE_FORMATS, "software is never checked");
+    }
+
+    /// A hardware decoder that cannot decode HEVC Main10 or AV1 (`color_probe::probe_base`) is
+    /// never offered them, so the PC never streams what FFmpeg would decode in software or not at
+    /// all; H.264 always stays, and packed full chroma checks its own formats.
+    #[test]
+    fn plain_formats_the_hardware_decoder_cannot_decode_are_not_offered() {
+        let all = SCM_H264 | SCM_HEVC | SCM_HEVC_MAIN10 | SCM_AV1_MAIN8 | SCM_AV1_MAIN10;
+        let hdr = |codec| Settings { codec, hdr: true, ..Default::default() };
+        let offered = |settings: &Settings, decodable| offered_formats_decoding(settings, all, &decodes_all(), decodable).formats;
+        let eight_bit = VIDEO_FORMAT_H265 | VIDEO_FORMAT_AV1_MAIN8;
+        assert_eq!(offered(&hdr(CodecPreference::Hevc), color_probe::BASE_FORMATS), VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10);
+        assert_eq!(offered(&hdr(CodecPreference::Hevc), eight_bit), VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265, "no Main10 decoder");
+        assert_eq!(offered(&hdr(CodecPreference::Av1), VIDEO_FORMAT_H265), VIDEO_FORMAT_H264, "no AV1 decoder at all");
+        assert_eq!(offered(&hdr(CodecPreference::Av1), color_probe::BASE_FORMATS), VIDEO_FORMAT_H264 | VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10);
+        assert_eq!(offered(&Settings::default(), 0), VIDEO_FORMAT_H264);
+        let packed = Settings { experimental_packed_444: true, codec: CodecPreference::Hevc, ..Default::default() };
+        assert_eq!(offered(&packed, 0), offered(&packed, color_probe::BASE_FORMATS));
+        // `offered_formats` is the offer of a decoder that decodes them all.
+        assert_eq!(offered_formats(&hdr(CodecPreference::Hevc), all, &decodes_all()).formats, offered(&hdr(CodecPreference::Hevc), color_probe::BASE_FORMATS));
+        // Software decoding decodes them all, by the software decoder.
+        let software = color_probe::Base::software();
+        assert_eq!(software.decodable, color_probe::BASE_FORMATS);
+        assert!(software.backends.iter().all(|&(_, backend)| backend == Hardware::None) && software.backends.len() == 4);
+        assert_eq!(color_probe::probe_base(Hardware::None, color_probe::BASE_FORMATS), software, "software decoding is not checked");
     }
 
     #[test]

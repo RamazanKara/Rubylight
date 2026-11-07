@@ -185,6 +185,7 @@ fn decode(
         chroma444: case.chroma444,
         packed: false,
         waiting: 0,
+        vaapi_node: None,
     };
     let mut decoder = match hardware {
         Hardware::None => VideoDecoder::open(case.codec, hardware, 1, false)?,

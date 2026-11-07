@@ -171,4 +171,20 @@ public class StreamResizePolicyTest {
         assertArrayEquals(new int[] {2316, 1812}, StreamResizePolicy.coveringMax(2176, 1812, 2316, 904));
         assertArrayEquals(new int[] {2316, 1812}, StreamResizePolicy.coveringMax(2316, 1812, 2176, 1812));
     }
+
+    @Test
+    public void theUpFrontCoveringSizeTakesEveryPanelAndTurn() {
+        // Nothing switches on its own: no covering, the maximum grows when asked.
+        assertNull(StreamResizePolicy.coveringSize(1920, 1080, false, null));
+        // Rotate with device: either orientation of the launch size.
+        assertArrayEquals(new int[] {1920, 1920}, StreamResizePolicy.coveringSize(1920, 1080, true, null));
+        assertArrayEquals(new int[] {1920, 1920}, StreamResizePolicy.coveringSize(1080, 1920, true, null));
+        // Galaxy Z Fold5 at its own resolution, started landscape: both panels, landscape.
+        int[][] fold = {{1812, 2176}, {904, 2316}, {0, 0}};
+        assertArrayEquals(new int[] {2316, 1812}, StreamResizePolicy.coveringSize(2176, 1812, false, fold));
+        // Started portrait: both panels, portrait.
+        assertArrayEquals(new int[] {1812, 2316}, StreamResizePolicy.coveringSize(1812, 2176, false, fold));
+        // Both: every panel in either orientation.
+        assertArrayEquals(new int[] {2316, 2316}, StreamResizePolicy.coveringSize(2176, 1812, true, fold));
+    }
 }

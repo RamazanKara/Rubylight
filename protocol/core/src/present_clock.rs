@@ -258,6 +258,8 @@ pub struct PresentClock {
     on_grid: bool,
     rate: ContentRate,
     rate_unwrap: Option<(u32, i64)>,
+    /// Frames in a row scheduled while others waited in the decode queue.
+    queued_streak: u32,
 }
 
 impl Default for PresentClock {
@@ -285,6 +287,12 @@ const FALL_STEP_MAX_US: i64 = 100_000;
 /// after its present time still takes the first vsync it can make, so covering the worst
 /// frames of the window ([`Settings::percentile`]) only adds latency to all the others.
 const GRID_PERCENTILE: u8 = 75;
+/// Frames in a row that find others waiting in the decode queue before the decoder counts as
+/// behind. Wi-Fi often hands over a few frames at once, which leaves the queue non-empty for all
+/// of the burst's frames but the last: those are what host-time pacing spreads out, so they are
+/// scheduled as usual. A decoder slower than the stream keeps the queue non-empty frame after
+/// frame until it overflows at 15.
+pub const BEHIND_AFTER_FRAMES: u32 = 8;
 
 impl PresentClock {
     pub fn new(settings: Settings) -> Self {
@@ -307,6 +315,7 @@ impl PresentClock {
             on_grid: false,
             rate: ContentRate::new(),
             rate_unwrap: None,
+            queued_streak: 0,
         }
     }
 
@@ -325,6 +334,7 @@ impl PresentClock {
         self.step_us = 0;
         self.rate.reset();
         self.rate_unwrap = None;
+        self.queued_streak = 0;
     }
 
     /// The current delay from host present to client present, beyond the clocks' offset.
@@ -361,6 +371,106 @@ impl PresentClock {
     /// When to show the frame stamped `rtp` that was ready to present at `ready_us`.
     pub fn schedule(&mut self, rtp: u32, ready_us: u64) -> Schedule {
         self.schedule_frame(rtp, ready_us, true).0
+    }
+
+    /// [`schedule`](Self::schedule) given the frames waiting in the decode queue behind this one:
+    /// [`schedule_behind`](Self::schedule_behind) once the queue stayed non-empty for
+    /// [`BEHIND_AFTER_FRAMES`] frames in a row, so a network burst keeps normal scheduling.
+    pub fn schedule_queued(&mut self, rtp: u32, ready_us: u64, queued: usize) -> Schedule {
+        if self.decoder_behind(queued) {
+            self.schedule_behind(rtp, ready_us)
+        } else {
+            self.schedule(rtp, ready_us)
+        }
+    }
+
+    /// [`schedule_on_grid`](Self::schedule_on_grid) given the decode queue, as
+    /// [`schedule_queued`](Self::schedule_queued).
+    pub fn schedule_on_grid_queued(&mut self, rtp: u32, ready_us: u64, grid: Grid, queued: usize) -> GridSchedule {
+        if self.decoder_behind(queued) {
+            self.schedule_on_grid_behind(rtp, ready_us, grid)
+        } else {
+            self.schedule_on_grid(rtp, ready_us, grid)
+        }
+    }
+
+    /// Notes the decode queue's length at a frame: the decoder is behind once it stayed non-empty
+    /// for [`BEHIND_AFTER_FRAMES`] frames in a row, until it empties.
+    fn decoder_behind(&mut self, queued: usize) -> bool {
+        self.queued_streak = if queued > 0 { self.queued_streak.saturating_add(1) } else { 0 };
+        self.queued_streak >= BEHIND_AFTER_FRAMES
+    }
+
+    /// [`schedule`](Self::schedule) for a frame that waited behind others in the decode queue:
+    /// shown as soon as it is ready (never before the frame before it) and left out of the
+    /// lateness window. Its lateness is this device's decoder falling behind, not the path's or
+    /// the game's; learnt, it held every frame up to `max_hold_us` once the decoder caught up
+    /// (nightjar#80: 72 ms display p95 behind a decoder at 43 of 100 fps).
+    pub fn schedule_behind(&mut self, rtp: u32, ready_us: u64) -> Schedule {
+        let ready = ready_us as i64;
+        let host = self.host_us(rtp);
+        self.start_us.get_or_insert(host);
+        self.advance(host);
+        let present = self.last_present.map_or(ready, |last| ready.max(last));
+        let late = self.delay_us.is_some_and(|delay| ready > host + delay);
+        self.last_present = Some(present);
+        self.frames += 1;
+        self.late_frames += u64::from(late);
+        Schedule {
+            present_us: present as u64,
+            late,
+            hold_us: present - ready,
+            latency_us: self.offset.offset_at(present).map(|offset| present - (host + offset)),
+        }
+    }
+
+    /// [`schedule_on_grid`](Self::schedule_on_grid) for a frame that waited behind others in the
+    /// decode queue, as [`schedule_behind`](Self::schedule_behind): released as soon as it is ready
+    /// for the first vsync it can make, and left out of the lateness window.
+    pub fn schedule_on_grid_behind(&mut self, rtp: u32, ready_us: u64, grid: Grid) -> GridSchedule {
+        let base = self.schedule_behind(rtp, ready_us);
+        let host = self.unwrap.map_or(0, |(_, ticks)| ticks * 100 / 9);
+        let late_by_us = self.delay_us.map_or(0, |delay| (ready_us as i64 - (host + delay)).max(0));
+        let release = base.present_us as i64;
+        if grid.interval_us <= 0 {
+            return GridSchedule {
+                release_us: base.present_us,
+                vsync_us: base.present_us,
+                vsync_index: 0,
+                late: base.late,
+                late_by_us,
+                shares_vsync: false,
+                hold_us: base.hold_us,
+                latency_us: base.latency_us,
+            };
+        }
+        let interval = grid.interval_us;
+        let (vsync, index) = snap(release, grid.anchor_us, interval);
+        let shares = self.last_vsync_us.is_some_and(|last| {
+            (last - grid.anchor_us + interval / 2).div_euclid(interval) >= index
+        });
+        self.last_vsync_us = Some(vsync);
+        self.last_bumped = false;
+        GridSchedule {
+            release_us: base.present_us,
+            vsync_us: vsync as u64,
+            vsync_index: index,
+            late: base.late,
+            late_by_us,
+            shares_vsync: shares,
+            hold_us: base.hold_us,
+            latency_us: self.offset.offset_at(vsync).map(|offset| vsync - (host + offset)),
+        }
+    }
+
+    /// Moves the host clock on to `host`: the step since the previous frame, also into the
+    /// average frame step.
+    fn advance(&mut self, host: i64) -> i64 {
+        let step = self.last_host_us.replace(host).map_or(0, |last| host - last);
+        if step > 0 && step <= FALL_STEP_MAX_US {
+            self.step_us = if self.step_us == 0 { step } else { self.step_us + (step - self.step_us) / 16 };
+        }
+        step
     }
 
     /// Notes a frame with RTP timestamp `rtp` for the content rate. Call it for every frame in
@@ -479,10 +589,7 @@ impl PresentClock {
         let host = self.host_us(rtp);
         let lateness = ready - host;
         let start = *self.start_us.get_or_insert(host);
-        let step = self.last_host_us.replace(host).map_or(0, |last| host - last);
-        if step > 0 && step <= FALL_STEP_MAX_US {
-            self.step_us = if self.step_us == 0 { step } else { self.step_us + (step - self.step_us) / 16 };
-        }
+        let step = self.advance(host);
         let mut present = if host - start < WARMUP_US {
             ready + self.settings.margin_us
         } else {

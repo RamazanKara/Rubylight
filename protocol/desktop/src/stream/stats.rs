@@ -169,8 +169,11 @@ impl Streaming {
         } else {
             0.0
         };
-        let video = (stats.video.frames_completed, stats.video.frame_drops);
+        // Loss counts the network's drops only: frames dropped over a full decode queue are this
+        // device's, shown on their own line.
+        let video = (stats.video.frames_completed, stats.video.frame_drops, stats.video.decoder_drops);
         let (completed, drops) = (video.0 - self.last_video.0, video.1 - self.last_video.1);
+        let decoder_drops = video.2 - self.last_video.2;
         self.last_video = video;
         let loss = if completed + drops > 0 {
             drops as f64 * 100.0 / (completed + drops) as f64
@@ -230,6 +233,9 @@ impl Streaming {
             "Decode".into(),
             format!("{decode_ms:.2} ms{}", if now.3 > last.3 { ", errors" } else { "" }),
         ));
+        if decoder_drops > 0 {
+            lines.push(("Decoder drops".into(), overlay::decoder_drops_line(decoder_drops)));
+        }
         if self.facts.early_without_records {
             lines.push(("Early decode".into(), "off, the host sent no PyroWave records".into()));
         }
@@ -338,6 +344,7 @@ impl Streaming {
             host_to_network_ms: (w.timing_n > 0).then(|| (avg(w.timing_host_us as f64, w.timing_n) / 1000.0) as f32),
             decode_ms: (decoded > 0).then_some(decode_ms as f32),
             render_ms: (w.shown > 0).then(|| (avg(w.render_us as f64, w.shown) / 1000.0) as f32),
+            decoder_drops: (decoder_drops > 0).then_some(decoder_drops),
         };
         self.last_video_bytes = video_bytes;
         self.last_wire_bytes = wire_bytes;

@@ -36,6 +36,11 @@ socket2 = "0.5"
 [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
 libc = "0.2"
 
+# priority.rs: the desktop portal's and RealtimeKit's thread raise when setpriority is refused;
+# the features the desktop's zbus already has.
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "5.19", default-features = false, features = ["tokio", "blocking-api"] }
+
 [lints.rust]
 # Set in protocol/.cargo/config.toml for aarch64 and checked in src/crypto.rs.
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(aes_armv8)', 'cfg(polyval_armv8)'] }

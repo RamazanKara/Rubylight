@@ -1119,6 +1119,28 @@ public class MediaCodecHelper {
         return false;
     }
 
+    /**
+     * A decoder switch for A/B runs: adb shell setprop debug.nightjar.&lt;name&gt; 1 (or 0) before a
+     * stream, read once when the stream starts. Unset, or anything but 0 and 1, is the default.
+     */
+    static boolean debugSwitch(String name, boolean defaultValue) {
+        String property = "debug.nightjar." + name;
+        String value;
+        try {
+            // SystemProperties is hidden but readable; the native renderer reads its switches the same way.
+            value = (String) Class.forName("android.os.SystemProperties")
+                    .getMethod("get", String.class, String.class).invoke(null, property, "");
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LimeLog.warning("Cannot read " + property + ", using " + (defaultValue ? 1 : 0) + ": " + e);
+            return defaultValue;
+        }
+        boolean on = "1".equals(value) || (!"0".equals(value) && defaultValue);
+        if (on != defaultValue) {
+            LimeLog.info(property + " is " + (on ? 1 : 0) + " (default " + (defaultValue ? 1 : 0) + ")");
+        }
+        return on;
+    }
+
     public static boolean decoderNeedsConstrainedHighProfile(String decoderName) {
         return isDecoderInList(constrainedHighProfilePrefixes, decoderName);
     }

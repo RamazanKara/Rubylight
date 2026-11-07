@@ -4,14 +4,15 @@ r"""How long Nightjar takes to say the PC is gone, and that it stays quiet when 
 
 One locked run on the Retroid against the isolated test host of fec_wifi_ab.py (run its setup once): a stream, then the
 event, then the app's own log says when it noticed and what it did. Events:
-  kill      the host process killed outright (nothing sent, its ports closed: a crash, a PC shutting down)
+  kill      the host process killed outright (nothing sent, its ports closed, the PC still up: a crash)
   stop      the host closed the way a service stop does (its control stream says goodbye)
   path      answers to this device blackholed on the PC (a host route to an unused address), the device's own link fine:
             a PC switched off or unplugged. The route goes when the run ends
   pathblip  the same for --hold seconds only (path and pathblip need an elevated shell)
   wifi      the device's Wi-Fi off for --hold seconds, then on again (adb is on USB)
   suspend   the host process frozen for --hold seconds (a stalled host: the OS still answers)
-kill, stop and path pass when the message comes at all, and print the time; the others pass when the stream survives.
+stop and path pass when the message comes at all, and print the time; kill (a crash on a PC that still answers pings)
+passes when no message comes and the recovery takes over; the others pass when the stream survives.
 Results: <out>\results.jsonl, per run <tag>-logcat.txt, -end.png, -host.log.
 """
 import argparse, ctypes, datetime, json, pathlib, re, shutil, subprocess, sys, time

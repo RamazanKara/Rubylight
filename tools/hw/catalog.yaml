@@ -411,7 +411,7 @@ cases:
       & {{python}} tools\hw\host_gone.py run --event wifi --hold 8 --tag wifi8
       & {{python}} tools\hw\host_gone.py run --event suspend --hold 6 --tag suspend6
     preconditions: [idle, isolated-ports]
-    pass: kill and stop end with the message in about 5 s or less; the stream survives wifi and suspend
+    pass: stop ends with the message in about 2 s or less; kill recovers without it (the PC answers pings); the stream survives wifi and suspend
     output: '{{out}}\results.jsonl under unified\nj-host-gone'
     note: 'Takes GPU-LOCK and RETROID-LOCK per run, host and pairing as nj-fec-wifi (fec_wifi_ab.py setup once).'
 

@@ -107,6 +107,7 @@
     <string name="perf_overlay_renderingfps">Rendered: %1$.2f FPS</string>
     <string name="perf_overlay_hostprocessinglatency">Host min/max/avg: %1$.1f/%2$.1f/%3$.1f ms</string>
     <string name="perf_overlay_netdrops">Network frame loss: %1$.2f%%</string>
+    <string name="perf_overlay_decoder_drops">Decoder drops: %1$d frames, the decoder fell behind</string>
     <string name="perf_overlay_netlatency">Network: %1$d ms (±%2$d ms)</string>
     <string name="perf_overlay_dectime">Decode time: %1$.2f ms</string>
 

@@ -21,6 +21,10 @@ public final class MenuRow extends MaterialButton {
     private final int chevronSize;
     private final int gap;
     private CharSequence value;
+    private final Paint capPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final android.graphics.RectF capBox = new android.graphics.RectF();
+    private String hotkey;
+    private boolean capShown;
 
     MenuRow(Context context, CharSequence label, CharSequence value) {
         this(context, (android.util.AttributeSet) null);
@@ -50,6 +54,35 @@ public final class MenuRow extends MaterialButton {
         valuePaint.setTextSize(res.getDimension(R.dimen.stream_menu_row_value));
         valuePaint.setColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
         valuePaint.setTypeface(getTypeface());
+        capPaint.setTextSize(res.getDimension(R.dimen.stream_tile_cap_text));
+        capPaint.setFakeBoldText(true);
+    }
+
+    /**
+     * The controller button that opens the row ({@code "Y"}), drawn before the chevron as a way out's cap is and said with its
+     * name while {@code shown}; a remote has no face buttons, so then it is neither drawn nor said. Null for none.
+     */
+    void setHotkey(String hotkey, boolean shown) {
+        this.hotkey = hotkey;
+        capShown = shown;
+        // The name ends before the cap, as before the chevron.
+        int end = gap * 2 + chevronSize + (capShown() ? Math.round(capWidth()) + gap : 0);
+        setPaddingRelative(getPaddingStart(), getPaddingTop(), end, getPaddingBottom());
+        setValue(value);
+    }
+
+    String hotkey() {
+        return hotkey;
+    }
+
+    boolean capShown() {
+        return hotkey != null && capShown;
+    }
+
+    private float capWidth() {
+        if (!capShown()) return 0;
+        float text = capPaint.measureText(hotkey);
+        return Math.max(text + capPaint.getTextSize() * 0.8f, capPaint.getTextSize() * 1.6f);
     }
 
     /** Its name over a quieter line, for a value too long to stand beside the name. */
@@ -71,7 +104,8 @@ public final class MenuRow extends MaterialButton {
     public void setValue(CharSequence text) {
         value = text;
         CharSequence name = getText();
-        setContentDescription(text == null || text.length() == 0 ? name : name + ", " + text);
+        CharSequence said = text == null || text.length() == 0 ? name : name + ", " + text;
+        setContentDescription(capShown() ? said + ", " + hotkey : said);
         invalidate();
     }
 
@@ -90,13 +124,29 @@ public final class MenuRow extends MaterialButton {
         androidx.core.graphics.drawable.DrawableCompat.setLayoutDirection(chevron, getLayoutDirection());
         chevron.setBounds(chevronLeft, top, chevronLeft + chevronSize, top + chevronSize);
         chevron.draw(canvas);
+        float cap = capWidth();
+        if (cap > 0) {
+            float density = getResources().getDisplayMetrics().density;
+            float h = capPaint.getTextSize() * 1.45f;
+            float left = rtl ? inset + chevronSize + gap : getWidth() - inset - chevronSize - gap - cap;
+            capBox.set(left, (getHeight() - h) / 2, left + cap, (getHeight() + h) / 2);
+            capPaint.setColor(getCurrentTextColor());
+            capPaint.setStyle(Paint.Style.STROKE);
+            capPaint.setStrokeWidth(density);
+            canvas.drawRoundRect(capBox, 3 * density, 3 * density, capPaint);
+            capPaint.setStyle(Paint.Style.FILL);
+            float text = capPaint.measureText(hotkey);
+            Paint.FontMetrics capMetrics = capPaint.getFontMetrics();
+            canvas.drawText(hotkey, capBox.centerX() - text / 2, capBox.centerY() - (capMetrics.ascent + capMetrics.descent) / 2, capPaint);
+            cap += gap;
+        }
         if (value == null || value.length() == 0) return;
         float label = getPaint().measureText(getText().toString());
-        float room = getWidth() - 2f * inset - chevronSize - gap - gap * 2 - label - gap * 2;
+        float room = getWidth() - 2f * inset - chevronSize - gap - cap - gap * 2 - label - gap * 2;
         if (room <= 0) return;
         CharSequence fitted = TextUtils.ellipsize(value, valuePaint, room, TextUtils.TruncateAt.END);
         float width = valuePaint.measureText(fitted, 0, fitted.length());
-        float x = rtl ? inset + chevronSize + gap : getWidth() - inset - chevronSize - gap - width;
+        float x = rtl ? inset + chevronSize + gap + cap : getWidth() - inset - chevronSize - gap - cap - width;
         Paint.FontMetrics metrics = valuePaint.getFontMetrics();
         canvas.drawText(fitted, 0, fitted.length(), x, getHeight() / 2f - (metrics.ascent + metrics.descent) / 2f, valuePaint);
     }

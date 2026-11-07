@@ -653,7 +653,8 @@ public final class StreamMenu {
         }
         grid = sheet.addTileGrid();
         // A remote has no face buttons: the caps show only while a controller could press them.
-        grid.setCapsShown(StreamMenuHint.hasGamepad());
+        grid.setCapsShown(capsShown());
+        sheet.setCapsShown(capsShown());
         cells = new android.view.View[layout.grid.size()];
         List<StreamMenuModel.Cell> statusCells = new ArrayList<>();
         for (int at = 0; at < layout.grid.size(); at++) {
@@ -727,7 +728,8 @@ public final class StreamMenu {
             String value = null;
             if (entry.item == Item.NATIVE_PAGE || (entry.item == Item.OVERLAY_PAGE && !native_)) value = facts;
             else if ((entry.item == Item.BITRATE || entry.item == Item.RATE_CHANGE) && o.streamFps > 0) value = o.streamFps + " FPS";
-            MenuRow row = sheet.addStatusRow(group, label(labels, cell.id), value);
+            MenuRow row = sheet.addStatusRow(group, label(labels, cell.id), value,
+                    cell.hotkey == null ? null : cell.hotkey.toUpperCase(Locale.ROOT));
             rows.put(entry.item, row);
             entries.add(entry);
             row.setOnClickListener(view -> choose(entry));
@@ -819,6 +821,8 @@ public final class StreamMenu {
      * monitor's, keeps its own words.
      */
     private void addFooter(List<Entry> offered, List<String> footer, java.util.Map<String, String> labels) {
+        // The ways out follow the grid: their caps show only while a controller could press them.
+        sheet.setCapsShown(capsShown());
         String back = labels != null ? label(labels, StreamMenuModel.CLOSE) : activity.getString(R.string.stream_menu_return);
         MaterialButton close = sheet.panelClose();
         close.setContentDescription(back + ", B");
@@ -865,15 +869,45 @@ public final class StreamMenu {
         return KeyboardShortcuts.format(keys).split(" \\+ ");
     }
 
+    /** Set by a test for a controller that is there (true) or not (false); null asks Android. */
+    static Boolean gamepadForTest;
+
+    /** A remote has no face buttons: the caps show only while a controller could press them. */
+    private static boolean capsShown() {
+        return gamepadForTest != null ? gamepadForTest : StreamMenuHint.hasGamepad();
+    }
+
     /** What the user chose in Settings for the controller's buttons here: by button, the buttons left on Default out. */
     static java.util.Map<String, String> buttonChoices(android.content.Context context) {
         android.content.SharedPreferences prefs = android.preference.PreferenceManager.getDefaultSharedPreferences(context);
         java.util.Map<String, String> choices = new java.util.HashMap<>();
         for (String key : new String[] {"y", "x", "lb", "rb"}) {
-            String choice = prefs.getString("list_stream_menu_button_" + key, "default");
+            String choice = buttonChoice(prefs.getString("list_stream_menu_button_" + key, "default"));
             if (!"default".equals(choice)) choices.put(key, choice);
         }
         return choices;
+    }
+
+    /** A saved choice as this version reads it: Close game and Quit game became one choice, Quit game. */
+    static String buttonChoice(String saved) {
+        return "close_game".equals(saved) ? "quit_game" : saved;
+    }
+
+    /**
+     * Saves an older install's close_game choice as quit_game, so the setting's list shows Quit game selected. Runs
+     * before the settings screen reads the values; the menu reads either the same way.
+     */
+    public static void upgradeButtonChoices(android.content.SharedPreferences prefs) {
+        android.content.SharedPreferences.Editor editor = null;
+        for (String key : new String[] {"y", "x", "lb", "rb"}) {
+            String name = "list_stream_menu_button_" + key;
+            String saved = prefs.getString(name, null);
+            if (saved != null && !saved.equals(buttonChoice(saved))) {
+                if (editor == null) editor = prefs.edit();
+                editor.putString(name, buttonChoice(saved));
+            }
+        }
+        if (editor != null) editor.commit();
     }
 
     /** A controller button on the first page runs its tile, or a way out under the grid: Y, X, LB or RB. */

@@ -2202,9 +2202,11 @@ public class StreamSettings extends NightjarActivity {
         public void onCreate(Bundle savedInstanceState) {
             super.onCreate(savedInstanceState);
 
+            SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(getActivity());
+            // Before the lists read their values, so an older Close game choice shows as Quit game.
+            com.limelight.ui.StreamMenu.upgradeButtonChoices(settings);
             addPreferencesFromResource(R.xml.preferences);
             PreferenceScreen screen = getPreferenceScreen();
-            SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(getActivity());
             if (!settings.contains(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING)) {
                 // Decide for older installs before a removed resolution or frame rate is replaced below.
                 settings.edit().putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING,

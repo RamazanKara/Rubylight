@@ -29,6 +29,8 @@ public final class ActionSheet extends BottomSheetDialog {
     // Where a panel's title, tiles and footer start, from its edge.
     private final int edge;
     private final boolean television;
+    // A remote has no face buttons: the ways out show their controller caps only while a controller could press them.
+    private boolean capsShown = true;
     // A floating panel over the stream instead of a sheet across the bottom; its footer stays out of the scroll.
     private final boolean panel;
     private final FooterBar footer;
@@ -596,6 +598,11 @@ public final class ActionSheet extends BottomSheetDialog {
         return addFooterAction(icon, label, destructive, null);
     }
 
+    /** Draws the controller caps on the ways out and status rows added from here on, and says them; their buttons work either way. */
+    public void setCapsShown(boolean shown) {
+        capsShown = shown;
+    }
+
     /** The same with the controller button that runs it ({@code "Y"}) at its end, or null for none. */
     public MaterialButton addFooterAction(int icon, CharSequence label, boolean destructive, String hotkey) {
         if (footer == null) {
@@ -627,10 +634,12 @@ public final class ActionSheet extends BottomSheetDialog {
         button.setInsetTop(0);
         button.setInsetBottom(0);
         // The cap sits at the end, so the end padding makes room for it.
-        button.setPaddingRelative(spacing * 3 / 2, 0, hotkey == null ? spacing * 3 / 2 : spacing * 5, 0);
+        boolean cap = hotkey != null && capsShown;
+        button.setPaddingRelative(spacing * 3 / 2, 0, cap ? spacing * 5 : spacing * 3 / 2, 0);
         button.setHotkey(hotkey);
         button.setHotkeyAtEnd(true);
-        if (hotkey != null) button.setContentDescription(label + ", " + hotkey);
+        button.setCapShown(capsShown);
+        if (cap) button.setContentDescription(label + ", " + hotkey);
         button.setBackground(new GlassControlDrawable(context,
                 destructive ? GlassControlDrawable.Kind.DANGER : GlassControlDrawable.Kind.CONTROL, height));
         if (television) button.setStateListAnimator(Motion.rowFocus(context));
@@ -668,7 +677,13 @@ public final class ActionSheet extends BottomSheetDialog {
 
     /** A status row in {@link #addRowGroup}: its name, a value at its end, a chevron. */
     public MenuRow addStatusRow(LinearLayout group, CharSequence label, CharSequence value) {
+        return addStatusRow(group, label, value, null);
+    }
+
+    /** The same with the controller button that opens it ({@code "Y"}) before its chevron, or null for none. */
+    public MenuRow addStatusRow(LinearLayout group, CharSequence label, CharSequence value, String hotkey) {
         MenuRow row = new MenuRow(getContext(), label, value);
+        row.setHotkey(hotkey, capsShown);
         group.addView(row, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         return row;
     }

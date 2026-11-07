@@ -806,6 +806,12 @@ public class StreamSettings extends NightjarActivity {
         PreferenceConfiguration.migrateCodecLowLatencyCorruption(prefs);
     }
 
+    /** Its chrome follows the form: a rotation into another form lays it out again. */
+    @Override
+    protected boolean followsForm() {
+        return true;
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         // Framework fragments are recreated by super.onCreate(), before our views exist, and their lists read this.

@@ -159,5 +159,11 @@ public class HomeHeroPlayTest {
         pressPlayOnZelda();
         assertTrue(home.played.isEmpty());
         assertNull(prompt());
+        Intent page = shadowOf(home).getNextStartedActivity();
+        assertNotNull("the game's page opens", page);
+        assertTrue(page.getComponent().getClassName(),
+                GameDetailActivity.class.isAssignableFrom(Class.forName(page.getComponent().getClassName())));
+        assertEquals(12, page.getIntExtra(GameDetailActivity.EXTRA_APP_ID, 0));
+        assertEquals("tower", page.getStringExtra(GameDetailActivity.EXTRA_HOST_UUID));
     }
 }

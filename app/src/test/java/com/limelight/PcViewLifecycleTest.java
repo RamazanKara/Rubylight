@@ -271,6 +271,79 @@ public class PcViewLifecycleTest {
     }
 
     @Test
+    public void backFromAStreamAPadDroveThePcThatRunsTheGameHoldsFocus() {
+        // A real stream on the Retroid: after Disconnect no card had focus, so a pad or a remote could not act at once.
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            report(pc("ready", "Office", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED));
+            ComputerDetails running = pc("running", "Den", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED);
+            running.runningGameId = 7;
+            report(running);
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            assertEquals("Den", ((PcView.ComputerObject) grid.getItemAtPosition(0)).details.name);
+            grid.setSelection(1);
+
+            // The stream: this screen goes away, the pad leaves touch mode, and it comes back with focus off the list.
+            controller.pause().stop();
+            com.limelight.ui.TvScreensPreviewTest.leaveTouchMode(screen);
+            assertTrue(screen.findViewById(R.id.shell_bar).requestFocus());
+            assertFalse("the list starts without focus", grid.hasFocus());
+            // This test's manager knows no PCs, so a resume with it would drop them; the real one keeps them.
+            Object manager = ReflectionHelpers.getField(screen, "managerBinder");
+            ReflectionHelpers.setField(screen, "managerBinder", null);
+            controller.restart().resume();
+            ReflectionHelpers.setField(screen, "managerBinder", manager);
+            assertEquals(3, grid.getCount());
+            screen.onWindowFocusChanged(true);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+
+            assertTrue("the list holds focus", grid.hasFocus());
+            assertFalse(grid.isInTouchMode());
+            assertEquals("the PC that runs the game", "Den",
+                    ((PcView.ComputerObject) grid.getSelectedItem()).details.name);
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void backFromAPadsDisconnectInTouchModeThePcThatRunsTheGameShowsTheRing() {
+        // On the Retroid this window kept the touch mode of the tap that started the stream, the list focused with nothing
+        // selected: no ring until a first pad press, which only brought the ring.
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            report(pc("ready", "Office", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED));
+            ComputerDetails running = pc("running", "Den", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED);
+            running.runningGameId = 7;
+            report(running);
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            controller.pause().stop();
+            // The stream menu's sheet saw the pad's A on Disconnect.
+            com.limelight.ui.InputSource.remember(com.limelight.ui.InputSource.PAD);
+            Object manager = ReflectionHelpers.getField(screen, "managerBinder");
+            ReflectionHelpers.setField(screen, "managerBinder", null);
+            controller.restart().resume();
+            ReflectionHelpers.setField(screen, "managerBinder", manager);
+            Object root = ReflectionHelpers.callInstanceMethod(screen.getWindow().getDecorView(), "getViewRootImpl");
+            ReflectionHelpers.callInstanceMethod(root, "ensureTouchMode", ReflectionHelpers.ClassParameter.from(boolean.class, true));
+            grid.requestFocus();
+            assertTrue(grid.isInTouchMode());
+            assertTrue(grid.hasFocus());
+            screen.onWindowFocusChanged(true);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+
+            assertFalse("the ring shows", grid.isInTouchMode());
+            assertTrue(grid.hasFocus());
+            assertEquals("Den", ((PcView.ComputerObject) grid.getSelectedItem()).details.name);
+        } finally {
+            com.limelight.ui.InputSource.remember(null);
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
     public void tappingAnOfflinePcWithOnlyTheMacsItsWakeListedWakesIt() throws Exception {
         ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
         try {
@@ -386,6 +459,45 @@ public class PcViewLifecycleTest {
             Shadows.shadowOf(Looper.getMainLooper()).idle();
             worker.join(5000);
             assertTrue(ReflectionHelpers.<Boolean>getField(screen, "runningPolling"));
+        } finally {
+            controller.pause().stop().destroy();
+            if (worker != null) worker.join(5000);
+        }
+    }
+
+    /** A rotation into another form recreated the page and cancelled the pairing; now the page waits for it. */
+    @Test
+    public void aRunningPairingKeepsThePageThroughAFormChangeThenThePageFollows() throws Exception {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(1), 47989);
+        Thread worker = null;
+        try {
+            Library screen = controller.get();
+            assertEquals(com.limelight.ui.GlassForm.PHONE, com.limelight.ui.GlassForm.of(screen));
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            screen.showComputerMenu((PcView.ComputerObject) grid.getItemAtPosition(0));
+            com.limelight.ui.ActionSheet sheet = (com.limelight.ui.ActionSheet) ShadowDialog.getLatestDialog();
+            button(sheet.findViewById(android.R.id.content), screen.getString(R.string.pcview_menu_pair_pc)).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            worker = ReflectionHelpers.getField(screen.hostActions(), "pairingThread");
+            AlertDialog dialog = ReflectionHelpers.getField(screen.hostActions(), "pairingDialog");
+            assertTrue(dialog.isShowing());
+
+            org.robolectric.RuntimeEnvironment.setQualifiers("w900dp-h700dp-land");
+            screen.onConfigurationChanged(screen.getResources().getConfiguration());
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(com.limelight.ui.GlassForm.HANDHELD, com.limelight.ui.GlassForm.of(screen));
+            assertFalse("the page waits for the pairing", ReflectionHelpers.<Boolean>getField(screen, "recreatingForForm"));
+            assertFalse(screen.isDestroyed());
+            assertTrue("the pairing still runs", screen.hostActions().isPairing());
+            assertTrue("its PIN still shows", dialog.isShowing());
+
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            worker.join(5000);
+            assertFalse(screen.hostActions().isPairing());
+            screen.onWindowFocusChanged(true);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertTrue("done: the page follows the form", ReflectionHelpers.<Boolean>getField(screen, "recreatingForForm"));
         } finally {
             controller.pause().stop().destroy();
             if (worker != null) worker.join(5000);

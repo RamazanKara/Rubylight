@@ -292,6 +292,20 @@ impl Launcher {
                     close = true;
                 }
             }
+            Dialog::PcSheet { current } => {
+                let (outcome, took) = pc_sheet(ctx, self.menu_anchor, &view.hosts.list, *current, focus_first);
+                focused = took;
+                match outcome {
+                    // What Enter does on this PC's card on the PCs page.
+                    MenuOutcome::Chosen(n) => {
+                        let host = &view.hosts.list[n];
+                        commands.push(pcs::pc_action(host).command(host.id));
+                        close = true;
+                    }
+                    MenuOutcome::Dismissed => close = true,
+                    MenuOutcome::Open => {}
+                }
+            }
             Dialog::GameMenu { host, game } => {
                 let (id, game) = (*host, *game);
                 match view.hosts.get(id).and_then(|host| game_menu(host, view, game, &self.favourites, &self.hidden_games).map(|menu| (host, menu))) {
@@ -1363,6 +1377,7 @@ impl Launcher {
         let from_card = matches!(
             self.dialog,
             Dialog::HostOptions { .. }
+                | Dialog::PcSheet { .. }
                 | Dialog::GameMenu { .. }
                 | Dialog::Rename { .. }
                 | Dialog::ConfirmRemove { .. }
@@ -1899,7 +1914,7 @@ fn pin_pad(ui: &mut Ui, pin: &mut String, focus_first: bool, focused: &mut bool)
 pub enum Anchor {
     /// Under the ⋮ that opened it, right edges lined up (above it when there is no room below).
     Below(Rect),
-    /// Beside the focused card it belongs to (F2, Shift+F10, X), at its top.
+    /// Beside the focused card it belongs to (F2, Shift+F10, Y or X), at its top.
     Beside(Rect),
     /// At the pointer of a right-click.
     Point(Pos2),
@@ -1967,6 +1982,84 @@ pub fn popover(
     note: Option<&str>,
     focus_first: bool,
 ) -> (MenuOutcome, bool) {
+    let screen = ctx.content_rect();
+    let mut outcome = MenuOutcome::Open;
+    let mut focused = false;
+    let dismissed = menu_shell(ctx, name, anchor, |ui, id| {
+        // The rows' widths: the longest label and hint, at least a comfortable width.
+        let measure = |text: &str, font: egui::FontId| ui.painter().layout_no_wrap(text.to_owned(), font, Color32::WHITE).size().x;
+        let widest = rows
+            .iter()
+            .map(|r| 12.0 + 18.0 + 12.0 + measure(tr(r.label), semibold(text::LABEL)) + r.hint.map_or(0.0, |h| 24.0 + measure(tr(h), regular(text::CAPTION))) + 14.0)
+            .fold(260.0_f32, f32::max);
+        let title_w = measure(title, semibold(text::BODY)) + 24.0;
+        let width = widest.max(title_w.min(380.0)).min(screen.width() - 32.0);
+        ui.set_width(width);
+        // egui lays a new area out in at most 600x400 points: let the menu take the window's
+        // height less its margin instead, so it scrolls only when the window is too short.
+        ui.set_max_height(screen.height() - 16.0 - 10.0);
+        ui.spacing_mut().item_spacing.y = 4.0;
+        let top = ui.cursor().top();
+        // The heading: what the menu is for.
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.add_space(8.0);
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                let mut job = egui::text::LayoutJob::simple_singleline(title.to_owned(), semibold(text::BODY), *ON_SURFACE);
+                job.wrap = egui::text::TextWrapping::truncate_at_width(width - 20.0);
+                ui.label(job);
+                if let Some((line, color)) = &subtitle {
+                    ui.label(RichText::new(line).font(regular(text::CAPTION)).color(*color));
+                }
+            });
+        });
+        ui.add_space(4.0);
+        divider(ui);
+        let note = note.map(|n| {
+            let text = RichText::new(tr(n)).font(regular(text::CAPTION)).color(OUTLINE);
+            egui::WidgetText::from(text).into_galley(ui, Some(egui::TextWrapMode::Wrap), width - 20.0, egui::TextStyle::Body)
+        });
+        let below = note.as_ref().map_or(0.0, |n| 10.0 + n.size().y);
+        // The window's height less its margins, the frame, the heading, the list's own margin and
+        // the note: wherever the menu is placed, it then fits inside the window.
+        let heading = ui.cursor().top() - top;
+        let room = (screen.height() - 16.0 - 10.0 - heading - 8.0 - 4.0 - below).max(CONTROL_HEIGHT);
+        menu_list(ui, id, room, |ui| {
+            let mut divided = false;
+            for (n, row) in rows.iter().enumerate() {
+                if row.destructive && !divided && n > 0 {
+                    divider(ui);
+                }
+                divided |= row.destructive;
+                let response = ui.add_enabled_ui(row.blocked.is_none(), |ui| menu_row(ui, row)).inner;
+                if focus_first && !focused && row.blocked.is_none() {
+                    response.request_focus();
+                    focused = true;
+                }
+                if response.clicked() {
+                    outcome = MenuOutcome::Chosen(n);
+                }
+            }
+        });
+        if let Some(note) = note {
+            ui.add_space(2.0);
+            ui.horizontal(|ui| {
+                ui.add_space(10.0);
+                ui.label(note);
+            });
+            ui.add_space(4.0);
+        }
+    });
+    if dismissed && outcome == MenuOutcome::Open {
+        outcome = MenuOutcome::Dismissed;
+    }
+    (outcome, focused)
+}
+
+/// What every menu stands on: a clear layer that takes the pointer and, by its anchor, the raised
+/// glass that holds `add`. Says whether a press outside closed it.
+fn menu_shell(ctx: &egui::Context, name: &str, anchor: Anchor, add: impl FnOnce(&mut Ui, Id)) -> bool {
     let id = Id::unique(("menu", name));
     let screen = ctx.content_rect();
     let last = ctx.memory(|m| m.area_rect(id));
@@ -1986,91 +2079,120 @@ pub fn popover(
             catch
         })
         .inner;
-    let mut outcome = MenuOutcome::Open;
-    let mut focused = false;
     let frame = Frame::new().inner_margin(Margin::same(MENU_MARGIN as i8));
     let area = egui::Area::new(id).order(egui::Order::Foreground).fixed_pos(place(anchor, size, screen)).constrain(false).show(ctx, |ui| {
-        frame.show(ui, |ui| glass_behind(ui, glass::Material::Panel, design_tokens::RADIUS_GROUP, MENU_MARGIN, |ui| {
-            // The rows' widths: the longest label and hint, at least a comfortable width.
-            let measure = |text: &str, font: egui::FontId| ui.painter().layout_no_wrap(text.to_owned(), font, Color32::WHITE).size().x;
-            let widest = rows
-                .iter()
-                .map(|r| 12.0 + 18.0 + 12.0 + measure(tr(r.label), semibold(text::LABEL)) + r.hint.map_or(0.0, |h| 24.0 + measure(tr(h), regular(text::CAPTION))) + 14.0)
-                .fold(260.0_f32, f32::max);
-            let title_w = measure(title, semibold(text::BODY)) + 24.0;
-            let width = widest.max(title_w.min(380.0)).min(screen.width() - 32.0);
-            ui.set_width(width);
-            // egui lays a new area out in at most 600x400 points: let the menu take the window's
-            // height less its margin instead, so it scrolls only when the window is too short.
-            ui.set_max_height(screen.height() - 16.0 - 10.0);
-            ui.spacing_mut().item_spacing.y = 4.0;
-            let top = ui.cursor().top();
-            // The heading: what the menu is for.
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.add_space(8.0);
-                ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = 0.0;
-                    let mut job = egui::text::LayoutJob::simple_singleline(title.to_owned(), semibold(text::BODY), *ON_SURFACE);
-                    job.wrap = egui::text::TextWrapping::truncate_at_width(width - 20.0);
-                    ui.label(job);
-                    if let Some((line, color)) = &subtitle {
-                        ui.label(RichText::new(line).font(regular(text::CAPTION)).color(*color));
-                    }
-                });
-            });
-            ui.add_space(4.0);
-            divider(ui);
-            let note = note.map(|n| {
-                let text = RichText::new(tr(n)).font(regular(text::CAPTION)).color(OUTLINE);
-                egui::WidgetText::from(text).into_galley(ui, Some(egui::TextWrapMode::Wrap), width - 20.0, egui::TextStyle::Body)
-            });
-            let below = note.as_ref().map_or(0.0, |n| 10.0 + n.size().y);
-            // The window's height less its margins, the frame, the heading, the list's own margin and
-            // the note: wherever the menu is placed, it then fits inside the window.
-            let heading = ui.cursor().top() - top;
-            let room = (screen.height() - 16.0 - 10.0 - heading - 8.0 - 4.0 - below).max(CONTROL_HEIGHT);
-            // A thin bar that always shows when the list scrolls.
-            ui.spacing_mut().scroll = egui::style::ScrollStyle { foreground_color: true, ..egui::style::ScrollStyle::thin() };
-            let list = egui::ScrollArea::vertical().id_salt(id.with("rows")).max_height(room).content_margin(Margin::same(4)).show(ui, |ui| {
-                let follow = id.with("focus");
-                let mut last = ui.ctx().data(|d| d.get_temp::<Option<Id>>(follow)).flatten();
-                crate::gui::follow_focus(ui, &mut last);
-                ui.ctx().data_mut(|d| d.insert_temp(follow, last));
-                let mut divided = false;
-                for (n, row) in rows.iter().enumerate() {
-                    if row.destructive && !divided && n > 0 {
-                        divider(ui);
-                    }
-                    divided |= row.destructive;
-                    let response = ui.add_enabled_ui(row.blocked.is_none(), |ui| menu_row(ui, row)).inner;
-                    if focus_first && !focused && row.blocked.is_none() {
-                        response.request_focus();
-                        focused = true;
-                    }
-                    if response.clicked() {
-                        outcome = MenuOutcome::Chosen(n);
-                    }
-                }
-            });
-            scroll_fades(ui, &list, MENU_FADE);
-            if let Some(note) = note {
-                ui.add_space(2.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(10.0);
-                    ui.label(note);
-                });
-                ui.add_space(4.0);
-            }
-        }));
+        frame.show(ui, |ui| glass_behind(ui, glass::Material::Panel, design_tokens::RADIUS_GROUP, MENU_MARGIN, |ui| add(ui, id)));
     });
     // The menu holds the keyboard while open; a click outside closes it (on the release, so
     // nothing under it takes that click).
     ctx.memory_mut(|m| m.set_modal_layer(area.response.layer_id));
-    if (catch.clicked() || catch.secondary_clicked()) && outcome == MenuOutcome::Open {
+    catch.clicked() || catch.secondary_clicked()
+}
+
+/// A menu's rows, `room` tall at most, scrolling with faded edges and keeping the focus in view.
+fn menu_list(ui: &mut Ui, id: Id, room: f32, add: impl FnOnce(&mut Ui)) {
+    // A thin bar that always shows when the list scrolls.
+    ui.spacing_mut().scroll = egui::style::ScrollStyle { foreground_color: true, ..egui::style::ScrollStyle::thin() };
+    let list = egui::ScrollArea::vertical().id_salt(id.with("rows")).max_height(room).content_margin(Margin::same(4)).show(ui, |ui| {
+        let follow = id.with("focus");
+        let mut last = ui.ctx().data(|d| d.get_temp::<Option<Id>>(follow)).flatten();
+        crate::gui::follow_focus(ui, &mut last);
+        ui.ctx().data_mut(|d| d.insert_temp(follow, last));
+        add(ui);
+    });
+    scroll_fades(ui, &list, MENU_FADE);
+}
+
+/// The PCs behind the top bar's capsule: a row for each with its status dot, its name and what it
+/// is doing, and a mark on `current`, the one the capsule shows. `focus_first` puts the ring on the
+/// first row; opened by the pointer there is no ring until a key asks for one.
+pub fn pc_sheet(ctx: &egui::Context, anchor: Anchor, hosts: &[Host], current: u64, focus_first: bool) -> (MenuOutcome, bool) {
+    let screen = ctx.content_rect();
+    let mut outcome = MenuOutcome::Open;
+    let mut focused = false;
+    let dismissed = menu_shell(ctx, "pc-sheet", anchor, |ui, id| {
+        let measure = |text: &str, font: egui::FontId| ui.painter().layout_no_wrap(text.to_owned(), font, Color32::WHITE).size().x;
+        let widest = hosts
+            .iter()
+            .map(|h| measure(h.display_name(), semibold(text::LABEL)).max(measure(pcs::pc_line_of(h).words(), regular(text::CAPTION))))
+            .fold(0.0_f32, f32::max);
+        let width = (PC_ROW_WORDS + widest + PC_ROW_MARK + 8.0).clamp(280.0, 420.0).min(screen.width() - 32.0);
+        ui.set_width(width);
+        ui.set_max_height(screen.height() - 16.0 - 10.0);
+        ui.spacing_mut().item_spacing.y = 4.0;
+        let top = ui.cursor().top();
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.add_space(8.0);
+            ui.label(RichText::new(tr("PCs")).font(semibold(text::BODY)).color(*ON_SURFACE));
+        });
+        ui.add_space(4.0);
+        divider(ui);
+        let heading = ui.cursor().top() - top;
+        let room = (screen.height() - 16.0 - 10.0 - heading - 8.0 - 4.0).max(CONTROL_HEIGHT);
+        menu_list(ui, id, room, |ui| {
+            let rows: Vec<Response> = hosts.iter().map(|host| pc_row(ui, host, host.id == current)).collect();
+            let asked = ui.input(|i| [Key::ArrowDown, Key::ArrowUp, Key::Tab].iter().any(|key| i.key_pressed(*key)));
+            let by_key = asked && !rows.iter().any(Response::has_focus);
+            if let Some(first) = rows.first().filter(|_| focus_first || by_key) {
+                first.request_focus();
+                focused = true;
+                // That key's move ends here, on the first row, not one further.
+                ui.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
+            }
+            if let Some(n) = rows.iter().position(Response::clicked) {
+                outcome = MenuOutcome::Chosen(n);
+            }
+        });
+    });
+    if dismissed && outcome == MenuOutcome::Open {
         outcome = MenuOutcome::Dismissed;
     }
     (outcome, focused)
+}
+
+/// Where a PC row's words start.
+const PC_ROW_WORDS: f32 = 14.0 + 9.0 + 12.0;
+/// What a PC row keeps free at its right for the mark.
+const PC_ROW_MARK: f32 = 8.0 + 20.0 + 14.0;
+
+fn pc_row(ui: &mut Ui, host: &Host, current: bool) -> Response {
+    let width = ui.available_width();
+    let (hovered, pressed) = last_state(ui);
+    let (rect, response) = ui.allocate_exact_size(vec2(width, 60.0), Sense::click());
+    let line = pcs::pc_line_of(host);
+    let (name, status) = (host.display_name(), line.words());
+    response.widget_info(|| {
+        let mut info = egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{name}, {status}"));
+        info.selected = Some(current);
+        info
+    });
+    if !ui.is_rect_visible(rect) {
+        return response;
+    }
+    let mut shapes = Vec::new();
+    lift_shapes(&mut shapes, ui.ctx(), rect, 14.0, hovered, pressed);
+    chrome::pc_dot(&mut shapes, ui.ctx(), Pos2::new(rect.left() + 14.0 + 4.5, rect.center().y), host);
+    ui.painter().extend(shapes);
+    let room = width - PC_ROW_WORDS - PC_ROW_MARK;
+    let words = |text: &str, font: egui::FontId, ink: Color32| {
+        let mut job = egui::text::LayoutJob::simple_singleline(text.to_owned(), font, ink);
+        job.wrap = egui::text::TextWrapping::truncate_at_width(room);
+        ui.painter().layout_job(job)
+    };
+    let upper = words(name, semibold(text::LABEL), *ON_SURFACE);
+    let lower = words(status, regular(text::CAPTION), *ON_SURFACE_VARIANT);
+    let x = rect.left() + PC_ROW_WORDS;
+    let top = rect.center().y - (upper.size().y + 2.0 + lower.size().y) / 2.0;
+    let below = top + upper.size().y + 2.0;
+    ui.painter().galley(Pos2::new(x, top), upper, *ON_SURFACE);
+    ui.painter().galley(Pos2::new(x, below), lower, *ON_SURFACE_VARIANT);
+    if current {
+        let mark = Rect::from_center_size(Pos2::new(rect.right() - 14.0 - 10.0, rect.center().y), Vec2::splat(20.0));
+        icons::paint(ui.painter(), Icon::Check, mark, *MOON);
+    }
+    focus_ring(ui, rect, &response, 14);
+    response
 }
 
 /// A thin line between a menu's parts.

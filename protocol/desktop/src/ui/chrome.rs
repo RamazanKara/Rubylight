@@ -699,22 +699,10 @@ impl Launcher {
                 format!("{}, {status}", host.display_name()),
             )
         });
-        let up = host.reach == Reach::Online && host.paired();
         let dot = pos2(rect.left() + 16.0 + 4.5, rect.center().y);
         let mut out = Vec::new();
-        if up && !high_contrast() {
-            glass::soft(
-                &mut out,
-                &ctx,
-                Rect::from_center_size(dot, Vec2::splat(9.0)),
-                4.5,
-                8.0,
-                t::COLOR_OK,
-            );
-        }
+        pc_dot(&mut out, &ctx, dot, host);
         extend(ui, out);
-        ui.painter()
-            .circle_filled(dot, 4.5, if up { *OK } else { t::COLOR_OFFLINE });
         let mut job = egui::text::LayoutJob::simple_singleline(
             host.display_name().to_owned(),
             semibold(TAB_FONT),
@@ -736,16 +724,42 @@ impl Launcher {
         let id = host.id;
         self.focus_chrome(&response, "top-pc");
         if response.clicked() {
-            self.open_menu(
-                Dialog::HostOptions { host: id },
-                Anchor::Below(rect),
-                "top-pc".into(),
-            );
+            let many = view.hosts.list.len() >= 2;
+            let dialog = if many {
+                Dialog::PcSheet { current: id }
+            } else {
+                Dialog::HostOptions { host: id }
+            };
+            self.open_menu(dialog, Anchor::Below(rect), "top-pc".into());
+            // The ring on its first row is for who came by keys; the next key starts there.
+            if many && response.clicked_by(egui::PointerButton::Primary) {
+                self.focus_dialog = false;
+            }
         }
         if let Some(anchor) = menu_request(ui, &response, None) {
             self.open_menu(Dialog::HostOptions { host: id }, anchor, "top-pc".into());
         }
     }
+}
+
+/// A PC's status dot: lit with a glow when it is up and paired.
+pub(super) fn pc_dot(out: &mut Vec<Shape>, ctx: &egui::Context, at: Pos2, host: &Host) {
+    let up = host.reach == Reach::Online && host.paired();
+    if up && !high_contrast() {
+        glass::soft(
+            out,
+            ctx,
+            Rect::from_center_size(at, Vec2::splat(9.0)),
+            4.5,
+            8.0,
+            t::COLOR_OK,
+        );
+    }
+    out.push(Shape::circle_filled(
+        at,
+        4.5,
+        if up { *OK } else { t::COLOR_OFFLINE },
+    ));
 }
 
 /// The width a hero button of `label` takes.

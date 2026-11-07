@@ -3825,6 +3825,124 @@ fn the_pc_capsule_speaks_of_the_pc_whose_page_it_is() {
     assert!(in_bar(&f, "Attic") && !in_bar(&f, "Den"), "{:?}", f.placed);
 }
 
+/// The top bar over Den's page, with Attic not paired and Cellar asleep. Ids in that order.
+fn three_pcs() -> (Frames, [u64; 3]) {
+    let mut attic = record("Attic", false, false);
+    attic.address = "192.0.2.77".into();
+    let mut cellar = record("Cellar", true, true);
+    cellar.address = "192.0.2.78".into();
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut l = launcher(false, false);
+    l.go(Screen::Hosts);
+    let mut hosts = Hosts::without_discovery(vec![record("Den", true, true), attic, cellar], Arc::new(|| {}));
+    for (host, reach) in hosts.list.iter_mut().zip([Reach::Online, Reach::Online, Reach::Offline]) {
+        host.reach = reach;
+    }
+    hosts.list[0].apps = Apps::Loaded(vec![game(1)]);
+    let ids = [hosts.list[0].id, hosts.list[1].id, hosts.list[2].id];
+    let mut f = Frames::over(ctx, l, hosts);
+    f.l.go(Screen::Apps(ids[0]));
+    f.settle();
+    (f, ids)
+}
+
+/// Where the bar's capsule is, by the name in it.
+fn capsule_at(f: &Frames, name: &str) -> Pos2 {
+    f.placed.iter().find(|(t, r, _)| t == name && r.top() < 68.0).expect("the capsule names its PC").1.center()
+}
+
+fn focus_capsule(f: &mut Frames) {
+    f.ctx.memory_mut(|m| m.request_focus(Id::unique("top-pc")));
+    f.settle();
+}
+
+/// The name in the row that has the focus, if a row of the sheet has it.
+fn focused_row(f: &Frames) -> Option<String> {
+    let rect = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id))?.rect;
+    f.placed.iter().find(|(t, r, _)| rect.height() == 60.0 && rect.contains_rect(*r) && ["Den", "Attic", "Cellar"].contains(&t.as_str())).map(|(t, ..)| t.clone())
+}
+
+#[test]
+fn the_capsule_opens_the_pcs_with_two_or_more() {
+    let (mut f, [den, ..]) = three_pcs();
+    f.click_at(capsule_at(&f, "Den"), egui::PointerButton::Primary);
+    assert!(matches!(f.l.dialog, Dialog::PcSheet { current } if current == den));
+    for word in ["PCs", "Den", "Online", "Attic", "Not paired", "Cellar", "Offline"] {
+        assert!(shows(&f, word), "{word}: {:?}", f.drawn);
+    }
+    assert_eq!(focused_row(&f), None, "opened by the pointer, no row wears the ring");
+    f.press(Key::ArrowDown);
+    assert_eq!(focused_row(&f).as_deref(), Some("Den"), "the first key starts on the first row");
+}
+
+#[test]
+fn the_capsule_of_the_only_pc_opens_its_options() {
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 0)), Vec::new());
+    f.hosts.list[0].apps = Apps::Loaded(vec![game(1)]);
+    let id = f.hosts.list[0].id;
+    f.l.go(Screen::Apps(id));
+    f.settle();
+    f.click_at(capsule_at(&f, "Den"), egui::PointerButton::Primary);
+    assert!(f.options_open());
+}
+
+#[test]
+fn the_capsules_options_stay_on_their_keys_and_the_right_button() {
+    let (mut f, [den, ..]) = three_pcs();
+    focus_capsule(&mut f);
+    for key in [Key::F, Key::F2] {
+        f.press(key);
+        assert!(matches!(f.l.dialog, Dialog::HostOptions { host } if host == den), "{key:?}");
+        f.press(Key::Escape);
+        assert!(f.no_dialog());
+        f.settle();
+    }
+    f.click_at(capsule_at(&f, "Den"), egui::PointerButton::Secondary);
+    assert!(matches!(f.l.dialog, Dialog::HostOptions { host } if host == den));
+}
+
+#[test]
+fn keys_walk_the_pcs_from_the_first_row_and_back_to_the_capsule() {
+    let (mut f, [den, ..]) = three_pcs();
+    f.ctx.enable_accesskit();
+    focus_capsule(&mut f);
+    f.press(Key::Enter);
+    assert!(matches!(f.l.dialog, Dialog::PcSheet { current } if current == den));
+    assert_eq!(focused_row(&f).as_deref(), Some("Den"), "by keys the ring starts on the first row");
+    f.press(Key::ArrowDown);
+    assert_eq!(focused_row(&f).as_deref(), Some("Attic"));
+    let tree = f.access.as_ref().expect("AccessKit is on");
+    let marked = |label: &str| tree.nodes.iter().find(|(_, n)| n.label() == Some(label)).unwrap_or_else(|| panic!("{label}")).1.toggled();
+    assert_eq!(marked("Den, Online"), Some(egui::accesskit::Toggled::True), "the mark is read out too");
+    assert_eq!(marked("Attic, Not paired"), Some(egui::accesskit::Toggled::False));
+    f.press(Key::Escape);
+    f.settle();
+    assert!(f.no_dialog());
+    assert_eq!(f.ctx.memory(|m| m.focused()), Some(Id::unique("top-pc")), "the focus goes back to the capsule");
+}
+
+/// Enter on the card, on the PCs page: the card's own action.
+#[test]
+fn picking_a_pc_does_what_enter_does_on_its_card() {
+    for (name, want) in [("Den", 0), ("Attic", 1), ("Cellar", 2)] {
+        let (mut f, ids) = three_pcs();
+        f.click_at(capsule_at(&f, "Den"), egui::PointerButton::Primary);
+        // The sheet draws last: the page behind it may name the PC too.
+        let row = f.placed.iter().rev().find(|(t, ..)| t == name).expect("its row").1.center();
+        let commands = f.click_at(row, egui::PointerButton::Primary);
+        assert!(f.no_dialog(), "{name}: the sheet closes");
+        let id = ids[want];
+        let did = commands.iter().any(|c| match want {
+            0 => matches!(c, Command::OpenApps(h) if *h == id),
+            1 => matches!(c, Command::Pair(h) if *h == id),
+            _ => matches!(c, Command::Wake(h) if *h == id),
+        });
+        assert!(did, "{name} did something else");
+    }
+}
+
 /// A PC with no apps has nothing to start: no Desktop tile that could only fail, one line and Refresh.
 #[test]
 fn a_pc_with_no_apps_shows_one_line_and_refresh() {

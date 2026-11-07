@@ -87,6 +87,7 @@ final class PadEditor extends FrameLayout {
         thisGame.setVisibility(gameAvailable ? VISIBLE : GONE);
         thisGame.setChecked(this.perGame);
         thisGame.setOnCheckedChangeListener((button, checked) -> this.perGame = checked);
+        com.limelight.ui.StepSlider.showValue(opacity, value -> String.format(Locale.getDefault(), "%d %%", value));
         opacity.addOnChangeListener((slider, value, fromUser) -> {
             if (fromUser && !settingOpacity) setOpacity(Math.round(value));
         });

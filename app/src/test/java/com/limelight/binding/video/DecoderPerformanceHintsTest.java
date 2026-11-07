@@ -31,11 +31,15 @@ public class DecoderPerformanceHintsTest {
         String loop = rendererLoop(renderer());
         int report = loop.indexOf("performanceHints.reportWorkDuration(");
         assertTrue(report > 0);
-        assertEquals("performanceHints.reportWorkDuration(workCpuNs, refreshRate)",
+        assertEquals("performanceHints.reportWorkDuration(workNs, refreshRate)",
                 loop.substring(report, loop.indexOf(';', report)));
-        assertTrue("reports thread CPU time",
-                loop.contains("long workCpuNs = Debug.threadCpuTimeNanos() - workCpuStartNs;"));
-        assertFalse("never wall time", loop.contains("System.nanoTime() - workStartNs"));
+        assertTrue("reports thread CPU time unless the switch restores wall time", loop.contains(
+                "long workNs = cpuTime ? Debug.threadCpuTimeNanos() - workCpuStartNs :\n" +
+                "                                        System.nanoTime() - workStartNs;"));
+        assertTrue("CPU time by default", loop.contains(
+                "MediaCodecHelper.debugSwitch(DecoderPerformanceHints.CPU_TIME_SWITCH, true)"));
+        assertEquals("adpf_cpu_time", DecoderPerformanceHints.CPU_TIME_SWITCH);
+        assertTrue("off, no thread clock is read", loop.contains("if (cpuTime) workCpuStartNs = Debug.threadCpuTimeNanos();"));
         int start = loop.indexOf("workCpuStartNs = Debug.threadCpuTimeNanos();");
         int dequeue = loop.indexOf("videoDecoder.dequeueOutputBuffer(info, 50000)");
         assertTrue("the window starts after the idle dequeue", start > dequeue && dequeue > 0);

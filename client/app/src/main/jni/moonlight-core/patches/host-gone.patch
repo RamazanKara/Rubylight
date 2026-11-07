@@ -1,0 +1,95 @@
+Tell a host's goodbye from a timeout, and stop toward a silent host without lingering.
+LiHostSaidGoodbye() is true when the host's own disconnect ended the connection (the held one,
+once ENet acts on it, or one sent with enet_peer_disconnect_now()), and false for ENet's timeout:
+the client then asks whether the PC closed its server: it shuts down or its host stopped (HostLossWatch). The
+stop skips the two-second linger toward a host silent for two seconds or more, which will not
+acknowledge the disconnect. Applies after network-grace-input.patch.
+
+--- a/src/ControlStream.c
++++ b/src/ControlStream.c
+@@ -107,6 +107,8 @@
+ static bool stopping;
+ static bool disconnectPending;
+ static bool disconnectPendingUnsequenced;
++// The host's own disconnect ended this connection, not a timeout (LiHostSaidGoodbye).
++static bool hostGoodbye;
+ static int networkGracePeriodMs;
+ static bool encryptedControlStream;
+ static bool hdrEnabled;
+@@ -149,6 +151,9 @@
+ 
+ #define CONTROL_STREAM_TIMEOUT_SEC 10
+ #define CONTROL_STREAM_LINGER_TIMEOUT_SEC 2
++// A host silent this long at the stop gets no linger: it will not acknowledge the disconnect. A
++// short blip toward a live host stays below it, so a clean stop still reaches it.
++#define CONTROL_STREAM_SILENT_STOP_MS 2000
+ 
+ static const short packetTypesGen3[] = {
+     0x1407, // Request IDR frame
+@@ -361,6 +366,7 @@
+     lastGoodFrame = 0;
+     lastSeenFrame = 0;
+     disconnectPending = false;
++    hostGoodbye = false;
+     intervalGoodFrameCount = 0;
+     intervalTotalFrameCount = 0;
+     intervalStartTimeMs = 0;
+@@ -750,6 +756,10 @@
+     return lastReceiveTime != 0 && ENET_TIME_DIFFERENCE(enet_time_get(), lastReceiveTime) >= INPUT_CONTACT_LOST_MS;
+ }
+ 
++bool LiHostSaidGoodbye(void) {
++    return hostGoodbye;
++}
++
+ static bool sendMessageEnetInternal(short ptype, short paylen, const void* payload, uint8_t channelId, uint32_t flags, bool moreData) {
+     ENetPacket* enetPacket;
+     int err;
+@@ -1330,6 +1340,7 @@
+                         // termination message. That disconnect is never retransmitted, so
+                         // release the peer now instead of waiting for it to come again.
+                         Limelog("Server disconnected without a termination reason\n");
++                        hostGoodbye = true;
+                         ListenerCallbacks.connectionTerminated(-1);
+                         enet_peer_disconnect_now(peer, 0);
+                         PltUnlockMutex(&enetMutex);
+@@ -1604,6 +1615,9 @@
+         }
+         else if (event.type == ENET_EVENT_TYPE_DISCONNECT) {
+             Limelog("Control stream received unexpected disconnect event\n");
++            // The held disconnect, handed to ENet, ended the peer: the host said goodbye. Without
++            // one this is ENet's timeout.
++            hostGoodbye = disconnectPending;
+             ListenerCallbacks.connectionTerminated(-1);
+             return;
+         }
+@@ -1906,10 +1920,12 @@
+     if (peer != NULL) {
+         // Gracefully disconnect to ensure the remote host receives all of our final
+         // outbound traffic, including any key up events that might be sent.
+-        if (disconnectPending) {
+-            // The intercept held back a disconnect the host has already sent. That host
+-            // will never acknowledge ours, so a graceful disconnect would wait out the
+-            // whole linger.
++        if (disconnectPending ||
++            (peer->lastReceiveTime != 0 &&
++             ENET_TIME_DIFFERENCE(enet_time_get(), peer->lastReceiveTime) >= CONTROL_STREAM_SILENT_STOP_MS)) {
++            // The intercept held back a disconnect the host has already sent, or the host has
++            // been silent too long (a PC that is gone). Neither will acknowledge ours, so a
++            // graceful disconnect would wait out the whole linger.
+             enet_peer_disconnect_now(peer, 0);
+         }
+         else {
+--- a/src/Limelight.h
++++ b/src/Limelight.h
+@@ -583,6 +583,10 @@
+ // next LiStartConnection(); smaller values change nothing.
+ void LiSetNetworkGracePeriodMs(int gracePeriodMs);
+ 
++// Whether the host's own disconnect ended this connection: it ended the stream, it did not go
++// silent past the timeout. Valid in and after the termination callback.
++bool LiHostSaidGoodbye(void);
++
+ // Use to get a user-visible string to display initialization progress
+ // from the integer passed to the ConnListenerStageXXX callbacks
+ const char* LiGetStageName(int stage);

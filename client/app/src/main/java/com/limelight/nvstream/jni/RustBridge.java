@@ -86,6 +86,10 @@ final class RustBridge {
     static native void stopConnection();
     static native void interruptConnection();
     static native int networkChanged(boolean metered);
+    static native boolean hostSaidGoodbye();
+    static native String getHostAddress();
+    static native int hostLossRound(String host, int port, String gateway);
+    static native int hostLossAfterGoodbye(boolean onLink, int round, long waitedMs);
     static native void sendMouseMove(short deltaX, short deltaY);
     static native void sendMousePosition(short x, short y, short referenceWidth, short referenceHeight);
     static native void sendMouseMoveAsMousePosition(short deltaX, short deltaY, short referenceWidth, short referenceHeight);

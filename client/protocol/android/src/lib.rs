@@ -205,6 +205,75 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_interruptConne
     engine::interrupt();
 }
 
+/// Whether the Rust engine's connection ended with this session's host's disconnect, not a
+/// silence.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_hostSaidGoodbye(
+    _: JNIEnv,
+    _: JClass,
+) -> jboolean {
+    if engine::with_session(false, |s| s.host_said_goodbye()) { JNI_TRUE } else { JNI_FALSE }
+}
+
+/// An address from Java; null or one that does not parse is none.
+fn java_address(env: &mut JNIEnv, text: &JString) -> Option<std::net::IpAddr> {
+    if text.is_null() {
+        return None;
+    }
+    env.get_string(text).ok().and_then(|text| String::from(text).parse().ok())
+}
+
+/// One round of [`nightjar_core::host_loss`] for `HostLossWatch`, which runs it over both engines:
+/// blocks for about 750 ms. Returns [`nightjar_core::host_loss::Round::code`]. `gateway` may be
+/// null; a host that does not parse proves nothing.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_hostLossRound(
+    mut env: JNIEnv,
+    _: JClass,
+    host: JString,
+    port: jint,
+    gateway: JString,
+) -> jint {
+    use nightjar_core::host_loss::{probe_round, Round};
+    let Some(host) = java_address(&mut env, &host) else {
+        return Round::SilentLinkUnknown.code();
+    };
+    let gateway = java_address(&mut env, &gateway);
+    probe_round(std::net::SocketAddr::new(host, port as u16), gateway).code()
+}
+
+/// The address the running session connected to, as text (`HostLossWatch` asks it, never DNS);
+/// null without a session.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_getHostAddress(
+    env: JNIEnv,
+    _: JClass,
+) -> jstring {
+    match engine::with_session(None, |s| Some(s.remote_address().ip().to_string())).map(|text| env.new_string(text)) {
+        Some(Ok(text)) => text.into_raw(),
+        _ => std::ptr::null_mut(),
+    }
+}
+
+/// [`nightjar_core::host_loss::after_goodbye`] for `HostLossWatch`: one round's verdict after
+/// the host's goodbye, as [`nightjar_core::host_loss::Goodbye::code`].
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_hostLossAfterGoodbye(
+    _: JNIEnv,
+    _: JClass,
+    on_link: jboolean,
+    round: jint,
+    waited_ms: jlong,
+) -> jint {
+    host_loss_after_goodbye(on_link == JNI_TRUE, round, waited_ms)
+}
+
+fn host_loss_after_goodbye(on_link: bool, round: jint, waited_ms: jlong) -> jint {
+    use nightjar_core::host_loss::{after_goodbye, Round};
+    let waited = std::time::Duration::from_millis(waited_ms.max(0) as u64);
+    after_goodbye(on_link, Round::from_code(round), waited).code()
+}
+
 /// The default network changed while a stream runs (`NvConnection`'s network callback):
 /// `MoonBridge.NETWORK_CARRIES_ON` (0), `NETWORK_ROAMED` (1) or `NETWORK_CANNOT_CONTINUE` (2).
 #[no_mangle]
@@ -1027,3 +1096,32 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_usbList(
         Err(_) => std::ptr::null_mut(),
     }
 }
+
+#[cfg(test)]
+mod host_loss_tests {
+    use super::host_loss_after_goodbye;
+    use nightjar_core::host_loss::{Goodbye, Round, HOST_EXIT_WINDOW, QUIET_LINK_WAIT};
+
+    const EXIT_MS: i64 = HOST_EXIT_WINDOW.as_millis() as i64;
+    const QUIET_MS: i64 = QUIET_LINK_WAIT.as_millis() as i64;
+
+    #[test]
+    fn the_codes_from_java_reach_the_shared_verdict() {
+        assert_eq!(host_loss_after_goodbye(true, Round::SilentLinkUp.code(), 0), Goodbye::Gone.code());
+        assert_eq!(host_loss_after_goodbye(true, Round::Refused.code(), 0), Goodbye::Gone.code());
+        assert_eq!(host_loss_after_goodbye(true, Round::Answered.code(), 0), Goodbye::Wait.code());
+        assert_eq!(host_loss_after_goodbye(true, Round::Answered.code(), EXIT_MS), Goodbye::Unknown.code());
+    }
+
+    #[test]
+    fn what_java_cannot_tell_is_the_old_behaviour() {
+        // A PC off the link.
+        assert_eq!(host_loss_after_goodbye(false, Round::SilentLinkUp.code(), 0), Goodbye::Unknown.code());
+        // An unknown round code reads as a quiet link: another round, then the old behaviour.
+        assert_eq!(host_loss_after_goodbye(true, 99, 0), Goodbye::Wait.code());
+        assert_eq!(host_loss_after_goodbye(true, 99, QUIET_MS), Goodbye::Unknown.code());
+        // A negative wait from a clock step is no wait.
+        assert_eq!(host_loss_after_goodbye(true, Round::Answered.code(), -5), Goodbye::Wait.code());
+    }
+}
+

@@ -63,6 +63,10 @@ pub mod error {
     /// Packed 4:4:4 cannot be streamed with this host ([`crate::rtsp::RtspError::PackedRefused`],
     /// Java's `CLIENT_ERROR_PACKED_444_REFUSED`): the client may reconnect without it.
     pub const PACKED_444_REFUSED: i32 = -106;
+    /// The PC is gone: its host said goodbye and closed its server (the PC shuts down, the host
+    /// stopped or restarts; [`crate::host_loss`], Java's `CLIENT_ERROR_HOST_GONE`). Nothing
+    /// reconnects on its own.
+    pub const HOST_GONE: i32 = -108;
     /// A failure without an OS error code.
     pub const FAILED: i32 = -1;
 }
@@ -337,7 +341,7 @@ pub struct SessionStats {
 /// State every session thread shares.
 pub(crate) struct Shared {
     listener: Arc<dyn Listener>,
-    stopping: AtomicBool,
+    stopping: Arc<AtomicBool>,
     terminated: AtomicBool,
     /// A termination that came while [`Session::start`] still ran, held until it returns: a
     /// failed start reports only its stage failure, a started one reports the termination
@@ -348,6 +352,17 @@ pub(crate) struct Shared {
     /// Bytes of every video and audio datagram received, FEC parity included: what the stream
     /// takes on the wire ([`Session::wire_bytes`]).
     wire_bytes: AtomicU64,
+    /// Set by [`Session::watch_host`]: what a connection that ended with the host's goodbye is
+    /// checked with.
+    host_watch: Mutex<Option<HostWatch>>,
+}
+
+/// Where [`Session::watch_host`] looks for the PC.
+#[derive(Clone)]
+struct HostWatch {
+    control: ControlHandle,
+    host: SocketAddr,
+    gateway: Arc<dyn Fn(IpAddr) -> Option<IpAddr> + Send + Sync>,
 }
 
 enum StartGate {
@@ -359,11 +374,12 @@ impl Shared {
     fn new(listener: Arc<dyn Listener>, network_priority: bool) -> Self {
         Self {
             listener,
-            stopping: AtomicBool::new(false),
+            stopping: Arc::new(AtomicBool::new(false)),
             terminated: AtomicBool::new(false),
             start_gate: Mutex::new(StartGate::Starting(None)),
             network_priority,
             wire_bytes: AtomicU64::new(0),
+            host_watch: Mutex::new(None),
         }
     }
 
@@ -389,9 +405,28 @@ impl Shared {
 
     fn report_terminated(&self, code: i32) {
         let listener = self.listener.clone();
+        let watch = (code == error::DISCONNECTED)
+            .then(|| self.host_watch.lock().unwrap_or_else(|p| p.into_inner()).clone())
+            .flatten()
+            .filter(|w| w.control.said_goodbye());
+        let stopping = self.stopping.clone();
         let _ = std::thread::Builder::new()
             .name("AsyncTerm".into())
-            .spawn(move || listener.connection_terminated(code));
+            .spawn(move || {
+                // After this session's host said goodbye: a server that closed (a PC shutting
+                // down, a host that stopped or restarts) ends here. A host that went silent past
+                // the timeout is left to the recovery, like one this can't tell.
+                let verdict = watch.map(|w| {
+                    crate::host_loss::watch_goodbye(
+                        w.host,
+                        &*w.gateway,
+                        &|| stopping.load(Ordering::SeqCst),
+                        &|line| listener.log(line),
+                    )
+                });
+                let gone = verdict == Some(crate::host_loss::Goodbye::Gone);
+                listener.connection_terminated(if gone { error::HOST_GONE } else { code });
+            });
     }
 
     /// The start succeeded: a termination held while it ran is reported now.
@@ -621,6 +656,28 @@ impl Session {
                 Err(error)
             }
         }
+    }
+
+    /// Whether the connection ended with this session's host's disconnect rather than a silence
+    /// ([`ControlHandle::said_goodbye`]).
+    pub fn host_said_goodbye(&self) -> bool {
+        self.control().said_goodbye()
+    }
+
+    /// Readies the check after the host's goodbye ([`crate::host_loss`]): `port` is the PC's HTTPS
+    /// port, `gateway` this device's gateway while the PC is on its link. A connection that ends
+    /// with the goodbye of a host whose server then closes (the PC shuts down, the host stops or
+    /// restarts) reports [`error::HOST_GONE`]. For clients that run the check here; the Android app
+    /// runs its own over both of its engines.
+    pub fn watch_host(&self, port: u16, gateway: impl Fn(IpAddr) -> Option<IpAddr> + Send + Sync + 'static) {
+        let (Some(remote), Some(control)) = (self.parts.remote, self.parts.control.clone()) else {
+            return;
+        };
+        *self.parts.shared.host_watch.lock().unwrap_or_else(|p| p.into_inner()) = Some(HostWatch {
+            control,
+            host: SocketAddr::new(remote.ip(), port),
+            gateway: Arc::new(gateway),
+        });
     }
 
     fn control(&self) -> &ControlHandle {

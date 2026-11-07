@@ -192,7 +192,7 @@ def our_hosts():
     return [int(p) for p in out.split()]
 
 
-def start_host(tag):
+def start_host(tag, settle=6):
     if our_hosts():
         raise SystemExit('a host on this profile already runs')
     for f in (PROFILE / 'logs').glob('*'):
@@ -206,7 +206,7 @@ def start_host(tag):
     p = subprocess.Popen([str(HOST_DIR / 'butterpollo.exe'), '--config-dir', str(PROFILE), '--port', str(PORT),
                           '--bind', BIND], env=env, stdout=open(OUT / f'{tag}-host.out', 'w'),
                          stderr=subprocess.STDOUT, creationflags=0x08000000)
-    time.sleep(6)
+    time.sleep(settle)
     if p.poll() is not None:
         raise SystemExit(f'host exited {p.returncode}')
     return p

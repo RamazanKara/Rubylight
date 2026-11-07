@@ -198,6 +198,7 @@ static void run(const char* name, int gracePeriodMs, int silenceMs, int expected
     contactLostPasses = 0;
     contactRegained = false;
     disconnectPending = false;
+    hostGoodbye = false;
     reports = 0;
     reportedReason = 12345;
 
@@ -215,7 +216,9 @@ static void run(const char* name, int gracePeriodMs, int silenceMs, int expected
             elapsed >= minElapsedMs && elapsed <= maxElapsedMs &&
             lost == expectContactLost && (contactLostPasses > 0) == expectContactLost &&
             contactLostPasses < 2000 &&
-            contactRegained == expectContactRegained;
+            contactRegained == expectContactRegained &&
+            // A silence past the timeout is no goodbye: HostLossWatch leaves it to the recovery.
+            (expectedReason != -1 || !LiHostSaidGoodbye());
     printf("%s %s: expected %d, received %d (%d reports) %llu ms into the silence, "
            "contact lost %d (%d passes), regained %d\n", passed ? "PASS" : "FAIL", name, expectedReason,
            reportedReason, reports, (unsigned long long)elapsed, lost, contactLostPasses, contactRegained);
@@ -225,6 +228,62 @@ static void run(const char* name, int gracePeriodMs, int silenceMs, int expected
     client = NULL;
     peer = NULL;
     CHECK(!isControlContactLost());
+    enet_host_destroy(host);
+}
+
+struct ByeHost {
+    ENetHost* host;
+    ENetPeer* peer;
+    atomic_bool done;
+};
+
+// Answers for a moment, then disconnects without a termination message, as a host that shuts
+// down does.
+static void* byeHost(void* context) {
+    struct ByeHost* helper = context;
+    ENetEvent event;
+    uint64_t started = nowMs();
+    bool said = false;
+    while (!atomic_load(&helper->done)) {
+        if (enet_host_service(helper->host, &event, 10) > 0 && event.type == ENET_EVENT_TYPE_RECEIVE) {
+            enet_packet_destroy(event.packet);
+        }
+        if (!said && nowMs() - started >= 200) {
+            enet_peer_disconnect(helper->peer, 0);
+            said = true;
+        }
+    }
+    return NULL;
+}
+
+// The host's own disconnect is a goodbye (HostLossWatch then asks whether the PC is shutting down);
+// the silences in run() are not.
+static void hostGoodbyeTest(void) {
+    LiSetNetworkGracePeriodMs(0);
+    ENetAddress address;
+    ENetHost* host = createHost(&address);
+    ENetPeer* hostPeer = connectClient(host, &address);
+    enet_peer_timeout(peer, 2, controlPeerTimeoutMs(), controlPeerTimeoutMs());
+    struct ByeHost helper = {host, hostPeer};
+    atomic_init(&helper.done, false);
+    disconnectPending = false;
+    hostGoodbye = false;
+    reports = 0;
+    reportedReason = 12345;
+    pthread_t thread;
+    CHECK(pthread_create(&thread, NULL, byeHost, &helper) == 0);
+    uint64_t started = nowMs();
+    controlReceiveThreadFunc(NULL);
+    uint64_t elapsed = nowMs() - started;
+    atomic_store(&helper.done, true);
+    CHECK(pthread_join(thread, NULL) == 0);
+    bool passed = reports == 1 && reportedReason == -1 && LiHostSaidGoodbye() && elapsed < CONTROL_PEER_TIMEOUT_MS;
+    printf("%s the host's disconnect is a goodbye: received %d (%d reports) after %llu ms, goodbye %d\n",
+           passed ? "PASS" : "FAIL", reportedReason, reports, (unsigned long long)elapsed, LiHostSaidGoodbye());
+    failures += !passed;
+    enet_host_destroy(client);
+    client = NULL;
+    peer = NULL;
     enet_host_destroy(host);
 }
 
@@ -249,6 +308,7 @@ int main(void) {
     LiSetNetworkGracePeriodMs(CONTROL_PEER_TIMEOUT_MS + 1);
     CHECK(controlPeerTimeoutMs() == CONTROL_PEER_TIMEOUT_MS + 1);
 
+    hostGoodbyeTest();
     run("no grace period: a silence longer than the default timeout ends the stream",
         0, 2500, -1, CONTROL_PEER_TIMEOUT_MS - 100, 2400, false, false);
     run("grace period: the same silence is ridden out and the host's exit still arrives",

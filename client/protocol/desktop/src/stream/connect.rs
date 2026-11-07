@@ -28,7 +28,7 @@ pub fn termination_text(code: i32) -> Option<String> {
         }
         error::PROTECTED_CONTENT => en("The PC stopped streaming protected content.").into(),
         error::FRAME_CONVERSION => en("The PC could not convert the picture for streaming.").into(),
-        error::DISCONNECTED => en("The connection to the PC was lost.").into(),
+        error::DISCONNECTED | error::HOST_GONE => en("The connection to the PC was lost.").into(),
         other => trf("The stream ended unexpectedly (error {}).", &[&other]),
     })
 }
@@ -962,6 +962,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
     .map_err(|e| ConnectError { retryable: recovery::transient_start(e.stage, e.code), message: format!("Could not start the stream: {e}"), asks_replace: false, moved_to: None })?;
     let outcome = session.outcome();
     keep_roam_watch(&roam_shared, watch);
+    session.watch_host(plan.info.https_port, gateway::toward);
     let mut facts = Facts {
         role,
         width: outcome.config.width,

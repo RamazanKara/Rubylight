@@ -1366,6 +1366,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case MoonBridge.ML_ERROR_FRAME_CONVERSION: return code + " (frame conversion failed on the PC)";
             case MoonBridge.CLIENT_ERROR_VULKAN_RENDERER: return code + " (Vulkan renderer failed on this device)";
             case MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED: return code + " (full chroma not available with this PC)";
+            case MoonBridge.CLIENT_ERROR_HOST_GONE: return code + " (the PC is gone)";
             case MoonBridge.CLIENT_ERROR_DECODER: return code + " (video decoder failed on this device)";
             // This device's own code for a connection that ended without any reason from the PC.
             case -1: return code + " (connection lost, no reason from the PC)";

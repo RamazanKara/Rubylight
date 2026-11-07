@@ -388,7 +388,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Allow input for this device on the host", "Дозвольте цьому пристрою введення на хості"),
     ("The PC still streams small video (about {} Mbit/s); it isn’t shown.", "ПК досі передає маленьке відео (близько {} Мбіт/с); його не показано."),
     ("Input-only on this PC uses a small ordinary stream, and the host refused it. Some hosts allow only one stream at a time: end the other stream or allow more in the host’s settings.", "На цьому ПК «Лише введення» використовує маленьку звичайну трансляцію, і хост її відхилив. Деякі хости дозволяють лише одну трансляцію одночасно: завершіть іншу трансляцію або дозвольте більше в налаштуваннях хоста."),
-    ("Quit game when I leave", "Закривати гру після виходу з трансляції"),
+    ("Quit game when I leave", "Закривати гру під час виходу"),
     ("On: Disconnect also quits it on the PC", "Увімк.: відключення закриває гру й на ПК"),
     ("Off: Disconnect leaves it running on the PC", "Вимк.: після відключення гра працює на ПК далі"),
     ("Quitting {} on the PC…", "Закриття {} на ПК…"),

@@ -388,7 +388,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Allow input for this device on the host", "Autorisez la saisie pour cet appareil sur l’hôte"),
     ("The PC still streams small video (about {} Mbit/s); it isn’t shown.", "Le PC streame toujours une petite vidéo (environ {} Mbit/s) ; elle n’est pas affichée."),
     ("Input-only on this PC uses a small ordinary stream, and the host refused it. Some hosts allow only one stream at a time: end the other stream or allow more in the host’s settings.", "Sur ce PC, Saisie uniquement utilise un petit stream ordinaire, et l’hôte l’a refusé. Certains hôtes n’autorisent qu’un stream à la fois : arrêtez l’autre stream ou autorisez-en davantage dans les paramètres de l’hôte."),
-    ("Quit game when I leave", "Quitter le jeu quand je quitte le stream"),
+    ("Quit game when I leave", "Quitter le jeu en partant"),
     ("On: Disconnect also quits it on the PC", "Activé : la déconnexion quitte aussi le jeu sur le PC"),
     ("Off: Disconnect leaves it running on the PC", "Désactivé : la déconnexion laisse le jeu tourner sur le PC"),
     ("Quitting {} on the PC…", "Fermeture de {} sur le PC…"),

@@ -19,10 +19,17 @@ import com.limelight.R;
  */
 public final class NavigationDialogBuilder extends MaterialAlertDialogBuilder {
     private DialogInterface.OnKeyListener keyListener;
+    private boolean startOnCancel;
 
     public NavigationDialogBuilder(Context context) {
         super(context);
         setBackground(GlassPanelDrawable.dialog(getContext()));
+    }
+
+    /** For a confirmation that ends or loses something: a pad's or a remote's first press is Cancel, not the moon. */
+    public NavigationDialogBuilder startOnCancel() {
+        startOnCancel = true;
+        return this;
     }
 
     @Override
@@ -71,7 +78,9 @@ public final class NavigationDialogBuilder extends MaterialAlertDialogBuilder {
             if (android.os.Build.VERSION.SDK_INT >= 26) scroller.setDefaultFocusHighlightEnabled(false);
         }
         // A pad or a remote starts on the moon, the dialog's one way on. A list keeps its first focus on its rows.
-        if (android.os.Build.VERSION.SDK_INT >= 26 && dialog.getListView() == null) positive.setFocusedByDefault(true);
+        Button negative = dialog.getButton(DialogInterface.BUTTON_NEGATIVE);
+        boolean cancelFirst = startOnCancel && negative != null && negative.getVisibility() == View.VISIBLE;
+        if (android.os.Build.VERSION.SDK_INT >= 26 && dialog.getListView() == null) (cancelFirst ? negative : positive).setFocusedByDefault(true);
         // Labels too long to share a row stack: as full-width capsules, not a staircase along the right edge.
         bar.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> {
             if (bar instanceof android.widget.LinearLayout

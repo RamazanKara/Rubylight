@@ -9,7 +9,10 @@ import android.view.View;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.limelight.R;
+import com.limelight.nativeapi.ConsoleSnapshot;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.HostCapabilities;
+import com.limelight.nvstream.http.NvApp;
 import com.limelight.ui.CoverCard;
 
 import java.util.ArrayList;
@@ -79,6 +82,27 @@ final class HomeHero {
             return true;
         }
         return card.hostCount > 1 && card.badge == HomeModel.Badge.NONE;
+    }
+
+    /** What the game's page would know of this game, from what Home last read of the PC. */
+    static GameDetailModel modelOf(HomeModel.GameCard card, ComputerDetails host, ConsoleSnapshot snapshot) {
+        String stableId = card.source != null ? card.source.stableId() : "";
+        boolean nativeHost = host.caps.has(HostCapabilities.Feature.NATIVE_API);
+        return GameDetailModel.of(snapshot, card.hostUuid, OpenPlay.listedAs(snapshot.host(card.hostUuid), stableId, card.appId),
+                card.title, host.displayName(), host.state == ComputerDetails.State.ONLINE, nativeHost, false);
+    }
+
+    /**
+     * What Play does, as on the game's page. Home's read can be older than a press, so what the PC itself reports running counts
+     * too. A native host's close tries Close game and falls back to the classic Quit by itself, so no read of its permissions
+     * has to stand between the press and the prompt.
+     */
+    static PlayPlan planOf(GameDetailModel model, NvApp app, ComputerDetails host) {
+        boolean nativeHost = host.caps.has(HostCapabilities.Feature.NATIVE_API);
+        return PlayPlan.automatic(model, host.caps.has(HostCapabilities.Feature.HOST_CONFIRMS_REPLACEMENT),
+                host.hasPermission(ComputerDetails.PERMISSION_LAUNCH), nativeHost, nativeHost,
+                host.hasRunningGame() && !app.matchesRunningApp(host.runningGameId, host.runningGameUuid),
+                host.runningGameId, host.runningGameUuid);
     }
 
     /** A running or suspended game resumes; Play says so. */

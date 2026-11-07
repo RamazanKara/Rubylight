@@ -9,7 +9,6 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Toast;
 import android.widget.ImageView;
 import android.widget.TextView;
 
@@ -967,55 +966,28 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             OpenPlay.disarm(this);
         }
         // A host that confirms replacement asks the player itself; elsewhere the client asks, then closes the game.
-        NvApp running = plan.runningApp();
-        UiHelper.showDialog(this, ReplaceRunningPrompt.build(this, plan.runningTitle, model.title,
-                plan.canResume ? () -> resumeRunning(running) : null,
-                () -> replaceRunning(plan, running, app)));
-    }
+        UiHelper.showDialog(this, ReplaceRunningPrompt.ask(this, plan, model.title, app, new ReplaceRunningPrompt.Screen() {
+            @Override public ComputerDetails currentHost() {
+                return GameDetailActivity.this.currentHost();
+            }
 
-    /** What the host runs may have changed while the prompt was open: Resume only acts on what was named. */
-    private void resumeRunning(NvApp running) {
-        ComputerDetails computer = currentHost();
-        if (computer == null || PlayPlan.recheck(running, computer.runningGameId, computer.runningGameUuid)
-                != PlayPlan.Check.SAME) {
-            runningChanged();
-            return;
-        }
-        play(running, computer);
-    }
+            @Override public void start(NvApp starting, ComputerDetails on) {
+                play(starting, on);
+            }
 
-    private void replaceRunning(PlayPlan plan, NvApp running, NvApp app) {
-        ComputerDetails computer = currentHost();
-        if (computer == null) {
-            return;
-        }
-        PlayPlan.Check check = PlayPlan.recheck(running, computer.runningGameId, computer.runningGameUuid);
-        if (check == PlayPlan.Check.CHANGED) {
-            // Another game than the one named runs now: closing it would not be what the player agreed to.
-            runningChanged();
-            return;
-        }
-        if (check == PlayPlan.Check.SAME && plan.closeNatively) {
-            // Like Close game: through the native API, and only a closed game is followed by the start.
-            close(running, computer, closed -> {
-                if (closed) {
-                    runOnUiThread(() -> {
-                        if (!isFinishing() && !isDestroyed()) {
-                            play(app, computer);
-                        }
-                    });
-                }
-            });
-            return;
-        }
-        // Gone already, or the classic quit: the connection quits what runs, then starts.
-        play(app, computer);
-    }
+            @Override public void resume(NvApp running, ComputerDetails on) {
+                play(running, on);
+            }
 
-    private void runningChanged() {
-        Toast.makeText(this, R.string.library_replace_changed, Toast.LENGTH_LONG).show();
-        loadedSignature = null;
-        scheduleReload();
+            @Override public void close(NvApp running, ComputerDetails on, Consumer<Boolean> onDone) {
+                GameDetailActivity.this.close(running, on, onDone);
+            }
+
+            @Override public void reload() {
+                loadedSignature = null;
+                scheduleReload();
+            }
+        }));
     }
 
     private void onEnd() {
@@ -1029,7 +1001,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                 ? R.string.stream_close_game_confirm : R.string.applist_quit_confirmation;
         int action = model.endAction == GameDetailModel.EndAction.CLOSE_GAME
                 ? R.string.stream_close_game : R.string.applist_menu_quit;
-        UiHelper.showDialog(this, new com.limelight.ui.NavigationDialogBuilder(this)
+        UiHelper.showDialog(this, new com.limelight.ui.NavigationDialogBuilder(this).startOnCancel()
                 .setMessage(message)
                 .setPositiveButton(action, (dialog, which) -> end(app, computer, () -> runOnUiThread(() -> {
                     loadedSignature = null;

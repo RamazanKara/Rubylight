@@ -2,6 +2,7 @@
 //! action. The screen, the word and the action all say the same thing.
 
 use super::design_tokens as t;
+use super::first_run::first_run_of;
 use super::*;
 use super::{glass, spring};
 use egui::Shape;
@@ -103,7 +104,7 @@ pub(super) fn pc_line_of(host: &Host) -> PcLine {
 }
 
 impl PcLine {
-    fn words(&self) -> &str {
+    pub(super) fn words(&self) -> &str {
         match self {
             Self::Running(game) => game,
             Self::Online => tr("Online"),
@@ -149,7 +150,7 @@ pub(super) fn over_moon(screen: Rect, card: Rect) -> f32 {
 
 /// A small screen on a stand, in the state of its PC. `face` is the screen's rect; the stand hangs
 /// below it.
-fn monitor(ui: &Ui, out: &mut Vec<Shape>, host: &Host, face: Rect, reveal_id: Id) {
+pub(super) fn monitor(ui: &Ui, out: &mut Vec<Shape>, host: &Host, face: Rect, reveal_id: Id) {
     use nightjar_core::tile::{tile_pair, title_hash};
     let ctx = ui.ctx();
     let w = face.width();
@@ -384,7 +385,7 @@ fn more_button(ui: &mut Ui, rect: Rect, id: Id, said: &str) -> Response {
 }
 
 /// The dot, or the lock of a PC not paired yet, and the line beside it. True when the line was cut.
-fn status_line(ui: &Ui, out: &mut Vec<Shape>, at: Pos2, room: f32, line: &PcLine) -> bool {
+pub(super) fn status_line(ui: &Ui, out: &mut Vec<Shape>, at: Pos2, room: f32, line: &PcLine) -> bool {
     const FONT: f32 = 15.0;
     let ctx = ui.ctx();
     let ink: Color32 = match line {
@@ -443,8 +444,12 @@ impl Launcher {
         ui: &mut Ui,
         view: &View<'_>,
         commands: &mut Vec<Command>,
-        logo: egui::TextureId,
     ) {
+        if let Some(state) = first_run_of(view.hosts) {
+            self.first_run(ui, view, state, commands);
+            return;
+        }
+        self.found_shown = false;
         ui.horizontal(|ui| {
             ui.set_min_height(44.0);
             ui.label(
@@ -454,33 +459,6 @@ impl Launcher {
             );
         });
         ui.add_space(TITLE_GAP - ui.spacing().item_spacing.y);
-        if view.hosts.list.is_empty() {
-            ui.add_space(60.0);
-            ui.vertical_centered(|ui| {
-                egui::Image::from_texture((logo, vec2(72.0, 72.0))).ui(ui);
-                ui.add_space(14.0);
-                if self.identity_ready {
-                    ui.label(RichText::new(tr("Looking for PCs…")).font(semibold(text::CARD_TITLE)));
-                } else {
-                    ui.label(RichText::new(tr("Creating this device's pairing key…")).font(semibold(text::CARD_TITLE)));
-                }
-                ui.label(
-                    RichText::new(tr("Start a Moonlight-compatible host on your PC and keep both on the same network."))
-                        .color(ON_SURFACE_VARIANT),
-                );
-                ui.add_space(12.0);
-                let r = primary_button(ui, "Add a PC by address");
-                if self.focus_screen {
-                    r.request_focus();
-                    self.focus_screen = false;
-                }
-                if r.clicked() {
-                    self.add_host_dialog();
-                }
-                how_to_connect(ui, commands);
-            });
-            return;
-        }
         let (columns, width) = card_grid(ui.available_width(), CARD_GAP);
         for (row, chunk) in view.hosts.list.chunks(columns).enumerate() {
             let (band, _) =

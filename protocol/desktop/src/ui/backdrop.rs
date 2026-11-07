@@ -11,7 +11,7 @@ use egui::{
 };
 
 use super::design_tokens as t;
-use super::glass;
+use super::{glass, spring};
 use crate::ambient;
 
 /// Where a page's moon hangs.
@@ -21,6 +21,10 @@ pub(super) enum Moon {
     High,
     /// Large and low on the right, behind a page of cards.
     Low,
+    /// The first run with nothing found: the page's middle, large, the bird on it.
+    Searching,
+    /// The first run with a PC found: the moon steps up and in for its card.
+    Found,
 }
 
 impl Moon {
@@ -28,11 +32,18 @@ impl Moon {
         self as usize
     }
 
+    /// The first run's moon, which carries the bird and moves between its places.
+    fn first_run(self) -> bool {
+        matches!(self, Moon::Searching | Moon::Found)
+    }
+
     /// Its middle as fractions of the window, and its radius at the prototype's 800 high.
     fn place(self) -> ([f32; 2], f32) {
         match self {
             Moon::High => ([0.911, 0.335], 80.0),
             Moon::Low => ([0.8125, 0.65], 118.0),
+            Moon::Searching => ([0.5, 0.395], 104.0),
+            Moon::Found => ([0.5, 0.245], 72.0),
         }
     }
 }
@@ -63,7 +74,19 @@ const FADE_NEAR: f32 = 0.58;
 const FADE_NEAR_ALPHA: f32 = 0.95;
 /// How far the moon's glow reaches, in moon radii.
 const MOON_GLOW: f32 = 6.0;
-const RING_FACTORS: [f32; 4] = [1.7, 2.5, 3.3, 4.1];
+const RING_FACTORS: [f32; 4] = [ORBIT, 2.5, 3.3, 4.1];
+/// The first ring, in moon radii: where the orbit dot runs while discovery does.
+pub(super) const ORBIT: f32 = 1.7;
+const ORBIT_SECONDS: f64 = 11.0;
+/// Where the dot rests with reduced motion, as in the design: just below the right.
+const ORBIT_REST: f32 = 0.2;
+const ORBIT_DOT_R: f32 = 5.0;
+const ORBIT_FRAME_SECONDS: f32 = 1.0 / 60.0;
+const BIRD_SIZE: usize = 512;
+const MOVE_TUNE: spring::Tune = spring::Tune {
+    stiffness: t::MOTION_SHEET_STIFFNESS,
+    ratio: t::MOTION_SHEET_RATIO,
+};
 /// The veil where the page passes beneath the chrome: how far it reaches down the window, how much
 /// of the backdrop it brings at the top and behind the brand, how far past the brand its pool goes
 /// and how far the page has scrolled when it is whole.
@@ -91,7 +114,12 @@ pub(super) struct Ambient {
     before: Option<Shows>,
     key: u64,
     tiles: HashMap<String, (TextureHandle, Color32)>,
-    skies: [Option<TextureHandle>; 2],
+    skies: [Option<TextureHandle>; 4],
+    bird: Option<TextureHandle>,
+    /// Whether discovery runs behind the first run's moon, for its orbit dot.
+    orbit: bool,
+    /// The moon where it is this frame, for the veil.
+    disc: Option<(Pos2, f32)>,
     /// The cover's glow this frame, the one it fades to with what shows, and the one it fades from.
     glow: Color32,
     glow_to: Color32,
@@ -161,6 +189,74 @@ impl Ambient {
             .clone()
     }
 
+    /// Sets whether the orbit dot runs: the first run's moon, with discovery going. It alone asks for
+    /// frames while the page rests.
+    pub(super) fn set_orbit(&mut self, on: bool) {
+        self.orbit = on;
+    }
+
+    /// The bird to lay over the first run's moon, and the moon's disc there, carried by a spring
+    /// between its places. Elsewhere it stands where the page's moon stands.
+    fn disc_now(&mut self, ctx: &Context, screen: Rect, moon: Moon) -> (Pos2, f32) {
+        let (center, r) = moon_disc(screen, moon);
+        if !moon.first_run() {
+            return (center, r);
+        }
+        let y = spring::animate(ctx, egui::Id::unique("first-run-moon-y"), center.y, MOVE_TUNE);
+        let r = spring::animate(ctx, egui::Id::unique("first-run-moon-r"), r, MOVE_TUNE);
+        (pos2(center.x, y), r)
+    }
+
+    fn paint_bird(&mut self, out: &mut Vec<Shape>, ctx: &Context, center: Pos2, r: f32, alpha: f32) {
+        let bird = self
+            .bird
+            .get_or_insert_with(|| {
+                ctx.load_texture(
+                    "moon-bird",
+                    crate::theme::bird_mask(BIRD_SIZE),
+                    TextureOptions::LINEAR,
+                )
+            })
+            .id();
+        let mut mesh = Mesh::with_texture(bird);
+        mesh.add_rect_with_uv(
+            Rect::from_center_size(center, Vec2::splat(r * 2.0)),
+            full_uv(),
+            t::COLOR_NIGHT.gamma_multiply(alpha),
+        );
+        out.push(Shape::mesh(mesh));
+    }
+
+    /// The dot on the first ring, while discovery runs; it holds still with reduced motion.
+    fn paint_orbit(&self, out: &mut Vec<Shape>, ctx: &Context, center: Pos2, r: f32, alpha: f32) {
+        if !self.orbit {
+            return;
+        }
+        let moving = spring::motion(ctx);
+        let turn = if moving {
+            let along = ctx.input(|i| i.time) / ORBIT_SECONDS;
+            along.fract() as f32 * std::f32::consts::TAU + ORBIT_REST
+        } else {
+            ORBIT_REST
+        };
+        let at = center + vec2(turn.cos(), turn.sin()) * r * ORBIT;
+        let moon = t::COLOR_MOON_HI.gamma_multiply(alpha);
+        if !crate::theme::high_contrast() {
+            glass::soft(
+                out,
+                ctx,
+                Rect::from_center_size(at, Vec2::splat(ORBIT_DOT_R * 2.0)),
+                ORBIT_DOT_R,
+                14.0,
+                moon.gamma_multiply(0.75),
+            );
+        }
+        out.push(Shape::circle_filled(at, ORBIT_DOT_R, moon));
+        if moving {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f32(ORBIT_FRAME_SECONDS));
+        }
+    }
+
     /// The backdrop's shapes this frame; tells glass what to sample.
     pub(super) fn paint(&mut self, ctx: &Context, want: Want) -> Vec<Shape> {
         let screen = ctx.content_rect();
@@ -170,6 +266,20 @@ impl Ambient {
             out.push(Shape::rect_filled(screen, 0.0, *crate::theme::NIGHT));
             glass::set_backdrop(ctx, glass::Backdrop::default());
             self.glow = Color32::TRANSPARENT;
+            // The first run keeps its moon, flat, with one ring: it is all that page has.
+            if let Want::Sky(moon) = want {
+                if moon.first_run() {
+                    let (center, r) = self.disc_now(ctx, screen, moon);
+                    out.push(Shape::circle_stroke(
+                        center,
+                        r * ORBIT,
+                        Stroke::new(1.0, t::HC_COLOR_RIM),
+                    ));
+                    out.push(Shape::circle_filled(center, r, t::COLOR_MOON_HI));
+                    self.paint_bird(&mut out, ctx, center, r, 1.0);
+                    self.paint_orbit(&mut out, ctx, center, r, 1.0);
+                }
+            }
             return out;
         }
         match want {
@@ -229,8 +339,18 @@ impl Ambient {
         if art > 0.0 {
             out.push(fade_over(screen, art));
         }
+        self.disc = None;
         if let Some(Shows::Sky(moon)) = self.shows {
-            paint_moon(&mut out, ctx, screen, moon, along);
+            // Between the first run's two places it is one moon that moves, not two that fade.
+            let same = matches!(self.before, Some(Shows::Sky(before)) if before.first_run());
+            let alpha = if moon.first_run() && same { 1.0 } else { along };
+            let (center, r) = self.disc_now(ctx, screen, moon);
+            self.disc = Some((center, r));
+            paint_moon(&mut out, ctx, screen, center, r, alpha);
+            if moon.first_run() {
+                self.paint_bird(&mut out, ctx, center, r, alpha);
+                self.paint_orbit(&mut out, ctx, center, r, alpha);
+            }
         }
         out
     }
@@ -333,7 +453,8 @@ impl Ambient {
         // What the sky has over its texture comes back with it.
         if let Some(Shows::Sky(moon)) = self.shows {
             let along = behind.top.map_or(1.0, |top| top.alpha);
-            sky_through_veil(&mut out, screen, moon, along, foot, &alpha);
+            let disc = self.disc.unwrap_or_else(|| moon_disc(screen, moon));
+            sky_through_veil(&mut out, screen, disc, along, foot, &alpha);
         }
         out
     }
@@ -344,7 +465,7 @@ impl Ambient {
 fn sky_through_veil(
     out: &mut Vec<Shape>,
     screen: Rect,
-    moon: Moon,
+    (center, r): (Pos2, f32),
     along: f32,
     foot: f32,
     alpha: &dyn Fn(Pos2) -> f32,
@@ -358,7 +479,6 @@ fn sky_through_veil(
             }
         }
     }
-    let (center, r) = moon_disc(screen, moon);
     let ink = t::SKY_RING.gamma_multiply(along);
     let mut mesh = Mesh::default();
     for factor in RING_FACTORS {
@@ -412,8 +532,14 @@ pub(super) fn moon_disc(screen: Rect, moon: Moon) -> (Pos2, f32) {
 }
 
 /// The moon, its rings and a few stars, all as faint as the sky is far along.
-fn paint_moon(out: &mut Vec<Shape>, ctx: &Context, screen: Rect, moon: Moon, alpha: f32) {
-    let (center, r) = moon_disc(screen, moon);
+fn paint_moon(
+    out: &mut Vec<Shape>,
+    ctx: &Context,
+    screen: Rect,
+    center: Pos2,
+    r: f32,
+    alpha: f32,
+) {
     out.extend(stars(screen, alpha));
     for factor in RING_FACTORS {
         out.push(Shape::circle_stroke(
@@ -514,6 +640,60 @@ mod tests {
             texture: texture.clone(),
             glow: Color32::from_rgba_premultiplied(60, 20, 20, 60),
         }
+    }
+
+    /// The orbit is the only thing that asks for frames at rest, and only while discovery runs.
+    #[test]
+    fn the_first_runs_orbit_repaints_only_while_discovery_runs() {
+        crate::theme::own_palette();
+        let ctx = Context::default();
+        let mut ambient = Ambient::default();
+        for time in [0.0, 5.0, 5.1] {
+            frame(&ctx, &mut ambient, Want::Sky(Moon::Searching), time);
+        }
+        assert!(!ctx.has_requested_repaint(), "no discovery, no dot, no frames");
+        ambient.set_orbit(true);
+        let one = frame(&ctx, &mut ambient, Want::Sky(Moon::Searching), 6.0);
+        assert!(ctx.has_requested_repaint(), "the dot moves");
+        let two = frame(&ctx, &mut ambient, Want::Sky(Moon::Searching), 7.0);
+        let dot = |shapes: &[Shape]| {
+            shapes.iter().rev().find_map(|s| match s {
+                Shape::Circle(c) => Some(c.center),
+                _ => None,
+            })
+        };
+        assert_ne!(dot(&one), dot(&two), "around its ring");
+        // The moon's other pages never run it, even with discovery on.
+        frame(&ctx, &mut ambient, Want::Sky(Moon::High), 20.0);
+        ambient.set_orbit(false);
+        for time in [21.0, 22.0] {
+            frame(&ctx, &mut ambient, Want::Sky(Moon::High), time);
+        }
+        assert!(!ctx.has_requested_repaint(), "at rest again");
+    }
+
+    /// One moon moves between the first run's two places: it never fades out and in again.
+    #[test]
+    fn the_first_runs_moon_moves_and_does_not_fade() {
+        crate::theme::own_palette();
+        let ctx = Context::default();
+        let mut ambient = Ambient::default();
+        for time in [0.0, 5.0, 5.1] {
+            frame(&ctx, &mut ambient, Want::Sky(Moon::Searching), time);
+        }
+        let screen = ctx.content_rect();
+        assert_eq!(ambient.disc, Some(moon_disc(screen, Moon::Searching)));
+        frame(&ctx, &mut ambient, Want::Sky(Moon::Found), 6.0);
+        frame(&ctx, &mut ambient, Want::Sky(Moon::Found), 6.05);
+        let (midway, r) = ambient.disc.expect("the moon");
+        let (found, found_r) = moon_disc(screen, Moon::Found);
+        let (searching, searching_r) = moon_disc(screen, Moon::Searching);
+        assert!(midway.y < searching.y && midway.y > found.y, "{midway:?}");
+        assert!(r < searching_r && r > found_r, "{r}");
+        for n in 0..40 {
+            frame(&ctx, &mut ambient, Want::Sky(Moon::Found), 7.0 + f64::from(n) * 0.05);
+        }
+        assert_eq!(ambient.disc, Some((found, found_r)));
     }
 
     #[test]

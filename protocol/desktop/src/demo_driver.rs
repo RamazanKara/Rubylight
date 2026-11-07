@@ -80,6 +80,22 @@ impl App {
     fn demo_step(&mut self, step: Step) {
         match step {
             Step::Go(page) => {
+                // The shelf holds the demo's PCs while a first-run page shows fewer.
+                let shelf = &mut self.hosts.demo_shelf;
+                if !shelf.is_empty() {
+                    let mut all = std::mem::take(shelf);
+                    if let Some(found) = self.hosts.list.pop() {
+                        all.insert(3, found);
+                    }
+                    self.hosts.list = all;
+                }
+                if matches!(page, crate::ui::demo::Page::FirstRun | crate::ui::demo::Page::FirstRunFound) {
+                    let mut all = std::mem::take(&mut self.hosts.list);
+                    if page == crate::ui::demo::Page::FirstRunFound {
+                        self.hosts.list.push(all.remove(3));
+                    }
+                    self.hosts.demo_shelf = all;
+                }
                 if let Some(command) =
                     self.launcher
                         .demo_page(page, &self.hosts, self.waker.clone())

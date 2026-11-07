@@ -205,6 +205,11 @@ impl Launcher {
                     self.open_search();
                 }
                 // On PCs the right end is where a PC is added: there is no PC to speak of or game to find.
+                if self.screen == Screen::Hosts && first_run::first_run_of(view.hosts).is_some() {
+                    // The first run: Add PC is the page's own.
+                    self.nav_capsule(ui, x, bar.right(), bar, sense, commands);
+                    return brand;
+                }
                 if self.screen == Screen::Hosts {
                     let add_w = add_pc_width(ui);
                     self.nav_capsule(ui, x, bar.right() - add_w - CAPSULE_GAP, bar, sense, commands);

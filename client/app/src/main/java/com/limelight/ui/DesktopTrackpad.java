@@ -91,13 +91,13 @@ public final class DesktopTrackpad extends View {
         float corner = 14 * density;
         paint.setStyle(Paint.Style.FILL);
         paint.setShader(null);
-        paint.setColor(highContrast ? MaterialColors.getColor(this, R.attr.glassControlFill)
+        paint.setColor(highContrast ? MaterialColors.getColor(StreamGlass.themed(getContext()), R.attr.glassControlFill, 0)
                 : androidx.core.content.ContextCompat.getColor(getContext(), R.color.nj_tint_group_fill));
         canvas.drawRoundRect(bounds, corner, corner, paint);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(active ? 2 * density : density);
         if (active || highContrast) {
-            paint.setColor(active ? androidx.core.content.ContextCompat.getColor(getContext(), R.color.nj_color_moon) : MaterialColors.getColor(this, R.attr.glassControlRim));
+            paint.setColor(active ? androidx.core.content.ContextCompat.getColor(getContext(), R.color.nj_color_moon) : MaterialColors.getColor(StreamGlass.themed(getContext()), R.attr.glassControlRim, 0));
         } else {
             if (rim == null || rimHeight != getHeight()) {
                 rimHeight = getHeight();

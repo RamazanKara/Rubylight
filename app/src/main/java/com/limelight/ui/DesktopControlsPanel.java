@@ -698,7 +698,7 @@ public class DesktopControlsPanel extends LinearLayout {
         slider.setMax(maximum - minimum);
         slider.setPosition(initial - minimum);
         slider.setContentDescription(title.getText());
-        slider.setPositionText(progress -> String.valueOf(minimum + progress));
+        slider.setPositionText(progress -> valueOf(getContext().getString(label, minimum + progress), minimum + progress));
         slider.setOnPositionChangeListener((bar, progress) -> {
             int value = minimum + progress;
             changed.accept(value);
@@ -706,6 +706,12 @@ public class DesktopControlsPanel extends LinearLayout {
             bar.setContentDescription(title.getText());
         });
         fields.addView(slider, new LayoutParams(LayoutParams.MATCH_PARENT, dp(48)));
+    }
+
+    /** The value and its unit out of a slider's title, {@code 40 dp} out of {@code Key height: 40 dp}. */
+    static String valueOf(String title, int value) {
+        int at = title.lastIndexOf(String.valueOf(value));
+        return at < 0 ? String.valueOf(value) : title.substring(at).trim();
     }
 
     private void check(LinearLayout fields, int label, boolean initial, Consumer<Boolean> changed) {

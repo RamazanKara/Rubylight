@@ -132,6 +132,11 @@ public class StepSlider extends Slider {
         showValue(this, text);
     }
 
+    /** For a slider with its value shown large and live right above it: the value does not float over that too. */
+    public void showValueAboveOnly() {
+        setLabelBehavior(LabelFormatter.LABEL_GONE);
+    }
+
     /** Whether the value floats over the thumb now. */
     boolean showsValue() {
         return getActiveThumbIndex() != -1;

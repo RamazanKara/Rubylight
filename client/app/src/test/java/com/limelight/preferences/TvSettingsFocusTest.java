@@ -269,6 +269,16 @@ public class TvSettingsFocusTest {
         assertNotSame(pane, screen.getFragmentManager().findFragmentById(R.id.stream_settings));
     }
 
+    /** The window gave first focus to the tab row's scroller, which shows no ring: a real TV opened with no row marked. */
+    @Test
+    public void theFirstFocusIsTakenBackFromTheTabsButNotFromARow() {
+        StreamSettings screen = open();
+        assertTrue(StreamSettings.yieldsFirstFocus(screen, screen.findViewById(R.id.shell_bar)));
+        assertTrue(StreamSettings.yieldsFirstFocus(screen, screen.findViewById(R.id.shell_home)));
+        assertTrue(StreamSettings.yieldsFirstFocus(screen, null));
+        assertFalse(StreamSettings.yieldsFirstFocus(screen, sections(screen)));
+    }
+
     @Test
     public void thePresetsRowIsAsCompactAsASectionAndSelectOpensTheList() {
         StreamSettings screen = open();

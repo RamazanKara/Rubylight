@@ -113,6 +113,48 @@ public class DialogGlassTest {
     }
 
     @Test
+    public void aCostlyConfirmationStartsOnCancelStillInMoon() {
+        AlertDialog dialog = new NavigationDialogBuilder(activity).startOnCancel().setMessage("Message")
+                .setPositiveButton("Go", null).setNegativeButton("Cancel", null).show();
+        assertFalse(dialog.getButton(DialogInterface.BUTTON_POSITIVE).isFocusedByDefault());
+        assertTrue(dialog.getButton(DialogInterface.BUTTON_NEGATIVE).isFocusedByDefault());
+        assertEquals(R.drawable.dialog_button_moon, backgroundOf(dialog.getButton(DialogInterface.BUTTON_POSITIVE)));
+    }
+
+    /** Every confirmation that ends or loses something, by the words of its builder: none may lose the first focus to the moon. */
+    @Test
+    public void everyCostlyConfirmationAsksForCancelFirst() throws java.io.IOException {
+        String[][] costly = {
+                {"computers/HostActions.java", "R.string.host_sleep_title"},
+                {"computers/HostActions.java", "R.string.host_unpair_title"},
+                {"computers/HostActions.java", ".setPositiveButton(confirm,"},
+                {"console/GameDetailActivity.java", ".setMessage(message)"},
+                {"console/ReplaceRunningPrompt.java", ".setMessage(running == null"},
+                {"GameMenuActions.java", "R.string.stream_command_confirm"},
+                {"GameMenuActions.java", ".setTitle(title)"},
+                {"AppView.java", "R.string.library_import_controls_replace"},
+                {"AppView.java", "R.string.library_replace_message_named"},
+                {"pin/PinLockSettingsActivity.java", "R.string.pin_remove_title"},
+                {"preferences/StreamProfilesActivity.java", "R.string.profiles_delete_title"},
+                {"preferences/StreamProfilesActivity.java", "R.string.profiles_home_remove_title"},
+                {"preferences/HostStreamSettings.java", ".setTitle(reset)"},
+                {"preferences/KeyboardShortcutsActivity.java", "R.string.keyboard_shortcuts_import"},
+                {"ui/DesktopControlsPanel.java", "R.string.desktop_controls_reset_title"},
+                {"ui/GameTouchControls.java", ".setTitle(R.string.touch_layout_import)"},
+        };
+        for (String[] site : costly) {
+            String source = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("src/main/java/com/limelight", site[0])), java.nio.charset.StandardCharsets.UTF_8);
+            int at = source.indexOf(site[1]);
+            assertTrue(site[1] + " in " + site[0], at >= 0);
+            int builder = source.lastIndexOf("NavigationDialogBuilder(", at);
+            assertTrue(site[1] + " in " + site[0] + " is built here", builder >= 0);
+            String head = source.substring(builder, source.indexOf('\n', builder));
+            assertTrue(site[0] + ": " + site[1] + " starts on Cancel", head.contains(".startOnCancel()"));
+        }
+    }
+
+    @Test
     public void aListHasTheRowFocusAndKeepsTheFirstFocus() {
         AlertDialog dialog = new NavigationDialogBuilder(activity).setTitle("Title").setItems(new CharSequence[] {"One", "Two"}, null)
                 .setNegativeButton("Cancel", null).show();

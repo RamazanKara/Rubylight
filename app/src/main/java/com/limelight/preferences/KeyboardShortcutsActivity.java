@@ -64,7 +64,7 @@ public final class KeyboardShortcutsActivity extends NightjarActivity {
         work.message.observe(this, ignored -> refresh());
         work.imported.observe(this, entries -> {
             if (entries == null || importDialog != null) return;
-            importDialog = new NavigationDialogBuilder(this)
+            importDialog = new NavigationDialogBuilder(this).startOnCancel()
                     .setTitle(R.string.keyboard_shortcuts_import)
                     .setMessage(getString(R.string.keyboard_shortcuts_replace, entries.size()))
                     .setPositiveButton(R.string.keyboard_shortcuts_replace_button, (dialog, which) -> {

@@ -427,7 +427,7 @@ public final class GameTouchControls extends FrameLayout {
         EditText text = new EditText(activity); text.setHint(R.string.touch_layout_paste);
         text.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         text.setMaxLines(8); text.setFilters(new InputFilter[] {new InputFilter.LengthFilter(TouchLayout.MAX_BYTES)});
-        AlertDialog dialog = new NavigationDialogBuilder(activity).setTitle(R.string.touch_layout_import)
+        AlertDialog dialog = new NavigationDialogBuilder(activity).startOnCancel().setTitle(R.string.touch_layout_import)
                 .setMessage(R.string.touch_layout_import_help).setView(text)
                 .setPositiveButton(R.string.keyboard_shortcuts_replace_button, null)
                 .setNegativeButton(android.R.string.cancel, null).create();

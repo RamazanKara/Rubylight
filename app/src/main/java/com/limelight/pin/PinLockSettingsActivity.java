@@ -149,7 +149,7 @@ public class PinLockSettingsActivity extends NightjarActivity {
     }
 
     void removePin() {
-        UiHelper.showDialog(this, new NavigationDialogBuilder(this).setTitle(R.string.pin_remove_title)
+        UiHelper.showDialog(this, new NavigationDialogBuilder(this).startOnCancel().setTitle(R.string.pin_remove_title)
                 .setMessage(R.string.pin_remove_message)
                 .setPositiveButton(R.string.pin_remove, (dialog, which) ->
                         startActivityForResult(PinLockActivity.forVerify(this), REQUEST_REMOVE))

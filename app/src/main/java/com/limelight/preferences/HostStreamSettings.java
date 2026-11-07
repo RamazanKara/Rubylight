@@ -807,7 +807,7 @@ public class HostStreamSettings extends NightjarActivity {
             boolean pc = activity.mode == Mode.PC;
             int reset = pc ? R.string.host_profile_reset : R.string.layers_reset;
             row(stream, "reset", reset, () -> UiHelper.showDialog(activity,
-                    new NavigationDialogBuilder(activity).setTitle(reset)
+                    new NavigationDialogBuilder(activity).startOnCancel().setTitle(reset)
                             .setMessage(pc ? R.string.settings_profile_reset_message : R.string.layers_reset_message)
                             .setPositiveButton(reset, (dialog, which) -> {
                                 activity.overrides = new HostStreamProfile();

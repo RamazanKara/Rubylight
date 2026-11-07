@@ -301,7 +301,7 @@ public class StreamProfilesActivity extends NightjarActivity {
         }
 
         private void confirmDelete(String id, String name) {
-            UiHelper.showDialog(activity, new NavigationDialogBuilder(activity)
+            UiHelper.showDialog(activity, new NavigationDialogBuilder(activity).startOnCancel()
                     .setTitle(getString(R.string.profiles_delete_title, name))
                     .setMessage(R.string.profiles_delete_message)
                     .setPositiveButton(R.string.profiles_delete, (dialog, which) -> {
@@ -385,7 +385,7 @@ public class StreamProfilesActivity extends NightjarActivity {
         }
 
         private void confirmRemoveHome(String name) {
-            UiHelper.showDialog(activity, new NavigationDialogBuilder(activity)
+            UiHelper.showDialog(activity, new NavigationDialogBuilder(activity).startOnCancel()
                     .setTitle(getString(R.string.profiles_home_remove_title, name))
                     .setPositiveButton(R.string.profiles_home_remove, (dialog, which) -> {
                         Set<String> names = new TreeSet<>(StreamProfiles.load(activity).homeWifi);

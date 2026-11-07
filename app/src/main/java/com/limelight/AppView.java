@@ -989,7 +989,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
                     .setPositiveButton(android.R.string.ok, null).create());
             return;
         }
-        UiHelper.showDialog(this, new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+        UiHelper.showDialog(this, new com.limelight.ui.NavigationDialogBuilder(this).startOnCancel()
                 .setTitle(getString(R.string.library_import_controls_title, game))
                 .setMessage(com.limelight.ui.GameTouchControls.importSummary(this, result) + "\n\n" +
                         getString(R.string.library_import_controls_replace))
@@ -1088,7 +1088,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
             return;
         }
         AppObject running = runningApp();
-        UiHelper.showDialog(this, new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+        UiHelper.showDialog(this, new com.limelight.ui.NavigationDialogBuilder(this).startOnCancel()
                 .setMessage(running != null ?
                         getString(R.string.library_replace_message_named, running.app.getAppName(), app.app.getAppName()) :
                         getString(R.string.library_replace_message, app.app.getAppName()))

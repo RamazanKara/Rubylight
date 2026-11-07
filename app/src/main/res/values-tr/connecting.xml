@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="conn_back">Geri</string>
+    <string name="conn_test_network">Ağı test et</string>
+    <string name="nettest_text_clear">Yayını engelleyen bir şey yok.</string>
+    <string name="nettest_text_unknown">Test tamamlanamadı.</string>
+</resources>

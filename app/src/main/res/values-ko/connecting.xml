@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="conn_back">뒤로</string>
+    <string name="conn_test_network">네트워크 테스트</string>
+    <string name="nettest_text_clear">스트리밍을 막는 항목이 없습니다.</string>
+    <string name="nettest_text_unknown">테스트를 완료하지 못했습니다.</string>
+</resources>

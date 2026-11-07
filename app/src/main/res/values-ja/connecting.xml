@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="conn_back">戻る</string>
+    <string name="conn_test_network">ネットワークをテスト</string>
+    <string name="nettest_text_clear">ストリーミングを妨げるものはありません。</string>
+    <string name="nettest_text_unknown">テストを完了できませんでした。</string>
+</resources>

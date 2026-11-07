@@ -1638,15 +1638,32 @@ public class GameRecoveryTest {
             game.onPause();
             game.onStop();
             game.onResume();
-            com.limelight.utils.SpinnerDialog spinner = ReflectionHelpers.getField(game, "spinner");
+            com.limelight.ui.ConnectingScreen spinner = ReflectionHelpers.getField(game, "spinner");
             assertNotNull(spinner);
-            spinner.onCancel(null);
+            spinner.dialog().cancel();
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
             assertTrue(game.isFinishing());
             org.robolectric.shadows.ShadowLooper.idleMainLooper(15, java.util.concurrent.TimeUnit.SECONDS);
             assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
         } finally {
             cleanupRecovery(game);
         }
+    }
+
+    @Test public void leavingWhileConnectingRemovesTheConnectingWindow() throws Exception {
+        Game game = establishedGame();
+        game.onPause();
+        game.onStop();
+        game.onResume();
+        com.limelight.ui.ConnectingScreen spinner = ReflectionHelpers.getField(game, "spinner");
+        assertNotNull(spinner);
+        android.app.Dialog window = spinner.dialog();
+        org.robolectric.shadows.ShadowLooper.idleMainLooper();
+        assertTrue(window.isShowing());
+        cleanupRecovery(game);
+        game.onDestroy();
+        org.robolectric.shadows.ShadowLooper.idleMainLooper();
+        assertFalse("a stale window would sit over whatever comes next", window.isShowing());
     }
 
     @Test public void lifecycleResumeRequiresAnEstablishedEligibleSessionAndEnabledRecovery() {

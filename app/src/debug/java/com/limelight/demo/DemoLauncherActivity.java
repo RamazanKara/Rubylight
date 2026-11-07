@@ -79,6 +79,7 @@ public final class DemoLauncherActivity extends Activity {
         DemoContext.forceTelevision = getIntent().getBooleanExtra("tv", false) || AppTheme.UI_MODE_TV.equals(ui);
         DemoFixtures.smallTiles = getIntent().getBooleanExtra("small", true);
         DemoFixtures.fourthPc = getIntent().getBooleanExtra("fourth", false);
+        DemoFixtures.noPcs = getIntent().getBooleanExtra("nopcs", false);
         DemoFixtures.noApps = getIntent().getBooleanExtra("noapps", false);
         DemoFixtures.noArt = getIntent().getBooleanExtra("noart", false);
         DemoFixtures.roleTiles = getIntent().getBooleanExtra("roles", false);
@@ -127,6 +128,7 @@ public final class DemoLauncherActivity extends Activity {
         // "--es state allgames --es filter store:steam": All games under a filter (with --es host native).
         else if ("allgames".equals(screen)) target = DemoAllGames.class;
         else if ("detail".equals(screen)) target = DemoGameDetail.class;
+        else if ("connecting".equals(screen) || "starting".equals(screen) || "conn-error".equals(screen)) target = DemoConnecting.class;
         else if ("library".equals(screen)) target = DemoAppView.class;
         else if ("settings".equals(screen)) target = DemoStreamSettings.class;
         else if ("pc-settings".equals(screen)) target = DemoHostStreamSettings.class;
@@ -139,6 +141,7 @@ public final class DemoLauncherActivity extends Activity {
         DemoGameActivity.forceH264 = "h264".equals(getIntent().getStringExtra("codec"));
         Intent intent = new Intent(this, target).putExtra("state", screen).putExtra("fit", getIntent().getStringExtra("fit"))
                 .putExtra("align", getIntent().getStringExtra("align"))
+                .putExtra("pairwait", getIntent().getBooleanExtra("pairwait", false))
                 .putExtra("orientation", getIntent().getStringExtra("orientation"))
                 .putExtra("hint", getIntent().getBooleanExtra("hint", false))
                 .putExtra("touch", getIntent().getStringExtra("touch"))

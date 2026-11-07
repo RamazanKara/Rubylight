@@ -432,6 +432,30 @@ pub enum Received<F = Frame> {
     Error,
 }
 
+/// The packet timebase a decoder is opened with (`pkt_timebase`, num and den): microseconds for
+/// V4L2 M2M, whose buffers carry a pts as a timeval rescaled from `pkt_timebase` (else the
+/// decoder's unset `time_base`, 0/1, which turns every pts into 0) to microseconds and back
+/// (FFmpeg's v4l2_buffers.c). In microseconds both rescales are exact, so a picture keeps its
+/// frame's number. The other decoders hand the pts through untouched.
+pub fn packet_timebase(hardware: Hardware) -> Option<(i32, i32)> {
+    (hardware == Hardware::V4l2m2m).then_some((1, 1_000_000))
+}
+
+/// What FFmpeg's V4L2 M2M decoder makes of a packet's `pts` by the time it is a picture's, for a
+/// decoder opened with `timebase` (`packet_timebase`; none leaves `time_base` at 0/1):
+/// `v4l2_set_pts` rescales it to microseconds, `v4l2_get_pts` back (`av_rescale_q`, which
+/// answers INT64_MIN for a zero denominator).
+#[cfg(test)]
+pub fn v4l2_pts_round_trip(pts: i64, timebase: Option<(i32, i32)>) -> i64 {
+    let (num, den) = timebase.map_or((0, 1), |(num, den)| (i128::from(num), i128::from(den)));
+    let rescale = |value: i128, from: (i128, i128), to: (i128, i128)| {
+        let (b, c) = (from.0 * to.1, from.1 * to.0);
+        if c == 0 { i64::MIN as i128 } else { (value * b + c / 2).div_euclid(c) }
+    };
+    let microseconds = rescale(i128::from(pts), (num, den), (1, 1_000_000));
+    rescale(microseconds, (1, 1_000_000), (num, den)) as i64
+}
+
 /// `avcodec_send_packet` and `avcodec_receive_frame`'s AVERROR(EAGAIN): output must be read
 /// before more input goes in, or no output is there yet.
 pub const AGAIN: i32 = -11;
@@ -627,6 +651,9 @@ impl VideoDecoder {
                 1
             };
             context.thread_type = FF_THREAD_SLICE as i32;
+            if let Some((num, den)) = packet_timebase(hardware) {
+                context.pkt_timebase = AVRational { num, den };
+            }
             context.flags |= AV_CODEC_FLAG_LOW_DELAY as i32;
             context.flags2 |= AV_CODEC_FLAG2_FAST as i32;
             let mut options = ptr::null_mut();
@@ -1258,6 +1285,20 @@ mod pcm_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Opened without a packet timebase, V4L2 M2M rescaled each pts through the unset 0/1
+    /// `time_base`, so no picture kept its frame's number.
+    #[test]
+    fn a_v4l2_picture_keeps_the_pts_of_its_frame() {
+        let timebase = packet_timebase(Hardware::V4l2m2m);
+        for number in [0u32, 1, 2, 61, u32::MAX] {
+            let pts = (i64::from(number) << 32) | i64::from(number.wrapping_mul(1500));
+            assert_eq!(v4l2_pts_round_trip(pts, timebase), pts, "frame {number}");
+        }
+        assert_ne!(v4l2_pts_round_trip(1 << 32, None), 1 << 32, "the unset timebase loses it");
+        assert_eq!(packet_timebase(Hardware::None), None, "the other decoders are left as they were");
+        assert_eq!(packet_timebase(Hardware::Vaapi), None);
+    }
 
     #[test]
     fn software_decodes_packed_fixtures_and_preserves_timestamps() {

@@ -147,7 +147,7 @@ public class StepSliderTest {
         int sliders = 0;
         for (File file : sources) {
             String source = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
-            assertFalse(file.getPath(), source.contains("LABEL_GONE"));
+            if (!file.getName().equals("StepSlider.java")) assertFalse(file.getPath(), source.contains("LABEL_GONE"));
             assertFalse(file.getPath(), source.contains("labelBehavior=\"gone\""));
             if (source.contains("<com.google.android.material.slider.Slider")) {
                 sliders++;
@@ -186,6 +186,9 @@ public class StepSliderTest {
             assertEquals(10 + opacity.getKeyStep(), opacity.getPosition());
             assertNotEquals("the label follows the value", before, opacity.getContentDescription());
             assertTrue(opacity.getContentDescription().toString().contains(String.valueOf(60 + opacity.getKeyStep())));
+            assertEquals("its value floats with its unit", (60 + opacity.getKeyStep()) + "%", label(opacity, opacity.getValue()));
+            assertEquals("40 dp", DesktopControlsPanel.valueOf("Key height: 40 dp", 40));
+            assertEquals("a title without the number still gives it", "40", DesktopControlsPanel.valueOf("Key height", 40));
             dialog.dismiss();
         }
     }

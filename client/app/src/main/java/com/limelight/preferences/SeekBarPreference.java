@@ -3,6 +3,7 @@ package com.limelight.preferences;
 import com.limelight.ui.Haptics;
 import com.limelight.ui.NavigationDialogBuilder;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.color.MaterialColors;
 import android.content.Context;
 import android.os.Bundle;
 import android.os.SystemClock;
@@ -202,7 +203,10 @@ public class SeekBarPreference extends DialogPreference
 
         valueText = new TextView(context);
         valueText.setGravity(Gravity.CENTER_HORIZONTAL);
+        valueText.setTextAppearance(context, R.style.TextAppearance_Nightjar_Display);
         valueText.setTextSize(32);
+        // The theme's plain text colour was near the glass dialog's own and hid the value (nightjar#61).
+        valueText.setTextColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, 0));
         layout.addView(valueText, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
@@ -222,6 +226,7 @@ public class SeekBarPreference extends DialogPreference
         seekBar.setMinimumHeight(dp(48));
         seekBar.setContentDescription(getTitle());
         seekBar.setPositionText(position -> formatValue(positionToValue(position)));
+        seekBar.showValueAboveOnly();
         seekBar.setOnPositionChangeListener((slider, position) ->
                 slideTo(slider, positionToValue(position), SystemClock.uptimeMillis()));
         sliderRow.addView(minus);

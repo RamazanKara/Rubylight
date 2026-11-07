@@ -35,6 +35,9 @@ DIM = (128, 124, 140)
 RING = (42, 45, 58)
 SURFACE = (28, 31, 42)
 BEZEL = (9, 10, 14)
+# The app's ambient light, as the focused game's cover tints the glass (Racing Game's magenta, the night's violet).
+WASH_MAGENTA = (150, 52, 118)
+WASH_VIOLET = (72, 52, 150)
 
 FONT_REG = os.path.join(REPO, "protocol", "desktop", "assets", "Figtree-400.ttf")
 FONT_BOLD = os.path.join(REPO, "protocol", "desktop", "assets", "Figtree-600.ttf")
@@ -720,12 +723,22 @@ class FeatureWall(Scene):
 
     @lru_cache(maxsize=None)
     def _tile(self, w, h):
-        img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        big = Image.new("RGBA", (w * 2, h * 2), (0, 0, 0, 0))
-        ImageDraw.Draw(big).rounded_rectangle((0, 0, w * 2 - 1, h * 2 - 1), 44, fill=SURFACE + (255,),
-                                              outline=(48, 52, 68, 255), width=3)
-        img = big.resize((w, h), Image.LANCZOS)
-        return img
+        # A glass panel like the app's: a translucent fill, a sheen across the top and a light rim.
+        ss = 2
+        big = Image.new("RGBA", (w * ss, h * ss), (0, 0, 0, 0))
+        ImageDraw.Draw(big).rounded_rectangle((0, 0, w * ss - 1, h * ss - 1), 22 * ss, fill=(36, 34, 52, 150))
+        sheen = np.zeros((h * ss, w * ss, 4), np.uint8)
+        sheen[..., :3] = 255
+        ramp = np.clip(1 - np.linspace(0, 1, h * ss) / 0.55, 0, 1) ** 2 * 22
+        sheen[..., 3] = ramp[:, None].astype(np.uint8)
+        mask = Image.new("L", big.size, 0)
+        ImageDraw.Draw(mask).rounded_rectangle((0, 0, w * ss - 1, h * ss - 1), 22 * ss, fill=255)
+        sheen_img = Image.fromarray(sheen, "RGBA")
+        sheen_img.putalpha(Image.fromarray(np.minimum(np.asarray(mask), sheen[..., 3])))
+        big.alpha_composite(sheen_img)
+        ImageDraw.Draw(big).rounded_rectangle((0, 0, w * ss - 1, h * ss - 1), 22 * ss, outline=(255, 255, 255, 46),
+                                              width=2 * ss)
+        return big.resize((w, h), Image.LANCZOS)
 
 
 class Measured(Scene):
@@ -899,8 +912,22 @@ class Outro(Scene):
 
 # ---------------------------------------------------------------------------------------------- background
 
+def _wash(R, color, strength):
+    """A wide, soft colour wash (the app's ambient light from the focused game's cover), 2R across."""
+    n = 256
+    yy, xx = np.mgrid[0:n, 0:n].astype(np.float32)
+    d = np.sqrt(((xx - n / 2) / (n / 2)) ** 2 + ((yy - n / 2) / (n / 2)) ** 2)
+    a = np.clip(1 - d, 0, 1) ** 1.8 * 255 * strength
+    arr = np.zeros((n, n, 4), np.uint8)
+    arr[..., 0], arr[..., 1], arr[..., 2] = color
+    arr[..., 3] = a.astype(np.uint8)
+    return Image.fromarray(arr, "RGBA").resize((2 * R, 2 * R), Image.BICUBIC)
+
+
 class Background:
-    def __init__(self, W, H):
+    """The moonlit glass sky: night, a magenta and violet wash that drifts with the scenes, stars, faint rings."""
+
+    def __init__(self, W, H, noise=True):
         self.W, self.H = W, H
         yy = np.linspace(0, 1, H, dtype=np.float32)[:, None]
         xx = np.linspace(0, 1, W, dtype=np.float32)[None, :]
@@ -908,9 +935,24 @@ class Background:
         base = np.zeros((H, W, 3), np.float32)
         for k in range(3):
             base[..., k] = NIGHT_DEEP[k] + (NIGHT[k] - NIGHT_DEEP[k]) * (0.35 + 0.65 * v)
-        # A little noise keeps the gradient from banding after H.264.
-        rng = np.random.default_rng(7)
-        base += rng.normal(0, 0.6, base.shape).astype(np.float32)
+        # Stars: small, sparse, a few brighter ones, denser towards the top like the app's sky.
+        rng = np.random.default_rng(11)
+        count = int(W * H / 5200)
+        sx = rng.uniform(0, W, count)
+        sy = H * rng.power(0.75, count)
+        sy = H - sy  # more near the top
+        bright = rng.uniform(0.18, 0.55, count) ** 1.6
+        bright[rng.uniform(0, 1, count) < 0.06] = 0.85
+        for x, y, b in zip(sx.astype(int), sy.astype(int), bright):
+            if 0 <= x < W and 0 <= y < H:
+                base[y, x] += (np.array(CREAM, np.float32) - base[y, x]) * b
+                if b > 0.6:
+                    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                        if 0 <= x + dx < W and 0 <= y + dy < H:
+                            base[y + dy, x + dx] += (np.array(CREAM, np.float32) - base[y + dy, x + dx]) * b * 0.35
+        # A little noise keeps the gradient from banding after H.264 (stills skip it: PNG keeps the gradient).
+        if noise:
+            base += rng.normal(0, 0.6, base.shape).astype(np.float32)
         self.base = Image.fromarray(np.clip(base, 0, 255).astype(np.uint8), "RGB").convert("RGBA")
         R = int(max(W, H) * 0.95)
         ss = 2
@@ -918,19 +960,30 @@ class Background:
         d = ImageDraw.Draw(big)
         for i, f in enumerate((1.0, 0.8, 0.6, 0.4)):
             r = R * f * ss
-            d.ellipse((R * ss - r, R * ss - r, R * ss + r, R * ss + r), outline=RING + (int(200 - i * 25),),
+            d.ellipse((R * ss - r, R * ss - r, R * ss + r, R * ss + r), outline=RING + (int(110 - i * 15),),
                       width=2 * ss)
         self.rings = big.resize((R * 2, R * 2), Image.LANCZOS)
         self.R = R
+        self.GR = int(max(W, H) * 0.62)
+        self.wash_a = _wash(self.GR, WASH_MAGENTA, 0.42)
+        self.wash_b = _wash(self.GR, WASH_VIOLET, 0.50)
+
+    def _layer(self, canvas, layer, R, cx, cy, alpha):
+        # Whole pixels, and only the visible part: the layers are far larger than the frame.
+        x, y = round(cx * self.W - R), round(cy * self.H - R)
+        x0, y0 = max(0, -x), max(0, -y)
+        x1, y1 = min(2 * R, self.W - x), min(2 * R, self.H - y)
+        if x1 <= x0 or y1 <= y0:
+            return
+        blit(canvas, layer.crop((x0, y0, x1, y1)), x + x0, y + y0, alpha)
 
     def render(self, center, alpha=1.0):
         cv = self.base.copy()
         cx, cy = center
-        # Whole pixels, and only the visible part: the ring layer is far larger than the frame.
-        x, y = round(cx * self.W - self.R), round(cy * self.H - self.R)
-        x0, y0 = max(0, -x), max(0, -y)
-        part = self.rings.crop((x0, y0, min(2 * self.R, self.W - x), min(2 * self.R, self.H - y)))
-        blit(cv, part, x + x0, y + y0, alpha)
+        # The wash sits opposite the rings' centre so the light falls behind the copy and the devices alike.
+        self._layer(cv, self.wash_b, self.GR, 1.0 - cx * 0.8, 0.15 + cy * 0.25, alpha)
+        self._layer(cv, self.wash_a, self.GR, 0.2 + cx * 0.65, 0.95 - cy * 0.2, alpha)
+        self._layer(cv, self.rings, self.R, cx, cy, alpha)
         return cv
 
 
@@ -941,16 +994,17 @@ def build(cut, ctx, clips):
         return media(clips, name, start, dur, still)
 
     def tv_src(skip=0.0):
-        # Home: Down to Recently played, Right three times, OK on Tidebreaker; its page (the placeholder while it
-        # loads is cut) up to Play. The emulator streams at about 20 fps, so the stream itself is left to the handheld.
+        # Home: Down to Recently played, Right three times (the glass takes each cover's light), OK on Brightwater;
+        # its page once loaded (the placeholder while it loads is cut). The emulator streams at about 20 fps, so the
+        # stream itself is left to the handheld.
         return Sequence([(C("tv-home.mp4", 0.2 + skip, 5.22 - skip, os.path.join(SHOTS, "tv-home.png")), 5.22 - skip),
-                         (C("tv-home.mp4", 6.1, 2.0, os.path.join(SHOTS, "tv-game-page.png")), 2.0)])
+                         (C("tv-home.mp4", 6.95, 2.0, os.path.join(SHOTS, "tv-game-page.png")), 2.0)])
 
     hh = C("hh-flow.mp4", 1.5, 9.0, os.path.join(DEMO, "landscape-compact.png"))
     beats = [
-        (0.0, C("hh-menu.mp4", 2.75, 2.5, os.path.join(DEMO, "landscape-stream-menu.png")),
+        (0.0, C("hh-menu.mp4", 2.6, 2.5, os.path.join(DEMO, "landscape-stream-menu.png")),
          "Bitrate, quality and the overlay, mid-stream.", None, "handheld"),
-        (2.5, C("hh-radeon.mp4", 2.2, 2.9, os.path.join(SHOTS, "stream-menu-radeon.png")),
+        (2.5, C("hh-radeon.mp4", 3.0, 2.9, os.path.join(SHOTS, "stream-menu-radeon.png")),
          "Your PC's Radeon settings, from the couch.", "With a Rubylight 3.0 PC.", "handheld"),
         (5.4, C("hh-keyboard.mp4", 1.3, 2.3, os.path.join(SHOTS, "stream-keyboard.png")),
          "A full PC keyboard, even with a controller.", None, "handheld"),

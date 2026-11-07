@@ -15,13 +15,13 @@ pub(super) const PAGE_TOP: f32 = 88.0;
 /// The brand's width with its wordmark, near enough.
 const BRAND_WORDED_W: f32 = 118.0;
 /// The round Back, at rest at the head of a page and held in the brand's place once scrolled there.
-pub(super) const BACK_SIZE: f32 = 44.0;
+pub(crate) const BACK_SIZE: f32 = 44.0;
 const BACK_HELD_AT: f32 = BAR_TOP + (BAR_H - BACK_SIZE) / 2.0;
 /// How far a page has scrolled when the brand starts to give way to Back, and when it is gone.
 const BRAND_FADES_FROM: f32 = 16.0;
 const BRAND_GONE_AT: f32 = 36.0;
 /// A page's title beside Back.
-pub(super) const PAGE_TITLE: f32 = 30.0;
+pub(crate) const PAGE_TITLE: f32 = 30.0;
 const CAPSULE_GAP: f32 = 14.0;
 const SEARCH_W: f32 = 220.0;
 /// Below this window width the search field folds to its icon, below the second the wordmark goes.
@@ -184,8 +184,8 @@ impl Launcher {
                 if self.has_back() {
                     regions.push(back_column(screen));
                 }
-                // A dialog's panel sits anywhere on the page, so all of it is blurred under one.
-                if !matches!(self.dialog, Dialog::None) {
+                // A panel sits anywhere on the page, so all of it is blurred under one.
+                if self.panel_is_up(view) {
                     regions = vec![screen];
                 }
                 glass::boundary(ui.painter(), regions);

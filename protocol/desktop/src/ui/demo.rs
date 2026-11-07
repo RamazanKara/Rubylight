@@ -318,6 +318,8 @@ pub(crate) enum Page {
     /// The PIN screen: starting a stream, and choosing a PIN.
     PinStream,
     PinChoose,
+    /// The PIN lock settings page, with a PIN and this mode or with none.
+    PinPage(Option<crate::pin_lock::Mode>),
 }
 
 /// The dialogs the demo can open.
@@ -338,10 +340,10 @@ impl Page {
     /// A dialog or the PIN screen: what's under it doesn't scroll.
     #[cfg(test)]
     pub(crate) fn covers_the_page(self) -> bool {
-        matches!(self, Page::Dialog(_) | Page::PinStream | Page::PinChoose)
+        matches!(self, Page::Dialog(_) | Page::PinStream | Page::PinChoose | Page::PinPage(_))
     }
 
-    pub(crate) const ALL: [(&'static str, Page); 31] = [
+    pub(crate) const ALL: [(&'static str, Page); 34] = [
         ("home", Page::Home),
         ("all-games", Page::AllGames),
         ("game", Page::Game),
@@ -373,6 +375,9 @@ impl Page {
         ("dialog-pc-menu", Page::Dialog(DemoDialog::PcMenu)),
         ("pin-stream", Page::PinStream),
         ("pin-choose", Page::PinChoose),
+        ("pin-page-empty", Page::PinPage(None)),
+        ("pin-page", Page::PinPage(Some(crate::pin_lock::Mode::App))),
+        ("pin-page-selected", Page::PinPage(Some(crate::pin_lock::Mode::Selected))),
     ];
 }
 
@@ -557,6 +562,11 @@ impl Launcher {
                 self.go(Screen::Hosts);
                 let dir = std::env::temp_dir().join("nightjar-demo-pin");
                 self.pin = Some(crate::pin_ui::PinLock::demo(&dir, page == Page::PinChoose, pc.display_name()));
+            }
+            Page::PinPage(mode) => {
+                self.go(Screen::Hosts);
+                let dir = std::env::temp_dir().join("nightjar-demo-pin-page");
+                self.pin = Some(crate::pin_ui::PinLock::demo_page(&dir, mode));
             }
             Page::Search => {
                 self.go(Screen::Home);

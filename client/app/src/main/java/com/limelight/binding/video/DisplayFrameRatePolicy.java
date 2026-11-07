@@ -287,4 +287,14 @@ public final class DisplayFrameRatePolicy {
         // Match the host's 1–1000 Hz launch range.
         return Math.max(1, Math.min(1000, Math.round(panelMaxHz)));
     }
+
+    /**
+     * Whether a stream's frame rate follows the display: always with VRR, otherwise when it is the
+     * panel's top rate as the defaults, presets and "match screen" pick it (any mode, any size,
+     * {@link #maxRefreshRate(Display)}). The size-limited VRR rate would miss a default of 120 fps
+     * on a TV that lists 1080p at 120 Hz beside 4K at 60 Hz.
+     */
+    public static boolean fpsFollowsDisplay(boolean vrr, int fps, float panelMaxHzAnySize) {
+        return vrr || fps == streamFrameRate(panelMaxHzAnySize);
+    }
 }

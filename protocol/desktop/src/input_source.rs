@@ -34,7 +34,8 @@ impl InputSource {
         match self {
             InputSource::None => Vec::new(),
             InputSource::Keyboard => glyphs::chord(Chord::key(key), false),
-            InputSource::Pad(style) => [Button::South, Button::East, Button::West, Button::North]
+            // North before West: both open the options, and the hint names North.
+            InputSource::Pad(style) => [Button::South, Button::East, Button::North, Button::West]
                 .into_iter()
                 .find(|button| shortcuts::pad_action(*button, swap) == Some(action))
                 .map(|button| vec![style.piece(button)])
@@ -123,7 +124,7 @@ mod tests {
             other => panic!("one face button: {other:?}"),
         };
         assert_eq!(word(InputSource::Pad(Style::Xbox).go(false)), "A");
-        assert_eq!(word(InputSource::Pad(Style::Xbox).more(false)), "X");
+        assert_eq!(word(InputSource::Pad(Style::Xbox).more(false)), "Y");
         assert_eq!(word(InputSource::Pad(Style::Xbox).go(true)), "B", "the Nintendo layout setting trades them");
         assert_eq!(glyphs::spoken(&InputSource::Keyboard.go(false)), "Enter");
         assert_eq!(glyphs::spoken(&InputSource::Keyboard.more(false)), "F");

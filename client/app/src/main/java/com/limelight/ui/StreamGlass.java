@@ -7,7 +7,6 @@ import android.content.ContextWrapper;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.InsetDrawable;
-import android.util.TypedValue;
 import android.view.View;
 import android.view.Window;
 
@@ -28,11 +27,21 @@ public final class StreamGlass {
     private StreamGlass() {
     }
 
-    /** Whether this context draws over a stream: its theme says so. */
+    /**
+     * Whether this context draws over a stream: it belongs to a stream's activity, whichever theme that runs in (night, OLED
+     * black). A screen of the app's own keeps its page dialogs, whatever theme it borrows.
+     */
     public static boolean overStream(Context context) {
-        TypedValue value = new TypedValue();
-        return context.getTheme().resolveAttribute(R.attr.nightjarOverStream, value, true)
-                && value.type == TypedValue.TYPE_INT_BOOLEAN && value.data != 0;
+        return activityOf(context) instanceof StreamWindow;
+    }
+
+    /**
+     * {@code context} with the high-contrast overlay where the user has it on. The stream's activity never applies the app's
+     * overlays, so the glass attributes would answer with night's see-through values there.
+     */
+    static Context themed(Context context) {
+        return AppTheme.isHighContrast(context)
+                ? new android.view.ContextThemeWrapper(context, R.style.ThemeOverlay_Nightjar_HighContrast) : context;
     }
 
     /** The HUD's glass behind the statistics, the menu hint and the stream's notices: all corners round. */
@@ -49,17 +58,30 @@ public final class StreamGlass {
      * while it is open, where this device can afford it, and near-opaque where it cannot. Other dialogs just show.
      */
     public static void show(Dialog dialog) {
+        show(dialog, null);
+    }
+
+    /** {@link #show(Dialog)}, telling {@code opened} which blur window it opened, if any: for a test. */
+    static void show(Dialog dialog, java.util.function.Consumer<MenuBlurWindow> opened) {
         Window window = dialog.getWindow();
         GlassPanelDrawable glass = window != null ? glassOf(window.getDecorView().getBackground()) : null;
         Activity owner = activityOf(dialog.getContext());
+        MenuBlurWindow blur = null;
         if (glass != null && owner != null && !dialog.isShowing()) {
             int radius = Math.round(GlassSpec.menuWindow(dialog.getContext()).blur);
             // Shown first, so it stands under the dialog: it blurs the stream, not the panel.
-            MenuBlurWindow blur = MenuBlurWindow.openIfAllowed(owner, radius, glass::setOverBlur);
+            blur = MenuBlurWindow.openIfAllowed(owner, radius, glass::setOverBlur);
             glass.setOverBlur(blur != null);
             if (blur != null) follow(window.getDecorView(), window.getDecorView().getBackground(), blur);
         }
-        dialog.show();
+        if (opened != null) opened.accept(blur);
+        try {
+            dialog.show();
+        } catch (RuntimeException e) {
+            // A stream that is finishing refuses the dialog's window: its blur must not stay behind on its own.
+            if (blur != null) blur.close();
+            throw e;
+        }
     }
 
     private static void follow(View decor, Drawable background, MenuBlurWindow blur) {

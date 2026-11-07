@@ -6,7 +6,6 @@
       me as of Android 7.1
     -->
     <style name="StreamTheme" parent="Theme.Nightjar.Stream">
-        <item name="nightjarOverStream">true</item>
         <item name="android:windowBackground">@android:color/black</item>
     </style>
 

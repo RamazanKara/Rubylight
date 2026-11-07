@@ -49,6 +49,7 @@
     <attr name="glassOnSelected" format="color" />
     <attr name="glassControlFill" format="color" />
     <attr name="glassControlRim" format="color" />
+    <attr name="glassControlOverArt" format="color" />
     <attr name="glassGroupOnArt" format="color" />
     <attr name="glassGroupRim" format="color" />
     <attr name="glassSeparator" format="color" />

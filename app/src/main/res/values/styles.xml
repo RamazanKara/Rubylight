@@ -14,6 +14,7 @@
         <item name="glassOnSelected">@color/glass_onselected</item>
         <item name="glassControlFill">@color/glass_controlfill</item>
         <item name="glassControlRim">@color/glass_controlrim</item>
+        <item name="glassControlOverArt">@color/glass_control_over_art</item>
         <item name="glassGroupOnArt">@color/glass_grouponart</item>
         <item name="glassGroupRim">@color/glass_grouprim</item>
         <item name="glassSeparator">@color/glass_separator</item>
@@ -154,6 +155,7 @@
         <item name="glassOnSelected">@color/night_glass_onselected</item>
         <item name="glassControlFill">@color/night_glass_controlfill</item>
         <item name="glassControlRim">@color/night_glass_controlrim</item>
+        <item name="glassControlOverArt">@color/night_glass_control_over_art</item>
         <item name="glassGroupOnArt">@color/night_glass_grouponart</item>
         <item name="glassGroupRim">@color/night_glass_grouprim</item>
         <item name="glassSeparator">@color/night_glass_separator</item>
@@ -343,6 +345,7 @@
         <item name="glassOnSelected">@color/nj_hc_color_on_moon</item>
         <item name="glassControlFill">@color/nj_glass_chrome_solid_fill</item>
         <item name="glassControlRim">@color/nj_hc_color_rim</item>
+        <item name="glassControlOverArt">@color/nj_glass_chrome_solid_fill</item>
         <item name="glassGroupOnArt">@color/nj_glass_chrome_solid_fill</item>
         <item name="glassGroupRim">@color/nj_hc_color_rim</item>
         <item name="glassRing">@color/nj_hc_focus_ring_color</item>

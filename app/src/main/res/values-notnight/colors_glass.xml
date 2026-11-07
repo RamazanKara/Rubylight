@@ -7,6 +7,7 @@
     <color name="glass_onselected">@color/nj_day_color_on_selected</color>
     <color name="glass_controlfill">@color/nj_day_tint_control_fill</color>
     <color name="glass_controlrim">@color/nj_day_tint_control_rim_top</color>
+    <color name="glass_control_over_art">#E6FFFFFF</color>
     <color name="glass_grouponart">@color/nj_day_tint_group_on_art_fill</color>
     <color name="glass_grouprim">@color/nj_day_tint_group_rim_top</color>
     <color name="glass_separator">@color/nj_day_tint_separator</color>

@@ -8,6 +8,8 @@
     <color name="glass_onselected">@color/nj_color_on_selected</color>
     <color name="glass_controlfill">@color/nj_tint_control_fill</color>
     <color name="glass_controlrim">@color/nj_tint_control_rim_top</color>
+    <!-- A control that floats over a cover with no frosting of its own: dense enough to read on the brightest art. -->
+    <color name="glass_control_over_art">#D914161F</color>
     <color name="glass_grouponart">@color/nj_tint_group_on_art_fill</color>
     <color name="glass_grouprim">@color/nj_tint_group_rim_top</color>
     <color name="glass_separator">@color/nj_tint_separator</color>
@@ -23,6 +25,7 @@
     <color name="night_glass_onselected">@color/nj_color_on_selected</color>
     <color name="night_glass_controlfill">@color/nj_tint_control_fill</color>
     <color name="night_glass_controlrim">@color/nj_tint_control_rim_top</color>
+    <color name="night_glass_control_over_art">#D914161F</color>
     <color name="night_glass_grouponart">@color/nj_tint_group_on_art_fill</color>
     <color name="night_glass_grouprim">@color/nj_tint_group_rim_top</color>
     <color name="night_glass_separator">@color/nj_tint_separator</color>

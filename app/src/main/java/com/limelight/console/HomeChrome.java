@@ -245,6 +245,7 @@ final class HomeChrome {
             // A phone's hero fills the width under the top row: over it, the banner would cover the art. It rests on the bar.
             banner.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL;
             banner.bottomMargin = bottom + res.getDimensionPixelSize(R.dimen.nj_size_tab_bar_height) + 2 * gap;
+            restBannerOnHints(gap);
         }
         bottomRow.setPadding(left + res.getDimensionPixelSize(R.dimen.space_m), 0, right + res.getDimensionPixelSize(R.dimen.space_m),
                 bottom + res.getDimensionPixelSize(R.dimen.space_s));
@@ -273,6 +274,19 @@ final class HomeChrome {
         search.setPadding(left + side - inset, rowTop + capsule + gap, right + side - inset, foot);
     }
 
+    private boolean bannerRestsOnHints;
+
+    /** A pad's hints come and go in the same place, above the bar: the banner stands on them while they show. */
+    private void restBannerOnHints(int gap) {
+        if (bannerRestsOnHints) return;
+        bannerRestsOnHints = true;
+        View hints = activity.findViewById(R.id.home_hints);
+        com.limelight.ui.GlassButton banner = activity.findViewById(R.id.home_pairing_banner);
+        banner.setOverArt();
+        hints.getViewTreeObserver().addOnGlobalLayoutListener(() ->
+                banner.setTranslationY(hints.getVisibility() == View.VISIBLE ? -(hints.getHeight() + gap) : 0));
+    }
+
     /** On a handheld the hints sit in the top row's open middle; on a phone just above the tab bar, on a chip over the art. */
     private void placeHints(int rowTop, int capsule, int bottom, boolean handheld) {
         android.content.res.Resources res = activity.getResources();
@@ -285,7 +299,7 @@ final class HomeChrome {
         } else {
             params.bottomMargin = bottom + res.getDimensionPixelSize(R.dimen.space_s) + res.getDimensionPixelSize(R.dimen.nj_size_tab_bar_height)
                     + res.getDimensionPixelSize(R.dimen.space_s);
-            hints.setBackgroundResource(R.drawable.glass_chip);
+            hints.setBackgroundResource(R.drawable.glass_chip_over_art);
         }
         hints.setLayoutParams(params);
     }

@@ -118,9 +118,9 @@ impl Launcher {
         let style = Style::of(view.pads);
         let quit = self.settings.gamepad_quit_combo;
         let steps: [(&str, &str); 3] = [
-            (en("Find your PC"), en("Start a Moonlight-compatible host on your PC and keep both on the same network: the PC appears under PCs. If it doesn't, add it by its address or a pairing link.")),
-            (en("Pair"), en("Select the PC. Nightjar shows a PIN: enter it in the host's web page or settings on the PC. A host with per-device permissions must allow this device.")),
-            (en("Play"), en("Open the PC's library and choose a game. While it streams, the stream controls change the overlay, the video size and more.")),
+            (en("Find your PC"), en("Start a Moonlight-compatible host on the same network. If it doesn't show under PCs, add it by its address.")),
+            (en("Pair"), en("Select the PC and enter the PIN Nightjar shows in the host's web page.")),
+            (en("Play"), en("Open the PC's library and choose a game.")),
         ];
         let columns = if width >= 960.0 { 3 } else { 1 };
         grid(ui, "help-steps", columns, steps.len(), |ui, n| {
@@ -408,7 +408,7 @@ impl Launcher {
 /// A hairline between rows, inset like the rows' text.
 fn separator(ui: &mut Ui) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-    ui.painter().rect_filled(rect.shrink2(vec2(space::S, 0.0)), 0.0, OUTLINE_VARIANT);
+    ui.painter().rect_filled(rect.shrink2(vec2(space::S, 0.0)), 0.0, design_tokens::TINT_SEPARATOR);
 }
 
 /// A card's heading: a small icon and its title.
@@ -429,10 +429,12 @@ fn step_badge(ui: &mut Ui, n: usize) {
     ui.painter().text(rect.center(), Align2::CENTER_CENTER, n.to_string(), semibold(text::LABEL), *ON_MOON_CONTAINER);
 }
 
-/// An icon on a tile one step above the card.
+/// An icon on a tinted disc.
 fn icon_tile(ui: &mut Ui, icon: Icon) {
     let (rect, _) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::hover());
-    ui.painter().rect_filled(rect, CornerRadius::same(radius::CONTROL), *SURFACE_HIGH);
+    let mut shapes = Vec::new();
+    glass::control(&mut shapes, ui.ctx(), rect, rect.height() / 2.0);
+    ui.painter().extend(shapes);
     glyphs::icon(ui.painter(), rect.shrink(8.0), icon, *ON_SURFACE);
 }
 
@@ -440,7 +442,7 @@ fn icon_tile(ui: &mut Ui, icon: Icon) {
 fn segment(ui: &mut Ui, name: &str, chosen: bool) -> Response {
     let ink = if chosen { *ON_SURFACE } else { *ON_SURFACE_VARIANT };
     let button = egui::Button::new(RichText::new(name).font(semibold(text::CAPTION)).color(ink))
-        .fill(if chosen { *SURFACE_HIGHEST } else { *SURFACE })
+        .fill(if chosen { design_tokens::TINT_SEG_ON_FILL } else { Color32::TRANSPARENT })
         .corner_radius(CornerRadius::same(14))
         .min_size(vec2(0.0, 28.0));
     let response = ui.add(button);
@@ -449,19 +451,19 @@ fn segment(ui: &mut Ui, name: &str, chosen: bool) -> Response {
     response
 }
 
-/// A card: the launcher's row surface, `width` wide, at least `min_height` tall. Returns the
+/// A card: the settings rows' tint on the sky, `width` wide, at least `min_height` tall. Returns the
 /// height its content took.
 fn card(ui: &mut Ui, width: f32, min_height: f32, add: impl FnOnce(&mut Ui)) -> f32 {
     let mut natural = 0.0;
-    Frame::new()
-        .fill(*SURFACE)
-        .corner_radius(CornerRadius::same(radius::PANEL))
-        .inner_margin(Margin::symmetric(CARD_MARGIN as i8, 16))
-        .show(ui, |ui| {
-            ui.set_width(width - 2.0 * CARD_MARGIN);
-            natural = ui.vertical(add).response.rect.height();
-            ui.set_min_height(min_height);
-        });
+    let place = ui.painter().add(egui::Shape::Noop);
+    let shown = Frame::new().inner_margin(Margin::symmetric(CARD_MARGIN as i8, 16)).show(ui, |ui| {
+        ui.set_width(width - 2.0 * CARD_MARGIN);
+        natural = ui.vertical(add).response.rect.height();
+        ui.set_min_height(min_height);
+    });
+    let mut shapes = Vec::new();
+    glass::group(&mut shapes, ui.ctx(), shown.response.rect, f32::from(radius::PANEL), rows_fill());
+    ui.painter().set(place, egui::Shape::Vec(shapes));
     natural
 }
 

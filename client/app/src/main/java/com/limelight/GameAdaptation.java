@@ -274,7 +274,9 @@ final class GameAdaptation {
                 game.runOnUiThread(() -> {
                     game.currentBitrate = applied;
                     game.healthOriginalBitrate = game.healthTrialBitrate = 0;
-                    if (game.foreground && generation == game.foregroundGeneration && game.connected && !game.isFinishing()) {
+                    // The open menu's slider shows the rate it asked for; one the host changed is news.
+                    boolean onSlider = applied == kbps && game.menuActions.streamMenuOpen();
+                    if (game.foreground && generation == game.foregroundGeneration && game.connected && !game.isFinishing() && !onSlider) {
                         game.messages.alert(game.getString(R.string.stream_bitrate_applied, applied / 1000.0), Toast.LENGTH_LONG);
                     }
                 });
@@ -420,7 +422,12 @@ final class GameAdaptation {
             game.messages.alert(game.getString(R.string.stream_rate_change_auto_stopped,
                     Game.rateChangeReason(game, result.bitrateReason)), Toast.LENGTH_LONG);
         } else if (answer == StreamRateChanges.Answer.MANUAL) {
-            game.messages.alert(Game.rateChangeText(game, result), Toast.LENGTH_LONG);
+            // A clamp, a refusal or a frame rate is news the open menu's slider cannot show; a plain applied bitrate is on it.
+            boolean onSlider = result.bitrateStatus == RateChangeResult.STATUS_APPLIED
+                    && result.fpsStatus == RateChangeResult.STATUS_UNCHANGED;
+            if (!onSlider || !game.menuActions.streamMenuOpen()) {
+                game.messages.alert(Game.rateChangeText(game, result), Toast.LENGTH_LONG);
+            }
         }
     }
 

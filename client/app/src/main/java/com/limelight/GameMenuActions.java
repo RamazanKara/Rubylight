@@ -91,6 +91,11 @@ final class GameMenuActions {
         dialog.show();
     }
 
+    /** The stream menu is open: its bitrate slider already shows an applied rate, and a toast would cover its ways out. */
+    boolean streamMenuOpen() {
+        return streamMenuSheet != null && streamMenuSheet.sheet().isShowing();
+    }
+
     /** The controller quit combo: leaves the stream like the menu's Disconnect. */
     void leaveStreamFromController() {
         if (!game.foreground || game.isFinishing()) {

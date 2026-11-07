@@ -728,6 +728,22 @@ public class HomeShellTest {
         return at;
     }
 
+    /** Home waits for the first key to place its start. Once a key has placed focus, a refresh must not take it back there. */
+    @Test
+    public void aRefreshLeavesFocusWhereAKeyPutIt() {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            View tab = home.findViewById(R.id.shell_home);
+            assertTrue(tab.requestFocusFromTouch());
+            org.robolectric.util.ReflectionHelpers.setField(home, "focusPending", true);
+            home.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_LEFT));
+            assertFalse(org.robolectric.util.ReflectionHelpers.<Boolean>getField(home, "focusPending"));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     @Test
     public void onAPhoneUpFromALongLibraryReachesTheShellBar() throws Exception {
         chooseGrid();

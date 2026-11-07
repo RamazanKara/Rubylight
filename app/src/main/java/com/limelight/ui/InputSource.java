@@ -105,4 +105,10 @@ public enum InputSource {
         int keyCode = event.getKeyCode();
         return keyCode == KeyEvent.KEYCODE_BUTTON_Y || (keyCode == KeyEvent.KEYCODE_F && event.hasNoModifiers());
     }
+
+    /** A key that moves focus. */
+    public static boolean isDpad(int keyCode) {
+        return keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP || keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN
+                || keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT || keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT;
+    }
 }

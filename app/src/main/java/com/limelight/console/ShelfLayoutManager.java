@@ -30,6 +30,11 @@ final class ShelfLayoutManager extends LinearLayoutManager {
     interface RowFocus {
         /** The card of the shelf {@code row} to focus when focus comes from {@code from}, or null to leave it to the search. */
         View cardIn(RecyclerView rows, View row, View from);
+
+        /** What Up from the first row {@code row} goes to, or null to leave it to the search. */
+        default View aboveFirst(RecyclerView rows, View row, View from) {
+            return null;
+        }
     }
 
     private final boolean cards;
@@ -151,7 +156,11 @@ final class ShelfLayoutManager extends LinearLayoutManager {
         View row = rowOf(focused);
         if (row == null) return super.onInterceptFocusSearch(focused, direction);
         int next = getPosition(row) + (direction == View.FOCUS_DOWN ? 1 : -1);
-        if (next < 0 || next >= getItemCount()) return super.onInterceptFocusSearch(focused, direction);
+        if (next < 0) {
+            View above = rowFocus.aboveFirst(attached, row, focused);
+            return above != null ? above : super.onInterceptFocusSearch(focused, direction);
+        }
+        if (next >= getItemCount()) return super.onInterceptFocusSearch(focused, direction);
         View target = findViewByPosition(next);
         // A shelf that is not laid out yet is brought in by onFocusSearchFailed.
         return target == null ? null : cardOr(target, focused);

@@ -75,7 +75,12 @@ fn select(
     adapt: impl FnOnce(u64, u64) -> u64,
 ) -> Pace {
     let bitrate = session.bitrate.load(std::sync::atomic::Ordering::Acquire);
-    let needed = network_pacing::video_wire_rate_bps(packetizer, bitrate, period, peer.is_ipv6());
+    let needed = network_pacing::video_wire_rate_bps(
+        packetizer,
+        bitrate,
+        period,
+        peer.ip().to_canonical().is_ipv6(),
+    );
     // The client's own port, when it says so (Nightjar, for wired links).
     let client_link = u64::from(session.client_link_mbps()) * 1_000_000;
     let base = network_pacing::rate_bps_following_client(
@@ -88,6 +93,7 @@ fn select(
         ),
         needed,
         client_link,
+        config.boolean("pacing_follow_client_link", false),
     );
     let base = adapt(base, needed);
     let safe = network_pacing::rate_bps(0, bitrate, route.bps, true, needed);
@@ -99,7 +105,6 @@ fn select(
 
 /// Whether the route cached for `routed` must be routed again to send to `peer`: none
 /// was routed yet, or the client moved (a roam). Records `peer` as routed. Keyed on the
-        config.boolean("pacing_follow_client_link", false),
 /// address rather than the session's roams, as a picture queued before a roam still
 /// goes to the old one.
 pub(crate) fn new_route(routed: &mut Option<SocketAddr>, peer: SocketAddr) -> bool {
@@ -235,6 +240,46 @@ mod tests {
         assert_eq!(session.info()["keyframes_past_fec"], 1);
     }
 
+    /// Review 2026-11-07: an IPv4 client on a dual-stack socket arrives
+    /// IPv4-mapped; its wire budget has the IPv4 headers the pacer charges.
+    #[test]
+    fn a_mapped_ipv4_client_has_the_ipv4_wire_budget() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let packetizer = VideoPacketizer {
+            sequence: 0,
+            iv_counter: 0,
+            frame: 1,
+            packet_size: 1392,
+            fec_percent: 20,
+            min_fec: 2,
+            key: Some([0; 16]),
+        };
+        let period = Duration::from_secs_f64(1. / 60.);
+        let route = Link::default();
+        let session = Session::new(
+            fixture.launch(fixture.client(0), Role::Stream),
+            butterpollo_core::rtsp::Negotiated::default(),
+        );
+        session
+            .bitrate
+            .store(40_000, std::sync::atomic::Ordering::Release);
+        let config = Config::default();
+        let budget = |peer: &str| {
+            pace(
+                &session,
+                &config,
+                &packetizer,
+                period,
+                peer.parse().unwrap(),
+                route,
+            )
+            .needed
+        };
+        let ipv4 = budget("192.0.2.9:12345");
+        assert!(budget("[2001:db8::9]:12345") > ipv4);
+        assert_eq!(budget("[::ffff:192.0.2.9]:12345"), ipv4);
+    }
+
     /// A roam routes the first picture sent to the new address, even when a picture
     /// queued before it went to the old one after the roam.
     #[test]
@@ -314,6 +359,56 @@ mod tests {
         }
     }
 
+    fn link_stream(fixture: &crate::state::test_support::Fixture) -> std::sync::Arc<Session> {
+        let session = Session::new(
+            fixture.launch(fixture.client(0), Role::Stream),
+            butterpollo_core::rtsp::Negotiated {
+                pyrowave_client_link_mbps: 2500,
+                ..Default::default()
+            },
+        );
+        session
+            .bitrate
+            .store(400_000, std::sync::atomic::Ordering::Release);
+        session.configure_keyframe_loss(true);
+        session
+    }
+
+    /// `pacing_follow_client_link`: a 10 GbE host and a 2.5 GbE client that
+    /// says so are paced at 2 Gbps instead of 800 Mbps, only when it is on.
+    #[test]
+    fn following_the_client_link_lifts_the_wired_ceiling() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let packetizer = VideoPacketizer {
+            sequence: 0,
+            iv_counter: 0,
+            frame: 1,
+            packet_size: 1392,
+            fec_percent: 20,
+            min_fec: 2,
+            key: Some([0; 16]),
+        };
+        let period = Duration::from_secs_f64(1. / 60.);
+        let peer: SocketAddr = "192.0.2.9:12345".parse().unwrap();
+        let route = Link {
+            bps: 10_000_000_000,
+            ..Default::default()
+        };
+        let session = link_stream(&fixture);
+        let mut config = Config::default();
+        assert_eq!(
+            pace(&session, &config, &packetizer, period, peer, route).bps,
+            800_000_000
+        );
+        config
+            .values
+            .insert("pacing_follow_client_link".into(), "true".into());
+        assert_eq!(
+            pace(&session, &config, &packetizer, period, peer, route).bps,
+            2_000_000_000
+        );
+    }
+
     #[test]
     fn a_client_link_hint_below_the_bitrate_floors_the_pace_at_one_point_one_times_it() {
         let fixture = crate::state::test_support::Fixture::new();
@@ -365,56 +460,6 @@ mod tests {
     /// A 40 Mbps stream on a wired 1 GbE host route, as a client that does or
     /// does not report a wireless route. `configure` is what the stream start
     /// calls; it decides whether the adaptive controller owns the stream.
-    fn link_stream(fixture: &crate::state::test_support::Fixture) -> std::sync::Arc<Session> {
-        let session = Session::new(
-            fixture.launch(fixture.client(0), Role::Stream),
-            butterpollo_core::rtsp::Negotiated {
-                pyrowave_client_link_mbps: 2500,
-                ..Default::default()
-            },
-        );
-        session
-            .bitrate
-            .store(400_000, std::sync::atomic::Ordering::Release);
-        session.configure_keyframe_loss(true);
-        session
-    }
-
-    /// `pacing_follow_client_link`: a 10 GbE host and a 2.5 GbE client that
-    /// says so are paced at 2 Gbps instead of 800 Mbps, only when it is on.
-    #[test]
-    fn following_the_client_link_lifts_the_wired_ceiling() {
-        let fixture = crate::state::test_support::Fixture::new();
-        let packetizer = VideoPacketizer {
-            sequence: 0,
-            iv_counter: 0,
-            frame: 1,
-            packet_size: 1392,
-            fec_percent: 20,
-            min_fec: 2,
-            key: Some([0; 16]),
-        };
-        let period = Duration::from_secs_f64(1. / 60.);
-        let peer: SocketAddr = "192.0.2.9:12345".parse().unwrap();
-        let route = Link {
-            bps: 10_000_000_000,
-            ..Default::default()
-        };
-        let session = link_stream(&fixture);
-        let mut config = Config::default();
-        assert_eq!(
-            pace(&session, &config, &packetizer, period, peer, route).bps,
-            800_000_000
-        );
-        config
-            .values
-            .insert("pacing_follow_client_link".into(), "true".into());
-        assert_eq!(
-            pace(&session, &config, &packetizer, period, peer, route).bps,
-            2_000_000_000
-        );
-    }
-
     fn wireless_hint_stream(
         fixture: &crate::state::test_support::Fixture,
         settings: &str,

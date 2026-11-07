@@ -354,7 +354,7 @@ impl SessionThread<'_> {
                                     timer.until_paced(network_pacer.due());
                                 }
                                 let budget = butterpollo_core::network_pacing::batch_payload_limit(
-                                    bps, remaining[0].len(), peer.is_ipv6(), batch_kb * 1024,
+                                    bps, remaining[0].len(), peer.ip().to_canonical().is_ipv6(), batch_kb * 1024,
                                 );
                                 let count = butterpollo_windows::net::Batch::count(remaining, budget);
                                 let refused = batch.dropped;
@@ -422,7 +422,7 @@ impl SessionThread<'_> {
                     // The last unit is out: account for the frame as for a whole one.
                     let slices::Streaming { frame: streamed, wire_frame, timestamp, claim, claimed, age, started, packetize_started, first_polled, last_polled, payload_bytes, processing, bps, sent, .. } = st;
                     let unrecoverable = sent.lost.unrecoverable();
-                    s.record_link_sent(wire_frame, sent.packets, ((sent.packets * (packetizer.packet_size + 16 + if packetizer.key.is_some() { 32 } else { 0 })) + sent.packets * butterpollo_core::network_pacing::overhead(peer.is_ipv6())) as u64);
+                    s.record_link_sent(wire_frame, sent.packets, ((sent.packets * (packetizer.packet_size + 16 + if packetizer.key.is_some() { 32 } else { 0 })) + sent.packets * butterpollo_core::network_pacing::overhead(peer.ip().to_canonical().is_ipv6())) as u64);
                     if unrecoverable {
                         s.keyframe_abandoned(wire_frame);
                         tracing::debug!(frame = wire_frame, finished = streamed.is_done(), "video frame lost on send; the rest of it was not sent");

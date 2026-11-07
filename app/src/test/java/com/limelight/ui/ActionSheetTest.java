@@ -290,6 +290,33 @@ public class ActionSheetTest {
         }
     }
 
+    /** A pad's Disconnect in the stream menu must leave PCs knowing a pad chose it; a tap on the next sheet says touch again. */
+    @Test public void aSheetRemembersTheInputThatDroveIt() {
+        try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup()) {
+            InputSource.remember(null);
+            ActionSheet sheet = new ActionSheet(controller.get(), "Stream");
+            sheet.addAction(R.drawable.ic_settings, "Disconnect");
+            sheet.show();
+            long now = android.os.SystemClock.uptimeMillis();
+            sheet.dispatchKeyEvent(new android.view.KeyEvent(now, now, android.view.KeyEvent.ACTION_DOWN,
+                    android.view.KeyEvent.KEYCODE_DPAD_DOWN, 0, 0, 0, 0, 0, android.view.InputDevice.SOURCE_GAMEPAD));
+            assertEquals(InputSource.PAD, InputSource.last());
+            // A key with no source (adb's) says nothing about the hand.
+            sheet.dispatchKeyEvent(new android.view.KeyEvent(now, now, android.view.KeyEvent.ACTION_DOWN,
+                    android.view.KeyEvent.KEYCODE_DPAD_DOWN, 0));
+            assertEquals(InputSource.PAD, InputSource.last());
+
+            android.view.MotionEvent down = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_DOWN, 10, 10, 0);
+            down.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);
+            sheet.dispatchTouchEvent(down);
+            down.recycle();
+            assertEquals(InputSource.NONE, InputSource.last());
+            sheet.dismiss();
+        } finally {
+            InputSource.remember(null);
+        }
+    }
+
     @Test public void longMenusHaveAnAccessibleCloseOutsideTheScrollableActions() {
         try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup()) {
             var activity = controller.get();

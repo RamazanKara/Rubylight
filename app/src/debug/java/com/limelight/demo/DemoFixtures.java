@@ -62,9 +62,12 @@ public final class DemoFixtures {
         host.encoderBitrateSupported = true;
     }
 
+    /** "--ez fourth true": one more PC, online and paired with nothing running, so the PCs page shows all its states. */
+    public static boolean fourthPc;
+
     public static List<ComputerDetails> computers() {
         List<ComputerDetails> computers = new ArrayList<>();
-        String[] names = {"Living-room PC", "Studio PC", "Laptop"};
+        String[] names = fourthPc ? new String[] {"Living-room PC", "Studio PC", "Laptop", "Office PC"} : new String[] {"Living-room PC", "Studio PC", "Laptop"};
         for (int i = 0; i < names.length; i++) {
             ComputerDetails pc = new ComputerDetails();
             pc.uuid = "d3e00000-0000-4000-8000-00000000000" + (i + 1);

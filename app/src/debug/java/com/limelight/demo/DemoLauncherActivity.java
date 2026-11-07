@@ -78,6 +78,7 @@ public final class DemoLauncherActivity extends Activity {
         DemoFocusLatency.wanted = getIntent().getBooleanExtra("focusLatency", false);
         DemoContext.forceTelevision = getIntent().getBooleanExtra("tv", false) || AppTheme.UI_MODE_TV.equals(ui);
         DemoFixtures.smallTiles = getIntent().getBooleanExtra("small", true);
+        DemoFixtures.fourthPc = getIntent().getBooleanExtra("fourth", false);
         DemoFixtures.roleTiles = getIntent().getBooleanExtra("roles", false);
         DemoFixtures.sunshineHost = "sunshine".equals(getIntent().getStringExtra("host"));
         // "--ez asleep true": the Laptop is away with a saved library and wakes a few seconds after Wake (DemoAsleep).

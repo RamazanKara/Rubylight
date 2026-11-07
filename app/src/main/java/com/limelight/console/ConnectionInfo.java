@@ -75,7 +75,32 @@ public final class ConnectionInfo {
         return lines;
     }
 
+    /** One line for a status row, {@code 1920 × 1080, Wi-Fi 6, 4 ms}: the size, the kind of link and the round trip. */
+    public String summary(Context context) {
+        List<String> parts = new ArrayList<>();
+        if (width > 0 && height > 0) parts.add(width + " × " + height);
+        List<String> linkParts = linkParts(context);
+        if (!linkParts.isEmpty()) parts.add(linkParts.get(0));
+        if (rttMs >= 0) parts.add(rttMs + " ms");
+        return String.join(", ", parts);
+    }
+
     String linkText(Context context) {
+        List<String> parts = linkParts(context);
+        if (rttMs >= 0) {
+            parts.add(context.getString(R.string.native_link_rtt, rttMs));
+        }
+        StringBuilder text = new StringBuilder();
+        for (String part : parts) {
+            if (text.length() > 0) {
+                text.append(" · ");
+            }
+            text.append(part);
+        }
+        return text.toString();
+    }
+
+    private List<String> linkParts(Context context) {
         List<String> parts = new ArrayList<>();
         if (link == null || link.link == null) {
             parts.add(context.getString(R.string.native_link_unknown));
@@ -110,16 +135,6 @@ public final class ConnectionInfo {
                     break;
             }
         }
-        if (rttMs >= 0) {
-            parts.add(context.getString(R.string.native_link_rtt, rttMs));
-        }
-        StringBuilder text = new StringBuilder();
-        for (String part : parts) {
-            if (text.length() > 0) {
-                text.append(" · ");
-            }
-            text.append(part);
-        }
-        return text.toString();
+        return parts;
     }
 }

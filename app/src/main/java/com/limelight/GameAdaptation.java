@@ -240,29 +240,47 @@ final class GameAdaptation {
             if (!game.foreground || !game.connected || game.hostActionInProgress) {
                 return;
             }
-            // A manual bitrate stops automatic bitrate for this session only; the saved choice stays.
-            setAdaptiveBitrateEnabled(false, false);
-            game.qualityAutoBitrate = false;
             bitrateDialog.dismiss();
-            game.hostActionInProgress = true;
-            final int generation = game.foregroundGeneration;
-            new Thread(() -> {
-                try {
-                    int applied = game.conn.setBitrate(kbps);
-                    game.runOnUiThread(() -> {
-                        game.currentBitrate = applied;
-                        game.healthOriginalBitrate = game.healthTrialBitrate = 0;
-                        if (game.foreground && generation == game.foregroundGeneration && game.connected && !game.isFinishing()) {
-                            game.messages.alert(game.getString(R.string.stream_bitrate_applied, applied / 1000.0), Toast.LENGTH_LONG);
-                        }
-                    });
-                } catch (IOException | XmlPullParserException e) {
-                    showHostActionError(e, generation);
-                } finally {
-                    game.runOnUiThread(() -> game.hostActionInProgress = false);
-                }
-            }, "Stream bitrate").start();
+            sendManualBitrate(kbps);
         });
+    }
+
+    // The stream menu's slider settled: as the matching dialog's OK, on whichever path this stream changes its bitrate.
+    void applyBitrateFromMenu(int kbps) {
+        if (game.rateChanges != null) {
+            sendRateChange(game.rateChanges, kbps, 0);
+            return;
+        }
+        if (game.hostActionInProgress) {
+            game.messages.alert(R.string.stream_bitrate_busy, Toast.LENGTH_SHORT);
+            return;
+        }
+        if (!game.foreground || !game.connected) return;
+        sendManualBitrate(kbps);
+    }
+
+    private void sendManualBitrate(int kbps) {
+        // A manual bitrate stops automatic bitrate for this session only; the saved choice stays.
+        setAdaptiveBitrateEnabled(false, false);
+        game.qualityAutoBitrate = false;
+        game.hostActionInProgress = true;
+        final int generation = game.foregroundGeneration;
+        new Thread(() -> {
+            try {
+                int applied = game.conn.setBitrate(kbps);
+                game.runOnUiThread(() -> {
+                    game.currentBitrate = applied;
+                    game.healthOriginalBitrate = game.healthTrialBitrate = 0;
+                    if (game.foreground && generation == game.foregroundGeneration && game.connected && !game.isFinishing()) {
+                        game.messages.alert(game.getString(R.string.stream_bitrate_applied, applied / 1000.0), Toast.LENGTH_LONG);
+                    }
+                });
+            } catch (IOException | XmlPullParserException e) {
+                showHostActionError(e, generation);
+            } finally {
+                game.runOnUiThread(() -> game.hostActionInProgress = false);
+            }
+        }, "Stream bitrate").start();
     }
 
     // A settled bitrate slider sends through its dialog's OK, with the same checks as a typed value.
@@ -321,21 +339,30 @@ final class GameAdaptation {
                 return;
             }
             dialog.dismiss();
-            if (!stream.sendManual(kbps, millihz, SystemClock.uptimeMillis())) {
-                LimeLog.warning("Rate change: request not sent");
-                game.messages.alert(R.string.stream_rate_change_not_sent, Toast.LENGTH_LONG);
-                return;
-            }
-            scheduleRateChangeExpiry();
-            LimeLog.info("Rate change: asking for " + kbps + " kbps, " + millihz + " mHz");
-            if (kbps != 0) {
-                // As with the bitrate dialog, a bitrate set by hand stops the host-side automatic
-                // bitrate for this session; automatic bitrate on this device follows it instead.
-                setAdaptiveBitrateEnabled(false, false);
-                game.qualityAutoBitrate = false;
-                game.healthOriginalBitrate = game.healthTrialBitrate = 0;
-            }
+            sendRateChange(stream, kbps, millihz);
         });
+    }
+
+    private void sendRateChange(StreamRateChanges stream, int kbps, int millihz) {
+        if (!game.connected || game.streamConnection.streamEnding() || game.rateChanges != stream) {
+            LimeLog.warning("Rate change: the stream ended before the request was sent");
+            game.messages.alert(R.string.stream_rate_change_stream_ended, Toast.LENGTH_LONG);
+            return;
+        }
+        if (!stream.sendManual(kbps, millihz, SystemClock.uptimeMillis())) {
+            LimeLog.warning("Rate change: request not sent");
+            game.messages.alert(R.string.stream_rate_change_not_sent, Toast.LENGTH_LONG);
+            return;
+        }
+        scheduleRateChangeExpiry();
+        LimeLog.info("Rate change: asking for " + kbps + " kbps, " + millihz + " mHz");
+        if (kbps != 0) {
+            // As with the bitrate dialog, a bitrate set by hand stops the host-side automatic
+            // bitrate for this session; automatic bitrate on this device follows it instead.
+            setAdaptiveBitrateEnabled(false, false);
+            game.qualityAutoBitrate = false;
+            game.healthOriginalBitrate = game.healthTrialBitrate = 0;
+        }
     }
 
     private com.google.android.material.textfield.TextInputLayout rateChangeField(String hint, String text, float density) {

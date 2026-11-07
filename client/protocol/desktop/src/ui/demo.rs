@@ -660,7 +660,7 @@ impl Launcher {
             exits: vec![HostExit::QuitApp],
             ..Default::default()
         };
-        let layout = stream_menu::layout(&available, self.shortcuts.data.len());
+        let layout = stream_menu::layout(&available, self.shortcuts.data.len(), &Default::default());
         let saved = &self.shortcuts;
         let focus_first = ctx.memory(|m| m.focused().is_none());
         let line = "Racing Game · Living Room PC";

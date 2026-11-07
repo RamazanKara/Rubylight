@@ -465,6 +465,94 @@ public class PcViewLifecycleTest {
         }
     }
 
+    private static long wakeClock;
+
+    /** Starts a wake as the menu does, with a recorded sender and the test's clock. */
+    private static void startWake(Library screen, ComputerDetails computer, com.limelight.console.HostWaker.Sender sender) {
+        ReflectionHelpers.callInstanceMethod(screen.hostActions(), "startWake",
+                ReflectionHelpers.ClassParameter.from(ComputerDetails.class, computer),
+                ReflectionHelpers.ClassParameter.from(com.limelight.console.HostWaker.Sender.class, sender),
+                ReflectionHelpers.ClassParameter.from(java.util.concurrent.Executor.class, (java.util.concurrent.Executor) Runnable::run),
+                ReflectionHelpers.ClassParameter.from(java.util.function.LongSupplier.class,
+                        (java.util.function.LongSupplier) () -> wakeClock));
+    }
+
+    private ComputerDetails asleep(String uuid, String name) {
+        ComputerDetails computer = pc(uuid, name, ComputerDetails.State.OFFLINE, PairingManager.PairState.PAIRED);
+        computer.macAddress = "02:00:00:00:00:0" + name.length();
+        report(computer);
+        return computer;
+    }
+
+    private static void toHandheld(Library screen) {
+        org.robolectric.RuntimeEnvironment.setQualifiers("w900dp-h700dp-land");
+        screen.onConfigurationChanged(screen.getResources().getConfiguration());
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(com.limelight.ui.GlassForm.HANDHELD, com.limelight.ui.GlassForm.of(screen));
+    }
+
+    /**
+     * Waking a second PC ended the first one's wait, and the page, no longer held, was laid out again for a form change
+     * that had waited: its destruction cancelled the second wake without a word. The page waits for the second wake now.
+     */
+    @Test
+    public void wakingASecondPcKeepsThePageThroughAFormChangeAndItsWake() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            ComputerDetails attic = asleep("attic", "Attic");
+            ComputerDetails cellar = asleep("cellar", "Cellar");
+            startWake(screen, attic, host -> { });
+            assertTrue(screen.hostActions().isWaking());
+            toHandheld(screen);
+            assertFalse("the page waits for the wake", ReflectionHelpers.<Boolean>getField(screen, "recreatingForForm"));
+
+            startWake(screen, cellar, host -> { });
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertFalse("the second wake holds the page", ReflectionHelpers.<Boolean>getField(screen, "recreatingForForm"));
+            assertFalse(screen.isDestroyed());
+            assertTrue("and still runs", screen.hostActions().isWaking());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /**
+     * A wake whose packet could not go out ended, the page followed the waiting form at once and its Try again dialog came
+     * up on a page being laid out again. The page now waits for the dialog, then follows.
+     */
+    @Test
+    public void aWakeFailuresDialogKeepsThePageThenThePageFollows() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            ComputerDetails attic = asleep("attic", "Attic");
+            int[] sends = {0};
+            wakeClock = 0;
+            startWake(screen, attic, host -> {
+                if (++sends[0] > 1) throw new java.io.IOException("no route");
+            });
+            toHandheld(screen);
+            for (int i = 0; i < 20 && screen.hostActions().isWaking(); i++) {
+                wakeClock += 1_000;
+                Shadows.shadowOf(Looper.getMainLooper()).idleFor(1, java.util.concurrent.TimeUnit.SECONDS);
+            }
+            assertFalse("the resend failed", screen.hostActions().isWaking());
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            AlertDialog dialog = (AlertDialog) ShadowDialog.getLatestDialog();
+            assertTrue("Try again shows", dialog.isShowing());
+            assertFalse("the page waits under it", ReflectionHelpers.<Boolean>getField(screen, "recreatingForForm"));
+
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            screen.onWindowFocusChanged(true);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertTrue("done: the page follows the form", ReflectionHelpers.<Boolean>getField(screen, "recreatingForForm"));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     /** A rotation into another form recreated the page and cancelled the pairing; now the page waits for it. */
     @Test
     public void aRunningPairingKeepsThePageThroughAFormChangeThenThePageFollows() throws Exception {

@@ -215,7 +215,7 @@ public final class ActionSheet extends BottomSheetDialog {
             header.addView(panelClose, closeParams);
         }
         body.addView(header);
-        scroll = new NestedScrollView(context);
+        scroll = new StillScroll(context);
         scroll.setClipToPadding(false);
         // A panel's rows go on under its footer: they fade there instead of ending on a cut edge.
         if (panel) {
@@ -1147,6 +1147,24 @@ public final class ActionSheet extends BottomSheetDialog {
         }
         if (getWindow() != null) getWindow().setDimAmount(GlassPanelDrawable.backdropDim(getContext()));
         if (!content.isInTouchMode() && firstAction != null) firstAction.requestFocus();
+    }
+
+    /**
+     * A sheet's scroll that leaves a focused row alone while it is wholly in view. The platform's scroll also keeps a focused
+     * row clear of the fading edge, so focus reaching the stream menu's Bitrate slid the tiles under the head for a few
+     * pixels' fade although everything fitted.
+     */
+    static final class StillScroll extends NestedScrollView {
+        StillScroll(Context context) {
+            super(context);
+        }
+
+        @Override
+        protected int computeScrollDeltaToGetChildRectOnScreen(android.graphics.Rect rect) {
+            int top = getScrollY();
+            if (rect.top >= top && rect.bottom <= top + getHeight()) return 0;
+            return super.computeScrollDeltaToGetChildRectOnScreen(rect);
+        }
     }
 
     /** The gap a TV's sheet keeps from the screen's top and bottom edges. */

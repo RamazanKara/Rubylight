@@ -14,15 +14,16 @@ public final class DisplayFrameRatePolicy {
         return vrr && sdk >= 36 && arrSupported;
     }
 
-    /**
-     * Whether adaptive refresh can be turned on: Android 16 and a screen of this device with ARR.
-     * Elsewhere the setting is greyed and reads as off. Any screen counts, so a foldable whose
-     * settings open on the cover screen still offers it for the inner one.
-     */
     /** Tests stand in for the device's screens with this; null asks Android. */
     @VisibleForTesting
     public static Boolean vrrOfferedOverride;
 
+    /**
+     * Whether adaptive refresh can be turned on: Android 16 and a screen of this device with ARR.
+     * Elsewhere the setting is greyed and reads as off, in the main settings and in a PC, game or
+     * profile layer alike; the saved choice is kept. Any screen counts, so a foldable whose
+     * settings open on the cover screen still offers it for the inner one.
+     */
     public static boolean vrrOffered(Context context) {
         if (vrrOfferedOverride != null) return vrrOfferedOverride;
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA || context == null) return false;

@@ -130,6 +130,8 @@ public class PcSettingsTest {
         HostStreamProfile profile = new HostStreamProfile();
         profile.bitrate = 45500;
         profile.save(app, "own-bitrate-pc");
+        // Where no screen has ARR the VRR row says that instead (VrrOfferedTest).
+        com.limelight.binding.video.DisplayFrameRatePolicy.vrrOfferedOverride = true;
         ActivityController<HostStreamSettings> controller = open("own-bitrate-pc", TestHosts.rubylight());
         try {
             HostStreamSettings screen = controller.get();
@@ -140,6 +142,7 @@ public class PcSettingsTest {
             assertFalse(summary(row(screen, "bitrate")).startsWith(same));
         } finally {
             controller.pause().stop().destroy();
+            com.limelight.binding.video.DisplayFrameRatePolicy.vrrOfferedOverride = null;
         }
     }
 

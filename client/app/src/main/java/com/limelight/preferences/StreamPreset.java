@@ -40,14 +40,15 @@ public enum StreamPreset {
         return this == BATTERY_SAVER ? "cap-fps" : PreferenceConfiguration.DEFAULT_FRAME_PACING;
     }
 
-    boolean matches(SharedPreferences preferences, String nativeResolution, float panelMaxHz) {
+    // A VRR choice saved where it isn't offered reads as off (SettingRules.vrrOn), so it doesn't make a preset custom.
+    boolean matches(SharedPreferences preferences, String nativeResolution, float panelMaxHz, boolean vrrOffered) {
         String fps = Integer.toString(fps(panelMaxHz));
         int bitrate = PreferenceConfiguration.getShownDefaultBitrate(preferences, nativeResolution, fps, null);
         if (!nativeResolution.equals(preferences.getString(PreferenceConfiguration.RESOLUTION_PREF_STRING,
                 PreferenceConfiguration.DEFAULT_RESOLUTION)) ||
                 !fps.equals(preferences.getString(PreferenceConfiguration.FPS_PREF_STRING, PreferenceConfiguration.DEFAULT_FPS)) ||
                 preferences.getInt(PreferenceConfiguration.BITRATE_PREF_STRING, bitrate) != bitrate ||
-                preferences.getBoolean("checkbox_vrr", false) ||
+                vrrOffered && preferences.getBoolean("checkbox_vrr", false) ||
                 !pacing().equals(preferences.getString(PreferenceConfiguration.FRAME_PACING_PREF_STRING,
                         PreferenceConfiguration.DEFAULT_FRAME_PACING)) ||
                 !"off".equals(preferences.getString(PreferenceConfiguration.UPSCALING_PREF_STRING, "off")) ||

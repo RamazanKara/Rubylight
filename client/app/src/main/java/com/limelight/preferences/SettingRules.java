@@ -5,6 +5,7 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 
 import com.limelight.binding.audio.MicProcessing;
+import com.limelight.binding.video.DisplayFrameRatePolicy;
 
 /**
  * Which settings apply given the others, so the Settings screens can disable or hide the ones that
@@ -21,14 +22,23 @@ final class SettingRules {
 
     private SettingRules() { }
 
+    /**
+     * Whether adaptive refresh is on: chosen, and offered on this device. A choice saved where no
+     * screen has ARR is kept for a later Android that adds it, but reads as off until then.
+     */
+    static boolean vrrOn(Context context, SharedPreferences prefs) {
+        return prefs.getBoolean(PreferenceConfiguration.VRR_PREF_STRING, false) &&
+                DisplayFrameRatePolicy.vrrOffered(context);
+    }
+
     /** Frame pacing decides how frames are shown unless adaptive refresh or host frame times take over. */
-    static boolean framePacingApplies(SharedPreferences prefs) {
-        return !prefs.getBoolean("checkbox_vrr", false) && !prefs.getBoolean(HOST_FRAME_TIMES, false);
+    static boolean framePacingApplies(Context context, SharedPreferences prefs) {
+        return !vrrOn(context, prefs) && !prefs.getBoolean(HOST_FRAME_TIMES, false);
     }
 
     /** Dropping late frames is part of Balanced frame pacing; the other modes ignore the choice. */
-    static boolean dropLateFramesApplies(SharedPreferences prefs) {
-        return framePacingApplies(prefs) &&
+    static boolean dropLateFramesApplies(Context context, SharedPreferences prefs) {
+        return framePacingApplies(context, prefs) &&
                 "balanced".equals(prefs.getString(FRAME_PACING, PreferenceConfiguration.DEFAULT_FRAME_PACING));
     }
 

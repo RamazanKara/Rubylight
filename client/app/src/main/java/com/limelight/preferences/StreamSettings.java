@@ -1527,10 +1527,10 @@ public class StreamSettings extends NightjarActivity {
          */
         private void applySettingRules(SharedPreferences prefs) {
             Preference pacing = allPreferences.get(SettingRules.FRAME_PACING);
-            if (pacing != null) pacing.setEnabled(SettingRules.framePacingApplies(prefs));
+            if (pacing != null) pacing.setEnabled(SettingRules.framePacingApplies(getActivity(), prefs));
             Preference upscaling = allPreferences.get(PreferenceConfiguration.UPSCALING_PREF_STRING);
             if (upscaling != null) upscaling.setEnabled(SettingRules.upscalingApplies(prefs));
-            setShown(SettingRules.DROP_LATE_FRAMES, SettingRules.dropLateFramesApplies(prefs));
+            setShown(SettingRules.DROP_LATE_FRAMES, SettingRules.dropLateFramesApplies(getActivity(), prefs));
             setShown(PreferenceConfiguration.UPSCALING_SHARPNESS_PREF_STRING, SettingRules.upscalingUsesSharpness(prefs));
             boolean limits = SettingRules.qualityLimitsApply(prefs);
             setShown(SettingRules.ADAPTIVE_QUALITY_MIN_RESOLUTION, limits);
@@ -2639,10 +2639,12 @@ public class StreamSettings extends NightjarActivity {
             }
 
             // Adaptive refresh only where a screen has ARR (Android 16): elsewhere it can't be turned on,
-            // and a choice saved before reads as off (PreferenceConfiguration does the same).
+            // and a choice saved before reads as off (PreferenceConfiguration and SettingRules do the same).
+            // The row shows off without saving that, so the choice returns if Android later adds ARR.
             SwitchPreference vrr = (SwitchPreference) findPreference(PreferenceConfiguration.VRR_PREF_STRING);
             if (vrr != null && !DisplayFrameRatePolicy.vrrOffered(getActivity())) {
                 LimeLog.info("Greying adaptive refresh: no screen has ARR");
+                vrr.setPersistent(false);
                 vrr.setChecked(false);
                 // A disabled preference greys its dependents too; VRR can't be on here, so they always apply.
                 for (String key : new String[] {SettingRules.FRAME_PACING, "checkbox_reduce_refresh_rate"}) {

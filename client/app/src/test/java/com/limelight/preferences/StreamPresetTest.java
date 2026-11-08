@@ -78,14 +78,14 @@ public class StreamPresetTest {
         for (StreamPreset selected : StreamPreset.values()) {
             selected.apply(preferences, PHONE, 120);
             for (StreamPreset candidate : StreamPreset.values()) {
-                assertEquals(selected == candidate, candidate.matches(preferences, PHONE, 120));
+                assertEquals(selected == candidate, candidate.matches(preferences, PHONE, 120, true));
             }
-            assertFalse(selected.matches(preferences, "1920x1080", 120));
+            assertFalse(selected.matches(preferences, "1920x1080", 120, true));
             values.put("seekbar_bitrate_kbps", (Integer) values.get("seekbar_bitrate_kbps") + 500);
-            assertFalse(selected.matches(preferences, PHONE, 120));
+            assertFalse(selected.matches(preferences, PHONE, 120, true));
             selected.apply(preferences, PHONE, 120);
             values.put("upscaling_mode", "sgsr1");
-            assertFalse(selected.matches(preferences, PHONE, 120));
+            assertFalse(selected.matches(preferences, PHONE, 120, true));
         }
     }
 
@@ -96,7 +96,7 @@ public class StreamPresetTest {
             SharedPreferences preferences = preferences(values, new int[1]);
             StreamPreset.NATIVE.apply(preferences, PHONE, 120);
             values.put(key, false);
-            assertFalse(key, StreamPreset.NATIVE.matches(preferences, PHONE, 120));
+            assertFalse(key, StreamPreset.NATIVE.matches(preferences, PHONE, 120, true));
         }
     }
 
@@ -109,13 +109,13 @@ public class StreamPresetTest {
             SharedPreferences preferences = preferences(values, new int[1]);
             StreamPreset.NATIVE.apply(preferences, PHONE, 120);
             assertEquals(stored, values.get(gpu));
-            assertTrue(StreamPreset.NATIVE.matches(preferences, PHONE, 120));
+            assertTrue(StreamPreset.NATIVE.matches(preferences, PHONE, 120, true));
 
             StreamPreset.BATTERY_SAVER.apply(preferences, PHONE, 120);
             assertEquals(false, values.get(gpu));
-            assertTrue(StreamPreset.BATTERY_SAVER.matches(preferences, PHONE, 120));
+            assertTrue(StreamPreset.BATTERY_SAVER.matches(preferences, PHONE, 120, true));
             values.put(gpu, true);
-            assertFalse(StreamPreset.BATTERY_SAVER.matches(preferences, PHONE, 120));
+            assertFalse(StreamPreset.BATTERY_SAVER.matches(preferences, PHONE, 120, true));
         }
         assertFalse(java.util.Arrays.asList(StreamPreset.LATENCY_SWITCHES).contains(gpu));
     }
@@ -126,7 +126,17 @@ public class StreamPresetTest {
         Map<String, Object> values = new HashMap<>();
         values.put("list_resolution", PHONE);
         values.put("list_fps", "120");
-        assertTrue(StreamPreset.NATIVE.matches(preferences(values, new int[1]), PHONE, 120));
+        assertTrue(StreamPreset.NATIVE.matches(preferences(values, new int[1]), PHONE, 120, true));
+    }
+
+    @Test
+    public void aVrrChoiceKeptWhereVrrIsntOfferedLeavesThePresetChosen() {
+        Map<String, Object> values = new HashMap<>();
+        SharedPreferences preferences = preferences(values, new int[1]);
+        StreamPreset.NATIVE.apply(preferences, PHONE, 120);
+        values.put("checkbox_vrr", true);
+        assertTrue(StreamPreset.NATIVE.matches(preferences, PHONE, 120, false));
+        assertFalse(StreamPreset.NATIVE.matches(preferences, PHONE, 120, true));
     }
 
     @Test

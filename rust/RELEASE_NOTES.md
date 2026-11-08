@@ -8,11 +8,15 @@ Rubylight, called Butterpollo until rc.29, is written in Rust: host, native help
 
 ## New in 3.11.1
 
-Rubylight 3.11.1 gives Dual screen mode's second screen a display of its own when a game is running, and makes NVIDIA encoding steadier under light and loading games.
+Rubylight 3.11.1 gives Dual screen mode's second screen a display of its own when a game is running, lets games capped at the stream rate go out without waiting on the phase lock, and makes NVIDIA encoding steadier under light and loading games.
 
 ### Dual screen
 
 - **The second screen shows a second display, not a copy of the first.** Nightjar's Dual screen mode with a game running put the second screen on the game's own virtual display, so both screens showed the same picture. It now gets a virtual display of its own beside the game's. On a PC that streams its own monitors instead of a virtual display, the second screen streams the PC's other monitor; with a single monitor it shows the same one, and the stream's card says so.
+
+### Frame pacing
+
+- **Games capped at the stream's frame rate no longer wait on the host.** A game held to the stream rate by RTSS or its own limiter gives the host no earlier picture to take, so the phase lock could only hold each frame for the client's refresh, up to a whole frame as the two clocks drifted apart. A user's Shield TV timings showed 8 to 11 ms more latency from the hold. These frames now go out as they arrive; the log says "phase lock stands aside" when this happens. **Hold capped games for the device's refresh** (Frame pacing, advanced) brings the hold back: on that Shield it halved the rare display gaps.
 
 ### NVIDIA
 
@@ -20,7 +24,7 @@ Rubylight 3.11.1 gives Dual screen mode's second screen a display of its own whe
 - **NVIDIA: loading screens no longer restart the encoder.** NVENC gave up on a frame after 100 ms. A game holding the GPU that long while loading restarted the encoder, froze the picture for about 0.2 s and sent a keyframe. After two of these, the rest of the session converted frames on the slower graphics queue. NVENC now waits as AMF does: the stream restarts a silent encoder after 250 ms, and waits up to 2 s if it stays silent. A user's RTX 5070 log showed two restarts in 12 s during game loading. Their next sessions will show whether it holds; we have no NVIDIA hardware to test it.
 - Warnings about compute copies and conversion no longer tell NVIDIA users to update the AMD driver. Slice delivery on NVENC's D3D12 path now names the D3D12 path as the reason frames leave whole, instead of asking for a driver update.
 
-**Tested.** On the RX 7900 XT PC with Windows 11 (build 26200) and a Retroid Pocket 6 with a simulated second display: with a game running, 3.11.0 put both screens on one virtual display; 3.11.1 gave the second screen its own, an empty extended desktop beside the game. With the virtual display off and one monitor, both screens showed that monitor and the stream's card said why. The NVIDIA changes are untested here (no NVIDIA hardware). The full test suite passed.
+**Tested.** On the RX 7900 XT PC with Windows 11 (build 26200) and a Retroid Pocket 6 with a simulated second display: with a game running, 3.11.0 put both screens on one virtual display; 3.11.1 gave the second screen its own, an empty extended desktop beside the game. With the virtual display off and one monitor, both screens showed that monitor and the stream's card said why. On the 780M laptop, host present-to-sent stayed at 4.3 ms (median) with and without the frame pacing change. The NVIDIA changes are untested here (no NVIDIA hardware). The full test suite passed.
 
 ## New in 3.11.0
 

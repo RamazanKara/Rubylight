@@ -870,10 +870,7 @@ const SERVERINFO_FIELDS: &[(&str, Reading)] = &[
     ("TextInputVersion", Reading::Read),
     ("KeyboardLayoutVersion", Reading::Read),
     ("PenBarrelRollVersion", Reading::Read),
-    (
-        "SecondScreenVersion",
-        Reading::Ignored("Nightjar on Android reads it; the desktop client has no second screen"),
-    ),
+    ("SecondScreenVersion", Reading::Read),
     (
         "RustHostSessionCount",
         Reading::Ignored("diagnostics for scripts and the release harness"),
@@ -990,6 +987,8 @@ fn expected(feature: Feature) -> Availability {
         // (hdr_dolby_vision and hdr_hlg are on).
         | Feature::DolbyVision
         | Feature::Hlg => Supported,
+        // `rlSecondScreen` is read on every launch.
+        Feature::SecondScreen => Supported,
         // Keyboard follows focus, the device's layout and pen barrel roll are on by default.
         Feature::TextInput | Feature::ClientKeyboardLayout | Feature::PenBarrelRoll => Supported,
         Feature::ServerCommands => Unsupported(Some(Reason::NoCommands)),

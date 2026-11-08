@@ -133,6 +133,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     boolean connecting = false;
     // The second screen's stream has been started beside this one (DualScreen).
     boolean dualScreenStarted;
+    // Names this first stream to its second (DualScreen.EXTRA_FIRST_STREAM).
+    String dualScreenFirst;
     // Receives the other screen's stream's messages (DualScreen.link).
     android.content.BroadcastReceiver dualScreenLink;
     volatile boolean connected = false;

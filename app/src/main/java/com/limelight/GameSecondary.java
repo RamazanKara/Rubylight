@@ -16,6 +16,9 @@ import com.limelight.nvstream.jni.NativeApiBridge;
 public class GameSecondary extends Game {
     /** Streams alive in this process; only the main thread touches it. */
     private static int alive;
+    /** How long the process stays after its last stream, for a stream started again right away. */
+    static final long PROCESS_LINGER_MS = 5000;
+    private static final long PROCESS_CHECK_MS = 1000;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -38,9 +41,38 @@ public class GameSecondary extends Game {
         if (isFinishing()) {
             // The settings this process read at its start are old by the next stream, and a settings
             // change in the main process never reaches it, so it goes once nothing is using it.
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                if (alive == 0) Process.killProcess(Process.myPid());
-            }, 5000);
+            endProcessLater(new Handler(Looper.getMainLooper()), connectionStopThread,
+                    android.os.SystemClock.uptimeMillis());
         }
+    }
+
+    private static void endProcessLater(Handler handler, Thread stopping, long destroyedAt) {
+        handler.postDelayed(() -> {
+            long since = android.os.SystemClock.uptimeMillis() - destroyedAt;
+            switch (processEnd(alive, stopping != null && stopping.isAlive(), since)) {
+                case END:
+                    Process.killProcess(Process.myPid());
+                    break;
+                case WAIT:
+                    endProcessLater(handler, stopping, destroyedAt);
+                    break;
+                case STAY:
+                    break;
+            }
+        }, PROCESS_CHECK_MS);
+    }
+
+    enum ProcessEnd { END, WAIT, STAY }
+
+    /**
+     * What the process does {@code sinceDestroyMs} after its last stream's activity went: it stays for a
+     * stream started again, and it waits for that stream's stop to tell the host before it ends. A stop
+     * stuck past the time a stuck stop is reported (a decoder hung in MediaCodec) ends with it.
+     */
+    static ProcessEnd processEnd(int alive, boolean stopRunning, long sinceDestroyMs) {
+        if (alive > 0) return ProcessEnd.STAY;
+        if (sinceDestroyMs < PROCESS_LINGER_MS) return ProcessEnd.WAIT;
+        if (stopRunning && sinceDestroyMs < GameConnection.STOP_REPORT_MS) return ProcessEnd.WAIT;
+        return ProcessEnd.END;
     }
 }

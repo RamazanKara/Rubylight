@@ -263,7 +263,7 @@ final class RadeonPanelView {
         slider.setValueTo(to);
         slider.setStepSize(step);
         slider.setValue(Math.max(from, Math.min(to, start)));
-        slider.setLabelBehavior(com.google.android.material.slider.LabelFormatter.LABEL_GONE);
+        StepSlider.showValue(slider, current -> RadeonPanelModel.withUnit(String.valueOf(current), row.unit));
         slider.setContentDescription(title);
         final boolean[] touching = {false};
         slider.addOnChangeListener((changed, current, fromUser) -> {

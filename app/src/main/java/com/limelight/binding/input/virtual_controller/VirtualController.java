@@ -251,6 +251,7 @@ public class VirtualController {
             opacityPanel = LayoutInflater.from(themed).inflate(R.layout.osc_opacity_panel, frame_layout, false);
             opacitySlider = opacityPanel.findViewById(R.id.osc_opacity_slider);
             opacityValue = opacityPanel.findViewById(R.id.osc_opacity_value);
+            com.limelight.ui.StepSlider.showValue(opacitySlider, opacity -> String.format(Locale.getDefault(), "%d %%", opacity));
             opacitySlider.addOnChangeListener((slider, value, fromUser) -> {
                 if (fromUser && !settingOpacity) setEditingOpacity(Math.round(value));
             });

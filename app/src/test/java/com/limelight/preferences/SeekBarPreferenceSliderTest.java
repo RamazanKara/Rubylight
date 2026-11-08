@@ -13,6 +13,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
 
+import com.google.android.material.slider.LabelFormatter;
 import com.google.android.material.slider.Slider;
 import com.limelight.R;
 import com.limelight.ui.StepSlider;
@@ -87,6 +88,11 @@ public class SeekBarPreferenceSliderTest {
                 : new android.widget.SeekBar(pref.getContext()) {{ setMax(max - min); }}.getKeyProgressIncrement();
         assertEquals(key, expectedStep, slider.getKeyStep());
         assertNotNull(key + " shows " + text, findText(dialog, text));
+        assertEquals(key + " shows its value in the dialog's text colour, readable on the glass",
+                com.google.android.material.color.MaterialColors.getColor(pref.getContext(),
+                        com.google.android.material.R.attr.colorOnSurface, 1),
+                findText(dialog, text).getCurrentTextColor());
+        assertEquals(key + ": the value over the slider is enough", LabelFormatter.LABEL_GONE, slider.getLabelBehavior());
         assertEquals(key, pref.getTitle(), slider.getContentDescription());
 
         slider.onKeyDown(KeyEvent.KEYCODE_DPAD_RIGHT, new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT));

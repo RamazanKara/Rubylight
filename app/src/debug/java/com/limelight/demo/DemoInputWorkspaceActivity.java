@@ -25,7 +25,16 @@ import com.limelight.R;
 import com.limelight.ui.DesktopControlsPanel;
 
 /** Hostless review surface: the production controls operate a small local, editable desktop. */
-public final class DemoInputWorkspaceActivity extends Activity {
+public final class DemoInputWorkspaceActivity extends Activity implements com.limelight.ui.StreamWindow {
+    // A stand-in for the stream: its dialogs and panels take the stream's glass, as in Game.
+    @Override public boolean usesFullDisplayForVideo() {
+        return false;
+    }
+
+    @Override public boolean isWindowedStream() {
+        return false;
+    }
+
     private DesktopControlsPanel controls;
     private LocalDesktop desktop;
 

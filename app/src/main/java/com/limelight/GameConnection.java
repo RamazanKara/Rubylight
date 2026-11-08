@@ -159,7 +159,7 @@ final class GameConnection {
         game.overlays.showStreamLayers(game.prefConfig, startNetwork == null);
         game.streamRecovery.readRecoveryBudget(SystemClock.elapsedRealtime());
         game.panelMaxRefreshRate = com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(
-                game.videoOutput.getVideoDisplay());
+                game.videoOutput.getVideoDisplay(), game.prefConfig.width, game.prefConfig.height);
         if (game.prefConfig.vrr) {
             game.prefConfig.fps = com.limelight.binding.video.DisplayFrameRatePolicy.streamFrameRate(game.panelMaxRefreshRate);
             game.prefConfig.launchRefreshRateX100 = Math.max(100, Math.min(100000, Math.round(game.panelMaxRefreshRate * 100)));
@@ -177,8 +177,9 @@ final class GameConnection {
         // Fixed presets keep their size; anything else is the phone's own resolution and follows it.
         game.nativeResolutionStream = game.prefConfig.resolutionFollowsScreen ||
                 PreferenceConfiguration.isNativeResolution(game.prefConfig.width, game.prefConfig.height);
-        game.fpsFollowsDisplay = game.prefConfig.vrr ||
-                game.prefConfig.fps == com.limelight.binding.video.DisplayFrameRatePolicy.streamFrameRate(game.panelMaxRefreshRate);
+        game.fpsFollowsDisplay = com.limelight.binding.video.DisplayFrameRatePolicy.fpsFollowsDisplay(game.prefConfig.vrr,
+                game.prefConfig.fps, com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(
+                        game.videoOutput.getVideoDisplay()));
         game.nativeTouchEnabled = !game.prefConfig.touchscreenTrackpad &&
                 PreferenceManager.getDefaultSharedPreferences(game).getBoolean("checkbox_native_touch", false);
         game.tombstonePrefs = game.getSharedPreferences("DecoderTombstone", 0);
@@ -250,6 +251,7 @@ final class GameConnection {
 
         game.performanceOverlayView = game.findViewById(R.id.performanceOverlay);
         game.performanceOverlayScroll = game.findViewById(R.id.performanceOverlayScroll);
+        com.limelight.ui.StreamGlass.dressHud(game.performanceOverlayScroll, game.streamMenuHint, game.notificationOverlayView);
         game.performanceOverlayScroll.setOnTouchListener((view, event) -> !game.overlays.isDebugOverlay() && game.touchInput.onOverlayTouch(view, event));
         game.overlayMode = PerformanceOverlay.normalizeMode(PreferenceManager.getDefaultSharedPreferences(game)
                 .getString("performance_overlay_mode", PerformanceOverlay.MODE_COMPACT));

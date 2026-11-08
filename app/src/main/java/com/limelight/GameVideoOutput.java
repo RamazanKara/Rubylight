@@ -234,13 +234,14 @@ final class GameVideoOutput {
         game.getIntent().removeExtra(EXTRA_OUTPUT_DISPLAY);
         // A hot-unplug can happen between reading preferences and creating the
         // presentation. Do not retain the missing monitor's VRR/FPS launch values.
-        game.panelMaxRefreshRate = com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(getVideoDisplay());
+        game.panelMaxRefreshRate = com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(getVideoDisplay(),
+                game.prefConfig.width, game.prefConfig.height);
         if (game.prefConfig.vrr) {
             game.prefConfig.fps = com.limelight.binding.video.DisplayFrameRatePolicy.streamFrameRate(game.panelMaxRefreshRate);
             game.prefConfig.launchRefreshRateX100 = Math.max(100, Math.min(100000, Math.round(game.panelMaxRefreshRate * 100)));
         }
-        game.fpsFollowsDisplay = game.prefConfig.vrr || game.prefConfig.fps ==
-                com.limelight.binding.video.DisplayFrameRatePolicy.streamFrameRate(game.panelMaxRefreshRate);
+        game.fpsFollowsDisplay = com.limelight.binding.video.DisplayFrameRatePolicy.fpsFollowsDisplay(game.prefConfig.vrr,
+                game.prefConfig.fps, com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(getVideoDisplay()));
         game.streamView.initializeSurface(game.prefConfig.useTextureView);
     }
 
@@ -574,7 +575,15 @@ final class GameVideoOutput {
                         candidate.getPhysicalHeight()+"x"+candidate.getRefreshRate());
 
                 if (game.prefConfig.vrr) {
-                    if (candidate.getRefreshRate() > bestMode.getRefreshRate()) bestMode = candidate;
+                    // The top rate among modes that keep the whole stream: the rate the stream
+                    // was asked at (maxRefreshRate), never a smaller mode for a higher rate.
+                    if (candidate.getRefreshRate() > bestMode.getRefreshRate() &&
+                            com.limelight.binding.video.DisplayFrameRatePolicy.modeFitsStream(
+                                    candidate.getPhysicalWidth(), candidate.getPhysicalHeight(),
+                                    display.getMode().getPhysicalWidth(), display.getMode().getPhysicalHeight(),
+                                    game.prefConfig.width, game.prefConfig.height)) {
+                        bestMode = candidate;
+                    }
                     continue;
                 }
 
@@ -953,7 +962,7 @@ final class GameVideoOutput {
         displaySignature = signature;
         configureStreamWindow();
         game.panelMaxRefreshRate = com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(
-                getVideoDisplay());
+                getVideoDisplay(), game.prefConfig.width, game.prefConfig.height);
         scheduleReconfigureCheck();
     }
 

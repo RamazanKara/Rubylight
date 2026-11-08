@@ -20,7 +20,9 @@ import java.util.function.IntFunction;
  * controls' opacity slider ({@code osc_opacity_panel}, nightjar#61). It replaces the platform SeekBar in
  * the settings, the stream menu's bitrate dialogs and the desktop controls, and keys step it like that
  * SeekBar did: Left and Right (and minus and plus) move it by {@link #getKeyStep()}, a twentieth of the
- * range unless set, and at an end they leave the key to the window, which moves the focus on.
+ * range unless set, and at an end they leave the key to the window, which moves the focus on. While a
+ * finger drags it, and for {@link #KEY_VALUE_MS} after a key step, its value floats over the thumb
+ * where the finger does not cover it (nightjar#61).
  */
 public class StepSlider extends Slider {
     /** A position the user picked, by touch or by key. */
@@ -30,9 +32,16 @@ public class StepSlider extends Slider {
 
     // The platform SeekBar's key step starts at 1 and only grows for a range wider than 20 steps.
     private static final int SEEKBAR_INITIAL_KEY_STEP = 1;
+    /** How long the value stays over the thumb after the last key step. */
+    static final long KEY_VALUE_MS = 1500;
 
     private int keyStep = SEEKBAR_INITIAL_KEY_STEP;
     private OnPositionChangeListener listener;
+    private boolean touching;
+    private final Runnable hideKeyValue = () -> {
+        if (!touching) setActiveThumbIndex(-1);
+        invalidate();
+    };
 
     public StepSlider(Context context) {
         this(context, null);
@@ -43,7 +52,7 @@ public class StepSlider extends Slider {
         setValueFrom(0);
         setValueTo(1);
         setStepSize(1);
-        setLabelBehavior(LabelFormatter.LABEL_GONE);
+        setLabelBehavior(LabelFormatter.LABEL_FLOATING);
         setTickVisible(false);
         int primary = ContextCompat.getColor(context, R.color.night_primary);
         setThumbTintList(ColorStateList.valueOf(primary));
@@ -54,6 +63,27 @@ public class StepSlider extends Slider {
         addOnChangeListener((slider, value, fromUser) -> {
             if (fromUser && listener != null) listener.onPositionChanged(this, Math.round(value));
         });
+        addOnSliderTouchListener(new OnSliderTouchListener() {
+            @Override
+            public void onStartTrackingTouch(Slider slider) {
+                touching = true;
+                removeCallbacks(hideKeyValue);
+            }
+
+            @Override
+            public void onStopTrackingTouch(Slider slider) {
+                touching = false;
+            }
+        });
+    }
+
+    /**
+     * Floats {@code slider}'s value, in {@code text}, over its thumb while it moves; TalkBack reads the same
+     * text. For the Material sliders that are not a StepSlider.
+     */
+    public static void showValue(Slider slider, IntFunction<String> text) {
+        slider.setLabelBehavior(LabelFormatter.LABEL_FLOATING);
+        slider.setLabelFormatter(value -> text.apply(Math.round(value)));
     }
 
     /** The key step the platform SeekBar picks for a range: 1, or a twentieth of a range wider than 20. */
@@ -97,9 +127,19 @@ public class StepSlider extends Slider {
         this.listener = listener;
     }
 
-    /** What TalkBack reads for a position; the slider shows no label of its own. */
+    /** The text a position floats over the thumb while it moves, and what TalkBack reads for it. */
     public void setPositionText(IntFunction<String> text) {
-        setLabelFormatter(value -> text.apply(Math.round(value)));
+        showValue(this, text);
+    }
+
+    /** For a slider with its value shown large and live right above it: the value does not float over that too. */
+    public void showValueAboveOnly() {
+        setLabelBehavior(LabelFormatter.LABEL_GONE);
+    }
+
+    /** Whether the value floats over the thumb now. */
+    boolean showsValue() {
+        return getActiveThumbIndex() != -1;
     }
 
     @Override
@@ -121,6 +161,10 @@ public class StepSlider extends Slider {
                         return false;
                     }
                     setValue(next);
+                    // The key skips Material's own handling, so the value is shown here.
+                    setActiveThumbIndex(0);
+                    removeCallbacks(hideKeyValue);
+                    postDelayed(hideKeyValue, KEY_VALUE_MS);
                     if (listener != null) listener.onPositionChanged(this, next);
                     return true;
                 default:

@@ -122,6 +122,27 @@ impl PyroWaveDecoder {
     }
 }
 
+/// What draws the window on Linux (Windows always draws with Direct3D 11). `Auto` starts on OpenGL,
+/// where VAAPI pictures arrive zero-copy (`dmabuf`), unless a saved setting needs SDL's "gpu"
+/// renderer, and moves to it when a stream needs it (`handheld::renderer_switch`); `OpenGl` never
+/// leaves OpenGL, so such a stream is refused; `Gpu` draws with the GPU renderer from the start.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Renderer {
+    #[default]
+    Auto,
+    OpenGl,
+    Gpu,
+}
+
+impl Renderer {
+    pub const ALL: [Self; 3] = [Self::Auto, Self::OpenGl, Self::Gpu];
+
+    /// The menu's name; the two renderers are named as their APIs, in every language.
+    pub fn label(self) -> &'static str {
+        match self { Self::Auto => en("Automatic"), Self::OpenGl => "OpenGL", Self::Gpu => "GPU (Vulkan)" }
+    }
+}
+
 /// Frame pacing without VRR, Android's `frame_pacing` (`FramePacingPolicy`): how decoded pictures
 /// wait for the display. `stream::present` applies it; with VRR it does not apply, as on Android.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -323,6 +344,8 @@ pub struct Settings {
     /// PyroWave: reconstruct on the GPU with the PyroWave library (the default, where it measured
     /// better on every leg, docs/pyrowave-decode.md) or on the CPU.
     pub pyrowave_decoder: PyroWaveDecoder,
+    /// What draws the window on Linux ([`Renderer`]); for the whole app, not a PC's or a profile's.
+    pub renderer: Renderer,
     pub microphone: bool,
     /// Echo cancellation on the microphone (`stream::microphone`), automatic by default.
     pub mic_echo_cancel: MicEcho,
@@ -784,6 +807,7 @@ impl Default for Settings {
             beam_race: false,
             beam_race_margin_ms: 0,
             pyrowave_decoder: PyroWaveDecoder::default(),
+            renderer: Renderer::Auto,
             microphone: false,
             mic_echo_cancel: MicEcho::Auto,
             cursor_shapes: true,
@@ -829,8 +853,33 @@ impl Settings {
     /// "gpu" renderer runs the shader passes (packed full chroma, HDR, PyroWave, upscaling, and
     /// the plane pass that 4:4:4 and 10-bit pictures need).
     pub fn needs_gpu(&self) -> bool {
-        self.experimental_packed_444 || self.hdr || self.codec.is_pyrowave() || self.upscaling != Upscaling::Bilinear
-            || self.prefer_yuv444 || self.sdr_10bit
+        self.gpu_need().is_some()
+    }
+
+    /// What in these settings needs the GPU renderer, for the log of a renderer switch; HDR comes
+    /// last, so "HDR" means nothing else does.
+    pub fn gpu_need(&self) -> Option<&'static str> {
+        [
+            (self.experimental_packed_444, "packed full chroma"),
+            (self.codec.is_pyrowave(), "PyroWave"),
+            (self.upscaling != Upscaling::Bilinear, "upscaling"),
+            (self.prefer_yuv444, "4:4:4"),
+            (self.sdr_10bit, "10-bit SDR"),
+            (self.hdr, en("HDR")),
+        ]
+        .into_iter()
+        .find_map(|(on, why)| on.then_some(why))
+    }
+}
+
+/// The settings page's name for what [`Settings::gpu_need`] found, for a refusal to translate.
+pub fn gpu_need_label(need: &'static str) -> &'static str {
+    match need {
+        "packed full chroma" => en("Full chroma"),
+        "upscaling" => en("Upscaling"),
+        "4:4:4" => en("Sharper colored text (YUV 4:4:4)"),
+        "10-bit SDR" => en("Less color banding (10-bit SDR)"),
+        other => other,
     }
 }
 
@@ -2047,6 +2096,32 @@ mod tests {
         assert!(!overrides.needs_gpu());
         overrides.0.insert("sdr_10bit".into(), serde_json::json!(true));
         assert!(overrides.needs_gpu());
+    }
+
+    #[test]
+    fn the_renderer_choice_defaults_to_auto_and_reads_from_the_file() {
+        assert_eq!(Settings::default().renderer, Renderer::Auto);
+        let old: Settings = serde_json::from_str("{\"fps\": 90}").unwrap();
+        assert_eq!(old.renderer, Renderer::Auto, "an older file gets the default");
+        for choice in Renderer::ALL {
+            let saved = serde_json::to_string(&Settings { renderer: choice, ..Settings::default() }).unwrap();
+            assert_eq!(serde_json::from_str::<Settings>(&saved).unwrap().renderer, choice);
+        }
+        let gpu: Settings = serde_json::from_str("{\"renderer\": \"Gpu\"}").unwrap();
+        assert_eq!(gpu.renderer, Renderer::Gpu);
+        let opengl: Settings = serde_json::from_str("{\"renderer\": \"OpenGl\"}").unwrap();
+        assert_eq!(opengl.renderer, Renderer::OpenGl);
+    }
+
+    #[test]
+    fn the_gpu_need_names_hdr_only_when_nothing_else_needs_the_renderer() {
+        assert_eq!(Settings::default().gpu_need(), None);
+        let mut settings = Settings { hdr: true, ..Settings::default() };
+        assert_eq!(settings.gpu_need(), Some("HDR"));
+        settings.upscaling = Upscaling::Fsr1;
+        assert_eq!(settings.gpu_need(), Some("upscaling"), "a stream that needs the renderer even in SDR");
+        settings.codec = CodecPreference::PyroWave;
+        assert_eq!(settings.gpu_need(), Some("PyroWave"));
     }
 
     #[test]

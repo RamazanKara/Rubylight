@@ -85,7 +85,7 @@
             android:stepSize="5"
             android:valueFrom="10"
             android:valueTo="100"
-            app:labelBehavior="gone"
+            app:labelBehavior="floating"
             app:tickVisible="false"
             app:thumbColor="@color/night_primary"
             app:trackColorActive="@color/night_primary"

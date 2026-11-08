@@ -31,7 +31,7 @@ pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
         &["input_only_any_host"], &["check_updates"]],
     &[&["experimental_packed_444"], &["link_probe"]],
     &[&["error_correction"], &["client_hint_bitrate"], &["tell_host_wireless"], &["tell_host_link_speed"],
-        &["network_priority"], &["unbatched_input"], &["full_range"], &["decoder"], &["cursor_shapes"]],
+        &["network_priority"], &["unbatched_input"], &["full_range"], &["decoder"], &["renderer"], &["cursor_shapes"]],
 ];
 
 /// The Resolution menu after Native: Android's 16:9 sizes with common PC and laptop ones, then
@@ -591,7 +591,7 @@ impl Launcher {
                 setting_row(ui, s, &mut rows, &["bitrate_kbps"], "Bitrate",
                     note,
                     |ui, s| {
-                        let r = log_slider(ui, &mut mbps, 0.5..=2000.0, 0.5,
+                        let r = log_slider(ui, &mut mbps, 0.5..=2000.0, 0.5, mbps_text,
                             |rail| rail.logarithmic(true).step_by(0.5),
                             |field| field.suffix(" Mbps").max_decimals(1).speed(0.5));
                         if r.changed() {
@@ -617,7 +617,7 @@ impl Launcher {
                 probe.and_then(Result::err)
             };
             let gpu_decoder_error = if s.codec.is_pyrowave() { gpu_probe(ui) } else { None };
-            setting_row(ui, s, &mut rows, &["codec"], "Codec", "How the video is compressed. Automatic suits most setups: it picks HEVC, then H.264. PyroWave needs a very high bitrate and GPU rendering; on Linux, restart Nightjar after choosing it.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["codec"], "Codec", "How the video is compressed. Automatic suits most setups: it picks HEVC, then H.264. PyroWave needs a very high bitrate and GPU rendering.", |ui, s| {
                 Combo::from_id_salt("codec")
                     .selected_text(codec_name(s.codec))
                     .show_ui(ui, |ui| {
@@ -656,7 +656,7 @@ impl Launcher {
             let upscaling_help = if s.upscaling == crate::config::Upscaling::Ai {
                 en("Uses the graphics card's AI video upscaling, for SDR and HDR. On NVIDIA with an HDR screen it also turns SDR streams into HDR. Uses more GPU power.")
             } else {
-                en("How a stream smaller than the window is enlarged. FSR 1 and SGSR 1 look sharper than Bilinear; HDR always uses Bilinear. On Linux, restart Nightjar after turning it on.")
+                en("How a stream smaller than the window is enlarged. FSR 1 and SGSR 1 look sharper than Bilinear; HDR always uses Bilinear.")
             };
             setting_row(ui, s, &mut rows, &["upscaling"], "Upscaling", upscaling_help, |ui, s| {
                 Combo::from_id_salt("upscaling").selected_text(tr(s.upscaling.label())).show_ui(ui, |ui| {
@@ -674,15 +674,15 @@ impl Launcher {
             });
             if s.upscaling.is_shader() {
                 setting_row(ui, s, &mut rows, &["upscale_sharpness"], "Sharpness", "How much extra sharpening the upscaler adds.", |ui, s| {
-                    slider(ui, &mut s.upscale_sharpness, 0..=100, 5.0, |rail| rail, |field| field.suffix("%"))
+                    slider(ui, &mut s.upscale_sharpness, 0..=100, 5.0, percent, |rail| rail, |field| field.suffix("%"))
                 });
             }
             rows.when(!s.codec.is_pyrowave() && !s.experimental_packed_444, en("Not used with PyroWave or Full chroma."));
             setting_row(ui, s, &mut rows, &["prefer_yuv444"], "Sharper colored text (YUV 4:4:4)",
-                "Keeps full color detail, so colored text and thin lines stay crisp, when the PC and this device support it. HDR takes priority. On Linux, restart Nightjar after changing this.",
+                "Keeps full color detail, so colored text and thin lines stay crisp, when the PC and this device support it. HDR takes priority.",
                 |ui, s| toggle(ui, &mut s.prefer_yuv444));
             setting_row(ui, s, &mut rows, &["sdr_10bit"], "Less color banding (10-bit SDR)",
-                "Streams non-HDR video in 10-bit HEVC or AV1, so gradients show fewer bands. Needs a 10-bit (Main10) decoder on this device, and the PC's display in SDR. On Linux, restart Nightjar after changing this.",
+                "Streams non-HDR video in 10-bit HEVC or AV1, so gradients show fewer bands. Needs a 10-bit (Main10) decoder on this device, and the PC's display in SDR.",
                 |ui, s| toggle(ui, &mut s.sdr_10bit));
             rows.always();
             let decoder_note = match &gpu_decoder_error {
@@ -738,7 +738,7 @@ impl Launcher {
                     }).response
             });
             setting_row(ui, s, &mut rows, &["virtual_display_scale"], "PC render resolution", "The size the PC renders at, as a percent of the stream resolution. The video it sends keeps its size. To send fewer pixels and upscale here, lower Resolution instead.", |ui, s| {
-                slider(ui, &mut s.virtual_display_scale, crate::config::RENDER_SCALE, 5.0, |rail| rail.step_by(5.0), |field| field.suffix("%"))
+                slider(ui, &mut s.virtual_display_scale, crate::config::RENDER_SCALE, 5.0, percent, |rail| rail.step_by(5.0), |field| field.suffix("%"))
             });
             // A PC's own settings offer it only if its host reads rlDisplayScale (DisplayScale).
             let dpi_gate = display_scale_gate(test_host.and_then(|h| h.info.as_ref())
@@ -854,7 +854,7 @@ impl Launcher {
                 "Alt+Tab, the Windows key and similar go to the PC while input is captured.",
                 |ui, s| toggle(ui, &mut s.capture_system_keys),
             );
-            setting_row(ui, s, &mut rows, &["mouse_speed"], "Mouse speed", "How fast the captured pointer moves.", |ui, s| slider(ui, &mut s.mouse_speed, 25..=400, 5.0, |rail| rail, |field| field.suffix("%")));
+            setting_row(ui, s, &mut rows, &["mouse_speed"], "Mouse speed", "How fast the captured pointer moves.", |ui, s| slider(ui, &mut s.mouse_speed, 25..=400, 5.0, percent, |rail| rail, |field| field.suffix("%")));
             setting_row(ui, s, &mut rows, &["mouse_nav_buttons"], "Mouse navigation buttons", "Sends the mouse's Back and Forward buttons to the PC.", |ui, s| toggle(ui, &mut s.mouse_nav_buttons));
             if cfg!(windows) {
                 setting_row(ui, s, &mut rows, &["native_touchpad"], "Touchpad gestures on the PC", "Sends your touchpad's fingers to a PC that accepts them, so its gestures work there. Other PCs get a normal pointer.", |ui, s| toggle(ui, &mut s.native_touchpad));
@@ -1132,7 +1132,7 @@ impl Launcher {
 
             rows.section(en("Advanced"));
             rows.when(!s.codec.is_pyrowave(), en("Not used with PyroWave."));
-            setting_row(ui, s, &mut rows, &["experimental_packed_444"], "Full chroma", "Sharp colored text through HEVC or AV1, when the PC has its Full chroma option on. On Linux, restart Nightjar after changing this.",
+            setting_row(ui, s, &mut rows, &["experimental_packed_444"], "Full chroma", "Sharp colored text through HEVC or AV1, when the PC has its Full chroma option on.",
                 |ui, s| toggle(ui, &mut s.experimental_packed_444));
             rows.always();
             setting_row(ui, s, &mut rows, &["link_probe"], "Test the link before starting", "A new stream at the automatic bitrate first measures the connection to the PC and starts no higher than it holds. Works with PCs that support it.", |ui, s| {
@@ -1183,6 +1183,19 @@ impl Launcher {
                     .response
             });
             rows.always();
+            // Linux only (Windows draws with Direct3D 11), and for the whole app, not a PC or a profile.
+            if cfg!(unix) && !layered {
+                setting_row(ui, s, &mut rows, &["renderer"], "Renderer", "What draws this window. Automatic starts on OpenGL and moves to the GPU renderer when a stream needs it.", |ui, s| {
+                    Combo::from_id_salt("renderer")
+                        .selected_text(tr(s.renderer.label()))
+                        .show_ui(ui, |ui| {
+                            for choice in crate::config::Renderer::ALL {
+                                ui.selectable_value(&mut s.renderer, choice, tr(choice.label()));
+                            }
+                        })
+                        .response
+                });
+            }
             setting_row(ui, s, &mut rows, &["cursor_shapes"], "Local cursor", "In desktop pointer mode, draws the PC's cursor here so it moves without video delay. Works with PCs that send their cursor.", |ui, s| {
                 toggle(ui, &mut s.cursor_shapes)
             });
@@ -1389,6 +1402,7 @@ pub(super) fn value_text(key: &str, s: &Settings, display: &Display, style: crat
         "upscaling" => tr(s.upscaling.label()).to_owned(),
         "upscale_sharpness" => format!("{}%", s.upscale_sharpness),
         "decoder" => decoder_name(s.decoder).to_owned(),
+        "renderer" => tr(s.renderer.label()).to_owned(),
         "pyrowave_decoder" => tr(s.pyrowave_decoder.label()).to_owned(),
         "window_mode" => window_name(s.window_mode).to_owned(),
         "video_scaling" => tr(s.video_scaling.label()).to_owned(),

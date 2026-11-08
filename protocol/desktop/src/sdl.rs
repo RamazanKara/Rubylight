@@ -199,7 +199,7 @@ pub fn hdr_available(renderer: *mut SDL_Renderer) -> bool {
 }
 
 /// The renderer's swapchain is an HDR one, whatever the window's HDR state is right now.
-fn swapchain_takes_hdr(renderer: *mut SDL_Renderer) -> bool {
+pub fn swapchain_takes_hdr(renderer: *mut SDL_Renderer) -> bool {
     // SAFETY: The renderer and its associated window/device are live.
     unsafe {
         let props = SDL_GetRendererProperties(renderer);
@@ -210,7 +210,7 @@ fn swapchain_takes_hdr(renderer: *mut SDL_Renderer) -> bool {
         )
         .cast();
         if device.is_null() {
-            return true;
+            return crate::handheld::renderer_takes_hdr(cfg!(windows), false, false);
         }
         let window = SDL_GetRenderWindow(renderer);
         let format = SDL_GetGPUSwapchainTextureFormat(device, window);
@@ -244,7 +244,7 @@ fn offered(renderer: *mut SDL_Renderer) -> crate::handheld::Offered {
 /// A display of the compositor has HDR on, by what has arrived so far: a Wayland compositor answers
 /// SDL about its outputs in its own time, so this takes what is waiting first. A compositor with
 /// only frog colour management tells a window, never SDL about a display: this stays false there.
-fn any_display_hdr() -> bool {
+pub fn any_display_hdr() -> bool {
     // SAFETY: SDL's video is initialized on this thread; the list is SDL's copy, freed here.
     unsafe {
         SDL_PumpEvents();
@@ -543,6 +543,7 @@ pub fn create_renderer_with(window: *mut SDL_Window, gpu: bool, vulkan_video: bo
 /// When the devices lack what is asked for, or the renderer cannot be made with it, it is made as
 /// without either, and the reason is logged.
 pub fn create_renderer_for(window: *mut SDL_Window, gpu: bool, pyrowave: bool, vulkan_video: bool) -> *mut SDL_Renderer {
+    *GPU_FAILURE.lock().unwrap_or_else(|e| e.into_inner()) = None;
     #[cfg(unix)]
     if gpu && (pyrowave || vulkan_video) {
         use crate::stream::pyrowave_sdk::zero_copy;
@@ -566,6 +567,15 @@ pub fn create_renderer_for(window: *mut SDL_Window, gpu: bool, pyrowave: bool, v
     }
     let _ = (pyrowave, vulkan_video);
     make_renderer(window, gpu, std::ptr::null_mut(), false)
+}
+
+/// Why the last GPU renderer asked for could not be made, when [`create_renderer_for`] made
+/// another kind instead (or none).
+static GPU_FAILURE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+#[cfg_attr(windows, allow(dead_code))]
+pub fn gpu_renderer_failure() -> Option<String> {
+    GPU_FAILURE.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 /// `window` must be live and `vulkan` null or valid for the call. With `vulkan`, a GPU renderer
@@ -619,8 +629,18 @@ fn make_renderer(window: *mut SDL_Window, gpu: bool, vulkan: *mut SDL_GPUVulkanO
             renderer = SDL_CreateRendererWithProperties(props);
         }
         if renderer.is_null() && !cfg!(windows) && gpu && vulkan.is_null() {
+            let why = error();
             SDL_ClearProperty(props, SDL_PROP_RENDERER_CREATE_NAME_STRING);
             renderer = SDL_CreateRendererWithProperties(props);
+            if !renderer.is_null() {
+                eprintln!("nightjar: the GPU renderer could not be made ({why}), so Nightjar draws with {:?}: no HDR, PyroWave GPU decoding or shader passes", renderer_name(renderer));
+            }
+            *GPU_FAILURE.lock().unwrap_or_else(|e| e.into_inner()) = Some(why);
+        }
+        // Linux without the GPU renderer: no `hdr_output` decision, so an HDR stream's refusal
+        // names the renderer instead of the compositor.
+        if !cfg!(windows) && !renderer.is_null() && renderer_name(renderer) != "gpu" {
+            *OUTPUT.lock().unwrap_or_else(|e| e.into_inner()) = Some(Err(crate::handheld::SdrReason::NoGpuRenderer));
         }
         SDL_DestroyProperties(props);
         renderer

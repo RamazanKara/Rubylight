@@ -231,6 +231,27 @@ impl Gui {
         }
     }
 
+    /// Frees everything made on the renderer, which is about to go. egui keeps no images, so the
+    /// textures' owners make theirs again after [`Self::renderer_changed`].
+    #[cfg_attr(windows, allow(dead_code))]
+    pub fn release_renderer(&mut self) {
+        self.chain.release();
+        for (_, texture) in self.textures.drain() {
+            // SAFETY: textures we created, on the renderer still alive.
+            unsafe { SDL_DestroyTexture(texture) };
+        }
+    }
+
+    /// A new renderer: egui sends the font atlas whole on the next frame ([`resend_fonts`]), and
+    /// the next frame is drawn whole, glass tried and measured again on it, as at start.
+    #[cfg_attr(windows, allow(dead_code))]
+    pub fn renderer_changed(&mut self) {
+        resend_fonts(&self.ctx);
+        self.glass.renderer_changed();
+        self.on_screen = None;
+        self.repaint_delay = Duration::ZERO;
+    }
+
     /// The display's refresh rate: live glass has to fit its frame.
     pub fn set_refresh(&mut self, hz: f32) {
         self.glass.set_refresh(hz);
@@ -603,6 +624,13 @@ impl Gui {
     }
 }
 
+/// Makes egui build its fonts again, so the next frame sends the font atlas whole instead of only
+/// the glyphs added since. Nightjar installs no glyph rasterizers: setting none changes nothing else.
+#[cfg_attr(windows, allow(dead_code))]
+fn resend_fonts(ctx: &egui::Context) {
+    ctx.set_glyph_rasterizers(Vec::new());
+}
+
 /// A frame's meshes on the renderer that shows the video.
 struct SdlStage<'a> {
     renderer: *mut SDL_Renderer,
@@ -705,6 +733,28 @@ impl Stage for SdlStage<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A renderer made again (Linux's switch to the GPU renderer) gets the font atlas whole: no
+    /// copy of it is kept, egui sends it again.
+    #[test]
+    fn a_new_renderer_gets_the_font_atlas_whole() {
+        let ctx = egui::Context::default();
+        let frame = |ctx: &egui::Context| {
+            ctx.run_ui(egui::RawInput::default(), |ui| {
+                ui.label("Nightjar");
+            })
+            .textures_delta
+        };
+        let font = |mut delta: egui::TexturesDelta| {
+            let pos = delta.set.get(&TextureId::default()).and_then(|d| d.first()).map(|d| d.pos);
+            delta.clear();
+            pos
+        };
+        assert_eq!(font(frame(&ctx)), Some(None), "the first frame sends it whole");
+        assert_eq!(font(frame(&ctx)), None, "then only what changes");
+        resend_fonts(&ctx);
+        assert_eq!(font(frame(&ctx)), Some(None), "and whole again after a renderer change");
+    }
 
     #[test]
     fn the_keys_the_launcher_listens_for_reach_egui() {

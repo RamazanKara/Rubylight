@@ -121,6 +121,8 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         stream.initializeSurface(false);
         stream.getHolder().addCallback(this);
         overlay = findViewById(R.id.performanceOverlay);
+        com.limelight.ui.StreamGlass.dressHud(findViewById(R.id.performanceOverlayScroll), findViewById(R.id.streamMenuHint),
+                findViewById(R.id.notificationOverlay));
         findViewById(R.id.performanceOverlayScroll).setVisibility(View.VISIBLE);
         placeOverlay();
         overlay.setOnLongClickListener(view -> {
@@ -165,7 +167,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
                 android.util.Log.i("DemoGameControls", "gamepad " + Integer.toHexString(buttons) + " " + leftX + "," + leftY +
                         " " + rightX + "," + rightY + " " + (leftTrigger & 0xFF) + "," + (rightTrigger & 0xFF));
             }
-        }, () -> menu == null, android.app.Dialog::show);
+        }, () -> menu == null, com.limelight.ui.StreamGlass::show);
         gameControls.setStreamTouchListener((view, event) -> {
             if (event.getActionMasked() == android.view.MotionEvent.ACTION_UP) {
                 view.performClick();
@@ -262,9 +264,15 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
 
     @Override public void onPerfUpdate(String video, String network, String decode, CharSequence statisticsText,
                                        CharSequence compactText) {
-        overlay.setText(PerformanceOverlay.MODE_DEBUG.equals(mode) ? PerformanceOverlay.withHardwareMetrics(this,
+        boolean compact = PerformanceOverlay.MODE_COMPACT.equals(mode);
+        CharSequence text = PerformanceOverlay.MODE_DEBUG.equals(mode) ? PerformanceOverlay.withHardwareMetrics(this,
                 PerformanceOverlay.debugText(this, video, network, decode), DemoMetrics.hardware(tick), true) :
-                PerformanceOverlay.MODE_STATISTICS.equals(mode) ? statisticsText : compactText);
+                PerformanceOverlay.MODE_STATISTICS.equals(mode) ? statisticsText : compactText;
+        // Fitted as a stream fits it where nothing can scroll it (a TV).
+        boolean canScroll = getPackageManager().hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
+                && !getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK);
+        com.limelight.ui.OverlayFit.show(overlay, findViewById(R.id.performanceOverlayColumn2), findViewById(R.id.performanceOverlayScroll),
+                text, compact ? 13 : PerformanceOverlay.MODE_DEBUG.equals(mode) ? 11 : 12, !compact, canScroll);
         overlay.setContentDescription(PerformanceOverlay.MODE_COMPACT.equals(mode) ?
                 PerformanceOverlay.describeCompact(this, compactText) : null);
     }

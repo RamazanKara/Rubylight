@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_submit_hint">Kare aktarımını hızlandır</string>
+    <string name="summary_submit_hint">Performans ipuçları, kareleri kod çözücüye aktaran iş parçacığını da kapsar.</string>
+    <string name="title_covering_decoder_size">Kod çözücüyü katlamaya hazırla</string>
+    <string name="summary_covering_decoder_size">Kod çözücüyü diğer ekran ve döndürme için baştan boyutlandırır; katlama veya döndürme yeniden başlatma gerektirmez.</string>
+    <string name="title_pyrowave_preacquire">PyroWave: erken ekran görüntüsü</string>
+    <string name="summary_pyrowave_preacquire">Kare zamanlama kapalıyken her PyroWave karesi gelmeden önce sonraki ekran görüntüsünü alır.</string>
+    <string name="title_codec_direct">Video verisi doğrudan kod çözücüye</string>
+    <string name="summary_codec_direct">Her kareyi ara kopya olmadan kod çözücüye tek kez kopyalar. Yalnızca yeni yayın motoruyla.</string>
+    <string name="title_receive_decode_priority">Alımda kod çözücü önceliği</string>
+    <string name="summary_receive_decode_priority">Yeni yayın motoru: videoyu alıp kod çözücüye veren iş parçacığı kod çözücünün önceliğiyle çalışır.</string>
+</resources>

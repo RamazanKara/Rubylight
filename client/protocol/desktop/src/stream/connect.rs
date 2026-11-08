@@ -448,11 +448,12 @@ pub(super) fn env_flag(name: &str) -> Option<bool> {
 }
 
 /// Whether a backend recovers from a lost frame with reference frame invalidation: D3D11VA, VAAPI
-/// and software, as moonlight-qt asks, and Vulkan video with `NIGHTJAR_VULKAN_RFI=1` (off until
-/// measured). V4L2 M2M and NVDEC do not ask.
+/// and software, as moonlight-qt asks, and Vulkan video with the Debug setting "Vulkan video
+/// recovery" (off until measured; `NIGHTJAR_VULKAN_RFI` wins over it). V4L2 M2M and NVDEC do not ask.
 pub(super) fn takes_rfi(backend: Hardware) -> bool {
-    static VULKAN_RFI: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    takes_rfi_when(backend, *VULKAN_RFI.get_or_init(|| env_flag("NIGHTJAR_VULKAN_RFI").unwrap_or(false)))
+    static VULKAN_RFI: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
+    takes_rfi_when(backend, VULKAN_RFI.get_or_init(|| env_flag("NIGHTJAR_VULKAN_RFI"))
+        .unwrap_or_else(crate::media::vulkan_rfi_setting))
 }
 
 /// `takes_rfi`, with Vulkan video taking it when `vulkan` says so.
@@ -464,9 +465,10 @@ fn takes_rfi_when(backend: Hardware, vulkan: bool) -> bool {
 /// when every backend that decodes the family here takes it (`base`, from
 /// `color_probe::probe_base`; H.264 never, as moonlight-qt): a lost frame then recovers with an
 /// invalidation and the next inter frame (~47 KB) instead of a key frame (~204 KB) and the wait
-/// for it. Software decoding (`software`) asks for `min(4, cores)` slices per frame, which its
-/// slice threads decode in parallel. `rfi` and `slices` are `NIGHTJAR_DESKTOP_RFI` and
-/// `NIGHTJAR_DESKTOP_SLICES`, on unless 0, for A/B runs.
+/// for it. Software decoding (`software`) with `slices` asks for `min(4, cores)` slices per frame,
+/// which its slice threads decode in parallel. `rfi` is `NIGHTJAR_DESKTOP_RFI`, on unless 0;
+/// `slices` the Debug setting "Slices for software decoding" (off: it measured worse), which
+/// `NIGHTJAR_DESKTOP_SLICES` overrides for A/B runs.
 pub(super) fn video_capabilities(base: &color_probe::Base, software: bool, rfi: bool, slices: bool, cores: usize) -> u32 {
     let family = |mask: u32| {
         let mut backends = base.backends.iter().filter(|&&(format, _)| format & mask != 0).peekable();
@@ -605,6 +607,8 @@ pub(super) fn session_config(settings: &Settings, role: AppRole, stream: StreamC
         remote_monitor: role == AppRole::RemoteMonitor,
         unbatched_input: settings.unbatched_input,
         network_priority: settings.network_priority,
+        // On for the desktop; NIGHTJAR_DECODE_PRIORITY=0 turns it off for A/B runs.
+        receive_decode_priority: true,
         roaming: roaming_config(settings, watching),
     }
 }
@@ -948,7 +952,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
     iv[..4].copy_from_slice(&ri_key_id.to_be_bytes());
     let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
     let video_capabilities = video_capabilities(&plan.base_decodable, plan.hardware == Hardware::None,
-        env_flag("NIGHTJAR_DESKTOP_RFI").unwrap_or(true), env_flag("NIGHTJAR_DESKTOP_SLICES").unwrap_or(true), cores);
+        env_flag("NIGHTJAR_DESKTOP_RFI").unwrap_or(true), env_flag("NIGHTJAR_DESKTOP_SLICES").unwrap_or(settings.software_slices), cores);
     eprintln!("nightjar: decoder capabilities {video_capabilities:#x} (reference frame invalidation: HEVC {}, AV1 {}; slices {})",
         video_capabilities & CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC != 0, video_capabilities & CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1 != 0,
         (video_capabilities >> 24).max(1));
@@ -1140,9 +1144,10 @@ mod capability_tests {
         assert_eq!(video_capabilities(&all(Hardware::Vaapi), false, false, true, 16), 0);
     }
 
-    /// Vulkan video's reference frame invalidation is an A/B switch, off by default.
+    /// Vulkan video's reference frame invalidation is a Debug setting, off by default.
     #[test]
     fn vulkan_video_takes_rfi_only_when_switched_on() {
+        assert!(!crate::config::Settings::default().vulkan_rfi);
         let device = std::ptr::dangling_mut::<std::ffi::c_void>();
         assert!(!takes_rfi_when(Hardware::Vulkan(device), false));
         assert!(takes_rfi_when(Hardware::Vulkan(device), true));
@@ -1161,7 +1166,8 @@ mod capability_tests {
         assert_eq!(video_capabilities(&software, true, true, true, 16), rfi | capability_slices_per_frame(4));
         assert_eq!(video_capabilities(&software, true, true, true, 2), rfi | capability_slices_per_frame(2));
         assert_eq!(video_capabilities(&software, true, true, true, 0) >> 24, 1);
-        // NIGHTJAR_DESKTOP_SLICES=0.
+        // "Slices for software decoding" off, the default (it measured worse).
+        assert!(!crate::config::Settings::default().software_slices);
         assert_eq!(video_capabilities(&software, true, true, false, 16), rfi);
     }
 }

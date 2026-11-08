@@ -58,8 +58,8 @@ public class MediaCodecCoveringMaxTest {
                 MediaCodecDecoderRenderer.upFrontMax(3840, 2160, new int[] {4320, 4320}, 2, 2, ANY, false));
     }
 
-    // initializeDecoder needs a real codec ladder, so this pins the wiring: off unless
-    // debug.nightjar.covering_max is 1, only decoders with adaptive playback get the covering, and
+    // initializeDecoder needs a real codec ladder, so this pins the wiring: the Debug setting (off by
+    // default, SettingsKeysTest), which debug.nightjar.covering_max overrides; only decoders with adaptive playback get the covering, and
     // it stays through the low-latency ladder (no extra cycle for a decoder that takes a later
     // try); only when every try failed does the ladder run again at the stream's own maximum.
     @Test
@@ -67,7 +67,8 @@ public class MediaCodecCoveringMaxTest {
         String source = new String(Files.readAllBytes(
                 Paths.get("src/main/java/com/limelight/binding/video/MediaCodecDecoderRenderer.java")), StandardCharsets.UTF_8);
         assertEquals("covering_max", MediaCodecDecoderRenderer.COVERING_SWITCH);
-        assertTrue("off by default", source.contains("MediaCodecHelper.debugSwitch(COVERING_SWITCH, false)"));
+        assertTrue("the setting, which the property overrides",
+                source.contains("MediaCodecHelper.debugSwitch(COVERING_SWITCH, prefs.coveringDecoderSize)"));
         assertTrue(source.contains("if (adaptivePlayback && coveringSize != null && !coveringRefused"));
         assertTrue("a try with the covering never throws",
                 source.contains("throwOnCodecError && !dolbyVision && !coveringApplied)"));

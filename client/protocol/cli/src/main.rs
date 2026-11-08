@@ -973,6 +973,7 @@ fn run() -> i32 {
         SessionConfig {
             stream,
             location: Location::Local,
+            receive_decode_priority: true,
             ..Default::default()
         },
         Box::new(Decoder {

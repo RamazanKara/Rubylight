@@ -133,6 +133,9 @@ pub struct StartParams {
     pub config: SessionConfig,
     /// PyroWave records go to the decoder while the frame arrives (`Video::wants_early_chunks`).
     pub early_records: bool,
+    /// "Video data straight to the decoder": MediaCodec frames go to Java in place
+    /// ([`crate::renderers::Video`]), unless `debug.nightjar.codec_direct` says otherwise.
+    pub codec_direct: bool,
 }
 
 /// Builds the stream as `callbacks.c` fills STREAM_CONFIGURATION.
@@ -209,7 +212,11 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
     let session = match Session::start(
         &params.host,
         params.config,
-        Box::new(Video::new(bridge, params.early_records)),
+        Box::new(Video::new(
+            bridge,
+            params.early_records,
+            params.codec_direct,
+        )),
         Box::new(Audio::new(bridge, audio_passthrough)),
         events.clone(),
         &interrupt,

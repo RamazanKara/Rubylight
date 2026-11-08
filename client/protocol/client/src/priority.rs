@@ -23,8 +23,10 @@
 //!   to `THREAD_PRIORITY_HIGHEST`, the others to `THREAD_PRIORITY_ABOVE_NORMAL`.
 //! - A Linux process that may not lower its nice value (Flatpak, an unprivileged desktop) asks
 //!   the desktop portal and then RealtimeKit over D-Bus instead ([`raise_current_thread`]).
-//! - The decode priority switch ([`decode_priority_switch`], default on) turns the direct
-//!   submission level and everything Windows does off, for A/B runs.
+//! - The decode priority switch ([`decode_priority_switch`]) turns the direct submission level
+//!   and everything Windows does off. On for the desktop; on Android the Debug setting "Decoder
+//!   priority for receiving", off by default: raising VideoRecv to the decode level measured
+//!   worse under load on the Retroid. Its environment variable or property wins, for A/B runs.
 //!
 //! The option is a plain argument, never process-global state, so two sessions in one
 //! process do not affect each other.
@@ -386,10 +388,10 @@ mod qwave {
     }
 }
 
-/// The environment variable that turns the decode priority off on the desktop when set to `0`.
+/// The environment variable that turns the decode priority on (`1`) or off (`0`) on the desktop.
 pub const DECODE_PRIORITY_ENV: &str = "NIGHTJAR_DECODE_PRIORITY";
 /// The Android system property that does the same (`adb shell setprop
-/// debug.nightjar.decode_priority 0`), as the classic engine's `latency.c` reads it.
+/// debug.nightjar.decode_priority 0`); the classic engine's `latency.c` reads it too.
 pub const DECODE_PRIORITY_PROPERTY: &str = "debug.nightjar.decode_priority";
 /// `THREAD_PRIORITY_ABOVE_NORMAL`: the Windows level of [`ThreadLevel::Stream`].
 pub const WINDOWS_STREAM_PRIORITY: i32 = 1;
@@ -455,19 +457,24 @@ fn thread_level_on(
     }
 }
 
-/// The decode priority switch: on unless [`DECODE_PRIORITY_ENV`] (desktop) or
-/// [`DECODE_PRIORITY_PROPERTY`] (Android) is `0`.
-pub fn decode_priority_switch() -> bool {
+/// The decode priority switch: `setting` ([`crate::session::SessionConfig::receive_decode_priority`]:
+/// on for the desktop, Android's Debug setting, off by default) unless [`DECODE_PRIORITY_ENV`]
+/// (desktop) or [`DECODE_PRIORITY_PROPERTY`] (Android) is `1` or `0`.
+pub fn decode_priority_switch(setting: bool) -> bool {
     #[cfg(target_os = "android")]
     let value = android_property(DECODE_PRIORITY_PROPERTY);
     #[cfg(not(target_os = "android"))]
     let value = std::env::var(DECODE_PRIORITY_ENV).ok();
-    switch_on(value.as_deref())
+    switch_on(value.as_deref(), setting)
 }
 
-/// `0` turns a switch off; anything else, or nothing, leaves it on.
-fn switch_on(value: Option<&str>) -> bool {
-    value.map(str::trim) != Some("0")
+/// `1` turns a switch on and `0` off; anything else, or nothing, leaves `setting`.
+fn switch_on(value: Option<&str>, setting: bool) -> bool {
+    match value.map(str::trim) {
+        Some("1") => true,
+        Some("0") => false,
+        _ => setting,
+    }
 }
 
 #[cfg(target_os = "android")]
@@ -1093,12 +1100,16 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn only_zero_turns_the_switch_off() {
-        assert!(switch_on(None));
-        assert!(switch_on(Some("")));
-        assert!(switch_on(Some("1")));
-        assert!(!switch_on(Some("0")));
-        assert!(!switch_on(Some(" 0\n")));
+    fn the_switch_follows_the_setting_unless_set_to_0_or_1() {
+        for setting in [false, true] {
+            assert_eq!(switch_on(None, setting), setting);
+            assert_eq!(switch_on(Some(""), setting), setting);
+            assert_eq!(switch_on(Some("yes"), setting), setting);
+            assert!(switch_on(Some("1"), setting));
+            assert!(switch_on(Some(" 1\n"), setting));
+            assert!(!switch_on(Some("0"), setting));
+            assert!(!switch_on(Some(" 0\n"), setting));
+        }
     }
 
     /// A fake portal or RealtimeKit that records its calls.

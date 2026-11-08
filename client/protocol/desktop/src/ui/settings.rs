@@ -31,7 +31,8 @@ pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
         &["input_only_any_host"], &["check_updates"]],
     &[&["experimental_packed_444"], &["link_probe"]],
     &[&["error_correction"], &["client_hint_bitrate"], &["tell_host_wireless"], &["tell_host_link_speed"],
-        &["network_priority"], &["unbatched_input"], &["full_range"], &["decoder"], &["renderer"], &["cursor_shapes"]],
+        &["network_priority"], &["unbatched_input"], &["full_range"], &["decoder"], &["software_slices"],
+        &["vulkan_video_first"], &["vulkan_rfi"], &["renderer"], &["cursor_shapes"]],
 ];
 
 /// The Resolution menu after Native: Android's 16:9 sizes with common PC and laptop ones, then
@@ -1160,8 +1161,8 @@ impl Launcher {
             setting_row(ui, s, &mut rows, &["tell_host_link_speed"], "Tell the PC the link speed", "Lets the PC limit its sending rate to this device's wired port speed.", |ui, s| {
                 toggle(ui, &mut s.tell_host_link_speed)
             });
-            // The engine sets socket and thread priorities on Linux only; on Windows the switch would do nothing.
-            if cfg!(target_os = "linux") {
+            // The engine sets socket and thread priorities on Linux and thread priorities on Windows.
+            if cfg!(any(target_os = "linux", windows)) {
                 setting_row(ui, s, &mut rows, &["network_priority"], "Prioritize stream traffic", "Gives the stream's network traffic and work priority on this device.", |ui, s| {
                     toggle(ui, &mut s.network_priority)
                 });
@@ -1182,6 +1183,18 @@ impl Launcher {
                     })
                     .response
             });
+            setting_row(ui, s, &mut rows, &["software_slices"], "Slices for software decoding", "Asks the PC to split each frame into parts that the processor decodes in parallel.", |ui, s| {
+                toggle(ui, &mut s.software_slices)
+            });
+            // Vulkan video is Linux's.
+            if cfg!(unix) {
+                setting_row(ui, s, &mut rows, &["vulkan_video_first"], "Vulkan video first", "On the GPU renderer, decodes with Vulkan video before VAAPI.", |ui, s| {
+                    toggle(ui, &mut s.vulkan_video_first)
+                });
+                setting_row(ui, s, &mut rows, &["vulkan_rfi"], "Vulkan video recovery", "With Vulkan video, a lost frame is repaired without waiting for a whole new frame.", |ui, s| {
+                    toggle(ui, &mut s.vulkan_rfi)
+                });
+            }
             rows.always();
             // Linux only (Windows draws with Direct3D 11), and for the whole app, not a PC or a profile.
             if cfg!(unix) && !layered {
@@ -1448,7 +1461,9 @@ pub(super) const MAIN_KEYS: [(&str, &[&str]); 8] = [
     ("streaming", &["checkbox_enable_perf_overlay", "checkbox_auto_reconnect"]),
     ("app", &["checkbox_always_dark", "list_languages", "checkbox_console_home", "checkbox_quick_resume", "pin_lock", "help", "report_problem", "check_updates_now"]),
     ("advanced", &["checkbox_rust_engine", "low_latency_decoding", "low_latency_customize", "gpu_driver", "checkbox_gpu_max_clocks", "checkbox_texture_view", "checkbox_vulkan_render"]),
-    ("debug", &["list_fec_choice", "checkbox_rate_change_bitrate", "checkbox_tell_host_wireless", "checkbox_tell_host_link_speed", "checkbox_network_priority", "checkbox_unbatched_input", "checkbox_full_range"]),
+    ("debug", &["list_fec_choice", "checkbox_rate_change_bitrate", "checkbox_tell_host_wireless", "checkbox_tell_host_link_speed", "checkbox_network_priority", "checkbox_unbatched_input", "checkbox_full_range",
+        "checkbox_submit_hint", "checkbox_covering_decoder_size", "checkbox_pyrowave_preacquire", "checkbox_codec_direct",
+        "checkbox_receive_decode_priority"]),
 ];
 
 /// Desktop rows and the Android preference each one matches. A row is main when its match is.

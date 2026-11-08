@@ -26,9 +26,24 @@
       "expect": "Wake [address] sent"
     },
     {
-      "name": "times look like addresses",
+      "name": "full IPv6",
+      "input": "Connection to 2001:db8:85a3:0:0:8a2e:370:7334 failed",
+      "expect": "Connection to [address] failed"
+    },
+    {
+      "name": "IPv6 with a gap in the middle",
+      "input": "Connection to 2001:db8::8a2e:370:7334 and ::1 failed",
+      "expect": "Connection to [address] and [address] failed"
+    },
+    {
+      "name": "chroma formats are no address",
+      "input": "H.264 4:4:4 is not offered, 4:2:0 is",
+      "expect": "H.264 4:4:4 is not offered, 4:2:0 is"
+    },
+    {
+      "name": "times are no address",
       "input": "Took 00:01:23 to start",
-      "expect": "Took [address] to start"
+      "expect": "Took 00:01:23 to start"
     },
     {
       "name": "URL with credentials",

@@ -539,6 +539,9 @@ pub fn client_for(identity: &Arc<ClientIdentity>, record: &HostRecord, address: 
     let mut client = HostClient::new(address, port, identity.clone())
         .map_err(|e| e.to_string())?
         .with_device_name(device_name());
+    if crate::second_screen::this_process() {
+        client = client.with_second_screen();
+    }
     if record.https_port != 0 {
         client = client.with_https_port(record.https_port);
     }

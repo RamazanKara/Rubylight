@@ -168,7 +168,7 @@ fn handoff(
     {
         Ok(copy) => Some(copy),
         Err(error) => {
-            warnings.set("capture_compute", format!("WGC helper compute copies unavailable ({error:#}); using the graphics queue. Lower game GPU load or update the AMD driver if capture stutters."));
+            warnings.set("capture_compute", format!("WGC helper compute copies unavailable ({error:#}); using the graphics queue. Lower game GPU load or update the graphics driver if capture stutters."));
             None
         }
     }
@@ -500,7 +500,7 @@ impl Session {
             if let Some(copy) = &mut owned.compute
                 && let Err(error) = copy.import_shared(&texture, raw(&handle))
             {
-                warnings.set("capture_compute", format!("WGC shared texture cannot use compute ({error:#}); using the graphics queue. Lower game GPU load or update the AMD driver if capture stutters."));
+                warnings.set("capture_compute", format!("WGC shared texture cannot use compute ({error:#}); using the graphics queue. Lower game GPU load or update the graphics driver if capture stutters."));
                 owned.compute = None;
                 returns = None;
             }
@@ -604,7 +604,7 @@ impl Session {
                 Some(Reply::Alive) => self.last_reply = now,
                 Some(Reply::ComputeFallback { message }) => {
                     self.last_reply = now;
-                    self.owned.warnings.set("capture_helper_compute", format!("WGC helper compute copy failed ({message}); transfer uses the graphics queue. Lower game GPU load or update the AMD driver if capture stutters."));
+                    self.owned.warnings.set("capture_helper_compute", format!("WGC helper compute copy failed ({message}); transfer uses the graphics queue. Lower game GPU load or update the graphics driver if capture stutters."));
                 }
                 Some(Reply::Error {
                     message,

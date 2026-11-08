@@ -2144,6 +2144,64 @@ fn a_d3d12_session_waits_for_the_conversion_on_the_gpu_and_signals_its_fence() -
     Ok(())
 }
 #[test]
+fn a_game_holding_the_gpu_is_left_to_the_sessions_stall_policy() -> Result<()> {
+    // The session recreates a silent encoder after 250 ms, doubling up to
+    // 2 s. NVENC's own deadline at 100 ms came first: game loading on an
+    // RTX 5070 recreated the encoder twice in 12 s.
+    assert!(COMPLETION_TIMEOUT > butterpollo_core::stream_policy::encoder_stall_limit(u32::MAX));
+    reset();
+    let mut encoder = d3d12_session(&Negotiated::default(), ApiVersion(13, 0), "")?;
+    let slot = d3d12_input(&mut encoder, 17)?;
+    encoder.submit(slot, converted(1), true, Instant::now())?;
+    assert_eq!(encoder.poll()?.len(), 1);
+    // The frame's fence is 300 ms late: still waited for, then delivered.
+    state(|d| d.hold_fence = true);
+    encoder.submit(slot, converted(2), false, Instant::now())?;
+    encoder.pending.front_mut().unwrap().submitted = Instant::now() - Duration::from_millis(300);
+    assert!(encoder.poll()?.is_empty());
+    assert_eq!(encoder.pending.len(), 1);
+    state(|d| d.fence = 2);
+    assert_eq!(encoder.poll()?.len(), 1);
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn slice_delivery_on_a_d3d12_session_names_the_conversion_not_the_driver() -> Result<()> {
+    // A D3D12 session's driver reports no subframe readback, and the host
+    // told the user to update the NVIDIA driver.
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("session.log");
+    let file = std::fs::File::create(&path)?;
+    let subscriber = tracing_subscriber::fmt()
+        .without_time()
+        .with_ansi(false)
+        .with_target(false)
+        .with_max_level(tracing::Level::INFO)
+        .with_writer(move || file.try_clone().unwrap())
+        .finish();
+    tracing::subscriber::with_default(subscriber, || -> Result<()> {
+        reset();
+        state(|d| d.no_subframe = true);
+        let encoder = d3d12_session(
+            &Negotiated::default(),
+            ApiVersion(13, 0),
+            "video_slice_delivery = 2\n",
+        )?;
+        assert!(!encoder.subframe);
+        drop(encoder);
+        assert_clean();
+        Ok(())
+    })?;
+    let log = std::fs::read_to_string(path)?;
+    assert!(!log.contains("Update the NVIDIA driver"), "{log}");
+    assert!(
+        log.contains("NVENC on the D3D12 conversion returns whole frames"),
+        "{log}"
+    );
+    Ok(())
+}
+#[test]
 fn the_output_event_is_armed_only_for_an_unwritten_d3d12_frame() -> Result<()> {
     reset();
     let event = crate::timing::Signal::new()?;

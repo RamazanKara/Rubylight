@@ -1045,7 +1045,7 @@ impl Converter {
             conversion_submitted = self.slots.iter().map(|slot| slot.fence).max().unwrap_or(0),
             conversion_completed = completed,
             d3d12_removed = ?removed,
-            "AMF compute progress at stall"
+            "compute conversion progress at stall"
         );
         for (index, target) in self.targets.iter().enumerate() {
             // SAFETY: `target` owns this live fence; the query does not wait.
@@ -1056,7 +1056,7 @@ impl Converter {
                 amf_value = ?crate::amf::gpu::fence_value(&target.fence),
                 completed,
                 owners = Arc::strong_count(&target.texture),
-                "AMF surface fence at stall"
+                "conversion surface fence at stall"
             );
         }
     }

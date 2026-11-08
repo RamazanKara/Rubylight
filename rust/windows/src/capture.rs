@@ -1320,7 +1320,7 @@ impl GpuPool {
                     // D3D11. Waiting for another update can strand a stream on
                     // a static desktop. Consumers see an unshared texture and
                     // rebuild for the graphics queue.
-                    self.warnings.set("capture_compute", format!("Compute capture copy failed ({error:#}); copying on the graphics queue. A busy game can delay capture; lower GPU load or update the AMD driver."));
+                    self.warnings.set("capture_compute", format!("Compute capture copy failed ({error:#}); copying on the graphics queue. A busy game can delay capture; lower GPU load or update the graphics driver."));
                     self.compute = None;
                     self.textures.clear();
                     return self.copy(gpu, source);
@@ -1683,7 +1683,7 @@ impl Capture {
                 {
                     Ok(compute) => duplication.owned.compute = Some(compute),
                     Err(error) => {
-                        warnings.set("capture_compute", format!("Compute capture copies unavailable ({error:#}); copying on the graphics queue. Lower game GPU load or update the AMD driver if capture stutters."))
+                        warnings.set("capture_compute", format!("Compute capture copies unavailable ({error:#}); copying on the graphics queue. Lower game GPU load or update the graphics driver if capture stutters."))
                     }
                 }
             }
@@ -1708,7 +1708,7 @@ impl Capture {
                 {
                     Ok(compute) => capture.owned.compute = Some(compute),
                     Err(error) => {
-                        warnings.set("capture_compute", format!("WGC compute copies unavailable ({error:#}); copying on the graphics queue. Lower game GPU load or update the AMD driver if capture stutters."))
+                        warnings.set("capture_compute", format!("WGC compute copies unavailable ({error:#}); copying on the graphics queue. Lower game GPU load or update the graphics driver if capture stutters."))
                     }
                 }
             }

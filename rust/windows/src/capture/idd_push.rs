@@ -822,7 +822,7 @@ impl Session {
                 .and_then(|compute| crate::compute::Handoff::new(compute, &gpu))
             {
                 Ok(handoff) => pool.compute = Some(handoff),
-                Err(error) => warnings.set("capture_compute", format!("Compute capture copies unavailable ({error:#}); copying on the graphics queue. Lower game GPU load or update the AMD driver if capture stutters.")),
+                Err(error) => warnings.set("capture_compute", format!("Compute capture copies unavailable ({error:#}); copying on the graphics queue. Lower game GPU load or update the graphics driver if capture stutters.")),
             }
         }
         let zero_copy = pool.compute.is_some() && config.boolean("idd_push_zero_copy", true);

@@ -1165,7 +1165,7 @@ impl SessionThread<'_> {
                     if failures >= 2 {
                         tuning.values.insert("gpu_compute_conversion".into(), "false".into());
                         if butterpollo_windows::compute::enabled(&c) {
-                            s.launch.warnings.set("encoder_compute_recovery", "Compute conversion disabled after repeated encoder failures; using the graphics queue for the rest of this session. A busy game can delay frames; lower game GPU load or update the AMD driver, then reconnect to retry compute.");
+                            s.launch.warnings.set("encoder_compute_recovery", "Compute conversion disabled after repeated encoder failures; using the graphics queue for the rest of this session. A busy game can delay frames; lower game GPU load or update the graphics driver, then reconnect to retry compute.");
                         }
                     }
                     progress.mark(crate::stall_watch::Phase::EncoderCreate);

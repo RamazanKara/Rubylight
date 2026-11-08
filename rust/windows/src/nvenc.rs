@@ -54,7 +54,16 @@ use windows::{
 
 const SUCCESS: NVENCSTATUS = _NVENCSTATUS_NV_ENC_SUCCESS;
 const MAX_PENDING: usize = 8;
-const COMPLETION_TIMEOUT: Duration = Duration::from_millis(100);
+/// A frame still unfinished this long after its submission means a hung
+/// driver. A shorter wait belongs to the session's stall policy
+/// (`encoder_stall_limit`: 250 ms, doubling up to 2 s), which waits out a
+/// game holding the GPU instead of recreating the encoder. At 100 ms, game
+/// loading on an RTX 5070 recreated it twice in 12 s: the picture froze
+/// each time and the rest of the session converted on the graphics queue.
+const COMPLETION_TIMEOUT: Duration = Duration::from_secs(3);
+/// How long a synchronous drain (bitrate reset, reference invalidation,
+/// teardown) blocks the stream thread.
+const DRAIN_TIMEOUT: Duration = Duration::from_millis(100);
 const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 /// The smallest VBV a bitrate change or a frame cap sets.
 const MIN_VBV_BITS: u64 = 100_000;
@@ -888,7 +897,9 @@ impl Session {
                 .unwrap_or(1)
                 > 1;
         self.subframe = readback && !splits && self.d3d12.is_none();
-        if readback && self.d3d12.is_some() {
+        // A D3D12 session reports no subframe readback at all, so the reason
+        // is the conversion, not the driver.
+        if tuning.slice_blocks > 0 && self.stream.codec < 2 && self.d3d12.is_some() {
             tracing::info!(
                 blocks = tuning.slice_blocks,
                 "video_slice_delivery is on, but NVENC on the D3D12 conversion returns whole frames; frames leave whole. Set gpu_compute_conversion = false to send slices instead"
@@ -2123,7 +2134,7 @@ impl Session {
         Ok(())
     }
     fn drain(&mut self) -> Result<()> {
-        let deadline = Instant::now() + COMPLETION_TIMEOUT;
+        let deadline = Instant::now() + DRAIN_TIMEOUT;
         while !self.pending.is_empty() {
             self.collect()?;
             if self.pending.is_empty() {

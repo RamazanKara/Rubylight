@@ -44,6 +44,51 @@ param(
     [string] $Out = (Join-Path $PWD "smoke-$(if ($Version) { $Version } else { 'host' }).json")
 )
 $ErrorActionPreference = 'Stop'
+
+# Started over ssh, the script runs in session 0, which has no display: Moonlight can't open a
+# decoder there (D3D9 not available, Vulkan out of device memory) and logs no stats, which
+# failed the 3.11.0 smoke test. Run it again in the signed-in user's desktop session through a
+# one-time Interactive scheduled task, and pass its output and exit code on.
+if ((Get-Process -Id $PID).SessionId -eq 0) {
+    $console = (Get-CimInstance Win32_ComputerSystem).UserName
+    if (-not $console) { throw 'nobody is signed in at the console: the smoke test needs a desktop session' }
+    if (($console -split '\\')[-1] -ne $env:USERNAME) {
+        throw "the console session is ${console}'s: Moonlight needs $env:USERNAME's desktop"
+    }
+    $name = "rubylight-smoke-$PID"
+    $output = Join-Path $env:TEMP "$name.log"
+    $exitFile = Join-Path $env:TEMP "$name.exit"
+    Remove-Item $output, $exitFile -ErrorAction SilentlyContinue
+    $quote = { param($v) "'" + ([string]$v -replace "'", "''") + "'" }
+    $bound = @{} + $PSBoundParameters
+    $bound['Out'] = [IO.Path]::GetFullPath($Out)
+    $forward = foreach ($key in $bound.Keys) {
+        $value = $bound[$key]
+        "-$key " + $(if ($value -is [array]) { ($value | ForEach-Object { & $quote $_ }) -join ',' } else { & $quote $value })
+    }
+    $command = "& $(& $quote $PSCommandPath) $($forward -join ' ') *> $(& $quote $output); " +
+        "Set-Content $(& $quote $exitFile) ([int]`$LASTEXITCODE)"
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+    $action = New-ScheduledTaskAction -Execute "$env:WINDIR\System32\conhost.exe" -WorkingDirectory $PWD `
+        -Argument "--headless `"$((Get-Process -Id $PID).Path)`" -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded"
+    # The console's own account name: over ssh USERDOMAIN may name no account.
+    $principal = New-ScheduledTaskPrincipal -UserId $console -LogonType Interactive
+    Register-ScheduledTask -TaskName $name -Action $action -Principal $principal -Force | Out-Null
+    try {
+        Start-ScheduledTask -TaskName $name
+        Write-Host "running in $env:USERNAME's desktop session (task $name)"
+        $deadline = (Get-Date).AddSeconds($Codecs.Count * ($Seconds + 120) + 120)
+        while (-not (Test-Path $exitFile)) {
+            if ((Get-Date) -gt $deadline) { throw "the smoke test in the desktop session did not finish; see $output" }
+            Start-Sleep -Seconds 5
+        }
+    } finally {
+        Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue
+    }
+    Get-Content $output
+    exit [int](Get-Content $exitFile)
+}
+
 $tag = $Version
 $Version = $Version -replace '^v', ''
 

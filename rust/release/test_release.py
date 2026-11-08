@@ -1692,5 +1692,15 @@ class SmokeDefaults(unittest.TestCase):
         readme = (ROOT / 'rust/release/README.md').read_text(encoding='utf-8')
         self.assertIn('for %s seconds per codec' % default('Seconds'), readme)
 
+    def test_a_run_over_ssh_moves_to_the_desktop_session(self):
+        # 3.11.0: started over ssh, Moonlight ran in session 0 and could not open a decoder.
+        script = (ROOT / 'rust/release/smoke.ps1').read_text(encoding='utf-8')
+        relaunch = script.index('(Get-Process -Id $PID).SessionId -eq 0')
+        self.assertLess(relaunch, script.index('Start-Process $Moonlight'))
+        block = script[relaunch:script.index('$tag = $Version')]
+        self.assertIn('-LogonType Interactive', block)
+        self.assertIn('Unregister-ScheduledTask', block)
+        self.assertIn('exit [int](Get-Content $exitFile)', block)
+
 if __name__ == '__main__':
     unittest.main()

@@ -38,6 +38,10 @@ final class GameAdaptation {
     // Claims of the host's encoder bitrate that failed in a row. Some hosts report 0 for good.
     private static final int MAX_BITRATE_CLAIM_FAILURES = 6;
     private int adaptiveBitrateClaimFailures;
+    // Automatic quality chosen in the second screen's stream menu, which its process does not save
+    // (DualScreen.saveSettings): it holds for that stream only. Null choice: the settings' mode.
+    private boolean qualityChosenHere;
+    private String qualityChoice;
     // A Foundation Sunshine PC's own bitrate controller, on in place of this device's.
     private com.limelight.nvstream.http.FoundationAbr foundationAbr;
 
@@ -553,8 +557,9 @@ final class GameAdaptation {
     }
 
     AdaptiveQualityController.Mode qualityMode() {
-        return AdaptiveQualityController.Mode.parse(game.getSharedPreferences("AdaptiveQuality", Context.MODE_PRIVATE)
-                .getString(game.getIntent().getStringExtra(Game.EXTRA_PC_UUID), game.prefConfig.adaptiveQualityMode.preference()));
+        String chosen = qualityChosenHere ? qualityChoice : game.getSharedPreferences("AdaptiveQuality", Context.MODE_PRIVATE)
+                .getString(game.getIntent().getStringExtra(Game.EXTRA_PC_UUID), null);
+        return AdaptiveQualityController.Mode.parse(chosen != null ? chosen : game.prefConfig.adaptiveQualityMode.preference());
     }
 
     boolean supportsAdaptiveQuality() {
@@ -638,12 +643,19 @@ final class GameAdaptation {
         String[] choices = new String[] {game.getString(R.string.quality_use_settings), modes[0], modes[1], modes[2], modes[3]};
         SharedPreferences saved = game.getSharedPreferences("AdaptiveQuality", Context.MODE_PRIVATE);
         String key = game.getIntent().getStringExtra(Game.EXTRA_PC_UUID);
-        int selected = saved.contains(key) ? qualityMode().ordinal() + 1 : 0;
+        int selected = (qualityChosenHere ? qualityChoice != null : saved.contains(key)) ? qualityMode().ordinal() + 1 : 0;
         game.menuActions.showStreamDialog(new NavigationDialogBuilder(game).setTitle(R.string.title_adaptive_quality)
                 .setSingleChoiceItems(choices, selected, (dialog, which) -> {
                     if (!game.foreground || !game.connected || game.hostActionInProgress) return;
-                    if (which == 0) saved.edit().remove(key).apply();
-                    else saved.edit().putString(key, AdaptiveQualityController.Mode.values()[which - 1].preference()).apply();
+                    String choice = which == 0 ? null : AdaptiveQualityController.Mode.values()[which - 1].preference();
+                    if (!DualScreen.saveSettings(saved, game.getIntent(), editor -> {
+                        if (choice == null) editor.remove(key);
+                        else editor.putString(key, choice);
+                    })) {
+                        // The second screen's choice holds for its own stream only.
+                        qualityChosenHere = true;
+                        qualityChoice = choice;
+                    }
                     dialog.dismiss();
                     startAdaptiveQuality();
                     if (qualityMode() == AdaptiveQualityController.Mode.OFF && supportsAdaptiveQuality()) {

@@ -7,6 +7,7 @@ import android.os.Process;
 
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.jni.NativeApiBridge;
+import com.limelight.pin.PinGate;
 
 /**
  * The stream on the second screen in dual-screen mode (see {@link DualScreen}). It is the same
@@ -29,6 +30,8 @@ public class GameSecondary extends Game {
         if (NativeApiBridge.isAvailable()) {
             NativeApiBridge.setSecondScreen(true);
         }
+        // The first screen got past the PIN lock to start this one; its unlock lives in the first's process.
+        PinGate.followFirstScreen();
         super.onCreate(savedInstanceState);
         // Follows the first stream's end and its touch mode.
         DualScreen.link(this);

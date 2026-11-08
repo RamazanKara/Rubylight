@@ -330,4 +330,24 @@ public class PinGateTest {
         PinGate.install(app);
         assertTrue("another boot", PinGate.needsPinForApp(app));
     }
+
+    /**
+     * The second screen's process never saw the first's unlock; the first got past the lock to start it, so it
+     * asks for nothing: no Continue here behind a PIN, no PIN for its reconnects and joins.
+     */
+    @Test
+    public void theSecondScreensProcessFollowsTheFirstsUnlock() {
+        lock(PinStore.Mode.STREAMS);
+        assertTrue(PinGate.needsPinForStream(app, PC));
+        assertTrue(PinGate.streamLocked(app, PC));
+        PinGate.followFirstScreen();
+        assertFalse(PinGate.needsPinForStream(app, PC));
+        assertFalse(PinGate.streamLocked(app, PC));
+        assertFalse("a reconnect asks again: still open", PinGate.needsPinForStream(app, PC));
+        store.setMode(PinStore.Mode.APP);
+        assertFalse(PinGate.needsPinForApp(app));
+        assertFalse(PinGate.needsPinForStream(app, OTHER));
+        PinGate.resetForTests();
+        assertTrue("only that process", PinGate.needsPinForApp(app));
+    }
 }

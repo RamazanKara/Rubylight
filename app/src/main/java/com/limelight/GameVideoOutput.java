@@ -32,7 +32,6 @@ import android.graphics.drawable.Icon;
 import com.limelight.ui.PictureInPicturePolicy;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Point;
@@ -42,7 +41,6 @@ import android.media.MediaFormat;
 import android.os.Build;
 import android.os.Handler;
 import android.os.SystemClock;
-import android.preference.PreferenceManager;
 import android.util.Rational;
 import android.view.Display;
 import android.view.Surface;
@@ -295,9 +293,7 @@ final class GameVideoOutput {
     private void setVideoScaling(int mode) {
         if (mode == game.prefConfig.videoScaling || !canScaleLive()) return;
         game.prefConfig.setVideoScaling(mode);
-        SharedPreferences.Editor editor = PreferenceManager.getDefaultSharedPreferences(game).edit();
-        VideoScaling.save(editor, mode);
-        editor.apply();
+        DualScreen.saveSettings(game, editor -> VideoScaling.save(editor, mode));
         applyVideoScaling();
         // Fill and Stretch span the cutout too; the safe area follows.
         configureStreamWindow();

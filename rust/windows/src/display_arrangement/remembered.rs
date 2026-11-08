@@ -1,13 +1,14 @@
-//! How two streams' virtual displays were arranged, kept for the next time the same two stream
-//! together: where the second sits from the first, and which of them is the main display.
-//! Without it every stream puts them in the order they arrived, the first main and the second
-//! to its right, and the two screens of one device (Dual screen mode) arrive together in either
-//! order. Kept by display, so it holds for any two streams' virtual displays, a device's two
-//! screens being the case it is for; physical displays are never moved from memory.
+//! How a device's two screens (Dual screen mode) were arranged, kept for its next stream: where
+//! the second display sits from the first, and which of them is the main display. Without it
+//! every stream puts them in the order they arrived, the first main and the second to its right,
+//! and the two screens of one device arrive together in either order. Only for two virtual
+//! displays of one device: two devices' streams are laid out as always, and physical displays
+//! are never moved from memory.
 use anyhow::Result;
 use butterpollo_core::topology::{Node, Position};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
 };
@@ -43,9 +44,17 @@ pub fn initialize(directory: &Path) {
     let _ = PATH.set(path);
 }
 /// Whether the displays of the streams now, `targets`, have an arrangement to keep: two, both
-/// virtual (none of `physical`).
-pub(super) fn kept_for(targets: &[String], physical: &[String]) -> bool {
-    ordered(targets).is_some() && !targets.iter().any(|t| physical.contains(t))
+/// virtual (none of `physical`), streaming to one paired device (`devices`, by display).
+pub(super) fn kept_for(
+    targets: &[String],
+    devices: &BTreeMap<String, String>,
+    physical: &[String],
+) -> bool {
+    let Some((a, b)) = ordered(targets) else {
+        return false;
+    };
+    let device = |t: &str| devices.get(t).filter(|d| !d.is_empty());
+    device(a).is_some() && device(a) == device(b) && !targets.iter().any(|t| physical.contains(t))
 }
 fn node<'a>(nodes: &'a [Node], id: &str) -> Option<&'a Node> {
     nodes.iter().find(|n| n.active && n.device_id == id)
@@ -85,6 +94,22 @@ fn overlap(x: &Node, y: &Node) -> bool {
     };
     let (a, b) = (extent(x), extent(y));
     a.0 < b.2 && b.0 < a.2 && a.1 < b.3 && b.1 < a.3
+}
+/// Whether `x` and `y` share an edge, as Windows lays displays out: side by side with rows in
+/// common, or one above the other with columns in common.
+fn adjacent(x: &Node, y: &Node) -> bool {
+    let extent = |n: &Node| {
+        let (w, h) = (i64::from(n.mode.width), i64::from(n.mode.height));
+        let (px, py) = (
+            i64::from(n.desired_position.x),
+            i64::from(n.desired_position.y),
+        );
+        (px, py, px + w, py + h)
+    };
+    let (a, b) = (extent(x), extent(y));
+    let rows = a.1 < b.3 && b.1 < a.3;
+    let columns = a.0 < b.2 && b.0 < a.2;
+    ((a.2 == b.0 || b.2 == a.0) && rows) || ((a.3 == b.1 || b.3 == a.1) && columns)
 }
 /// The layout `desired` with the kept arrangement of the two displays in `targets`, if one is
 /// kept and fits: both on, not over another display, with the main display at the origin as
@@ -127,17 +152,29 @@ pub(super) fn arranged(
         .iter()
         .enumerate()
         .any(|(i, x)| active[i + 1..].iter().any(|y| overlap(x, y)));
-    (!crowded).then_some(next)
+    // A display at another mode than when it was kept can leave a gap: as usual then.
+    let apart = !adjacent(node(&next, a)?, node(&next, b)?);
+    (!crowded && !apart).then_some(next)
 }
-/// `desired` with the arrangement kept for the two displays in `targets`, as it is when none is.
-pub(super) fn apply(desired: Vec<Node>, targets: &[String], streams_main: bool) -> Vec<Node> {
-    let saved = SAVED.lock().unwrap();
-    match arranged(&desired, targets, streams_main, &saved) {
-        Some(next) => {
-            tracing::info!(displays = ?targets, "laying out two streams' displays as the user left them");
-            next
-        }
-        None => desired,
+/// `desired` with the arrangement kept for the two displays in `targets`, if one is kept and fits.
+pub(super) fn apply(desired: &[Node], targets: &[String], streams_main: bool) -> Option<Vec<Node>> {
+    let next = arranged(desired, targets, streams_main, &SAVED.lock().unwrap())?;
+    tracing::info!(displays = ?targets, "laying out a device's two screens as the user left them");
+    Some(next)
+}
+/// Forget the arrangement kept for the two displays in `targets`: Windows refused it.
+pub(super) fn forget(targets: &[String]) {
+    let Some((a, b)) = ordered(targets) else {
+        return;
+    };
+    let mut saved = SAVED.lock().unwrap();
+    let before = saved.len();
+    saved.retain(|s| !(s.a == a && s.b == b));
+    if saved.len() != before
+        && let Some(path) = PATH.get()
+        && let Err(error) = write(path, &saved)
+    {
+        tracing::warn!(error = %format!("{error:#}"), "forgetting the arrangement of a device's two screens failed");
     }
 }
 /// Keep the arrangement of the two displays in `targets` as `nodes` has them now.
@@ -157,7 +194,7 @@ pub(super) fn remember(nodes: &[Node], targets: &[String]) {
     if let Some(path) = PATH.get()
         && let Err(error) = write(path, &saved)
     {
-        tracing::warn!(error = %format!("{error:#}"), "keeping the arrangement of two streams' displays failed");
+        tracing::warn!(error = %format!("{error:#}"), "keeping the arrangement of a device's two screens failed");
     }
 }
 fn write(path: &Path, saved: &[Saved]) -> Result<()> {
@@ -188,6 +225,23 @@ mod tests {
     }
     fn targets(a: &str, b: &str) -> Vec<String> {
         vec![a.into(), b.into()]
+    }
+    #[test]
+    fn an_arrangement_windows_refused_is_forgotten() {
+        // Ids of their own: the kept arrangements are the process's.
+        let ids = targets("forget-a", "forget-b");
+        let left = [
+            node("forget-a", 0, 0, false),
+            node("forget-b", 1000, 0, true),
+        ];
+        remember(&left, &ids);
+        let desired = [
+            node("forget-a", 0, 0, true),
+            node("forget-b", 1000, 0, false),
+        ];
+        assert!(apply(&desired, &ids, true).is_some());
+        forget(&ids);
+        assert!(apply(&desired, &ids, true).is_none());
     }
     #[test]
     fn the_arrangement_is_the_same_whichever_screen_arrived_first() {
@@ -246,13 +300,61 @@ mod tests {
         assert!(main.primary && main.desired_position == Position { x: 0, y: 0 });
     }
     #[test]
-    fn only_two_virtual_displays_have_an_arrangement_kept() {
+    fn only_a_devices_two_virtual_displays_have_an_arrangement_kept() {
         let physical = ["monitor".to_owned()];
-        assert!(kept_for(&targets("a", "b"), &physical));
-        assert!(!kept_for(&targets("a", "monitor"), &physical));
-        assert!(!kept_for(&targets("a", "a"), &physical));
-        assert!(!kept_for(&["a".to_owned()], &physical));
-        assert!(!kept_for(&["a".into(), "b".into(), "c".into()], &physical));
+        let devices: BTreeMap<String, String> = [
+            ("a", "tab"),
+            ("b", "tab"),
+            ("c", "phone"),
+            ("monitor", "tab"),
+            ("d", ""),
+            ("e", ""),
+        ]
+        .into_iter()
+        .map(|(t, d)| (t.to_owned(), d.to_owned()))
+        .collect();
+        assert!(kept_for(&targets("a", "b"), &devices, &physical));
+        // Two devices' streams, as two Moonlight clients have them, are laid out as always.
+        assert!(!kept_for(&targets("a", "c"), &devices, &physical));
+        assert!(!kept_for(&targets("d", "e"), &devices, &physical));
+        assert!(!kept_for(&targets("a", "unknown"), &devices, &physical));
+        assert!(!kept_for(&targets("a", "monitor"), &devices, &physical));
+        assert!(!kept_for(&targets("a", "a"), &devices, &physical));
+        assert!(!kept_for(&["a".to_owned()], &devices, &physical));
+        assert!(!kept_for(
+            &["a".into(), "b".into(), "c".into()],
+            &devices,
+            &physical
+        ));
+    }
+    #[test]
+    fn a_kept_arrangement_that_leaves_a_gap_after_a_mode_change_is_not_used() {
+        let kept = capture(
+            &[node("a", 0, 0, true), node("b", 1000, 0, false)],
+            &targets("a", "b"),
+        )
+        .unwrap();
+        // `a` is now 800 wide: `b` 1000 from it would leave a 200 gap.
+        let mut a = node("a", 0, 0, true);
+        a.mode.width = 800;
+        let desired = vec![a, node("b", 800, 0, false)];
+        assert!(
+            arranged(
+                &desired,
+                &targets("a", "b"),
+                true,
+                std::slice::from_ref(&kept)
+            )
+            .is_none()
+        );
+        // Above or below with columns in common is adjacent too.
+        let above = capture(
+            &[node("a", 0, 0, true), node("b", 200, 800, false)],
+            &targets("a", "b"),
+        )
+        .unwrap();
+        let desired = vec![node("a", 0, 0, true), node("b", 1000, 0, false)];
+        assert!(arranged(&desired, &targets("a", "b"), true, &[above]).is_some());
     }
     #[test]
     fn nothing_changes_without_a_kept_arrangement_or_with_one_display() {

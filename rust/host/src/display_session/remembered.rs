@@ -1,5 +1,7 @@
-//! What a device keeps from a stream: its chosen layout, resolution and scale.
+//! What a device keeps from a stream: its chosen layout, resolution and scale. A device's second
+//! screen keeps its own resolution and scale and learns no layout: the layout is the device's.
 use super::*;
+use butterpollo_core::state::{device_uuid, screen_setting};
 
 impl Prepared {
     pub(super) fn active_layout(&self) -> Result<Vec<(String, bool)>> {
@@ -123,14 +125,20 @@ impl Prepared {
         self.recovery_dimensions = (width, height);
         self.mode_report.adopt((width, height));
         let mut paired = h.paired.write().unwrap();
-        let Some(client) = paired.clients.iter_mut().find(|c| c.uuid == uuid) else {
+        // Kept for the screen it was chosen on: a device's second screen keeps its own.
+        let Some(client) = paired
+            .clients
+            .iter_mut()
+            .find(|c| c.uuid == device_uuid(&uuid))
+        else {
             return;
         };
         let chosen = format!("{width}x{height}");
         tracing::info!(client = %client.name, resolution = %chosen, "keeping the display resolution chosen during the stream for this device");
-        client
-            .extra
-            .insert(REMEMBERED_RESOLUTION.into(), serde_json::json!(chosen));
+        client.extra.insert(
+            screen_setting(&uuid, REMEMBERED_RESOLUTION),
+            serde_json::json!(chosen),
+        );
         if let Err(error) = paired.save(&h.paired_path) {
             tracing::warn!(%error, "the device's display resolution could not be saved");
         }
@@ -196,13 +204,18 @@ impl Prepared {
         self.scale_baseline = Some(chosen);
         self.recovery_scale = i64::from(chosen);
         let mut paired = h.paired.write().unwrap();
-        let Some(client) = paired.clients.iter_mut().find(|c| c.uuid == uuid) else {
+        let Some(client) = paired
+            .clients
+            .iter_mut()
+            .find(|c| c.uuid == device_uuid(&uuid))
+        else {
             return;
         };
         tracing::info!(client = %client.name, scale = chosen, "keeping the display scale chosen during the stream for this device");
-        client
-            .extra
-            .insert(REMEMBERED_SCALE.into(), serde_json::json!(chosen));
+        client.extra.insert(
+            screen_setting(&uuid, REMEMBERED_SCALE),
+            serde_json::json!(chosen),
+        );
         if let Err(error) = paired.save(&h.paired_path) {
             tracing::warn!(%error, "the device's display scale could not be saved");
         }

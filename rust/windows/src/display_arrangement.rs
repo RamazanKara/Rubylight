@@ -27,6 +27,9 @@ struct State {
     persists_for: Vec<String>,
     /// This layout took up what a stopped watch left ([`WakeFollow`]).
     following: Option<WakeFollow>,
+    /// The paired device each stream's display streams to, by display: a device's two
+    /// screens (Dual screen mode) have the same one. Only the owners' entries count.
+    devices: std::collections::BTreeMap<String, String>,
 }
 fn state() -> &'static Mutex<State> {
     static STATE: OnceLock<Mutex<State>> = OnceLock::new();
@@ -347,17 +350,32 @@ fn apply(state: &mut State, arrangement: Arrangement, leaving: Option<&str>) -> 
             }
         }
     }
-    if leaving.is_none() && remembered::kept_for(&targets, &physical) {
-        // Two streams' virtual displays (a device's two screens, or two devices' that streamed
-        // together before) come back as the user left them.
-        desired = remembered::apply(desired, &targets, arrangement.makes_stream_main());
-    }
+    // A device's two screens come back as the user left them.
+    let kept = if leaving.is_none() && remembered::kept_for(&targets, &state.devices, &physical) {
+        remembered::apply(&desired, &targets, arrangement.makes_stream_main())
+    } else {
+        None
+    };
+    let laid = match kept {
+        Some(kept) => lay_out(state, kept, &current.nodes).or_else(|error| {
+            // Never the reason a stream fails: the next stream lays them out as usual too.
+            tracing::warn!(error = %format!("{error:#}"), displays = ?targets, "Windows refused the kept arrangement of a device's two screens; forgetting it and laying them out as usual");
+            remembered::forget(&targets);
+            lay_out(state, desired, &current.nodes)
+        })?,
+        None => lay_out(state, desired, &current.nodes)?,
+    };
+    settle_layout(state, laid, leaving, &arriving, Topology::save_current);
+    Ok(())
+}
+/// Put `desired` on the displays (on from `current`) and record it for recovery; what it put.
+fn lay_out(state: &State, mut desired: Vec<Node>, current: &[Node]) -> Result<Vec<Node>> {
     keep_switched_off(&mut desired, &state.applied);
     if let Some(before) = &state.before {
         crate::display_recovery::arrangement(Some((before.clone(), desired.clone())))?;
     }
     let ids = active_ids(&desired);
-    if ids != active_ids(&current.nodes) {
+    if ids != active_ids(current) {
         Topology::set_active(&ids.into_iter().collect::<Vec<_>>())?;
     }
     Topology::query()?.set_positions(
@@ -367,8 +385,7 @@ fn apply(state: &mut State, arrangement: Arrangement, leaving: Option<&str>) -> 
             .map(|n| (n.device_id.clone(), n.desired_position))
             .collect(),
     )?;
-    settle_layout(state, desired, leaving, &arriving, Topology::save_current);
-    Ok(())
+    Ok(desired)
 }
 /// The connected displays known to be physical (see [`arriving_displays`]).
 fn physical_displays() -> Result<Vec<String>> {
@@ -475,6 +492,7 @@ fn release_owner(state: &mut State, target: &str) -> Released {
         state.owners[index].1 -= 1;
         if state.owners[index].1 == 0 {
             state.owners.remove(index);
+            state.devices.remove(target);
             state.persists_for.retain(|id| id != target);
             left = true;
         }
@@ -1825,12 +1843,15 @@ impl Lease {
     /// streaming, so the user's own layout does not include it. `original`:
     /// the layout taken before that display was created; what Windows
     /// changed when it arrived is then undone with the rest.
+    /// `device`: the paired device the stream is for (empty for none), the same for a
+    /// device's two screens.
     pub fn acquire(
         output: &str,
         arrangement: Arrangement,
         retained: &[String],
         virtual_target: bool,
         original: Option<Snapshot>,
+        device: &str,
     ) -> Result<Self> {
         let mut state = state().lock().unwrap();
         let monitors = crate::display::monitors()?;
@@ -1839,6 +1860,7 @@ impl Lease {
             .find(|m| m.matches(output))
             .ok_or_else(|| anyhow::anyhow!("display arrangement target unavailable"))?;
         let target_id = target.device_id.clone();
+        state.devices.insert(target_id.clone(), device.to_owned());
         let retained: Vec<_> = monitors
             .iter()
             .filter(|m| retained.contains(&m.display_name) || retained.contains(&m.device_id))
@@ -2008,6 +2030,7 @@ impl Lease {
         state.users = 1;
         state.key = format!("{arrangement:?}:{target_id}");
         state.owners.clear();
+        state.devices.retain(|t, _| *t == target_id);
         state.persists_for.clear();
         state.persisted = persist(arrangement, virtual_target);
         add_owner(&mut state, &target_id, virtual_target);
@@ -2117,6 +2140,9 @@ impl Lease {
             for owner in state.owners.iter_mut().filter(|(t, _)| *t == *owned) {
                 owner.0 = target.device_id.clone();
             }
+            if let Some(device) = state.devices.remove(&*owned) {
+                state.devices.insert(target.device_id.clone(), device);
+            }
             for id in state.persists_for.iter_mut().filter(|id| **id == *owned) {
                 *id = target.device_id.clone();
             }
@@ -2200,14 +2226,14 @@ impl Drop for Lease {
         let mut state = state().lock().unwrap();
         let target = self.target.lock().unwrap().clone();
         state.users -= 1;
-        // One of two streams' virtual displays leaves: keep how they are arranged now. Read
+        // One of a device's two screens leaves: keep how they are arranged now. Read
         // under the lock like the rest of this layout work (`unchanged` and `apply` below), so
         // no other stream's layout lands between the read and the owners it is kept for.
         let targets: Vec<_> = state.owners.iter().map(|(t, _)| t.clone()).collect();
         if targets.len() == 2
             && state.owners.iter().any(|(t, n)| *t == target && *n == 1)
             && let Ok(physical) = physical_displays()
-            && remembered::kept_for(&targets, &physical)
+            && remembered::kept_for(&targets, &state.devices, &physical)
             && let Ok(topology) = Topology::query().and_then(|t| t.nodes())
         {
             remembered::remember(&topology, &targets);
@@ -2234,6 +2260,7 @@ impl Drop for Lease {
         state.applied.clear();
         state.key.clear();
         state.owners.clear();
+        state.devices.clear();
         state.arrangement = None;
         state.retained.clear();
         state.following = None;

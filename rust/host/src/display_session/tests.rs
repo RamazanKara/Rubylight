@@ -1286,6 +1286,33 @@ fn a_resolution_chosen_during_the_stream_is_kept_for_the_device_at_disconnect() 
 }
 
 #[test]
+fn a_second_screens_chosen_resolution_is_kept_for_that_screen_only() {
+    let fixture = crate::state::test_support::Fixture::new();
+    let client = fixture.client(u32::MAX);
+    let config = Config::parse("dd_config_revert_delay=0").unwrap();
+    *fixture.host.config.write().unwrap() = config.clone();
+    let second = client.clone().second_screen();
+    let mut prepared = test_prepared(&fixture.host);
+    prepared.recovery_dimensions = (3840, 2160);
+    prepared.resolution_owner = Some(second.uuid.clone());
+    prepared.size_snapshot = Some(((3840, 2160), (2560, 1440)));
+    let limiter =
+        limiter::Lease::acquire(&fixture.host.directory, &config, &prepared.framegen).unwrap();
+    drop(Ready::prepare((prepared, limiter)).unwrap());
+    let device = fixture.host.paired.read().unwrap().clients[0].clone();
+    assert_eq!(device.extra.get(REMEMBERED_RESOLUTION), None);
+    // The second screen reads it back as its own, the first screen does not.
+    assert_eq!(
+        device
+            .clone()
+            .second_screen()
+            .extra
+            .get(REMEMBERED_RESOLUTION),
+        Some(&serde_json::json!("2560x1440"))
+    );
+}
+
+#[test]
 fn a_scale_chosen_during_the_stream_is_kept_for_the_device_at_disconnect() {
     let fixture = crate::state::test_support::Fixture::new();
     let client = fixture.client(u32::MAX);

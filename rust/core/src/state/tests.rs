@@ -330,6 +330,30 @@ fn a_second_screen_maps_to_its_device_and_no_pairing_can_name_one() {
         ("phone-Tab#screen2", "Tab (second screen)")
     );
     assert_eq!(screen.clone().second_screen().uuid, screen.uuid);
+    // Each screen reads only the display mode and scale it kept itself.
+    let mut tab = phone("Tab");
+    tab.extra
+        .insert(REMEMBERED_RESOLUTION.into(), json!("2560x1600"));
+    tab.extra.insert(REMEMBERED_SCALE.into(), json!(150));
+    let second = tab.clone().second_screen();
+    assert!(!second.extra.contains_key(REMEMBERED_RESOLUTION));
+    assert!(!second.extra.contains_key(REMEMBERED_SCALE));
+    tab.extra.insert(
+        screen_setting(&second.uuid, REMEMBERED_RESOLUTION),
+        json!("1920x1080"),
+    );
+    assert_eq!(
+        screen_setting(&second.uuid, REMEMBERED_RESOLUTION),
+        "remembered_resolution#screen2"
+    );
+    assert_eq!(
+        screen_setting(&tab.uuid, REMEMBERED_SCALE),
+        REMEMBERED_SCALE
+    );
+    let second = tab.clone().second_screen();
+    assert_eq!(second.extra[REMEMBERED_RESOLUTION], json!("1920x1080"));
+    assert!(!second.extra.contains_key(REMEMBERED_SCALE));
+    assert_eq!(tab.extra[REMEMBERED_RESOLUTION], json!("2560x1600"));
     let d = tempfile::tempdir().unwrap();
     let p = d.path().join("state.json");
     let mut s = PairedState::load(&p).unwrap();

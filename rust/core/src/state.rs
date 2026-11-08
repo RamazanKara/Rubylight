@@ -64,6 +64,23 @@ pub fn device_uuid(uuid: &str) -> &str {
 pub fn second_screen_uuid(device: &str) -> String {
     format!("{}{SECOND_SCREEN_SUFFIX}", device_uuid(device))
 }
+/// The resolution a device with `remember_display_mode` keeps for its virtual display,
+/// `WIDTHxHEIGHT`, from the last stream it was changed in Windows.
+pub const REMEMBERED_RESOLUTION: &str = "remembered_resolution";
+/// The Windows scale, in percent, a device with `remember_display_mode` keeps for its virtual
+/// display, from the last stream it was changed in Windows.
+pub const REMEMBERED_SCALE: &str = "remembered_scale";
+/// The device settings each of its screens keeps for itself: its second screen's are stored
+/// under [`screen_setting`] and are the only ones it reads ([`Client::second_screen`]).
+pub const PER_SCREEN_SETTINGS: [&str; 2] = [REMEMBERED_RESOLUTION, REMEMBERED_SCALE];
+/// The key in the device record that holds `setting` of the screen `uuid` streams to.
+pub fn screen_setting(uuid: &str, setting: &str) -> String {
+    if uuid.ends_with(SECOND_SCREEN_SUFFIX) {
+        format!("{setting}{SECOND_SCREEN_SUFFIX}")
+    } else {
+        setting.to_owned()
+    }
+}
 /// The permissions the console's pairing access choice (`access`) grants a
 /// later device: `play`, `view` or `all`. Empty means no choice, so the device
 /// gets [`PairedState::new_device_permission`].
@@ -114,9 +131,19 @@ fn compatible_bool<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Resul
 }
 impl Client {
     /// The device as its second screen: [`second_screen_uuid`] and the name marked, with the
-    /// device's certificate, permissions and settings. Never paired itself.
+    /// device's certificate, permissions and settings, but the [`PER_SCREEN_SETTINGS`] that
+    /// screen kept, never the first screen's. Never paired itself.
     pub fn second_screen(mut self) -> Self {
         if !self.uuid.ends_with(SECOND_SCREEN_SUFFIX) {
+            for setting in PER_SCREEN_SETTINGS {
+                let own = self
+                    .extra
+                    .remove(&format!("{setting}{SECOND_SCREEN_SUFFIX}"));
+                self.extra.remove(setting);
+                if let Some(own) = own {
+                    self.extra.insert(setting.to_owned(), own);
+                }
+            }
             self.uuid.push_str(SECOND_SCREEN_SUFFIX);
             self.name.push_str(" (second screen)");
         }

@@ -412,12 +412,9 @@ fn has_user_layout(client: &butterpollo_core::state::Client) -> bool {
             .and_then(serde_json::Value::as_bool)
             == Some(true)
 }
-/// The resolution a device with `remember_display_mode` keeps for its virtual
-/// display, `WIDTHxHEIGHT`, from the last stream it was changed in Windows.
-pub(crate) const REMEMBERED_RESOLUTION: &str = "remembered_resolution";
-/// The Windows scale, in percent, a device with `remember_display_mode` keeps
-/// for its virtual display, from the last stream it was changed in Windows.
-pub(crate) const REMEMBERED_SCALE: &str = "remembered_scale";
+/// What a device with `remember_display_mode` keeps per screen (a second screen reads its own:
+/// `Client::second_screen`).
+pub(crate) use butterpollo_core::state::{REMEMBERED_RESOLUTION, REMEMBERED_SCALE};
 
 /// The virtual display layout without the device's own: the app's, then the host's.
 fn inherited_layout<'a>(
@@ -1978,6 +1975,7 @@ impl Prepared {
                     &retained,
                     virtual_mode && display.is_some(),
                     original,
+                    butterpollo_core::state::device_uuid(&launch.client.uuid),
                 ) {
                     Ok(lease) => Some(lease),
                     // The remote monitor still works where the remote monitor

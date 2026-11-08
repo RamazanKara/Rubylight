@@ -45,6 +45,9 @@ pub mod race;
 pub mod race_probe;
 #[cfg(any(target_os = "linux", test))]
 pub mod drm_vrr;
+// The timing CSV names its flags everywhere; the feedback itself is Wayland's.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub mod wl_presentation;
 pub(crate) mod pyrowave;
 pub mod pyrowave_gpu;
 pub mod pyrowave_mode;
@@ -590,6 +593,9 @@ pub struct Streaming {
     offset: ClockOffset,
     /// The client timing CSV (`NIGHTJAR_TIMING_CSV`), off by default.
     timing_csv: Option<crate::timing_csv::TimingCsv>,
+    /// What reached the glass: wp_presentation feedback of each picture (Wayland).
+    #[cfg(target_os = "linux")]
+    glass: wl_presentation::Glass,
     rtp_clock: RtpClock,
     last_probe: Instant,
     window: Window,
@@ -831,6 +837,8 @@ impl Streaming {
             captured: false,
             offset: ClockOffset::default(),
             timing_csv: open_timing_csv(),
+            #[cfg(target_os = "linux")]
+            glass: wl_presentation::Glass::default(),
             rtp_clock: RtpClock::default(),
             last_probe: Instant::now(),
             window: Window::default(),
@@ -1883,6 +1891,11 @@ impl Streaming {
         }
         if let Some(summary) = self.texture.pyrowave_stages.summary() {
             eprintln!("nightjar: PyroWave presenter stages {summary} (CPU submit time)");
+        }
+        #[cfg(target_os = "linux")]
+        {
+            self.glass.poll(session::now_us());
+            if let Some(line) = self.glass.line() { eprintln!("nightjar: {line}"); }
         }
         let stats = self.session.stats();
         eprintln!("{}", video_summary(stats.frames_submitted, stats.decode_queue_overflows,

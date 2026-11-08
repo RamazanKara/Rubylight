@@ -342,12 +342,8 @@ pub unsafe fn device_context(
     codec: Codec,
     pictures: Pictures,
 ) -> Result<*mut AVBufferRef, String> {
-    if pictures.packed {
-        return Err(
-            "packed 4:4:4 is put together from pictures in memory or DMA-BUFs, not Vulkan images"
-                .into(),
-        );
-    }
+    // Packed 4:4:4 pictures are plain 4:2:0 ones of twice the height: the presenter samples their
+    // planes (`packed444::Reconstruction::for_planes`), so they decode like any other.
     ffmpeg_supported(avutil_version())?;
     if gpu.is_null() {
         return Err(

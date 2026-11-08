@@ -1346,9 +1346,18 @@ impl VideoTexture {
                 0,
                 0,
             ];
-            if self
-                .packed_format
-                .is_some_and(|previous| previous != parameters)
+            // A picture mapped into Vulkan (or Vulkan video's) is rebuilt from its planes; one in
+            // memory from a buffer. A new decoder may change which, so the reconstruction goes too.
+            #[cfg(unix)]
+            let coded = media::PlanarLayout::of_vulkan(&info);
+            #[cfg(unix)]
+            let other_path = self.packed.is_some() && coded.is_some() != self.vulkan.is_some();
+            #[cfg(not(unix))]
+            let other_path = false;
+            if other_path
+                || self
+                    .packed_format
+                    .is_some_and(|previous| previous != parameters)
             {
                 self.destroy();
             }
@@ -1397,6 +1406,10 @@ impl VideoTexture {
                 white_level,
             ) {
                 return false;
+            }
+            #[cfg(unix)]
+            if let Some(coded) = coded {
+                return self.draw_packed_planes(renderer, frame, coded, &parameters);
             }
             if self.packed.is_none() {
                 self.packed =
@@ -2067,6 +2080,42 @@ impl VideoTexture {
         let drawn = unsafe { planes.copy(renderer, frame.raw.as_ptr()).and_then(|()| pass.draw_bound(renderer, texture, &parameters)) };
         match drawn {
             Ok(()) => { self.planes_drawn(texture, parameters); true }
+            Err(error) => { self.fail(format!("drawing a {what} failed: {error}"), error); false }
+        }
+    }
+
+    /// The packed 4:4:4 counterpart of `upload_vulkan`: a packed picture mapped into Vulkan (or
+    /// Vulkan video's) is copied into planes of its coded size and rebuilt from them into the
+    /// target; nothing goes through memory (#80).
+    #[cfg(unix)]
+    fn draw_packed_planes(&mut self, renderer: *mut SDL_Renderer, frame: &media::Frame, coded: media::PlanarLayout, parameters: &[u32; 12]) -> bool {
+        let what = format!("{}x{} {}-bit packed full chroma Vulkan picture", coded.width, coded.height, if coded.ten_bit { 10 } else { 8 });
+        if self.vulkan.is_none() {
+            let device = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_GPU_DEVICE_POINTER);
+            // SAFETY: The renderer's live GPU device, which outlives the planes.
+            match unsafe { crate::vulkan_video::Planes::new(device.cast(), coded.width, coded.height, coded.ten_bit, coded.chroma444) } {
+                Ok(planes) => self.vulkan = Some(planes),
+                Err(error) => { self.fail(format!("the planes of a {what} cannot be made: {error}"), error); return false; }
+            }
+        }
+        if self.packed.is_none() {
+            let textures = self.vulkan.as_ref().map_or([std::ptr::null_mut(); 2], |planes| planes.textures());
+            // SAFETY: The live renderer of the presenting thread; the textures live in `vulkan`,
+            // which `destroy` drops with the reconstruction.
+            match unsafe { super::packed444::Reconstruction::for_planes(renderer, textures) } {
+                Ok(packed) => { self.packed = Some(packed); self.packed_format = Some(*parameters); }
+                Err(error) => { self.fail(format!("the packed plane pass cannot be made: {error}"), error); return false; }
+            }
+        }
+        let texture = self.texture;
+        let (Some(planes), Some(packed)) = (self.vulkan.as_mut(), self.packed.as_ref()) else { return false };
+        // SAFETY: A live Vulkan frame of the decoder on this renderer's device; planes made on this
+        // renderer for pictures of its size (another size changes the parameters, which destroys them).
+        let drawn = unsafe { planes.copy(renderer, frame.raw.as_ptr()) }.and_then(|()| {
+            if packed.draw_planes(renderer, texture, parameters) { Ok(()) } else { Err(crate::sdl::error()) }
+        });
+        match drawn {
+            Ok(()) => true,
             Err(error) => { self.fail(format!("drawing a {what} failed: {error}"), error); false }
         }
     }

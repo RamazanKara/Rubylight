@@ -131,6 +131,24 @@ pub(super) fn configure(
     Ok(())
 }
 
+/// The encoder's bitrate ceiling in bits from what the driver reports: the
+/// property range and the cap, the lower where both are known. Nonpositive
+/// reports say nothing.
+pub(super) fn ceiling(range: Option<i64>, cap: Option<i64>) -> Option<i64> {
+    [range, cap]
+        .into_iter()
+        .flatten()
+        .filter(|bits| *bits > 0)
+        .min()
+}
+
+/// A requested bitrate in Kbps held to a ceiling in bits.
+pub(super) fn held(bitrate: u32, ceiling: Option<i64>) -> u32 {
+    ceiling.map_or(bitrate, |bits| {
+        bitrate.min(u32::try_from(bits / 1000).unwrap_or(u32::MAX).max(1))
+    })
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Limit {
     pub(super) value: i64,
@@ -145,6 +163,10 @@ struct AppliedLimit {
 
 pub(super) struct State {
     requested: u32,
+    /// The driver's bitrate ceiling in bits ([`ceiling`]).
+    ceiling: Option<i64>,
+    /// The target the driver was last given, at most the ceiling.
+    applied: u32,
     scale_frame_cap: bool,
     limits: [AppliedLimit; 3],
 }
@@ -153,12 +175,25 @@ impl State {
     pub(super) fn new(bitrate: u32, scale_frame_cap: bool) -> Self {
         Self {
             requested: bitrate,
+            ceiling: None,
+            applied: bitrate,
             scale_frame_cap,
             limits: std::array::from_fn(|_| AppliedLimit {
                 bitrate,
                 warning: None,
             }),
         }
+    }
+
+    /// Hold every target to the driver's `ceiling`, the initial one included:
+    /// its limits were written for the held rate.
+    pub(super) fn with_ceiling(mut self, ceiling: Option<i64>) -> Self {
+        self.ceiling = ceiling;
+        self.applied = held(self.requested, ceiling);
+        for limit in &mut self.limits {
+            limit.bitrate = self.applied;
+        }
+        self
     }
 
     pub(super) fn requested(&self) -> u32 {
@@ -179,6 +214,19 @@ impl State {
         // Preserve the existing policy: do not retry a refused target on every
         // frame. Another requested bitrate gets its own attempt.
         self.requested = bitrate;
+        // Above the driver's ceiling the target stays at it, and says so.
+        let requested = bitrate;
+        let bitrate = held(bitrate, self.ceiling);
+        if bitrate < requested {
+            warnings.set("encoder_bitrate_ceiling", format!("The encoder runs at {bitrate} Kbps, not the requested {requested} Kbps: that is the most the AMD driver's encoder takes at this size and frame rate. Lower the bitrate on the device to match."));
+        } else {
+            warnings.clear("encoder_bitrate_ceiling");
+        }
+        if bitrate == self.applied {
+            // The driver already runs at it, even after a refused step.
+            warnings.clear("encoder_bitrate");
+            return;
+        }
         let prefix = match codec {
             0 => "",
             1 => "Hevc",
@@ -189,6 +237,7 @@ impl State {
             return;
         }
         warnings.clear("encoder_bitrate");
+        self.applied = bitrate;
         let suffixes = [
             "PeakBitrate",
             "VBVBufferSize",

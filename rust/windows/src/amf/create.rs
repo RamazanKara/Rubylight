@@ -449,7 +449,36 @@ impl Encoder {
                     },
                 },
             )?;
-            e.property("TargetBitrate", int(i64::from(config.bitrate_kbps) * 1000))?;
+            // After the size and rate, which the driver's range can follow.
+            let ceiling = e.bitrate_ceiling();
+            let bitrate = rate_control::held(config.bitrate_kbps, ceiling);
+            e.rate_control = rate_control::State::new(config.bitrate_kbps, scale_frame_cap)
+                .with_ceiling(ceiling);
+            let limits = if bitrate < config.bitrate_kbps {
+                let message = format!(
+                    "The encoder runs at {bitrate} Kbps, not the requested {} Kbps: that is the most the AMD driver's {} encoder takes at {}x{} and {} fps. Lower the bitrate on the device to match.",
+                    config.bitrate_kbps,
+                    ["H.264", "HEVC", "AV1"][usize::from(config.codec.min(2))],
+                    config.width,
+                    config.height,
+                    config.fps_millihz() / 1000,
+                );
+                tracing::warn!(
+                    requested_kbps = config.bitrate_kbps,
+                    ceiling_bits = ceiling,
+                    applied_kbps = bitrate,
+                    "{message}"
+                );
+                e.warnings.set("encoder_bitrate_ceiling", message);
+                let held = butterpollo_core::rtsp::Negotiated {
+                    bitrate_kbps: bitrate,
+                    ..config.clone()
+                };
+                butterpollo_core::encoder_policy::amf_rate_control(options, &held)?
+            } else {
+                limits
+            };
+            e.property("TargetBitrate", int(i64::from(bitrate) * 1000))?;
             let warnings = e.warnings.clone();
             rate_control::configure(&limits, &warnings, |property| e.apply(property))?;
             if config.codec == 0 {

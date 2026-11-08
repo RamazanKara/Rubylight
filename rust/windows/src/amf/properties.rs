@@ -151,6 +151,32 @@ impl Encoder {
             }
         }
     }
+    /// The highest target bitrate the driver takes for this encoder, in bits:
+    /// the lower of the `TargetBitrate` property's range at the size and rate
+    /// already set and the encoder's `MaxBitrate` cap, where it reports them.
+    /// AMF refuses a target above it with a bare AMF_OUT_OF_RANGE (#80: AV1
+    /// on an RX 9070 XT at a client's 1.2 Gbps).
+    pub(super) fn bitrate_ceiling(&self) -> Option<i64> {
+        let (property, cap) = match self.codec {
+            0 => ("TargetBitrate", "MaxBitrate"),
+            1 => ("HevcTargetBitrate", "HevcMaxBitrate"),
+            _ => ("Av1TargetBitrate", "Av1MaxBitrate"),
+        };
+        // SAFETY: Self retains the component/runtime and its borrowed property
+        // info; the pointer and the variant tag are checked before the read.
+        let range = unsafe {
+            let mut info = ptr::null();
+            (((*(*self.component).pVtbl).GetPropertyInfo.unwrap())(
+                self.component,
+                to_wide(property).as_ptr(),
+                &mut info,
+            ) == AMF_RESULT_AMF_OK
+                && !info.is_null()
+                && (*info).maxValue.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64)
+                .then(|| (*info).maxValue.__bindgen_anon_1.int64Value)
+        };
+        rate_control::ceiling(range, self.cap(cap))
+    }
     /// An integer or boolean capability, for the probes.
     pub fn capability(&self, name: &str) -> Option<i64> {
         self.cap(name)

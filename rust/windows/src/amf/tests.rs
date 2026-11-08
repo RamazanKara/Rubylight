@@ -1068,6 +1068,107 @@ fn rate_control_target_rejection_preserves_limits_and_existing_buffer_warning() 
 }
 
 #[test]
+fn bitrate_ceiling_takes_the_lower_driver_report_and_ignores_nonpositive_ones() {
+    assert_eq!(
+        rate_control::ceiling(Some(800_000_000), Some(600_000_000)),
+        Some(600_000_000)
+    );
+    assert_eq!(
+        rate_control::ceiling(Some(600_000_000), None),
+        Some(600_000_000)
+    );
+    assert_eq!(
+        rate_control::ceiling(None, Some(600_000_000)),
+        Some(600_000_000)
+    );
+    assert_eq!(rate_control::ceiling(Some(0), Some(-1)), None);
+    assert_eq!(rate_control::ceiling(None, None), None);
+    // #80: a client's 1.2 Gbps AV1 request against a driver ceiling.
+    assert_eq!(rate_control::held(959_000, Some(600_000_000)), 600_000);
+    assert_eq!(rate_control::held(300_000, Some(600_000_000)), 300_000);
+    assert_eq!(rate_control::held(959_000, None), 959_000);
+    assert_eq!(rate_control::held(959_000, Some(999)), 1);
+}
+
+#[test]
+#[ignore = "requires AMD AMF"]
+fn a_bitrate_above_the_driver_ceiling_starts_held_to_it_on_every_codec() -> Result<()> {
+    let _com = crate::capture::ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let options = butterpollo_core::config::Config::default();
+    let requested = 1_900_000u32;
+    for (codec, width, height, target) in [
+        (0u8, 1920u32, 1080u32, "TargetBitrate"),
+        (1, 3840, 2160, "HevcTargetBitrate"),
+        (2, 3840, 2160, "Av1TargetBitrate"),
+    ] {
+        let config = butterpollo_core::rtsp::Negotiated {
+            width,
+            height,
+            codec,
+            fps: 100,
+            bitrate_kbps: requested,
+            ..Default::default()
+        };
+        let encoder = Encoder::new_gpu(&config, gpu.clone(), &options, None)
+            .with_context(|| format!("codec {codec} at {requested} Kbps"))?;
+        let ceiling = encoder.bitrate_ceiling();
+        let applied = encoder.read(target);
+        println!("codec={codec} ceiling_bits={ceiling:?} {target}={applied:?}");
+        let held = ceiling.is_some_and(|bits| bits < i64::from(requested) * 1000);
+        assert_eq!(
+            encoder
+                .warnings
+                .snapshot()
+                .iter()
+                .any(|warning| warning.code == "encoder_bitrate_ceiling"),
+            held,
+            "codec {codec}"
+        );
+        if let (Some(ceiling), Some(applied)) = (ceiling, applied) {
+            assert!(applied <= ceiling, "codec {codec}");
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn rate_control_holds_runtime_targets_to_the_driver_ceiling() {
+    // #80: AMF refuses Av1TargetBitrate above its range with
+    // AMF_OUT_OF_RANGE, so a request above the ceiling runs at the ceiling.
+    let mut driver = FakeRateProperties::new(2);
+    let warnings = butterpollo_core::session::Warnings::default();
+    let mut state = rate_control::State::new(1_000_000, true).with_ceiling(Some(800_000_000));
+    // The stream started held at 800 Mbps: the same request writes nothing.
+    driver.apply(&mut state, 2, 1_000_000, &warnings);
+    assert!(driver.writes.is_empty());
+    driver.apply(&mut state, 2, 400_000, &warnings);
+    assert_eq!(driver.values["Av1PeakBitrate"].value, 48_000_000);
+    assert!(warnings.snapshot().is_empty(), "under the ceiling");
+    driver.writes.clear();
+    driver.apply(&mut state, 2, 1_200_000, &warnings);
+    assert_eq!(
+        driver.writes.first(),
+        Some(&("Av1TargetBitrate".to_string(), 800_000_000))
+    );
+    assert_eq!(driver.values["Av1PeakBitrate"].value, 96_000_000);
+    // Another request above the ceiling changes nothing at the driver.
+    driver.writes.clear();
+    driver.apply(&mut state, 2, 1_500_000, &warnings);
+    assert!(driver.writes.is_empty());
+    let snapshot = warnings.snapshot();
+    assert_eq!(snapshot.len(), 1, "{snapshot:?}");
+    assert_eq!(snapshot[0].code, "encoder_bitrate_ceiling");
+    assert!(
+        snapshot[0]
+            .message
+            .starts_with("The encoder runs at 800000 Kbps, not the requested 1500000 Kbps"),
+        "{}",
+        snapshot[0].message
+    );
+}
+
+#[test]
 fn settings_log_shows_each_codecs_profile_and_bit_depth() {
     // A 10-bit SDR stream is told apart from 8-bit only by these two, as the
     // driver applied them.

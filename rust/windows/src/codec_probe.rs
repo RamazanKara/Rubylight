@@ -646,4 +646,35 @@ mod tests {
             }
         }
     }
+    #[test]
+    #[ignore = "requires an AMD GPU with AMF"]
+    fn packed_probe_holds_a_bitrate_above_the_driver_ceiling() {
+        // #80: a client's 1.2 Gbps arrives as about 959 Mbps after FEC and
+        // audio; AMF refused that Av1TargetBitrate with AMF_OUT_OF_RANGE.
+        for codec in [1, 2] {
+            let mode = Negotiated {
+                width: 3840,
+                height: 2160,
+                fps: 100,
+                bitrate_kbps: 959_000,
+                codec,
+                sdr_10bit: true,
+                chroma_packing: butterpollo_core::packed444::VERSION,
+                ..Default::default()
+            };
+            let reply = probe(&Request {
+                output: String::new(),
+                adapter_name: String::new(),
+                adapter_pnp_id: String::new(),
+                packed: Some(mode),
+                encoder_options: BTreeMap::new(),
+            });
+            let expected = u32::from(butterpollo_core::packed444::mode_bit(codec, true));
+            match reply {
+                Ok(Reply::Done { flags, .. }) => assert_eq!(flags, expected, "codec {codec}"),
+                Ok(Reply::Error { message }) => panic!("codec {codec}: {message}"),
+                Err(error) => panic!("codec {codec}: {error:#}"),
+            }
+        }
+    }
 }

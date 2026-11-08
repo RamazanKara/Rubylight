@@ -8,4 +8,6 @@
     <string name="summary_pyrowave_preacquire">Pega a próxima imagem de tela antes de cada quadro PyroWave chegar, com o ritmo de quadros desligado.</string>
     <string name="title_codec_direct">Dados de vídeo direto ao decodificador</string>
     <string name="summary_codec_direct">Copia cada quadro uma única vez para o decodificador, sem cópia intermediária. Só com o novo mecanismo de transmissão.</string>
+    <string name="title_receive_decode_priority">Prioridade de decodificador ao receber</string>
+    <string name="summary_receive_decode_priority">Novo mecanismo de transmissão: a thread que recebe o vídeo e alimenta o decodificador roda com a prioridade do decodificador.</string>
 </resources>

@@ -2,5 +2,5 @@
 <resources>
     <!-- Default of "Video data straight to the decoder" (checkbox_codec_direct): the settings row and
          PreferenceConfiguration both read it, so flipping it here changes the default everywhere. -->
-    <bool name="default_codec_direct">false</bool>
+    <bool name="default_codec_direct">true</bool>
 </resources>

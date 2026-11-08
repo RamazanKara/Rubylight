@@ -8,4 +8,6 @@
     <string name="summary_pyrowave_preacquire">关闭帧速调节时，在每个 PyroWave 帧到达前先获取下一张屏幕图像。</string>
     <string name="title_codec_direct">视频数据直达解码器</string>
     <string name="summary_codec_direct">每帧只复制一次到解码器，省去中间副本。仅限新串流引擎。</string>
+    <string name="title_receive_decode_priority">接收使用解码器优先级</string>
+    <string name="summary_receive_decode_priority">新串流引擎：接收视频并交给解码器的线程以解码器的优先级运行。</string>
 </resources>

@@ -151,6 +151,11 @@ pub struct SessionConfig {
     /// Nightjar's "Prioritize stream traffic": `SO_PRIORITY` 6 on every socket of the stream
     /// and nice -4 on the receive, decode and control threads. See [`crate::priority`].
     pub network_priority: bool,
+    /// The decode priority switch's setting ([`crate::priority::decode_priority_switch`]): with
+    /// direct submission and `network_priority`, VideoRecv runs at the decoder's level, and on
+    /// Windows the session threads are raised. On for the desktop; Android's Debug setting
+    /// "Decoder priority for receiving", off by default.
+    pub receive_decode_priority: bool,
     /// Client roaming (Experimental), with hosts that advertise it.
     pub roaming: RoamingConfig,
 }
@@ -398,14 +403,14 @@ enum StartGate {
 }
 
 impl Shared {
-    fn new(listener: Arc<dyn Listener>, network_priority: bool) -> Self {
+    fn new(listener: Arc<dyn Listener>, network_priority: bool, decode_priority: bool) -> Self {
         Self {
             listener,
             stopping: Arc::new(AtomicBool::new(false)),
             terminated: AtomicBool::new(false),
             start_gate: Mutex::new(StartGate::Starting(None)),
             network_priority,
-            decode_priority: priority::decode_priority_switch(),
+            decode_priority: priority::decode_priority_switch(decode_priority),
             wire_bytes: AtomicU64::new(0),
             host_watch: Mutex::new(None),
         }
@@ -646,7 +651,11 @@ impl Session {
         interrupt: &Interrupt,
     ) -> Result<Session, StartError> {
         let mut parts = Parts {
-            shared: Arc::new(Shared::new(listener.clone(), config.network_priority)),
+            shared: Arc::new(Shared::new(
+                listener.clone(),
+                config.network_priority,
+                config.receive_decode_priority,
+            )),
             remote: None,
             local: None,
             outcome: None,
@@ -1548,7 +1557,7 @@ mod tests {
     #[test]
     fn a_termination_during_a_failed_start_is_not_reported_beside_the_failure() {
         let (heard, terminated) = heard();
-        let shared = Shared::new(heard, false);
+        let shared = Shared::new(heard, false, true);
         shared.terminate(7);
         assert_eq!(shared.start_failed(), Some(7), "the held code is logged");
         shared.terminate(8);
@@ -1561,7 +1570,7 @@ mod tests {
     #[test]
     fn a_termination_during_a_successful_start_is_reported_once_it_returns() {
         let (heard, terminated) = heard();
-        let shared = Shared::new(heard, false);
+        let shared = Shared::new(heard, false, true);
         shared.terminate(7);
         assert!(terminated.recv_timeout(Duration::from_millis(100)).is_err());
         shared.started();
@@ -1576,7 +1585,7 @@ mod tests {
     #[test]
     fn a_termination_after_the_start_is_reported_at_once() {
         let (heard, terminated) = heard();
-        let shared = Shared::new(heard, false);
+        let shared = Shared::new(heard, false, true);
         shared.started();
         shared.terminate(9);
         assert_eq!(terminated.recv_timeout(Duration::from_secs(5)), Ok(9));

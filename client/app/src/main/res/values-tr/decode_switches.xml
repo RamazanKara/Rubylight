@@ -8,4 +8,6 @@
     <string name="summary_pyrowave_preacquire">Kare zamanlama kapalıyken her PyroWave karesi gelmeden önce sonraki ekran görüntüsünü alır.</string>
     <string name="title_codec_direct">Video verisi doğrudan kod çözücüye</string>
     <string name="summary_codec_direct">Her kareyi ara kopya olmadan kod çözücüye tek kez kopyalar. Yalnızca yeni yayın motoruyla.</string>
+    <string name="title_receive_decode_priority">Alımda kod çözücü önceliği</string>
+    <string name="summary_receive_decode_priority">Yeni yayın motoru: videoyu alıp kod çözücüye veren iş parçacığı kod çözücünün önceliğiyle çalışır.</string>
 </resources>

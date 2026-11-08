@@ -8,4 +8,6 @@
     <string name="summary_pyrowave_preacquire">프레임 페이싱이 꺼져 있을 때 각 PyroWave 프레임이 도착하기 전에 다음 화면 이미지를 가져옵니다.</string>
     <string name="title_codec_direct">영상 데이터를 디코더로 바로 전달</string>
     <string name="summary_codec_direct">각 프레임을 중간 복사 없이 디코더에 한 번만 복사합니다. 새 스트리밍 엔진 전용.</string>
+    <string name="title_receive_decode_priority">수신에 디코더 우선순위</string>
+    <string name="summary_receive_decode_priority">새 스트리밍 엔진: 영상을 받아 디코더로 넘기는 스레드가 디코더와 같은 우선순위로 실행됩니다.</string>
 </resources>

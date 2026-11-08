@@ -70,5 +70,6 @@
         <item>checkbox_covering_decoder_size</item>
         <item>checkbox_pyrowave_preacquire</item>
         <item>checkbox_codec_direct</item>
+        <item>checkbox_receive_decode_priority</item>
     </string-array>
 </resources>

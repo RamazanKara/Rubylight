@@ -1,0 +1,4 @@
+- Faster frames: PyroWave and the new engine hand frames to the decoder without extra copies, and the Vulkan renderer waits for the decoder on the GPU.
+- A decoder that falls behind no longer shows as network loss or lowers the bitrate; it gets its own Decoder drops line.
+- Stream menu, dialogs, keyboards and stats wear the same glass and read over bright games.
+- Slider values stay visible while you move them; VRR TVs keep 4K at the rate they can show.

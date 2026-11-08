@@ -1,2 +1,0 @@
-## desktop
-- Linux: a stream with Variable refresh rate on no longer stutters on a display that is not running VRR (VRR or FreeSync off in GNOME, KDE or the monitor). Nightjar now asks the graphics driver whether the display runs VRR and waits for each refresh when it does not, as it already did on Windows. Where VRR runs (KDE adaptive sync, GNOME VRR), pictures still go out at once. The statistics overlay says "V-Sync: this display does not refresh on present" when this happens.

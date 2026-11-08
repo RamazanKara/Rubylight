@@ -460,6 +460,17 @@ impl Streaming {
         #[cfg(target_os = "linux")]
         {
             self.window_target.get_or_insert((crate::sdl::window_target_frames(renderer), 0)).1 += 1;
+            // The host's mastering metadata for an HDR10 swapchain, again when it or the peak changes.
+            let metadata = self.texture.hdr_metadata().map(|m| crate::sdl::swapchain_hdr_metadata(&m, crate::sdl::output_peak_nits(renderer)));
+            if let Some(metadata) = metadata.filter(|m| self.swapchain_hdr_metadata != Some(*m)) {
+                if crate::sdl::output_decision() == Some(Ok(crate::handheld::Output::Pq)) {
+                    eprintln!("nightjar: HDR10 swapchain metadata: mastering {:.4}-{:.0} nits, MaxCLL {:.0}, MaxFALL {:.0}",
+                        metadata.min_luminance, metadata.max_luminance, metadata.max_content_light_level, metadata.max_frame_average_light_level);
+                }
+                // SAFETY: a live renderer.
+                crate::sdl::set_swapchain_hdr_metadata(unsafe { SDL_GetRenderWindow(renderer) }, metadata);
+                self.swapchain_hdr_metadata = Some(metadata);
+            }
         }
         let issued_us = session::now_us();
         // SAFETY: a live renderer.

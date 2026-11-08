@@ -216,8 +216,10 @@ pub(super) fn offered_formats_decoding(settings: &Settings, scm: u32, decodable:
 /// When the codec chosen is one this device's hardware decoder can't decode (`hardware_decodable`,
 /// from `color_probe::probe_base`) and the stream runs another: the log line, and what to tell
 /// the player. The chosen format is the codec's Main10 one with HDR. None when the PC doesn't
-/// encode it (the offer leaves it out either way), for Automatic, H.264 and PyroWave (its own
-/// notice), and with packed full chroma, which checks its formats in its own probe.
+/// encode it (the offer leaves it out either way), and for Automatic, H.264 and PyroWave (its own
+/// notice). Packed full chroma offers AV1's HEVC fallback too, as Android does, and the handshake
+/// takes the packed mode both ends have (`select_packed_format`): a stream of another codec is
+/// told whichever end lacks the chosen one, as a refusal was before.
 pub(super) fn codec_fallback(settings: &Settings, scm: u32, hardware_decodable: u32, negotiated: u32) -> Option<(String, String)> {
     let asked = match (settings.codec, settings.hdr) {
         (CodecPreference::Av1, false) => VIDEO_FORMAT_AV1_MAIN8,
@@ -226,7 +228,19 @@ pub(super) fn codec_fallback(settings: &Settings, scm: u32, hardware_decodable: 
         (CodecPreference::Hevc, true) => VIDEO_FORMAT_H265_MAIN10,
         _ => return None,
     };
-    if settings.experimental_packed_444 || hardware_decodable & asked != 0 || negotiated & asked != 0
+    if settings.experimental_packed_444 {
+        // A 10-bit packed mode neither end has streams 8-bit with its own notice: only the codec counts.
+        let family = if asked & VIDEO_FORMAT_MASK_AV1 != 0 { VIDEO_FORMAT_MASK_AV1 } else { VIDEO_FORMAT_MASK_H265 };
+        if negotiated & family != 0 {
+            return None;
+        }
+        let (asked, streamed) = (codec_name(asked), codec_name(negotiated));
+        return Some((
+            format!("nightjar: {asked} was chosen with full chroma, but this PC and device have no packed {asked} mode in common; streaming {streamed}"),
+            trf("Full chroma can’t run {} with this PC and device, so Nightjar uses {}.", &[&asked, &streamed]),
+        ));
+    }
+    if hardware_decodable & asked != 0 || negotiated & asked != 0
         || video_formats(settings.codec, settings.hdr, scm) & asked == 0 {
         return None;
     }

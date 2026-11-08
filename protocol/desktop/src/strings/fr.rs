@@ -1409,4 +1409,5 @@ sudo sysctl -w net.core.rmem_max={}", "Tampon de réception : le système a acco
     ("{} cannot decode this stream. Now decoding in software.", "{} ne peut pas décoder ce flux. Décodage désormais logiciel."),
     ("{} cannot decode this stream, and no other decoder opens: {}", "{0} ne peut pas décoder ce flux, et aucun autre décodeur ne s’ouvre : {1}"),
     ("This device doesn’t decode {}, so Nightjar uses {}.", "Cet appareil ne décode pas {0}, Nightjar utilise donc {1}."),
+    ("Full chroma can’t run {} with this PC and device, so Nightjar uses {}.", "La chrominance complète ne peut pas utiliser {0} avec ce PC et cet appareil, Nightjar utilise donc {1}."),
 ];

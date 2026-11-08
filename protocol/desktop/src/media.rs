@@ -167,6 +167,7 @@ pub enum VaapiNode {
 
 impl VaapiNode {
     /// The render node's minor; none for the default device.
+    #[cfg_attr(not(unix), allow(dead_code))] // VAAPI is Unix's; Windows reads it in tests only.
     pub fn minor(self) -> Option<u32> {
         match self {
             Self::Default => None,

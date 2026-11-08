@@ -223,12 +223,16 @@ public class AdvancedOptionsTest {
         }
     }
 
-    // Settings whose default is right for nearly everyone sit together in Debug, the last section, all on its main rows.
-    private static final List<String> DEBUG_CONTROLS = Arrays.asList(
+    // Settings whose default is right for nearly everyone sit together in Debug, the last section. The decoder
+    // switches fold behind its More row, so Debug keeps the 8 main rows at most that SettingsTiersTest allows.
+    private static final List<String> DEBUG_MAIN = Arrays.asList(
             "list_fec_choice", "checkbox_rate_change_bitrate", "checkbox_tell_host_wireless", "checkbox_tell_host_link_speed",
-            "checkbox_network_priority", "checkbox_unbatched_input", "checkbox_full_range",
-            "checkbox_submit_hint", "checkbox_covering_decoder_size", "checkbox_pyrowave_preacquire", "checkbox_codec_direct",
-            "checkbox_receive_decode_priority");
+            "checkbox_network_priority", "checkbox_unbatched_input", "checkbox_full_range");
+    private static final List<String> DEBUG_CONTROLS = new ArrayList<>(DEBUG_MAIN);
+    static {
+        DEBUG_CONTROLS.addAll(Arrays.asList("checkbox_submit_hint", "checkbox_covering_decoder_size",
+                "checkbox_pyrowave_preacquire", "checkbox_codec_direct", "checkbox_receive_decode_priority"));
+    }
 
     @Test
     public void debugIsTheLastSectionAndSearchStillFindsItsSettings() {
@@ -242,7 +246,10 @@ public class AdvancedOptionsTest {
             assertEquals("Decoding and diagnostics", root(screen).findPreference("advanced").getSummary().toString());
             PreferenceGroup debug = (PreferenceGroup) open(screen, "debug").getPreferenceScreen().findPreference("category_debug");
             assertEquals(DEBUG_CONTROLS, SettingsStructureTest.keys(debug));
-            assertEquals(DEBUG_CONTROLS, StreamSettings.mainKeys(screen, "debug"));
+            assertEquals(DEBUG_MAIN, StreamSettings.mainKeys(screen, "debug"));
+            for (String key : DEBUG_CONTROLS) {
+                assertEquals(key, !DEBUG_MAIN.contains(key), StreamSettings.foldsInSection(screen, "debug", key));
+            }
             for (String section : sections) {
                 if (section.equals("debug")) continue;
                 PreferenceScreen other = open(screen, section).getPreferenceScreen();

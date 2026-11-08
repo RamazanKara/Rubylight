@@ -714,6 +714,11 @@ impl Streaming {
             eprintln!("nightjar: frame pacing {:?} without VRR at {stream_fps} fps", settings.frame_pacing);
         }
         let vrr_check = checks_display_for_vrr(connecting.plan.vrr, connecting.pacing, vrr_fallback, env_flag("NIGHTJAR_VRR_CHECK"));
+        #[cfg(target_os = "linux")]
+        let keeps_mailbox = !present::prefers_immediate(true, crate::sdl::video_driver() == "wayland", crate::handheld::gamescope());
+        #[cfg(not(target_os = "linux"))]
+        let keeps_mailbox = false;
+        let present_check = checks_display_for_present_mode(connecting.plan.vrr, connecting.pacing, vrr_check, keeps_mailbox, env_flag("NIGHTJAR_VRR_CHECK"));
         let vrr_sync = if connecting.plan.vrr { present::VrrSync::parse(std::env::var("NIGHTJAR_VRR_SYNC").ok().as_deref()) } else { present::VrrSync::Off };
         if vrr_sync != present::VrrSync::Off { eprintln!("nightjar: VRR sync {} (NIGHTJAR_VRR_SYNC)", vrr_sync.label()); }
         if vrr_sync == present::VrrSync::Scan && !vrr_check {
@@ -740,7 +745,7 @@ impl Streaming {
             phase: phase::Phase::default(),
             race_probe: None,
             // The sync interval as `App::begin_stream` set it.
-            vrr: present::VrrPacing::new(vrr_check, vrr_fallback, vrr_sync, connecting.pacing),
+            vrr: present::VrrPacing::new(vrr_check, vrr_fallback, vrr_sync, connecting.pacing).with_present_check(present_check),
             skip_over_waiting: env_flag("NIGHTJAR_PRESENT_SKIP").unwrap_or(true),
             present_deadline_us: std::env::var("NIGHTJAR_PRESENT_DEADLINE_US").ok().and_then(|us| us.parse().ok()),
             no_wait_present: false,
@@ -2185,6 +2190,24 @@ mod tests {
         assert!(!checks(&Settings { vsync: false, ..Default::default() }, true, None), "V-Sync off: immediate either way");
         assert!(!checks(&Settings::default(), true, Some(false)), "NIGHTJAR_VRR_CHECK=0");
         assert!(checks(&Settings::default(), true, Some(true)));
+    }
+
+    /// The bug: with V-Sync off a VRR stream on Wayland stayed on MAILBOX on a fixed refresh
+    /// display, unchecked. The check now runs for its present mode.
+    #[test]
+    fn a_vrr_stream_without_v_sync_checks_its_display_for_the_present_mode() {
+        let settings = Settings { vsync: false, ..Default::default() };
+        let (pacing, vrr) = present::pacing(&settings, true);
+        let pacing_check = checks_display_for_vrr(vrr, pacing, present::without_vrr(&settings), None);
+        assert!(!pacing_check);
+        assert!(checks_display_for_present_mode(vrr, pacing, pacing_check, true, None), "Wayland keeps MAILBOX for VRR");
+        assert!(!checks_display_for_present_mode(vrr, pacing, pacing_check, false, None), "IMMEDIATE already (X11, gamescope)");
+        assert!(!checks_display_for_present_mode(vrr, pacing, pacing_check, true, Some(false)), "NIGHTJAR_VRR_CHECK=0");
+        assert!(!checks_display_for_present_mode(vrr, pacing, true, true, None), "the pacing check reads it already");
+        assert!(!checks_display_for_present_mode(false, pacing, false, true, None), "no VRR, no MAILBOX");
+        assert!(!checks_display_for_present_mode(vrr, PacingMode::Vsync, false, true, None), "V-Sync is FIFO");
+        let vrr_pacing = present::VrrPacing::new(false, PacingMode::Immediate, present::VrrSync::Off, PacingMode::Immediate).with_present_check(true);
+        assert_eq!(display_probe(false, &vrr_pacing), Some("display check"));
     }
 
     #[test]

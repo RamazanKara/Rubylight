@@ -63,13 +63,20 @@ pub(super) fn checks_display_for_vrr(vrr: bool, pacing: PacingMode, fallback: Pa
     vrr && pacing != PacingMode::Vsync && fallback != pacing && forced != Some(false)
 }
 
+/// Whether a tearing VRR stream whose pacing the check would not change (V-Sync off) still reads
+/// the display, for its present mode alone: one that keeps MAILBOX for VRR (`keeps_mailbox`, a
+/// Wayland compositor, `present::prefers_immediate`) has to tear on a fixed refresh display.
+pub(super) fn checks_display_for_present_mode(vrr: bool, pacing: PacingMode, pacing_check: bool, keeps_mailbox: bool, forced: Option<bool>) -> bool {
+    vrr && pacing != PacingMode::Vsync && !pacing_check && keeps_mailbox && forced != Some(false)
+}
+
 /// Whether the stream reads the scan line around its presents, and the topic of its log lines:
 /// for the beam race, for the VRR display check, and for `NIGHTJAR_VRR_SYNC=scan`, which waits on
 /// the beam. None for every other stream.
 pub(super) fn display_probe(beam_race: bool, vrr: &present::VrrPacing) -> Option<&'static str> {
     if beam_race {
         Some("beam race")
-    } else if vrr.check || vrr.sync == present::VrrSync::Scan {
+    } else if vrr.check || vrr.present_check || vrr.sync == present::VrrSync::Scan {
         Some("display check")
     } else {
         None

@@ -123,6 +123,12 @@ pub struct VrrPacing {
     rechecks: bool,
     /// The stream returned from a fall back once.
     pub recovered: bool,
+    /// The display check runs for the present mode alone (`stats::checks_display_for_present_mode`):
+    /// its verdict changes no pacing.
+    pub present_check: bool,
+    /// The last verdict found the display at a fixed refresh, and none since found it refreshing
+    /// on present.
+    fixed_display: bool,
 }
 
 /// The first recheck after a "no VRR" fall back, and the longest between two: each one doubles
@@ -136,7 +142,19 @@ impl VrrPacing {
         Self {
             check, fallback, fell_back: false, sync, interval: i32::from(mode == PacingMode::Vsync),
             restore: None, recheck_us: None, recheck_every_us: RECHECK_FIRST_US, rechecks: true, recovered: false,
+            present_check: false, fixed_display: false,
         }
+    }
+
+    /// Runs the display check for the present mode where it changes no pacing.
+    pub fn with_present_check(self, present_check: bool) -> Self {
+        Self { present_check, ..self }
+    }
+
+    /// Whether the display, as far as the check knows, refreshes on present: false once it fell
+    /// back or a verdict found a fixed refresh. The present mode follows it (`prefers_immediate`).
+    pub fn display_vrr(&self) -> bool {
+        !(self.fell_back || self.fixed_display)
     }
 
     /// Folds the display check's verdict (`verdict`, None before the probe runs) into `mode`, and
@@ -145,6 +163,13 @@ impl VrrPacing {
     /// returns to its pacing once a recheck finds the display refreshing on present, and plans the
     /// next recheck when one ends without (`now_us`, `recheck_due`).
     pub fn step(&mut self, mode: &mut PacingMode, verdict: Option<&super::scanline::Verdict>, now_us: u64) -> Option<i32> {
+        if let (true, Some(verdict)) = (self.check || self.present_check, verdict) {
+            if verdict.fixed_refresh() {
+                self.fixed_display = true;
+            } else if verdict.refreshes_on_present() {
+                self.fixed_display = false;
+            }
+        }
         if let (true, Some(verdict)) = (self.check, verdict) {
             let after = after_display_check(*mode, verdict, self.fallback);
             if after != *mode {
@@ -2496,6 +2521,20 @@ pub(crate) mod tests {
         use super::super::scanline::{RaceCapability, Reason, Verdict};
         let capability = RaceCapability { tearing: true, vrr: false, flip_inferred: false, scanline: true };
         let fixed = Verdict::Off(Reason::NoVrr, capability);
+        // V-Sync off: no pacing to change, but the present mode follows the display.
+        let mut vrr = VrrPacing::new(false, PacingMode::Immediate, VrrSync::Off, PacingMode::Immediate).with_present_check(true);
+        let mut mode = PacingMode::Immediate;
+        assert!(vrr.display_vrr(), "VRR until the check says otherwise");
+        assert_eq!(vrr.step(&mut mode, Some(&Verdict::Checking), 0), None);
+        assert!(vrr.display_vrr());
+        assert_eq!(vrr.step(&mut mode, Some(&fixed), 0), None, "no new sync interval");
+        assert_eq!((mode, vrr.fell_back, vrr.display_vrr()), (PacingMode::Immediate, false, false));
+        assert_eq!(vrr.step(&mut mode, Some(&Verdict::Off(Reason::VrrNoScanline, RaceCapability { vrr: true, ..capability })), 0), None);
+        assert!(vrr.display_vrr(), "the display refreshes on present again");
+        // Without either check, a verdict means nothing to it.
+        let mut unchecked = VrrPacing::new(false, PacingMode::Immediate, VrrSync::Off, PacingMode::Immediate);
+        unchecked.step(&mut mode, Some(&fixed), 0);
+        assert!(unchecked.display_vrr());
         let settings = crate::config::Settings::default();
         let (start, _) = pacing(&settings, true);
         assert_eq!(start, PacingMode::Immediate);

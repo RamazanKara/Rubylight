@@ -1461,9 +1461,7 @@ pub(super) const MAIN_KEYS: [(&str, &[&str]); 8] = [
     ("streaming", &["checkbox_enable_perf_overlay", "checkbox_auto_reconnect"]),
     ("app", &["checkbox_always_dark", "list_languages", "checkbox_console_home", "checkbox_quick_resume", "pin_lock", "help", "report_problem", "check_updates_now"]),
     ("advanced", &["checkbox_rust_engine", "low_latency_decoding", "low_latency_customize", "gpu_driver", "checkbox_gpu_max_clocks", "checkbox_texture_view", "checkbox_vulkan_render"]),
-    ("debug", &["list_fec_choice", "checkbox_rate_change_bitrate", "checkbox_tell_host_wireless", "checkbox_tell_host_link_speed", "checkbox_network_priority", "checkbox_unbatched_input", "checkbox_full_range",
-        "checkbox_submit_hint", "checkbox_covering_decoder_size", "checkbox_pyrowave_preacquire", "checkbox_codec_direct",
-        "checkbox_receive_decode_priority"]),
+    ("debug", &["list_fec_choice", "checkbox_rate_change_bitrate", "checkbox_tell_host_wireless", "checkbox_tell_host_link_speed", "checkbox_network_priority", "checkbox_unbatched_input", "checkbox_full_range"]),
 ];
 
 /// Desktop rows and the Android preference each one matches. A row is main when its match is.

@@ -46,6 +46,7 @@ public class MediaCodecFailedSubmitTest {
     /** Takes buffers, but refuses the next one with a transient error when told to. */
     @Implements(MediaCodec.class)
     public static class RefusingCodec extends ShadowMediaCodec {
+        // Frames taken, without parameter-set buffers.
         static int queued;
         static boolean refuseNext;
         static MediaCodecDecoderRenderer renderer;
@@ -64,12 +65,16 @@ public class MediaCodecFailedSubmitTest {
             return null;
         }
         @Implementation public void queueInputBuffer(int index, int offset, int size, long timeUs, int flags) {
+            // An IDR's parameter sets go first in their own buffer; only frames count here.
+            if ((flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) return;
             if (renderer != null) countedAtQueue.add(ReflectionHelpers.getField(renderer, "numFramesIn"));
             if (refuseNext) {
                 refuseNext = false;
-                // ACTION_TRANSIENT: the renderer keeps the buffer and asks for an IDR, no recovery.
+                // ACTION_TRANSIENT: the renderer keeps the buffer and asks for an IDR, no recovery
+                // (a recovery would wait for a renderer thread this test has not started).
+                int transientAction = ReflectionHelpers.getStaticField(MediaCodec.CodecException.class, "ACTION_TRANSIENT");
                 throw ReflectionHelpers.callConstructor(MediaCodec.CodecException.class,
-                        ClassParameter.from(int.class, 0), ClassParameter.from(int.class, 2),
+                        ClassParameter.from(int.class, 0), ClassParameter.from(int.class, transientAction),
                         ClassParameter.from(String.class, "busy"));
             }
             queued++;

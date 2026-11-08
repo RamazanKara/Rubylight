@@ -127,6 +127,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
     hdr_format: jint,
     video_fec_percentage: jint,
     pyrowave_early: jboolean,
+    codec_direct: jboolean,
 ) -> jint {
     let Some(bridge) = bridge::get() else {
         platform::error("RustBridge.startConnection before init");
@@ -185,6 +186,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
             host,
             config,
             early_records: pyrowave_early == JNI_TRUE,
+            codec_direct: codec_direct == JNI_TRUE,
         },
     )
 }

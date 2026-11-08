@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_submit_hint">Velocizza la consegna dei fotogrammi</string>
+    <string name="summary_submit_hint">I suggerimenti prestazioni includono anche il thread che consegna i fotogrammi al decoder.</string>
+    <string name="title_covering_decoder_size">Prepara il decoder alla piegatura</string>
+    <string name="summary_covering_decoder_size">Dimensiona il decoder in anticipo per l\'altro schermo e la rotazione, così piegare o ruotare non richiede un riavvio.</string>
+    <string name="title_pyrowave_preacquire">PyroWave: immagine dello schermo anticipata</string>
+    <string name="summary_pyrowave_preacquire">Prende la prossima immagine dello schermo prima dell\'arrivo di ogni fotogramma PyroWave, con il frame pacing disattivato.</string>
+    <string name="title_codec_direct">Dati video diretti al decoder</string>
+    <string name="summary_codec_direct">Copia ogni fotogramma una sola volta nel decoder, senza copia intermedia. Solo con il nuovo motore di streaming.</string>
+</resources>

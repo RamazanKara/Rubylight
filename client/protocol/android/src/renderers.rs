@@ -30,17 +30,20 @@ pub struct Video {
     early: bool,
     /// Picture data goes to Java in place, as a direct buffer ([`direct_hand_off`]).
     direct: bool,
+    /// The "Video data straight to the decoder" setting, for [`direct_hand_off`].
+    codec_direct: bool,
     chunks: ChunkBatch,
 }
 
 impl Video {
-    pub fn new(bridge: &'static Bridge, early: bool) -> Self {
+    pub fn new(bridge: &'static Bridge, early: bool, codec_direct: bool) -> Self {
         Self {
             bridge,
             buffer: None,
             capacity: 0,
             early,
             direct: false,
+            codec_direct,
             chunks: ChunkBatch::default(),
         }
     }
@@ -115,13 +118,14 @@ impl ChunkBatch {
 /// renderer reads during the call, instead of copying it into a Java array first. PyroWave reads
 /// it in native code, which saves both copies (Java's array and the renderer's own); it is on
 /// unless `debug.nightjar.pyro_direct` is 0. MediaCodec copies it straight into the codec's input
-/// buffer, one copy fewer; that is off unless `debug.nightjar.codec_direct` is 1, as it came out
-/// with the 3.2.3 decode reverts.
-fn direct_hand_off(format: u32, pyro_direct: &str, codec_direct: &str) -> bool {
+/// buffer, one copy fewer; that follows the Debug setting "Video data straight to the decoder"
+/// (`setting`, off by default as it came out with the 3.2.3 decode reverts), which
+/// `debug.nightjar.codec_direct` 1 or 0 overrides.
+fn direct_hand_off(format: u32, pyro_direct: &str, codec_direct: &str, setting: bool) -> bool {
     if format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
         pyro_direct != "0"
     } else {
-        codec_direct == "1"
+        codec_direct == "1" || (codec_direct != "0" && setting)
     }
 }
 
@@ -198,6 +202,7 @@ impl VideoDecoder for Video {
                     setup.format,
                     &platform::system_property(c"debug.nightjar.pyro_direct"),
                     &platform::system_property(c"debug.nightjar.codec_direct"),
+                    self.codec_direct,
                 );
                 platform::info(&format!(
                     "Picture data goes to the renderer {}",
@@ -657,14 +662,30 @@ mod tests {
             VIDEO_FORMAT_AV1_MAIN8, VIDEO_FORMAT_H265, VIDEO_FORMAT_PYROWAVE,
             VIDEO_FORMAT_PYROWAVE_MAIN10_444,
         };
-        assert!(direct_hand_off(VIDEO_FORMAT_PYROWAVE_MAIN10_444, "", ""));
+        assert!(direct_hand_off(
+            VIDEO_FORMAT_PYROWAVE_MAIN10_444,
+            "",
+            "",
+            false
+        ));
         // Unset properties read as empty.
-        assert!(direct_hand_off(VIDEO_FORMAT_PYROWAVE, "", ""));
-        assert!(!direct_hand_off(VIDEO_FORMAT_PYROWAVE, "0", "1"));
-        assert!(!direct_hand_off(VIDEO_FORMAT_H265, "", ""));
-        assert!(!direct_hand_off(VIDEO_FORMAT_AV1_MAIN8, "1", "0"));
-        assert!(direct_hand_off(VIDEO_FORMAT_H265, "0", "1"));
-        assert!(direct_hand_off(VIDEO_FORMAT_AV1_MAIN8, "", "1"));
+        assert!(direct_hand_off(VIDEO_FORMAT_PYROWAVE, "", "", false));
+        assert!(!direct_hand_off(VIDEO_FORMAT_PYROWAVE, "0", "1", true));
+        assert!(!direct_hand_off(VIDEO_FORMAT_H265, "", "", false));
+        assert!(!direct_hand_off(VIDEO_FORMAT_AV1_MAIN8, "1", "0", false));
+        assert!(direct_hand_off(VIDEO_FORMAT_H265, "0", "1", false));
+        assert!(direct_hand_off(VIDEO_FORMAT_AV1_MAIN8, "", "1", false));
+    }
+
+    #[test]
+    fn the_codec_direct_setting_holds_unless_the_property_is_set() {
+        use nightjar_core::sdp::{VIDEO_FORMAT_H265, VIDEO_FORMAT_PYROWAVE};
+        assert!(direct_hand_off(VIDEO_FORMAT_H265, "", "", true));
+        assert!(direct_hand_off(VIDEO_FORMAT_H265, "", "other", true));
+        assert!(!direct_hand_off(VIDEO_FORMAT_H265, "", "0", true));
+        assert!(direct_hand_off(VIDEO_FORMAT_H265, "", "1", false));
+        // PyroWave has its own switch; the MediaCodec setting does not reach it.
+        assert!(!direct_hand_off(VIDEO_FORMAT_PYROWAVE, "0", "", true));
     }
 
     #[test]

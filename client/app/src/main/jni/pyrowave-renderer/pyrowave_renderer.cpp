@@ -832,7 +832,8 @@ namespace {
         }
 
         bool create(ANativeWindow *nativeWindow, int streamWidth, int streamHeight, int frameRate, float displayRefreshRate, int pacingMode,
-                    bool fullChroma, bool tenBitOutput, bool fullRangeOutput, bool stretchOutput, int upscale, float sharpness) {
+                    bool fullChroma, bool tenBitOutput, bool fullRangeOutput, bool stretchOutput, int upscale, float sharpness,
+                    bool preacquireSetting) {
             window = nativeWindow;
             upscaleMode = upscale;
             stretch = stretchOutput;
@@ -853,7 +854,7 @@ namespace {
             submissionDiagnostics.configure();
             presentationDiagnostics.configure(submissionDiagnostics.isEnabled());
             pacingDiagnostics.configure(submissionDiagnostics.isEnabled());
-            configurePreacquire();
+            configurePreacquire(preacquireSetting);
             return apiVersionSupported() && createInstanceAndSurface() && createDevice() &&
                    createSwapchain() && checkDecoderLimits() && createDecoder() && createPlanes() &&
                    createPipeline() && createUpscaler() && createFrameResources() && warmUpDecoder() &&
@@ -2289,12 +2290,13 @@ namespace {
                    check(vk.ResetFences(device, 1, &acquireFence), "reset acquire fence");
         }
 
-        // Pre-acquire is off unless debug.nightjar.pyro_preacquire is 1 (it came out with the
-        // 3.2.3 decode reverts), and only presents on arrival take it: paced modes acquire per frame.
-        void configurePreacquire() {
+        // Pre-acquire follows the Debug setting "PyroWave early screen image" (off by default: it
+        // came out with the 3.2.3 decode reverts), which debug.nightjar.pyro_preacquire 1 or 0
+        // overrides. Only presents on arrival take it: paced modes acquire per frame.
+        void configurePreacquire(bool setting) {
             char value[PROP_VALUE_MAX] = {};
             __system_property_get("debug.nightjar.pyro_preacquire", value);
-            const bool requested = std::strcmp(value, "1") == 0;
+            const bool requested = std::strcmp(value, "1") == 0 || (std::strcmp(value, "0") != 0 && setting);
             preacquireImages = requested && framePacingMode == 0;
             if (requested) {
                 LOGI("PyroWave swapchain pre-acquire %s", preacquireImages ? "on" : "asked for, but off in paced modes");
@@ -2978,7 +2980,7 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeCreate(JNIEnv *en
                                                                       jint width, jint height, jint frameRate, jfloat displayRefreshRate,
                                                                       jint pacingMode,
                                                                       jboolean chroma444, jboolean tenBit, jboolean fullRange, jboolean stretch,
-                                                                      jint upscale, jfloat edgeSharpness,
+                                                                      jint upscale, jfloat edgeSharpness, jboolean preacquire,
                                                                       jstring hooks, jstring directory, jstring name) {
     if (surface == nullptr || width < 64 || height < 64 || width > 16384 || height > 16384 || (!chroma444 && ((width & 1) || (height & 1)))) {
         LOGE("PyroWave needs a surface and positive dimensions, even for 4:2:0 (%dx%d)", width, height);
@@ -2993,7 +2995,7 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeCreate(JNIEnv *en
     }
     auto renderer = std::make_unique<Renderer>(custom);
     if (!renderer->create(window, width, height, frameRate, displayRefreshRate, pacingMode, chroma444, tenBit, fullRange, stretch,
-                          upscale, edgeSharpness)) {
+                          upscale, edgeSharpness, preacquire)) {
         return 0;  // The renderer releases the window.
     }
     LOGI("PyroWave renderer ready for %dx%d %s", width, height, chroma444 ? "4:4:4" : "4:2:0");

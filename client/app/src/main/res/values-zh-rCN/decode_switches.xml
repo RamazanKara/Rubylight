@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_submit_hint">加快帧交付</string>
+    <string name="summary_submit_hint">性能提示也覆盖把帧交给解码器的线程。</string>
+    <string name="title_covering_decoder_size">为折叠准备解码器</string>
+    <string name="summary_covering_decoder_size">预先按另一块屏幕和旋转后的尺寸设置解码器，折叠或旋转时无需重启。</string>
+    <string name="title_pyrowave_preacquire">PyroWave 提前获取屏幕图像</string>
+    <string name="summary_pyrowave_preacquire">关闭帧速调节时，在每个 PyroWave 帧到达前先获取下一张屏幕图像。</string>
+    <string name="title_codec_direct">视频数据直达解码器</string>
+    <string name="summary_codec_direct">每帧只复制一次到解码器，省去中间副本。仅限新串流引擎。</string>
+</resources>

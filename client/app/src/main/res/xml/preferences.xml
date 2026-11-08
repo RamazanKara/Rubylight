@@ -995,6 +995,27 @@
             android:title="@string/title_full_range"
             android:dialogMessage="@string/summary_full_range"
             android:defaultValue="false" />
+        <!-- Decoder optimisations off by default (client/docs/settings.md); a set debug.nightjar.* property overrides each. -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_submit_hint"
+            android:title="@string/title_submit_hint"
+            android:dialogMessage="@string/summary_submit_hint"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_covering_decoder_size"
+            android:title="@string/title_covering_decoder_size"
+            android:dialogMessage="@string/summary_covering_decoder_size"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_pyrowave_preacquire"
+            android:title="@string/title_pyrowave_preacquire"
+            android:dialogMessage="@string/summary_pyrowave_preacquire"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_codec_direct"
+            android:title="@string/title_codec_direct"
+            android:dialogMessage="@string/summary_codec_direct"
+            android:defaultValue="@bool/default_codec_direct" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_more_debug">
         <Preference android:key="more_debug" android:title="@string/settings_more" android:persistent="false" />

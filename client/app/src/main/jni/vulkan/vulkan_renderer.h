@@ -357,7 +357,7 @@ private:
     bool frontBufferRequested_ = false;
     bool frontBufferAligned_ = false;
     bool hasSharedPresentExt_ = false;
-    // VK_KHR_external_semaphore_fd with sync fd import, asked for with debug.nightjar.vk_sync_fd:
+    // VK_KHR_external_semaphore_fd with sync fd import, used unless debug.nightjar.vk_sync_fd is 0:
     // presenting on arrival, the GPU waits for the decoder instead of the image reader thread
     bool hasSyncFdImport_ = false;
     std::atomic<bool> gpuDecodeWait_ {false};

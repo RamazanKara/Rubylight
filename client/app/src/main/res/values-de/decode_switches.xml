@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_submit_hint">Frame-Übergabe beschleunigen</string>
+    <string name="summary_submit_hint">Die Android-Leistungssteuerung erfasst auch den Thread, der Frames an den Decoder übergibt.</string>
+    <string name="title_covering_decoder_size">Decoder aufs Falten vorbereiten</string>
+    <string name="summary_covering_decoder_size">Legt den Decoder vorab für den anderen Bildschirm und fürs Drehen aus, damit Falten oder Drehen keinen Neustart braucht.</string>
+    <string name="title_pyrowave_preacquire">PyroWave: Bildschirmbild früher holen</string>
+    <string name="summary_pyrowave_preacquire">Holt das nächste Bildschirmbild, bevor jeder PyroWave-Frame ankommt, wenn Frame-Pacing aus ist.</string>
+    <string name="title_codec_direct">Videodaten direkt zum Decoder</string>
+    <string name="summary_codec_direct">Kopiert jeden Frame nur einmal in den Decoder, ohne Zwischenkopie. Nur mit der neuen Streaming-Engine.</string>
+</resources>

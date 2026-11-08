@@ -1121,7 +1121,8 @@ public class MediaCodecHelper {
 
     /**
      * A decoder switch for A/B runs: adb shell setprop debug.nightjar.&lt;name&gt; 1 (or 0) before a
-     * stream, read once when the stream starts. Unset, or anything but 0 and 1, is the default.
+     * stream, read once when the stream starts. Unset, or anything but 0 and 1, is
+     * {@code defaultValue}: the switch's Debug setting where it has one, so a set property wins over it.
      */
     static boolean debugSwitch(String name, boolean defaultValue) {
         String property = "debug.nightjar." + name;

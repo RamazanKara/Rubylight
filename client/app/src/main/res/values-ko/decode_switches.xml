@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_submit_hint">프레임 전달 가속</string>
+    <string name="summary_submit_hint">성능 힌트가 프레임을 디코더로 전달하는 스레드도 포함합니다.</string>
+    <string name="title_covering_decoder_size">접기에 맞춘 디코더 준비</string>
+    <string name="summary_covering_decoder_size">다른 화면과 회전에 맞게 디코더 크기를 미리 정해 접거나 돌려도 다시 시작하지 않습니다.</string>
+    <string name="title_pyrowave_preacquire">PyroWave 화면 이미지 미리 가져오기</string>
+    <string name="summary_pyrowave_preacquire">프레임 페이싱이 꺼져 있을 때 각 PyroWave 프레임이 도착하기 전에 다음 화면 이미지를 가져옵니다.</string>
+    <string name="title_codec_direct">영상 데이터를 디코더로 바로 전달</string>
+    <string name="summary_codec_direct">각 프레임을 중간 복사 없이 디코더에 한 번만 복사합니다. 새 스트리밍 엔진 전용.</string>
+</resources>

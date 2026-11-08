@@ -540,15 +540,15 @@ bool VulkanRenderer::pickDevice() {
                         std::any_of(instanceSetup_.extensions.begin(), instanceSetup_.extensions.end(), [](const char* name) {
                             return strcmp(name, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME) == 0;
                         });
-                // Off unless adb shell setprop debug.nightjar.vk_sync_fd 1: it came out with the
-                // Nightjar 3.2.3 decode reverts and waits for an A/B on real devices.
+                // On unless adb shell setprop debug.nightjar.vk_sync_fd 0 (A/B runs): the GPU waits
+                // on the decoder's sync fd, which measured better on our devices than the CPU wait.
                 char syncFdWait[PROP_VALUE_MAX] = {};
                 __system_property_get("debug.nightjar.vk_sync_fd", syncFdWait);
-                if (strcmp(syncFdWait, "1") == 0) {
+                if (strcmp(syncFdWait, "0") != 0) {
                     hasSyncFdImport_ = hasExtension(extensions, VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME) &&
                             syncFdImportable(device);
                     if (!hasSyncFdImport_) {
-                        ALOGW("GPU wait for the decoder asked for, but the device can't import sync fds; "
+                        ALOGW("GPU wait for the decoder unavailable: the device can't import sync fds; "
                               "the image reader thread waits for the decoder");
                     }
                 }

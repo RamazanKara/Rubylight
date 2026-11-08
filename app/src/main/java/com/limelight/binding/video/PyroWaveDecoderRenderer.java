@@ -156,7 +156,7 @@ public final class PyroWaveDecoderRenderer {
 
     synchronized boolean setup(Surface surface, int format, int width, int height, int fps, float displayRefreshRate,
                                int pacingMode, boolean fullRange, boolean stretch, UpscalingPolicy.Mode upscaling, int sharpness,
-                               Context context, boolean maxClocks) {
+                               Context context, boolean maxClocks, boolean preacquire) {
         cleanup();
         if (!LIBRARY_LOADED || surface == null || !surface.isValid()) return false;
         driverContext = context.getApplicationContext();
@@ -168,7 +168,7 @@ public final class PyroWaveDecoderRenderer {
                 handle = nativeCreate(surface, width, height, fps, displayRefreshRate, pacingMode,
                         (format & MoonBridge.VIDEO_FORMAT_MASK_YUV444) != 0,
                         (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0, fullRange, stretch,
-                        upscaleMode(upscaling), SgsrConstants.edgeSharpness(sharpness),
+                        upscaleMode(upscaling), SgsrConstants.edgeSharpness(sharpness), preacquire,
                         customDriver != null ? context.getApplicationInfo().nativeLibraryDir : null,
                         customDriver != null ? customDriver.directory.getAbsolutePath() + File.separator : null,
                         customDriver != null ? customDriver.libraryName : null);
@@ -433,7 +433,8 @@ public final class PyroWaveDecoderRenderer {
     private static native int nativeGetReadiness(boolean hdr, String hooks, String directory, String name);
     private static native long nativeCreate(Surface surface, int width, int height, int fps, float displayRefreshRate,
                                            int pacingMode, boolean chroma444, boolean tenBit, boolean fullRange, boolean stretch,
-                                           int upscale, float edgeSharpness, String hooks, String directory, String name);
+                                           int upscale, float edgeSharpness, boolean preacquire,
+                                           String hooks, String directory, String name);
     private static native String nativeGetDriver(long handle);
     private static native int nativeGetUpscalingReason(long handle);
     private static native boolean nativeSetGpuMaxClocks(boolean enabled);

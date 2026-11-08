@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_submit_hint">Пришвидшити передавання кадрів</string>
+    <string name="summary_submit_hint">Підказки продуктивності охоплюють і потік, що передає кадри декодеру.</string>
+    <string name="title_covering_decoder_size">Підготувати декодер до складання</string>
+    <string name="summary_covering_decoder_size">Заздалегідь задає розмір декодера для іншого екрана й повороту, щоб складання чи поворот обходилися без перезапуску.</string>
+    <string name="title_pyrowave_preacquire">PyroWave: ранній образ екрана</string>
+    <string name="summary_pyrowave_preacquire">Бере наступний образ екрана до надходження кожного кадру PyroWave, коли рівномірність кадрів вимкнено.</string>
+    <string name="title_codec_direct">Відеодані просто в декодер</string>
+    <string name="summary_codec_direct">Копіює кожен кадр у декодер один раз, без проміжної копії. Лише з новим рушієм трансляції.</string>
+</resources>

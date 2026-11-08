@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_submit_hint">Speed up frame hand-off</string>
+    <string name="summary_submit_hint">The performance hint also covers the thread that hands frames to the decoder.</string>
+    <string name="title_covering_decoder_size">Ready the decoder for folding</string>
+    <string name="summary_covering_decoder_size">Sizes the decoder for the other screen and for turning up front, so a fold or turn needs no restart.</string>
+    <string name="title_pyrowave_preacquire">PyroWave early screen image</string>
+    <string name="summary_pyrowave_preacquire">Takes the next screen image before each PyroWave frame arrives, when frame pacing is off.</string>
+    <string name="title_codec_direct">Video data straight to the decoder</string>
+    <string name="summary_codec_direct">Copies each frame into the decoder once, without the extra copy. New streaming engine only.</string>
+</resources>

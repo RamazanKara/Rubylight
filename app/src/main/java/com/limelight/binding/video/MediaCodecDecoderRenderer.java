@@ -774,7 +774,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile int numFramesIn;
     private volatile int numFramesOut;
     private volatile int decoderDepthBase;
-    // debug.nightjar.submit_adpf: the submit thread's CPU time goes into the renderer's ADPF report.
+    // "Speed up frame hand-off" (prefs.submitHint, debug.nightjar.submit_adpf overrides): the submit
+    // thread's CPU time goes into the renderer's ADPF report.
     private volatile boolean submitHints;
     private final DecoderPerformanceHints.SubmitWork submitWork = new DecoderPerformanceHints.SubmitWork();
 
@@ -917,9 +918,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     /**
-     * debug.nightjar.covering_max 1: size the adaptive maximum for a fold or turn up front. Off by
-     * default until measured: the foldable it is for is the Galaxy Fold7, and the configure retry
-     * catches a refused configure or start, not a failure later in the stream.
+     * Size the adaptive maximum for a fold or turn up front: the Debug setting "Ready the decoder for
+     * folding" (prefs.coveringDecoderSize), which debug.nightjar.covering_max 1 or 0 overrides. Off
+     * by default: unmeasured on the Galaxy Fold7 it is for, and the configure retry catches a
+     * refused configure or start, not a failure later in the stream.
      */
     static final String COVERING_SWITCH = "covering_max";
 
@@ -930,7 +932,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
      * extra IDR. Null, or the switch off, keeps the maximum at the stream size.
      */
     public void setCoveringSize(int[] covering) {
-        if (covering != null && !MediaCodecHelper.debugSwitch(COVERING_SWITCH, false)) {
+        if (covering != null && !MediaCodecHelper.debugSwitch(COVERING_SWITCH, prefs.coveringDecoderSize)) {
             covering = null;
         }
         coveringSize = covering;
@@ -1701,7 +1703,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (stopping) return false;
             boolean ready = pyroWaveRenderer.setup(renderTarget, candidate, width, height, fps, displayRefreshRate,
                     FramePacingPolicy.pyroWaveMode(prefs.framePacing, prefs.vrr), prefs.fullRange, prefs.stretchVideo,
-                    prefs.upscalingMode, prefs.upscalingSharpness, context, prefs.gpuMaxClocks) && !stopping;
+                    prefs.upscalingMode, prefs.upscalingSharpness, context, prefs.gpuMaxClocks,
+                    prefs.pyroWavePreacquire) && !stopping;
             if (!ready) {
                 LimeLog.warning("PyroWave surface not created for format " + Integer.toHexString(candidate));
             }
@@ -2787,7 +2790,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             this.refreshRate = redrawRate;
             // PyroWave has its own session on its submit path.
             this.submitHints = prefs.phonePerformanceHints && (format & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0 &&
-                    MediaCodecHelper.debugSwitch(DecoderPerformanceHints.SUBMIT_SWITCH, false);
+                    MediaCodecHelper.debugSwitch(DecoderPerformanceHints.SUBMIT_SWITCH, prefs.submitHint);
             if (streamStartMs < 0) {
                 streamStartMs = System.currentTimeMillis();
                 streamStartUptimeMs = SystemClock.uptimeMillis();

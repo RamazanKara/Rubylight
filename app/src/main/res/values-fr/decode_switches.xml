@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_submit_hint">Accélérer la remise des images</string>
+    <string name="summary_submit_hint">Les indications de performances couvrent aussi le thread qui remet les images au décodeur.</string>
+    <string name="title_covering_decoder_size">Préparer le décodeur au pliage</string>
+    <string name="summary_covering_decoder_size">Dimensionne le décodeur dès le départ pour l\'autre écran et la rotation : plier ou tourner ne demande aucun redémarrage.</string>
+    <string name="title_pyrowave_preacquire">PyroWave : image d\'écran anticipée</string>
+    <string name="summary_pyrowave_preacquire">Prend l\'image d\'écran suivante avant l\'arrivée de chaque image PyroWave, quand le frame pacing est désactivé.</string>
+    <string name="title_codec_direct">Données vidéo directes au décodeur</string>
+    <string name="summary_codec_direct">Copie chaque image une seule fois dans le décodeur, sans copie intermédiaire. Nouveau moteur de streaming uniquement.</string>
+</resources>

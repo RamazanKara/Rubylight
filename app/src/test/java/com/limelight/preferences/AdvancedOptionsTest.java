@@ -226,7 +226,8 @@ public class AdvancedOptionsTest {
     // Settings whose default is right for nearly everyone sit together in Debug, the last section, all on its main rows.
     private static final List<String> DEBUG_CONTROLS = Arrays.asList(
             "list_fec_choice", "checkbox_rate_change_bitrate", "checkbox_tell_host_wireless", "checkbox_tell_host_link_speed",
-            "checkbox_network_priority", "checkbox_unbatched_input", "checkbox_full_range");
+            "checkbox_network_priority", "checkbox_unbatched_input", "checkbox_full_range",
+            "checkbox_submit_hint", "checkbox_covering_decoder_size", "checkbox_pyrowave_preacquire", "checkbox_codec_direct");
 
     @Test
     public void debugIsTheLastSectionAndSearchStillFindsItsSettings() {
@@ -249,6 +250,7 @@ public class AdvancedOptionsTest {
             for (String key : DEBUG_CONTROLS) assertEquals(key, "debug", StreamSettings.sectionOfKey(screen, key));
             assertEquals("Debug", resultGroup(search(screen, "Error correction"), "list_fec_choice").toString());
             assertEquals("Debug", resultGroup(search(screen, "Prioritize stream traffic"), "checkbox_network_priority").toString());
+            assertEquals("Debug", resultGroup(search(screen, "Video data straight"), "checkbox_codec_direct").toString());
         }
     }
 

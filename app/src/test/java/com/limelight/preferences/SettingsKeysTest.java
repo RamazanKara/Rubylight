@@ -366,6 +366,10 @@ public class SettingsKeysTest {
         reads.put("checkbox_unlock_fps", new Read(false, true, c -> c.unlockFps));
         reads.put("checkbox_unbatched_input", new Read(true, false, c -> c.unbatchedInput));
         reads.put("checkbox_network_priority", new Read(true, false, c -> c.networkPriority));
+        reads.put("checkbox_submit_hint", new Read(false, true, c -> c.submitHint));
+        reads.put("checkbox_covering_decoder_size", new Read(false, true, c -> c.coveringDecoderSize));
+        reads.put("checkbox_pyrowave_preacquire", new Read(false, true, c -> c.pyroWavePreacquire));
+        reads.put("checkbox_codec_direct", new Read(false, true, c -> c.codecDirect));
         reads.put("checkbox_client_roaming", new Read(true, false, c -> c.clientRoaming));
         reads.put("checkbox_roaming_metered", new Read(false, true, c -> c.roamingMetered));
         reads.put("checkbox_enable_post_stream_toast", new Read(false, true, c -> c.enableLatencyToast));

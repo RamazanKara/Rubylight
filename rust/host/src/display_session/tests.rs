@@ -94,6 +94,59 @@ fn joined_game(display: Option<&str>) -> Option<JoinedGame<'_>> {
 }
 
 #[test]
+fn a_devices_second_screen_never_joins_the_game_it_resumes() {
+    // Dual screen mode on the AYN Thor: the second screen resumed the game and was put on
+    // the first screen's display, a mirror of it.
+    let second = butterpollo_core::state::second_screen_uuid("b");
+    let ask = JoinAsk {
+        client: &second,
+        identity: &second,
+        ..join_ask()
+    };
+    assert_eq!(joined_display(&ask, joined_game(Some("b"))), None);
+    assert_eq!(joined_display(&ask, joined_game(Some(&second))), None);
+    // The device's first screen still joins as before.
+    assert_eq!(
+        joined_display(&join_ask(), joined_game(Some("a"))).as_deref(),
+        Some("a")
+    );
+}
+
+#[test]
+fn a_second_screen_on_physical_displays_shows_another_monitor() {
+    let monitors = [
+        (r"\\.\DISPLAY1", false),
+        (r"\\.\DISPLAY7", true),
+        (r"\\.\DISPLAY2", false),
+    ];
+    // Not the first screen's monitor, and never a virtual display.
+    assert_eq!(
+        pick_second_monitor(&monitors, Some(r"\\.\DISPLAY1")),
+        Some(r"\\.\DISPLAY2")
+    );
+    assert_eq!(
+        pick_second_monitor(&monitors, Some(r"\\.\display2")),
+        Some(r"\\.\DISPLAY1")
+    );
+    // One monitor: none, both screens show it.
+    assert_eq!(
+        pick_second_monitor(&[(r"\\.\DISPLAY1", false)], Some(r"\\.\DISPLAY1")),
+        None
+    );
+    assert_eq!(
+        pick_second_monitor(
+            &[(r"\\.\DISPLAY1", false), (r"\\.\DISPLAY7", true)],
+            Some(r"\\.\DISPLAY1")
+        ),
+        None
+    );
+    assert!(is_second_screen(
+        &butterpollo_core::state::second_screen_uuid("b")
+    ));
+    assert!(!is_second_screen("b"));
+}
+
+#[test]
 fn a_plain_second_stream_and_desktop_keep_displays_of_their_own() {
     let plain = JoinAsk {
         resumes: false,

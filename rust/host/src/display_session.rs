@@ -90,13 +90,15 @@ struct JoinedGame<'a> {
 /// a display of its own. A device coming back to the display the game is on needs
 /// no asking: its display can only be live if others stream it. Only under
 /// `per_client` with the device's own identity: elsewhere its identity already says
-/// which display it shares.
+/// which display it shares. Never for a device's second screen (Dual screen mode): it
+/// resumes the game its first screen plays, and is there to show a second display.
 fn joined_display(ask: &JoinAsk, game: Option<JoinedGame>) -> Option<String> {
     if ask.role != Role::Stream
         || !ask.virtual_mode
         || ask.display_mode != "per_client"
         || ask.identity != ask.client
         || ask.claim_live
+        || is_second_screen(ask.client)
     {
         return None;
     }
@@ -107,6 +109,52 @@ fn joined_display(ask: &JoinAsk, game: Option<JoinedGame>) -> Option<String> {
         && ask.launched == Some(game.id)
         && (ask.resumes || display == ask.identity))
         .then(|| display.to_owned())
+}
+/// Whether `client` is a device's second screen (Dual screen mode).
+fn is_second_screen(client: &str) -> bool {
+    butterpollo_core::state::device_uuid(client) != client
+}
+/// The PC monitor a device's second screen shows when its streams show physical
+/// displays: the first of `active` (by display name, with whether it is one of
+/// Rubylight's virtual displays) that is neither the monitor the first screen shows
+/// (`first`) nor a virtual display. None when the PC has no other monitor: both
+/// screens then show the same one.
+fn pick_second_monitor<'a>(active: &[(&'a str, bool)], first: Option<&str>) -> Option<&'a str> {
+    active
+        .iter()
+        .find(|(name, rubylight)| {
+            !rubylight && first.is_none_or(|first| !first.eq_ignore_ascii_case(name))
+        })
+        .map(|(name, _)| *name)
+}
+/// [`pick_second_monitor`] on this PC, for the stream whose first screen shows
+/// `configured` (the output setting; empty for the primary monitor, as a physical
+/// stream's display is chosen).
+fn second_monitor(configured: &str) -> Option<String> {
+    let monitors = butterpollo_windows::display::monitors()
+        .inspect_err(|error| tracing::warn!(error = %format!("{error:#}"), "the PC's monitors could not be read for the second screen"))
+        .ok()?;
+    let active: Vec<String> = butterpollo_windows::capture::displays()
+        .ok()?
+        .into_iter()
+        .map(|d| d.display_name)
+        .collect();
+    let first = if configured.is_empty() {
+        monitors.iter().find(|m| m.primary)
+    } else {
+        monitors.iter().find(|m| m.matches(configured))
+    }
+    .map(|m| m.display_name.as_str());
+    let candidates: Vec<(&str, bool)> = monitors
+        .iter()
+        .filter(|m| {
+            active
+                .iter()
+                .any(|a| a.eq_ignore_ascii_case(&m.display_name))
+        })
+        .map(|m| (m.display_name.as_str(), m.is_rubylight()))
+        .collect();
+    pick_second_monitor(&candidates, first).map(str::to_owned)
 }
 /// The display this launch would join, by [`joined_display`], whether or not it is
 /// still there.
@@ -1627,6 +1675,25 @@ impl Prepared {
             physical_only,
             butterpollo_windows::display::ensure_virtual_display_available,
         );
+        // A device's second screen shows another monitor than its first one, which
+        // would otherwise show both screens the same picture.
+        let second_screen_monitor =
+            (!virtual_mode && launch.role == Role::Stream && is_second_screen(&launch.client.uuid))
+                .then(|| second_monitor(output))
+                .flatten();
+        if !virtual_mode && launch.role == Role::Stream && is_second_screen(&launch.client.uuid) {
+            match &second_screen_monitor {
+                Some(monitor) => {
+                    tracing::info!(monitor = %monitor, first = %output, "the second screen streams another monitor");
+                    launch.warnings.clear("display_second_screen");
+                }
+                None => launch.warnings.set(
+                    "display_second_screen",
+                    "This PC streams its own monitor and has no other one, so the second screen shows the same picture as the first. Turn on the virtual display, or connect a second monitor, for a second picture.",
+                ),
+            }
+        }
+        let output = second_screen_monitor.as_deref().unwrap_or(output);
         if background && !virtual_mode && launch.role == Role::Stream {
             anyhow::bail!(
                 "background streaming needs Rubylight's virtual display, which is unavailable{}; it never streams the PC's own monitor",

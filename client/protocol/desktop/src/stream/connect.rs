@@ -702,6 +702,23 @@ pub(super) fn automatic_rejoin(plan: &LaunchPlan, role: AppRole, auto_reconnect:
     Some(plan)
 }
 
+/// The log's route line: what carries the traffic to the PC and where that was read. A route that
+/// answered and is not wireless is wired (`network::Toward` is only ever wired or wireless), its
+/// speed unknown when the port reports none; only the internet connection's answer can be either.
+pub(super) fn route_line(toward: Result<crate::network::Toward, crate::network::Fallback>, wireless: bool, link_mbps: u32) -> String {
+    let medium = match (toward, wireless) {
+        (_, true) => "wireless",
+        (Ok(_), false) => "wired",
+        (Err(_), false) => "wired or unknown",
+    };
+    let source = match toward {
+        Ok(_) => "from the route".to_string(),
+        Err(why) => format!("from the internet connection, {why}"),
+    };
+    let link = if medium == "wired" && link_mbps == 0 { "link speed unknown".to_string() } else { format!("link {link_mbps} Mbps") };
+    format!("{medium} ({source}), {link}")
+}
+
 /// The lost-network notice: it promises a reconnect only when one will follow (`on_its_own`: a
 /// dropped stream reconnects by itself, so the connection's timeout or a return it cannot carry
 /// on over recovers it), not where a network drop tolerance holds the connection instead.
@@ -851,14 +868,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         let why = if settings.tell_host_wireless { "the PC is not a Rubylight host" } else { "it is turned off in the settings" };
         eprintln!("nightjar: not telling the PC the route is wireless: {why}");
     }
-    eprintln!(
-        "nightjar: route to the PC: {} ({}), link {routed_link_mbps} Mbps",
-        if network.wireless() { "wireless" } else { "wired or unknown" },
-        match toward {
-            Ok(_) => "from the route".to_string(),
-            Err(why) => format!("from the internet connection, {why}"),
-        },
-    );
+    eprintln!("nightjar: route to the PC: {}", route_line(toward, network.wireless(), routed_link_mbps));
     let measured_pace = plan.pace.as_ref().map_or(0, |pace| pace.for_network(&network, plan.host_link_mbps));
     let LinkHints { link_mbps, sent_link_mbps, pace_mbps } = link_hints(
         settings.tell_host_link_speed,
@@ -1056,6 +1066,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
             outcome.pyrowave_records_enabled)),
         color_notice: color_notice(&offer, outcome.negotiated_video_format),
         pyrowave_fallback: None,
+        codec_fallback: None,
         app_name: plan.app.name.clone(),
         host_name: plan.host_name.clone(),
     };
@@ -1064,6 +1075,10 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         eprintln!("{log}");
         // Shown once per PC (`pyrowave_notice`); the log says it on every stream.
         facts.pyrowave_fallback = Some(notice);
+    }
+    if let Some((log, notice)) = codec_fallback(settings, scm, plan.base_decodable.decodable, outcome.negotiated_video_format) {
+        eprintln!("{log}");
+        facts.codec_fallback = Some(notice);
     }
     if facts.early_without_records {
         eprintln!("{EARLY_NO_RECORDS}");
@@ -1268,6 +1283,19 @@ mod replace_tests {
         }
         assert!(!Exit::Terminated(error::GRACEFUL).retryable(true));
         assert!(!Exit::Reconnect.retryable(true), "the user's own reconnect is not an automatic one");
+    }
+
+    #[test]
+    fn a_wired_route_says_wired_with_its_speed_or_that_it_is_unknown() {
+        use crate::network::{Fallback, Toward};
+        // NUC Flatpak: eno1 at 1000 Mbps was logged as "wired or unknown (from the route)".
+        let wired = Ok(Toward { wireless: false, link_mbps: 1000 });
+        assert_eq!(route_line(wired, false, 1000), "wired (from the route), link 1000 Mbps");
+        assert_eq!(route_line(Ok(Toward { wireless: false, link_mbps: 0 }), false, 0), "wired (from the route), link speed unknown");
+        assert_eq!(route_line(Ok(Toward { wireless: true, link_mbps: 0 }), true, 0), "wireless (from the route), link 0 Mbps");
+        assert_eq!(route_line(Err(Fallback::NotTelling), false, 0),
+            "wired or unknown (from the internet connection, interface does not say), link 0 Mbps");
+        assert_eq!(route_line(Err(Fallback::Route), true, 0), "wireless (from the internet connection, route lookup failed), link 0 Mbps");
     }
 
     #[test]

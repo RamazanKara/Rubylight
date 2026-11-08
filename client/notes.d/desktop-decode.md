@@ -6,3 +6,6 @@
 - Linux: on the GPU renderer, Vulkan video now decodes before VA-API, so HDR and 10-bit pictures (Steam Deck included) stay on the GPU instead of a round trip through memory.
 - Linux: the V4L2 decoders of ARM handhelds and boards hand each picture over with its own frame instead of one frame late, and the overlay's latency counts that wait.
 - Linux: where Vulkan video cannot decode the stream, VA-API pictures reach the GPU renderer mapped into its Vulkan device instead of being read back and uploaded, so 4K HDR at high frame rates no longer spends most of the frame copying through memory. If the mapping cannot be set up, the log says why and the pictures go through memory as before.
+- AV1 or HEVC chosen on a device that cannot decode it now streams the next best codec it does decode, HEVC Main10 for HDR and 10-bit, instead of dropping to H.264 8-bit, and Nightjar says which codec it uses instead.
+- Streams with 10-bit color start a little faster: the 4:4:4 decoder check runs only when 4:4:4 is on.
+- The log names refused 4:4:4 formats again instead of hiding them as an address, and a wired route now reads "wired" with its link speed.

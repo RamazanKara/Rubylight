@@ -1408,4 +1408,5 @@ sudo sysctl -w net.core.rmem_max={}", "Bộ đệm nhận: hệ thống chỉ c�
     ("{} cannot decode this stream. Now decoding with {}.", "{0} không thể giải mã luồng này. Hiện giải mã bằng {1}."),
     ("{} cannot decode this stream. Now decoding in software.", "{} không thể giải mã luồng này. Hiện giải mã bằng phần mềm."),
     ("{} cannot decode this stream, and no other decoder opens: {}", "{0} không thể giải mã luồng này và không bộ giải mã nào khác mở được: {1}"),
+    ("This device doesn’t decode {}, so Nightjar uses {}.", "Thiết bị này không giải mã {0} nên Nightjar dùng {1}."),
 ];

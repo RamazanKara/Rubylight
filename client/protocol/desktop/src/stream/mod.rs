@@ -101,7 +101,7 @@ use connect::*;
 use negotiate::*;
 use stats::*;
 pub use connect::{end_before, host_ended_stream, offers_714, termination_text, ConnectFailed, Connecting, LEAVE_WAIT};
-pub use negotiate::{base_probe_formats, codec_name, probes_color, pyrowave_bitrate_warning, pyrowave_notice, stream_mode};
+pub use negotiate::{base_probe_formats, codec_name, color_probe_formats, probes_color, pyrowave_bitrate_warning, pyrowave_notice, stream_mode};
 
 /// What the display offers, for "native" resolution and "display" refresh.
 #[derive(Clone, Copy, Debug)]
@@ -236,6 +236,9 @@ pub struct Facts {
     /// PyroWave was chosen and the stream runs another codec: what to tell the player, once per
     /// PC (`pyrowave_notice`).
     pub pyrowave_fallback: Option<String>,
+    /// The chosen codec isn't decoded here and the stream runs another (`codec_fallback`): what
+    /// to tell the player.
+    pub codec_fallback: Option<String>,
     pub app_name: String,
     pub host_name: String,
 }
@@ -2413,8 +2416,10 @@ mod tests {
         );
         assert_eq!(
             video_formats(CodecPreference::Av1, true, all),
-            VIDEO_FORMAT_H264 | VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10
+            VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10 | VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10
         );
+        // A PC without AV1 streams HEVC, not H.264.
+        assert_eq!(video_formats(CodecPreference::Av1, false, SCM_H264 | SCM_HEVC), VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265);
         assert_eq!(video_formats(CodecPreference::Hevc, false, SCM_H264), VIDEO_FORMAT_H264);
         assert_eq!(video_formats(CodecPreference::H264, true, all), VIDEO_FORMAT_H264);
         assert_eq!(video_formats(CodecPreference::PyroWave, false, SCM_H264 | SCM_PYROWAVE), VIDEO_FORMAT_H264 | VIDEO_FORMAT_PYROWAVE);
@@ -2500,8 +2505,8 @@ mod tests {
         assert_eq!(with(CodecPreference::H264, true), 0, "H.264 is not checked");
         assert_eq!(with(CodecPreference::Hevc, false), VIDEO_FORMAT_H265, "AV1 only when chosen");
         assert_eq!(with(CodecPreference::Auto, true), VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10);
-        assert_eq!(with(CodecPreference::Av1, false), VIDEO_FORMAT_AV1_MAIN8);
-        assert_eq!(with(CodecPreference::Av1, true), VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10);
+        assert_eq!(with(CodecPreference::Av1, false), VIDEO_FORMAT_H265 | VIDEO_FORMAT_AV1_MAIN8, "HEVC is AV1's fallback");
+        assert_eq!(with(CodecPreference::Av1, true), color_probe::BASE_FORMATS);
         assert_eq!(with(CodecPreference::PyroWave, false), VIDEO_FORMAT_H265, "the HEVC PyroWave falls back to");
         let packed = Settings { experimental_packed_444: true, codec: CodecPreference::Av1, ..Default::default() };
         assert_eq!(base_probe_formats(&packed), 0);
@@ -2527,8 +2532,14 @@ mod tests {
         let eight_bit = VIDEO_FORMAT_H265 | VIDEO_FORMAT_AV1_MAIN8;
         assert_eq!(offered(&hdr(CodecPreference::Hevc), color_probe::BASE_FORMATS), VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10);
         assert_eq!(offered(&hdr(CodecPreference::Hevc), eight_bit), VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265, "no Main10 decoder");
-        assert_eq!(offered(&hdr(CodecPreference::Av1), VIDEO_FORMAT_H265), VIDEO_FORMAT_H264, "no AV1 decoder at all");
-        assert_eq!(offered(&hdr(CodecPreference::Av1), color_probe::BASE_FORMATS), VIDEO_FORMAT_H264 | VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10);
+        // NUC (Intel Gen 9.5): AV1 with HDR streamed H.264 8-bit though HEVC Main10 decodes.
+        let hevc_all = VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10;
+        assert_eq!(offered(&hdr(CodecPreference::Av1), hevc_all), VIDEO_FORMAT_H264 | hevc_all, "no AV1 decoder at all");
+        assert_eq!(offered(&hdr(CodecPreference::Av1), VIDEO_FORMAT_H265), VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265, "no 10-bit decoder");
+        assert_eq!(offered(&hdr(CodecPreference::Av1), hevc_all | VIDEO_FORMAT_AV1_MAIN8), VIDEO_FORMAT_H264 | hevc_all,
+            "AV1 8-bit only: HEVC Main10 keeps HDR");
+        assert_eq!(offered(&hdr(CodecPreference::Av1), VIDEO_FORMAT_H265 | VIDEO_FORMAT_AV1_MAIN8), VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_AV1_MAIN8);
+        assert_eq!(offered(&hdr(CodecPreference::Av1), color_probe::BASE_FORMATS), VIDEO_FORMAT_H264 | color_probe::BASE_FORMATS);
         assert_eq!(offered(&Settings::default(), 0), VIDEO_FORMAT_H264);
         let packed = Settings { experimental_packed_444: true, codec: CodecPreference::Hevc, ..Default::default() };
         assert_eq!(offered(&packed, 0), offered(&packed, color_probe::BASE_FORMATS));
@@ -2539,6 +2550,50 @@ mod tests {
         assert_eq!(software.decodable, color_probe::BASE_FORMATS);
         assert!(software.backends.iter().all(|&(_, backend)| backend == Hardware::None) && software.backends.len() == 4);
         assert_eq!(color_probe::probe_base(Hardware::None, color_probe::BASE_FORMATS), software, "software decoding is not checked");
+    }
+
+    #[test]
+    fn a_codec_this_device_does_not_decode_is_told_with_the_one_streamed() {
+        let all = SCM_H264 | SCM_HEVC | SCM_HEVC_MAIN10 | SCM_AV1_MAIN8 | SCM_AV1_MAIN10;
+        let av1_hdr = Settings { codec: CodecPreference::Av1, hdr: true, ..Default::default() };
+        let hevc_all = VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10;
+        let (log, notice) = codec_fallback(&av1_hdr, all, hevc_all, VIDEO_FORMAT_H265_MAIN10).expect("told");
+        assert_eq!(notice, "This device doesn’t decode AV1 10-bit, so Nightjar uses HEVC Main10.");
+        assert!(log.contains("AV1 10-bit was chosen") && log.ends_with("streaming HEVC Main10"), "{log}");
+        let av1 = Settings { hdr: false, ..av1_hdr.clone() };
+        assert_eq!(codec_fallback(&av1, all, hevc_all, VIDEO_FORMAT_H265).map(|(_, n)| n).as_deref(),
+            Some("This device doesn’t decode AV1, so Nightjar uses HEVC."));
+        let hevc = Settings { codec: CodecPreference::Hevc, ..Default::default() };
+        assert_eq!(codec_fallback(&hevc, all, 0, VIDEO_FORMAT_H264).map(|(_, n)| n).as_deref(),
+            Some("This device doesn’t decode HEVC, so Nightjar uses H.264."));
+        // Nothing to tell: it decodes, it streams, the PC doesn't encode it, or no codec was chosen.
+        assert_eq!(codec_fallback(&av1_hdr, all, color_probe::BASE_FORMATS, VIDEO_FORMAT_AV1_MAIN10), None);
+        assert_eq!(codec_fallback(&av1_hdr, SCM_H264 | SCM_HEVC | SCM_HEVC_MAIN10, hevc_all, VIDEO_FORMAT_H265_MAIN10), None);
+        assert_eq!(codec_fallback(&Settings::default(), all, 0, VIDEO_FORMAT_H264), None);
+        assert_eq!(codec_fallback(&Settings { experimental_packed_444: true, ..av1 }, all, 0, VIDEO_FORMAT_H265), None);
+        let german = crate::strings::tests::with_lang(crate::strings::Lang::De, || codec_fallback(&hevc, all, 0, VIDEO_FORMAT_H264));
+        assert_eq!(german.map(|(_, n)| n).as_deref(), Some("Dieses Gerät decodiert HEVC nicht, daher nutzt Nightjar H.264."));
+    }
+
+    /// 10-bit launches decoded the 4:4:4 fixtures too with 4:4:4 off (about 12 ms).
+    #[test]
+    fn the_color_probe_checks_only_formats_the_settings_can_add() {
+        let with = |codec, prefer_yuv444, sdr_10bit| color_probe_formats(&Settings { codec, prefer_yuv444, sdr_10bit, ..Default::default() });
+        assert_eq!(with(CodecPreference::Hevc, false, false), 0);
+        assert_eq!(with(CodecPreference::Hevc, false, true), VIDEO_FORMAT_H265_MAIN10);
+        assert_eq!(with(CodecPreference::Hevc, true, false), VIDEO_FORMAT_H264_HIGH8_444 | VIDEO_FORMAT_H265_REXT8_444);
+        assert_eq!(with(CodecPreference::Av1, true, true), color::YUV444_FORMATS | color::SDR10_FORMATS);
+        assert_eq!(with(CodecPreference::H264, true, true), VIDEO_FORMAT_H264_HIGH8_444);
+        assert_eq!(color_probe_formats(&Settings { hdr: true, sdr_10bit: true, ..Default::default() }), 0, "HDR takes the stream");
+        // Whatever the settings, the offer adds no 4:4:4 or 10-bit format the probe skipped.
+        for codec in [CodecPreference::H264, CodecPreference::Hevc, CodecPreference::Av1, CodecPreference::Auto] {
+            for (yuv444, sdr10) in [(false, true), (true, false), (true, true)] {
+                let settings = Settings { codec, prefer_yuv444: yuv444, sdr_10bit: sdr10, ..Default::default() };
+                let decodable = (color_probe_formats(&settings), String::new());
+                assert_eq!(offered_formats(&settings, COLOR_SCM, &decodable).formats, offered_formats(&settings, COLOR_SCM, &decodes_all()).formats,
+                    "{codec:?} {yuv444} {sdr10}");
+            }
+        }
     }
 
     #[test]

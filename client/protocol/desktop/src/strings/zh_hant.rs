@@ -1408,4 +1408,5 @@ sudo sysctl -w net.core.rmem_max={}", "接收緩衝區：系統只分配了所�
     ("{} cannot decode this stream. Now decoding with {}.", "{0} 無法解碼此串流。現在使用 {1} 解碼。"),
     ("{} cannot decode this stream. Now decoding in software.", "{} 無法解碼此串流。現在使用軟體解碼。"),
     ("{} cannot decode this stream, and no other decoder opens: {}", "{0} 無法解碼此串流，也沒有其他解碼器能開啟：{1}"),
+    ("This device doesn’t decode {}, so Nightjar uses {}.", "此裝置無法解碼 {0}，因此 Nightjar 使用 {1}。"),
 ];

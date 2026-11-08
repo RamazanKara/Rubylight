@@ -44,7 +44,9 @@ import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowDialog;
 import org.robolectric.util.ReflectionHelpers;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
@@ -64,6 +66,8 @@ public class GameDetailOpenPlayTest {
     private String stableThere = null;
     private String libraryThere = library("r", game("t-portal", 11, "Portal", "steam:400", false));
     private ActivityController<GameDetailWakeTest.Detail> controller;
+    /** Every page a test opened: the ones it opened before its last must not outlive it either. */
+    private final List<ActivityController<GameDetailWakeTest.Detail>> opened = new ArrayList<>();
     private GameDetailWakeTest.Detail screen;
     private HostFeed feed;
 
@@ -81,7 +85,9 @@ public class GameDetailOpenPlayTest {
     @After
     public void tearDown() {
         // A read still under way must not start its game in the next test.
-        if (screen != null && !screen.isDestroyed()) controller.destroy();
+        for (ActivityController<GameDetailWakeTest.Detail> page : opened) {
+            if (!page.get().isDestroyed()) page.destroy();
+        }
         OpenPlayModel.use(null);
         GameDetailWakeTest.Detail.repository = null;
     }
@@ -100,6 +106,7 @@ public class GameDetailOpenPlayTest {
                 .putExtra(GameDetailActivity.EXTRA_STABLE_ID, stableThere)
                 .putExtra(GameDetailActivity.EXTRA_OPEN_PLAY, true);
         controller = Robolectric.buildActivity(GameDetailWakeTest.Detail.class, intent);
+        opened.add(controller);
         controller = state == null ? controller.setup() : controller.setup(state);
         controller.visible();
         screen = controller.get();
@@ -189,13 +196,14 @@ public class GameDetailOpenPlayTest {
                 .startsWith("Starting on Tower in"));
         long end = ReflectionHelpers.<Long>getField(screen, "countdownEnd");
         pass(end - android.os.SystemClock.elapsedRealtime() - 1);
-        assertTrue("not before the countdown ends", GameDetailWakeTest.Detail.played.isEmpty());
+        // This page's own starts: the shared list also takes a late start of a page an earlier test left.
+        assertTrue("not before the countdown ends", screen.plays.isEmpty());
         assertFalse(OpenPlay.armed(context));
         pass(101);
         assertTrue(OpenPlay.armed(context));
-        await(() -> !GameDetailWakeTest.Detail.played.isEmpty());
-        assertEquals("Portal", GameDetailWakeTest.Detail.played.get(0));
-        assertEquals("once", 1, GameDetailWakeTest.Detail.played.size());
+        await(() -> !screen.plays.isEmpty());
+        assertEquals("Portal", screen.plays.get(0));
+        assertEquals("once", 1, screen.plays.size());
         assertTrue(OpenPlay.armed(context));
     }
 

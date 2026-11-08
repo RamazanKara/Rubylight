@@ -62,6 +62,8 @@ public class GameDetailWakeTest {
         static ConsoleRepository repository;
         static final List<String> woken = Collections.synchronizedList(new ArrayList<>());
         static final List<String> played = Collections.synchronizedList(new ArrayList<>());
+        /** This page's own starts: a page another test left behind can still add to {@link #played}. */
+        final List<String> plays = Collections.synchronizedList(new ArrayList<>());
 
         @Override public boolean bindService(Intent intent, ServiceConnection connection, int flags) {
             return false;
@@ -77,6 +79,7 @@ public class GameDetailWakeTest {
 
         @Override protected void play(NvApp app, ComputerDetails computer) {
             played.add(app.getAppName());
+            plays.add(app.getAppName());
         }
     }
 

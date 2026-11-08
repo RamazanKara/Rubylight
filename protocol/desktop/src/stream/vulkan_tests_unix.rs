@@ -453,13 +453,42 @@ fn the_vulkan_picture_matches_the_software_picture_on_the_fixtures() {
     );
 }
 
+/// The packed 8-bit HEVC fixture (128x128, 128x64 shown) decoded by VAAPI, mapped into the
+/// renderer's Vulkan device when `map`, else in memory; the decoder lives as long as the picture.
+fn packed_picture(rig: &Rig, map: bool) -> Result<(VideoDecoder, media::Frame), String> {
+    let vaapi_node = if map { media::vaapi_node(Hardware::Auto(rig.device(), None)) } else { media::VaapiNode::Default };
+    let pictures = Pictures { ten_bit: false, chroma444: false, packed: true, waiting: 0, vaapi_node };
+    let mut decoder = VideoDecoder::open_for(Codec::Hevc, pictures, Hardware::Vaapi, 1, true)?;
+    if map && !decoder.map_to_vulkan(rig.device()) {
+        return Err("VAAPI pictures are not mapped into Vulkan on this device".into());
+    }
+    let status = decoder.send(include_bytes!("../../../../app/src/main/assets/packed444/hevc-8.bin"), 0);
+    if status < 0 {
+        return Err(format!("the decoder rejected the fixture ({status})"));
+    }
+    match decoder.receive() {
+        Received::Frame(frame) => Ok((decoder, frame)),
+        _ => Err("the decoder made no picture of the fixture".into()),
+    }
+}
+
+fn packed_decoded(frame: media::Frame) -> Decoded {
+    let mut decoded = decoded(frame, &cases()[0]);
+    decoded.setup = VideoSetup { format: VIDEO_FORMAT_H265, chroma_packing: 2, logical_width: 128, logical_height: 64, ..decoded.setup };
+    decoded
+}
+
 /// #80: packed 4:4:4 pictures, mapped from VAAPI or decoded by Vulkan video, are rebuilt from
-/// their planes as the presenter does, and the probe checks every pixel of the fixtures.
+/// their planes, in the probe (which checks every pixel of the fixtures) and in the presenter
+/// (which draws the memory path's picture from them).
 #[test]
 #[ignore = "needs a Vulkan device with video decoding and SDL's offscreen driver"]
 fn packed_pictures_are_rebuilt_from_their_vulkan_planes() {
     let _lock = gpu_lock();
     let rig = Rig::new();
+    // The probe's VAAPI pictures are mapped, so its pixel check is the planes path's.
+    let (_decoder, mapped) = packed_picture(&rig, true).unwrap_or_else(|e| panic!("mapped VAAPI: {e}"));
+    assert_eq!(mapped.info().kind, media::FRAME_VULKAN, "a mapped packed picture is a Vulkan image");
     for hardware in [Hardware::Auto(rig.device(), None), Hardware::Vulkan(rig.device())] {
         let modes = crate::stream::packed444::probe(rig.renderer, hardware);
         println!("{hardware:?}: {modes:?}");
@@ -473,6 +502,17 @@ fn packed_pictures_are_rebuilt_from_their_vulkan_planes() {
         };
         assert!(modes & 0b11 == 0b11, "{hardware:?}: HEVC 8- and 10-bit must rebuild ({modes:#06b})");
     }
+    let mut planes = VideoTexture::default();
+    let from_planes = present(&rig, &mut planes, &packed_decoded(mapped));
+    assert!(planes.packed_from_planes(), "the presenter rebuilt the mapped picture from its planes");
+    let (_memory_decoder, memory) = packed_picture(&rig, false).unwrap_or_else(|e| panic!("VAAPI in memory: {e}"));
+    assert_ne!(memory.info().kind, media::FRAME_VULKAN);
+    let mut copied = VideoTexture::default();
+    let from_memory = present(&rig, &mut copied, &packed_decoded(memory));
+    assert!(!copied.packed_from_planes());
+    let (max, rms, _) = compare(&from_memory, &from_planes, false);
+    println!("packed planes against memory: max {max:.5}, rms {rms:.6}");
+    assert!(max < 1.0 / 255.0, "the planes picture differs from the memory one: max {max}, rms {rms}");
 }
 
 /// More pictures than the planes' copy slots, from one decoder into one texture as in a stream:

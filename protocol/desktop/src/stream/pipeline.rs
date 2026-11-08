@@ -381,6 +381,9 @@ pub struct Decoder {
     /// The FFmpeg decoder made a picture since it was opened: from then on a frame without one
     /// is a decode failure (synchronous decoders).
     pictured: bool,
+    /// A packed full chroma stream's VAAPI pictures are mapped into Vulkan: a failed import in
+    /// `receive` drops the map, and the doctor learns the pictures go through memory from then.
+    packed_mapped: bool,
     /// The backends FFmpeg took to software for a stream format (`VideoSetup::format`), left
     /// out when the decoder is opened again for it.
     refused: Vec<(Hardware, u32)>,
@@ -653,6 +656,7 @@ impl Decoder {
             pool_waiting: media::EXTRA_HW_FRAMES as usize - 2,
             in_flight: VecDeque::new(),
             pictured: false,
+            packed_mapped: false,
             refused: Vec::new(),
         }
     }
@@ -773,6 +777,12 @@ fn exports_dmabuf(presenter_imports: bool, setup: &VideoSetup) -> bool {
 /// height, is copied through the CPU (#80: 3840x4320 at 100 fps fell behind).
 fn packed_from_memory(setup: &VideoSetup, on_gpu: bool) -> Option<(i32, i32)> {
     (cfg!(unix) && setup.chroma_packing != 0 && !on_gpu).then_some((setup.width, setup.height))
+}
+
+/// The coded size a packed stream's pictures go through memory at once a picture's Vulkan import
+/// failed: the decoder dropped the map it had at install (`was_mapped`, not `still_mapped`).
+fn packed_map_dropped(setup: &VideoSetup, was_mapped: bool, still_mapped: bool) -> Option<(i32, i32)> {
+    if was_mapped && !still_mapped { packed_from_memory(setup, false) } else { None }
 }
 
 /// Maps `decoder`'s VAAPI pictures into the GPU renderer's Vulkan images when it draws with SDL's
@@ -959,6 +969,7 @@ impl Decoder {
             eprintln!("nightjar: full chroma (packed 4:4:4): pictures are rebuilt on the GPU from its Vulkan images");
         }
         *lock(&self.shared.packed_from_memory) = from_memory;
+        self.packed_mapped = setup.chroma_packing != 0 && mapped;
         self.decoder = Some(decoder);
         self.in_flight.clear();
         self.pictured = false;
@@ -1101,6 +1112,11 @@ impl Decoder {
                 };
                 if pooled { shared.queue_pooled(decoded, pool_waiting) } else { shared.queue(decoded) }
             });
+        if let Some((width, height)) = packed_map_dropped(&setup, self.packed_mapped, decoder.vulkan_mapped()) {
+            eprintln!("nightjar: full chroma (packed 4:4:4): the Vulkan map failed, so each {width}x{height} picture is copied through memory from now on");
+            *lock(&self.shared.packed_from_memory) = Some((width, height));
+            self.packed_mapped = false;
+        }
         let status = frame_status(&fed, asynchronous, self.pictured);
         self.pictured |= fed.pictures > 0;
         if status == DecodeStatus::NeedIdr {
@@ -1782,6 +1798,10 @@ mod tests {
         assert_eq!(packed_from_memory(&packed, false), cfg!(unix).then_some((3840, 4320)));
         assert_eq!(packed_from_memory(&packed, true), None, "pictures mapped into Vulkan stay on the GPU");
         assert_eq!(packed_from_memory(&VideoSetup { chroma_packing: 0, height: 2160, ..packed }, false), None, "unpacked pictures are not rebuilt");
+        // A failed import after install drops the map: from then the doctor hears of memory.
+        assert_eq!(packed_map_dropped(&packed, true, false), cfg!(unix).then_some((3840, 4320)));
+        assert_eq!(packed_map_dropped(&packed, true, true), None, "still mapped");
+        assert_eq!(packed_map_dropped(&packed, false, false), None, "already said at install");
     }
 
     #[test]

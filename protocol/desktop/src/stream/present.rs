@@ -905,6 +905,14 @@ pub(super) fn planar_parameters(info: &FrameInfo, layout: media::PlanarLayout, h
     }
 }
 
+/// Whether a packed picture takes the other reconstruction than the one made: from planes for a
+/// Vulkan picture (mapped VAAPI or Vulkan video, `vulkan_picture`) where the made one reads memory
+/// (no `planes`), or the reverse, as when a new decoder's map fails.
+#[cfg(any(unix, test))]
+fn packed_path_changed(reconstruction: bool, vulkan_picture: bool, planes: bool) -> bool {
+    reconstruction && vulkan_picture != planes
+}
+
 /// `planar_parameters` for Vulkan video's copied planes when `vulkan`: flag 256 (the chroma
 /// interleaved, 10-bit samples in the high bits) in place of 64 (in the low bits).
 pub(super) fn vulkan_flags(mut parameters: [u32; 8], vulkan: bool) -> [u32; 8] {
@@ -1351,7 +1359,7 @@ impl VideoTexture {
             #[cfg(unix)]
             let coded = media::PlanarLayout::of_vulkan(&info);
             #[cfg(unix)]
-            let other_path = self.packed.is_some() && coded.is_some() != self.vulkan.is_some();
+            let other_path = packed_path_changed(self.packed.is_some(), coded.is_some(), self.vulkan.is_some());
             #[cfg(not(unix))]
             let other_path = false;
             if other_path
@@ -2120,6 +2128,12 @@ impl VideoTexture {
         }
     }
 
+    /// A packed picture was rebuilt from Vulkan planes (`draw_packed_planes`), not from memory.
+    #[cfg(all(test, unix))]
+    pub(super) fn packed_from_planes(&self) -> bool {
+        self.packed.is_some() && self.vulkan.is_some()
+    }
+
     pub fn destroy(&mut self) {
         #[cfg(any(windows, unix))]
         { self.planes = None; }
@@ -2222,6 +2236,15 @@ pub fn viewport(picture: (i32, i32), area: (i32, i32), scaling: crate::config::V
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn a_packed_picture_on_the_other_path_than_the_made_reconstruction_rebuilds_it() {
+        assert!(!packed_path_changed(false, true, false), "nothing made yet");
+        assert!(!packed_path_changed(true, true, true), "planes for a Vulkan picture");
+        assert!(!packed_path_changed(true, false, false), "memory for a picture in memory");
+        assert!(packed_path_changed(true, false, true), "the map failed: memory now");
+        assert!(packed_path_changed(true, true, false), "a new decoder maps: planes now");
+    }
 
     fn frame(trc: i32, space: i32, range: i32) -> FrameInfo {
         FrameInfo {

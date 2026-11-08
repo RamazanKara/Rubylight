@@ -26,6 +26,16 @@
       "expect": "Wake [address] sent"
     },
     {
+      "name": "MAC with dashes",
+      "input": "Wake AA-BB-CC-DD-EE-FF and 0a-1b-2c-3d-4e-5f sent",
+      "expect": "Wake [address] and [address] sent"
+    },
+    {
+      "name": "dates, UUIDs and versions are no dashed MAC",
+      "input": "Built 2026-11-08, 4.8.0-rc.1, id 01234567-89ab-cdef-0123-456789abcdef, 10-12-14-16-18 ok",
+      "expect": "Built 2026-11-08, 4.8.0-rc.1, id [id], 10-12-14-16-18 ok"
+    },
+    {
       "name": "full IPv6",
       "input": "Connection to 2001:db8:85a3:0:0:8a2e:370:7334 failed",
       "expect": "Connection to [address] failed"

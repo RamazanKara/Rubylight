@@ -2560,22 +2560,68 @@ mod tests {
         let all = SCM_H264 | SCM_HEVC | SCM_HEVC_MAIN10 | SCM_AV1_MAIN8 | SCM_AV1_MAIN10;
         let av1_hdr = Settings { codec: CodecPreference::Av1, hdr: true, ..Default::default() };
         let hevc_all = VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10;
-        let (log, notice) = codec_fallback(&av1_hdr, all, hevc_all, VIDEO_FORMAT_H265_MAIN10).expect("told");
+        let (log, notice) = codec_fallback(&av1_hdr, all, hevc_all, 0, VIDEO_FORMAT_H265_MAIN10).expect("told");
         assert_eq!(notice, "This device doesn’t decode AV1 10-bit, so Nightjar uses HEVC Main10.");
         assert!(log.contains("AV1 10-bit was chosen") && log.ends_with("streaming HEVC Main10"), "{log}");
         let av1 = Settings { hdr: false, ..av1_hdr.clone() };
-        assert_eq!(codec_fallback(&av1, all, hevc_all, VIDEO_FORMAT_H265).map(|(_, n)| n).as_deref(),
+        assert_eq!(codec_fallback(&av1, all, hevc_all, 0, VIDEO_FORMAT_H265).map(|(_, n)| n).as_deref(),
             Some("This device doesn’t decode AV1, so Nightjar uses HEVC."));
         let hevc = Settings { codec: CodecPreference::Hevc, ..Default::default() };
-        assert_eq!(codec_fallback(&hevc, all, 0, VIDEO_FORMAT_H264).map(|(_, n)| n).as_deref(),
+        assert_eq!(codec_fallback(&hevc, all, 0, 0, VIDEO_FORMAT_H264).map(|(_, n)| n).as_deref(),
             Some("This device doesn’t decode HEVC, so Nightjar uses H.264."));
         // Nothing to tell: it decodes, it streams, the PC doesn't encode it, or no codec was chosen.
-        assert_eq!(codec_fallback(&av1_hdr, all, color_probe::BASE_FORMATS, VIDEO_FORMAT_AV1_MAIN10), None);
-        assert_eq!(codec_fallback(&av1_hdr, SCM_H264 | SCM_HEVC | SCM_HEVC_MAIN10, hevc_all, VIDEO_FORMAT_H265_MAIN10), None);
-        assert_eq!(codec_fallback(&Settings::default(), all, 0, VIDEO_FORMAT_H264), None);
-        assert_eq!(codec_fallback(&Settings { experimental_packed_444: true, ..av1 }, all, 0, VIDEO_FORMAT_H265), None);
-        let german = crate::strings::tests::with_lang(crate::strings::Lang::De, || codec_fallback(&hevc, all, 0, VIDEO_FORMAT_H264));
+        assert_eq!(codec_fallback(&av1_hdr, all, color_probe::BASE_FORMATS, 0, VIDEO_FORMAT_AV1_MAIN10), None);
+        assert_eq!(codec_fallback(&av1_hdr, SCM_H264 | SCM_HEVC | SCM_HEVC_MAIN10, hevc_all, 0, VIDEO_FORMAT_H265_MAIN10), None);
+        assert_eq!(codec_fallback(&Settings::default(), all, 0, 0, VIDEO_FORMAT_H264), None);
+        let german = crate::strings::tests::with_lang(crate::strings::Lang::De, || codec_fallback(&hevc, all, 0, 0, VIDEO_FORMAT_H264));
         assert_eq!(german.map(|(_, n)| n).as_deref(), Some("Dieses Gerät decodiert HEVC nicht, daher nutzt Nightjar H.264."));
+    }
+
+    /// Packed full chroma on AV1 offers HEVC too (beecb7aa1), so AV1 the PC or device has no
+    /// packed mode for streams HEVC packed where it was refused: the player is told.
+    #[test]
+    fn packed_full_chroma_on_av1_that_streams_hevc_is_told() {
+        let packed = Settings { codec: CodecPreference::Av1, experimental_packed_444: true, ..Default::default() };
+        assert_ne!(offered_formats(&packed, 0, &decodes_all()).formats & VIDEO_FORMAT_H265, 0, "HEVC is the packed fallback");
+        let (log, notice) = codec_fallback(&packed, 0, 0, 0, VIDEO_FORMAT_H265).expect("told");
+        assert_eq!(notice, "Full chroma can’t run AV1 with this PC and device, so Nightjar uses HEVC.");
+        assert!(log.contains("full chroma") && log.ends_with("streaming HEVC"), "{log}");
+        // HDR: HEVC Main10 packed ranks above AV1 8-bit packed, and says so.
+        let hdr = Settings { hdr: true, ..packed.clone() };
+        assert_eq!(codec_fallback(&hdr, 0, 0, 0, VIDEO_FORMAT_H265_MAIN10).map(|(_, n)| n).as_deref(),
+            Some("Full chroma can’t run AV1 10-bit with this PC and device, so Nightjar uses HEVC Main10."));
+        // AV1 packed at either depth, and HEVC packed chosen, need no word (8-bit has its own notice).
+        assert_eq!(codec_fallback(&packed, 0, 0, 0, VIDEO_FORMAT_AV1_MAIN8), None);
+        assert_eq!(codec_fallback(&hdr, 0, 0, 0, VIDEO_FORMAT_AV1_MAIN8), None);
+        assert_eq!(codec_fallback(&Settings { codec: CodecPreference::Hevc, ..hdr }, 0, 0, 0, VIDEO_FORMAT_H265), None);
+        let german = crate::strings::tests::with_lang(crate::strings::Lang::De, || codec_fallback(&packed, 0, 0, 0, VIDEO_FORMAT_H265));
+        assert_eq!(german.map(|(_, n)| n).as_deref(), Some("Volles Chroma kann AV1 mit diesem PC und Gerät nicht nutzen, daher nutzt Nightjar HEVC."));
+    }
+
+    /// AV1 whose 8-bit decodes but whose Main10 or 4:4:4 doesn't streamed 10-bit SDR and 4:4:4
+    /// refused as AV1 8-bit, though HEVC carried them; HDR already made way (Android's rule).
+    #[test]
+    fn ten_bit_sdr_and_4_4_4_that_only_hevc_carries_stream_hevc_and_say_why() {
+        let base = VIDEO_FORMAT_H265 | VIDEO_FORMAT_AV1_MAIN8;
+        let hevc_color = (color::YUV444_FORMATS | color::SDR10_FORMATS) & !(VIDEO_FORMAT_AV1_MAIN10 | VIDEO_FORMAT_AV1_HIGH8_444);
+        let sdr10 = Settings { codec: CodecPreference::Av1, sdr_10bit: true, ..Default::default() };
+        let offer = offered_formats_decoding(&sdr10, COLOR_SCM, &(hevc_color, String::new()), base);
+        assert_eq!((offer.formats, offer.sdr10.clone()), (VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10, Ok(())));
+        assert_eq!(codec_fallback(&sdr10, COLOR_SCM, base, hevc_color, VIDEO_FORMAT_H265_MAIN10).map(|(_, n)| n).as_deref(),
+            Some("This device doesn’t decode AV1 10-bit, so Nightjar uses HEVC Main10."));
+        let yuv444 = Settings { sdr_10bit: false, prefer_yuv444: true, ..sdr10.clone() };
+        let offer = offered_formats_decoding(&yuv444, COLOR_SCM, &(hevc_color, String::new()), base);
+        assert_eq!((offer.formats, offer.yuv444.clone()), (VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_REXT8_444, Ok(())));
+        assert_eq!(codec_fallback(&yuv444, COLOR_SCM, base, hevc_color, VIDEO_FORMAT_H265_REXT8_444).map(|(_, n)| n).as_deref(),
+            Some("This device doesn’t decode AV1 4:4:4, so Nightjar uses HEVC 4:4:4."));
+        // A PC without AV1 Main10 makes way too, unsaid as with HDR; AV1 that carries it keeps AV1.
+        let no_av1_main10 = COLOR_SCM & !SCM_AV1_MAIN10;
+        let offer = offered_formats_decoding(&sdr10, no_av1_main10, &decodes_all(), base);
+        assert_eq!(offer.formats & (VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_H265_MAIN10), VIDEO_FORMAT_H265_MAIN10);
+        assert_eq!(codec_fallback(&sdr10, no_av1_main10, base, color::YUV444_FORMATS | color::SDR10_FORMATS, VIDEO_FORMAT_H265_MAIN10), None);
+        let offer = offered_formats_decoding(&sdr10, COLOR_SCM, &decodes_all(), base);
+        assert_eq!(offer.formats, VIDEO_FORMAT_H264 | base | VIDEO_FORMAT_AV1_MAIN10);
+        assert_eq!(codec_fallback(&sdr10, COLOR_SCM, base, hevc_color, VIDEO_FORMAT_H265), None, "8-bit HEVC is no color fallback");
     }
 
     /// 10-bit launches decoded the 4:4:4 fixtures too with 4:4:4 off (about 12 ms).

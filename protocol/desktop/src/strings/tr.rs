@@ -1415,4 +1415,5 @@ sudo sysctl -w net.core.rmem_max={}", "Alma arabelleği: sistem istenen {1} KiB'
     ("{} cannot decode this stream. Now decoding in software.", "{} bu yayını çözemiyor. Artık yazılımla çözülüyor."),
     ("{} cannot decode this stream, and no other decoder opens: {}", "{0} bu yayını çözemiyor ve başka bir kod çözücü açılmıyor: {1}"),
     ("This device doesn’t decode {}, so Nightjar uses {}.", "Bu cihaz {0} kodunu çözemiyor, bu yüzden Nightjar {1} kullanıyor."),
+    ("Full chroma can’t run {} with this PC and device, so Nightjar uses {}.", "Tam renk doygunluğu bu PC ve cihazla {0} kullanamıyor, bu yüzden Nightjar {1} kullanıyor."),
 ];

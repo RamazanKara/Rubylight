@@ -1415,4 +1415,5 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("{} cannot decode this stream. Now decoding in software.", "{}(으)로 이 스트림을 디코딩할 수 없습니다. 이제 소프트웨어로 디코딩합니다."),
     ("{} cannot decode this stream, and no other decoder opens: {}", "{0}(으)로 이 스트림을 디코딩할 수 없고 다른 디코더도 열리지 않습니다: {1}"),
     ("This device doesn’t decode {}, so Nightjar uses {}.", "이 기기는 {0}을(를) 디코딩하지 못해 Nightjar가 {1}을(를) 사용합니다."),
+    ("Full chroma can’t run {} with this PC and device, so Nightjar uses {}.", "이 PC와 기기에서는 풀 크로마로 {0}을(를) 쓸 수 없어 Nightjar가 {1}을(를) 사용합니다."),
 ];

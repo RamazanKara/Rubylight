@@ -1408,4 +1408,5 @@ sudo sysctl -w net.core.rmem_max={2}"),
     ("{} cannot decode this stream. Now decoding with {}.", "{0} kann diesen Stream nicht decodieren. Jetzt decodiert {1}."),
     ("{} cannot decode this stream. Now decoding in software.", "{} kann diesen Stream nicht decodieren. Jetzt wird in Software decodiert."),
     ("{} cannot decode this stream, and no other decoder opens: {}", "{0} kann diesen Stream nicht decodieren, und kein anderer Decoder öffnet sich: {1}"),
+    ("This device doesn’t decode {}, so Nightjar uses {}.", "Dieses Gerät decodiert {0} nicht, daher nutzt Nightjar {1}."),
 ];

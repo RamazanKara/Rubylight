@@ -204,9 +204,10 @@ struct App {
     running: bool,
     autostream: Option<autostream::Autostream>,
     cli: Option<cli::CliLaunch>,
-    /// The 4:4:4 and 10-bit decoder check for a decoder, done at the first launch that asks: the
-    /// decoder stays the same while Nightjar runs, and a renderer switch drops it.
-    color_probed: Option<(Hardware, (u32, String))>,
+    /// The 4:4:4 and 10-bit decoder check for a decoder and the formats it checked, done at the
+    /// first launch that asks: the decoder stays the same while Nightjar runs, and a renderer
+    /// switch drops it.
+    color_probed: Option<((Hardware, u32), (u32, String))>,
     /// The plain HEVC and AV1 decoder check (`color_probe::probe_base`), kept the same way for
     /// the decoder and the formats it checked.
     base_probed: Option<((Hardware, u32), stream::color_probe::Base)>,
@@ -2364,8 +2365,9 @@ impl App {
         };
         let color_decodable = if stream::probes_color(&settings) {
             let (hardware, renderer) = (self.hardware(&settings), self.renderer);
-            probed_once(&mut self.color_probed, hardware, || {
-                stream::color_probe::probe(hardware, |ten_bit| stream::color_probe::planes_drawable(renderer, ten_bit))
+            let wanted = stream::color_probe_formats(&settings);
+            probed_once(&mut self.color_probed, (hardware, wanted), || {
+                stream::color_probe::probe(hardware, wanted, |ten_bit| stream::color_probe::planes_drawable(renderer, ten_bit))
             })
         } else {
             (0, String::new())
@@ -2494,7 +2496,8 @@ impl App {
             self.save_hosts();
         }
         let hdr_note = std::mem::take(&mut self.hdr_note).then(|| tr(HDR_OFF_NOTE));
-        let notices: Vec<&str> = hdr_note.into_iter().chain(pyrowave.as_deref()).chain(streaming.facts.color_notice.as_deref()).collect();
+        let notices: Vec<&str> = hdr_note.into_iter().chain(pyrowave.as_deref())
+            .chain(streaming.facts.codec_fallback.as_deref()).chain(streaming.facts.color_notice.as_deref()).collect();
         let notices = notices.join("\n");
         let network = &self.launcher.network;
         let profiles = &self.launcher.profiles;

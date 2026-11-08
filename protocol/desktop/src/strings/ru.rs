@@ -1408,4 +1408,5 @@ sudo sysctl -w net.core.rmem_max={}", "Буфер приёма: система �
     ("{} cannot decode this stream. Now decoding with {}.", "{0} не может декодировать этот поток. Теперь декодирует {1}."),
     ("{} cannot decode this stream. Now decoding in software.", "{} не может декодировать этот поток. Теперь декодирование программное."),
     ("{} cannot decode this stream, and no other decoder opens: {}", "{0} не может декодировать этот поток, и другой декодер не открывается: {1}"),
+    ("This device doesn’t decode {}, so Nightjar uses {}.", "Это устройство не декодирует {0}, поэтому Nightjar использует {1}."),
 ];

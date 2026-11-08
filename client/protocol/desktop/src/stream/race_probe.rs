@@ -35,12 +35,15 @@ impl ScanReport {
     }
 }
 
-/// What the calibration thread leaves: the generation it measured for, and the beam.
-type Calibration = Arc<Mutex<Option<(u32, Result<Beam, CalibrationError>)>>>;
+/// What a measuring thread leaves: the generation it measured for, and what it found.
+type Slot<T> = Arc<Mutex<Option<(u32, T)>>>;
 
-/// The calibration result if it is for `generation`. A result for an earlier one (the window
-/// moved to another monitor while it ran) is dropped: it measured the wrong display.
-fn take_current(slot: &Calibration, generation: u32) -> Option<Result<Beam, CalibrationError>> {
+/// What the calibration thread leaves: the beam.
+type Calibration = Slot<Result<Beam, CalibrationError>>;
+
+/// The result if it is for `generation`. A result for an earlier one (the window moved to another
+/// monitor while it ran) is dropped: it measured the wrong display.
+fn take_current<T>(slot: &Slot<T>, generation: u32) -> Option<T> {
     let (measured_for, result) = slot.lock().ok()?.take()?;
     (measured_for == generation).then_some(result)
 }
@@ -167,6 +170,13 @@ pub struct RaceProbe {
     scan: Option<super::scanline::Scanline>,
     #[cfg(windows)]
     helper: Option<win::Helper>,
+    /// Linux's display check: when to read DRM, the read on its thread, and the last reading.
+    #[cfg(not(windows))]
+    settle: super::drm_vrr::Settle,
+    #[cfg(not(windows))]
+    drm_slot: Slot<super::drm_vrr::Reading>,
+    #[cfg(not(windows))]
+    drm: Option<super::drm_vrr::Reading>,
 }
 
 impl RaceProbe {
@@ -196,6 +206,12 @@ impl RaceProbe {
             scan: None,
             #[cfg(windows)]
             helper: None,
+            #[cfg(not(windows))]
+            settle: Default::default(),
+            #[cfg(not(windows))]
+            drm_slot: Default::default(),
+            #[cfg(not(windows))]
+            drm: None,
         }
     }
 
@@ -283,6 +299,11 @@ impl RaceProbe {
         self.longest_idle_ns = 0;
         self.beam = None;
         self.verdict = Verdict::Checking;
+        #[cfg(not(windows))]
+        {
+            self.drm = None;
+            self.settle.restart();
+        }
     }
 
     /// Whether this present feeds the restart check: it is still running and the present goes
@@ -577,23 +598,95 @@ mod win {
     }
 }
 
+/// The scan line is a Windows call: elsewhere the display check reads whether the window's display
+/// runs VRR from DRM (`drm_vrr`), once the window has been fullscreen and focused for a second, again
+/// when it becomes so after it was not, on a `recheck` and when it moves to another display. While
+/// it reads the verdict is "checking", which keeps the pacing; a reading that cannot tell is "no
+/// scanline", as before there was a reading.
 #[cfg(not(windows))]
 impl RaceProbe {
-    /// The scan line is a Windows call: another platform has none to read.
     fn start_unavailable(around: Surroundings, topic: &'static str) -> Self {
         let mut probe = Self::new(false, topic);
         probe.apply_surroundings(around);
-        probe.decide(around);
+        eprintln!("nightjar: {topic}: no scan line here, reading VRR from DRM once the window is fullscreen and focused");
+        probe.decide_drm(around);
         probe
     }
 
     pub fn before(&self) -> Option<Sample> { None }
 
-    fn after_unavailable(&mut self, around: Surroundings) {
+    fn after_unavailable(&mut self, window: *mut SDL_Window, around: Surroundings) {
         self.presents += 1;
         self.apply_recheck();
         self.apply_surroundings(around);
-        self.decide(around);
+        let display = display_of(window);
+        match self.settle.present(around.fullscreen && around.focused, display, Instant::now()) {
+            super::drm_vrr::Step::Wait => {}
+            super::drm_vrr::Step::Moved => {
+                eprintln!("nightjar: {}: the window moved to another display, reading it again", self.topic);
+                self.forget();
+            }
+            super::drm_vrr::Step::Read => self.read_drm_in_background(describe_display(display)),
+        }
+        self.decide_drm(around);
+    }
+
+    /// Reads the outputs on a thread: the ioctls are quick, but none of it belongs on the render thread.
+    fn read_drm_in_background(&mut self, display: super::drm_vrr::Display) {
+        let slot = self.drm_slot.clone();
+        let generation = self.generation;
+        let spawned = std::thread::Builder::new().name("drm-vrr".into()).spawn(move || {
+            let reading = super::drm_vrr::Reading::of(super::drm_vrr::outputs(), &display);
+            if let Ok(mut slot) = slot.lock() { *slot = Some((generation, reading)); }
+        });
+        if let Err(error) = spawned {
+            if let Ok(mut slot) = self.drm_slot.lock() {
+                *slot = Some((generation, super::drm_vrr::Reading::Unknown(format!("could not start the read: {error}"))));
+            }
+        }
+    }
+
+    /// Takes a reading for this display into the verdict. One that cannot tell leaves it to the
+    /// scan line check, which has no scan line here: "no scanline", or a "no VRR" read before.
+    fn decide_drm(&mut self, around: Surroundings) {
+        if let Some(reading) = take_current(&self.drm_slot, self.generation) {
+            eprintln!("nightjar: {}: {}", self.topic, reading.line());
+            self.drm = Some(reading);
+        }
+        if let Some(super::drm_vrr::Reading::Unknown(_)) = self.drm {
+            self.decide(around);
+            return;
+        }
+        self.verdict = super::drm_vrr::verdict(around.tearing, self.drm.as_ref());
+        self.log_change();
+    }
+}
+
+/// SDL's id of the window's display, 0 when not known.
+#[cfg(not(windows))]
+fn display_of(window: *mut SDL_Window) -> u32 {
+    if window.is_null() { return 0; }
+    // SAFETY: a live window.
+    unsafe { SDL_GetDisplayForWindow(window) }.0
+}
+
+/// A display's name and current mode in pixels, for finding its output in DRM.
+#[cfg(not(windows))]
+fn describe_display(id: u32) -> super::drm_vrr::Display {
+    let id = SDL_DisplayID(id);
+    // SAFETY: SDL owns the name and the mode, which are read here at once.
+    unsafe {
+        let name = SDL_GetDisplayName(id);
+        let name = (!name.is_null()).then(|| std::ffi::CStr::from_ptr(name).to_string_lossy().into_owned()).filter(|name| !name.is_empty());
+        match SDL_GetCurrentDisplayMode(id).as_ref() {
+            Some(mode) => super::drm_vrr::Display {
+                name,
+                width: (mode.w as f32 * mode.pixel_density).round() as u32,
+                height: (mode.h as f32 * mode.pixel_density).round() as u32,
+                refresh_hz: f64::from(mode.refresh_rate),
+            },
+            None => super::drm_vrr::Display { name, width: 0, height: 0, refresh_hz: 0.0 },
+        }
     }
 }
 
@@ -642,7 +735,7 @@ impl RaceProbe {
         #[cfg(windows)]
         self.after(hwnd_of(window), before, around);
         #[cfg(not(windows))]
-        { let _ = (window, before); self.after_unavailable(around) }
+        { let _ = before; self.after_unavailable(window, around) }
     }
 }
 
@@ -994,6 +1087,32 @@ mod tests {
         *fixed.calibration.lock().unwrap() = Some((1, Ok(Beam { vblank_fraction: 0.01, ..beam() })));
         assert!(!present(&mut fixed, around(), FIXED_FRAMES + 1));
         assert!(fixed.fixed_refresh(), "{}", fixed.line());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn linux_takes_the_drm_reading_for_its_display_and_a_recheck_reads_again() {
+        use super::super::drm_vrr::Reading;
+        let off = Reading::Vrr { enabled: false, output: "DP-1".into(), capable: Some(1) };
+        let on = Reading::Vrr { enabled: true, output: "DP-1".into(), capable: Some(1) };
+        let mut probe = RaceProbe::start_unavailable(around(), "display check");
+        assert_eq!(*probe.verdict(), Verdict::Checking, "no longer \"no scanline\" while it reads");
+        *probe.drm_slot.lock().unwrap() = Some((0, off));
+        probe.decide_drm(around());
+        assert!(probe.fixed_refresh(), "{}", probe.line());
+        probe.recheck();
+        assert!(probe.apply_recheck());
+        probe.decide_drm(around());
+        assert_eq!(*probe.verdict(), Verdict::Checking, "the old reading is dropped");
+        *probe.drm_slot.lock().unwrap() = Some((0, on.clone()));
+        probe.decide_drm(around());
+        assert_eq!(*probe.verdict(), Verdict::Checking, "a read from before the recheck says nothing");
+        *probe.drm_slot.lock().unwrap() = Some((1, on));
+        probe.decide_drm(around());
+        assert!(probe.verdict().refreshes_on_present(), "{}", probe.line());
+        *probe.drm_slot.lock().unwrap() = Some((1, Reading::Unknown("two outputs".into())));
+        probe.decide_drm(around());
+        assert_eq!(probe.line(), "off (no scanline)", "as before there was a reading");
     }
 
     #[test]

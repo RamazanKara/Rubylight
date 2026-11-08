@@ -1,5 +1,6 @@
 """Regenerate the source-backed tables in docs/settings.md using only the standard library."""
 
+import ast
 from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
@@ -209,6 +210,12 @@ def generate():
     profiles = next(node for node in overview if node.get(ANDROID + "key") == "stream_profiles")
     if set(nodes) | {"stream_profiles"} != set(ADVICE):
         raise ValueError(f"Update usage advice: missing={set(nodes) - set(ADVICE)}, removed={set(ADVICE) - set(nodes) - {'stream_profiles'}}")
+    # A key written twice keeps only its last advice, silently.
+    advice = next(node.value for node in ast.parse(Path(__file__).read_text(encoding="utf-8")).body
+                  if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) == "ADVICE")
+    keys = [key.value for key in advice.keys]
+    if len(keys) != len(set(keys)):
+        raise ValueError(f"Usage advice written twice: {sorted({key for key in keys if keys.count(key) > 1})}")
     categories = {category.get(ANDROID + "key"): category for category in preferences}
     tiers = ET.parse(RES / "values/settings_tiers.xml").getroot()
     main = {item.text for tier in tiers for item in tier}

@@ -10,7 +10,7 @@ Start with the stream card on **Home**, **Help → Log analysis** and the host l
 | Connecting | [Pairing](#moonlight-cannot-find-or-pair-with-the-pc) · [Outside your network](#clients-outside-your-network-cannot-connect) · [Browser stream or guest link](#the-browser-stream-or-a-guest-link-fails-to-connect) · [os error 10035](#the-stream-disconnects-after-a-second-with-os-error-10035) · [Drops and timeouts](#the-stream-breaks-up-drops-or-times-out-on-the-network) |
 | Picture | [Stream card warnings](#what-the-stream-card-warnings-mean) · [Codec not available](#the-client-asks-for-a-codec-this-gpu-cannot-encode) · [Black screen](#black-picture-no-display-or-wgc-fails) · [HDR colour](#hdr-looks-washed-out-too-bright-or-different-between-clients) · [Blurred PyroWave](#pyrowave-shows-blurred-grey-blocks) · [Stutter](#low-latency-is-reported-but-motion-still-stutters) · [Frozen picture](#the-picture-freezes-while-audio-and-input-continue) · [GPU reset](#the-picture-freezes-and-the-gpu-resets-during-a-stream) |
 | Displays | [Layout not restored](#monitors-stay-on-or-the-display-layout-does-not-return) · [Mode refused](#windows-refuses-the-virtual-displays-requested-mode) · [Display not active](#virtual-display-did-not-become-active-before-the-deadline) |
-| Sound and input | [Audio](#audio-cuts-out-or-lags) · [Controllers](#a-controller-or-other-input-does-nothing) · [Two controllers in Steam](#steam-shows-two-controllers) · [Steam Deck](#a-steam-deck-has-no-gyro-trackpads-or-back-grips) |
+| Sound and input | [Audio](#audio-cuts-out-or-lags) · [Controllers](#a-controller-or-other-input-does-nothing) · [Two controllers in Steam](#steam-shows-two-controllers) · [Xbox button prompts](#games-show-xbox-button-prompts-with-a-dualsense) · [Steam Deck](#a-steam-deck-has-no-gyro-trackpads-or-back-grips) |
 | Games | [Playnite](#playnite-does-not-launch) · [RTSS](#rtss-does-not-start-or-the-game-ignores-the-cap) · [Nightjar host control](#nightjar-cannot-close-a-game-or-change-radeon-settings) |
 | Reporting | [Logs and a useful report](#logs-and-a-useful-report) |
 
@@ -265,6 +265,17 @@ Windows lists the standard pads as HID devices of a virtual driver, not as USB d
 Some Steam builds list one VHF Xbox controller twice: Steam's SDL controller discovery races its XInput and GameInput backends for the same device. Start+Select may then open both Xbox Game Bar and Steam's keyboard. SDL has an [upstream fix](https://github.com/libsdl-org/SDL/commit/c4cfb739), and users report that the Steam beta, which includes it, lists the pad once; switch to it under Steam → Settings → Interface → Client Beta Participation until the stable client carries the fix.
 
 Steam's `logs/controller.txt` shows each arrival. Rubylight uses ViGEmBus only when you choose Xbox 360 (ViGEmBus) as the [controller type](configuration.md#controllers); otherwise an installed copy can be uninstalled.
+
+## Games show Xbox button prompts with a DualSense
+
+With the DualSense [controller type](configuration.md#controllers), Windows sees a HID device with Sony's ID 054c:0ce6, and the host log says `virtual controller connected … profile="vhf_ds5"`. Games that read it directly can show PlayStation prompts; a game that understands only Xbox controllers can't see it at all. So a game that responds but shows Xbox prompts either reads the pad generically and defaults to Xbox icons, or something on the host has wrapped it as an Xbox controller. Check in this order:
+
+- **Steam Input:** for a game started through Steam, Playnite launches of Steam games included, Steam Input hands a PlayStation pad to the game as a virtual Xbox 360 controller. Big Picture doesn't change that. Choose **Disable Steam Input** under the game's **Properties → Controller** in Steam: a game with its own DualSense support then sees the pad and switches prompts. A game without it stops seeing the controller; turn Steam Input back on for that one and pick the icon style in the game.
+- **Other remappers:** DS4Windows, DSX or a similar tool on the host can add its own Xbox pad. During a stream, Windows' Game Controllers panel (`joy.cpl`) should list only **Wireless Controller**.
+- **USB DualSense:** some games only treat a controller as a DualSense when it is a USB device, as a cabled one is. Run the installer again with **Install USB audio and haptics support** selected on the **Steam Deck and DualSense USB audio and haptics** page, then choose **DualSense with waveform haptics (USB/IP)** as the controller type. Windows then sees a USB DualSense with its audio interface. It works with any Moonlight client; waveform haptics need a client that sends them ([DualSense waveform haptics](dualsense-haptics.md)). Connect to Desktop first, wait for the controller, then start the game, and switch Windows' sound output back if it moves to the controller.
+- **Order:** some games choose their prompts once, at launch. Connect the controller before starting the game.
+
+If none of these help, the game shows PlayStation prompts only through its own Sony-specific path; its icon setting is then the way to change them.
 
 ## A Steam Deck has no gyro, trackpads or back grips
 

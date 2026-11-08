@@ -187,4 +187,41 @@ public class StreamResizePolicyTest {
         // Both: every panel in either orientation.
         assertArrayEquals(new int[] {2316, 2316}, StreamResizePolicy.coveringSize(2176, 1812, true, fold));
     }
+
+    @Test
+    public void foldPanelsAreEveryBuiltInDisplayWhenThePanelsAreSeparateDisplays() {
+        // Galaxy Z Fold7 open: display 0 is the inner screen (1968x2184), the cover a separate built-in display, disabled
+        // while open (1080x2520, and 822x1918 at its lower resolution). Folded, the two swap ids; the sizes are the same.
+        int[] ids = {0, 1};
+        int[][][] fold7 = {{{1968, 2184}}, {{1080, 2520}, {822, 1918}}};
+        int[][] panels = StreamResizePolicy.coveringPanels(0, ids, new boolean[] {true, true}, fold7);
+        assertEquals(3, panels.length);
+        // Started landscape on the inner screen: the covering takes the cover's 2520 rows too, so a fold needs no restart.
+        assertArrayEquals(new int[] {2520, 1968}, StreamResizePolicy.coveringSize(2184, 1968, false, panels));
+        assertArrayEquals(new int[] {1968, 2520}, StreamResizePolicy.coveringSize(1968, 2184, false, panels));
+        // Below Android 16 QPR2 no display is known to be built in: the stream's own display only, as before.
+        int[][] own = StreamResizePolicy.coveringPanels(0, ids, new boolean[] {false, false}, fold7);
+        assertArrayEquals(new int[] {2184, 1968}, StreamResizePolicy.coveringSize(2184, 1968, false, own));
+        // Dual screen's second stream on the cover keeps the cover's own sizes.
+        int[][] second = StreamResizePolicy.coveringPanels(1, ids, new boolean[] {true, true}, fold7);
+        assertEquals(2, second.length);
+        assertArrayEquals(new int[] {1080, 2520}, second[0]);
+        assertArrayEquals(new int[] {822, 1918}, second[1]);
+    }
+
+    @Test
+    public void foldPanelsSkipExternalAndVirtualDisplays() {
+        // A phone with one display: its own modes.
+        int[][] phone = StreamResizePolicy.coveringPanels(0, new int[] {0}, new boolean[] {true},
+                new int[][][] {{{1080, 2400}, {720, 1600}}});
+        assertArrayEquals(new int[][] {{1080, 2400}, {720, 1600}}, phone);
+        // The same phone with a 4K monitor on USB-C (display 2) and Dual screen's or a recorder's virtual display (3):
+        // neither is built in, so neither raises the covering.
+        int[][] withOthers = StreamResizePolicy.coveringPanels(0, new int[] {0, 2, 3}, new boolean[] {true, false, false},
+                new int[][][] {{{1080, 2400}, {720, 1600}}, {{3840, 2160}, {1920, 1080}}, {{2560, 1600}}});
+        assertArrayEquals(phone, withOthers);
+        assertArrayEquals(new int[] {2400, 1080}, StreamResizePolicy.coveringSize(2400, 1080, false, withOthers));
+        // Nothing known: no panel, so no covering from panels.
+        assertEquals(0, StreamResizePolicy.coveringPanels(0, new int[0], new boolean[0], new int[0][][]).length);
+    }
 }

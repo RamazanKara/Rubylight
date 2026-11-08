@@ -143,6 +143,29 @@ public final class StreamResizePolicy {
         return new int[] {Math.max(maxWidth, width), Math.max(maxHeight, height)};
     }
 
+    /** android.view.Display.DEFAULT_DISPLAY: the display a fold or unfold moves between panels. */
+    static final int DEFAULT_DISPLAY_ID = 0;
+
+    /**
+     * The panel sizes for coveringSize, from the displays the app sees: ids[i] with the {width,
+     * height} of each of its modes in modes[i], builtIn[i] for a display built into the device
+     * (DisplayManager.DISPLAY_CATEGORY_BUILT_IN_DISPLAYS, which also lists one that is off). The
+     * stream's own display (videoId) always counts. On the default display, which a fold or unfold
+     * moves between panels, every built-in display counts too: on a foldable whose panels are
+     * separate displays (Galaxy Z Fold7: cover and inner screen, the one not in use disabled), the
+     * stream's display lists only the panel it is on. External, wireless and virtual displays never
+     * count, nor do other displays for a stream shown elsewhere (Dual screen's second stream).
+     */
+    public static int[][] coveringPanels(int videoId, int[] ids, boolean[] builtIn, int[][][] modes) {
+        java.util.List<int[]> panels = new java.util.ArrayList<>();
+        for (int i = 0; i < ids.length; i++) {
+            if (ids[i] == videoId || (videoId == DEFAULT_DISPLAY_ID && builtIn[i])) {
+                java.util.Collections.addAll(panels, modes[i]);
+            }
+        }
+        return panels.toArray(new int[0][]);
+    }
+
     /**
      * The size covering what a stream switches to on its own, for the decoder's maximum up front;
      * null when nothing is known. A stream that turns with the device takes either orientation of

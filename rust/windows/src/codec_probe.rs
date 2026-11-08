@@ -649,14 +649,15 @@ mod tests {
     #[test]
     #[ignore = "requires an AMD GPU with AMF"]
     fn packed_probe_holds_a_bitrate_above_the_driver_ceiling() {
-        // #80: a client's 1.2 Gbps arrives as about 959 Mbps after FEC and
-        // audio; AMF refused that Av1TargetBitrate with AMF_OUT_OF_RANGE.
+        // #80: AMF refused Av1TargetBitrate above its ceiling with
+        // AMF_OUT_OF_RANGE. The RX 7900 XT's ceiling is 1 Gbps on every codec;
+        // 1080p keeps the packed picture within its encoder throughput.
         for codec in [1, 2] {
             let mode = Negotiated {
-                width: 3840,
-                height: 2160,
-                fps: 100,
-                bitrate_kbps: 959_000,
+                width: 1920,
+                height: 1080,
+                fps: 60,
+                bitrate_kbps: 1_500_000,
                 codec,
                 sdr_10bit: true,
                 chroma_packing: butterpollo_core::packed444::VERSION,

@@ -207,11 +207,10 @@ struct App {
     /// The 4:4:4 and 10-bit decoder check for a decoder and the formats it checked, done at the
     /// first launch that asks: the decoder stays the same while Nightjar runs, and a renderer
     /// switch drops it.
-    color_probed: Option<((Hardware, u32), (u32, String))>,
+    color_probed: Option<(ProbeKey, (u32, String))>,
     /// The plain HEVC and AV1 decoder check (`color_probe::probe_base`), kept the same way for
     /// the decoder and the formats it checked.
-    // Keyed by the Vulkan video Debug settings too: they change the backend order and RFI.
-    base_probed: Option<((Hardware, u32, bool, bool), stream::color_probe::Base)>,
+    base_probed: Option<(ProbeKey, stream::color_probe::Base)>,
     /// Linux's renderer as it was made ([`RendererState`]).
     #[cfg(unix)]
     renderer_state: RendererState,
@@ -2369,7 +2368,7 @@ impl App {
         let color_decodable = if stream::probes_color(&settings) {
             let (hardware, renderer) = (self.hardware(&settings), self.renderer);
             let wanted = stream::color_probe_formats(&settings);
-            probed_once(&mut self.color_probed, (hardware, wanted), || {
+            probed_once(&mut self.color_probed, probe_key(hardware, wanted, &settings), || {
                 stream::color_probe::probe(hardware, wanted, |ten_bit| stream::color_probe::planes_drawable(renderer, ten_bit))
             })
         } else {
@@ -2379,7 +2378,7 @@ impl App {
         let base_decodable = match (self.hardware(&settings), stream::base_probe_formats(&settings)) {
             (Hardware::None, _) => stream::color_probe::Base::software(),
             (hardware, wanted) => {
-                let key = (hardware, wanted, settings.vulkan_video_first, settings.vulkan_rfi);
+                let key = probe_key(hardware, wanted, &settings);
                 probed_once(&mut self.base_probed, key, || stream::color_probe::probe_base(hardware, wanted))
             }
         };
@@ -3457,6 +3456,14 @@ fn small_stream(settings: &mut config::Settings) {
 }
 
 /// `probe`'s answer for `hardware`, from `cache` when it was the last decoder checked.
+/// What a decoder check's result holds for: the decoder, the formats it checked, and "Vulkan video
+/// first", which changes the backend order both checks decode through (`Hardware::order`).
+type ProbeKey = (Hardware, u32, bool);
+
+fn probe_key(hardware: Hardware, wanted: u32, settings: &config::Settings) -> ProbeKey {
+    (hardware, wanted, settings.vulkan_video_first)
+}
+
 fn probed_once<K: PartialEq, T: Clone>(cache: &mut Option<(K, T)>, hardware: K, probe: impl FnOnce() -> T) -> T {
     match cache {
         Some((probed, result)) if *probed == hardware => result.clone(),
@@ -4015,6 +4022,20 @@ mod tests {
         }
         let none = display_from_mode(None);
         assert_eq!((none.width, none.refresh_hz, none.reported_refresh_hz()), (1920, 60.0, None));
+    }
+
+    #[test]
+    fn the_decoder_checks_run_again_when_vulkan_video_first_changes() {
+        let mut settings = config::Settings::default();
+        let mut cache = None;
+        let mut runs = 0;
+        let mut probe = |settings: &config::Settings| probed_once(&mut cache, probe_key(Hardware::Vaapi, 1, settings), || { runs += 1; runs });
+        assert_eq!(probe(&settings), 1);
+        settings.vulkan_rfi = true;
+        assert_eq!(probe(&settings), 1, "recovery does not change what decodes");
+        settings.vulkan_video_first = true;
+        assert_eq!(probe(&settings), 2, "the backend order the check decodes through changed");
+        assert_eq!(probe(&settings), 2);
     }
 
     #[test]

@@ -56,14 +56,10 @@ pub const ENVIRONMENT: &str = "NIGHTJAR_VULKAN_VIDEO";
 /// VAAPI keeps reference frame invalidation.
 pub const GPU_FIRST_ENVIRONMENT: &str = "NIGHTJAR_VULKAN_VIDEO_GPU_FIRST";
 
-/// Vulkan video first on the GPU renderer: what `GPU_FIRST_ENVIRONMENT` says when it is 1 or 0,
-/// else `setting`.
-pub fn gpu_first(value: Option<&std::ffi::OsStr>, setting: bool) -> bool {
-    match value.and_then(|value| value.to_str()) {
-        Some("1") => true,
-        Some("0") => false,
-        _ => setting,
-    }
+/// Vulkan video first on the GPU renderer: what `GPU_FIRST_ENVIRONMENT` says when it is set and
+/// readable (`env_flag`: 1, true, yes, on, 0, false, no, off), else `setting`.
+pub fn gpu_first(value: Option<bool>, setting: bool) -> bool {
+    value.unwrap_or(setting)
 }
 
 /// What `ENVIRONMENT` asks for.

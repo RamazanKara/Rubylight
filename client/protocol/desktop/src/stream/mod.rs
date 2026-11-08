@@ -101,6 +101,7 @@ use connect::*;
 use negotiate::*;
 use stats::*;
 pub use connect::{end_before, host_ended_stream, offers_714, termination_text, ConnectFailed, Connecting, LEAVE_WAIT};
+pub(crate) use connect::env_flag;
 pub use negotiate::{base_probe_formats, codec_name, color_probe_formats, probes_color, pyrowave_bitrate_warning, pyrowave_notice, stream_mode};
 
 /// What the display offers, for "native" resolution and "display" refresh.

@@ -839,10 +839,23 @@ impl VideoDecoder {
         }
     }
 
+    /// Whether VAAPI pictures still go to the GPU renderer mapped into Vulkan (`map_to_vulkan`): a
+    /// failed import in `receive` drops the map for the rest of the stream.
+    #[cfg(unix)]
+    pub fn vulkan_mapped(&self) -> bool {
+        self.vulkan_map.is_some()
+    }
+
+    #[cfg(not(unix))]
+    pub fn vulkan_mapped(&self) -> bool {
+        false
+    }
+
     /// Hands VAAPI pictures to the GPU renderer, the SDL GPU device `gpu`, mapped into Vulkan
     /// images on its device instead of through memory (nightjar#80: 2.5 GB/s read back and
     /// uploaded at 4K100 10-bit), unless `NIGHTJAR_VAAPI_VULKAN_MAP` is 0. Says which in the log,
-    /// with the reason when they keep going through memory, and returns whether they are mapped.
+    /// with the reason when they keep going through memory, and returns whether they are mapped
+    /// (`vulkan_mapped` after a failed import says they no longer are).
     /// Only a VAAPI decoder on Linux.
     #[cfg(unix)]
     pub fn map_to_vulkan(&mut self, gpu: *mut c_void) -> bool {

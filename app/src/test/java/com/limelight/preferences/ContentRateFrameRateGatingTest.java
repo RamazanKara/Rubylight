@@ -4,6 +4,10 @@ import android.app.Application;
 import android.content.SharedPreferences;
 import android.preference.PreferenceManager;
 
+import com.limelight.binding.video.DisplayFrameRatePolicy;
+
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RuntimeEnvironment;
@@ -17,6 +21,17 @@ import static org.junit.Assert.*;
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class ContentRateFrameRateGatingTest {
     private static final String KEY = "checkbox_content_rate_frame_rate";
+
+    @Before
+    public void aScreenWithArr() {
+        DisplayFrameRatePolicy.vrrOfferedOverride = true;
+    }
+
+    @After
+    public void clear() {
+        edit().clear().commit();
+        DisplayFrameRatePolicy.vrrOfferedOverride = null;
+    }
 
     private static Application app() {
         return RuntimeEnvironment.getApplication();

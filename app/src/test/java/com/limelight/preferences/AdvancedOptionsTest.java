@@ -230,7 +230,7 @@ public class AdvancedOptionsTest {
             "checkbox_network_priority", "checkbox_unbatched_input", "checkbox_full_range");
     private static final List<String> DEBUG_CONTROLS = new ArrayList<>(DEBUG_MAIN);
     static {
-        DEBUG_CONTROLS.addAll(Arrays.asList("checkbox_submit_hint", "checkbox_covering_decoder_size",
+        DEBUG_CONTROLS.addAll(Arrays.asList("checkbox_submit_hint",
                 "checkbox_pyrowave_preacquire", "checkbox_codec_direct", "checkbox_receive_decode_priority"));
     }
 

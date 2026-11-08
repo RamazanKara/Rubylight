@@ -1,13 +1,37 @@
 package com.limelight.binding.video;
 
+import android.content.Context;
+import android.hardware.display.DisplayManager;
 import android.os.Build;
 import android.view.Display;
+
+import androidx.annotation.VisibleForTesting;
 
 import java.util.List;
 
 public final class DisplayFrameRatePolicy {
     public static boolean useAdaptiveRefreshRate(int sdk, boolean vrr, boolean arrSupported) {
         return vrr && sdk >= 36 && arrSupported;
+    }
+
+    /**
+     * Whether adaptive refresh can be turned on: Android 16 and a screen of this device with ARR.
+     * Elsewhere the setting is greyed and reads as off. Any screen counts, so a foldable whose
+     * settings open on the cover screen still offers it for the inner one.
+     */
+    /** Tests stand in for the device's screens with this; null asks Android. */
+    @VisibleForTesting
+    public static Boolean vrrOfferedOverride;
+
+    public static boolean vrrOffered(Context context) {
+        if (vrrOfferedOverride != null) return vrrOfferedOverride;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA || context == null) return false;
+        DisplayManager displays = context.getSystemService(DisplayManager.class);
+        if (displays == null) return false;
+        for (Display display : displays.getDisplays()) {
+            if (display.hasArrSupport()) return true;
+        }
+        return false;
     }
 
     public enum ArrState {

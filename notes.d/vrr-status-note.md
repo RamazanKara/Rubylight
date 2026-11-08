@@ -1,2 +1,3 @@
 ## en
-- On screens without adaptive refresh, the stream overlay shows a short "VRR: no ARR" instead of a long explanation.
+- Adaptive refresh (VRR) can be turned on only where Android 16 and the screen support adaptive refresh; elsewhere the setting is greyed out, and the stream no longer shows a VRR note.
+- Ready the decoder for folding moved from Debug to Streaming, next to Dual screen.

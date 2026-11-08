@@ -18,10 +18,12 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.SearchView;
 
 import com.google.android.material.color.MaterialColors;
+import com.limelight.binding.video.DisplayFrameRatePolicy;
 import com.limelight.HelpTopicsActivity;
 import com.limelight.R;
 
 import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
@@ -96,9 +98,15 @@ public class SettingsStructureTest {
         return PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication());
     }
 
+    @Before
+    public void aScreenWithArr() {
+        DisplayFrameRatePolicy.vrrOfferedOverride = true;
+    }
+
     @After
     public void clear() {
         prefs().edit().clear().commit();
+        DisplayFrameRatePolicy.vrrOfferedOverride = null;
     }
 
     /** Video bitrate and Touch mode wrote their value under the title, the only rows that did. */

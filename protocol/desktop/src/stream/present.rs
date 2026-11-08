@@ -726,6 +726,9 @@ pub struct VideoTexture {
     /// texture when something reads it (an upscaler, or SDL after a failed direct draw).
     #[cfg(unix)]
     planes_pending: Option<[u32; 8]>,
+    /// A PyroWave picture's stage times wait for its deferred conversion (`passes_drawn`).
+    #[cfg(unix)]
+    pyrowave_stages_open: bool,
     /// Drawing the planes into the back buffer failed: they go through the texture for the rest
     /// of the stream.
     #[cfg(unix)]
@@ -819,6 +822,8 @@ impl Default for VideoTexture {
             vulkan: None,
             #[cfg(unix)]
             planes_pending: None,
+            #[cfg(unix)]
+            pyrowave_stages_open: false,
             #[cfg(unix)]
             direct_planes_failed: false,
             failure: None,
@@ -1237,15 +1242,22 @@ impl VideoTexture {
     /// HEVC or AV1 picture is shown without its alignment padding (`Decoded::visible`): the texture keeps
     /// the whole picture and what draws it samples only the stream's part, so nothing is copied.
     pub fn upload(&mut self, renderer: *mut SDL_Renderer, decoded: &Decoded, rows: Option<(u32, u32)>) -> bool {
+        // Planes copied for the last picture are not this one's, unless this one fails: then the
+        // last picture stays on screen, from its planes while the pass and texture that hold them
+        // do (the texture was never drawn into).
+        #[cfg(unix)]
+        let last_planes = self.planes_pending.take();
         let uploaded = self.upload_picture(renderer, decoded, rows);
+        #[cfg(unix)]
+        { self.planes_pending = planes_after_upload(uploaded, self.planes_pending, last_planes, self.planes.is_some() && !self.texture.is_null()); }
         self.visible = decoded.visible.filter(|_| uploaded && plain(decoded)).and_then(|visible| visible_part(visible, (self.width, self.height)));
         uploaded
     }
 
     fn upload_picture(&mut self, renderer: *mut SDL_Renderer, decoded: &Decoded, rows: Option<(u32, u32)>) -> bool {
-        // Planes copied for an earlier picture are not this one's.
+        // A picture whose conversion never ran is not counted.
         #[cfg(unix)]
-        { self.planes_pending = None; }
+        if std::mem::take(&mut self.pyrowave_stages_open) { self.pyrowave_stages.reset(); }
         #[cfg(windows)]
         if let media::Picture::GpuPlanes { lease, fence_value } = &decoded.picture {
             return self.upload_planes(renderer, decoded, lease, *fence_value, rows);
@@ -1659,10 +1671,23 @@ impl VideoTexture {
     #[cfg(unix)]
     fn draw_pending_planes(&mut self, renderer: *mut SDL_Renderer) -> Result<(), String> {
         let Some(parameters) = self.planes_pending.take() else { return Ok(()) };
+        let step = std::time::Instant::now();
         let texture = self.texture;
         let pass = self.planes.as_mut().ok_or("the plane pass is gone")?;
         // SAFETY: The pass copied the current picture's planes on this renderer, for `parameters`.
-        unsafe { pass.draw_bound(renderer, texture, &parameters) }
+        unsafe { pass.draw_bound(renderer, texture, &parameters) }?;
+        self.passes_drawn(step);
+        Ok(())
+    }
+
+    /// The deferred draw of a PyroWave picture's planes goes to its "passes" stage, once, and
+    /// completes the picture's stage times (`upload_planes` leaves them open).
+    #[cfg(unix)]
+    fn passes_drawn(&mut self, step: std::time::Instant) {
+        if std::mem::take(&mut self.pyrowave_stages_open) {
+            self.pyrowave_stages.add(super::pyrowave_gpu::PASSES, step);
+            self.pyrowave_stages.commit();
+        }
     }
 
     /// Draws the current picture's copied planes straight into `destination` of the back buffer,
@@ -1672,23 +1697,17 @@ impl VideoTexture {
     #[cfg(unix)]
     pub fn draw_direct(&mut self, renderer: *mut SDL_Renderer, destination: &SDL_FRect, texture: *mut SDL_Texture) -> bool {
         let Some(parameters) = self.planes_pending.filter(|_| texture == self.texture && !texture.is_null()) else { return false };
+        let step = std::time::Instant::now();
         // SAFETY: The live renderer and texture of the presenting thread.
-        let look = unsafe {
-            let (renderer_props, texture_props) = (SDL_GetRendererProperties(renderer), SDL_GetTextureProperties(texture));
-            let mut color_scale = 1.0;
-            SDL_GetRenderColorScale(renderer, &mut color_scale);
-            super::planes_gpu::SdlLook {
-                texture_headroom: SDL_GetFloatProperty(texture_props, SDL_PROP_TEXTURE_HDR_HEADROOM_FLOAT, 1.0),
-                output_headroom: SDL_GetFloatProperty(renderer_props, SDL_PROP_RENDERER_HDR_HEADROOM_FLOAT, 1.0),
-                sdr_white: SDL_GetFloatProperty(renderer_props, SDL_PROP_RENDERER_SDR_WHITE_POINT_FLOAT, 1.0),
-                color_scale,
-            }
-        };
+        let look = unsafe { super::planes_gpu::SdlLook::of(renderer, texture) };
         let visible = self.size();
         let Some(pass) = self.planes.as_mut() else { return false };
         // SAFETY: The pass copied the current picture's planes on this renderer, for `parameters`.
         match unsafe { pass.draw_direct(renderer, &parameters, destination, visible, look) } {
-            Ok(()) => true,
+            Ok(()) => {
+                self.passes_drawn(step);
+                true
+            }
             Err(error) => {
                 eprintln!("nightjar: drawing the picture's planes into the back buffer failed: {error}; they go through the video texture from now on");
                 self.direct_planes_failed = true;
@@ -1936,7 +1955,15 @@ impl VideoTexture {
             Ok(()) => true,
             Err(error) => { *failure = Some(format!("PyroWave GPU decoding failed: {error}")); false }
         });
-        if drawn { self.pyrowave_stages.commit(); self.planes_drawn(texture, parameters); } else { self.pyrowave_stages.reset(); }
+        if !drawn {
+            self.pyrowave_stages.reset();
+        } else if texture.is_null() {
+            // The conversion runs at the present (`passes_drawn`).
+            self.pyrowave_stages_open = true;
+        } else {
+            self.pyrowave_stages.commit();
+        }
+        if drawn { self.planes_drawn(texture, parameters); }
         drawn
     }
 
@@ -2091,6 +2118,14 @@ impl VideoTexture {
     }
 }
 
+/// The planes to draw after an upload: the new picture's, or when it failed the last one's while
+/// the pass and texture that hold them (`held`) are still there, so the last good picture stays
+/// on screen and SDL never draws the texture the planes were never drawn into.
+#[cfg_attr(not(unix), allow(dead_code))]
+fn planes_after_upload(uploaded: bool, new: Option<[u32; 8]>, last: Option<[u32; 8]>, held: bool) -> Option<[u32; 8]> {
+    if uploaded || new.is_some() || !held { new } else { last }
+}
+
 /// A decoded H.264, HEVC or AV1 picture, which may carry an encoder's alignment padding; not a
 /// PyroWave or packed 4:4:4 one, whose size the setup gives.
 fn plain(decoded: &Decoded) -> bool {
@@ -2215,6 +2250,17 @@ pub(crate) mod tests {
         sdr10.destroy();
         hdr.destroy();
         assert!(!sdr10.hdr_stream && hdr.hdr_stream, "what the session negotiated must survive destroy");
+    }
+
+    /// A failed upload keeps the last picture's planes for the present, where SDL would have
+    /// drawn the texture they never went into; a picture that is not planes clears them.
+    #[test]
+    fn a_failed_upload_keeps_the_last_planes_on_screen() {
+        let last = Some([1; 8]);
+        assert_eq!(planes_after_upload(false, None, last, true), last);
+        assert_eq!(planes_after_upload(true, None, last, true), None, "a decoded picture in the texture replaces them");
+        assert_eq!(planes_after_upload(true, Some([2; 8]), last, true), Some([2; 8]));
+        assert_eq!(planes_after_upload(false, None, last, false), None, "the pass that held them is gone");
     }
 
     /// Plane pictures wait for the back buffer (`draw_direct`) instead of going through the

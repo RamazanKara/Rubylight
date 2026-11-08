@@ -393,19 +393,53 @@ pub struct Uniforms {
 
 /// The shader's flag for a draw straight into the target rectangle.
 pub const DIRECT_FLAG: u32 = 512;
+/// With `DIRECT_FLAG`: the target is sRGB, not scRGB, so the shader encodes and clamps as SDL does.
+pub const SRGB_TARGET_FLAG: u32 = 1024;
 
 /// What SDL's draw of the RGBA64F linear picture texture into the back buffer does to it
 /// (`texture_advanced.frag.hlsl`): its tone map, when the texture's HDR headroom is above the
-/// output's, then its colour scale (the output's SDR white times the renderer's colour scale).
+/// output's, then its colour scale (the output's SDR white times the renderer's colour scale),
+/// then on an sRGB output (an SDR display outside gamescope) its sRGB encoding and clamp.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SdlLook {
     pub texture_headroom: f32,
     pub output_headroom: f32,
     pub sdr_white: f32,
     pub color_scale: f32,
+    /// The output is scRGB (`SDL_RenderingLinearSpace`), not sRGB.
+    pub linear_output: bool,
 }
 
 impl SdlLook {
+    /// What SDL's draw of `texture` into the renderer's current target (the back buffer, or a
+    /// target texture) applies, read as `CalculateAdvancedShaderConstants` and
+    /// `SDL_RenderingLinearSpace` read it.
+    ///
+    /// # Safety
+    /// `renderer` and `texture` must be live, on the calling thread.
+    pub unsafe fn of(renderer: *mut SDL_Renderer, texture: *mut SDL_Texture) -> Self {
+        let target = SDL_GetRenderTarget(renderer);
+        let (output, colorspace, sdr_white, output_headroom) = if target.is_null() {
+            let props = SDL_GetRendererProperties(renderer);
+            (props, SDL_GetNumberProperty(props, SDL_PROP_RENDERER_OUTPUT_COLORSPACE_NUMBER, 0),
+                SDL_PROP_RENDERER_SDR_WHITE_POINT_FLOAT, SDL_PROP_RENDERER_HDR_HEADROOM_FLOAT)
+        } else {
+            let props = SDL_GetTextureProperties(target);
+            (props, SDL_GetNumberProperty(props, SDL_PROP_TEXTURE_COLORSPACE_NUMBER, 0),
+                SDL_PROP_TEXTURE_SDR_WHITE_POINT_FLOAT, SDL_PROP_TEXTURE_HDR_HEADROOM_FLOAT)
+        };
+        let mut color_scale = 1.0;
+        SDL_GetRenderColorScale(renderer, &mut color_scale);
+        Self {
+            // SDL leaves a texture's headroom out when it is 0, its default for the linear format.
+            texture_headroom: SDL_GetFloatProperty(SDL_GetTextureProperties(texture), SDL_PROP_TEXTURE_HDR_HEADROOM_FLOAT, 0.0),
+            output_headroom: SDL_GetFloatProperty(output, output_headroom, 0.0),
+            sdr_white: SDL_GetFloatProperty(output, sdr_white, 1.0),
+            color_scale,
+            linear_output: colorspace == i64::from(SDL_COLORSPACE_SRGB_LINEAR.0),
+        }
+    }
+
     /// SDL's TONEMAP_CHROME factors (`CalculateAdvancedShaderConstants`), None without a tone map.
     pub fn tonemap(&self) -> Option<(f32, f32)> {
         (self.texture_headroom > self.output_headroom && self.output_headroom > 0.0)
@@ -416,7 +450,7 @@ impl SdlLook {
 /// The constants of a `draw_direct` into `destination` (render coordinates) of a viewport at `origin`.
 pub fn direct_uniforms(parameters: &[u32; 8], destination: &SDL_FRect, origin: (i32, i32), visible: (i32, i32), look: SdlLook) -> Uniforms {
     let mut parameters = *parameters;
-    parameters[6] |= DIRECT_FLAG;
+    parameters[6] |= DIRECT_FLAG | if look.linear_output { 0 } else { SRGB_TARGET_FLAG };
     let (tonemap1, tonemap2) = look.tonemap().unwrap_or((0.0, 0.0));
     Uniforms {
         parameters,
@@ -502,7 +536,49 @@ mod tests {
     use super::*;
     use crate::media::{FrameInfo, PlanarLayout, FRAME_NV12, FRAME_P010};
 
-    const SDR: SdlLook = SdlLook { texture_headroom: 1.0, output_headroom: 1.0, sdr_white: 1.0, color_scale: 1.0 };
+    const SDR: SdlLook = SdlLook { texture_headroom: 0.0, output_headroom: 1.0, sdr_white: 1.0, color_scale: 1.0, linear_output: true };
+
+    /// planesDirect after the conversion, in the shader's order, for checking its numbers.
+    fn shader_output(rgb: [f32; 3], uniforms: &Uniforms) -> [f32; 3] {
+        let mul = |m: [[f32; 3]; 3], v: [f32; 3]| m.map(|row| row[0] * v[0] + row[1] * v[1] + row[2] * v[2]);
+        let to2020 = [[0.627404, 0.329283, 0.043313], [0.069097, 0.919541, 0.011362], [0.016391, 0.088013, 0.895595]];
+        let to709 = [[1.660496, -0.587656, -0.072840], [-0.124547, 1.132895, -0.008348], [-0.018154, -0.100597, 1.118751]];
+        let [tonemap1, tonemap2] = uniforms.tonemap;
+        let mut rgb = rgb;
+        if tonemap2 > 0.0 {
+            let mut v = mul(to2020, rgb);
+            let vmax = v[0].max(v[1]).max(v[2]);
+            if vmax > 0.0 { v = v.map(|c| c * (1.0 + tonemap1 * vmax) / (1.0 + tonemap2 * vmax)); }
+            rgb = mul(to709, v);
+        }
+        rgb = rgb.map(|c| c * uniforms.output_scale);
+        if uniforms.parameters[6] & SRGB_TARGET_FLAG != 0 {
+            rgb = rgb.map(|c| if c <= 0.0031308 { c * 12.92 } else { c.abs().powf(1.0 / 2.4) * 1.055 - 0.055 }.clamp(0.0, 1.0));
+        }
+        rgb
+    }
+
+    /// The bug: on an sRGB back buffer (an SDR display) the direct draw wrote linear light, which
+    /// the display reads as sRGB, so the picture came out too dark. SDL encodes and clamps.
+    #[test]
+    fn an_srgb_target_gets_the_picture_srgb_encoded() {
+        let rect = SDL_FRect { x: 0.0, y: 0.0, w: 4.0, h: 4.0 };
+        let srgb = SdlLook { linear_output: false, ..SDR };
+        let encoded = direct_uniforms(&[0; 8], &rect, (0, 0), (4, 4), srgb);
+        assert_eq!(encoded.parameters[6], DIRECT_FLAG | SRGB_TARGET_FLAG);
+        let mid = shader_output([0.18; 3], &encoded);
+        assert!((mid[0] - 0.4613).abs() < 0.001, "18 % grey is sRGB 0.46, not {}", mid[0]);
+        assert_eq!(shader_output([0.001; 3], &encoded)[0], 0.001 * 12.92, "the linear toe");
+        assert_eq!(shader_output([2.0, -0.5, 4.0], &encoded), [1.0, 0.0, 1.0], "clamped, as SDL saturates");
+        let linear = direct_uniforms(&[0; 8], &rect, (0, 0), (4, 4), SDR);
+        assert_eq!(linear.parameters[6], DIRECT_FLAG, "an scRGB target takes linear light");
+        assert_eq!(shader_output([0.18; 3], &linear), [0.18; 3]);
+        // HLG tone mapped onto an SDR display: tone map, then the encoding.
+        let hlg = SdlLook { texture_headroom: 4.0, ..srgb };
+        let mapped = shader_output([1.0; 3], &direct_uniforms(&[0; 8], &rect, (0, 0), (4, 4), hlg));
+        // (1 + 1/16) / (1 + 1) of white, sRGB encoded.
+        assert!(mapped.iter().all(|c| (c - 0.7556).abs() < 0.002), "white is tone mapped below the clip, then encoded: {mapped:?}");
+    }
 
     /// The constants are the shader's 80-byte `Picture` block, in its order.
     #[test]
@@ -534,7 +610,7 @@ mod tests {
     /// it (TONEMAP_CHROME) only when the texture carries more headroom than an HDR output has.
     #[test]
     fn a_direct_draw_scales_and_tone_maps_as_sdl_does() {
-        let hdr = SdlLook { texture_headroom: 12.0, output_headroom: 4.0, sdr_white: 2.5, color_scale: 0.5 };
+        let hdr = SdlLook { texture_headroom: 12.0, output_headroom: 4.0, sdr_white: 2.5, color_scale: 0.5, linear_output: true };
         let uniforms = direct_uniforms(&[0; 8], &SDL_FRect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 }, (0, 0), (2, 2), hdr);
         assert_eq!(uniforms.output_scale, 1.25);
         assert_eq!(uniforms.tonemap, [4.0 / 144.0, 0.25]);
@@ -636,6 +712,80 @@ mod tests {
                 }
             }
             SDL_DestroyTexture(target);
+            SDL_DestroyRenderer(renderer);
+            SDL_DestroyWindow(window);
+            SDL_Quit();
+        }
+    }
+    /// The direct draw gives what the texture path gives (the plane pass into the RGBA64F picture
+    /// texture, then SDL's draw of it), on an sRGB target, the SDR back buffer's format, and on an
+    /// scRGB one, with and without SDL's tone map: `cargo test -p nightjar-desktop -- --ignored
+    /// stream::planes_gpu`.
+    #[test]
+    #[ignore = "needs a Vulkan device and SDL's offscreen video driver"]
+    fn the_direct_draw_matches_the_texture_path() {
+        let (width, height) = (16usize, 8usize);
+        // A ramp in luma and both chroma planes, so matrix, range and sampling all show.
+        let mut luma = (0..width * height).map(|i| (16 + (i * 219) / (width * height)) as u8).collect::<Vec<u8>>();
+        let mut chroma = (0..width * height / 2).map(|i| if i % 2 == 0 { (64 + i * 2) as u8 } else { (192 - i * 2) as u8 }).collect::<Vec<u8>>();
+        // SAFETY: Plain SDL calls on objects made here, on one thread.
+        unsafe {
+            SDL_SetHint(SDL_HINT_VIDEO_DRIVER, c"offscreen".as_ptr());
+            assert!(SDL_Init(SDL_INIT_VIDEO), "{}", crate::sdl::error());
+            let window = SDL_CreateWindow(c"direct planes".as_ptr(), 64, 64, SDL_WINDOW_HIDDEN);
+            let renderer = crate::sdl::create_renderer(window, true);
+            assert!(!renderer.is_null(), "{}", crate::sdl::error());
+            assert_eq!(crate::sdl::renderer_name(renderer), "gpu");
+            let mut info = picture(FRAME_NV12, &mut luma, &mut chroma, width as i32);
+            (info.width, info.height) = (width as i32, height as i32);
+            let layout = PlanarLayout::of_semi_planar(&info).unwrap();
+            let parameters = super::super::present::planar_parameters(&info, layout, false, 1.0, 1.0);
+            let texture = |format: SDL_PixelFormat, space: SDL_Colorspace, headroom: Option<f32>| {
+                let props = SDL_CreateProperties();
+                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_FORMAT_NUMBER, i64::from(format.0));
+                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_ACCESS_NUMBER, i64::from(SDL_TEXTUREACCESS_TARGET.0));
+                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_WIDTH_NUMBER, width as i64);
+                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_HEIGHT_NUMBER, height as i64);
+                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_COLORSPACE_NUMBER, i64::from(space.0));
+                if let Some(headroom) = headroom { SDL_SetFloatProperty(props, SDL_PROP_TEXTURE_CREATE_HDR_HEADROOM_FLOAT, headroom); }
+                let texture = SDL_CreateTextureWithProperties(renderer, props);
+                SDL_DestroyProperties(props);
+                assert!(!texture.is_null(), "{}", crate::sdl::error());
+                texture
+            };
+            let read = |target: *mut SDL_Texture| {
+                assert!(SDL_SetRenderTarget(renderer, target), "{}", crate::sdl::error());
+                let readback = SDL_RenderReadPixels(renderer, ptr::null());
+                assert!(!readback.is_null(), "{}", crate::sdl::error());
+                let pixels = SDL_ConvertSurface(readback, SDL_PIXELFORMAT_RGBA128_FLOAT);
+                SDL_DestroySurface(readback);
+                let values = std::slice::from_raw_parts((*pixels).pixels.cast::<f32>(), width * height * 4).to_vec();
+                SDL_DestroySurface(pixels);
+                values
+            };
+            let dst = SDL_FRect { x: 0.0, y: 0.0, w: width as f32, h: height as f32 };
+            let targets = [("sRGB", SDL_PIXELFORMAT_RGBA32, SDL_COLORSPACE_SRGB), ("scRGB", SDL_PIXELFORMAT_RGBA64_FLOAT, SDL_COLORSPACE_SRGB_LINEAR)];
+            for ((name, format, space), headroom) in targets.into_iter().flat_map(|target| [None, Some(4.0)].map(|headroom| (target, headroom))) {
+                let pictured = texture(SDL_PIXELFORMAT_RGBA64_FLOAT, SDL_COLORSPACE_SRGB_LINEAR, headroom);
+                let (through_texture, direct) = (texture(format, space, None), texture(format, space, None));
+                let mut pass = PlanesPass::for_frames(renderer, layout).unwrap();
+                pass.draw_frame(renderer, pictured, &info, &parameters).unwrap();
+                assert!(SDL_SetRenderTarget(renderer, through_texture), "{}", crate::sdl::error());
+                assert!(SDL_RenderTexture(renderer, pictured, ptr::null(), &dst), "{}", crate::sdl::error());
+                let expected = read(through_texture);
+                pass.draw_frame(renderer, ptr::null_mut(), &info, &parameters).unwrap();
+                assert!(SDL_SetRenderTarget(renderer, direct), "{}", crate::sdl::error());
+                let look = SdlLook::of(renderer, pictured);
+                assert_eq!(look.linear_output, space == SDL_COLORSPACE_SRGB_LINEAR);
+                pass.draw_direct(renderer, &parameters, &dst, (width as i32, height as i32), look).unwrap();
+                let drawn = read(direct);
+                SDL_SetRenderTarget(renderer, ptr::null_mut());
+                let worst = expected.iter().zip(&drawn).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+                eprintln!("{name}, texture headroom {headroom:?} ({look:?}): largest difference {worst}");
+                assert!(worst < 0.01, "{name}, headroom {headroom:?}: the direct draw differs from SDL's by {worst}");
+                drop(pass);
+                for texture in [pictured, through_texture, direct] { SDL_DestroyTexture(texture); }
+            }
             SDL_DestroyRenderer(renderer);
             SDL_DestroyWindow(window);
             SDL_Quit();

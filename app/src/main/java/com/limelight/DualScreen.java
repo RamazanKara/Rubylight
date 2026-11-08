@@ -13,6 +13,7 @@ import android.preference.PreferenceManager;
 import android.view.Display;
 import android.widget.Toast;
 
+import androidx.annotation.RequiresApi;
 import androidx.core.content.ContextCompat;
 
 import com.limelight.computers.HostCapabilityCache;
@@ -162,6 +163,8 @@ final class DualScreen {
         launch(game, intent, second.getDisplayId());
     }
 
+    /** Only from {@link #start}, which returns below Android 8: launch displays are its API. */
+    @RequiresApi(Build.VERSION_CODES.O)
     private static void launch(Game game, Intent intent, int displayId) {
         if (game.isFinishing() || game.isDestroyed()) {
             return;

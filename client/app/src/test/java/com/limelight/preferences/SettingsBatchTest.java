@@ -9,6 +9,7 @@ import android.preference.PreferenceScreen;
 import android.preference.SwitchPreference;
 
 import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
@@ -18,6 +19,7 @@ import org.robolectric.annotation.Config;
 
 import static com.limelight.preferences.SettingsStructureTest.open;
 import static org.junit.Assert.*;
+import com.limelight.binding.video.DisplayFrameRatePolicy;
 
 /** The settings simplification batch: what shows, what greys, and which keys the merged controls write. */
 @RunWith(org.robolectric.RobolectricTestRunner.class)
@@ -29,9 +31,15 @@ public class SettingsBatchTest {
         return PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication());
     }
 
+    @Before
+    public void aScreenWithArr() {
+        DisplayFrameRatePolicy.vrrOfferedOverride = true;
+    }
+
     @After
     public void clear() {
         prefs().edit().clear().commit();
+        DisplayFrameRatePolicy.vrrOfferedOverride = null;
     }
 
     private static PreferenceScreen section(ActivityController<StreamSettings> controller, String section) {

@@ -6,8 +6,6 @@
     <string name="refresh_diag_battery_saver">Ekran pozostaje przy %2$s Hz zamiast żądanych %1$s Hz: ogranicza to oszczędzanie baterii.</string>
     <string name="refresh_diag_thermal">Ekran pozostaje przy %2$s Hz zamiast żądanych %1$s Hz: urządzenie jest gorące i ogranicza ją do 60 Hz.</string>
     <string name="refresh_diag_unexplained">Ekran pozostaje przy %2$s Hz zamiast żądanych %1$s Hz. Android nie podaje powodu (tryby: %3$s Hz).</string>
-    <string name="stream_vrr_old_android">VRR: brak ARR (Android 16+)</string>
-    <string name="stream_vrr_no_arr">VRR: brak ARR</string>
     <string name="stream_vrr_arr_half_rate">Ekran pokazuje tylko %1$d z %2$d FPS: Android ogranicza go do połowy częstotliwości strumienia.</string>
     <string name="stream_hdr_mode_unsupported">Ten tryb ekranu nie pokazuje HDR, więc strumień jest w SDR.</string>
     <string name="stream_hdr_not_negotiated">Poproszono o HDR, ale komputer nie wysłał obrazu HDR, więc strumień jest w SDR.</string>

@@ -6,8 +6,6 @@
     <string name="refresh_diag_battery_saver">Màn hình giữ ở %2$s Hz thay vì %1$s Hz đã yêu cầu: chế độ tiết kiệm pin giới hạn nó.</string>
     <string name="refresh_diag_thermal">Màn hình giữ ở %2$s Hz thay vì %1$s Hz đã yêu cầu: thiết bị đang nóng và giới hạn ở 60 Hz.</string>
     <string name="refresh_diag_unexplained">Màn hình giữ ở %2$s Hz thay vì %1$s Hz đã yêu cầu. Android không nêu lý do (chế độ: %3$s Hz).</string>
-    <string name="stream_vrr_old_android">VRR: không có ARR (Android 16+)</string>
-    <string name="stream_vrr_no_arr">VRR: không có ARR</string>
     <string name="stream_vrr_arr_half_rate">Màn hình chỉ hiển thị %1$d trên %2$d FPS: Android đang giữ nó ở một nửa tốc độ luồng.</string>
     <string name="stream_hdr_mode_unsupported">Chế độ màn hình này không hiển thị được HDR, nên luồng ở SDR.</string>
     <string name="stream_hdr_not_negotiated">Đã yêu cầu HDR nhưng PC không gửi video HDR, nên luồng ở SDR.</string>

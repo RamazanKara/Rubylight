@@ -56,6 +56,7 @@ import com.limelight.binding.input.touch.TouchMode;
 import com.limelight.LimeLog;
 import com.limelight.PcView;
 import com.limelight.R;
+import com.limelight.binding.video.DisplayFrameRatePolicy;
 import com.limelight.binding.video.GpuDriverStore;
 import com.limelight.binding.video.HdrPolicy;
 import com.limelight.binding.video.MediaCodecHelper;
@@ -2635,6 +2636,21 @@ public class StreamSettings extends NightjarActivity {
                     && !Surround714.playable(getActivity())) {
                 LimeLog.info("Excluding 7.1.4 audio: no output plays 12 channels");
                 removeValue(PreferenceConfiguration.AUDIO_CONFIG_PREF_STRING, PreferenceConfiguration.AUDIO_CONFIG_714, () -> { });
+            }
+
+            // Adaptive refresh only where a screen has ARR (Android 16): elsewhere it can't be turned on,
+            // and a choice saved before reads as off (PreferenceConfiguration does the same).
+            SwitchPreference vrr = (SwitchPreference) findPreference(PreferenceConfiguration.VRR_PREF_STRING);
+            if (vrr != null && !DisplayFrameRatePolicy.vrrOffered(getActivity())) {
+                LimeLog.info("Greying adaptive refresh: no screen has ARR");
+                vrr.setChecked(false);
+                // A disabled preference greys its dependents too; VRR can't be on here, so they always apply.
+                for (String key : new String[] {SettingRules.FRAME_PACING, "checkbox_reduce_refresh_rate"}) {
+                    Preference dependent = findPreference(key);
+                    if (dependent != null) dependent.setDependency(null);
+                }
+                vrr.setEnabled(false);
+                vrr.setSummary(R.string.summary_vrr_unavailable);
             }
 
             // Remove HDR preference for devices below Nougat

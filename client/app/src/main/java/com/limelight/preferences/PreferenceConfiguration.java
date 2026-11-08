@@ -213,7 +213,7 @@ public class PreferenceConfiguration {
     /** The Windows scales "PC display scaling" offers (rlDisplayScale); 0 keeps the PC's own. */
     static final int[] VIRTUAL_DISPLAY_DPI_VALUES = {0, 100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500};
     private static final String YUV444_PREF_STRING = "checkbox_yuv444";
-    private static final String VRR_PREF_STRING = "checkbox_vrr";
+    static final String VRR_PREF_STRING = "checkbox_vrr";
     static final String HOST_FRAME_TIMES_PREF_STRING = "checkbox_host_frame_times";
     static final String CONTENT_RATE_FRAME_RATE_PREF_STRING = "checkbox_content_rate_frame_rate";
     static final String UPSCALING_PREF_STRING = "upscaling_mode";
@@ -1630,7 +1630,8 @@ public class PreferenceConfiguration {
         config.virtualDisplayScale = Math.max(50, Math.min(200, prefs.getInt(VIRTUAL_DISPLAY_SCALE_PREF_STRING, 100)));
         config.virtualDisplayDpi = virtualDisplayDpi(prefs.getString(VIRTUAL_DISPLAY_DPI_PREF_STRING, "0"));
         config.enableYuv444 = prefs.getBoolean(YUV444_PREF_STRING, false);
-        config.vrr = prefs.getBoolean(VRR_PREF_STRING, false);
+        // Adaptive refresh needs a screen with ARR; the settings screen greys it elsewhere.
+        config.vrr = prefs.getBoolean(VRR_PREF_STRING, false) && com.limelight.binding.video.DisplayFrameRatePolicy.vrrOffered(context);
         config.upscalingMode = UpscalingPolicy.Mode.fromPreference(prefs.getString(UPSCALING_PREF_STRING, "off"));
         config.upscalingSharpness = Math.max(0, Math.min(100, prefs.getInt(UPSCALING_SHARPNESS_PREF_STRING, 50)));
         config.vulkanRender = prefs.getBoolean(VULKAN_RENDER_PREF_STRING, false);

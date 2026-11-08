@@ -6,8 +6,6 @@
     <string name="refresh_diag_battery_saver">屏幕停留在 %2$s Hz，而不是请求的 %1$s Hz：省电模式限制了它。</string>
     <string name="refresh_diag_thermal">屏幕停留在 %2$s Hz，而不是请求的 %1$s Hz：设备过热，已限制为 60 Hz。</string>
     <string name="refresh_diag_unexplained">屏幕停留在 %2$s Hz，而不是请求的 %1$s Hz。Android 没有给出原因（模式：%3$s Hz）。</string>
-    <string name="stream_vrr_old_android">VRR：无 ARR（需 Android 16+）</string>
-    <string name="stream_vrr_no_arr">VRR：无 ARR</string>
     <string name="stream_vrr_arr_half_rate">屏幕只显示了 %2$d FPS 中的 %1$d FPS：Android 将其限制在串流速率的一半。</string>
     <string name="stream_hdr_mode_unsupported">此屏幕模式无法显示 HDR，因此视频流为 SDR。</string>
     <string name="stream_hdr_not_negotiated">已请求 HDR，但电脑没有发送 HDR 视频，因此视频流为 SDR。</string>

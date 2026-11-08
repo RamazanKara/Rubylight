@@ -6,8 +6,6 @@
     <string name="refresh_diag_battery_saver">画面は要求された%1$s Hzではなく%2$s Hzのままです。バッテリーセーバーが制限しています。</string>
     <string name="refresh_diag_thermal">画面は要求された%1$s Hzではなく%2$s Hzのままです。端末が高温のため60 Hzに制限されています。</string>
     <string name="refresh_diag_unexplained">画面は要求された%1$s Hzではなく%2$s Hzのままです。Androidは理由を示していません（モード：%3$s Hz）。</string>
-    <string name="stream_vrr_old_android">VRR: ARRなし（Android 16以降）</string>
-    <string name="stream_vrr_no_arr">VRR: ARRなし</string>
     <string name="stream_vrr_arr_half_rate">画面には %2$d FPS のうち %1$d FPS しか表示されていません。Android がストリームの半分のレートに制限しています。</string>
     <string name="stream_hdr_mode_unsupported">この画面モードはHDRを表示できないため、ストリームはSDRです。</string>
     <string name="stream_hdr_not_negotiated">HDRを要求しましたが、PCがHDR映像を送らなかったため、ストリームはSDRです。</string>

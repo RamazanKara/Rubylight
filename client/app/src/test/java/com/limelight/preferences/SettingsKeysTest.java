@@ -5,9 +5,11 @@ import android.content.SharedPreferences;
 import android.content.res.XmlResourceParser;
 import android.preference.PreferenceManager;
 
+import com.limelight.binding.video.DisplayFrameRatePolicy;
 import com.limelight.R;
 
 import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RuntimeEnvironment;
@@ -92,9 +94,15 @@ public class SettingsKeysTest {
         return PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication());
     }
 
+    @Before
+    public void aScreenWithArr() {
+        DisplayFrameRatePolicy.vrrOfferedOverride = true;
+    }
+
     @After
     public void clear() {
         prefs().edit().clear().commit();
+        DisplayFrameRatePolicy.vrrOfferedOverride = null;
     }
 
     @Test public void theOverlayPositionDefaultsToTopLeftAndAnUnknownValueReadsAsIt() {

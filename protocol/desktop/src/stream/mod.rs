@@ -517,6 +517,8 @@ pub struct Streaming {
     pub host_audio: menu_extras::HostAudio,
     pub pending_command: Option<usize>,
     pub bitrate_busy: bool,
+    /// The toast that packed full chroma's copies leave the decoder behind was shown (`doctor::packed_hint`).
+    packed_hint_shown: bool,
     pub bitrate_kbps: u32,
     pub adaptive_bitrate: bool,
     bitrate_policy: Option<bitrate::Bitrate>,
@@ -794,6 +796,7 @@ impl Streaming {
             host_audio: Default::default(),
             pending_command: None,
             bitrate_busy: false,
+            packed_hint_shown: false,
             bitrate_kbps,
             adaptive_bitrate: false,
             bitrate_policy: None,
@@ -1533,7 +1536,8 @@ impl Streaming {
         let report = self.doctor.report(self.started.elapsed().as_millis() as u64);
         let offer = self.trial_offer(&report);
         let mut text = doctor::report_text(&report);
-        if let Some(hint) = self.doctor.receive_buffer_hint() {
+        let packed = doctor::packed_hint(&report, *lock(&self.shared.packed_from_memory));
+        for hint in [packed, self.doctor.receive_buffer_hint()].into_iter().flatten() {
             text.push_str("\n\n");
             text.push_str(&hint);
         }
@@ -1581,9 +1585,12 @@ impl Streaming {
         if self.facts.role == AppRole::InputOnly { return None; }
         let report = self.doctor.report(self.started.elapsed().as_millis() as u64);
         eprintln!("nightjar: stream health: {}", doctor::log_line(&report));
-        doctor::summary(&report).map(|summary| match self.doctor.receive_buffer_hint() {
-            Some(hint) => format!("{summary}\n\n{hint}"),
-            None => summary,
+        let packed = doctor::packed_hint(&report, *lock(&self.shared.packed_from_memory));
+        if let Some(hint) = &packed {
+            eprintln!("nightjar: {hint}");
+        }
+        doctor::summary(&report).map(|summary| {
+            [packed, self.doctor.receive_buffer_hint()].into_iter().flatten().fold(summary, |text, hint| format!("{text}\n\n{hint}"))
         })
     }
 

@@ -411,6 +411,17 @@ impl Streaming {
         // As on Android: no samples for input-only, or while a manual bitrate change or trial runs.
         if self.facts.role != AppRole::InputOnly && !(self.bitrate_busy && !self.adaptive_bitrate) {
             self.doctor.add(&tick);
+            // Said while it streams, once: a packed picture copied through memory that this
+            // device decodes slower than a frame leaves the stream ever further behind (#80).
+            let from_memory = *lock(&self.shared.packed_from_memory);
+            if from_memory.is_some() && !self.packed_hint_shown {
+                let report = self.doctor.report(tick.now_ms);
+                if let Some(hint) = doctor::packed_hint(&report, from_memory) {
+                    eprintln!("nightjar: {hint}");
+                    self.packed_hint_shown = true;
+                    self.show_toast(hint);
+                }
+            }
         }
         let quality_target = if let Some(policy) = &mut self.quality_policy {
             if self.menu_visible || !self.focused || self.pending_mode.is_some() { policy.suspend(); None }

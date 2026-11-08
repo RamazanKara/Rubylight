@@ -163,6 +163,9 @@ pub struct Shared {
     /// `notices` locked, so a late termination of an earlier attempt is dropped, not queued.
     attempt: AtomicU32,
     pub decoder_name: Mutex<String>,
+    /// The coded size of a packed full chroma stream whose pictures are rebuilt from memory
+    /// (`packed_from_memory`), for the stream doctor.
+    pub packed_from_memory: Mutex<Option<(i32, i32)>>,
     pub controller_audio: Mutex<Vec<std::sync::Weak<Mutex<crate::controller_audio::Playback>>>>,
     pub counters: Counters,
     /// Most pictures held before the oldest is dropped.
@@ -199,6 +202,7 @@ impl Shared {
             notices: Mutex::new(Vec::new()),
             attempt: AtomicU32::new(0),
             decoder_name: Mutex::new(String::new()),
+            packed_from_memory: Mutex::new(None),
             controller_audio: Mutex::new(Vec::new()),
             counters: Counters::default(),
             queue_limit,
@@ -763,6 +767,13 @@ fn exports_dmabuf(presenter_imports: bool, setup: &VideoSetup) -> bool {
         && setup.chroma_packing == 0
 }
 
+/// A packed full chroma stream's coded size where its pictures are rebuilt from memory: on Linux
+/// they go neither as DMA-BUFs (`exports_dmabuf`) nor mapped into Vulkan, so every picture, twice
+/// the stream's height, is copied through the CPU (#80: 3840x4320 at 100 fps fell behind).
+fn packed_from_memory(setup: &VideoSetup) -> Option<(i32, i32)> {
+    (cfg!(unix) && setup.chroma_packing != 0).then_some((setup.width, setup.height))
+}
+
 fn codec_of(setup: &VideoSetup) -> Codec {
     if setup.format & VIDEO_FORMAT_MASK_AV1 != 0 {
         Codec::Av1
@@ -941,6 +952,11 @@ impl Decoder {
         // The overlay's decoder name, in the log for runs nobody watches.
         eprintln!("nightjar: video decoder {}", decoder.name);
         *lock(&self.shared.decoder_name) = decoder.name.clone();
+        let from_memory = packed_from_memory(setup);
+        if let Some((width, height)) = from_memory {
+            eprintln!("nightjar: full chroma (packed 4:4:4): each {width}x{height} picture is copied through memory and rebuilt on the GPU");
+        }
+        *lock(&self.shared.packed_from_memory) = from_memory;
         self.decoder = Some(decoder);
         self.in_flight.clear();
         self.pictured = false;
@@ -1755,6 +1771,14 @@ mod tests {
         assert!(text.contains("stopped working"), "{text}");
         decoder.frame_failed(3_000_000);
         assert!(notices(&shared).is_empty(), "said once");
+    }
+
+    #[test]
+    fn packed_streams_on_linux_name_the_coded_size_their_pictures_are_copied_at() {
+        // #80: 3840x2160 packed codes 3840x4320 pictures.
+        let packed = VideoSetup { format: nightjar_core::sdp::VIDEO_FORMAT_AV1_MAIN10, width: 3840, height: 4320, fps: 100, chroma_packing: 2, logical_width: 3840, logical_height: 2160, color_space: 2, color_range: 0 };
+        assert_eq!(packed_from_memory(&packed), cfg!(unix).then_some((3840, 4320)));
+        assert_eq!(packed_from_memory(&VideoSetup { chroma_packing: 0, height: 2160, ..packed }), None, "unpacked pictures can stay on the GPU");
     }
 
     #[test]

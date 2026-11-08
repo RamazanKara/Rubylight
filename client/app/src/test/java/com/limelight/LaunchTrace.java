@@ -32,7 +32,7 @@ final class LaunchTrace {
     }
 
     static boolean quitsOnLeave(boolean quitOnLeaveChosen, String role, boolean connected) {
-        return StreamExitPolicy.quitsOnLeave(quitOnLeaveChosen, role(role), connected);
+        return StreamExitPolicy.quitsOnLeave(quitOnLeaveChosen, role(role), connected, false);
     }
 
     static boolean terminationNeedsAction(int errorCode, boolean portTestBlocked,

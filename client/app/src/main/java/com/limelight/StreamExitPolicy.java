@@ -6,13 +6,15 @@ import com.limelight.nvstream.jni.MoonBridge;
 /**
  * Whether leaving a stream also quits its game. Only a leave the player asks for (Disconnect, the
  * disconnect shortcut, or Disconnect on the picture-in-picture window) can quit; a lost connection,
- * an error or the host ending the stream never does, so the game is still there to resume.
+ * an error or the host ending the stream never does, so the game is still there to resume. Nor does
+ * leaving Dual screen mode's second screen: the game is still on the first.
  */
 final class StreamExitPolicy {
     private StreamExitPolicy() {}
 
-    static boolean quitsOnLeave(boolean quitOnLeaveChosen, NvApp.Role role, boolean connected) {
-        return quitOnLeaveChosen && connected && role == NvApp.Role.STREAM;
+    static boolean quitsOnLeave(boolean quitOnLeaveChosen, NvApp.Role role, boolean connected,
+                                boolean secondScreen) {
+        return quitOnLeaveChosen && connected && role == NvApp.Role.STREAM && !secondScreen;
     }
 
     /**

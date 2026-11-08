@@ -231,35 +231,78 @@ impl Hardware {
     /// reference frame invalidation. The Debug setting "Vulkan video first"
     /// ([`use_vulkan_video_settings`]) or `NIGHTJAR_VULKAN_VIDEO_GPU_FIRST=1` puts Vulkan video
     /// before VAAPI there, VAAPI next where it does not open or FFmpeg refuses it for the stream;
-    /// `NIGHTJAR_VULKAN_VIDEO` puts Vulkan first whatever the renderer or leaves it out.
+    /// `NIGHTJAR_VULKAN_VIDEO` puts Vulkan first whatever the renderer or leaves it out. A VA
+    /// driver that wraps another API (`crate::linux_video::vaapi_plan`: nvidia-vaapi-driver, the
+    /// VDPAU backend) leaves VAAPI out, so NVIDIA decodes with Vulkan video, then NVDEC. The order,
+    /// the devices and why go to the log once.
     pub fn order(self) -> Vec<Self> {
         match self {
             Self::None => Vec::new(),
-            #[cfg(unix)]
-            Self::Auto(gpu, _) => Self::linux_order(
-                gpu,
-                crate::vulkan_video::Choice::from_environment(),
-                crate::vulkan_video::gpu_first(
-                    crate::stream::env_flag(crate::vulkan_video::GPU_FIRST_ENVIRONMENT),
-                    vulkan_video_first_setting(),
-                ),
-            ),
+            #[cfg(target_os = "linux")]
+            Self::Auto(gpu, _) => {
+                use crate::linux_video;
+                let vaapi = vaapi_device(vaapi_node(self).minor());
+                let plan = linux_video::vaapi_plan(
+                    vaapi.as_ref().map(|identity| identity.vendor.as_str()).map_err(String::as_str),
+                    crate::stream::env_flag(linux_video::FORCE_VAAPI_ENVIRONMENT) == Some(true),
+                );
+                if !gpu.is_null() {
+                    // SAFETY: The renderer keeps its device alive while streams and probes use it.
+                    match unsafe { linux_video::vulkan_identity(gpu.cast()) } {
+                        Ok(identity) => linux_video::note(&identity.line()),
+                        Err(why) => linux_video::note(&format!("vulkan: the renderer's device is not described: {why}")),
+                    }
+                }
+                let (order, why) = Self::linux_order(
+                    gpu,
+                    crate::vulkan_video::Choice::from_environment(),
+                    crate::vulkan_video::gpu_first(
+                        crate::stream::env_flag(crate::vulkan_video::GPU_FIRST_ENVIRONMENT),
+                        vulkan_video_first_setting(),
+                    ),
+                    &plan,
+                );
+                let labels: Vec<_> = order.iter().map(|backend| backend.label()).collect();
+                linux_video::note(&linux_video::order_line(&labels, &why));
+                order
+            }
             // Vulkan video is Linux's; the rest of the order is tried as before it.
-            #[cfg(not(unix))]
+            #[cfg(not(target_os = "linux"))]
             Self::Auto(..) => vec![Self::Vaapi, Self::V4l2m2m, Self::Cuda],
             other => vec![other],
         }
     }
 
-    #[cfg(any(unix, test))]
-    fn linux_order(gpu: *mut c_void, choice: crate::vulkan_video::Choice, gpu_first: bool) -> Vec<Self> {
+    /// The Linux order for the GPU renderer's device `gpu` (null for another renderer), what
+    /// `NIGHTJAR_VULKAN_VIDEO` asks for, "Vulkan video first" and the VA driver's plan, and why.
+    #[cfg(any(target_os = "linux", test))]
+    fn linux_order(
+        gpu: *mut c_void,
+        choice: crate::vulkan_video::Choice,
+        gpu_first: bool,
+        vaapi: &crate::linux_video::VaapiPlan,
+    ) -> (Vec<Self>, String) {
         use crate::vulkan_video::Choice;
-        match choice {
-            Choice::Default if gpu_first && !gpu.is_null() => vec![Self::Vulkan(gpu), Self::Vaapi, Self::V4l2m2m, Self::Cuda],
-            Choice::Default => vec![Self::Vaapi, Self::Vulkan(gpu), Self::V4l2m2m, Self::Cuda],
-            Choice::First => vec![Self::Vulkan(gpu), Self::Vaapi, Self::V4l2m2m, Self::Cuda],
-            Choice::Off => vec![Self::Vaapi, Self::V4l2m2m, Self::Cuda],
+        let (mut order, why) = match choice {
+            Choice::Default if gpu_first && !gpu.is_null() => {
+                (vec![Self::Vulkan(gpu), Self::Vaapi, Self::V4l2m2m, Self::Cuda], "Vulkan video first, the Debug setting or NIGHTJAR_VULKAN_VIDEO_GPU_FIRST=1")
+            }
+            Choice::Default if gpu.is_null() => {
+                (vec![Self::Vaapi, Self::Vulkan(gpu), Self::V4l2m2m, Self::Cuda], "VA-API first; Vulkan video needs the GPU renderer")
+            }
+            Choice::Default => (vec![Self::Vaapi, Self::Vulkan(gpu), Self::V4l2m2m, Self::Cuda], "VA-API first, its pictures mapped into the renderer's Vulkan images"),
+            Choice::First => (vec![Self::Vulkan(gpu), Self::Vaapi, Self::V4l2m2m, Self::Cuda], "NIGHTJAR_VULKAN_VIDEO=1"),
+            Choice::Off => (vec![Self::Vaapi, Self::V4l2m2m, Self::Cuda], "NIGHTJAR_VULKAN_VIDEO=0"),
+        };
+        if vaapi.skip {
+            order.retain(|&backend| backend != Self::Vaapi);
         }
+        let why = match (&vaapi.why, vaapi.skip) {
+            (Some(note), true) => note.clone(),
+            (Some(note), false) => format!("{why}; {note}"),
+            (None, _) => why.to_owned(),
+        };
+        (order, why)
     }
 
     pub fn label(self) -> &'static str {
@@ -275,19 +318,28 @@ impl Hardware {
     }
 }
 
-/// Whether VAAPI opens a device here: AMD and Intel GPUs do, NVIDIA's driver does not without
-/// a VAAPI driver of its own (Vulkan video is used then, `crate::vulkan_video`).
-#[cfg(unix)]
-pub fn vaapi_device() -> Result<(), String> {
-    let mut device = ptr::null_mut();
-    // SAFETY: FFmpeg makes and frees a device of its own.
-    let status = unsafe { av_hwdevice_ctx_create(&mut device, AV_HWDEVICE_TYPE_VAAPI, ptr::null(), ptr::null_mut(), 0) };
-    if status < 0 {
-        return Err(error(status));
+/// The VA driver on render node `node` (FFmpeg's default device for none), or why VAAPI does not
+/// open there: AMD and Intel GPUs open, NVIDIA's driver does not without a VA driver of its own
+/// (Vulkan video is used then, `crate::vulkan_video`). Asked once per node; the `vaapi:` line
+/// goes to the log then.
+#[cfg(target_os = "linux")]
+pub fn vaapi_device(node: Option<u32>) -> Result<crate::linux_video::VaapiIdentity, String> {
+    type Known = Vec<(Option<u32>, Result<crate::linux_video::VaapiIdentity, String>)>;
+    static KNOWN: std::sync::Mutex<Known> = std::sync::Mutex::new(Vec::new());
+    let mut known = KNOWN.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, identity)) = known.iter().find(|(asked, _)| *asked == node) {
+        return identity.clone();
     }
-    // SAFETY: The reference made above.
-    unsafe { av_buffer_unref(&mut device) };
-    Ok(())
+    let identity = crate::linux_video::vaapi_identity(node);
+    match &identity {
+        Ok(identity) => crate::linux_video::note(&identity.line()),
+        Err(error) => {
+            let node = node.map_or_else(|| "the default device".to_owned(), |minor| format!("renderD{minor}"));
+            crate::linux_video::note(&format!("vaapi: does not open on {node} ({error})"));
+        }
+    }
+    known.push((node, identity.clone()));
+    identity
 }
 
 /// Opens the first backend of `order` that opens; `failed` hears about each one that did not, and
@@ -450,7 +502,7 @@ unsafe fn bind_frames(context: *mut AVCodecContext, format: AVPixelFormat) -> Re
     Ok(())
 }
 
-fn error(code: i32) -> String {
+pub(crate) fn error(code: i32) -> String {
     let mut buffer = [0 as c_char; 128];
     unsafe {
         av_strerror(code, buffer.as_mut_ptr(), buffer.len());
@@ -1775,16 +1827,19 @@ mod tests {
         use crate::vulkan_video::Choice;
         let device = ptr::dangling_mut::<c_void>();
         let (vaapi, vulkan, v4l2, nvdec) = (Hardware::Vaapi, Hardware::Vulkan(device), Hardware::V4l2m2m, Hardware::Cuda);
+        let mesa = crate::linux_video::vaapi_plan(Ok("Mesa Gallium driver 24.2.8 for AMD Radeon 780M (radeonsi, gfx1103_r1, LLVM 19.1.1, DRM 3.57, 6.8.0)"), false);
+        let order = |gpu, choice, gpu_first| Hardware::linux_order(gpu, choice, gpu_first, &mesa).0;
         // With "Vulkan video first" Vulkan video goes before VAAPI on the GPU renderer's device;
         // by default VAAPI stays first, its pictures mapped into the renderer without a copy.
-        assert_eq!(Hardware::linux_order(device, Choice::Default, true), [vulkan, vaapi, v4l2, nvdec]);
-        assert_eq!(Hardware::linux_order(device, Choice::Default, false), [vaapi, vulkan, v4l2, nvdec], "the default");
+        assert_eq!(order(device, Choice::Default, true), [vulkan, vaapi, v4l2, nvdec]);
+        assert_eq!(order(device, Choice::Default, false), [vaapi, vulkan, v4l2, nvdec], "the default");
         let other_renderer = Hardware::Vulkan(ptr::null_mut());
-        assert_eq!(Hardware::linux_order(ptr::null_mut(), Choice::Default, true), [vaapi, other_renderer, v4l2, nvdec], "without the GPU renderer VAAPI stays first");
+        assert_eq!(order(ptr::null_mut(), Choice::Default, true), [vaapi, other_renderer, v4l2, nvdec], "without the GPU renderer VAAPI stays first");
         for gpu_first in [true, false] {
-            assert_eq!(Hardware::linux_order(device, Choice::First, gpu_first), [vulkan, vaapi, v4l2, nvdec], "NIGHTJAR_VULKAN_VIDEO=1");
-            assert_eq!(Hardware::linux_order(device, Choice::Off, gpu_first), [vaapi, v4l2, nvdec], "NIGHTJAR_VULKAN_VIDEO=0");
+            assert_eq!(order(device, Choice::First, gpu_first), [vulkan, vaapi, v4l2, nvdec], "NIGHTJAR_VULKAN_VIDEO=1");
+            assert_eq!(order(device, Choice::Off, gpu_first), [vaapi, v4l2, nvdec], "NIGHTJAR_VULKAN_VIDEO=0");
         }
+        assert_eq!(Hardware::linux_order(device, Choice::Default, false, &mesa).1, "VA-API first, its pictures mapped into the renderer's Vulkan images");
         // The setting, off by default, unless the environment says on or off.
         assert!(!crate::config::Settings::default().vulkan_video_first);
         assert!(!crate::vulkan_video::gpu_first(None, false));
@@ -1796,6 +1851,31 @@ mod tests {
         assert_eq!(Hardware::D3d11(device).order(), [Hardware::D3d11(device)]);
         assert_eq!(Hardware::Vaapi.order(), [Hardware::Vaapi]);
         assert_eq!(Hardware::Cuda.order(), [Hardware::Cuda]);
+    }
+
+    /// NVIDIA's VA-API wrapper (nvidia-vaapi-driver) and the VDPAU backend leave VAAPI out, so
+    /// Vulkan video comes first and NVDEC after it, unless NIGHTJAR_FORCE_VAAPI=1; i965 is noted.
+    #[test]
+    fn wrapper_va_drivers_leave_vaapi_out_of_the_linux_order_and_say_why() {
+        use crate::linux_video::vaapi_plan;
+        use crate::vulkan_video::Choice;
+        let device = ptr::dangling_mut::<c_void>();
+        let nvidia = vaapi_plan(Ok("VA-API NVDEC driver [direct backend]"), false);
+        let (order, why) = Hardware::linux_order(device, Choice::Default, false, &nvidia);
+        assert_eq!(order, [Hardware::Vulkan(device), Hardware::V4l2m2m, Hardware::Cuda]);
+        assert_eq!(why, "NVIDIA: VA-API is the nvidia-vaapi-driver wrapper; NIGHTJAR_FORCE_VAAPI=1 tries it");
+        assert_eq!(
+            crate::linux_video::order_line(&order.iter().map(|backend| backend.label()).collect::<Vec<_>>(), &why),
+            "decoder order: Vulkan, V4L2 M2M, NVDEC (NVIDIA: VA-API is the nvidia-vaapi-driver wrapper; NIGHTJAR_FORCE_VAAPI=1 tries it)"
+        );
+        let vdpau = vaapi_plan(Ok("Splitted-Desktop Systems VDPAU backend for VA-API - 0.7.4"), false);
+        assert_eq!(Hardware::linux_order(device, Choice::First, false, &vdpau).0, [Hardware::Vulkan(device), Hardware::V4l2m2m, Hardware::Cuda]);
+        let forced = vaapi_plan(Ok("VA-API NVDEC driver [direct backend]"), true);
+        assert_eq!(Hardware::linux_order(device, Choice::Default, false, &forced).0, [Hardware::Vaapi, Hardware::Vulkan(device), Hardware::V4l2m2m, Hardware::Cuda]);
+        let i965 = vaapi_plan(Ok("Intel i965 driver for Intel(R) Coffee Lake - 2.4.1"), false);
+        let (order, why) = Hardware::linux_order(ptr::null_mut(), Choice::Default, false, &i965);
+        assert_eq!(order[0], Hardware::Vaapi, "i965 still decodes");
+        assert!(why.starts_with("VA-API first; Vulkan video needs the GPU renderer; Intel i965"), "{why}");
     }
 
     /// Without the GPU renderer's device Vulkan video does not open and says why, so the next

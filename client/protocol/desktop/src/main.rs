@@ -39,6 +39,8 @@ mod keymap;
 mod live_glass;
 mod logfile;
 mod link_channel;
+#[cfg(any(target_os = "linux", test))]
+mod linux_video;
 mod logpipe;
 mod media;
 mod menu_style;
@@ -470,17 +472,23 @@ fn renderer_gpu_device(renderer: *mut SDL_Renderer) -> Option<stream::pipeline::
 /// VAAPI cannot open a device (NVIDIA's driver without a VAAPI one) and the GPU SDL picks has the
 /// video extensions, or `NIGHTJAR_VULKAN_VIDEO=1` (`choice`); not when no stream can decode with it
 /// (`vulkan_video_possible`) or `NIGHTJAR_VULKAN_VIDEO=0`. A machine with VAAPI keeps its
-/// renderer. The reason goes to the log.
+/// renderer, unless its VA driver wraps another API (`linux_video::vaapi_plan`). The reason goes
+/// to the log.
 #[cfg(unix)]
 fn gpu_for_vulkan_video(possible: bool, choice: vulkan_video::Choice) -> bool {
     use vulkan_video::Choice;
     if !possible || choice == Choice::Off {
         return false;
     }
-    let why = match (choice, media::vaapi_device()) {
+    let why = match (choice, media::vaapi_device(None)) {
         (Choice::First, _) => format!("{}=1", vulkan_video::ENVIRONMENT),
         (_, Err(error)) => format!("VAAPI is unavailable ({error})"),
-        (_, Ok(())) => return false,
+        // A wrapper VA driver (nvidia-vaapi-driver) is left out of the order: Vulkan video
+        // decodes instead, on the GPU renderer.
+        (_, Ok(identity)) => match linux_video::vaapi_plan(Ok(&identity.vendor), stream::env_flag(linux_video::FORCE_VAAPI_ENVIRONMENT) == Some(true)) {
+            linux_video::VaapiPlan { skip: true, why: Some(why) } => why,
+            _ => return false,
+        },
     };
     match stream::pyrowave_sdk::zero_copy::video_devices() {
         Ok(_) => {

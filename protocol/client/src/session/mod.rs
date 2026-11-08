@@ -320,6 +320,24 @@ impl std::fmt::Display for StartError {
 
 impl std::error::Error for StartError {}
 
+/// A session's video figures that are safe to read from inside a decoder's submit: atomics and
+/// the decode queue's own lock, never the receiver's ([`Session::video_gauges`]).
+#[derive(Clone)]
+pub struct VideoGauges(Arc<video::VideoShared>);
+
+impl VideoGauges {
+    /// Frames dropped because the decode queue overflowed (`VideoStats::decoder_drops`), as of
+    /// the last datagram received.
+    pub fn decoder_drops(&self) -> u64 {
+        self.0.counters.decoder_drops.load(Ordering::Relaxed)
+    }
+
+    /// Frames waiting in the decode queue now.
+    pub fn decode_queue_len(&self) -> usize {
+        self.0.queue.len()
+    }
+}
+
 /// Counters and measurements of a running session.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SessionStats {
@@ -866,6 +884,12 @@ impl Session {
     /// rest of the statistics): non-zero while the decoder is behind the stream.
     pub fn decode_queue_len(&self) -> usize {
         self.parts.video_shared.as_ref().map_or(0, |video| video.queue.len())
+    }
+
+    /// The video figures a decoder may read while it decodes, None without video. They never
+    /// take the receiver's lock, which a direct-submit decoder holds while it submits.
+    pub fn video_gauges(&self) -> Option<VideoGauges> {
+        self.parts.video_shared.clone().map(VideoGauges)
     }
 
     pub fn stats(&self) -> SessionStats {

@@ -46,8 +46,8 @@ const MAIL_WORD: &str = r"A-Za-z0-9_\x{80}-\x{10FFFF}";
 /// runs such as the chroma format `4:4:4` or a time `00:01:23` are no address and stay readable.
 const IPV6_OR_MAC: &str = r"(?:[0-9a-fA-F]{0,4}(?::[0-9a-fA-F]{0,4}){0,6}::[0-9a-fA-F]{0,4}(?::[0-9a-fA-F]{0,4}){0,6}|(?:[0-9a-fA-F]{1,4}:){4,7}[0-9a-fA-F]{1,4})(?:%[A-Za-z0-9_]+)?";
 
-/// In order: URLs, e-mail addresses, IPv4, IPv6 and MAC addresses, UUIDs, long hex, keys and
-/// other long tokens, Android paths. Each with the mark that replaces it.
+/// In order: URLs, e-mail addresses, IPv4, IPv6 and MAC addresses (colons, then dashes), UUIDs,
+/// long hex, keys and other long tokens, Android paths. Each with the mark that replaces it.
 static SENSITIVE: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
     [
         (format!("[a-zA-Z][a-zA-Z0-9+.-]*://{NOT_SPACE}+"), "[url]"),
@@ -57,6 +57,8 @@ static SENSITIVE: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
         ),
         (r"(?-u:\b)[0-9]{1,3}(?:\.[0-9]{1,3}){3}(?::[0-9]+)?(?-u:\b)".into(), "[address]"),
         (IPV6_OR_MAC.into(), "[address]"),
+        // MAC addresses written with dashes, as Windows does. Dates and UUIDs have longer groups.
+        (r"(?-u:\b)[0-9a-fA-F]{2}(?:-[0-9a-fA-F]{2}){5}(?-u:\b)".into(), "[address]"),
         (
             r"(?-u:\b)[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?-u:\b)".into(),
             "[id]",

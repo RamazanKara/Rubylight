@@ -1415,4 +1415,5 @@ sudo sysctl -w net.core.rmem_max={}", "Буфер приймання: систе
     ("{} cannot decode this stream. Now decoding in software.", "{} не може декодувати цей потік. Тепер декодування програмне."),
     ("{} cannot decode this stream, and no other decoder opens: {}", "{0} не може декодувати цей потік, і жоден інший декодер не відкривається: {1}"),
     ("This device doesn’t decode {}, so Nightjar uses {}.", "Цей пристрій не декодує {0}, тому Nightjar використовує {1}."),
+    ("Full chroma can’t run {} with this PC and device, so Nightjar uses {}.", "Повна кольоровість не може використати {0} з цим ПК і пристроєм, тому Nightjar використовує {1}."),
 ];

@@ -84,11 +84,12 @@ pub const SCHEDULER_COLUMNS: [&str; 7] = [
 ];
 
 /// The desktop's own columns after those.
-pub const EXTRA_COLUMNS: [&str; 20] = [
+pub const EXTRA_COLUMNS: [&str; 23] = [
     "early", "first_block_ns", "due_ns", "present_begin_ns", "present_count", "stat_present_count", "stat_present_refresh",
     "stat_sync_refresh", "stat_sync_ns", "slices_decoded", "first_slice_ready_ns", "last_slice_ready_ns", "row_ordered",
     "scan_line_at_present", "in_vblank_at_present", "race_reason",
     "scan_start_ns", "present_ns", "mid_row_age_ns", "late_slices",
+    "glass_frame", "present_to_glass_ms", "presentation_flags",
 ];
 
 pub fn header() -> String {
@@ -134,6 +135,19 @@ pub struct Row {
     pub presented: Presented,
     /// The swap chain's counters and vblank time just after the present call (0 when unknown).
     pub flip: Flip,
+    /// The last picture the compositor reported on the glass since the row before (Wayland).
+    pub glass: Glass,
+}
+
+/// A `wp_presentation` answer (`stream::wl_presentation`): it comes a refresh or more after its
+/// present, so a row carries the newest one answered since the row before, with its own frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Glass {
+    pub frame: Option<u32>,
+    /// From the present call to the glass (µs), None when the compositor's clock cannot time it.
+    pub to_glass_us: Option<u64>,
+    /// `wp_presentation_feedback.kind` bits.
+    pub flags: Option<u32>,
 }
 
 /// Presents of one frame a row keeps; a raced frame has its slices and the rest (at most four
@@ -381,7 +395,7 @@ pub fn extra_fields(row: &Row) -> String {
     let flip = &row.flip;
     let race = &row.race;
     format!(
-        "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+        "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
         row.early, timestamp(row.first_block_us), timestamp(row.due_us), timestamp(row.begin_us), count(flip.present_count),
         count(flip.stat_present_count), count(flip.stat_present_refresh), count(flip.stat_sync_refresh), timestamp(flip.stat_sync_us),
         count(u32::from(race.slices)), timestamp(race.first_ready_us), timestamp(race.last_ready_us),
@@ -393,6 +407,9 @@ pub fn extra_fields(row: &Row) -> String {
         row.presented.presents_us[..usize::from(row.presented.count)].iter().map(|&us| timestamp(us)).collect::<Vec<_>>().join("|"),
         row.presented.mid_row_age_ns.map_or_else(String::new, |ns| ns.to_string()),
         row.presented.late_slices.map_or_else(String::new, |n| n.to_string()),
+        row.glass.frame.map_or_else(String::new, |n| n.to_string()),
+        row.glass.to_glass_us.map_or_else(String::new, |us| milliseconds(us * 1000)),
+        row.glass.flags.map_or_else(String::new, crate::stream::wl_presentation::flag_names),
     )
 }
 
@@ -442,6 +459,7 @@ mod tests {
             scan: ScanReport::default(),
             presented: Presented::default(),
             flip: Flip::default(),
+            glass: Glass::default(),
         }
     }
 
@@ -511,8 +529,8 @@ mod tests {
         assert_eq!(lines.len(), 3, "{text}");
         assert_eq!(format!("{}\n", lines[0]), header());
         let tail = |line: &str| line.split(',').skip(OWN_COLUMNS.len()).collect::<Vec<_>>().join(",");
-        assert_eq!(tail(lines[1]), "1000000,2000000,2000100,2000300,2000500,2000800,2000900,-5000,800,,,,,,,,1,1000900000,,,,,,,,,,,,,,,,,,");
-        assert_eq!(tail(lines[2]), "1000000,,,,,,,-5000,800,,,,,,,,1,1000900000,,,,,,,,,,,,,,,,,,");
+        assert_eq!(tail(lines[1]), "1000000,2000000,2000100,2000300,2000500,2000800,2000900,-5000,800,,,,,,,,1,1000900000,,,,,,,,,,,,,,,,,,,,,");
+        assert_eq!(tail(lines[2]), "1000000,,,,,,,-5000,800,,,,,,,,1,1000900000,,,,,,,,,,,,,,,,,,,,,");
         for line in &lines {
             assert_eq!(line.split(',').count(), header().trim_end().split(',').count());
         }
@@ -520,16 +538,16 @@ mod tests {
 
     #[test]
     fn the_early_columns_say_how_the_frame_was_decoded() {
-        assert_eq!(extra_fields(&Row { early: 0, first_block_us: 0, ..row() }), "0,,,,,,,,,,,,,,,,,,,");
-        assert_eq!(extra_fields(&Row { early: 2, first_block_us: 0, ..row() }), "2,,,,,,,,,,,,,,,,,,,");
-        assert_eq!(extra_fields(&row()), "1,1000900000,,,,,,,,,,,,,,,,,,");
+        assert_eq!(extra_fields(&Row { early: 0, first_block_us: 0, ..row() }), "0,,,,,,,,,,,,,,,,,,,,,,");
+        assert_eq!(extra_fields(&Row { early: 2, first_block_us: 0, ..row() }), "2,,,,,,,,,,,,,,,,,,,,,,");
+        assert_eq!(extra_fields(&row()), "1,1000900000,,,,,,,,,,,,,,,,,,,,,");
         let timed = Row {
             due_us: 1_008_000,
             begin_us: 1_008_100,
             flip: Flip { present_count: 7, stat_present_count: 6, stat_present_refresh: 100, stat_sync_refresh: 101, stat_sync_us: 1_009_500 },
             ..row()
         };
-        assert_eq!(extra_fields(&timed), "1,1000900000,1008000000,1008100000,7,6,100,101,1009500000,,,,,,,,,,,");
+        assert_eq!(extra_fields(&timed), "1,1000900000,1008000000,1008100000,7,6,100,101,1009500000,,,,,,,,,,,,,,");
         // Rows come back in the order they went in, each with its own columns.
         let path = std::env::temp_dir().join(format!("nightjar-timing-early-{}", std::process::id()));
         let csv = TimingCsv::create(&path).unwrap();
@@ -549,30 +567,30 @@ mod tests {
             race: RaceReport { slices, first_ready_us: 1_003_000, last_ready_us: 1_004_400, ordered },
             ..row()
         };
-        let tail = |row: &Row| extra_fields(row).split(',').skip(EXTRA_COLUMNS.len() - 11).take(4).collect::<Vec<_>>().join(",");
+        let tail = |row: &Row| extra_fields(row).split(',').skip(EXTRA_COLUMNS.len() - GLASS - 11).take(4).collect::<Vec<_>>().join(",");
         assert_eq!(tail(&raced(4, RaceReport::ORDERED)), "4,1003000000,1004400000,1");
         assert_eq!(tail(&raced(1, RaceReport::UNORDERED)), "1,1003000000,1004400000,0", "a frame that left the row order says so");
         assert_eq!(tail(&row()), ",,,", "the race off leaves the columns empty");
-        let names = &EXTRA_COLUMNS[EXTRA_COLUMNS.len() - 11..EXTRA_COLUMNS.len() - 7];
+        let names = &EXTRA_COLUMNS[EXTRA_COLUMNS.len() - GLASS - 11..EXTRA_COLUMNS.len() - GLASS - 7];
         assert_eq!(names, ["slices_decoded", "first_slice_ready_ns", "last_slice_ready_ns", "row_ordered"]);
     }
 
     #[test]
     fn the_scan_columns_say_where_the_beam_was_and_why_racing_is_off() {
-        let tail = |row: &Row| extra_fields(row).split(',').skip(EXTRA_COLUMNS.len() - 7).take(3).collect::<Vec<_>>().join(",");
+        let tail = |row: &Row| extra_fields(row).split(',').skip(EXTRA_COLUMNS.len() - GLASS - 7).take(3).collect::<Vec<_>>().join(",");
         let scan = |line, vblank, reason| Row { scan: ScanReport { line, vblank, reason }, ..row() };
         assert_eq!(tail(&scan(Some(412), Some(false), "on")), "412,0,on");
         assert_eq!(tail(&scan(Some(7), Some(true), "no VRR scan restart")), "7,1,no VRR scan restart");
         assert_eq!(tail(&scan(None, None, "no scanline")), ",,no scanline", "no reading, but the reason stays");
         assert_eq!(tail(&scan(Some(90), Some(true), "")), "90,1,", "no verdict yet");
         assert_eq!(tail(&row()), ",,", "the race off leaves the columns empty");
-        let names = &EXTRA_COLUMNS[EXTRA_COLUMNS.len() - 7..EXTRA_COLUMNS.len() - 4];
+        let names = &EXTRA_COLUMNS[EXTRA_COLUMNS.len() - GLASS - 7..EXTRA_COLUMNS.len() - GLASS - 4];
         assert_eq!(names, ["scan_line_at_present", "in_vblank_at_present", "race_reason"]);
     }
 
     #[test]
     fn the_presented_columns_say_how_the_frame_went_to_the_screen() {
-        let tail = |row: &Row| extra_fields(row).split(',').skip(EXTRA_COLUMNS.len() - 4).collect::<Vec<_>>().join(",");
+        let tail = |row: &Row| extra_fields(row).split(',').skip(EXTRA_COLUMNS.len() - GLASS - 4).take(4).collect::<Vec<_>>().join(",");
         let mut presented = Presented { scan_start_us: 2_000_800, mid_row_age_ns: Some(3_200_000), late_slices: Some(0), ..Default::default() };
         presented.set_presents(&[2_000_000, 2_001_400, 2_002_900, 2_004_100]);
         assert_eq!(tail(&Row { presented, ..row() }), "2000800000,2000000000|2001400000|2002900000|2004100000,3200000,0");
@@ -584,8 +602,21 @@ mod tests {
         let mut many = Presented::default();
         many.set_presents(&[1; 20]);
         assert_eq!(usize::from(many.count), PRESENTS, "a row keeps as many presents as it has room for");
-        let names = &EXTRA_COLUMNS[EXTRA_COLUMNS.len() - 4..];
+        let names = &EXTRA_COLUMNS[EXTRA_COLUMNS.len() - GLASS - 4..EXTRA_COLUMNS.len() - GLASS];
         assert_eq!(names, ["scan_start_ns", "present_ns", "mid_row_age_ns", "late_slices"]);
+    }
+
+    /// The glass columns at the end.
+    const GLASS: usize = 3;
+
+    #[test]
+    fn the_glass_columns_carry_the_newest_presentation_answer() {
+        let tail = |row: &Row| extra_fields(row).split(',').skip(EXTRA_COLUMNS.len() - GLASS).collect::<Vec<_>>().join(",");
+        let glass = Glass { frame: Some(5), to_glass_us: Some(6_250), flags: Some(crate::stream::wl_presentation::VSYNC | crate::stream::wl_presentation::ZERO_COPY) };
+        assert_eq!(tail(&Row { glass, ..row() }), "5,6.250000,vsync|zero_copy");
+        assert_eq!(tail(&Row { glass: Glass { to_glass_us: None, ..glass }, ..row() }), "5,,vsync|zero_copy", "an untimed answer keeps its flags");
+        assert_eq!(tail(&row()), ",,", "no answer leaves the columns empty");
+        assert_eq!(&EXTRA_COLUMNS[EXTRA_COLUMNS.len() - GLASS..], ["glass_frame", "present_to_glass_ms", "presentation_flags"]);
     }
 
     #[test]
@@ -640,6 +671,7 @@ mod tests {
                 scan: ScanReport::default(),
                 presented: Presented::default(),
                 flip: Flip::default(),
+                glass: Glass::default(),
             });
         }
         drop(csv);

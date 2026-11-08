@@ -440,6 +440,11 @@ impl Streaming {
         }
         let skips = probe && self.skip_over_waiting && !self.skipped.must_wait()
             && self.pacer.skips_instead_of_waiting(self.plan.display.refresh_hz);
+        #[cfg(target_os = "linux")]
+        if probe {
+            // SAFETY: a live renderer.
+            self.glass.request(unsafe { SDL_GetRenderWindow(renderer) }, session::now_us());
+        }
         let issued_us = session::now_us();
         // SAFETY: a live renderer.
         let refused = unsafe {
@@ -541,8 +546,24 @@ impl Streaming {
                 self.first_frame = true;
             }
         }
+        #[cfg(target_os = "linux")]
+        if let Some(p) = &picture { self.glass.next_picture(p.decoded.number, p.decoded.ready_us); }
         let flipped = self.render_flip(renderer, &mut draw_overlay, has_picture);
         self.needs_redraw = false;
+        // The pictures the compositor answered for: the doctor's display time runs to the glass.
+        #[cfg(target_os = "linux")]
+        let (glass_row, to_glass) = {
+            let mut row = crate::timing_csv::Glass::default();
+            for shown in self.glass.poll(flipped.returned_us) {
+                if let Some(glass_us) = shown.glass_us() { self.doctor.shown(0, shown.ready_us, glass_us); }
+                if let wl_presentation::Outcome::Presented { to_glass_ns, flags } = shown.outcome {
+                    row = crate::timing_csv::Glass { frame: Some(shown.frame), to_glass_us: to_glass_ns.map(|ns| ns / 1000), flags: Some(flags) };
+                }
+            }
+            (row, self.glass.timing(flipped.returned_us))
+        };
+        #[cfg(not(target_os = "linux"))]
+        let (glass_row, to_glass) = (crate::timing_csv::Glass::default(), false);
         if flipped.refused {
             self.skipped_picture = picture;
             let refresh_us = (1_000_000.0 / self.plan.display.refresh_hz.max(1.0)) as u64;
@@ -576,7 +597,8 @@ impl Streaming {
             w.late += u32::from(p.late);
             w.network_us += p.decoded.enqueue_us.saturating_sub(p.decoded.receive_us);
             w.network_n += 1;
-            self.doctor.shown(p.decoded.host_latency, p.decoded.ready_us, presented);
+            // While the glass times arrive, they give the display time instead of the present call.
+            self.doctor.shown(p.decoded.host_latency, if to_glass { 0 } else { p.decoded.ready_us }, presented);
             if let Some(csv) = &self.timing_csv {
                 let d = &p.decoded;
                 csv.row(crate::timing_csv::Row {
@@ -598,6 +620,7 @@ impl Streaming {
                     due_us: p.present_us,
                     begin_us: begin,
                     flip,
+                    glass: glass_row,
                 });
             }
             let host_us = self.rtp_clock.host_us(p.decoded.rtp);

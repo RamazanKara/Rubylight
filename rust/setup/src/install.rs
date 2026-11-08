@@ -2534,11 +2534,20 @@ mod tests {
         assert!(!port_free(tcp.local_addr()?.port()));
         let udp = std::net::UdpSocket::bind(("0.0.0.0", 0))?;
         assert!(!port_free(udp.local_addr()?.port()));
-        let port = {
-            let probe = std::net::TcpListener::bind(("0.0.0.0", 0))?;
-            probe.local_addr()?.port()
-        };
-        assert!(port_free(port));
+        // A port just let go can be taken at once by another test or program (CI flaked on it),
+        // so a free one is looked for among a few released ones.
+        let mut free = false;
+        for _ in 0..20 {
+            let port = {
+                let probe = std::net::TcpListener::bind(("0.0.0.0", 0))?;
+                probe.local_addr()?.port()
+            };
+            if port_free(port) {
+                free = true;
+                break;
+            }
+        }
+        assert!(free, "no released port was free");
         Ok(())
     }
     /// Two hosts with one PC's name would collide on mDNS and look the same

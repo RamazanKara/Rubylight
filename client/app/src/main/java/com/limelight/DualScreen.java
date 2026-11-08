@@ -18,6 +18,8 @@ import com.limelight.nvstream.http.NvApp;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.utils.LaunchSource;
 
+import java.util.UUID;
+
 
 
 /**
@@ -32,6 +34,8 @@ import com.limelight.utils.LaunchSource;
 final class DualScreen {
     /** On the second stream's intent. */
     static final String EXTRA_SECOND_SCREEN = "nightjar.secondScreen";
+    /** On the second stream's intent and the first's ACTION_END: which first stream the second follows. */
+    static final String EXTRA_FIRST_STREAM = "nightjar.dualScreenFirst";
     /** The first stream's end, for the second to follow. Sent to this app only. */
     static final String ACTION_END = "com.limelight.DUAL_SCREEN_END";
     /** The touch mode changed in one stream, for the other to follow. Sent to this app only. */
@@ -115,10 +119,12 @@ final class DualScreen {
             return;
         }
         game.dualScreenStarted = true;
+        game.dualScreenFirst = UUID.randomUUID().toString();
         link(game);
         Intent intent = new Intent(game.getIntent()).setClass(game, GameSecondary.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 .putExtra(EXTRA_SECOND_SCREEN, true)
+                .putExtra(EXTRA_FIRST_STREAM, game.dualScreenFirst)
                 .putExtra(Game.EXTRA_APP_ID, appId)
                 .putExtra(Game.EXTRA_APP_UUID, appUuid);
         intent.removeExtra(Game.EXTRA_REPLACED_APP_NAME);
@@ -142,7 +148,10 @@ final class DualScreen {
         }
     }
 
-    /** The first stream is over: the second goes with it. */
+    /**
+     * The first stream is over: the second goes with it. That is any end of the first's activity, not
+     * only a finish: a first destroyed and made again starts a stream, and a second, of its own.
+     */
     static void end(Game game) {
         if (game.dualScreenLink != null) {
             try {
@@ -152,9 +161,20 @@ final class DualScreen {
             }
             game.dualScreenLink = null;
         }
-        if (game.dualScreenStarted && !isSecond(game.getIntent()) && game.isFinishing()) {
-            game.sendBroadcast(new Intent(ACTION_END).setPackage(game.getPackageName()));
+        if (game.dualScreenStarted && !isSecond(game.getIntent())) {
+            game.sendBroadcast(new Intent(ACTION_END).setPackage(game.getPackageName())
+                    .putExtra(EXTRA_FIRST_STREAM, game.dualScreenFirst));
         }
+    }
+
+    /**
+     * Whether the second stream of {@code second} follows the first stream's {@code end}. Only the end
+     * of its own first does: a first that reconnects or switches games ends while its successor may
+     * already have started the second again, and that one must stay.
+     */
+    static boolean followsEnd(Intent second, Intent end) {
+        String first = second.getStringExtra(EXTRA_FIRST_STREAM);
+        return isSecond(second) && first != null && first.equals(end.getStringExtra(EXTRA_FIRST_STREAM));
     }
 
     /**
@@ -171,7 +191,7 @@ final class DualScreen {
             @Override
             public void onReceive(Context context, Intent intent) {
                 if (ACTION_END.equals(intent.getAction())) {
-                    if (isSecond(game.getIntent())) {
+                    if (followsEnd(game.getIntent(), intent)) {
                         game.finish();
                     }
                     return;

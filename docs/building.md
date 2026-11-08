@@ -90,6 +90,50 @@ cargo +1.98.1-x86_64-pc-windows-gnu clippy --workspace --all-targets --locked --
 
 ### Faster local builds
 
+Use `tools\dev.ps1 check -DryRun` to preview the checks selected for this
+worktree's changes, then `tools\dev.ps1 check` to run them. Build-producing
+checks share `BUILD-LOCK` across worktrees, including Nightjar's Cargo and
+Gradle checks. Pure Python suites can run alongside them. A failure stops
+later checks by default; `-KeepGoing` runs the remaining independent checks.
+Every invocation writes a separate run folder and `summary.json` with the
+commit, worktree, selected paths and results. These are development results,
+not release approval; uncommitted changes may be included.
+
+For the workflow's own Python tests, install the small pinned test dependency
+once with `python -m pip install -r tools/requirements-test.txt`. The
+`Developer workflow checks` CI runs these suites on Windows without an SDK,
+host installation or GPU work.
+
+Local web checks reuse an npm install only after a successful `npm ci` with
+matching manifests, Node/npm versions, npm configuration and installed lock
+file. `-FreshDependencies` forces a clean install when investigating dependency
+problems. CI and release packaging still install dependencies afresh. The
+checker no longer stops other Vite processes.
+
+`rust\build.ps1` automatically takes the same machine-wide lease before SDK
+setup, tests or packaging. `-Jobs` defaults to 4 and sets the Cargo, CMake,
+PyroWave and FFmpeg build limits. For a manual heavy command, use the tracked
+wrapper instead of the older workstation-only `build-lock.ps1`:
+
+```powershell
+python tools/build_lock.py --label nightjar-apk -- cmd /c client\gradlew.bat -p client --no-daemon --max-workers=2 assembleNonRootDebug
+```
+
+The shared directory defaults to `C:\src\butterpollo-release` on Windows.
+Set `RUBYLIGHT_LOCK_DIRECTORY` consistently for all build callers when using
+another machine directory; pass the same `-LockDirectory` to release checks.
+The developer checker also accepts `-LockDirectory` and `-LockTimeout` (seconds,
+default 1800). The manual wrapper accepts `--lock-directory` and `--timeout`.
+A nested command inherits the lease rather than waiting for itself. Do not
+start independent parallel builds inside a single lease.
+
+Leases never expire by age. Windows keeps a handle that prevents a live lease
+being deleted by an older waiter. If a runner is forcibly terminated, its file
+remains: check the named owner **and surviving child processes** before removing
+it manually. A timeout reports the holder and leaves it untouched. Use separate
+Orca worktrees for overlapping edits; one coordinator should integrate their
+changes and verify the combined commit before pushing main.
+
 The dev and test profiles keep only line tables for the workspace crates (panics and backtraces still show file and line) and no debug info for dependencies, which keeps test target folders small (a cold test build of the core, Windows and host crates: 10 GB instead of 25). Set `CARGO_PROFILE_DEV_DEBUG=full` for a debugger session. Release builds keep their own profile. Two optional tools cut local build time further:
 
 - **sccache** caches compiled crates across target folders and checkouts: `cargo install sccache --locked --no-default-features`, then set `RUSTC_WRAPPER=sccache`, `SCCACHE_DIR` (not under `%LOCALAPPDATA%` if it is virtualized) and `CARGO_INCREMENTAL=0`.

@@ -1,0 +1,2 @@
+# Hardware catalog parsing only; tests use synthetic cases and isolated paths.
+PyYAML==6.0.3

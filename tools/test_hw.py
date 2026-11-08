@@ -251,6 +251,23 @@ class Batch(unittest.TestCase):
             self.assertEqual(lock.read_text(encoding='utf-8'), 'rc4 pass tv t6 4242')
             self.assertEqual(out.getvalue().count('waiting for the GPU lock'), 2)
 
+    def test_a_gpu_lock_taken_after_preconditions_is_not_overwritten(self):
+        text = catalog(dict(id='first', command='exit 0', pre='[gpu-lock]'))
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            lock = root / 'GPU-LOCK'
+            source = root / 'catalog.yaml'
+            source.write_text(text)
+            def checked(*args):
+                lock.write_text('other runner won the race')
+                return []
+            with mock.patch.object(run, 'GPU_LOCK', lock), mock.patch.object(run, 'check', side_effect=checked), \
+                    mock.patch.object(run, 'run_case') as execute, contextlib.redirect_stdout(io.StringIO()):
+                code = run.main(['--batch', 'desktop', '--catalog', str(source), '--out-root', str(root / 'out')])
+            self.assertEqual(code, 1)
+            execute.assert_not_called()
+            self.assertEqual(lock.read_text(), 'other runner won the race')
+
     def test_the_gpu_lock_is_released_past_a_reader(self):
         with tempfile.TemporaryDirectory() as t:
             lock = pathlib.Path(t) / 'GPU-LOCK'

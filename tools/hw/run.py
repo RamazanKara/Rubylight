@@ -454,8 +454,14 @@ def main(argv=None):
                 code = max(code, 1)
                 break
             if 'gpu-lock' in case.preconditions and not lock_taken:
-                GPU_LOCK.write_text(owner, encoding='utf-8')
-                lock_taken = True
+                # A different runner may have acquired it after our precondition
+                # probe. Exclusive creation must arbitrate; never overwrite it.
+                lock_taken, detail = take_gpu_lock(owner, deadline=0)
+                if not lock_taken:
+                    stopped = f'before {case.id}: gpu-lock: {detail}'
+                    skipped += [(c, 'NOT RUN', 'batch stopped') for c in run[i:]]
+                    code = max(code, 1)
+                    break
             print(f'-- {case.id}: {case.title}', flush=True)
             result = run_case(case, values, directory / case.id)
             rows.append((case, result))

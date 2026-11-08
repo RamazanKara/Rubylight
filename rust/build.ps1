@@ -16,7 +16,8 @@ param(
     # CI runs the stages in parallel jobs: Test (tests), Lint (clippy) and
     # Build (the release build and -Package). All runs them in order.
     [ValidateSet('All', 'Test', 'Lint', 'Build')]
-    [string]$Stage = 'All'
+    [string]$Stage = 'All',
+    [ValidateRange(1, 256)][int]$Jobs = 4
 )
 $ErrorActionPreference = 'Stop'
 if ($Package -and $env:RLVD_IDDCX_LIB) {
@@ -24,6 +25,20 @@ if ($Package -and $env:RLVD_IDDCX_LIB) {
     throw 'RLVD_IDDCX_LIB is set (a probe-only driver build); unset it before packaging'
 }
 $repo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).ProviderPath
+# Stay in this shell so callers retain the SDK environment, as before.
+. (Join-Path $repo 'rust\release\check_streams.ps1')
+$lockDirectory = if ($env:RUBYLIGHT_LOCK_DIRECTORY) { $env:RUBYLIGHT_LOCK_DIRECTORY } else { 'C:\src\butterpollo-release' }
+Initialize-CheckLocks $lockDirectory
+$buildLease = Enter-CheckBuildLock -RespectPriority -Owner "build.ps1 $Stage $repo"
+$previousBuildOwner = $env:RUBYLIGHT_BUILD_LOCK_OWNER
+$previousBuildPath = $env:RUBYLIGHT_BUILD_LOCK_PATH
+$env:RUBYLIGHT_BUILD_LOCK_OWNER = Read-Lock $script:CheckBuildLock
+$env:RUBYLIGHT_BUILD_LOCK_PATH = [IO.Path]::GetFullPath($script:CheckBuildLock)
+try {
+$env:CARGO_BUILD_JOBS = [string]$Jobs
+$env:CMAKE_BUILD_PARALLEL_LEVEL = [string]$Jobs
+$env:PYROWAVE_JOBS = [string]$Jobs
+$env:FFMPEG_JOBS = [string]$Jobs
 $toolchain = '+1.98.1-x86_64-pc-windows-gnu'
 function Assert-NativeExit([string]$Operation) {
     if ($LASTEXITCODE -ne 0) { throw "$Operation failed with exit code $LASTEXITCODE" }
@@ -293,3 +308,10 @@ try {
     }
     Write-Output "Rust executables: $output"
 } finally { Pop-Location }
+} finally {
+    try { Exit-CheckLocks $buildLease -NoPause }
+    finally {
+        $env:RUBYLIGHT_BUILD_LOCK_OWNER = $previousBuildOwner
+        $env:RUBYLIGHT_BUILD_LOCK_PATH = $previousBuildPath
+    }
+}

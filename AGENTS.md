@@ -32,6 +32,7 @@ Rubylight is the Windows Rust host; Nightjar is the host-neutral client in `clie
 
 - Use a native Windows checkout under `C:\src`; initialize submodules for a fresh clone. Use real paths where MSIX virtualizes `%LOCALAPPDATA%`.
 - Fast checks: `tools\dev.ps1 check` (`-DryRun` previews the checks). Choose checks for affected behavior and add meaningful regression tests.
+- `tools\dev.ps1 check` and `rust\build.ps1` share the machine-wide `BUILD-LOCK` with release checks. Wrap other local heavy Cargo/Gradle/package commands with `python tools/build_lock.py -- <command>`. Do not wrap `check.ps1`: it manages its own locks. Never remove an old lock without checking its owner and surviving children. Developer checks stop after a failure; use `-KeepGoing` when the remaining checks are independently useful. Logs and `summary.json` live in a separate folder per invocation.
 - Core tests outside a VS shell: `cargo +1.98.1-x86_64-pc-windows-msvc test -p butterpollo-core --locked --target-dir <shared-target>`.
 - Host formatting: `cargo fmt -- --check`, without `--all` (which would include the separate client workspace).
 - Full gate: run `rust\build.ps1 -FetchDependencies -Dependencies <sdk> -TargetDirectory <target>` in a VS developer shell. See the build guide for SDK/toolchain setup. Run only one full gate at a time and measure release builds.

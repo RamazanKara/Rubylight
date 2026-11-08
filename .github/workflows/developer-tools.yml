@@ -1,0 +1,29 @@
+name: Developer workflow checks
+on:
+  push:
+    branches: [main]
+    paths: ['tools/**', 'rust/build.ps1', 'rust/release/check*.ps1', '.github/workflows/developer-tools.yml']
+  pull_request:
+    paths: ['tools/**', 'rust/build.ps1', 'rust/release/check*.ps1', '.github/workflows/developer-tools.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: developer-tools-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r tools/requirements-test.txt
+      - name: Check workflow coordination without hardware
+        run: |
+          python -m unittest discover -s tools -p 'test_*.py' -v
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }

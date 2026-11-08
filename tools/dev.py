@@ -19,9 +19,11 @@ checks (see plan()):
 - rust/release scripts to their unittest suites, tools/ to its own.
 
 Markdown is documentation and maps to nothing. One PASS/FAIL table is printed;
-each check's output goes to <log dir>/<check>.log. Exits 1 if any check fails.
+each check's output goes to <log dir>/<run>/<check>.log with summary.json.
+Stops after failure unless --keep-going. Exits 1 if any check fails.
 """
-import argparse, dataclasses, os, pathlib, re, shutil, subprocess, sys, time, tomllib
+import argparse, dataclasses, datetime, hashlib, json, os, pathlib, re, shutil, subprocess, sys, time, tomllib, uuid
+from build_lock import BuildLock, wait_child
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RL_QUICK = pathlib.Path(r'C:\src\rl-quick.ps1')
@@ -290,7 +292,7 @@ def run(command, log, cwd, env=None, shell=False):
                 return 127
             command = [program, *command[1:]]
         try:
-            return subprocess.run(command, cwd=cwd, env=env, shell=shell, stdout=f, stderr=subprocess.STDOUT).returncode
+            return wait_child(subprocess.Popen(command, cwd=cwd, env=env, shell=shell, stdout=f, stderr=subprocess.STDOUT))
         except OSError as error:
             f.write(f'{error}\n')
             return 127
@@ -305,7 +307,7 @@ def client_specs(root, names):
 def client_commands(root, crates):
     """cargo test for the client crates, then clippy as CI runs it for those of them it lints."""
     args = [a for spec in client_specs(root, crates) for a in ('-p', spec)]
-    commands = [['cargo', 'test', '-j', '4', *args]]
+    commands = [['cargo', 'test', '-j', '4', '--locked', *args]]
     linted = [c for c in crates if c in CLIENT_CLIPPY]
     if linted:
         lint_args = [a for spec in client_specs(root, linted) for a in ('-p', spec)]
@@ -313,12 +315,38 @@ def client_commands(root, crates):
     return commands
 
 
-def stop_stray_vite(root, log):
-    # Only this worktree's node processes: another worktree may be running its own console build.
-    script = ("Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | "
-              f"Where-Object {{ $_.CommandLine -match 'vite' -and $_.CommandLine -like '*{root}*' }} | "
-              "ForEach-Object { Stop-Process -Id $_.ProcessId -Force; \"stopped $($_.ProcessId)\" }")
-    run(['powershell', '-NoProfile', '-Command', script], log, root)
+def web_dependencies(web, log, refresh=False):
+    """Reuse only installs made successfully by this checker, for these inputs."""
+    stamp = web / 'node_modules/.rubylight-dependencies.json'
+    versions = {}
+    for program in ('node', 'npm'):
+        result = subprocess.run(f'{program} --version', cwd=web, shell=True, capture_output=True, text=True)
+        if result.returncode:
+            return False
+        versions[program] = result.stdout.strip()
+    inputs = {name: hashlib.sha256((web / name).read_bytes()).hexdigest()
+              for name in ('package.json', 'package-lock.json')}
+    config = {k: v for k, v in os.environ.items() if k.lower().startswith('npm_config_')}
+    receipt = dict(inputs=inputs, versions=versions, platform=sys.platform,
+                   node_env=os.environ.get('NODE_ENV'),
+                   npm_config=hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest())
+    configs = [web / '.npmrc', pathlib.Path.home() / '.npmrc']
+    if os.environ.get('NPM_CONFIG_USERCONFIG'):
+        configs.append(pathlib.Path(os.environ['NPM_CONFIG_USERCONFIG']))
+    receipt['npmrc'] = [hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None for p in configs]
+    installed = web / 'node_modules/.package-lock.json'
+    receipt['installed'] = hashlib.sha256(installed.read_bytes()).hexdigest() if installed.exists() else None
+    try:
+        if not refresh and receipt['installed'] and json.loads(stamp.read_text()) == receipt:
+            return True
+    except (OSError, ValueError):
+        pass
+    stamp.unlink(missing_ok=True)
+    if run('npm ci --no-audit --no-fund', log, web, shell=True):
+        return False
+    receipt['installed'] = hashlib.sha256(installed.read_bytes()).hexdigest() if installed.exists() else None
+    stamp.write_text(json.dumps(receipt, sort_keys=True), encoding='utf-8')
+    return True
 
 
 def read_quick(path):
@@ -333,7 +361,7 @@ def read_quick(path):
     return text, re.search(r'(?m)^EXIT 0\s*$', text) is not None
 
 
-def execute(check, root, log, target):
+def execute(check, root, log, target, fresh_dependencies=False):
     log.write_text('', encoding='utf-8')
     if check.kind == 'host':
         crates = ','.join(f"'{c}'" for c in check.items)
@@ -348,8 +376,8 @@ def execute(check, root, log, target):
         return code == 0 and passed
     if check.kind == 'client':
         env = client_env(f'{target}-client')
-        return all([run(command, log, root / CLIENT_WORKSPACE, env) == 0
-                    for command in client_commands(root, check.items)])
+        return all(run(command, log, root / CLIENT_WORKSPACE, env) == 0
+                   for command in client_commands(root, check.items))
     if check.kind == 'service':
         # Its own workspace, in a folder of this worktree's target dir; without a
         # developer's linker flags, as its release build (rust/service/build.ps1).
@@ -357,14 +385,14 @@ def execute(check, root, log, target):
         for name in ('RUSTFLAGS', 'CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS'):
             env.pop(name, None)
         manifest = ['--manifest-path', str(root / SERVICE_WORKSPACE / 'Cargo.toml')]
-        return all([run(command, log, root, env) == 0 for command in (
+        return all(run(command, log, root, env) == 0 for command in (
             ['cargo', 'fmt', *manifest, '--', '--check'],
             ['cargo', 'clippy', '-j', '4', '--all-targets', '--locked', *manifest, '--', '-D', 'warnings'],
             ['cargo', 'test', '-j', '4', '--locked', *manifest],
-        )])
+        ))
     if check.kind == 'interop':
         env = client_env(f'{target}-client')
-        return run(['cargo', 'test', '-j', '4', '--manifest-path', str(root / 'tests/interop/Cargo.toml')],
+        return run(['cargo', 'test', '-j', '4', '--locked', '--manifest-path', str(root / 'tests/interop/Cargo.toml')],
                    log, root, env) == 0
     if check.kind == 'gradle':
         env = {k: v for k, v in os.environ.items() if k.upper() != 'CARGO_TARGET_DIR'}
@@ -377,14 +405,15 @@ def execute(check, root, log, target):
                    log, root / 'client', env) == 0
     if check.kind == 'web':
         web = root / 'rust/web'
-        stop_stray_vite(root, log)
-        for command in ('npm ci --no-audit --no-fund', 'npm run check', 'node --test "*.test.mjs"', 'npm run build'):
+        if not web_dependencies(web, log, fresh_dependencies):
+            return False
+        for command in ('npm run check', 'node --test "*.test.mjs"', 'npm run build'):
             if run(command, log, web, shell=True):
                 return False
         return True
     if check.kind == 'python':
-        return all([run([sys.executable, '-m', 'unittest', 'discover', '-s', 'rust/release', '-p', suite],
-                        log, root) == 0 for suite in check.items])
+        return all(run([sys.executable, '-m', 'unittest', 'discover', '-s', 'rust/release', '-p', suite],
+                       log, root) == 0 for suite in check.items)
     if check.kind == 'tools':
         return run([sys.executable, '-m', 'unittest', 'discover', '-s', 'tools', '-p', 'test_*.py'], log, root) == 0
     raise ValueError(check.kind)
@@ -398,7 +427,13 @@ def main(argv=None):
     parser.add_argument('--log-dir', type=pathlib.Path)
     parser.add_argument('--target-dir', type=pathlib.Path)
     parser.add_argument('--paths', nargs='*', help='plan for these paths instead of the changed files')
+    parser.add_argument('--keep-going', action='store_true', help='run remaining independent checks after a failure')
+    parser.add_argument('--fresh-dependencies', action='store_true', help='force npm ci for web checks')
+    parser.add_argument('--lock-directory', type=pathlib.Path, help='shared machine lock directory')
+    parser.add_argument('--lock-timeout', type=float, default=1800, help='maximum build wait in seconds')
     args = parser.parse_args(argv)
+    if args.lock_timeout < 0:
+        parser.error('--lock-timeout must be nonnegative')
     root = ROOT
     if args.paths is None:
         merge_base, paths = changed(args.base, root)
@@ -407,7 +442,8 @@ def main(argv=None):
         paths = args.paths
     checks, unchecked = plan(paths, root)
     target = args.target_dir or default_target(root)
-    log_dir = args.log_dir or LOG_ROOT / worktree_name(root)
+    run_id = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + uuid.uuid4().hex[:8]
+    log_dir = (args.log_dir or LOG_ROOT / worktree_name(root)) / run_id
     if unchecked:
         shown = ', '.join(unchecked[:8]) + (f' and {len(unchecked) - 8} more' if len(unchecked) > 8 else '')
         print(f'No check for {len(unchecked)} files (docs and the like): {shown}')
@@ -426,9 +462,23 @@ def main(argv=None):
         if check.skip:
             rows.append((check.name, 'SKIP', '', check.describe()))
             continue
+        if failed and not args.keep_going:
+            rows.append((check.name, 'NOT RUN', '', 'earlier check failed'))
+            continue
         print(f'-- {check.name}: {check.describe()}', flush=True)
         start = time.monotonic()
-        ok = execute(check, root, log, target)
+        try:
+            # All build-producing checks share one lease across worktrees and
+            # target dirs. Pure Python suites do not consume a build slot.
+            if check.kind in ('host', 'client', 'service', 'interop', 'gradle', 'web'):
+                with BuildLock(args.lock_directory, f'dev {check.name} {root}', args.lock_timeout):
+                    ok = execute(check, root, log, target, args.fresh_dependencies)
+            else:
+                ok = execute(check, root, log, target, args.fresh_dependencies)
+        except (OSError, RuntimeError) as error:
+            with log.open('a', encoding='utf-8') as out:
+                out.write(str(error) + '\n')
+            ok = False
         failed |= not ok
         rows.append((check.name, 'PASS' if ok else 'FAIL', f'{time.monotonic() - start:.0f} s',
                      check.describe() if ok else str(log)))
@@ -437,6 +487,10 @@ def main(argv=None):
     for name, result, took, detail in rows:
         print(f'{name:<16} {result:<6} {took:>6}  {detail}')
     print(f'Logs: {log_dir}')
+    summary = dict(head=git('rev-parse', 'HEAD', root=root).strip(), worktree=str(root), paths=paths,
+                   target=str(target), passed=not failed, checks=[dict(name=n, result=r, time=t, detail=d)
+                   for n, r, t, d in rows])
+    (log_dir / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n', encoding='utf-8')
     return 1 if failed else 0
 
 

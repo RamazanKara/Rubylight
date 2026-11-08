@@ -1,4 +1,5 @@
-import os, pathlib, sys, tempfile, unittest
+import contextlib, io, json, os, pathlib, sys, tempfile, unittest
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import dev  # noqa: E402
@@ -179,6 +180,56 @@ class QuickLog(unittest.TestCase):
     def test_a_failure_or_a_missing_log_fails(self):
         self.assertFalse(self.quick('EXIT 1')[1])
         self.assertEqual(dev.read_quick(pathlib.Path('missing.quick')), ('', False))
+
+
+class Execution(unittest.TestCase):
+    def test_failed_client_tests_do_not_start_clippy(self):
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(dev, 'run', return_value=1) as run:
+            self.assertFalse(dev.execute(dev.Check('client', 'client', ['nightjar-desktop']), ROOT,
+                                         pathlib.Path(directory) / 'check.log', pathlib.Path(directory)))
+            self.assertEqual(run.call_count, 1)
+            self.assertIn('--locked', run.call_args.args[0])
+
+    def test_run_logs_and_summaries_are_unique_and_fail_fast_is_optional(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for extra, expected in (([], 1), (['--keep-going'], 2)):
+                with mock.patch.object(dev, 'plan', return_value=([dev.Check('one', 'python'), dev.Check('two', 'python')], [])), \
+                        mock.patch.object(dev, 'execute', side_effect=[False, True]) as execute, \
+                        mock.patch.object(dev, 'git', return_value='abc123\n'), contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(dev.main(['check', '--paths', 'rust/release/x.py', '--log-dir', directory, *extra]), 1)
+                    self.assertEqual(execute.call_count, expected)
+            summaries = [json.loads(p.read_text()) for p in pathlib.Path(directory).glob('*/summary.json')]
+            self.assertEqual(len(summaries), 2)
+            self.assertTrue(all(s['head'] == 'abc123' and not s['passed'] for s in summaries))
+            self.assertEqual({s['checks'][1]['result'] for s in summaries}, {'NOT RUN', 'PASS'})
+
+    def test_web_dependencies_reuse_only_a_successful_matching_install(self):
+        with tempfile.TemporaryDirectory() as directory:
+            web = pathlib.Path(directory)
+            for name in ('package.json', 'package-lock.json'):
+                (web / name).write_text('{}')
+            installs = []
+            def install(*args, **kwargs):
+                installs.append(args[0])
+                (web / 'node_modules').mkdir(exist_ok=True)
+                (web / 'node_modules/.package-lock.json').write_text('{}')
+                return 0
+            with mock.patch.object(dev.subprocess, 'run', return_value=mock.Mock(returncode=0, stdout='v22')), \
+                    mock.patch.object(dev, 'run', side_effect=install):
+                self.assertTrue(dev.web_dependencies(web, web / 'log'))
+                self.assertTrue(dev.web_dependencies(web, web / 'log'))
+                self.assertEqual(len(installs), 1)
+                (web / 'package-lock.json').write_text('{"changed":true}')
+                self.assertTrue(dev.web_dependencies(web, web / 'log'))
+                self.assertEqual(len(installs), 2)
+                self.assertTrue(dev.web_dependencies(web, web / 'log', refresh=True))
+                self.assertEqual(len(installs), 3)
+                (web / 'node_modules/.package-lock.json').unlink()
+                self.assertTrue(dev.web_dependencies(web, web / 'log'))
+                self.assertEqual(len(installs), 4)
+                with mock.patch.object(dev, 'run', return_value=1):
+                    self.assertFalse(dev.web_dependencies(web, web / 'log', refresh=True))
+                self.assertFalse((web / 'node_modules/.rubylight-dependencies.json').exists())
 
 
 if __name__ == '__main__':

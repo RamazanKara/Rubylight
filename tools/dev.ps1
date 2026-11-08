@@ -1,7 +1,7 @@
 # Developer loop helpers. `check` runs the smallest set of checks for the
 # files changed against the merge base with -Base (default origin/main) plus
 # uncommitted ones, prints one PASS/FAIL table and keeps the logs in files
-# (C:\src\butterpollo-release\unified\dev-check\<worktree>\). The mapping lives
+# (C:\src\butterpollo-release\unified\dev-check\<worktree>\<run>\). The mapping lives
 # in tools/dev.py.
 #   tools\dev.ps1 check -DryRun           # the plan only
 #   tools\dev.ps1 check -Base HEAD        # only uncommitted changes
@@ -10,11 +10,19 @@ param(
     [string] $Base = 'origin/main',
     [string] $LogDir,
     [string] $TargetDir,
-    [switch] $DryRun
+    [switch] $DryRun,
+    [switch] $KeepGoing,
+    [switch] $FreshDependencies,
+    [string] $LockDirectory,
+    [ValidateRange(0, 86400)][int] $LockTimeout = 1800
 )
 $py = @("$PSScriptRoot\dev.py", $Command, '--base', $Base)
 if ($LogDir) { $py += @('--log-dir', $LogDir) }
 if ($TargetDir) { $py += @('--target-dir', $TargetDir) }
 if ($DryRun) { $py += '--dry-run' }
+if ($KeepGoing) { $py += '--keep-going' }
+if ($FreshDependencies) { $py += '--fresh-dependencies' }
+if ($LockDirectory) { $py += @('--lock-directory', $LockDirectory) }
+$py += @('--lock-timeout', $LockTimeout)
 & python @py
 exit $LASTEXITCODE

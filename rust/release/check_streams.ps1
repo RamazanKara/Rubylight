@@ -4,20 +4,23 @@
 #
 # Parallel sessions on the release workstation share two lock files in
 # C:\src\butterpollo-release: BUILD-LOCK (build-lock.ps1: heavy builds; a
-# lock unwritten for 45 minutes is broken) and GPU-LOCK (streams and GPU
+# lease never expires while work may still be running) and GPU-LOCK (streams and GPU
 # tests; takelocks.sh, tools/hw/run.py; never broken). Other sessions' builds
 # starved the fixtures: rc.4's check failed twice at 25-100 % CPU and passed
 # on a quiet one. So the fixture builds hold BUILD-LOCK, each stream holds
 # GPU-LOCK and BUILD-LOCK, and a stream starts only on a quiet CPU. A machine
-# without build-lock.ps1 there has no locks: the streams only wait for the CPU.
+# without the old workstation helper still uses the same shared lock files.
 
 $EXIT_GPU_HANG = 3
 
 function Initialize-CheckLocks([string] $Directory, [switch] $GpuLockHeld) {
-    $script:CheckLocks = Test-Path -LiteralPath (Join-Path $Directory 'build-lock.ps1')
+    New-Item -ItemType Directory -Path $Directory -Force | Out-Null
+    $script:CheckLocks = $true
+    $script:CheckBuildGuards = @{}
     $script:CheckBuildLock = Join-Path $Directory 'BUILD-LOCK'
     $script:CheckGpuLock = Join-Path $Directory 'GPU-LOCK'
     $script:CheckPriority = Join-Path $Directory 'PRIORITY'
+    $script:CheckRunLock = Join-Path $Directory 'RELEASE-LOCK'
     $script:CheckGpuHeld = [bool] $GpuLockHeld
     $script:CheckAncestors = $null
     # Waiters poll BUILD-LOCK every 15 s (build-lock.ps1) and GPU-LOCK every
@@ -31,10 +34,10 @@ function Initialize-CheckLocks([string] $Directory, [switch] $GpuLockHeld) {
     $script:CheckQuietBudget = 900
     # GPU-LOCK is never broken as stale: a holder past this ends the check.
     $script:CheckGpuDeadline = 1800
+    $script:CheckBuildDeadline = 1800
     $script:CheckGpuWarning = 60
     # Locks this run wrote that another session removed or took over.
     $script:CheckLockLost = [Collections.Generic.List[string]]::new()
-    if (-not $script:CheckLocks) { Write-Warning "No build-lock.ps1 in $Directory; the streams only wait for a quiet CPU." }
     # Walked once, before any lock is taken.
     [void] (Get-AncestorIds)
 }
@@ -62,18 +65,25 @@ function Get-AncestorIds {
 # the check. Taking it again would wait for ourselves.
 function Test-LockOurs([string] $Path) {
     $holder = Read-Lock $Path
-    [bool] ($holder -and $holder -match '\bpid[= ](\d+)' -and (Get-AncestorIds) -contains [int] $Matches[1])
+    [bool] ($holder -and $holder -match '\bpid[= ](\d+)' -and (Get-AncestorIds) -contains [int] $Matches[1] -and
+        ($holder -notmatch '\bstart=' -or (Test-PriorityAlive $holder)))
 }
 
 # Writes the lock if it is free and returns what it wrote, else $null.
 function Lock-Try([string] $Path, [string] $Owner) {
-    $text = "$Owner $(Get-Date -Format o) pid=$PID"
+    $start = (Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('o')
+    $text = "$Owner $(Get-Date -Format o) pid=$PID start=$start"
     try { $file = [IO.File]::Open($Path, 'CreateNew', 'Write', 'None') } catch [IO.IOException] { return $null }
     try {
         $writer = [IO.StreamWriter]::new($file)
         $writer.Write($text)
         $writer.Flush()
     } finally { $file.Dispose() }
+    if ($Path -eq $script:CheckBuildLock -or $Path -eq $script:CheckRunLock) {
+        # Deny deletion while this owner is running, including by legacy
+        # age-based waiters. Reads and ownership-change diagnostics still work.
+        $script:CheckBuildGuards[$Path] = [IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite')
+    }
     $text
 }
 
@@ -108,6 +118,10 @@ function Test-LockStillOurs([string] $Path, [string] $Written) {
 # Only the lock this run wrote: a lock broken as stale and taken by another
 # session stays theirs.
 function Lock-Release([string] $Path, [string] $Written) {
+    if ($Written -and $script:CheckBuildGuards.ContainsKey($Path)) {
+        $script:CheckBuildGuards[$Path].Dispose()
+        $script:CheckBuildGuards.Remove($Path)
+    }
     if ($Written -and (Test-LockStillOurs $Path $Written)) {
         Invoke-LockFile { [IO.File]::Delete($Path) }
     }
@@ -120,14 +134,12 @@ function Lock-Refresh([string] $Path, [string] $Written) {
     }
 }
 
-# build-lock.ps1's rule: a lock unwritten for 45 minutes was left behind.
-function Remove-StaleBuildLock {
-    $item = Get-Item -LiteralPath $script:CheckBuildLock -ErrorAction SilentlyContinue
-    if ($item -and ((Get-Date) - $item.LastWriteTime).TotalMinutes -gt 45) {
-        Remove-Item -LiteralPath $script:CheckBuildLock -Force -ErrorAction SilentlyContinue
-        return $true
+# An old file or an exited owner cannot prove compiler children have exited.
+# Never break it automatically; a bounded wait reports the exact owner.
+function Assert-BuildLockWait([Diagnostics.Stopwatch] $Waiting) {
+    if ($Waiting.Elapsed.TotalSeconds -ge $script:CheckBuildDeadline) {
+        throw "BUILD-LOCK still held after $($script:CheckBuildDeadline) s: $(Read-Lock $script:CheckBuildLock); priority: $(Read-Lock $script:CheckPriority). Inspect the owner and its children; no lock removed."
     }
-    $false
 }
 
 function Write-Holder([string] $What, [string] $Path) {
@@ -136,15 +148,35 @@ function Write-Holder([string] $What, [string] $Path) {
     $script:CheckLastHolder = $holder
 }
 
-# For the fixture builds: BUILD-LOCK only, waiting like Enter-BuildLock.
-function Enter-CheckBuildLock {
-    if (-not $script:CheckLocks -or (Test-LockOurs $script:CheckBuildLock)) { return @{} }
+# Serialize downloads, staging, installs and result uploads as well as streams:
+# two checks must never clear the same release folder or share request.json.
+function Enter-CheckRunLock {
+    $waiting = [Diagnostics.Stopwatch]::StartNew()
     while ($true) {
-        $written = Lock-Try $script:CheckBuildLock 'check'
-        if ($written) { return @{ build = $written } }
-        if (Remove-StaleBuildLock) { continue }
-        Write-Holder 'the build lock' $script:CheckBuildLock
-        Start-Sleep -Seconds 15
+        $written = Lock-Try $script:CheckRunLock 'release check.ps1'
+        if ($written) { return $written }
+        Write-Holder 'the release check' $script:CheckRunLock
+        if ($waiting.Elapsed.TotalSeconds -ge $script:CheckBuildDeadline) {
+            throw "RELEASE-LOCK still held: $(Read-Lock $script:CheckRunLock). No lock removed."
+        }
+        Start-Sleep -Milliseconds 250
+    }
+}
+
+# For the fixture builds: BUILD-LOCK only, waiting like Enter-BuildLock.
+function Enter-CheckBuildLock([switch] $RespectPriority, [string] $Owner = 'check') {
+    if (-not $script:CheckLocks -or (Test-LockOurs $script:CheckBuildLock)) { return @{} }
+    $waiting = [Diagnostics.Stopwatch]::StartNew()
+    while ($true) {
+        if ($RespectPriority -and (Test-PriorityAlive (Read-Lock $script:CheckPriority))) {
+            Write-Holder 'release priority' $script:CheckPriority
+        } else {
+            $written = Lock-Try $script:CheckBuildLock $Owner
+            if ($written) { return @{ build = $written } }
+            Write-Holder 'the build lock' $script:CheckBuildLock
+        }
+        Assert-BuildLockWait $waiting
+        Start-Sleep -Milliseconds 250
     }
 }
 
@@ -197,6 +229,7 @@ function Update-CheckBuildLock([hashtable] $Held) {
 # for a while and both are tried again.
 function Enter-StreamLocks {
     if (-not $script:CheckLocks) { return @{} }
+    $building = [Diagnostics.Stopwatch]::StartNew()
     while ($true) {
         $held = @{}
         try {
@@ -219,13 +252,12 @@ function Enter-StreamLocks {
             }
             if (Test-LockOurs $script:CheckBuildLock) { return $held }
             if ($held.build = Lock-Try $script:CheckBuildLock 'check') { return $held }
-            $stale = Remove-StaleBuildLock
+            Assert-BuildLockWait $building
         } catch {
             Exit-CheckLocks $held -NoPause
             throw
         }
         Lock-Release $script:CheckGpuLock $held.gpu
-        if ($stale) { continue }
         Write-Holder 'the build lock (the GPU lock is back for now)' $script:CheckBuildLock
         Start-Sleep -Seconds $script:CheckLockBackoff
     }
@@ -250,8 +282,9 @@ function Write-LockLost([string] $ResultPath) {
     $result = Get-Content -LiteralPath $ResultPath -Raw | ConvertFrom-Json -AsHashtable
     $result.lock_warnings = @($script:CheckLockLost)
     $result.warnings = @(@($result.warnings | Where-Object { $_ }) + $script:CheckLockLost)
+    $result.passed = $false
+    $result.failures = @(@($result.failures | Where-Object { $_ }) + $script:CheckLockLost)
     $result | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $ResultPath -Encoding utf8NoBOM
-    $script:CheckLockLost.Clear()
 }
 
 # machine_load.py's verdict goes to $Out for e2e.py to record as quiet_wait.
@@ -309,5 +342,6 @@ function Invoke-StreamCase([string] $Case, [string[]] $Stream, [string] $Run) {
     } finally {
         Exit-CheckLocks $held
         Write-LockLost $resultPath
+        if ($script:CheckLockLost.Count) { throw 'Shared lock ownership lost; stopping validation. See result.json lock_warnings.' }
     }
 }

@@ -44,8 +44,8 @@ param(
     # uploads its own REAL-CLIENT.json after this check installed the release.
     [string] $RealClient,
     # The shared BUILD-LOCK and GPU-LOCK of parallel sessions on this machine
-    # (check_streams.ps1); without build-lock.ps1 there the streams only wait
-    # for a quiet CPU. Take no lock around this script: it takes them itself.
+    # (check_streams.ps1). Take no build lock around this script: it takes
+    # its own locks, including RELEASE-LOCK for staging and installation.
     [string] $LockDirectory = 'C:\src\butterpollo-release',
     # The caller holds GPU-LOCK for this check under its own name. A holder
     # among this process's parents (tools/hw/run.py) is found without it.
@@ -76,6 +76,11 @@ $package = "$out\butterpollo-rust-release"
 $installer = "$out\rubylight-setup-$Version.exe"
 $zip = "$out\rubylight-$Version-windows-x64.zip"
 
+. "$PSScriptRoot\check_streams.ps1"
+Initialize-CheckLocks $LockDirectory -GpuLockHeld:$GpuLockHeld
+$releaseLock = Enter-CheckRunLock
+$priority = $null
+try {
 # The stream checks refuse to run beside a busy installed host; say so before
 # minutes of downloads and fixture builds.
 try {
@@ -99,8 +104,6 @@ foreach ($line in Get-Content "$out\SHA256SUMS") {
 }
 Expand-Archive $zip -DestinationPath $out
 
-. "$PSScriptRoot\check_streams.ps1"
-Initialize-CheckLocks $LockDirectory -GpuLockHeld:$GpuLockHeld
 # Gone with this process if the check stops early: build-lock.ps1 checks the pid.
 $priority = Enter-CheckPriority
 
@@ -220,3 +223,7 @@ if ($body -notmatch 'VALIDATION\.json') {
     gh release edit $tag -R $repo --notes-file "$run\body.md"
 }
 Step "checked https://github.com/$repo/releases/tag/$tag"
+} finally {
+    try { Exit-CheckPriority $priority }
+    finally { Lock-Release $script:CheckRunLock $releaseLock }
+}

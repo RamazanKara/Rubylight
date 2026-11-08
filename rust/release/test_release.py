@@ -1403,6 +1403,7 @@ $tools = $env:FAKE_TOOLS
 Initialize-CheckLocks $Locks -GpuLockHeld:$GpuLockHeld
 $CheckLockPause = 0; $CheckLockBackoff = 0.2; $CheckLockPoll = 0.1
 if ($env:FAKE_GPU_DEADLINE) { $CheckGpuDeadline = [double] $env:FAKE_GPU_DEADLINE; $CheckGpuWarning = 0.3 }
+if ($env:FAKE_BUILD_DEADLINE) { $CheckBuildDeadline = [double] $env:FAKE_BUILD_DEADLINE }
 Invoke-StreamCase 'hevc' @('--work', $Run) $Run
 'DONE'
 """
@@ -1533,7 +1534,7 @@ class CheckStreams(unittest.TestCase):
 
     def test_a_lock_taken_over_by_another_session_is_left_alone_and_reported(self):
         run, _, _ = self.stream('0', FAKE_STEAL='1')
-        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertNotEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertEqual((self.locks / 'BUILD-LOCK').read_text(), 'thief 2026-10-29 pid=1')
         self.assertFalse((self.locks / 'GPU-LOCK').exists())
         self.assertIn('LOCK LOST: BUILD-LOCK', run.stdout)
@@ -1541,7 +1542,8 @@ class CheckStreams(unittest.TestCase):
         self.assertEqual(len(result['lock_warnings']), 1, result)
         self.assertIn('taken over: thief 2026-10-29 pid=1', result['lock_warnings'][0])
         self.assertEqual(result['warnings'], result['lock_warnings'])
-        self.assertTrue(result['passed'])
+        self.assertFalse(result['passed'])
+        self.assertEqual(result['failures'], result['lock_warnings'])
 
     def test_a_gpu_lock_held_too_long_fails_the_check_loudly(self):
         holder = 'rc4 pass tv t6 4242 2026-10-29T02:00:00+01:00'
@@ -1615,12 +1617,46 @@ class CheckStreams(unittest.TestCase):
                     self.assertIn('LOCK LEFT BEHIND: GPU-LOCK', run.stdout)
                     (self.locks / 'GPU-LOCK').unlink()
 
-    def test_without_the_shared_locks_only_the_cpu_is_waited_for(self):
+    def test_shared_locks_work_without_the_old_machine_helper(self):
         (self.locks / 'build-lock.ps1').unlink()
         run, held, timeouts = self.stream('0')
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-        self.assertEqual(held, [{'GPU-LOCK': None, 'BUILD-LOCK': None}])
+        self.assertTrue(held[0]['GPU-LOCK'] and held[0]['BUILD-LOCK'])
         self.assertEqual(timeouts, ['900'])
+
+    def test_an_old_build_lock_times_out_without_being_removed(self):
+        lock = self.locks / 'BUILD-LOCK'
+        lock.write_text('old build pid=4242')
+        os.utime(lock, (1, 1))
+        run, held, _ = self.stream('0', FAKE_BUILD_DEADLINE='0.3')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('BUILD-LOCK still held', run.stdout + run.stderr)
+        self.assertEqual(held, [])
+        self.assertEqual(lock.read_text(), 'old build pid=4242')
+        self.assertFalse((self.locks / 'GPU-LOCK').exists())
+
+    def test_release_staging_is_exclusive_and_cleans_up_on_failure(self):
+        driver = self.root / 'release-lock.ps1'
+        driver.write_text('''param([string]$Locks)
+$ErrorActionPreference = 'Stop'
+. $env:CHECK_STREAMS
+Initialize-CheckLocks $Locks
+$CheckBuildDeadline = 0.3
+$written = Enter-CheckRunLock
+try { throw 'synthetic check failure' } finally { Lock-Release $CheckRunLock $written }
+''')
+        env = dict(os.environ, CHECK_STREAMS=str(ROOT / 'rust/release/check_streams.ps1'))
+        def run():
+            return subprocess.run(['pwsh', '-NoProfile', '-File', str(driver), '-Locks', str(self.locks)],
+                                  env=env, capture_output=True, text=True, timeout=15)
+        first = run()
+        self.assertIn('synthetic check failure', first.stderr)
+        self.assertFalse((self.locks / 'RELEASE-LOCK').exists())
+        (self.locks / 'RELEASE-LOCK').write_text('another release check')
+        second = run()
+        self.assertIn('RELEASE-LOCK still held', second.stderr)
+        self.assertNotIn('synthetic check failure', second.stderr)
+        self.assertEqual((self.locks / 'RELEASE-LOCK').read_text(), 'another release check')
 
     def test_a_failed_quiet_wait_stops_the_stream(self):
         run, held, _ = self.stream('0', FAKE_QUIET_FAIL='1')
@@ -1664,7 +1700,10 @@ class CheckStreams(unittest.TestCase):
                 self.assertEqual(ticket.exists(), kept)
                 ticket.unlink(missing_ok=True)
         (self.locks / 'build-lock.ps1').unlink()
-        self.assertEqual(run().stdout.splitlines()[-3:], ['', '', 'gone'])
+        without_helper = run().stdout.splitlines()[-3:]
+        self.assertTrue(without_helper[0].startswith('release check.ps1 '))
+        self.assertEqual(without_helper[0], without_helper[1])
+        self.assertEqual(without_helper[2], 'gone')
 
     @unittest.skipUnless(os.name == 'nt', 'a .cmd stand-in for Python')
     def test_soak_stops_when_the_quiet_wait_fails(self):

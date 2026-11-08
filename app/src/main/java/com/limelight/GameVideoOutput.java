@@ -378,19 +378,57 @@ final class GameVideoOutput {
 
     // What the decoder's maximum covers from the start (see StreamResizePolicy.coveringSize), after
     // startInWindowShape: the turned launch size with Rotate on a host that shapes the stream, and
-    // on a foldable (hinge sensor) streaming its own resolution, the panels its display lists.
+    // on a foldable (hinge sensor) streaming its own resolution, its panels (coveringPanels).
     int[] coveringStreamSize() {
         boolean turns = StreamOrientation.followsRotation(game.streamOrientation, game.hostShapesStream);
         int[][] panels = null;
         if (game.nativeResolutionStream && game.externalPresentation == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
                 game.getPackageManager().hasSystemFeature(PackageManager.FEATURE_SENSOR_HINGE_ANGLE)) {
-            Display.Mode[] modes = getVideoDisplay().getSupportedModes();
-            panels = new int[modes.length][];
-            for (int i = 0; i < modes.length; i++) {
-                panels[i] = new int[] {modes[i].getPhysicalWidth(), modes[i].getPhysicalHeight()};
-            }
+            panels = foldPanels(getVideoDisplay());
         }
         return StreamResizePolicy.coveringSize(launchWidth, launchHeight, turns, panels);
+    }
+
+    // The panel sizes a fold or unfold may move the stream to: the video display's modes and, from
+    // Android 16 QPR2, every built-in display's, the panel not in use included.
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.R)
+    private int[][] foldPanels(Display video) {
+        java.util.Map<Integer, Display> byId = new java.util.LinkedHashMap<>();
+        java.util.Set<Integer> builtInIds = new java.util.HashSet<>();
+        byId.put(video.getDisplayId(), video);
+        android.hardware.display.DisplayManager manager =
+                (android.hardware.display.DisplayManager) game.getSystemService(Context.DISPLAY_SERVICE);
+        if (manager != null) {
+            for (Display display : manager.getDisplays()) byId.putIfAbsent(display.getDisplayId(), display);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA &&
+                    Build.VERSION.SDK_INT_FULL >= Build.VERSION_CODES_FULL.BAKLAVA_1) {
+                for (Display display : manager.getDisplays(android.hardware.display.DisplayManager.DISPLAY_CATEGORY_BUILT_IN_DISPLAYS)) {
+                    builtInIds.add(display.getDisplayId());
+                    byId.putIfAbsent(display.getDisplayId(), display);
+                }
+            }
+        }
+        java.util.List<Display> displays = new java.util.ArrayList<>(byId.values());
+        int[] ids = new int[displays.size()];
+        boolean[] builtIn = new boolean[ids.length];
+        int[][][] modes = new int[ids.length][][];
+        StringBuilder seen = new StringBuilder();
+        for (int i = 0; i < ids.length; i++) {
+            Display display = displays.get(i);
+            ids[i] = display.getDisplayId();
+            builtIn[i] = builtInIds.contains(ids[i]);
+            Display.Mode[] supported = display.getSupportedModes();
+            java.util.Set<String> sizes = new java.util.LinkedHashSet<>();
+            modes[i] = new int[supported.length][];
+            for (int m = 0; m < supported.length; m++) {
+                modes[i][m] = new int[] {supported[m].getPhysicalWidth(), supported[m].getPhysicalHeight()};
+                sizes.add(modes[i][m][0] + "x" + modes[i][m][1]);
+            }
+            seen.append(i == 0 ? "" : ", ").append("display ").append(ids[i]).append(builtIn[i] ? " built in " : " ")
+                    .append(sizes);
+        }
+        LimeLog.info("Fold panels from " + seen);
+        return StreamResizePolicy.coveringPanels(video.getDisplayId(), ids, builtIn, modes);
     }
 
     @TargetApi(Build.VERSION_CODES.O)

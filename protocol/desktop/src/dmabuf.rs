@@ -129,6 +129,41 @@ pub fn enabled_by_environment(value: Option<&std::ffi::OsStr>) -> bool {
     value.is_none_or(|value| value != "0")
 }
 
+/// The minor of DRM render node `name`, a device path or a sysfs entry (`/dev/dri/renderD129`,
+/// `renderD129`); none for any other node.
+pub fn render_node_minor(name: &str) -> Option<u32> {
+    name.rsplit('/').next()?.strip_prefix("renderD")?.parse().ok()
+}
+
+/// Where VAAPI opens for the OpenGL renderer, and the log line that says so. FFmpeg's default
+/// device is the first render node (`nodes`, those in /dev/dri), on a hybrid PC often the
+/// integrated GPU, whose tiled pictures the other GPU's EGL refuses to import, so every picture
+/// would go through memory. VAAPI opens on `display`, the render node of the GPU the renderer's
+/// EGL display runs on, when that is another one than the default; otherwise on the default
+/// device (none), as it always has: when it is the display's GPU (every single-GPU PC), or when
+/// the display's node is unknown (`display`'s error) or not among `nodes`.
+pub fn display_vaapi_node(display: Result<u32, String>, nodes: &[u32]) -> (Option<u32>, String) {
+    let path = |minor: u32| format!("/dev/dri/renderD{minor}");
+    match display {
+        Err(why) => (None, format!("VAAPI opens on the default device: the OpenGL renderer's GPU is unknown ({why})")),
+        Ok(minor) if !nodes.contains(&minor) => {
+            let listed: Vec<_> = nodes.iter().map(|&node| path(node)).collect();
+            (None, format!("VAAPI opens on the default device: the OpenGL renderer's GPU, {}, is not among the render nodes here ({})", path(minor), listed.join(", ")))
+        }
+        Ok(minor) if nodes.iter().min() == Some(&minor) => {
+            (None, format!("VAAPI opens on the default device {}, the OpenGL renderer's GPU", path(minor)))
+        }
+        Ok(minor) => (
+            Some(minor),
+            format!(
+                "VAAPI opens on {}, the OpenGL renderer's GPU, instead of the default device {} (another GPU), so its pictures import without a copy",
+                path(minor),
+                nodes.iter().min().map_or_else(String::new, |&default| path(default))
+            ),
+        ),
+    }
+}
+
 #[cfg(unix)]
 pub use linux::*;
 
@@ -234,6 +269,94 @@ mod linux {
     pub fn renderer_imports(renderer: *mut SDL_Renderer) -> bool {
         // SAFETY: SDL's EGL query on the renderer's thread.
         imports_into(&crate::sdl::renderer_name(renderer)) && !unsafe { SDL_EGL_GetCurrentDisplay() }.is_null()
+    }
+
+    /// The render node VAAPI opens on for `renderer` (`display_vaapi_node`), said in the log once
+    /// per answer: on SDL's OpenGL renderer the GPU its EGL display runs on, when that is not the
+    /// default device; none for every other renderer and that case. On the renderer's thread.
+    pub fn renderer_vaapi_node(renderer: *mut SDL_Renderer) -> Option<u32> {
+        if !imports_into(&crate::sdl::renderer_name(renderer)) {
+            return None;
+        }
+        let (node, line) = display_vaapi_node(egl_render_node(), &render_nodes());
+        crate::vulkan_video::note(&line);
+        node
+    }
+
+    /// The render nodes in /dev/dri, lowest first: FFmpeg's VAAPI opens the first one by default.
+    fn render_nodes() -> Vec<u32> {
+        let mut nodes: Vec<u32> = std::fs::read_dir("/dev/dri")
+            .map(|entries| entries.filter_map(|entry| render_node_minor(&entry.ok()?.file_name().to_string_lossy())).collect())
+            .unwrap_or_default();
+        nodes.sort_unstable();
+        nodes
+    }
+
+    const EGL_DEVICE_EXT: c_int = 0x322C;
+    const EGL_DRM_DEVICE_FILE_EXT: c_int = 0x3233;
+    const EGL_DRM_RENDER_NODE_FILE_EXT: c_int = 0x3377;
+
+    type QueryDisplayAttrib = unsafe extern "C" fn(*mut c_void, c_int, *mut isize) -> c_uint;
+    type QueryDeviceString = unsafe extern "C" fn(*mut c_void, c_int) -> *const c_char;
+
+    fn owned(text: *const c_char) -> Option<String> {
+        // SAFETY (caller): EGL's static string or null.
+        (!text.is_null()).then(|| unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned())
+    }
+
+    fn listed(extensions: &Option<String>, name: &str) -> bool {
+        extensions.as_deref().is_some_and(|extensions| extensions.split_ascii_whitespace().any(|e| e == name))
+    }
+
+    /// The render node of the GPU the current EGL display runs on (`EGL_EXT_device_query`): the
+    /// one its device names (`EGL_EXT_device_drm_render_node`), or the one beside the card node
+    /// it names (`EGL_EXT_device_drm`, older drivers), found in sysfs.
+    fn egl_render_node() -> Result<u32, String> {
+        // SAFETY: SDL's EGL lookups on the renderer's thread; each pointer is cast to its Khronos
+        // signature, and the device is the display's.
+        unsafe {
+            let display = SDL_EGL_GetCurrentDisplay();
+            if display.is_null() {
+                return Err("the renderer's context is not an EGL context".into());
+            }
+            let query: QueryString = function(SDL_EGL_GetProcAddress(c"eglQueryString".as_ptr()), "eglQueryString")?;
+            // EGL_NO_DISPLAY: the client extensions.
+            let client = owned(query(std::ptr::null_mut(), EGL_EXTENSIONS));
+            if !listed(&client, "EGL_EXT_device_query") && !listed(&client, "EGL_EXT_device_base") {
+                return Err("EGL does not name its devices (no EGL_EXT_device_query)".into());
+            }
+            let query_display: QueryDisplayAttrib = function(SDL_EGL_GetProcAddress(c"eglQueryDisplayAttribEXT".as_ptr()), "eglQueryDisplayAttribEXT")?;
+            let query_device: QueryDeviceString = function(SDL_EGL_GetProcAddress(c"eglQueryDeviceStringEXT".as_ptr()), "eglQueryDeviceStringEXT")?;
+            let mut device = 0isize;
+            if query_display(display, EGL_DEVICE_EXT, &mut device) == 0 || device == 0 {
+                return Err("EGL does not name the display's device".into());
+            }
+            let device = device as *mut c_void;
+            let extensions = owned(query_device(device, EGL_EXTENSIONS));
+            if listed(&extensions, "EGL_EXT_device_drm_render_node") {
+                if let Some(path) = owned(query_device(device, EGL_DRM_RENDER_NODE_FILE_EXT)) {
+                    return render_node_minor(&path).ok_or_else(|| format!("EGL names {path}, not a render node"));
+                }
+            }
+            if listed(&extensions, "EGL_EXT_device_drm") {
+                if let Some(card) = owned(query_device(device, EGL_DRM_DEVICE_FILE_EXT)) {
+                    return card_render_node(&card);
+                }
+            }
+            Err(format!("the display's EGL device names no DRM node ({})", extensions.as_deref().unwrap_or("no device extensions")))
+        }
+    }
+
+    /// The render node of the GPU whose card node is `card` (`/dev/dri/card1`): its sysfs device
+    /// lists both.
+    fn card_render_node(card: &str) -> Result<u32, String> {
+        let name = card.rsplit('/').next().unwrap_or(card);
+        let directory = format!("/sys/class/drm/{name}/device/drm");
+        let entries = std::fs::read_dir(&directory).map_err(|e| format!("EGL names {card}, and {directory} cannot be read: {e}"))?;
+        entries
+            .filter_map(|entry| render_node_minor(&entry.ok()?.file_name().to_string_lossy()))
+            .min()
+            .ok_or_else(|| format!("EGL names {card}, which has no render node in {directory}"))
     }
 
     type CreateImage = unsafe extern "C" fn(*mut c_void, *mut c_void, c_uint, *mut c_void, *const i32) -> *mut c_void;
@@ -431,6 +554,52 @@ mod tests {
         for other in ["opengles2", "gpu", "vulkan", "software", "direct3d11"] {
             assert!(!imports_into(other), "{other}");
         }
+    }
+
+    #[test]
+    fn render_nodes_are_read_from_paths_and_sysfs_names() {
+        assert_eq!(render_node_minor("/dev/dri/renderD129"), Some(129));
+        assert_eq!(render_node_minor("renderD128"), Some(128));
+        for other in ["/dev/dri/card1", "card0", "controlD64", "renderD", "/dev/dri/renderDx", "by-path"] {
+            assert_eq!(render_node_minor(other), None, "{other}");
+        }
+    }
+
+    /// A hybrid PC (a user's Iris Xe at renderD128 beside an RX 9060 XT at renderD129, the
+    /// monitor on the Radeon): VAAPI opened on FFmpeg's default device, the Intel GPU, and the
+    /// Radeon's EGL refused every picture's Y-tiled layout (modifier 0x0100000000000002), so each
+    /// one went through memory and the decoder fell behind above 60 fps.
+    #[test]
+    fn vaapi_opens_on_the_opengl_renderers_gpu_when_it_is_not_the_default_device() {
+        let (node, line) = display_vaapi_node(Ok(129), &[128, 129]);
+        assert_eq!(node, Some(129));
+        assert!(line.contains("/dev/dri/renderD129") && line.contains("default device /dev/dri/renderD128"), "{line}");
+        // The display on the integrated GPU: the default device already is the renderer's.
+        let (node, line) = display_vaapi_node(Ok(128), &[128, 129]);
+        assert_eq!(node, None);
+        assert!(line.contains("default device /dev/dri/renderD128, the OpenGL renderer's GPU"), "{line}");
+    }
+
+    /// One GPU, AMD's or Intel's, is FFmpeg's default device: VAAPI opens as it always has.
+    #[test]
+    fn a_single_gpu_keeps_the_default_device() {
+        for single in [[128], [129]] {
+            let (node, line) = display_vaapi_node(Ok(single[0]), &single);
+            assert_eq!(node, None, "{line}");
+            assert!(line.contains("the OpenGL renderer's GPU"), "{line}");
+        }
+    }
+
+    /// Unknown or unlisted, the display's GPU changes nothing, and the log says why.
+    #[test]
+    fn an_unknown_display_gpu_keeps_the_default_device_and_says_why() {
+        let (node, line) = display_vaapi_node(Err("EGL does not name its devices (no EGL_EXT_device_query)".into()), &[128, 129]);
+        assert_eq!(node, None);
+        assert!(line.contains("unknown (EGL does not name its devices (no EGL_EXT_device_query))"), "{line}");
+        let (node, line) = display_vaapi_node(Ok(130), &[128, 129]);
+        assert_eq!(node, None);
+        assert!(line.contains("/dev/dri/renderD130, is not among the render nodes here (/dev/dri/renderD128, /dev/dri/renderD129)"), "{line}");
+        assert_eq!(display_vaapi_node(Ok(128), &[]).0, None, "no render node listed (a sandbox without /dev/dri)");
     }
 
     #[test]

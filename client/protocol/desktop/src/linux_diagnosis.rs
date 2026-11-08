@@ -321,6 +321,7 @@ mod tests {
         let missing = Diagnosis::FlatpakWithoutNvidiaGl { extension: "org.freedesktop.Platform.GL.nvidia-550-54-14".into() };
         assert_eq!(diagnose(&flatpak, Err("no device"), None, false), std::slice::from_ref(&missing));
         assert!(missing.line().contains("flatpak update"));
+        assert!(missing.toast().contains("org.freedesktop.Platform.GL.nvidia-550-54-14"), "the toast names the extension to install");
         let installed = System { gl_extensions: vec!["default".into(), "nvidia-550-54-14".into()], ..flatpak };
         assert!(diagnose(&installed, Err("no device"), Some(&vulkan(&[Codec::Hevc])), false).is_empty());
     }

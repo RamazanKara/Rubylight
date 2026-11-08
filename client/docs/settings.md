@@ -527,7 +527,9 @@ The Controllers group can be changed while **Controllers** is on. On-screen cont
 | Wait through network dropouts | 3 seconds | 0, 3, 5, 10, 15 seconds | Keeps the session through brief network interruptions. |
 | *Network tests:* Network speed test | | Action, per PC | Receives 32 MiB from the PC to measure throughput, on paired hosts that offer the test. |
 | PyroWave frame pace | | Action, per PC | Finds and saves a frame pace for PyroWave on this network. Can take several minutes and uses substantial data. |
-| *Fine-tuning:* USB forwarding | Off | On, Off | Attaches USB devices to the PC from the stream controls; see [USB devices](sharing.md#usb-devices). On Windows a device needs the WinUSB driver. |
+| *Fine-tuning:* Dual screen mode | Off | On, Off | With a second monitor and a PC that supports it, a second stream of the same game opens borderless full screen on the other monitor. Sound, controllers and the microphone stay with the first screen; it ends with the first stream and does not ask for the PIN again. |
+| Second screen resolution | Second screen's own size | Second screen's own size, 640x360, 854x480, 1280x720, 1920x1080, 2560x1440, 3840x2160 | With Dual screen mode on. The second stream's size, apart from the first's. |
+| USB forwarding | Off | On, Off | Attaches USB devices to the PC from the stream controls; see [USB devices](sharing.md#usb-devices). On Windows a device needs the WinUSB driver. |
 
 ### App
 

@@ -1417,4 +1417,9 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("This device doesn’t decode {}, so Nightjar uses {}.", "このデバイスは{0}をデコードできないため、Nightjarは{1}を使います。"),
     ("Full chroma can’t run {} with this PC and device, so Nightjar uses {}.", "このPCとデバイスではフルクロマで{0}を使えないため、Nightjarは{1}を使います。"),
     ("The second screen could not be opened.", "2 つ目の画面を開けませんでした。"),
+    ("Dual screen mode", "デュアルスクリーンモード"),
+    ("With a second monitor, a second stream of the same game opens full screen on it. Sound, controllers and the microphone stay with the first screen. Works with PCs that support it.", "2 台目のモニターがあると、同じゲームの 2 つ目のストリームがそのモニターに全画面で開きます。音声、コントローラー、マイクは 1 つ目の画面に残ります。対応している PC で使えます。"),
+    ("Second screen resolution", "2 つ目の画面の解像度"),
+    ("The resolution of the second screen's stream, apart from the first screen's.", "2 つ目の画面のストリームの解像度です。1 つ目の画面とは別に設定します。"),
+    ("Second screen's own size", "2 つ目の画面の本来のサイズ"),
 ];

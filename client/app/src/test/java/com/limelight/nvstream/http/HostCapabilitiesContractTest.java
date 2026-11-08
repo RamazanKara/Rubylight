@@ -82,6 +82,7 @@ public class HostCapabilitiesContractTest {
             case CLIENT_KEYBOARD_LAYOUT: return "client_keyboard_layout";
             case PEN_BARREL_ROLL: return "pen_barrel_roll";
             case PIPELINE_RATES: return "pipeline_rates";
+            case SECOND_SCREEN: return "second_screen";
             case IMAGE_CLIPBOARD: return "image_clipboard";
             case SHARED_FOLDERS: return "shared_folders";
             case COOP: return "coop";

@@ -49,6 +49,7 @@
     "client_keyboard_layout": "supported",
     "pen_barrel_roll": "supported",
     "pipeline_rates": "supported",
+    "second_screen": "supported",
     "image_clipboard": "supported",
     "shared_folders": "supported",
     "coop": "supported",

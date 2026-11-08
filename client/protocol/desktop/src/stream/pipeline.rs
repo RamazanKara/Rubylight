@@ -917,11 +917,11 @@ impl Decoder {
         }
     }
 
-    /// The render node VAAPI opens on (`media::vaapi_node`, as the probes ask), for unpacked
-    /// pictures; packed ones open on the default device, as their probe does.
-    fn vaapi_node(&self, setup: &VideoSetup) -> Option<u32> {
+    /// The device VAAPI opens on (`media::vaapi_node`, as the probes ask), for unpacked pictures;
+    /// packed ones open on the default device, as their probe does.
+    fn vaapi_node(&self, setup: &VideoSetup) -> media::VaapiNode {
         if setup.chroma_packing != 0 {
-            return None;
+            return media::VaapiNode::Default;
         }
         media::vaapi_node(self.hardware)
     }
@@ -932,7 +932,7 @@ impl Decoder {
             eprintln!("nightjar: VAAPI pictures go to the renderer as DMA-BUFs");
         } else {
             #[cfg(unix)]
-            if let Hardware::Auto(gpu) = self.hardware {
+            if let Hardware::Auto(gpu, _) = self.hardware {
                 if !gpu.is_null() && setup.chroma_packing == 0 {
                     decoder.map_to_vulkan(gpu);
                 }

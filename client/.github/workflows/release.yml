@@ -170,8 +170,10 @@ jobs:
           key: ffmpeg-decode-only-linux-${{ matrix.arch }}-${{ steps.image.outputs.os }}-${{ env.FFMPEG_VERSION }}-${{ env.FFMPEG_SHA256 }}-${{ hashFiles('protocol/desktop/ffmpeg-decode-only.sh', 'protocol/desktop/ffmpeg-deps-linux.sh', 'protocol/desktop/ffmpeg-patches/*.patch') }}
       - name: Build the decode-only FFmpeg
         if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        # Downloads retry for about 5 minutes: on 2026-11-08 ffmpeg.org and GitHub release
+        # assets answered the runners with 504s long enough to fail the 4.10.0 tag run.
         run: |
-          curl -sSLf --retry 5 --retry-all-errors -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
+          curl -sSLf --retry 10 --retry-delay 30 --retry-all-errors -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
           echo "$FFMPEG_SHA256  ffmpeg.tar.xz" | sha256sum -c -
           tar -xf ffmpeg.tar.xz
           bash protocol/desktop/ffmpeg-deps-linux.sh "$RUNNER_TEMP/ffdeps"
@@ -244,9 +246,9 @@ jobs:
           tools="$RUNNER_TEMP/packaging-tools"
           mkdir -p "$tools"
           cd "$tools"
-          curl -sSLf --retry 5 --retry-all-errors -o nfpm.tar.gz "https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION/nfpm_${NFPM_VERSION}_Linux_$NFPM_ASSET.tar.gz"
-          curl -sSLf --retry 5 --retry-all-errors -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-$NJ_ARCH.AppImage"
-          curl -sSLf --retry 5 --retry-all-errors -o appimage-runtime "https://github.com/AppImage/type2-runtime/releases/download/$APPIMAGE_RUNTIME_VERSION/runtime-$NJ_ARCH"
+          curl -sSLf --retry 10 --retry-delay 30 --retry-all-errors -o nfpm.tar.gz "https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION/nfpm_${NFPM_VERSION}_Linux_$NFPM_ASSET.tar.gz"
+          curl -sSLf --retry 10 --retry-delay 30 --retry-all-errors -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-$NJ_ARCH.AppImage"
+          curl -sSLf --retry 10 --retry-delay 30 --retry-all-errors -o appimage-runtime "https://github.com/AppImage/type2-runtime/releases/download/$APPIMAGE_RUNTIME_VERSION/runtime-$NJ_ARCH"
           printf '%s  %s\n' "$NFPM_SHA256" nfpm.tar.gz "$APPIMAGETOOL_SHA256" appimagetool "$APPIMAGE_RUNTIME_SHA256" appimage-runtime | sha256sum -c -
           tar -xzf nfpm.tar.gz nfpm
           chmod +x nfpm appimagetool
@@ -420,7 +422,7 @@ jobs:
       - name: Build the decode-only FFmpeg
         if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
         run: |
-          curl -sSLf --retry 5 --retry-all-errors -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
+          curl -sSLf --retry 10 --retry-delay 30 --retry-all-errors -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
           echo "$FFMPEG_SHA256  ffmpeg.tar.xz" | sha256sum -c -
           tar -xf ffmpeg.tar.xz
           # The script needs an MSYS2 UCRT64 shell; a login shell sets its PATH up.
@@ -499,7 +501,7 @@ jobs:
         run: |
           $setup = Join-Path $env:RUNNER_TEMP "innosetup-$env:INNO_SETUP_VERSION.exe"
           $tag = 'is-' + $env:INNO_SETUP_VERSION.Replace('.', '_')
-          Invoke-WebRequest "https://github.com/jrsoftware/issrc/releases/download/$tag/innosetup-$env:INNO_SETUP_VERSION.exe" -OutFile $setup -MaximumRetryCount 5 -RetryIntervalSec 5
+          Invoke-WebRequest "https://github.com/jrsoftware/issrc/releases/download/$tag/innosetup-$env:INNO_SETUP_VERSION.exe" -OutFile $setup -MaximumRetryCount 10 -RetryIntervalSec 30
           $sha = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($sha -ne $env:INNO_SETUP_SHA256) { throw "innosetup-$env:INNO_SETUP_VERSION.exe is $sha, expected $env:INNO_SETUP_SHA256" }
           $dir = Join-Path $env:RUNNER_TEMP 'inno-setup'

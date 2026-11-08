@@ -2068,8 +2068,20 @@ impl App {
             }
             Hardware::None
         } else {
-            Hardware::Auto(renderer_gpu_device(self.renderer).map_or(std::ptr::null_mut(), |device| device.0))
+            let gpu = renderer_gpu_device(self.renderer).map_or(std::ptr::null_mut(), |device| device.0);
+            Hardware::Auto(gpu, if gpu.is_null() { self.display_vaapi_node() } else { None })
         }
+    }
+
+    /// The render node VAAPI opens on for the OpenGL renderer: the GPU its EGL display runs on,
+    /// when that is not the default device (`dmabuf::renderer_vaapi_node`).
+    fn display_vaapi_node(&self) -> Option<u32> {
+        #[cfg(unix)]
+        {
+            dmabuf::renderer_vaapi_node(self.renderer)
+        }
+        #[cfg(not(unix))]
+        None
     }
 
     /// Whether VAAPI pictures go to the renderer as DMA-BUFs (`dmabuf`): its OpenGL renderer on

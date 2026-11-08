@@ -163,7 +163,9 @@ pub fn base_probe_formats(settings: &Settings) -> u32 {
 
 /// The formats a launch offers: the codec choice's, and the 4:4:4 and 10-bit ones the settings
 /// add where this device (`decodable`, from the probe) and the PC (`scm`) both handle them.
-/// Packed full chroma offers the plain formats whatever the PC reports.
+/// Packed full chroma offers the plain formats whatever the PC reports. Launches go through
+/// [`offered_formats_decoding`]; this is the same offer with every format decodable.
+#[cfg(test)]
 pub(super) fn offered_formats(settings: &Settings, scm: u32, decodable: &(u32, String)) -> color::Offer {
     offered_formats_decoding(settings, scm, decodable, color_probe::BASE_FORMATS)
 }

@@ -1167,11 +1167,12 @@ mod tests {
         super::super::drm_vrr::Display { name: Some("DP-1".into()), width: 3440, height: 1440, refresh_hz: 144.0 }
     }
 
-    /// Waits for the read thread to leave its reading.
+    /// Waits for the background read. A quick read can land before the present that started it
+    /// decides, which takes it at once: then the probe holds it and the slot stays empty.
     #[cfg(target_os = "linux")]
     fn read_done(probe: &RaceProbe) {
         for _ in 0..5000 {
-            if probe.drm_slot.lock().unwrap().is_some() { return; }
+            if probe.drm.is_some() || probe.drm_slot.lock().unwrap().is_some() { return; }
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
         panic!("the read never came");

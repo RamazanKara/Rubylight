@@ -314,8 +314,8 @@ fn the_section_key_table_is_what_the_page_draws() {
     let only_here = |key: &str| match key {
         "native_touchpad" => cfg!(windows),
         "check_updates" => crate::self_update::current().checks(),
-        "network_priority" => cfg!(target_os = "linux"),
-        "renderer" => cfg!(unix),
+        "network_priority" => cfg!(any(target_os = "linux", windows)),
+        "renderer" | "vulkan_video_first" | "vulkan_rfi" => cfg!(unix),
         _ => true,
     };
     for (at, section) in SETTINGS_SECTIONS.iter().enumerate() {
@@ -334,14 +334,16 @@ fn the_section_key_table_is_what_the_page_draws() {
 #[test]
 fn the_rarely_needed_settings_are_in_the_debug_section_only() {
     // Android's main rows in its order, then the desktop's own in Fine-tuning.
-    const DEBUG: [&str; 10] = ["error_correction", "client_hint_bitrate", "tell_host_wireless", "tell_host_link_speed",
-        "network_priority", "unbatched_input", "full_range", "decoder", "renderer", "cursor_shapes"];
+    const DEBUG: [&str; 13] = ["error_correction", "client_hint_bitrate", "tell_host_wireless", "tell_host_link_speed",
+        "network_priority", "unbatched_input", "full_range", "decoder", "software_slices", "vulkan_video_first", "vulkan_rfi",
+        "renderer", "cursor_shapes"];
     assert_eq!(SETTINGS_SECTIONS.last(), Some(&"Debug"));
-    // Prioritize stream traffic does something on Linux only, so only Linux draws it; the
-    // renderer is Linux's choice for the whole app, so a PC's settings do not have it.
+    // Prioritize stream traffic does something on Linux and Windows, so only they draw it; Vulkan
+    // video is Linux's; the renderer is Linux's choice for the whole app, so a PC's settings do not have it.
     let wanted = |screen: Screen| -> Vec<&str> {
         DEBUG.into_iter()
-            .filter(|k| *k != "network_priority" || cfg!(target_os = "linux"))
+            .filter(|k| *k != "network_priority" || cfg!(any(target_os = "linux", windows)))
+            .filter(|k| !matches!(*k, "vulkan_video_first" | "vulkan_rfi") || cfg!(unix))
             .filter(|k| *k != "renderer" || (cfg!(unix) && screen == Screen::Settings))
             .collect()
     };

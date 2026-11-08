@@ -209,7 +209,8 @@ struct App {
     color_probed: Option<(Hardware, (u32, String))>,
     /// The plain HEVC and AV1 decoder check (`color_probe::probe_base`), kept the same way for
     /// the decoder and the formats it checked.
-    base_probed: Option<((Hardware, u32), stream::color_probe::Base)>,
+    // Keyed by the Vulkan video Debug settings too: they change the backend order and RFI.
+    base_probed: Option<((Hardware, u32, bool, bool), stream::color_probe::Base)>,
     /// Linux's renderer as it was made ([`RendererState`]).
     #[cfg(unix)]
     renderer_state: RendererState,
@@ -2351,6 +2352,8 @@ impl App {
                 }
             }
         }
+        // Before any decoder probe: the Vulkan video Debug settings change the backend order.
+        media::use_vulkan_video_settings(settings.vulkan_video_first, settings.vulkan_rfi);
         let packed_modes = if settings.experimental_packed_444 {
             match stream::packed444::probe(self.renderer, self.hardware(&settings)) {
                 Ok(modes) => modes,
@@ -2374,7 +2377,8 @@ impl App {
         let base_decodable = match (self.hardware(&settings), stream::base_probe_formats(&settings)) {
             (Hardware::None, _) => stream::color_probe::Base::software(),
             (hardware, wanted) => {
-                probed_once(&mut self.base_probed, (hardware, wanted), || stream::color_probe::probe_base(hardware, wanted))
+                let key = (hardware, wanted, settings.vulkan_video_first, settings.vulkan_rfi);
+                probed_once(&mut self.base_probed, key, || stream::color_probe::probe_base(hardware, wanted))
             }
         };
         let (Some(identity), Some(host)) = (identity, self.hosts.get(host_id)) else {

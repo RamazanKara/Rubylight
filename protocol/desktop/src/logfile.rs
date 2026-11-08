@@ -969,6 +969,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    // Regression: "H.264 4:4:4 is not offered" was logged as "H.264 [address] is not offered".
+    #[test]
+    fn chroma_formats_stay_and_ipv6_addresses_go() {
+        let mut out = Vec::new();
+        Redactor::default().push(b"H.264 4:4:4 is not offered: HEVC 4:2:0 via 2001:db8:0:0:1:2:3:4 or fe80::1\n", &mut out);
+        assert_eq!(String::from_utf8(out).unwrap(), "H.264 4:4:4 is not offered: HEVC 4:2:0 via [address] or [address]\n");
+    }
+
     #[test]
     fn a_line_longer_than_the_limit_is_written_in_parts() {
         let mut redactor = Redactor::default();

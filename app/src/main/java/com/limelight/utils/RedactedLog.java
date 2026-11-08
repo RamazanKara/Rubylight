@@ -30,7 +30,7 @@ public final class RedactedLog {
             "USB controller attached", "USB controller detached", "USB permission denied",
             "Bluetooth or Android controller detached", "Connection test started", "Connection test finished");
     private final ArrayDeque<String> entries = new ArrayDeque<>();
-    // Stamps each entry in UTC when set. Added after redaction, whose address patterns would eat a time.
+    // Stamps each entry in UTC when set. Added after redaction, which must not see it.
     private final LongSupplier clockMs;
     // Names and addresses known to belong to the user's PCs; replaced wherever they appear.
     private static final Set<String> SECRETS = java.util.concurrent.ConcurrentHashMap.newKeySet();
@@ -43,7 +43,8 @@ public final class RedactedLog {
             // Any character past ASCII too: Android's \w is Unicode, the JVM's (and Rust's copy) not.
             java.util.regex.Pattern.compile("[\\w\\x{80}-\\x{10FFFF}.+-]+@[\\w\\x{80}-\\x{10FFFF}-]+(?:\\.[\\w\\x{80}-\\x{10FFFF}-]+)+"),
             java.util.regex.Pattern.compile("\\b\\d{1,3}(?:\\.\\d{1,3}){3}(?::\\d+)?\\b"),
-            java.util.regex.Pattern.compile("[0-9a-fA-F]{0,4}(?::[0-9a-fA-F]{0,4}){2,7}(?:%\\w+)?"),
+            // Groups around a "::", or five to eight without one: 4:4:4 and times stay readable.
+            java.util.regex.Pattern.compile("(?:[0-9a-fA-F]{0,4}(?::[0-9a-fA-F]{0,4}){0,6}::[0-9a-fA-F]{0,4}(?::[0-9a-fA-F]{0,4}){0,6}|(?:[0-9a-fA-F]{1,4}:){4,7}[0-9a-fA-F]{1,4})(?:%\\w+)?"),
             java.util.regex.Pattern.compile("\\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\b"),
             java.util.regex.Pattern.compile("\\b[0-9a-fA-F]{16,}\\b"),
             java.util.regex.Pattern.compile("[A-Za-z0-9+/=_-]{32,}"),

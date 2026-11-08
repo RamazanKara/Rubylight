@@ -1416,4 +1416,5 @@ sudo sysctl -w net.core.rmem_max={}", "Bufor odbioru: system przydzielił {0} Ki
     ("{} cannot decode this stream, and no other decoder opens: {}", "{0} nie może dekodować tego strumienia i żaden inny dekoder się nie otwiera: {1}"),
     ("This device doesn’t decode {}, so Nightjar uses {}.", "To urządzenie nie dekoduje {0}, więc Nightjar używa {1}."),
     ("Full chroma can’t run {} with this PC and device, so Nightjar uses {}.", "Pełna chrominancja nie może użyć {0} z tym komputerem i urządzeniem, więc Nightjar używa {1}."),
+    ("The second screen could not be opened.", "Nie udało się otworzyć drugiego ekranu."),
 ];

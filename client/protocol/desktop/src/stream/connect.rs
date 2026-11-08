@@ -838,6 +838,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         .and_then(|c| c.with_server_certificate_pem(pem))
         .map_err(|e| e.to_string())?
         .with_https_port(plan.info.https_port);
+    let client = if crate::second_screen::this_process() { client.with_second_screen() } else { client };
     let client = Arc::new(client);
     *lock(&shared.host_client) = Some(client.clone());
     if interrupt.is_interrupted() {

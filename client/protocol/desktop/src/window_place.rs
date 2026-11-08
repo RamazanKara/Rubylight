@@ -59,6 +59,30 @@ fn displays() -> Vec<(SDL_DisplayID, String, Rect)> {
     }
 }
 
+/// Each display's id and whole bounds.
+pub fn display_bounds() -> Vec<(SDL_DisplayID, Rect)> {
+    displays().into_iter().map(|(id, _, _)| {
+        let mut r = SDL_Rect::default();
+        // SAFETY: an id SDL just listed; on failure the bounds stay empty.
+        unsafe { SDL_GetDisplayBounds(id, &mut r) };
+        (id, Rect { x: r.x, y: r.y, w: r.w, h: r.h })
+    }).collect()
+}
+
+/// Moves the hidden new window to the middle of the display that holds `point` (the second screen's
+/// monitor, `second_screen.rs`). False, with the window left where it is, when no display holds it.
+pub fn move_to_display_at(window: *mut SDL_Window, point: (i32, i32)) -> bool {
+    // SAFETY: a live window on the main thread; the point is plain data.
+    unsafe {
+        let id = SDL_GetDisplayForPoint(&SDL_Point { x: point.0, y: point.1 });
+        if id == 0 {
+            return false;
+        }
+        let centred = SDL_WINDOWPOS_CENTERED_DISPLAY(id);
+        SDL_SetWindowPosition(window, centred, centred)
+    }
+}
+
 /// Moves the hidden new window to its saved place, or leaves it on the primary display (logged).
 pub fn apply(window: *mut SDL_Window, saved: Option<&Placement>) {
     let Some(saved) = saved else { return };

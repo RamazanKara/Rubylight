@@ -1416,4 +1416,5 @@ sudo sysctl -w net.core.rmem_max={}", "Búfer de recepción: el sistema concedi�
     ("{} cannot decode this stream, and no other decoder opens: {}", "{0} no puede decodificar esta transmisión y ningún otro decodificador se abre: {1}"),
     ("This device doesn’t decode {}, so Nightjar uses {}.", "Este dispositivo no decodifica {0}, así que Nightjar usa {1}."),
     ("Full chroma can’t run {} with this PC and device, so Nightjar uses {}.", "El croma completo no puede usar {0} con este PC y dispositivo, así que Nightjar usa {1}."),
+    ("The second screen could not be opened.", "No se pudo abrir la segunda pantalla."),
 ];

@@ -1416,4 +1416,5 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("{} cannot decode this stream, and no other decoder opens: {}", "{0}ではこのストリームをデコードできず、ほかのデコーダーも開けません：{1}"),
     ("This device doesn’t decode {}, so Nightjar uses {}.", "このデバイスは{0}をデコードできないため、Nightjarは{1}を使います。"),
     ("Full chroma can’t run {} with this PC and device, so Nightjar uses {}.", "このPCとデバイスではフルクロマで{0}を使えないため、Nightjarは{1}を使います。"),
+    ("The second screen could not be opened.", "2 つ目の画面を開けませんでした。"),
 ];

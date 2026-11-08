@@ -363,6 +363,14 @@ pub struct Settings {
     /// here, as text, with a Rubylight PC that allows this device its clipboard (0x5508,
     /// stream/clipboard_sync.rs). Off by default.
     pub clipboard_sync: bool,
+    /// Dual screen mode (Android's `checkbox_dual_screen`): with a second monitor and a PC that keeps
+    /// a device's second stream beside its first, a stream starts a second one of the same game,
+    /// full screen on the other monitor (`second_screen.rs`). Off by default.
+    pub dual_screen: bool,
+    /// The second screen's resolution (Android's `list_resolution_screen2`); 0x0 is its monitor's
+    /// own size.
+    pub second_screen_width: u32,
+    pub second_screen_height: u32,
     /// Tell a Rubylight PC when the route to it is Wi-Fi or cellular, so it paces for a wireless
     /// link from the first frame (`x-rl-video[0].clientWireless`). On by default.
     pub tell_host_wireless: bool,
@@ -826,6 +834,9 @@ impl Default for Settings {
             roaming_metered: false,
             usb_forwarding: false,
             clipboard_sync: false,
+            dual_screen: false,
+            second_screen_width: 0,
+            second_screen_height: 0,
             tell_host_wireless: true,
             tell_host_link_speed: true,
             unbatched_input: true,
@@ -1175,6 +1186,9 @@ impl Profiles {
 
 pub struct Store {
     dir: PathBuf,
+    /// The second screen's process (`second_screen.rs`) reads the files and leaves them as the
+    /// first screen's process writes them.
+    read_only: bool,
 }
 
 /// A game that was streamed, for Home's "Recently played". It names the PC by its unique id and
@@ -1427,7 +1441,19 @@ impl Store {
 
     pub fn at(dir: PathBuf) -> std::io::Result<Self> {
         std::fs::create_dir_all(&dir)?;
-        Ok(Self { dir })
+        Ok(Self { dir, read_only: false })
+    }
+
+    /// The same files, read and never written or removed: every save does nothing.
+    pub fn read_only(self) -> Self {
+        Self { read_only: true, ..self }
+    }
+
+    fn write<T: Serialize>(&self, path: &Path, value: &T) -> std::io::Result<()> {
+        if self.read_only {
+            return Ok(());
+        }
+        write_json(path, value)
     }
 
     pub fn dir(&self) -> &Path {
@@ -1441,7 +1467,7 @@ impl Store {
     }
 
     pub fn save_settings(&self, settings: &Settings) -> std::io::Result<()> {
-        write_json(&self.dir.join("settings.json"), settings)
+        self.write(&self.dir.join("settings.json"), settings)
     }
 
     pub fn profiles(&self) -> Profiles {
@@ -1449,7 +1475,7 @@ impl Store {
     }
 
     pub fn save_profiles(&self, profiles: &Profiles) -> std::io::Result<()> {
-        write_json(&self.dir.join("profiles.json"), profiles)
+        self.write(&self.dir.join("profiles.json"), profiles)
     }
 
     pub fn controller_mappings(&self) -> BTreeMap<String, crate::gamepad::Mapping> {
@@ -1472,11 +1498,11 @@ impl Store {
     }
 
     pub fn save_window_placement(&self, placement: &crate::window_place::Placement) -> std::io::Result<()> {
-        write_json(&self.dir.join("window.json"), placement)
+        self.write(&self.dir.join("window.json"), placement)
     }
 
     pub fn save_shortcuts(&self, shortcuts: &crate::shortcuts::Shortcuts) -> std::io::Result<()> {
-        write_json(&self.dir.join("shortcuts.json"), shortcuts)
+        self.write(&self.dir.join("shortcuts.json"), shortcuts)
     }
 
     /// The user's changes to the stream hotkeys, by action ID (nightjar-policy's `HotkeyBindings`),
@@ -1509,12 +1535,13 @@ impl Store {
         let path = self.dir.join(HOTKEYS_FILE);
         let (version, mut entries) = match read_hotkeys(&path) {
             Ok(Some(file)) => {
-                if file.version > HOTKEYS_VERSION {
+                if file.version > HOTKEYS_VERSION && !self.read_only {
                     back_up(&path, &format!("v{}", file.version))?;
                 }
                 (file.version.max(HOTKEYS_VERSION), file.kept)
             }
             Ok(None) => (HOTKEYS_VERSION, serde_json::Map::new()),
+            Err(_) if self.read_only => (HOTKEYS_VERSION, serde_json::Map::new()),
             Err(_) => {
                 back_up(&path, "unreadable")?;
                 (HOTKEYS_VERSION, serde_json::Map::new())
@@ -1523,11 +1550,11 @@ impl Store {
         for (id, text) in bindings {
             entries.insert(id.clone(), serde_json::Value::String(text.clone()));
         }
-        write_json(&path, &serde_json::json!({"version": version, "bindings": entries}))
+        self.write(&path, &serde_json::json!({"version": version, "bindings": entries}))
     }
 
     pub fn save_controller_mappings(&self, mappings: &BTreeMap<String, crate::gamepad::Mapping>) -> std::io::Result<()> {
-        write_json(&self.dir.join("controllers.json"), mappings)
+        self.write(&self.dir.join("controllers.json"), mappings)
     }
 
     pub fn identity(&self) -> Option<Identity> {
@@ -1535,7 +1562,7 @@ impl Store {
     }
 
     pub fn save_identity(&self, identity: &Identity) -> std::io::Result<()> {
-        write_json(&self.dir.join("identity.json"), identity)
+        self.write(&self.dir.join("identity.json"), identity)
     }
 
     pub fn hosts(&self) -> Vec<HostRecord> {
@@ -1543,7 +1570,7 @@ impl Store {
     }
 
     pub fn save_hosts(&self, hosts: &[HostRecord]) -> std::io::Result<()> {
-        write_json(&self.dir.join("hosts.json"), &hosts)
+        self.write(&self.dir.join("hosts.json"), &hosts)
     }
 
     pub fn recents(&self) -> Vec<Recent> {
@@ -1551,7 +1578,7 @@ impl Store {
     }
 
     pub fn save_recents(&self, recents: &[Recent]) -> std::io::Result<()> {
-        write_json(&self.dir.join("recent.json"), &recents)
+        self.write(&self.dir.join("recent.json"), &recents)
     }
 
     pub fn open_play(&self) -> OpenPlayState {
@@ -1559,7 +1586,7 @@ impl Store {
     }
 
     pub fn save_open_play(&self, state: &OpenPlayState) -> std::io::Result<()> {
-        write_json(&self.dir.join("open_play.json"), state)
+        self.write(&self.dir.join("open_play.json"), state)
     }
 
     pub fn favourites(&self) -> Vec<Favourite> {
@@ -1577,7 +1604,7 @@ impl Store {
     }
 
     pub fn save_favourites(&self, favourites: &[Favourite]) -> std::io::Result<()> {
-        write_json(&self.dir.join("favourites.json"), &favourites)
+        self.write(&self.dir.join("favourites.json"), &favourites)
     }
 
     /// The games hidden on this device, like the favourites' file; no other device reads it.
@@ -1595,7 +1622,7 @@ impl Store {
     }
 
     pub fn save_hidden_games(&self, games: &[Favourite]) -> std::io::Result<()> {
-        write_json(&self.dir.join("hidden-games.json"), &games)
+        self.write(&self.dir.join("hidden-games.json"), &games)
     }
 
     /// Box art cache: `art/<host>/<app>.img`, or `<app>-<version>.img` for a cover the host
@@ -1613,21 +1640,28 @@ impl Store {
 
     pub fn save_library(&self, host: &str, library: &NativeLibrary) -> std::io::Result<()> {
         let path = self.library_path(host);
+        if self.read_only {
+            return Ok(());
+        }
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        write_json(&path, library)
+        self.write(&path, library)
     }
 
     pub fn forget_library(&self, host: &str) {
-        let _ = std::fs::remove_file(self.library_path(host));
+        if !self.read_only {
+            let _ = std::fs::remove_file(self.library_path(host));
+        }
     }
 
     /// Everything kept for a PC that is removed: its library, its covers, and its games in the
     /// recent and favourite lists. Returns both lists as they are now.
     pub fn forget_host(&self, host: &str, recents: &[Recent], favourites: &[Favourite]) -> (Vec<Recent>, Vec<Favourite>) {
         self.forget_library(host);
-        let _ = std::fs::remove_dir_all(self.dir.join("art").join(sanitize(host)));
+        if !self.read_only {
+            let _ = std::fs::remove_dir_all(self.dir.join("art").join(sanitize(host)));
+        }
         let mut open_play = self.open_play();
         if open_play.game.as_ref().is_some_and(|g| g.host == host) {
             open_play.game = None;
@@ -1768,6 +1802,36 @@ mod tests {
         remember(&mut list, recent("pc", "A", 1, 10));
         store.save_recents(&list).unwrap();
         assert_eq!(Store::at(dir.clone()).unwrap().recents(), list);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn the_second_screens_store_reads_the_files_and_writes_none() {
+        let dir = std::env::temp_dir().join(format!("nightjar-read-only-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = Store::at(dir.clone()).unwrap();
+        let settings = Settings { dual_screen: true, second_screen_width: 1280, second_screen_height: 720, ..Settings::default() };
+        store.save_settings(&settings).unwrap();
+        store.save_hosts(&[HostRecord { name: "pc".into(), ..HostRecord::default() }]).unwrap();
+        let before: Vec<_> = ["settings.json", "hosts.json"].iter().map(|f| std::fs::read(dir.join(f)).unwrap()).collect();
+
+        let second = Store::at(dir.clone()).unwrap().read_only();
+        assert_eq!(second.settings(), settings, "it reads what the first wrote");
+        assert_eq!(second.hosts()[0].name, "pc");
+        second.save_settings(&Settings::default()).unwrap();
+        second.save_hosts(&[]).unwrap();
+        second.save_recents(&[recent("pc", "A", 1, 10)]).unwrap();
+        second.save_hotkeys(&BTreeMap::from([("overlay".to_owned(), "Ctrl+O".to_owned())])).unwrap();
+        let library = second.library_path("pc");
+        std::fs::create_dir_all(library.parent().unwrap()).unwrap();
+        std::fs::write(&library, "{}").unwrap();
+        second.forget_host("pc", &[], &[]);
+        assert!(library.exists(), "a PC's library stays");
+        let after: Vec<_> = ["settings.json", "hosts.json"].iter().map(|f| std::fs::read(dir.join(f)).unwrap()).collect();
+        assert_eq!(after, before);
+        for written in ["recent.json", HOTKEYS_FILE] {
+            assert!(!dir.join(written).exists(), "{written} written");
+        }
         std::fs::remove_dir_all(dir).ok();
     }
 

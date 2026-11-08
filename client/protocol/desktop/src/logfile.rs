@@ -39,7 +39,9 @@ pub const PREV: &str = "nightjar.prev.log";
 /// `<config dir>/logs`, next to the settings (the same resolver as the config: `NIGHTJAR_CONFIG_DIR`
 /// or the platform directory).
 pub fn logs_dir() -> io::Result<PathBuf> {
-    Ok(crate::config::config_dir()?.join("logs"))
+    let logs = crate::config::config_dir()?.join("logs");
+    // The second screen's process (dual screen mode) runs beside the first and keeps its own.
+    Ok(if crate::second_screen::this_process() { logs.join("second-screen") } else { logs })
 }
 
 /// Show the logs folder in the system's file manager.

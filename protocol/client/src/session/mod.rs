@@ -387,6 +387,8 @@ pub(crate) struct Shared {
     /// Set by [`Session::watch_host`]: what a connection that ended with the host's goodbye is
     /// checked with.
     host_watch: Mutex<Option<HostWatch>>,
+    /// What raising the stream's threads came to so far, each said once (`raise_thread`).
+    raise_outcomes: Mutex<Vec<String>>,
 }
 
 /// Where [`Session::watch_host`] looks for the PC.
@@ -413,6 +415,7 @@ impl Shared {
             decode_priority: priority::decode_priority_switch(decode_priority),
             wire_bytes: AtomicU64::new(0),
             host_watch: Mutex::new(None),
+            raise_outcomes: Mutex::new(Vec::new()),
         }
     }
 
@@ -512,16 +515,31 @@ impl Shared {
         self.raise_thread(priority::StreamThread::VideoDecode);
     }
 
-    /// Says once per thread what raised it, or why nothing did.
+    /// Raises the calling thread, saying in the log what raised it or why nothing did once per
+    /// outcome and stream: the stream's threads raised alike make one line, not one each.
     fn raise_thread(&self, thread: priority::StreamThread) {
         let level = priority::thread_level(thread, self.network_priority, self.decode_priority);
         let name = std::thread::current().name().unwrap_or("a stream thread").to_owned();
-        match priority::raise_current_thread(level) {
-            Ok(Some(raised)) => self.log(&format!("Raised {name} to {raised}")),
-            Ok(None) => {}
-            Err(e) => self.warn(&format!("Could not raise the priority of {name}: {e}")),
+        let (outcome, line, warning) = match priority::raise_current_thread(level) {
+            Ok(Some(raised)) => (format!("{raised}"), format!("Raised stream threads to {raised}, from {name} on"), false),
+            Ok(None) => return,
+            Err(e) => (format!("refused: {e}"), format!("Could not raise the priority of stream threads, from {name} on: {e}"), true),
+        };
+        if !first_outcome(&self.raise_outcomes, outcome) {
+            return;
         }
+        if warning { self.warn(&line) } else { self.log(&line) }
     }
+}
+
+/// Whether `outcome` is new to `seen`, which keeps it from then on.
+fn first_outcome(seen: &Mutex<Vec<String>>, outcome: String) -> bool {
+    let mut seen = seen.lock().unwrap_or_else(|e| e.into_inner());
+    if seen.contains(&outcome) {
+        return false;
+    }
+    seen.push(outcome);
+    true
 }
 
 struct Microphone {
@@ -1552,6 +1570,17 @@ mod tests {
             warnings: Mutex::new(Vec::new()),
         });
         (heard, receiver)
+    }
+
+    #[test]
+    fn stream_threads_raised_alike_make_one_log_line_per_stream() {
+        let (first, _) = heard();
+        let shared = Shared::new(first, true, false);
+        assert!(first_outcome(&shared.raise_outcomes, "nice -10".into()));
+        assert!(!first_outcome(&shared.raise_outcomes, "nice -10".into()), "the next thread raised alike is not listed");
+        assert!(first_outcome(&shared.raise_outcomes, "refused: EPERM".into()), "another outcome is");
+        let (next, _) = heard();
+        assert!(first_outcome(&Shared::new(next, true, false).raise_outcomes, "nice -10".into()), "each stream says it again");
     }
 
     #[test]

@@ -15,6 +15,8 @@ pub(crate) mod ffi {
 }
 use ffi::*;
 
+use crate::stream::stage_times::Stages;
+
 #[derive(Clone, Copy)]
 pub struct FrameInfo {
     pub width: c_int,
@@ -546,7 +548,14 @@ pub struct VideoDecoder {
     /// said so.
     refused: bool,
     told: bool,
+    /// A hardware decoder's time per picture in `send`, in FFmpeg's `receive` and in handing the
+    /// picture on (DMA-BUF export, Vulkan map, copy to memory), summed up in the log when it
+    /// closes after a stream's worth of pictures.
+    stages: Option<Box<Stages<3>>>,
 }
+
+/// The stages of `VideoDecoder::stages`.
+const DECODE_STAGES: [&str; 3] = ["send", "receive", "hand-off"];
 
 /// The size of the pooled packet buffers for a packet of `needed` bytes with its padding: a
 /// quarter more, in whole 64 KiB, so a stream whose frames grow slowly does not remake the pool
@@ -710,6 +719,7 @@ impl VideoDecoder {
                 spare: None,
                 refused: false,
                 told: false,
+                stages: (hardware != Hardware::None).then(|| Box::new(Stages::new(DECODE_STAGES))),
             };
             if video.context.is_null() || video.packet.is_null() {
                 return Err("Could not allocate the video decoder.".into());
@@ -929,6 +939,20 @@ impl VideoDecoder {
         }
     }
 
+    /// How this decoder's pictures reach the presenter, for the `video path:` line.
+    #[cfg(target_os = "linux")]
+    pub fn route(&self) -> &'static str {
+        match self.hardware {
+            Hardware::Vaapi if self.vulkan_map.is_some() => "mapped into the renderer's Vulkan images",
+            Hardware::Vaapi if self.dmabuf.is_some() => "imported as DMA-BUFs",
+            Hardware::Vulkan(_) => "Vulkan images on the renderer's device",
+            Hardware::D3d11(_) => "D3D11 textures on the renderer's device",
+            Hardware::Cuda => "copied out of CUDA memory",
+            Hardware::None => "decoded in memory",
+            _ => "through memory",
+        }
+    }
+
     /// Hands VAAPI pictures to the presenter as DMA-BUFs instead of CPU mappings, and says whether
     /// it does: only a VAAPI decoder on Linux.
     pub fn export_dmabuf(&mut self) -> bool {
@@ -941,6 +965,15 @@ impl VideoDecoder {
     }
 
     pub fn send(&mut self, data: &[u8], pts: i64) -> i32 {
+        let started = std::time::Instant::now();
+        let status = self.send_packet(data, pts);
+        if let Some(stages) = self.stages.as_mut() {
+            stages.add(0, started);
+        }
+        status
+    }
+
+    fn send_packet(&mut self, data: &[u8], pts: i64) -> i32 {
         let data = if self.trims_padding { access_unit(data) } else { data };
         let Ok(length) = i32::try_from(data.len()) else {
             return -1;
@@ -984,6 +1017,26 @@ impl VideoDecoder {
     }
 
     pub fn receive(&mut self) -> Received {
+        let started = std::time::Instant::now();
+        let mut decoded = None;
+        let received = self.receive_picture(&mut decoded);
+        if let Some(stages) = self.stages.as_mut() {
+            match decoded {
+                Some(at) => {
+                    stages.add_between(1, started, at);
+                    stages.add(2, at);
+                }
+                None => stages.add(1, started),
+            }
+            if matches!(received, Received::Frame(_)) {
+                stages.commit();
+            }
+        }
+        received
+    }
+
+    /// `receive`, setting `decoded` once FFmpeg has handed over a picture.
+    fn receive_picture(&mut self, decoded: &mut Option<std::time::Instant>) -> Received {
         unsafe {
             #[allow(unused_mut)]
             let mut frame = match self.spare.take() {
@@ -1006,6 +1059,7 @@ impl VideoDecoder {
                     Received::Error
                 };
             }
+            *decoded = Some(std::time::Instant::now());
             let format = (*raw.as_ptr()).format;
             self.refused |= refused_by(self._format.hardware, format);
             if format == AV_PIX_FMT_VAAPI {
@@ -1064,12 +1118,20 @@ impl VideoDecoder {
 
 impl Drop for VideoDecoder {
     fn drop(&mut self) {
+        if let Some(summary) = self.stages.as_ref().and_then(|stages| stage_summary(stages)) {
+            eprintln!("nightjar: {} decode stages {summary} (CPU time)", self.name);
+        }
         unsafe {
             avcodec_free_context(&mut self.context);
             av_packet_free(&mut self.packet);
             av_buffer_pool_uninit(&mut self.pool);
         }
     }
+}
+
+/// The decode stages' summary once they cover a stream's worth of pictures, not a probe's.
+fn stage_summary(stages: &Stages<3>) -> Option<String> {
+    (stages.frames() >= crate::stream::stage_times::SUMMARY_FRAMES).then(|| stages.summary()).flatten()
 }
 
 pub struct Frame {
@@ -1851,6 +1913,20 @@ mod tests {
         assert_eq!(Hardware::D3d11(device).order(), [Hardware::D3d11(device)]);
         assert_eq!(Hardware::Vaapi.order(), [Hardware::Vaapi]);
         assert_eq!(Hardware::Cuda.order(), [Hardware::Cuda]);
+    }
+
+    #[test]
+    fn decode_stages_are_summed_up_for_a_stream_not_a_probe() {
+        let mut stages = Stages::new(DECODE_STAGES);
+        stages.commit();
+        assert!(stage_summary(&stages).is_none(), "a probe's picture says nothing");
+        for _ in 1..crate::stream::stage_times::SUMMARY_FRAMES {
+            stages.commit();
+        }
+        let summary = stage_summary(&stages).unwrap();
+        assert!(summary.ends_with("send 0.00/0.00, receive 0.00/0.00, hand-off 0.00/0.00"), "{summary}");
+        let software = VideoDecoder::open(Codec::H264, Hardware::None, 1, false).unwrap();
+        assert!(software.stages.is_none(), "software decoding is not timed");
     }
 
     /// NVIDIA's VA-API wrapper (nvidia-vaapi-driver) and the VDPAU backend leave VAAPI out, so

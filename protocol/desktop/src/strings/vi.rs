@@ -1423,4 +1423,10 @@ sudo sysctl -w net.core.rmem_max={}", "Bộ đệm nhận: hệ thống chỉ c�
     ("Second screen resolution", "Độ phân giải màn hình thứ hai"),
     ("The resolution of the second screen's stream, apart from the first screen's.", "Độ phân giải của luồng trên màn hình thứ hai, riêng với màn hình thứ nhất."),
     ("Second screen's own size", "Kích thước gốc của màn hình thứ hai"),
+    ("Fedora's Mesa leaves out H.264 and HEVC decoding. Install mesa-va-drivers-freeworld from RPM Fusion, or use the Nightjar Flatpak.", "Mesa của Fedora bỏ giải mã H.264 và HEVC. Hãy cài mesa-va-drivers-freeworld từ RPM Fusion, hoặc dùng bản Flatpak của Nightjar."),
+    ("This system's VA-API driver decodes neither H.264 nor HEVC. Install your distribution's full Mesa VA drivers, or use the Nightjar Flatpak.", "Trình điều khiển VA-API của hệ thống này không giải mã được H.264 lẫn HEVC. Hãy cài đầy đủ trình điều khiển Mesa VA của bản phân phối, hoặc dùng bản Flatpak của Nightjar."),
+    ("This NVIDIA driver has no Vulkan video decoding, so each picture is copied through memory. A newer NVIDIA driver adds it.", "Trình điều khiển NVIDIA này không giải mã bằng Vulkan Video, nên mỗi khung hình được sao chép qua bộ nhớ. Trình điều khiển NVIDIA mới hơn có hỗ trợ."),
+    ("The Flatpak lacks {}, the NVIDIA driver it needs. Run flatpak update to install it.", "Flatpak thiếu {}, trình điều khiển NVIDIA mà nó cần. Hãy chạy flatpak update để cài."),
+    ("Intel's legacy VA-API driver (i965) is in use. Install intel-media-driver for HEVC Main10 and AV1.", "Đang dùng trình điều khiển VA-API cũ của Intel (i965). Hãy cài intel-media-driver cho HEVC Main10 và AV1."),
+    ("Full chroma needs a {0} picture, larger than this decoder's {1}, so the stream is 4:2:0. A lower resolution keeps full chroma.", "Sắc độ đầy đủ cần ảnh {0}, lớn hơn mức {1} của bộ giải mã này, nên luồng dùng 4:2:0. Độ phân giải thấp hơn giữ được sắc độ đầy đủ."),
 ];

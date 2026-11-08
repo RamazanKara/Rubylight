@@ -1423,4 +1423,10 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("Second screen resolution", "2 つ目の画面の解像度"),
     ("The resolution of the second screen's stream, apart from the first screen's.", "2 つ目の画面のストリームの解像度です。1 つ目の画面とは別に設定します。"),
     ("Second screen's own size", "2 つ目の画面の本来のサイズ"),
+    ("Fedora's Mesa leaves out H.264 and HEVC decoding. Install mesa-va-drivers-freeworld from RPM Fusion, or use the Nightjar Flatpak.", "FedoraのMesaにはH.264とHEVCのデコードが含まれていません。RPM Fusionからmesa-va-drivers-freeworldをインストールするか、NightjarのFlatpakを使ってください。"),
+    ("This system's VA-API driver decodes neither H.264 nor HEVC. Install your distribution's full Mesa VA drivers, or use the Nightjar Flatpak.", "このシステムのVA-APIドライバーはH.264もHEVCもデコードできません。ディストリビューションの完全なMesa VAドライバーをインストールするか、NightjarのFlatpakを使ってください。"),
+    ("This NVIDIA driver has no Vulkan video decoding, so each picture is copied through memory. A newer NVIDIA driver adds it.", "このNVIDIAドライバーはVulkan Videoでデコードできないため、各フレームはメモリ経由でコピーされます。新しいNVIDIAドライバーで対応します。"),
+    ("The Flatpak lacks {}, the NVIDIA driver it needs. Run flatpak update to install it.", "Flatpakに必要なNVIDIAドライバー{}がありません。flatpak updateを実行してインストールしてください。"),
+    ("Intel's legacy VA-API driver (i965) is in use. Install intel-media-driver for HEVC Main10 and AV1.", "Intelの旧VA-APIドライバー（i965）が使われています。HEVC Main10とAV1にはintel-media-driverをインストールしてください。"),
+    ("Full chroma needs a {0} picture, larger than this decoder's {1}, so the stream is 4:2:0. A lower resolution keeps full chroma.", "フルクロマには {0} の画像が必要ですが、このデコーダーの上限 {1} を超えるため、ストリームは 4:2:0 になります。解像度を下げるとフルクロマを使えます。"),
 ];

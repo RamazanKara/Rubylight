@@ -45,6 +45,7 @@ use crate::media::{Codec, Pictures};
 use crate::stream::pyrowave_sdk::zero_copy::{
     self, Chain, Features, SdlVulkan, TEXTURE_IMAGE_PROPERTY,
 };
+use crate::stream::stage_times::Stages;
 
 /// Set to 1, Vulkan video is tried before VAAPI and the GPU renderer is used for it (tests and
 /// A/B runs on machines with VAAPI); set to 0, it is not tried.
@@ -1079,6 +1080,9 @@ pub struct Planes {
     next: usize,
     /// Mapped VAAPI pictures, each until its slot's copy is done.
     held: Held<HeldFrame>,
+    /// The CPU time of each `copy`, waits for an earlier copy's slot included, summed up in the
+    /// log when the planes go after a stream's worth of pictures.
+    stages: Stages<1>,
 }
 
 impl Planes {
@@ -1120,6 +1124,7 @@ impl Planes {
             slots: Vec::new(),
             held: Held::new(),
             next: 0,
+            stages: Stages::new(["copy"]),
         };
         planes.pool = planes
             .device
@@ -1284,6 +1289,23 @@ impl Planes {
     /// `frame` must be a live Vulkan AVFrame made with `device_context` on this device, and
     /// `renderer` the live renderer of the planes' device, on its thread.
     pub unsafe fn copy(
+        &mut self,
+        renderer: *mut SDL_Renderer,
+        frame: *const AVFrame,
+    ) -> Result<(), String> {
+        let started = std::time::Instant::now();
+        let copied = self.copy_picture(renderer, frame);
+        self.stages.add(0, started);
+        if copied.is_ok() {
+            self.stages.commit();
+        } else {
+            self.stages.reset();
+        }
+        copied
+    }
+
+    /// `copy`, untimed.
+    unsafe fn copy_picture(
         &mut self,
         renderer: *mut SDL_Renderer,
         frame: *const AVFrame,
@@ -1536,6 +1558,11 @@ impl Planes {
 
 impl Drop for Planes {
     fn drop(&mut self) {
+        if self.stages.frames() >= crate::stream::stage_times::SUMMARY_FRAMES {
+            if let Some(summary) = self.stages.summary() {
+                eprintln!("nightjar: Vulkan plane copy stages {summary} (CPU time)");
+            }
+        }
         // SAFETY: Handles made in `new`; nothing is freed while the GPU may still use it.
         unsafe {
             for texture in self

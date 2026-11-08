@@ -9,6 +9,10 @@ use std::time::Instant;
 const BUCKET_US: u32 = 10;
 const BUCKETS: usize = 10_000;
 
+/// Frames a decoder or presenter part keeps its stages for before its summary goes to the log:
+/// two seconds at 60 fps, so a probe's single picture says nothing.
+pub const SUMMARY_FRAMES: usize = 120;
+
 pub struct Stages<const N: usize> {
     names: [&'static str; N],
     frame: [u32; N],
@@ -29,6 +33,12 @@ impl<const N: usize> Stages<N> {
     /// Adds the time since `since` to `stage` of the frame in progress.
     pub fn add(&mut self, stage: usize, since: Instant) {
         self.frame[stage] = self.frame[stage].saturating_add(since.elapsed().as_micros().min(u128::from(u32::MAX)) as u32);
+    }
+
+    /// Adds the time from `from` to `to` to `stage` of the frame in progress.
+    pub fn add_between(&mut self, stage: usize, from: Instant, to: Instant) {
+        let micros = to.saturating_duration_since(from).as_micros().min(u128::from(u32::MAX)) as u32;
+        self.frame[stage] = self.frame[stage].saturating_add(micros);
     }
 
     /// Keeps the frame's totals.
@@ -112,6 +122,10 @@ mod tests {
         assert_eq!(stages.counts[0].len(), BUCKETS);
         assert_eq!(stages.frames(), 3);
         stages.add(0, Instant::now());
+        let start = Instant::now();
+        stages.add_between(1, start, start + std::time::Duration::from_micros(250));
+        stages.add_between(1, start + std::time::Duration::from_micros(5), start);
+        assert_eq!(stages.frame[1], 250, "a span adds its length; a backwards one adds nothing");
         stages.reset();
         assert_eq!(stages.frame, [0, 0]);
     }

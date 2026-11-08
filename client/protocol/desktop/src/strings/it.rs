@@ -1409,4 +1409,5 @@ sudo sysctl -w net.core.rmem_max={}", "Buffer di ricezione: il sistema ha conces
     ("{} cannot decode this stream. Now decoding in software.", "{} non può decodificare questo stream. Ora la decodifica è software."),
     ("{} cannot decode this stream, and no other decoder opens: {}", "{0} non può decodificare questo stream e nessun altro decoder si apre: {1}"),
     ("This device doesn’t decode {}, so Nightjar uses {}.", "Questo dispositivo non decodifica {0}, quindi Nightjar usa {1}."),
+    ("Full chroma can’t run {} with this PC and device, so Nightjar uses {}.", "La crominanza completa non può usare {0} con questo PC e dispositivo, quindi Nightjar usa {1}."),
 ];

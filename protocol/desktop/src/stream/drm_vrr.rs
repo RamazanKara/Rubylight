@@ -56,7 +56,8 @@ impl Display {
         // A rotated output's CRTC mode is the panel's, the desktop's is turned.
         let size = (near(output.width, self.width) && near(output.height, self.height))
             || (near(output.height, self.width) && near(output.width, self.height));
-        size && (output.refresh_hz - self.refresh_hz).abs() <= REFRESH_TOLERANCE_HZ
+        // SDL gives no refresh for some outputs (Wayland virtual ones, RandR modes without timings).
+        size && (self.refresh_hz <= 0.0 || (output.refresh_hz - self.refresh_hz).abs() <= REFRESH_TOLERANCE_HZ)
     }
 
     /// SDL's name is the connector's (X11 with the modesetting driver, some Wayland compositors)
@@ -505,6 +506,10 @@ mod tests {
         let scaled = [output("card0", "eDP-1", (2560, 1600), 120.0, Some(1))];
         assert_eq!(select(&scaled, &display(None, (2561, 1599), 120.0)).unwrap().name, "eDP-1");
         assert!(select(&scaled, &display(None, (2564, 1600), 120.0)).is_err(), "3 px is another mode");
+        // No refresh from SDL: the size alone, and the name still picks.
+        assert_eq!(select(&scaled, &display(Some("eDP-1"), (2560, 1600), 0.0)).unwrap().name, "eDP-1");
+        assert_eq!(select(&outputs, &display(Some("Dell Inc. DELL U2724D (DP-1)"), (2560, 1440), 0.0)).unwrap().name, "DP-1");
+        assert!(select(&outputs, &display(None, (2560, 1440), 0.0)).is_err(), "two of that size are still ambiguous");
     }
 
     #[test]

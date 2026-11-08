@@ -1408,4 +1408,5 @@ sudo sysctl -w net.core.rmem_max={}", "接收缓冲区：系统只分配了所�
     ("{} cannot decode this stream. Now decoding with {}.", "{0} 无法解码此串流。现在使用 {1} 解码。"),
     ("{} cannot decode this stream. Now decoding in software.", "{} 无法解码此串流。现在使用软件解码。"),
     ("{} cannot decode this stream, and no other decoder opens: {}", "{0} 无法解码此串流，也没有其他解码器能打开：{1}"),
+    ("This device doesn’t decode {}, so Nightjar uses {}.", "此设备无法解码 {0}，因此 Nightjar 使用 {1}。"),
 ];

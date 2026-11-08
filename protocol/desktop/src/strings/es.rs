@@ -1408,4 +1408,5 @@ sudo sysctl -w net.core.rmem_max={}", "Búfer de recepción: el sistema concedi�
     ("{} cannot decode this stream. Now decoding with {}.", "{0} no puede decodificar esta transmisión. Ahora decodifica {1}."),
     ("{} cannot decode this stream. Now decoding in software.", "{} no puede decodificar esta transmisión. Ahora se decodifica por software."),
     ("{} cannot decode this stream, and no other decoder opens: {}", "{0} no puede decodificar esta transmisión y ningún otro decodificador se abre: {1}"),
+    ("This device doesn’t decode {}, so Nightjar uses {}.", "Este dispositivo no decodifica {0}, así que Nightjar usa {1}."),
 ];

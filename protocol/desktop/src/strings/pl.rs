@@ -1408,4 +1408,5 @@ sudo sysctl -w net.core.rmem_max={}", "Bufor odbioru: system przydzielił {0} Ki
     ("{} cannot decode this stream. Now decoding with {}.", "{0} nie może dekodować tego strumienia. Teraz dekoduje {1}."),
     ("{} cannot decode this stream. Now decoding in software.", "{} nie może dekodować tego strumienia. Teraz dekodowanie programowe."),
     ("{} cannot decode this stream, and no other decoder opens: {}", "{0} nie może dekodować tego strumienia i żaden inny dekoder się nie otwiera: {1}"),
+    ("This device doesn’t decode {}, so Nightjar uses {}.", "To urządzenie nie dekoduje {0}, więc Nightjar używa {1}."),
 ];

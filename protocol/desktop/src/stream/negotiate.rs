@@ -96,7 +96,8 @@ pub fn video_formats(preference: CodecPreference, hdr: bool, host_scm: u32) -> u
     let mut formats = match preference {
         CodecPreference::H264 => VIDEO_FORMAT_H264,
         CodecPreference::Hevc => VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265,
-        CodecPreference::Av1 => VIDEO_FORMAT_H264 | VIDEO_FORMAT_AV1_MAIN8,
+        // HEVC too: a device or PC without AV1 streams HEVC (Main10 with HDR), not H.264.
+        CodecPreference::Av1 => VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_AV1_MAIN8,
         CodecPreference::Auto => VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265,
         CodecPreference::PyroWave => VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_PYROWAVE,
         CodecPreference::PyroWave444 => VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_PYROWAVE | VIDEO_FORMAT_PYROWAVE_444,
@@ -151,6 +152,31 @@ pub fn probes_color(settings: &Settings) -> bool {
     (wants.yuv444 || wants.sdr10) && !wants.hdr && !wants.packed444 && !wants.pyrowave
 }
 
+/// The formats of `color::YUV444_FORMATS` and `color::SDR10_FORMATS` a launch with these settings
+/// can offer, which `color_probe::probe` checks: 4:4:4 only with "Prefer YUV 4:4:4", 10-bit only
+/// with "10-bit color (SDR)", each of the codecs the codec choice offers. None without the probe.
+pub fn color_probe_formats(settings: &Settings) -> u32 {
+    if !probes_color(settings) {
+        return 0;
+    }
+    let base = video_formats(settings.codec, false, 0);
+    let mut families = VIDEO_FORMAT_MASK_H264;
+    if base & VIDEO_FORMAT_H265 != 0 {
+        families |= VIDEO_FORMAT_MASK_H265;
+    }
+    if base & VIDEO_FORMAT_AV1_MAIN8 != 0 {
+        families |= VIDEO_FORMAT_MASK_AV1;
+    }
+    let mut wanted = 0;
+    if settings.prefer_yuv444 {
+        wanted |= color::YUV444_FORMATS;
+    }
+    if settings.sdr_10bit {
+        wanted |= color::SDR10_FORMATS;
+    }
+    wanted & families
+}
+
 /// The formats of `color_probe::BASE_FORMATS` a launch with these settings can offer, which
 /// `color_probe::probe_base` checks: none for H.264 or packed full chroma (its own probe), AV1
 /// only when AV1 is chosen, Main10 only with HDR.
@@ -178,8 +204,37 @@ pub(super) fn offered_formats_decoding(settings: &Settings, scm: u32, decodable:
     let mut base = video_formats(settings.codec, settings.hdr, if settings.experimental_packed_444 { 0 } else { scm });
     if !settings.experimental_packed_444 {
         base &= !(color_probe::BASE_FORMATS & !hardware_decodable);
+        // HDR on AV1 that decodes only 8-bit streams HEVC Main10 where that decodes: the
+        // handshake takes AV1 first, and AV1 8-bit would drop HDR.
+        if settings.hdr && base & VIDEO_FORMAT_AV1_MAIN10 == 0 && base & VIDEO_FORMAT_H265_MAIN10 != 0 {
+            base &= !VIDEO_FORMAT_AV1_MAIN8;
+        }
     }
     color::offer(base, color_wants(settings), decodable.0, &decodable.1, scm)
+}
+
+/// When the codec chosen is one this device's hardware decoder can't decode (`hardware_decodable`,
+/// from `color_probe::probe_base`) and the stream runs another: the log line, and what to tell
+/// the player. The chosen format is the codec's Main10 one with HDR. None when the PC doesn't
+/// encode it (the offer leaves it out either way), for Automatic, H.264 and PyroWave (its own
+/// notice), and with packed full chroma, which checks its formats in its own probe.
+pub(super) fn codec_fallback(settings: &Settings, scm: u32, hardware_decodable: u32, negotiated: u32) -> Option<(String, String)> {
+    let asked = match (settings.codec, settings.hdr) {
+        (CodecPreference::Av1, false) => VIDEO_FORMAT_AV1_MAIN8,
+        (CodecPreference::Av1, true) => VIDEO_FORMAT_AV1_MAIN10,
+        (CodecPreference::Hevc, false) => VIDEO_FORMAT_H265,
+        (CodecPreference::Hevc, true) => VIDEO_FORMAT_H265_MAIN10,
+        _ => return None,
+    };
+    if settings.experimental_packed_444 || hardware_decodable & asked != 0 || negotiated & asked != 0
+        || video_formats(settings.codec, settings.hdr, scm) & asked == 0 {
+        return None;
+    }
+    let (asked, streamed) = (codec_name(asked), codec_name(negotiated));
+    Some((
+        format!("nightjar: {asked} was chosen, but no hardware decoder here decodes it; streaming {streamed}"),
+        trf("This device doesn’t decode {}, so Nightjar uses {}.", &[&asked, &streamed]),
+    ))
 }
 
 /// Whether the launch says `hdrMode=0`: an SDR stream that offers a 10-bit format. Without it a

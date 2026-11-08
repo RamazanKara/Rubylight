@@ -148,9 +148,11 @@ pub fn probe_base(hardware: media::Hardware, wanted: u32) -> Base {
 
 /// The formats of `color::YUV444_FORMATS` and `color::SDR10_FORMATS` that `hardware` decodes into
 /// pictures the presenter draws, and why the others are not ("" when all are). `planes` says
-/// whether planar pictures (R16 planes when its argument is true) can be drawn.
+/// whether planar pictures (R16 planes when its argument is true) can be drawn. Only the formats
+/// of `wanted` are decoded (`negotiate::color_probe_formats`): the others are not offered anyway.
 pub fn probe(
     hardware: media::Hardware,
+    wanted: u32,
     planes: impl Fn(bool) -> Result<(), String>,
 ) -> (u32, String) {
     let mut decodable = 0;
@@ -158,6 +160,9 @@ pub fn probe(
     // VAAPI on the GPU the stream will decode on.
     let vaapi_node = media::vaapi_node(hardware);
     for (format, codec, name, data) in FIXTURES {
+        if format & wanted == 0 {
+            continue;
+        }
         let yuv444 = format & VIDEO_FORMAT_MASK_YUV444 != 0;
         let pictures = media::Pictures {
             ten_bit: format & VIDEO_FORMAT_MASK_10BIT != 0,
@@ -331,7 +336,7 @@ mod tests {
 
     #[test]
     fn software_decoding_offers_every_4_4_4_and_10_bit_format_when_planes_draw() {
-        let (decodable, reason) = probe(media::Hardware::None, |_| Ok(()));
+        let (decodable, reason) = probe(media::Hardware::None, YUV444_FORMATS | SDR10_FORMATS, |_| Ok(()));
         assert_eq!(decodable, YUV444_FORMATS | SDR10_FORMATS, "{reason}");
         assert_eq!(reason, "");
     }
@@ -339,7 +344,7 @@ mod tests {
     #[test]
     fn without_a_plane_pass_nothing_planar_is_offered_and_the_reason_says_why() {
         // Software Main10 pictures are planar too, so 10-bit goes with 4:4:4.
-        let (decodable, reason) = probe(media::Hardware::None, |ten| {
+        let (decodable, reason) = probe(media::Hardware::None, YUV444_FORMATS | SDR10_FORMATS, |ten| {
             Err(format!("no R{} planes", if ten { 16 } else { 8 }))
         });
         assert_eq!(decodable, 0);
@@ -349,7 +354,7 @@ mod tests {
             "{reason}"
         );
         // 8-bit planes alone: 4:4:4 is offered, 10-bit is not.
-        let (decodable, _) = probe(media::Hardware::None, |ten| {
+        let (decodable, _) = probe(media::Hardware::None, YUV444_FORMATS | SDR10_FORMATS, |ten| {
             if ten {
                 Err("no R16 planes".into())
             } else {
@@ -357,6 +362,15 @@ mod tests {
             }
         });
         assert_eq!(decodable, YUV444_FORMATS);
+    }
+
+    /// 10-bit launches decoded the 4:4:4 fixtures too (about 12 ms) with 4:4:4 off.
+    #[test]
+    fn only_the_wanted_formats_are_decoded() {
+        let (decodable, reason) = probe(media::Hardware::None, SDR10_FORMATS, |_| Err("refused".into()));
+        assert_eq!(decodable, 0);
+        assert!(reason.contains("HEVC Main10") && !reason.contains("4:4:4"), "{reason}");
+        assert_eq!(probe(media::Hardware::None, 0, |_| Err("refused".into())), (0, String::new()));
     }
 
     /// The 128x128 fixtures were under NVDEC's smallest HEVC picture (144x144), so the probe

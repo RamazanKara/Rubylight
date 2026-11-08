@@ -72,7 +72,7 @@ After the install, from the measurement laptop (Moonlight-qt paired as client "l
 pwsh rust/release/smoke.ps1 -Version v2.2.2
 ```
 
-It streams the Desktop app for 30 seconds per codec at 1968x2184, HDR, 120 fps, 80 Mbps with AV1 and HEVC, closes Moonlight and reads its "Global video stats". A run passes with at least 115 fps received and a host processing average under 5 ms. The result goes to the release as `REAL-CLIENT.json` when the GitHub CLI is signed in on the laptop. If the laptop is offline the release has no `REAL-CLIENT.json`: the smoke test was skipped.
+It streams the Desktop app for 60 seconds per codec (30 s runs read about 114.5 fps at 120 because Moonlight's average includes the start) at 1968x2184, HDR, 120 fps, 80 Mbps with AV1 and HEVC, closes Moonlight and reads its "Global video stats". A run passes with at least 115 fps received and a host processing average under 5 ms. The result goes to the release as `REAL-CLIENT.json` when the GitHub CLI is signed in on the laptop. If the laptop is offline the release has no `REAL-CLIENT.json`: the smoke test was skipped.
 
 ## Slow-link check
 

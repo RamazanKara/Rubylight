@@ -1679,5 +1679,18 @@ class CheckStreams(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertIn('machine_load.py', calls[0])
 
+
+class SmokeDefaults(unittest.TestCase):
+    """The real-client smoke test's defaults: a 30 s session average missed 115 fps on every release check."""
+
+    def test_runs_are_long_enough_for_the_startup_and_reach_the_host(self):
+        script = (ROOT / 'rust/release/smoke.ps1').read_text(encoding='utf-8')
+        params = re.search(r'(?ms)^param\((.*?)^\)', script)[1]
+        default = lambda name: re.search(r'\$%s = (\S+?),?$' % name, params, re.M)[1]
+        self.assertGreaterEqual(int(default('Seconds')), 60)
+        self.assertEqual(default('Server'), "'192.168.4.69'")
+        readme = (ROOT / 'rust/release/README.md').read_text(encoding='utf-8')
+        self.assertIn('for %s seconds per codec' % default('Seconds'), readme)
+
 if __name__ == '__main__':
     unittest.main()

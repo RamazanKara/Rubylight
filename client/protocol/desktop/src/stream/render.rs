@@ -457,6 +457,10 @@ impl Streaming {
             // SAFETY: a live renderer.
             self.glass.request(unsafe { SDL_GetRenderWindow(renderer) }, session::now_us());
         }
+        #[cfg(target_os = "linux")]
+        {
+            self.window_target.get_or_insert((crate::sdl::window_target_frames(renderer), 0)).1 += 1;
+        }
         let issued_us = session::now_us();
         // SAFETY: a live renderer.
         let refused = unsafe {

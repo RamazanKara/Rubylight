@@ -1,4 +1,4 @@
-# sdl3-src with the Vulkan interop and PQ present patches
+# sdl3-src with the Vulkan interop, PQ present and window target patches
 
 The Linux desktop client builds SDL from source (sdl3-sys `build-from-source-static`). This
 crate replaces the crates.io `sdl3-src` 3.4.18 there (`[patch.crates-io]` in
@@ -26,6 +26,15 @@ either (libsdl-org/SDL issue 10876; pull request 14157 adds no Vulkan path).
   that shader (the PQ encode in `desktop/src/pq_present.hlsl`) instead of the blit. Renderer
   creation fails if the swapchain refuses HDR10. SDL 3.4.18's GPU renderer has no HDR10 output
   of its own; it is for swapchains that offer HDR10 and not scRGB.
+- `patches/window-target.patch` (GPU renderer only) draws a frame straight into its swapchain
+  image instead of the backbuffer, which SDL 3.4.18 blits to the swapchain at present. The image
+  is acquired on the frame's first draw into the window's target (a clear before it is folded into
+  that draw's pass; a frame that only clears takes it at present), so with FIFO the wait moves from
+  the present to that draw. The backbuffer stays for the PQ present, for a frame drawn while the
+  renderer property `SDL.renderer.gpu.read_back` is true (`SDL_RenderReadPixels` of the window's
+  target, which the swapchain image cannot serve), and for a frame whose image differs from it in
+  size or format (a resize). A read-back after the frame took its image fails instead of
+  presenting it early. `SDL.renderer.gpu.window_target_frames` counts the frames drawn straight in.
 - `patches/display-hdr-state.patch` keeps `SDL_PROP_DISPLAY_HDR_ENABLED_BOOLEAN` true to the
   display's HDR state. SDL 3.4.18 sets it once, when the display is added, and a Wayland
   compositor's answer about an output can come later. Drop it once upstream SDL updates it.

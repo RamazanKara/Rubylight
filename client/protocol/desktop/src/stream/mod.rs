@@ -598,6 +598,10 @@ pub struct Streaming {
     /// What reached the glass: wp_presentation feedback of each picture (Wayland).
     #[cfg(target_os = "linux")]
     glass: wl_presentation::Glass,
+    /// The GPU renderer's count of frames drawn straight into the swapchain at the stream's first
+    /// present, and the stream's presents since.
+    #[cfg(target_os = "linux")]
+    window_target: Option<(i64, u64)>,
     rtp_clock: RtpClock,
     last_probe: Instant,
     window: Window,
@@ -643,6 +647,15 @@ fn sends_controllers(settings: &Settings, role: AppRole) -> bool {
 /// Whether an HDR stream's output changed, and to what. A stream without HDR is never on HDR output.
 fn hdr_output_change(was: bool, now: bool) -> Option<bool> {
     (was != now).then_some(now)
+}
+
+/// The end-of-stream line for how the GPU renderer's frames reached the swapchain: `direct` of the
+/// stream's `presents` were drawn straight into it, the rest through the back buffer and a copy
+/// (the PQ present, a screenshot's read-back, a resize, or another renderer).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn window_target_line(direct: i64, presents: u64) -> String {
+    let direct = u64::try_from(direct).unwrap_or(0).min(presents);
+    format!("window target: {direct} of {presents} presents drawn straight into the swapchain, {} through the back buffer", presents - direct)
 }
 
 impl Streaming {
@@ -847,6 +860,8 @@ impl Streaming {
             timing_csv: open_timing_csv(),
             #[cfg(target_os = "linux")]
             glass: wl_presentation::Glass::default(),
+            #[cfg(target_os = "linux")]
+            window_target: None,
             rtp_clock: RtpClock::default(),
             last_probe: Instant::now(),
             window: Window::default(),
@@ -1908,6 +1923,11 @@ impl Streaming {
         {
             self.glass.poll(session::now_us());
             if let Some(line) = self.glass.line() { eprintln!("nightjar: {line}"); }
+            // SAFETY: a live window; its renderer, if any, too.
+            let renderer = unsafe { SDL_GetRenderer(window) };
+            if let (Some((start, presents)), false) = (self.window_target, renderer.is_null()) {
+                eprintln!("nightjar: {}", window_target_line(crate::sdl::window_target_frames(renderer) - start, presents));
+            }
         }
         let stats = self.session.stats();
         eprintln!("{}", video_summary(stats.frames_submitted, stats.decode_queue_overflows,
@@ -1983,6 +2003,14 @@ mod tests {
         assert_eq!(hdr_output_change(false, true), Some(true), "and came back");
         assert_eq!(hdr_output_change(true, true), None);
         assert_eq!(hdr_output_change(false, false), None, "an SDR stream says nothing");
+    }
+
+    #[test]
+    fn the_window_target_line_counts_direct_frames_against_presents() {
+        assert_eq!(window_target_line(98, 100), "window target: 98 of 100 presents drawn straight into the swapchain, 2 through the back buffer");
+        assert_eq!(window_target_line(0, 5), "window target: 0 of 5 presents drawn straight into the swapchain, 5 through the back buffer", "PQ output");
+        assert_eq!(window_target_line(-3, 5), "window target: 0 of 5 presents drawn straight into the swapchain, 5 through the back buffer", "another renderer");
+        assert_eq!(window_target_line(9, 5), "window target: 5 of 5 presents drawn straight into the swapchain, 0 through the back buffer", "launcher frames between the counts");
     }
     use super::input::*;
 

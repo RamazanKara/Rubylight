@@ -27,6 +27,10 @@ fn background_game_can_only_resume_on_its_owner_in_the_same_mode() {
     let generation = running.generation.clone();
     *fixture.host.current_app.lock().unwrap() = Some(running);
     assert!(validate_background_launch(&fixture.host, &launch).is_ok());
+    // The device's second screen is the same owner.
+    let device = launch.client.uuid.clone();
+    launch.client.uuid = butterpollo_core::state::second_screen_uuid(&device);
+    assert!(validate_background_launch(&fixture.host, &launch).is_ok());
 
     launch.client.uuid = "another-device".into();
     assert!(
@@ -35,6 +39,8 @@ fn background_game_can_only_resume_on_its_owner_in_the_same_mode() {
             .to_string()
             .contains("another device")
     );
+    launch.client.uuid = butterpollo_core::state::second_screen_uuid("another-device");
+    assert!(validate_background_launch(&fixture.host, &launch).is_err());
     launch.client.uuid = "parity-device".into();
     launch.client.extra.clear();
     assert!(
@@ -359,6 +365,45 @@ async fn xml_preserves_protocol_status_and_escapes_values_and_errors() {
     assert_eq!(root.attributes["status_message"], text);
     assert_eq!(field(&root, "AppTitle"), text);
     assert_eq!(root.children.len(), 1);
+}
+
+#[tokio::test]
+async fn serverinfo_shows_a_devices_game_on_both_its_screens_and_no_other_device() {
+    let f = Fixture::new();
+    let client = f.client(0x071f1f00);
+    let app = f.host.apps.read().unwrap()[0].clone();
+    let mut running =
+        crate::process::RunningApp::with_environment(&app, Default::default()).unwrap();
+    running.owner = client.uuid.clone();
+    let id = running.id;
+    *f.host.current_app.lock().unwrap() = Some(running);
+    let config = butterpollo_core::config::Config::default();
+    let mut other = client.clone();
+    other.uuid = "another-device".into();
+    for (asking, expected) in [
+        (client.clone(), id),
+        (client.clone().second_screen(), id),
+        (other.clone(), 0),
+        (other.second_screen(), 0),
+    ] {
+        let root = document(serverinfo_response(
+            &f.host,
+            &f.connection(true),
+            &config,
+            Some(&asking),
+            true,
+            String::new(),
+            0,
+            false,
+        ))
+        .await;
+        assert_eq!(
+            field(&root, "currentgame"),
+            expected.to_string(),
+            "{}",
+            asking.uuid
+        );
+    }
 }
 
 #[tokio::test]

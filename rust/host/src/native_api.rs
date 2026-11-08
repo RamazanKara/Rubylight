@@ -614,12 +614,34 @@ pub(crate) fn session_action(h: &Shared, client: &Client, action: Action) -> Res
     if crate::nvhttp::quit_nucleus_stream(h, device, disconnect)? {
         return Ok(());
     }
-    match action {
+    let done = match action {
         Action::Disconnect => h.disconnect_session(Some(device)),
         Action::End => h.end_session(Some(device)),
         Action::CloseGame => h.close_game(device),
-    }?;
-    Ok(())
+    };
+    match done {
+        // The session the host follows is its first screen's: a second screen's Disconnect or
+        // End ends its own stream, End its kept display too.
+        Err(Refusal::NotOwner)
+            if device.ends_with(butterpollo_core::state::SECOND_SCREEN_SUFFIX)
+                && !matches!(action, Action::CloseGame) =>
+        {
+            end_second_screen(h, device, matches!(action, Action::End));
+            Ok(())
+        }
+        done => done.map(drop).map_err(Failure::from),
+    }
+}
+
+fn end_second_screen(h: &Shared, screen: &str, end: bool) {
+    let canceled = h.sessions.lock().unwrap().request_stop(Some(screen));
+    drop(canceled);
+    crate::remote_display::disconnect(h, Some(screen));
+    if end {
+        // Releasing a display restores Windows: never under a lock.
+        let display = h.app_display.lock().unwrap().remove(screen);
+        drop(display);
+    }
 }
 
 /// Opens or closes the couch menu in the caller's stream

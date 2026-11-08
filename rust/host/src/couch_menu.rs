@@ -397,7 +397,8 @@ impl Page {
     }
 }
 
-/// The session's device as the console has it now.
+/// The session's device as the console has it now, as the screen the session streams to: a
+/// second screen's menu ends or disconnects its own stream, not the first screen's.
 fn client(h: &Shared, s: &Session) -> Result<Client, Failure> {
     h.paired
         .read()
@@ -409,6 +410,13 @@ fn client(h: &Shared, s: &Session) -> Result<Client, Failure> {
                 && client.uuid == butterpollo_core::state::device_uuid(&s.launch.client.uuid)
         })
         .cloned()
+        .map(|client| {
+            if client.uuid == s.launch.client.uuid {
+                client
+            } else {
+                client.second_screen()
+            }
+        })
         .ok_or_else(|| {
             Failure::new(
                 ErrorCode::NotPaired,
@@ -822,6 +830,22 @@ mod tests {
         }
         assert_eq!(strings("de", &[]).unwrap().title, "Host-Menü");
         assert_eq!(strings("fr", &[]).unwrap().title, "Host menu");
+    }
+
+    #[test]
+    fn a_second_screens_menu_disconnects_its_own_stream_not_the_first_screens() {
+        let f = Fixture::new();
+        let device = f.client(VIEW | LAUNCH);
+        let first = f.session(device.clone(), Role::Stream);
+        let second = f.session(device.clone().second_screen(), Role::Stream);
+        assert_eq!(client(&f.host, &first).unwrap().uuid, device.uuid);
+        assert_eq!(
+            client(&f.host, &second).unwrap().uuid,
+            butterpollo_core::state::second_screen_uuid(&device.uuid)
+        );
+        act(&f.host, &second, &Action::Disconnect).unwrap();
+        assert!(second.stopping());
+        assert!(!first.stopping());
     }
 
     #[test]

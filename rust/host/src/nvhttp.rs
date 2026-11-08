@@ -30,7 +30,7 @@ use butterpollo_core::{
     pairing::Pairing,
     remote::{self, Control},
     session::{Role, Transport},
-    state::{App, Client},
+    state::{App, Client, device_uuid},
 };
 #[cfg(not(test))]
 use butterpollo_windows::clipboard;
@@ -254,6 +254,18 @@ pub(crate) fn end_device(h: &Shared, device: &str) {
         let canceled = h.sessions.lock().unwrap().request_stop(Some(&uuid));
         drop(canceled);
         crate::remote_display::disconnect(h, Some(&uuid));
+    }
+}
+/// Releases what an unpaired or turned off device held, Radeon settings and game files, for
+/// both of its screens: each screen's stream claims them under its own identity.
+pub(crate) fn release_device(h: &Shared, device: &str) {
+    let device = butterpollo_core::state::device_uuid(device);
+    for uuid in [
+        device.to_owned(),
+        butterpollo_core::state::second_screen_uuid(device),
+    ] {
+        h.radeon.release_device(&uuid);
+        h.game_files.release_device(&h.directory, &uuid);
     }
 }
 /// Watching a stream needs the view or the launch permission, as in
@@ -536,7 +548,7 @@ fn serverinfo_response(
         .as_ref()
         .filter(|game| {
             client.as_ref().is_some_and(|client| {
-                (game.owner == client.uuid
+                (device_uuid(&game.owner) == device_uuid(&client.uuid)
                     && remote_owner(h, &client.uuid) == butterpollo_core::remote::Owner::None)
                     || h.confirmations.lock().unwrap().active(
                         &client.uuid,
@@ -2285,7 +2297,6 @@ pub(crate) const RESUME_GAME_CHANGED: &str = "The game running on this PC change
 pub(crate) const NOTHING_TO_RESUME: &str = "no application or remote monitor to resume";
 /// Whether `device` started or took over the running game, also a background one.
 fn plays_game(h: &Shared, device: &str) -> bool {
-    use butterpollo_core::state::device_uuid;
     h.current_app
         .lock()
         .unwrap()
@@ -2622,7 +2633,8 @@ fn validate_background_launch(h: &Shared, launch: &Launch) -> Result<bool> {
             )
             .into());
         }
-        if background && app.owner != launch.client.uuid {
+        // A device's two screens are one owner.
+        if background && device_uuid(&app.owner) != device_uuid(&launch.client.uuid) {
             return Err(LaunchFailure(409, "This background game belongs to another device; end it before starting a background game here").into());
         }
     }
@@ -2895,8 +2907,7 @@ async fn unpair(State(h): State<Shared>, Extension(connection): Extension<Connec
         return xml(500, &[("unpaired", "0".into())], Some(e.to_string()));
     }
     end_device(&h, device);
-    h.radeon.release_device(device);
-    h.game_files.release_device(&h.directory, device);
+    release_device(&h, device);
     xml(200, &[("unpaired", "1".into())], None)
 }
 async fn appasset(

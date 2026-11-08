@@ -561,6 +561,37 @@ fn a_session_closes_the_window_the_console_opened_first() {
 /// is refused with the reason before Nucleus starts anything. A launch that
 /// joins, or that is refused before it would start one, unplugs nothing.
 #[test]
+fn a_devices_second_screen_takes_no_seat() {
+    let (registry, pc, apps) = setup();
+    let coop = registry.entries(&apps, "").remove(0);
+    let device = client("A", true);
+    let second = device.clone().second_screen();
+    // Neither the first seat nor a joining one, in co-op or in the background.
+    for game in [Game::Coop(&coop), Game::Background(&apps[1])] {
+        let refused = registry
+            .admit(Admission {
+                launch: "a2",
+                client: &second,
+                game,
+                size: (1920, 1080),
+                config: &Config::default(),
+                warnings: Default::default(),
+                release_parked: &|| Ok(()),
+                instances: None,
+            })
+            .unwrap_err();
+        assert!(
+            refused.message.contains("second screen"),
+            "{}",
+            refused.message
+        );
+    }
+    assert!(pc.started.lock().unwrap().is_empty());
+    admit(&registry, &coop, "a", &device).unwrap();
+    assert!(admit(&registry, &coop, "a2", &second).is_err());
+}
+
+#[test]
 fn only_a_starting_session_releases_parked_controllers() {
     use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
     let released = AtomicUsize::new(0);

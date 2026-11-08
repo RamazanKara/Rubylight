@@ -568,6 +568,18 @@ mod tests {
     }
 
     #[test]
+    fn a_device_going_puts_back_its_second_screens_keys_too() {
+        let f = Fixture::new();
+        let h = &f.host;
+        let (app, file) = game(&f);
+        launching(h, &app, &args("phone#screen2", "1920x1080x60"));
+        assert!(std::fs::read_to_string(&file).unwrap().contains("=60"));
+        // Unpaired or turned off from either screen.
+        crate::nvhttp::release_device(h, "phone");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), INI);
+    }
+
+    #[test]
     fn restores_run_on_their_own_thread_and_a_shutdown_waits_for_them() {
         let f = Fixture::new();
         let h = &f.host;

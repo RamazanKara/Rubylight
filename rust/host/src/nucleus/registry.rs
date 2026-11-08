@@ -573,6 +573,17 @@ impl Registry {
     /// and why it can't stream in the background; it never runs another way.
     pub fn admit(&self, request: Admission) -> Result<Seat, Refusal> {
         let game = request.game;
+        // A device's second screen is the same player as its first: it takes no seat.
+        if request
+            .client
+            .uuid
+            .ends_with(butterpollo_core::state::SECOND_SCREEN_SUFFIX)
+        {
+            return Err(Refusal::busy(format!(
+                "{} plays on this device's first screen: a second screen takes no Nucleus Co-op seat",
+                game.app().name
+            )));
+        }
         if game.kind() == Kind::Coop {
             return self.admit_game(request);
         }

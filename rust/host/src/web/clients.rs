@@ -61,9 +61,8 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             h.unpair_with_network_history(Some(text("uuid")))?;
             h.webrtc.clients_changed();
             // The device is gone; its session may linger for the grace period, its Radeon
-            // settings and game file keys do not.
-            h.radeon.release_device(text("uuid"));
-            h.game_files.release_device(&h.directory, text("uuid"));
+            // settings and game file keys do not, its second screen's neither.
+            crate::nvhttp::release_device(h, text("uuid"));
             json!({"status":true})
         }
         ("POST", "/api/clients/unpair-all") => {
@@ -159,6 +158,13 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                     // null clears a per-device setting.
                     if v.is_null() {
                         c.extra.remove(k);
+                        // Forgetting what the device kept forgets its second screen's too.
+                        if butterpollo_core::state::PER_SCREEN_SETTINGS.contains(&k.as_str()) {
+                            c.extra.remove(&format!(
+                                "{k}{}",
+                                butterpollo_core::state::SECOND_SCREEN_SUFFIX
+                            ));
+                        }
                     } else {
                         c.extra.insert(k.clone(), v.clone());
                     }
@@ -210,8 +216,7 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             // Turning a device off ends its claim on the host's Radeon settings and game file
             // keys. Removing a permission does not: pending changes go back with the session.
             if data.get("enabled").and_then(Value::as_bool) == Some(false) {
-                h.radeon.release_device(text("uuid"));
-                h.game_files.release_device(&h.directory, text("uuid"));
+                crate::nvhttp::release_device(h, text("uuid"));
             }
             json!({"status":true,"disconnected":revoked})
         }
@@ -493,6 +498,51 @@ mod tests {
         )
         .unwrap();
         assert!(!f.host.radeon.holds(&client.uuid));
+    }
+
+    #[test]
+    fn forgetting_a_kept_resolution_forgets_the_second_screens_too() {
+        use butterpollo_core::state::{REMEMBERED_RESOLUTION, screen_setting};
+        let f = Fixture::new();
+        let client = f.client(PERM);
+        let second = screen_setting(
+            &butterpollo_core::state::second_screen_uuid(&client.uuid),
+            REMEMBERED_RESOLUTION,
+        );
+        {
+            let extra = &mut f.host.paired.write().unwrap().clients[0].extra;
+            extra.insert(REMEMBERED_RESOLUTION.into(), json!("2560x1440"));
+            extra.insert(second.clone(), json!("1920x1080"));
+        }
+        handle(
+            &f.host,
+            "POST",
+            "/api/clients/update",
+            &json!({"uuid": client.uuid, "remembered_resolution": null}),
+        )
+        .unwrap();
+        let extra = &f.host.paired.read().unwrap().clients[0].extra;
+        assert!(!extra.contains_key(REMEMBERED_RESOLUTION));
+        assert!(!extra.contains_key(&second));
+    }
+
+    #[test]
+    fn turning_off_or_unpairing_a_device_gives_up_its_second_screens_radeon_settings_too() {
+        for data in [json!({"enabled": false}), json!(null)] {
+            let f = Fixture::new();
+            let client = f.client(PERM);
+            let second = butterpollo_core::state::second_screen_uuid(&client.uuid);
+            f.host.radeon.note_written(&second, &[]);
+            let path = if data.is_null() {
+                "/api/clients/unpair"
+            } else {
+                "/api/clients/update"
+            };
+            let mut data = if data.is_null() { json!({}) } else { data };
+            data["uuid"] = json!(client.uuid);
+            handle(&f.host, "POST", path, &data).unwrap();
+            assert!(!f.host.radeon.holds(&second), "{path}");
+        }
     }
 
     #[test]

@@ -485,11 +485,12 @@ impl Encoder {
             } else {
                 limits
             };
-            for (name, asked, held) in
-                rate_control::hold_to_ranges(&mut limits, ceiling, |name| e.range_maximum(name))
-            {
+            let held =
+                rate_control::hold_to_ranges(&mut limits, ceiling, |name| e.range_maximum(name));
+            for (name, asked, held) in &held {
                 tracing::warn!(property = %name, asked, held, "AMF rate-control limit held to what the driver takes");
             }
+            e.rate_control.held_at_start(&held);
             e.property("TargetBitrate", int(i64::from(bitrate) * 1000))?;
             let warnings = e.warnings.clone();
             rate_control::configure(&limits, &warnings, |property| e.apply(property))?;

@@ -190,6 +190,11 @@ pub(super) struct Limit {
 
 struct AppliedLimit {
     bitrate: u32,
+    /// What the last write would have been before the ceiling (or, at start,
+    /// a range) held it: the next one scales from it, so the hold never
+    /// becomes the basis and an explicit peak ratio comes back below the
+    /// ceiling. A range met mid-stream stays the basis, as before.
+    asked: Option<i64>,
     warning: Option<String>,
 }
 
@@ -212,6 +217,7 @@ impl State {
             scale_frame_cap,
             limits: std::array::from_fn(|_| AppliedLimit {
                 bitrate,
+                asked: None,
                 warning: None,
             }),
         }
@@ -226,6 +232,14 @@ impl State {
             limit.bitrate = self.applied;
         }
         self
+    }
+
+    /// The start-up limits [`hold_to_ranges`] held, by their asked values.
+    pub(super) fn held_at_start(&mut self, held: &[(String, i64, i64)]) {
+        for (name, asked, _) in held {
+            let index = if name.ends_with("PeakBitrate") { 0 } else { 1 };
+            self.limits[index].asked = Some(*asked);
+        }
     }
 
     pub(super) fn requested(&self) -> u32 {
@@ -299,13 +313,18 @@ impl State {
                 }
                 continue;
             };
-            let mut scaled = super::scale_rate_control(current.value, limit.bitrate, bitrate);
+            let mut ranged = super::scale_rate_control(
+                limit.asked.unwrap_or(current.value),
+                limit.bitrate,
+                bitrate,
+            );
             if let Some(minimum) = current.minimum {
-                scaled = scaled.max(minimum);
+                ranged = ranged.max(minimum);
             }
             if let Some(maximum) = current.maximum {
-                scaled = scaled.min(maximum);
+                ranged = ranged.min(maximum);
             }
+            let mut scaled = ranged;
             if index == 0 {
                 // The peak is a bitrate: above the ceiling the driver refuses it.
                 if let Some(ceiling) = self.ceiling {
@@ -315,6 +334,7 @@ impl State {
             match set(&name, scaled) {
                 Ok(()) => {
                     limit.bitrate = bitrate;
+                    limit.asked = (scaled != ranged).then_some(ranged);
                     limit.warning = None;
                 }
                 Err(error) => {

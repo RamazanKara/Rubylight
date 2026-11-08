@@ -1268,6 +1268,26 @@ fn rate_control_holds_runtime_targets_to_the_driver_ceiling() {
     assert_eq!(driver.values["Av1PeakBitrate"].value, 800_000_000);
 }
 
+/// An explicit peak ratio held to the ceiling at start comes back once the
+/// target drops below it: the hold is never the basis of the next peak.
+#[test]
+fn a_peak_held_to_the_ceiling_scales_from_its_asked_value() {
+    let mut driver = FakeRateProperties::new(2);
+    let warnings = butterpollo_core::session::Warnings::default();
+    // amd_peak_bitrate_ratio=2 at 1.9 Gbps: target and peak start at 1 Gbps.
+    let mut state = rate_control::State::new(1_900_000, true).with_ceiling(Some(1_000_000_000));
+    state.held_at_start(&[("Av1PeakBitrate".to_string(), 2_000_000_000, 1_000_000_000)]);
+    driver.values.get_mut("Av1PeakBitrate").unwrap().value = 1_000_000_000;
+    driver.apply(&mut state, 2, 400_000, &warnings);
+    assert_eq!(driver.values["Av1PeakBitrate"].value, 800_000_000);
+    // Up past the ceiling the peak is held again, and back down it is twice
+    // the target again.
+    driver.apply(&mut state, 2, 1_900_000, &warnings);
+    assert_eq!(driver.values["Av1PeakBitrate"].value, 1_000_000_000);
+    driver.apply(&mut state, 2, 400_000, &warnings);
+    assert_eq!(driver.values["Av1PeakBitrate"].value, 800_000_000);
+}
+
 #[test]
 fn settings_log_shows_each_codecs_profile_and_bit_depth() {
     // A 10-bit SDR stream is told apart from 8-bit only by these two, as the

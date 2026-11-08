@@ -192,6 +192,51 @@ pub fn renderer_pointer(renderer: *mut SDL_Renderer, name: *const c_char) -> *mu
     unsafe { SDL_GetPointerProperty(SDL_GetRendererProperties(renderer), name, std::ptr::null_mut()) }
 }
 
+/// The GPU renderer's present-mode properties (`vendor/sdl3-src/patches/tearing-present.patch`).
+#[cfg(target_os = "linux")]
+const PREFER_IMMEDIATE_PROPERTY: &CStr = c"SDL.renderer.gpu.prefer_immediate";
+#[cfg(target_os = "linux")]
+const PRESENT_MODE_PROPERTY: &CStr = c"SDL.renderer.gpu.present_mode";
+
+/// Asks the GPU renderer to try IMMEDIATE before MAILBOX the next time V-Sync turns off. Other
+/// renderers ignore it.
+#[cfg(target_os = "linux")]
+pub fn prefer_immediate(renderer: *mut SDL_Renderer, prefer: bool) {
+    // SAFETY: a live renderer and a property name constant.
+    unsafe { SDL_SetBooleanProperty(SDL_GetRendererProperties(renderer), PREFER_IMMEDIATE_PROPERTY.as_ptr(), prefer) };
+}
+
+/// The GPU renderer's present mode in use, as SDL_GPUPresentMode's number; None on other
+/// renderers, which never set it.
+#[cfg(target_os = "linux")]
+pub fn present_mode(renderer: *mut SDL_Renderer) -> Option<i64> {
+    // SAFETY: a live renderer and a property name constant.
+    let mode = unsafe { SDL_GetNumberProperty(SDL_GetRendererProperties(renderer), PRESENT_MODE_PROPERTY.as_ptr(), -1) };
+    (mode >= 0).then_some(mode)
+}
+
+/// SDL's video driver ("wayland", "x11", ...), empty before SDL_Init.
+#[cfg(target_os = "linux")]
+pub fn video_driver() -> String {
+    // SAFETY: SDL returns a static string or null.
+    unsafe {
+        let name = SDL_GetCurrentVideoDriver();
+        if name.is_null() { String::new() } else { CStr::from_ptr(name).to_string_lossy().into_owned() }
+    }
+}
+
+/// SDL_GPUPresentMode's name, with what it means for tearing.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn present_mode_name(mode: Option<i64>) -> &'static str {
+    match mode {
+        Some(0) => "V-Sync (FIFO)",
+        Some(1) => "Immediate (tears)",
+        Some(2) => "Mailbox (no tearing)",
+        Some(_) => "unknown",
+        None => "set by the renderer",
+    }
+}
+
 pub fn hdr_available(renderer: *mut SDL_Renderer) -> bool {
     // SAFETY: The renderer is live.
     let enabled = unsafe { SDL_GetBooleanProperty(SDL_GetRendererProperties(renderer), SDL_PROP_RENDERER_HDR_ENABLED_BOOLEAN, false) };

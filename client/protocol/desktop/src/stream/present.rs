@@ -70,6 +70,16 @@ pub fn without_vrr(settings: &crate::config::Settings) -> PacingMode {
     if settings.vsync || settings.frame_pacing.forces_vsync() { PacingMode::Vsync } else { PacingMode::Immediate }
 }
 
+/// Whether a stream asks the GPU renderer for IMMEDIATE before MAILBOX when it presents without
+/// V-Sync (`sdl::prefer_immediate`): MAILBOX never tears, so it would hold each picture for the
+/// next refresh. moonlight-qt's Vulkan renderer (plvk.cpp) and chiaki-ng take IMMEDIATE with
+/// V-Sync off. A VRR stream on a Wayland compositor keeps MAILBOX and gamescope takes IMMEDIATE,
+/// as Nonary's moonlight-qt fork does (plvkpresentation.h).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn prefers_immediate(vrr: bool, wayland: bool, gamescope: bool) -> bool {
+    !(vrr && wayland && !gamescope)
+}
+
 /// The longest a picture waits in the in-order frame pacings before a newer due one replaces it:
 /// one frame of the stream, at most 250 ms (Android's `FramePacingPolicy.shouldDrainOutput`).
 pub fn frame_us(fps: u32) -> u64 {
@@ -2031,6 +2041,20 @@ pub(crate) mod tests {
             color_range: range,
             color_trc: trc,
         }
+    }
+
+    #[test]
+    fn without_v_sync_tears_except_a_vrr_stream_on_wayland() {
+        // (vrr, wayland, gamescope)
+        assert!(prefers_immediate(false, false, false), "X11 without V-Sync tears");
+        assert!(prefers_immediate(false, true, false), "Wayland without VRR tears");
+        assert!(prefers_immediate(true, false, false), "X11 VRR takes IMMEDIATE");
+        assert!(!prefers_immediate(true, true, false), "a VRR stream on a Wayland compositor keeps MAILBOX");
+        assert!(prefers_immediate(true, true, true), "gamescope's VRR takes IMMEDIATE");
+        assert_eq!(crate::sdl::present_mode_name(Some(1)), "Immediate (tears)");
+        assert_eq!(crate::sdl::present_mode_name(Some(2)), "Mailbox (no tearing)");
+        assert_eq!(crate::sdl::present_mode_name(Some(0)), "V-Sync (FIFO)");
+        assert_eq!(crate::sdl::present_mode_name(None), "set by the renderer");
     }
 
     #[test]

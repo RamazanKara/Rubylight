@@ -696,6 +696,15 @@ pub struct VideoTexture {
     /// Vulkan video pictures' planes, copied on the GPU, which `planes` draws (dropped after it).
     #[cfg(unix)]
     vulkan: Option<crate::vulkan_video::Planes>,
+    /// The current picture's planes, copied for `planes` and not yet drawn, with the parameters to
+    /// draw them with: `draw_direct` draws them into the back buffer, `sdl_texture` into the
+    /// texture when something reads it (an upscaler, or SDL after a failed direct draw).
+    #[cfg(unix)]
+    planes_pending: Option<[u32; 8]>,
+    /// Drawing the planes into the back buffer failed: they go through the texture for the rest
+    /// of the stream.
+    #[cfg(unix)]
+    direct_planes_failed: bool,
     /// Why the last `upload` failed, when it knows more than the caller can say.
     pub failure: Option<String>,
     /// The last failure written to the log, so a failing picture stream logs each reason once.
@@ -783,6 +792,10 @@ impl Default for VideoTexture {
             planes: None,
             #[cfg(unix)]
             vulkan: None,
+            #[cfg(unix)]
+            planes_pending: None,
+            #[cfg(unix)]
+            direct_planes_failed: false,
             failure: None,
             logged_failure: None,
             hdr_frame: false,
@@ -1205,6 +1218,9 @@ impl VideoTexture {
     }
 
     fn upload_picture(&mut self, renderer: *mut SDL_Renderer, decoded: &Decoded, rows: Option<(u32, u32)>) -> bool {
+        // Planes copied for an earlier picture are not this one's.
+        #[cfg(unix)]
+        { self.planes_pending = None; }
         #[cfg(windows)]
         if let media::Picture::GpuPlanes { lease, fence_value } = &decoded.picture {
             return self.upload_planes(renderer, decoded, lease, *fence_value, rows);
@@ -1567,8 +1583,9 @@ impl VideoTexture {
     pub fn copy_held(&mut self) {}
 
     /// The texture SDL draws or the upscalers read for the current picture: the video texture
-    /// (with a held picture copied in), or for a 10-bit SDR or an HLG picture, which SDL's
-    /// shaders would decode as PQ or gamma, its RGB conversion by the pass.
+    /// (with a held picture copied in, or on Linux the pending planes drawn into it), or for a
+    /// 10-bit SDR or an HLG picture, which SDL's shaders would decode as PQ or gamma, its RGB
+    /// conversion by the pass.
     #[cfg(windows)]
     pub fn sdl_texture(&mut self, renderer: *mut SDL_Renderer) -> *mut SDL_Texture {
         if self.texture.is_null() || !self.d3d11_picture || !sdl_needs_rgb(self.format, self.transfer()) {
@@ -1587,9 +1604,72 @@ impl VideoTexture {
         self.converted
     }
 
-    #[cfg(not(windows))]
+    #[cfg(unix)]
+    pub fn sdl_texture(&mut self, renderer: *mut SDL_Renderer) -> *mut SDL_Texture {
+        if let Err(error) = self.draw_pending_planes(renderer) {
+            self.fail(format!("drawing the picture's planes into the video texture failed: {error}"), error);
+        }
+        self.texture
+    }
+
+    #[cfg(not(any(windows, unix)))]
     pub fn sdl_texture(&mut self, _renderer: *mut SDL_Renderer) -> *mut SDL_Texture {
         self.texture
+    }
+
+    /// Where the plane pass draws a picture: nowhere yet while the planes can go straight into the
+    /// back buffer (`draw_direct`), else the texture.
+    #[cfg(unix)]
+    fn planes_target(&self) -> *mut SDL_Texture {
+        if self.direct_planes_failed { self.texture } else { std::ptr::null_mut() }
+    }
+
+    /// Notes a picture the plane pass drew into `target` with `parameters`.
+    #[cfg(unix)]
+    fn planes_drawn(&mut self, target: *mut SDL_Texture, parameters: [u32; 8]) {
+        self.planes_pending = target.is_null().then_some(parameters);
+    }
+
+    /// Draws the copied planes into the texture, once per picture.
+    #[cfg(unix)]
+    fn draw_pending_planes(&mut self, renderer: *mut SDL_Renderer) -> Result<(), String> {
+        let Some(parameters) = self.planes_pending.take() else { return Ok(()) };
+        let texture = self.texture;
+        let pass = self.planes.as_mut().ok_or("the plane pass is gone")?;
+        // SAFETY: The pass copied the current picture's planes on this renderer, for `parameters`.
+        unsafe { pass.draw_bound(renderer, texture, &parameters) }
+    }
+
+    /// Draws the current picture's copied planes straight into `destination` of the back buffer,
+    /// converted and scaled in one pass, and returns true; false for SDL to draw `texture` (an
+    /// upscaler's output, a picture that is not planes, or after a failure, which is logged once).
+    /// The pass does what SDL's draw of the RGBA64F texture would: its tone map and colour scale.
+    #[cfg(unix)]
+    pub fn draw_direct(&mut self, renderer: *mut SDL_Renderer, destination: &SDL_FRect, texture: *mut SDL_Texture) -> bool {
+        let Some(parameters) = self.planes_pending.filter(|_| texture == self.texture && !texture.is_null()) else { return false };
+        // SAFETY: The live renderer and texture of the presenting thread.
+        let look = unsafe {
+            let (renderer_props, texture_props) = (SDL_GetRendererProperties(renderer), SDL_GetTextureProperties(texture));
+            let mut color_scale = 1.0;
+            SDL_GetRenderColorScale(renderer, &mut color_scale);
+            super::planes_gpu::SdlLook {
+                texture_headroom: SDL_GetFloatProperty(texture_props, SDL_PROP_TEXTURE_HDR_HEADROOM_FLOAT, 1.0),
+                output_headroom: SDL_GetFloatProperty(renderer_props, SDL_PROP_RENDERER_HDR_HEADROOM_FLOAT, 1.0),
+                sdr_white: SDL_GetFloatProperty(renderer_props, SDL_PROP_RENDERER_SDR_WHITE_POINT_FLOAT, 1.0),
+                color_scale,
+            }
+        };
+        let visible = self.size();
+        let Some(pass) = self.planes.as_mut() else { return false };
+        // SAFETY: The pass copied the current picture's planes on this renderer, for `parameters`.
+        match unsafe { pass.draw_direct(renderer, &parameters, destination, visible, look) } {
+            Ok(()) => true,
+            Err(error) => {
+                eprintln!("nightjar: drawing the picture's planes into the back buffer failed: {error}; they go through the video texture from now on");
+                self.direct_planes_failed = true;
+                false
+            }
+        }
     }
 
     #[cfg(windows)]
@@ -1824,14 +1904,14 @@ impl VideoTexture {
                 Err(error) => { self.failure = Some(format!("PyroWave GPU decoding cannot draw its planes: {error}")); return false; }
             }
         }
-        let texture = self.texture;
+        let texture = self.planes_target();
         let stages = &mut self.pyrowave_stages;
         let failure = &mut self.failure;
         let drawn = self.planes.as_mut().is_some_and(|pass| match unsafe { pass.draw(renderer, texture, lease, &parameters, stages) } {
             Ok(()) => true,
             Err(error) => { *failure = Some(format!("PyroWave GPU decoding failed: {error}")); false }
         });
-        if drawn { self.pyrowave_stages.commit(); } else { self.pyrowave_stages.reset(); }
+        if drawn { self.pyrowave_stages.commit(); self.planes_drawn(texture, parameters); } else { self.pyrowave_stages.reset(); }
         drawn
     }
 
@@ -1863,10 +1943,12 @@ impl VideoTexture {
                     Err(error) => { self.fail(format!("the plane shader pass cannot be made: {error}"), format!("the plane shader pass cannot be made: {error}")); return false; }
                 }
             }
-            let texture = self.texture;
+            let texture = self.planes_target();
             // SAFETY: The pass was made on this renderer for pictures shaped like `info` (a change
             // of shape changes the parameters, which destroys it), and `info` is the live frame's.
-            unsafe { self.planes.as_mut().unwrap().draw_frame(renderer, texture, info, &parameters) }
+            let drawn = unsafe { self.planes.as_mut().unwrap().draw_frame(renderer, texture, info, &parameters) };
+            if drawn.is_ok() { self.planes_drawn(texture, parameters); }
+            drawn
         };
         #[cfg(not(any(windows, unix)))]
         let drawn: Result<(), String> = Err("this platform has no plane shader pass".into());
@@ -1925,14 +2007,14 @@ impl VideoTexture {
                 Err(error) => { self.fail(format!("the plane shader pass cannot be made: {error}"), format!("the plane shader pass cannot be made: {error}")); return false; }
             }
         }
-        let texture = self.texture;
+        let texture = self.planes_target();
         let (Some(planes), Some(pass)) = (self.vulkan.as_mut(), self.planes.as_mut()) else { return false };
         // SAFETY: A live Vulkan frame of the decoder on this renderer's device (`device_context`);
         // planes and pass made on this renderer for pictures shaped like it (a change of shape
         // changes the parameters, which destroys them).
         let drawn = unsafe { planes.copy(renderer, frame.raw.as_ptr()).and_then(|()| pass.draw_bound(renderer, texture, &parameters)) };
         match drawn {
-            Ok(()) => true,
+            Ok(()) => { self.planes_drawn(texture, parameters); true }
             Err(error) => { self.fail(format!("drawing a {what} failed: {error}"), error); false }
         }
     }
@@ -1972,6 +2054,8 @@ impl VideoTexture {
             pyrowave_stages: stages,
             #[cfg(unix)]
             dmabuf_declined: self.dmabuf_declined,
+            #[cfg(unix)]
+            direct_planes_failed: self.direct_planes_failed,
             // The pass outlives the texture; the next pictures are a new scene to it.
             #[cfg(windows)]
             direct: self.direct.take().map(|(device, mut pass)| { pass.reset(); (device, pass) }),
@@ -2106,6 +2190,30 @@ pub(crate) mod tests {
         sdr10.destroy();
         hdr.destroy();
         assert!(!sdr10.hdr_stream && hdr.hdr_stream, "what the session negotiated must survive destroy");
+    }
+
+    /// Plane pictures wait for the back buffer (`draw_direct`) instead of going through the
+    /// texture, until a direct draw fails, which holds for the rest of the stream.
+    #[cfg(unix)]
+    #[test]
+    fn plane_pictures_go_straight_to_the_back_buffer_until_that_fails() {
+        let mut texture = VideoTexture::default();
+        assert!(texture.planes_target().is_null(), "the plane pass must only copy the planes");
+        texture.planes_drawn(texture.planes_target(), [7; 8]);
+        assert_eq!(texture.planes_pending, Some([7; 8]));
+        // No picture texture yet: SDL has nothing to draw, the planes stay for the next present.
+        assert!(!texture.draw_direct(std::ptr::null_mut(), &SDL_FRect { x: 0.0, y: 0.0, w: 1.0, h: 1.0 }, std::ptr::null_mut()));
+        assert_eq!(texture.planes_pending, Some([7; 8]));
+        texture.direct_planes_failed = true;
+        texture.destroy();
+        assert!(texture.direct_planes_failed, "a failed direct draw must survive destroy");
+        assert_eq!(texture.planes_pending, None, "a new texture has no planes of the old one");
+        let fake = std::ptr::NonNull::<SDL_Texture>::dangling().as_ptr();
+        texture.texture = fake;
+        assert_eq!(texture.planes_target(), fake);
+        texture.planes_drawn(fake, [7; 8]);
+        assert_eq!(texture.planes_pending, None, "a picture drawn into the texture is not pending");
+        texture.texture = std::ptr::null_mut();
     }
 
     #[test]

@@ -10,6 +10,14 @@ cbuffer Picture : register(b0) {
 #endif
     uint width; uint height; uint paddedWidth; uint paddedHeight;
     uint level; uint operation; uint flags; float sdrWhite;
+#ifdef VULKAN
+    // Flag 512, the planes entry only (planes_gpu.rs `draw_direct`): the target rectangle the
+    // picture fills (x, y, w, h in target pixels), the picture's visible size, and what SDL's own
+    // draw of the picture texture would do after the conversion: its tone map (factors 1 and 2,
+    // both 0 for none) and its colour scale. The other draws leave these out.
+    float4 destination; float4 picture;
+    float outputScale; float tonemap1; float tonemap2; float unused;
+#endif
 };
 float4 vertex(uint id : SV_VertexID) : SV_Position {
     float2 p = float2((id << 1) & 2, id & 2);
@@ -124,7 +132,40 @@ Texture2D<float> planeCr : register(t3);
 #define CR(cb, cr) cr
 #define HIGH_BITS
 #endif
+#ifdef VULKAN
+static const float3x3 bt709to2020 = { 0.627404, 0.329283, 0.043313, 0.069097, 0.919541, 0.011362, 0.016391, 0.088013, 0.895595 };
+static const float3x3 bt2020to709 = { 1.660496, -0.587656, -0.072840, -0.124547, 1.132895, -0.008348, -0.018154, -0.100597, 1.118751 };
+// Flag 512: the planes scaled straight into the target rectangle (bilinear, as SDL scales the
+// picture texture), then SDL's tone map (TONEMAP_CHROME of its texture_advanced shader) and
+// colour scale, so the result is what drawing the converted texture with SDL gives, in one pass.
+float4 planesDirect(float2 position) {
+    float2 visible = picture.xy;
+    float2 at = clamp((position - destination.xy) * visible / destination.zw, 0.5, visible - 0.5);
+    uint2 lumaSize;
+    planeY.GetDimensions(lumaSize.x, lumaSize.y);
+    float3 samples;
+    samples.x = planeY.SampleLevel(sampleLinear, at / float2(lumaSize), 0);
+    uint2 size;
+    planeCb.GetDimensions(size.x, size.y);
+    float2 uv = (flags & 32) != 0 ? at / float2(size) : clamp(at * 0.5, 0.5, visible * 0.5 - 0.5) / float2(size);
+    samples.y = CB(planeCb.SampleLevel(sampleLinear, uv, 0));
+    samples.z = CR(planeCb.SampleLevel(sampleLinear, uv, 0), planeCr.SampleLevel(sampleLinear, uv, 0));
+    if ((flags & 64) != 0) samples *= 65535.0 / 1023.0;
+    HIGH_BITS
+    float3 rgb = linearRgb(samples - 0.5);
+    if (tonemap2 > 0) {
+        float3 v = mul(bt709to2020, rgb);
+        float vmax = max(v.r, max(v.g, v.b));
+        if (vmax > 0) v *= (1 + tonemap1 * vmax) / (1 + tonemap2 * vmax);
+        rgb = mul(bt2020to709, v);
+    }
+    return float4(rgb * outputScale, 1);
+}
+#endif
 float4 planes(float4 position : SV_Position) : SV_Target {
+#ifdef VULKAN
+    if ((flags & 512) != 0) return planesDirect(position.xy);
+#endif
     int3 p = int3(int2(position.xy), 0);
     float3 samples;
     samples.x = planeY.Load(p);

@@ -91,6 +91,8 @@ pub struct Offered {
     pub pipeline_rates: bool,
     /// `DisplayScaleVersion` and the `rlDisplayScale` launch option.
     pub display_scale: bool,
+    /// `SecondScreenVersion` and the `rlSecondScreen` launch option.
+    pub second_screen: bool,
     /// Rate changes (0x553C), in the DESCRIBE of a stream whose client launched with
     /// `rlRateChange=1`; no serverinfo element.
     pub rate_change: bool,
@@ -114,6 +116,7 @@ impl Offered {
         cursor_shape: false,
         pipeline_rates: false,
         display_scale: false,
+        second_screen: false,
         rate_change: false,
         clipboard_sync: false,
     };
@@ -159,6 +162,10 @@ impl Offered {
             (
                 self.display_scale,
                 crate::display_policy::DISPLAY_SCALE_SERVERINFO_FIELD,
+            ),
+            (
+                self.second_screen,
+                crate::display_policy::SECOND_SCREEN_SERVERINFO_FIELD,
             ),
         ] {
             if offered {
@@ -324,6 +331,7 @@ mod tests {
         cursor_shape: true,
         pipeline_rates: true,
         display_scale: true,
+        second_screen: true,
         rate_change: true,
         clipboard_sync: true,
     };
@@ -361,6 +369,7 @@ mod tests {
                 ("CursorShapeVersion", "1"),
                 ("PipelineRatesVersion", "1"),
                 ("DisplayScaleVersion", "1"),
+                ("SecondScreenVersion", "1"),
             ]
         );
         assert_eq!(

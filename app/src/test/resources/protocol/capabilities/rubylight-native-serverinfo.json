@@ -43,6 +43,7 @@
     "client_keyboard_layout": "unsupported",
     "pen_barrel_roll": "unsupported",
     "pipeline_rates": "unsupported",
+    "second_screen": "unsupported",
     "image_clipboard": "unknown",
     "shared_folders": "unknown",
     "coop": "unknown",

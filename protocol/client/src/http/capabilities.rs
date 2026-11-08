@@ -79,6 +79,10 @@ pub enum Feature {
     PenBarrelRoll,
     /// Pipeline frame rates for the overlay (0x553D).
     PipelineRates,
+    /// Dual screen mode (`SecondScreenVersion`): the host keeps a device's second stream
+    /// (`rlSecondScreen=1`) beside its first. Any other host takes it for the first stream
+    /// starting again and drops that one.
+    SecondScreen,
     /// PNG clipboard (native `clipboard.image`). Known only after
     /// [`HostCapabilities::with_native`].
     ImageClipboard,
@@ -96,7 +100,7 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub const ALL: [Feature; 45] = [
+    pub const ALL: [Feature; 46] = [
         Feature::Permissions,
         Feature::OtpPairing,
         Feature::Clipboard,
@@ -137,6 +141,7 @@ impl Feature {
         Feature::ClientKeyboardLayout,
         Feature::PenBarrelRoll,
         Feature::PipelineRates,
+        Feature::SecondScreen,
         Feature::ImageClipboard,
         Feature::SharedFolders,
         Feature::Coop,
@@ -261,6 +266,9 @@ pub struct Evidence {
     pub pipeline_rates_version: i32,
     /// -1 without `DisplayScaleVersion`: the host ignores `rlDisplayScale`.
     pub display_scale_version: i32,
+    /// -1 without `SecondScreenVersion`: the host ends the first stream when a second one of the
+    /// device starts.
+    pub second_screen_version: i32,
     /// `usb`, `clipboard.image` and `folders` in the native features, and the device's `usb`
     /// and `shared_folders` permissions.
     pub usb_offered: bool,
@@ -363,6 +371,7 @@ impl Evidence {
             pen_barrel_roll_version: -1,
             pipeline_rates_version: -1,
             display_scale_version: -1,
+            second_screen_version: -1,
             ..Default::default()
         };
         let (mut encoder, mut initial_encoder) = (false, false);
@@ -413,6 +422,7 @@ impl Evidence {
                 }
                 "PipelineRatesVersion" => e.pipeline_rates_version = unsigned(&text, 0xFFFF) as i32,
                 "DisplayScaleVersion" => e.display_scale_version = unsigned(&text, 0xFFFF) as i32,
+                "SecondScreenVersion" => e.second_screen_version = unsigned(&text, 0xFFFF) as i32,
                 "NativeApiVersion" => e.native_api_version = unsigned(&text, 0xFFFF) as i32,
                 "PowerActionVersion" => e.power_action_version = unsigned(&text, 0xFFFF) as i32,
                 "SleepSupported" => e.sleep_supported = flag(&text) == Some(true),
@@ -817,6 +827,7 @@ impl Evidence {
             Feature::ClientKeyboardLayout => self.serverinfo_version(self.keyboard_layout_version),
             Feature::PenBarrelRoll => self.serverinfo_version(self.pen_barrel_roll_version),
             Feature::PipelineRates => self.serverinfo_version(self.pipeline_rates_version),
+            Feature::SecondScreen => self.serverinfo_version(self.second_screen_version),
             Feature::UsbForwarding => {
                 let refused = (!self.usb_permission).then_some(Reason::UsbPermission);
                 self.native_feature(self.usb_offered, refused)
@@ -1079,6 +1090,8 @@ mod tests {
             ("AudioLayouts", Feature::Surround714, &[("8", true), ("7", false)]),
             ("FecControlVersion", Feature::ClientFec, &[("2", true), ("0", false), ("-1", false)]),
             ("PipelineRatesVersion", Feature::PipelineRates, &[("1", true), ("", false)]),
+            // Only a host that says so keeps a device's second stream beside its first.
+            ("SecondScreenVersion", Feature::SecondScreen, &[("1", true), ("2", true), ("0", false), ("x", false)]),
         ] {
             for &(value, supported) in cases {
                 let expected = if supported { Availability::Supported } else { never };

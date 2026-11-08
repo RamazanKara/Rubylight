@@ -19,6 +19,8 @@ pub const SETTLE: Duration = Duration::from_secs(1);
 
 /// How far the display's refresh and the CRTC's mode may differ and still be the same output.
 const REFRESH_TOLERANCE_HZ: f64 = 0.5;
+/// How far its size may differ: SDL's size times the pixel density is rounded.
+const SIZE_TOLERANCE_PX: u32 = 2;
 
 /// One output a CRTC scans out, as DRM has it.
 #[derive(Clone, Debug, PartialEq)]
@@ -46,10 +48,21 @@ pub struct Display {
 }
 
 impl Display {
+    /// The mode is known: SDL gave one.
+    fn known(&self) -> bool { self.width > 0 && self.height > 0 }
+
     fn shows(&self, output: &Output) -> bool {
+        let near = |a: u32, b: u32| a.abs_diff(b) <= SIZE_TOLERANCE_PX;
         // A rotated output's CRTC mode is the panel's, the desktop's is turned.
-        let size = (output.width, output.height) == (self.width, self.height) || (output.height, output.width) == (self.width, self.height);
+        let size = (near(output.width, self.width) && near(output.height, self.height))
+            || (near(output.height, self.width) && near(output.width, self.height));
         size && (output.refresh_hz - self.refresh_hz).abs() <= REFRESH_TOLERANCE_HZ
+    }
+
+    /// SDL's name is the connector's (X11 with the modesetting driver, some Wayland compositors)
+    /// or a description that ends in it in brackets (`Dell Inc. DELL U2724D (DP-1)`).
+    fn named(&self, output: &Output) -> bool {
+        self.name.as_deref().is_some_and(|name| name == output.name || name.contains(&format!("({})", output.name)))
     }
 
     fn describe(&self) -> String {
@@ -57,22 +70,18 @@ impl Display {
     }
 }
 
-/// The output that shows `display`: the only active one, else the one of its name, else the one
-/// of its mode. Wayland and X11 with the modesetting driver name outputs as the kernel does; the
-/// amdgpu X driver does not (`DisplayPort-0`), and two GPUs can each have a `DP-1`, so the mode
-/// decides among those. Anything still ambiguous is said, not guessed.
+/// The output that shows `display`: among those of its name (`Display::named`) if any, the one
+/// of its mode. A name need not match: the amdgpu X driver says `DisplayPort-0`, and SDL's name
+/// can be the monitor's alone. Two GPUs can each have a `DP-1`. The mode is required whenever SDL
+/// gave one, even of the only output KMS shows: the window's display may be on a card that is not
+/// there (one that failed to read, NVIDIA without modesetting), and a laptop panel's VRR off must
+/// not turn a VRR monitor to V-Sync. Without a mode only the name decides. Anything still
+/// ambiguous is said, not guessed.
 pub fn select<'a>(outputs: &'a [Output], display: &Display) -> Result<&'a Output, String> {
-    let mut candidates: Vec<&Output> = outputs.iter().collect();
-    match candidates.len() {
-        0 => return Err("no connector is driven by a CRTC".into()),
-        1 => return Ok(candidates[0]),
-        _ => {}
-    }
-    if let Some(name) = &display.name {
-        let named: Vec<&Output> = candidates.iter().copied().filter(|output| &output.name == name).collect();
-        if !named.is_empty() { candidates = named; }
-    }
-    if candidates.len() > 1 { candidates.retain(|output| display.shows(output)); }
+    if outputs.is_empty() { return Err("no connector is driven by a CRTC".into()); }
+    let mut candidates: Vec<&Output> = outputs.iter().filter(|output| display.named(output)).collect();
+    if candidates.is_empty() && display.known() { candidates = outputs.iter().collect(); }
+    if display.known() { candidates.retain(|output| display.shows(output)); }
     match candidates.as_slice() {
         [output] => Ok(output),
         found => {
@@ -85,6 +94,7 @@ pub fn select<'a>(outputs: &'a [Output], display: &Display) -> Result<&'a Output
 /// What a read found.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Reading {
+    /// `enabled`: `VRR_ENABLED` is 1 (`runs` says whether the display does).
     Vrr { enabled: bool, output: String, capable: Option<u64> },
     /// The outputs could not be read, or the window's is not known, or its CRTC says nothing.
     Unknown(String),
@@ -108,12 +118,16 @@ impl Reading {
         }
     }
 
+    /// The display refreshes on present: `VRR_ENABLED` 1 on a connector not said to be incapable,
+    /// which amdgpu scans at a fixed rate whatever the CRTC says.
+    pub fn runs(&self) -> bool { matches!(self, Self::Vrr { enabled: true, capable, .. } if *capable != Some(0)) }
+
     /// The log line after the topic.
     pub fn line(&self) -> String {
         match self {
             Self::Vrr { enabled, output, capable } => {
                 let capable = capable.map_or("unknown".to_string(), |value| value.to_string());
-                let said = if *enabled { "VRR on" } else { "no VRR" };
+                let said = if self.runs() { "VRR on" } else { "no VRR" };
                 format!("{said} (DRM: VRR_ENABLED {} on {output}, vrr_capable {capable})", u8::from(*enabled))
             }
             Self::Unknown(why) => format!("VRR not known, the pacing stays (DRM: {why})"),
@@ -130,11 +144,11 @@ pub fn verdict(tearing: bool, reading: Option<&Reading>) -> Verdict {
     if !tearing { return Verdict::Off(Reason::NoTearing, capability); }
     match reading {
         None => Verdict::Checking,
-        Some(Reading::Vrr { enabled: false, .. }) => Verdict::Off(Reason::NoVrr, capability),
-        Some(Reading::Vrr { enabled: true, .. }) => {
+        Some(reading @ Reading::Vrr { .. }) if reading.runs() => {
             capability.vrr = true;
             Verdict::Off(Reason::VrrNoScanline, capability)
         }
+        Some(Reading::Vrr { .. }) => Verdict::Off(Reason::NoVrr, capability),
         Some(Reading::Unknown(_)) => Verdict::Off(Reason::NoScanline, capability),
     }
 }
@@ -208,7 +222,7 @@ pub fn outputs() -> Result<Vec<Output>, String> {
 
 /// DRM is Linux's.
 #[cfg(not(target_os = "linux"))]
-#[cfg_attr(windows, allow(dead_code))] // Windows builds this module for its tests only.
+#[allow(dead_code)] // Only Linux builds this module outside its tests.
 pub fn outputs() -> Result<Vec<Output>, String> { Err("DRM KMS is Linux only".into()) }
 
 /// The kernel's name of a connector type (`drm_connector_enum_list`).
@@ -365,6 +379,8 @@ mod sys {
     const GETCONNECTOR: u32 = iowr::<Connector>(0xA7);
     const GETPROPERTY: u32 = iowr::<Property>(0xAA);
     const OBJ_GETPROPERTIES: u32 = iowr::<ObjProperties>(0xB9);
+    /// `DRM_IO(0x1f)`: no data.
+    const DROP_MASTER: u32 = (0x64 << 8) | 0x1f;
 
     const OBJECT_CRTC: u32 = 0xcccc_cccc;
     const OBJECT_CONNECTOR: u32 = 0xc0c0_c0c0;
@@ -414,6 +430,10 @@ mod sys {
     pub(super) fn read_card(card: &str) -> std::io::Result<Vec<Output>> {
         let file = std::fs::OpenOptions::new().read(true).write(true).custom_flags(libc::O_CLOEXEC).open(format!("/dev/dri/{card}"))?;
         let fd = file.as_raw_fd();
+        // Opening a card no one is master of (no compositor on it) makes this the master, which
+        // a compositor starting now would be refused. Nothing here needs it: give it up at once.
+        // SAFETY: DROP_MASTER takes no argument; refused when not master, which is fine.
+        unsafe { libc::ioctl(fd, DROP_MASTER as _, 0) };
         let mut res = CardRes::default();
         ioctl(fd, GETRESOURCES, &mut res)?;
         let mut connectors = vec![0u32; res.count_connectors as usize];
@@ -462,10 +482,29 @@ mod tests {
     }
 
     #[test]
-    fn the_only_active_output_is_the_windows_whatever_its_name() {
+    fn the_only_output_kms_shows_must_still_show_the_windows_mode() {
         let outputs = [output("card1", "DP-1", (3440, 1440), 143.97, Some(0))];
-        let found = select(&outputs, &display(Some("DisplayPort-0"), (2560, 1440), 60.0)).unwrap();
-        assert_eq!(found.name, "DP-1");
+        assert_eq!(select(&outputs, &display(Some("DisplayPort-0"), (3440, 1440), 144.0)).unwrap().name, "DP-1", "whatever its name");
+        // A G-SYNC monitor on a card KMS does not show (NVIDIA without modesetting) beside the
+        // laptop panel with VRR off: not the window's, so the stream keeps its pacing.
+        let panel = [output("card1", "eDP-1", (1920, 1200), 60.0, Some(0))];
+        let why = select(&panel, &display(Some("DP-0"), (2560, 1440), 165.0)).unwrap_err();
+        assert!(why.contains("0 of 1"), "{why}");
+        assert!(matches!(Reading::of(Ok(panel.to_vec()), &display(Some("DP-0"), (2560, 1440), 165.0)), Reading::Unknown(_)));
+        // Without SDL's mode only the name decides.
+        assert!(select(&panel, &display(Some("DP-0"), (0, 0), 0.0)).is_err());
+        assert_eq!(select(&panel, &display(Some("eDP-1"), (0, 0), 0.0)).unwrap().name, "eDP-1");
+    }
+
+    #[test]
+    fn a_wayland_description_names_its_connector_and_a_rounded_size_still_matches() {
+        let outputs = [output("card0", "DP-1", (2560, 1440), 144.0, Some(1)), output("card0", "DP-2", (2560, 1440), 144.0, Some(0))];
+        let found = select(&outputs, &display(Some("Dell Inc. DELL U2724D (DP-2)"), (2560, 1440), 144.0)).unwrap();
+        assert_eq!(found.name, "DP-2");
+        // 1707 x 1.5 at a 150% scale, rounded.
+        let scaled = [output("card0", "eDP-1", (2560, 1600), 120.0, Some(1))];
+        assert_eq!(select(&scaled, &display(None, (2561, 1599), 120.0)).unwrap().name, "eDP-1");
+        assert!(select(&scaled, &display(None, (2564, 1600), 120.0)).is_err(), "3 px is another mode");
     }
 
     #[test]
@@ -518,6 +557,18 @@ mod tests {
         assert_eq!(unknown.line(), "off (no scanline)", "today's verdict");
         assert_eq!(verdict(true, None), Verdict::Checking);
         assert_eq!(verdict(false, Some(&off)).line(), "off (no tearing)");
+    }
+
+    #[test]
+    fn vrr_enabled_on_a_connector_that_is_not_vrr_capable_is_no_vrr() {
+        // amdgpu scans such a display at a fixed rate whatever the CRTC says.
+        let incapable = Reading::Vrr { enabled: true, output: "HDMI-A-1".into(), capable: Some(0) };
+        assert!(!incapable.runs());
+        assert!(verdict(true, Some(&incapable)).fixed_refresh());
+        assert_eq!(incapable.line(), "no VRR (DRM: VRR_ENABLED 1 on HDMI-A-1, vrr_capable 0)");
+        let unsaid = Reading::Vrr { enabled: true, output: "DP-1".into(), capable: None };
+        assert!(unsaid.runs(), "a connector without the property is taken at the CRTC's word");
+        assert_eq!(unsaid.line(), "VRR on (DRM: VRR_ENABLED 1 on DP-1, vrr_capable unknown)");
     }
 
     #[test]

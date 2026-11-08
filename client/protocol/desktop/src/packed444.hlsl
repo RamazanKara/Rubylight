@@ -1,4 +1,15 @@
-#ifdef VULKAN
+// Vulkan (SDL GPU) variants; glslang defines VULKAN itself (glslang 15.1.0 rebuilds
+// packed444.spv apart from its generator word):
+//   glslangValidator -V -D -e fragment -S frag --target-env vulkan1.0 packed444.hlsl -o packed444.spv
+//   glslangValidator -V -D -DPLANES -e fragment -S frag --auto-sampled-textures --target-env vulkan1.0 packed444.hlsl -o packed444-planes.spv
+// PLANES samples the Y and UV plane textures of a VAAPI picture mapped into Vulkan
+// (vulkan_video::Planes, R8/RG8 or R16/RG16 holding P010's high bits) instead of a buffer of
+// samples copied from memory. SDL's fragment sampler slots are t0/s0 and t1/s1 in space2.
+#if defined(VULKAN) && defined(PLANES)
+Texture2D<float> planeY : register(t0, space2);
+Texture2D<float2> planeUV : register(t1, space2);
+cbuffer Picture : register(b0, space3) {
+#elif defined(VULKAN)
 StructuredBuffer<uint> samples : register(t0, space2);
 cbuffer Picture : register(b0, space3) {
 #else
@@ -15,7 +26,7 @@ cbuffer Picture : register(b0) {
 #define hdr 0
 #endif
 
-#ifdef VULKAN
+#if defined(VULKAN) && !defined(PLANES)
 float sampleCode(uint at) {
     uint word = samples[tenBit != 0 ? at / 2 : at / 4];
     return tenBit != 0 ? float((word >> ((at % 2) * 16 + 6)) & 1023)
@@ -29,6 +40,8 @@ float2 readUV(uint2 p) {
 #else
 float readY(uint2 p) { return planeY.Load(int3(p, 0)) * (tenBit != 0 ? 65535.0 / 64 : 255); }
 float2 readUV(uint2 p) { return planeUV.Load(int3(p, 0)) * (tenBit != 0 ? 65535.0 / 64 : 255); }
+#endif
+#ifndef VULKAN
 float4 vertex(uint id : SV_VertexID) : SV_Position {
     float2 p = float2((id << 1) & 2, id & 2);
     return float4(p * float2(2, -2) + float2(-1, 1), 0, 1);

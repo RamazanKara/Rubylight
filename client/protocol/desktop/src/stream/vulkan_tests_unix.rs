@@ -453,6 +453,28 @@ fn the_vulkan_picture_matches_the_software_picture_on_the_fixtures() {
     );
 }
 
+/// #80: packed 4:4:4 pictures, mapped from VAAPI or decoded by Vulkan video, are rebuilt from
+/// their planes as the presenter does, and the probe checks every pixel of the fixtures.
+#[test]
+#[ignore = "needs a Vulkan device with video decoding and SDL's offscreen driver"]
+fn packed_pictures_are_rebuilt_from_their_vulkan_planes() {
+    let _lock = gpu_lock();
+    let rig = Rig::new();
+    for hardware in [Hardware::Auto(rig.device(), None), Hardware::Vulkan(rig.device())] {
+        let modes = crate::stream::packed444::probe(rig.renderer, hardware);
+        println!("{hardware:?}: {modes:?}");
+        let modes = match modes {
+            Ok(modes) => modes,
+            Err(error) if matches!(hardware, Hardware::Vulkan(_)) && declined(&error) => {
+                println!("Vulkan video: not run, it declines the fixtures on this device: {error}");
+                continue;
+            }
+            Err(error) => panic!("{hardware:?}: {error}"),
+        };
+        assert!(modes & 0b11 == 0b11, "{hardware:?}: HEVC 8- and 10-bit must rebuild ({modes:#06b})");
+    }
+}
+
 /// More pictures than the planes' copy slots, from one decoder into one texture as in a stream:
 /// each copy waits for its picture's decode and the slot it reuses, so every picture stays the
 /// software one.

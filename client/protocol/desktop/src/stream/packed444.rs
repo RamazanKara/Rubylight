@@ -54,9 +54,16 @@ fn verify(
     ten_bit: bool,
     packing: u32,
 ) -> Result<(), String> {
-    // Packed chroma is put together from pictures in memory or DMA-BUFs: Vulkan video declines.
-    let pictures = media::Pictures { ten_bit, chroma444: false, packed: true, waiting: 0, vaapi_node: media::VaapiNode::Default };
+    // On the device and path a stream takes (`pipeline`): VAAPI on the GPU renderer's device with
+    // its pictures mapped into Vulkan, or Vulkan video, is drawn from the planes; the rest from memory.
+    let pictures = media::Pictures { ten_bit, chroma444: false, packed: true, waiting: 0, vaapi_node: media::vaapi_node(hardware) };
     let mut decoder = media::VideoDecoder::open_first(codec, pictures, hardware, true, |_, _| {})?;
+    #[cfg(unix)]
+    if let media::Hardware::Auto(gpu, _) = hardware {
+        if !gpu.is_null() {
+            decoder.map_to_vulkan(gpu);
+        }
+    }
     let status = decoder.send(data, 0);
     if status < 0 {
         return Err(format!("decoder rejected the sampling fixture ({status})"));
@@ -102,11 +109,21 @@ fn verify(
             0,
             0,
         ];
-        let mut reconstruction = Reconstruction::new(renderer, target, &parameters);
-        let mut valid = reconstruction
-            .as_mut()
-            .is_some_and(|r| r.draw(renderer, target, &frame, &parameters));
-        let mut reason = format!("GPU reconstruction unavailable: {}", crate::sdl::error());
+        #[cfg(unix)]
+        let mapped = media::PlanarLayout::of_vulkan(&info).map(|layout| draw_mapped(renderer, target, &frame, layout, &parameters));
+        #[cfg(not(unix))]
+        let mapped: Option<Result<(Reconstruction, ()), String>> = None;
+        let mut failed = None;
+        let (reconstruction, mut valid, _planes) = match mapped {
+            Some(Ok((reconstruction, planes))) => (Some(reconstruction), true, Some(planes)),
+            Some(Err(error)) => { failed = Some(error); (None, false, None) }
+            None => {
+                let mut reconstruction = Reconstruction::new(renderer, target, &parameters);
+                let valid = reconstruction.as_mut().is_some_and(|r| r.draw(renderer, target, &frame, &parameters));
+                (reconstruction, valid, None)
+            }
+        };
+        let mut reason = failed.unwrap_or_else(|| format!("GPU reconstruction unavailable: {}", crate::sdl::error()));
         let previous = SDL_GetRenderTarget(renderer);
         if valid && SDL_SetRenderTarget(renderer, target) {
             let surface = SDL_RenderReadPixels(renderer, ptr::null());
@@ -152,6 +169,31 @@ fn verify(
         } else {
             Err(reason)
         }
+    }
+}
+
+/// Draws a Vulkan picture (mapped VAAPI or Vulkan video) into `target` from its planes, as the
+/// presenter does; the reconstruction and planes stay alive until the target is read.
+#[cfg(unix)]
+unsafe fn draw_mapped(
+    renderer: *mut SDL_Renderer,
+    target: *mut SDL_Texture,
+    frame: &media::Frame,
+    layout: media::PlanarLayout,
+    parameters: &[u32; 12],
+) -> Result<(Reconstruction, crate::vulkan_video::Planes), String> {
+    // SAFETY: The probe's live renderer on its thread, and a live Vulkan frame of a decoder on its
+    // device (`media::vaapi_node`, `vulkan_video::device_context`); both outlive what is made here.
+    unsafe {
+        let device = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_GPU_DEVICE_POINTER);
+        let mut planes = crate::vulkan_video::Planes::new(device.cast(), layout.width, layout.height, layout.ten_bit, layout.chroma444)
+            .map_err(|error| format!("planes of the mapped picture: {error}"))?;
+        let reconstruction = Reconstruction::for_planes(renderer, planes.textures())?;
+        planes.copy(renderer, frame.raw.as_ptr()).map_err(|error| format!("copying the mapped picture: {error}"))?;
+        if !reconstruction.draw_planes(renderer, target, parameters) {
+            return Err(format!("GPU reconstruction from planes: {}", crate::sdl::error()));
+        }
+        Ok((reconstruction, planes))
     }
 }
 
@@ -227,6 +269,8 @@ pub struct Reconstruction {
     transfer: *mut SDL_GPUTransferBuffer,
     state: *mut SDL_GPURenderState,
     shader: *mut SDL_GPUShader,
+    /// The plane textures' sampler of a reconstruction from Vulkan planes (`for_planes`).
+    sampler: *mut SDL_GPUSampler,
     bytes: u32,
 }
 
@@ -244,6 +288,7 @@ impl Reconstruction {
             transfer: ptr::null_mut(),
             state: ptr::null_mut(),
             shader: ptr::null_mut(),
+            sampler: ptr::null_mut(),
             bytes: 0,
         };
         // SAFETY: Renderer and target are live and owned by the presenting thread.
@@ -320,6 +365,93 @@ impl Reconstruction {
                 },
             );
             (!result.state.is_null()).then_some(result)
+        }
+    }
+
+    /// The reconstruction from the Y and UV plane textures of a picture mapped into Vulkan
+    /// (`vulkan_video::Planes::textures`, sized to the coded picture), with `packed444-planes.spv`:
+    /// no picture crosses memory (#80: each 3840x4320 copy left the decoder 80 ms behind).
+    ///
+    /// # Safety
+    /// `renderer` is the presenting thread's live GPU renderer, and `textures` live on its device
+    /// until this is dropped.
+    #[cfg(unix)]
+    pub unsafe fn for_planes(renderer: *mut SDL_Renderer, textures: [*mut SDL_GPUTexture; 2]) -> Result<Self, String> {
+        let mut result = Self {
+            device: ptr::null_mut(),
+            buffer: ptr::null_mut(),
+            transfer: ptr::null_mut(),
+            state: ptr::null_mut(),
+            shader: ptr::null_mut(),
+            sampler: ptr::null_mut(),
+            bytes: 0,
+        };
+        // SAFETY: As the caller promises; every object made here is released on drop.
+        unsafe {
+            result.device = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_GPU_DEVICE_POINTER).cast();
+            if result.device.is_null() {
+                return Err("the renderer has no GPU device".into());
+            }
+            let code = include_bytes!("../packed444-planes.spv");
+            result.shader = SDL_CreateGPUShader(result.device, &SDL_GPUShaderCreateInfo {
+                code: code.as_ptr(),
+                code_size: code.len(),
+                entrypoint: c"fragment".as_ptr(),
+                format: SDL_GPU_SHADERFORMAT_SPIRV,
+                stage: SDL_GPU_SHADERSTAGE_FRAGMENT,
+                num_samplers: 2,
+                num_uniform_buffers: 1,
+                ..Default::default()
+            });
+            if result.shader.is_null() {
+                return Err(format!("the packed plane shader cannot be created: {}", crate::sdl::error()));
+            }
+            // The shader loads texels by position; the sampler only completes the binding.
+            result.sampler = SDL_CreateGPUSampler(result.device, &SDL_GPUSamplerCreateInfo {
+                min_filter: SDL_GPU_FILTER_NEAREST, mag_filter: SDL_GPU_FILTER_NEAREST, mipmap_mode: SDL_GPU_SAMPLERMIPMAPMODE_NEAREST,
+                address_mode_u: SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE, address_mode_v: SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+                address_mode_w: SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE, ..Default::default() });
+            if result.sampler.is_null() {
+                return Err(format!("the packed plane sampler cannot be created: {}", crate::sdl::error()));
+            }
+            let bindings = textures.map(|texture| SDL_GPUTextureSamplerBinding { texture, sampler: result.sampler });
+            result.state = SDL_CreateGPURenderState(renderer, &SDL_GPURenderStateCreateInfo {
+                fragment_shader: result.shader,
+                num_sampler_bindings: 2,
+                sampler_bindings: bindings.as_ptr(),
+                ..Default::default()
+            });
+            if result.state.is_null() {
+                return Err(format!("the packed plane render state cannot be created: {}", crate::sdl::error()));
+            }
+        }
+        Ok(result)
+    }
+
+    /// Draws the planes bound in `for_planes`, once the picture is copied into them, into `target`.
+    #[cfg(unix)]
+    pub fn draw_planes(&self, renderer: *mut SDL_Renderer, target: *mut SDL_Texture, parameters: &[u32; 12]) -> bool {
+        // SAFETY: The live renderer of the presenting thread and objects made on it.
+        unsafe { !self.sampler.is_null() && self.fill(renderer, target, parameters) }
+    }
+
+    /// Runs the shader over `target` with `parameters`.
+    unsafe fn fill(&self, renderer: *mut SDL_Renderer, target: *mut SDL_Texture, parameters: &[u32; 12]) -> bool {
+        // SAFETY: As the callers promise: the renderer and target are live on this thread.
+        unsafe {
+            if !SDL_SetGPURenderStateFragmentUniforms(self.state, 0, parameters.as_ptr().cast(), 48) {
+                return false;
+            }
+            let previous = SDL_GetRenderTarget(renderer);
+            if !SDL_SetRenderTarget(renderer, target) {
+                return false;
+            }
+            let ok = SDL_SetGPURenderState(renderer, self.state)
+                && SDL_RenderFillRect(renderer, ptr::null())
+                && SDL_FlushRenderer(renderer);
+            SDL_SetGPURenderState(renderer, ptr::null_mut());
+            SDL_SetRenderTarget(renderer, previous);
+            ok
         }
     }
 
@@ -436,20 +568,7 @@ impl Reconstruction {
             if !SDL_SubmitGPUCommandBuffer(commands) {
                 return false;
             }
-            if !SDL_SetGPURenderStateFragmentUniforms(self.state, 0, parameters.as_ptr().cast(), 48)
-            {
-                return false;
-            }
-            let previous = SDL_GetRenderTarget(renderer);
-            if !SDL_SetRenderTarget(renderer, target) {
-                return false;
-            }
-            let ok = SDL_SetGPURenderState(renderer, self.state)
-                && SDL_RenderFillRect(renderer, ptr::null())
-                && SDL_FlushRenderer(renderer);
-            SDL_SetGPURenderState(renderer, ptr::null_mut());
-            SDL_SetRenderTarget(renderer, previous);
-            ok
+            self.fill(renderer, target, parameters)
         }
     }
 }
@@ -469,6 +588,9 @@ impl Drop for Reconstruction {
             }
             if !self.shader.is_null() {
                 SDL_ReleaseGPUShader(self.device, self.shader);
+            }
+            if !self.sampler.is_null() {
+                SDL_ReleaseGPUSampler(self.device, self.sampler);
             }
         }
     }
@@ -706,6 +828,33 @@ mod tests {
             }
             SDL_DestroyTexture(target);
         }
+    }
+
+    /// The SPIR-V instructions' opcodes of `code`.
+    fn opcodes(code: &[u8]) -> Vec<u32> {
+        let words: Vec<u32> = code.chunks_exact(4).map(|w| u32::from_le_bytes(w.try_into().unwrap())).collect();
+        assert_eq!(words[0], 0x0723_0203, "SPIR-V magic");
+        let mut at = 5;
+        let mut opcodes = Vec::new();
+        while at < words.len() {
+            opcodes.push(words[at] & 0xffff);
+            at += (words[at] >> 16).max(1) as usize;
+        }
+        opcodes
+    }
+
+    /// #80: packed pictures mapped into Vulkan are rebuilt from their plane textures, not from a
+    /// buffer copied through memory.
+    #[test]
+    fn the_planes_variant_samples_two_textures_and_the_memory_one_reads_a_buffer() {
+        const TYPE_IMAGE: u32 = 25;
+        const TYPE_SAMPLED_IMAGE: u32 = 27;
+        const TYPE_RUNTIME_ARRAY: u32 = 29;
+        let planes = opcodes(include_bytes!("../packed444-planes.spv"));
+        let memory = opcodes(include_bytes!("../packed444.spv"));
+        assert!(planes.contains(&TYPE_SAMPLED_IMAGE) && planes.iter().filter(|&&op| op == TYPE_IMAGE).count() >= 1);
+        assert!(!planes.contains(&TYPE_RUNTIME_ARRAY), "the planes variant reads no sample buffer");
+        assert!(memory.contains(&TYPE_RUNTIME_ARRAY) && !memory.contains(&TYPE_SAMPLED_IMAGE));
     }
 
     #[test]

@@ -842,11 +842,12 @@ impl VideoDecoder {
     /// Hands VAAPI pictures to the GPU renderer, the SDL GPU device `gpu`, mapped into Vulkan
     /// images on its device instead of through memory (nightjar#80: 2.5 GB/s read back and
     /// uploaded at 4K100 10-bit), unless `NIGHTJAR_VAAPI_VULKAN_MAP` is 0. Says which in the log,
-    /// with the reason when they keep going through memory. Only a VAAPI decoder on Linux.
+    /// with the reason when they keep going through memory, and returns whether they are mapped.
+    /// Only a VAAPI decoder on Linux.
     #[cfg(unix)]
-    pub fn map_to_vulkan(&mut self, gpu: *mut c_void) {
+    pub fn map_to_vulkan(&mut self, gpu: *mut c_void) -> bool {
         if self.hardware != Hardware::Vaapi {
-            return;
+            return false;
         }
         let switched_on = crate::vulkan_video::map_switched_on(std::env::var_os(crate::vulkan_video::MAP_ENVIRONMENT).as_deref());
         // SAFETY: The renderer keeps its device alive until the decoder has stopped.
@@ -854,8 +855,12 @@ impl VideoDecoder {
             Ok(map) => {
                 eprintln!("nightjar: VAAPI pictures go to the GPU renderer as mapped Vulkan images");
                 self.vulkan_map = Some(map);
+                true
             }
-            Err(why) => eprintln!("nightjar: VAAPI pictures go through memory to the GPU renderer: {why}"),
+            Err(why) => {
+                eprintln!("nightjar: VAAPI pictures go through memory to the GPU renderer: {why}");
+                false
+            }
         }
     }
 
@@ -1780,16 +1785,16 @@ mod tests {
         assert_eq!(Hardware::Cuda.order(), [Hardware::Cuda]);
     }
 
-    /// Without the GPU renderer's device, or for packed 4:4:4, Vulkan video does not open and
-    /// says why, so the next backend is tried.
+    /// Without the GPU renderer's device Vulkan video does not open and says why, so the next
+    /// backend is tried; packed 4:4:4 is no reason (its planes are sampled, #80).
     #[test]
-    fn vulkan_video_without_the_renderers_device_or_for_packed_chroma_names_the_reason() {
+    fn vulkan_video_without_the_renderers_device_names_the_reason_and_packed_chroma_is_none() {
         let error = VideoDecoder::open_for(Codec::Hevc, Pictures::default(), Hardware::Vulkan(ptr::null_mut()), 1, false).err().unwrap();
         if cfg!(unix) {
             assert!(error.contains("does not draw with SDL's GPU API") || error.contains("libavutil"), "{error}");
             let packed = Pictures { packed: true, ..Pictures::default() };
             let error = VideoDecoder::open_for(Codec::Hevc, packed, Hardware::Vulkan(ptr::null_mut()), 1, false).err().unwrap();
-            assert!(error.contains("packed 4:4:4"), "{error}");
+            assert!(!error.contains("packed 4:4:4"), "{error}");
         } else {
             assert!(error.contains("only used on Linux") || error.contains("no Vulkan support"), "{error}");
         }

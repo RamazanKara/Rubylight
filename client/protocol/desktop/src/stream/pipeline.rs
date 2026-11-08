@@ -768,10 +768,22 @@ fn exports_dmabuf(presenter_imports: bool, setup: &VideoSetup) -> bool {
 }
 
 /// A packed full chroma stream's coded size where its pictures are rebuilt from memory: on Linux
-/// they go neither as DMA-BUFs (`exports_dmabuf`) nor mapped into Vulkan, so every picture, twice
-/// the stream's height, is copied through the CPU (#80: 3840x4320 at 100 fps fell behind).
-fn packed_from_memory(setup: &VideoSetup) -> Option<(i32, i32)> {
-    (cfg!(unix) && setup.chroma_packing != 0).then_some((setup.width, setup.height))
+/// they never go as DMA-BUFs (`exports_dmabuf`), so unless they reach the GPU renderer as Vulkan
+/// images (`on_gpu`: mapped VAAPI pictures or Vulkan video's), every picture, twice the stream's
+/// height, is copied through the CPU (#80: 3840x4320 at 100 fps fell behind).
+fn packed_from_memory(setup: &VideoSetup, on_gpu: bool) -> Option<(i32, i32)> {
+    (cfg!(unix) && setup.chroma_packing != 0 && !on_gpu).then_some((setup.width, setup.height))
+}
+
+/// Maps `decoder`'s VAAPI pictures into the GPU renderer's Vulkan images when it draws with SDL's
+/// GPU API (`media::VideoDecoder::map_to_vulkan`); whether they are.
+fn map_to_vulkan(hardware: Hardware, decoder: &mut media::VideoDecoder) -> bool {
+    #[cfg(unix)]
+    if let Hardware::Auto(gpu, _) = hardware {
+        return !gpu.is_null() && decoder.map_to_vulkan(gpu);
+    }
+    let _ = (hardware, decoder);
+    false
 }
 
 fn codec_of(setup: &VideoSetup) -> Codec {
@@ -924,37 +936,27 @@ impl Decoder {
             chroma444: setup.format & VIDEO_FORMAT_MASK_YUV444 != 0,
             packed: setup.chroma_packing != 0,
             waiting: self.pool_waiting,
-            vaapi_node: self.vaapi_node(setup),
+            // The device the probes ask, the packed one too: the GPU renderer's when it maps pictures.
+            vaapi_node: media::vaapi_node(self.hardware),
         }
-    }
-
-    /// The device VAAPI opens on (`media::vaapi_node`, as the probes ask), for unpacked pictures;
-    /// packed ones open on the default device, as their probe does.
-    fn vaapi_node(&self, setup: &VideoSetup) -> media::VaapiNode {
-        if setup.chroma_packing != 0 {
-            return media::VaapiNode::Default;
-        }
-        media::vaapi_node(self.hardware)
     }
 
     /// Makes `decoder` the stream's FFmpeg decoder.
     fn install(&mut self, mut decoder: media::VideoDecoder, setup: &VideoSetup) {
-        if exports_dmabuf(self.dmabuf, setup) && decoder.export_dmabuf() {
+        let mapped = if exports_dmabuf(self.dmabuf, setup) && decoder.export_dmabuf() {
             eprintln!("nightjar: VAAPI pictures go to the renderer as DMA-BUFs");
+            false
         } else {
-            #[cfg(unix)]
-            if let Hardware::Auto(gpu, _) = self.hardware {
-                if !gpu.is_null() && setup.chroma_packing == 0 {
-                    decoder.map_to_vulkan(gpu);
-                }
-            }
-        }
+            map_to_vulkan(self.hardware, &mut decoder)
+        };
         // The overlay's decoder name, in the log for runs nobody watches.
         eprintln!("nightjar: video decoder {}", decoder.name);
         *lock(&self.shared.decoder_name) = decoder.name.clone();
-        let from_memory = packed_from_memory(setup);
+        let from_memory = packed_from_memory(setup, mapped || matches!(decoder.hardware, Hardware::Vulkan(_)));
         if let Some((width, height)) = from_memory {
             eprintln!("nightjar: full chroma (packed 4:4:4): each {width}x{height} picture is copied through memory and rebuilt on the GPU");
+        } else if setup.chroma_packing != 0 {
+            eprintln!("nightjar: full chroma (packed 4:4:4): pictures are rebuilt on the GPU from its Vulkan images");
         }
         *lock(&self.shared.packed_from_memory) = from_memory;
         self.decoder = Some(decoder);
@@ -1777,8 +1779,9 @@ mod tests {
     fn packed_streams_on_linux_name_the_coded_size_their_pictures_are_copied_at() {
         // #80: 3840x2160 packed codes 3840x4320 pictures.
         let packed = VideoSetup { format: nightjar_core::sdp::VIDEO_FORMAT_AV1_MAIN10, width: 3840, height: 4320, fps: 100, chroma_packing: 2, logical_width: 3840, logical_height: 2160, color_space: 2, color_range: 0 };
-        assert_eq!(packed_from_memory(&packed), cfg!(unix).then_some((3840, 4320)));
-        assert_eq!(packed_from_memory(&VideoSetup { chroma_packing: 0, height: 2160, ..packed }), None, "unpacked pictures can stay on the GPU");
+        assert_eq!(packed_from_memory(&packed, false), cfg!(unix).then_some((3840, 4320)));
+        assert_eq!(packed_from_memory(&packed, true), None, "pictures mapped into Vulkan stay on the GPU");
+        assert_eq!(packed_from_memory(&VideoSetup { chroma_packing: 0, height: 2160, ..packed }, false), None, "unpacked pictures are not rebuilt");
     }
 
     #[test]

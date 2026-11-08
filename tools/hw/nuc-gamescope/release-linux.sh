@@ -5,10 +5,18 @@
 #   PyroWave SDK is the 4.4.0 archive's, the same pin), into $W/rel/dist;
 # bundle: build-bundle.sh in Ubuntu 22.04 and check-bundle.sh in a clean Fedora 42, both privileged,
 #   as release.yml runs them. Logs in $W/rel/*.log.
+# recipe: prints the FFmpeg recipe's hash (below) for $W/src.
 set -u
 d=${W:-$HOME/deck} V=${V:-4.5.0} what=${1:-all}
 d=$(cd "$d" && pwd) || exit 1
 src=$d/src/client rel=$d/rel
+# The FFmpeg recipe: the files release.yml keys its FFmpeg cache by. A prefix built from another
+# recipe is built again, its dependencies too: one from before --enable-libdrm made every VAAPI
+# map into Vulkan fail with ENOSYS (-38) in the bundle built here, never in a release.
+recipe() {
+  cat "$1"/protocol/desktop/ffmpeg-decode-only.sh "$1"/protocol/desktop/ffmpeg-deps-linux.sh "$1"/protocol/desktop/ffmpeg-patches/*.patch | sha256sum | cut -d' ' -f1
+}
+if [ $what = recipe ]; then recipe "$src"; exit; fi
 # The package step runs as the user with the user's Rust toolchain from $HOME; a work folder
 # outside $HOME is mounted as well.
 mounts=(-v $HOME:$HOME)
@@ -19,7 +27,7 @@ if [ $what = package ] || [ $what = all ]; then
     rm -rf $rel/sdk $rel/t && mkdir -p $rel/sdk $rel/t && tar xzf $d/dist/nightjar-desktop-4.4.0-linux-x86_64.tar.gz -C $rel/t
     cp $rel/t/*/libpyrowave-shared.so $rel/sdk/ && cp $rel/t/*/pyrowave-sdk-build-info.txt $rel/sdk/build-info.txt && cp -a $rel/t/*/licenses-pyrowave $rel/sdk/licenses && rm -rf $rel/t
   fi
-  docker run --rm "${mounts[@]}" -w $src -e HOME=/root -e rel=$rel -e V=$V -e home=$HOME ubuntu:22.04 bash -euo pipefail -c '
+  docker run --rm "${mounts[@]}" -w $src -e HOME=/root -e rel=$rel -e V=$V -e home=$HOME -e recipe=$(recipe "$src") ubuntu:22.04 bash -euo pipefail -c '
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
     apt-get install -y -qq --no-install-recommends ca-certificates curl xz-utils gcc g++ make git cmake meson ninja-build \
@@ -28,7 +36,8 @@ if [ $what = package ] || [ $what = all ]; then
       wayland-protocols libegl-dev libgl-dev libgles-dev libdrm-dev libgbm-dev libpulse-dev \
       libasound2-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libdecor-0-dev libvulkan-dev file patch patchelf >/dev/null
     as_me() { setpriv --reuid=1000 --regid=1000 --clear-groups env HOME=$home PATH=$home/.cargo/bin:$PATH "$@"; }
-    if [ ! -s $rel/ffprefix/licenses-ffmpeg/SOURCE.txt ]; then
+    if [ ! -s $rel/ffprefix/licenses-ffmpeg/SOURCE.txt ] || [ "$(cat $rel/ffprefix/recipe.sha256 2>/dev/null)" != "$recipe" ]; then
+      rm -rf $rel/ffprefix $rel/ffdeps
       as_me bash -euo pipefail -c "
         cd $rel && rm -rf ffbuild && mkdir ffbuild && cd ffbuild
         curl -sSLf --retry 5 --retry-all-errors -o ffmpeg.tar.xz https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz
@@ -36,6 +45,7 @@ if [ $what = package ] || [ $what = all ]; then
         tar -xf ffmpeg.tar.xz
         bash $PWD/protocol/desktop/ffmpeg-deps-linux.sh $rel/ffdeps
         PKG_CONFIG_PATH=$rel/ffdeps/lib/pkgconfig bash $PWD/protocol/desktop/ffmpeg-decode-only.sh $rel/ffbuild/ffmpeg-8.1.2 $rel/ffprefix
+        echo $recipe >$rel/ffprefix/recipe.sha256
       " >$rel/ffmpeg.log 2>&1 || { tail -30 $rel/ffmpeg.log; echo "ffmpeg FAILED"; exit 1; }
       echo "ffmpeg built"
     fi

@@ -191,6 +191,16 @@ if ($SelfTest) {
         expect 'steps that pass keep the code' ((Invoke-Steps 0 @({ }, { })) -eq 0 -and (Invoke-Steps 2 @({ })) -eq 2)
         $printed = Invoke-Steps 0 @({ 'batch.txt line 1'; 'line 2' }) 6>$null
         expect 'a step that prints still returns the code alone' ($printed -is [int] -and $printed -eq 0)
+        # The bundle's FFmpeg: built again whenever the files release.yml keys its FFmpeg cache by
+        # change (a prefix from before --enable-libdrm failed every VAAPI map with -38).
+        $releaseLinux = Get-Content -Raw "$PSScriptRoot\nuc-gamescope\release-linux.sh"
+        $key = (Select-String -Path "$repo\client\.github\workflows\release.yml" -Pattern 'key: ffmpeg-decode-only-linux').Line
+        $keyed = [regex]::Matches($key, "'(protocol/desktop/[^']+)'") | ForEach-Object { $_.Groups[1].Value }
+        $recipe = ($releaseLinux -split "`n" | Where-Object { $_ -match '^\s*cat .*sha256sum' }) -join ''
+        expect 'the FFmpeg recipe hashes what release.yml keys its FFmpeg cache by' ($keyed.Count -ge 3 -and
+            @($keyed | Where-Object { $recipe -notmatch [regex]::Escape("`"`$1`"/$_") }).Count -eq 0)
+        expect 'a prefix of another recipe is built again' ($releaseLinux -match [regex]::Escape('[ "$(cat $rel/ffprefix/recipe.sha256 2>/dev/null)" != "$recipe" ]') -and
+            $releaseLinux -match [regex]::Escape('echo $recipe >$rel/ffprefix/recipe.sha256'))
         # The end of the batch: the watch reads on while the host log grows.
         $log = Join-Path $dir 'butterpollo.log'
         Set-Content $log 'start'

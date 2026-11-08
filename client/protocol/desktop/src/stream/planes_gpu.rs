@@ -103,7 +103,8 @@ impl PlanesPass {
         Ok(pass)
     }
 
-    /// Draws the textures a `for_vulkan` pass was made with, converted, over all of `target`.
+    /// Draws the textures a `for_vulkan` pass was made with, converted, over all of `target`
+    /// (null: nothing yet, `draw_direct` draws them later).
     ///
     /// # Safety
     /// `renderer` and `target` must be live and the pass the one made on this renderer.
@@ -329,12 +330,14 @@ impl PlanesPass {
         self.convert(renderer, target, parameters, stages)
     }
 
-    /// Draws the plane textures, converted, over `target`.
+    /// Draws the plane textures, converted, over `target`. A null `target` leaves the planes
+    /// copied and undrawn, for `draw_direct` (or a later `draw_bound`) to draw.
     unsafe fn convert(&mut self, renderer: *mut SDL_Renderer, target: *mut SDL_Texture, parameters: &[u32; 8], stages: Option<&mut Stages<2>>) -> Result<(), String> {
-        let step = Instant::now();
-        if !SDL_SetGPURenderStateFragmentUniforms(self.state, 0, parameters.as_ptr().cast(), 32) {
-            return Err(format!("the plane constants cannot be set: {}", crate::sdl::error()));
+        if target.is_null() {
+            return Ok(());
         }
+        let step = Instant::now();
+        self.set_uniforms(&Uniforms { parameters: *parameters, ..Default::default() })?;
         let previous = SDL_GetRenderTarget(renderer);
         if !SDL_SetRenderTarget(renderer, target) {
             return Err(format!("the picture texture cannot be the render target: {}", crate::sdl::error()));
@@ -345,6 +348,83 @@ impl PlanesPass {
         SDL_SetRenderTarget(renderer, previous);
         if let Some(stages) = stages { stages.add(super::pyrowave_gpu::PASSES, step); }
         if drawn { Ok(()) } else { Err(format!("the planes cannot be drawn: {error}")) }
+    }
+}
+
+impl PlanesPass {
+    unsafe fn set_uniforms(&mut self, uniforms: &Uniforms) -> Result<(), String> {
+        if !SDL_SetGPURenderStateFragmentUniforms(self.state, 0, (uniforms as *const Uniforms).cast(), std::mem::size_of::<Uniforms>() as u32) {
+            return Err(format!("the plane constants cannot be set: {}", crate::sdl::error()));
+        }
+        Ok(())
+    }
+
+    /// Draws the copied planes, converted and scaled, into `destination` of the renderer's current
+    /// target (the back buffer): the picture texture's pass and SDL's draw of it in one. `visible`
+    /// is the picture's size in the planes; `look` is what SDL's draw would apply (`SdlLook`).
+    /// Converting and scaling in the one draw that reaches the swapchain follows moonlight-qt's
+    /// and chiaki-ng's Vulkan renderers.
+    ///
+    /// # Safety
+    /// `renderer` must be live and the pass the one made on it, its planes copied for `parameters`.
+    pub unsafe fn draw_direct(&mut self, renderer: *mut SDL_Renderer, parameters: &[u32; 8], destination: &SDL_FRect, visible: (i32, i32), look: SdlLook) -> Result<(), String> {
+        let mut viewport = SDL_Rect::default();
+        SDL_GetRenderViewport(renderer, &mut viewport);
+        self.set_uniforms(&direct_uniforms(parameters, destination, (viewport.x, viewport.y), visible, look))?;
+        let drawn = SDL_SetGPURenderState(renderer, self.state) && SDL_RenderFillRect(renderer, destination);
+        let error = if drawn { String::new() } else { crate::sdl::error() };
+        SDL_SetGPURenderState(renderer, ptr::null_mut());
+        if drawn { Ok(()) } else { Err(format!("the planes cannot be drawn into the back buffer: {error}")) }
+    }
+}
+
+/// The plane shader's constants (`Picture` in pyrowave.hlsl, Vulkan build): the pass parameters,
+/// then what flag 512 reads.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Uniforms {
+    pub parameters: [u32; 8],
+    pub destination: [f32; 4],
+    pub picture: [f32; 4],
+    pub output_scale: f32,
+    pub tonemap: [f32; 2],
+    pub unused: f32,
+}
+
+/// The shader's flag for a draw straight into the target rectangle.
+pub const DIRECT_FLAG: u32 = 512;
+
+/// What SDL's draw of the RGBA64F linear picture texture into the back buffer does to it
+/// (`texture_advanced.frag.hlsl`): its tone map, when the texture's HDR headroom is above the
+/// output's, then its colour scale (the output's SDR white times the renderer's colour scale).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SdlLook {
+    pub texture_headroom: f32,
+    pub output_headroom: f32,
+    pub sdr_white: f32,
+    pub color_scale: f32,
+}
+
+impl SdlLook {
+    /// SDL's TONEMAP_CHROME factors (`CalculateAdvancedShaderConstants`), None without a tone map.
+    pub fn tonemap(&self) -> Option<(f32, f32)> {
+        (self.texture_headroom > self.output_headroom && self.output_headroom > 0.0)
+            .then(|| (self.output_headroom / (self.texture_headroom * self.texture_headroom), 1.0 / self.output_headroom))
+    }
+}
+
+/// The constants of a `draw_direct` into `destination` (render coordinates) of a viewport at `origin`.
+pub fn direct_uniforms(parameters: &[u32; 8], destination: &SDL_FRect, origin: (i32, i32), visible: (i32, i32), look: SdlLook) -> Uniforms {
+    let mut parameters = *parameters;
+    parameters[6] |= DIRECT_FLAG;
+    let (tonemap1, tonemap2) = look.tonemap().unwrap_or((0.0, 0.0));
+    Uniforms {
+        parameters,
+        destination: [destination.x + origin.0 as f32, destination.y + origin.1 as f32, destination.w.max(1.0), destination.h.max(1.0)],
+        picture: [visible.0 as f32, visible.1 as f32, 0.0, 0.0],
+        output_scale: look.sdr_white * look.color_scale,
+        tonemap: [tonemap1, tonemap2],
+        unused: 0.0,
     }
 }
 
@@ -421,6 +501,48 @@ impl Drop for PlanesPass {
 mod tests {
     use super::*;
     use crate::media::{FrameInfo, PlanarLayout, FRAME_NV12, FRAME_P010};
+
+    const SDR: SdlLook = SdlLook { texture_headroom: 1.0, output_headroom: 1.0, sdr_white: 1.0, color_scale: 1.0 };
+
+    /// The constants are the shader's 80-byte `Picture` block, in its order.
+    #[test]
+    fn the_direct_constants_match_the_shader_block() {
+        assert_eq!(std::mem::size_of::<Uniforms>(), 80);
+        assert_eq!(std::mem::offset_of!(Uniforms, destination), 32);
+        assert_eq!(std::mem::offset_of!(Uniforms, picture), 48);
+        assert_eq!(std::mem::offset_of!(Uniforms, output_scale), 64);
+        assert_eq!(std::mem::offset_of!(Uniforms, tonemap), 68);
+    }
+
+    /// The draw into the back buffer flags itself, places the picture in the viewport and keeps
+    /// the picture texture's parameters otherwise, so it converts exactly as the texture would.
+    #[test]
+    fn a_direct_draw_lands_where_sdl_would_draw_the_texture() {
+        let parameters = [1920, 1080, 1920, 1080, 0, 3, 0b1_0101, 2.5f32.to_bits()];
+        let destination = SDL_FRect { x: 240.0, y: 0.0, w: 1440.0, h: 810.0 };
+        let uniforms = direct_uniforms(&parameters, &destination, (0, 135), (1920, 1080), SDR);
+        assert_eq!(uniforms.parameters[6], 0b1_0101 | DIRECT_FLAG);
+        assert_eq!(uniforms.parameters[..6], parameters[..6]);
+        assert_eq!(uniforms.parameters[7], parameters[7]);
+        assert_eq!(uniforms.destination, [240.0, 135.0, 1440.0, 810.0]);
+        assert_eq!(uniforms.picture, [1920.0, 1080.0, 0.0, 0.0]);
+        assert_eq!(uniforms.output_scale, 1.0);
+        assert_eq!(uniforms.tonemap, [0.0, 0.0], "an SDR picture on an SDR output is not tone mapped");
+    }
+
+    /// SDL scales a linear texture by the output's SDR white and its colour scale, and tone maps
+    /// it (TONEMAP_CHROME) only when the texture carries more headroom than an HDR output has.
+    #[test]
+    fn a_direct_draw_scales_and_tone_maps_as_sdl_does() {
+        let hdr = SdlLook { texture_headroom: 12.0, output_headroom: 4.0, sdr_white: 2.5, color_scale: 0.5 };
+        let uniforms = direct_uniforms(&[0; 8], &SDL_FRect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 }, (0, 0), (2, 2), hdr);
+        assert_eq!(uniforms.output_scale, 1.25);
+        assert_eq!(uniforms.tonemap, [4.0 / 144.0, 0.25]);
+        assert_eq!(uniforms.destination[2..], [1.0, 1.0], "an empty rectangle must not divide by zero in the shader");
+        assert_eq!(SdlLook { output_headroom: 12.0, ..hdr }.tonemap(), None, "equal headroom needs no tone map");
+        assert_eq!(SdlLook { output_headroom: 0.0, ..hdr }.tonemap(), None, "SDL skips the tone map without an output headroom");
+        assert_eq!(SDR.tonemap(), None);
+    }
 
     fn picture(kind: i32, luma: &mut [u8], chroma: &mut [u8], linesize: i32) -> FrameInfo {
         FrameInfo {

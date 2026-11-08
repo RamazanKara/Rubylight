@@ -366,14 +366,14 @@ impl Streaming {
         else { "Bilinear (no upscale needed)".into() }
     }
 
-    /// Draws the picture itself into the back buffer (`direct`), or returns false for SDL to draw
-    /// the video texture.
-    #[cfg(windows)]
+    /// Draws the picture itself into the back buffer (`direct` on Windows, the plane pass on
+    /// Linux), or returns false for SDL to draw the video texture.
+    #[cfg(any(windows, unix))]
     pub(super) fn draw_direct(&mut self, renderer: *mut SDL_Renderer, dst: &SDL_FRect, texture: *mut SDL_Texture) -> bool {
         self.texture.draw_direct(renderer, dst, texture)
     }
 
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, unix)))]
     pub(super) fn draw_direct(&mut self, _renderer: *mut SDL_Renderer, _dst: &SDL_FRect, _texture: *mut SDL_Texture) -> bool {
         false
     }

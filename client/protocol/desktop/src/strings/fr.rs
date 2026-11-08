@@ -1427,6 +1427,5 @@ sudo sysctl -w net.core.rmem_max={}", "Tampon de réception : le système a acco
     ("This system's VA-API driver decodes neither H.264 nor HEVC. Install your distribution's full Mesa VA drivers, or use the Nightjar Flatpak.", "Le pilote VA-API de ce système ne décode ni H.264 ni HEVC. Installez les pilotes VA Mesa complets de votre distribution, ou utilisez le Flatpak de Nightjar."),
     ("This NVIDIA driver has no Vulkan video decoding, so each picture is copied through memory. A newer NVIDIA driver adds it.", "Ce pilote NVIDIA ne décode pas avec Vulkan Video, chaque image est donc copiée par la mémoire. Un pilote NVIDIA plus récent l'ajoute."),
     ("The Flatpak lacks {}, the NVIDIA driver it needs. Run flatpak update to install it.", "Il manque au Flatpak {}, le pilote NVIDIA dont il a besoin. Lancez flatpak update pour l'installer."),
-    ("Intel's legacy VA-API driver (i965) is in use. Install intel-media-driver for HEVC Main10 and AV1.", "L'ancien pilote VA-API d'Intel (i965) est utilisé. Installez intel-media-driver pour HEVC Main10 et AV1."),
     ("Full chroma needs a {0} picture, larger than this decoder's {1}, so the stream is 4:2:0. A lower resolution keeps full chroma.", "Chroma complet demande une image de {0}, plus grande que les {1} de ce décodeur, donc le flux est en 4:2:0. Une résolution plus basse garde le chroma complet."),
 ];

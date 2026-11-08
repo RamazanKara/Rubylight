@@ -10,11 +10,13 @@
 //! (`HostClient::with_second_screen`). It writes none of those files, keeps its log in
 //! `logs/second-screen`, plays no sound, takes no controllers, microphone, USB devices or
 //! clipboard, and ends when the first closes its standard input: the first stream's end, or the
-//! first process gone for any reason.
+//! first process gone for any reason. The first line on that input hands it the first's open PIN
+//! lock (`PinStore::hand_over`), so the second screen does not ask for the PIN again.
 
 use std::ffi::OsString;
-use std::io::Read as _;
+use std::io::{BufRead, IsTerminal as _, Read as _, Write as _};
 use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
+use std::sync::mpsc::{channel, Receiver};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
@@ -27,8 +29,19 @@ use crate::window_place::Rect;
 /// that holds the point.
 const FLAG: &str = "--second-screen=";
 
+/// `--second-screen-join=<app id>`: the first screen joined the game the PC runs for another
+/// device, and the second joins it too, by the id the first streams.
+const JOIN_FLAG: &str = "--second-screen-join=";
+
 /// How long the second screen gets to end its stream after the first closed its input.
 const END_WAIT: Duration = Duration::from_secs(10);
+
+/// How long the second screen waits for the first's line on its input as it starts. The first
+/// writes it right after the start, so this only bounds a first that broke.
+pub const HAND_OVER_WAIT: Duration = Duration::from_secs(5);
+
+/// The longest line the first writes: a PIN lock token, 64 hex digits.
+const LINE_MAX: u64 = 256;
 
 /// The point of the second screen's monitor, in this process only.
 static THIS: OnceLock<(i32, i32)> = OnceLock::new();
@@ -68,10 +81,28 @@ pub fn split_flag(mut args: Vec<OsString>) -> (Vec<OsString>, Flag) {
     (args, found)
 }
 
-/// The second screen's command line: the PC and the game by UUID or name, as a frontend gives them.
-pub fn args(host: &str, app: &str, point: (i32, i32)) -> Vec<OsString> {
+/// Takes `--second-screen-join=<app id>` out of the command line.
+pub fn split_join(mut args: Vec<OsString>) -> (Vec<OsString>, Result<Option<i32>, String>) {
+    let mut found: Result<Option<i32>, String> = Ok(None);
+    args.retain(|arg| {
+        let Some(value) = arg.to_str().and_then(|a| a.strip_prefix(JOIN_FLAG)) else { return true };
+        found = match (&found, value.trim().parse::<i32>()) {
+            (Ok(None), Ok(id)) => Ok(Some(id)),
+            (Ok(Some(_)), _) => Err("--second-screen-join is given twice".into()),
+            (Err(e), _) => Err(e.clone()),
+            (_, Err(_)) => Err(format!("--second-screen-join needs an app id such as {JOIN_FLAG}12345")),
+        };
+        false
+    });
+    (args, found)
+}
+
+/// The second screen's command line: the PC and the game by UUID or name, as a frontend gives them,
+/// and the game's id when the first joined it.
+pub fn args(host: &str, app: &str, point: (i32, i32), join: Option<i32>) -> Vec<OsString> {
     ["--host", host, "--app", app].into_iter().map(OsString::from)
         .chain([OsString::from(format!("{FLAG}{},{}", point.0, point.1))])
+        .chain(join.map(|id| OsString::from(format!("{JOIN_FLAG}{id}"))))
         .collect()
 }
 
@@ -90,6 +121,12 @@ pub fn target(host: &HostRecord, app: &App, apps: &[App], running: Option<(i32, 
         return Err("the PC or the game has neither a UUID nor a name".into());
     }
     Ok((pc.clone(), game.clone()))
+}
+
+/// The running game `target` looks for: the one the PC reports, else the one the first joined
+/// (another device's, which the PC does not report to this one).
+pub fn joined_running(running: Option<(i32, Option<&str>)>, join: Option<i32>) -> Option<(i32, Option<&str>)> {
+    running.or(join.map(|id| (id, None)))
 }
 
 /// The monitor for the second screen: the first one that is not `main`'s, as its centre.
@@ -122,9 +159,11 @@ pub struct Companion {
 }
 
 impl Companion {
-    pub fn start(host: &str, app: &str, point: (i32, i32)) -> std::io::Result<Self> {
+    /// `hand_over` is the PIN lock's token for the second screen, empty without a lock; it goes
+    /// on the process's input, which no other process reads.
+    pub fn start(host: &str, app: &str, point: (i32, i32), join: Option<i32>, hand_over: &str) -> std::io::Result<Self> {
         let mut child = Command::new(std::env::current_exe()?)
-            .args(args(host, app, point))
+            .args(args(host, app, point, join))
             // A start the test harness asked for is the first's; the second has its own command line.
             .env_remove("NIGHTJAR_AUTOSTREAM")
             .stdin(Stdio::piped())
@@ -132,7 +171,11 @@ impl Companion {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()?;
-        let input = child.stdin.take();
+        let mut input = child.stdin.take();
+        // A process that cannot take the line is ended by its input closing, as `self` drops.
+        if let Some(pipe) = input.as_mut() {
+            pipe.write_all(format!("{hand_over}\n").as_bytes()).and_then(|()| pipe.flush())?;
+        }
         Ok(Self { child, input })
     }
 
@@ -172,11 +215,33 @@ impl Companion {
     }
 }
 
-/// In the second screen's process: `quit` runs when the first closes this process's input, or it
-/// has none (a second screen started by hand has no first to follow).
-pub fn follow_first(quit: impl FnOnce() + Send + 'static) {
+/// The first line of `input`, without its line end: the first's hand-over. None at the input's end.
+fn first_line(input: &mut impl BufRead) -> std::io::Result<Option<String>> {
+    let mut line = String::new();
+    if input.by_ref().take(LINE_MAX).read_line(&mut line)? == 0 {
+        return Ok(None);
+    }
+    Ok(Some(line.trim_end_matches(['\r', '\n']).to_owned()))
+}
+
+/// In the second screen's process: the returned channel gets the first line of this process's
+/// input, the first's hand-over of the PIN lock; `quit` runs when the first closes that input, or
+/// it has none (a second screen started by hand has no first to follow). A console's input hands
+/// over nothing.
+pub fn follow_first(quit: impl FnOnce() + Send + 'static) -> Receiver<String> {
+    let (line, hand_over) = channel();
     let spawned = std::thread::Builder::new().name("second screen input".into()).spawn(move || {
-        let mut stdin = std::io::stdin();
+        let mut stdin = std::io::stdin().lock();
+        if !stdin.is_terminal() {
+            match first_line(&mut stdin) {
+                Ok(Some(first)) => {
+                    let _ = line.send(first);
+                }
+                Ok(None) => {}
+                Err(e) => eprintln!("nightjar: second screen: the first screen's line cannot be read ({e})"),
+            }
+        }
+        drop(line);
         let mut sink = [0u8; 64];
         loop {
             match stdin.read(&mut sink) {
@@ -196,6 +261,7 @@ pub fn follow_first(quit: impl FnOnce() + Send + 'static) {
         eprintln!("nightjar: second screen: cannot follow the first screen ({e}); ending");
         std::process::exit(1);
     }
+    hand_over
 }
 
 #[cfg(test)]
@@ -208,8 +274,10 @@ mod tests {
 
     #[test]
     fn the_second_screens_command_line_is_a_frontend_start_with_its_monitor() {
-        let args = args("PC-UUID", "Game, the sequel", (2560, -40));
-        let (rest, point) = split_flag(args);
+        let args = args("PC-UUID", "Game, the sequel", (2560, -40), None);
+        let (rest, join) = split_join(args);
+        assert_eq!(join, Ok(None));
+        let (rest, point) = split_flag(rest);
         assert_eq!(point, Ok(Some((2560, -40))));
         match crate::cli::parse(rest) {
             Ok(crate::cli::Parsed::Launch(launch)) => {
@@ -218,6 +286,27 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    /// A first screen that joined another device's game hands the second the game's id: the PC
+    /// reports no running game to this device, so neither a Resume tile nor a name finds it.
+    #[test]
+    fn a_joined_game_goes_to_the_second_screen_by_its_id() {
+        let (rest, join) = split_join(args("PC-UUID", "GAME-UUID", (0, 0), Some(77)));
+        assert_eq!(join, Ok(Some(77)));
+        let (rest, point) = split_flag(rest);
+        assert_eq!(point, Ok(Some((0, 0))));
+        assert!(matches!(crate::cli::parse(rest), Ok(crate::cli::Parsed::Launch(_))));
+        for bad in [&["--second-screen-join=x"][..], &["--second-screen-join="], &["--second-screen-join=1", "--second-screen-join=2"]] {
+            let (rest, join) = split_join(os(bad));
+            assert!(join.is_err() && rest.is_empty(), "{bad:?}");
+        }
+        // The first screen's Resume tile with nothing reported running: the joined id names the game.
+        let pc = HostRecord { unique_id: "PC-UUID".into(), ..HostRecord::default() };
+        let resume = app("Resume", 9, "RESUME-UUID", AppControl::Resume);
+        let game = app("Game", 77, "GAME-UUID", AppControl::None);
+        assert_eq!(target(&pc, &resume, &[resume.clone(), game], joined_running(None, Some(77))), Ok(("PC-UUID".into(), "GAME-UUID".into())));
+        assert_eq!(joined_running(Some((3, Some("X"))), Some(77)), Some((3, Some("X"))), "what the PC reports wins");
     }
 
     #[test]
@@ -255,6 +344,22 @@ mod tests {
         assert_eq!(target(&pc, &resume, &list, Some((3, None))), Ok(("PC-UUID".into(), "Old game".into())));
         assert!(target(&pc, &resume, &list, None).is_err(), "nothing running");
         assert!(target(&HostRecord::default(), &game, &[], None).is_err());
+    }
+
+    /// The first line on the second screen's input is the PIN lock's hand-over; what follows only
+    /// keeps the input open.
+    #[test]
+    fn the_first_line_on_the_input_is_the_hand_over() {
+        let token = "ab".repeat(32);
+        let mut input = std::io::Cursor::new(format!("{token}\r\nmore"));
+        assert_eq!(first_line(&mut input).unwrap(), Some(token));
+        let mut rest = String::new();
+        input.read_to_string(&mut rest).unwrap();
+        assert_eq!(rest, "more", "the rest stays for the end's watch");
+        assert_eq!(first_line(&mut std::io::Cursor::new("\n")).unwrap(), Some(String::new()), "no lock: an empty line");
+        assert_eq!(first_line(&mut std::io::Cursor::new("")).unwrap(), None, "closed at once");
+        let long = "1".repeat(1000);
+        assert_eq!(first_line(&mut std::io::Cursor::new(long)).unwrap().map(|l| l.len()), Some(LINE_MAX as usize), "a line is bounded");
     }
 
     #[test]

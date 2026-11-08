@@ -369,6 +369,7 @@ fn main() {
     }
     let (args, at_sign_in) = autostart::split_sign_in(args);
     let (args, second_screen) = second_screen::split_flag(args);
+    let (args, second_screen_join) = second_screen::split_join(args);
     let usage_box = cli::shows_usage_box(cli::HAS_CONSOLE, &args);
     let (mut launch, link) = match cli::parse(args) {
         Ok(cli::Parsed::Gui) => (None, None),
@@ -405,11 +406,16 @@ fn main() {
         }
     };
     // The second screen's stream is a frontend start of the first's game; it ends with its stream.
+    let second_screen = second_screen_join.and_then(|join| match (second_screen, join) {
+        (Ok(None), Some(_)) => Err("--second-screen-join needs --second-screen".to_owned()),
+        (point, join) => point.map(|p| p.map(|p| (p, join))),
+    });
     match (second_screen, launch.as_mut()) {
         (Ok(None), _) => {}
-        (Ok(Some(point)), Some(launch)) if launch.app.is_some() => {
+        (Ok(Some((point, join))), Some(launch)) if launch.app.is_some() => {
             second_screen::mark(point);
             launch.quit_on_exit = true;
+            launch.join = join;
         }
         (Ok(Some(_)), _) => {
             eprintln!("nightjar: --second-screen needs --host and --app");
@@ -647,7 +653,20 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     shortcuts::set_hotkeys(store.hotkeys());
     let mut launcher = Launcher::new(settings.clone(), profiles, store.shortcuts(), display);
     launcher.recents = store.recents();
-    launcher.pin = Some(pin_ui::PinLock::open(store.dir()));
+    launcher.pin = Some(if second_screen::this_process() {
+        let hand_over = second_screen::follow_first(|| {
+            // SAFETY: SDL_PushEvent is thread-safe; the event is plain data.
+            unsafe {
+                let mut event: SDL_Event = std::mem::zeroed();
+                event.r#type = SDL_EVENT_QUIT.into();
+                SDL_PushEvent(&mut event);
+            }
+        });
+        let token = hand_over.recv_timeout(second_screen::HAND_OVER_WAIT).ok();
+        pin_ui::PinLock::open_second_screen(store.dir(), token.as_deref())
+    } else {
+        pin_ui::PinLock::open(store.dir())
+    });
     launcher.favourites = store.favourites();
     launcher.hidden_games = store.hidden_games();
     launcher.system_languages = sdl::preferred_languages();
@@ -688,16 +707,6 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     let records = ui::demo::records();
     // The demo library looks for nobody, and the second screen streams from the first's PC.
     let mut hosts = if cfg!(feature = "demo-library") || second_screen::this_process() { Hosts::without_discovery(records, waker.clone()) } else { Hosts::new(records, waker.clone()) };
-    if second_screen::this_process() {
-        second_screen::follow_first(|| {
-            // SAFETY: SDL_PushEvent is thread-safe; the event is plain data.
-            unsafe {
-                let mut event: SDL_Event = std::mem::zeroed();
-                event.r#type = SDL_EVENT_QUIT.into();
-                SDL_PushEvent(&mut event);
-            }
-        });
-    }
     let cli = match launch {
         Some(_) if std::env::var_os("NIGHTJAR_AUTOSTREAM").is_some() => {
             return Err("--host and NIGHTJAR_AUTOSTREAM both ask for a stream; give one".into());
@@ -883,6 +892,7 @@ impl App {
         // Its input closes now; the process going closes it too.
         if let Some(companion) = self.second_screen.take() {
             companion.end();
+            self.second_screen_gone();
         }
         // The PC's automatic bitrate goes off after the window has gone, not with the process.
         let abr_stop = self.streaming.take().and_then(|(streaming, _)| streaming.finish(self.window, &mut self.pads));
@@ -2190,7 +2200,10 @@ impl App {
             cli::Step::Wait => {}
             cli::Step::OpenApps(id) => self.command(Command::OpenApps(id)),
             cli::Step::LoadApps(id) => self.hosts.load_apps(id),
-            cli::Step::Launch(host, app, resume) => self.launch(host, app, resume, LaunchKind::Stream, LaunchFrom::CommandLine),
+            cli::Step::Launch(host, app, resume) => {
+                let kind = if cli.launch.join == Some(app) { LaunchKind::JoinRunning } else { LaunchKind::Stream };
+                self.launch(host, app, resume, kind, LaunchFrom::CommandLine)
+            }
             cli::Step::Fail(why) => {
                 cli.fail(&why);
                 self.running = false;
@@ -2587,12 +2600,23 @@ impl App {
             // SAFETY: a live window.
             let main = unsafe { SDL_GetDisplayForWindow(self.window) };
             let apps = match &host.apps { Apps::Loaded(apps) => apps.as_slice(), _ => &[] };
-            let running = host.running_app().map(|id| (id, host.info.as_ref().and_then(|i| i.current_game_uuid.as_deref())));
+            // A joined game is another device's, which the PC does not report as running to this one.
+            let joined = streaming.joined().then(|| streaming.app().id);
+            let running = second_screen::joined_running(host.running_app().map(|id| (id, host.info.as_ref().and_then(|i| i.current_game_uuid.as_deref()))), joined);
             second_screen::pick_display(&window_place::display_bounds(), main)
                 .ok_or_else(|| "no second monitor".to_owned())
                 .and_then(|point| {
                     let (pc, game) = second_screen::target(&host.record, streaming.app(), apps, running)?;
-                    second_screen::Companion::start(&pc, &game, point)
+                    // This stream got past the PIN lock: the second screen's does not ask again.
+                    let hand_over = match self.launcher.pin.as_ref().map(pin_ui::PinLock::hand_over) {
+                        Some(Ok(Some(token))) => token,
+                        Some(Ok(None)) | None => String::new(),
+                        Some(Err(e)) => {
+                            eprintln!("nightjar: dual screen: the PIN lock cannot be handed to the second screen ({e}); it asks for the PIN there");
+                            String::new()
+                        }
+                    };
+                    second_screen::Companion::start(&pc, &game, point, joined, &hand_over)
                         .map(|companion| (companion, pc, game, point))
                         .map_err(|e| format!("could not start: {e}"))
                 })
@@ -2611,6 +2635,14 @@ impl App {
         }
     }
 
+    /// The second screen's process has ended or is ending: the PIN lock it was handed opens
+    /// nothing any more.
+    fn second_screen_gone(&self) {
+        if let Some(pin) = &self.launcher.pin {
+            pin.end_hand_over();
+        }
+    }
+
     /// The second screen ends with the first screen's stream, a reconnect aside, and a second
     /// screen that failed says so.
     fn second_screen_step(&mut self) {
@@ -2618,6 +2650,7 @@ impl App {
         if self.streaming.is_none() && self.connecting.is_none() {
             if let Some(companion) = self.second_screen.take() {
                 companion.end();
+                self.second_screen_gone();
             }
             return;
         }
@@ -2637,6 +2670,7 @@ impl App {
             }
         };
         self.second_screen = None;
+        self.second_screen_gone();
         if failed {
             if let Some((streaming, _)) = self.streaming.as_mut() {
                 streaming.show_toast(tr("The second screen could not be opened."));

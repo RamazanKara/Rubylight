@@ -441,12 +441,13 @@ variant) is larger than any difference, so there is no gain to keep: reverted. T
 
 ## Decoding on an async compute queue: not ported
 
-Nonary's client added async compute for PyroWave (`pyrowave_device_set_queue_type` with the compute
+Nonary's moonlight-qt fork added async compute for PyroWave (`pyrowave_device_set_queue_type` with the compute
 family, commit 5bb5902, "no measurable render-completion difference" on the Steam Deck) and reverted
 it two days later (e225f88): async decodes delayed Wayland presentation of frames that were already
 GPU-ready. Their client now passes the compute family to the SDK but decodes on the graphics queue.
-Nightjar keeps the graphics queue on Android and the desktop for the same reason: the port would add
-latency and the upstream it comes from no longer ships it.
+Nightjar keeps the graphics queue on Android and the desktop: the upstream it would come from no
+longer ships it, and its reason (delayed presentation) was seen on Wayland. It was not measured in
+Nightjar.
 
 ## Skipping to the newest frame (CPU decode): measured, not shipped
 

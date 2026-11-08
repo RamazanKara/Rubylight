@@ -330,8 +330,9 @@ fn apply(state: &mut State, arrangement: Arrangement, leaving: Option<&str>) -> 
         Topology::set_active(&ids.into_iter().collect::<Vec<_>>())?;
         current = Snapshot::capture()?;
     }
+    let physical = physical_displays()?;
     let (mut desired, arriving) =
-        compose_around_arrivals(state, arrangement, &current.nodes, &physical_displays()?)?;
+        compose_around_arrivals(state, arrangement, &current.nodes, &physical)?;
     if let Some(leaving) = leaving {
         let was_active = state.before.as_ref().is_some_and(|before| {
             before
@@ -346,8 +347,9 @@ fn apply(state: &mut State, arrangement: Arrangement, leaving: Option<&str>) -> 
             }
         }
     }
-    if leaving.is_none() && targets.len() == 2 {
-        // A device's two screens come back as the user left them.
+    if leaving.is_none() && remembered::kept_for(&targets, &physical) {
+        // Two streams' virtual displays (a device's two screens, or two devices' that streamed
+        // together before) come back as the user left them.
         desired = remembered::apply(desired, &targets, arrangement.makes_stream_main());
     }
     keep_switched_off(&mut desired, &state.applied);
@@ -2198,12 +2200,16 @@ impl Drop for Lease {
         let mut state = state().lock().unwrap();
         let target = self.target.lock().unwrap().clone();
         state.users -= 1;
-        if state.owners.len() == 2
+        // One of two streams' virtual displays leaves: keep how they are arranged now. Read
+        // under the lock like the rest of this layout work (`unchanged` and `apply` below), so
+        // no other stream's layout lands between the read and the owners it is kept for.
+        let targets: Vec<_> = state.owners.iter().map(|(t, _)| t.clone()).collect();
+        if targets.len() == 2
             && state.owners.iter().any(|(t, n)| *t == target && *n == 1)
+            && let Ok(physical) = physical_displays()
+            && remembered::kept_for(&targets, &physical)
             && let Ok(topology) = Topology::query().and_then(|t| t.nodes())
         {
-            // One of a device's two screens ends: keep how they are arranged now.
-            let targets: Vec<_> = state.owners.iter().map(|(t, _)| t.clone()).collect();
             remembered::remember(&topology, &targets);
         }
         let Released { left, saved } = release_owner(&mut state, &target);

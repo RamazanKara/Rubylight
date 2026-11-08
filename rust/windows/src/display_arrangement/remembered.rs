@@ -1,7 +1,9 @@
-//! How a device's two stream displays (Dual screen mode) were arranged, kept for its next
-//! stream: where the second sits from the first, and which of them is the main display.
+//! How two streams' virtual displays were arranged, kept for the next time the same two stream
+//! together: where the second sits from the first, and which of them is the main display.
 //! Without it every stream puts them in the order they arrived, the first main and the second
-//! to its right, and the two screens of one device arrive together in either order.
+//! to its right, and the two screens of one device (Dual screen mode) arrive together in either
+//! order. Kept by display, so it holds for any two streams' virtual displays, a device's two
+//! screens being the case it is for; physical displays are never moved from memory.
 use anyhow::Result;
 use butterpollo_core::topology::{Node, Position};
 use serde::{Deserialize, Serialize};
@@ -26,12 +28,24 @@ pub(super) struct Saved {
 /// Read the pairs kept in `directory`. A missing or unreadable file keeps none.
 pub fn initialize(directory: &Path) {
     let path = directory.join("stream-display-layouts.json");
-    let saved = std::fs::read(&path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Vec<Saved>>(&bytes).ok())
-        .unwrap_or_default();
+    let saved = match std::fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice::<Vec<Saved>>(&bytes).unwrap_or_else(|error| {
+            tracing::warn!(%error, path = %path.display(), "the kept arrangements of stream displays are unreadable; starting without them");
+            Vec::new()
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => {
+            tracing::warn!(%error, path = %path.display(), "the kept arrangements of stream displays could not be read; starting without them");
+            Vec::new()
+        }
+    };
     *SAVED.lock().unwrap() = saved;
     let _ = PATH.set(path);
+}
+/// Whether the displays of the streams now, `targets`, have an arrangement to keep: two, both
+/// virtual (none of `physical`).
+pub(super) fn kept_for(targets: &[String], physical: &[String]) -> bool {
+    ordered(targets).is_some() && !targets.iter().any(|t| physical.contains(t))
 }
 fn node<'a>(nodes: &'a [Node], id: &str) -> Option<&'a Node> {
     nodes.iter().find(|n| n.active && n.device_id == id)
@@ -120,7 +134,7 @@ pub(super) fn apply(desired: Vec<Node>, targets: &[String], streams_main: bool) 
     let saved = SAVED.lock().unwrap();
     match arranged(&desired, targets, streams_main, &saved) {
         Some(next) => {
-            tracing::info!(displays = ?targets, "laying out a device's two stream displays as the user left them");
+            tracing::info!(displays = ?targets, "laying out two streams' displays as the user left them");
             next
         }
         None => desired,
@@ -143,7 +157,7 @@ pub(super) fn remember(nodes: &[Node], targets: &[String]) {
     if let Some(path) = PATH.get()
         && let Err(error) = write(path, &saved)
     {
-        tracing::warn!(error = %format!("{error:#}"), "keeping the arrangement of a device's two stream displays failed");
+        tracing::warn!(error = %format!("{error:#}"), "keeping the arrangement of two streams' displays failed");
     }
 }
 fn write(path: &Path, saved: &[Saved]) -> Result<()> {
@@ -230,6 +244,15 @@ mod tests {
         let next = arranged(&desired, &targets("a", "b"), false, &[kept]).unwrap();
         let main = next.iter().find(|n| n.device_id == "main").unwrap();
         assert!(main.primary && main.desired_position == Position { x: 0, y: 0 });
+    }
+    #[test]
+    fn only_two_virtual_displays_have_an_arrangement_kept() {
+        let physical = ["monitor".to_owned()];
+        assert!(kept_for(&targets("a", "b"), &physical));
+        assert!(!kept_for(&targets("a", "monitor"), &physical));
+        assert!(!kept_for(&targets("a", "a"), &physical));
+        assert!(!kept_for(&["a".to_owned()], &physical));
+        assert!(!kept_for(&["a".into(), "b".into(), "c".into()], &physical));
     }
     #[test]
     fn nothing_changes_without_a_kept_arrangement_or_with_one_display() {

@@ -105,7 +105,9 @@ pub struct VrrPacing {
     /// returns to.
     restore: Option<PacingMode>,
     /// When the display is measured again while fallen back (µs on the session clock): None while
-    /// a check runs, and for good once a stream that returned falls back again (it never flaps).
+    /// a check runs, and for good once a stream that returned falls back again, so the schedule
+    /// never flaps. A verdict the probe reaches by itself still returns the stream: on Linux a DRM
+    /// reading after the window became fullscreen and focused again, one switch per such change.
     recheck_us: Option<u64>,
     recheck_every_us: u64,
     rechecks: bool,

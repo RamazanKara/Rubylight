@@ -171,12 +171,15 @@ pub struct RaceProbe {
     #[cfg(windows)]
     helper: Option<win::Helper>,
     /// Linux's display check: when to read DRM, the read on its thread, and the last reading.
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
     settle: super::drm_vrr::Settle,
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
     drm_slot: Slot<super::drm_vrr::Reading>,
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
     drm: Option<super::drm_vrr::Reading>,
+    /// None without DRM's display check (gamescope).
+    #[cfg(target_os = "linux")]
+    drm_reader: Option<DrmReader>,
 }
 
 impl RaceProbe {
@@ -206,12 +209,14 @@ impl RaceProbe {
             scan: None,
             #[cfg(windows)]
             helper: None,
-            #[cfg(not(windows))]
+            #[cfg(target_os = "linux")]
             settle: Default::default(),
-            #[cfg(not(windows))]
+            #[cfg(target_os = "linux")]
             drm_slot: Default::default(),
-            #[cfg(not(windows))]
+            #[cfg(target_os = "linux")]
             drm: None,
+            #[cfg(target_os = "linux")]
+            drm_reader: None,
         }
     }
 
@@ -299,7 +304,7 @@ impl RaceProbe {
         self.longest_idle_ns = 0;
         self.beam = None;
         self.verdict = Verdict::Checking;
-        #[cfg(not(windows))]
+        #[cfg(target_os = "linux")]
         {
             self.drm = None;
             self.settle.restart();
@@ -598,45 +603,91 @@ mod win {
     }
 }
 
-/// The scan line is a Windows call: elsewhere the display check reads whether the window's display
-/// runs VRR from DRM (`drm_vrr`), once the window has been fullscreen and focused for a second, again
-/// when it becomes so after it was not, on a `recheck` and when it moves to another display. While
-/// it reads the verdict is "checking", which keeps the pacing; a reading that cannot tell is "no
-/// scanline", as before there was a reading.
+/// The scan line is a Windows call: elsewhere there is none to read, and the verdict is "no
+/// scanline", which keeps the pacing. On Linux the display check reads whether the window's
+/// display runs VRR from DRM instead (`drm_vrr`): once the window has been fullscreen and focused
+/// for a second, again when it becomes so after it was not, on a `recheck` and when it moves to
+/// another display. Until a reading comes for a fullscreen, focused window the verdict is
+/// "checking"; a windowed one keeps "no scanline", and so does a reading that cannot tell.
 #[cfg(not(windows))]
 impl RaceProbe {
     fn start_unavailable(around: Surroundings, topic: &'static str) -> Self {
         let mut probe = Self::new(false, topic);
+        #[cfg(target_os = "linux")]
+        { probe.drm_reader = drm_reader(topic, crate::handheld::gamescope()); }
         probe.apply_surroundings(around);
-        eprintln!("nightjar: {topic}: no scan line here, reading VRR from DRM once the window is fullscreen and focused");
-        probe.decide_drm(around);
+        probe.decide_unavailable(around);
         probe
     }
 
     pub fn before(&self) -> Option<Sample> { None }
 
     fn after_unavailable(&mut self, window: *mut SDL_Window, around: Surroundings) {
+        #[cfg(target_os = "linux")]
+        self.fold_unavailable(around, display_of(window), Instant::now(), describe_display);
+        #[cfg(not(target_os = "linux"))]
+        { let _ = window; self.fold_unavailable(around) }
+    }
+
+    /// One present: a recheck, the window, and on Linux when to read DRM (`display`: SDL's id of
+    /// the window's display; `describe`: its name and mode, for the read), then the verdict.
+    fn fold_unavailable(
+        &mut self,
+        around: Surroundings,
+        #[cfg(target_os = "linux")] display: u32,
+        #[cfg(target_os = "linux")] now: Instant,
+        #[cfg(target_os = "linux")] describe: impl FnOnce(u32) -> super::drm_vrr::Display,
+    ) {
         self.presents += 1;
         self.apply_recheck();
         self.apply_surroundings(around);
-        let display = display_of(window);
-        match self.settle.present(around.fullscreen && around.focused, display, Instant::now()) {
-            super::drm_vrr::Step::Wait => {}
-            super::drm_vrr::Step::Moved => {
-                eprintln!("nightjar: {}: the window moved to another display, reading it again", self.topic);
-                self.forget();
+        #[cfg(target_os = "linux")]
+        if let Some(reader) = self.drm_reader {
+            match self.settle.present(around.fullscreen && around.focused, display, now) {
+                super::drm_vrr::Step::Wait => {}
+                super::drm_vrr::Step::Moved => {
+                    eprintln!("nightjar: {}: the window moved to another display, reading it again", self.topic);
+                    self.forget();
+                }
+                super::drm_vrr::Step::Read => self.read_drm_in_background(reader, describe(display)),
             }
-            super::drm_vrr::Step::Read => self.read_drm_in_background(describe_display(display)),
         }
-        self.decide_drm(around);
+        self.decide_unavailable(around);
     }
 
+    fn decide_unavailable(&mut self, around: Surroundings) {
+        #[cfg(target_os = "linux")]
+        if self.decide_drm(around) { return; }
+        self.decide(around);
+    }
+}
+
+/// What reads the window's output from DRM: `drm_vrr`'s, a fake one in tests.
+#[cfg(target_os = "linux")]
+type DrmReader = fn(&super::drm_vrr::Display) -> super::drm_vrr::Reading;
+
+/// The DRM reader for a probe, none under gamescope. Neither Steam Deck panel has VRR, so gamescope
+/// leaves VRR_ENABLED at 0, and "no VRR" would turn the Deck's immediate presents to V-Sync, a
+/// latency change nobody has measured there: gamescope keeps the pacing it had.
+#[cfg(target_os = "linux")]
+fn drm_reader(topic: &str, gamescope: bool) -> Option<DrmReader> {
+    if gamescope {
+        eprintln!("nightjar: {topic}: gamescope paces the display, the pacing stays");
+        return None;
+    }
+    eprintln!("nightjar: {topic}: no scan line here, reading VRR from DRM once the window is fullscreen and focused");
+    let reader: DrmReader = |display| super::drm_vrr::Reading::of(super::drm_vrr::outputs(), display);
+    Some(reader)
+}
+
+#[cfg(target_os = "linux")]
+impl RaceProbe {
     /// Reads the outputs on a thread: the ioctls are quick, but none of it belongs on the render thread.
-    fn read_drm_in_background(&mut self, display: super::drm_vrr::Display) {
+    fn read_drm_in_background(&mut self, reader: DrmReader, display: super::drm_vrr::Display) {
         let slot = self.drm_slot.clone();
         let generation = self.generation;
         let spawned = std::thread::Builder::new().name("drm-vrr".into()).spawn(move || {
-            let reading = super::drm_vrr::Reading::of(super::drm_vrr::outputs(), &display);
+            let reading = reader(&display);
             if let Ok(mut slot) = slot.lock() { *slot = Some((generation, reading)); }
         });
         if let Err(error) = spawned {
@@ -646,24 +697,29 @@ impl RaceProbe {
         }
     }
 
-    /// Takes a reading for this display into the verdict. One that cannot tell leaves it to the
-    /// scan line check, which has no scan line here: "no scanline", or a "no VRR" read before.
-    fn decide_drm(&mut self, around: Surroundings) {
+    /// Takes a reading for this display into the verdict. Returns false to leave the verdict to
+    /// the scan line check, which has no scan line here: without DRM (gamescope), for a reading
+    /// that cannot tell, and before the first reading while the window is not fullscreen and
+    /// focused. That says "no scanline", or keeps a "no VRR" read before.
+    fn decide_drm(&mut self, around: Surroundings) -> bool {
+        if self.drm_reader.is_none() { return false; }
         if let Some(reading) = take_current(&self.drm_slot, self.generation) {
             eprintln!("nightjar: {}: {}", self.topic, reading.line());
             self.drm = Some(reading);
         }
-        if let Some(super::drm_vrr::Reading::Unknown(_)) = self.drm {
-            self.decide(around);
-            return;
+        match self.drm {
+            None if !(around.fullscreen && around.focused) => return false,
+            Some(super::drm_vrr::Reading::Unknown(_)) => return false,
+            _ => {}
         }
         self.verdict = super::drm_vrr::verdict(around.tearing, self.drm.as_ref());
         self.log_change();
+        true
     }
 }
 
 /// SDL's id of the window's display, 0 when not known.
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 fn display_of(window: *mut SDL_Window) -> u32 {
     if window.is_null() { return 0; }
     // SAFETY: a live window.
@@ -671,7 +727,7 @@ fn display_of(window: *mut SDL_Window) -> u32 {
 }
 
 /// A display's name and current mode in pixels, for finding its output in DRM.
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 fn describe_display(id: u32) -> super::drm_vrr::Display {
     let id = SDL_DisplayID(id);
     // SAFETY: SDL owns the name and the mode, which are read here at once.
@@ -1089,29 +1145,112 @@ mod tests {
         assert!(fixed.fixed_refresh(), "{}", fixed.line());
     }
 
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    fn drm_probe(reader: DrmReader) -> RaceProbe {
+        let mut probe = RaceProbe::new(false, "display check");
+        probe.drm_reader = Some(reader);
+        probe
+    }
+
+    #[cfg(target_os = "linux")]
+    fn reads_off(_: &super::super::drm_vrr::Display) -> super::super::drm_vrr::Reading {
+        super::super::drm_vrr::Reading::Vrr { enabled: false, output: "DP-1".into(), capable: Some(1) }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn reads_on(_: &super::super::drm_vrr::Display) -> super::super::drm_vrr::Reading {
+        super::super::drm_vrr::Reading::Vrr { enabled: true, output: "DP-1".into(), capable: Some(1) }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn dp1(_: u32) -> super::super::drm_vrr::Display {
+        super::super::drm_vrr::Display { name: Some("DP-1".into()), width: 3440, height: 1440, refresh_hz: 144.0 }
+    }
+
+    /// Waits for the read thread to leave its reading.
+    #[cfg(target_os = "linux")]
+    fn read_done(probe: &RaceProbe) {
+        for _ in 0..5000 {
+            if probe.drm_slot.lock().unwrap().is_some() { return; }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        panic!("the read never came");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_reads_drm_a_second_after_the_window_settles_again_when_it_moves_and_on_a_recheck() {
+        let start = Instant::now();
+        let at = |ms: u64| start + std::time::Duration::from_millis(ms);
+        let windowed = Surroundings { fullscreen: false, ..around() };
+        let mut probe = drm_probe(reads_off);
+        probe.fold_unavailable(windowed, 1, at(0), dp1);
+        assert_eq!(probe.line(), "off (no scanline)", "a windowed stream shows what it did before");
+        probe.fold_unavailable(around(), 1, at(100), dp1);
+        assert_eq!(*probe.verdict(), Verdict::Checking, "fullscreen and focused: reading soon");
+        probe.fold_unavailable(around(), 1, at(1000), dp1);
+        assert!(probe.drm_slot.lock().unwrap().is_none(), "not before a second");
+        probe.fold_unavailable(around(), 1, at(1100), dp1);
+        read_done(&probe);
+        probe.fold_unavailable(around(), 1, at(1110), dp1);
+        assert!(probe.fixed_refresh(), "{}", probe.line());
+        // Another display: read again once settled there.
+        probe.fold_unavailable(around(), 2, at(1200), dp1);
+        assert_eq!(*probe.verdict(), Verdict::Checking, "the old display's reading is dropped");
+        probe.fold_unavailable(around(), 2, at(1300), |_| unreachable!("not settled yet"));
+        probe.fold_unavailable(around(), 2, at(2300), dp1);
+        read_done(&probe);
+        probe.fold_unavailable(around(), 2, at(2310), dp1);
+        assert!(probe.fixed_refresh(), "{}", probe.line());
+        // A recheck after the user turned VRR on.
+        probe.drm_reader = Some(reads_on as DrmReader);
+        probe.recheck();
+        probe.fold_unavailable(around(), 2, at(2400), dp1);
+        assert_eq!(*probe.verdict(), Verdict::Checking);
+        probe.fold_unavailable(around(), 2, at(3400), dp1);
+        read_done(&probe);
+        probe.fold_unavailable(around(), 2, at(3410), dp1);
+        assert!(probe.verdict().refreshes_on_present(), "{}", probe.line());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn gamescope_keeps_the_pacing_and_reads_no_drm() {
+        assert!(drm_reader("display check", true).is_none(), "a Steam Deck panel has no VRR: V-Sync there is unmeasured");
+        assert!(drm_reader("display check", false).is_some());
+        let start = Instant::now();
+        let mut probe = RaceProbe::new(false, "display check");
+        for ms in [0, 1500, 3000, 10_000] {
+            probe.fold_unavailable(around(), 1, start + std::time::Duration::from_millis(ms), |_| unreachable!("no read under gamescope"));
+            assert_eq!(probe.line(), "off (no scanline)");
+        }
+        assert!(probe.drm_slot.lock().unwrap().is_none());
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
     fn linux_takes_the_drm_reading_for_its_display_and_a_recheck_reads_again() {
         use super::super::drm_vrr::Reading;
         let off = Reading::Vrr { enabled: false, output: "DP-1".into(), capable: Some(1) };
         let on = Reading::Vrr { enabled: true, output: "DP-1".into(), capable: Some(1) };
-        let mut probe = RaceProbe::start_unavailable(around(), "display check");
+        let mut probe = drm_probe(reads_off);
+        probe.decide_unavailable(around());
         assert_eq!(*probe.verdict(), Verdict::Checking, "no longer \"no scanline\" while it reads");
         *probe.drm_slot.lock().unwrap() = Some((0, off));
-        probe.decide_drm(around());
+        probe.decide_unavailable(around());
         assert!(probe.fixed_refresh(), "{}", probe.line());
         probe.recheck();
         assert!(probe.apply_recheck());
-        probe.decide_drm(around());
+        probe.decide_unavailable(around());
         assert_eq!(*probe.verdict(), Verdict::Checking, "the old reading is dropped");
         *probe.drm_slot.lock().unwrap() = Some((0, on.clone()));
-        probe.decide_drm(around());
+        probe.decide_unavailable(around());
         assert_eq!(*probe.verdict(), Verdict::Checking, "a read from before the recheck says nothing");
         *probe.drm_slot.lock().unwrap() = Some((1, on));
-        probe.decide_drm(around());
+        probe.decide_unavailable(around());
         assert!(probe.verdict().refreshes_on_present(), "{}", probe.line());
         *probe.drm_slot.lock().unwrap() = Some((1, Reading::Unknown("two outputs".into())));
-        probe.decide_drm(around());
+        probe.decide_unavailable(around());
         assert_eq!(probe.line(), "off (no scanline)", "as before there was a reading");
     }
 

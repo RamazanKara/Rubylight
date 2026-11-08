@@ -43,7 +43,7 @@ mod clipboard_sync;
 pub mod scanline;
 pub mod race;
 pub mod race_probe;
-#[cfg(any(not(windows), test))]
+#[cfg(any(target_os = "linux", test))]
 pub mod drm_vrr;
 pub(crate) mod pyrowave;
 pub mod pyrowave_gpu;

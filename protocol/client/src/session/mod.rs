@@ -1555,6 +1555,18 @@ mod tests {
     }
 
     #[test]
+    fn the_receive_decode_priority_follows_its_setting_and_is_off_by_default() {
+        // Android's "Decoder priority for receiving" measured worse under load: off unless asked.
+        assert!(!SessionConfig::default().receive_decode_priority);
+        if std::env::var_os(priority::DECODE_PRIORITY_ENV).is_none() {
+            let (off, _) = heard();
+            assert!(!Shared::new(off, true, false).decode_priority);
+            let (on, _) = heard();
+            assert!(Shared::new(on, true, true).decode_priority);
+        }
+    }
+
+    #[test]
     fn a_termination_during_a_failed_start_is_not_reported_beside_the_failure() {
         let (heard, terminated) = heard();
         let shared = Shared::new(heard, false, true);

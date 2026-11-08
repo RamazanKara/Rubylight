@@ -779,7 +779,9 @@ mod tests {
         assert_eq!(plan_video(&[rtx.clone(), with_video("GTX 1660", discrete, 0b01111)]), Ok(Extensions(0b01111)), "no AV1 for either");
         // SDL picks the discrete GPU, so the integrated one's lack of video does not matter.
         assert_eq!(plan_video(&[rtx.clone(), with_video("iGPU", vk::PhysicalDeviceType::INTEGRATED_GPU, 0)]), Ok(Extensions(0b11111)));
-        let none = Err("the Vulkan devices SDL picks from lack the video decoding extensions".to_string());
+        // Neither the video nor the import extensions: nothing to ask for (the renderer is made
+        // without them, for PyroWave alone or as before Vulkan video).
+        let none = Err("the Vulkan devices SDL picks from lack the video decoding extensions and the DMA-BUF import ones".to_string());
         assert_eq!(plan_video(&[with_video("queues only", discrete, 0b00011)]), none, "queues without a codec");
         assert_eq!(plan_video(&[with_video("a", discrete, 0b11111), with_video("b", discrete, 0b11100)]), none, "b has no queues");
         assert_eq!(plan_video(&[]), Err("Vulkan lists no devices".into()));
@@ -790,7 +792,11 @@ mod tests {
         assert_eq!(plan_video(&[with_video("RADV", discrete, 0b1111_1111)]), Ok(Extensions(0b1111_1111)));
         assert_eq!(plan_video(&[with_video("a", discrete, 0b1111_1111), with_video("b", discrete, 0b0111_1111)]), Ok(Extensions(0b1_1111)), "b cannot import");
         assert_eq!(plan_video_for(&[with_video("RADV", discrete, 0b1111_1111)], Extensions::wanted(false, true)), Ok(import), "NIGHTJAR_VULKAN_VIDEO=0");
-        assert!(plan_video_for(&[with_video("RADV", discrete, import.0)], Extensions::wanted(true, false)).is_err(), "Vulkan video alone needs the video ones");
+        assert_eq!(
+            plan_video_for(&[with_video("RADV", discrete, import.0)], Extensions::wanted(true, false)),
+            Err("the Vulkan devices SDL picks from lack the video decoding extensions".into()),
+            "Vulkan video alone needs the video ones"
+        );
         // Apart from PyroWave: a device without its subgroup operations and features decodes video
         // with synchronization2 and timeline semaphores alone, and not without them.
         let narrow = DeviceCaps { subgroup_ops: vk::SubgroupFeatureFlags::BASIC, supported: Features::video(), ..rtx.clone() };

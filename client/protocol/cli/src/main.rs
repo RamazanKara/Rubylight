@@ -1027,6 +1027,26 @@ fn run() -> i32 {
         }));
     }
     let clock_sync = announced(CLOCK_SYNC_MESSAGE_TYPE);
+    // NIGHTJAR_CLI_MOUSE_HZ: relative mouse moves at that rate, one pixel right then back,
+    // for the host's input timings (a zero move is never sent).
+    let mouse_stop = Arc::new(AtomicBool::new(false));
+    let mouse = std::env::var("NIGHTJAR_CLI_MOUSE_HZ")
+        .ok()
+        .and_then(|hz| hz.parse::<f64>().ok())
+        .filter(|hz| *hz > 0.0 && *hz <= 2000.0)
+        .map(|hz| {
+            let (input, stop) = (session.input_handle(), mouse_stop.clone());
+            println!("MOUSE moves at {hz} Hz");
+            std::thread::spawn(move || {
+                let period = Duration::from_secs_f64(1.0 / hz);
+                let mut step = 1i16;
+                while !stop.load(Ordering::Relaxed) {
+                    let _ = input.input(|q| q.send_mouse_move(step, 0));
+                    step = -step;
+                    std::thread::sleep(period);
+                }
+            })
+        });
     let mut last_clock_probe_us = 0u64;
     let started = clock::ms();
     let probe_started = session::now_us();
@@ -1067,6 +1087,10 @@ fn run() -> i32 {
             let _ = session.send_clock_sync_probe(now_us);
         }
         std::thread::sleep(Duration::from_millis(if clock_sync { 50 } else { 100 }));
+    }
+    mouse_stop.store(true, Ordering::Relaxed);
+    if let Some(mouse) = mouse {
+        let _ = mouse.join();
     }
     let seconds = (clock::ms() - started) / 1000.0;
     let premature =

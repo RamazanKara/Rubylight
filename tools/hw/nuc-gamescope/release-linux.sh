@@ -40,7 +40,12 @@ if [ $what = package ] || [ $what = all ]; then
       rm -rf $rel/ffprefix $rel/ffdeps
       as_me bash -euo pipefail -c "
         cd $rel && rm -rf ffbuild && mkdir ffbuild && cd ffbuild
-        curl -sSLf --retry 5 --retry-all-errors -o ffmpeg.tar.xz https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz
+        # The checked source stays in $rel for the next build (ffmpeg.org answered 504 for hours on 2026-11-08).
+        if ! echo \"464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c  $rel/ffmpeg-8.1.2.tar.xz\" | sha256sum -c - >/dev/null 2>&1; then
+          curl -sSLf --retry 5 --retry-all-errors -o $rel/ffmpeg-8.1.2.tar.xz.part https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz
+          mv $rel/ffmpeg-8.1.2.tar.xz.part $rel/ffmpeg-8.1.2.tar.xz
+        fi
+        cp $rel/ffmpeg-8.1.2.tar.xz ffmpeg.tar.xz
         echo \"464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c  ffmpeg.tar.xz\" | sha256sum -c -
         tar -xf ffmpeg.tar.xz
         bash $PWD/protocol/desktop/ffmpeg-deps-linux.sh $rel/ffdeps
@@ -52,7 +57,10 @@ if [ $what = package ] || [ $what = all ]; then
     as_me bash protocol/desktop/package-linux.sh -f $rel/ffprefix -s $rel/sdk -v $V -o $rel/dist -t $rel/target >$rel/package.log 2>&1 ||
       { tail -40 $rel/package.log; echo "package FAILED"; exit 1; }
     echo "package built"; ls -l $rel/dist'
-  echo "package exit $?"
+  code=$?
+  echo "package exit $code"
+  # A failed package leaves the last archive behind: bundling it would test old code.
+  [ $code = 0 ] || exit $code
 fi
 if [ $what = bundle ] || [ $what = all ]; then
   L=$src/protocol/desktop/packaging/linux

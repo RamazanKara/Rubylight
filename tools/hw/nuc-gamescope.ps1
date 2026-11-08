@@ -201,6 +201,7 @@ if ($SelfTest) {
             @($keyed | Where-Object { $recipe -notmatch [regex]::Escape("`"`$1`"/$_") }).Count -eq 0)
         expect 'a prefix of another recipe is built again' ($releaseLinux -match [regex]::Escape('[ "$(cat $rel/ffprefix/recipe.sha256 2>/dev/null)" != "$recipe" ]') -and
             $releaseLinux -match [regex]::Escape('echo $recipe >$rel/ffprefix/recipe.sha256'))
+        expect 'a failed package step bundles nothing' ($releaseLinux -match '(?s)echo "package exit \$code"\s*\n[^\n]*\n\s*\[ \$code = 0 \] \|\| exit \$code')
         # The end of the batch: the watch reads on while the host log grows.
         $log = Join-Path $dir 'butterpollo.log'
         Set-Content $log 'start'

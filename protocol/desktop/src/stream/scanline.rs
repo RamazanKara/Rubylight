@@ -391,6 +391,9 @@ pub enum Reason {
     NoIdle,
     /// The scan's rows do not match the monitor's height.
     RowsDiffer,
+    /// No scan line to race on, but the display runs VRR: Linux reads it from DRM (`drm_vrr`).
+    #[cfg_attr(windows, allow(dead_code))]
+    VrrNoScanline,
 }
 
 impl Reason {
@@ -404,6 +407,7 @@ impl Reason {
             Self::Windowed => "not fullscreen",
             Self::NoIdle => "no idle at this frame rate",
             Self::RowsDiffer => "scan rows differ from the display's",
+            Self::VrrNoScanline => "no scanline, VRR on",
         }
     }
 }
@@ -429,9 +433,12 @@ impl Verdict {
     /// The display scans at its own rate whatever is presented ("no VRR"): a tearing present tears.
     pub fn fixed_refresh(&self) -> bool { matches!(self, Self::Off(Reason::NoVrr, _)) }
 
-    /// Presents restarted the display's scan: the check passed. The only verdict a stream turned
-    /// to V-Sync by a "no VRR" one returns from; an idle seen in the calibration alone is not enough.
-    pub fn refreshes_on_present(&self) -> bool { matches!(self, Self::On(_, capability) if capability.vrr) }
+    /// Presents restarted the display's scan (the check passed), or DRM says VRR is on (Linux). The
+    /// only verdicts a stream turned to V-Sync by a "no VRR" one returns from; an idle seen in the
+    /// calibration alone is not enough.
+    pub fn refreshes_on_present(&self) -> bool {
+        matches!(self, Self::On(_, capability) | Self::Off(Reason::VrrNoScanline, capability) if capability.vrr)
+    }
 
     /// The timing CSV's `race_reason`: "on" or the reason, empty while it is not known.
     pub fn code(&self) -> &'static str {

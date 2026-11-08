@@ -26,7 +26,7 @@
 //! doc, "Scan line and capability"): `scan_line_at_present` and `in_vblank_at_present`
 //! (`D3DKMTGetScanLine`, 1 or 0) and `race_reason` (`on`, or what rules racing out: `no tearing`,
 //! `no scanline`, `no scan seen`, `scan rows differ from the display's`, `not fullscreen`,
-//! `no VRR`, `no idle at this frame rate`, `no VRR scan restart`, the words of
+//! `no VRR`, `no idle at this frame rate`, `no VRR scan restart`, `no scanline, VRR on`, the words of
 //! `stream::scanline::Reason`; empty while it is being checked); all empty when the beam race is
 //! off.
 //! Four more describe how the frame was put on the screen (docs/beam-racing.md, "Raced

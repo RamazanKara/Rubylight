@@ -2331,7 +2331,7 @@ pub(crate) mod tests {
         let beam = Beam { rows: 1440, blank_rows: 200, total_rows: 1640, scan_ns: 4_100_000, refresh_hz: 243.9, lines_per_ms: 400.0,
             vblank_fraction: 0.7, scans: 50, idle_from: 2040, longest_idle_ns: 0, idle_scans: 0 };
         let mut kept = vec![Verdict::Checking, Verdict::On(beam, RaceCapability { vrr: true, flip_inferred: true, ..capability })];
-        kept.extend([Reason::NoTearing, Reason::NoScanline, Reason::NoScan, Reason::NoRestart, Reason::Windowed, Reason::NoIdle, Reason::RowsDiffer].map(off));
+        kept.extend([Reason::NoTearing, Reason::NoScanline, Reason::NoScan, Reason::NoRestart, Reason::Windowed, Reason::NoIdle, Reason::RowsDiffer, Reason::VrrNoScanline].map(off));
         for verdict in &kept {
             for mode in [PacingMode::Immediate, PacingMode::HostTimes, PacingMode::BeamRace, PacingMode::Vsync] {
                 assert_eq!(after_display_check(mode, verdict, PacingMode::Vsync), mode, "{verdict:?}");
@@ -2454,6 +2454,46 @@ pub(crate) mod tests {
         assert_eq!(mode, PacingMode::Vsync);
         assert_eq!(vrr.step(&mut mode, Some(&on), at), Some(0));
         assert_eq!(mode, PacingMode::HostTimes, "the pacing it had before");
+    }
+
+    #[test]
+    fn a_linux_vrr_stream_on_a_display_without_vrr_waits_for_the_refresh() {
+        use super::super::drm_vrr::{verdict, Reading};
+        // nightjar#80 and the Fedora 8600G report: Linux has no scan line, so the check said "no
+        // scanline" and the stream stayed immediate on a 144 Hz display without VRR. SDL's GPU
+        // renderer takes vsync 0 as MAILBOX first, which at the panel's own rate replaces and
+        // repeats pictures ("replaced before they were shown" at the stream's end), and HostTimes
+        // was worse still (display wait p95 31-65 ms against 19 ms with V-Sync). DRM's
+        // VRR_ENABLED 0 now turns both to V-Sync.
+        let off = Reading::Vrr { enabled: false, output: "DP-1".into(), capable: Some(1) };
+        let on = Reading::Vrr { enabled: true, output: "DP-1".into(), capable: Some(1) };
+        let settings = crate::config::Settings::default();
+        for start in [PacingMode::Immediate, PacingMode::HostTimes] {
+            let mut vrr = VrrPacing::new(true, without_vrr(&settings), VrrSync::Off, start);
+            let mut mode = start;
+            assert_eq!(vrr.step(&mut mode, Some(&verdict(true, None)), 0), None, "still reading: the pacing stays");
+            assert_eq!(vrr.step(&mut mode, Some(&verdict(true, Some(&off))), 0), Some(1), "V-Sync waits for the refresh");
+            assert_eq!((mode, vrr.fell_back), (PacingMode::Vsync, true));
+            // A recheck that reads VRR on (the user turned it on) returns to the pacing it had.
+            let tears = vrr.probe_tears(mode);
+            assert!(tears, "rechecked with the pacing it had");
+            assert_eq!(vrr.step(&mut mode, Some(&verdict(tears, Some(&on))), 0), Some(0));
+            assert_eq!(mode, start);
+        }
+        // Where VRR runs (KDE adaptive sync, GNOME VRR, gamescope) nothing changes.
+        let mut vrr = VrrPacing::new(true, without_vrr(&settings), VrrSync::Off, PacingMode::Immediate);
+        let mut mode = PacingMode::Immediate;
+        assert_eq!(vrr.step(&mut mode, Some(&verdict(true, Some(&on))), 0), None);
+        assert_eq!((mode, vrr.fell_back), (PacingMode::Immediate, false));
+        // Nor where the output cannot be told: today's behaviour.
+        assert_eq!(vrr.step(&mut mode, Some(&verdict(true, Some(&Reading::Unknown("two outputs".into())))), 0), None);
+        assert_eq!(mode, PacingMode::Immediate);
+        // V-Sync off in the settings: immediate, as without VRR.
+        let no_vsync = crate::config::Settings { vsync: false, ..Default::default() };
+        let mut vrr = VrrPacing::new(true, without_vrr(&no_vsync), VrrSync::Off, PacingMode::HostTimes);
+        let mut mode = PacingMode::HostTimes;
+        vrr.step(&mut mode, Some(&verdict(true, Some(&off))), 0);
+        assert_eq!(mode, PacingMode::Immediate);
     }
 
     #[test]

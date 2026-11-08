@@ -195,6 +195,7 @@ pub fn fallback(failed: Output, offered: Offered) -> Option<Output> {
 /// The renderer presents HDR another way than the HDR10 PQ a desktop stream would get
 /// ([`choose`]): no gamescope, HDR10 offered, and the last decision was not PQ. A stream asking for
 /// HDR makes it again for PQ once ([`renderer_switch`]).
+#[cfg_attr(windows, allow(dead_code))]
 pub fn pq_unused(gamescope: bool, decision: Option<Result<Output, SdrReason>>, hdr10_offered: bool) -> bool {
     !gamescope && hdr10_offered && decision != Some(Ok(Output::Pq))
 }

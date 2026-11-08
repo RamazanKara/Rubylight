@@ -26,7 +26,7 @@ if [ $what = package ] || [ $what = all ]; then
       pkg-config libclang-dev clang nasm libopus-dev libva-dev libx11-dev libxext-dev libxrandr-dev \
       libxcursor-dev libxi-dev libxss-dev libxfixes-dev libxtst-dev libxkbcommon-dev libwayland-dev \
       wayland-protocols libegl-dev libgl-dev libgles-dev libdrm-dev libgbm-dev libpulse-dev \
-      libasound2-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libdecor-0-dev libvulkan-dev file patchelf >/dev/null
+      libasound2-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libdecor-0-dev libvulkan-dev file patch patchelf >/dev/null
     as_me() { setpriv --reuid=1000 --regid=1000 --clear-groups env HOME=$home PATH=$home/.cargo/bin:$PATH "$@"; }
     if [ ! -s $rel/ffprefix/licenses-ffmpeg/SOURCE.txt ]; then
       as_me bash -euo pipefail -c "

@@ -1954,6 +1954,7 @@ impl App {
             hdr_swapchain: sdl::swapchain_takes_hdr(self.renderer),
             made_for_hdr: state.made_for_hdr,
             gpu_failed: state.gpu_failed.is_some(),
+            pq_unused: gpu && handheld::pq_unused(handheld::gamescope(), sdl::output_decision(), sdl::hdr10_offered(self.renderer)),
         };
         let vulkan_choice = vulkan_video::Choice::from_environment();
         let vulkan_video = state.vulkan_video || vulkan_video_possible(settings.decoder != DecoderPreference::Software, vulkan_choice, vaapi_map_switched_on());

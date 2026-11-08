@@ -602,6 +602,9 @@ pub struct Streaming {
     /// present, and the stream's presents since.
     #[cfg(target_os = "linux")]
     window_target: Option<(i64, u64)>,
+    /// The HDR mastering metadata last handed to the HDR10 swapchain (`sdl::set_swapchain_hdr_metadata`).
+    #[cfg(target_os = "linux")]
+    swapchain_hdr_metadata: Option<crate::sdl::SwapchainHdrMetadata>,
     rtp_clock: RtpClock,
     last_probe: Instant,
     window: Window,
@@ -862,6 +865,8 @@ impl Streaming {
             glass: wl_presentation::Glass::default(),
             #[cfg(target_os = "linux")]
             window_target: None,
+            #[cfg(target_os = "linux")]
+            swapchain_hdr_metadata: None,
             rtp_clock: RtpClock::default(),
             last_probe: Instant::now(),
             window: Window::default(),

@@ -25,7 +25,14 @@ either (libsdl-org/SDL issue 10876; pull request 14157 adds no Vulkan path).
   RGBA16F backbuffer as for scRGB, asks the swapchain for `HDR10_ST2084` and presents through
   that shader (the PQ encode in `desktop/src/pq_present.hlsl`) instead of the blit. Renderer
   creation fails if the swapchain refuses HDR10. SDL 3.4.18's GPU renderer has no HDR10 output
-  of its own; it is for swapchains that offer HDR10 and not scRGB.
+  of its own; it is for gamescope swapchains that offer HDR10 and not scRGB, and for HDR streams
+  on desktop compositors that offer HDR10 (`handheld::choose`). The overlay and menus are drawn
+  in linear light by SDL's own shaders, so this output keeps the backbuffer and its pass.
+- `patches/window-hdr-metadata.patch` (Vulkan backend only) enables `VK_EXT_hdr_metadata` where
+  the device has it and calls `vkSetHdrMetadataEXT` for an `HDR10_ST2084` swapchain with the
+  `VkHdrMetadataEXT` the app keeps in the window property `SDL.window.gpu.hdr_metadata_pointer`,
+  each time `SDL.window.gpu.hdr_metadata_serial` changes and on each new swapchain. SDL 3.4.18
+  never sets HDR metadata.
 - `patches/window-target.patch` (GPU renderer only) draws a frame straight into its swapchain
   image instead of the backbuffer, which SDL 3.4.18 blits to the swapchain at present. The image
   is acquired on the frame's first draw into the window's target (a clear before it is folded into

@@ -1,0 +1,88 @@
+--- a/src/gpu/vulkan/SDL_gpu_vulkan.c
++++ b/src/gpu/vulkan/SDL_gpu_vulkan.c
+@@ -61,6 +61,8 @@
+     Uint8 MSFT_layered_driver;
+     // Only required for decoding HDR ASTC textures
+     Uint8 EXT_texture_compression_astc_hdr;
++    // Nightjar patch (HDR metadata): the window's mastering metadata on an HDR10 swapchain
++    Uint8 EXT_hdr_metadata;
+ } VulkanExtensions;
+ 
+ // Defines
+@@ -682,6 +684,7 @@
+     bool needsSurfaceRecreate;
+     Uint32 swapchainCreateWidth;
+     Uint32 swapchainCreateHeight;
++    Sint64 hdrMetadataSerial; // Nightjar patch (HDR metadata): the one this swapchain has
+ 
+     // Window surface
+     VkSurfaceKHR surface;
+@@ -4813,6 +4816,7 @@
+         windowData->swapchain = VK_NULL_HANDLE;
+         CHECK_VULKAN_ERROR_AND_RETURN(vulkanResult, vkCreateSwapchainKHR, false);
+     }
++    windowData->hdrMetadataSerial = 0; // Nightjar patch (HDR metadata): a new swapchain has none
+ 
+     vulkanResult = renderer->vkGetSwapchainImagesKHR(
+         renderer->logicalDevice,
+@@ -10256,6 +10260,22 @@
+         windowData->inFlightFences[windowData->frameCounter] = NULL;
+     }
+ 
++    /* Nightjar patch (HDR metadata): an HDR10 swapchain takes the window's mastering metadata, a
++     * VkHdrMetadataEXT the app keeps in the window property SDL.window.gpu.hdr_metadata_pointer,
++     * each time SDL.window.gpu.hdr_metadata_serial changes and on each new swapchain. */
++    if (renderer->supports.EXT_hdr_metadata && renderer->vkSetHdrMetadataEXT &&
++        windowData->swapchainComposition == SDL_GPU_SWAPCHAINCOMPOSITION_HDR10_ST2084) {
++        SDL_PropertiesID windowProps = SDL_GetWindowProperties(window);
++        Sint64 serial = SDL_GetNumberProperty(windowProps, "SDL.window.gpu.hdr_metadata_serial", 0);
++        if (serial != windowData->hdrMetadataSerial) {
++            const VkHdrMetadataEXT *metadata = (const VkHdrMetadataEXT *)SDL_GetPointerProperty(windowProps, "SDL.window.gpu.hdr_metadata_pointer", NULL);
++            if (metadata) {
++                renderer->vkSetHdrMetadataEXT(renderer->logicalDevice, 1, &windowData->swapchain, metadata);
++            }
++            windowData->hdrMetadataSerial = serial;
++        }
++    }
++
+     // Finally, try to acquire!
+     while (true) {
+         acquireResult = renderer->vkAcquireNextImageKHR(
+@@ -11298,7 +11318,7 @@
+         supports->ext = 1;                   \
+     }
+         CHECK(KHR_swapchain)
+-        else CHECK(KHR_maintenance1) else CHECK(KHR_driver_properties) else CHECK(KHR_portability_subset) else CHECK(MSFT_layered_driver) else CHECK(EXT_texture_compression_astc_hdr)
++        else CHECK(KHR_maintenance1) else CHECK(KHR_driver_properties) else CHECK(KHR_portability_subset) else CHECK(MSFT_layered_driver) else CHECK(EXT_texture_compression_astc_hdr) else CHECK(EXT_hdr_metadata)
+ #undef CHECK
+     }
+ 
+@@ -11314,7 +11334,8 @@
+         supports->KHR_driver_properties +
+         supports->KHR_portability_subset +
+         supports->MSFT_layered_driver +
+-        supports->EXT_texture_compression_astc_hdr);
++        supports->EXT_texture_compression_astc_hdr +
++        supports->EXT_hdr_metadata);
+ }
+ 
+ static inline void CreateDeviceExtensionArray(
+@@ -11332,6 +11353,7 @@
+     CHECK(KHR_portability_subset)
+     CHECK(MSFT_layered_driver)
+     CHECK(EXT_texture_compression_astc_hdr)
++    CHECK(EXT_hdr_metadata)
+ #undef CHECK
+ }
+ 
+--- a/src/gpu/vulkan/SDL_gpu_vulkan_vkfuncs.h
++++ b/src/gpu/vulkan/SDL_gpu_vulkan_vkfuncs.h
+@@ -163,6 +163,8 @@
+ VULKAN_DEVICE_FUNCTION(vkUnmapMemory)
+ VULKAN_DEVICE_FUNCTION(vkUpdateDescriptorSets)
+ VULKAN_DEVICE_FUNCTION(vkWaitForFences)
++// Nightjar patch (HDR metadata): VK_EXT_hdr_metadata, NULL without it
++VULKAN_DEVICE_FUNCTION(vkSetHdrMetadataEXT)
+ 
+ // VK_KHR_swapchain
+ VULKAN_DEVICE_FUNCTION(vkAcquireNextImageKHR)

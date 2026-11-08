@@ -213,7 +213,7 @@ impl Hardware {
                 gpu,
                 crate::vulkan_video::Choice::from_environment(),
                 crate::vulkan_video::gpu_first(
-                    std::env::var_os(crate::vulkan_video::GPU_FIRST_ENVIRONMENT).as_deref(),
+                    crate::stream::env_flag(crate::vulkan_video::GPU_FIRST_ENVIRONMENT),
                     vulkan_video_first_setting(),
                 ),
             ),
@@ -1713,7 +1713,8 @@ mod tests {
         use crate::vulkan_video::Choice;
         let device = ptr::dangling_mut::<c_void>();
         let (vaapi, vulkan, v4l2, nvdec) = (Hardware::Vaapi, Hardware::Vulkan(device), Hardware::V4l2m2m, Hardware::Cuda);
-        // VAAPI's pictures cross memory to the GPU renderer: with its device Vulkan video goes first.
+        // With "Vulkan video first" Vulkan video goes before VAAPI on the GPU renderer's device;
+        // by default VAAPI stays first, its pictures mapped into the renderer without a copy.
         assert_eq!(Hardware::linux_order(device, Choice::Default, true), [vulkan, vaapi, v4l2, nvdec]);
         assert_eq!(Hardware::linux_order(device, Choice::Default, false), [vaapi, vulkan, v4l2, nvdec], "the default");
         let other_renderer = Hardware::Vulkan(ptr::null_mut());
@@ -1722,13 +1723,12 @@ mod tests {
             assert_eq!(Hardware::linux_order(device, Choice::First, gpu_first), [vulkan, vaapi, v4l2, nvdec], "NIGHTJAR_VULKAN_VIDEO=1");
             assert_eq!(Hardware::linux_order(device, Choice::Off, gpu_first), [vaapi, v4l2, nvdec], "NIGHTJAR_VULKAN_VIDEO=0");
         }
-        // The setting, off by default, unless the environment says 1 or 0.
+        // The setting, off by default, unless the environment says on or off.
         assert!(!crate::config::Settings::default().vulkan_video_first);
         assert!(!crate::vulkan_video::gpu_first(None, false));
         assert!(crate::vulkan_video::gpu_first(None, true));
-        assert!(crate::vulkan_video::gpu_first(Some("1".as_ref()), false));
-        assert!(!crate::vulkan_video::gpu_first(Some("0".as_ref()), true));
-        assert!(crate::vulkan_video::gpu_first(Some("yes".as_ref()), true));
+        assert!(crate::vulkan_video::gpu_first(Some(true), false));
+        assert!(!crate::vulkan_video::gpu_first(Some(false), true));
         assert_eq!(Hardware::Vulkan(device).label(), "Vulkan");
         assert!(Hardware::None.order().is_empty());
         assert_eq!(Hardware::D3d11(device).order(), [Hardware::D3d11(device)]);

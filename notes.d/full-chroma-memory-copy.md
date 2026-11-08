@@ -1,2 +1,0 @@
-## en
-- Linux: Full chroma pictures stay on the GPU. VA-API and Vulkan Video pictures, twice the stream's height, are now mapped into Vulkan and rebuilt there, instead of being copied through memory, which left the decoder 80 ms behind at 4K100 (#80). Full chroma now works with Vulkan Video too. When a device can't map them, the log says so, and if decoding then falls behind the frame rate, the stream says so while it plays and in the report after it, and suggests turning Full chroma off or lowering the resolution or frame rate.

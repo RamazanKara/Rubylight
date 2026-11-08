@@ -1,0 +1,2 @@
+- Ready the decoder for folding (Debug) now works on foldables whose cover and inner screens are separate displays, like the Galaxy Z Fold7 on Android 16 QPR2: folding or unfolding no longer restarts the decoder.
+- Linux desktop: Full chroma pictures stay on the GPU, VRR streams no longer stutter on displays without VRR, pictures go out without the compositor's queue, and a stream says what hardware decoding is missing.

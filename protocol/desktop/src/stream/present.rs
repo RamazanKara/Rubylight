@@ -922,6 +922,16 @@ pub(super) fn vulkan_flags(mut parameters: [u32; 8], vulkan: bool) -> [u32; 8] {
     parameters
 }
 
+/// `vulkan_flags` for the one copied image of a mapped 4:4:4 VAAPI picture when `interleaved`
+/// (`media::FRAME_VULKAN_INTERLEAVED444`): flag 2048 in place of 256, Y, Cb and Cr read from one
+/// texel, its 10-bit samples whole.
+pub(super) fn interleaved_flags(mut parameters: [u32; 8], interleaved: bool) -> [u32; 8] {
+    if interleaved {
+        parameters[6] = parameters[6] & !256 | 2048;
+    }
+    parameters
+}
+
 /// The display a plane shader picture shown as HDR with the HLG transfer is drawn for, as the
 /// Windows draw pass draws it (`hlg::hlg_display`): an HDR output's own peak (`headroom` over the
 /// SDR white of `white_level` x 80 nits), else HLG's 1000-nit reference display with its
@@ -2054,7 +2064,7 @@ impl VideoTexture {
         // SAFETY: The live renderer belongs to the presenting thread.
         let headroom = if hdr_output { unsafe { SDL_GetFloatProperty(SDL_GetRendererProperties(renderer), SDL_PROP_RENDERER_HDR_HEADROOM_FLOAT, 1.0) } } else { 1.0 };
         let hlg = planar_hlg(info, hdr, white_level, headroom);
-        let parameters = vulkan_flags(planar_parameters(info, layout, hdr, white_level, headroom), vulkan);
+        let parameters = interleaved_flags(vulkan_flags(planar_parameters(info, layout, hdr, white_level, headroom), vulkan), vulkan && media::interleaved_444(info));
         if self.pyrowave_format.is_some_and(|previous| previous != parameters) { self.destroy(); }
         // The HLG picture's own peak over its white, which SDL tone maps down to an output with less.
         let texture_headroom = hlg.map(|display| display.peak / display.white);
@@ -2073,7 +2083,12 @@ impl VideoTexture {
         if self.vulkan.is_none() {
             let device = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_GPU_DEVICE_POINTER);
             // SAFETY: The renderer's live GPU device, which outlives the texture.
-            match unsafe { crate::vulkan_video::Planes::new(device.cast(), layout.width, layout.height, layout.ten_bit, layout.chroma444) } {
+            let made = if media::interleaved_444(info) {
+                unsafe { crate::vulkan_video::Planes::interleaved(device.cast(), layout.width, layout.height, layout.ten_bit) }
+            } else {
+                unsafe { crate::vulkan_video::Planes::new(device.cast(), layout.width, layout.height, layout.ten_bit, layout.chroma444) }
+            };
+            match made {
                 Ok(planes) => self.vulkan = Some(planes),
                 Err(error) => { self.fail(format!("the planes of a {what} cannot be made: {error}"), error); return false; }
             }
@@ -2463,6 +2478,15 @@ pub(crate) mod tests {
         let full = FrameInfo { color_range: 2, ..info(media::FRAME_VULKAN444, 0, 1) };
         assert_eq!(vulkan_flags(planar_parameters(&full, layout(media::FRAME_VULKAN444, 0), false, 1.0, 1.0), true)[6], 1 | 8 | 32 | 256);
         assert_eq!(vulkan_flags([0, 0, 0, 0, 0, 0, 16 | 64, 0], false)[6], 16 | 64, "other pictures keep 64");
+        // A mapped 4:4:4 VAAPI picture: full chroma, 2048 in place of 256, so its whole 10-bit
+        // samples are not taken for high bits.
+        let interleaved = info(media::FRAME_VULKAN_INTERLEAVED444, 1, 1);
+        assert!(media::interleaved_444(&interleaved) && !media::interleaved_444(&sdr10));
+        assert_eq!(shape(layout(media::FRAME_VULKAN_INTERLEAVED444, 1)), (true, true));
+        let flags = |info: &FrameInfo, interleaved| interleaved_flags(vulkan_flags(planar_parameters(info, layout(info.kind, info.ten_bit), false, 1.0, 1.0), true), interleaved)[6];
+        assert_eq!(flags(&interleaved, true), 8 | 16 | 32 | 2048);
+        assert_eq!(flags(&info(media::FRAME_VULKAN_INTERLEAVED444, 0, 1), true), 8 | 32 | 2048);
+        assert_eq!(flags(&sdr10, false), 8 | 16 | 256, "two-plane pictures keep 256");
     }
 
     /// Linux hardware decoders (VAAPI, NVDEC, V4L2) hand SDL NV12 and P010 pictures, and SDL read

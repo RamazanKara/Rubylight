@@ -116,14 +116,17 @@ float4 fragment(float4 position : SV_Position) : SV_Target {
 // holding FFmpeg's 10-bit samples in their low bits (code / 65535), as HEVC and AV1 decode them.
 // Flag 256, Vulkan build only: Vulkan video's planes (`vulkan_video::Planes`), Cb and Cr
 // interleaved in planeCb (R8G8 or R16G16, from NV12, P010, NV24 or P410), and with flag 16 the
-// 10-bit samples in the high bits of each word (code * 64 / 65535).
+// 10-bit samples in the high bits of each word (code * 64 / 65535). Flag 2048, Vulkan build only:
+// a mapped 4:4:4 VAAPI picture copied whole into planeCb, R8G8B8A8 holding Cr, Cb, Y (XYUV) or,
+// with flag 16, A2B10G10R10 holding Cb, Y, Cr (Y410 copied bit for bit).
 #ifdef VULKAN
 Texture2D<float> planeY : register(t0, space2);
-Texture2D<float2> planeCb : register(t1, space2);
+Texture2D<float4> planeCb : register(t1, space2);
 Texture2D<float> planeCr : register(t2, space2);
 #define CB(cb) ((cb).x)
 #define CR(cb, cr) (((flags & 256) != 0) ? (cb).y : (cr))
 #define HIGH_BITS if ((flags & 272) == 272) samples *= 65535.0 / 65472.0;
+#define INTERLEAVED(t) (((flags & 16) != 0) ? (t).grb : (t).bgr)
 #else
 Texture2D<float> planeY : register(t1);
 Texture2D<float> planeCb : register(t2);
@@ -146,15 +149,19 @@ float3 srgbFromLinear(float3 v) {
 float4 planesDirect(float2 position) {
     float2 visible = picture.xy;
     float2 at = clamp((position - destination.xy) * visible / destination.zw, 0.5, visible - 0.5);
-    uint2 lumaSize;
-    planeY.GetDimensions(lumaSize.x, lumaSize.y);
     float3 samples;
-    samples.x = planeY.SampleLevel(sampleLinear, at / float2(lumaSize), 0);
     uint2 size;
     planeCb.GetDimensions(size.x, size.y);
-    float2 uv = (flags & 32) != 0 ? at / float2(size) : clamp(at * 0.5, 0.5, visible * 0.5 - 0.5) / float2(size);
-    samples.y = CB(planeCb.SampleLevel(sampleLinear, uv, 0));
-    samples.z = CR(planeCb.SampleLevel(sampleLinear, uv, 0), planeCr.SampleLevel(sampleLinear, uv, 0));
+    if ((flags & 2048) != 0) {
+        samples = INTERLEAVED(planeCb.SampleLevel(sampleLinear, at / float2(size), 0));
+    } else {
+        uint2 lumaSize;
+        planeY.GetDimensions(lumaSize.x, lumaSize.y);
+        samples.x = planeY.SampleLevel(sampleLinear, at / float2(lumaSize), 0);
+        float2 uv = (flags & 32) != 0 ? at / float2(size) : clamp(at * 0.5, 0.5, visible * 0.5 - 0.5) / float2(size);
+        samples.y = CB(planeCb.SampleLevel(sampleLinear, uv, 0));
+        samples.z = CR(planeCb.SampleLevel(sampleLinear, uv, 0), planeCr.SampleLevel(sampleLinear, uv, 0));
+    }
     if ((flags & 64) != 0) samples *= 65535.0 / 1023.0;
     HIGH_BITS
     float3 rgb = linearRgb(samples - 0.5);
@@ -175,17 +182,24 @@ float4 planes(float4 position : SV_Position) : SV_Target {
 #endif
     int3 p = int3(int2(position.xy), 0);
     float3 samples;
-    samples.x = planeY.Load(p);
-    if ((flags & 32) != 0) {
-        samples.y = CB(planeCb.Load(p));
-        samples.z = CR(planeCb.Load(p), planeCr.Load(p));
-    } else {
-        // Chroma is half size: sample it where the CPU path does.
-        uint2 size;
-        planeCb.GetDimensions(size.x, size.y);
-        float2 uv = clamp(position.xy * 0.5, 0.5, float2(width, height) * 0.5 - 0.5) / float2(size);
-        samples.y = CB(planeCb.SampleLevel(sampleLinear, uv, 0));
-        samples.z = CR(planeCb.SampleLevel(sampleLinear, uv, 0), planeCr.SampleLevel(sampleLinear, uv, 0));
+#ifdef VULKAN
+    if ((flags & 2048) != 0) {
+        samples = INTERLEAVED(planeCb.Load(p));
+    } else
+#endif
+    {
+        samples.x = planeY.Load(p);
+        if ((flags & 32) != 0) {
+            samples.y = CB(planeCb.Load(p));
+            samples.z = CR(planeCb.Load(p), planeCr.Load(p));
+        } else {
+            // Chroma is half size: sample it where the CPU path does.
+            uint2 size;
+            planeCb.GetDimensions(size.x, size.y);
+            float2 uv = clamp(position.xy * 0.5, 0.5, float2(width, height) * 0.5 - 0.5) / float2(size);
+            samples.y = CB(planeCb.SampleLevel(sampleLinear, uv, 0));
+            samples.z = CR(planeCb.SampleLevel(sampleLinear, uv, 0), planeCr.SampleLevel(sampleLinear, uv, 0));
+        }
     }
     if ((flags & 64) != 0) samples *= 65535.0 / 1023.0;
     HIGH_BITS

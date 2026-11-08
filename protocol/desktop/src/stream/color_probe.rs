@@ -201,6 +201,11 @@ fn decode(
     // The stream's decoder order, as the stream goes on after a backend that fails mid-stream.
     first_that_decodes(hardware.order(), |order| {
         let mut decoder = media::VideoDecoder::open_any(codec, pictures, order, true, |_, _| {})?;
+        // VAAPI's 4:4:4 picture is one interleaved surface the presenter draws only mapped into
+        // the GPU renderer's Vulkan images, as the stream maps it.
+        if pictures.chroma444 && decoder.hardware == media::Hardware::Vaapi {
+            super::pipeline::map_to_vulkan(hardware, &mut decoder);
+        }
         Ok((decoder.hardware, decode_with(&mut decoder, data)))
     })
 }
@@ -442,6 +447,11 @@ mod tests {
         assert!(drawable(&info(media::FRAME_YUV420P10, 1), true, &planes).is_err());
         assert!(drawable(&info(media::FRAME_YUV444P, 0), true, &planes).is_ok());
         assert!(drawable(&info(media::FRAME_YUV444P10, 1), true, &planes).is_ok());
+        // ...unless it was mapped into Vulkan as one image the planes copy whole.
+        #[cfg(unix)]
+        for ten_bit in [0, 1] {
+            assert!(drawable(&info(media::FRAME_VULKAN_INTERLEAVED444, ten_bit), true, &planes).is_ok());
+        }
         // 10-bit: a hardware P010 surface draws through SDL, a software one through the planes.
         assert!(drawable(&info(media::FRAME_D3D11, 1), false, &planes).is_ok());
         assert!(drawable(&info(media::FRAME_P010, 1), false, &planes).is_ok());

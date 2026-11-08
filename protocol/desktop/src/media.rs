@@ -52,6 +52,22 @@ pub const FRAME_DMABUF: c_int = 9;
 pub const FRAME_VULKAN: c_int = 10;
 #[cfg(unix)]
 pub const FRAME_VULKAN444: c_int = 11;
+/// A 4:4:4 VAAPI picture mapped into the GPU renderer's device as one image holding Y, Cb and Cr
+/// (`vulkan_video::interleaved_444`), Linux only. The presenter copies it whole and the plane
+/// shader reads all three from it.
+#[cfg(unix)]
+pub const FRAME_VULKAN_INTERLEAVED444: c_int = 12;
+
+/// Whether `info` is a `FRAME_VULKAN_INTERLEAVED444` picture.
+pub fn interleaved_444(info: &FrameInfo) -> bool {
+    #[cfg(unix)]
+    return info.kind == FRAME_VULKAN_INTERLEAVED444;
+    #[cfg(not(unix))]
+    {
+        let _ = info;
+        false
+    }
+}
 
 /// The shape of a planar picture's textures: R8 planes, or R16 for 10-bit, with half-size chroma
 /// (rounded up, as FFmpeg's) unless the picture is 4:4:4.
@@ -88,13 +104,14 @@ impl PlanarLayout {
         (info.width > 0 && info.height > 0).then_some(Self { width: info.width as u32, height: info.height as u32, chroma444: false, ten_bit })
     }
 
-    /// The layout of a `FRAME_VULKAN` or `FRAME_VULKAN444` picture's planes as the plane shader
-    /// reads them once copied (`vulkan_video::Planes`), its chroma interleaved.
+    /// The layout of a `FRAME_VULKAN`, `FRAME_VULKAN444` or `FRAME_VULKAN_INTERLEAVED444`
+    /// picture's planes as the plane shader reads them once copied (`vulkan_video::Planes`), its
+    /// chroma interleaved.
     #[cfg(unix)]
     pub fn of_vulkan(info: &FrameInfo) -> Option<Self> {
         let chroma444 = match info.kind {
             FRAME_VULKAN => false,
-            FRAME_VULKAN444 => true,
+            FRAME_VULKAN444 | FRAME_VULKAN_INTERLEAVED444 => true,
             _ => return None,
         };
         (info.width > 0 && info.height > 0).then_some(Self { width: info.width as u32, height: info.height as u32, chroma444, ten_bit: info.ten_bit != 0 })
@@ -1296,6 +1313,9 @@ impl Frame {
                     AV_PIX_FMT_P010LE => (FRAME_VULKAN, 1),
                     AV_PIX_FMT_NV24 => (FRAME_VULKAN444, 0),
                     AV_PIX_FMT_P410LE => (FRAME_VULKAN444, 1),
+                    // A mapped 4:4:4 VAAPI picture (`vulkan_video::interleaved_444`).
+                    AV_PIX_FMT_RGBA => (FRAME_VULKAN_INTERLEAVED444, 0),
+                    AV_PIX_FMT_XV30LE => (FRAME_VULKAN_INTERLEAVED444, 1),
                     // Not two planes the presenter copies (`vulkan_video::Planes`).
                     _ => (4, 0),
                 },

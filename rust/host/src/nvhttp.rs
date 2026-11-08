@@ -3333,7 +3333,7 @@ mod tests {
     use super::stream_key_id;
     #[test]
     fn a_second_screen_streams_as_a_device_of_its_own_under_one_pairing() {
-        let paired = || crate::state::Client {
+        let paired = || super::Client {
             name: "Tab".into(),
             cert: String::new(),
             uuid: "abc".into(),

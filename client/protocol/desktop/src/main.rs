@@ -9,6 +9,9 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod a11y;
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod amd_decode;
 #[allow(dead_code, reason = "glass foundation: the pages start using it in the next change")]
 mod ambient;
 mod autostart;
@@ -554,6 +557,9 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
             std::env::set_var("DISABLE_GAMESCOPE_WSI", "1");
         }
     }
+    // Before SDL, VAAPI or Vulkan load Mesa.
+    #[cfg(target_os = "linux")]
+    amd_decode::request();
 
     // The second screen's stream takes no controllers: they stay with the first.
     let gamepads = if second_screen::this_process() { SDL_InitFlags::default() } else { SDL_INIT_GAMEPAD };

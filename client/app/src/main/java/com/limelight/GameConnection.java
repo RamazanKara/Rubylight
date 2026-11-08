@@ -545,7 +545,6 @@ final class GameConnection {
                 .setVirtualDisplayDpi(game.prefConfig.virtualDisplayDpi)
                 .setVrr(!smallStream && game.prefConfig.vrr)
                 .setClipboardSync(game.prefConfig.clipboardSync && game.prefConfig.rustEngine)
-                .setSecondScreen(DualScreen.isSecond(game.getIntent()))
                 .setHostDisplay(game.prefConfig.hostDisplay)
                 .setAudioConfiguration(smallStream ? MoonBridge.AUDIO_CONFIGURATION_STEREO : game.prefConfig.audioConfiguration)
                 .setColorSpace(game.decoderRenderer.getPreferredColorSpace())

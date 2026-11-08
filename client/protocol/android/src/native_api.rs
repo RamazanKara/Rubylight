@@ -12,10 +12,11 @@
 //! error keeps its API code, HTTP status and setting.
 
 use jni::objects::{JByteArray, JClass, JString};
-use jni::sys::{jint, jstring};
+use jni::sys::{jboolean, jint, jstring, JNI_FALSE};
 use jni::JNIEnv;
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use nightjar_core::http::native_api::audio::{Audio, AudioWrite};
 use nightjar_core::http::native_api::radeon::{Radeon, SettingsWrite};
@@ -141,6 +142,10 @@ impl Host for HostClient {
     }
 }
 
+/// Set in the process of a device's second screen (Dual screen mode): every client this module
+/// builds marks its requests as that stream's.
+static SECOND_SCREEN: AtomicBool = AtomicBool::new(false);
+
 pub fn client(endpoint: &Endpoint) -> Result<HostClient, Error> {
     let identity = ClientIdentity::from_der(
         endpoint.unique_id.clone(),
@@ -154,7 +159,11 @@ pub fn client(endpoint: &Endpoint) -> Result<HostClient, Error> {
     )?
     .with_https_port(endpoint.https_port)
     .with_server_certificate_pem(&endpoint.server_certificate_pem)?;
-    Ok(client)
+    Ok(if SECOND_SCREEN.load(Ordering::Relaxed) {
+        client.with_second_screen()
+    } else {
+        client
+    })
 }
 
 fn ok<T: Serialize>(result: Result<T, Error>) -> String {
@@ -405,6 +414,15 @@ pub(crate) fn endpoint(
         client_certificate_der: bytes(env, client_certificate_der)?,
         client_private_key_pkcs8: bytes(env, client_private_key_pkcs8)?,
     })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_NativeApiBridge_setSecondScreen(
+    _: JNIEnv,
+    _: JClass,
+    second_screen: jboolean,
+) {
+    SECOND_SCREEN.store(second_screen != JNI_FALSE, Ordering::Relaxed);
 }
 
 #[no_mangle]

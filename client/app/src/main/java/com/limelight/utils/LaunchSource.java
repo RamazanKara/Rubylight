@@ -25,6 +25,7 @@ public final class LaunchSource {
     public static final String RECOVERY = "recovery";
     public static final String COOP_JOIN = "co-op join";
     public static final String OPEN_PLAY = "automatic start";
+    public static final String DUAL_SCREEN = "dual screen";
     /** A stream intent nothing labelled: another app's, or a start this list misses. */
     public static final String UNKNOWN = "unknown";
 

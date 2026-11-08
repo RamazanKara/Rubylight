@@ -149,6 +149,9 @@ final class GameConnection {
                 HostCapabilityCache.load(game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID)),
                 game.getIntent().getStringExtra(Game.EXTRA_APP_UUID),
                 game.getIntent().getIntExtra(Game.EXTRA_APP_ID, StreamConfiguration.INVALID_APP_ID), startNetwork);
+        if (DualScreen.isSecond(game.getIntent())) {
+            DualScreen.configureSecond(game.prefConfig, game.getWindowManager().getDefaultDisplay());
+        }
         game.prefConfig.experimentalPacked444 = PackedFallback.effective(game.prefConfig.experimentalPacked444,
                 game.getIntent().getBooleanExtra(Game.EXTRA_PACKED_OFF, false));
         game.getIntent().putExtra(Game.EXTRA_STREAM_NETWORK, game.prefConfig.layers.network.name());
@@ -465,6 +468,10 @@ final class GameConnection {
             // If we're using OSC, always set at least gamepad 1.
             gamepadMask |= 1;
         }
+        if (DualScreen.isSecond(game.getIntent())) {
+            // The controllers belong to the first screen's stream.
+            gamepadMask = 0;
+        }
 
         // Set to the optimal mode for streaming
         float displayRefreshRate = mediaStream ? game.videoOutput.prepareDisplayForRendering() :
@@ -538,6 +545,7 @@ final class GameConnection {
                 .setVirtualDisplayDpi(game.prefConfig.virtualDisplayDpi)
                 .setVrr(!smallStream && game.prefConfig.vrr)
                 .setClipboardSync(game.prefConfig.clipboardSync && game.prefConfig.rustEngine)
+                .setSecondScreen(DualScreen.isSecond(game.getIntent()))
                 .setHostDisplay(game.prefConfig.hostDisplay)
                 .setAudioConfiguration(smallStream ? MoonBridge.AUDIO_CONFIGURATION_STEREO : game.prefConfig.audioConfiguration)
                 .setColorSpace(game.decoderRenderer.getPreferredColorSpace())
@@ -554,6 +562,11 @@ final class GameConnection {
         game.streamRecovery.restoreMicrophoneMute();
         game.conn.setMicrophoneNoticeListener(() -> game.runOnUiThread(game.menuActions::showMicrophoneNotice));
         game.controllerHandler = new ControllerHandler(game, game.conn, game, game.prefConfig);
+        if (DualScreen.isSecond(game.getIntent())) {
+            // The controllers belong to the first screen's stream. Stopped here, before the launch request
+            // lists them and before the connection announces them, the host never hears of a second set.
+            game.controllerHandler.stop();
+        }
         game.conn.setControllerPreparation(game.controllerHandler::prepareControllersForLaunch);
         game.videoOutput.updateInputPollingRate();
         ((android.hardware.display.DisplayManager) game.getSystemService(Context.DISPLAY_SERVICE))
@@ -1347,6 +1360,8 @@ final class GameConnection {
                 game.overlays.updateHardwareMetricsPolling();
                 LimeLog.info("Stream connected");
                 game.connecting = false;
+                // Normally started a stage earlier (Game.stageComplete); this catches a game not known by then.
+                DualScreen.start(game);
                 if (!game.streamRecovery.isRecoveryAttempt()) {
                     com.limelight.update.UpdateFlow.notifyForStream(game, game.conn.getHostDetails(),
                             () -> game.foreground && game.connected, text -> game.messages.alert(text, Toast.LENGTH_LONG));

@@ -591,6 +591,23 @@ public class HostCapabilitiesTest {
     }
 
     @Test
+    public void aSecondScreenOfOneDeviceNeedsSecondScreenVersionFromRubylight() {
+        String host = "<RustHostVersion>3.9.0</RustHostVersion>";
+        // Older hosts don't send it and end the first stream when the second starts.
+        for (String version : new String[] {"", "<SecondScreenVersion>0</SecondScreenVersion>",
+                "<SecondScreenVersion>x</SecondScreenVersion>"}) {
+            assertFalse(version, caps(host + version).secondScreen());
+        }
+        assertTrue(caps(host + "<SecondScreenVersion>1</SecondScreenVersion>").secondScreen());
+        // Only a Rubylight host reads it, and a device that never read serverinfo does not know.
+        assertFalse(caps("<SecondScreenVersion>1</SecondScreenVersion>").secondScreen());
+        assertFalse(HostCapabilities.UNKNOWN.secondScreen());
+        // It survives the cache the second stream's process reads.
+        assertTrue(HostCapabilities.fromJson(
+                caps(host + "<SecondScreenVersion>1</SecondScreenVersion>").toJson()).secondScreen());
+    }
+
+    @Test
     public void displayScaleNeedsDisplayScaleVersionAndAWorkingVirtualDisplay() {
         String host = "<RustHostVersion>3.0.0</RustHostVersion><VirtualDisplayCapable>true</VirtualDisplayCapable>" +
                 "<VirtualDisplayDriverReady>true</VirtualDisplayDriverReady>";

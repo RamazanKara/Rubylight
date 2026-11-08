@@ -297,6 +297,25 @@ final class GameTouchInput {
         }
     }
 
+    /**
+     * Switches the touch mode of this stream. {@code persist} also saves it as the setting; in dual-screen
+     * mode only the first stream's process does, because the second's copy of the settings can be older
+     * than the first's and would write them back.
+     */
+    void applyTouchMode(int which, boolean persist) {
+        cancelTouchInput();
+        game.prefConfig.touchMode = which;
+        game.prefConfig.touchscreenTrackpad = TouchMode.legacyTrackpad(which);
+        game.nativeTouchEnabled = which == TouchMode.MULTI_TOUCH;
+        nativeTouchUnsupported = false;
+        initializeTouchContexts();
+        if (persist) {
+            SharedPreferences.Editor editor = PreferenceManager.getDefaultSharedPreferences(game).edit();
+            TouchMode.save(editor, which);
+            editor.apply();
+        }
+    }
+
     void showTouchModeDialog() {
         if (game.externalPresentation != null) {
             game.messages.alert(R.string.desktop_touchpad_help, Toast.LENGTH_LONG);
@@ -305,15 +324,8 @@ final class GameTouchInput {
         String[] modes = game.getResources().getStringArray(R.array.stream_touch_modes);
         game.menuActions.showStreamDialog(new NavigationDialogBuilder(game).setTitle(R.string.stream_touch_mode)
                 .setSingleChoiceItems(modes, touchMode(), (dialog, which) -> {
-                    cancelTouchInput();
-                    game.prefConfig.touchMode = which;
-                    game.prefConfig.touchscreenTrackpad = TouchMode.legacyTrackpad(which);
-                    game.nativeTouchEnabled = which == TouchMode.MULTI_TOUCH;
-                    nativeTouchUnsupported = false;
-                    initializeTouchContexts();
-                    SharedPreferences.Editor editor = PreferenceManager.getDefaultSharedPreferences(game).edit();
-                    TouchMode.save(editor, which);
-                    editor.apply();
+                    applyTouchMode(which, !DualScreen.isSecond(game.getIntent()));
+                    DualScreen.mirrorTouchMode(game, which);
                     dialog.dismiss();
                     if (game.nativeTouchEnabled) {
                         game.messages.alert(R.string.stream_native_touch_help, Toast.LENGTH_LONG);

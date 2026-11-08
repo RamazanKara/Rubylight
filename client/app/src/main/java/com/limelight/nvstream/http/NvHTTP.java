@@ -1588,7 +1588,9 @@ public class NvHTTP {
             (asksClipboardSync(context) ? "&" + com.limelight.utils.ClipboardSync.LAUNCH_PARAMETER + "=1" : "") +
             // No host offers rate changes before the launch and every host ignores a parameter it
             // does not know, so this goes to any host; the stream's DESCRIBE says whether it took it.
-            (context.rateChange ? "&" + RATE_CHANGE_LAUNCH_PARAMETER + "=1" : "");
+            (context.rateChange ? "&" + RATE_CHANGE_LAUNCH_PARAMETER + "=1" : "") +
+            // Dual screen mode's second stream: a Rubylight host keeps it beside this device's first.
+            (context.streamConfig.getSecondScreen() ? "&rlSecondScreen=1" : "");
     }
 
     public boolean launchApp(ConnectionContext context, String verb, int appId, boolean enableHdr) throws IOException, XmlPullParserException {

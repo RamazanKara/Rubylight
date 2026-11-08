@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+    <string name="title_checkbox_dual_screen">Dual screen mode</string>
+    <string name="summary_checkbox_dual_screen">On a device with a second screen, starts a second stream of the same game on it, at that screen\'s own resolution. The second stream is the same device as the first, so the PC pairs once. The first screen keeps the sound, the controllers and the microphone, and a touch mode change on either screen applies to both. The PC must be a Rubylight host that supports it, and decides which of its screens each one shows. Takes effect on the next stream.</string>
+    <string name="title_resolution_screen2">Second screen resolution</string>
+    <string name="summary_resolution_screen2">The resolution of the second screen\'s stream, apart from the first screen\'s. Its own size streams at the full resolution of that screen.</string>
+    <string name="resolution_screen2_native">Second screen\'s own size</string>
+    <string name="dual_screen_unavailable">The second screen could not be opened.</string>
+
+    <string-array name="resolution_screen2_names">
+        <item>@string/resolution_screen2_native</item>
+        <item>@string/resolution_360p</item>
+        <item>@string/resolution_480p</item>
+        <item>@string/resolution_720p</item>
+        <item>@string/resolution_1080p</item>
+        <item>@string/resolution_1440p</item>
+        <item>@string/resolution_4k</item>
+    </string-array>
+    <string-array name="resolution_screen2_values" translatable="false">
+        <item>native</item>
+        <item>640x360</item>
+        <item>854x480</item>
+        <item>1280x720</item>
+        <item>1920x1080</item>
+        <item>2560x1440</item>
+        <item>3840x2160</item>
+    </string-array>
+</resources>

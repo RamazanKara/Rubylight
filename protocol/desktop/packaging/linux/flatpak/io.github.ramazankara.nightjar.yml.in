@@ -38,6 +38,10 @@ finish-args:
   # That layer talks to gamescope over its own Wayland socket (GAMESCOPE_WAYLAND_DISPLAY, in
   # XDG_RUNTIME_DIR), which --socket=wayland does not share; Flathub's Lutris grants it the same way.
   - --filesystem=xdg-run/gamescope-0:ro
+  # A VA driver name or path set on the host names drivers the sandbox does not have, and libva
+  # would then find none; the runtime's own lookup is right (as Flathub's Moonlight).
+  - --unset-env=LIBVA_DRIVER_NAME
+  - --unset-env=LIBVA_DRIVERS_PATH
 modules:
   - name: nightjar
     buildsystem: simple

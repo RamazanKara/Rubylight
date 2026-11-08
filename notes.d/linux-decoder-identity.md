@@ -1,0 +1,2 @@
+## desktop
+- Linux: Nightjar picks the decoder for your GPU and driver. On NVIDIA with nvidia-vaapi-driver installed, it now decodes with Vulkan video, then NVDEC, instead of going through the VA-API wrapper (`NIGHTJAR_FORCE_VAAPI=1` brings the wrapper back). The log names the VA driver and the profiles it decodes, the Vulkan device and driver, the decoder order and why, and each video format with the decoder that handles it. The Flatpak ignores a host's `LIBVA_DRIVER_NAME` and `LIBVA_DRIVERS_PATH`, which could leave it without a VA driver.

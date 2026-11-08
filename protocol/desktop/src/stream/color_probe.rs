@@ -133,11 +133,12 @@ pub fn probe_base(hardware: media::Hardware, wanted: u32) -> Base {
         };
         match decode(hardware, pictures, codec, data) {
             Ok((_, backend)) => {
+                eprintln!("nightjar: decoder probe: {name} {} ok", backend.label());
                 base.decodable |= format;
                 base.backends.push((format, backend));
             }
             Err(reason) => {
-                eprintln!("nightjar: {name} is not offered: no hardware decoder decodes it here: {reason}");
+                eprintln!("nightjar: decoder probe: {name} failed, so it is not offered: no hardware decoder decodes it here: {reason}");
                 failures.push(format!("{name}: {reason}"));
             }
         }
@@ -172,11 +173,14 @@ pub fn probe(
             vaapi_node,
         };
         match decode(hardware, pictures, codec, data)
-            .and_then(|(info, _)| drawable(&info, yuv444, &planes))
+            .and_then(|(info, backend)| drawable(&info, yuv444, &planes).map(|()| backend))
         {
-            Ok(()) => decodable |= format,
+            Ok(backend) => {
+                eprintln!("nightjar: decoder probe: {name} {} ok", backend.label());
+                decodable |= format;
+            }
             Err(reason) => {
-                eprintln!("nightjar: {name} is not offered: {reason}");
+                eprintln!("nightjar: decoder probe: {name} failed, so it is not offered: {reason}");
                 failures.push(format!("{name}: {reason}"));
             }
         }

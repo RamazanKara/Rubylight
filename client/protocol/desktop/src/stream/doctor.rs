@@ -93,6 +93,14 @@ sudo sysctl -w net.core.rmem_max={}", &[&granted, &asked, &buffer.asked])
     }
 }
 
+/// Why decoding falls behind on a packed full chroma stream whose pictures are copied through
+/// memory (`pipeline::packed_from_memory`, their coded size): said only when the report found
+/// the decoder slow on this device (#80: 3840x4320 at 100 fps, 200 to 400 ms behind).
+pub fn packed_hint(report: &Report, from_memory: Option<(i32, i32)>) -> Option<String> {
+    let (width, height) = from_memory.filter(|_| report.findings.iter().any(|finding| matches!(finding, Finding::Decoder)))?;
+    Some(trf("Full chroma: this device copies each {}x{} picture through memory, and that takes longer than a frame at this frame rate. Turn Full chroma off, or lower the resolution or frame rate.", &[&width, &height]))
+}
+
 /// A value of the evidence, or "no data yet".
 fn measurement(value: f32) -> String {
     if value.is_finite() && value >= 0.0 {
@@ -369,6 +377,26 @@ mod tests {
         assert_eq!(hint.contains("sudo sysctl -w net.core.rmem_max=4194304"), cfg!(target_os = "linux"), "{hint}");
         set(Lang::De);
         assert_ne!(doctor.receive_buffer_hint().unwrap(), hint, "the note has a German text");
+    }
+
+    #[test]
+    fn packed_full_chroma_copied_through_memory_is_named_when_decoding_falls_behind() {
+        set(Lang::En);
+        // #80: 3840x4320 packed pictures at 100 fps, 80.8 ms decode against a 10 ms frame.
+        let mut slow = Doctor::default();
+        let mut quick = Doctor::default();
+        for n in 1..=7 {
+            slow.add(&Stats { fps: 100, decode_ms: Some(80.8), ..tick(n * 1000, 0.0) });
+            quick.add(&Stats { fps: 100, ..tick(n * 1000, 0.0) });
+        }
+        let (slow, quick) = (slow.report(7000), quick.report(7000));
+        assert!(slow.findings.contains(&Finding::Decoder), "{:?}", slow.findings);
+        let hint = packed_hint(&slow, Some((3840, 4320))).expect("named");
+        assert!(hint.starts_with("Full chroma: this device copies each 3840x4320 picture through memory"), "{hint}");
+        assert_eq!(packed_hint(&slow, None), None, "an unpacked stream has its own causes");
+        assert_eq!(packed_hint(&quick, Some((3840, 4320))), None, "a decoder that keeps up says nothing");
+        set(Lang::De);
+        assert_ne!(packed_hint(&slow, Some((3840, 4320))).unwrap(), hint, "the hint has a German text");
     }
 
     #[test]

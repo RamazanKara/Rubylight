@@ -35,7 +35,7 @@ use sdl3_sys::everything::*;
 
 use crate::media::ffi::{
     av_buffer_unref, av_frame_clone, av_frame_copy_props, av_frame_free, av_frame_unref,
-    av_hwdevice_ctx_alloc, av_hwdevice_ctx_init, av_hwframe_map, av_pix_fmt_desc_get,
+    av_hwdevice_ctx_alloc, av_hwdevice_ctx_init, av_hwframe_map, av_hwframe_transfer_data, av_pix_fmt_desc_get,
     avcodec_get_hw_frames_parameters, avutil_version, AVBufferRef, AVCodecContext, AVFrame,
     AVHWDeviceContext, AVHWFramesContext, AVPixelFormat, AV_HWDEVICE_TYPE_VULKAN,
     AV_HWFRAME_MAP_READ, AV_PIX_FMT_NONE, AV_PIX_FMT_NV12, AV_PIX_FMT_NV24, AV_PIX_FMT_P010LE,
@@ -98,8 +98,9 @@ pub fn map_switched_on(value: Option<&std::ffi::OsStr>) -> bool {
 /// The device extensions Vulkan video decoding uses (the video ones of plvk.cpp's
 /// `k_OptionalDeviceExtensions`), bit n for `EXTENSIONS[n]`: the first two are needed for any
 /// codec, then one per codec; then the three FFmpeg imports VAAPI's DMA-BUFs with (`VaapiMap`,
-/// hwcontext_vulkan's DRM mapping).
-const EXTENSIONS: [&CStr; 8] = [
+/// hwcontext_vulkan's DRM mapping); then the semaphore export that, with the first of those,
+/// FFmpeg hands its images and semaphores to CUDA with (`CudaMap`).
+const EXTENSIONS: [&CStr; 9] = [
     c"VK_KHR_video_queue",
     c"VK_KHR_video_decode_queue",
     c"VK_KHR_video_decode_h264",
@@ -108,10 +109,13 @@ const EXTENSIONS: [&CStr; 8] = [
     c"VK_KHR_external_memory_fd",
     c"VK_EXT_external_memory_dma_buf",
     c"VK_EXT_image_drm_format_modifier",
+    c"VK_KHR_external_semaphore_fd",
 ];
 const QUEUE_EXTENSIONS: u32 = 0b11;
 const VIDEO_EXTENSIONS: u32 = 0b1_1111;
 const MAP_EXTENSIONS: u32 = 0b111 << 5;
+/// VK_KHR_external_memory_fd and VK_KHR_external_semaphore_fd: hwcontext_vulkan's CUDA transfer.
+const INTEROP_EXTENSIONS: u32 = 1 << 5 | 1 << 8;
 
 /// A set of `EXTENSIONS`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -151,10 +155,20 @@ impl Extensions {
         }
     }
 
-    /// The video extensions when `video`, the import ones when `map`: what the renderer asks
-    /// for with `NIGHTJAR_VULKAN_VIDEO` and `MAP_ENVIRONMENT` as they are.
+    /// The set's CUDA interop extensions when it has both (`CudaMap`), else none.
+    pub fn interop(self) -> Self {
+        if self.0 & INTEROP_EXTENSIONS == INTEROP_EXTENSIONS {
+            Self(INTEROP_EXTENSIONS)
+        } else {
+            Self(0)
+        }
+    }
+
+    /// The video extensions when `video`, the import ones when `map`, and always the CUDA interop
+    /// ones: what the renderer asks for with `NIGHTJAR_VULKAN_VIDEO` and `MAP_ENVIRONMENT` as they
+    /// are.
     pub fn wanted(video: bool, map: bool) -> Self {
-        Self(if video { VIDEO_EXTENSIONS } else { 0 } | if map { MAP_EXTENSIONS } else { 0 })
+        Self(if video { VIDEO_EXTENSIONS } else { 0 } | if map { MAP_EXTENSIONS } else { 0 } | INTEROP_EXTENSIONS)
     }
 
     pub fn is_empty(self) -> bool {
@@ -646,6 +660,154 @@ impl Drop for VaapiMap {
             av_buffer_unref(&mut self.device);
         }
     }
+}
+
+/// Whether NVDEC's pictures can be copied into Vulkan images of the renderer's device by CUDA
+/// (`CudaMap`), or why not: `renderer` is the extensions the renderer's device was made with (or
+/// why it has none of ours).
+pub fn cuda_plan(renderer: Result<Extensions, String>) -> Result<(), String> {
+    let made_with = renderer?;
+    let missing: Vec<_> = Extensions(INTEROP_EXTENSIONS & !made_with.0)
+        .names()
+        .iter()
+        .map(|name| name.to_string_lossy())
+        .collect();
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "the renderer's Vulkan device was created without {}",
+            missing.join(", ")
+        ))
+    }
+}
+
+/// `AV_VK_FRAME_FLAG_DISABLE_MULTIPLANE`: one image per plane, as CUDA imports no multi-plane image.
+const DISABLE_MULTIPLANE: c_int = 1 << 2;
+
+/// NVDEC pictures copied on the GPU into Vulkan images of the renderer's device, for the
+/// presenter's GPU copy (`Planes::copy`) instead of the trip through memory. Ported from mpv's
+/// hwdec_cuda_vk.c as FFmpeg ships the same steps (hwcontext_vulkan's
+/// `vulkan_transfer_data_from_cuda`, reached through `av_hwframe_transfer_data`): images with
+/// exportable memory (OPAQUE_FD) and timeline semaphores, one image per plane, whose memory and
+/// semaphores CUDA imports once per image (`cuImportExternalMemory`,
+/// `cuExternalMemoryGetMappedMipmappedArray`, `cuImportExternalSemaphore`); each picture is a
+/// `cuMemcpy2DAsync` per plane on the decoder's CUDA stream, after a wait on the image's
+/// semaphore and before its signal, between a release of the image to `VK_QUEUE_FAMILY_EXTERNAL`
+/// and its acquire back. FFmpeg loads libcuda at run time (ffnvcodec), so nothing links to it.
+pub struct CudaMap {
+    device: *mut AVBufferRef,
+    /// The frames context the copies go into, for NVDEC pictures of `shape`.
+    frames: *mut AVBufferRef,
+    shape: (c_int, c_int, AVPixelFormat),
+}
+
+// SAFETY: Owned FFmpeg references, used from the decoder thread only.
+unsafe impl Send for CudaMap {}
+
+impl CudaMap {
+    /// # Safety
+    /// As `device_context`.
+    pub unsafe fn new(gpu: *mut SDL_GPUDevice) -> Result<Self, String> {
+        let renderer = made_with(gpu);
+        cuda_plan(renderer.as_ref().map(|&(_, extensions)| extensions).map_err(Clone::clone))?;
+        let (sdl, extensions) = renderer?;
+        let instance = ash::Instance::load(
+            &ash::StaticFn {
+                get_instance_proc_addr: zero_copy::get_instance_proc_addr()?,
+            },
+            sdl.instance,
+        );
+        let families = queue_families(&instance, sdl.physical_device);
+        Ok(Self {
+            device: share(&sdl, extensions, &listed_families(&families, sdl.family, 0))?,
+            frames: ptr::null_mut(),
+            shape: (0, 0, AV_PIX_FMT_NONE),
+        })
+    }
+
+    /// Copies the NVDEC picture `source` into `target`, an empty frame, as a Vulkan picture.
+    ///
+    /// # Safety
+    /// `source` must be a live CUDA frame and `target` an empty one.
+    pub unsafe fn copy(&mut self, source: *const AVFrame, target: *mut AVFrame) -> Result<(), String> {
+        unsafe extern "C" {
+            fn av_hwframe_ctx_alloc(device: *mut AVBufferRef) -> *mut AVBufferRef;
+            fn av_hwframe_ctx_init(reference: *mut AVBufferRef) -> c_int;
+            fn av_hwframe_get_buffer(frames: *mut AVBufferRef, frame: *mut AVFrame, flags: c_int) -> c_int;
+        }
+        let cuda_ref = (*source).hw_frames_ctx;
+        if cuda_ref.is_null() {
+            return Err("the NVDEC picture has no frames context".into());
+        }
+        let cuda = &*(*cuda_ref).data.cast::<AVHWFramesContext>();
+        let shape = (cuda.width, cuda.height, cuda.sw_format);
+        if !mappable(shape.2) {
+            return Err(format!("NVDEC pictures of format {} are not two planes the presenter copies", shape.2));
+        }
+        if self.frames.is_null() || self.shape != shape {
+            av_buffer_unref(&mut self.frames);
+            let mut frames = av_hwframe_ctx_alloc(self.device);
+            if frames.is_null() {
+                return Err("FFmpeg cannot allocate a Vulkan frames context".into());
+            }
+            interop_frames(&mut *(*frames).data.cast::<AVHWFramesContext>(), shape);
+            let status = av_hwframe_ctx_init(frames);
+            if status < 0 {
+                av_buffer_unref(&mut frames);
+                return Err(format!(
+                    "FFmpeg cannot make exportable Vulkan frames for {}x{} pictures of format {} (error {status})",
+                    shape.0, shape.1, shape.2
+                ));
+            }
+            self.frames = frames;
+            self.shape = shape;
+        }
+        let status = av_hwframe_get_buffer(self.frames, target, 0);
+        if status < 0 {
+            return Err(format!("FFmpeg has no Vulkan image for the NVDEC picture (error {status})"));
+        }
+        let status = av_hwframe_transfer_data(target, source, 0);
+        if status < 0 {
+            av_frame_unref(target);
+            return Err(format!("CUDA cannot copy the NVDEC picture into a Vulkan image (error {status}); NVDEC may decode on another GPU than the renderer's"));
+        }
+        // The images are the frames context's size, the decoder's coded one; the picture is its own.
+        (*target).width = (*source).width;
+        (*target).height = (*source).height;
+        let status = av_frame_copy_props(target, source);
+        if status < 0 {
+            av_frame_unref(target);
+            return Err(format!("the copied picture cannot take the NVDEC picture's properties (error {status})"));
+        }
+        Ok(())
+    }
+}
+
+impl Drop for CudaMap {
+    fn drop(&mut self) {
+        // SAFETY: Our references; copied frames hold their own.
+        unsafe {
+            av_buffer_unref(&mut self.frames);
+            av_buffer_unref(&mut self.device);
+        }
+    }
+}
+
+/// Sets up the Vulkan frames context `context` for CUDA's copies of NVDEC pictures of `shape`:
+/// the picture's software format and coded size, a pool that grows as needed, and one image per
+/// plane (`DISABLE_MULTIPLANE`). FFmpeg makes the memory and semaphores exportable itself when
+/// the device has the interop extensions.
+///
+/// # Safety
+/// `context` must be a newly allocated Vulkan frames context.
+unsafe fn interop_frames(context: &mut AVHWFramesContext, shape: (c_int, c_int, AVPixelFormat)) {
+    context.format = AV_PIX_FMT_VULKAN;
+    context.sw_format = shape.2;
+    context.width = shape.0;
+    context.height = shape.1;
+    context.initial_pool_size = 0;
+    (*context.hwctx.cast::<FramesContext>()).flags |= DISABLE_MULTIPLANE;
 }
 
 /// The mark of `VaapiMap`'s frames contexts (`AVHWFramesContext::user_opaque`).
@@ -1636,7 +1798,7 @@ mod tests {
     #[test]
     fn video_extensions_decode_a_codec_only_with_both_queue_extensions() {
         let all = Extensions::among(EXTENSIONS);
-        assert_eq!(all, Extensions(0b1111_1111));
+        assert_eq!(all, Extensions(0b1_1111_1111));
         assert_eq!(all.usable(), Extensions(0b1_1111), "the import extensions are not video ones");
         assert!([Codec::H264, Codec::Hevc, Codec::Av1]
             .into_iter()
@@ -1698,7 +1860,7 @@ mod tests {
         // The switch and what the renderer asks for.
         assert!(map_switched_on(None) && map_switched_on(Some("1".as_ref())) && !map_switched_on(Some("0".as_ref())));
         assert_eq!(Extensions::wanted(true, true), Extensions::among(EXTENSIONS));
-        assert_eq!(Extensions::wanted(false, true), import);
+        assert_eq!(Extensions::wanted(false, true), Extensions(import.0 | 1 << 8), "and the semaphore export for CUDA");
         assert_eq!(Extensions::wanted(true, false).mapping(), Extensions(0));
         // The render node VAAPI opens on.
         assert_eq!(render_node_minor(true, 129), Ok(129));
@@ -1736,6 +1898,49 @@ mod tests {
         let other = [0u8];
         context.user_opaque = other.as_ptr().cast_mut().cast();
         assert!(!mapped_frames(&context), "another user's mark");
+    }
+
+    /// NVDEC's pictures crossed system memory on their way to the GPU renderer: CUDA copies them
+    /// into exportable Vulkan images where the renderer's device has both interop extensions,
+    /// and every other case says why they keep the trip through memory.
+    #[test]
+    fn nvdec_pictures_are_copied_by_cuda_only_with_both_interop_extensions() {
+        let interop = Extensions::among([c"VK_KHR_external_memory_fd", c"VK_KHR_external_semaphore_fd"]);
+        assert_eq!(interop.interop(), interop);
+        assert!(interop.usable().is_empty() && interop.mapping().is_empty(), "interop decodes and maps nothing");
+        assert_eq!(cuda_plan(Ok(interop)), Ok(()));
+        assert_eq!(cuda_plan(Ok(Extensions::among(EXTENSIONS))), Ok(()));
+        // The DMA-BUF import extensions have the memory export, not the semaphore one.
+        let import = Extensions::among(IMPORT);
+        assert!(import.interop().is_empty());
+        let why = cuda_plan(Ok(import)).unwrap_err();
+        assert!(why.contains("VK_KHR_external_semaphore_fd") && !why.contains("memory_fd"), "{why}");
+        let why = cuda_plan(Ok(Extensions::among(EXTENSIONS[..5].iter().copied()))).unwrap_err();
+        assert!(why.contains("VK_KHR_external_memory_fd, VK_KHR_external_semaphore_fd"), "{why}");
+        let why = cuda_plan(Err("the renderer draws with \"opengl\", not Vulkan".into())).unwrap_err();
+        assert!(why.contains("opengl"), "{why}");
+        // Asked for whatever the switches say.
+        for (video, map) in [(false, false), (true, false), (false, true), (true, true)] {
+            assert_eq!(Extensions::wanted(video, map).interop(), interop, "{video} {map}");
+        }
+        // Only the two-plane 4:2:0 pictures `Planes` copies: NVDEC's 4:4:4 ones are three planes.
+        assert!(mappable(AV_PIX_FMT_NV12) && mappable(AV_PIX_FMT_P010LE));
+        assert!(!mappable(crate::media::ffi::AV_PIX_FMT_YUV444P) && !mappable(crate::media::ffi::AV_PIX_FMT_YUV444P16LE));
+    }
+
+    /// CUDA imports no multi-plane image, and the decoder's coded size is the copy's.
+    #[test]
+    fn the_frames_cuda_copies_into_have_one_image_per_plane() {
+        // SAFETY: Plain C structs, all-zero is valid; `vulkan` outlives the context's use.
+        let mut vulkan: FramesContext = unsafe { std::mem::zeroed() };
+        let mut context: AVHWFramesContext = unsafe { std::mem::zeroed() };
+        context.hwctx = (&raw mut vulkan).cast();
+        context.initial_pool_size = 20;
+        unsafe { interop_frames(&mut context, (1920, 1088, AV_PIX_FMT_P010LE)) };
+        assert_eq!((context.format, context.sw_format, context.width, context.height), (AV_PIX_FMT_VULKAN, AV_PIX_FMT_P010LE, 1920, 1088));
+        assert_eq!(context.initial_pool_size, 0, "the pool grows as pictures are held");
+        assert_eq!(vulkan.flags, DISABLE_MULTIPLANE);
+        assert_eq!(DISABLE_MULTIPLANE, 4, "AV_VK_FRAME_FLAG_DISABLE_MULTIPLANE");
     }
 
     /// Release builds' FFmpeg had no libdrm, so `av_hwframe_map` was ENOSYS and every shipped

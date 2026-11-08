@@ -77,8 +77,9 @@ pub fn parse_nvidia_version(text: &str) -> Option<String> {
 pub enum Diagnosis {
     /// A Mesa VA driver without H.264 and HEVC (Fedora's stock Mesa, built without them).
     MesaWithoutCodecs { fedora: bool },
-    /// NVIDIA's VA-API wrapper is left out and Vulkan video does not decode either: NVDEC copies
-    /// each picture through memory.
+    /// NVIDIA's VA-API wrapper is left out and Vulkan video does not decode either: NVDEC decodes,
+    /// and CUDA copies its pictures into the renderer's Vulkan images (`vulkan_video::CudaMap`), or
+    /// they go through memory with the reason in the log. Logged only.
     NvidiaWithoutVulkanVideo,
     /// A Flatpak on NVIDIA's driver without the runtime's GL extension for that version.
     FlatpakWithoutNvidiaGl { extension: String },
@@ -93,7 +94,7 @@ impl Diagnosis {
         match self {
             Self::MesaWithoutCodecs { fedora: true } => "diagnosis: Fedora's Mesa VA driver decodes neither H.264 nor HEVC; mesa-va-drivers-freeworld (RPM Fusion) or the Flatpak does".into(),
             Self::MesaWithoutCodecs { fedora: false } => "diagnosis: the Mesa VA driver decodes neither H.264 nor HEVC; the distribution's full Mesa VA drivers or the Flatpak do".into(),
-            Self::NvidiaWithoutVulkanVideo => "diagnosis: NVIDIA without Vulkan video decoding: NVDEC decodes, its pictures copied through memory".into(),
+            Self::NvidiaWithoutVulkanVideo => "diagnosis: NVIDIA without Vulkan video decoding: NVDEC decodes, and the video path line says whether CUDA copies its pictures into Vulkan images or they go through memory".into(),
             Self::FlatpakWithoutNvidiaGl { extension } => format!("diagnosis: the Flatpak runtime lacks {extension}, NVIDIA's driver for it; flatpak update installs it"),
             Self::IntelI965 => "diagnosis: Intel's legacy i965 VA driver decodes no HEVC Main10; intel-media-driver (iHD) does on Kaby Lake and newer".into(),
         }
@@ -109,9 +110,7 @@ impl Diagnosis {
             Self::MesaWithoutCodecs { fedora: false } => {
                 tr("This system's VA-API driver decodes neither H.264 nor HEVC. Install your distribution's full Mesa VA drivers, or use the Nightjar Flatpak.").to_owned()
             }
-            Self::NvidiaWithoutVulkanVideo => {
-                tr("This NVIDIA driver has no Vulkan video decoding, so each picture is copied through memory. A newer NVIDIA driver adds it.").to_owned()
-            }
+            Self::NvidiaWithoutVulkanVideo => return None,
             Self::FlatpakWithoutNvidiaGl { extension } => trf("The Flatpak lacks {}, the NVIDIA driver it needs. Run flatpak update to install it.", &[extension]),
             Self::IntelI965 => return None,
         })
@@ -381,7 +380,7 @@ mod tests {
     #[test]
     fn each_diagnosis_toasts_once_per_run() {
         let mut shown = Vec::new();
-        let found = [Diagnosis::NvidiaWithoutVulkanVideo, Diagnosis::IntelI965];
+        let found = [Diagnosis::FlatpakWithoutNvidiaGl { extension: "GL.nvidia-550-54-14".into() }, Diagnosis::IntelI965];
         assert_eq!(new_toasts(&mut shown, &found).len(), 1, "i965 is logged only");
         assert!(new_toasts(&mut shown, &found).is_empty(), "the next stream logs it, without the toast");
         assert_eq!(new_toasts(&mut shown, &[Diagnosis::MesaWithoutCodecs { fedora: false }]).len(), 1);
@@ -443,6 +442,9 @@ mod tests {
         let i965 = vaapi("Intel i965 driver for Intel(R) Skylake - 2.4.1", &[7, 17]);
         assert_eq!(diagnose(&System::default(), Ok(&i965), None, false), [Diagnosis::IntelI965]);
         assert_eq!(Diagnosis::IntelI965.toast(), None);
+        // NVIDIA without Vulkan video: CUDA copies NVDEC's pictures into Vulkan images, and the
+        // log says when they go through memory instead, so no toast asks for a newer driver.
+        assert_eq!(Diagnosis::NvidiaWithoutVulkanVideo.toast(), None);
         let kaby_lake = vaapi("Intel i965 driver for Intel(R) Kaby Lake - 2.4.1", &[7, 17, 18]);
         assert!(diagnose(&System::default(), Ok(&kaby_lake), None, false).is_empty());
         let ihd = vaapi("Intel iHD driver for Intel(R) Gen Graphics - 24.1.0 ()", &[7, 17]);

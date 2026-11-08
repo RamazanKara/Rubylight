@@ -226,8 +226,9 @@ pub fn plan(devices: &[DeviceCaps]) -> Result<Features, String> {
 /// The Vulkan video extensions the renderer should ask for, or why it should not ask, apart from
 /// PyroWave's `plan`: every device SDL could pick needs Vulkan 1.3 and `Features::video`, and the
 /// extensions asked for are the ones they all have, so none is refused for them, if they decode a
-/// codec; and the DMA-BUF import extensions VAAPI's pictures are mapped with, if they all have
-/// them (`crate::vulkan_video::VaapiMap`).
+/// codec; the DMA-BUF import extensions VAAPI's pictures are mapped with, if they all have
+/// them (`crate::vulkan_video::VaapiMap`); and with either, the CUDA interop ones NVDEC's pictures
+/// are copied into Vulkan images with, if they all have them (`crate::vulkan_video::CudaMap`).
 pub fn plan_video(devices: &[DeviceCaps]) -> Result<crate::vulkan_video::Extensions, String> {
     plan_video_for(devices, crate::vulkan_video::Extensions::wanted(true, true))
 }
@@ -249,7 +250,7 @@ pub fn plan_video_for(devices: &[DeviceCaps], wanted: crate::vulkan_video::Exten
         video = video.and(device.video);
     }
     let video = video.and(wanted);
-    let (usable, mapping) = (video.usable(), video.mapping());
+    let (usable, mapping, interop) = (video.usable(), video.mapping(), video.interop());
     if usable.is_empty() && mapping.is_empty() {
         return Err(if wanted.mapping().is_empty() {
             "the Vulkan devices SDL picks from lack the video decoding extensions".into()
@@ -257,7 +258,7 @@ pub fn plan_video_for(devices: &[DeviceCaps], wanted: crate::vulkan_video::Exten
             "the Vulkan devices SDL picks from lack the video decoding extensions and the DMA-BUF import ones".into()
         });
     }
-    Ok(crate::vulkan_video::Extensions(usable.0 | mapping.0))
+    Ok(crate::vulkan_video::Extensions(usable.0 | mapping.0 | interop.0))
 }
 
 /// The video extensions the GPU renderer's request would ask for (`plan_video` of the devices the
@@ -792,6 +793,15 @@ mod tests {
         assert_eq!(plan_video(&[with_video("RADV", discrete, 0b1111_1111)]), Ok(Extensions(0b1111_1111)));
         assert_eq!(plan_video(&[with_video("a", discrete, 0b1111_1111), with_video("b", discrete, 0b0111_1111)]), Ok(Extensions(0b1_1111)), "b cannot import");
         assert_eq!(plan_video_for(&[with_video("RADV", discrete, 0b1111_1111)], Extensions::wanted(false, true)), Ok(import), "NIGHTJAR_VULKAN_VIDEO=0");
+        // The CUDA interop extensions (external memory and semaphore FDs) are asked for when every
+        // candidate has both, whatever the switches say, with the video or the import ones.
+        let interop = Extensions(1 << 5 | 1 << 8);
+        assert_eq!(plan_video(&[with_video("NVIDIA", discrete, 0b1_1111_1111)]), Ok(Extensions(0b1_1111_1111)));
+        assert_eq!(plan_video_for(&[with_video("NVIDIA", discrete, 0b1_0011_1111)], Extensions::wanted(true, false)), Ok(Extensions(0b1_0011_1111)));
+        assert_eq!(plan_video_for(&[with_video("NVIDIA", discrete, 0b1_1111_1111)], Extensions::wanted(false, false)), Err("the Vulkan devices SDL picks from lack the video decoding extensions".into()), "interop alone is no reason to share the device");
+        assert_eq!(plan_video(&[with_video("a", discrete, 0b1_1111_1111), with_video("b", discrete, 0b0_1111_1111)]), Ok(Extensions(0b1111_1111)), "b cannot export semaphores");
+        assert_eq!(plan_video(&[with_video("a", discrete, 0b1_0001_1111)]), Ok(Extensions(0b1_1111)), "a semaphore export without the memory one is no interop");
+        assert_eq!(plan_video(&[with_video("NVIDIA", discrete, 0b1_1111_1111)]).map(|planned| planned.interop()), Ok(interop));
         assert_eq!(
             plan_video_for(&[with_video("RADV", discrete, import.0)], Extensions::wanted(true, false)),
             Err("the Vulkan devices SDL picks from lack the video decoding extensions".into()),

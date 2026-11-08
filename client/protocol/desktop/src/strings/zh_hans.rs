@@ -1425,7 +1425,6 @@ sudo sysctl -w net.core.rmem_max={}", "接收缓冲区：系统只分配了所�
     ("Second screen's own size", "第二屏幕的原生尺寸"),
     ("Fedora's Mesa leaves out H.264 and HEVC decoding. Install mesa-va-drivers-freeworld from RPM Fusion, or use the Nightjar Flatpak.", "Fedora 的 Mesa 去掉了 H.264 和 HEVC 解码。请从 RPM Fusion 安装 mesa-va-drivers-freeworld，或使用 Nightjar 的 Flatpak。"),
     ("This system's VA-API driver decodes neither H.264 nor HEVC. Install your distribution's full Mesa VA drivers, or use the Nightjar Flatpak.", "此系统的 VA-API 驱动无法解码 H.264 和 HEVC。请安装发行版完整的 Mesa VA 驱动，或使用 Nightjar 的 Flatpak。"),
-    ("This NVIDIA driver has no Vulkan video decoding, so each picture is copied through memory. A newer NVIDIA driver adds it.", "此 NVIDIA 驱动不支持 Vulkan 视频解码，因此每一帧都要经过内存复制。更新的 NVIDIA 驱动支持它。"),
     ("The Flatpak lacks {}, the NVIDIA driver it needs. Run flatpak update to install it.", "Flatpak 缺少它需要的 NVIDIA 驱动 {}。请运行 flatpak update 安装。"),
     ("Full chroma needs a {0} picture, larger than this decoder's {1}, so the stream is 4:2:0. A lower resolution keeps full chroma.", "全色度需要 {0} 的画面，超过此解码器的 {1}，因此串流为 4:2:0。降低分辨率可保留全色度。"),
 ];

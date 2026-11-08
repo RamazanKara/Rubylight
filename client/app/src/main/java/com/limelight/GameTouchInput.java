@@ -25,9 +25,7 @@ import com.limelight.ui.HostCursorShapes;
 import com.limelight.ui.StreamView;
 import android.annotation.SuppressLint;
 import com.limelight.ui.NavigationDialogBuilder;
-import android.content.SharedPreferences;
 import android.os.Build;
-import android.preference.PreferenceManager;
 import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.View;
@@ -310,9 +308,7 @@ final class GameTouchInput {
         nativeTouchUnsupported = false;
         initializeTouchContexts();
         if (persist) {
-            SharedPreferences.Editor editor = PreferenceManager.getDefaultSharedPreferences(game).edit();
-            TouchMode.save(editor, which);
-            editor.apply();
+            DualScreen.saveSettings(game, editor -> TouchMode.save(editor, which));
         }
     }
 
@@ -355,8 +351,7 @@ final class GameTouchInput {
         // The microphone button's default place follows the modern controller's top row.
         if (game.micButton != null) game.micButton.place();
         if (game.menuButton != null) game.menuButton.place();
-        PreferenceManager.getDefaultSharedPreferences(game).edit()
-                .putBoolean("checkbox_show_onscreen_controls", enabled).apply();
+        DualScreen.saveSettings(game, editor -> editor.putBoolean("checkbox_show_onscreen_controls", enabled));
         // Hiding controls changes no layout by itself; ask for one so the overlay can move back.
         game.performanceOverlayScroll.requestLayout();
     }
@@ -371,8 +366,7 @@ final class GameTouchInput {
 
     void setMicButtonShown(boolean shown) {
         game.prefConfig.micButton = shown;
-        PreferenceManager.getDefaultSharedPreferences(game).edit()
-                .putBoolean(com.limelight.preferences.PreferenceConfiguration.MIC_BUTTON_PREF_STRING, shown).apply();
+        DualScreen.saveSettings(game, editor -> editor.putBoolean(com.limelight.preferences.PreferenceConfiguration.MIC_BUTTON_PREF_STRING, shown));
         updateMicButton();
         game.performanceOverlayScroll.requestLayout();
     }
@@ -386,8 +380,7 @@ final class GameTouchInput {
 
     void setMenuButtonShown(boolean shown) {
         game.prefConfig.floatingMenuButton = shown;
-        PreferenceManager.getDefaultSharedPreferences(game).edit()
-                .putBoolean(com.limelight.preferences.PreferenceConfiguration.FLOATING_MENU_BUTTON_PREF_STRING, shown).apply();
+        DualScreen.saveSettings(game, editor -> editor.putBoolean(com.limelight.preferences.PreferenceConfiguration.FLOATING_MENU_BUTTON_PREF_STRING, shown));
         updateMenuButton();
         game.performanceOverlayScroll.requestLayout();
     }

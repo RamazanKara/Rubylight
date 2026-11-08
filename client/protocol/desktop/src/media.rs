@@ -144,10 +144,35 @@ pub struct Pictures {
     /// How many pictures the stream may keep waiting to be shown (`pipeline::pool_waiting`): a
     /// hardware pool gets these and two more beyond FFmpeg's minimum ([`pool_extra`]).
     pub waiting: usize,
+    /// Where VAAPI opens. Linux only.
+    pub vaapi_node: VaapiNode,
+}
+
+/// The device VAAPI opens on (`Pictures::vaapi_node`, [`vaapi_node`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(not(unix), allow(dead_code))]
+pub enum VaapiNode {
+    /// FFmpeg's default device, the first render node.
+    #[default]
+    Default,
     /// The GPU renderer's DRM render node (`/dev/dri/renderD<minor>`) when its device can take
-    /// VAAPI's pictures mapped (`crate::vulkan_video::VaapiMap`): VAAPI opens there, on its GPU,
-    /// and its pool gets the surfaces the presenter keeps for its copies. Linux only.
-    pub vaapi_node: Option<u32>,
+    /// VAAPI's pictures mapped (`crate::vulkan_video::VaapiMap`): VAAPI decodes on its GPU, and
+    /// its pool gets the surfaces the presenter keeps for its copies.
+    Mapped(u32),
+    /// The render node of the GPU the OpenGL renderer's EGL display runs on, when that is not the
+    /// default device (`crate::dmabuf::display_vaapi_node`): its EGL imports the pictures VAAPI
+    /// decodes there, and refuses another GPU's tiled ones.
+    Display(u32),
+}
+
+impl VaapiNode {
+    /// The render node's minor; none for the default device.
+    pub fn minor(self) -> Option<u32> {
+        match self {
+            Self::Default => None,
+            Self::Mapped(minor) | Self::Display(minor) => Some(minor),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -155,9 +180,10 @@ pub enum Hardware {
     None,
     D3d11(*mut c_void),
     /// The whole `order` where no single backend is given: on Linux with the GPU renderer's SDL GPU
-    /// device for Vulkan video (null when the renderer is another kind), and on Windows without a
-    /// Direct3D 11 renderer.
-    Auto(*mut c_void),
+    /// device for Vulkan video (null when the renderer is another kind) and the render node VAAPI
+    /// opens on for the OpenGL renderer (`crate::dmabuf::renderer_vaapi_node`, none for the default
+    /// device), and on Windows without a Direct3D 11 renderer.
+    Auto(*mut c_void, Option<u32>),
     Vaapi,
     /// FFmpeg's Vulkan video on the GPU renderer's own Vulkan device, this SDL GPU device (or
     /// null, which does not open), its pictures drawn without a copy to memory. Linux only.
@@ -209,7 +235,7 @@ impl Hardware {
         match self {
             Self::None => Vec::new(),
             #[cfg(unix)]
-            Self::Auto(gpu) => Self::linux_order(
+            Self::Auto(gpu, _) => Self::linux_order(
                 gpu,
                 crate::vulkan_video::Choice::from_environment(),
                 crate::vulkan_video::gpu_first(
@@ -219,7 +245,7 @@ impl Hardware {
             ),
             // Vulkan video is Linux's; the rest of the order is tried as before it.
             #[cfg(not(unix))]
-            Self::Auto(_) => vec![Self::Vaapi, Self::V4l2m2m, Self::Cuda],
+            Self::Auto(..) => vec![Self::Vaapi, Self::V4l2m2m, Self::Cuda],
             other => vec![other],
         }
     }
@@ -239,7 +265,7 @@ impl Hardware {
         match self {
             Self::None => "software",
             Self::D3d11(_) => "D3D11VA",
-            Self::Auto(_) => "hardware",
+            Self::Auto(..) => "hardware",
             Self::Vaapi => "VAAPI",
             Self::Vulkan(_) => "Vulkan",
             Self::Cuda => "NVDEC",
@@ -311,32 +337,33 @@ pub fn pool_extra(waiting: usize) -> i32 {
     (waiting.min(64) as i32 + 2).max(EXTRA_HW_FRAMES)
 }
 
-/// The render node VAAPI opens on for `hardware` (`Pictures::vaapi_node`): the GPU renderer's
-/// when its device will take VAAPI's pictures mapped (`crate::vulkan_video::map_node`), else none
-/// (the default device). The probes and the stream ask the same, so they decode on one GPU; why
-/// not goes to the log.
-pub fn vaapi_node(hardware: Hardware) -> Option<u32> {
+/// The device VAAPI opens on for `hardware` (`Pictures::vaapi_node`): the GPU renderer's render
+/// node when its device will take VAAPI's pictures mapped (`crate::vulkan_video::map_node`), the
+/// OpenGL renderer's when it is not the default device (`Hardware::Auto`'s node), else the default
+/// device. The probes and the stream ask the same, so they decode on one GPU; why not the
+/// renderer's goes to the log.
+pub fn vaapi_node(hardware: Hardware) -> VaapiNode {
     #[cfg(unix)]
-    if let Hardware::Auto(gpu) = hardware {
+    if let Hardware::Auto(gpu, display) = hardware {
         if !gpu.is_null() {
             let switched_on = crate::vulkan_video::map_switched_on(std::env::var_os(crate::vulkan_video::MAP_ENVIRONMENT).as_deref());
             // SAFETY: The renderer keeps its device alive while streams and probes use it.
             match unsafe { crate::vulkan_video::map_node(gpu.cast(), switched_on) } {
-                Ok(minor) => return Some(minor),
+                Ok(minor) => return VaapiNode::Mapped(minor),
                 Err(why) => crate::vulkan_video::note(&format!("VAAPI opens on the default device: {why}")),
             }
         }
+        return display.map_or(VaapiNode::Default, VaapiNode::Display);
     }
     let _ = hardware;
-    None
+    VaapiNode::Default
 }
 
 /// The surfaces a VAAPI pool gets beyond [`pool_extra`] when its pictures will be mapped for the
-/// GPU renderer (`Pictures::vaapi_node`, set only then): those the presenter keeps until their
-/// copies are done.
+/// GPU renderer (`VaapiNode::Mapped`): those the presenter keeps until their copies are done.
 fn mapped_extra(hardware: Hardware, pictures: Pictures) -> i32 {
     #[cfg(unix)]
-    if hardware == Hardware::Vaapi && pictures.vaapi_node.is_some() {
+    if hardware == Hardware::Vaapi && matches!(pictures.vaapi_node, VaapiNode::Mapped(_)) {
         return crate::vulkan_video::MAPPED_HELD;
     }
     let _ = (hardware, pictures);
@@ -641,7 +668,7 @@ impl VideoDecoder {
                 Hardware::Vaapi => Some(AV_HWDEVICE_TYPE_VAAPI),
                 Hardware::Vulkan(_) => Some(AV_HWDEVICE_TYPE_VULKAN),
                 Hardware::Cuda => Some(AV_HWDEVICE_TYPE_CUDA),
-                Hardware::Auto(_) => return Err("the hardware order is not a backend of its own".into()),
+                Hardware::Auto(..) => return Err("the hardware order is not a backend of its own".into()),
                 Hardware::None | Hardware::V4l2m2m => None,
             };
             if let Some(kind) = device_type {
@@ -696,12 +723,13 @@ impl VideoDecoder {
                         }
                     }
                     #[cfg(unix)]
-                    Hardware::Vaapi if pictures.vaapi_node.is_some() => {
-                        let node = vaapi_node_path(pictures.vaapi_node.unwrap_or_default());
+                    Hardware::Vaapi if pictures.vaapi_node.minor().is_some() => {
+                        let node = vaapi_node_path(pictures.vaapi_node.minor().unwrap_or_default());
                         let status = av_hwdevice_ctx_create(&mut context.hw_device_ctx, kind, node.as_ptr(), ptr::null_mut(), 0);
                         if status < 0 {
                             let why = format!("VAAPI does not open on {} ({})", node.to_string_lossy(), error(status));
-                            eprintln!("nightjar: {why}; it opens on the default device, and its pictures go through memory to the GPU renderer");
+                            let renderer = if matches!(pictures.vaapi_node, VaapiNode::Mapped(_)) { "GPU" } else { "OpenGL" };
+                            eprintln!("nightjar: {why}; it opens on the default device, and its pictures may go through memory to the {renderer} renderer");
                             video.vaapi_on_renderer = Err(why);
                             let status = av_hwdevice_ctx_create(&mut context.hw_device_ctx, kind, ptr::null(), ptr::null_mut(), 0);
                             if status < 0 {
@@ -734,7 +762,7 @@ impl VideoDecoder {
                             return Err("Vulkan video decoding is only used on Linux.".into());
                         }
                     }
-                    Hardware::None | Hardware::V4l2m2m | Hardware::Auto(_) => unreachable!(),
+                    Hardware::None | Hardware::V4l2m2m | Hardware::Auto(..) => unreachable!(),
                 }
                 context.get_format = Some(select_format);
                 context.extra_hw_frames = pool_extra(pictures.waiting) + mapped_extra(hardware, pictures);
@@ -764,7 +792,7 @@ impl VideoDecoder {
                 Hardware::Vaapi => " vaapi",
                 Hardware::Vulkan(_) => " vulkan",
                 Hardware::Cuda => " nvdec",
-                Hardware::None | Hardware::V4l2m2m | Hardware::Auto(_) => "",
+                Hardware::None | Hardware::V4l2m2m | Hardware::Auto(..) => "",
             });
             Ok(video)
         }
@@ -1515,11 +1543,26 @@ mod tests {
     /// other pool changes (nightjar#80).
     #[test]
     fn a_vaapi_pool_that_maps_keeps_surfaces_for_the_presenters_copies() {
-        let mapped = Pictures { vaapi_node: Some(129), ..Pictures::default() };
+        let mapped = Pictures { vaapi_node: VaapiNode::Mapped(129), ..Pictures::default() };
         assert_eq!(mapped_extra(Hardware::Vaapi, mapped), if cfg!(unix) { crate::vulkan_video::MAPPED_HELD } else { 0 });
         assert_eq!(mapped_extra(Hardware::Vaapi, Pictures::default()), 0);
         assert_eq!(mapped_extra(Hardware::Cuda, mapped), 0);
+        // The OpenGL renderer imports DMA-BUFs: no copies to wait for.
+        assert_eq!(mapped_extra(Hardware::Vaapi, Pictures { vaapi_node: VaapiNode::Display(129), ..Pictures::default() }), 0);
         assert_eq!(vaapi_node_path(129).to_str(), Ok("/dev/dri/renderD129"));
+    }
+
+    /// The OpenGL renderer's node (`Hardware::Auto` without a GPU device) is where VAAPI opens,
+    /// for the probes and the stream alike; without one it opens on the default device, as before.
+    #[test]
+    fn vaapi_opens_on_the_opengl_renderers_node_when_it_names_one() {
+        let expected = if cfg!(unix) { VaapiNode::Display(129) } else { VaapiNode::Default };
+        assert_eq!(vaapi_node(Hardware::Auto(ptr::null_mut(), Some(129))), expected);
+        assert_eq!(expected.minor(), cfg!(unix).then_some(129));
+        assert_eq!(vaapi_node(Hardware::Auto(ptr::null_mut(), None)), VaapiNode::Default);
+        assert_eq!(vaapi_node(Hardware::Vaapi), VaapiNode::Default);
+        assert_eq!(VaapiNode::Default.minor(), None);
+        assert_eq!(VaapiNode::Mapped(128).minor(), Some(128));
     }
 
     #[test]
@@ -1749,7 +1792,7 @@ mod tests {
         } else {
             assert!(error.contains("only used on Linux") || error.contains("no Vulkan support"), "{error}");
         }
-        let error = VideoDecoder::open(Codec::H264, Hardware::Auto(ptr::null_mut()), 1, false).err().unwrap();
+        let error = VideoDecoder::open(Codec::H264, Hardware::Auto(ptr::null_mut(), None), 1, false).err().unwrap();
         assert!(error.contains("not a backend"), "{error}");
     }
 

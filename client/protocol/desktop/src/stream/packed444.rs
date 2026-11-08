@@ -55,7 +55,7 @@ fn verify(
     packing: u32,
 ) -> Result<(), String> {
     // Packed chroma is put together from pictures in memory or DMA-BUFs: Vulkan video declines.
-    let pictures = media::Pictures { ten_bit, chroma444: false, packed: true, waiting: 0, vaapi_node: None };
+    let pictures = media::Pictures { ten_bit, chroma444: false, packed: true, waiting: 0, vaapi_node: media::VaapiNode::Default };
     let mut decoder = media::VideoDecoder::open_first(codec, pictures, hardware, true, |_, _| {})?;
     let status = decoder.send(data, 0);
     if status < 0 {

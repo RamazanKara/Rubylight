@@ -487,6 +487,31 @@ public class NvHTTPParityTest {
     }
 
     @Test
+    public void onlyTheSecondScreensProcessMarksEveryRequest() throws Exception {
+        NvHTTP http = http();
+        HttpUrl base = HttpUrl.get("https://192.0.2.1:47984");
+        try {
+            assertNull(http.getCompleteUrl(base, "launch", "appid=42").queryParameter(NvHTTP.SECOND_SCREEN_PARAMETER));
+            assertNull(http.getHostCallUrl(base, "api/abr", null).queryParameter(NvHTTP.SECOND_SCREEN_PARAMETER));
+            NvHTTP.setSecondScreen(true);
+            for (String path : new String[] {"launch", "resume", "bitrate", "cancel", "api/network-path",
+                    "api/hardware-metrics"}) {
+                HttpUrl url = http.getCompleteUrl(base, path, "appid=42");
+                assertEquals(path, java.util.Collections.singletonList("1"),
+                        url.queryParameterValues(NvHTTP.SECOND_SCREEN_PARAMETER));
+                assertEquals(path, "42", url.queryParameter("appid"));
+            }
+            HttpUrl abr = http.getHostCallUrl(base, "api/abr/feedback", "loss=0");
+            assertEquals("1", abr.queryParameter(NvHTTP.SECOND_SCREEN_PARAMETER));
+            assertEquals("0", abr.queryParameter("loss"));
+            assertNotNull(abr.queryParameter("uniqueid"));
+        } finally {
+            NvHTTP.setSecondScreen(false);
+        }
+        assertNull(http.getCompleteUrl(base, "cancel", null).queryParameter(NvHTTP.SECOND_SCREEN_PARAMETER));
+    }
+
+    @Test
     public void failedPairingUsesHttpBeforeRegistrationWhilePairedUnpairUsesHttps() throws Exception {
         NvHTTP http = http();
         javax.net.ssl.TrustManagerFactory factory = javax.net.ssl.TrustManagerFactory.getInstance(

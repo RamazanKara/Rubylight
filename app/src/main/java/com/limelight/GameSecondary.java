@@ -5,6 +5,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Process;
 
+import com.limelight.nvstream.http.NvHTTP;
+import com.limelight.nvstream.jni.NativeApiBridge;
+
 /**
  * The stream on the second screen in dual-screen mode (see {@link DualScreen}). It is the same
  * activity as {@link Game}, declared in the manifest with a process and a task of its own: the
@@ -17,6 +20,12 @@ public class GameSecondary extends Game {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         alive++;
+        // Everything this process asks the host is the second stream's, so the host keeps it apart from
+        // the first: its launch, resume, bitrate, metrics, cancel and native API requests alike.
+        NvHTTP.setSecondScreen(true);
+        if (NativeApiBridge.isAvailable()) {
+            NativeApiBridge.setSecondScreen(true);
+        }
         super.onCreate(savedInstanceState);
         // Follows the first stream's end and its touch mode.
         DualScreen.link(this);

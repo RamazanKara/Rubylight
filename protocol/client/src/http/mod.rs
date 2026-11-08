@@ -255,9 +255,15 @@ pub struct HostClient {
     http_port: u16,
     identity: Arc<ClientIdentity>,
     device_name: String,
+    second_screen: bool,
     state: Mutex<State>,
     cancel: Cancel,
 }
+
+/// The query parameter on every request a device's second screen makes: the host keeps that stream
+/// beside the device's first instead of taking it for the first starting again
+/// ([`Feature::SecondScreen`]).
+pub const SECOND_SCREEN_PARAMETER: &str = "rlSecondScreen";
 
 #[derive(Clone, Copy)]
 enum Scheme {
@@ -277,6 +283,7 @@ impl HostClient {
             http_port,
             identity,
             device_name: "Nightjar".into(),
+            second_screen: false,
             state: Mutex::new(State::default()),
             cancel: Cancel::default(),
         })
@@ -285,6 +292,13 @@ impl HostClient {
     /// The name the host shows for this client while pairing.
     pub fn with_device_name(mut self, name: impl Into<String>) -> Self {
         self.device_name = name.into();
+        self
+    }
+
+    /// Every request is the second screen's, with [`SECOND_SCREEN_PARAMETER`]: launch, resume,
+    /// bitrate, the PC's bitrate controller, metrics and cancel alike.
+    pub fn with_second_screen(mut self) -> Self {
+        self.second_screen = true;
         self
     }
 
@@ -329,6 +343,7 @@ impl HostClient {
             http_port: self.http_port,
             identity: self.identity.clone(),
             device_name: self.device_name.clone(),
+            second_screen: self.second_screen,
             state: Mutex::new(State {
                 https_port: state.https_port,
                 server_certificate: state.server_certificate.clone(),
@@ -355,6 +370,9 @@ impl HostClient {
             transport::encode_query(self.identity.unique_id()),
             transport::random_uuid()
         ));
+        if self.second_screen {
+            target.push_str(&format!("&{SECOND_SCREEN_PARAMETER}=1"));
+        }
         if path == "pair" {
             target.push_str(&format!(
                 "&devicename={}",
@@ -835,6 +853,23 @@ mod tests {
         assert_eq!(detached.state.lock().unwrap().https_port, 47984);
         assert!(!matches!(detached.server_info_http(true), Err(Error::Cancelled)));
         host.join().unwrap();
+    }
+
+    #[test]
+    fn only_a_second_screens_client_marks_its_requests() {
+        let identity = Arc::new(identity::tests::fixture());
+        let first = HostClient::new("127.0.0.1", 47989, identity).unwrap();
+        let target = first.url_target("launch", Some("appid=1"));
+        assert!(target.starts_with("launch?appid=1&uniqueid="), "{target}");
+        assert!(!target.contains(SECOND_SCREEN_PARAMETER), "{target}");
+        let second = first.detached().with_second_screen();
+        for (path, query) in [("launch", Some("appid=1")), ("cancel", None), ("api/abr", None)] {
+            let target = second.url_target(path, query);
+            assert!(target.ends_with("&rlSecondScreen=1"), "{target}");
+            assert_eq!(target.matches(SECOND_SCREEN_PARAMETER).count(), 1, "{target}");
+        }
+        assert!(second.detached().url_target("bitrate", None).ends_with("&rlSecondScreen=1"));
+        assert!(!first.url_target("bitrate", None).contains(SECOND_SCREEN_PARAMETER));
     }
 
     #[test]

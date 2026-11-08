@@ -13,6 +13,9 @@ public final class NativeApiBridge {
         return RustBridge.isAvailable();
     }
 
+    /** Marks every later request of this process as the second screen's (Dual screen mode; rlSecondScreen=1). */
+    public static native void setSecondScreen(boolean secondScreen);
+
     /**
      * @param op capabilities, library, session, session_action, radeon, radeon_write or radeon_restore
      * @param httpsPort 0 to let the client ask the host's serverinfo

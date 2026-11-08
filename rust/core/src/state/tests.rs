@@ -318,6 +318,46 @@ fn phone(name: &str) -> Client {
         )
         .unwrap()
 }
+#[test]
+fn a_second_screen_maps_to_its_device_and_no_pairing_can_name_one() {
+    assert_eq!(device_uuid("abc"), "abc");
+    assert_eq!(device_uuid("abc#screen2"), "abc");
+    assert_eq!(second_screen_uuid("abc"), "abc#screen2");
+    assert_eq!(second_screen_uuid("abc#screen2"), "abc#screen2");
+    let screen = phone("Tab").second_screen();
+    assert_eq!(
+        (screen.uuid.as_str(), screen.name.as_str()),
+        ("phone-Tab#screen2", "Tab (second screen)")
+    );
+    assert_eq!(screen.clone().second_screen().uuid, screen.uuid);
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path().join("state.json");
+    let mut s = PairedState::load(&p).unwrap();
+    s.add(&p, phone("Tab")).unwrap();
+    // A second device can't pair as the first one's second screen, nor with any '#'.
+    for uuid in ["phone-Tab#screen2", "other#x"] {
+        let mut impostor = phone("Other");
+        impostor.uuid = uuid.into();
+        assert!(s.add(&p, impostor).is_err(), "{uuid}");
+        let mut web = webrtc_client(9, "Web");
+        web.uuid = uuid.into();
+        assert!(s.add_webrtc(&p, web, 32).is_err(), "{uuid}");
+    }
+    assert_eq!(s.clients.len(), 1);
+    // One already in the file, imported or edited, gets a UUID of its own on load.
+    let mut impostor = phone("Other");
+    impostor.uuid = "phone-Tab#screen2".into();
+    let mut document = load_json(&p, json!({})).unwrap();
+    document["root"]["named_devices"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::to_value(&impostor).unwrap());
+    write_json(&p, &document).unwrap();
+    let reloaded = PairedState::load(&p).unwrap();
+    let other = reloaded.clients.iter().find(|c| c.name == "Other").unwrap();
+    assert!(!other.uuid.contains('#'), "{}", other.uuid);
+    assert_ne!(device_uuid(&other.uuid), "phone-Tab");
+}
 fn perm_of(s: &PairedState, name: &str) -> u32 {
     s.clients.iter().find(|c| c.name == name).unwrap().perm
 }

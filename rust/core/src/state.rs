@@ -48,6 +48,22 @@ pub const ALL_INPUT: u32 = 0x0000_1f00;
 pub const PLAY_DEVICE_PERMISSION: u32 = LIST_APPS | VIEW_STREAMS | LAUNCH_APPS | ALL_INPUT;
 /// The `extra` key of "Approve new devices" ([`Client::allows_pairing_approve`]).
 pub const PAIRING_APPROVE_KEY: &str = "pairing_approve";
+/// What follows a paired device's UUID in the UUID of its second screen (Nightjar's Dual screen
+/// mode): the streams and requests of that screen are kept as those of a device of its own.
+pub const SECOND_SCREEN_SUFFIX: &str = "#screen2";
+/// The character a paired device's UUID never has: it starts [`SECOND_SCREEN_SUFFIX`], so no
+/// pairing can name another device's second screen, or pass for a device by ending in it.
+const RESERVED_UUID_CHARACTER: char = '#';
+/// The paired device a stream's or request's UUID belongs to: the UUID without
+/// [`SECOND_SCREEN_SUFFIX`]. A device's permissions, settings and pairing are looked up by this;
+/// what belongs to one stream (its session, bitrate, clipboard) stays on the UUID itself.
+pub fn device_uuid(uuid: &str) -> &str {
+    uuid.strip_suffix(SECOND_SCREEN_SUFFIX).unwrap_or(uuid)
+}
+/// The UUID of `device`'s second screen.
+pub fn second_screen_uuid(device: &str) -> String {
+    format!("{}{SECOND_SCREEN_SUFFIX}", device_uuid(device))
+}
 /// The permissions the console's pairing access choice (`access`) grants a
 /// later device: `play`, `view` or `all`. Empty means no choice, so the device
 /// gets [`PairedState::new_device_permission`].
@@ -97,6 +113,15 @@ fn compatible_bool<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Resul
     }
 }
 impl Client {
+    /// The device as its second screen: [`second_screen_uuid`] and the name marked, with the
+    /// device's certificate, permissions and settings. Never paired itself.
+    pub fn second_screen(mut self) -> Self {
+        if !self.uuid.ends_with(SECOND_SCREEN_SUFFIX) {
+            self.uuid.push_str(SECOND_SCREEN_SUFFIX);
+            self.name.push_str(" (second screen)");
+        }
+        self
+    }
     pub fn allows(&self, permission: u32) -> bool {
         self.enabled && self.perm & permission == permission
     }
@@ -352,6 +377,15 @@ impl PairedState {
         let mut unique = Vec::with_capacity(clients.len());
         let mut webrtc_ids = HashSet::new();
         for mut c in clients {
+            // An imported or edited record whose UUID could name another device's second
+            // screen gets one of its own: it must never act as that device.
+            if c.uuid.contains(RESERVED_UUID_CHARACTER) {
+                tracing::warn!(
+                    device = %c.name,
+                    "paired device's UUID has a '#'; it gets a new one"
+                );
+                c.uuid = uuid::Uuid::new_v4().to_string();
+            }
             // A WebRTC device has no certificate; it is known by its client ID.
             if c.is_webrtc() {
                 let id = c.webrtc().map(|(id, _)| id.to_string()).unwrap_or_default();
@@ -477,6 +511,9 @@ impl PairedState {
     /// permissions; only the name is updated. Refusing it left the device
     /// unable to pair until someone deleted it in the console.
     pub fn add(&mut self, path: &Path, client: Client) -> Result<()> {
+        if client.uuid.contains(RESERVED_UUID_CHARACTER) {
+            bail!("a paired device's UUID can't contain '#'");
+        }
         let der = client.der()?;
         let mut next = self.clone();
         if let Some(existing) = next
@@ -553,6 +590,9 @@ impl PairedState {
         };
         if !client.cert.trim().is_empty() {
             bail!("a WebRTC device has no certificate");
+        }
+        if client.uuid.contains(RESERVED_UUID_CHARACTER) {
+            bail!("a paired device's UUID can't contain '#'");
         }
         let mut next = self.clone();
         if next

@@ -1076,7 +1076,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         // Shown once per PC (`pyrowave_notice`); the log says it on every stream.
         facts.pyrowave_fallback = Some(notice);
     }
-    if let Some((log, notice)) = codec_fallback(settings, scm, plan.base_decodable.decodable, outcome.negotiated_video_format) {
+    if let Some((log, notice)) = codec_fallback(settings, scm, plan.base_decodable.decodable, plan.color_decodable.0, outcome.negotiated_video_format) {
         eprintln!("{log}");
         facts.codec_fallback = Some(notice);
     }

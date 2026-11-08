@@ -209,18 +209,23 @@ pub(super) fn offered_formats_decoding(settings: &Settings, scm: u32, decodable:
         if settings.hdr && base & VIDEO_FORMAT_AV1_MAIN10 == 0 && base & VIDEO_FORMAT_H265_MAIN10 != 0 {
             base &= !VIDEO_FORMAT_AV1_MAIN8;
         }
+        // So do 4:4:4 and 10-bit SDR that only HEVC carries.
+        if color::av1_given_up(base, color_wants(settings), decodable.0, scm) != 0 {
+            base &= !VIDEO_FORMAT_AV1_MAIN8;
+        }
     }
     color::offer(base, color_wants(settings), decodable.0, &decodable.1, scm)
 }
 
 /// When the codec chosen is one this device's hardware decoder can't decode (`hardware_decodable`,
 /// from `color_probe::probe_base`) and the stream runs another: the log line, and what to tell
-/// the player. The chosen format is the codec's Main10 one with HDR. None when the PC doesn't
-/// encode it (the offer leaves it out either way), and for Automatic, H.264 and PyroWave (its own
-/// notice). Packed full chroma offers AV1's HEVC fallback too, as Android does, and the handshake
+/// the player. The chosen format is the codec's Main10 one with HDR, and AV1's 4:4:4 or 10-bit
+/// one this device's decoder (`color_decodable`, from `color_probe::probe`) lacks when the stream
+/// is HEVC's (`color::av1_given_up`). None when the PC doesn't encode it (the offer leaves it out
+/// either way), and for Automatic, H.264 and PyroWave (its own notice). Packed full chroma offers AV1's HEVC fallback too, as Android does, and the handshake
 /// takes the packed mode both ends have (`select_packed_format`): a stream of another codec is
 /// told whichever end lacks the chosen one, as a refusal was before.
-pub(super) fn codec_fallback(settings: &Settings, scm: u32, hardware_decodable: u32, negotiated: u32) -> Option<(String, String)> {
+pub(super) fn codec_fallback(settings: &Settings, scm: u32, hardware_decodable: u32, color_decodable: u32, negotiated: u32) -> Option<(String, String)> {
     let asked = match (settings.codec, settings.hdr) {
         (CodecPreference::Av1, false) => VIDEO_FORMAT_AV1_MAIN8,
         (CodecPreference::Av1, true) => VIDEO_FORMAT_AV1_MAIN10,
@@ -240,11 +245,28 @@ pub(super) fn codec_fallback(settings: &Settings, scm: u32, hardware_decodable: 
             trf("Full chroma can’t run {} with this PC and device, so Nightjar uses {}.", &[&asked, &streamed]),
         ));
     }
-    if hardware_decodable & asked != 0 || negotiated & asked != 0
-        || video_formats(settings.codec, settings.hdr, scm) & asked == 0 {
+    // AV1 that decodes but leaves 4:4:4 or 10-bit SDR to HEVC (`color::av1_given_up`): the AV1
+    // format asked for is the one HEVC carries instead, checked by the color probe (`color_decodable`).
+    let given_up = if settings.hdr || negotiated & VIDEO_FORMAT_MASK_H265 == 0 || scm & SCM_AV1_MAIN8 == 0 {
+        None
+    } else if negotiated & VIDEO_FORMAT_MASK_YUV444 != 0 {
+        Some((VIDEO_FORMAT_AV1_HIGH8_444, SCM_AV1_HIGH8_444))
+    } else if negotiated & VIDEO_FORMAT_MASK_10BIT != 0 {
+        Some((VIDEO_FORMAT_AV1_MAIN10, SCM_AV1_MAIN10))
+    } else {
+        None
+    };
+    let (asked, decodes, encoded) = match given_up {
+        Some((format, host)) if asked == VIDEO_FORMAT_AV1_MAIN8 && hardware_decodable & asked != 0 => {
+            (format, color_decodable & format != 0, scm & host != 0)
+        }
+        _ => (asked, hardware_decodable & asked != 0, video_formats(settings.codec, settings.hdr, scm) & asked != 0),
+    };
+    if decodes || negotiated & asked != 0 || !encoded {
         return None;
     }
-    let (asked, streamed) = (codec_name(asked), codec_name(negotiated));
+    let name = |format| if format & VIDEO_FORMAT_MASK_YUV444 != 0 { format!("{} 4:4:4", codec_name(format)) } else { codec_name(format).to_owned() };
+    let (asked, streamed) = (name(asked), name(negotiated));
     Some((
         format!("nightjar: {asked} was chosen, but no hardware decoder here decodes it; streaming {streamed}"),
         trf("This device doesn’t decode {}, so Nightjar uses {}.", &[&asked, &streamed]),

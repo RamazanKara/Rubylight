@@ -106,6 +106,33 @@ fn of_families(base: u32, formats: u32) -> u32 {
     formats & families
 }
 
+/// The AV1 4:4:4 or 10-bit format a stream gives up for HEVC's, or 0. The handshake takes AV1
+/// first whatever its chroma and depth, so when the format asked for (4:4:4 before 10-bit, as
+/// [`offer`] ranks them) is one this device decodes and the PC encodes only for HEVC, the caller
+/// leaves AV1 out of `base` before [`offer`]. Android's `NvConnection.negotiateVideoFormats` does
+/// the same. Only for a `base` that offers AV1 and HEVC and is streamed as AV1.
+pub fn av1_given_up(base: u32, wants: Wants, decodable: u32, host_scm: u32) -> u32 {
+    if wants.hdr || wants.packed444 || wants.pyrowave || base & VIDEO_FORMAT_H265 == 0
+        || host_scm & SCM_HEVC == 0 || streamed_family(base, host_scm) != VIDEO_FORMAT_MASK_AV1 {
+        return 0;
+    }
+    for (wanted, av1, hevc) in [
+        (wants.yuv444, VIDEO_FORMAT_AV1_HIGH8_444, VIDEO_FORMAT_H265_REXT8_444),
+        (wants.sdr10, VIDEO_FORMAT_AV1_MAIN10, VIDEO_FORMAT_H265_MAIN10),
+    ] {
+        if !wanted {
+            continue;
+        }
+        if encoded(av1 & decodable, host_scm) != 0 {
+            return 0;
+        }
+        if encoded(hevc & decodable, host_scm) != 0 {
+            return av1;
+        }
+    }
+    0
+}
+
 /// The offer for `wants`. `base` is what the codec choice offers without these settings;
 /// `decodable` the formats of [`YUV444_FORMATS`] and [`SDR10_FORMATS`] this device decodes and
 /// draws, and `decoder_reason` why the others are not; `host_scm` the PC's codec support.
@@ -299,5 +326,28 @@ mod tests {
         let both = VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_AV1_MAIN8;
         let offer = super::offer(both, wants(true, false), VIDEO_FORMAT_H265_REXT8_444, "", ALL_SCM);
         assert_eq!((offer.formats, offer.yuv444), (both, Err(Refusal::Host)));
+    }
+
+    /// Android's rule: AV1 makes way for HEVC when only HEVC carries the 4:4:4 or 10-bit format
+    /// asked for, so the handshake doesn't take AV1 8-bit 4:2:0 first.
+    #[test]
+    fn av1_makes_way_when_only_hevc_carries_the_format_asked_for() {
+        let both = AV1 | VIDEO_FORMAT_H265;
+        let hevc_only = DECODES_ALL & !(VIDEO_FORMAT_AV1_MAIN10 | VIDEO_FORMAT_AV1_HIGH8_444);
+        assert_eq!(av1_given_up(both, wants(false, true), hevc_only, ALL_SCM), VIDEO_FORMAT_AV1_MAIN10, "AV1 Main10 doesn't decode");
+        assert_eq!(av1_given_up(both, wants(false, true), DECODES_ALL, ALL_SCM & !SCM_AV1_MAIN10), VIDEO_FORMAT_AV1_MAIN10, "the PC lacks it");
+        assert_eq!(av1_given_up(both, wants(true, false), hevc_only, ALL_SCM), VIDEO_FORMAT_AV1_HIGH8_444);
+        // 4:4:4 first: AV1 4:4:4 keeps AV1; neither 4:4:4 lets 10-bit decide.
+        assert_eq!(av1_given_up(both, wants(true, true), DECODES_ALL & !VIDEO_FORMAT_AV1_MAIN10, ALL_SCM), 0);
+        assert_eq!(av1_given_up(both, wants(true, true), SDR10_FORMATS & !VIDEO_FORMAT_AV1_MAIN10, ALL_SCM), VIDEO_FORMAT_AV1_MAIN10);
+        // Nothing to give up for: AV1 carries it, HEVC doesn't either, nothing asked, no HEVC, HDR.
+        assert_eq!(av1_given_up(both, wants(false, true), DECODES_ALL, ALL_SCM), 0);
+        assert_eq!(av1_given_up(both, wants(false, true), 0, ALL_SCM), 0);
+        assert_eq!(av1_given_up(both, wants(false, false), hevc_only, ALL_SCM), 0);
+        assert_eq!(av1_given_up(AV1, wants(false, true), hevc_only, ALL_SCM), 0);
+        assert_eq!(av1_given_up(both, Wants { hdr: true, ..wants(false, true) }, hevc_only, ALL_SCM), 0);
+        // With AV1 left out the offer adds HEVC Main10, which the handshake then picks.
+        let offer = offer(both & !VIDEO_FORMAT_AV1_MAIN8, wants(false, true), hevc_only, "", ALL_SCM);
+        assert_eq!((offer.formats, offer.sdr10), (HEVC | VIDEO_FORMAT_H265_MAIN10, Ok(())));
     }
 }

@@ -546,6 +546,8 @@ mod tests {
     fn folder(name: &str) -> PathBuf {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let dir = std::env::temp_dir().join(format!("nj-self-update-{}-{}-{name}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+        // Windows reuses process ids: an earlier run's folder of the same name may still be there.
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }

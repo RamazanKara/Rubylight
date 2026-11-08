@@ -278,6 +278,14 @@ public final class HostCapabilities {
         return features.get(feature).isSupported();
     }
 
+    /**
+     * The host keeps a device's second screen beside its first stream (rlSecondScreen,
+     * SecondScreenVersion). Any other host takes it for the first stream starting again and drops that.
+     */
+    public boolean secondScreen() {
+        return evidence != null && family == Family.RUBYLIGHT && evidence.secondScreenVersion >= 1;
+    }
+
     public Availability availability(Feature feature) {
         return features.get(feature);
     }
@@ -615,6 +623,8 @@ public final class HostCapabilities {
         int pipelineRatesVersion = -1;
         /** -1 without DisplayScaleVersion: the host ignores rlDisplayScale. */
         int displayScaleVersion = -1;
+        /** -1 without SecondScreenVersion: the host ends the first stream when a second one of the device starts. */
+        int secondScreenVersion = -1;
         /** usb, clipboard.image and folders in the native features, and this device's usb and shared_folders. */
         boolean usbOffered;
         boolean usbPermission;
@@ -737,6 +747,9 @@ public final class HostCapabilities {
                         break;
                     case "DisplayScaleVersion":
                         evidence.displayScaleVersion = (int) unsigned(parser.nextText(), 0xFFFF);
+                        break;
+                    case "SecondScreenVersion":
+                        evidence.secondScreenVersion = (int) unsigned(parser.nextText(), 0xFFFF);
                         break;
                     case "NativeApiVersion":
                         evidence.nativeApiVersion = (int) unsigned(parser.nextText(), 0xFFFF);
@@ -1051,7 +1064,8 @@ public final class HostCapabilities {
                     .put("keyboardLayoutVersion", keyboardLayoutVersion)
                     .put("penBarrelRollVersion", penBarrelRollVersion)
                     .put("pipelineRatesVersion", pipelineRatesVersion)
-                    .put("displayScaleVersion", displayScaleVersion).put("usbOffered", usbOffered)
+                    .put("displayScaleVersion", displayScaleVersion)
+                    .put("secondScreenVersion", secondScreenVersion).put("usbOffered", usbOffered)
                     .put("usbPermission", usbPermission).put("imageClipboardOffered", imageClipboardOffered)
                     .put("foldersOffered", foldersOffered).put("folderPermission", folderPermission)
                     .put("coopOffered", coopOffered).put("micOnlyOffered", micOnlyOffered);
@@ -1105,6 +1119,7 @@ public final class HostCapabilities {
             evidence.penBarrelRollVersion = object.optInt("penBarrelRollVersion", -1);
             evidence.pipelineRatesVersion = object.optInt("pipelineRatesVersion", -1);
             evidence.displayScaleVersion = object.optInt("displayScaleVersion", -1);
+            evidence.secondScreenVersion = object.optInt("secondScreenVersion", -1);
             evidence.usbOffered = object.optBoolean("usbOffered", false);
             evidence.usbPermission = object.optBoolean("usbPermission", false);
             evidence.imageClipboardOffered = object.optBoolean("imageClipboardOffered", false);
@@ -1154,6 +1169,7 @@ public final class HostCapabilities {
                     textInputVersion == that.textInputVersion && keyboardLayoutVersion == that.keyboardLayoutVersion &&
                     penBarrelRollVersion == that.penBarrelRollVersion &&
                     pipelineRatesVersion == that.pipelineRatesVersion && displayScaleVersion == that.displayScaleVersion &&
+                    secondScreenVersion == that.secondScreenVersion &&
                     usbOffered == that.usbOffered &&
                     usbPermission == that.usbPermission && imageClipboardOffered == that.imageClipboardOffered &&
                     foldersOffered == that.foldersOffered && folderPermission == that.folderPermission &&
@@ -1169,7 +1185,7 @@ public final class HostCapabilities {
                     nativeApiVersion, powerActionVersion, sleepSupported, sleepAllowed, nativeCapabilities, filesUpload,
                     filesDownload, fileUploadPermission, fileDownloadPermission, hdrFormats, fecControlVersion,
                     bandwidthProbeVersion, audioCodecs, audioLayouts, textInputVersion, keyboardLayoutVersion,
-                    penBarrelRollVersion, pipelineRatesVersion, displayScaleVersion, usbOffered, usbPermission,
+                    penBarrelRollVersion, pipelineRatesVersion, displayScaleVersion, secondScreenVersion, usbOffered, usbPermission,
                     imageClipboardOffered, foldersOffered, folderPermission, coopOffered, micOnlyOffered);
         }
     }

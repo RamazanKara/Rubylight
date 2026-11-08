@@ -730,6 +730,19 @@
             android:dialogMessage="@string/summary_checkbox_enable_pip"
             android:defaultValue="false" />
         <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_dual_screen"
+            android:title="@string/title_checkbox_dual_screen"
+            android:dialogMessage="@string/summary_checkbox_dual_screen"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_resolution_screen2"
+            android:title="@string/title_resolution_screen2"
+            android:dialogMessage="@string/summary_resolution_screen2"
+            android:entries="@array/resolution_screen2_names"
+            android:entryValues="@array/resolution_screen2_values"
+            android:defaultValue="native"
+            android:dependency="checkbox_dual_screen" />
+        <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_auto_reconnect"
             android:title="@string/title_auto_reconnect"
             android:dialogMessage="@string/summary_auto_reconnect"

@@ -131,6 +131,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     com.limelight.ui.ConnectingScreen spinner;
     boolean displayedFailureDialog = false;
     boolean connecting = false;
+    // The second screen's stream has been started beside this one (DualScreen).
+    boolean dualScreenStarted;
+    // Receives the other screen's stream's messages (DualScreen.link).
+    android.content.BroadcastReceiver dualScreenLink;
     volatile boolean connected = false;
     boolean autoEnterPip = false;
     com.limelight.ui.AdaptiveLayout adaptiveLayout;
@@ -863,6 +867,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @Override
     protected void onDestroy() {
+        DualScreen.end(this);
         if (nativeMenuThread != null) nativeMenuThread.shutdownNow();
         if (streamHealthThread != null) streamHealthThread.shutdownNow();
         // A staged exit still waiting on the display ends here with the activity.
@@ -1331,6 +1336,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @Override
     public void stageComplete(String stage) {
+        // The host has accepted this stream's launch or resume: the second screen need not wait for the
+        // rest of the handshake and the first frame.
+        runOnUiThread(() -> DualScreen.start(this));
     }
 
     @Override

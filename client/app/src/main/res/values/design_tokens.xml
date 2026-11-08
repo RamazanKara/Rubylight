@@ -334,7 +334,7 @@
     <dimen name="nj_glass_menu_baked_blur">0dp</dimen>
     <item name="nj_glass_menu_baked_saturate" type="dimen" format="float">1.0</item>
     <item name="nj_glass_menu_baked_brightness" type="dimen" format="float">1.0</item>
-    <color name="nj_glass_menu_baked_fill">#F014161F</color>
+    <color name="nj_glass_menu_baked_fill">#FA14161F</color>
     <color name="nj_glass_menu_baked_sheen_top">#14FFFFFF</color>
     <item name="nj_glass_menu_baked_sheen_end" type="dimen" format="float">0.12</item>
     <color name="nj_glass_menu_baked_rim_top">#80FFFFFF</color>
@@ -436,7 +436,7 @@
     <dimen name="nj_glass_menu_window_blur">44dp</dimen>
     <item name="nj_glass_menu_window_saturate" type="dimen" format="float">1.0</item>
     <item name="nj_glass_menu_window_brightness" type="dimen" format="float">1.0</item>
-    <color name="nj_glass_menu_window_fill">#C40E1017</color>
+    <color name="nj_glass_menu_window_fill">#CC0E1017</color>
     <color name="nj_glass_menu_window_sheen_top">#0FFFFFFF</color>
     <item name="nj_glass_menu_window_sheen_end" type="dimen" format="float">0.12</item>
     <color name="nj_glass_menu_window_rim_top">#80FFFFFF</color>
@@ -450,6 +450,23 @@
     <dimen name="nj_glass_menu_window_lens_blur">0dp</dimen>
     <item name="nj_glass_menu_window_lens_saturate" type="dimen" format="float">1.0</item>
     <item name="nj_glass_menu_window_lens_brightness" type="dimen" format="float">1.0</item>
+    <dimen name="nj_glass_menu_hud_blur">0dp</dimen>
+    <item name="nj_glass_menu_hud_saturate" type="dimen" format="float">1.0</item>
+    <item name="nj_glass_menu_hud_brightness" type="dimen" format="float">1.0</item>
+    <color name="nj_glass_menu_hud_fill">#C70E1017</color>
+    <color name="nj_glass_menu_hud_sheen_top">#0FFFFFFF</color>
+    <item name="nj_glass_menu_hud_sheen_end" type="dimen" format="float">0.12</item>
+    <color name="nj_glass_menu_hud_rim_top">#59FFFFFF</color>
+    <color name="nj_glass_menu_hud_rim_mid">#0FFFFFFF</color>
+    <color name="nj_glass_menu_hud_rim_bottom">#24FFE9CC</color>
+    <dimen name="nj_glass_menu_hud_rim_width">1dp</dimen>
+    <color name="nj_glass_menu_hud_shadow_color">#00000000</color>
+    <dimen name="nj_glass_menu_hud_shadow_y">0dp</dimen>
+    <dimen name="nj_glass_menu_hud_shadow_blur">0dp</dimen>
+    <dimen name="nj_glass_menu_hud_lens_width">0dp</dimen>
+    <dimen name="nj_glass_menu_hud_lens_blur">0dp</dimen>
+    <item name="nj_glass_menu_hud_lens_saturate" type="dimen" format="float">1.0</item>
+    <item name="nj_glass_menu_hud_lens_brightness" type="dimen" format="float">1.0</item>
     <color name="nj_tint_group_fill">#10FFFFFF</color>
     <color name="nj_tint_group_rim_top">#3DFFFFFF</color>
     <color name="nj_tint_group_rim_mid">#0AFFFFFF</color>

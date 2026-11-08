@@ -117,7 +117,7 @@ public class StreamMenuGlassTest {
             MenuBlurWindow.enabledForTest = false;
             StreamMenu menu = open(controller.get(), null);
             assertNull(menu.sheet().blurWindow());
-            assertEquals("opaque enough to read over any game", 0xF0, Color.alpha(menu.sheet().menuGlass().fillColor()));
+            assertEquals("opaque enough to read over any game", 0xFA, Color.alpha(menu.sheet().menuGlass().fillColor()));
             menu.sheet().dismiss();
         }
     }

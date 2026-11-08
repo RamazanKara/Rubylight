@@ -220,12 +220,13 @@ public class ThemePaletteTest {
     @Config(qualifiers = "notnight")
     public void streamNoticesStayReadableOnTheirScrimOverAWhiteFrame() {
         Context stream = themed(R.style.StreamTheme);
-        android.graphics.drawable.Drawable scrim = androidx.appcompat.content.res.AppCompatResources
-                .getDrawable(stream, R.drawable.bg_stream_overlay);
-        int fill = ((android.graphics.drawable.GradientDrawable) scrim).getColor().getDefaultColor();
-        int onWhite = ColorUtils.compositeColors(fill, 0xffffffff);
-        assertContrast("notice text", 0xffffffff, onWhite, TEXT);
-        assertContrast("notice warn icon", res(stream, R.color.night_status_warn), onWhite, NON_TEXT);
+        // What StreamGlass.dressHud draws behind the notices and the statistics: the HUD glass, and the menu's solid in high
+        // contrast.
+        for (int fill : new int[] {GlassSpec.hud(stream).fill, GlassSpec.of(stream, "menu", GlassTier.SOLID, false).fill}) {
+            int onWhite = ColorUtils.compositeColors(fill, 0xffffffff);
+            assertContrast("notice text", 0xffffffff, onWhite, TEXT);
+            assertContrast("notice warn icon", res(stream, R.color.night_status_warn), onWhite, NON_TEXT);
+        }
     }
 
     private static Map<String, String> items(String theme) throws Exception {

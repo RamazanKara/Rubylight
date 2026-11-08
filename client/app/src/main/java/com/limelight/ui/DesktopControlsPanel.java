@@ -5,7 +5,6 @@ import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -20,6 +19,7 @@ import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.TooltipCompat;
+import androidx.core.content.ContextCompat;
 
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.color.MaterialColors;
@@ -129,11 +129,10 @@ public class DesktopControlsPanel extends LinearLayout {
         mouseViews.clear();
         trackpad = null;
         if (!bankEnabled(bank)) bank = "typing";
-        int surface = color(com.google.android.material.R.attr.colorSurfaceContainer);
-        GradientDrawable background = new GradientDrawable();
-        background.setColor(Color.argb(config.opacityPercent * 255 / 100, Color.red(surface), Color.green(surface), Color.blue(surface)));
-        background.setCornerRadii(new float[] {dp(18), dp(18), dp(18), dp(18), 0, 0, 0, 0});
-        background.setStroke(dp(1), color(com.google.android.material.R.attr.colorOutlineVariant));
+        // The stream's glass for what stays up while the game plays: no blur, the keys carry their own fill. The opacity
+        // setting is the panel fill's alpha, as before; the keys stay opaque.
+        GlassPanelDrawable background = GlassPanelDrawable.hud(getContext(), new float[] {dp(18), dp(18), dp(18), dp(18), 0, 0, 0, 0});
+        background.setFillOpacity(config.opacityPercent / 100f);
         setBackground(background);
         addHeader();
 
@@ -491,7 +490,9 @@ public class DesktopControlsPanel extends LinearLayout {
         button.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         button.setTextSize(12);
         button.setPadding(0, 0, 0, 0);
-        button.setBackgroundTintList(ColorStateList.valueOf(color(com.google.android.material.R.attr.colorSurfaceContainerHigh)));
+        button.setBackgroundTintList(null);
+        button.setBackground(new GlassControlDrawable(getContext(), GlassControlDrawable.Kind.KEY, dp(7)));
+        button.setStateListAnimator(null);
         LayoutParams params = new LayoutParams(0, LayoutParams.MATCH_PARENT, weight);
         params.setMargins(dp(1), dp(2), dp(1), dp(2));
         row.addView(button, params);
@@ -521,6 +522,12 @@ public class DesktopControlsPanel extends LinearLayout {
 
     private void selected(MaterialButton button, boolean selected) {
         button.setSelected(selected);
+        if (button.getBackground() instanceof GlassControlDrawable) {
+            // A key's own drawable shows it selected.
+            button.setTextColor(selected ? MaterialColors.getColor(StreamGlass.themed(getContext()), R.attr.glassOnSelected, 0)
+                    : ContextCompat.getColor(getContext(), AppTheme.isHighContrast(getContext()) ? R.color.nj_hc_color_label : R.color.nj_color_label));
+            return;
+        }
         button.setBackgroundTintList(ColorStateList.valueOf(selected ?
                 color(com.google.android.material.R.attr.colorPrimaryContainer) : Color.TRANSPARENT));
         button.setTextColor(color(selected ? com.google.android.material.R.attr.colorOnPrimaryContainer :
@@ -667,7 +674,7 @@ public class DesktopControlsPanel extends LinearLayout {
                 }).setNegativeButton(android.R.string.cancel, null)
                 .setNeutralButton(R.string.desktop_controls_reset, (dialog, which) -> confirmReset()).create();
         customization.setOnDismissListener(dialog -> customization = null);
-        customization.show();
+        StreamGlass.show(customization);
     }
 
     private void confirmReset() {
@@ -681,7 +688,7 @@ public class DesktopControlsPanel extends LinearLayout {
                     rebuild();
                 }).setNegativeButton(android.R.string.cancel, null).create();
         resetDialog.setOnDismissListener(dialog -> resetDialog = null);
-        resetDialog.show();
+        StreamGlass.show(resetDialog);
     }
 
     private void slider(LinearLayout fields, int label, int initial, int minimum, int maximum, IntConsumer changed) {
@@ -693,7 +700,7 @@ public class DesktopControlsPanel extends LinearLayout {
         slider.setMax(maximum - minimum);
         slider.setPosition(initial - minimum);
         slider.setContentDescription(title.getText());
-        slider.setPositionText(progress -> String.valueOf(minimum + progress));
+        slider.setPositionText(progress -> valueOf(getContext().getString(label, minimum + progress), minimum + progress));
         slider.setOnPositionChangeListener((bar, progress) -> {
             int value = minimum + progress;
             changed.accept(value);
@@ -701,6 +708,12 @@ public class DesktopControlsPanel extends LinearLayout {
             bar.setContentDescription(title.getText());
         });
         fields.addView(slider, new LayoutParams(LayoutParams.MATCH_PARENT, dp(48)));
+    }
+
+    /** The value and its unit out of a slider's title, {@code 40 dp} out of {@code Key height: 40 dp}. */
+    static String valueOf(String title, int value) {
+        int at = title.lastIndexOf(String.valueOf(value));
+        return at < 0 ? String.valueOf(value) : title.substring(at).trim();
     }
 
     private void check(LinearLayout fields, int label, boolean initial, Consumer<Boolean> changed) {
@@ -758,7 +771,7 @@ public class DesktopControlsPanel extends LinearLayout {
             shortcutList.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(entries.size() < KeyboardShortcuts.MAX_SHORTCUTS);
             shortcutList.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view -> editShortcut(null));
         });
-        shortcutList.show();
+        StreamGlass.show(shortcutList);
     }
 
     private static int indexOf(List<KeyboardShortcuts.Shortcut> entries, String id) {
@@ -830,7 +843,7 @@ public class DesktopControlsPanel extends LinearLayout {
                 chord.setError(getContext().getString(R.string.keyboard_shortcuts_invalid));
             }
         }));
-        shortcutEdit.show();
+        StreamGlass.show(shortcutEdit);
     }
 
     @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {

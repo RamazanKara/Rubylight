@@ -431,6 +431,50 @@ export function differsFromDefault(setting: Setting, edits: Edits, stored: Confi
   return next !== null && !sameValue(meaning(setting, next), meaning(setting, patchValue(setting, setting.default)));
 }
 
+/** What the current value costs the stream (cautionWhen), while the setting applies. */
+export function caution(setting: Setting, values: Record<string, ConfigValue>): string | undefined {
+  if (!setting.cautionWhen) return undefined;
+  try {
+    if (setting.visibleWhen && !setting.visibleWhen(values)) return undefined;
+    return setting.cautionWhen(values) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Settings set by hand to a value that costs the stream, with what it costs. */
+export function handSetCautions(
+  settings: readonly Setting[],
+  values: Record<string, ConfigValue>,
+  edits: Edits,
+  stored: Config,
+): { setting: Setting; text: string }[] {
+  return settings.flatMap((setting) => {
+    const text = differsFromDefault(setting, edits, stored) ? caution(setting, values) : undefined;
+    return text ? [{ setting, text }] : [];
+  });
+}
+
+/** The key=value pairs that dismissing a list of cautions remembers. */
+export function cautionPairs(cautions: readonly { setting: Setting }[], values: Record<string, ConfigValue>): string[] {
+  return cautions.map(({ setting }) => `${setting.key}=${String(values[setting.key])}`);
+}
+
+/**
+ * Whether the cautions banner shows: a costly value not dismissed yet. Fixing
+ * one of the listed settings keeps the rest dismissed; a new costly value, or
+ * a listed setting changed to another costly value, shows it again.
+ */
+export function cautionsPending(pairs: readonly string[], dismissed: readonly string[]): boolean {
+  const seen = new Set(dismissed);
+  return pairs.some((pair) => !seen.has(pair));
+}
+
+/** What dismissing remembers: what it remembered before, and the pairs shown now. */
+export function dismissCautions(pairs: readonly string[], dismissed: readonly string[]): string[] {
+  return [...new Set([...dismissed, ...pairs])];
+}
+
 /**
  * What a folded group's summary shows: how many settings differ from their default, how many have an unsaved
  * change, and whether the group must be open so that an unsaved change stays visible.

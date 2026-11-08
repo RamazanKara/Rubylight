@@ -13,6 +13,7 @@
   import { matchesSetting, matchesWords, searchWords } from '../components/settings/search';
   import {
     applyChanges,
+    caution,
     computeChanges,
     currentValues,
     differsFromDefault,
@@ -381,6 +382,7 @@
     showKey={showKeys || (searching && matchesWords(setting.key, words))}
     {inactive}
     missing={missing(setting)}
+    caution={caution(setting, values)}
     invalidText={invalid[setting.key]}
     onchange={(value) => edit(setting.key, value)}
     onreset={() => reset(setting.key)}

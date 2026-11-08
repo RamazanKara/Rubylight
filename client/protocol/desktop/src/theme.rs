@@ -785,16 +785,19 @@ pub fn step_value<N: egui::emath::Numeric>(
 /// A slider a controller or the arrow keys can leave. egui's slider shows its value in a `DragValue`
 /// of its own, which steps on Up and Down once it has focus: Up from the row below landed there and
 /// only raised the value (the stream menu's bitrate). Here the value is a [`step_value`] beside the
-/// rail, so Up and Down move focus on both, and Left and Right step on both.
+/// rail, so Up and Down move focus on both, and Left and Right step on both. While the rail is
+/// dragged, and for [`VALUE_AFTER_KEY`] seconds after a key step, `shown` of the value floats over the
+/// thumb, where a finger on a touch screen does not cover it (nightjar#61).
 pub fn slider<N: egui::emath::Numeric>(
     ui: &mut egui::Ui,
     value: &mut N,
     range: std::ops::RangeInclusive<N>,
     step: f64,
+    shown: impl Fn(f64) -> String,
     rail: impl FnOnce(egui::Slider<'_>) -> egui::Slider<'_>,
     field: impl FnOnce(egui::DragValue<'_>) -> egui::DragValue<'_>,
 ) -> egui::Response {
-    slider_along(ui, value, range, step, false, rail, field)
+    slider_along(ui, value, range, step, false, shown, rail, field)
 }
 
 /// [`slider`] whose rail runs in equal ratios, for a value across orders of magnitude. The rail
@@ -804,10 +807,49 @@ pub fn log_slider<N: egui::emath::Numeric>(
     value: &mut N,
     range: std::ops::RangeInclusive<N>,
     step: f64,
+    shown: impl Fn(f64) -> String,
     rail: impl FnOnce(egui::Slider<'_>) -> egui::Slider<'_>,
     field: impl FnOnce(egui::DragValue<'_>) -> egui::DragValue<'_>,
 ) -> egui::Response {
-    slider_along(ui, value, range, step, true, rail, field)
+    slider_along(ui, value, range, step, true, shown, rail, field)
+}
+
+/// A whole percent as a slider's value shows it, `50%`.
+pub fn percent(value: f64) -> String {
+    format!("{value:.0}%")
+}
+
+/// A bitrate in Mbps as the settings' field shows it, `20.0 Mbps`.
+pub fn mbps_text(mbps: f64) -> String {
+    format!("{mbps:.1} Mbps")
+}
+
+/// How long a slider's value stays over its thumb after the last key step, in seconds; Android's
+/// `StepSlider.KEY_VALUE_MS`.
+pub const VALUE_AFTER_KEY: f64 = 1.5;
+
+/// Whether a slider's value floats over its thumb: while it is dragged, and while it has the focus
+/// within [`VALUE_AFTER_KEY`] of a key step `since_step` seconds ago.
+fn value_floats(dragged: bool, focused: bool, since_step: Option<f64>) -> bool {
+    dragged || (focused && since_step.is_some_and(|since| (0.0..VALUE_AFTER_KEY).contains(&since)))
+}
+
+/// Where the value floats: centred over the thumb at `thumb`, clear of it, inside `screen`.
+fn value_rect(thumb: egui::Pos2, label: egui::Vec2, screen: egui::Rect) -> egui::Rect {
+    let size = label + egui::vec2(2.0 * space::M, 2.0 * space::XS);
+    let bottom = thumb.y - t::SIZE_SLIDER_THUMB / 2.0 - space::S;
+    let rect = egui::Rect::from_min_size(egui::pos2(thumb.x - size.x / 2.0, bottom - size.y), size);
+    let shift = (screen.left() - rect.left()).max(0.0) + (screen.right() - rect.right()).min(0.0);
+    rect.translate(egui::vec2(shift, (screen.top() - rect.top()).max(0.0)))
+}
+
+/// The value over the thumb, in Android's slider label: the inverse surface, on top of everything.
+fn paint_value(ui: &egui::Ui, thumb: egui::Pos2, shown: String) {
+    let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, ui.scope_id().with("slider-value")));
+    let galley = painter.layout_no_wrap(shown, FontId::proportional(text::LABEL), *SURFACE);
+    let rect = value_rect(thumb, galley.size(), ui.ctx().content_rect());
+    painter.rect_filled(rect, egui::CornerRadius::same(radius::SMALL), *ON_SURFACE);
+    painter.galley(rect.center() - galley.size() / 2.0, galley, *SURFACE);
 }
 
 /// Where `value` stands along a rail, 0 to 1. Only a range above zero runs in ratios here.
@@ -820,12 +862,14 @@ fn rail_position(value: f64, low: f64, high: f64, ratios: bool) -> f32 {
     if along.is_finite() { along.clamp(0.0, 1.0) as f32 } else { 0.0 }
 }
 
+#[allow(clippy::too_many_arguments)] // the slider's value, range, step and look, passed as egui takes them
 fn slider_along<N: egui::emath::Numeric>(
     ui: &mut egui::Ui,
     value: &mut N,
     range: std::ops::RangeInclusive<N>,
     step: f64,
     ratios: bool,
+    shown: impl Fn(f64) -> String,
     rail: impl FnOnce(egui::Slider<'_>) -> egui::Slider<'_>,
     field: impl FnOnce(egui::DragValue<'_>) -> egui::DragValue<'_>,
 ) -> egui::Response {
@@ -844,14 +888,28 @@ fn slider_along<N: egui::emath::Numeric>(
             }
             ui.add(rail(egui::Slider::new(value, range.clone()).show_value(false)))
         }).inner;
+        let typed = step_value(ui, value, range, step, field);
         let along = rail_position(value.to_f64(), low, high, ratios);
-        paint_rail(ui, &slid, along);
-        slid | step_value(ui, value, range, step, field)
+        let thumb = paint_rail(ui, &slid, along);
+        let stepped_at = slid.id.with("stepped-at");
+        let now = ui.input(|i| i.time);
+        if (slid.changed() || typed.changed()) && slid.has_focus() && !slid.dragged() {
+            ui.data_mut(|d| d.insert_temp(stepped_at, now));
+        }
+        let since_step = ui.data(|d| d.get_temp::<f64>(stepped_at)).map(|at| now - at);
+        if value_floats(slid.dragged(), slid.has_focus(), since_step) {
+            paint_value(ui, thumb, shown(value.to_f64()));
+            if !slid.dragged() {
+                ui.ctx().request_repaint_after_secs((VALUE_AFTER_KEY - since_step.unwrap_or(0.0)) as f32);
+            }
+        }
+        slid | typed
     })
     .inner
 }
 
-fn paint_rail(ui: &egui::Ui, slid: &egui::Response, along: f32) {
+/// The rail and its thumb; answers where the thumb's centre is.
+fn paint_rail(ui: &egui::Ui, slid: &egui::Response, along: f32) -> egui::Pos2 {
     use crate::ui::design_tokens as t;
     let rect = slid.rect;
     // Where egui's slider has its thumb, so a drag stays under the pointer.
@@ -875,6 +933,7 @@ fn paint_rail(ui: &egui::Ui, slid: &egui::Response, along: f32) {
         let spot = egui::Rect::from_center_size(center, egui::Vec2::splat(t::SIZE_SLIDER_THUMB));
         crate::ui::focus_ring_around(ui, spot, (t::SIZE_SLIDER_THUMB / 2.0) as u8);
     }
+    center
 }
 
 /// The mark as straight RGBA pixels, `size` square: the amber moon with the night bird cut
@@ -937,6 +996,66 @@ mod tests {
         // A range from zero cannot run in ratios, and an empty one has nowhere to go.
         assert_eq!(rail_position(5.0, 0.0, 10.0, true), 0.5);
         assert_eq!(rail_position(5.0, 5.0, 5.0, false), 0.0);
+    }
+
+    /// nightjar#61: the value floats over the thumb while it moves, then goes.
+    #[test]
+    fn a_slider_shows_its_value_while_it_moves() {
+        assert!(value_floats(true, false, None), "a drag shows it");
+        assert!(value_floats(false, true, Some(0.0)), "a key step shows it");
+        assert!(value_floats(false, true, Some(VALUE_AFTER_KEY - 0.1)));
+        assert!(!value_floats(false, true, Some(VALUE_AFTER_KEY)), "and it goes after a while");
+        assert!(!value_floats(false, false, Some(0.1)), "or once the focus leaves");
+        assert!(!value_floats(false, true, None), "focus alone does not show it");
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0));
+        let rect = value_rect(egui::pos2(200.0, 100.0), egui::vec2(60.0, 14.0), screen);
+        assert!(rect.bottom() < 100.0 - t::SIZE_SLIDER_THUMB / 2.0, "above the thumb, clear of the finger on it");
+        assert_eq!(rect.center().x, 200.0);
+        let edge = value_rect(egui::pos2(395.0, 100.0), egui::vec2(60.0, 14.0), screen);
+        assert!(screen.contains_rect(edge), "a thumb at the edge keeps its value on screen");
+        assert_eq!(percent(55.0), "55%");
+        assert_eq!(mbps_text(20.0), "20.0 Mbps");
+        assert_eq!(mbps_text(2.5), "2.5 Mbps");
+    }
+
+    /// The text a headless frame with one slider at `value` draws, after `events`.
+    fn slider_frame(ctx: &egui::Context, value: &mut f64, time: f64, events: Vec<egui::Event>) -> (Vec<String>, egui::Rect) {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 200.0))),
+            time: Some(time),
+            events,
+            ..Default::default()
+        };
+        let mut rail = egui::Rect::NOTHING;
+        let mut output = ctx.run_ui(input, |ui| {
+            ui.add_space(60.0);
+            rail = slider(ui, value, 0.0..=100.0, 1.0, |v| format!("{v:.0} units"), |rail| rail, |field| field).rect;
+        });
+        output.textures_delta.clear();
+        let mut drawn = Vec::new();
+        for clipped in &output.shapes {
+            if let egui::Shape::Text(text) = &clipped.shape { drawn.push(text.galley.text().to_owned()); }
+        }
+        (drawn, rail)
+    }
+
+    #[test]
+    fn dragging_a_slider_floats_its_value_and_letting_go_hides_it() {
+        let ctx = egui::Context::default();
+        let mut value = 20.0;
+        let _ = slider_frame(&ctx, &mut value, 1.0, Vec::new());
+        let (drawn, rail) = slider_frame(&ctx, &mut value, 1.1, Vec::new());
+        assert!(!drawn.iter().any(|t| t.ends_with("units")), "at rest only the field shows it: {drawn:?}");
+        let start = egui::pos2(rail.left() + 30.0, rail.center().y);
+        let held = egui::pos2(rail.left() + 90.0, rail.center().y);
+        let button = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        slider_frame(&ctx, &mut value, 1.2, vec![egui::Event::PointerMoved(start), button(start, true)]);
+        let (drawn, _) = slider_frame(&ctx, &mut value, 1.3, vec![egui::Event::PointerMoved(held)]);
+        let shown = format!("{value:.0} units");
+        assert!(drawn.contains(&shown), "the value floats while dragged: {shown} in {drawn:?}");
+        slider_frame(&ctx, &mut value, 1.4, vec![button(held, false)]);
+        let (drawn, _) = slider_frame(&ctx, &mut value, 1.5, Vec::new());
+        assert!(!drawn.contains(&shown), "and goes when let go: {drawn:?}");
     }
 
     #[test]

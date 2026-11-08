@@ -24,9 +24,11 @@ import java.util.List;
  * while drawing or touching, apart from the boxed pointer id the engine uses as an owner.
  */
 public final class PcKeyboardView extends View {
-    private static final int KEY = 0xFF2B2F36, KEY_MODIFIER = 0xFF22262C, KEY_PRESSED = 0xFF5B6574;
-    private static final int ARMED = 0xFF3F7FD6, LOCKED = 0xFFE8A33D, FOCUS = 0xFFFFFFFF;
-    private static final int LABEL = 0xFFF2F4F7, LABEL_SECONDARY = 0xFF9AA3AF;
+    // The stream's glass: opaque night keys on the see-through panel, so a label reads over any game. A held modifier
+    // takes the selected tint, a locked one the moon, and the focused key the ring (on the moon, the moon's ink).
+    // High contrast adds a light rim to every key and takes its own moon, ring and white labels.
+    private final int key, keyModifier, keyPressed, armed, locked, focus, focusOnLocked, rim;
+    private final int label, labelSecondary, labelArmed, labelLocked;
 
     private final PcKeyboardController controller;
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -44,11 +46,35 @@ public final class PcKeyboardView extends View {
         this.controller = controller;
         float density = context.getResources().getDisplayMetrics().density;
         gap = Math.max(1.5f, 2 * density);
+        boolean highContrast = AppTheme.isHighContrast(context);
+        Context glass = StreamGlass.themed(context);
+        key = color(context, R.color.nj_color_surface_high);
+        keyModifier = color(context, R.color.nj_color_surface);
+        keyPressed = color(context, R.color.nj_color_surface_bright);
+        armed = androidx.core.graphics.ColorUtils.compositeColors(
+                com.google.android.material.color.MaterialColors.getColor(glass, R.attr.glassSelectedFill, 0x47F2A93B), key);
+        labelArmed = com.google.android.material.color.MaterialColors.getColor(glass, R.attr.glassOnSelected, 0xFFFFD79A);
+        locked = color(context, highContrast ? R.color.nj_hc_color_moon : R.color.nj_color_moon);
+        labelLocked = color(context, highContrast ? R.color.nj_hc_color_on_moon : R.color.nj_color_on_moon);
+        focus = color(context, highContrast ? R.color.nj_hc_focus_ring_color : R.color.nj_focus_ring_color);
+        focusOnLocked = color(context, highContrast ? R.color.nj_hc_color_on_moon : R.color.nj_color_on_moon);
+        rim = highContrast ? color(context, R.color.nj_hc_color_rim) : 0;
+        label = color(context, highContrast ? R.color.nj_hc_color_label : R.color.nj_color_label);
+        labelSecondary = highContrast ? label : color(context, R.color.nj_color_label_secondary);
         stroke.setStyle(Paint.Style.STROKE);
         text.setTextAlign(Paint.Align.CENTER);
         text.setTypeface(Typeface.DEFAULT_BOLD);
         setFocusable(false);
         setContentDescription(context.getString(R.string.pc_keyboard_title));
+    }
+
+    private static int color(Context context, int id) {
+        return androidx.core.content.ContextCompat.getColor(context, id);
+    }
+
+    /** The focused key's ring: on a locked modifier the moon's ink, so it never vanishes into the key. */
+    int focusRing(boolean locked) {
+        return locked ? focusOnLocked : focus;
     }
 
     /** Whether a key going down vibrates: the stream's Vibrate on press. */
@@ -115,7 +141,8 @@ public final class PcKeyboardView extends View {
         unitY = getHeight() / (float) layout.rowCount();
         float radius = Math.min(unitX, unitY) * 0.14f;
         float baseSize = Math.min(unitY * 0.42f, unitX * 0.5f);
-        stroke.setStrokeWidth(Math.max(2f, unitY * 0.07f));
+        float ring = Math.max(2f, unitY * 0.07f);
+        stroke.setStrokeWidth(ring);
         boolean shift = controller.engine().modifiers().isActive(PcModifier.SHIFT);
         boolean altGr = controller.engine().modifiers().isActive(PcModifier.ALTGR);
         PcKey focused = controller.isFocusVisible() ? controller.focus().focused() : null;
@@ -129,19 +156,26 @@ public final class PcKeyboardView extends View {
                 StickyModifiers.State state = key.modifier == null ? StickyModifiers.State.OFF
                         : controller.engine().modifiers().state(key.modifier);
                 boolean pressed = controller.engine().isKeyHeld(key);
-                fill.setColor(pressed ? KEY_PRESSED : state == StickyModifiers.State.LOCKED ? LOCKED
-                        : state == StickyModifiers.State.ONCE ? ARMED : key.modifier != null ? KEY_MODIFIER : KEY);
+                fill.setColor(pressed ? keyPressed : state == StickyModifiers.State.LOCKED ? locked
+                        : state == StickyModifiers.State.ONCE ? armed : key.modifier != null ? keyModifier : this.key);
                 canvas.drawRoundRect(rect, radius, radius, fill);
+                if (rim != 0) {
+                    stroke.setStrokeWidth(Math.max(1f, gap / 2));
+                    stroke.setColor(rim);
+                    canvas.drawRoundRect(rect, radius, radius, stroke);
+                    stroke.setStrokeWidth(ring);
+                }
                 if (key == focused) {
-                    stroke.setColor(FOCUS);
+                    stroke.setColor(focusRing(state == StickyModifiers.State.LOCKED && !pressed));
                     canvas.drawRoundRect(rect, radius, radius, stroke);
                 }
-                drawLabel(canvas, key, shift, altGr, baseSize, state == StickyModifiers.State.LOCKED);
+                drawLabel(canvas, key, shift, altGr, baseSize, pressed ? label : state == StickyModifiers.State.LOCKED
+                        ? labelLocked : state == StickyModifiers.State.ONCE ? labelArmed : label);
             }
         }
     }
 
-    private void drawLabel(Canvas canvas, PcKey key, boolean shift, boolean altGr, float baseSize, boolean onLight) {
+    private void drawLabel(Canvas canvas, PcKey key, boolean shift, boolean altGr, float baseSize, int color) {
         String label = key.labelFor(shift, altGr);
         float size = baseSize;
         float room = rect.width() - gap * 2;
@@ -151,17 +185,17 @@ public final class PcKeyboardView extends View {
             size *= room / measured;
             text.setTextSize(size);
         }
-        text.setColor(onLight ? 0xFF1A1D22 : LABEL);
+        text.setColor(color);
         float x = rect.centerX();
         float y = rect.centerY() - (text.ascent() + text.descent()) / 2;
         // A key with a second legend shows it small in the corner: the shifted character on the main layout.
         if (key.shiftLabel != null && !shift && key.shiftLabel.length() <= 2) {
             float small = Math.min(size * 0.6f, baseSize * 0.6f);
             text.setTextSize(small);
-            text.setColor(LABEL_SECONDARY);
+            text.setColor(color == this.label ? labelSecondary : color);
             canvas.drawText(key.shiftLabel, rect.left + rect.width() * 0.26f, rect.top + rect.height() * 0.34f, text);
             text.setTextSize(size);
-            text.setColor(LABEL);
+            text.setColor(color);
             y = rect.centerY() + size * 0.5f;
         }
         canvas.drawText(label, x, y, text);

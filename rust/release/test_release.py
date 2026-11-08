@@ -341,7 +341,8 @@ class NightjarNotes(unittest.TestCase):
         notes = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(notes)
         bullets, files = notes.read(ROOT / 'client/notes.d')
-        self.assertEqual(len(bullets['en']) > 0, len(files) > 0)
+        # Fragments with only desktop bullets are fine (no store changelog line).
+        self.assertEqual(len(bullets['en']) + len(bullets['desktop']) > 0, len(files) > 0)
 
     def test_an_existing_changelog_needs_force_and_keep_keeps_the_fragments(self):
         (self.notes / 'x.md').write_text('## en\n- A.\n', encoding='utf-8')

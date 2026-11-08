@@ -46,9 +46,10 @@ Materials: `chrome` (tab bar, capsules), `panel` (sheet, dropdown, dialog), `men
 
 **Desktop.** `gui.rs` walks `Primitive::Mesh` and skips the rest: add a `Shape::Callback` marker as the boundary between content and chrome. Paint content, snapshot the regions under chrome, run the chain, then draw chrome meshes textured with screen-space UVs × vertex colour (brightness is a multiply; saturation exists only at bake time, so `live` on desktop keeps the bake's colour lift). Rim is a ring mesh with a vertex-colour gradient and a feather ring for antialiasing. Shadows and the focus halo are baked nine-slices. Corners are circular.
 
-**Stream menu.** While a stream plays with no menu open there is **no blur, no extra layer, nothing added**: a hard rule. The stats capsule is a flat fill (`stats.fill`), one quad in the existing overlay. Opening the menu may add one window:
+**Stream menu.** While a stream plays with no menu open there is **no blur, no extra layer, nothing added**: a hard rule. What stays up while the game plays (the stats capsule, the menu hint, the stream's notices and both on-screen keyboards) stands on `glass.menu.hud.*`: see-through fill, sheen and lit rim, blur 0 and no shadow, drawn in the view's own background. Keyboard keys are opaque `surface.high` caps on it, so a label reads over any game; the user's opacity setting is the panel fill's alpha (100% is opaque) and leaves the keys alone. In high contrast keys and the trackpad well are solid with the light rim. Opening the menu may add one window:
 - Android API 31+ with `WindowManager.isCrossWindowBlurEnabled`: a separate window with `setBackgroundBlurRadius`, only behind the panel. This blur has no colour filter, so it uses `glass.menu.window.*` (`variant-tv-stream-menu-window.png`). Listen for the blur-enabled callback; battery saver or multimedia tunneling can turn it off at any time.
 - Otherwise `glass.menu.baked.*`, a near-opaque fill (`variant-tv-stream-menu-fallback.png`).
+- Every dialog over a stream (touch mode, the keyboard's customisation, a shortcut) wears the same menu glass and opens the same window behind its panel, without a dim; the controller editor's panel is `glass.menu.baked.*`.
 - Desktop: the chain runs from the video texture only while the menu is open.
 
 The window is removed (not hidden) when the menu closes, and the frame after closing must match the frame before opening in composition cost.
@@ -107,7 +108,7 @@ All have default, hover, focus, pressed and disabled, on `solid` too. Touch targ
 - **Dialog**: `panel`, centred, one primary action in moon; destructive uses `color.dangerFill`. On a TV at night the page behind goes to `dialog.tvBackdropBrightness`, deeper than under a sheet, so what the dialog covers reads as behind it.
 - **Toast**: `chip`, top on phone and above the shelves on TV, one line, no action needed to dismiss.
 - **Stream menu**: `menu`, right side, 452 × 672 at 720p scale. Tile row, sliders, status rows, Disconnect and Quit game at the bottom. Quit game is the one red control.
-- **Stats overlay**: `stats.fill`, tabular numbers (`type.numbers`), label colour only. Never blurred.
+- **Stats overlay**: `glass.menu.hud`, tabular numbers (`type.numbers`), label colour only. Never blurred. On a screen nothing can scroll (a TV) it stays one column along the edge: compact first (low section gaps, a short pacing graph), then smaller text down to 9 sp; a second column only for what that cannot hold.
 - **PIN pad**: `panel` sheet on phone, dialog elsewhere. Four digit slots, the next one focused, a 3×4 grid of `tint.control` capsules with scan-a-code at bottom left and delete at bottom right. The remote's digits and D-pad both work.
 
 **One word.** Ending a game is "Quit game" everywhere: sheet, TV page, desktop, stream menu, PC list (`applist_menu_quit`, German "Spiel beenden"). Never "Close game".

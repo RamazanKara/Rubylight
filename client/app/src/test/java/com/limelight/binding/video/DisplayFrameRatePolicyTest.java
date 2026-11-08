@@ -308,4 +308,54 @@ public class DisplayFrameRatePolicyTest {
         assertEquals(DisplayFrameRatePolicy.ArrState.PANEL_WITHOUT_ARR, DisplayFrameRatePolicy.arrState(36, true, false));
         assertEquals(DisplayFrameRatePolicy.ArrState.PANEL_WITHOUT_ARR, DisplayFrameRatePolicy.arrState(37, true, false));
     }
+
+    private static RefreshSwitchDiagnosis.PanelMode mode(int id, int width, int height, float hz, float... alternatives) {
+        return new RefreshSwitchDiagnosis.PanelMode(id, width, height, hz, alternatives);
+    }
+
+    @Test
+    public void topRateLeavesOutRatesOnlyASmallerModeOffers() {
+        // nightjar#7: a TV box at 4K60 that also lists 1080p at 120 Hz. A 4K stream asked the PC for 120 fps
+        // under VRR while the screen stayed at 60 Hz, so half the frames could never show.
+        RefreshSwitchDiagnosis.PanelMode uhd60 = mode(1, 3840, 2160, 60f);
+        java.util.List<RefreshSwitchDiagnosis.PanelMode> tv = java.util.Arrays.asList(uhd60,
+                mode(2, 3840, 2160, 59.94f), mode(3, 3840, 2160, 50f), mode(4, 1920, 1080, 120f), mode(5, 1920, 1080, 60f));
+        assertEquals(60f, DisplayFrameRatePolicy.maxRefreshRate(uhd60, tv, 3840, 2160), 0f);
+        // A stream the 1080p mode holds whole may still use it, as without VRR above 60 fps.
+        assertEquals(120f, DisplayFrameRatePolicy.maxRefreshRate(uhd60, tv, 1920, 1080), 0f);
+        // Without a stream size every mode counts, as maxRefreshRate(Display) always did.
+        assertEquals(120f, DisplayFrameRatePolicy.maxRefreshRate(uhd60, tv, 0, 0), 0f);
+    }
+
+    @Test
+    public void topRateCountsTheCurrentSizeAndSeamlessAlternatives() {
+        // A phone listed in portrait: its own size always counts, alternatives included.
+        RefreshSwitchDiagnosis.PanelMode phone60 = mode(1, 1080, 2400, 60f, 120f);
+        java.util.List<RefreshSwitchDiagnosis.PanelMode> phone = java.util.Arrays.asList(phone60, mode(2, 1080, 2400, 120f, 60f));
+        assertEquals(120f, DisplayFrameRatePolicy.maxRefreshRate(phone60, phone, 2560, 1440), 0f);
+        assertEquals(120f, DisplayFrameRatePolicy.maxRefreshRate(phone60, java.util.Collections.singletonList(phone60), 1920, 1080), 0f);
+        // A panel resting at WQHD 60 Hz with 120 Hz only at FHD: a 1080p stream fits FHD, a 1440p stream does not.
+        RefreshSwitchDiagnosis.PanelMode wqhd60 = mode(1, 1440, 3200, 60f);
+        java.util.List<RefreshSwitchDiagnosis.PanelMode> wqhd = java.util.Arrays.asList(wqhd60, mode(2, 1080, 2400, 120f));
+        assertEquals(120f, DisplayFrameRatePolicy.maxRefreshRate(wqhd60, wqhd, 1920, 1080), 0f);
+        assertEquals(60f, DisplayFrameRatePolicy.maxRefreshRate(wqhd60, wqhd, 2560, 1440), 0f);
+    }
+
+    @Test
+    public void aModeFitsTheStreamInEitherOrientation() {
+        assertTrue(DisplayFrameRatePolicy.modeFitsStream(1080, 2400, 1440, 3200, 1920, 1080));
+        assertTrue(DisplayFrameRatePolicy.modeFitsStream(2400, 1080, 3200, 1440, 1920, 1080));
+        assertFalse(DisplayFrameRatePolicy.modeFitsStream(1920, 1080, 3840, 2160, 3840, 2160));
+        // The current size always fits, even below the stream (a 4K stream on a 1080p screen).
+        assertTrue(DisplayFrameRatePolicy.modeFitsStream(1920, 1080, 1920, 1080, 3840, 2160));
+        assertTrue(DisplayFrameRatePolicy.modeFitsStream(1280, 720, 3840, 2160, 0, 0));
+    }
+
+    @Test
+    public void aDefaultTopRateStillFollowsTheDisplay() {
+        // A TV listing 1080p120 beside 4K60: the default fps is 120 (any size) and keeps following.
+        assertTrue(DisplayFrameRatePolicy.fpsFollowsDisplay(false, 120, 120f));
+        assertFalse(DisplayFrameRatePolicy.fpsFollowsDisplay(false, 60, 120f));
+        assertTrue(DisplayFrameRatePolicy.fpsFollowsDisplay(true, 60, 120f));
+    }
 }

@@ -493,6 +493,10 @@ public class GameDetailOpenPlayTest {
         assertEquals(context.getString(R.string.open_play_waiting_network),
                 ((TextView) shown().findViewById(android.R.id.message)).getText().toString());
         pass(1_500);
+        // The poll's reply comes from the transport's own thread, which a loaded CI runner can
+        // hold past the 1.5 s: wait for the countdown, then it must start in full.
+        await(() -> ((TextView) shown().findViewById(android.R.id.message)).getText().toString()
+                .startsWith("Starting on Tower in"));
         assertEquals("Starting on Tower in 3", ((TextView) shown().findViewById(android.R.id.message)).getText().toString());
         assertFalse(OpenPlay.armed(context));
         pass(3100);

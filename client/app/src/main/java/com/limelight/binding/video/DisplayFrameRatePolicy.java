@@ -3,6 +3,8 @@ package com.limelight.binding.video;
 import android.os.Build;
 import android.view.Display;
 
+import java.util.List;
+
 public final class DisplayFrameRatePolicy {
     public static boolean useAdaptiveRefreshRate(int sdk, boolean vrr, boolean arrSupported) {
         return vrr && sdk >= 36 && arrSupported;
@@ -226,29 +228,73 @@ public final class DisplayFrameRatePolicy {
     }
 
     public static float maxRefreshRate(Display display) {
-        float maximum;
+        return maxRefreshRate(display, 0, 0);
+    }
+
+    /**
+     * The top rate a stream of streamWidth x streamHeight can run at on this display: the rates
+     * of the current mode's size and of other sizes that still hold the whole stream, the sizes
+     * the display mode choice may switch to above 60 fps. A rate offered only at a smaller size
+     * does not count. VRR asks the PC for this rate: on a TV that lists 1080p at 120 Hz beside 4K
+     * at 60 Hz, a 4K stream asked for 120 fps and either dropped the TV to 1080p or, where the
+     * TV box keeps its mode, sent twice the frames a 60 Hz screen can show. Without a stream
+     * size (0) every mode counts.
+     */
+    public static float maxRefreshRate(Display display, int streamWidth, int streamHeight) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            maximum = display.getMode().getRefreshRate();
-            for (Display.Mode mode : display.getSupportedModes()) {
-                maximum = Math.max(maximum, mode.getRefreshRate());
-                // An LTPO panel resting at a low rate can list its top rate only as an alternative.
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    for (float rate : mode.getAlternativeRefreshRates()) {
-                        maximum = Math.max(maximum, rate);
-                    }
-                }
+            return maxRefreshRate(RefreshSwitchMonitor.activeMode(display), RefreshSwitchMonitor.modes(display),
+                    streamWidth, streamHeight);
+        }
+        float maximum = display.getRefreshRate();
+        for (float rate : display.getSupportedRefreshRates()) {
+            maximum = Math.max(maximum, rate);
+        }
+        return maximum;
+    }
+
+    /** As above, from the modes as Android lists them (active: the current mode). */
+    static float maxRefreshRate(RefreshSwitchDiagnosis.PanelMode active, List<RefreshSwitchDiagnosis.PanelMode> modes,
+                                int streamWidth, int streamHeight) {
+        float maximum = active.hz;
+        for (RefreshSwitchDiagnosis.PanelMode mode : modes) {
+            if (!modeFitsStream(mode.width, mode.height, active.width, active.height, streamWidth, streamHeight)) {
+                continue;
             }
-        } else {
-            maximum = display.getRefreshRate();
-            for (float rate : display.getSupportedRefreshRates()) {
+            maximum = Math.max(maximum, mode.hz);
+            // An LTPO panel resting at a low rate can list its top rate only as an alternative.
+            for (float rate : mode.alternatives) {
                 maximum = Math.max(maximum, rate);
             }
         }
         return maximum;
     }
 
+    /**
+     * Whether a display mode of modeWidth x modeHeight keeps a stream of streamWidth x
+     * streamHeight whole: the current mode's size always does, another size when it is at least
+     * the stream's in both directions (either orientation, since phones list portrait sizes).
+     * Without a stream size (0) every mode does.
+     */
+    public static boolean modeFitsStream(int modeWidth, int modeHeight, int currentWidth, int currentHeight,
+                                         int streamWidth, int streamHeight) {
+        if (modeWidth == currentWidth && modeHeight == currentHeight) return true;
+        if (streamWidth <= 0 || streamHeight <= 0) return true;
+        return Math.max(modeWidth, modeHeight) >= Math.max(streamWidth, streamHeight) &&
+                Math.min(modeWidth, modeHeight) >= Math.min(streamWidth, streamHeight);
+    }
+
     public static int streamFrameRate(float panelMaxHz) {
         // Match the host's 1–1000 Hz launch range.
         return Math.max(1, Math.min(1000, Math.round(panelMaxHz)));
+    }
+
+    /**
+     * Whether a stream's frame rate follows the display: always with VRR, otherwise when it is the
+     * panel's top rate as the defaults, presets and "match screen" pick it (any mode, any size,
+     * {@link #maxRefreshRate(Display)}). The size-limited VRR rate would miss a default of 120 fps
+     * on a TV that lists 1080p at 120 Hz beside 4K at 60 Hz.
+     */
+    public static boolean fpsFollowsDisplay(boolean vrr, int fps, float panelMaxHzAnySize) {
+        return vrr || fps == streamFrameRate(panelMaxHzAnySize);
     }
 }

@@ -45,6 +45,8 @@ public final class RedactedLog {
             java.util.regex.Pattern.compile("\\b\\d{1,3}(?:\\.\\d{1,3}){3}(?::\\d+)?\\b"),
             // Groups around a "::", or five to eight without one: 4:4:4 and times stay readable.
             java.util.regex.Pattern.compile("(?:[0-9a-fA-F]{0,4}(?::[0-9a-fA-F]{0,4}){0,6}::[0-9a-fA-F]{0,4}(?::[0-9a-fA-F]{0,4}){0,6}|(?:[0-9a-fA-F]{1,4}:){4,7}[0-9a-fA-F]{1,4})(?:%\\w+)?"),
+            // MAC addresses written with dashes, as Windows does. Dates and UUIDs have longer groups.
+            java.util.regex.Pattern.compile("\\b[0-9a-fA-F]{2}(?:-[0-9a-fA-F]{2}){5}\\b"),
             java.util.regex.Pattern.compile("\\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\b"),
             java.util.regex.Pattern.compile("\\b[0-9a-fA-F]{16,}\\b"),
             java.util.regex.Pattern.compile("[A-Za-z0-9+/=_-]{32,}"),
@@ -121,7 +123,7 @@ public final class RedactedLog {
             text = text.replace(secret, PC_PLACEHOLDER);
         }
         text = text.replace(PC_PLACEHOLDER, "[PC]");
-        String[] marks = {"[url]", "[email]", "[address]", "[address]", "[id]", "[hex]", "[data]", "[path]"};
+        String[] marks = {"[url]", "[email]", "[address]", "[address]", "[address]", "[id]", "[hex]", "[data]", "[path]"};
         for (int i = 0; i < SENSITIVE.length; i++) {
             text = SENSITIVE[i].matcher(text).replaceAll(java.util.regex.Matcher.quoteReplacement(marks[i]));
         }

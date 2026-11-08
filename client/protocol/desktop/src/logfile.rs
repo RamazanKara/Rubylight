@@ -52,7 +52,7 @@ pub fn open_folder() -> Result<(), String> {
     // Explorer exits with 1 even when it worked, so the child is not waited for. It must not
     // inherit our stderr, which is the log pipe: its output would land in the log and the pipe
     // would stay open after we leave.
-    std::process::Command::new(opener)
+    crate::amd_decode::for_child(&mut std::process::Command::new(opener))
         .arg(&dir)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

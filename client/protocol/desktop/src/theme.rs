@@ -510,7 +510,7 @@ fn load(&(pattern, family): &Face) -> Option<FontData> {
 #[cfg(not(windows))]
 fn fc_match(pattern: &str) -> Option<String> {
     use std::io::Read;
-    let mut child = std::process::Command::new("fc-match")
+    let mut child = crate::amd_decode::for_child(&mut std::process::Command::new("fc-match"))
         .args(["--format=%{file}\n%{index}\n%{family}\n", pattern])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())

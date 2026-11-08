@@ -417,7 +417,7 @@ fn run_setup(part: &Path, asset: &Asset) -> Result<(), Failure> {
 /// Starts a program that outlives Nightjar, and stays for `watch`, or until it has `settled`, to see
 /// it isn't gone at once with a failure: Nightjar must not exit for something that already ended.
 fn start_watched(program: &Path, arguments: &[String], watch: Duration, settled: impl Fn() -> bool) -> Result<(), String> {
-    let mut child = Command::new(program)
+    let mut child = crate::amd_decode::for_child(&mut Command::new(program))
         .args(arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

@@ -53,6 +53,7 @@ public class PresetPreference extends Preference {
         super.onBindView(view);
         float refresh = DisplayFrameRatePolicy.maxRefreshRate(((Activity) getContext()).getWindowManager().getDefaultDisplay());
         String nativeResolution = PreferenceConfiguration.nativeResolution(getContext());
+        boolean vrrOffered = DisplayFrameRatePolicy.vrrOffered(getContext());
         // A rail's row has no chips or info button: Select opens the list.
         ChipGroup group = view.findViewById(R.id.preset_chips);
         if (group != null) group.removeAllViews();
@@ -60,7 +61,7 @@ public class PresetPreference extends Preference {
         String selected = getContext().getString(R.string.settings_custom);
         for (StreamPreset preset : nativeResolution == null ? new StreamPreset[0] : StreamPreset.values()) {
             if (group == null) {
-                if (preset.matches(getSharedPreferences(), nativeResolution, refresh)) selected = names[preset.ordinal()];
+                if (preset.matches(getSharedPreferences(), nativeResolution, refresh, vrrOffered)) selected = names[preset.ordinal()];
                 continue;
             }
             Chip chip = new Chip(getContext());
@@ -75,7 +76,7 @@ public class PresetPreference extends Preference {
             chip.setCheckedIconVisible(false);
             chip.setChipCornerRadius(getContext().getResources().getDimension(R.dimen.nj_radius_control));
             group.addView(chip);
-            if (preset.matches(getSharedPreferences(), nativeResolution, refresh)) {
+            if (preset.matches(getSharedPreferences(), nativeResolution, refresh, vrrOffered)) {
                 chip.setChecked(true);
                 selected = names[preset.ordinal()];
             }

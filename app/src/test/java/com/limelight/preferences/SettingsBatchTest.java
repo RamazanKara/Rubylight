@@ -60,15 +60,15 @@ public class SettingsBatchTest {
     public void ruleFunctionsFollowTheStoredChoices() {
         SharedPreferences p = prefs();
         p.edit().clear().commit();
-        assertTrue(SettingRules.framePacingApplies(p));
-        assertFalse(SettingRules.dropLateFramesApplies(p));
+        assertTrue(SettingRules.framePacingApplies(RuntimeEnvironment.getApplication(), p));
+        assertFalse(SettingRules.dropLateFramesApplies(RuntimeEnvironment.getApplication(), p));
         p.edit().putString("frame_pacing", "balanced").commit();
-        assertTrue(SettingRules.dropLateFramesApplies(p));
+        assertTrue(SettingRules.dropLateFramesApplies(RuntimeEnvironment.getApplication(), p));
         p.edit().putBoolean("checkbox_host_frame_times", true).commit();
-        assertFalse(SettingRules.framePacingApplies(p));
-        assertFalse(SettingRules.dropLateFramesApplies(p));
+        assertFalse(SettingRules.framePacingApplies(RuntimeEnvironment.getApplication(), p));
+        assertFalse(SettingRules.dropLateFramesApplies(RuntimeEnvironment.getApplication(), p));
         p.edit().putBoolean("checkbox_host_frame_times", false).putBoolean("checkbox_vrr", true).commit();
-        assertFalse(SettingRules.framePacingApplies(p));
+        assertFalse(SettingRules.framePacingApplies(RuntimeEnvironment.getApplication(), p));
         assertFalse(SettingRules.upscalingUsesSharpness(p));
         p.edit().putString("upscaling_mode", "bilinear").commit();
         assertFalse(SettingRules.upscalingUsesSharpness(p));

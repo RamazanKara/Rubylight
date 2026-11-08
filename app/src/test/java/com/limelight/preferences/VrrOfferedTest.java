@@ -1,13 +1,18 @@
 package com.limelight.preferences;
 
 import android.app.Application;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.preference.Preference;
 import android.preference.PreferenceManager;
 import android.preference.SwitchPreference;
 import android.view.Display;
 
 import com.limelight.R;
 import com.limelight.binding.video.DisplayFrameRatePolicy;
+import com.limelight.computers.HostCapabilityCache;
+import com.limelight.nvstream.http.HostCapabilities;
+import com.limelight.nvstream.http.TestHosts;
 
 import org.junit.After;
 import org.junit.Test;
@@ -81,10 +86,79 @@ public class VrrOfferedTest {
             assertFalse(vrr.isEnabled());
             assertFalse(vrr.isChecked());
             assertEquals(controller.get().getString(R.string.summary_vrr_unavailable), String.valueOf(vrr.getSummary()));
-            assertFalse(prefs().getBoolean(PreferenceConfiguration.VRR_PREF_STRING, true));
             assertTrue("frame pacing applies again", display.findPreference("frame_pacing").isEnabled());
             assertTrue("so does the lower refresh rate", display.findPreference("checkbox_reduce_refresh_rate").isEnabled());
+            // Another setting's change reruns the rules; the stored VRR choice still doesn't grey pacing.
+            prefs().edit().putBoolean(PreferenceConfiguration.HOST_FRAME_TIMES_PREF_STRING, false).commit();
+            assertTrue(display.findPreference("frame_pacing").isEnabled());
         }
+        assertTrue("opening Settings keeps the saved choice for a screen that gains ARR",
+                prefs().getBoolean(PreferenceConfiguration.VRR_PREF_STRING, false));
+        assertTrue(SettingRules.framePacingApplies(RuntimeEnvironment.getApplication(), prefs()));
+        ArrDisplay.supported = true;
+        assertTrue(PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication()).vrr);
+        assertFalse(SettingRules.framePacingApplies(RuntimeEnvironment.getApplication(), prefs()));
+    }
+
+    @Test
+    public void withoutArrAPcOrGameLayerCantTurnVrrOn() {
+        prefs().edit().putString(PreferenceConfiguration.FRAME_PACING_PREF_STRING, "balanced")
+                .putBoolean("checkbox_reduce_refresh_rate", true).commit();
+        HostStreamProfile.deserialize("v2;vrr=true").save(RuntimeEnvironment.getApplication(), "vrr-pc");
+        AppStreamSettings.save(RuntimeEnvironment.getApplication(), "plain-pc", "game", 1,
+                HostStreamProfile.deserialize("v2;vrr=true"));
+        for (String[] stream : new String[][] {{"vrr-pc", "desktop"}, {"plain-pc", "game"}}) {
+            PreferenceConfiguration config = stream(stream[0], stream[1]);
+            assertFalse(stream[0], config.vrr);
+            assertEquals("pacing stays the chosen one", PreferenceConfiguration.FRAME_PACING_BALANCED, config.framePacing);
+            assertTrue("the lower refresh rate stays allowed", config.reduceRefreshRate);
+        }
+        ArrDisplay.supported = true;
+        assertTrue(stream("vrr-pc", "desktop").vrr);
+        assertTrue(stream("plain-pc", "game").vrr);
+    }
+
+    private static PreferenceConfiguration stream(String pc, String game) {
+        return PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication(), pc,
+                HostCapabilities.UNKNOWN, game, 1, StreamLayers.Network.WIFI);
+    }
+
+    @Test
+    public void withoutArrThePcRowIsGreyedAndPacingIsntReplaced() {
+        HostStreamProfile.deserialize("v2;vrr=true").save(RuntimeEnvironment.getApplication(), "vrr-pc");
+        ActivityController<HostStreamSettings> controller = openPc("vrr-pc");
+        try {
+            HostStreamSettings.SettingsFragment settings = (HostStreamSettings.SettingsFragment)
+                    controller.get().getFragmentManager().findFragmentById(R.id.host_profile_settings);
+            Preference vrr = settings.findPreference("vrr");
+            assertFalse(vrr.isEnabled());
+            assertEquals(controller.get().getString(R.string.summary_vrr_unavailable), String.valueOf(vrr.getSummary()));
+            String pacing = String.valueOf(settings.findPreference("pacing").getSummary());
+            assertFalse(pacing.contains(controller.get().getString(R.string.layers_pacing_vrr)));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+        assertEquals("the PC's choice is kept", Boolean.TRUE,
+                HostStreamProfile.deserialize(HostStreamProfile.raw(RuntimeEnvironment.getApplication(), "vrr-pc")).vrr);
+
+        ArrDisplay.supported = true;
+        controller = openPc("vrr-pc");
+        try {
+            HostStreamSettings.SettingsFragment settings = (HostStreamSettings.SettingsFragment)
+                    controller.get().getFragmentManager().findFragmentById(R.id.host_profile_settings);
+            assertTrue(settings.findPreference("vrr").isEnabled());
+            assertTrue(String.valueOf(settings.findPreference("pacing").getSummary())
+                    .contains(controller.get().getString(R.string.layers_pacing_vrr)));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    private static ActivityController<HostStreamSettings> openPc(String uuid) {
+        Application app = RuntimeEnvironment.getApplication();
+        HostCapabilityCache.save(app, uuid, TestHosts.rubylight());
+        Intent intent = new Intent(app, HostStreamSettings.class).putExtra("host_uuid", uuid).putExtra("host_name", "Den PC");
+        return Robolectric.buildActivity(HostStreamSettings.class, intent).setup();
     }
 
     @Test

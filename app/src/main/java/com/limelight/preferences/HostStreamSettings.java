@@ -41,6 +41,7 @@ import com.google.android.material.textfield.TextInputLayout;
 import com.limelight.LimeLog;
 import com.limelight.R;
 import com.limelight.RemoteSetupActivity;
+import com.limelight.binding.video.DisplayFrameRatePolicy;
 import com.limelight.binding.video.PyroWaveDecoderRenderer;
 import com.limelight.binding.video.UpscalingPolicy;
 import com.limelight.computers.ComputerManagerService;
@@ -340,6 +341,8 @@ public class HostStreamSettings extends NightjarActivity {
     private void applyWithScreen(HostStreamProfile values, PreferenceConfiguration config) {
         boolean followedScreen = config.resolutionFollowsScreen;
         values.applyTo(config);
+        // As when the stream starts: VRR set in a layer stays off where no screen has ARR.
+        config.vrr &= DisplayFrameRatePolicy.vrrOffered(this);
         if (config.resolutionFollowsScreen && !followedScreen) {
             String nativeResolution = PreferenceConfiguration.nativeResolution(this);
             if (nativeResolution != null) {
@@ -1083,8 +1086,15 @@ public class HostStreamSettings extends NightjarActivity {
             }
             String pacing = summary(HostStreamProfile.Field.PACING, own.pacing != null, pacingText(config));
             findPreference("pacing").setSummary(config.vrr ? pacing + "\n" + getString(R.string.layers_pacing_vrr) : pacing);
-            findPreference("vrr").setSummary(findPreference("vrr").getSummary() +
-                    "\n" + getString(R.string.summary_vrr));
+            // Greyed where no screen has ARR, as in Settings; a value saved here is kept, and pacing applies.
+            Preference vrr = findPreference("vrr");
+            if (DisplayFrameRatePolicy.vrrOffered(activity)) {
+                vrr.setEnabled(true);
+                vrr.setSummary(vrr.getSummary() + "\n" + getString(R.string.summary_vrr));
+            } else {
+                vrr.setEnabled(false);
+                vrr.setSummary(R.string.summary_vrr_unavailable);
+            }
             Preference virtual = findPreference("virtual");
             Preference scale = findPreference("scale");
             Preference dpi = findPreference("dpi");

@@ -927,6 +927,8 @@ public class PreferenceConfiguration {
             HostStreamProfile profile = layers.values;
             boolean followedScreen = config.resolutionFollowsScreen;
             profile.applyTo(config);
+            // A PC, game or profile layer saved with VRR on can't turn it on where no screen has ARR.
+            config.vrr &= com.limelight.binding.video.DisplayFrameRatePolicy.vrrOffered(context);
             StreamLayers.Source resolution = layers.source(HostStreamProfile.Field.RESOLUTION);
             config.fromPcProfile = resolution == StreamLayers.Source.PC || resolution == StreamLayers.Source.GAME;
             if (config.resolutionFollowsScreen && !followedScreen) {

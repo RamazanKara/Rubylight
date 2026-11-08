@@ -157,22 +157,22 @@ public class CodecLowLatencyCorruptionTest {
         StreamPreset.NATIVE.apply(prefs(), "3840x2160", 60);
         assertFalse("off stays off", prefs().getBoolean(KEY, true));
         assertTrue("the rest are set", prefs().getBoolean("checkbox_vendor_low_latency", false));
-        assertTrue("and the preset still shows as chosen", StreamPreset.NATIVE.matches(prefs(), "3840x2160", 60));
+        assertTrue("and the preset still shows as chosen", StreamPreset.NATIVE.matches(prefs(), "3840x2160", 60, true));
 
         prefs().edit().putBoolean(KEY, true).commit();
         StreamPreset.NATIVE.apply(prefs(), "3840x2160", 60);
         assertTrue("on stays on", prefs().getBoolean(KEY, false));
-        assertTrue(StreamPreset.NATIVE.matches(prefs(), "3840x2160", 60));
+        assertTrue(StreamPreset.NATIVE.matches(prefs(), "3840x2160", 60, true));
     }
 
     @Test public void theNativePresetStillSetsItOnAnotherModel() {
         device("AFTMM", MTK);
         PreferenceConfiguration.readPreferences(app());
         prefs().edit().putBoolean(KEY, false).commit();
-        assertFalse(StreamPreset.NATIVE.matches(prefs(), "3840x2160", 60));
+        assertFalse(StreamPreset.NATIVE.matches(prefs(), "3840x2160", 60, true));
         StreamPreset.NATIVE.apply(prefs(), "3840x2160", 60);
         assertTrue(prefs().getBoolean(KEY, false));
-        assertTrue(StreamPreset.NATIVE.matches(prefs(), "3840x2160", 60));
+        assertTrue(StreamPreset.NATIVE.matches(prefs(), "3840x2160", 60, true));
     }
 
     @Test public void theMoveToNativeDefaultsLeavesItAloneOnTheModel() {

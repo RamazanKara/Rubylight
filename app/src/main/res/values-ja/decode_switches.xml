@@ -8,4 +8,6 @@
     <string name="summary_pyrowave_preacquire">フレームペーシングがオフのとき、各 PyroWave フレームの到着前に次の画面イメージを取得します。</string>
     <string name="title_codec_direct">映像データをデコーダーへ直接</string>
     <string name="summary_codec_direct">各フレームを中間コピーなしで一度だけデコーダーへコピーします。新しいストリーミングエンジンのみ。</string>
+    <string name="title_receive_decode_priority">受信にデコーダーの優先度</string>
+    <string name="summary_receive_decode_priority">新しいストリーミングエンジン: 映像を受信してデコーダーへ渡すスレッドをデコーダーと同じ優先度で動かします。</string>
 </resources>

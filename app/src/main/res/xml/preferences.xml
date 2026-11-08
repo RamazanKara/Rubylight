@@ -1016,6 +1016,11 @@
             android:title="@string/title_codec_direct"
             android:dialogMessage="@string/summary_codec_direct"
             android:defaultValue="@bool/default_codec_direct" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_receive_decode_priority"
+            android:title="@string/title_receive_decode_priority"
+            android:dialogMessage="@string/summary_receive_decode_priority"
+            android:defaultValue="false" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_more_debug">
         <Preference android:key="more_debug" android:title="@string/settings_more" android:persistent="false" />

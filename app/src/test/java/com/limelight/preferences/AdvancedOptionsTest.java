@@ -227,7 +227,8 @@ public class AdvancedOptionsTest {
     private static final List<String> DEBUG_CONTROLS = Arrays.asList(
             "list_fec_choice", "checkbox_rate_change_bitrate", "checkbox_tell_host_wireless", "checkbox_tell_host_link_speed",
             "checkbox_network_priority", "checkbox_unbatched_input", "checkbox_full_range",
-            "checkbox_submit_hint", "checkbox_covering_decoder_size", "checkbox_pyrowave_preacquire", "checkbox_codec_direct");
+            "checkbox_submit_hint", "checkbox_covering_decoder_size", "checkbox_pyrowave_preacquire", "checkbox_codec_direct",
+            "checkbox_receive_decode_priority");
 
     @Test
     public void debugIsTheLastSectionAndSearchStillFindsItsSettings() {

@@ -8,4 +8,6 @@
     <string name="summary_pyrowave_preacquire">Toma la siguiente imagen de pantalla antes de que llegue cada fotograma PyroWave, con el ritmo de fotogramas desactivado.</string>
     <string name="title_codec_direct">Datos de vídeo directos al decodificador</string>
     <string name="summary_codec_direct">Copia cada fotograma una sola vez al decodificador, sin copia intermedia. Solo con el nuevo motor de transmisión.</string>
+    <string name="title_receive_decode_priority">Prioridad de decodificador al recibir</string>
+    <string name="summary_receive_decode_priority">Nuevo motor de transmisión: el hilo que recibe el vídeo y alimenta el decodificador usa la prioridad del decodificador.</string>
 </resources>

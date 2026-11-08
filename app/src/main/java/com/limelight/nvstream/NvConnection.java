@@ -1406,6 +1406,7 @@ public class NvConnection {
                                 hostDetails.caps.has(HostCapabilities.Feature.PYROWAVE_RECORDS),
                                 PyroWaveDecoderRenderer.earlyRecordsAllowed()));
                         MoonBridge.requestCodecDirect(prefs.codecDirect);
+                        MoonBridge.requestReceiveDecodePriority(prefs.receiveDecodePriority);
                         MoonBridge.requestRoaming(prefs.clientRoaming, prefs.roamingMetered);
                         MoonBridge.requestAudioPassthrough(audioPassthroughCodecs(prefs.audioPassthrough, prefs.muteAudio,
                                 context.streamConfig.getAudioConfiguration().channelCount));

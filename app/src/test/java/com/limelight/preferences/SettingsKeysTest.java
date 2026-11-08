@@ -107,6 +107,12 @@ public class SettingsKeysTest {
         assertEquals("top_left", PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication()).overlayPosition);
     }
 
+    @Test public void videoDataStraightToTheDecoderIsOnUntilTurnedOff() {
+        assertTrue(PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication()).codecDirect);
+        prefs().edit().putBoolean("checkbox_codec_direct", false).commit();
+        assertFalse(PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication()).codecDirect);
+    }
+
     @Test public void tapGestureActionsPersistIndependentlyAndMatchThePickerValues() {
         String[] actions = RuntimeEnvironment.getApplication().getResources()
                 .getStringArray(R.array.three_finger_tap_values);
@@ -370,6 +376,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_covering_decoder_size", new Read(false, true, c -> c.coveringDecoderSize));
         reads.put("checkbox_pyrowave_preacquire", new Read(false, true, c -> c.pyroWavePreacquire));
         reads.put("checkbox_codec_direct", new Read(false, true, c -> c.codecDirect));
+        reads.put("checkbox_receive_decode_priority", new Read(false, true, c -> c.receiveDecodePriority));
         reads.put("checkbox_client_roaming", new Read(true, false, c -> c.clientRoaming));
         reads.put("checkbox_roaming_metered", new Read(false, true, c -> c.roamingMetered));
         reads.put("checkbox_enable_post_stream_toast", new Read(false, true, c -> c.enableLatencyToast));

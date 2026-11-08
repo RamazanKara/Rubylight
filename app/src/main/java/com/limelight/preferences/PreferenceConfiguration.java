@@ -197,6 +197,9 @@ public class PreferenceConfiguration {
     private static final String COVERING_DECODER_SIZE_PREF_STRING = "checkbox_covering_decoder_size";
     private static final String PYROWAVE_PREACQUIRE_PREF_STRING = "checkbox_pyrowave_preacquire";
     private static final String CODEC_DIRECT_PREF_STRING = "checkbox_codec_direct";
+    // The Rust engine's direct-submission receive thread at the decoder's level; the classic
+    // engine's decode-thread raise needs no setting. debug.nightjar.decode_priority overrides it.
+    private static final String RECEIVE_DECODE_PRIORITY_PREF_STRING = "checkbox_receive_decode_priority";
     // Client roaming (Experimental, Rust engine): on by default; onto mobile data only by choice.
     static final String CLIENT_ROAMING_PREF_STRING = "checkbox_client_roaming";
     static final String ROAMING_METERED_PREF_STRING = "checkbox_roaming_metered";
@@ -424,7 +427,7 @@ public class PreferenceConfiguration {
     public boolean phonePerformanceHints;
     public boolean gpuMaxClocks;
     public boolean dropLateFrames, useTextureView, unbatchedInput, networkPriority;
-    public boolean submitHint, coveringDecoderSize, pyroWavePreacquire, codecDirect;
+    public boolean submitHint, coveringDecoderSize, pyroWavePreacquire, codecDirect, receiveDecodePriority;
     public boolean clientRoaming, roamingMetered;
     public boolean virtualDisplay, enableYuv444, vrr;
     // Show frames at the host's frame times (HostFrameClock); replaces frame pacing.
@@ -1573,6 +1576,7 @@ public class PreferenceConfiguration {
         config.submitHint = prefs.getBoolean(SUBMIT_HINT_PREF_STRING, false);
         config.coveringDecoderSize = prefs.getBoolean(COVERING_DECODER_SIZE_PREF_STRING, false);
         config.pyroWavePreacquire = prefs.getBoolean(PYROWAVE_PREACQUIRE_PREF_STRING, false);
+        config.receiveDecodePriority = prefs.getBoolean(RECEIVE_DECODE_PRIORITY_PREF_STRING, false);
         config.codecDirect = prefs.getBoolean(CODEC_DIRECT_PREF_STRING, context.getResources().getBoolean(com.limelight.R.bool.default_codec_direct));
         config.clientRoaming = prefs.getBoolean(CLIENT_ROAMING_PREF_STRING, true);
         config.roamingMetered = prefs.getBoolean(ROAMING_METERED_PREF_STRING, false);

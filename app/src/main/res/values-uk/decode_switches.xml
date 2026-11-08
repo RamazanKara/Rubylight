@@ -8,4 +8,6 @@
     <string name="summary_pyrowave_preacquire">Бере наступний образ екрана до надходження кожного кадру PyroWave, коли рівномірність кадрів вимкнено.</string>
     <string name="title_codec_direct">Відеодані просто в декодер</string>
     <string name="summary_codec_direct">Копіює кожен кадр у декодер один раз, без проміжної копії. Лише з новим рушієм трансляції.</string>
+    <string name="title_receive_decode_priority">Пріоритет декодера під час приймання</string>
+    <string name="summary_receive_decode_priority">Новий рушій трансляції: потік, що приймає відео й передає його декодеру, працює з пріоритетом декодера.</string>
 </resources>

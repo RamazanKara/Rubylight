@@ -28,6 +28,12 @@ public final class PinGate {
     private static final long LAUNCH_MS = 3_000;
 
     private static boolean unlockedApp;
+    /**
+     * This process streams the second screen ({@code GameSecondary}, which no other app can start): only a first
+     * stream the lock let through starts it, so it asks for no PIN, for its start, Continue here, reconnects and
+     * joins alike.
+     */
+    private static boolean secondScreen;
     private static String grantUuid;
     private static long grantAt;
     /** The app-lock PIN screen that is up, if any; weak so a lost screen cannot keep the lock from coming back. */
@@ -82,6 +88,7 @@ public final class PinGate {
      */
     public static synchronized boolean needsPinForStream(Context context, String uuid) {
         PinStore store = new PinStore(context);
+        if (secondScreen) return false;
         boolean granted = grantValid(uuid, SystemClock.elapsedRealtime());
         boolean needed = streamNeeded(store.hasPin(), store.mode(), store.pcs(), uuid, unlockedApp, granted);
         if (!needed && granted) grantUuid = null;
@@ -90,6 +97,7 @@ public final class PinGate {
 
     /** The same answer without using up a grant: Continue here's press asks this, and the start after it uses the grant. */
     public static synchronized boolean streamLocked(Context context, String uuid) {
+        if (secondScreen) return false;
         PinStore store = new PinStore(context);
         return streamNeeded(store.hasPin(), store.mode(), store.pcs(), uuid, unlockedApp,
                 grantValid(uuid, SystemClock.elapsedRealtime()));
@@ -117,6 +125,13 @@ public final class PinGate {
         leftAt = -1;
     }
 
+    /** This process is the second screen's, started by a first stream the lock let through: see {@link #secondScreen}. */
+    public static synchronized void followFirstScreen() {
+        secondScreen = true;
+        unlockedApp = true;
+        leftAt = -1;
+    }
+
     /** The app-lock PIN screen has come up. */
     static synchronized void setScreen(Activity activity) {
         screen = new WeakReference<>(activity);
@@ -137,6 +152,7 @@ public final class PinGate {
     /** Test hook: forget everything the gate remembers in this process. */
     public static synchronized void resetForTests() {
         unlockedApp = false;
+        secondScreen = false;
         grantUuid = null;
         grantAt = 0;
         screen = null;
@@ -176,7 +192,7 @@ public final class PinGate {
         synchronized (PinGate.class) {
             if (started++ == 0) {
                 // Coming back to the app after it was out of sight, not after a rotation.
-                if (leftAt >= 0 && unlockedApp && store.mode() == PinStore.Mode.APP
+                if (leftAt >= 0 && unlockedApp && !secondScreen && store.mode() == PinStore.Mode.APP
                         && !withinGrace(true, leftAt, store.elapsed(), store.graceMinutes())) {
                     unlockedApp = false;
                 }

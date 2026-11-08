@@ -127,8 +127,26 @@ impl PinLock {
         lock
     }
 
+    /// The second screen's lock: open when `hand_over` is the token the first screen's process
+    /// wrote on this process's input ([`PinStore::hand_over`]), else as [`Self::open`].
+    pub fn open_second_screen(dir: &Path, hand_over: Option<&str>) -> Self {
+        let store = PinStore::new(dir, Arc::new(crate::pin_lock::SystemClock));
+        let mut gate = PinGate::new(&store);
+        match hand_over {
+            Some(token) if store.handed_over(token) => gate.hand_over(),
+            _ if !store.has_pin() => {}
+            Some(token) if !token.is_empty() => eprintln!("nightjar: second screen: the first screen's hand-over of the PIN lock is not valid (late or rewritten); the lock asks for the PIN"),
+            _ => eprintln!("nightjar: second screen: the first screen handed over no PIN lock; the lock asks for the PIN"),
+        }
+        Self::with_gate(store, gate)
+    }
+
     pub fn with_store(store: PinStore) -> Self {
         let gate = PinGate::new(&store);
+        Self::with_gate(store, gate)
+    }
+
+    fn with_gate(store: PinStore, gate: PinGate) -> Self {
         let mut lock = Self { store, gate, pad: None, page: false, focus_page: false, job: None, notice: None };
         lock.lock_app_if_needed();
         lock
@@ -154,6 +172,16 @@ impl PinLock {
     /// Waits for the lock's file to be written: Nightjar is closing.
     pub fn flush(&self) {
         self.store.flush();
+    }
+
+    /// See [`PinStore::hand_over`].
+    pub fn hand_over(&self) -> Result<Option<String>, String> {
+        self.store.hand_over()
+    }
+
+    /// See [`PinStore::end_hand_over`].
+    pub fn end_hand_over(&self) {
+        self.store.end_hand_over();
     }
 
     /// The window went out of sight, or Nightjar is closing.

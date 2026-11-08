@@ -1015,8 +1015,14 @@ public class PreferenceConfiguration {
         if (resolution == null || !resolution.matches("\\d{2,5}x\\d{2,5}")) {
             return false;
         }
-        width = getWidthFromResolutionString(resolution);
-        height = getHeightFromResolutionString(resolution);
+        int fixedWidth = getWidthFromResolutionString(resolution);
+        int fixedHeight = getHeightFromResolutionString(resolution);
+        // The sizes a host profile takes (HostStreamProfile); "00x720" or "99999x1080" is no size to stream.
+        if (fixedWidth < 64 || fixedHeight < 64 || fixedWidth > 16384 || fixedHeight > 16384) {
+            return false;
+        }
+        width = fixedWidth;
+        height = fixedHeight;
         resolutionFollowsScreen = false;
         return true;
     }

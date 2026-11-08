@@ -26,7 +26,8 @@ pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
         &["gamepad_touchpad_as_mouse"], &["disable_rumble"], &["controller_motion"], &["controller_audio"], &["background_controllers"]],
     &[&["audio"], &["play_audio_on_host"], &["microphone"], &["mic_echo_cancel"], &["mute_audio"], &["audio_passthrough"]],
     &[&["overlay", "overlay_mode"], &["overlay_position"], &["auto_reconnect"],
-        &["client_roaming"], &["roaming_metered"], &["network_grace_ms"], &["usb_forwarding"]],
+        &["client_roaming"], &["roaming_metered"], &["network_grace_ms"], &["dual_screen"],
+        &["second_screen_width", "second_screen_height"], &["usb_forwarding"]],
     &[&["console_home"], &["quick_resume"], &["language"], &["open_on_start"], &["ui_zoom"], &["high_contrast"], &["reduce_motion"],
         &["input_only_any_host"], &["check_updates"]],
     &[&["experimental_packed_444"], &["link_probe"]],
@@ -42,6 +43,11 @@ pub(super) const RESOLUTIONS: [(u32, u32); 15] = [
     (1280, 800), (1920, 1200), (2560, 1600), (3840, 2400),
     (2560, 1080), (3440, 1440), (5120, 1440),
 ];
+
+/// The Second screen resolution menu after the screen's own size: Android's
+/// `resolution_screen2_values`.
+pub(super) const SECOND_SCREEN_RESOLUTIONS: [(u32, u32); 6] =
+    [(640, 360), (854, 480), (1280, 720), (1920, 1080), (2560, 1440), (3840, 2160)];
 
 /// The Frame rate menu after Display: Android's 30-120 and common monitor rates. Custom… takes
 /// any rate in `CUSTOM_FPS`, as the stream menu's rate does.
@@ -1015,6 +1021,23 @@ impl Launcher {
                 });
             }
             rows.group(en("Fine-tuning"));
+            setting_row(ui, s, &mut rows, &["dual_screen"], "Dual screen mode", "With a second monitor, a second stream of the same game opens full screen on it. Sound, controllers and the microphone stay with the first screen. Works with PCs that support it.", |ui, s| {
+                toggle(ui, &mut s.dual_screen)
+            });
+            rows.when(s.dual_screen, "");
+            let own_size = tr("Second screen's own size");
+            setting_row(ui, s, &mut rows, &["second_screen_width", "second_screen_height"], "Second screen resolution", "The resolution of the second screen's stream, apart from the first screen's.", |ui, s| {
+                let shown = if s.second_screen_width == 0 { own_size.to_owned() } else { format!("{}x{}", s.second_screen_width, s.second_screen_height) };
+                Combo::from_id_salt("second-screen-resolution").selected_text(shown).show_ui(ui, |ui| {
+                    let mut v = (s.second_screen_width, s.second_screen_height);
+                    ui.selectable_value(&mut v, (0, 0), own_size);
+                    for (w, h) in SECOND_SCREEN_RESOLUTIONS {
+                        ui.selectable_value(&mut v, (w, h), format!("{w}x{h}"));
+                    }
+                    (s.second_screen_width, s.second_screen_height) = v;
+                }).response
+            });
+            rows.always();
             setting_row(ui, s, &mut rows, &["usb_forwarding"], "USB forwarding", "Lets you attach USB devices plugged into this computer to the PC from the stream menu. The PC must allow USB devices for this device. On Windows, a device needs the WinUSB driver.", |ui, s| {
                 toggle(ui, &mut s.usb_forwarding)
             });
@@ -1435,6 +1458,8 @@ pub(super) fn value_text(key: &str, s: &Settings, display: &Display, style: crat
         "overlay" | "overlay_mode" if s.overlay => tr(s.overlay_mode.label()).to_owned(),
         "overlay" | "overlay_mode" => tr("Off").to_owned(),
         "overlay_position" => tr(s.overlay_position.label()).to_owned(),
+        "second_screen_width" | "second_screen_height" if s.second_screen_width == 0 => tr("Second screen's own size").to_owned(),
+        "second_screen_width" | "second_screen_height" => format!("{}x{}", s.second_screen_width, s.second_screen_height),
         "network_grace_ms" => trf("{} seconds", &[&(s.network_grace_ms / 1000)]),
         "error_correction" => error_correction_name(s.error_correction),
         "language" => language_name(s.language).to_owned(),
@@ -1461,14 +1486,12 @@ pub(super) const MAIN_KEYS: [(&str, &[&str]); 8] = [
     ("streaming", &["checkbox_enable_perf_overlay", "checkbox_auto_reconnect"]),
     ("app", &["checkbox_always_dark", "list_languages", "checkbox_console_home", "checkbox_quick_resume", "pin_lock", "help", "report_problem", "check_updates_now"]),
     ("advanced", &["checkbox_rust_engine", "low_latency_decoding", "low_latency_customize", "gpu_driver", "checkbox_gpu_max_clocks", "checkbox_texture_view", "checkbox_vulkan_render"]),
-    ("debug", &["list_fec_choice", "checkbox_rate_change_bitrate", "checkbox_tell_host_wireless", "checkbox_tell_host_link_speed", "checkbox_network_priority", "checkbox_unbatched_input", "checkbox_full_range",
-        "checkbox_submit_hint", "checkbox_covering_decoder_size", "checkbox_pyrowave_preacquire", "checkbox_codec_direct",
-        "checkbox_receive_decode_priority"]),
+    ("debug", &["list_fec_choice", "checkbox_rate_change_bitrate", "checkbox_tell_host_wireless", "checkbox_tell_host_link_speed", "checkbox_network_priority", "checkbox_unbatched_input", "checkbox_full_range"]),
 ];
 
 /// Desktop rows and the Android preference each one matches. A row is main when its match is.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(super) const ANDROID_KEYS: [(&str, &str); 39] = [
+pub(super) const ANDROID_KEYS: [(&str, &str); 41] = [
     ("open_on_start", "list_open_on_start"),
     ("width", "list_resolution"), ("fps", "list_fps"), ("bitrate_kbps", "seekbar_bitrate_kbps"),
     ("adaptive_bitrate", "checkbox_auto_bitrate"), ("codec", "video_format"), ("hdr", "checkbox_enable_hdr"),
@@ -1488,6 +1511,7 @@ pub(super) const ANDROID_KEYS: [(&str, &str); 39] = [
     ("gamepad_quit_combo", "list_gamepad_quit_combo"), ("guide_hold_ms", "list_guide_menu_hold"), ("check_updates", "checkbox_check_updates"),
     ("frame_pacing", "frame_pacing"), ("mic_echo_cancel", "list_mic_echo_cancel"),
     ("pin_lock", "pin_lock"),
+    ("dual_screen", "checkbox_dual_screen"), ("second_screen_width", "list_resolution_screen2"),
 ];
 
 /// Main rows Android has no match for: the desktop's window and mouse, variable refresh, which

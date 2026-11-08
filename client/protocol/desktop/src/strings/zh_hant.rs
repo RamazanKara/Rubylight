@@ -1416,4 +1416,10 @@ sudo sysctl -w net.core.rmem_max={}", "接收緩衝區：系統只分配了所�
     ("{} cannot decode this stream, and no other decoder opens: {}", "{0} 無法解碼此串流，也沒有其他解碼器能開啟：{1}"),
     ("This device doesn’t decode {}, so Nightjar uses {}.", "此裝置無法解碼 {0}，因此 Nightjar 使用 {1}。"),
     ("Full chroma can’t run {} with this PC and device, so Nightjar uses {}.", "此電腦和裝置的全色度無法使用 {0}，因此 Nightjar 使用 {1}。"),
+    ("The second screen could not be opened.", "無法開啟第二個螢幕。"),
+    ("Dual screen mode", "雙螢幕模式"),
+    ("With a second monitor, a second stream of the same game opens full screen on it. Sound, controllers and the microphone stay with the first screen. Works with PCs that support it.", "接上第二台螢幕後，同一遊戲的第二路串流會在其上全螢幕開啟。聲音、控制器和麥克風仍屬於第一個螢幕。適用於支援此功能的電腦。"),
+    ("Second screen resolution", "第二螢幕解析度"),
+    ("The resolution of the second screen's stream, apart from the first screen's.", "第二個螢幕串流的解析度，與第一個螢幕分開設定。"),
+    ("Second screen's own size", "第二螢幕的原生尺寸"),
 ];

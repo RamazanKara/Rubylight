@@ -97,6 +97,11 @@ public final class HostCapabilities {
         PEN_BARREL_ROLL(0),
         /** Pipeline frame rates for the overlay (0x553D). */
         PIPELINE_RATES(0),
+        /**
+         * Dual screen mode (SecondScreenVersion): the host keeps a device's second stream (rlSecondScreen=1) beside
+         * its first. Any other host takes it for the first stream starting again and drops that one.
+         */
+        SECOND_SCREEN(0),
         /** PNG clipboard (native "clipboard.image"). Known only after {@link #withNativeCapabilities}. */
         IMAGE_CLIPBOARD(0),
         /** Shared folders (native "folders"). Known only after {@link #withNativeCapabilities}. */
@@ -276,14 +281,6 @@ public final class HostCapabilities {
 
     public boolean has(Feature feature) {
         return features.get(feature).isSupported();
-    }
-
-    /**
-     * The host keeps a device's second screen beside its first stream (rlSecondScreen,
-     * SecondScreenVersion). Any other host takes it for the first stream starting again and drops that.
-     */
-    public boolean secondScreen() {
-        return evidence != null && family == Family.RUBYLIGHT && evidence.secondScreenVersion >= 1;
     }
 
     public Availability availability(Feature feature) {
@@ -986,6 +983,8 @@ public final class HostCapabilities {
                     return serverInfoVersion(penBarrelRollVersion);
                 case PIPELINE_RATES:
                     return serverInfoVersion(pipelineRatesVersion);
+                case SECOND_SCREEN:
+                    return serverInfoVersion(secondScreenVersion);
                 case USB_FORWARDING:
                     return nativeFeature(usbOffered, usbPermission ? null : Reason.USB_PERMISSION);
                 case IMAGE_CLIPBOARD: {

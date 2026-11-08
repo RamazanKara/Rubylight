@@ -1416,4 +1416,10 @@ sudo sysctl -w net.core.rmem_max={}", "Tampon de réception : le système a acco
     ("{} cannot decode this stream, and no other decoder opens: {}", "{0} ne peut pas décoder ce flux, et aucun autre décodeur ne s’ouvre : {1}"),
     ("This device doesn’t decode {}, so Nightjar uses {}.", "Cet appareil ne décode pas {0}, Nightjar utilise donc {1}."),
     ("Full chroma can’t run {} with this PC and device, so Nightjar uses {}.", "La chrominance complète ne peut pas utiliser {0} avec ce PC et cet appareil, Nightjar utilise donc {1}."),
+    ("The second screen could not be opened.", "Impossible d’ouvrir le second écran."),
+    ("Dual screen mode", "Mode double écran"),
+    ("With a second monitor, a second stream of the same game opens full screen on it. Sound, controllers and the microphone stay with the first screen. Works with PCs that support it.", "Avec un second moniteur, un second stream du même jeu s’y ouvre en plein écran. Le son, les manettes et le micro restent sur le premier écran. Fonctionne avec les PC qui le prennent en charge."),
+    ("Second screen resolution", "Résolution du second écran"),
+    ("The resolution of the second screen's stream, apart from the first screen's.", "La résolution du stream du second écran, indépendante de celle du premier."),
+    ("Second screen's own size", "Taille propre du second écran"),
 ];

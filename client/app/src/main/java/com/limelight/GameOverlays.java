@@ -15,7 +15,6 @@ import android.content.ClipboardManager;
 import android.graphics.Rect;
 import android.os.Build;
 import android.os.SystemClock;
-import android.preference.PreferenceManager;
 import android.view.Display;
 import android.view.View;
 import android.widget.TextView;
@@ -104,8 +103,8 @@ final class GameOverlays {
         }
         game.prefConfig.enablePerfOverlay = !game.prefConfig.enablePerfOverlay;
         game.performanceOverlayScroll.setVisibility(game.prefConfig.enablePerfOverlay && !game.isHidingOverlays ? View.VISIBLE : View.GONE);
-        PreferenceManager.getDefaultSharedPreferences(game).edit()
-                .putBoolean("checkbox_enable_perf_overlay", game.prefConfig.enablePerfOverlay).apply();
+        boolean shown = game.prefConfig.enablePerfOverlay;
+        DualScreen.saveSettings(game, editor -> editor.putBoolean("checkbox_enable_perf_overlay", shown));
         updateHardwareMetricsPolling();
     }
 
@@ -115,8 +114,8 @@ final class GameOverlays {
 
     private void setPerformanceOverlayMode(String mode) {
         game.overlayMode = PerformanceOverlay.normalizeMode(mode);
-        PreferenceManager.getDefaultSharedPreferences(game).edit()
-                .putString("performance_overlay_mode", game.overlayMode).apply();
+        String saved = game.overlayMode;
+        DualScreen.saveSettings(game, editor -> editor.putString("performance_overlay_mode", saved));
         game.performanceOverlayScroll.scrollTo(0, 0);
         updatePerformanceOverlay();
         // The compact line leaves the host's hardware readings out; the other modes poll them.
@@ -126,8 +125,7 @@ final class GameOverlays {
     void setPerformanceOverlayPosition(com.limelight.ui.OverlayPlacement.Corner corner) {
         game.overlayCorner = corner;
         game.prefConfig.overlayPosition = corner.key;
-        PreferenceManager.getDefaultSharedPreferences(game).edit()
-                .putString("performance_overlay_position", corner.key).apply();
+        DualScreen.saveSettings(game, editor -> editor.putString("performance_overlay_position", corner.key));
         // Move it now; a hidden overlay is placed by the next layout once it shows.
         android.view.ViewGroup parent = (android.view.ViewGroup) game.performanceOverlayScroll.getParent();
         int margin = Math.round(8 * game.getResources().getDisplayMetrics().density);

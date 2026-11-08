@@ -1416,4 +1416,10 @@ sudo sysctl -w net.core.rmem_max={}", "Alma arabelleği: sistem istenen {1} KiB'
     ("{} cannot decode this stream, and no other decoder opens: {}", "{0} bu yayını çözemiyor ve başka bir kod çözücü açılmıyor: {1}"),
     ("This device doesn’t decode {}, so Nightjar uses {}.", "Bu cihaz {0} kodunu çözemiyor, bu yüzden Nightjar {1} kullanıyor."),
     ("Full chroma can’t run {} with this PC and device, so Nightjar uses {}.", "Tam renk doygunluğu bu PC ve cihazla {0} kullanamıyor, bu yüzden Nightjar {1} kullanıyor."),
+    ("The second screen could not be opened.", "İkinci ekran açılamadı."),
+    ("Dual screen mode", "Çift ekran modu"),
+    ("With a second monitor, a second stream of the same game opens full screen on it. Sound, controllers and the microphone stay with the first screen. Works with PCs that support it.", "İkinci bir monitörle aynı oyunun ikinci yayını o monitörde tam ekran açılır. Ses, kumandalar ve mikrofon ilk ekranda kalır. Bunu destekleyen PC'lerle çalışır."),
+    ("Second screen resolution", "İkinci ekran çözünürlüğü"),
+    ("The resolution of the second screen's stream, apart from the first screen's.", "İkinci ekranın yayınının çözünürlüğü, ilk ekrandan ayrı."),
+    ("Second screen's own size", "İkinci ekranın kendi boyutu"),
 ];

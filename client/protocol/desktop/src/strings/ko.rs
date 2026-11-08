@@ -1416,4 +1416,10 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("{} cannot decode this stream, and no other decoder opens: {}", "{0}(으)로 이 스트림을 디코딩할 수 없고 다른 디코더도 열리지 않습니다: {1}"),
     ("This device doesn’t decode {}, so Nightjar uses {}.", "이 기기는 {0}을(를) 디코딩하지 못해 Nightjar가 {1}을(를) 사용합니다."),
     ("Full chroma can’t run {} with this PC and device, so Nightjar uses {}.", "이 PC와 기기에서는 풀 크로마로 {0}을(를) 쓸 수 없어 Nightjar가 {1}을(를) 사용합니다."),
+    ("The second screen could not be opened.", "두 번째 화면을 열 수 없습니다."),
+    ("Dual screen mode", "듀얼 스크린 모드"),
+    ("With a second monitor, a second stream of the same game opens full screen on it. Sound, controllers and the microphone stay with the first screen. Works with PCs that support it.", "두 번째 모니터가 있으면 같은 게임의 두 번째 스트림이 그 모니터에 전체 화면으로 열립니다. 소리, 컨트롤러, 마이크는 첫 번째 화면에 남습니다. 지원하는 PC에서 작동합니다."),
+    ("Second screen resolution", "두 번째 화면 해상도"),
+    ("The resolution of the second screen's stream, apart from the first screen's.", "두 번째 화면 스트림의 해상도로, 첫 번째 화면과 별개입니다."),
+    ("Second screen's own size", "두 번째 화면의 원래 크기"),
 ];

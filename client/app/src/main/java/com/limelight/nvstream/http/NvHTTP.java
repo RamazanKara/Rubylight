@@ -105,6 +105,12 @@ public class NvHTTP {
     static final String USER_AGENT = "Nightjar/" + BuildConfig.VERSION_NAME;
     // Asks for mid-stream rate changes (control message 0x553C); rubylight_protocol::rate_change::LAUNCH_PARAMETER.
     public static final String RATE_CHANGE_LAUNCH_PARAMETER = "rlRateChange";
+    // On every request of a device's second screen (Dual screen mode); nightjar_core's SECOND_SCREEN_PARAMETER.
+    public static final String SECOND_SCREEN_PARAMETER = "rlSecondScreen";
+
+    // Set in the second screen's own process: every request there is that stream's, from its launch and
+    // resume to bitrate, the PC's bitrate controller, metrics and cancel, so the host keeps it apart.
+    private static volatile boolean secondScreen;
 
     // Print URL and content to logcat on debug builds
     private static boolean verbose = BuildConfig.DEBUG;
@@ -671,12 +677,24 @@ public class NvHTTP {
         }
     }
 
-    HttpUrl getCompleteUrl(HttpUrl baseUrl, String path, String query) {
-        HttpUrl.Builder builder = baseUrl.newBuilder()
-                .addPathSegments(path)
-                .query(query)
-                .addQueryParameter("uniqueid", uniqueId)
+    /** Marks every request of this process as the second screen's; see {@link #SECOND_SCREEN_PARAMETER}. */
+    public static void setSecondScreen(boolean second) {
+        secondScreen = second;
+    }
+
+    private HttpUrl.Builder addClient(HttpUrl.Builder builder) {
+        builder.addQueryParameter("uniqueid", uniqueId)
                 .addQueryParameter("uuid", UUID.randomUUID().toString());
+        if (secondScreen) {
+            builder.addQueryParameter(SECOND_SCREEN_PARAMETER, "1");
+        }
+        return builder;
+    }
+
+    HttpUrl getCompleteUrl(HttpUrl baseUrl, String path, String query) {
+        HttpUrl.Builder builder = addClient(baseUrl.newBuilder()
+                .addPathSegments(path)
+                .query(query));
         if (path.equals("pair")) {
             // Pre-encoding the model turns spaces into literal plus signs on the host.
             builder.addQueryParameter("devicename", Build.MODEL);
@@ -1588,9 +1606,7 @@ public class NvHTTP {
             (asksClipboardSync(context) ? "&" + com.limelight.utils.ClipboardSync.LAUNCH_PARAMETER + "=1" : "") +
             // No host offers rate changes before the launch and every host ignores a parameter it
             // does not know, so this goes to any host; the stream's DESCRIBE says whether it took it.
-            (context.rateChange ? "&" + RATE_CHANGE_LAUNCH_PARAMETER + "=1" : "") +
-            // Dual screen mode's second stream: a Rubylight host keeps it beside this device's first.
-            (context.streamConfig.getSecondScreen() ? "&rlSecondScreen=1" : "");
+            (context.rateChange ? "&" + RATE_CHANGE_LAUNCH_PARAMETER + "=1" : "");
     }
 
     public boolean launchApp(ConnectionContext context, String verb, int appId, boolean enableHdr) throws IOException, XmlPullParserException {
@@ -1752,11 +1768,13 @@ public class NvHTTP {
         return hostCall(client, method, path, encodedQuery, body, cancel);
     }
 
+    HttpUrl getHostCallUrl(HttpUrl httpsUrl, String path, String encodedQuery) {
+        return addClient(httpsUrl.newBuilder().addPathSegments(path).encodedQuery(encodedQuery)).build();
+    }
+
     private HostCall hostCall(OkHttpClient client, String method, String path, String encodedQuery, RequestBody body,
                               TransferCancel cancel) throws IOException {
-        HttpUrl url = getHttpsUrl(true).newBuilder().addPathSegments(path).encodedQuery(encodedQuery)
-                .addQueryParameter("uniqueid", uniqueId).addQueryParameter("uuid", UUID.randomUUID().toString())
-                .build();
+        HttpUrl url = getHostCallUrl(getHttpsUrl(true), path, encodedQuery);
         Request.Builder builder = new Request.Builder().url(url).method(method, body);
         if (body != null) {
             builder.header("Expect", "100-continue");

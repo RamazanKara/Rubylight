@@ -1,5 +1,6 @@
 """Regenerate the source-backed tables in docs/settings.md using only the standard library."""
 
+import ast
 from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
@@ -112,7 +113,6 @@ ADVICE = {
     "checkbox_mute_audio": "Enable to stream without sound on this device, for example while the PC plays it (see Play audio on the host PC) or the device sits in a quiet place. Audio passthrough is not asked for. Applies to the next stream.",
     "checkbox_dual_screen": "Enable on a device with a second screen to stream the same game to both: the second screen gets a stream of its own at its own resolution, while sound, controllers and microphone stay with the first and a touch mode change on either screen applies to both. The second stream is the same device as the first, so the PC pairs once. It needs a Rubylight host that supports it, which decides which of its screens each stream shows. Applies to the next stream.",
     "list_resolution_screen2": "The resolution of the second screen's stream in Dual screen mode, apart from the first screen's: the second screen's own full size, or a standard size. Applies to the next stream.",
-    "checkbox_mute_audio": "Enable to stream without sound on this device, for example while the PC plays it (see Play audio on the host PC) or the device sits in a quiet place. Applies to the next stream.",
     "checkbox_enable_mic": "Enable to talk in games and chat apps on the PC. Asks for microphone access; if it is not allowed, the setting stays off. The PC hears it as its streaming microphone. Mute it from the stream menu; the overlay shows whether it is sending.",
     "checkbox_mic_button": "Leave on for a round button on the stream that mutes and unmutes with one tap; drag it anywhere and it stays there. Shown only while the PC takes the microphone. Turn off to mute from the stream menu only; the menu's Input section can show or hide it during a stream.",
     "list_mic_echo_cancel": "Leave on Automatic: it cancels echo with the speaker and turns off with headphones or a Bluetooth headset, following a switch during the stream. Pick On if the PC hears its own game sound through a headset.",
@@ -154,6 +154,11 @@ ADVICE = {
     "checkbox_texture_view": "Try for black or flickering video or misplaced output. Adds composition work and is disabled for HDR, 10-bit color (SDR) and PyroWave.",
     "checkbox_reduce_refresh_rate": "Enable to allow a lower screen refresh for power savings.",
     "checkbox_full_range": "Use when the host and display both send full-range color, for full shadow and highlight detail.",
+    "checkbox_submit_hint": "Off by default, under Debug's More rows. Also reports the thread that hands frames to the decoder to Android's performance hints. It measured no faster on our devices; turn it on to compare.",
+    "checkbox_covering_decoder_size": "Off by default, under Debug's More rows. Sizes the decoder up front for the largest picture a fold or turn can bring, to save the decoder restart and key frame on the first one. On foldables whose two screens are separate displays it changes nothing.",
+    "checkbox_pyrowave_preacquire": "Off by default, under Debug's More rows. PyroWave takes the next screen image before the frame arrives. It measured no faster on our devices; turn it on to compare.",
+    "checkbox_codec_direct": "On by default, under Debug's More rows. With the New streaming engine, H.264, HEVC and AV1 frames go into the decoder's buffer in place, one copy fewer. Turn it off if video stops or shows errors on this device.",
+    "checkbox_receive_decode_priority": "Off by default, under Debug's More rows. With Prioritize stream traffic on and the New streaming engine feeding the decoder directly, gives the receive thread the decoder's priority. It measured slower under load on our devices; turn it on to compare.",
     "checkbox_usb_driver": "Leave on for built-in Xbox USB support. Android requests USB access when needed.",
     "checkbox_usb_dualsense": "Enable for direct USB DualSense/Edge input, feedback and adaptive triggers. Accept the explanation and Android USB permission during a stream; Bluetooth retains Android's input path.",
     "checkbox_usb_dualsense_haptics": "Enable alongside the USB DualSense driver for native waveform feedback. Hosts that support it (Rubylight) also forward controller speaker, headset and microphone audio. Microphone streaming needs its separate setting and Android permission; the controller mute button follows the stream mute. Reconnect after changing this option. USB only.",
@@ -205,6 +210,12 @@ def generate():
     profiles = next(node for node in overview if node.get(ANDROID + "key") == "stream_profiles")
     if set(nodes) | {"stream_profiles"} != set(ADVICE):
         raise ValueError(f"Update usage advice: missing={set(nodes) - set(ADVICE)}, removed={set(ADVICE) - set(nodes) - {'stream_profiles'}}")
+    # A key written twice keeps only its last advice, silently.
+    advice = next(node.value for node in ast.parse(Path(__file__).read_text(encoding="utf-8")).body
+                  if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) == "ADVICE")
+    keys = [key.value for key in advice.keys]
+    if len(keys) != len(set(keys)):
+        raise ValueError(f"Usage advice written twice: {sorted({key for key in keys if keys.count(key) > 1})}")
     categories = {category.get(ANDROID + "key"): category for category in preferences}
     tiers = ET.parse(RES / "values/settings_tiers.xml").getroot()
     main = {item.text for tier in tiers for item in tier}

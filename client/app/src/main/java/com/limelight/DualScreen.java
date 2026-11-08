@@ -1,21 +1,27 @@
 package com.limelight;
 
-import android.annotation.SuppressLint;
 import android.app.ActivityOptions;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.hardware.display.DisplayManager;
 import android.os.Build;
 import android.os.Process;
+import android.preference.PreferenceManager;
 import android.view.Display;
 import android.widget.Toast;
 
+import androidx.core.content.ContextCompat;
+
 import com.limelight.computers.HostCapabilityCache;
+import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.utils.LaunchSource;
+
+import java.util.UUID;
 
 
 
@@ -31,6 +37,8 @@ import com.limelight.utils.LaunchSource;
 final class DualScreen {
     /** On the second stream's intent. */
     static final String EXTRA_SECOND_SCREEN = "nightjar.secondScreen";
+    /** On the second stream's intent and the first's ACTION_END: which first stream the second follows. */
+    static final String EXTRA_FIRST_STREAM = "nightjar.dualScreenFirst";
     /** The first stream's end, for the second to follow. Sent to this app only. */
     static final String ACTION_END = "com.limelight.DUAL_SCREEN_END";
     /** The touch mode changed in one stream, for the other to follow. Sent to this app only. */
@@ -42,6 +50,32 @@ final class DualScreen {
 
     static boolean isSecond(Intent intent) {
         return intent != null && intent.getBooleanExtra(EXTRA_SECOND_SCREEN, false);
+    }
+
+    /** A settings change made from a stream (its menu, its touch mode, its overlay). */
+    interface SettingsChange {
+        void write(SharedPreferences.Editor editor);
+    }
+
+    /**
+     * Saves a change a stream made to its settings, unless the stream is the second screen's: its process
+     * holds the settings as they were when it started, so a write from it would undo whatever the first
+     * screen changed since. The second screen keeps its change in memory for its own stream. Every
+     * settings write from a stream goes through here. Returns whether the change was saved.
+     */
+    static boolean saveSettings(SharedPreferences prefs, Intent intent, SettingsChange change) {
+        if (isSecond(intent)) {
+            return false;
+        }
+        SharedPreferences.Editor editor = prefs.edit();
+        change.write(editor);
+        editor.apply();
+        return true;
+    }
+
+    /** {@link #saveSettings(SharedPreferences, Intent, SettingsChange)} on the app's settings. */
+    static boolean saveSettings(Game game, SettingsChange change) {
+        return saveSettings(PreferenceManager.getDefaultSharedPreferences(game), game.getIntent(), change);
     }
 
     /**
@@ -92,7 +126,8 @@ final class DualScreen {
         // SecondScreenVersion of serverinfo, which Rubylight sends from the release that reads
         // rlSecondScreen) does. Any other host takes it for the first stream starting again and
         // drops that.
-        if (!HostCapabilityCache.load(game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID)).secondScreen()) {
+        if (!HostCapabilityCache.load(game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID))
+                .has(HostCapabilities.Feature.SECOND_SCREEN)) {
             LimeLog.info("Dual screen: this host does not stream two screens to one device");
             return;
         }
@@ -113,10 +148,12 @@ final class DualScreen {
             return;
         }
         game.dualScreenStarted = true;
+        game.dualScreenFirst = UUID.randomUUID().toString();
         link(game);
         Intent intent = new Intent(game.getIntent()).setClass(game, GameSecondary.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 .putExtra(EXTRA_SECOND_SCREEN, true)
+                .putExtra(EXTRA_FIRST_STREAM, game.dualScreenFirst)
                 .putExtra(Game.EXTRA_APP_ID, appId)
                 .putExtra(Game.EXTRA_APP_UUID, appUuid);
         intent.removeExtra(Game.EXTRA_REPLACED_APP_NAME);
@@ -140,7 +177,10 @@ final class DualScreen {
         }
     }
 
-    /** The first stream is over: the second goes with it. */
+    /**
+     * The first stream is over: the second goes with it. That is any end of the first's activity, not
+     * only a finish: a first destroyed and made again starts a stream, and a second, of its own.
+     */
     static void end(Game game) {
         if (game.dualScreenLink != null) {
             try {
@@ -150,9 +190,20 @@ final class DualScreen {
             }
             game.dualScreenLink = null;
         }
-        if (game.dualScreenStarted && !isSecond(game.getIntent()) && game.isFinishing()) {
-            game.sendBroadcast(new Intent(ACTION_END).setPackage(game.getPackageName()));
+        if (game.dualScreenStarted && !isSecond(game.getIntent())) {
+            game.sendBroadcast(new Intent(ACTION_END).setPackage(game.getPackageName())
+                    .putExtra(EXTRA_FIRST_STREAM, game.dualScreenFirst));
         }
+    }
+
+    /**
+     * Whether the second stream of {@code second} follows the first stream's {@code end}. Only the end
+     * of its own first does: a first that reconnects or switches games ends while its successor may
+     * already have started the second again, and that one must stay.
+     */
+    static boolean followsEnd(Intent second, Intent end) {
+        String first = second.getStringExtra(EXTRA_FIRST_STREAM);
+        return isSecond(second) && first != null && first.equals(end.getStringExtra(EXTRA_FIRST_STREAM));
     }
 
     /**
@@ -160,7 +211,6 @@ final class DualScreen {
      * the other's touch mode. Both streams are Game activities in processes of their own, so they talk by
      * broadcasts to this app.
      */
-    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     static void link(Game game) {
         if (game.dualScreenLink != null) {
             return;
@@ -169,7 +219,7 @@ final class DualScreen {
             @Override
             public void onReceive(Context context, Intent intent) {
                 if (ACTION_END.equals(intent.getAction())) {
-                    if (isSecond(game.getIntent())) {
+                    if (followsEnd(game.getIntent(), intent)) {
                         game.finish();
                     }
                     return;
@@ -184,11 +234,9 @@ final class DualScreen {
         IntentFilter filter = new IntentFilter();
         filter.addAction(ACTION_END);
         filter.addAction(ACTION_TOUCH_MODE);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            game.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            game.registerReceiver(receiver, filter);
-        }
+        // Not exported on every Android version: below 13 ContextCompat guards it with a permission
+        // only this app holds, so no other app can end a stream or change its touch mode.
+        ContextCompat.registerReceiver(game, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
         game.dualScreenLink = receiver;
     }
 

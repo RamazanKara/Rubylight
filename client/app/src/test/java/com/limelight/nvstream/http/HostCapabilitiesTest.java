@@ -591,20 +591,21 @@ public class HostCapabilitiesTest {
     }
 
     @Test
-    public void aSecondScreenOfOneDeviceNeedsSecondScreenVersionFromRubylight() {
+    public void aSecondScreenOfOneDeviceNeedsSecondScreenVersion() {
         String host = "<RustHostVersion>3.9.0</RustHostVersion>";
         // Older hosts don't send it and end the first stream when the second starts.
         for (String version : new String[] {"", "<SecondScreenVersion>0</SecondScreenVersion>",
                 "<SecondScreenVersion>x</SecondScreenVersion>"}) {
-            assertFalse(version, caps(host + version).secondScreen());
+            assertEquals(version, Availability.NEVER, caps(host + version).availability(Feature.SECOND_SCREEN));
         }
-        assertTrue(caps(host + "<SecondScreenVersion>1</SecondScreenVersion>").secondScreen());
-        // Only a Rubylight host reads it, and a device that never read serverinfo does not know.
-        assertFalse(caps("<SecondScreenVersion>1</SecondScreenVersion>").secondScreen());
-        assertFalse(HostCapabilities.UNKNOWN.secondScreen());
+        assertTrue(caps(host + "<SecondScreenVersion>1</SecondScreenVersion>").has(Feature.SECOND_SCREEN));
+        // The field decides, not the host's name; a device that never read serverinfo does not know.
+        assertTrue(caps("<SecondScreenVersion>1</SecondScreenVersion>").has(Feature.SECOND_SCREEN));
+        assertFalse(caps("<appversion>7.1.431.-1</appversion>").has(Feature.SECOND_SCREEN));
+        assertFalse(HostCapabilities.UNKNOWN.has(Feature.SECOND_SCREEN));
         // It survives the cache the second stream's process reads.
         assertTrue(HostCapabilities.fromJson(
-                caps(host + "<SecondScreenVersion>1</SecondScreenVersion>").toJson()).secondScreen());
+                caps(host + "<SecondScreenVersion>1</SecondScreenVersion>").toJson()).has(Feature.SECOND_SCREEN));
     }
 
     @Test

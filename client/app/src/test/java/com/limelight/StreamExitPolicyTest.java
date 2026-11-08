@@ -15,17 +15,21 @@ import static org.junit.Assert.*;
 
 public class StreamExitPolicyTest {
     @Test public void leavingQuitsOnlyAGameThePlayerChoseToQuit() {
-        assertTrue(StreamExitPolicy.quitsOnLeave(true, NvApp.Role.STREAM, true));
-        assertFalse(StreamExitPolicy.quitsOnLeave(false, NvApp.Role.STREAM, true));
+        assertTrue(StreamExitPolicy.quitsOnLeave(true, NvApp.Role.STREAM, true, false));
+        assertFalse(StreamExitPolicy.quitsOnLeave(false, NvApp.Role.STREAM, true, false));
     }
 
     @Test public void aStreamThatIsNoLongerConnectedLeavesWithoutQuitting() {
-        assertFalse(StreamExitPolicy.quitsOnLeave(true, NvApp.Role.STREAM, false));
+        assertFalse(StreamExitPolicy.quitsOnLeave(true, NvApp.Role.STREAM, false, false));
     }
 
     @Test public void remoteMonitorAndInputSessionsAreNeverQuitOnLeave() {
-        assertFalse(StreamExitPolicy.quitsOnLeave(true, NvApp.Role.REMOTE_MONITOR, true));
-        assertFalse(StreamExitPolicy.quitsOnLeave(true, NvApp.Role.INPUT_ONLY, true));
+        assertFalse(StreamExitPolicy.quitsOnLeave(true, NvApp.Role.REMOTE_MONITOR, true, false));
+        assertFalse(StreamExitPolicy.quitsOnLeave(true, NvApp.Role.INPUT_ONLY, true, false));
+    }
+
+    @Test public void leavingTheSecondScreenNeverQuitsTheGameOfTheFirst() {
+        assertFalse(StreamExitPolicy.quitsOnLeave(true, NvApp.Role.STREAM, true, true));
     }
 
     @Test public void theHostEndingTheStreamNeverNeedsADialog() {

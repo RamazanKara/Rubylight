@@ -1425,7 +1425,6 @@ sudo sysctl -w net.core.rmem_max={}", "Буфер приёма: система �
     ("Second screen's own size", "Собственный размер второго экрана"),
     ("Fedora's Mesa leaves out H.264 and HEVC decoding. Install mesa-va-drivers-freeworld from RPM Fusion, or use the Nightjar Flatpak.", "В Mesa из Fedora нет декодирования H.264 и HEVC. Установите mesa-va-drivers-freeworld из RPM Fusion или используйте Flatpak Nightjar."),
     ("This system's VA-API driver decodes neither H.264 nor HEVC. Install your distribution's full Mesa VA drivers, or use the Nightjar Flatpak.", "Драйвер VA-API этой системы не декодирует ни H.264, ни HEVC. Установите полные драйверы VA Mesa вашего дистрибутива или используйте Flatpak Nightjar."),
-    ("This NVIDIA driver has no Vulkan video decoding, so each picture is copied through memory. A newer NVIDIA driver adds it.", "Этот драйвер NVIDIA не декодирует через Vulkan Video, поэтому каждый кадр копируется через память. В более новом драйвере NVIDIA это есть."),
     ("The Flatpak lacks {}, the NVIDIA driver it needs. Run flatpak update to install it.", "Во Flatpak нет {}, нужного ему драйвера NVIDIA. Выполните flatpak update, чтобы установить его."),
     ("Full chroma needs a {0} picture, larger than this decoder's {1}, so the stream is 4:2:0. A lower resolution keeps full chroma.", "Полной цветности нужен кадр {0}, больше предела {1} этого декодера, поэтому поток идёт в 4:2:0. При меньшем разрешении полная цветность сохраняется."),
 ];

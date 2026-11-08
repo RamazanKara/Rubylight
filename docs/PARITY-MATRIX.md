@@ -87,6 +87,12 @@ Linux decodes with VA-API, then Vulkan video, then V4L2 M2M, then NVDEC. Vulkan 
 | Intel (Mesa ANV) | Tested | Pictures match software decoding through the presenter (`stream/vulkan_tests_unix.rs`: HEVC 8- and 10-bit, both ranges, HLG) on the NUC's Iris Plus 655; a 45 s HEVC 1080p60 stream at 20 Mbps (2026-11-01) opened `hevc vulkan`, showed 60 fps with no dropped frames or decoder errors, and took 2.7 ms median and 3.6 ms p95 from receive to present (VA-API with a copy through memory on the same NUC: 8.0 and 14.8 ms). Mesa 25.0 offers it only with `ANV_VIDEO_DECODE=1`. |
 | NVIDIA | Experimental | The same code path; no NVIDIA GPU under Linux to run it on. The app shows no Experimental label. |
 
+Hardware pictures reach the GPU renderer without a copy through system memory on these paths too:
+
+| Path | Status | Evidence |
+| --- | --- | --- |
+| NVDEC copied into Vulkan by CUDA | Experimental | `vulkan_video::CudaMap`, FFmpeg's CUDA to Vulkan transfer (mpv's hwdec_cuda_vk approach) into exportable images that the presenter copies like Vulkan video's. Unit tests cover the extension plan, the frames setup and the fallback wording; unverified on hardware (no NVIDIA GPU under Linux). A failed copy logs the reason and goes through memory. |
+
 ## Rust streaming engine
 
 Nightjar ships two streaming engines. The Rust engine (`nightjar-core` through `libnightjar_core.so`) is the default since 2026-10-23: Settings → Advanced → Diagnostics → New streaming engine is on. Turning it off selects the C engine (moonlight-common-c with Nightjar's patches). Each stream picks one: the Rust engine runs only when the setting is on, the library loads and the host passes `RustBridge.fallbackReason`. Otherwise the stream runs on the C engine, and the stream overlays and the problem report say why ("Streaming engine: C (moonlight-common-c), Rust engine requested but unavailable: ..."). The Rust column below is what the code and its tests show; "device" means checked on a phone, which is the open part. Details of the Java and Rust split are in [internal/RUST_CORE.md](../internal/RUST_CORE.md).

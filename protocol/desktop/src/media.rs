@@ -193,7 +193,8 @@ pub enum Hardware {
     /// null, which does not open), its pictures drawn without a copy to memory. Linux only.
     #[cfg_attr(not(unix), allow(dead_code))]
     Vulkan(*mut c_void),
-    /// NVDEC, with CUDA frames copied to memory for the presenter.
+    /// NVDEC, with CUDA frames copied into the GPU renderer's Vulkan images (`map_to_vulkan`), else
+    /// to memory for the presenter.
     Cuda,
     /// The V4L2 memory-to-memory decoders of ARM handhelds and boards (H.264 and HEVC).
     V4l2m2m,
@@ -540,6 +541,9 @@ pub struct VideoDecoder {
     /// VAAPI pictures go to the GPU renderer mapped into Vulkan images (`map_to_vulkan`).
     #[cfg(unix)]
     vulkan_map: Option<crate::vulkan_video::VaapiMap>,
+    /// NVDEC pictures go to the GPU renderer copied by CUDA into Vulkan images (`map_to_vulkan`).
+    #[cfg(unix)]
+    cuda_map: Option<crate::vulkan_video::CudaMap>,
     /// The empty frame of the last `receive` that brought no picture, for the next one: each
     /// decoded frame ends with such a call, so this saves an allocation per frame. Pictures
     /// themselves go to the presenter and are freed there.
@@ -719,6 +723,8 @@ impl VideoDecoder {
                 vaapi_on_renderer: Err("VAAPI was not asked to open on the renderer's GPU".into()),
                 #[cfg(unix)]
                 vulkan_map: None,
+                #[cfg(unix)]
+                cuda_map: None,
                 spare: None,
                 refused: false,
                 told: false,
@@ -905,11 +911,12 @@ impl VideoDecoder {
         }
     }
 
-    /// Whether VAAPI pictures still go to the GPU renderer mapped into Vulkan (`map_to_vulkan`): a
-    /// failed import in `receive` drops the map for the rest of the stream.
+    /// Whether VAAPI or NVDEC pictures still go to the GPU renderer as Vulkan images
+    /// (`map_to_vulkan`): a failed import or copy in `receive` drops the map for the rest of the
+    /// stream.
     #[cfg(unix)]
     pub fn vulkan_mapped(&self) -> bool {
-        self.vulkan_map.is_some()
+        self.vulkan_map.is_some() || self.cuda_map.is_some()
     }
 
     #[cfg(not(unix))]
@@ -922,9 +929,25 @@ impl VideoDecoder {
     /// uploaded at 4K100 10-bit), unless `NIGHTJAR_VAAPI_VULKAN_MAP` is 0. Says which in the log,
     /// with the reason when they keep going through memory, and returns whether they are mapped
     /// (`vulkan_mapped` after a failed import says they no longer are).
-    /// Only a VAAPI decoder on Linux.
+    /// An NVDEC decoder's pictures are copied by CUDA into Vulkan images of that device instead
+    /// (`vulkan_video::CudaMap`), where its device was made with the interop extensions.
+    /// Only a VAAPI or NVDEC decoder on Linux.
     #[cfg(unix)]
     pub fn map_to_vulkan(&mut self, gpu: *mut c_void) -> bool {
+        if self.hardware == Hardware::Cuda {
+            // SAFETY: As below.
+            return match unsafe { crate::vulkan_video::CudaMap::new(gpu.cast()) } {
+                Ok(map) => {
+                    eprintln!("nightjar: NVDEC pictures go to the GPU renderer as Vulkan images, copied by CUDA on the GPU");
+                    self.cuda_map = Some(map);
+                    true
+                }
+                Err(why) => {
+                    eprintln!("nightjar: NVDEC pictures go through memory to the GPU renderer: {why}");
+                    false
+                }
+            };
+        }
         if self.hardware != Hardware::Vaapi {
             return false;
         }
@@ -951,6 +974,7 @@ impl VideoDecoder {
             Hardware::Vaapi if self.dmabuf.is_some() => "imported as DMA-BUFs",
             Hardware::Vulkan(_) => "Vulkan images on the renderer's device",
             Hardware::D3d11(_) => "D3D11 textures on the renderer's device",
+            Hardware::Cuda if self.cuda_map.is_some() => "copied by CUDA into the renderer's Vulkan images",
             Hardware::Cuda => "copied out of CUDA memory",
             Hardware::None => "decoded in memory",
             _ => "through memory",
@@ -1098,6 +1122,26 @@ impl VideoDecoder {
                 return frame.map_to_memory().map_or(Received::Error, Received::Frame);
             }
             if format == AV_PIX_FMT_CUDA {
+                #[cfg(unix)]
+                if let Some(map) = self.cuda_map.as_mut() {
+                    let Some(target) = NonNull::new(av_frame_alloc()) else {
+                        return Received::Error;
+                    };
+                    let copied = Frame::new(target);
+                    match map.copy(raw.as_ptr(), target.as_ptr()) {
+                        Ok(()) => {
+                            // The copy is queued on the decoder's CUDA stream, ahead of any later
+                            // use of the CUDA picture; the decoded frame is empty again.
+                            av_frame_unref(raw.as_ptr());
+                            self.spare = Some(frame);
+                            return Received::Frame(copied);
+                        }
+                        Err(why) => {
+                            eprintln!("nightjar: NVDEC pictures go through memory to the GPU renderer from now on: {why}");
+                            self.cuda_map = None;
+                        }
+                    }
+                }
                 // NVDEC's pictures are in CUDA memory, which only CUDA itself can read: copied out.
                 let Some(memory) = NonNull::new(av_frame_alloc()) else {
                     return Received::Error;

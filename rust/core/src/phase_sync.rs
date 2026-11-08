@@ -20,6 +20,17 @@ pub struct PhaseSync {
     pictures: Option<i64>,
     /// Frames in a row whose source disagreed with `pictures`.
     votes: u32,
+    /// The source presents at the stream rate or slower ([`Self::set_source`]), so a frame
+    /// the lock holds can only age.
+    at_rate: bool,
+    /// Frames in a row whose source disagreed with `at_rate`.
+    at_rate_votes: u32,
+    /// The lock holds frames of such a source anyway (`phase_lock_hold_at_stream_rate`).
+    hold_at_rate: bool,
+    /// The last [`Self::standing_aside`] state reported, for logging a change once.
+    aside_reported: Option<bool>,
+    /// [`Self::interval`] stood aside on its last call.
+    aside: bool,
 }
 
 impl PhaseSync {
@@ -29,6 +40,9 @@ impl PhaseSync {
     const LOG_PERIOD: Duration = Duration::from_secs(10);
     /// Frames in a row a changed source takes to change how frames move.
     const SOURCE_FRAMES: u32 = 30;
+    /// Frames in a row a source that left the stream rate takes to bring the lock back, so a
+    /// game or desktop near the threshold does not restart the lock again and again.
+    const LEAVE_RATE_FRAMES: u32 = 4 * Self::SOURCE_FRAMES;
 
     /// Applies a report payload. Returns the report, or `None` when it is malformed.
     pub fn on_payload(&mut self, now: Instant, payload: &[u8]) -> Option<Report> {
@@ -85,6 +99,51 @@ impl PhaseSync {
         }
         self.lock
             .set_step(self.pictures.map_or(0, |pictures| nominal / pictures));
+        // A mean within 1/64 of a stream interval or longer: no more pictures than frames, so
+        // the host has no newer picture to wait for, as with a game capped at the stream rate
+        // (its mean reads the cap to a few ppm) or slower. Not the median: the capture reads a
+        // capped game's median fast (8.0 ms at 120 fps, or 13.9 ms for 60 fps on a 144 Hz
+        // desktop, which delivers its pictures 13.9 and 20.8 ms apart), and reads a 125-137 fps
+        // game at 120 fps, whose spare pictures let the lock take a newer one, as slow as that.
+        let at_rate = match (picture.map(ns), mean.map(ns)) {
+            (Some(picture), Some(mean)) => picture > 0 && mean * 64 >= nominal * 63,
+            _ => false,
+        };
+        if at_rate == self.at_rate {
+            self.at_rate_votes = 0;
+        } else {
+            self.at_rate_votes += 1;
+            let needed = if at_rate {
+                Self::SOURCE_FRAMES
+            } else {
+                Self::LEAVE_RATE_FRAMES
+            };
+            if self.at_rate_votes >= needed {
+                self.at_rate = at_rate;
+                self.at_rate_votes = 0;
+            }
+        }
+    }
+
+    /// Keep holding frames of a source at the stream rate (`phase_lock_hold_at_stream_rate`),
+    /// as the lock did before it stood aside for them.
+    pub fn set_hold_at_rate(&mut self, hold: bool) {
+        self.hold_at_rate = hold;
+    }
+
+    /// True while the lock stands aside for a source at the stream rate or slower
+    /// ([`Self::interval`]).
+    pub fn standing_aside(&self) -> bool {
+        self.at_rate && !self.hold_at_rate && self.lock.locked()
+    }
+
+    /// The new [`Self::standing_aside`] state when it changed since the last call, for logging.
+    pub fn aside_changed(&mut self) -> Option<bool> {
+        let aside = self.standing_aside();
+        (self.aside_reported != Some(aside)).then(|| {
+            self.aside_reported = Some(aside);
+            aside
+        })
     }
 
     /// Interval from the frame captured now to the next one while locked: a whole number
@@ -93,8 +152,28 @@ impl PhaseSync {
     /// untouched, and `None` when the stream rate is not a whole number of client
     /// refreshes (120 fps to a 60 Hz phone, 90 fps to 120 Hz), so the rate the user chose
     /// stays. Call once per frame.
+    ///
+    /// `None` as well while frames are claimed as they arrive from a source at the stream rate
+    /// or slower: the host cannot take such a frame earlier, only hold it, and the client's
+    /// refresh drifts against the game's clock, so the hold grew until the game skipped a
+    /// frame. A Shield TV streaming a game capped at 60 fps held frames up to 12 ms, and the
+    /// game's present to the TV's render took 76-79 ms at the median while it held against
+    /// 68 ms while it didn't, with half the display gaps (0.03-0.18% of frames against
+    /// 0.07-0.33%). Claimed as it arrives, such a frame waits at the client instead, for the
+    /// same refresh at best.
+    ///
+    /// The lock keeps taking reports while it stands aside, and its correction follows a
+    /// phase error it no longer steers (to its clamp, a 1% rate error, within seconds): when
+    /// it steers again it starts over, locking on the next report.
     pub fn interval(&mut self, now: Instant, nominal: Duration) -> Option<Duration> {
         self.expire(now);
+        let aside = self.standing_aside();
+        if std::mem::replace(&mut self.aside, aside) && !aside {
+            self.lock.reset();
+        }
+        if aside {
+            return None;
+        }
         let client_ns = self.lock.period_ns().filter(|&period| period > 0)?;
         let nominal_ns = i64::try_from(nominal.as_nanos()).unwrap_or(i64::MAX);
         // Client refreshes per stream frame: 2 for 60 fps on a 120 Hz phone.
@@ -116,6 +195,16 @@ impl PhaseSync {
         self.logged_at = None;
         self.pictures = None;
         self.votes = 0;
+        self.at_rate = false;
+        self.at_rate_votes = 0;
+        self.aside_reported = None;
+        self.aside = false;
+    }
+
+    /// True while the client's reports keep arriving, locked or about to lock again.
+    pub fn reporting(&mut self, now: Instant) -> bool {
+        self.expire(now);
+        self.last_report.is_some()
     }
 
     /// True about once every ten seconds while locked, for logging the applied interval.
@@ -205,6 +294,100 @@ mod tests {
     }
 
     #[test]
+    fn a_game_capped_at_the_stream_rate_is_claimed_as_it_arrives() {
+        // A Shield TV at 60 Hz, a game capped at 60 fps by RTSS: the lock held its frames for
+        // the client's refresh, up to 12 ms as the clocks drifted, and the game's present to
+        // the TV's render took 8-11 ms longer at the median while it held.
+        let now = Instant::now();
+        let sixty = Duration::from_nanos(SIXTY);
+        // Frames a refresh early at the client: the plain lock would hold them.
+        let early = (SIXTY / 2) as i32;
+        let capped = |frames: usize, hold: bool, picture: u64, mean: u64| {
+            let mut sync = PhaseSync::default();
+            sync.set_hold_at_rate(hold);
+            let (picture, mean) = (Duration::from_nanos(picture), Duration::from_nanos(mean));
+            for _ in 0..frames {
+                sync.set_source(Some(picture), Some(mean), sixty);
+            }
+            sync.on_payload(now, &report(SIXTY as u32, early));
+            sync
+        };
+        let mut sync = capped(30, false, SIXTY, SIXTY);
+        assert!(sync.standing_aside());
+        assert_eq!(sync.interval(now, sixty), None);
+        assert_eq!(sync.aside_changed(), Some(true));
+        assert_eq!(sync.aside_changed(), None);
+        // A slower game too (50 fps at 60), one whose median the capture reads fast, and one
+        // on a 144 Hz desktop (pictures 13.9 and 20.8 ms apart).
+        for (picture, mean) in [
+            (20_000_000, 20_000_000),
+            (SIXTY * 15 / 16, SIXTY),
+            (13_888_889, SIXTY),
+        ] {
+            assert_eq!(capped(30, false, picture, mean).interval(now, sixty), None);
+        }
+        // Not before the source has held for 30 frames, nor with the hold kept on purpose:
+        // then the lock holds the early frames as before.
+        assert!(
+            capped(29, false, SIXTY, SIXTY)
+                .interval(now, sixty)
+                .unwrap()
+                > sixty
+        );
+        let mut held = capped(30, true, SIXTY, SIXTY);
+        assert!(!held.standing_aside());
+        assert!(held.interval(now, sixty).unwrap() > sixty);
+        // A faster source keeps the lock: the host takes a later picture, not an older one.
+        // A 64 fps game at 60 fps as well, whose mean is faster than the stream's.
+        assert!(capped(30, false, GAME, GAME).interval(now, sixty).is_some());
+        let fast = SIXTY * 15 / 16;
+        assert!(capped(30, false, fast, fast).interval(now, sixty).is_some());
+        // Nor without a lock.
+        let mut sync = PhaseSync::default();
+        for _ in 0..30 {
+            sync.set_source(Some(sixty), Some(sixty), sixty);
+        }
+        assert!(!sync.standing_aside());
+    }
+
+    #[test]
+    fn the_lock_starts_over_when_it_steers_again() {
+        // While it stands aside the lock keeps taking reports, and with frames a refresh
+        // early that it no longer steers, its correction ran to its clamp within seconds:
+        // back in charge, it would have moved frames through the client's refresh at about
+        // 10 ms a second. It starts over instead, and only after the source has left the
+        // stream rate for 120 frames, so a source near the threshold does not restart it on
+        // every flicker.
+        let mut now = Instant::now();
+        let sixty = Duration::from_nanos(SIXTY);
+        let mut sync = PhaseSync::default();
+        for _ in 0..30 {
+            sync.set_source(Some(sixty), Some(sixty), sixty);
+        }
+        for _ in 0..40 {
+            sync.on_payload(now, &report(SIXTY as u32, (SIXTY / 2) as i32));
+            assert_eq!(sync.interval(now, sixty), None);
+            now += Duration::from_millis(500);
+        }
+        assert_eq!(sync.aside_changed(), Some(true));
+        // 144 fps content: the host can take earlier pictures again.
+        let content = Duration::from_nanos(6_944_444);
+        for _ in 1..PhaseSync::LEAVE_RATE_FRAMES {
+            sync.set_source(Some(content), Some(content), sixty);
+            assert_eq!(sync.interval(now, sixty), None);
+        }
+        assert_eq!(sync.aside_changed(), None);
+        sync.set_source(Some(content), Some(content), sixty);
+        assert_eq!(sync.interval(now, sixty), None, "locking again");
+        assert_eq!(sync.aside_changed(), Some(false));
+        assert!(sync.reporting(now));
+        // Frames at the margin: the client's own period, with no correction left over.
+        let margin = PhaseLock::DEFAULT_MARGIN_NS as i32;
+        sync.on_payload(now, &report(SIXTY as u32, margin));
+        assert_eq!(sync.interval(now, sixty), Some(sixty));
+    }
+
+    #[test]
     fn a_lower_client_refresh_never_slows_the_stream() {
         // An LTPO panel resting at 60, 48, 30 or 24 Hz reports that rate, not its top
         // one. A 120 fps stream is no whole number of those refreshes: no lock, so the
@@ -289,9 +472,9 @@ mod tests {
     fn a_source_the_host_can_take_earlier_pictures_of_keeps_the_plain_lock() {
         // The pacer takes the picture before whenever it came at least 3/4 of a stream
         // interval after the last claim: 144 fps content at 60 fps (2.4 pictures a frame),
-        // 120 fps content at 90 fps on a 90 Hz client, a 120 fps game at 120 fps on a 120 Hz
-        // client (its median reads 8.0 ms), and 240 Hz content at 60 fps (4 pictures a
-        // frame). The lock asks for earlier frames there.
+        // 120 fps content at 90 fps on a 90 Hz client, and 240 Hz content at 60 fps (4
+        // pictures a frame), and 125 fps content at 120 fps (its median and mean read 8.0 ms).
+        // The lock asks for earlier frames there.
         for (client_ns, stream_ns, picture) in [
             (SIXTY, SIXTY, 6_944_444),
             (11_111_111, 11_111_111, GAME),
@@ -305,6 +488,20 @@ mod tests {
                 "{client_ns} {stream_ns} {picture}: {interval:?}"
             );
         }
+        // A 120 fps game capped at 120 fps (a median read at 8.0 ms, the mean at the cap) has
+        // no earlier picture: its frames are claimed as they arrive, as early as they come.
+        let now = Instant::now();
+        let nominal = Duration::from_nanos(GAME);
+        let mut sync = PhaseSync::default();
+        for _ in 0..300 {
+            sync.set_source(
+                Some(Duration::from_nanos(8_000_000)),
+                Some(nominal),
+                nominal,
+            );
+        }
+        sync.on_payload(now, &report(GAME as u32, 0));
+        assert_eq!(sync.interval(now, nominal), None);
     }
 
     #[test]

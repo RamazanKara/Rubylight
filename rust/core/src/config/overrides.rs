@@ -69,6 +69,7 @@ pub fn override_allowed(key: &str) -> bool {
         "dd_mode_remapping",
         "max_bitrate",
         "minimum_fps_target",
+        "phase_lock_hold_at_stream_rate",
         "stream_reconfigure",
         "stream_preset",
         // Codec and capture

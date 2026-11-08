@@ -101,6 +101,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "minimum_fps_target", "Still-picture resend rate (how often an unchanged desktop is sent again)", Number;
         "wgc_pacing_smoothing", "Smooth capture pacing", Bool;
         "stream_reconfigure", "Follow client size and frame rate changes", Bool;
+        "phase_lock_hold_at_stream_rate", "Hold capped games for the device's refresh (phase lock; off sends their frames as they arrive)", Bool;
         "wgc_direct_encoder_input", "Pass GPU capture directly to the encoder", Bool;
         "gpu_compute_conversion", "Copy and convert captures on a compute queue", Bool;
         "idd_push_fence_ring", "GPU fence transport for direct driver push (on by default; turn off to use the keyed-mutex ring)", Bool;

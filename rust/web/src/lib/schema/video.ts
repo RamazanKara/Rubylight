@@ -390,6 +390,19 @@ const video: Setting[] = [
     default: true,
   },
   {
+    key: 'phase_lock_hold_at_stream_rate',
+    label: "Hold capped games for the device's refresh",
+    description:
+      "With a Rubylight client's phase lock, holds each frame of a game running at the stream rate or slower until just before the device's refresh.",
+    details:
+      "Off, such frames are encoded as they arrive: a frame can't be sent earlier than the game makes it, only later. The hold cost 8 to 11 ms of latency on a Shield TV and halved its rare display gaps.",
+    category: 'video',
+    group: 'Frame pacing',
+    control: { kind: 'toggle' },
+    default: false,
+    advanced: true,
+  },
+  {
     key: 'max_bitrate',
     label: 'Maximum bitrate',
     description: "Caps the bitrate a device can request. 0 uses the device's bitrate.",

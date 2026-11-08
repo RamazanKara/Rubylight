@@ -392,7 +392,20 @@ fn phase_interval(
 ) -> Option<Duration> {
     let mut sync = s.phase_sync.lock().unwrap();
     sync.set_source(picture, mean, period);
-    let interval = sync.interval(at, period)?;
+    let interval = sync.interval(at, period);
+    match sync.aside_changed() {
+        Some(true) => tracing::info!(
+            client = %s.launch.client.name,
+            picture_ns = picture.map_or(0, |picture| picture.as_nanos() as u64),
+            stream_period_ns = period.as_nanos() as u64,
+            "phase lock stands aside: the source presents at the stream rate, so frames are claimed as they arrive instead of held (phase_lock_hold_at_stream_rate = true holds them)"
+        ),
+        Some(false) if sync.reporting(at) => {
+            tracing::info!(client = %s.launch.client.name, "phase lock steers frames again")
+        }
+        _ => {}
+    }
+    let interval = interval?;
     if sync.log_due(at) {
         tracing::info!(
             client = %s.launch.client.name,

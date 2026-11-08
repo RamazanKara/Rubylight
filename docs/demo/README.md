@@ -10,7 +10,7 @@ the worktree's gitignored `out/demo/` directory. No publishing step is included.
 Use the existing Windows FFmpeg installation, including `ffprobe.exe`. The
 renderer searches PATH, the WinGet link, then
 `%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_*\*\bin`. If the installation
-is not accessible, open a shell where its `bin` directory is on PATH. The scripts
+is not accessible, put a readable installed `bin` directory on PATH. The scripts
 do not download or install tools. They use Windows' Segoe UI regular and bold
 fonts from `%WINDIR%\Fonts`, and Windows System.Drawing for the gradient and
 phone bezel.
@@ -85,7 +85,7 @@ audio. See the [Android screenrecord reference](https://developer.android.com/to
 
 ## Edit and audio
 
-The launcher vector colours are `#F4CE69` gold and `#172328` slate. The intro is a
+The launcher vector colours are `#C41242` ruby and `#FFFFFF` white. The intro is a
 RUBYLIGHT wordmark with the mission tagline. The outro carries the releases URL.
 Both layouts use a centred phone bezel over a diagonal gradient; landscape adds
 feature callouts. Captions are burned in with Segoe UI, kept outside the phone,
@@ -94,7 +94,7 @@ problems. Fonts are copied only to the ignored work directory.
 
 The edit uses 0.4-second crossfades and 30 fps throughout. Pairwise assembly keeps
 only two video decoders active at once. Source footage is fitted without cropping;
-the shotlist's one storyboard crop excludes older host compatibility copy.
+the shotlist's storyboard crops exclude older compatibility and about copy.
 
 The music is synthesized entirely with FFmpeg `aevalsrc`: a slow stereo sine
 chord, low-pass filtering and echo. There are no sampled recordings or downloaded
@@ -120,7 +120,7 @@ is not mixed into the soundtrack. Filter details are in the
 The renderer checks export dimensions, codec, pixel format and duration, and
 extracts all sixteen review frames automatically. Inspect them at full size:
 captions must be readable, the phone and callouts must be separated, text must
-stay inside the canvas, and gold/slate branding must be consistent. Portrait
+stay inside the canvas, and ruby/white branding must be consistent. Portrait
 captions end above the bottom 192-pixel safe area; landscape copy stays at least
 54 pixels from the lower edge. Play both exports to check crossfades and music.
 

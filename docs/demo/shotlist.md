@@ -31,7 +31,7 @@ pixels, or `full`. Crops only apply to the storyboard, never recorded clips.
 | 09-upscaling | 5 | Choose how your stream scales. | Make~it clear. | Upscaling options~Bilinear / FSR 1 / SGSR 1 | 05-video-settings.png | 1080:1010:0:0 | auto |
 | 10-controller | 5 | Play with your controller. | Take~control. | Controller buttons~Map your inputs | 11-controller-choose.png | full | auto |
 | 11-touch | 5 | Make touch controls your own. | Make~it yours. | Touch controls~Your layout, your way | 04-settings.png | full | auto |
-| 12-pip | 5 | Keep your stream in view. | Keep~it in view. | Picture in picture~Your stream stays visible | 04-settings.png | full | manual |
+| 12-pip | 5 | Keep your stream in view. | Keep~it in view. | Picture in picture~Your stream stays visible | 14-settings-about.png | 1080:620:0:0 | manual |
 | 13-performance | 6 | See FPS, latency and frame loss. | Know~your stream. | Live measurements~FPS / latency / frame loss | 07-latency-overlay.png | full | manual |
 
 ## Capture direction
@@ -73,11 +73,12 @@ change presets, or enable controls. Prepare stream preferences before recording.
 The checked-in screenshots are earlier UI captures. Launch, discovery, pairing,
 settings and controller screens provide the draft's visual source material.
 The host card stands in for library and stream start; settings stand in for
-presets, touch and PiP; the video-settings crop stands in for upscaling. The
+presets and touch; the PiP settings crop stands in for the floating stream;
+the video-settings crop stands in for upscaling. The
 overlay captures contain no live measurements and stand in for both current
 overlay modes and the performance shot. They retain the source UI, including
 the former product name. The outer typography and colours use RUBYLIGHT.
-The video-settings crop excludes the old host compatibility copy.
+The video-settings and PiP crops exclude the old compatibility and about copy.
 
 Replace these stills with the matching recorded clips for the release cut.
 `out/demo/sources.json` records the actual input used for each shot.

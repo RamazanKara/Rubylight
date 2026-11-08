@@ -20,13 +20,13 @@ function Find-FFmpeg {
     $link = Join-Path $winget 'Links/ffmpeg.exe'
     if (Test-Path -LiteralPath $link) {
         $target = (Get-Item -LiteralPath $link).Target
-        if ($target -and (Test-Path -LiteralPath $target)) { return $target }
-        return $link
+        if ($target -and (Test-Path -LiteralPath $target -ErrorAction SilentlyContinue)) { return $target }
+        if (-not $target) { return $link }
     }
     $binary = Get-ChildItem -Path (Join-Path $winget 'Packages/Gyan.FFmpeg_*/*/bin/ffmpeg.exe') -ErrorAction SilentlyContinue |
         Sort-Object FullName | Select-Object -Last 1
     if ($binary) { return $binary.FullName }
-    throw 'FFmpeg is not accessible. Open a new shell with the installed FFmpeg bin directory on PATH.'
+    throw 'FFmpeg is not accessible. Put a readable installed FFmpeg bin directory on PATH.'
 }
 
 function Number([double]$Value) { return $Value.ToString('0.######', $culture) }
@@ -94,16 +94,18 @@ function New-Backdrop([string]$Name, [int]$Width, [int]$Height, $Phone) {
     $bitmap = New-Object Drawing.Bitmap($Width, $Height)
     $graphics = [Drawing.Graphics]::FromImage($bitmap)
     $rect = New-Object Drawing.Rectangle(0, 0, $Width, $Height)
+    $startColor = '#32101C'
+    if (-not $Phone) { $startColor = '#C41242' }
     $gradient = New-Object Drawing.Drawing2D.LinearGradientBrush($rect,
-        [Drawing.ColorTranslator]::FromHtml('#172328'), [Drawing.ColorTranslator]::FromHtml('#080F14'), 35.0)
-    $gold = New-Object Drawing.SolidBrush([Drawing.ColorTranslator]::FromHtml('#F4CE69'))
+        [Drawing.ColorTranslator]::FromHtml($startColor), [Drawing.ColorTranslator]::FromHtml('#0E0D13'), 35.0)
+    $ruby = New-Object Drawing.SolidBrush([Drawing.ColorTranslator]::FromHtml('#C41242'))
     $rim = New-Object Drawing.SolidBrush([Drawing.ColorTranslator]::FromHtml('#536168'))
     $black = New-Object Drawing.SolidBrush([Drawing.ColorTranslator]::FromHtml('#080B0D'))
     $shadow = New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(70, 0, 0, 0))
     try {
         $graphics.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::AntiAlias
         $graphics.FillRectangle($gradient, $rect)
-        $graphics.FillRectangle($gold, 108, 204, 68, 4)
+        $graphics.FillRectangle($ruby, 108, 204, 68, 4)
         if ($Phone) {
             $x = $Phone.X; $y = $Phone.Y; $w = $Phone.Width; $h = $Phone.Height
             Round-Rectangle $graphics $shadow ($x - 28) ($y - 8) ($w + 56) ($h + 48) 38
@@ -113,7 +115,7 @@ function New-Backdrop([string]$Name, [int]$Width, [int]$Height, $Phone) {
         }
         $bitmap.Save((Join-Path $work $Name), [Drawing.Imaging.ImageFormat]::Png)
     } finally {
-        $shadow.Dispose(); $black.Dispose(); $rim.Dispose(); $gold.Dispose()
+        $shadow.Dispose(); $black.Dispose(); $rim.Dispose(); $ruby.Dispose()
         $gradient.Dispose(); $graphics.Dispose(); $bitmap.Dispose()
     }
 }
@@ -182,23 +184,23 @@ try {
             $filters = @()
             if ($card -eq 'intro') {
                 if ($vertical) {
-                    $filters += Text-Filter "$id-brand" 'RUBYLIGHT' 112 '(w-text_w)/2' 720 'F4CE69'
+                    $filters += Text-Filter "$id-brand" 'RUBYLIGHT' 112 '(w-text_w)/2' 720 'FFFFFF'
                     $filters += Text-Lines "$id-tagline" @('Your games. Your screen.', 'Your stream.') 44 '(w-text_w)/2' 925
                 } else {
-                    $filters += Text-Filter "$id-brand" 'RUBYLIGHT' 156 '(w-text_w)/2' 386 'F4CE69'
+                    $filters += Text-Filter "$id-brand" 'RUBYLIGHT' 156 '(w-text_w)/2' 386 'FFFFFF'
                     $filters += Text-Filter "$id-tagline" 'Your games. Your screen. Your stream.' 46 '(w-text_w)/2' 610
                 }
             } else {
                 $seconds = $outro
                 if ($vertical) {
-                    $filters += Text-Filter "$id-brand" 'RUBYLIGHT' 80 '(w-text_w)/2' 465 'F4CE69'
+                    $filters += Text-Filter "$id-brand" 'RUBYLIGHT' 80 '(w-text_w)/2' 465 'FFFFFF'
                     $filters += Text-Filter "$id-cta" 'Start your stream.' 76 '(w-text_w)/2' 740
-                    $filters += Text-Filter "$id-get" 'Get RUBYLIGHT' 44 '(w-text_w)/2' 908 'F4CE69'
+                    $filters += Text-Filter "$id-get" 'Get RUBYLIGHT' 44 '(w-text_w)/2' 908 'FFFFFF'
                     $filters += Text-Lines "$id-url" @('https://github.com/RamazanKara', '/rubylight-android/releases') 34 '(w-text_w)/2' 1070 'BCC8CE' 'regular'
                 } else {
-                    $filters += Text-Filter "$id-brand" 'RUBYLIGHT' 72 '(w-text_w)/2' 230 'F4CE69'
+                    $filters += Text-Filter "$id-brand" 'RUBYLIGHT' 72 '(w-text_w)/2' 230 'FFFFFF'
                     $filters += Text-Filter "$id-cta" 'Start your stream.' 98 '(w-text_w)/2' 425
-                    $filters += Text-Filter "$id-get" 'Get RUBYLIGHT' 40 '(w-text_w)/2' 600 'F4CE69'
+                    $filters += Text-Filter "$id-get" 'Get RUBYLIGHT' 40 '(w-text_w)/2' 600 'FFFFFF'
                     $filters += Text-Filter "$id-url" $releases 34 '(w-text_w)/2' 710 'BCC8CE' 'regular'
                 }
             }
@@ -241,7 +243,7 @@ try {
             }
             $filters = @()
             if ($vertical) {
-                $filters += Text-Filter "$id-brand" 'RUBYLIGHT' 42 '108' 130 'F4CE69'
+                $filters += Text-Filter "$id-brand" 'RUBYLIGHT' 42 '108' 130 'FFFFFF'
                 $filters += Text-Filter "$id-count" ('{0:00} / 13' -f ($index + 1)) 26 '824' 143 'BCC8CE' 'regular'
                 $filters += Text-Filter "$id-heading" $shot.Heading.Replace('~', ' ') 52 '(w-text_w)/2' 240
                 $filters += Text-Lines "$id-caption" @(Wrap-Caption $shot.Caption) 44 '(w-text_w)/2' 1610
@@ -249,7 +251,7 @@ try {
                     $filters += Text-Lines "$id-callout" $shot.Callout.Split('~') 34 '(w-text_w)/2' 1320 'BCC8CE' 'regular'
                 }
             } else {
-                $filters += Text-Filter "$id-brand" 'RUBYLIGHT' 36 '108' 92 'F4CE69'
+                $filters += Text-Filter "$id-brand" 'RUBYLIGHT' 36 '108' 92 'FFFFFF'
                 $filters += Text-Filter "$id-count" ('{0:00} / 13' -f ($index + 1)) 26 '1686' 99 'BCC8CE' 'regular'
                 $filters += Text-Lines "$id-heading" $shot.Heading.Split('~') 56 '108' 404
                 $filters += Text-Lines "$id-callout" $shot.Callout.Split('~') 27 '1450' 446 'BCC8CE' 'regular'

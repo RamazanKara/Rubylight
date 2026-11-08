@@ -47,9 +47,13 @@ fn packet(size: usize, serial: u32) -> Vec<u8> {
 }
 
 fn control(bus: HANDLE, code: u32, data: &[u8]) -> Result<()> {
-    let event = event()?;
+    control_with(bus, &event()?, code, data)
+}
+/// One request on `event`, which the request resets as it starts; the
+/// client reuses one for every report instead of creating one each time.
+fn control_with(bus: HANDLE, event: &OwnedHandle, code: u32, data: &[u8]) -> Result<()> {
     let mut overlapped = OVERLAPPED {
-        hEvent: handle(&event),
+        hEvent: handle(event),
         ..Default::default()
     };
     let mut transferred = 0;
@@ -71,7 +75,7 @@ fn control(bus: HANDLE, code: u32, data: &[u8]) -> Result<()> {
         {
             return Err(error.into());
         }
-        if WaitForSingleObject(handle(&event), 10_000) != WAIT_OBJECT_0 {
+        if WaitForSingleObject(handle(event), 10_000) != WAIT_OBJECT_0 {
             let _ = CancelIoEx(bus, Some(&overlapped));
             // Cancellation is asynchronous: the kernel must release the input
             // buffer and OVERLAPPED before their storage goes away. A request
@@ -238,6 +242,18 @@ impl Notification {
         self.running = true;
         Ok(())
     }
+    /// The event of the running request, which the gamepad thread waits on.
+    fn wait_handle(&self) -> Option<HANDLE> {
+        self.running.then(|| handle(&self.event))
+    }
+    /// Whether the running request has completed, without a system call.
+    fn completed(&self) -> bool {
+        // SAFETY: the OVERLAPPED is alive while the request runs; the
+        // kernel writes its status, so it is read as HasOverlappedIoCompleted does.
+        self.running
+            && unsafe { std::ptr::read_volatile(&self.pending.overlapped.Internal) }
+                != STATUS_PENDING.0 as usize
+    }
     fn poll(&mut self) -> Result<Option<(u16, Vec<u8>)>> {
         if !self.running {
             self.start()?;
@@ -259,7 +275,12 @@ impl Notification {
             bail!("invalid ViGEmBus notification length");
         }
         let report = feedback_report(&self.pending.data);
-        self.start()?;
+        // Re-armed at once: ViGEmBus holds what the game writes meanwhile
+        // until the next request. A request that would not start keeps this
+        // report; the next poll starts it again and returns its error.
+        if let Err(error) = self.start() {
+            tracing::debug!(%error, "ViGEm notification request did not start; retried at the next poll");
+        }
         Ok(Some(report))
     }
 }
@@ -298,6 +319,15 @@ fn xusb_report(buttons: u32, left: u8, right: u8, sticks: &[i16; 4]) -> [u8; 12]
     report
 }
 
+/// XUSB_SUBMIT_REPORT, built on the stack: a report per controller state.
+fn submit_packet(serial: u32, buttons: u32, left: u8, right: u8, sticks: &[i16; 4]) -> [u8; 20] {
+    let mut data = [0; 20];
+    data[..4].copy_from_slice(&20u32.to_le_bytes());
+    data[4..8].copy_from_slice(&serial.to_le_bytes());
+    data[8..].copy_from_slice(&xusb_report(buttons, left, right, sticks));
+    data
+}
+
 struct Target {
     bus: HANDLE,
     serial: u32,
@@ -324,12 +354,15 @@ impl Drop for Target {
 pub(super) struct Client {
     // Targets cancel their pending IO and unplug before the bus handle closes.
     targets: BTreeMap<u32, Target>,
+    /// The event every report waits on, one per client rather than per report.
+    submitted: OwnedHandle,
     bus: OwnedHandle,
 }
 impl Client {
     pub(super) fn open() -> Result<Self> {
         Ok(Self {
             targets: BTreeMap::new(),
+            submitted: event()?,
             bus: open_bus()?,
         })
     }
@@ -338,6 +371,7 @@ impl Client {
     pub(super) fn detached() -> Result<Self> {
         Ok(Self {
             targets: BTreeMap::new(),
+            submitted: event()?,
             bus: event()?,
         })
     }
@@ -403,9 +437,26 @@ impl Client {
         sticks: &[i16; 4],
     ) -> Result<()> {
         let target = self.target(slot)?;
-        let mut data = packet(20, target.serial);
-        data[8..].copy_from_slice(&xusb_report(buttons, left, right, sticks));
-        report_result(control(target.bus, XUSB_SUBMIT, &data))
+        let data = submit_packet(target.serial, buttons, left, right, sticks);
+        report_result(control_with(
+            target.bus,
+            &self.submitted,
+            XUSB_SUBMIT,
+            &data,
+        ))
+    }
+    pub(super) fn wait_handle(&self, slot: u32) -> Option<HANDLE> {
+        self.targets
+            .get(&slot)?
+            .notification
+            .as_ref()?
+            .wait_handle()
+    }
+    pub(super) fn feedback_ready(&self, slot: u32) -> bool {
+        self.targets
+            .get(&slot)
+            .and_then(|target| target.notification.as_ref())
+            .is_some_and(Notification::completed)
     }
     pub(super) fn feedback(&mut self, slot: u32) -> Result<Option<(u16, Vec<u8>)>> {
         self.target(slot)?

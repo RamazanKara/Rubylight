@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod driver_host;
+
 pub fn open_interface(guid: GUID) -> Result<HANDLE> {
     // SAFETY: The sized SetupAPI structures and aligned detail buffer remain live through each call; the terminated device path is consumed before the device set is destroyed.
     unsafe {
@@ -65,6 +67,12 @@ pub struct Gamepads {
     /// The last feedback report forwarded for each controller.
     last_feedback: BTreeMap<u16, (u16, Vec<u8>)>,
     feedback_failures: BTreeMap<u16, FeedbackFailure>,
+    /// Feedback reports read from the driver since the thread last asked.
+    feedback_drained: usize,
+    /// `gamepad_driver_host_priority` while a VHF pad is plugged.
+    driver_host: Option<Box<dyn driver_host::Held>>,
+    /// How a hold on it is taken; tests count instead of raising.
+    driver_host_acquire: fn() -> Box<dyn driver_host::Held>,
     /// Steam Deck clients' controllers attached as real Steam Decks.
     pub(super) decks: BTreeMap<u16, steam_deck_pad::DeckPad>,
     /// Controllers a Steam Deck could not be attached for; they keep their
@@ -197,6 +205,9 @@ impl Gamepads {
             unsupported_touchpads: BTreeSet::new(),
             last_feedback: BTreeMap::new(),
             feedback_failures: BTreeMap::new(),
+            feedback_drained: 0,
+            driver_host: None,
+            driver_host_acquire: driver_host::acquire,
             decks: BTreeMap::new(),
             deck_failed: BTreeSet::new(),
             dualsenses: BTreeMap::new(),
@@ -402,29 +413,31 @@ impl Gamepads {
                 self.arrivals.retain(|i, _| active & (1 << *i) != 0);
                 self.dualsense_failed.retain(|i| active & (1 << *i) != 0);
                 self.states.retain(|i, _| active & (1 << *i) != 0);
-                for (i, global) in self.active.clone() {
-                    if active & (1 << i) == 0 {
-                        // A pad that would not unplug stays tracked and is
-                        // tried again with the next state; this state still
-                        // goes to the live pad.
-                        if let Err(error) = self.backend.unplug(u32::from(global)) {
-                            tracing::debug!(
-                                controller = i,
-                                error = format!("{error:#}"),
-                                "virtual controller removal failed"
-                            );
-                            continue;
-                        }
-                        self.active.remove(&i);
-                        self.profiles.remove(&i);
-                        self.arrivals.remove(&i);
-                        self.states.remove(&i);
-                        self.last_feedback.remove(&i);
-                        self.feedback_failures.remove(&i);
-                        self.pointers.retain(|(id, _), _| u16::from(*id) != i);
-                        self.unsupported_touchpads.remove(&(i as u8));
-                        SLOTS.lock().unwrap()[global as usize] = false;
+                // Every state passes here: find the pads that left without
+                // copying the map, which only a removal needs to change.
+                let gone = self.active.keys().fold(0u16, |mask, i| mask | (1 << i)) & !active;
+                for i in (0..16u16).filter(|i| gone & (1 << i) != 0) {
+                    let global = self.active[&i];
+                    // A pad that would not unplug stays tracked and is
+                    // tried again with the next state; this state still
+                    // goes to the live pad.
+                    if let Err(error) = self.backend.unplug(u32::from(global)) {
+                        tracing::debug!(
+                            controller = i,
+                            error = format!("{error:#}"),
+                            "virtual controller removal failed"
+                        );
+                        continue;
                     }
+                    self.active.remove(&i);
+                    self.profiles.remove(&i);
+                    self.arrivals.remove(&i);
+                    self.states.remove(&i);
+                    self.last_feedback.remove(&i);
+                    self.feedback_failures.remove(&i);
+                    self.pointers.retain(|(id, _), _| u16::from(*id) != i);
+                    self.unsupported_touchpads.remove(&(i as u8));
+                    SLOTS.lock().unwrap()[global as usize] = false;
                 }
                 if active & (1 << id) == 0 {
                     return Ok(());
@@ -627,14 +640,20 @@ impl Gamepads {
     /// A controller with nothing pending or a failed poll does not hide the
     /// others' feedback, and a repeated report is not sent again.
     pub fn feedback(&mut self) -> Vec<(u16, u16, Vec<u8>)> {
+        let mut drained = 0;
         let mut reports = poll_feedback(
             &self.active,
             &mut self.last_feedback,
             &mut self.feedback_failures,
             self.backend.name(),
             Instant::now(),
-            |slot| self.backend.feedback(slot),
+            |slot| {
+                let report = self.backend.feedback(slot);
+                drained += usize::from(matches!(report, Ok(Some(_))));
+                report
+            },
         );
+        self.feedback_drained += drained;
         for (id, deck) in &mut self.decks {
             if let Some((kind, data)) = deck.feedback() {
                 reports.push((*id, kind, data));
@@ -648,6 +667,38 @@ impl Gamepads {
             );
         }
         reports
+    }
+    /// Hold the gamepad driver's WUDFHost raised while a VHF pad is plugged,
+    /// with `gamepad_driver_host_priority` on.
+    pub(super) fn follow_driver_host(&mut self) {
+        let wanted = self.policy.driver_host_priority
+            && self.backend.hosted_by_wudfhost()
+            && !self.active.is_empty();
+        if wanted != self.driver_host.is_some() {
+            self.driver_host = wanted.then(self.driver_host_acquire);
+        }
+    }
+    /// A raised WUDFHost that restarted is raised again in its new process.
+    pub(super) fn check_driver_host(&self) {
+        if let Some(held) = &self.driver_host {
+            held.check();
+        }
+    }
+    /// The events of the plugged pads' pending feedback requests.
+    pub(super) fn wait_handles(&self, handles: &mut Vec<HANDLE>) {
+        for &global in self.active.values() {
+            handles.extend(self.backend.wait_handle(u32::from(global)));
+        }
+    }
+    /// Whether a plugged pad's feedback request has completed.
+    pub(super) fn feedback_ready(&self) -> bool {
+        self.active
+            .values()
+            .any(|&global| self.backend.feedback_ready(u32::from(global)))
+    }
+    /// Feedback reports read from the driver since the last call.
+    pub(super) fn take_feedback_drained(&mut self) -> usize {
+        std::mem::take(&mut self.feedback_drained)
     }
     pub(super) fn haptics(&self) -> Vec<butterpollo_core::haptics::Frame> {
         self.dualsenses
@@ -726,6 +777,21 @@ impl Gamepads {
             || matches!(self.profiles.get(&id).copied(), Some(5..=7))
     }
 }
+/// Feedback reports read from one pad per poll at most. The VHF driver hands
+/// out one pending report per call, so a game writing faster than the poll
+/// left a backlog, and its rumble lagged or ran on after it stopped.
+pub(super) const FEEDBACK_DRAIN: usize = 8;
+/// What a feedback report sets, as bits: rumble 1, lights 2, trigger
+/// effects 4. A PlayStation report (kind 5) always carries rumble, and its
+/// lightbar and trigger effects only with flag 1 and 2 of byte 7
+/// (`feedback_packets` in the host's control stream); any other report
+/// replaces all of its kind.
+fn feedback_parts(kind: u16, data: &[u8]) -> u8 {
+    match kind {
+        5 if data.len() >= 8 => 1 | (data[7] & 3) << 1,
+        _ => 7,
+    }
+}
 fn poll_feedback(
     active: &BTreeMap<u16, u16>,
     last: &mut BTreeMap<u16, (u16, Vec<u8>)>,
@@ -740,9 +806,32 @@ fn poll_feedback(
             .reported
             .is_none_or(|at| now.duration_since(at) >= Duration::from_secs(5))
     };
+    // What a pad had pending, in arrival order, without the reports a newer
+    // one of the same kind fully replaces: an older rumble the game already
+    // changed is not worth sending, but older lights or trigger effects a
+    // rumble-only report leaves out still go, before it.
+    let mut pending: Vec<(u16, Vec<u8>)> = Vec::new();
     for (&id, &global) in active {
-        let report = match poll(u32::from(global)) {
-            Ok(report) => {
+        pending.clear();
+        let mut failed = None;
+        for _ in 0..FEEDBACK_DRAIN {
+            match poll(u32::from(global)) {
+                Ok(Some(report)) => {
+                    let parts = feedback_parts(report.0, &report.1);
+                    pending.retain(|(kind, data)| {
+                        *kind != report.0 || feedback_parts(*kind, data) & !parts != 0
+                    });
+                    pending.push(report);
+                }
+                Ok(None) => break,
+                Err(error) => {
+                    failed = Some(error);
+                    break;
+                }
+            }
+        }
+        match failed {
+            None => {
                 // Report the failures the interval held back once the pad
                 // recovers, under the same interval, so none go unlogged.
                 if let Some(failure) = failures.get_mut(&id)
@@ -759,10 +848,8 @@ fn poll_feedback(
                     failure.unreported = 0;
                     failure.reported = Some(now);
                 }
-                let Some(report) = report else { continue };
-                report
             }
-            Err(error) => {
+            Some(error) => {
                 let failure = failures.entry(id).or_default();
                 failure.unreported += 1;
                 if due(failure) {
@@ -770,12 +857,14 @@ fn poll_feedback(
                     failure.unreported = 0;
                     failure.reported = Some(now);
                 }
-                continue;
             }
-        };
-        if last.get(&id) != Some(&report) {
-            last.insert(id, report.clone());
-            output.push((id, report.0, report.1));
+        }
+        // Reports read before a failing call still go out.
+        for report in pending.drain(..) {
+            if last.get(&id) != Some(&report) {
+                last.insert(id, report.clone());
+                output.push((id, report.0, report.1));
+            }
         }
     }
     last.retain(|id, _| active.contains_key(id));

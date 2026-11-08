@@ -98,10 +98,23 @@ pub(super) struct UsbPad<D: Device> {
     /// usbip-win2's hub port the controller is plugged into.
     port: u32,
 }
+/// The gamepad thread's priority for a USB/IP server thread, for as long as
+/// it runs. These threads wait on I/O and condition variables, never spin.
+fn input_priority() -> Box<dyn std::any::Any> {
+    // Test servers must not boost their priority or register a Windows task.
+    #[cfg(not(test))]
+    let priority: Box<dyn std::any::Any> = Box::new(crate::capture::Priority::input());
+    #[cfg(test)]
+    let priority: Box<dyn std::any::Any> = Box::new(());
+    priority
+}
 impl<D: Device> UsbPad<D> {
     /// Serve a device on loopback and attach it with usbip-win2.
     pub(super) fn plug(exe: &Path, device: D, period: Duration) -> Result<Self> {
-        let export = Export::listen(device, period).context("starting the USB/IP server")?;
+        // Its threads carry the pad's input and feedback: the input
+        // thread's priority, so a game's load does not delay them.
+        let export = Export::listen_started(device, period, input_priority)
+            .context("starting the USB/IP server")?;
         let tcp = export.port().to_string();
         let port = attach(exe, &tcp, BUS_ID)?;
         Ok(Self {

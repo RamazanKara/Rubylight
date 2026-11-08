@@ -125,6 +125,33 @@ fn submit_touch(
     }
     Ok(())
 }
+/// One frame for a pass's moves (`moves`, by client id): every contact, the moved
+/// ones at their latest position. Two fingers moving in turn (A, B, A, B) were four
+/// calls, each holding the other finger where it last was. As in `submit_touch`, only
+/// a frame Windows accepted moves the contacts.
+fn submit_touch_moves(
+    touches: &mut BTreeMap<u32, POINTER_TOUCH_INFO>,
+    moves: BTreeMap<u32, POINTER_TOUCH_INFO>,
+    send: impl FnOnce(&[POINTER_TYPE_INFO]) -> Result<()>,
+) -> Result<()> {
+    let contacts: Vec<_> = touches
+        .iter()
+        .map(|(id, touch)| touch_info(*moves.get(id).unwrap_or(touch)))
+        .collect();
+    if contacts.is_empty() {
+        return Ok(());
+    }
+    send(&contacts)?;
+    for (id, mut frame) in moves {
+        if let Some(touch) = touches.get_mut(&id) {
+            frame.pointerInfo.pointerFlags &=
+                !(POINTER_FLAG_DOWN | POINTER_FLAG_UP | POINTER_FLAG_CANCELED);
+            frame.pointerInfo.pointerFlags |= POINTER_FLAG_UPDATE;
+            *touch = frame;
+        }
+    }
+    Ok(())
+}
 /// If a stale contact invalidates the cancellation frame, still try every
 /// other contact individually. The caller retires the device on failure.
 fn cancel_touch_contacts(
@@ -186,22 +213,43 @@ impl Injector {
             if !contacts.is_empty() {
                 // SAFETY: The live touch device owns these contacts, whose union fields and pointer types are initialized as touch input.
                 unsafe {
-                    inject_pointer(device, &contacts)?;
+                    (self.inject_touch)(device, &contacts)?;
                 }
             }
         }
         Ok(())
     }
+    /// Inject the pass's touch moves, held back by `touch`, as one frame. Every
+    /// other event, and the end of the pass, sends them first, so the order of
+    /// events stays as the client sent it.
+    pub(super) fn flush_touch_moves(&mut self) -> Result<()> {
+        if self.touch_moves.is_empty() {
+            return Ok(());
+        }
+        let moves = std::mem::take(&mut self.touch_moves);
+        let Some(device) = self.touch_device else {
+            return Ok(());
+        };
+        let inject = self.inject_touch;
+        let result = submit_touch_moves(&mut self.touches, moves, |contacts| {
+            // SAFETY: The live touch device owns these contacts, whose union fields and pointer types are initialized as touch input.
+            unsafe { inject(device, contacts) }
+        });
+        self.touch_refreshed = std::time::Instant::now();
+        result
+    }
     /// Cancel every touch contact, as a client's cancel-all does.
     pub(super) fn cancel_touches(&mut self) -> Result<()> {
+        self.touch_moves.clear();
         let Some(device) = self.touch_device else {
             self.touches.clear();
             return Ok(());
         };
+        let inject = self.inject_touch;
         let result = cancel_touch_contacts(&mut self.touches, |contacts| {
             // SAFETY: The injector owns the device through every synchronous
             // attempt, and each frame is initialized as touch input.
-            unsafe { inject_pointer(device, contacts) }
+            unsafe { inject(device, contacts) }
         });
         if result.is_err() {
             self.touch_device = None;
@@ -303,9 +351,16 @@ impl Injector {
                     p.touchMask |= TOUCH_MASK_ORIENTATION;
                 }
             }
+            // A move waits for the pass's other moves (flush_touch_moves): one frame
+            // carries every finger's latest position.
+            if event == 3 {
+                self.touch_moves.insert(id, p);
+                return Ok(());
+            }
             let device = self.touch_device.expect("touch device created above");
+            let inject = self.inject_touch;
             let result = submit_touch(&mut self.touches, id, p, event, |contacts| {
-                inject_pointer(device, contacts)
+                inject(device, contacts)
             });
             if result.is_err()
                 && matches!(event, 2 | 4 | 6)

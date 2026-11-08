@@ -44,6 +44,48 @@ pub(super) fn observe_foreground_game(h: &Shared, client: &str, program: &str, p
 /// How often completed encoder output is collected while a frame is in flight.
 pub(super) const OUTPUT_POLL: Duration = Duration::from_micros(100);
 
+/// The next output poll while frames are in flight: one output poll from
+/// now, or later when the encoder knows its oldest frame cannot be done
+/// sooner (`amd_output_prediction`).
+pub(super) fn next_output_poll(encoder: Option<&impl EncoderOutput>, now: Instant) -> Instant {
+    let poll = now + OUTPUT_POLL;
+    encoder
+        .and_then(|encoder| encoder.output_due())
+        .map_or(poll, |due| due.max(poll))
+}
+
+/// Whether an output poll before `deadline` cannot overshoot it: only a poll
+/// that can block (AMF's QueryOutput, for its 1 ms timeout) must leave room.
+pub(super) fn poll_fits(
+    encoder: Option<&impl EncoderOutput>,
+    now: Instant,
+    deadline: Instant,
+) -> bool {
+    encoder.is_none_or(|encoder| !encoder.poll_blocks())
+        || encoder_backlog::query_fits(now, deadline)
+}
+
+/// After a poll that returned nothing while the encoder is full: an encoder
+/// that predicts its output sleeps until then, one with an output event
+/// (NVENC's D3D12 fence) until it, at most one output poll; others poll
+/// again at once as before. Nothing waits once no frame is pending, such as
+/// after a device loss.
+pub(super) fn wait_for_output(
+    timer: &butterpollo_windows::timing::Timer,
+    recovery: &EncoderRecovery,
+    encoder: Option<&impl EncoderOutput>,
+) -> Result<()> {
+    let Some(encoder) = encoder.filter(|encoder| recovery.pending(*encoder)) else {
+        return Ok(());
+    };
+    if let Some(due) = encoder.output_due().filter(|due| *due > Instant::now()) {
+        timer.until(due);
+    } else if let Some(event) = encoder.output_event() {
+        timer.until_or_event(Instant::now() + OUTPUT_POLL, Some(event))?;
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy)]
 enum AdmissionWait {
     Grid,
@@ -114,6 +156,18 @@ pub(super) trait EncoderOutput {
     fn device_removed(&self) -> Option<DeviceLost> {
         None
     }
+    /// The earliest a poll can find output, when the encoder predicts it.
+    fn output_due(&self) -> Option<Instant> {
+        None
+    }
+    /// An event that ends a wait for output, armed by this call.
+    fn output_event(&self) -> Option<&butterpollo_windows::timing::Signal> {
+        None
+    }
+    /// A poll can wait in the driver.
+    fn poll_blocks(&self) -> bool {
+        true
+    }
 }
 
 impl EncoderOutput for Encoder {
@@ -135,6 +189,15 @@ impl EncoderOutput for Encoder {
     fn device_removed(&self) -> Option<DeviceLost> {
         self.device_removed()
     }
+    fn output_due(&self) -> Option<Instant> {
+        self.output_due()
+    }
+    fn output_event(&self) -> Option<&butterpollo_windows::timing::Signal> {
+        self.output_event()
+    }
+    fn poll_blocks(&self) -> bool {
+        self.poll_blocks()
+    }
 }
 
 #[derive(Default)]
@@ -144,9 +207,44 @@ pub(super) struct EncoderRecovery {
     pub(super) recreations: u32,
     pub(super) device_loss: Option<DeviceLost>,
     pub(super) progress: Option<Arc<crate::stall_watch::Progress>>,
+    /// TRACE only: when each output poll since the last claim began and
+    /// ended ([`QueryTrace`]).
+    pub(super) queries: Option<Vec<(Instant, Instant)>>,
     #[cfg(any(debug_assertions, test))]
     pub(super) stall: crate::soak_fault::EncoderStall,
 }
+
+/// TRACE only: output polls between two claims, and whether the claimed
+/// picture was published while one blocked (AMF's QueryOutput waits up to
+/// its timeout), with how long it then waited for the poll to end.
+#[derive(Debug, Default, PartialEq)]
+pub(super) struct QueryTrace {
+    pub(super) queries: usize,
+    pub(super) query_us: u64,
+    pub(super) published_in_query: bool,
+    pub(super) held_us: u64,
+}
+
+impl QueryTrace {
+    pub(super) fn new(queries: &[(Instant, Instant)], published: Instant) -> Self {
+        let micros = |d: Duration| d.as_micros().min(u128::from(u64::MAX)) as u64;
+        let mut trace = Self {
+            queries: queries.len(),
+            ..Self::default()
+        };
+        for &(start, end) in queries {
+            trace.query_us += micros(end.saturating_duration_since(start));
+            if start <= published && published < end {
+                trace.published_in_query = true;
+                trace.held_us = trace.held_us.max(micros(end - published));
+            }
+        }
+        trace
+    }
+}
+
+/// Polls kept for one claim's trace; a stall without claims stops here.
+const TRACED_QUERIES: usize = 1024;
 
 impl EncoderRecovery {
     pub(super) fn pending(&self, encoder: &impl EncoderOutput) -> bool {
@@ -195,7 +293,14 @@ impl EncoderRecovery {
         if let Some(progress) = &self.progress {
             progress.mark(crate::stall_watch::Phase::Output);
         }
-        match active.poll() {
+        let started = self.queries.as_ref().map(|_| Instant::now());
+        let polled = active.poll();
+        if let (Some(queries), Some(started)) = (self.queries.as_mut(), started)
+            && queries.len() < TRACED_QUERIES
+        {
+            queries.push((started, Instant::now()));
+        }
+        match polled {
             Ok(output) => self.output(output, now),
             Err(error) => {
                 if let Some(loss) = active

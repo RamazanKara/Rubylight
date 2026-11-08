@@ -76,7 +76,7 @@ fn short_and_expired_deadlines_do_not_return_early() -> Result<()> {
 fn unavailable_timer_falls_back_to_a_deadline_wait() -> Result<()> {
     let timer = Timer::new()?;
     let deadline = Instant::now() + Duration::from_millis(2);
-    assert!(!timer.wait_until(deadline, None, |_, _| {
+    assert!(!timer.wait_until(deadline, &[], |_, _| {
         Err(windows::core::Error::from_hresult(E_FAIL))
     })?);
     assert!(Instant::now() >= deadline);
@@ -93,16 +93,38 @@ fn unavailable_timer_still_allows_recovery_to_interrupt() -> Result<()> {
     });
     let notified = timer.wait_until(
         Instant::now() + Duration::from_secs(2),
-        Some(&signal),
+        &[&*signal],
         |_, _| Err(windows::core::Error::from_hresult(E_FAIL)),
     )?;
     worker.join().unwrap();
     assert!(notified);
     signal.reset()?;
     let deadline = Instant::now() + Duration::from_micros(250);
-    assert!(!timer.wait_until(deadline, Some(&signal), |_, _| {
+    assert!(!timer.wait_until(deadline, &[&*signal], |_, _| {
         Err(windows::core::Error::from_hresult(E_FAIL))
     })?);
+    assert!(Instant::now() >= deadline);
+    Ok(())
+}
+#[test]
+fn an_extra_event_ends_a_wait_as_the_capture_signal_does() -> Result<()> {
+    let timer = Timer::new()?;
+    let capture = Signal::new()?;
+    let output = Signal::new()?;
+    output.set()?;
+    let started = Instant::now();
+    assert!(timer.until_or_signals(started + Duration::from_secs(2), &capture, Some(&output))?);
+    assert!(timer.until_or_event(started + Duration::from_secs(2), Some(&output))?);
+    assert!(started.elapsed() < Duration::from_secs(1));
+    capture.set()?;
+    assert!(timer.until_or_signals(started + Duration::from_secs(2), &capture, Some(&output))?);
+    output.reset()?;
+    capture.reset()?;
+    let deadline = Instant::now() + Duration::from_micros(500);
+    assert!(!timer.until_or_signals(deadline, &capture, Some(&output))?);
+    assert!(Instant::now() >= deadline);
+    let deadline = Instant::now() + Duration::from_micros(500);
+    assert!(!timer.until_or_event(deadline, None)?);
     assert!(Instant::now() >= deadline);
     Ok(())
 }

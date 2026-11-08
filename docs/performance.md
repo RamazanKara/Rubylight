@@ -17,6 +17,7 @@ Every row links to the method and the raw numbers in the [full record](../rust/P
 | Link-rate adaptation | 75 Mbps asked of a 50 Mbit/s link: under 2 % of frames lost after the start-up (6.7 % before), the first cut within 1.6 s of the latch, and no change on an emulated 150 Mbit/s Wi-Fi link with 0.5 % loss. | [Link-rate fix](../rust/PERFORMANCE.md#october-24-link-rate-false-cuts-and-the-knee-hold-link-fix) |
 | Stream presets | Lowest latency makes the first keyframe 29 % smaller on HEVC and 38 to 40 % smaller on H.264. The median end to end time of the three presets was within 0.15 ms. | [Presets](../rust/PERFORMANCE.md#october-23-stream-presets-b3) |
 | Slice delivery (off by default) | 4K60 HEVC at 80 Mbps: the picture arrives 1.3 to 1.5 ms sooner on loopback and 1.2 to 1.4 ms sooner over Wi-Fi 6E to a laptop running Nightjar desktop. Android phone: no measurable gain; the emulated Wi-Fi run missed the 1 ms gate. | [Slice delivery](../rust/PERFORMANCE.md#october-23-slice-delivery-b2-step-2f) |
+| Sending a large frame block by block (on by default) | 4K60 over loopback with frames of about 790 KB: the first packet leaves about 0.55 ms sooner on HEVC and AV1, and HEVC's median end to end falls 0.5 ms. PyroWave 4K60 at 600 Mbps against 3.9.0: 3.4 % of a core less host CPU and packetizing in 0.09 instead of 0.32 ms. | [November 8](../rust/PERFORMANCE.md#november-8-sending-fec-and-amf-output-after-390) |
 | Beam-raced PyroWave (when the client asks) | Nightjar desktop, PyroWave 1080p60 at 399 Mbps, loopback: the picture's middle row is on screen 1.4 ms sooner (median age 5.32 to 3.93 ms). | [Beam-race gate](../rust/PERFORMANCE.md#october-24-beam-raced-pyrowave-gate-b10-step-4-opt-in-missed-its-default-on-gate) |
 | Rust engine on Android | Retroid Pocket 6, HEVC 1080p60 at 40 Mbps, four runs of 75 s per engine: median end to end 6.92 ms against 7.04 ms for the classic engine. | [Rust engine](../rust/PERFORMANCE.md#october-23-rust-engine-against-the-c-engine-on-android-b8) |
 | Against 2.6.0 | 56 streams on physical and virtual displays, ABBA order: every mean picture age within 0.15 ms of 2.6.0. Wired LAN to a second PC: mean host processing 0.45 ms. | [alpha.1 gate](../rust/PERFORMANCE.md#october-22-30-alpha1-hardware-gate) |
@@ -265,6 +266,8 @@ Every client's input passes through one host thread. Recent changes give virtual
 Smaller changes take a few tens of microseconds off every input packet (the network acknowledgement goes out after the input is applied) and remove 2–18 ms pauses at a stream's first input and while its display is created or renamed.
 
 [Method and all runs →](../rust/PERFORMANCE.md#october-7-input-on-the-control-thread)
+
+**Rumble and touch, November 8.** An Xbox 360 (ViGEmBus) pad now gets every rumble change as it happens: at 500 changes a second all 3000 were forwarded in a median 0.065 ms, where the build before forwarded about a quarter at 6.6 ms and, in that run, never the final stop. A two-finger pinch reaches Windows as one touch frame per pass instead of 2 to 4, in 28 to 34 µs instead of 49 to 145 µs. Over a loopback stream, mouse input took a median 0.14 to 0.15 ms from the first packet read to Windows. [Method and all runs →](../rust/PERFORMANCE.md#november-8-gamepad-feedback-touch-and-input-under-load)
 
 ## WGC capture and pacing
 

@@ -7,7 +7,6 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use std::{
-    collections::BTreeMap,
     ptr,
     sync::{Arc, Condvar, Mutex},
     time::Duration,
@@ -35,11 +34,24 @@ impl Drop for Surface {
 /// until its native release callback, using one stable observer for the whole
 /// encoder lifetime. Surface.h specifies the callback runs before internal
 /// resources are released, so its key names a still-live native surface.
+/// The surfaces are few (`AMF_SURFACE_LIMIT`), so a vector found by a scan
+/// holds them: no allocation per frame, unlike a map node and a box.
 #[repr(C)]
 pub(crate) struct Ownership {
     observer: AMFSurfaceObserver,
-    textures: Mutex<BTreeMap<usize, Box<dyn std::any::Any + Send>>>,
+    textures: Mutex<Vec<(usize, Held)>>,
     released: Condvar,
+}
+/// What an input surface keeps alive until AMF releases it.
+pub(crate) enum Held {
+    D3d11 {
+        _texture: Arc<ID3D11Texture2D>,
+    },
+    D3d12 {
+        _texture: Arc<windows::Win32::Graphics::Direct3D12::ID3D12Resource>,
+    },
+    #[cfg(test)]
+    Nothing,
 }
 static OBSERVER: AMFSurfaceObserverVtbl = AMFSurfaceObserverVtbl {
     OnSurfaceDataRelease: Some(released),
@@ -52,7 +64,12 @@ unsafe extern "C" fn released(observer: *mut AMFSurfaceObserver, surface: *mut A
     // #[repr(C)] Ownership that the encoder keeps until AMF is terminated.
     let ownership = unsafe { &*observer.cast::<Ownership>() };
     if let Ok(mut textures) = ownership.textures.lock() {
-        textures.remove(&(surface as usize));
+        if let Some(index) = textures
+            .iter()
+            .position(|(key, _)| *key == surface as usize)
+        {
+            textures.swap_remove(index);
+        }
         ownership.released.notify_all();
     }
 }
@@ -60,7 +77,9 @@ impl Ownership {
     pub fn new() -> Box<Self> {
         Box::new(Self {
             observer: AMFSurfaceObserver { pVtbl: &OBSERVER },
-            textures: Default::default(),
+            textures: Mutex::new(Vec::with_capacity(
+                butterpollo_core::encoder_backlog::AMF_SURFACE_LIMIT + 1,
+            )),
             released: Condvar::new(),
         })
     }
@@ -80,11 +99,17 @@ impl Ownership {
         );
     }
     /// Keep `owner` alive until AMF releases `surface`.
-    pub(crate) fn hold(&self, surface: *mut AMFSurface, owner: Box<dyn std::any::Any + Send>) {
-        self.textures
-            .lock()
-            .unwrap()
-            .insert(surface as usize, owner);
+    pub(crate) fn hold(&self, surface: *mut AMFSurface, owner: Held) {
+        let mut textures = self.textures.lock().unwrap();
+        // A surface AMF already released and handed out again replaces its
+        // old owner, as a map insert would.
+        match textures
+            .iter_mut()
+            .find(|(key, _)| *key == surface as usize)
+        {
+            Some((_, held)) => *held = owner,
+            None => textures.push((surface as usize, owner)),
+        }
     }
     fn raw(&mut self) -> *mut AMFSurfaceObserver {
         &mut self.observer
@@ -135,7 +160,12 @@ pub(crate) fn wrap(
         if surface.is_null() {
             anyhow::bail!("AMF returned no native surface");
         }
-        ownership.hold(surface, Box::new(texture.clone()));
+        ownership.hold(
+            surface,
+            Held::D3d11 {
+                _texture: texture.clone(),
+            },
+        );
         Ok((Surface(surface), texture.clone()))
     }
 }
@@ -226,7 +256,12 @@ impl D3d12Context {
             if surface.is_null() {
                 anyhow::bail!("AMF returned no D3D12 surface");
             }
-            ownership.hold(surface, Box::new(texture.clone()));
+            ownership.hold(
+                surface,
+                Held::D3d12 {
+                    _texture: texture.clone(),
+                },
+            );
             Ok(Surface(surface))
         }
     }
@@ -343,7 +378,7 @@ mod tests {
     fn ownership_wait_wakes_on_release_and_keeps_held_surface_until_callback() {
         let mut ownership = Ownership::new();
         let surface = std::ptr::dangling_mut::<AMFSurface>();
-        ownership.hold(surface, Box::new(()));
+        ownership.hold(surface, Held::Nothing);
         ownership.wait_below(1, Duration::ZERO);
         assert_eq!(ownership.retained(), 1);
         let observer = ownership.raw() as usize;
@@ -374,5 +409,30 @@ mod tests {
         let started = Instant::now();
         ownership.wait_below(1, Duration::from_secs(5));
         assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn a_release_drops_only_its_own_surface_and_a_reused_surface_replaces_its_owner() {
+        let mut ownership = Ownership::new();
+        let observer = ownership.raw();
+        let first = std::ptr::dangling_mut::<AMFSurface>();
+        let second = first.wrapping_byte_add(64);
+        let third = first.wrapping_byte_add(128);
+        for surface in [first, second, third, second] {
+            ownership.hold(surface, Held::Nothing);
+        }
+        assert_eq!(ownership.retained(), 3);
+        // SAFETY: The boxed observer is alive; the fake surfaces are only keys.
+        unsafe { released(observer, second) };
+        assert_eq!(ownership.retained(), 2);
+        // SAFETY: As above; a surface AMF never held is ignored.
+        unsafe { released(observer, second) };
+        assert_eq!(ownership.retained(), 2);
+        // SAFETY: As above.
+        unsafe {
+            released(observer, first);
+            released(observer, third);
+        }
+        assert_eq!(ownership.retained(), 0);
     }
 }

@@ -59,7 +59,8 @@ impl SessionThread<'_> {
         let arrival_pacing = vrr
             || butterpollo_core::stream_policy::Pacing::from_config(&c) == butterpollo_core::stream_policy::Pacing::Arrival;
         let source_phase_eligible = vrr || c.boolean("frame_pacing_predictive", true);
-        let new_pacer = |rates: &butterpollo_core::reconfigure::Rates| {
+        // Read once: the setting is the session's, and a lookup a frame costs.
+        let direct_encoder_input = c.boolean("wgc_direct_encoder_input", true);        let new_pacer = |rates: &butterpollo_core::reconfigure::Rates| {
             let predictive = c.boolean("frame_pacing_predictive", true);
             butterpollo_core::stream_policy::Pacer::new(Instant::now(), rates.period)
                 .with_static_period(rates.static_period)
@@ -140,6 +141,7 @@ impl SessionThread<'_> {
         let mut packets = Vec::new();
         let trace_send = tracing::enabled!(target: "pacing", tracing::Level::TRACE);
         let mut admission_trace = trace_send.then(AdmissionTrace::default);
+        recovery.queries = trace_send.then(Vec::new);
         let mut trace_attempt = 0_u64;
         batch.waits = trace_send.then(Default::default);
         let mut network_pacer = butterpollo_core::network_pacing::Pacer::new(Instant::now());
@@ -238,7 +240,7 @@ impl SessionThread<'_> {
                 let mut frame_packetizer = packetizer.clone();
                 let large_frame = output.iter().any(|frame| {
                     frame_packetizer.fec_percent = s.video_fec_percent(frame.idr || frame.after_invalidation, frame.bytes.len());
-                    let wire = butterpollo_core::network_pacing::video_frame_wire_rate_bps(&frame_packetizer, frame.bytes.len(), stream_period.get(), peer.is_ipv6());
+                    let wire = butterpollo_core::network_pacing::video_frame_wire_rate_bps(&frame_packetizer, frame.bytes.len(), stream_period.get(), peer.ip().to_canonical().is_ipv6());
                     butterpollo_core::network_pacing::paced(bps, wire)
                 });
                 if std::mem::take(&mut inline_paced) || loss_paced || large_frame || automatic_pacing || send_jitter_set || c.boolean("host_adaptive_bitrate", false) || butterpollo_core::network_pacing::paced(bps, needed) {
@@ -354,7 +356,7 @@ impl SessionThread<'_> {
                                     timer.until_paced(network_pacer.due());
                                 }
                                 let budget = butterpollo_core::network_pacing::batch_payload_limit(
-                                    bps, remaining[0].len(), peer.is_ipv6(), batch_kb * 1024,
+                                    bps, remaining[0].len(), peer.ip().to_canonical().is_ipv6(), batch_kb * 1024,
                                 );
                                 let count = butterpollo_windows::net::Batch::count(remaining, budget);
                                 let refused = batch.dropped;
@@ -422,7 +424,7 @@ impl SessionThread<'_> {
                     // The last unit is out: account for the frame as for a whole one.
                     let slices::Streaming { frame: streamed, wire_frame, timestamp, claim, claimed, age, started, packetize_started, first_polled, last_polled, payload_bytes, processing, bps, sent, .. } = st;
                     let unrecoverable = sent.lost.unrecoverable();
-                    s.record_link_sent(wire_frame, sent.packets, ((sent.packets * (packetizer.packet_size + 16 + if packetizer.key.is_some() { 32 } else { 0 })) + sent.packets * butterpollo_core::network_pacing::overhead(peer.is_ipv6())) as u64);
+                    s.record_link_sent(wire_frame, sent.packets, ((sent.packets * (packetizer.packet_size + 16 + if packetizer.key.is_some() { 32 } else { 0 })) + sent.packets * butterpollo_core::network_pacing::overhead(peer.ip().to_canonical().is_ipv6())) as u64);
                     if unrecoverable {
                         s.keyframe_abandoned(wire_frame);
                         tracing::debug!(frame = wire_frame, finished = streamed.is_done(), "video frame lost on send; the rest of it was not sent");
@@ -449,7 +451,7 @@ impl SessionThread<'_> {
                         payload_bytes, cap_bytes: frame.frame_cap_bytes,
                         cap_target_bytes: frame.frame_cap_target, reencoded: frame.reencoded,
                         fec_limited: streamed.fec_limited() || packetizer.fec_limited(payload_bytes),
-                        wire_bytes: frame_bytes.saturating_add((sent.packets * butterpollo_core::network_pacing::overhead(peer.is_ipv6())) as u64),
+                        wire_bytes: frame_bytes.saturating_add((sent.packets * butterpollo_core::network_pacing::overhead(peer.ip().to_canonical().is_ipv6())) as u64),
                         pace_bps: bps, elapsed: finished.saturating_duration_since(started), lost: unrecoverable,
                     });
                     {
@@ -583,7 +585,7 @@ impl SessionThread<'_> {
                             pacing_wait += now.elapsed();
                         }
                         let budget = butterpollo_core::network_pacing::batch_payload_limit(
-                            bps, remaining[0].len(), peer.is_ipv6(), batch_kb * 1024,
+                            bps, remaining[0].len(), peer.ip().to_canonical().is_ipv6(), batch_kb * 1024,
                         );
                         let count =
                             butterpollo_windows::net::Batch::count(remaining, budget);
@@ -628,7 +630,7 @@ impl SessionThread<'_> {
                     }
                 }
                 drop(next_block);
-                s.record_link_sent(wire_frame, packet_count, frame_bytes.saturating_add((packet_count * butterpollo_core::network_pacing::overhead(peer.is_ipv6())) as u64));
+                s.record_link_sent(wire_frame, packet_count, frame_bytes.saturating_add((packet_count * butterpollo_core::network_pacing::overhead(peer.ip().to_canonical().is_ipv6())) as u64));
                 if lost.unrecoverable() {
                     s.keyframe_abandoned(wire_frame);
                     tracing::debug!(frame = packetizer.frame.wrapping_sub(1), idr = frame.idr, abandoned, "video frame lost on send; the rest of it was not sent");
@@ -644,7 +646,7 @@ impl SessionThread<'_> {
                     frame: wire_frame, idr: frame.idr, after_invalidation: frame.after_invalidation,
                     payload_bytes: frame.bytes.len(), cap_bytes: frame.frame_cap_bytes,
                     cap_target_bytes: frame.frame_cap_target, reencoded: frame.reencoded, fec_limited,
-                    wire_bytes: frame_bytes.saturating_add((packet_count * butterpollo_core::network_pacing::overhead(peer.is_ipv6())) as u64),
+                    wire_bytes: frame_bytes.saturating_add((packet_count * butterpollo_core::network_pacing::overhead(peer.ip().to_canonical().is_ipv6())) as u64),
                     pace_bps: bps, elapsed: sent.saturating_duration_since(frame_started), lost: lost.unrecoverable(),
                 });
                 if let (Some(first), Some(last), Some(before), Some(after)) = (first_send, last_send, waits_before, batch.waits) {
@@ -718,6 +720,7 @@ impl SessionThread<'_> {
                             let timing = window.snapshot();
                             let link = s.link_rate_snapshot();
                             let ms = |key: &str| timing[key].as_f64().unwrap_or(0.);
+                            let input = s.stats.input_latency.lock().unwrap().take();
                             // Pipeline frame rates since the last summary; none in the first.
                             let rates = pipeline_log.sample(Instant::now(), s.pipeline_counts(), Duration::from_secs(5));
                             let fps_of = |pick: fn(&butterpollo_core::pipeline_rates::PipelineRates) -> Option<u32>| {
@@ -827,6 +830,10 @@ impl SessionThread<'_> {
                                 link_rtt_floor_ms=link["rtt_floor_ms"].as_u64().unwrap_or(0),
                                 // Only with webrtc_loss_permille on: the video datagrams it has thrown away.
                                 webrtc_simulated_losses=webrtc_sender.as_ref().and_then(|sender| sender.simulated_losses()),
+                                // ENet keyboard, mouse, touch and pen passes: the control worker's
+                                // read of a pass's first datagram to its input injected, p50/p99/max ms.
+                                input_receive_to_injected_ms=%input,
+                                input_passes=input.passes,
                                 "stream timings"
                             );
                         }
@@ -936,14 +943,19 @@ impl SessionThread<'_> {
                 if !arrival_pacing && now < due {
                     AdmissionTrace::measure(&mut admission_trace, AdmissionWait::Grid, || -> Result<()> {
                     while Instant::now() < due {
-                        if encoder.as_ref().is_some_and(|e| recovery.pending(e)) {
+                        // A poll can block for the encoder's 1 ms query
+                        // timeout; close to the grid tick it would overshoot.
+                        if encoder.as_ref().is_some_and(|e| recovery.pending(e))
+                            && poll_fits(encoder.as_ref(), Instant::now(), due)
+                        {
                             let poll_tick = Instant::now();
                             send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, poll_tick)?;
                             if encoder.as_ref().is_some_and(|e| recovery.pending(e)) {
-                                timer.until(
-                                    (Instant::now() + OUTPUT_POLL)
+                                timer.until_or_event(
+                                    next_output_poll(encoder.as_ref(), Instant::now())
                                         .min(due),
-                                );
+                                    encoder.as_ref().and_then(Encoder::output_event),
+                                )?;
                             }
                         } else {
                             timer.until(due);
@@ -1008,15 +1020,15 @@ impl SessionThread<'_> {
                     // A poll can block for the encoder's 1 ms query
                     // timeout; close to the claim it would overshoot.
                     if encoder.as_ref().is_some_and(|e| recovery.pending(e))
-                        && deadline.saturating_duration_since(Instant::now()) >= Duration::from_millis(1)
+                        && poll_fits(encoder.as_ref(), Instant::now(), deadline)
                     {
                         send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, capture_tick)?;
                     }
                     let now = Instant::now();
                     let until = if encoder.as_ref().is_some_and(|e| recovery.pending(e))
-                        && deadline.saturating_duration_since(now) >= Duration::from_millis(1)
+                        && poll_fits(encoder.as_ref(), now, deadline)
                     {
-                        deadline.min(now + OUTPUT_POLL)
+                        deadline.min(next_output_poll(encoder.as_ref(), now))
                     } else {
                         deadline
                     };
@@ -1025,7 +1037,7 @@ impl SessionThread<'_> {
                     if until == deadline {
                         latest.wait_if_current_precise(&timer, &capture_wake, &image, until)?;
                     } else {
-                        latest.wait_if_current(&timer, &capture_wake, &image, until)?;
+                        latest.wait_if_current_or(&timer, &capture_wake, &image, until, encoder.as_ref().and_then(Encoder::output_event))?;
                     }
                     Ok(())
                     })?;
@@ -1058,8 +1070,10 @@ impl SessionThread<'_> {
                 {
                     AdmissionTrace::measure(&mut admission_trace, AdmissionWait::Repeat, || -> Result<()> {
                     if encoder.as_ref().is_some_and(|e| recovery.pending(e)) { send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, capture_tick)?; }
-                    let wait = if encoder.as_ref().is_some_and(|e| recovery.pending(e)) { OUTPUT_POLL } else { period };
-                    latest.wait_if_current(&timer, &capture_wake, &image, Instant::now() + wait.min(reencode_at.saturating_duration_since(Instant::now())))?;
+                    let pending = encoder.as_ref().is_some_and(|e| recovery.pending(e));
+                    let wait = if pending { next_output_poll(encoder.as_ref(), Instant::now()).saturating_duration_since(Instant::now()) } else { period };
+                    let output = encoder.as_ref().filter(|_| pending).and_then(Encoder::output_event);
+                    latest.wait_if_current_or(&timer, &capture_wake, &image, Instant::now() + wait.min(reencode_at.saturating_duration_since(Instant::now())), output)?;
                     Ok(())
                     })?;
                     continue;
@@ -1107,7 +1121,11 @@ impl SessionThread<'_> {
                     // silent gets longer each time.
                     AdmissionTrace::measure(&mut admission_trace, AdmissionWait::Encoder, || -> Result<()> {
                         if let Some(output) = recovery.poll_full(&mut encoder, &s.launch.warnings, Instant::now)? {
+                            let idle = output.is_empty();
                             send_frames(output, peer, Duration::ZERO, latest, capture_tick)?;
+                            if idle {
+                                wait_for_output(&timer, &recovery, encoder.as_ref())?;
+                            }
                         }
                         Ok(())
                     })?;
@@ -1236,6 +1254,10 @@ impl SessionThread<'_> {
                         _ => (begin, latest.picture_interval(), None),
                     };
                     let (capture_id, selected_is_latest, latest_capture_id) = latest.trace_selection(&image);
+                    let query = recovery.queries.as_ref().map_or_else(QueryTrace::default, |queries| QueryTrace::new(queries, image.published));
+                    if let Some(queries) = recovery.queries.as_mut() {
+                        queries.clear();
+                    }
                     tracing::trace!(
                         target: "pacing",
                         capture_id,
@@ -1265,6 +1287,10 @@ impl SessionThread<'_> {
                         encoder_pressure_us = admission.micros(AdmissionWait::Encoder),
                         sender_pressure_us = admission.micros(AdmissionWait::Sender),
                         admission_passes = ?admission.passes,
+                        output_polls = query.queries,
+                        output_poll_us = query.query_us,
+                        published_in_poll = query.published_in_query,
+                        poll_held_us = query.held_us,
                         "claim"
                     );
                     *admission = AdmissionTrace::default();
@@ -1327,7 +1353,7 @@ impl SessionThread<'_> {
                     let pace = crate::video_send::recovery::preview_pace(&s, &c, &recovery_packetizer, period, peer, encode_route);
                     let cap = butterpollo_core::network_pacing::recovery_frame_cap(
                         pace.bps, bitrate, period, recovery_packetizer.fec_percent,
-                        recovery_packetizer.packet_size, peer.is_ipv6(),
+                        recovery_packetizer.packet_size, peer.ip().to_canonical().is_ipv6(),
                     );
                     // Moonlight takes four FEC blocks a frame: a recovery keyframe
                     // past them leaves with less parity or none, and one lost
@@ -1401,7 +1427,7 @@ impl SessionThread<'_> {
                     crate::soak_fault::check("encoder failure")?;
                     #[cfg(debug_assertions)]
                     crate::soak_fault::check("DXGI_ERROR_DEVICE_REMOVED")?;
-                    Ok(if c.boolean("wgc_direct_encoder_input", true) {                                    active.encode_gpu(&presented_image, idr, bitrate)?
+                    Ok(if direct_encoder_input {                                    active.encode_gpu(&presented_image, idr, bitrate)?
                     } else {
                         active.encode(
                             &presented_image.readback(&mut staging)?,

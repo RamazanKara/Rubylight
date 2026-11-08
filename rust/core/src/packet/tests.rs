@@ -399,6 +399,72 @@ fn abandoning_pyrowave_blocks_keeps_frame_and_nonce_progress() {
     assert_eq!(p.iv_counter, (first.len() + total) as u64);
 }
 
+/// Review 2026-11-07: PyroWave allocated and zero-filled every packet of every
+/// frame. Blocks built in returned buffers, even ones of another size and
+/// full of the last frame's bytes, are the same bytes, and the buffers stay.
+#[test]
+fn pyrowave_blocks_in_reused_buffers_match_fresh_ones() {
+    let fec = || PyrowaveFec {
+        records: false,
+        critical_percentage: 20,
+        detail_percentage: 0,
+        wire_budget: 0,
+        ipv6: false,
+    };
+    let make = || VideoPacketizer {
+        sequence: 65000,
+        iv_counter: 9,
+        frame: 3,
+        packet_size: 1392,
+        fec_percent: 0,
+        min_fec: 2,
+        key: Some([42; 16]),
+    };
+    let pool = BlockPool::default();
+    let (mut fresh, mut reused) = (make(), make());
+    for (index, size) in [400_000usize, 90_000, 700_000, 1_000]
+        .into_iter()
+        .enumerate()
+    {
+        let payload: Vec<u8> = (0..size).map(|i| (i * 31 + index) as u8).collect();
+        let expected: Vec<_> = fresh
+            .pyrowave_blocks(&payload, 9000, 543, fec())
+            .unwrap()
+            .2
+            .map(Result::unwrap)
+            .collect();
+        let (count, _, blocks) = reused
+            .pyrowave_blocks_in(&payload, 9000, 543, fec(), Some(&pool))
+            .unwrap();
+        let actual: Vec<_> = blocks.map(Result::unwrap).collect();
+        assert_eq!(actual, expected, "frame {index}");
+        assert_eq!(actual.iter().map(Vec::len).sum::<usize>(), count);
+        for block in actual {
+            pool.give(block);
+        }
+        assert!(pool.len() > 0);
+    }
+    assert_eq!(
+        (fresh.sequence, fresh.iv_counter, fresh.frame),
+        (reused.sequence, reused.iv_counter, reused.frame)
+    );
+}
+
+#[test]
+fn a_block_pool_hands_blocks_back_in_order_and_keeps_a_few() {
+    let pool = BlockPool::default();
+    for size in 1..=20 {
+        pool.give(vec![Vec::new(); size]);
+    }
+    assert_eq!(pool.len(), 16);
+    let first = pool.take();
+    assert_eq!(first.len(), 1);
+    pool.unused(first);
+    assert_eq!(pool.take().len(), 1);
+    assert_eq!(pool.take().len(), 2);
+    assert!(BlockPool::default().take().is_empty());
+}
+
 #[test]
 fn legacy_pyrowave_uses_the_conventional_receivers_fec_bytes() {
     for key in [None, Some([42; 16])] {
@@ -1013,4 +1079,105 @@ fn audio_frame_pieces_share_a_timestamp_and_fec_names_the_block_start() {
     assert!(fec.iter().all(|p| p[16..20] == 0u32.to_be_bytes()));
     assert!(fec.iter().all(|p| p.len() == 24 + 1028));
     assert_eq!(ac3.timestamp, 64);
+}
+
+/// `gf2p8affineqb` as Intel defines it: output bit `i` is the parity of the
+/// input byte and the matrix's byte `7 - i`.
+fn affine(matrix: u64, value: u8) -> u8 {
+    (0..8).fold(0, |out, bit| {
+        let row = (matrix >> (8 * (7 - bit))) as u8;
+        out | ((((row & value).count_ones() & 1) as u8) << bit)
+    })
+}
+
+/// The GFNI matrices multiply in nanors' field, on any CPU.
+#[test]
+fn the_gfni_matrices_multiply_in_the_fec_field() {
+    for coefficient in 0..=255u8 {
+        for value in 0..=255u8 {
+            assert_eq!(
+                affine(AFFINE[coefficient as usize], value),
+                gf_mul(coefficient, value),
+                "{coefficient} * {value}"
+            );
+        }
+    }
+}
+
+/// GFNI parity is bit-exact with the AVX2 parity, for every row group, both
+/// offsets and lengths with and without a tail. Skipped on a CPU without
+/// GFNI (Zen 3); Zen 4 and Intel Ice Lake or newer run it.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn gfni_parity_matches_the_avx2_parity() {
+    if !(std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("gfni")) {
+        eprintln!("skipped: this CPU has no GFNI");
+        return;
+    }
+    let mut state = 0x9e37_79b9_7f4a_7c15u64;
+    let mut random = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state as u8
+    };
+    for (data, parity, size) in [
+        (1, 1, 40),
+        (5, 3, 47),
+        (37, 7, 1072),
+        (200, 55, 1040),
+        (212, 43, 1440),
+        (10, 6, 1040 + 33),
+    ] {
+        let shards: Vec<Vec<u8>> = (0..data + parity)
+            .map(|_| (0..size).map(|_| random()).collect())
+            .collect();
+        let (mut with, mut without) = (shards.clone(), shards.clone());
+        cauchy_encode_with::<0>(&mut with, data, parity, true).unwrap();
+        cauchy_encode_with::<0>(&mut without, data, parity, false).unwrap();
+        assert_eq!(with, without, "{data}+{parity} x {size}");
+        let (mut with, mut without) = (shards.clone(), shards);
+        cauchy_encode_with::<32>(&mut with, data, parity, true).unwrap();
+        cauchy_encode_with::<32>(&mut without, data, parity, false).unwrap();
+        assert_eq!(with, without, "{data}+{parity} x {size}, offset 32");
+    }
+}
+
+/// The GFNI path's arithmetic, emulated in software on any CPU: parity built
+/// from the per-coefficient matrices matches the shipped parity, with and
+/// without the 32-byte offset.
+#[test]
+fn parity_from_the_gfni_matrices_matches_the_shipped_parity() {
+    let mut state = 0x2545_f491_4f6c_dd1du64;
+    let mut random = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state as u8
+    };
+    fn emulated<const OFFSET: usize>(shards: &mut [Vec<u8>], data: usize, parity: usize) {
+        let (source, dest) = shards.split_at_mut(data);
+        for (row, out) in dest.iter_mut().enumerate() {
+            out[OFFSET..].fill(0);
+            for (i, input) in source.iter().enumerate() {
+                let matrix = AFFINE[INVERSES[((parity + i) as u8 ^ row as u8) as usize] as usize];
+                for (out, &value) in out[OFFSET..].iter_mut().zip(&input[OFFSET..]) {
+                    *out ^= affine(matrix, value);
+                }
+            }
+        }
+    }
+    for (data, parity, size) in [(1, 1, 40), (5, 3, 47), (37, 7, 1072), (200, 55, 1040)] {
+        let shards: Vec<Vec<u8>> = (0..data + parity)
+            .map(|_| (0..size).map(|_| random()).collect())
+            .collect();
+        let (mut shipped, mut matrices) = (shards.clone(), shards.clone());
+        cauchy_encode_with::<0>(&mut shipped, data, parity, false).unwrap();
+        emulated::<0>(&mut matrices, data, parity);
+        assert_eq!(matrices, shipped, "{data}+{parity} x {size}");
+        let (mut shipped, mut matrices) = (shards.clone(), shards);
+        cauchy_encode_with::<32>(&mut shipped, data, parity, false).unwrap();
+        emulated::<32>(&mut matrices, data, parity);
+        assert_eq!(matrices, shipped, "{data}+{parity} x {size}, offset 32");
+    }
 }

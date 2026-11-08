@@ -94,6 +94,8 @@ pub struct Stats {
     pub pipeline: crate::pipeline_rates::Counters,
     /// The console's pipeline frame rates, over `pipeline_rates::CONSOLE_WINDOW`.
     pub pipeline_console: std::sync::Mutex<crate::pipeline_rates::Sampler>,
+    /// Socket read to injected for ENet input passes, for the `stream timings` line.
+    pub input_latency: std::sync::Mutex<crate::input_latency::InputLatency>,
 }
 /// The encoder's share of a video `budget` that also carries `fec` percent
 /// parity: budget × 100 / (100 + fec), at least 1 Kbps of a non-zero budget.

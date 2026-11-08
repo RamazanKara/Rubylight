@@ -436,6 +436,7 @@ impl<T> Latest<T> {
         wake: &Consumer,
         deadline: Instant,
         precise: bool,
+        extra: Option<&Signal>,
         predicate: impl FnOnce(&State<T>) -> bool,
     ) -> Result<()> {
         let state = self.state.lock().unwrap();
@@ -445,7 +446,7 @@ impl<T> Latest<T> {
             if precise {
                 timer.until_or_signal_precise(deadline, wake)?;
             } else {
-                timer.until_or_signal(deadline, wake)?;
+                timer.until_or_signals(deadline, wake, extra)?;
             }
         }
         Ok(())
@@ -456,21 +457,24 @@ impl<T> Latest<T> {
         wake: &Consumer,
         deadline: Instant,
     ) -> Result<Option<Arc<T>>> {
-        self.wait_if(timer, wake, deadline, false, |state| {
+        self.wait_if(timer, wake, deadline, false, None, |state| {
             // A reset must release the encoder immediately, not wait another
             // frame period while the capture worker waits for its release.
             state.image.is_none() && wake.released.load(Ordering::Acquire) == state.generation
         })?;
         self.current()
     }
-    pub(super) fn wait_if_current(
+    /// Wait while `image` is still the newest picture; `extra`, such as the
+    /// encoder's output event, also ends the wait.
+    pub(super) fn wait_if_current_or(
         &self,
         timer: &Timer,
         wake: &Consumer,
         image: &Arc<T>,
         deadline: Instant,
+        extra: Option<&Signal>,
     ) -> Result<()> {
-        self.wait_if(timer, wake, deadline, false, |state| {
+        self.wait_if(timer, wake, deadline, false, extra, |state| {
             state
                 .image
                 .as_ref()
@@ -486,7 +490,7 @@ impl<T> Latest<T> {
         image: &Arc<T>,
         deadline: Instant,
     ) -> Result<()> {
-        self.wait_if(timer, wake, deadline, true, |state| {
+        self.wait_if(timer, wake, deadline, true, None, |state| {
             state
                 .image
                 .as_ref()
@@ -764,20 +768,22 @@ mod tests {
         let second = latest.subscribe(Weak::new())?;
         let old = Arc::new(1u8);
         latest.publish_captured(old.clone(), Instant::now())?;
-        latest.wait_if_current(
+        latest.wait_if_current_or(
             &timer,
             &first,
             &old,
             Instant::now() + Duration::from_millis(2),
+            None,
         )?;
         assert!(timer.until_or_signal(Instant::now() + Duration::from_secs(1), &second)?);
         let new = Arc::new(2u8);
         latest.publish_captured(new.clone(), Instant::now())?;
-        latest.wait_if_current(
+        latest.wait_if_current_or(
             &timer,
             &first,
             &old,
             Instant::now() + Duration::from_secs(1),
+            None,
         )?;
         assert!(Arc::ptr_eq(
             &latest
@@ -791,6 +797,27 @@ mod tests {
                 .wait_for_frame(&timer, &first, Instant::now() + Duration::from_millis(2))?
                 .is_none()
         );
+        Ok(())
+    }
+    #[test]
+    fn an_encoder_output_event_ends_the_wait_for_a_new_picture() -> Result<()> {
+        let latest = Latest::new();
+        let timer = Timer::new()?;
+        let wake = latest.subscribe(Weak::new())?;
+        let image = Arc::new(1u8);
+        latest.publish_captured(image.clone(), Instant::now())?;
+        // The wait resets the capture signal: only the output event ends it.
+        let output = Signal::new()?;
+        output.set()?;
+        let started = Instant::now();
+        latest.wait_if_current_or(
+            &timer,
+            &wake,
+            &image,
+            started + Duration::from_secs(2),
+            Some(&output),
+        )?;
+        assert!(started.elapsed() < Duration::from_secs(1));
         Ok(())
     }
     #[test]

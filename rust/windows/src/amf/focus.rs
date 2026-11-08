@@ -287,13 +287,13 @@ impl State {
 ///
 /// # Safety
 /// `surface` is live, and an interface in `value` stays live for the call.
-unsafe fn set(surface: *mut AMFSurface, name: &str, value: AMFVariantStruct) -> Result<()> {
+unsafe fn set(surface: *mut AMFSurface, name: &'static str, value: AMFVariantStruct) -> Result<()> {
     // SAFETY: Per the contract; AMF copies the terminated name and value and
     // acquires its own reference to an interface value.
     unsafe {
         check(((*(*surface).pVtbl).SetProperty.unwrap())(
             surface,
-            to_wide(name).as_ptr(),
+            static_wide(name).as_ptr(),
             value,
         ))
         .with_context(|| format!("AMF surface property {name}"))
@@ -368,14 +368,17 @@ pub(crate) unsafe fn attach(
 ///
 /// # Safety
 /// `buffer` is a live output buffer.
-unsafe fn read_grid(buffer: *mut AMFBuffer, name: &str) -> Result<Option<Grid>> {
+unsafe fn read_grid(buffer: *mut AMFBuffer, name: &'static str) -> Result<Option<Grid>> {
     // SAFETY: GetProperty hands over one reference to an interface value, which
     // is released once; QueryInterface adds the surface's own, released after
     // its host plane, converted first if needed, has been copied out.
     unsafe {
         let mut value: AMFVariantStruct = std::mem::zeroed();
-        let found =
-            ((*(*buffer).pVtbl).GetProperty.unwrap())(buffer, to_wide(name).as_ptr(), &mut value);
+        let found = ((*(*buffer).pVtbl).GetProperty.unwrap())(
+            buffer,
+            static_wide(name).as_ptr(),
+            &mut value,
+        );
         if found != AMF_RESULT_AMF_OK {
             return Ok(None);
         }
@@ -830,7 +833,7 @@ impl Encoder {
                     started.elapsed() < Duration::from_secs(2),
                     "focus probe frame {frame} was not encoded within two seconds"
                 );
-                idr |= self.poll()?.iter().any(|encoded| encoded.idr);
+                idr |= self.poll_now()?.iter().any(|encoded| encoded.idr);
             }
             anyhow::ensure!(
                 !idr || frame == 0,
@@ -900,7 +903,7 @@ impl Encoder {
                         started.elapsed() < Duration::from_secs(2),
                         "focus diag frame {frame} was not encoded within two seconds"
                     );
-                    for encoded in self.poll()? {
+                    for encoded in self.poll_now()? {
                         size += encoded.bytes.len();
                         idr |= encoded.idr;
                     }

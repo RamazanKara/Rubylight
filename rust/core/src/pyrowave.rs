@@ -450,16 +450,29 @@ pub fn record_frame_with(
     limit: usize,
     rows: bool,
 ) -> Result<Vec<u8>> {
+    record_frame_into(bitstream, payload, limit, rows, Vec::new())
+}
+/// [`record_frame_with`] written into `out`, whose contents are replaced: a caller that reuses
+/// large buffers keeps its allocation.
+pub fn record_frame_into(
+    bitstream: &[u8],
+    payload: usize,
+    limit: usize,
+    rows: bool,
+    mut out: Vec<u8>,
+) -> Result<Vec<u8>> {
     let all = records(bitstream)?;
     if bitstream.len() > limit {
         bail!("PyroWave frame exceeds transport capacity");
     }
+    out.clear();
     if payload == 0 {
-        return Ok(bitstream.to_vec());
+        out.extend_from_slice(bitstream);
+        return Ok(out);
     }
     let coarse = coarse_count(bitstream);
     let steps = rows.then(|| cached_row_steps(bitstream));
-    let mut out = Vec::with_capacity(bitstream.len());
+    out.reserve(bitstream.len());
     out.extend_from_slice(&bitstream[..8]);
     for required in [true, false] {
         if let Some(steps) = steps.as_ref().filter(|_| !required) {
@@ -499,7 +512,8 @@ pub fn record_frame_with(
         first_fit(&mut out, bitstream, &ordinary, &[], payload);
     }
     if out.len() > limit {
-        return Ok(bitstream.to_vec());
+        out.clear();
+        out.extend_from_slice(bitstream);
     }
     Ok(out)
 }

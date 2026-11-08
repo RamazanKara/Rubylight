@@ -35,6 +35,7 @@ pub mod ffmpeg;
 pub mod files;
 pub mod firewall;
 pub mod foreground;
+pub mod frame_pool;
 mod gpu_color;
 pub mod gpu_priority;
 pub mod gpu_probe;

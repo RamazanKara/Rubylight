@@ -70,6 +70,7 @@ pub mod host_service;
 pub mod host_timing;
 pub mod hotkey;
 pub mod input;
+pub mod input_latency;
 pub mod input_policy;
 pub mod keyboard_layout;
 pub mod keyframe_loss;

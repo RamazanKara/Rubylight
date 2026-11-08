@@ -504,6 +504,25 @@ impl Config {
     pub fn webrtc_rtx(&self) -> bool {
         self.boolean("webrtc_rtx", true)
     }
+    /// Whether the AMF encoder skips an output query while its oldest frame cannot be finished
+    /// yet, judged by the fastest encode it has returned, and waits instead where a fresh capture
+    /// can still be claimed (`amd_output_prediction`). Off by default: the November 8 A/B under
+    /// GPU load measured no consistent gain over the blocking 1 ms query (rust/PERFORMANCE.md).
+    pub fn amd_output_prediction(&self) -> bool {
+        self.boolean("amd_output_prediction", false)
+    }
+    /// Whether a thread of its own waits in AMF's output query and hands finished frames to the
+    /// stream thread, which then never blocks in it (`amd_output_thread`). Off by default: the
+    /// November 8 A/B under GPU load measured shorter tails but a later median and more CPU
+    /// (rust/PERFORMANCE.md). It takes precedence over `amd_output_prediction`.
+    pub fn amd_output_thread(&self) -> bool {
+        self.boolean("amd_output_thread", false)
+    }
+    /// Whether the stream thread also wakes on NVENC's D3D12 output fence instead of only on its
+    /// 100 µs output poll, which stays as the bound (`nvenc_output_event = false` turns it off).
+    pub fn nvenc_output_event(&self) -> bool {
+        self.boolean("nvenc_output_event", true)
+    }
     /// Video datagrams the WebRTC media thread drops per thousand (`webrtc_loss_permille`, 0 to
     /// 1000), as a lossy link does. A measurement switch, 0 by default.
     pub fn webrtc_loss_permille(&self) -> u32 {

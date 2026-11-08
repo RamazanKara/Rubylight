@@ -9,6 +9,38 @@ use std::time::{Duration, Instant};
 /// AMF's existing blocking QueryOutput allowance.
 pub const QUERY_TIMEOUT: Duration = Duration::from_millis(1);
 
+/// Whether a poll that can block for [`QUERY_TIMEOUT`] still returns by
+/// `deadline`; closer to it, the poll would overshoot the claim it precedes.
+pub fn query_fits(now: Instant, deadline: Instant) -> bool {
+    deadline.saturating_duration_since(now) >= QUERY_TIMEOUT
+}
+
+/// `amd_output_prediction`: a query is skipped while the oldest frame in
+/// flight is predicted to finish more than this far ahead, so a skip never
+/// trades a frame that is done for one blocking query.
+pub const PREDICTION_SKIP_FROM: Duration = Duration::from_micros(1200);
+/// The next query is due this long before the predicted finish.
+pub const PREDICTION_LEAD: Duration = Duration::from_micros(200);
+
+/// The earliest AMF can return the oldest frame in flight: when it accepted
+/// that frame plus the fastest encode measured so far, which no frame beats.
+/// Measured from acceptance to the query that returned it, so it errs late
+/// by up to one poll; [`PREDICTION_LEAD`] covers that.
+pub fn predicted_output(accepted: Instant, fastest: Option<Duration>) -> Option<Instant> {
+    fastest.map(|fastest| accepted + fastest)
+}
+
+/// Whether a query now would only wait in the driver for a frame that cannot
+/// be done yet.
+pub fn skips_query(now: Instant, predicted: Option<Instant>) -> bool {
+    predicted.is_some_and(|at| at.saturating_duration_since(now) > PREDICTION_SKIP_FROM)
+}
+
+/// When the next query is worth making for a predicted finish.
+pub fn query_due(predicted: Instant) -> Instant {
+    predicted.checked_sub(PREDICTION_LEAD).unwrap_or(predicted)
+}
+
 /// One picture encoding and another queued or being sent.
 pub const DEFAULT_LIMIT: usize = 2;
 /// The native AMF adapter's existing bound on retained input surfaces.
@@ -156,6 +188,35 @@ pub fn backpressure(encoding: usize, sending: usize, encoder_limit: usize) -> Ba
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_query_is_skipped_only_well_before_the_fastest_encode_can_finish() {
+        let accepted = Instant::now();
+        assert_eq!(predicted_output(accepted, None), None);
+        assert!(!skips_query(accepted, None), "nothing measured yet");
+        let predicted = predicted_output(accepted, Some(Duration::from_millis(4)));
+        assert_eq!(predicted, Some(accepted + Duration::from_millis(4)));
+        assert!(skips_query(accepted, predicted));
+        let late = accepted + Duration::from_millis(4) - PREDICTION_SKIP_FROM;
+        assert!(!skips_query(late, predicted), "within the skip margin");
+        assert!(!skips_query(accepted + Duration::from_millis(5), predicted));
+        let due = query_due(predicted.unwrap());
+        assert_eq!(due, accepted + Duration::from_millis(4) - PREDICTION_LEAD);
+        // The due query is no longer skipped.
+        assert!(!skips_query(due, predicted));
+    }
+    #[test]
+    fn a_blocking_query_is_skipped_within_its_timeout_of_the_claim() {
+        let now = Instant::now();
+        assert!(query_fits(now, now + QUERY_TIMEOUT));
+        assert!(query_fits(now, now + Duration::from_millis(5)));
+        assert!(!query_fits(
+            now,
+            now + QUERY_TIMEOUT - Duration::from_micros(1)
+        ));
+        assert!(!query_fits(now, now));
+        assert!(!query_fits(now + Duration::from_millis(1), now));
+    }
 
     #[test]
     fn recovery_waits_for_output_without_permanently_stopping_a_depth_one_encoder() {

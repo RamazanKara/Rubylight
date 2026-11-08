@@ -10,7 +10,8 @@ checks (see plan()):
 - host workspace crates, and the crates that depend on them, to
   C:\\src\\rl-quick.ps1 (fmt, clippy, tests) with this worktree's target dir;
 - client/protocol crates, and their dependants, to `cargo test` in Nightjar's
-  workspace, plus the interop tests once tests/interop exists;
+  workspace, plus `cargo clippy -D warnings` for the crates CI lints
+  (CLIENT_CLIPPY), plus the interop tests once tests/interop exists;
 - client/app sources to the Gradle unit tests of the touched classes;
 - rust/service, the Windows service's own workspace, to its fmt, clippy and
   tests (and the release suites, which check its version rule);
@@ -44,6 +45,8 @@ GRADLE_WIDE = ('client/build.gradle', 'client/settings.gradle', 'client/gradle.p
                'client/app/src/main/AndroidManifest.xml')
 # Client workspace files outside its members that change every member's build.
 CLIENT_WIDE = ('client/protocol/Cargo.toml', 'client/protocol/Cargo.lock', 'client/protocol/vendor/')
+# Client crates that nightjar-android.yml lints with `clippy --all-targets -D warnings`.
+CLIENT_CLIPPY = ('nightjar-desktop',)
 GRADLE_TASK = ':app:testNonRootDebugUnitTest'
 
 
@@ -298,6 +301,17 @@ def client_specs(root, names):
     return [f'path+file:///{posix((root / by_name[name]).resolve())}#{name}' for name in names]
 
 
+def client_commands(root, crates):
+    """cargo test for the client crates, then clippy as CI runs it for those of them it lints."""
+    args = [a for spec in client_specs(root, crates) for a in ('-p', spec)]
+    commands = [['cargo', 'test', '-j', '4', *args]]
+    linted = [c for c in crates if c in CLIENT_CLIPPY]
+    if linted:
+        lint_args = [a for spec in client_specs(root, linted) for a in ('-p', spec)]
+        commands.append(['cargo', 'clippy', '-j', '4', '--all-targets', '--locked', *lint_args, '--', '-D', 'warnings'])
+    return commands
+
+
 def stop_stray_vite(root, log):
     # Only this worktree's node processes: another worktree may be running its own console build.
     script = ("Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | "
@@ -332,9 +346,9 @@ def execute(check, root, log, target):
         quick.unlink(missing_ok=True)
         return code == 0 and passed
     if check.kind == 'client':
-        args = [a for spec in client_specs(root, check.items) for a in ('-p', spec)]
         env = client_env(f'{target}-client')
-        return run(['cargo', 'test', '-j', '4', *args], log, root / CLIENT_WORKSPACE, env) == 0
+        return all([run(command, log, root / CLIENT_WORKSPACE, env) == 0
+                    for command in client_commands(root, check.items)])
     if check.kind == 'service':
         # Its own workspace, in a folder of this worktree's target dir; without a
         # developer's linker flags, as its release build (rust/service/build.ps1).

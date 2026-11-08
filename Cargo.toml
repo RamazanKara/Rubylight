@@ -13,9 +13,9 @@ resolver = "3"
 rusty_enet = { path = "rust/vendor/rusty_enet" }
 
 [workspace.package]
-version = "3.9.0"
+version = "3.10.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.89"
 license = "GPL-3.0-only"
 repository = "https://github.com/RamazanKara/Rubylight"
 

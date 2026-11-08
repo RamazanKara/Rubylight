@@ -52,6 +52,10 @@ pub use usbip_pad::UsbipDriver;
 
 static HELD: std::sync::Mutex<BTreeMap<(bool, u32), usize>> =
     std::sync::Mutex::new(BTreeMap::new());
+/// Keeps sends in the order of their HELD updates without holding HELD through
+/// SendInput, which another injector's thread waited behind: a delayed send holds it
+/// from its update to its send, and a pass's send waits for it. Taken before HELD.
+static SEND_ORDER: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 pub fn capabilities(config: &butterpollo_core::config::Config) -> u32 {
     use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
@@ -87,6 +91,8 @@ pub struct Injector {
     key_sources: BTreeMap<u32, u32>,
     buttons: BTreeSet<u8>,
     touches: BTreeMap<u32, POINTER_TOUCH_INFO>,
+    /// The pass's touch moves not yet injected, by client id: they go out in one frame.
+    touch_moves: BTreeMap<u32, POINTER_TOUCH_INFO>,
     /// Touches on their way to mouse input, with a mouse or trackpad touch profile.
     touch_profile: butterpollo_core::touch_profile::TouchProfile,
     touch_device: Option<HSYNTHETICPOINTERDEVICE>,
@@ -126,6 +132,8 @@ pub struct Injector {
     pending: Pending,
     /// SendInput, or a stand-in in tests.
     inject: fn(&[INPUT]) -> usize,
+    /// `inject_pointer` for touch frames, or a stand-in in tests.
+    inject_touch: unsafe fn(HSYNTHETICPOINTERDEVICE, &[POINTER_TYPE_INFO]) -> Result<()>,
 }
 /// Keyboard and mouse input of one pass of the control loop, sent in one
 /// SendInput call: a call cost 31-36 us whether it carried one input or
@@ -157,8 +165,6 @@ struct Press {
     /// The modifiers pressed around a key that repeats.
     repeat: Option<u8>,
 }
-/// How long a left release waits after absolute input, as in Sunshine.
-const LEFT_RELEASE_DELAY: std::time::Duration = std::time::Duration::from_millis(10);
 /// How often a display's rectangle is read again, and a missing display
 /// looked up again: the lookup enumerates every display.
 const RECT_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
@@ -256,6 +262,7 @@ impl Injector {
             key_sources: BTreeMap::new(),
             buttons: BTreeSet::new(),
             touches: BTreeMap::new(),
+            touch_moves: BTreeMap::new(),
             touch_profile: Default::default(),
             touch_device: None,
             pen_device: None,
@@ -280,6 +287,7 @@ impl Injector {
             left_release: None,
             pending: Pending::default(),
             inject,
+            inject_touch: inject_pointer,
         };
         injector.look_up(output);
         Ok(injector)
@@ -507,6 +515,9 @@ impl Injector {
                 self.pending.errors.push(error);
             }
         }
+        if let Err(error) = self.flush_touch_moves() {
+            self.pending.errors.push(error);
+        }
         self.flush();
         std::mem::take(&mut self.pending.errors)
     }
@@ -516,6 +527,12 @@ impl Injector {
             return Ok(());
         }
         use Event::*;
+        // Touch moves held back go out before anything that follows them.
+        if !matches!(e, Touch { event: 3, .. })
+            && let Err(error) = self.flush_touch_moves()
+        {
+            self.pending.errors.push(error);
+        }
         if let Touch {
             event, id, x, y, ..
         } = *e
@@ -639,10 +656,12 @@ impl Injector {
                 // right press right after a left release for a long press: the
                 // left click would land first and open a link. Hold the left
                 // release back briefly and click right meanwhile, as Sunshine does.
-                if *button == 1 && self.absolute {
+                // `absolute_left_release_delay` = 0 sends it at once.
+                if *button == 1 && self.absolute && !self.policy.left_release_delay.is_zero() {
                     if !*down && self.buttons.contains(button) {
                         self.buttons.remove(button);
-                        self.left_release = Some(std::time::Instant::now() + LEFT_RELEASE_DELAY);
+                        self.left_release =
+                            Some(std::time::Instant::now() + self.policy.left_release_delay);
                         return Ok(None);
                     }
                     if *down && self.left_release.take().is_some() {

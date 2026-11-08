@@ -1,7 +1,7 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-A 30-second real-client smoke test of a release from the measurement laptop.
+A 60-second real-client smoke test of a release from the measurement laptop.
 
 .DESCRIPTION
 Runs on the laptop (Moonlight-qt paired with the host as client "lap", whose
@@ -10,7 +10,9 @@ Desktop app at the owner's native settings, closes Moonlight after -Seconds,
 and reads Moonlight's "Global video stats" from its log. A run passes when
 Moonlight received at least -MinFps and the host processing average stayed
 under -MaxHostMs. Moonlight's stats are session averages; they include the
-first seconds of the session.
+first seconds of the session, before the probe draws. At 120 fps a 30 s run
+read 114.3 to 114.5 fps in the 3.8.0 and 3.10.0 checks while the host sent
+120; 60 s runs read 117.6 to 118.4, so -Seconds defaults to 60.
 
 The host must be idle and must draw motion on the streamed display for the
 whole session: motion_probe at twice the stream rate (240 Hz for 120 fps),
@@ -29,14 +31,14 @@ pwsh rust/release/smoke.ps1 -Version v2.2.2
 #>
 param(
     [string] $Version = '',
-    [string] $Server = '192.168.4.70',
+    [string] $Server = '192.168.4.69',
     [string] $App = 'Desktop',
     [string] $Moonlight = "$env:ProgramFiles\Moonlight Game Streaming\Moonlight.exe",
     [string[]] $Codecs = @('AV1', 'HEVC'),
     [string] $Resolution = '1968x2184',
     [int] $Fps = 120,
     [int] $Bitrate = 80000,
-    [int] $Seconds = 30,
+    [int] $Seconds = 60,
     [double] $MinFps = 115,
     [double] $MaxHostMs = 5,
     [string] $Out = (Join-Path $PWD "smoke-$(if ($Version) { $Version } else { 'host' }).json")

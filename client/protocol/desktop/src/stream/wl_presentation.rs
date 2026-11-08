@@ -508,6 +508,12 @@ mod wayland {
                 (self.api.add_listener)(proxy, (&FEEDBACK_LISTENER as *const FeedbackListener).cast(), (&mut *pending as *mut Pending).cast());
             }
             // No commit here: the present's own swap commits the surface and carries the request.
+            // The match is by order, not by identity: the feedback belongs to the surface's next
+            // commit, so it describes the coming present only while nothing else commits the
+            // surface in between. A commit SDL or the driver makes for itself (a resize, a
+            // presentation the WSI defers past this call, MAILBOX replacing a picture before the
+            // compositor latched it) takes the request instead, and is answered as this frame or
+            // as discarded. The statistics carry that error; they never stall a present.
             self.pending.push_back(pending);
         }
 

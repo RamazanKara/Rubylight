@@ -598,6 +598,8 @@ impl Streaming {
             w.network_us += p.decoded.enqueue_us.saturating_sub(p.decoded.receive_us);
             w.network_n += 1;
             // While the glass times arrive, they give the display time instead of the present call.
+            // Only Linux on Wayland has them: on Windows and X11 the doctor's display time still
+            // ends at the present call, so the platforms' figures differ by the compositor's part.
             self.doctor.shown(p.decoded.host_latency, if to_glass { 0 } else { p.decoded.ready_us }, presented);
             if let Some(csv) = &self.timing_csv {
                 let d = &p.decoded;

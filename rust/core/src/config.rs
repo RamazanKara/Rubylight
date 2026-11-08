@@ -506,14 +506,15 @@ impl Config {
     }
     /// Whether the AMF encoder skips an output query while its oldest frame cannot be finished
     /// yet, judged by the fastest encode it has returned, and waits instead where a fresh capture
-    /// can still be claimed (`amd_output_prediction`). A measurement switch, off by default until
-    /// an A/B against the blocking 1 ms query decides it.
+    /// can still be claimed (`amd_output_prediction`). Off by default: the November 8 A/B under
+    /// GPU load measured no consistent gain over the blocking 1 ms query (rust/PERFORMANCE.md).
     pub fn amd_output_prediction(&self) -> bool {
         self.boolean("amd_output_prediction", false)
     }
     /// Whether a thread of its own waits in AMF's output query and hands finished frames to the
-    /// stream thread, which then never blocks in it (`amd_output_thread`). A measurement switch,
-    /// off by default until an A/B decides it; it takes precedence over `amd_output_prediction`.
+    /// stream thread, which then never blocks in it (`amd_output_thread`). Off by default: the
+    /// November 8 A/B under GPU load measured shorter tails but a later median and more CPU
+    /// (rust/PERFORMANCE.md). It takes precedence over `amd_output_prediction`.
     pub fn amd_output_thread(&self) -> bool {
         self.boolean("amd_output_thread", false)
     }

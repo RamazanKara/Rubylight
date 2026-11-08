@@ -62,8 +62,8 @@ These keys are read from the configuration file (`sunshine.conf` in the profile 
 | `webrtc_loss_permille` | `0` | Drops WebRTC video packets on purpose, in thousandths, for tests. Leave it at 0. |
 | `gamepad_feedback_fast_poll` | `false` | After a game's rumble, lights or trigger effects, polls the virtual pads every 2 ms instead of 8 ms for 250 ms, so the next change reaches the device sooner. Costs a few more driver calls; not measured yet. |
 | `gamepad_driver_host_priority` | `false` | While a VHF pad is plugged in, runs the Windows process that hosts the gamepad driver (WUDFHost) at high priority, so a busy game delays controller input less. It changes another process, and other drivers Windows hosts in the same one run raised too; the host log names them. Not measured yet. |
-| `amd_output_prediction` | `false` | AMF skips an output query while its oldest frame cannot be done yet, judged by the fastest encode it has returned, instead of waiting up to 1 ms in it. Not measured yet; leave it off. |
-| `amd_output_thread` | `false` | AMF's output query runs on a thread of its own, so the stream thread never waits in it. Overrides `amd_output_prediction`. Not measured yet; leave it off. |
+| `amd_output_prediction` | `false` | AMF skips an output query while its oldest frame cannot be done yet, judged by the fastest encode it has returned, instead of waiting up to 1 ms in it. Measured with no consistent gain under GPU load; leave it off. |
+| `amd_output_thread` | `false` | AMF's output query runs on a thread of its own, so the stream thread never waits in it. Overrides `amd_output_prediction`. Under GPU load it shortened the worst frames' delays but made the typical frame about 1 ms later and used more CPU; leave it off. |
 | `nvenc_output_event` | `true` | NVENC on a D3D12 device wakes the stream as each frame is written instead of on its next 100 µs output poll. `false` goes back to the poll alone. |
 
 Webhooks have their own console page; see [Webhooks](webhooks.md).

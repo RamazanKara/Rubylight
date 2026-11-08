@@ -48,6 +48,7 @@ CLIENT_WIDE = ('client/protocol/Cargo.toml', 'client/protocol/Cargo.lock', 'clie
 # Client crates that nightjar-android.yml lints with `clippy --all-targets -D warnings`.
 CLIENT_CLIPPY = ('nightjar-desktop',)
 GRADLE_TASK = ':app:testNonRootDebugUnitTest'
+GRADLE_LINT_TASK = ':app:lintNonRootDebug'
 
 
 @dataclasses.dataclass
@@ -370,7 +371,9 @@ def execute(check, root, log, target):
         filters = [a for t in check.items for a in ('--tests', t)]
         # By its full path: with NoDefaultCurrentDirectoryInExePath set, cmd
         # doesn't look in its working folder for a bare gradlew.bat.
-        return run(['cmd', '/c', str(root / 'client' / 'gradlew.bat'), '--no-daemon', '--max-workers=2', GRADLE_TASK, *filters],
+        # A full run lints too, as CI does: a NewApi error once passed here and failed CI.
+        lint = [] if filters else [GRADLE_LINT_TASK]
+        return run(['cmd', '/c', str(root / 'client' / 'gradlew.bat'), '--no-daemon', '--max-workers=2', GRADLE_TASK, *lint, *filters],
                    log, root / 'client', env) == 0
     if check.kind == 'web':
         web = root / 'rust/web'

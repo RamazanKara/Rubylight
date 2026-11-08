@@ -66,10 +66,5 @@
         <item>checkbox_network_priority</item>
         <item>checkbox_unbatched_input</item>
         <item>checkbox_full_range</item>
-        <item>checkbox_submit_hint</item>
-        <item>checkbox_covering_decoder_size</item>
-        <item>checkbox_pyrowave_preacquire</item>
-        <item>checkbox_codec_direct</item>
-        <item>checkbox_receive_decode_priority</item>
     </string-array>
 </resources>

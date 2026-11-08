@@ -25,6 +25,12 @@ finish-args:
   - --device=all
   # SDL3 keeps the screen on during a stream.
   - --talk-name=org.freedesktop.ScreenSaver
+  # The system bus names Nightjar calls (power.rs tests that each is here): logind for the
+  # power menu, NetworkManager for the link speed, Wi-Fi and roaming, RealtimeKit for stream
+  # thread priority when the Realtime portal can't. Without them the sandbox has no system bus.
+  - --system-talk-name=org.freedesktop.login1
+  - --system-talk-name=org.freedesktop.NetworkManager
+  - --system-talk-name=org.freedesktop.RealtimeKit1
   # Vulkan layer extensions (org.freedesktop.Platform.VulkanLayer.gamescope, whose WSI layer
   # offers gamescope's HDR swapchains in Steam's Game Mode) mount in /usr/lib/extensions/vulkan;
   # the Vulkan loader finds their manifests through XDG_DATA_DIRS.

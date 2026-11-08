@@ -290,6 +290,17 @@ mod tests {
     }
 
     #[test]
+    fn the_flatpak_reaches_every_system_bus_name_nightjar_calls() {
+        // nightjar#80: the 4.9.0 Flatpak had no system bus, so logind, NetworkManager and
+        // RealtimeKit all failed with "No such file or directory".
+        let manifest = include_str!("../packaging/linux/flatpak/io.github.ramazankara.nightjar.yml.in");
+        for name in ["org.freedesktop.login1", "org.freedesktop.NetworkManager", "org.freedesktop.RealtimeKit1"] {
+            assert!(manifest.lines().any(|l| l.trim() == format!("- --system-talk-name={name}")), "{name}");
+        }
+        assert!(!manifest.contains("--socket=system-bus"), "only the names Nightjar calls");
+    }
+
+    #[test]
     fn each_action_has_its_own_words() {
         for action in PowerAction::ALL {
             let others = PowerAction::ALL.into_iter().filter(|a| *a != action);

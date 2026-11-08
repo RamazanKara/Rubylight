@@ -396,6 +396,8 @@
     "nvenc_frame_budget_guard_desc": "Kodiert mit einer schnelleren Voreinstellung, wenn die gewählte ein Bild bei Auflösung und Bildrate des Streams nicht rechtzeitig fertigstellen würde.",
     "nvenc_realtime_hags": "Echtzeit-GPU-Priorität bei Hardware-Planung",
     "nvenc_realtime_hags_desc": "Hält den Host auf Echtzeit-GPU-Priorität, während die hardwarebeschleunigte GPU-Planung aktiv ist, damit NVENC mit einem Spiel mithält, das die GPU voll auslastet.",
+    "nvenc_latency_over_power": "Volle GPU-Taktraten beim Streamen",
+    "nvenc_latency_over_power_desc": "Stellt die NVIDIA-Energieverwaltung für den Host auf maximale Leistung, damit NVENC mit vollen Taktraten kodiert, auch wenn ein Spiel oder der Desktop die GPU kaum auslastet.",
     "nvenc_vbv_increase": "Bildgrößen-Spielraum",
     "nvenc_vbv_increase_desc": "Erlaubt einem einzelnen Bild, die durchschnittliche Bildgröße um diesen Prozentsatz zu überschreiten. Hilft bei aufwendigen Szenen, kann aber Paketverlust verursachen.",
     "nvenc_weighted_prediction": "Gewichtete Prädiktion",

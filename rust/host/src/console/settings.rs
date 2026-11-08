@@ -142,6 +142,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "nvenc_split_encode", "Split-frame encoding (HEVC and AV1)", Choice(&["auto","enabled","disabled","two_strips","three_strips","four_strips"]);
         "nvenc_frame_budget_guard", "Frame time guard (a faster preset when frames would be late)", Bool;
         "nvenc_realtime_hags", "Realtime GPU priority under hardware-accelerated GPU scheduling", Bool;
+        "nvenc_latency_over_power", "Full GPU clocks while streaming", Bool;
         "nvenc_vbv_increase", "Frame size headroom (%)", Number;
         "nvenc_weighted_prediction", "Weighted prediction", Bool;
         "nvenc_h264_cavlc", "Use CAVLC for H.264", Bool;
@@ -579,10 +580,12 @@ mod tests {
     }
     #[test]
     fn the_nvidia_group_lists_every_setting_the_nvenc_encoder_reads() {
-        // The encoder's settings, and the GPU priority it runs at.
+        // The encoder's settings, the GPU priority it runs at and the
+        // driver's power profile.
         let source = [
             include_str!("../../../core/src/nvenc.rs"),
             include_str!("../../../windows/src/gpu_priority.rs"),
+            include_str!("../../../windows/src/nvidia_profile.rs"),
         ]
         .concat();
         let keys: std::collections::BTreeSet<&str> = source
@@ -614,9 +617,12 @@ mod tests {
     #[test]
     fn encoder_settings_save_keys_the_encoders_read() {
         for setting in GLOBAL {
-            if setting.key.starts_with("amd_")
+            // The NVIDIA power profile is written once at startup for the
+            // whole process, so it stays host-wide.
+            if (setting.key.starts_with("amd_")
                 || setting.key.starts_with("nvenc_")
-                || setting.key == "encoder_focus"
+                || setting.key == "encoder_focus")
+                && setting.key != "nvenc_latency_over_power"
             {
                 assert!(
                     butterpollo_core::config::override_allowed(setting.key),

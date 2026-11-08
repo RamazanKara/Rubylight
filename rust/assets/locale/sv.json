@@ -396,6 +396,8 @@
     "nvenc_frame_budget_guard_desc": "Kodar med en snabbare förinställning när den valda inte skulle hinna klart med varje bildruta vid strömmens upplösning och bildfrekvens.",
     "nvenc_realtime_hags": "Realtidsprioritet för GPU med maskinvaruschemaläggning",
     "nvenc_realtime_hags_desc": "Håller värden på realtidsprioritet för GPU medan maskinvaruaccelererad GPU-schemaläggning är på, så att NVENC hänger med ett spel som fyller GPU:n.",
+    "nvenc_latency_over_power": "Full GPU-klockfrekvens vid streaming",
+    "nvenc_latency_over_power_desc": "Ställer in NVIDIAs energihantering på maximal prestanda för värden, så att NVENC kodar med full klockfrekvens när ett spel eller skrivbordet knappt belastar GPU:n.",
     "nvenc_vbv_increase": "Marginal för bildrutestorlek",
     "nvenc_vbv_increase_desc": "Låter en enskild bildruta överskrida den genomsnittliga storleken med denna procentsats. Hjälper krävande scener men kan ge paketförlust.",
     "nvenc_weighted_prediction": "Viktad prediktion",

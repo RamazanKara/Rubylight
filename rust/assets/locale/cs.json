@@ -396,6 +396,8 @@
     "nvenc_frame_budget_guard_desc": "Kóduje s rychlejší předvolbou, když by zvolená nestihla dokončit každý snímek včas při rozlišení a snímkové frekvenci streamu.",
     "nvenc_realtime_hags": "Priorita GPU v reálném čase při hardwarovém plánování",
     "nvenc_realtime_hags_desc": "Ponechá hostitele na prioritě GPU v reálném čase i se zapnutým hardwarově akcelerovaným plánováním GPU, aby NVENC stačil hře, která plně vytěžuje GPU.",
+    "nvenc_latency_over_power": "Plné takty GPU při streamování",
+    "nvenc_latency_over_power_desc": "Nastaví správu napájení NVIDIA pro hostitele na upřednostnění maximálního výkonu, aby NVENC kódoval při plných taktech, i když hra nebo plocha GPU téměř nezatěžuje.",
     "nvenc_vbv_increase": "Rezerva velikosti snímku",
     "nvenc_vbv_increase_desc": "Dovolí jednomu snímku překročit průměrnou velikost snímku o toto procento. Pomáhá v náročných scénách, ale může způsobit ztrátu paketů.",
     "nvenc_weighted_prediction": "Vážená predikce",

@@ -396,6 +396,8 @@
     "nvenc_frame_budget_guard_desc": "Seçilen ön ayar, yayının çözünürlüğü ve kare hızında her kareyi zamanında bitiremeyecekse daha hızlı bir ön ayarla kodlar.",
     "nvenc_realtime_hags": "Donanım zamanlamasında gerçek zamanlı GPU önceliği",
     "nvenc_realtime_hags_desc": "Donanım hızlandırmalı GPU zamanlaması açıkken ana bilgisayarı gerçek zamanlı GPU önceliğinde tutar, böylece NVENC GPU'yu tamamen dolduran bir oyuna yetişir.",
+    "nvenc_latency_over_power": "Yayın sırasında tam GPU saat hızları",
+    "nvenc_latency_over_power_desc": "Ana bilgisayar için NVIDIA güç yönetimini maksimum performansı tercih edecek şekilde ayarlar; böylece bir oyun veya masaüstü GPU'yu çok az yüklediğinde de NVENC tam saat hızında kodlar.",
     "nvenc_vbv_increase": "Kare boyutu payı",
     "nvenc_vbv_increase_desc": "Tek bir karenin ortalama kare boyutunu bu yüzde kadar aşmasına izin verir. Yoğun sahnelerde yardımcı olur ancak paket kaybına yol açabilir.",
     "nvenc_weighted_prediction": "Ağırlıklı tahmin",

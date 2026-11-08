@@ -396,6 +396,8 @@
     "nvenc_frame_budget_guard_desc": "Encode avec un préréglage plus rapide lorsque celui choisi ne finirait pas chaque image à temps à la résolution et à la fréquence d'images du flux.",
     "nvenc_realtime_hags": "Priorité GPU temps réel avec la planification matérielle",
     "nvenc_realtime_hags_desc": "Garde l'hôte en priorité GPU temps réel lorsque la planification GPU à accélération matérielle est activée, pour que NVENC suive un jeu qui sature le GPU.",
+    "nvenc_latency_over_power": "Fréquences GPU maximales pendant le streaming",
+    "nvenc_latency_over_power_desc": "Règle la gestion de l'alimentation NVIDIA sur les performances maximales pour l'hôte, afin que NVENC encode à pleine fréquence lorsqu'un jeu ou le bureau sollicite à peine le GPU.",
     "nvenc_vbv_increase": "Marge de taille d'image",
     "nvenc_vbv_increase_desc": "Permet à une image de dépasser la taille moyenne d'une image de ce pourcentage. Aide les scènes chargées mais peut provoquer des pertes de paquets.",
     "nvenc_weighted_prediction": "Prédiction pondérée",

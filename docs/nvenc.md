@@ -24,6 +24,7 @@ Each row lists a feature the AMF path has and how NVENC provides it. Fake-driver
 | Split-frame encoding | Not engaged by the driver | `nvenc_split_encode` (auto, forced, 2 to 4 strips) | Fixed strip counts and the slice-mode rule follow Foundation Sunshine. |
 | Frame budget guard | Not needed | `nvenc_frame_budget_guard` | Lowers a preset whose estimated encode time misses the frame interval. The per-preset calibration comes from Foundation Sunshine. |
 | Adaptive quantization | VBAQ and pre-analysis | Spatial AQ on by default, temporal AQ opt-in | Spatial AQ by default follows Foundation Sunshine and NVIDIA's game-streaming guidance. |
+| GPU clocks | Not needed | Driver profile prefers maximum performance (`nvenc_latency_over_power`, on) | NVIDIA's adaptive power management lowers the clocks of a lightly loaded GPU, and NVENC slows with them; Sunshine-derived hosts set the same profile. At startup the host puts `butterpollo.exe` in an NVIDIA driver profile named Rubylight with "Prefer maximum performance", before it opens a device on the GPU. An idle host holds no GPU context, so the clocks rise only while it streams or probes. Turned off, the setting is removed from the profile. A failure warns and the stream runs at the driver's clocks. Tests: `nvidia_profile.rs`. |
 | GPU scheduling priority | High | Realtime, falling back to high when it is denied | Under hardware-accelerated GPU scheduling, `nvenc_realtime_hags` (on by default) keeps realtime. AMD stays at high: realtime would also raise AMF's and the game's queues. |
 | Couch menu overlay | Yes | Yes | Drawn by the D3D11 conversion. |
 | D3D12 compute conversion | Yes | Yes | See [D3D12 conversion](#d3d12-conversion). A native D3D12 session waits for the conversion's fence on the GPU (driver 522.25 or newer). Without it NVENC converts on the D3D11 graphics queue, which realtime scheduling covers. |
@@ -59,3 +60,4 @@ The rows above pass the fake-driver tests. These behaviours follow NVIDIA's head
 - Rate control changes applied with frames in flight.
 - The D3D12 session: fence points, READBACK output and completion by fence.
 - Encoder focus: the delta map's effect per codec, `qpMapMode` switched by a reconfigure, and the block statistics the probe reads.
+- The GPU clocks profile: that the driver takes it for the running host, and NVENC's encode time with it on and off on a lightly loaded GPU.

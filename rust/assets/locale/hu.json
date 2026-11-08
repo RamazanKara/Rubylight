@@ -396,6 +396,8 @@
     "nvenc_frame_budget_guard_desc": "Gyorsabb előbeállítással kódol, ha a választott nem végezne időben minden képkockával a stream felbontásán és képkockasebességén.",
     "nvenc_realtime_hags": "Valós idejű GPU-prioritás hardveres ütemezéssel",
     "nvenc_realtime_hags_desc": "Valós idejű GPU-prioritáson tartja a gazdagépet, amíg a hardveresen gyorsított GPU-ütemezés be van kapcsolva, hogy az NVENC lépést tartson a GPU-t teljesen kihasználó játékkal.",
+    "nvenc_latency_over_power": "Teljes GPU-órajel streamelés közben",
+    "nvenc_latency_over_power_desc": "Az NVIDIA energiagazdálkodását a gazdagépnél maximális teljesítményre állítja, így az NVENC teljes órajelen kódol akkor is, ha egy játék vagy az asztal alig terheli a GPU-t.",
     "nvenc_vbv_increase": "Képkockaméret-tartalék",
     "nvenc_vbv_increase_desc": "Egy képkocka ennyi százalékkal lépheti túl az átlagos képkockaméretet. Mozgalmas jeleneteknél segít, de csomagvesztést okozhat.",
     "nvenc_weighted_prediction": "Súlyozott predikció",

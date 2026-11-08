@@ -1193,6 +1193,22 @@ const nvidia: Setting[] = [
     advanced: true,
   },
   {
+    key: 'nvenc_latency_over_power',
+    label: 'Full GPU clocks while streaming',
+    description:
+      "Sets NVIDIA's power management to prefer maximum performance for the host, so NVENC encodes at full clocks when a game or the desktop barely loads the GPU.",
+    details:
+      'The driver profile is named Rubylight and covers the host only; an idle host uses no GPU, so the clocks rise only while it streams.',
+    category: 'encoders',
+    restart: true,
+    group: 'NVIDIA NVENC',
+    control: { kind: 'toggle' },
+    default: true,
+    inactiveHint: nvencHint,
+    visibleWhen: nvenc,
+    advanced: true,
+  },
+  {
     key: 'nvenc_vbv_increase',
     label: 'Frame size headroom',
     description:

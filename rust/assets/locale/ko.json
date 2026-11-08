@@ -396,6 +396,8 @@
     "nvenc_frame_budget_guard_desc": "선택한 프리셋이 스트림 해상도와 프레임 속도에서 각 프레임을 제때 끝내지 못할 경우 더 빠른 프리셋으로 인코딩합니다.",
     "nvenc_realtime_hags": "하드웨어 스케줄링 시 실시간 GPU 우선순위",
     "nvenc_realtime_hags_desc": "하드웨어 가속 GPU 예약이 켜져 있는 동안 호스트를 실시간 GPU 우선순위로 유지하여 GPU를 가득 채우는 게임에서도 NVENC가 뒤처지지 않게 합니다.",
+    "nvenc_latency_over_power": "스트리밍 중 GPU 최대 클럭",
+    "nvenc_latency_over_power_desc": "호스트의 NVIDIA 전원 관리를 최대 성능 선호로 설정하여, 게임이나 데스크톱이 GPU를 거의 사용하지 않을 때도 NVENC가 최대 클럭으로 인코딩하도록 합니다.",
     "nvenc_vbv_increase": "프레임 크기 여유",
     "nvenc_vbv_increase_desc": "한 프레임이 평균 프레임 크기를 이 비율만큼 넘을 수 있게 합니다. 복잡한 장면에 도움이 되지만 패킷 손실이 생길 수 있습니다.",
     "nvenc_weighted_prediction": "가중 예측",

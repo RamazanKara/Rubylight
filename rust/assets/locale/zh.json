@@ -396,6 +396,8 @@
     "nvenc_frame_budget_guard_desc": "当所选预设无法在串流的分辨率和帧率下按时完成每帧时，改用更快的预设编码。",
     "nvenc_realtime_hags": "硬件调度下的实时 GPU 优先级",
     "nvenc_realtime_hags_desc": "在开启硬件加速 GPU 计划时让主机保持实时 GPU 优先级，使 NVENC 跟得上占满 GPU 的游戏。",
+    "nvenc_latency_over_power": "串流时 GPU 全速运行",
+    "nvenc_latency_over_power_desc": "将主机的 NVIDIA 电源管理设为最高性能优先，使游戏或桌面几乎不占用 GPU 时 NVENC 仍以全速编码。",
     "nvenc_vbv_increase": "帧大小余量",
     "nvenc_vbv_increase_desc": "允许单帧超出平均帧大小的百分比。有助于复杂场景，但可能导致丢包。",
     "nvenc_weighted_prediction": "加权预测",

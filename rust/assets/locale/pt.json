@@ -396,6 +396,8 @@
     "nvenc_frame_budget_guard_desc": "Codifica com uma predefinição mais rápida quando a escolhida não terminaria cada fotograma a tempo na resolução e taxa de fotogramas da transmissão.",
     "nvenc_realtime_hags": "Prioridade de GPU em tempo real com agendamento por hardware",
     "nvenc_realtime_hags_desc": "Mantém o anfitrião com prioridade de GPU em tempo real enquanto o agendamento de GPU acelerado por hardware está ativo, para que o NVENC acompanhe um jogo que ocupa toda a GPU.",
+    "nvenc_latency_over_power": "Frequências máximas da GPU durante a transmissão",
+    "nvenc_latency_over_power_desc": "Define a gestão de energia da NVIDIA para preferir o desempenho máximo no anfitrião, para que o NVENC codifique à frequência máxima quando um jogo ou o ambiente de trabalho mal carregam a GPU.",
     "nvenc_vbv_increase": "Margem do tamanho do fotograma",
     "nvenc_vbv_increase_desc": "Permite que um único fotograma exceda o tamanho médio nesta percentagem. Ajuda em cenas complexas, mas pode causar perda de pacotes.",
     "nvenc_weighted_prediction": "Predição ponderada",

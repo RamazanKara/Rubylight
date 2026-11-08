@@ -382,6 +382,8 @@
     "nvenc_frame_budget_guard_desc": "Encodes with a faster preset when the chosen one would not finish each frame in time at the stream resolution and frame rate.",
     "nvenc_realtime_hags": "Realtime GPU Priority with Hardware Scheduling",
     "nvenc_realtime_hags_desc": "Keeps the host at realtime GPU priority while hardware-accelerated GPU scheduling is on, so NVENC keeps up with a game that fills the GPU.",
+    "nvenc_latency_over_power": "Full GPU Clocks While Streaming",
+    "nvenc_latency_over_power_desc": "Sets NVIDIA's power management to prefer maximum performance for the host, so NVENC encodes at full clocks when a game or the desktop barely loads the GPU.",
     "nvenc_vbv_increase": "Frame Size Headroom",
     "nvenc_vbv_increase_desc": "Lets a single frame exceed the average frame size by this percentage. Helps busy scenes but can cause packet loss.",
     "nvenc_weighted_prediction": "Weighted Prediction",

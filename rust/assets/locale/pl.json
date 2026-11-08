@@ -396,6 +396,8 @@
     "nvenc_frame_budget_guard_desc": "Koduje z szybszym ustawieniem, gdy wybrane nie zdążyłoby ukończyć każdej klatki na czas przy rozdzielczości i liczbie klatek strumienia.",
     "nvenc_realtime_hags": "Priorytet GPU czasu rzeczywistego przy planowaniu sprzętowym",
     "nvenc_realtime_hags_desc": "Utrzymuje hosta na priorytecie GPU czasu rzeczywistego, gdy włączone jest sprzętowo przyspieszone planowanie GPU, aby NVENC nadążał za grą, która w pełni obciąża GPU.",
+    "nvenc_latency_over_power": "Pełne taktowanie GPU podczas streamowania",
+    "nvenc_latency_over_power_desc": "Ustawia zarządzanie energią NVIDIA dla hosta na preferowanie maksymalnej wydajności, aby NVENC kodował z pełnym taktowaniem, gdy gra lub pulpit ledwo obciąża GPU.",
     "nvenc_vbv_increase": "Zapas rozmiaru klatki",
     "nvenc_vbv_increase_desc": "Pozwala pojedynczej klatce przekroczyć średni rozmiar klatki o ten procent. Pomaga w złożonych scenach, ale może powodować utratę pakietów.",
     "nvenc_weighted_prediction": "Predykcja ważona",

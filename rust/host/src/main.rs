@@ -420,6 +420,13 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     if let Err(error) = library::stamp_synced(&h) {
         tracing::error!(error = %format!("{error:#}"), "the synced apps could not be stamped with their sync");
     }
+    // NVIDIA's power profile for this executable before any GPU device opens in this process: the
+    // driver reads it when the process first loads there, and NVENC at idle clocks encodes slower.
+    let nvidia_config = h.config.read().unwrap().clone();
+    let _ = tokio::task::spawn_blocking(move || {
+        butterpollo_windows::nvidia_profile::apply_configured(&nvidia_config)
+    })
+    .await;
     // The first launcher scan for the native library runs on its own thread, so the first request
     // finds it done and startup does not wait.
     library::installed(&h);

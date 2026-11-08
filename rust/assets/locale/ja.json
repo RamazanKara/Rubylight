@@ -396,6 +396,8 @@
     "nvenc_frame_budget_guard_desc": "選んだプリセットではストリームの解像度とフレームレートで各フレームが間に合わない場合、より速いプリセットでエンコードします。",
     "nvenc_realtime_hags": "ハードウェア スケジューリング時のリアルタイム GPU 優先度",
     "nvenc_realtime_hags_desc": "ハードウェア アクセラレータによる GPU スケジューリングが有効な間もホストをリアルタイム GPU 優先度に保ち、GPU を使い切るゲームでも NVENC が遅れないようにします。",
+    "nvenc_latency_over_power": "ストリーミング中は GPU をフルクロックで動作",
+    "nvenc_latency_over_power_desc": "ホストに対して NVIDIA の電源管理をパフォーマンス最大化優先に設定し、ゲームやデスクトップの GPU 負荷が低いときも NVENC がフルクロックでエンコードするようにします。",
     "nvenc_vbv_increase": "フレーム サイズの余裕",
     "nvenc_vbv_increase_desc": "1 つのフレームが平均フレーム サイズをこの割合だけ超えることを許可します。複雑な場面に役立ちますが、パケット損失の原因になることがあります。",
     "nvenc_weighted_prediction": "重み付き予測",

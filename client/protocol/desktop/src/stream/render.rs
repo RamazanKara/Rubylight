@@ -216,9 +216,21 @@ impl Streaming {
     /// interval the pacing and `NIGHTJAR_VRR_SYNC` ask for.
     pub(super) fn sync_vrr(&mut self, renderer: *mut SDL_Renderer) {
         let before = self.pacer.mode;
+        let display_vrr = self.vrr.display_vrr();
         let now = session::now_us();
         let probe = self.race_probe.as_ref();
         let interval = self.vrr.step(&mut self.pacer.mode, probe.map(race_probe::RaceProbe::verdict), now);
+        // MAILBOX for VRR on Wayland only while the display refreshes on present; a fixed refresh
+        // one tears like any stream without V-Sync (`prefers_immediate`). SDL picks the mode
+        // again when it is given a sync interval, the current one if it did not change.
+        #[cfg(target_os = "linux")]
+        let interval = if self.vrr.display_vrr() != display_vrr {
+            let wayland = crate::sdl::video_driver() == "wayland";
+            crate::sdl::prefer_immediate(renderer, present::prefers_immediate(self.vrr.display_vrr(), wayland, crate::handheld::gamescope()));
+            interval.or(Some(self.vrr.interval))
+        } else { interval };
+        #[cfg(not(target_os = "linux"))]
+        let _ = display_vrr;
         if self.pacer.mode != before {
             let line = probe.map_or(String::new(), race_probe::RaceProbe::line);
             if self.vrr.fell_back {

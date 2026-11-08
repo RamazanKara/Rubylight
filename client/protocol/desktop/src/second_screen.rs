@@ -162,7 +162,7 @@ impl Companion {
     /// `hand_over` is the PIN lock's token for the second screen, empty without a lock; it goes
     /// on the process's input, which no other process reads.
     pub fn start(host: &str, app: &str, point: (i32, i32), join: Option<i32>, hand_over: &str) -> std::io::Result<Self> {
-        let mut child = Command::new(std::env::current_exe()?)
+        let mut child = crate::amd_decode::for_child(&mut Command::new(std::env::current_exe()?))
             .args(args(host, app, point, join))
             // A start the test harness asked for is the first's; the second has its own command line.
             .env_remove("NIGHTJAR_AUTOSTREAM")

@@ -348,6 +348,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("nightjar-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+        crate::amd_decode::for_child(&mut child);
         child.args(["--exact", "crash_dump::tests::crash_child", "--nocapture", "--test-threads=1"])
             .env("NIGHTJAR_CRASH_CHILD_DIR", &dir)
             .stdout(std::process::Stdio::null())

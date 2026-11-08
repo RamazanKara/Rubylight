@@ -34,12 +34,13 @@ use ash::vk::{self, Handle};
 use sdl3_sys::everything::*;
 
 use crate::media::ffi::{
-    av_buffer_unref, av_frame_clone, av_frame_copy_props, av_frame_free, av_frame_unref,
+    av_buffer_unref, av_frame_alloc, av_frame_clone, av_frame_copy_props, av_frame_free, av_frame_unref,
     av_hwdevice_ctx_alloc, av_hwdevice_ctx_init, av_hwframe_map, av_hwframe_transfer_data, av_pix_fmt_desc_get,
     avcodec_get_hw_frames_parameters, avutil_version, AVBufferRef, AVCodecContext, AVFrame,
     AVHWDeviceContext, AVHWFramesContext, AVPixelFormat, AV_HWDEVICE_TYPE_VULKAN,
-    AV_HWFRAME_MAP_READ, AV_PIX_FMT_NONE, AV_PIX_FMT_NV12, AV_PIX_FMT_NV24, AV_PIX_FMT_P010LE,
-    AV_PIX_FMT_P410LE, AV_PIX_FMT_VULKAN,
+    AV_HWFRAME_MAP_READ, AV_PIX_FMT_DRM_PRIME, AV_PIX_FMT_NONE, AV_PIX_FMT_NV12, AV_PIX_FMT_NV24,
+    AV_PIX_FMT_P010LE, AV_PIX_FMT_P410LE, AV_PIX_FMT_RGBA, AV_PIX_FMT_VULKAN, AV_PIX_FMT_VUYA,
+    AV_PIX_FMT_VUYX, AV_PIX_FMT_XV30LE,
 };
 use crate::media::{Codec, Pictures};
 use crate::stream::pyrowave_sdk::zero_copy::{
@@ -604,8 +605,12 @@ impl VaapiMap {
         }
         let vaapi = &*(*vaapi_ref).data.cast::<AVHWFramesContext>();
         let shape = (vaapi.width, vaapi.height, vaapi.sw_format);
-        if !mappable(shape.2) {
-            return Err(format!("VAAPI pictures of format {} are not two planes the presenter copies", shape.2));
+        let interleaved = interleaved_444(shape.2);
+        if !mappable(shape.2) && interleaved.is_none() {
+            return Err(format!(
+                "VAAPI pictures of format {} are neither two planes nor one 4:4:4 plane the presenter copies",
+                shape.2
+            ));
         }
         if self.frames.is_null() || self.shape != shape {
             av_buffer_unref(&mut self.frames);
@@ -615,7 +620,8 @@ impl VaapiMap {
             }
             let context = &mut *(*frames).data.cast::<AVHWFramesContext>();
             context.format = AV_PIX_FMT_VULKAN;
-            context.sw_format = vaapi.sw_format;
+            // A 4:4:4 surface as the single-plane format its Vulkan image is in.
+            context.sw_format = interleaved.map_or(vaapi.sw_format, |(format, _)| format);
             context.width = vaapi.width;
             context.height = vaapi.height;
             // Mapped frames only: no images of its own up front.
@@ -638,10 +644,17 @@ impl VaapiMap {
         if (*target).hw_frames_ctx.is_null() {
             return Err("FFmpeg cannot reference the Vulkan frames context".into());
         }
-        let status = av_hwframe_map(target, source, AV_HWFRAME_MAP_READ as c_int);
-        if status < 0 {
-            av_frame_unref(target);
-            return Err(format!("FFmpeg cannot map the VAAPI picture into a Vulkan image (error {status}); the driver may refuse its DRM format modifier"));
+        if interleaved.is_some() {
+            if let Err(why) = map_interleaved(target, source) {
+                av_frame_unref(target);
+                return Err(why);
+            }
+        } else {
+            let status = av_hwframe_map(target, source, AV_HWFRAME_MAP_READ as c_int);
+            if status < 0 {
+                av_frame_unref(target);
+                return Err(format!("FFmpeg cannot map the VAAPI picture into a Vulkan image (error {status}); the driver may refuse its DRM format modifier"));
+            }
         }
         let status = av_frame_copy_props(target, source);
         if status < 0 {
@@ -660,6 +673,87 @@ impl Drop for VaapiMap {
             av_buffer_unref(&mut self.device);
         }
     }
+}
+
+/// FFmpeg's `AVDRMFrameDescriptor` (libavutil/hwcontext_drm.h): a DRM PRIME frame's `data[0]`.
+/// Only the layer formats are read; the rest is there for the layout.
+#[allow(dead_code)]
+#[repr(C)]
+struct DrmFrameDescriptor {
+    nb_objects: c_int,
+    objects: [DrmObject; 4],
+    nb_layers: c_int,
+    layers: [DrmLayer; 4],
+}
+
+#[allow(dead_code)]
+#[repr(C)]
+struct DrmObject {
+    fd: c_int,
+    size: usize,
+    format_modifier: u64,
+}
+
+#[allow(dead_code)]
+#[repr(C)]
+struct DrmLayer {
+    format: u32,
+    nb_planes: c_int,
+    planes: [DrmPlane; 4],
+}
+
+#[allow(dead_code)]
+#[repr(C)]
+struct DrmPlane {
+    object_index: c_int,
+    offset: isize,
+    pitch: isize,
+}
+
+const fn fourcc(code: &[u8; 4]) -> u32 {
+    u32::from_le_bytes(*code)
+}
+
+/// The DRM format FFmpeg's DMA-BUF import (hwcontext_vulkan's table) knows a 4:4:4 VAAPI surface's
+/// layer by: AYUV as XYUV8888 and Y410 as XVYU2101010, the same bytes with the alpha ignored,
+/// which import as R8G8B8A8 and A2R10G10B10. Other formats stay.
+fn drm_alias(format: u32) -> u32 {
+    match format {
+        f if f == fourcc(b"AYUV") => fourcc(b"XYUV"),
+        f if f == fourcc(b"Y410") => fourcc(b"XV30"),
+        f => f,
+    }
+}
+
+/// Maps the 4:4:4 VAAPI picture `source` into `target`, a Vulkan frame of `VaapiMap`'s frames
+/// context, through DRM PRIME as hwcontext_vulkan's own VAAPI map does (FFmpeg's export syncs the
+/// surface first), with each layer named as the import knows it (`drm_alias`). The mapped frame
+/// keeps the DRM frame, and that the VAAPI picture, until it is freed.
+///
+/// # Safety
+/// `source` must be a live VAAPI frame and `target` set up for `VaapiMap`'s frames context.
+unsafe fn map_interleaved(target: *mut AVFrame, source: *const AVFrame) -> Result<(), String> {
+    let mut drm = av_frame_alloc();
+    if drm.is_null() {
+        return Err("FFmpeg cannot allocate a DRM PRIME frame".into());
+    }
+    (*drm).format = AV_PIX_FMT_DRM_PRIME;
+    let status = av_hwframe_map(drm, source, AV_HWFRAME_MAP_READ as c_int);
+    if status < 0 {
+        av_frame_free(&mut drm);
+        return Err(format!("FFmpeg cannot export the 4:4:4 VAAPI picture as DMA-BUFs (error {status})"));
+    }
+    let descriptor = &mut *(*drm).data[0].cast::<DrmFrameDescriptor>();
+    let layers = descriptor.nb_layers.clamp(0, 4) as usize;
+    for layer in &mut descriptor.layers[..layers] {
+        layer.format = drm_alias(layer.format);
+    }
+    let status = av_hwframe_map(target, drm, AV_HWFRAME_MAP_READ as c_int);
+    av_frame_free(&mut drm);
+    if status < 0 {
+        return Err(format!("FFmpeg cannot map the 4:4:4 VAAPI picture's DMA-BUFs into a Vulkan image (error {status}); the driver may refuse its format or modifier"));
+    }
+    Ok(())
 }
 
 /// Whether NVDEC's pictures can be copied into Vulkan images of the renderer's device by CUDA
@@ -830,10 +924,32 @@ pub unsafe fn map_node(gpu: *mut SDL_GPUDevice, switched_on: bool) -> Result<u32
     render_minor(gpu)
 }
 
-/// Whether VAAPI pictures of this format are mapped: the 4:2:0 two-plane ones the presenter copies
-/// (`Planes`); 4:4:4 VAAPI surfaces (AYUV, Y410) are one packed plane.
+/// Whether VAAPI or NVDEC pictures of this format are the 4:2:0 two-plane ones the presenter copies
+/// (`Planes`); 4:4:4 VAAPI surfaces are one interleaved plane (`interleaved_444`).
 fn mappable(sw_format: AVPixelFormat) -> bool {
     [AV_PIX_FMT_NV12, AV_PIX_FMT_P010LE].contains(&sw_format)
+}
+
+/// The single-plane format a 4:4:4 VAAPI surface of this software format is mapped as, and whether
+/// it is 10-bit: AYUV and XYUV (FFmpeg's VUYA and VUYX, bytes V, U, Y and A) as RGBA, and Y410
+/// (XV30, U, Y and V in 10 bits each from the lowest) as itself; its Vulkan image is R8G8B8A8 or
+/// A2R10G10B10, copied into one image of `Planes::interleaved`. Y412 and Y416 hold 12 and 16 bits,
+/// more than a stream has.
+pub fn interleaved_444(sw_format: AVPixelFormat) -> Option<(AVPixelFormat, bool)> {
+    match sw_format {
+        AV_PIX_FMT_VUYA | AV_PIX_FMT_VUYX => Some((interleaved_sw_format(false), false)),
+        AV_PIX_FMT_XV30LE => Some((interleaved_sw_format(true), true)),
+        _ => None,
+    }
+}
+
+/// The frames context format of a mapped 4:4:4 VAAPI picture of that depth (`interleaved_444`).
+fn interleaved_sw_format(ten_bit: bool) -> AVPixelFormat {
+    if ten_bit {
+        AV_PIX_FMT_XV30LE
+    } else {
+        AV_PIX_FMT_RGBA
+    }
 }
 
 /// How many mapped VAAPI pictures the presenter keeps beyond the one it shows, each until its
@@ -931,6 +1047,20 @@ fn picture_sw_format(ten_bit: bool, chroma444: bool) -> AVPixelFormat {
         (true, false) => AV_PIX_FMT_P010LE,
         (false, true) => AV_PIX_FMT_NV24,
         (true, true) => AV_PIX_FMT_P410LE,
+    }
+}
+
+/// The Vulkan and SDL formats of `Planes`' image `plane`: R8 and R8G8, or R16 and R16G16 for
+/// 10-bit; one R8G8B8A8 or A2B10G10R10 image when `interleaved` (a mapped 4:4:4 VAAPI picture's
+/// R8G8B8A8 or A2R10G10B10 copies into it bit for bit, the shader swaps the 10-bit channels).
+fn plane_format(plane: usize, ten_bit: bool, interleaved: bool) -> (vk::Format, SDL_GPUTextureFormat) {
+    match (interleaved, plane, ten_bit) {
+        (true, _, false) => (vk::Format::R8G8B8A8_UNORM, SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM),
+        (true, _, true) => (vk::Format::A2B10G10R10_UNORM_PACK32, SDL_GPU_TEXTUREFORMAT_R10G10B10A2_UNORM),
+        (false, 0, false) => (vk::Format::R8_UNORM, SDL_GPU_TEXTUREFORMAT_R8_UNORM),
+        (false, 0, true) => (vk::Format::R16_UNORM, SDL_GPU_TEXTUREFORMAT_R16_UNORM),
+        (false, _, false) => (vk::Format::R8G8_UNORM, SDL_GPU_TEXTUREFORMAT_R8G8_UNORM),
+        (false, _, true) => (vk::Format::R16G16_UNORM, SDL_GPU_TEXTUREFORMAT_R16G16_UNORM),
     }
 }
 
@@ -1223,8 +1353,8 @@ const COPY_WAIT: Duration = Duration::from_secs(1);
 const SLOTS: usize = 3;
 
 /// The presenter's two plane images on the renderer's device (R8 and R8G8, or R16 and R16G16 for
-/// 10-bit, the chroma at half or full size), wrapped as SDL GPU textures for the plane shader, and
-/// the copies into them.
+/// 10-bit, the chroma at half or full size), or the one image of a mapped 4:4:4 VAAPI picture
+/// (`interleaved`), wrapped as SDL GPU textures for the plane shader, and the copies into them.
 pub struct Planes {
     device: ash::Device,
     gpu: *mut SDL_GPUDevice,
@@ -1235,6 +1365,8 @@ pub struct Planes {
     height: u32,
     ten_bit: bool,
     chroma444: bool,
+    /// One R8G8B8A8 or (10-bit) A2B10G10R10 image holding Y, Cb and Cr (`interleaved_444`).
+    interleaved: bool,
     images: Vec<(vk::Image, vk::DeviceMemory)>,
     textures: [*mut SDL_GPUTexture; 2],
     pool: vk::CommandPool,
@@ -1259,6 +1391,31 @@ impl Planes {
         ten_bit: bool,
         chroma444: bool,
     ) -> Result<Self, String> {
+        Self::make(gpu, width, height, ten_bit, chroma444, false)
+    }
+
+    /// The one image for mapped 4:4:4 VAAPI pictures (`interleaved_444`) of `width` x `height`,
+    /// wrapped as an SDL texture.
+    ///
+    /// # Safety
+    /// As `new`.
+    pub unsafe fn interleaved(
+        gpu: *mut SDL_GPUDevice,
+        width: u32,
+        height: u32,
+        ten_bit: bool,
+    ) -> Result<Self, String> {
+        Self::make(gpu, width, height, ten_bit, true, true)
+    }
+
+    unsafe fn make(
+        gpu: *mut SDL_GPUDevice,
+        width: u32,
+        height: u32,
+        ten_bit: bool,
+        chroma444: bool,
+        interleaved: bool,
+    ) -> Result<Self, String> {
         let sdl = SdlVulkan::of_device(gpu)?;
         sdl.require(Features::video())?;
         let get_instance_proc_addr = zero_copy::get_instance_proc_addr()?;
@@ -1280,6 +1437,7 @@ impl Planes {
             height,
             ten_bit,
             chroma444,
+            interleaved,
             images: Vec::new(),
             textures: [ptr::null_mut(); 2],
             pool: vk::CommandPool::null(),
@@ -1316,7 +1474,7 @@ impl Planes {
                 .map_err(|e| format!("a fence cannot be created ({e})"))?;
             planes.slots.push((buffer, fence));
         }
-        for plane in 0..2 {
+        for plane in 0..planes.plane_count() {
             let (w, h) = planes.plane_size(plane);
             let image = planes
                 .device
@@ -1408,9 +1566,22 @@ impl Planes {
         Ok(planes)
     }
 
-    /// The luma texture and the chroma one, Cb and Cr interleaved, for the plane shader.
+    /// The luma texture and the chroma one, Cb and Cr interleaved, for the plane shader; the one
+    /// texture twice for an interleaved picture.
     pub fn textures(&self) -> [*mut SDL_GPUTexture; 2] {
-        self.textures
+        if self.interleaved {
+            [self.textures[0]; 2]
+        } else {
+            self.textures
+        }
+    }
+
+    fn plane_count(&self) -> usize {
+        if self.interleaved {
+            1
+        } else {
+            2
+        }
     }
 
     fn plane_size(&self, plane: usize) -> (u32, u32) {
@@ -1422,25 +1593,16 @@ impl Planes {
     }
 
     fn vk_format(&self, plane: usize) -> vk::Format {
-        match (plane, self.ten_bit) {
-            (0, false) => vk::Format::R8_UNORM,
-            (0, true) => vk::Format::R16_UNORM,
-            (_, false) => vk::Format::R8G8_UNORM,
-            (_, true) => vk::Format::R16G16_UNORM,
-        }
+        plane_format(plane, self.ten_bit, self.interleaved).0
     }
 
     fn sdl_format(&self, plane: usize) -> SDL_GPUTextureFormat {
-        match (plane, self.ten_bit) {
-            (0, false) => SDL_GPU_TEXTUREFORMAT_R8_UNORM,
-            (0, true) => SDL_GPU_TEXTUREFORMAT_R16_UNORM,
-            (_, false) => SDL_GPU_TEXTUREFORMAT_R8G8_UNORM,
-            (_, true) => SDL_GPU_TEXTUREFORMAT_R16G16_UNORM,
-        }
+        plane_format(plane, self.ten_bit, self.interleaved).1
     }
 
     /// Copies the two planes of `frame`, an NV12, P010, NV24 or P410 Vulkan picture of the planes'
-    /// size, depth and chroma, into the plane images, on SDL's queue ahead of SDL's next submission
+    /// size, depth and chroma (or the one image of a mapped 4:4:4 VAAPI picture when
+    /// `interleaved`), into the plane images, on SDL's queue ahead of SDL's next submission
     /// (`renderer` is flushed first, so nothing SDL recorded before reads the new picture). The
     /// picture is the decoder's again once the copy is done, which its semaphore tells FFmpeg.
     /// FFmpeg's images are shared by every queue family it was given (or made in SDL's alone), so
@@ -1477,7 +1639,11 @@ impl Planes {
         if frames_ref.is_null() || source.is_null() {
             return Err("the picture has no Vulkan frame".into());
         }
-        let wanted = picture_sw_format(self.ten_bit, self.chroma444);
+        let wanted = if self.interleaved {
+            interleaved_sw_format(self.ten_bit)
+        } else {
+            picture_sw_format(self.ten_bit, self.chroma444)
+        };
         if sw_format(frame) != wanted {
             return Err(format!(
                 "the picture's format {} is not the planes' format {wanted}",
@@ -1606,9 +1772,9 @@ impl Planes {
             commands,
             &vk::DependencyInfo::default().image_memory_barriers(&before),
         );
-        for plane in 0..2 {
+        for plane in 0..self.plane_count() {
             let (width, height) = self.plane_size(plane);
-            let (image, aspect) = if separate {
+            let (image, aspect) = if separate || self.interleaved {
                 (source.img[plane], vk::ImageAspectFlags::COLOR)
             } else {
                 (
@@ -1941,6 +2107,41 @@ mod tests {
         assert_eq!(context.initial_pool_size, 0, "the pool grows as pictures are held");
         assert_eq!(vulkan.flags, DISABLE_MULTIPLANE);
         assert_eq!(DISABLE_MULTIPLANE, 4, "AV_VK_FRAME_FLAG_DISABLE_MULTIPLANE");
+    }
+
+    /// Intel's VAAPI decodes 4:4:4 into one interleaved surface (XYUV or AYUV, Y410), which went
+    /// through memory and was refused: it maps as one R8G8B8A8 or A2R10G10B10 image that
+    /// `Planes` copies whole, and FFmpeg's import knows its DRM layer by the alias.
+    #[test]
+    fn vaapis_444_surfaces_map_as_one_interleaved_image() {
+        assert_eq!(interleaved_444(AV_PIX_FMT_VUYX), Some((AV_PIX_FMT_RGBA, false)));
+        assert_eq!(interleaved_444(AV_PIX_FMT_VUYA), Some((AV_PIX_FMT_RGBA, false)));
+        assert_eq!(interleaved_444(AV_PIX_FMT_XV30LE), Some((AV_PIX_FMT_XV30LE, true)));
+        for other in [AV_PIX_FMT_NV12, AV_PIX_FMT_P010LE, AV_PIX_FMT_NV24, crate::media::ffi::AV_PIX_FMT_XV36LE] {
+            assert_eq!(interleaved_444(other), None, "{other}");
+        }
+        assert!(!mappable(AV_PIX_FMT_VUYX) && !mappable(AV_PIX_FMT_XV30LE), "not two planes");
+        for ten_bit in [false, true] {
+            assert_eq!(interleaved_sw_format(ten_bit), interleaved_444(if ten_bit { AV_PIX_FMT_XV30LE } else { AV_PIX_FMT_VUYX }).unwrap().0);
+        }
+        // The same bytes under the names hwcontext_vulkan's DMA-BUF table has.
+        assert_eq!(drm_alias(fourcc(b"AYUV")), fourcc(b"XYUV"));
+        assert_eq!(drm_alias(fourcc(b"Y410")), fourcc(b"XV30"));
+        for kept in [fourcc(b"XYUV"), fourcc(b"XV30"), fourcc(b"NV12"), fourcc(b"P010")] {
+            assert_eq!(drm_alias(kept), kept);
+        }
+        assert_eq!(fourcc(b"AYUV"), 0x5655_5941, "DRM_FORMAT_AYUV");
+        // One image, Y, Cb and Cr in one texel; the 10-bit one in SDL's only 2:10:10:10 format.
+        let raw = |(vulkan, sdl): (vk::Format, SDL_GPUTextureFormat)| (vulkan.as_raw(), sdl.0);
+        assert_eq!(raw(plane_format(0, false, true)), raw((vk::Format::R8G8B8A8_UNORM, SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM)));
+        assert_eq!(raw(plane_format(0, true, true)), raw((vk::Format::A2B10G10R10_UNORM_PACK32, SDL_GPU_TEXTUREFORMAT_R10G10B10A2_UNORM)));
+        assert_eq!(raw(plane_format(1, true, false)), raw((vk::Format::R16G16_UNORM, SDL_GPU_TEXTUREFORMAT_R16G16_UNORM)));
+        assert_eq!(raw(plane_format(0, false, false)), raw((vk::Format::R8_UNORM, SDL_GPU_TEXTUREFORMAT_R8_UNORM)));
+        // FFmpeg's AVDRMFrameDescriptor, read from the DRM PRIME frame.
+        assert_eq!(std::mem::size_of::<DrmLayer>(), 104);
+        assert_eq!(std::mem::offset_of!(DrmFrameDescriptor, nb_layers), 104);
+        assert_eq!(std::mem::offset_of!(DrmFrameDescriptor, layers), 112);
+        assert_eq!(std::mem::size_of::<DrmFrameDescriptor>(), 528);
     }
 
     /// Release builds' FFmpeg had no libdrm, so `av_hwframe_map` was ENOSYS and every shipped

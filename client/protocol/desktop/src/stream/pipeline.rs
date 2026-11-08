@@ -787,7 +787,7 @@ fn packed_map_dropped(setup: &VideoSetup, was_mapped: bool, still_mapped: bool) 
 
 /// Maps `decoder`'s VAAPI pictures into the GPU renderer's Vulkan images when it draws with SDL's
 /// GPU API (`media::VideoDecoder::map_to_vulkan`); whether they are.
-fn map_to_vulkan(hardware: Hardware, decoder: &mut media::VideoDecoder) -> bool {
+pub(super) fn map_to_vulkan(hardware: Hardware, decoder: &mut media::VideoDecoder) -> bool {
     #[cfg(unix)]
     if let Hardware::Auto(gpu, _) = hardware {
         return !gpu.is_null() && decoder.map_to_vulkan(gpu);

@@ -172,7 +172,7 @@ final class GameVideoOutput {
         }
     };
 
-    private static final String EXTRA_OUTPUT_DISPLAY = "rubylight.outputDisplay";
+    static final String EXTRA_OUTPUT_DISPLAY = "rubylight.outputDisplay";
 
     Display getVideoDisplay() {
         // The intent describes the next output while a reconnect is in progress. Keep

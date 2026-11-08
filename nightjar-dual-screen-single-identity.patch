@@ -1,0 +1,754 @@
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 8557cda55..d6963b1b1 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -347,6 +347,22 @@
+                 android:value="true" />
+         </activity>
+ 
++        <!-- Dual screen mode: the second screen's stream. A process and a task of its own, because the
++             streaming engines keep one stream's state per process. -->
++        <activity
++            android:name=".GameSecondary"
++            android:process=":screen2"
++            android:taskAffinity="com.butterpollo.client.screen2"
++            android:windowSoftInputMode="stateHidden|adjustNothing"
++            android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection|density"
++            android:supportsPictureInPicture="false"
++            android:resizeableActivity="true"
++            android:enableOnBackInvokedCallback="false"
++            android:launchMode="singleTask"
++            android:excludeFromRecents="true"
++            android:theme="@style/StreamTheme"
++            android:preferMinimalPostProcessing="true" />
++
+         <service
+             android:name=".discovery.DiscoveryService"
+             android:label="mDNS PC Auto-Discovery Service" />
+diff --git a/app/src/main/java/com/limelight/DualScreen.java b/app/src/main/java/com/limelight/DualScreen.java
+new file mode 100644
+index 000000000..5d8d33a87
+--- /dev/null
++++ b/app/src/main/java/com/limelight/DualScreen.java
+@@ -0,0 +1,222 @@
++package com.limelight;
++
++import android.annotation.SuppressLint;
++import android.app.ActivityOptions;
++import android.content.BroadcastReceiver;
++import android.content.Context;
++import android.content.Intent;
++import android.content.IntentFilter;
++import android.hardware.display.DisplayManager;
++import android.os.Build;
++import android.os.Process;
++import android.view.Display;
++import android.widget.Toast;
++
++import com.limelight.computers.HostCapabilityCache;
++import com.limelight.nvstream.http.HostCapabilities;
++import com.limelight.nvstream.http.NvApp;
++import com.limelight.preferences.PreferenceConfiguration;
++import com.limelight.utils.LaunchSource;
++
++
++
++/**
++ * Dual-screen mode. On a device with a second screen, the stream on the first screen is joined by a
++ * second stream of the same game, shown full screen on the second screen at a resolution of its own
++ * (the Second screen resolution setting). The second one is {@link GameSecondary}: the same device and
++ * pairing as the first, told apart to a Rubylight host by the rlSecondScreen launch parameter. It plays
++ * no sound and takes no controller or microphone.
++ * Which PC screen it shows is up to the host: a host that gives each stream a display of its own
++ * shows two screens; one that captures a single display shows it on both.
++ */
++final class DualScreen {
++    /** On the second stream's intent. */
++    static final String EXTRA_SECOND_SCREEN = "nightjar.secondScreen";
++    /** The first stream's end, for the second to follow. Sent to this app only. */
++    static final String ACTION_END = "com.limelight.DUAL_SCREEN_END";
++    /** The touch mode changed in one stream, for the other to follow. Sent to this app only. */
++    static final String ACTION_TOUCH_MODE = "com.limelight.DUAL_SCREEN_TOUCH_MODE";
++    private static final String EXTRA_TOUCH_MODE = "touchMode";
++    private static final String EXTRA_FROM_PID = "fromPid";
++
++    private DualScreen() { }
++
++    static boolean isSecond(Intent intent) {
++        return intent != null && intent.getBooleanExtra(EXTRA_SECOND_SCREEN, false);
++    }
++
++    /**
++     * The first screen that is not {@code mainId} and can show a window, or -1. Like Artemis, any
++     * other display counts, because a dual-screen device's second panel is an internal display that
++     * Android does not list as a presentation display; private displays and ones going away do not.
++     */
++    static int pickSecondDisplayId(int[] ids, boolean[] usable, int mainId) {
++        for (int i = 0; i < ids.length; i++) {
++            if (ids[i] != mainId && usable[i]) {
++                return ids[i];
++            }
++        }
++        return -1;
++    }
++
++    static Display secondDisplay(Context context, int mainId) {
++        DisplayManager manager = (DisplayManager) context.getSystemService(Context.DISPLAY_SERVICE);
++        if (manager == null) {
++            return null;
++        }
++        Display[] displays = manager.getDisplays();
++        int[] ids = new int[displays.length];
++        boolean[] usable = new boolean[displays.length];
++        for (int i = 0; i < displays.length; i++) {
++            ids[i] = displays[i].getDisplayId();
++            usable[i] = displays[i].isValid() && (displays[i].getFlags() & Display.FLAG_PRIVATE) == 0;
++        }
++        int id = pickSecondDisplayId(ids, usable, mainId);
++        return id < 0 ? null : manager.getDisplay(id);
++    }
++
++    /**
++     * Starts the second stream once, as soon as the host has accepted the first stream's launch (see
++     * Game.stageComplete): the game is then running, so the second stream resumes it where the PC offers
++     * that. It need not wait for the first stream's handshake and first frame, but it must not start
++     * before the launch, or both would launch the game at once. The second stream keeps the first's
++     * identity, so there is no second pairing; it resumes the running game, or names it when it cannot.
++     */
++    static void start(Game game) {
++        if (game.dualScreenStarted || isSecond(game.getIntent()) || !game.prefConfig.dualScreen) {
++            return;
++        }
++        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
++            return;
++        }
++        // The second stream is the same device to the PC: only a Rubylight host that tells it apart
++        // from the first by EXTRA_SECOND_SCREEN's launch parameter keeps both. Any other host takes it
++        // for the first stream starting again and drops that.
++        if (HostCapabilityCache.load(game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID)).family()
++                != HostCapabilities.Family.RUBYLIGHT) {
++            LimeLog.info("Dual screen: this host does not stream two screens to one device");
++            return;
++        }
++        if (game.app.getRole() != NvApp.Role.STREAM || game.externalPresentation != null) {
++            return;
++        }
++        Display second = secondDisplay(game, game.getWindowManager().getDefaultDisplay().getDisplayId());
++        if (second == null) {
++            LimeLog.info("Dual screen: this device has no second screen");
++            return;
++        }
++        // The game that is running, whichever tile started the first stream. A tile that resumes or
++        // switches ("Resume") names it only once the host has said which; too early, the later call finds it.
++        boolean named = game.app.getControl() == NvApp.Control.NONE;
++        int appId = named ? game.app.getAppId() : game.conn.getHostDetails().runningGameId;
++        String appUuid = named ? game.app.getAppUuid() : game.conn.getHostDetails().runningGameUuid;
++        if (appId == 0 && (appUuid == null || appUuid.isEmpty())) {
++            return;
++        }
++        game.dualScreenStarted = true;
++        link(game);
++        Intent intent = new Intent(game.getIntent()).setClass(game, GameSecondary.class)
++                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
++                .putExtra(EXTRA_SECOND_SCREEN, true)
++                .putExtra(Game.EXTRA_APP_ID, appId)
++                .putExtra(Game.EXTRA_APP_UUID, appUuid);
++        intent.removeExtra(Game.EXTRA_REPLACED_APP_NAME);
++        intent.removeExtra(GameVideoOutput.EXTRA_OUTPUT_DISPLAY);
++        LaunchSource.put(intent, LaunchSource.DUAL_SCREEN);
++        launch(game, intent, second.getDisplayId());
++    }
++
++    private static void launch(Game game, Intent intent, int displayId) {
++        if (game.isFinishing() || game.isDestroyed()) {
++            return;
++        }
++        ActivityOptions options = ActivityOptions.makeBasic();
++        options.setLaunchDisplayId(displayId);
++        try {
++            game.startActivity(intent, options.toBundle());
++            LimeLog.info("Dual screen: second stream on display " + displayId);
++        } catch (RuntimeException e) {
++            LimeLog.warning("Dual screen: the second screen would not open: " + e);
++            game.messages.alert(R.string.dual_screen_unavailable, Toast.LENGTH_LONG);
++        }
++    }
++
++    /** The first stream is over: the second goes with it. */
++    static void end(Game game) {
++        if (game.dualScreenLink != null) {
++            try {
++                game.unregisterReceiver(game.dualScreenLink);
++            } catch (IllegalArgumentException ignored) {
++                // Not registered any more.
++            }
++            game.dualScreenLink = null;
++        }
++        if (game.dualScreenStarted && !isSecond(game.getIntent()) && game.isFinishing()) {
++            game.sendBroadcast(new Intent(ACTION_END).setPackage(game.getPackageName()));
++        }
++    }
++
++    /**
++     * Joins this stream to the other one: the second stream follows the first one's end, and each follows
++     * the other's touch mode. Both streams are Game activities in processes of their own, so they talk by
++     * broadcasts to this app.
++     */
++    @SuppressLint("UnspecifiedRegisterReceiverFlag")
++    static void link(Game game) {
++        if (game.dualScreenLink != null) {
++            return;
++        }
++        BroadcastReceiver receiver = new BroadcastReceiver() {
++            @Override
++            public void onReceive(Context context, Intent intent) {
++                if (ACTION_END.equals(intent.getAction())) {
++                    if (isSecond(game.getIntent())) {
++                        game.finish();
++                    }
++                    return;
++                }
++                int mode = intent.getIntExtra(EXTRA_TOUCH_MODE, -1);
++                if (mode >= 0 && intent.getIntExtra(EXTRA_FROM_PID, -1) != Process.myPid()
++                        && game.touchInput != null && game.externalPresentation == null) {
++                    game.touchInput.applyTouchMode(mode, !isSecond(game.getIntent()));
++                }
++            }
++        };
++        IntentFilter filter = new IntentFilter();
++        filter.addAction(ACTION_END);
++        filter.addAction(ACTION_TOUCH_MODE);
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
++            game.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
++        } else {
++            game.registerReceiver(receiver, filter);
++        }
++        game.dualScreenLink = receiver;
++    }
++
++    /** This stream's touch mode changed: the other stream, if there is one, takes the same one. */
++    static void mirrorTouchMode(Game game, int mode) {
++        if (game.dualScreenLink != null) {
++            game.sendBroadcast(new Intent(ACTION_TOUCH_MODE).setPackage(game.getPackageName())
++                    .putExtra(EXTRA_TOUCH_MODE, mode).putExtra(EXTRA_FROM_PID, Process.myPid()));
++        }
++    }
++
++    /**
++     * What the second stream gives up to the first: sound, the controllers and the microphone stay
++     * with the first stream. Its size is the second screen's own setting (that screen's full size, or
++     * a fixed one), whatever the first screen's resolution is.
++     */
++    static void configureSecond(PreferenceConfiguration config, Display display) {
++        if (!config.useResolution(config.secondScreenResolution)) {
++            config.followScreen(display);
++        }
++        config.dualScreen = false;
++        config.muteAudio = true;
++        config.enableMic = false;
++        config.onscreenController = false;
++        config.usbDriver = false;
++        config.usbDualSense = false;
++        config.usbDualSenseHaptics = false;
++        config.usbSwitchPro = false;
++    }
++}
+diff --git a/app/src/main/java/com/limelight/Game.java b/app/src/main/java/com/limelight/Game.java
+index e763ad366..3d4e57267 100644
+--- a/app/src/main/java/com/limelight/Game.java
++++ b/app/src/main/java/com/limelight/Game.java
+@@ -131,6 +131,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
+     com.limelight.ui.ConnectingScreen spinner;
+     boolean displayedFailureDialog = false;
+     boolean connecting = false;
++    // The second screen's stream has been started beside this one (DualScreen).
++    boolean dualScreenStarted;
++    // Receives the other screen's stream's messages (DualScreen.link).
++    android.content.BroadcastReceiver dualScreenLink;
+     volatile boolean connected = false;
+     boolean autoEnterPip = false;
+     com.limelight.ui.AdaptiveLayout adaptiveLayout;
+@@ -863,6 +867,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
+ 
+     @Override
+     protected void onDestroy() {
++        DualScreen.end(this);
+         if (nativeMenuThread != null) nativeMenuThread.shutdownNow();
+         if (streamHealthThread != null) streamHealthThread.shutdownNow();
+         // A staged exit still waiting on the display ends here with the activity.
+@@ -1331,6 +1336,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
+ 
+     @Override
+     public void stageComplete(String stage) {
++        // The host has accepted this stream's launch or resume: the second screen need not wait for the
++        // rest of the handshake and the first frame.
++        runOnUiThread(() -> DualScreen.start(this));
+     }
+ 
+     @Override
+diff --git a/app/src/main/java/com/limelight/GameConnection.java b/app/src/main/java/com/limelight/GameConnection.java
+index 4cc5e4f42..82f7e28fc 100644
+--- a/app/src/main/java/com/limelight/GameConnection.java
++++ b/app/src/main/java/com/limelight/GameConnection.java
+@@ -149,6 +149,9 @@ final class GameConnection {
+                 HostCapabilityCache.load(game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID)),
+                 game.getIntent().getStringExtra(Game.EXTRA_APP_UUID),
+                 game.getIntent().getIntExtra(Game.EXTRA_APP_ID, StreamConfiguration.INVALID_APP_ID), startNetwork);
++        if (DualScreen.isSecond(game.getIntent())) {
++            DualScreen.configureSecond(game.prefConfig, game.getWindowManager().getDefaultDisplay());
++        }
+         game.prefConfig.experimentalPacked444 = PackedFallback.effective(game.prefConfig.experimentalPacked444,
+                 game.getIntent().getBooleanExtra(Game.EXTRA_PACKED_OFF, false));
+         game.getIntent().putExtra(Game.EXTRA_STREAM_NETWORK, game.prefConfig.layers.network.name());
+@@ -462,6 +465,10 @@ final class GameConnection {
+             // If we're using OSC, always set at least gamepad 1.
+             gamepadMask |= 1;
+         }
++        if (DualScreen.isSecond(game.getIntent())) {
++            // The controllers belong to the first screen's stream.
++            gamepadMask = 0;
++        }
+ 
+         // Set to the optimal mode for streaming
+         float displayRefreshRate = mediaStream ? game.videoOutput.prepareDisplayForRendering() :
+@@ -535,6 +542,7 @@ final class GameConnection {
+                 .setVirtualDisplayDpi(game.prefConfig.virtualDisplayDpi)
+                 .setVrr(!smallStream && game.prefConfig.vrr)
+                 .setClipboardSync(game.prefConfig.clipboardSync && game.prefConfig.rustEngine)
++                .setSecondScreen(DualScreen.isSecond(game.getIntent()))
+                 .setHostDisplay(game.prefConfig.hostDisplay)
+                 .setAudioConfiguration(smallStream ? MoonBridge.AUDIO_CONFIGURATION_STEREO : game.prefConfig.audioConfiguration)
+                 .setColorSpace(game.decoderRenderer.getPreferredColorSpace())
+@@ -551,6 +559,11 @@ final class GameConnection {
+         game.streamRecovery.restoreMicrophoneMute();
+         game.conn.setMicrophoneNoticeListener(() -> game.runOnUiThread(game.menuActions::showMicrophoneNotice));
+         game.controllerHandler = new ControllerHandler(game, game.conn, game, game.prefConfig);
++        if (DualScreen.isSecond(game.getIntent())) {
++            // The controllers belong to the first screen's stream. Stopped here, before the launch request
++            // lists them and before the connection announces them, the host never hears of a second set.
++            game.controllerHandler.stop();
++        }
+         game.conn.setControllerPreparation(game.controllerHandler::prepareControllersForLaunch);
+         game.videoOutput.updateInputPollingRate();
+         ((android.hardware.display.DisplayManager) game.getSystemService(Context.DISPLAY_SERVICE))
+@@ -1344,6 +1357,8 @@ final class GameConnection {
+                 game.overlays.updateHardwareMetricsPolling();
+                 LimeLog.info("Stream connected");
+                 game.connecting = false;
++                // Normally started a stage earlier (Game.stageComplete); this catches a game not known by then.
++                DualScreen.start(game);
+                 if (!game.streamRecovery.isRecoveryAttempt()) {
+                     com.limelight.update.UpdateFlow.notifyForStream(game, game.conn.getHostDetails(),
+                             () -> game.foreground && game.connected, text -> game.messages.alert(text, Toast.LENGTH_LONG));
+diff --git a/app/src/main/java/com/limelight/GameSecondary.java b/app/src/main/java/com/limelight/GameSecondary.java
+new file mode 100644
+index 000000000..cf8eb0757
+--- /dev/null
++++ b/app/src/main/java/com/limelight/GameSecondary.java
+@@ -0,0 +1,37 @@
++package com.limelight;
++
++import android.os.Bundle;
++import android.os.Handler;
++import android.os.Looper;
++import android.os.Process;
++
++/**
++ * The stream on the second screen in dual-screen mode (see {@link DualScreen}). It is the same
++ * activity as {@link Game}, declared in the manifest with a process and a task of its own: the
++ * streaming engines keep one stream's state per process, so two streams need two processes.
++ */
++public class GameSecondary extends Game {
++    /** Streams alive in this process; only the main thread touches it. */
++    private static int alive;
++
++    @Override
++    protected void onCreate(Bundle savedInstanceState) {
++        alive++;
++        super.onCreate(savedInstanceState);
++        // Follows the first stream's end and its touch mode.
++        DualScreen.link(this);
++    }
++
++    @Override
++    protected void onDestroy() {
++        super.onDestroy();
++        alive--;
++        if (isFinishing()) {
++            // The settings this process read at its start are old by the next stream, and a settings
++            // change in the main process never reaches it, so it goes once nothing is using it.
++            new Handler(Looper.getMainLooper()).postDelayed(() -> {
++                if (alive == 0) Process.killProcess(Process.myPid());
++            }, 5000);
++        }
++    }
++}
+diff --git a/app/src/main/java/com/limelight/GameTouchInput.java b/app/src/main/java/com/limelight/GameTouchInput.java
+index 4ff74340b..f57ab24df 100644
+--- a/app/src/main/java/com/limelight/GameTouchInput.java
++++ b/app/src/main/java/com/limelight/GameTouchInput.java
+@@ -297,6 +297,25 @@ final class GameTouchInput {
+         }
+     }
+ 
++    /**
++     * Switches the touch mode of this stream. {@code persist} also saves it as the setting; in dual-screen
++     * mode only the first stream's process does, because the second's copy of the settings can be older
++     * than the first's and would write them back.
++     */
++    void applyTouchMode(int which, boolean persist) {
++        cancelTouchInput();
++        game.prefConfig.touchMode = which;
++        game.prefConfig.touchscreenTrackpad = TouchMode.legacyTrackpad(which);
++        game.nativeTouchEnabled = which == TouchMode.MULTI_TOUCH;
++        nativeTouchUnsupported = false;
++        initializeTouchContexts();
++        if (persist) {
++            SharedPreferences.Editor editor = PreferenceManager.getDefaultSharedPreferences(game).edit();
++            TouchMode.save(editor, which);
++            editor.apply();
++        }
++    }
++
+     void showTouchModeDialog() {
+         if (game.externalPresentation != null) {
+             game.messages.alert(R.string.desktop_touchpad_help, Toast.LENGTH_LONG);
+@@ -305,15 +324,8 @@ final class GameTouchInput {
+         String[] modes = game.getResources().getStringArray(R.array.stream_touch_modes);
+         game.menuActions.showStreamDialog(new NavigationDialogBuilder(game).setTitle(R.string.stream_touch_mode)
+                 .setSingleChoiceItems(modes, touchMode(), (dialog, which) -> {
+-                    cancelTouchInput();
+-                    game.prefConfig.touchMode = which;
+-                    game.prefConfig.touchscreenTrackpad = TouchMode.legacyTrackpad(which);
+-                    game.nativeTouchEnabled = which == TouchMode.MULTI_TOUCH;
+-                    nativeTouchUnsupported = false;
+-                    initializeTouchContexts();
+-                    SharedPreferences.Editor editor = PreferenceManager.getDefaultSharedPreferences(game).edit();
+-                    TouchMode.save(editor, which);
+-                    editor.apply();
++                    applyTouchMode(which, !DualScreen.isSecond(game.getIntent()));
++                    DualScreen.mirrorTouchMode(game, which);
+                     dialog.dismiss();
+                     if (game.nativeTouchEnabled) {
+                         game.messages.alert(R.string.stream_native_touch_help, Toast.LENGTH_LONG);
+diff --git a/app/src/main/java/com/limelight/GameVideoOutput.java b/app/src/main/java/com/limelight/GameVideoOutput.java
+index 044bd022d..6d1ed40a4 100644
+--- a/app/src/main/java/com/limelight/GameVideoOutput.java
++++ b/app/src/main/java/com/limelight/GameVideoOutput.java
+@@ -172,7 +172,7 @@ final class GameVideoOutput {
+         }
+     };
+ 
+-    private static final String EXTRA_OUTPUT_DISPLAY = "rubylight.outputDisplay";
++    static final String EXTRA_OUTPUT_DISPLAY = "rubylight.outputDisplay";
+ 
+     Display getVideoDisplay() {
+         // The intent describes the next output while a reconnect is in progress. Keep
+diff --git a/app/src/main/java/com/limelight/nvstream/StreamConfiguration.java b/app/src/main/java/com/limelight/nvstream/StreamConfiguration.java
+index c6f08d8c4..b7808fd6a 100644
+--- a/app/src/main/java/com/limelight/nvstream/StreamConfiguration.java
++++ b/app/src/main/java/com/limelight/nvstream/StreamConfiguration.java
+@@ -30,6 +30,8 @@ public class StreamConfiguration {
+     private boolean vrr;
+     // Asks a Rubylight PC for clipboard sync (0x5508).
+     private boolean clipboardSync;
++    // The second screen of Dual screen mode: the same device as the first stream (rlSecondScreen=1).
++    private boolean secondScreen;
+     // The PC's display choice as saved for the PC the stream was started from; null: look it up.
+     private HostDisplayChoice hostDisplay;
+     // The video FEC to ask a PC that lets the client choose; null sends nothing.
+@@ -222,6 +224,11 @@ public class StreamConfiguration {
+             return this;
+         }
+ 
++        public StreamConfiguration.Builder setSecondScreen(boolean secondScreen) {
++            config.secondScreen = secondScreen;
++            return this;
++        }
++
+         public StreamConfiguration.Builder setClipboardSync(boolean enabled) {
+             config.clipboardSync = enabled;
+             return this;
+@@ -422,6 +429,10 @@ public class StreamConfiguration {
+         return vrr;
+     }
+ 
++    public boolean getSecondScreen() {
++        return secondScreen;
++    }
++
+     public boolean getClipboardSync() {
+         return clipboardSync;
+     }
+diff --git a/app/src/main/java/com/limelight/nvstream/http/NvHTTP.java b/app/src/main/java/com/limelight/nvstream/http/NvHTTP.java
+index f84079d28..e16cccbd9 100644
+--- a/app/src/main/java/com/limelight/nvstream/http/NvHTTP.java
++++ b/app/src/main/java/com/limelight/nvstream/http/NvHTTP.java
+@@ -1588,7 +1588,9 @@ public class NvHTTP {
+             (asksClipboardSync(context) ? "&" + com.limelight.utils.ClipboardSync.LAUNCH_PARAMETER + "=1" : "") +
+             // No host offers rate changes before the launch and every host ignores a parameter it
+             // does not know, so this goes to any host; the stream's DESCRIBE says whether it took it.
+-            (context.rateChange ? "&" + RATE_CHANGE_LAUNCH_PARAMETER + "=1" : "");
++            (context.rateChange ? "&" + RATE_CHANGE_LAUNCH_PARAMETER + "=1" : "") +
++            // Dual screen mode's second stream: a Rubylight host keeps it beside this device's first.
++            (context.streamConfig.getSecondScreen() ? "&rlSecondScreen=1" : "");
+     }
+ 
+     public boolean launchApp(ConnectionContext context, String verb, int appId, boolean enableHdr) throws IOException, XmlPullParserException {
+diff --git a/app/src/main/java/com/limelight/preferences/PreferenceConfiguration.java b/app/src/main/java/com/limelight/preferences/PreferenceConfiguration.java
+index a48d15bc5..7cd19ebdc 100644
+--- a/app/src/main/java/com/limelight/preferences/PreferenceConfiguration.java
++++ b/app/src/main/java/com/limelight/preferences/PreferenceConfiguration.java
+@@ -164,6 +164,10 @@ public class PreferenceConfiguration {
+     private static final String ENABLE_AUDIO_FX_PREF_STRING = "checkbox_enable_audiofx";
+     static final String AUDIO_PASSTHROUGH_PREF_STRING = "checkbox_audio_passthrough";
+     static final String MUTE_AUDIO_PREF_STRING = "checkbox_mute_audio";
++    static final String DUAL_SCREEN_PREF_STRING = "checkbox_dual_screen";
++    static final String SECOND_SCREEN_RESOLUTION_PREF_STRING = "list_resolution_screen2";
++    /** The second screen's resolution value for "its own full size". */
++    public static final String SECOND_SCREEN_NATIVE = "native";
+     private static final String REDUCE_REFRESH_RATE_PREF_STRING = "checkbox_reduce_refresh_rate";
+     private static final String FULL_RANGE_PREF_STRING = "checkbox_full_range";
+     private static final String GAMEPAD_TOUCHPAD_AS_MOUSE_PREF_STRING = "checkbox_gamepad_touchpad_as_mouse";
+@@ -403,6 +407,10 @@ public class PreferenceConfiguration {
+     public boolean enableAudioFx;
+     // Receive the stream's audio but never play it on this device.
+     public boolean muteAudio;
++    // Also stream to the device's second screen, as a stream of its own (DualScreen).
++    public boolean dualScreen;
++    // The resolution of the second screen's stream: SECOND_SCREEN_NATIVE or a size such as 1920x1080.
++    public String secondScreenResolution = SECOND_SCREEN_NATIVE;
+     // Ask a Rubylight PC for PCM, AC3 or E-AC3 the audio output plays (AudioPassthrough); Rust engine only.
+     public boolean audioPassthrough;
+     public boolean reduceRefreshRate;
+@@ -965,7 +973,11 @@ public class PreferenceConfiguration {
+ 
+     // The built-in screen in use at its full size, landscape first; null when the screen can't be read.
+     public static String nativeResolution(Context context) {
+-        Display display = defaultDisplay(context);
++        return nativeResolution(defaultDisplay(context));
++    }
++
++    /** The same for any one screen: the second screen of a dual-screen device has a size of its own. */
++    static String nativeResolution(Display display) {
+         if (display == null) {
+             return null;
+         }
+@@ -988,6 +1000,32 @@ public class PreferenceConfiguration {
+         return Math.max(size[0], size[1]) + "x" + Math.min(size[0], size[1]);
+     }
+ 
++    /** Streams at a fixed {@code resolution} such as 1920x1080; false, with the size unchanged, for anything else. */
++    public boolean useResolution(String resolution) {
++        if (resolution == null || !resolution.matches("\\d{2,5}x\\d{2,5}")) {
++            return false;
++        }
++        width = getWidthFromResolutionString(resolution);
++        height = getHeightFromResolutionString(resolution);
++        resolutionFollowsScreen = false;
++        return true;
++    }
++
++    /**
++     * Streams at the full size of {@code display}, whatever the saved resolution says. False, with
++     * the size unchanged, when that screen's size can't be read.
++     */
++    public boolean followScreen(Display display) {
++        String resolution = nativeResolution(display);
++        if (resolution == null) {
++            return false;
++        }
++        width = getWidthFromResolutionString(resolution);
++        height = getHeightFromResolutionString(resolution);
++        resolutionFollowsScreen = true;
++        return true;
++    }
++
+     /**
+      * The largest mode in the shape of the screen in use ({@code realWidth} x {@code realHeight}).
+      * A foldable such as the Galaxy Z Fold can list the modes of both panels on one display: the
+@@ -1541,6 +1579,8 @@ public class PreferenceConfiguration {
+         config.enableAudioFx = prefs.getBoolean(ENABLE_AUDIO_FX_PREF_STRING, DEFAULT_ENABLE_AUDIO_FX);
+         config.audioPassthrough = prefs.getBoolean(AUDIO_PASSTHROUGH_PREF_STRING, false);
+         config.muteAudio = prefs.getBoolean(MUTE_AUDIO_PREF_STRING, false);
++        config.dualScreen = prefs.getBoolean(DUAL_SCREEN_PREF_STRING, false);
++        config.secondScreenResolution = prefs.getString(SECOND_SCREEN_RESOLUTION_PREF_STRING, SECOND_SCREEN_NATIVE);
+         config.reduceRefreshRate = prefs.getBoolean(REDUCE_REFRESH_RATE_PREF_STRING, DEFAULT_REDUCE_REFRESH_RATE);
+         config.fullRange = prefs.getBoolean(FULL_RANGE_PREF_STRING, DEFAULT_FULL_RANGE);
+         config.gamepadTouchpadAsMouse = prefs.getBoolean(GAMEPAD_TOUCHPAD_AS_MOUSE_PREF_STRING, DEFAULT_GAMEPAD_TOUCHPAD_AS_MOUSE);
+diff --git a/app/src/main/java/com/limelight/utils/LaunchSource.java b/app/src/main/java/com/limelight/utils/LaunchSource.java
+index 5e7c9a3c3..8b8ea22c1 100644
+--- a/app/src/main/java/com/limelight/utils/LaunchSource.java
++++ b/app/src/main/java/com/limelight/utils/LaunchSource.java
+@@ -25,6 +25,7 @@ public final class LaunchSource {
+     public static final String RECOVERY = "recovery";
+     public static final String COOP_JOIN = "co-op join";
+     public static final String OPEN_PLAY = "automatic start";
++    public static final String DUAL_SCREEN = "dual screen";
+     /** A stream intent nothing labelled: another app's, or a start this list misses. */
+     public static final String UNKNOWN = "unknown";
+ 
+diff --git a/app/src/main/res/values/dual_screen.xml b/app/src/main/res/values/dual_screen.xml
+new file mode 100644
+index 000000000..447c04629
+--- /dev/null
++++ b/app/src/main/res/values/dual_screen.xml
+@@ -0,0 +1,28 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
++    <string name="title_checkbox_dual_screen">Dual screen mode</string>
++    <string name="summary_checkbox_dual_screen">On a device with a second screen, starts a second stream of the same game on it, at that screen\'s own resolution. The second stream is the same device as the first, so the PC pairs once. The first screen keeps the sound, the controllers and the microphone, and a touch mode change on either screen applies to both. The PC must be a Rubylight host that supports it, and decides which of its screens each one shows. Takes effect on the next stream.</string>
++    <string name="title_resolution_screen2">Second screen resolution</string>
++    <string name="summary_resolution_screen2">The resolution of the second screen\'s stream, apart from the first screen\'s. Its own size streams at the full resolution of that screen.</string>
++    <string name="resolution_screen2_native">Second screen\'s own size</string>
++    <string name="dual_screen_unavailable">The second screen could not be opened.</string>
++
++    <string-array name="resolution_screen2_names">
++        <item>@string/resolution_screen2_native</item>
++        <item>@string/resolution_360p</item>
++        <item>@string/resolution_480p</item>
++        <item>@string/resolution_720p</item>
++        <item>@string/resolution_1080p</item>
++        <item>@string/resolution_1440p</item>
++        <item>@string/resolution_4k</item>
++    </string-array>
++    <string-array name="resolution_screen2_values" translatable="false">
++        <item>native</item>
++        <item>640x360</item>
++        <item>854x480</item>
++        <item>1280x720</item>
++        <item>1920x1080</item>
++        <item>2560x1440</item>
++        <item>3840x2160</item>
++    </string-array>
++</resources>
+diff --git a/app/src/main/res/xml/preferences.xml b/app/src/main/res/xml/preferences.xml
+index 660e12672..d2a41af81 100644
+--- a/app/src/main/res/xml/preferences.xml
++++ b/app/src/main/res/xml/preferences.xml
+@@ -729,6 +729,19 @@
+             android:title="@string/title_checkbox_enable_pip"
+             android:dialogMessage="@string/summary_checkbox_enable_pip"
+             android:defaultValue="false" />
++        <com.limelight.preferences.MaterialSwitchPreference
++            android:key="checkbox_dual_screen"
++            android:title="@string/title_checkbox_dual_screen"
++            android:dialogMessage="@string/summary_checkbox_dual_screen"
++            android:defaultValue="false" />
++        <com.limelight.preferences.MaterialListPreference
++            android:key="list_resolution_screen2"
++            android:title="@string/title_resolution_screen2"
++            android:dialogMessage="@string/summary_resolution_screen2"
++            android:entries="@array/resolution_screen2_names"
++            android:entryValues="@array/resolution_screen2_values"
++            android:defaultValue="native"
++            android:dependency="checkbox_dual_screen" />
+         <com.limelight.preferences.MaterialSwitchPreference
+             android:key="checkbox_auto_reconnect"
+             android:title="@string/title_auto_reconnect"
+diff --git a/app/src/test/java/com/limelight/DualScreenTest.java b/app/src/test/java/com/limelight/DualScreenTest.java
+new file mode 100644
+index 000000000..1f655e58d
+--- /dev/null
++++ b/app/src/test/java/com/limelight/DualScreenTest.java
+@@ -0,0 +1,51 @@
++package com.limelight;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertFalse;
++import static org.junit.Assert.assertTrue;
++
++import android.content.Intent;
++
++import com.limelight.preferences.PreferenceConfiguration;
++
++import org.junit.Test;
++
++public class DualScreenTest {
++    @Test
++    public void theSecondScreenIsTheFirstUsableDisplayBesideTheMainOne() {
++        assertEquals(2, DualScreen.pickSecondDisplayId(new int[] {0, 1, 2}, new boolean[] {true, false, true}, 0));
++        assertEquals(1, DualScreen.pickSecondDisplayId(new int[] {0, 1, 2}, new boolean[] {true, true, true}, 0));
++    }
++
++    @Test
++    public void aDeviceWithOneScreenHasNoSecondScreen() {
++        assertEquals(-1, DualScreen.pickSecondDisplayId(new int[] {0}, new boolean[] {true}, 0));
++        assertEquals(-1, DualScreen.pickSecondDisplayId(new int[] {0, 3}, new boolean[] {true, false}, 0));
++        assertEquals(-1, DualScreen.pickSecondDisplayId(new int[0], new boolean[0], 0));
++    }
++
++    @Test
++    public void aStreamNotOnTheDefaultDisplayLeavesThatOneAsTheOther() {
++        assertEquals(0, DualScreen.pickSecondDisplayId(new int[] {0, 1}, new boolean[] {true, true}, 1));
++    }
++
++    @Test
++    public void theSecondScreenTakesAFixedSizeOrItsOwn() {
++        PreferenceConfiguration config = new PreferenceConfiguration();
++        assertTrue(config.useResolution("1280x720"));
++        assertEquals(1280, config.width);
++        assertEquals(720, config.height);
++        assertFalse(config.resolutionFollowsScreen);
++        assertFalse(config.useResolution(PreferenceConfiguration.SECOND_SCREEN_NATIVE));
++        assertFalse(config.useResolution("0x720"));
++        assertFalse(config.useResolution(null));
++        assertEquals(1280, config.width);
++    }
++
++    @Test
++    public void onlyAnIntentMarkedAsTheSecondStreamIsOne() {
++        assertFalse(DualScreen.isSecond(null));
++        assertFalse(DualScreen.isSecond(new Intent()));
++        assertTrue(DualScreen.isSecond(new Intent().putExtra(DualScreen.EXTRA_SECOND_SCREEN, true)));
++    }
++}
+diff --git a/app/src/test/java/com/limelight/preferences/SettingsKeysTest.java b/app/src/test/java/com/limelight/preferences/SettingsKeysTest.java
+index 8a80b8c8c..4dbaa289c 100644
+--- a/app/src/test/java/com/limelight/preferences/SettingsKeysTest.java
++++ b/app/src/test/java/com/limelight/preferences/SettingsKeysTest.java
+@@ -57,7 +57,7 @@ public class SettingsKeysTest {
+             "checkbox_disable_warnings", "export_latency_csv", "checkbox_quick_resume",
+             com.limelight.console.HomeSettings.PREF_KEY,
+             // Added later; kept here so it is never renamed either.
+-            "list_virtual_display_dpi", "checkbox_mute_audio",
++            "list_virtual_display_dpi", "checkbox_mute_audio", "checkbox_dual_screen", "list_resolution_screen2",
+     };
+     // Rows that open a screen or a dialog and store nothing under their key.
+     private static final Set<String> ACTIONS = new HashSet<>(Arrays.asList(
+@@ -340,6 +340,8 @@ public class SettingsKeysTest {
+         reads.put("checkbox_enable_audiofx", new Read(false, true, c -> c.enableAudioFx));
+         reads.put("checkbox_audio_passthrough", new Read(false, true, c -> c.audioPassthrough));
+         reads.put("checkbox_mute_audio", new Read(false, true, c -> c.muteAudio));
++        reads.put("checkbox_dual_screen", new Read(false, true, c -> c.dualScreen));
++        reads.put("list_resolution_screen2", new Read("native", "1920x1080", c -> c.secondScreenResolution));
+         reads.put("checkbox_enable_perf_overlay", new Read(false, true, c -> c.enablePerfOverlay));
+         reads.put("performance_overlay_position", new Read("top_left", "bottom_right", c -> c.overlayPosition));
+         reads.put("checkbox_enable_pip", new Read(false, true, c -> c.enablePip));
+diff --git a/docs/settings.md b/docs/settings.md
+index f029cfd19..95cc0987b 100644
+--- a/docs/settings.md
++++ b/docs/settings.md
+@@ -197,6 +197,8 @@ Tier: Main rows show when a section opens; More rows fold behind the section's l
+ | Performance overlay<br>`checkbox_enable_perf_overlay` | Main | Off | Off; Compact; Statistics; Debug | Choose Compact, Statistics or Debug while diagnosing frame rate, network loss or delay; Off hides the overlay. Compact is one line: rendered FPS, network round trip (RTT) and frame loss behind a green, amber or red dot. Statistics summarizes the stream with a status line of lasting facts. Debug shows detailed measured stages and is always available. Stored as `checkbox_enable_perf_overlay` (On for any choice but Off) and `performance_overlay_mode` (compact, statistics or debug; Off keeps the last mode). Can also be changed in the stream menu → Display → Overlay and diagnostics; Copy stats includes Debug details. |
+ | Overlay position<br>`performance_overlay_position` | More | Top left | Top left; Top right; Bottom left; Bottom right | Choose the corner the performance overlay starts in. It moves to a free corner when on-screen controls would cover it, and always stays inside the camera cutout. Right-hand corners align the text to the right. Can also be changed in the stream menu → Display → Overlay and diagnostics → Position, which takes effect at once. |
+ | Picture in picture<br>`checkbox_enable_pip` | More | Off | On; Off | Enable to keep a small video window when leaving the app. Input and overlay are hidden there; requires device support. |
++| Dual screen mode<br>`checkbox_dual_screen` | More | Off | On; Off | Enable on a device with a second screen to stream the same game to both: the second screen gets a stream of its own at its own resolution, while sound, controllers and microphone stay with the first and a touch mode change on either screen applies to both. The second stream is the same device as the first, so the PC pairs once. It needs a Rubylight host that supports it, which decides which of its screens each stream shows. Applies to the next stream. |
++| Second screen resolution<br>`list_resolution_screen2` | More | Second screen's own size | Second screen's own size; 360p; 480p; 720p; 1080p; 1440p; 4K | The resolution of the second screen's stream in Dual screen mode, apart from the first screen's: the second screen's own full size, or a standard size. Applies to the next stream. Requires Dual screen mode On. |
+ | Recover interrupted streams<br>`checkbox_auto_reconnect` | Main | On | On; Off | On by default. Resume the same running game after transport failures or returning from screen lock, up to five attempts within one minute. Back or leaving during a retry cancels it. Graceful termination, pairing, permissions and decoder failures stay manual; recovery never launches or replaces a game. Installs that stored the old default (off) were switched on once; turning it off again is kept. |
+ | Ride out network drops<br>`list_network_grace` | More | Off (10 seconds) | Off (10 seconds); 20 seconds; 30 seconds; 60 seconds | Off by default: the stream ends after 10 seconds without contact. 20, 30 or 60 seconds keeps it open through a Wi-Fi roam, a short dropout or a VPN moving between Wi-Fi and mobile data; the picture freezes until the network returns. Longer waits only help if the host waits too, so raise its own client timeout. When the wait runs out the stream ends with a message saying so, and Recover interrupted streams, if on, then reconnects. See [network drops](video-and-latency.md#network-drops). |
+ | Client roaming<br>`checkbox_client_roaming` | More | On | On; Off | On by default. When this device changes networks, the stream moves to the new address instead of waiting for the old one. Needs the New streaming engine and a PC that offers client roaming (Rubylight 3.0); other PCs keep the network grace period. |
+diff --git a/scripts/generate-settings.py b/scripts/generate-settings.py
+index baf1c71a8..e08aa5bd8 100644
+--- a/scripts/generate-settings.py
++++ b/scripts/generate-settings.py
+@@ -110,6 +110,9 @@ ADVICE = {
+     "list_audio_config": "Choose 5.1, 7.1 or 7.1.4 for a matching audio output and host configuration; use stereo for headphones or two speakers. 7.1.4 needs Android 12L or newer, a 12-channel output and a Rubylight 3.0 PC; it is hidden for an output with fewer channels, and other PCs and outputs get 7.1.",
+     "checkbox_host_audio": "Enable to hear audio on the PC as well as Android.",
+     "checkbox_mute_audio": "Enable to stream without sound on this device, for example while the PC plays it (see Play audio on the host PC) or the device sits in a quiet place. Audio passthrough is not asked for. Applies to the next stream.",
++    "checkbox_dual_screen": "Enable on a device with a second screen to stream the same game to both: the second screen gets a stream of its own at its own resolution, while sound, controllers and microphone stay with the first and a touch mode change on either screen applies to both. The second stream is the same device as the first, so the PC pairs once. It needs a Rubylight host that supports it, which decides which of its screens each stream shows. Applies to the next stream.",
++    "list_resolution_screen2": "The resolution of the second screen's stream in Dual screen mode, apart from the first screen's: the second screen's own full size, or a standard size. Applies to the next stream.",
++    "checkbox_mute_audio": "Enable to stream without sound on this device, for example while the PC plays it (see Play audio on the host PC) or the device sits in a quiet place. Applies to the next stream.",
+     "checkbox_enable_mic": "Enable to talk in games and chat apps on the PC. Asks for microphone access; if it is not allowed, the setting stays off. The PC hears it as its streaming microphone. Mute it from the stream menu; the overlay shows whether it is sending.",
+     "checkbox_mic_button": "Leave on for a round button on the stream that mutes and unmutes with one tap; drag it anywhere and it stays there. Shown only while the PC takes the microphone. Turn off to mute from the stream menu only; the menu's Input section can show or hide it during a stream.",
+     "list_mic_echo_cancel": "Leave on Automatic: it cancels echo with the speaker and turns off with headphones or a Bluetooth headset, following a switch during the stream. Pick On if the PC hears its own game sound through a headset.",

@@ -164,6 +164,10 @@ public class PreferenceConfiguration {
     private static final String ENABLE_AUDIO_FX_PREF_STRING = "checkbox_enable_audiofx";
     static final String AUDIO_PASSTHROUGH_PREF_STRING = "checkbox_audio_passthrough";
     static final String MUTE_AUDIO_PREF_STRING = "checkbox_mute_audio";
+    static final String DUAL_SCREEN_PREF_STRING = "checkbox_dual_screen";
+    static final String SECOND_SCREEN_RESOLUTION_PREF_STRING = "list_resolution_screen2";
+    /** The second screen's resolution value for "its own full size". */
+    public static final String SECOND_SCREEN_NATIVE = "native";
     private static final String REDUCE_REFRESH_RATE_PREF_STRING = "checkbox_reduce_refresh_rate";
     private static final String FULL_RANGE_PREF_STRING = "checkbox_full_range";
     private static final String GAMEPAD_TOUCHPAD_AS_MOUSE_PREF_STRING = "checkbox_gamepad_touchpad_as_mouse";
@@ -403,6 +407,10 @@ public class PreferenceConfiguration {
     public boolean enableAudioFx;
     // Receive the stream's audio but never play it on this device.
     public boolean muteAudio;
+    // Also stream to the device's second screen, as a stream of its own (DualScreen).
+    public boolean dualScreen;
+    // The resolution of the second screen's stream: SECOND_SCREEN_NATIVE or a size such as 1920x1080.
+    public String secondScreenResolution = SECOND_SCREEN_NATIVE;
     // Ask a Rubylight PC for PCM, AC3 or E-AC3 the audio output plays (AudioPassthrough); Rust engine only.
     public boolean audioPassthrough;
     public boolean reduceRefreshRate;
@@ -965,7 +973,11 @@ public class PreferenceConfiguration {
 
     // The built-in screen in use at its full size, landscape first; null when the screen can't be read.
     public static String nativeResolution(Context context) {
-        Display display = defaultDisplay(context);
+        return nativeResolution(defaultDisplay(context));
+    }
+
+    /** The same for any one screen: the second screen of a dual-screen device has a size of its own. */
+    static String nativeResolution(Display display) {
         if (display == null) {
             return null;
         }
@@ -986,6 +998,32 @@ public class PreferenceConfiguration {
             return null;
         }
         return Math.max(size[0], size[1]) + "x" + Math.min(size[0], size[1]);
+    }
+
+    /** Streams at a fixed {@code resolution} such as 1920x1080; false, with the size unchanged, for anything else. */
+    public boolean useResolution(String resolution) {
+        if (resolution == null || !resolution.matches("\\d{2,5}x\\d{2,5}")) {
+            return false;
+        }
+        width = getWidthFromResolutionString(resolution);
+        height = getHeightFromResolutionString(resolution);
+        resolutionFollowsScreen = false;
+        return true;
+    }
+
+    /**
+     * Streams at the full size of {@code display}, whatever the saved resolution says. False, with
+     * the size unchanged, when that screen's size can't be read.
+     */
+    public boolean followScreen(Display display) {
+        String resolution = nativeResolution(display);
+        if (resolution == null) {
+            return false;
+        }
+        width = getWidthFromResolutionString(resolution);
+        height = getHeightFromResolutionString(resolution);
+        resolutionFollowsScreen = true;
+        return true;
     }
 
     /**
@@ -1541,6 +1579,8 @@ public class PreferenceConfiguration {
         config.enableAudioFx = prefs.getBoolean(ENABLE_AUDIO_FX_PREF_STRING, DEFAULT_ENABLE_AUDIO_FX);
         config.audioPassthrough = prefs.getBoolean(AUDIO_PASSTHROUGH_PREF_STRING, false);
         config.muteAudio = prefs.getBoolean(MUTE_AUDIO_PREF_STRING, false);
+        config.dualScreen = prefs.getBoolean(DUAL_SCREEN_PREF_STRING, false);
+        config.secondScreenResolution = prefs.getString(SECOND_SCREEN_RESOLUTION_PREF_STRING, SECOND_SCREEN_NATIVE);
         config.reduceRefreshRate = prefs.getBoolean(REDUCE_REFRESH_RATE_PREF_STRING, DEFAULT_REDUCE_REFRESH_RATE);
         config.fullRange = prefs.getBoolean(FULL_RANGE_PREF_STRING, DEFAULT_FULL_RANGE);
         config.gamepadTouchpadAsMouse = prefs.getBoolean(GAMEPAD_TOUCHPAD_AS_MOUSE_PREF_STRING, DEFAULT_GAMEPAD_TOUCHPAD_AS_MOUSE);

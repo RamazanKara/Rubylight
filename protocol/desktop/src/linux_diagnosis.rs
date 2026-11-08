@@ -195,6 +195,15 @@ pub fn packed_too_large(from: u8, to: u8, coded: (u32, u32), max: (u32, u32)) ->
     (line, toast)
 }
 
+/// The VA driver VAAPI decodes with on render `node` (`query`, `media::vaapi_device`): when it
+/// does not open there, the default device's, as `media::VideoDecoder::open_for` falls back to.
+pub fn vaapi_or_default(node: Option<u32>, query: impl Fn(Option<u32>) -> Result<VaapiIdentity, String>) -> Result<VaapiIdentity, String> {
+    match (query(node), node) {
+        (Err(_), Some(_)) => query(None),
+        (identity, _) => identity,
+    }
+}
+
 /// Full chroma's packed `modes` for a `width` x `height` stream cut to what its decoders open
 /// (`packed_modes_that_fit`), in the order and on the devices a packed stream decodes with
 /// (`stream::packed444::verify`: VAAPI on the renderer's node unless its wrapper driver is left
@@ -209,7 +218,7 @@ pub fn packed_offer(hardware: crate::media::Hardware, modes: u8, width: u32, hei
     let Some(coded) = rubylight_protocol::packed444::Geometry::new(width, height).map(|geometry| geometry.coded_size()) else { return (modes, None) };
     // The order leaves a wrapper VA driver out (`linux_video::vaapi_plan`).
     let order = hardware.order();
-    let vaapi = order.contains(&Hardware::Vaapi).then(|| crate::media::vaapi_device(crate::media::vaapi_node(hardware).minor()));
+    let vaapi = order.contains(&Hardware::Vaapi).then(|| vaapi_or_default(crate::media::vaapi_node(hardware).minor(), crate::media::vaapi_device));
     // SAFETY: The renderer keeps its device alive while streams use it.
     let vulkan = if gpu.is_null() { None } else { unsafe { crate::linux_video::vulkan_identity(gpu.cast()) }.ok() };
     let decoders: Vec<PackedDecoder> = order
@@ -405,6 +414,19 @@ mod tests {
         assert_eq!(line, "full chroma: the packed 3840x4320 picture is larger than the decoder's 4096x2304, packed modes 0xf -> 0xd");
         assert!(toast.is_none(), "AV1 still streams in full chroma");
         assert!(packed_too_large(2, 0, (3840, 4320), (4096, 2304)).1.unwrap().contains("3840x4320"));
+    }
+
+    #[test]
+    fn vaapi_that_does_not_open_on_the_renderers_node_is_asked_on_the_default_device() {
+        let default = vaapi("Intel iHD driver for Intel(R) Gen Graphics - 24.1.0 ()", &[17]);
+        let query = |node: Option<u32>| match node {
+            Some(128) => Err("Permission denied".to_owned()),
+            Some(_) => Ok(vaapi("Mesa Gallium driver", &[17])),
+            None => Ok(default.clone()),
+        };
+        assert_eq!(vaapi_or_default(Some(128), query), Ok(default.clone()), "open_for falls back to the default device");
+        assert_eq!(vaapi_or_default(Some(129), query).unwrap().vendor, "Mesa Gallium driver");
+        assert_eq!(vaapi_or_default(None, |_| Err("no device".to_owned())), Err("no device".to_owned()));
     }
 
     #[test]

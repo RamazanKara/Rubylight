@@ -183,6 +183,10 @@ public class GameDetailOpenPlayTest {
     @Test
     public void anOnlinePcStartsTheGameWithTheGuardArmedUntilTheStreamClearsIt() throws Exception {
         open(true, null, null);
+        // The poll's reply comes from the transport's own thread: read the countdown's end only once it runs,
+        // as aNetworkThatComesBackGivesThePcAPollAndThenTheFullCountdown does.
+        await(() -> ((TextView) shown().findViewById(android.R.id.message)).getText().toString()
+                .startsWith("Starting on Tower in"));
         long end = ReflectionHelpers.<Long>getField(screen, "countdownEnd");
         pass(end - android.os.SystemClock.elapsedRealtime() - 1);
         assertTrue("not before the countdown ends", GameDetailWakeTest.Detail.played.isEmpty());

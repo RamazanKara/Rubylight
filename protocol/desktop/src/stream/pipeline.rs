@@ -2024,7 +2024,9 @@ mod tests {
         assert_eq!(decoder.refused, [(Hardware::None, setup.format)]);
         let replaced = decoder.decoder.as_ref().expect("a decoder after the refusal");
         assert!(!replaced.refused(), "a new decoder, not the refused one");
-        assert!(lock(&shared.decoder_name).contains("refused"), "{}", lock(&shared.decoder_name));
+        // The overlay names the decoder that now decodes (the refused one was named on the
+        // frame that showed it, before the replacement opened).
+        assert_eq!(*lock(&shared.decoder_name), replaced.name);
     }
 
     /// A refused decoder replaced mid-stream by a backend that never asked for reference frame

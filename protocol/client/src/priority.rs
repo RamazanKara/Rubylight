@@ -1268,7 +1268,9 @@ pub(crate) mod tests {
         // No session bus (or no portal) at all.
         let raised = raise_through(denied, Err("session bus: none".into()), Ok(&kit)).unwrap();
         assert_eq!(raised.by, RaisedBy::RealtimeKit);
-        assert_eq!(raised.to_string(), "nice -8 by RealtimeKit");
+        // The label says "priority" where the value is a Windows thread priority.
+        let kind = if cfg!(windows) { "priority" } else { "nice" };
+        assert_eq!(raised.to_string(), format!("{kind} -8 by RealtimeKit"));
     }
 
     #[test]

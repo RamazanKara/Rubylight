@@ -1249,7 +1249,7 @@ impl VideoTexture {
         let last_planes = self.planes_pending.take();
         let uploaded = self.upload_picture(renderer, decoded, rows);
         #[cfg(unix)]
-        { self.planes_pending = planes_after_upload(uploaded, self.planes_pending, last_planes, self.planes.is_some() && !self.texture.is_null()); }
+        { self.planes_pending = planes_after_upload(uploaded, self.planes_pending, last_planes, self.planes.is_some() && !self.texture.is_null(), self.pyrowave_format); }
         self.visible = decoded.visible.filter(|_| uploaded && plain(decoded)).and_then(|visible| visible_part(visible, (self.width, self.height)));
         uploaded
     }
@@ -2119,11 +2119,13 @@ impl VideoTexture {
 }
 
 /// The planes to draw after an upload: the new picture's, or when it failed the last one's while
-/// the pass and texture that hold them (`held`) are still there, so the last good picture stays
-/// on screen and SDL never draws the texture the planes were never drawn into.
+/// the pass and texture that hold them (`held`) are still there and the pass was made for them
+/// (`pass_format`, its parameters: a change of shape makes a new pass, whose images never held
+/// them), so the last good picture stays on screen and SDL never draws the texture the planes
+/// were never drawn into.
 #[cfg_attr(not(unix), allow(dead_code))]
-fn planes_after_upload(uploaded: bool, new: Option<[u32; 8]>, last: Option<[u32; 8]>, held: bool) -> Option<[u32; 8]> {
-    if uploaded || new.is_some() || !held { new } else { last }
+fn planes_after_upload(uploaded: bool, new: Option<[u32; 8]>, last: Option<[u32; 8]>, held: bool, pass_format: Option<[u32; 8]>) -> Option<[u32; 8]> {
+    if uploaded || new.is_some() || !held || pass_format != last { new } else { last }
 }
 
 /// A decoded H.264, HEVC or AV1 picture, which may carry an encoder's alignment padding; not a
@@ -2257,10 +2259,11 @@ pub(crate) mod tests {
     #[test]
     fn a_failed_upload_keeps_the_last_planes_on_screen() {
         let last = Some([1; 8]);
-        assert_eq!(planes_after_upload(false, None, last, true), last);
-        assert_eq!(planes_after_upload(true, None, last, true), None, "a decoded picture in the texture replaces them");
-        assert_eq!(planes_after_upload(true, Some([2; 8]), last, true), Some([2; 8]));
-        assert_eq!(planes_after_upload(false, None, last, false), None, "the pass that held them is gone");
+        assert_eq!(planes_after_upload(false, None, last, true, last), last);
+        assert_eq!(planes_after_upload(true, None, last, true, last), None, "a decoded picture in the texture replaces them");
+        assert_eq!(planes_after_upload(true, Some([2; 8]), last, true, Some([2; 8])), Some([2; 8]));
+        assert_eq!(planes_after_upload(false, None, last, false, last), None, "the pass that held them is gone");
+        assert_eq!(planes_after_upload(false, None, last, true, Some([2; 8])), None, "a new pass for a new shape never held them");
     }
 
     /// Plane pictures wait for the back buffer (`draw_direct`) instead of going through the

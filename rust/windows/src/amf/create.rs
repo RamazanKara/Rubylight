@@ -454,18 +454,25 @@ impl Encoder {
             let bitrate = rate_control::held(config.bitrate_kbps, ceiling);
             e.rate_control = rate_control::State::new(config.bitrate_kbps, scale_frame_cap)
                 .with_ceiling(ceiling);
-            let limits = if bitrate < config.bitrate_kbps {
+            let mut limits = if bitrate < config.bitrate_kbps {
+                // The stream's size: a packed one says so, its coded picture is twice as tall.
                 let message = format!(
-                    "The encoder runs at {bitrate} Kbps, not the requested {} Kbps: that is the most the AMD driver's {} encoder takes at {}x{} and {} fps. Lower the bitrate on the device to match.",
+                    "The encoder runs at {bitrate} Kbps, not the requested {} Kbps: that is the most the AMD driver's {} encoder takes at {}x{}{} and {} fps. Lower the bitrate on the device to match.",
                     config.bitrate_kbps,
                     ["H.264", "HEVC", "AV1"][usize::from(config.codec.min(2))],
-                    config.width,
-                    config.height,
+                    e.config.width,
+                    e.config.height,
+                    if e.config.chroma_packing != 0 {
+                        " full chroma"
+                    } else {
+                        ""
+                    },
                     config.fps_millihz() / 1000,
                 );
                 tracing::warn!(
                     requested_kbps = config.bitrate_kbps,
                     ceiling_bits = ceiling,
+                    cap_bits = e.bitrate_cap(),
                     applied_kbps = bitrate,
                     "{message}"
                 );
@@ -478,6 +485,11 @@ impl Encoder {
             } else {
                 limits
             };
+            for (name, asked, held) in
+                rate_control::hold_to_ranges(&mut limits, ceiling, |name| e.range_maximum(name))
+            {
+                tracing::warn!(property = %name, asked, held, "AMF rate-control limit held to what the driver takes");
+            }
             e.property("TargetBitrate", int(i64::from(bitrate) * 1000))?;
             let warnings = e.warnings.clone();
             rate_control::configure(&limits, &warnings, |property| e.apply(property))?;

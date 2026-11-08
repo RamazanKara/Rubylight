@@ -1069,16 +1069,21 @@ fn rate_control_target_rejection_preserves_limits_and_existing_buffer_warning() 
 
 #[test]
 fn bitrate_ceiling_takes_the_lower_driver_report_and_ignores_nonpositive_ones() {
+    // The range and the MaxBitrate cap: an RX 7900 XT refuses above the cap.
     assert_eq!(
-        rate_control::ceiling(Some(800_000_000), Some(600_000_000)),
-        Some(600_000_000)
+        rate_control::ceiling(Some(i64::MAX), Some(1_000_000_000)),
+        Some(1_000_000_000)
     );
     assert_eq!(
-        rate_control::ceiling(Some(600_000_000), None),
+        rate_control::ceiling(Some(600_000_000), Some(1_000_000_000)),
         Some(600_000_000)
     );
     assert_eq!(
         rate_control::ceiling(None, Some(600_000_000)),
+        Some(600_000_000)
+    );
+    assert_eq!(
+        rate_control::ceiling(Some(600_000_000), None),
         Some(600_000_000)
     );
     assert_eq!(rate_control::ceiling(Some(0), Some(-1)), None);
@@ -1088,6 +1093,52 @@ fn bitrate_ceiling_takes_the_lower_driver_report_and_ignores_nonpositive_ones() 
     assert_eq!(rate_control::held(300_000, Some(600_000_000)), 300_000);
     assert_eq!(rate_control::held(959_000, None), 959_000);
     assert_eq!(rate_control::held(959_000, Some(999)), 1);
+}
+
+/// An explicit peak ratio over a target held at its ceiling would ask the
+/// driver for a peak above it (AMF_OUT_OF_RANGE on Av1PeakBitrate, measured
+/// on an RX 7900 XT): start-up peak and VBV limits are held to their ranges,
+/// and the peak to the bitrate ceiling where the driver gives no range.
+#[test]
+fn start_up_peak_and_vbv_limits_are_held_to_their_property_ranges() {
+    use butterpollo_core::encoder_policy::{Property, Value};
+    let property = |name: &str, value| Property {
+        name: name.into(),
+        value: Value::Integer(value),
+        required: true,
+    };
+    let mut limits = vec![
+        property("Av1PeakBitrate", 2_000_000_000),
+        property("Av1VBVBufferSize", 40_000_000),
+        property("Av1MaxCompressedFrameSize", 9_000_000_000),
+    ];
+    let held = rate_control::hold_to_ranges(&mut limits, Some(1_200_000_000), |name| match name {
+        "Av1PeakBitrate" => Some(1_000_000_000),
+        "Av1VBVBufferSize" => Some(0),
+        _ => Some(1),
+    });
+    assert_eq!(
+        held,
+        [("Av1PeakBitrate".to_string(), 2_000_000_000, 1_000_000_000)]
+    );
+    assert!(matches!(limits[0].value, Value::Integer(1_000_000_000)));
+    assert!(
+        matches!(limits[1].value, Value::Integer(40_000_000)),
+        "a range of 0 says nothing"
+    );
+    assert!(
+        matches!(limits[2].value, Value::Integer(9_000_000_000)),
+        "frame caps are not peak or VBV limits"
+    );
+    // No range reported (the RX 7900 XT): the bitrate ceiling holds the peak.
+    let mut unranged = vec![property("Av1PeakBitrate", 2_000_000_000)];
+    let held = rate_control::hold_to_ranges(&mut unranged, Some(1_000_000_000), |_| None);
+    assert_eq!(
+        held,
+        [("Av1PeakBitrate".to_string(), 2_000_000_000, 1_000_000_000)]
+    );
+    let mut under = vec![property("Av1PeakBitrate", 600_000_000)];
+    assert!(rate_control::hold_to_ranges(&mut under, Some(1_000_000_000), |_| None).is_empty());
 }
 
 #[test]
@@ -1114,7 +1165,28 @@ fn a_bitrate_above_the_driver_ceiling_starts_held_to_it_on_every_codec() -> Resu
             .with_context(|| format!("codec {codec} at {requested} Kbps"))?;
         let ceiling = encoder.bitrate_ceiling();
         let applied = encoder.read(target);
-        println!("codec={codec} ceiling_bits={ceiling:?} {target}={applied:?}");
+        println!(
+            "codec={codec} ceiling_bits={ceiling:?} cap_bits={:?} {target}={applied:?}",
+            encoder.bitrate_cap()
+        );
+        // The ceiling is the lower of the target's range and the cap, and the
+        // target sits at the lower of it and the request.
+        println!(
+            "codec={codec} range_bits={:?}",
+            encoder.range_maximum(target)
+        );
+        assert_eq!(
+            ceiling,
+            rate_control::ceiling(encoder.range_maximum(target), encoder.bitrate_cap()),
+            "codec {codec}"
+        );
+        if let (Some(ceiling), Some(applied)) = (ceiling, applied) {
+            assert_eq!(
+                applied,
+                ceiling.min(i64::from(requested) * 1000) / 1000 * 1000,
+                "codec {codec}"
+            );
+        }
         let held = ceiling.is_some_and(|bits| bits < i64::from(requested) * 1000);
         assert_eq!(
             encoder
@@ -1125,10 +1197,34 @@ fn a_bitrate_above_the_driver_ceiling_starts_held_to_it_on_every_codec() -> Resu
             held,
             "codec {codec}"
         );
-        if let (Some(ceiling), Some(applied)) = (ceiling, applied) {
-            assert!(applied <= ceiling, "codec {codec}");
-        }
     }
+    // An explicit peak ratio over the held target starts too: its peak is held
+    // to Av1PeakBitrate's range instead of being refused.
+    let options = butterpollo_core::config::Config::parse("amd_peak_bitrate_ratio=2")?;
+    let config = butterpollo_core::rtsp::Negotiated {
+        width: 3840,
+        height: 2160,
+        codec: 2,
+        fps: 100,
+        bitrate_kbps: requested,
+        ..Default::default()
+    };
+    let encoder = Encoder::new_gpu(&config, gpu.clone(), &options, None)
+        .context("AV1 with amd_peak_bitrate_ratio=2 above the ceiling")?;
+    let peak = encoder.read("Av1PeakBitrate");
+    println!(
+        "AV1 peak ratio 2: Av1PeakBitrate={peak:?} range={:?}",
+        encoder.range_maximum("Av1PeakBitrate")
+    );
+    let limit = rate_control::ceiling(
+        encoder.range_maximum("Av1PeakBitrate"),
+        encoder.bitrate_ceiling(),
+    );
+    assert!(
+        peak.is_some() && limit.is_some(),
+        "peak {peak:?}, limit {limit:?}"
+    );
+    assert!(peak <= limit, "peak {peak:?} above {limit:?}");
     Ok(())
 }
 
@@ -1166,6 +1262,10 @@ fn rate_control_holds_runtime_targets_to_the_driver_ceiling() {
         "{}",
         snapshot[0].message
     );
+    // A peak at twice the target is held to the ceiling, which it may not pass.
+    driver.values.get_mut("Av1PeakBitrate").unwrap().value = 1_600_000_000;
+    driver.apply(&mut state, 2, 700_000, &warnings);
+    assert_eq!(driver.values["Av1PeakBitrate"].value, 800_000_000);
 }
 
 #[test]

@@ -153,29 +153,43 @@ impl Encoder {
     }
     /// The highest target bitrate the driver takes for this encoder, in bits:
     /// the lower of the `TargetBitrate` property's range at the size and rate
-    /// already set and the encoder's `MaxBitrate` cap, where it reports them.
-    /// AMF refuses a target above it with a bare AMF_OUT_OF_RANGE (#80: AV1
-    /// on an RX 9070 XT at a client's 1.2 Gbps).
+    /// already set and the encoder's `MaxBitrate` cap. AMF refuses a target
+    /// above it with a bare AMF_OUT_OF_RANGE (#80: AV1 on an RX 9070 XT at a
+    /// client's 1.2 Gbps). The cap counts: on an RX 7900 XT (driver of
+    /// 2026-11) a target held to the range alone was still refused above the
+    /// 1 Gbps cap, on H.264, HEVC and AV1.
     pub(super) fn bitrate_ceiling(&self) -> Option<i64> {
-        let (property, cap) = match self.codec {
-            0 => ("TargetBitrate", "MaxBitrate"),
-            1 => ("HevcTargetBitrate", "HevcMaxBitrate"),
-            _ => ("Av1TargetBitrate", "Av1MaxBitrate"),
-        };
+        rate_control::ceiling(
+            self.range_maximum(&format!("{}TargetBitrate", self.prefix())),
+            self.bitrate_cap(),
+        )
+    }
+    /// The encoder's `MaxBitrate` capability in bits.
+    pub(super) fn bitrate_cap(&self) -> Option<i64> {
+        self.cap(&format!("{}MaxBitrate", self.prefix()))
+    }
+    fn prefix(&self) -> &'static str {
+        match self.codec {
+            0 => "",
+            1 => "Hevc",
+            _ => "Av1",
+        }
+    }
+    /// The maximum of integer property `name`'s range, where the driver gives one.
+    pub(super) fn range_maximum(&self, name: &str) -> Option<i64> {
         // SAFETY: Self retains the component/runtime and its borrowed property
         // info; the pointer and the variant tag are checked before the read.
-        let range = unsafe {
+        unsafe {
             let mut info = ptr::null();
             (((*(*self.component).pVtbl).GetPropertyInfo.unwrap())(
                 self.component,
-                to_wide(property).as_ptr(),
+                to_wide(name).as_ptr(),
                 &mut info,
             ) == AMF_RESULT_AMF_OK
                 && !info.is_null()
                 && (*info).maxValue.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64)
                 .then(|| (*info).maxValue.__bindgen_anon_1.int64Value)
-        };
-        rate_control::ceiling(range, self.cap(cap))
+        }
     }
     /// An integer or boolean capability, for the probes.
     pub fn capability(&self, name: &str) -> Option<i64> {

@@ -132,14 +132,46 @@ pub(super) fn configure(
 }
 
 /// The encoder's bitrate ceiling in bits from what the driver reports: the
-/// property range and the cap, the lower where both are known. Nonpositive
-/// reports say nothing.
+/// target property's range and the `MaxBitrate` cap, the lower where both are
+/// known. Nonpositive reports say nothing.
 pub(super) fn ceiling(range: Option<i64>, cap: Option<i64>) -> Option<i64> {
     [range, cap]
         .into_iter()
         .flatten()
         .filter(|bits| *bits > 0)
         .min()
+}
+
+/// Holds the start-up peak and VBV limits to their property ranges
+/// (`maximum`), and the peak to the bitrate `ceiling` too, as
+/// `State::update` does mid-stream: an explicit peak ratio over a target
+/// already at its ceiling is refused with AMF_OUT_OF_RANGE (an RX 7900 XT
+/// reports no range for `Av1PeakBitrate`, only the 1 Gbps cap). Returns each
+/// held property with its asked value.
+pub(super) fn hold_to_ranges(
+    properties: &mut [Property],
+    ceiling: Option<i64>,
+    maximum: impl Fn(&str) -> Option<i64>,
+) -> Vec<(String, i64, i64)> {
+    use butterpollo_core::encoder_policy::Value;
+    let mut held = Vec::new();
+    for property in properties {
+        let limit = if property.name.ends_with("PeakBitrate") {
+            self::ceiling(maximum(&property.name), ceiling)
+        } else if property.name.ends_with("VBVBufferSize") {
+            maximum(&property.name).filter(|bits| *bits > 0)
+        } else {
+            continue;
+        };
+        let Value::Integer(value) = property.value else {
+            continue;
+        };
+        if let Some(limit) = limit.filter(|limit| value > *limit) {
+            property.value = Value::Integer(limit);
+            held.push((property.name.clone(), value, limit));
+        }
+    }
+    held
 }
 
 /// A requested bitrate in Kbps held to a ceiling in bits.
@@ -273,6 +305,12 @@ impl State {
             }
             if let Some(maximum) = current.maximum {
                 scaled = scaled.min(maximum);
+            }
+            if index == 0 {
+                // The peak is a bitrate: above the ceiling the driver refuses it.
+                if let Some(ceiling) = self.ceiling {
+                    scaled = scaled.min(ceiling);
+                }
             }
             match set(&name, scaled) {
                 Ok(()) => {

@@ -223,8 +223,8 @@ The launcher and the stream share one SDL3 window and one `SDL_Renderer`. egui i
 | `NIGHTJAR_BEAM_RACE`, `NIGHTJAR_EARLY_DECODE` | Turn on [beam racing](../../docs/beam-racing.md) and [early decode](../../docs/early-decode.md) for PyroWave, as the `beam_race` and `early_decode` settings keys do. |
 | `NIGHTJAR_D3D11_PASS`, `NIGHTJAR_D3D11_BIND`, `NIGHTJAR_DMABUF`, `NIGHTJAR_VRR_CHECK`, `NIGHTJAR_VRR_SYNC` | A/B switches for the presentation paths described above. |
 | `NIGHTJAR_VULKAN_VIDEO` | Linux: `1` tries Vulkan video first and picks the GPU renderer for it, `0` leaves Vulkan video out, and the GPU renderer's device is made without its video extensions. |
-| `NIGHTJAR_VULKAN_VIDEO_GPU_FIRST`, `NIGHTJAR_DESKTOP_RFI`, `NIGHTJAR_DESKTOP_SLICES` | A/B switches, on unless `0`: Vulkan video before VA-API on the GPU renderer, reference frame invalidation, slices per frame for software decoding. |
-| `NIGHTJAR_VULKAN_RFI` | A/B switch, off unless `1`: Vulkan video decoding asks for reference frame invalidation too. |
+| `NIGHTJAR_DESKTOP_RFI` | A/B switch, on unless `0`: reference frame invalidation. |
+| `NIGHTJAR_VULKAN_VIDEO_GPU_FIRST`, `NIGHTJAR_DESKTOP_SLICES`, `NIGHTJAR_VULKAN_RFI` | A/B switches for the Debug settings Vulkan video first, Slices for software decoding and Vulkan video recovery (all off by default): `1` or `0` wins over the setting. |
 | `NIGHTJAR_VAAPI_VULKAN_MAP` | Linux A/B switch, on unless `0`: on the GPU renderer, VA-API opens on the renderer's GPU (its DRM render node) and its pictures are mapped into Vulkan images on the renderer's device (DMA-BUF import, `VK_EXT_image_drm_format_modifier`) for the presenter's GPU copy, instead of being mapped to memory and uploaded. Why the mapping is not used is logged once. |
 
 All are off unless set, but for the A/B switches that say otherwise.

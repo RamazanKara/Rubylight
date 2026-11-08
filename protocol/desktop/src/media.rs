@@ -172,16 +172,39 @@ pub enum Hardware {
 // The renderer keeps the device alive until the decoder has stopped; FFmpeg owns a COM reference.
 unsafe impl Send for Hardware {}
 
+/// The Debug settings "Vulkan video first" (`Settings::vulkan_video_first`) and "Vulkan video
+/// recovery" (`Settings::vulkan_rfi`) of the stream being set up, both off by default; their
+/// environment variables win over them for test runs.
+static VULKAN_VIDEO_FIRST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static VULKAN_RFI: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Takes the Vulkan video Debug settings of the stream about to start, before any decoder order
+/// or capability is worked out for it.
+pub fn use_vulkan_video_settings(first: bool, rfi: bool) {
+    VULKAN_VIDEO_FIRST.store(first, std::sync::atomic::Ordering::Relaxed);
+    VULKAN_RFI.store(rfi, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg_attr(not(unix), allow(dead_code))]
+fn vulkan_video_first_setting() -> bool {
+    VULKAN_VIDEO_FIRST.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The "Vulkan video recovery" setting ([`use_vulkan_video_settings`]).
+pub fn vulkan_rfi_setting() -> bool {
+    VULKAN_RFI.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 impl Hardware {
     /// The backends to try, in turn, for this choice. On Linux that is moonlight-qt's and Moonlight
     /// V+'s order: the first-tier hwaccels (VAAPI, then Vulkan video for GPUs without VAAPI), then
     /// the hardware decoders outside FFmpeg's hwaccels (V4L2 M2M), then the second tier (NVDEC);
-    /// software decoding comes after them all. With the GPU renderer's device, Vulkan video goes
-    /// before VAAPI: its pictures stay on the renderer's device, where VAAPI's are read back and
-    /// uploaded again (all but 8-bit 4:2:0 to the OpenGL renderer go through memory); VAAPI is
-    /// next where Vulkan video does not open or FFmpeg refuses it for the stream.
-    /// `NIGHTJAR_VULKAN_VIDEO_GPU_FIRST=0` keeps VAAPI first; `NIGHTJAR_VULKAN_VIDEO` puts Vulkan
-    /// first whatever the renderer or leaves it out.
+    /// software decoding comes after them all. VAAPI stays first with the GPU renderer's device
+    /// too: its pictures are mapped into the renderer's Vulkan images without a copy, and it keeps
+    /// reference frame invalidation. The Debug setting "Vulkan video first"
+    /// ([`use_vulkan_video_settings`]) or `NIGHTJAR_VULKAN_VIDEO_GPU_FIRST=1` puts Vulkan video
+    /// before VAAPI there, VAAPI next where it does not open or FFmpeg refuses it for the stream;
+    /// `NIGHTJAR_VULKAN_VIDEO` puts Vulkan first whatever the renderer or leaves it out.
     pub fn order(self) -> Vec<Self> {
         match self {
             Self::None => Vec::new(),
@@ -189,7 +212,10 @@ impl Hardware {
             Self::Auto(gpu) => Self::linux_order(
                 gpu,
                 crate::vulkan_video::Choice::from_environment(),
-                crate::vulkan_video::gpu_first(std::env::var_os(crate::vulkan_video::GPU_FIRST_ENVIRONMENT).as_deref()),
+                crate::vulkan_video::gpu_first(
+                    std::env::var_os(crate::vulkan_video::GPU_FIRST_ENVIRONMENT).as_deref(),
+                    vulkan_video_first_setting(),
+                ),
             ),
             // Vulkan video is Linux's; the rest of the order is tried as before it.
             #[cfg(not(unix))]
@@ -1689,16 +1715,20 @@ mod tests {
         let (vaapi, vulkan, v4l2, nvdec) = (Hardware::Vaapi, Hardware::Vulkan(device), Hardware::V4l2m2m, Hardware::Cuda);
         // VAAPI's pictures cross memory to the GPU renderer: with its device Vulkan video goes first.
         assert_eq!(Hardware::linux_order(device, Choice::Default, true), [vulkan, vaapi, v4l2, nvdec]);
-        assert_eq!(Hardware::linux_order(device, Choice::Default, false), [vaapi, vulkan, v4l2, nvdec], "NIGHTJAR_VULKAN_VIDEO_GPU_FIRST=0");
+        assert_eq!(Hardware::linux_order(device, Choice::Default, false), [vaapi, vulkan, v4l2, nvdec], "the default");
         let other_renderer = Hardware::Vulkan(ptr::null_mut());
         assert_eq!(Hardware::linux_order(ptr::null_mut(), Choice::Default, true), [vaapi, other_renderer, v4l2, nvdec], "without the GPU renderer VAAPI stays first");
         for gpu_first in [true, false] {
             assert_eq!(Hardware::linux_order(device, Choice::First, gpu_first), [vulkan, vaapi, v4l2, nvdec], "NIGHTJAR_VULKAN_VIDEO=1");
             assert_eq!(Hardware::linux_order(device, Choice::Off, gpu_first), [vaapi, v4l2, nvdec], "NIGHTJAR_VULKAN_VIDEO=0");
         }
-        assert!(crate::vulkan_video::gpu_first(None));
-        assert!(crate::vulkan_video::gpu_first(Some("1".as_ref())));
-        assert!(!crate::vulkan_video::gpu_first(Some("0".as_ref())));
+        // The setting, off by default, unless the environment says 1 or 0.
+        assert!(!crate::config::Settings::default().vulkan_video_first);
+        assert!(!crate::vulkan_video::gpu_first(None, false));
+        assert!(crate::vulkan_video::gpu_first(None, true));
+        assert!(crate::vulkan_video::gpu_first(Some("1".as_ref()), false));
+        assert!(!crate::vulkan_video::gpu_first(Some("0".as_ref()), true));
+        assert!(crate::vulkan_video::gpu_first(Some("yes".as_ref()), true));
         assert_eq!(Hardware::Vulkan(device).label(), "Vulkan");
         assert!(Hardware::None.order().is_empty());
         assert_eq!(Hardware::D3d11(device).order(), [Hardware::D3d11(device)]);

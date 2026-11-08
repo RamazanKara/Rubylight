@@ -373,9 +373,19 @@ pub struct Settings {
     /// Send mouse and pen motion at once instead of batching it for 1 ms (Android's "Instant
     /// mouse and pen input"). On by default, as on Android.
     pub unbatched_input: bool,
-    /// "Prioritize stream traffic": socket and thread priority for the stream, which the engine
-    /// sets on Linux only. On by default, as on Android.
+    /// "Prioritize stream traffic": socket and thread priority for the stream, on Linux and
+    /// Windows (`priority.rs`). On by default, as on Android.
     pub network_priority: bool,
+    /// Debug: software decoding asks the PC for slices its threads decode in parallel. Off by
+    /// default: it measured worse (`NIGHTJAR_DESKTOP_SLICES` overrides it for test runs).
+    pub software_slices: bool,
+    /// Debug, Linux: the GPU renderer tries Vulkan video before VAAPI. Off by default: VAAPI's
+    /// mapping into Vulkan is zero-copy too and keeps reference frame invalidation
+    /// (`NIGHTJAR_VULKAN_VIDEO_GPU_FIRST` overrides it).
+    pub vulkan_video_first: bool,
+    /// Debug, Linux: Vulkan video recovers lost frames with reference frame invalidation. Off by
+    /// default, unmeasured (`NIGHTJAR_VULKAN_RFI` overrides it).
+    pub vulkan_rfi: bool,
     /// "Recover interrupted streams". On by default, as on Android.
     pub auto_reconnect: bool,
     /// The once-only switch of `auto_reconnect` to on has run (Android's
@@ -820,6 +830,9 @@ impl Default for Settings {
             tell_host_link_speed: true,
             unbatched_input: true,
             network_priority: true,
+            software_slices: false,
+            vulkan_video_first: false,
+            vulkan_rfi: false,
             auto_reconnect: true,
             auto_reconnect_default_on: true,
             kept_settings_checked: false,

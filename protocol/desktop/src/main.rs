@@ -1531,6 +1531,12 @@ impl App {
         }
         let renderer = self.renderer;
         let must_draw = std::mem::take(&mut self.window_changed) || self.screenshot_requested;
+        // A screenshot or capture reads the frame back, so it stays in the GPU renderer's back buffer.
+        #[cfg(feature = "demo-library")]
+        let read_back = self.screenshot_requested || self.demo_capture_pending();
+        #[cfg(not(feature = "demo-library"))]
+        let read_back = self.screenshot_requested;
+        sdl::read_back_frames(renderer, read_back);
         // SAFETY: drawing on the live renderer.
         let drew = self.gui.paint_if_changed(renderer, output, must_draw, || unsafe {
             SDL_SetRenderDrawColor(renderer, 0x14, 0x16, 0x1F, 255);
@@ -2958,6 +2964,7 @@ impl App {
         let pads = streaming.direct_motion.lend(std::mem::take(&mut self.pads));
         let shortcuts = &mut self.launcher.shortcuts;
         let screenshot = std::mem::take(&mut self.screenshot_requested);
+        sdl::read_back_frames(renderer, screenshot);
         let dir = self.screenshot_dir.clone();
         let mut shortcuts_changed = false;
         streaming.present(renderer, |s, renderer| {

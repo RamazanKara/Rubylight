@@ -169,6 +169,11 @@ impl App {
         }
     }
 
+    /// A capture waits for the next frame, which it reads back (`sdl::read_back_frames`).
+    pub(super) fn demo_capture_pending(&self) -> bool {
+        self.demo.capture.is_some()
+    }
+
     /// With a frame drawn, before it is presented.
     pub(super) fn demo_drew(&mut self) {
         self.demo.presents += 1;

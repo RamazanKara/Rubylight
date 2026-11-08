@@ -1,0 +1,197 @@
+--- a/src/render/gpu/SDL_render_gpu.c
++++ b/src/render/gpu/SDL_render_gpu.c
+@@ -132,6 +132,25 @@
+         SDL_GPUShader *fragment;
+         SDL_GPUGraphicsPipeline *pipeline;
+     } pq;
++
++    /* Nightjar patch (window target): a frame draws straight into its swapchain image instead of
++     * the back buffer when nothing needs the back buffer (no PQ pass, no read-back asked for with
++     * SDL.renderer.gpu.read_back). The image is acquired on the frame's first draw into the
++     * window's target, not before: a clear before it waits, folded into that draw's pass. */
++    SDL_Window *window;
++    struct
++    {
++        bool decided;       // eligible was settled on the frame's first use of the window's target
++        bool eligible;      // the frame may draw into its swapchain image
++        bool tried;         // the swapchain image was asked for
++        bool direct;        // the frame draws into it (else into the back buffer, and the blit)
++        bool clear;         // a clear of the window's target waits for the frame's first draw
++        SDL_FColor clear_color;
++        SDL_GPUTexture *texture;
++        Uint32 width;
++        Uint32 height;
++    } frame;
++    Sint64 window_target_frames;
+ } GPU_RenderData;
+ 
+ typedef struct GPU_PaletteData
+@@ -731,12 +750,46 @@
+     data->state.scissor_enabled = false;
+ }
+ 
++/* Nightjar patch (window target): whether this frame may draw into its swapchain image, settled on
++ * its first use of the window's target. */
++static bool GPU_FrameEligible(SDL_Renderer *renderer, GPU_RenderData *data)
++{
++    if (!data->frame.decided) {
++        data->frame.decided = true;
++        data->frame.eligible = data->window && !data->pq.pipeline &&
++                               !SDL_GetBooleanProperty(SDL_GetRendererProperties(renderer), "SDL.renderer.gpu.read_back", false);
++    }
++    return data->frame.eligible;
++}
++
++/* Nightjar patch (window target): acquires the frame's swapchain image, outside any pass. The frame
++ * draws into it when it matches the back buffer's size and format; otherwise (a resize, or no image)
++ * it draws into the back buffer and the present blits as before. */
++static SDL_GPUTexture *GPU_AcquireFrameTarget(GPU_RenderData *data)
++{
++    data->frame.tried = true;
++    if (!SDL_WaitAndAcquireGPUSwapchainTexture(data->state.command_buffer, data->window, &data->frame.texture, &data->frame.width, &data->frame.height)) {
++        SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Failed to acquire swapchain texture: %s", SDL_GetError());
++        data->frame.texture = NULL;
++    }
++    data->frame.direct = data->frame.texture != NULL &&
++                         data->frame.width == data->backbuffer.width && data->frame.height == data->backbuffer.height &&
++                         SDL_GetGPUSwapchainTextureFormat(data->device, data->window) == data->backbuffer.format;
++    return data->frame.direct ? data->frame.texture : data->backbuffer.texture;
++}
++
+ static SDL_GPURenderPass *RestartRenderPass(GPU_RenderData *data)
+ {
+     if (data->state.render_pass) {
+         SDL_EndGPURenderPass(data->state.render_pass);
+     }
+ 
++    // Nightjar patch (window target): the frame's first pass on the window's target takes its image.
++    if (!data->state.color_attachment.texture) {
++        data->state.color_attachment.texture = GPU_AcquireFrameTarget(data);
++        data->frame.clear = false;
++    }
++
+     data->state.render_pass = SDL_BeginGPURenderPass(
+         data->state.command_buffer, &data->state.color_attachment, 1, NULL);
+ 
+@@ -1177,6 +1230,7 @@
+ static bool GPU_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd, void *vertices, size_t vertsize)
+ {
+     GPU_RenderData *data = (GPU_RenderData *)renderer->internal;
++    bool pending = false; // Nightjar patch (window target)
+ 
+     if (!UploadVertices(data, vertices, vertsize)) {
+         return false;
+@@ -1187,11 +1241,21 @@
+     if (renderer->target) {
+         GPU_TextureData *tdata = renderer->target->internal;
+         data->state.color_attachment.texture = tdata->texture;
++    } else if (GPU_FrameEligible(renderer, data) && !data->frame.tried) {
++        // Nightjar patch (window target): NULL until the first pass acquires the swapchain image.
++        pending = true;
++        data->state.color_attachment.texture = NULL;
++        if (data->frame.clear) {
++            data->state.color_attachment.load_op = SDL_GPU_LOADOP_CLEAR;
++            data->state.color_attachment.clear_color = data->frame.clear_color;
++        }
++    } else if (data->frame.direct) {
++        data->state.color_attachment.texture = data->frame.texture;
+     } else {
+         data->state.color_attachment.texture = data->backbuffer.texture;
+     }
+ 
+-    if (!data->state.color_attachment.texture) {
++    if (!data->state.color_attachment.texture && !pending) {
+         return SDL_SetError("Render target texture is NULL");
+     }
+ 
+@@ -1348,7 +1412,11 @@
+         cmd = cmd->next;
+     }
+ 
+-    if (data->state.color_attachment.load_op == SDL_GPU_LOADOP_CLEAR) {
++    if (data->state.color_attachment.load_op == SDL_GPU_LOADOP_CLEAR && !data->state.color_attachment.texture) {
++        // Nightjar patch (window target): a clear without a draw waits for the frame's first draw.
++        data->frame.clear = true;
++        data->frame.clear_color = data->state.color_attachment.clear_color;
++    } else if (data->state.color_attachment.load_op == SDL_GPU_LOADOP_CLEAR) {
+         RestartRenderPass(data);
+     }
+ 
+@@ -1366,6 +1434,13 @@
+     SDL_GPUTexture *gpu_tex;
+     SDL_PixelFormat pixfmt;
+ 
++    /* Nightjar patch (window target): the read-back submits the frame's commands, which would
++     * present a swapchain image they took; the window's target is that image, which cannot be read. */
++    if (data->frame.texture) {
++        SDL_SetError("The frame took its swapchain image already: set SDL.renderer.gpu.read_back before drawing a frame to read back");
++        return NULL;
++    }
++
+     if (data->state.render_target) {
+         SDL_Texture *texture = data->state.render_target;
+         GPU_TextureData *texdata = texture->internal;
+@@ -1541,13 +1616,40 @@
+     if (renderer->window) {
+         SDL_GPUTexture *swapchain;
+         Uint32 swapchain_texture_width, swapchain_texture_height;
+-        bool result = SDL_WaitAndAcquireGPUSwapchainTexture(data->state.command_buffer, renderer->window, &swapchain, &swapchain_texture_width, &swapchain_texture_height);
++        bool result = true;
++        bool direct;
++
++        /* Nightjar patch (window target): a frame that only cleared the window's target takes its
++         * image now for the clear; one that drew took it on its first draw. */
++        if (data->frame.clear && !data->frame.tried) {
++            data->state.color_attachment.texture = NULL;
++            data->state.color_attachment.load_op = SDL_GPU_LOADOP_CLEAR;
++            data->state.color_attachment.clear_color = data->frame.clear_color;
++            if (RestartRenderPass(data)) {
++                SDL_EndGPURenderPass(data->state.render_pass);
++            }
++            data->state.render_pass = NULL;
++        }
++        if (data->frame.tried) {
++            swapchain = data->frame.texture;
++            swapchain_texture_width = data->frame.width;
++            swapchain_texture_height = data->frame.height;
++        } else {
++            result = SDL_WaitAndAcquireGPUSwapchainTexture(data->state.command_buffer, renderer->window, &swapchain, &swapchain_texture_width, &swapchain_texture_height);
++        }
++        direct = data->frame.direct;
++        SDL_zero(data->frame);
+ 
+         if (!result) {
+             SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Failed to acquire swapchain texture: %s", SDL_GetError());
+         }
+ 
+-        if (swapchain != NULL && data->pq.pipeline) {
++        if (swapchain != NULL && direct) {
++            // Nightjar patch (window target): the frame is in the swapchain image already.
++            SDL_SubmitGPUCommandBuffer(data->state.command_buffer);
++            data->window_target_frames++;
++            SDL_SetNumberProperty(SDL_GetRendererProperties(renderer), "SDL.renderer.gpu.window_target_frames", data->window_target_frames);
++        } else if (swapchain != NULL && data->pq.pipeline) {
+             // Nightjar patch (PQ present): the back buffer through the PQ pass, scaled as the blit would.
+             SDL_GPUColorTargetInfo target;
+             SDL_GPUTextureSamplerBinding binding;
+@@ -1666,7 +1768,11 @@
+         return;
+     }
+ 
+-    if (data->state.command_buffer) {
++    if (data->state.command_buffer && data->frame.texture) {
++        // Nightjar patch (window target): a command buffer that took a swapchain image cannot be cancelled.
++        SDL_SubmitGPUCommandBuffer(data->state.command_buffer);
++        data->state.command_buffer = NULL;
++    } else if (data->state.command_buffer) {
+         SDL_CancelGPUCommandBuffer(data->state.command_buffer);
+         data->state.command_buffer = NULL;
+     }
+@@ -1896,6 +2002,7 @@
+         if (!SDL_ClaimWindowForGPUDevice(data->device, window)) {
+             return false;
+         }
++        data->window = window; // Nightjar patch (window target)
+ 
+         switch (renderer->output_colorspace) {
+         case SDL_COLORSPACE_SRGB_LINEAR:

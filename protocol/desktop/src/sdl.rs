@@ -215,6 +215,27 @@ pub fn present_mode(renderer: *mut SDL_Renderer) -> Option<i64> {
     (mode >= 0).then_some(mode)
 }
 
+/// The GPU renderer's window-target properties (`vendor/sdl3-src/patches/window-target.patch`):
+/// a frame draws straight into its swapchain image unless the back buffer is asked for.
+const READ_BACK_PROPERTY: &CStr = c"SDL.renderer.gpu.read_back";
+#[cfg(target_os = "linux")]
+const WINDOW_TARGET_FRAMES_PROPERTY: &CStr = c"SDL.renderer.gpu.window_target_frames";
+
+/// Keeps the GPU renderer's next frames in its back buffer (`read_back`), so that
+/// `SDL_RenderReadPixels` can read the window's target (a screenshot); set before the frame draws.
+/// Other renderers, and Windows' unpatched SDL, ignore it.
+pub fn read_back_frames(renderer: *mut SDL_Renderer, read_back: bool) {
+    // SAFETY: a live renderer and a property name constant.
+    unsafe { SDL_SetBooleanProperty(SDL_GetRendererProperties(renderer), READ_BACK_PROPERTY.as_ptr(), read_back) };
+}
+
+/// How many frames the GPU renderer has drawn straight into the swapchain; 0 on other renderers.
+#[cfg(target_os = "linux")]
+pub fn window_target_frames(renderer: *mut SDL_Renderer) -> i64 {
+    // SAFETY: a live renderer and a property name constant.
+    unsafe { SDL_GetNumberProperty(SDL_GetRendererProperties(renderer), WINDOW_TARGET_FRAMES_PROPERTY.as_ptr(), 0) }
+}
+
 /// SDL's video driver ("wayland", "x11", ...), empty before SDL_Init.
 #[cfg(target_os = "linux")]
 pub fn video_driver() -> String {
@@ -810,6 +831,10 @@ mod tests {
 #[cfg(test)]
 #[path = "pq_present_tests.rs"]
 mod pq_present_tests;
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "window_target_tests.rs"]
+mod window_target_tests;
 
 #[cfg(test)]
 mod luminance_tests {

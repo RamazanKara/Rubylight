@@ -10,7 +10,7 @@ use nightjar_core::control::clipboard_sync::{ClipboardItem, ClipboardSync, Local
 use nightjar_core::control::ClientMessage;
 use nightjar_core::rtsp::MicrophoneState;
 use nightjar_core::sdp::{self, StreamConfig};
-use nightjar_core::session::{HostInfo, Interrupt, NetworkChange, NetworkHint, Session, SessionConfig};
+use nightjar_core::session::{HostInfo, Interrupt, NetworkChange, NetworkHint, Session, SessionConfig, VideoGauges};
 use rubylight_protocol::clipboard_sync::{Frame, CLIPBOARD_SYNC_MESSAGE_TYPE};
 use rubylight_protocol::control::ClockSyncReply;
 use rubylight_protocol::present_clock::{Grid, GridSchedule, PresentClock, Schedule, Settings};
@@ -58,6 +58,10 @@ struct Engine {
     microphone: Mutex<Option<Microphone>>,
     microphone_state: AtomicI32,
     present_clock: Mutex<Option<PresentClock>>,
+    /// The session's video gauges, for the decoder's own calls: MediaCodec's submit runs on the
+    /// receive thread under the receiver's lock, so it must not take `session` (another thread
+    /// may hold it while it waits for that lock). Never held across another lock.
+    video_gauges: Mutex<Option<VideoGauges>>,
     /// The control message types the host announced, set by the handshake before the video
     /// renderer starts. The session is stored only after every stage ran, and the renderer's
     /// `start` already asks what the host supports (to run the clock sync for the timing CSV).
@@ -81,6 +85,7 @@ static ENGINE: LazyLock<Engine> = LazyLock::new(|| Engine {
     microphone: Mutex::new(None),
     microphone_state: AtomicI32::new(MIC_STATE_OFF),
     present_clock: Mutex::new(None),
+    video_gauges: Mutex::new(None),
     host_messages: Mutex::new(Vec::new()),
     host_packed444_modes: AtomicI32::new(-1),
     announced_hdr_format: AtomicI32::new(0),
@@ -265,6 +270,7 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
         .microphone_state
         .store(microphone_state, Ordering::SeqCst);
     let id = ENGINE.sessions.fetch_add(1, Ordering::SeqCst) + 1;
+    *lock(&ENGINE.video_gauges) = session.video_gauges();
     *lock(&ENGINE.session) = Some((id, session));
     if events.started.load(Ordering::SeqCst) {
         bridge.post(bridge.m.connection_started, &[]);
@@ -275,6 +281,7 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
 /// `LiStopConnection`.
 pub fn stop() {
     let session = lock(&ENGINE.session).take();
+    *lock(&ENGINE.video_gauges) = None;
     *lock(&ENGINE.clipboard) = None;
     set_host_messages(&[]);
     ENGINE.host_packed444_modes.store(-1, Ordering::SeqCst);
@@ -450,7 +457,17 @@ pub fn present_clock_reset() {
 /// scheduled is late by the decoder's backlog, so it is shown at once and its lateness is not
 /// learnt (`PresentClock::schedule_queued`, nightjar#80).
 fn decode_queue_len() -> usize {
-    with_session(0, |s| s.decode_queue_len())
+    video_gauges(0, |g| g.decode_queue_len())
+}
+
+/// Frames dropped over a full decode queue since the stream started (`VideoStats::decoder_drops`);
+/// 0 without a session. Safe from inside the decoder's submit: it never takes the session.
+pub fn decoder_drops() -> u64 {
+    video_gauges(0, |g| g.decoder_drops())
+}
+
+fn video_gauges<R>(default: R, f: impl FnOnce(&VideoGauges) -> R) -> R {
+    lock(&ENGINE.video_gauges).as_ref().map_or(default, f)
 }
 
 pub fn present_clock_schedule(rtp: u32, ready_us: u64) -> Option<Schedule> {
@@ -686,6 +703,23 @@ mod tests {
         // The network callback can fire after the stream ended; it must not panic or roam.
         assert_eq!(network_changed(false), NetworkChange::CarriesOn);
         assert_eq!(network_changed(true), NetworkChange::CarriesOn);
+    }
+
+    // Regression (nightjar#80): MediaCodec's submit asked for the decoder drops through the
+    // session, from the receive thread under the receiver's lock, and every Rust-engine
+    // MediaCodec stream hung on its first frame. What the decoder reads must not wait for the
+    // session.
+    #[test]
+    fn the_decoders_own_reads_do_not_wait_for_the_session() {
+        let _serial = lock(&ENGINE_TESTS);
+        let held = lock(&ENGINE.session);
+        let (done, finished) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = done.send((decoder_drops(), decode_queue_len()));
+        });
+        let read = finished.recv_timeout(std::time::Duration::from_secs(5));
+        drop(held);
+        assert_eq!(read, Ok((0, 0)), "the reads waited for the session lock");
     }
 
     #[test]

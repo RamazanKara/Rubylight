@@ -589,7 +589,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_getDecoderDrop
     _: JNIEnv,
     _: JClass,
 ) -> jlong {
-    engine::with_session(0, |s| s.stats().video.decoder_drops.min(i64::MAX as u64) as jlong)
+    engine::decoder_drops().min(i64::MAX as u64) as jlong
 }
 
 /// Bytes of video and audio datagrams received, FEC parity included; 0 without a session.

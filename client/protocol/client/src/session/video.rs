@@ -182,6 +182,10 @@ pub struct VideoCounters {
     /// Early chunks dropped because the decoder fell behind (the decoder then decodes the
     /// frame whole).
     pub chunks_dropped: AtomicU64,
+    /// The receiver's `VideoStats::decoder_drops`, published after each datagram so it can be
+    /// read without the receiver's lock: a direct-submit decoder runs under that lock and asks
+    /// for it from inside its submit (nightjar#80).
+    pub decoder_drops: AtomicU64,
 }
 
 /// State the receive thread, the decoder thread and the control thread share.
@@ -538,6 +542,10 @@ fn receive_thread(
                         signals: &mut signals,
                     };
                     receiver.receive(datagram, now, &mut sink);
+                    shared
+                        .counters
+                        .decoder_drops
+                        .store(receiver.stats().decoder_drops, Ordering::Relaxed);
                     if let Some(d) = direct.as_mut() {
                         if std::mem::take(&mut d.decoded_key_frame) {
                             receiver.frame_decoded(FrameType::Idr);

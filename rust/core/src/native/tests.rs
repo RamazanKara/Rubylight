@@ -59,6 +59,13 @@ fn another_devices_name_is_shown_only_to_a_caller_with_list_or_view() {
     held.holder.as_mut().unwrap().uuid = "me".into();
     let own = session_view(&held, &client(LIST | VIEW, json!({})));
     assert!(own.playing_on.is_none(), "the device itself plays it");
+    // Its second screen held the game last (Dual screen): still the device itself.
+    held.holder.as_mut().unwrap().uuid = crate::state::second_screen_uuid("me");
+    let second = session_view(&held, &client(LIST | VIEW, json!({})));
+    assert!(
+        second.playing_on.is_none(),
+        "the device's own second screen plays it"
+    );
     held.holder = None;
     let nobody = session_view(&held, &client(LIST | VIEW, json!({})));
     assert!(nobody.playing_on.is_none());

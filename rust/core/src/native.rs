@@ -527,7 +527,10 @@ pub fn session_view(snapshot: &SessionSnapshot, caller: &Client) -> Session {
         playing_on: snapshot
             .holder
             .as_ref()
-            .filter(|holder| holder.uuid != caller.uuid)
+            // A device's own second screen is the device, not another one.
+            .filter(|holder| {
+                crate::state::device_uuid(&holder.uuid) != crate::state::device_uuid(&caller.uuid)
+            })
             .filter(|_| caller.allows(LIST) || caller.allows(VIEW))
             .zip(snapshot.app.clone())
             .map(|(holder, app)| PlayingOn {

@@ -13,7 +13,6 @@ import android.view.Display;
 import android.widget.Toast;
 
 import com.limelight.computers.HostCapabilityCache;
-import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.utils.LaunchSource;
@@ -89,11 +88,11 @@ final class DualScreen {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             return;
         }
-        // The second stream is the same device to the PC: only a Rubylight host that tells it apart
-        // from the first by EXTRA_SECOND_SCREEN's launch parameter keeps both. Any other host takes it
-        // for the first stream starting again and drops that.
-        if (HostCapabilityCache.load(game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID)).family()
-                != HostCapabilities.Family.RUBYLIGHT) {
+        // The second stream is the same device to the PC: only a host that says it keeps both (the
+        // SecondScreenVersion of serverinfo, which Rubylight sends from the release that reads
+        // rlSecondScreen) does. Any other host takes it for the first stream starting again and
+        // drops that.
+        if (!HostCapabilityCache.load(game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID)).secondScreen()) {
             LimeLog.info("Dual screen: this host does not stream two screens to one device");
             return;
         }

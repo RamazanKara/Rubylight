@@ -467,6 +467,13 @@ impl Arrangement {
         self.preserve_primary(&mut current, before)?;
         self.compose_all(&current, targets, retained)
     }
+    /// Whether the layout makes a stream's display the primary one.
+    pub const fn makes_stream_main(self) -> bool {
+        matches!(
+            self,
+            Self::Primary | Self::Exclusive | Self::PrimaryIsolated
+        )
+    }
     /// Whether the primary stays the one from before the stream.
     pub const fn keeps_primary(self) -> bool {
         matches!(self, Self::Extended | Self::Isolated)

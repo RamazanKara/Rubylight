@@ -347,6 +347,7 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     // reporter process is blocked.
     let crash_reporting = butterpollo_windows::crash::initialize(&h.directory).err();
     let display_recovery = butterpollo_windows::display_recovery::initialize(&h.directory)?;
+    butterpollo_windows::display_arrangement::initialize_remembered(&h.directory);
     let log_path = h
         .config
         .read()

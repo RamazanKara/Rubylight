@@ -1407,6 +1407,23 @@ pub(crate) fn check_streaming_session(h: &Shared, phase: &'static str) -> Result
     );
     result
 }
+/// Launch parameter of Nightjar's Dual screen mode: `1` on the stream of a device's second screen.
+const SECOND_SCREEN: &str = "rlSecondScreen";
+/// What follows the device's UUID in the UUID of its second screen.
+const SECOND_SCREEN_SUFFIX: &str = "#screen2";
+/// A device streams its second screen under one pairing: the launch carries [`SECOND_SCREEN`] and
+/// the host keeps the stream as that of a device of its own (the device's UUID and a suffix), which
+/// every session rule then applies to, so it neither replaces the first screen's stream nor shares
+/// its display. Only a launch of a paired, authorized device gets there; it is never paired itself.
+fn second_screen(mut client: Client, args: &Args) -> Client {
+    if args.get(SECOND_SCREEN).is_some_and(|v| v == "1")
+        && !client.uuid.ends_with(SECOND_SCREEN_SUFFIX)
+    {
+        client.uuid.push_str(SECOND_SCREEN_SUFFIX);
+        client.name.push_str(" (second screen)");
+    }
+    client
+}
 fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Response {
     let requested = args
         .get("appid")
@@ -1422,7 +1439,7 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         });
     let authorized = validate_launch_client(&h, &connection, control, resume);
     let client = match authorized {
-        Ok(c) => c,
+        Ok(c) => second_screen(c, &args),
         Err(error) => {
             tracing::warn!(%error, app_id = requested, resume, "Moonlight launch authorization failed");
             return xml(401, &[], Some(error.to_string()));
@@ -2228,11 +2245,9 @@ pub(crate) const RESUME_GAME_CHANGED: &str = "The game running on this PC change
 pub(crate) const NOTHING_TO_RESUME: &str = "no application or remote monitor to resume";
 /// Whether `device` started or took over the running game, also a background one.
 fn plays_game(h: &Shared, device: &str) -> bool {
-    h.current_app
-        .lock()
-        .unwrap()
-        .as_ref()
-        .is_some_and(|game| game.owner == device)
+    h.current_app.lock().unwrap().as_ref().is_some_and(|game| {
+        game.owner == device.strip_suffix(SECOND_SCREEN_SUFFIX).unwrap_or(device)
+    })
 }
 fn resolve_launch_app(
     h: &Shared,
@@ -3316,6 +3331,29 @@ async fn abr(State(h): State<Shared>, Extension(c): Extension<Connection>) -> Re
 #[cfg(test)]
 mod tests {
     use super::stream_key_id;
+    #[test]
+    fn a_second_screen_streams_as_a_device_of_its_own_under_one_pairing() {
+        let paired = || crate::state::Client {
+            name: "Tab".into(),
+            cert: String::new(),
+            uuid: "abc".into(),
+            perm: 0,
+            enabled: true,
+            extra: Default::default(),
+        };
+        let mut args = super::Args::new();
+        assert_eq!(super::second_screen(paired(), &args).uuid, "abc");
+        args.insert("rlSecondScreen".into(), "0".into());
+        assert_eq!(super::second_screen(paired(), &args).uuid, "abc");
+        args.insert("rlSecondScreen".into(), "1".into());
+        let second = super::second_screen(paired(), &args);
+        assert_eq!(second.uuid, "abc#screen2");
+        assert_eq!(second.name, "Tab (second screen)");
+        assert_eq!(
+            super::second_screen(second.clone(), &args).uuid,
+            second.uuid
+        );
+    }
     fn running_app(f: &crate::state::test_support::Fixture, owner: &str) {
         let app = f.host.apps.read().unwrap()[0].clone();
         let mut running =

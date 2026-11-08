@@ -686,13 +686,14 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         launcher.tearing_supported = true;
     }
     launcher.gpu_device = renderer_gpu_device(renderer);
+    // Off Windows the swapchain's present mode decides tearing, logged when a stream starts.
     eprintln!(
-        "nightjar: renderer {}, display {}x{} at {:.2} Hz, tearing {}",
+        "nightjar: renderer {}, display {}x{} at {:.2} Hz{}",
         sdl::renderer_name(renderer),
         display.width,
         display.height,
         display.refresh_hz,
-        launcher.tearing_supported
+        if cfg!(windows) { format!(", tearing {}", launcher.tearing_supported) } else { String::new() }
     );
 
     let opened_by_link = link.is_some();
@@ -2527,9 +2528,15 @@ impl App {
             facts.bitrate_kbps,
             pacing
         );
+        // Without V-Sync the GPU renderer tears where it can (`prefers_immediate`); the property
+        // holds for the stream, so the VRR pacing's later interval changes follow it too.
+        #[cfg(target_os = "linux")]
+        sdl::prefer_immediate(self.renderer, stream::present::prefers_immediate(connecting.vrr(), sdl::video_driver() == "wayland", handheld::gamescope()));
         // SAFETY: window and renderer calls on the main thread.
         unsafe {
             SDL_SetRenderVSync(self.renderer, if pacing == PacingMode::Vsync { 1 } else { 0 });
+            #[cfg(target_os = "linux")]
+            eprintln!("nightjar: present mode {}", sdl::present_mode_name(sdl::present_mode(self.renderer)));
             let mode = stream_window_mode(settings.window_mode, handheld::gamescope());
             match if facts.role == nightjar_core::http::AppRole::InputOnly { WindowMode::Windowed } else { mode } {
                 WindowMode::Fullscreen => {

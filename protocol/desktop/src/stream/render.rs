@@ -232,8 +232,13 @@ impl Streaming {
         }
         if let Some(interval) = interval {
             // SAFETY: the live renderer belongs to the presenting thread.
-            if !unsafe { SDL_SetRenderVSync(renderer, interval) } {
+            let set = unsafe { SDL_SetRenderVSync(renderer, interval) };
+            if !set {
                 eprintln!("nightjar: pacing: could not set the sync interval to {interval}: {}", crate::sdl::error());
+            }
+            #[cfg(target_os = "linux")]
+            if set {
+                eprintln!("nightjar: pacing: sync interval {interval}, present mode {}", crate::sdl::present_mode_name(crate::sdl::present_mode(renderer)));
             }
         }
     }

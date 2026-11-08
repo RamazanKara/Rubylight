@@ -1,0 +1,50 @@
+--- a/src/render/gpu/SDL_render_gpu.c
++++ b/src/render/gpu/SDL_render_gpu.c
+@@ -1610,17 +1610,19 @@
+-static bool ChoosePresentMode(SDL_GPUDevice *device, SDL_Window *window, const int vsync, SDL_GPUPresentMode *out_mode)
++/* Nightjar patch (tearing present): with prefer_immediate, V-Sync off tries IMMEDIATE before
++ * MAILBOX, so a swapchain that can tear does (MAILBOX never tears). */
++static bool ChoosePresentMode(SDL_GPUDevice *device, SDL_Window *window, const int vsync, const bool prefer_immediate, SDL_GPUPresentMode *out_mode)
+ {
+     SDL_GPUPresentMode mode;
+
+     switch (vsync) {
+     case 0:
+-        mode = SDL_GPU_PRESENTMODE_MAILBOX;
++        mode = prefer_immediate ? SDL_GPU_PRESENTMODE_IMMEDIATE : SDL_GPU_PRESENTMODE_MAILBOX;
+
+         if (!SDL_WindowSupportsGPUPresentMode(device, window, mode)) {
+-            mode = SDL_GPU_PRESENTMODE_IMMEDIATE;
++            mode = prefer_immediate ? SDL_GPU_PRESENTMODE_MAILBOX : SDL_GPU_PRESENTMODE_IMMEDIATE;
+
+             if (!SDL_WindowSupportsGPUPresentMode(device, window, mode)) {
+                 mode = SDL_GPU_PRESENTMODE_VSYNC;
+             }
+         }
+@@ -1654,20 +1656,24 @@
+-    if (!ChoosePresentMode(data->device, renderer->window, vsync, &mode)) {
++    /* Nightjar patch (tearing present): the app asks for IMMEDIATE first with this renderer
++     * property, and reads the present mode in use back from the other one. */
++    SDL_PropertiesID props = SDL_GetRendererProperties(renderer);
++    if (!ChoosePresentMode(data->device, renderer->window, vsync, SDL_GetBooleanProperty(props, "SDL.renderer.gpu.prefer_immediate", false), &mode)) {
+         return false;
+     }
+
+     if (mode != data->swapchain.present_mode) {
+         // XXX returns bool instead of SDL-style error code
+         if (SDL_SetGPUSwapchainParameters(data->device, renderer->window, data->swapchain.composition, mode)) {
+             data->swapchain.present_mode = mode;
+-            return true;
+         } else {
+             return false;
+         }
+     }
+
++    SDL_SetNumberProperty(props, "SDL.renderer.gpu.present_mode", (Sint64)data->swapchain.present_mode);
+     return true;
+ }
+
+@@ -1920,2 +1926,2 @@
+         int vsync = (int)SDL_GetNumberProperty(create_props, SDL_PROP_RENDERER_CREATE_PRESENT_VSYNC_NUMBER, 0);
+-        ChoosePresentMode(data->device, window, vsync, &data->swapchain.present_mode);
++        ChoosePresentMode(data->device, window, vsync, false, &data->swapchain.present_mode);

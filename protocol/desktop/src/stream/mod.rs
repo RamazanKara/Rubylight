@@ -1933,6 +1933,11 @@ impl Streaming {
             if let (Some((start, presents)), false) = (self.window_target, renderer.is_null()) {
                 eprintln!("nightjar: {}", window_target_line(crate::sdl::window_target_frames(renderer) - start, presents));
             }
+            // The window outlives the stream: the next one (or the launcher) must not inherit this
+            // stream's mastering metadata.
+            if self.swapchain_hdr_metadata.is_some() {
+                crate::sdl::set_swapchain_hdr_metadata(window, crate::sdl::swapchain_hdr_metadata(&Default::default(), None));
+            }
         }
         let stats = self.session.stats();
         eprintln!("{}", video_summary(stats.frames_submitted, stats.decode_queue_overflows,

@@ -1113,7 +1113,8 @@ impl VideoTexture {
     /// The host's HDR mastering metadata while its HDR mode is on.
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn hdr_metadata(&self) -> Option<nightjar_core::control::HdrMetadata> {
-        self.hdr_metadata.filter(|_| self.hdr_mode == Some(true))
+        // HLG carries no mastering metadata and keeps today's path.
+        self.hdr_metadata.filter(|_| self.hdr_mode == Some(true) && !self.hlg_frame)
     }
 
     /// The picture's size: the texture's, less the alignment padding of a decoded picture.

@@ -961,6 +961,8 @@ impl Decoder {
         };
         // The overlay's decoder name, in the log for runs nobody watches.
         eprintln!("nightjar: video decoder {}", decoder.name);
+        #[cfg(target_os = "linux")]
+        eprintln!("nightjar: video path: {}, pictures {}, {}", decoder.hardware.label(), decoder.route(), crate::linux_diagnosis::present());
         *lock(&self.shared.decoder_name) = decoder.name.clone();
         let from_memory = packed_from_memory(setup, mapped || matches!(decoder.hardware, Hardware::Vulkan(_)));
         if let Some((width, height)) = from_memory {

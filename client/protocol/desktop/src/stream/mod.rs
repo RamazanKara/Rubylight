@@ -51,7 +51,7 @@ pub mod wl_presentation;
 pub(crate) mod pyrowave;
 pub mod pyrowave_gpu;
 pub mod pyrowave_mode;
-mod stage_times;
+pub(crate) mod stage_times;
 #[cfg(windows)]
 mod d3d11;
 #[cfg(windows)]

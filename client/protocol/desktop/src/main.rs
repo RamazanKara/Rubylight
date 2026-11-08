@@ -40,6 +40,8 @@ mod live_glass;
 mod logfile;
 mod link_channel;
 #[cfg(any(target_os = "linux", test))]
+mod linux_diagnosis;
+#[cfg(any(target_os = "linux", test))]
 mod linux_video;
 mod logpipe;
 mod media;
@@ -206,6 +208,8 @@ struct App {
     pointer: handheld::Pointer,
     /// The stream being started plays in SDR although HDR was asked for (gamescope without HDR): its start says so.
     hdr_note: bool,
+    /// Full chroma was asked for but its packed picture is too large for the decoder: its start says so.
+    packed_note: Option<String>,
     running: bool,
     autostream: Option<autostream::Autostream>,
     cli: Option<cli::CliLaunch>,
@@ -810,6 +814,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         nav_repeat: nav_repeat::NavRepeat::default(),
         pointer: handheld::Pointer::new(handheld::gamescope()),
         hdr_note: false,
+        packed_note: None,
         running: true,
         autostream: autostream::Autostream::from_env(),
         updates,
@@ -2456,6 +2461,13 @@ impl App {
         } else {
             0
         };
+        // The packed picture is twice the stream's height: past the decoder's largest, that mode goes.
+        #[cfg(target_os = "linux")]
+        let packed_modes = {
+            let (modes, note) = linux_diagnosis::packed_offer(self.hardware(&settings), packed_modes, settings.width, settings.height);
+            self.packed_note = note;
+            modes
+        };
         let color_decodable = if stream::probes_color(&settings) {
             let (hardware, renderer) = (self.hardware(&settings), self.renderer);
             let wanted = stream::color_probe_formats(&settings);
@@ -2596,7 +2608,12 @@ impl App {
             self.save_hosts();
         }
         let hdr_note = std::mem::take(&mut self.hdr_note).then(|| tr(HDR_OFF_NOTE));
-        let notices: Vec<&str> = hdr_note.into_iter().chain(pyrowave.as_deref())
+        #[cfg(target_os = "linux")]
+        let decoder_notes = self.linux_stream_start(&settings, pacing == PacingMode::Vsync);
+        #[cfg(not(target_os = "linux"))]
+        let decoder_notes: Vec<String> = Vec::new();
+        let packed_note = self.packed_note.take();
+        let notices: Vec<&str> = hdr_note.into_iter().chain(packed_note.as_deref()).chain(decoder_notes.iter().map(String::as_str)).chain(pyrowave.as_deref())
             .chain(streaming.facts.codec_fallback.as_deref()).chain(streaming.facts.color_notice.as_deref()).collect();
         let notices = notices.join("\n");
         let network = &self.launcher.network;
@@ -2613,6 +2630,22 @@ impl App {
         streaming.show_toast(toast);
         self.streaming = Some((streaming, TimerResolution::begin()));
         self.start_second_screen(&settings);
+    }
+
+    /// The `linux:` line, the present mode for the `video path:` line, and the toasts naming what
+    /// hardware decoding is missing (`linux_diagnosis`).
+    #[cfg(target_os = "linux")]
+    fn linux_stream_start(&self, settings: &config::Settings, vsync: bool) -> Vec<String> {
+        let renderer = sdl::renderer_name(self.renderer);
+        let device = sdl::renderer_pointer(self.renderer, SDL_PROP_RENDERER_GPU_DEVICE_POINTER);
+        let present = if renderer == "gpu" && !device.is_null() {
+            // SAFETY: The renderer's live GPU device and its window, on the main thread.
+            let supports = |mode| unsafe { SDL_WindowSupportsGPUPresentMode(device.cast(), self.window, mode) };
+            format!("present {}", linux_diagnosis::gpu_present_mode(vsync, supports(SDL_GPU_PRESENTMODE_MAILBOX), supports(SDL_GPU_PRESENTMODE_IMMEDIATE)))
+        } else {
+            format!("{renderer} renderer, V-Sync {}", if vsync { "on" } else { "off" })
+        };
+        linux_diagnosis::stream_start(self.hardware(settings), present)
     }
 
     /// Dual screen mode: a stream of a game, with a second monitor and a PC that keeps a second

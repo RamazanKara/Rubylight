@@ -1423,4 +1423,10 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("Second screen resolution", "두 번째 화면 해상도"),
     ("The resolution of the second screen's stream, apart from the first screen's.", "두 번째 화면 스트림의 해상도로, 첫 번째 화면과 별개입니다."),
     ("Second screen's own size", "두 번째 화면의 원래 크기"),
+    ("Fedora's Mesa leaves out H.264 and HEVC decoding. Install mesa-va-drivers-freeworld from RPM Fusion, or use the Nightjar Flatpak.", "Fedora의 Mesa에는 H.264와 HEVC 디코딩이 빠져 있습니다. RPM Fusion에서 mesa-va-drivers-freeworld를 설치하거나 Nightjar Flatpak을 사용하세요."),
+    ("This system's VA-API driver decodes neither H.264 nor HEVC. Install your distribution's full Mesa VA drivers, or use the Nightjar Flatpak.", "이 시스템의 VA-API 드라이버는 H.264도 HEVC도 디코딩하지 못합니다. 배포판의 전체 Mesa VA 드라이버를 설치하거나 Nightjar Flatpak을 사용하세요."),
+    ("This NVIDIA driver has no Vulkan video decoding, so each picture is copied through memory. A newer NVIDIA driver adds it.", "이 NVIDIA 드라이버는 Vulkan Video로 디코딩하지 못해 모든 프레임이 메모리를 거쳐 복사됩니다. 더 새로운 NVIDIA 드라이버에서 지원됩니다."),
+    ("The Flatpak lacks {}, the NVIDIA driver it needs. Run flatpak update to install it.", "Flatpak에 필요한 NVIDIA 드라이버 {}이(가) 없습니다. flatpak update를 실행해 설치하세요."),
+    ("Intel's legacy VA-API driver (i965) is in use. Install intel-media-driver for HEVC Main10 and AV1.", "Intel의 구형 VA-API 드라이버(i965)를 사용 중입니다. HEVC Main10과 AV1을 위해 intel-media-driver를 설치하세요."),
+    ("Full chroma needs a {0} picture, larger than this decoder's {1}, so the stream is 4:2:0. A lower resolution keeps full chroma.", "전체 크로마에는 {0} 화면이 필요하지만 이 디코더의 {1}보다 커서 스트림이 4:2:0으로 됩니다. 해상도를 낮추면 전체 크로마가 유지됩니다."),
 ];

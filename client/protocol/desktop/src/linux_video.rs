@@ -119,6 +119,12 @@ impl VaapiIdentity {
         self.profiles.iter().find(|found| found.profile == profile).and_then(|found| found.max)
     }
 
+    /// Whether the driver decodes the stream codec of `name`, as the `vaapi:` line names it
+    /// (h264, hevc, hevc10, av1, av1-10 ...).
+    pub fn decodes(&self, name: &str) -> bool {
+        named_profiles(&self.profiles).iter().any(|&(known, _)| known == name)
+    }
+
     /// The `vaapi:` log line.
     pub fn line(&self) -> String {
         let node = self.node.map_or_else(|| "default device".to_owned(), |minor| format!("renderD{minor}"));

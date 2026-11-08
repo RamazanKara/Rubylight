@@ -1423,4 +1423,10 @@ sudo sysctl -w net.core.rmem_max={}", "Alma arabelleği: sistem istenen {1} KiB'
     ("Second screen resolution", "İkinci ekran çözünürlüğü"),
     ("The resolution of the second screen's stream, apart from the first screen's.", "İkinci ekranın yayınının çözünürlüğü, ilk ekrandan ayrı."),
     ("Second screen's own size", "İkinci ekranın kendi boyutu"),
+    ("Fedora's Mesa leaves out H.264 and HEVC decoding. Install mesa-va-drivers-freeworld from RPM Fusion, or use the Nightjar Flatpak.", "Fedora'nın Mesa'sı H.264 ve HEVC kod çözmeyi dışarıda bırakır. RPM Fusion'dan mesa-va-drivers-freeworld kurun ya da Nightjar Flatpak'ını kullanın."),
+    ("This system's VA-API driver decodes neither H.264 nor HEVC. Install your distribution's full Mesa VA drivers, or use the Nightjar Flatpak.", "Bu sistemin VA-API sürücüsü ne H.264 ne de HEVC kodunu çözer. Dağıtımınızın tam Mesa VA sürücülerini kurun ya da Nightjar Flatpak'ını kullanın."),
+    ("This NVIDIA driver has no Vulkan video decoding, so each picture is copied through memory. A newer NVIDIA driver adds it.", "Bu NVIDIA sürücüsü Vulkan Video ile kod çözemiyor, bu yüzden her kare bellek üzerinden kopyalanıyor. Daha yeni bir NVIDIA sürücüsü bunu ekler."),
+    ("The Flatpak lacks {}, the NVIDIA driver it needs. Run flatpak update to install it.", "Flatpak'ta gereken NVIDIA sürücüsü {} eksik. Kurmak için flatpak update çalıştırın."),
+    ("Intel's legacy VA-API driver (i965) is in use. Install intel-media-driver for HEVC Main10 and AV1.", "Intel'in eski VA-API sürücüsü (i965) kullanılıyor. HEVC Main10 ve AV1 için intel-media-driver kurun."),
+    ("Full chroma needs a {0} picture, larger than this decoder's {1}, so the stream is 4:2:0. A lower resolution keeps full chroma.", "Tam kroma {0} boyutunda bir görüntü gerektirir, bu kod çözücünün {1} sınırından büyük, bu yüzden yayın 4:2:0 olur. Daha düşük bir çözünürlük tam kromayı korur."),
 ];

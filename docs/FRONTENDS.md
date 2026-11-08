@@ -39,17 +39,22 @@ Create a platform for `.art` files and point it at the exported ROMs subfolder. 
 -n com.butterpollo.client/com.limelight.ShortcutTrampoline -a android.intent.action.VIEW -d {file.uri}
 ```
 
-The frontend must provide a readable file/content URI and grant read access to it.
+Enter these in the player's **am start argument** field. The frontend must provide a readable file/content URI and grant read access to it. The argument format follows the [Daijisho start-arguments reference](https://github.com/TapiocaFox/Daijishou/wiki/Start-Arguments).
 
 ## Pegasus
 
-Use the exported entries with an Android launch command:
+Place a `metadata.pegasus.txt` beside the exported `.art` files:
 
 ```text
-launch: am start -n com.butterpollo.client/com.limelight.ShortcutTrampoline -a android.intent.action.VIEW -d {file.uri}
+collection: Rubylight
+extension: art
+launch: am start --user 0
+  -n com.butterpollo.client/com.limelight.ShortcutTrampoline
+  -a android.intent.action.VIEW
+  -d "{file.uri}"
 ```
 
-`{file.uri}` is supplied by the frontend, not entered as a literal address.
+Add that directory to Pegasus's game directories and reload its library. `{file.uri}` is expanded by Pegasus; quotes preserve paths containing spaces. `--user 0` targets Android's primary user; use the appropriate user ID for another profile. See the [Pegasus Android launch guide](https://pegasus-frontend.org/docs/user-guide/platform-android/) and [metadata reference](https://pegasus-frontend.org/docs/user-guide/meta-files/).
 
 ## Entry format and direct intents
 

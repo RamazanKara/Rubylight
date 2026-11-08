@@ -22,7 +22,7 @@ ADVICE = {
     "checkbox_enable_hdr": "Enable with an HDR10 screen, a compatible decoder and HDR configured on the host display. Availability is device-filtered.",
     "checkbox_vrr": "Enable to follow game cadence. Uses Android adaptive refresh when confirmed, otherwise the panel maximum. Overrides pacing to Lowest latency and disables lower refresh.",
     "checkbox_virtual_display": "Enable to request a host display matching the stream. Requires host support and a ready display driver.",
-    "seekbar_virtual_display_scale": "Change the host render pixel count relative to the stream. This does not set desktop text size or Android density.",
+    "seekbar_virtual_display_scale": "Request host rendering at a percentage of the stream size. This does not set desktop text size or Android density.",
     "checkbox_yuv444": "Enable for colored text and desktop detail when both ends support it. Otherwise 4:2:0 is used; HDR takes priority.",
     "checkbox_stretch_video": "Enable to fill a screen with a different aspect ratio; shapes will stretch.",
     "seekbar_deadzone": "Raise to suppress stick drift; lower for small movements. Games may impose an additional deadzone.",
@@ -35,7 +35,7 @@ ADVICE = {
     "seekbar_vibrate_fallback_strength": "Adjust device rumble strength; 100% is normal strength.",
     "checkbox_gamepad_touchpad_as_mouse": "Enable to always move the host pointer with the controller touchpad instead of forwarding native touchpad input.",
     "checkbox_mouse_emulation": "Leave on to toggle controller mouse mode by holding Start.",
-    "analog_scrolling": "Choose which stick scrolls in controller mouse mode. The other moves the pointer; with None, both move it.",
+    "analog_scrolling": "Choose which stick scrolls in controller mouse mode. The other moves the pointer; Both sticks move the mouse disables stick scrolling.",
     "checkbox_touchscreen_trackpad": "Use Trackpad for relative cursor movement, Direct mouse to point at a screen location, or Multi-touch for host touch input. Unsupported native touch falls back to Direct mouse.",
     "seekbar_trackpad_speed": "Adjust relative touchscreen movement; 100% is normal speed.",
     "seekbar_mouse_speed": "Adjust physical relative mouse movement; 100% is normal speed.",
@@ -73,7 +73,7 @@ ADVICE = {
     "checkbox_unlock_fps": "Enable to expose high rates otherwise filtered by display capability; the screen may not show every frame.",
     "checkbox_reduce_refresh_rate": "Enable to allow a lower screen refresh for power savings. VRR disables it.",
     "checkbox_full_range": "Use only when testing a matching host/display color range; incorrect range loses shadow or highlight detail.",
-    "checkbox_usb_driver": "Leave on for built-in Xbox USB support. Android requests USB access when needed.",
+    "checkbox_usb_driver": "Leave on for built-in Xbox USB support. Requires USB host support; Android requests USB access when needed.",
     "checkbox_usb_dualsense": "Enable for direct USB DualSense/Edge input, feedback and adaptive triggers. Accept the explanation and Android USB permission during a stream; Bluetooth retains Android's input path.",
     "checkbox_usb_bind_all": "Enable to prefer Rubylight's Xbox USB driver even when Android already recognizes the controller.",
     "checkbox_enable_sops": "Leave on to request game optimization from hosts that implement it; the host decides whether it has an effect.",
@@ -103,6 +103,13 @@ def generate():
         raise ValueError(f"Update usage advice: missing={set(nodes) - set(ADVICE)}, removed={set(ADVICE) - set(nodes)}")
     config = (JAVA / "preferences/PreferenceConfiguration.java").read_text(encoding="utf-8")
     constants = dict(re.findall(r"static final String (\w+) = \"([^\"]+)\";", config))
+    defaults = dict(re.findall(r'static final (?:String|boolean|int) (\w+) = ("[^"]*"|true|false|\d+);', config))
+    for key, value in re.findall(
+            r'prefs\.get(?:String|Boolean|Int)\(\s*("[^"]+"|\w+),\s*("[^"]*"|[\w.]+)\s*\)', config):
+        key = constants.get(key, key.strip('"'))
+        value = defaults.get(value.split(".")[-1], value).strip('"')
+        if key in nodes and nodes[key].get(ANDROID + "defaultValue") not in (None, value):
+            raise ValueError(f"XML and runtime defaults differ for {key}: {nodes[key].get(ANDROID + 'defaultValue')} != {value}")
     seekbar = (JAVA / "preferences/SeekBarPreference.java").read_text(encoding="utf-8")
     slider_defaults = dict(re.findall(r'getAttributeIntValue\(\w+, "(min|max|step|keyStep|divisor)", (\d+)\)', seekbar))
 
@@ -139,10 +146,21 @@ def generate():
                 minimum = node.get(SEEKBAR + "min", slider_defaults["min"])
                 maximum = node.get(ANDROID + "max", slider_defaults["max"])
                 step = node.get(SEEKBAR + "step", slider_defaults["step"])
-                choices = f"{display_value(key, minimum)}–{display_value(key, maximum)}; step {display_value(key, step)}"
-                key_step = node.get(SEEKBAR + "keyStep")
-                if key_step:
-                    choices += f"; buttons {display_value(key, key_step)}"
+                choices = f"{display_value(key, minimum)}–{display_value(key, maximum)}"
+                if node.get(SEEKBAR + "logScale") == "true":
+                    method = seekbar.split("static int logStep(int value)", 1)[1].split("static int clamp", 1)[0]
+                    bands = re.findall(r"if \(value < (\d+)\) \{\s*return (\d+);", method)
+                    steps = re.findall(r"return (\d+);", method)
+                    if not bands or len(steps) != len(bands) + 1:
+                        raise ValueError("Review the changed logarithmic slider steps")
+                    choices += "; slider/± steps: " + ", ".join(
+                        f"{display_value(key, size)} below {display_value(key, limit)}" for limit, size in bands)
+                    choices += f", {display_value(key, steps[-1])} from {display_value(key, bands[-1][0])}"
+                else:
+                    choices += f"; step {display_value(key, step)}"
+                    key_step = node.get(SEEKBAR + "keyStep")
+                    if key_step:
+                        choices += f"; keyboard step {display_value(key, key_step)}"
                 if node.get(SEEKBAR + "presets"):
                     choices += "; presets " + ", ".join(display_value(key, item) for item in array(node.get(SEEKBAR + "presets")))
             elif "SwitchPreference" in node.tag or "CheckboxPreference" in node.tag:

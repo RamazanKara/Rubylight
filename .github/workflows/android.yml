@@ -3,8 +3,8 @@ name: Android debug
 on:
   push:
     branches: [main]
-    # Docs, store listing and artwork sources don't change the APK.
-    paths-ignore: ['**/*.md', 'docs/**', 'fastlane/**', 'store-assets/**', 'LICENSE.txt']
+    # Documentation changes must run the generated-settings and link checks.
+    paths-ignore: ['fastlane/**', 'store-assets/**', 'LICENSE.txt']
   workflow_dispatch:
     inputs:
       prerelease_tag:
@@ -24,6 +24,7 @@ jobs:
         run: |
           python3 scripts/generate-settings.py
           git diff --exit-code -- docs/settings.md
+          python3 scripts/test_generate_settings.py
           node --test scripts/check-doc-links.test.mjs
           node scripts/check-doc-links.mjs
   build:

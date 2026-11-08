@@ -1,47 +1,50 @@
-<p align="center">
-  <img src="docs/assets/banner.png" width="800" alt="RUBYLIGHT — Your games. Your screen. Your stream.">
-</p>
+# Rubylight
 
-<p align="center">Stream your PC games and desktop to Android, with ultra-low latency and the controls you love.</p>
-
-<p align="center">
-  <img src="docs/assets/demo.gif" width="360" alt="Rubylight demo: open your game library, tap a game to start your stream, keep the performance overlay in view, and keep the stream floating in picture-in-picture.">
-</p>
-
-<p align="center"><a href="https://github.com/RamazanKara/rubylight-android/releases">Watch the full demo →</a></p>
-
-<p align="center">
-  <a id="download" href="https://github.com/RamazanKara/rubylight-android/releases/latest"><img src="docs/assets/download.svg" width="260" height="52" alt="Download Rubylight for Android"></a>
-</p>
-
-<p align="center">
-  <img src="docs/assets/shots/pc-list.png" width="160" alt="Computers list showing online, offline and unpaired PCs">
-  <img src="docs/assets/shots/library.png" width="160" alt="Game library with cover art and a running game">
-  <img src="docs/assets/shots/stream.png" width="160" alt="Close-up of the stream with the compact one-line performance overlay">
-  <img src="docs/assets/shots/pip.png" width="160" alt="The stream floating over the home screen in a picture-in-picture window">
-</p>
+Rubylight streams your PC games and desktop to your Android phone, tablet or TV. Pair with the Rubylight host, choose a game and play with your controller, touch screen, mouse or keyboard.
 
 ## Features
 
-- **React instantly** with ultra-low latency streaming and decoding.
-- **See every detail** with AV1, HEVC and H.264 video, plus HDR10.
-- **Keep motion fluid** with high refresh rates and VRR frame pacing.
-- **Sharpen your stream** with client-side FSR and Snapdragon GSR upscaling.
-- **Play your way** with USB and Bluetooth controllers, including DualSense.
-- **Stay in control** with touch, trackpad, mouse, keyboard and on-screen controls.
-- **Know your stream** with a performance overlay for FPS, latency and frame loss.
-- **Get playing sooner** with automatic PC discovery and Wake-on-LAN.
+- H.264, HEVC and AV1 video, HDR10, high frame rates and variable refresh.
+- Bilinear, FSR 1.0 and SGSR 1 upscaling with adjustable sharpening.
+- USB and Bluetooth gamepads, including DualSense, with button mapping.
+- Trackpad, direct mouse and multi-touch modes, keyboard input and on-screen controls.
+- Stream presets and separate video settings for each PC.
+- Compact and Advanced performance overlays, timing export and problem reports.
+- PC discovery, PIN pairing, Wake-on-LAN and launcher integrations.
+- Picture in picture, adaptive layouts and English/German interfaces.
 
 ## Quick start
 
-1. **Set up your PC:** start the [Rubylight host](https://github.com/RamazanKara/Rubylight) and add your games.
-2. **Install on Android:** [download the APK](https://github.com/RamazanKara/rubylight-android/releases/latest) and open it.
-3. **Connect and pair:** select your PC on the same network and enter the PIN shown on your phone in the host's **Devices** page.
-4. **Start your stream:** allow permissions, open your library and tap a game.
+1. **Prepare your PC.** Start the [Rubylight host](https://github.com/RamazanKara/Rubylight) and add your games.
+2. **Install on Android.** [Download an APK](#download), open it and follow Android's installation prompt.
+3. **Find your PC.** Connect both devices to the same network and select the PC in Rubylight, or use **Add PC** with its address.
+4. **Pair and grant access.** Enter the PIN shown on Android in the host's **Devices** page. Enable that device and grant library, stream, launch and input permissions.
+5. **Start your stream.** Open the PC's library and tap a game. Connect your controller or enable **Settings → Controls → Show on-screen controls**.
+
+See the [quick start](docs/quick-start.md) for the full setup.
+
+## Screenshots
+
+<p>
+  <img src="docs/assets/shots/pc-list.png" width="160" alt="Rubylight PC list with online, offline and unpaired devices">
+  <img src="docs/assets/shots/library.png" width="160" alt="Rubylight game library with sample cover art">
+  <img src="docs/assets/shots/stream.png" width="160" alt="Rubylight stream demo with a compact overlay and scripted sample statistics">
+  <img src="docs/assets/shots/pip.png" width="160" alt="Rubylight picture-in-picture demo over the Android home screen">
+</p>
+
+Demo screens use sample games and scripted overlay values.
+
+## Download
+
+Get the Android APK from [Rubylight releases](https://github.com/RamazanKara/rubylight-android/releases). Android 5.0 or newer is required. The normal build needs no root and uses package ID `com.butterpollo.client`.
+
+For development APKs and signing details, see [building](docs/building.md).
 
 ## Docs
 
 [Start here](docs/index.md) · [Quick start](docs/quick-start.md) · [Pairing](docs/pairing.md) · [Settings](docs/settings.md) · [Controls](docs/controls.md)<br>
 [Video & latency](docs/video-and-latency.md) · [Troubleshooting](docs/troubleshooting.md) · [Building](docs/building.md) · [Frontends](docs/frontends.md) · [FAQ](docs/faq.md)
 
-[GPL-3.0](LICENSE.txt) · [Credits and third-party notices](docs/index.md#license-and-credits)
+## Licenses and Credits
+
+Rubylight is licensed under [GPL-3.0](LICENSE.txt). See [Licenses and Credits](docs/index.md#licenses-and-credits) for author credits and bundled third-party notices, including the FSR and SGSR shaders.

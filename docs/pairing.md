@@ -2,7 +2,7 @@
 
 [Documentation](index.md)
 
-Pair each Android installation with the Rubylight host before opening its library. The host recognizes the installation's certificate and device identity.
+Pair each Android installation with the Rubylight host before opening its library. Pairing identifies the device; the host's per-device permissions determine what it can do.
 
 ## Find the PC
 
@@ -15,8 +15,8 @@ Discovery may not cross guest networks, VLANs or VPNs. Manual entry needs a work
 1. Select the unpaired PC in Rubylight.
 2. Keep the displayed PIN dialog open on Android.
 3. Open the Rubylight host web console on the PC and enter that PIN under **Devices**.
-4. Wait for Android to report success, then open the PC's library.
-5. In the host's **Devices** page, enable this device and set its permissions.
+4. In the host's **Devices** page, enable this device and grant the permissions below.
+5. Wait for Android to report success, then open the PC's library and select an app.
 
 Cancel a pairing attempt before starting another. If a PIN is rejected, retry with a fresh PIN and finish or cancel any pending request in the host console. A host that refuses pairing during an active game must finish that session first.
 

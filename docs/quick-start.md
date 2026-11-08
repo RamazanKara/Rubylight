@@ -14,13 +14,11 @@ You need an Android device running Android 5.0 or newer, the Rubylight host runn
 
 The fresh global video setup is 1280 × 720 at 60 FPS, 10 Mbps and Automatic codec selection. Try a first stream with these values before raising resolution or frame rate. A saved PC profile takes priority over the global setup.
 
-The skippable first-launch pairing guide is also available from the **?** button. The screenshots in the guides are saved UI-test captures; their loopback addresses are fixture data, not addresses to enter for your PC.
+The first-launch pairing guide is also available from the **?** button. Use your PC's real address when adding it manually.
 
 ## Your PC library
 
-Material 3 PC cards show connection status, with **Add PC** and grouped action sheets. Long-press a PC or app for its actions. The library follows the host's app order, uses app UUIDs for shortcuts and refreshes artwork when the host changes its artwork version.
-
-Tablet, foldable, TV and desktop layouts adapt to the current window, preserving library focus on resize and keeping content clear of separating hinges, system bars and cutouts. Wide windows show more columns; short landscape windows use shorter artwork. See [navigation and shortcuts](controls.md#app-navigation).
+PC cards show whether each host is online, offline or unpaired. Long-press a PC for pairing, connection tests, stream settings and Wake-on-LAN. Long-press a game for its actions, including launcher shortcuts. The library follows the host's app order and adapts to your screen. See [navigation and shortcuts](controls.md#app-navigation).
 
 ## During a stream
 

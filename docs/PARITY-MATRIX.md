@@ -1,4 +1,4 @@
-# Rubylight host and Android parity
+# Rubylight Android and host parity matrix
 
 [Documentation](index.md) · [Device checklist](device-checklist.md)
 
@@ -34,4 +34,4 @@ This matrix describes paths implemented in the Android source. Device checks rem
 | Settings / accessibility | Five sections, search, presets, PC profiles and control layout editor | Small screens, large fonts, TalkBack, D-pad and English/German labels. |
 | Host administration | Uses host policies and configured commands | Edit devices, app overrides, display layout and host services in the host web console. |
 
-See [building](building.md) for reproducible checks. Keep hardware results with the tested app/host versions and device details in the [device checklist](device-checklist.md), rather than treating old build totals as current evidence.
+See [building](building.md) for reproducible checks. Record hardware results with the tested Rubylight Android and host versions in the [device checklist](device-checklist.md).

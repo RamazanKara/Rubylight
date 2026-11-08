@@ -2,7 +2,7 @@
 
 [Documentation](index.md) · [All defaults](settings.md)
 
-The Rubylight host must grant the relevant input permission to this device. If video works but controls do not, check [host permissions](pairing.md#per-device-permissions) first.
+Choose controls for the game you want to stream: a gamepad, touch, mouse and keyboard, or the on-screen gamepad. The Rubylight host must grant the corresponding input permissions to this device; see [host permissions](pairing.md#per-device-permissions).
 
 ## Gamepads
 
@@ -40,7 +40,7 @@ Choose **Settings → Controls → Touch mode**, or **stream menu → Input mode
 | Direct mouse | Tap a location to click there, drag to move while holding the left button, and hold still for right-click. A second finger scrolls. |
 | Multi-touch | Send fingers directly to the host touch interface. If native touch is unavailable, Rubylight uses Direct mouse. Use the stream menu for the keyboard. |
 
-**Trackpad speed** changes relative touch movement from 25–400%, with 100% as the default. Native pen input is forwarded when supported and permitted by the host.
+**Trackpad speed** changes relative touch movement from 25–400%, with 100% as the default. Trackpad and Direct mouse need **Mouse input** permission; Multi-touch needs **Touch input**, and its mouse fallback needs **Mouse input**. Native pen input needs **Pen input** and a supporting host.
 
 ## Mouse and keyboard
 

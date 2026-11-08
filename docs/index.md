@@ -14,16 +14,19 @@ Stream your PC games and desktop to the Android screen you want to use. Rubyligh
 | Launch games from ES-DE, Daijisho or Pegasus | [Frontends](frontends.md) |
 | Find a short answer | [FAQ](faq.md) |
 
-Development references: [host parity matrix](PARITY-MATRIX.md), [detailed parity audit](BUTTERPOLLO_PARITY.md), [device checklist](device-checklist.md) and [documentation checks](building.md#documentation-checks).
+Development references: [Rubylight host parity matrix](PARITY-MATRIX.md), [device checklist](device-checklist.md) and [documentation checks](building.md#documentation-checks).
 
 [Download Rubylight](../README.md#download) · [Privacy](PRIVACY.md)
 
-## License and credits
+## Licenses and Credits
 
-Rubylight is licensed under [GPL-3.0](../LICENSE.txt). It includes Moonlight Android code by [Cameron Gutman](https://github.com/cgutman), [Diego Waxemberg](https://github.com/dwaxemberg), Aaron Neyer, [Andrew Hennessy](https://github.com/yetanothername) and contributors. Moonlight began as a project at [MHacks](https://mhacks.org/) by students at [Case Western Reserve University](https://case.edu/).
+Rubylight is licensed under [GPL-3.0](../LICENSE.txt). Credits include Moonlight Android by Cameron Gutman, Diego Waxemberg, Aaron Neyer, Andrew Hennessy and contributors; Artemis Android by ClassicOldSong and contributors; and the Android PyroWave renderer adapted from joemossjr16's work.
 
-Apollo extension behavior was cross-checked against [Artemis Android](https://github.com/ClassicOldSong/moonlight-android) by ClassicOldSong and contributors (GPL-3.0), with Rubylight protocol differences handled explicitly. Rubylight also retains stock Sunshine and Apollo compatibility and installs alongside Moonlight.
+Keep the source copyright notices and these complete bundled notices with redistributions:
 
-Retain the bundled third-party notices when redistributing: [PyroWave, Granite, volk and renderer credits](../app/src/main/assets/pyrowave_notices.txt), [AMD FSR 1.0 shaders (MIT)](../app/src/main/assets/NOTICE-FSR1.txt), and [Qualcomm SGSR 1 shaders (BSD-3-Clause)](../app/src/main/assets/NOTICE-SGSR1.txt). Native dependencies retain their license notices in the source submodules.
+- [PyroWave, Granite and volk: MIT licenses and renderer credits](../app/src/main/assets/pyrowave_notices.txt).
+- [FSR 1.0 EASU/RCAS shaders: AMD copyright and MIT license](../app/src/main/assets/NOTICE-FSR1.txt).
+- [SGSR 1 shader: Qualcomm copyright and BSD-3-Clause license](../app/src/main/assets/NOTICE-SGSR1.txt).
+- [DualSense report layouts adapted from SDL: Sam Lantinga's zlib notice](../app/src/main/java/com/limelight/binding/input/driver/DualSenseReport.java).
 
-Upstream resources: [Moonlight for Android](https://moonlight-stream.org), [Sunshine](https://github.com/LizardByte/Sunshine), [PC client](https://github.com/moonlight-stream/moonlight-qt), [iOS/tvOS client](https://github.com/moonlight-stream/moonlight-ios), [Discord](https://moonlight-stream.org/discord), [translations](https://hosted.weblate.org/projects/moonlight/moonlight-android/) and [build status](https://ci.appveyor.com/project/cgutman/moonlight-android/branch/master).
+Java and native dependencies retain their own licenses. Fetch the [native submodules](../.gitmodules) when preparing a source distribution; the app license does not replace dependency notices.

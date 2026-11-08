@@ -1,8 +1,8 @@
-# RUBYLIGHT demo production
+# Rubylight demo production
 
 The scripts produce a 67.4-second demo in landscape and portrait, using the
-captions and source mapping in [shotlist.md](shotlist.md). Run them from any
-directory in PowerShell 7. All generated files stay in
+captions and source mapping in [shotlist.md](shotlist.md). Run the examples from
+the repository root in PowerShell 7. All generated files stay in
 the worktree's gitignored `out/demo/` directory. No publishing step is included.
 
 ## Render the storyboard
@@ -37,7 +37,7 @@ for release. Running again replaces the outputs and intermediates.
 
 ## Record footage on the caller's device
 
-Use the current non-root RUBYLIGHT package (`com.butterpollo.client`), an English
+Use the current non-root Rubylight package (`com.butterpollo.client`), an English
 UI, USB debugging, an unlocked portrait device, and Android platform-tools on
 PATH or under `ANDROID_HOME` / `%LOCALAPPDATA%\Android\Sdk`. Connect one authorized
 device, or set Android's standard `ANDROID_SERIAL` environment variable. No
@@ -86,7 +86,7 @@ audio. See the [Android screenrecord reference](https://developer.android.com/to
 ## Edit and audio
 
 The launcher vector colours are `#F4CE69` gold and `#172328` slate. The intro is a
-RUBYLIGHT wordmark with the mission tagline. The outro carries the releases URL.
+Rubylight wordmark with the mission tagline. The outro carries the releases URL.
 Both layouts use a centred phone bezel over a diagonal gradient; landscape adds
 feature callouts. Captions are burned in with Segoe UI, kept outside the phone,
 and wrapped explicitly in portrait. Text files avoid shell and filter escaping
@@ -127,6 +127,6 @@ captions end above the bottom 192-pixel safe area; landscape copy stays at least
 For the release cut, replace the mapped storyboard sources with recorded clips,
 render again, inspect the source manifest and review frames, then upload the two
 MP4s and chosen posters as assets on
-[RUBYLIGHT releases](https://github.com/RamazanKara/rubylight-android/releases).
+[Rubylight releases](https://github.com/RamazanKara/rubylight-android/releases).
 The caller owns the release upload. Neither script commits, pushes, invokes
 `gh`, creates a release, or changes the app.

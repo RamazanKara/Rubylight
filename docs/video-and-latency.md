@@ -36,7 +36,7 @@ Per-PC profiles accept rates to 0.01 Hz, such as 59.94 or 119.88. Displayed FPS,
 
 ## Upscaling
 
-Choose **Stream → Upscaling** or override it in a PC profile.
+Choose **Settings → Stream → Client-side upscaling** or override it in a PC profile.
 
 | Mode | Processing |
 | --- | --- |
@@ -57,7 +57,7 @@ Compact displays shown FPS, network RTT plus completed decode time in millisecon
 
 The health dot is green below 30 ms and 1% loss, amber at either threshold or when measurements are incomplete, and red at 60 ms or 5% loss.
 
-Compact includes PyroWave measurements. Advanced groups details into Video, Network, Decode and Host and scrolls on smaller screens. Legacy Expanded preferences reset to Compact once because Android also saved that value for untouched defaults; newly selected Advanced preferences persist.
+Compact includes PyroWave measurements. Advanced groups details into Video, Network, Decode and Host and scrolls on smaller screens. The selected mode persists between streams.
 
 | Advanced metric | Meaning and interpretation |
 | --- | --- |

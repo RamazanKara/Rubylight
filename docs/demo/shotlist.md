@@ -1,4 +1,4 @@
-# RUBYLIGHT demo shotlist
+# Rubylight demo shotlist
 
 Mission: bring your PC games to the screen in your hands. Use "stream" in all
 demo copy. Keep the captions below verbatim; do not add performance claims.
@@ -75,8 +75,8 @@ settings and controller screens provide the draft's visual source material.
 The host card stands in for library and stream start; settings stand in for
 presets, touch and PiP; the video-settings crop stands in for upscaling. The
 overlay captures contain no live measurements and stand in for both current
-overlay modes and the performance shot. They retain the source UI, including
-the former product name. The outer typography and colours use RUBYLIGHT.
+overlay modes and the performance shot. Capture current Rubylight screens
+before releasing the demo.
 The video-settings crop excludes the old host compatibility copy.
 
 Replace these stills with the matching recorded clips for the release cut.

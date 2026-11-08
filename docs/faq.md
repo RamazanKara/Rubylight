@@ -16,7 +16,7 @@ The normal `nonRoot` build does not. A separate root flavor exists for older And
 
 ## Why do filenames or package names contain a different identifier?
 
-The Android package ID remains `com.butterpollo.client` so existing installations keep their identity. Some exported folders, report filenames and CI artifacts retain literal identifiers used by the implementation. The product and repository are Rubylight.
+The product is Rubylight and the repository is `rubylight-android`. The Android package ID remains `com.butterpollo.client` so existing installations keep their identity. Exported folders, report filenames and CI artifacts also use fixed identifiers; use the exact names shown in these guides.
 
 ## Can I stream outside my home network?
 

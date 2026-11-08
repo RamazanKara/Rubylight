@@ -273,6 +273,25 @@ struct Saved {
     lock_boot: i64,
     active_at: i64,
     active_boot: i64,
+    /// An open lock handed to the second screen's process ([`PinStore::hand_over`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hand_over: Option<HandOver>,
+}
+
+/// How long a hand-over stays good: the second screen's process reads it as it starts.
+pub const HAND_OVER_MS: i64 = 30_000;
+
+/// The SHA-256 of a hand-over's token, which only the started process's input carries, and when
+/// it was written.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct HandOver {
+    hash: String,
+    at: i64,
+    boot: i64,
+}
+
+fn token_hash(token: &str) -> String {
+    base64::engine::general_purpose::STANDARD.encode(ring::digest::digest(&ring::digest::SHA256, token.as_bytes()))
 }
 
 impl Default for Saved {
@@ -288,6 +307,7 @@ impl Default for Saved {
             lock_boot: 0,
             active_at: 0,
             active_boot: -1,
+            hand_over: None,
         }
     }
 }
@@ -594,6 +614,47 @@ impl PinStore {
         self.edit(|s| (s.active_at, s.active_boot) = (elapsed, boot));
     }
 
+    /// Hands this process's open lock to a process it starts (the second screen's): a fresh
+    /// random token for that process's standard input, never a file or a command line. The file
+    /// keeps only the token's hash, for [`HAND_OVER_MS`], and is written before this returns.
+    /// None without a PIN: there is nothing to hand over.
+    pub fn hand_over(&self) -> Result<Option<String>, String> {
+        use ring::rand::SecureRandom as _;
+        if !self.has_pin() {
+            return Ok(None);
+        }
+        let mut bytes = [0u8; 32];
+        ring::rand::SystemRandom::new().fill(&mut bytes).map_err(|_| "no random numbers for a token".to_owned())?;
+        let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        let entry = HandOver { hash: token_hash(&token), at: self.clock.elapsed(), boot: self.clock.boot() };
+        let _file = file_lock();
+        let saved = {
+            let mut memory = self.memory();
+            if memory.problem.is_some() {
+                return Err("the PIN lock's file cannot be used".into());
+            }
+            memory.saved.hand_over = Some(entry);
+            memory.saved.clone()
+        };
+        write_file(&self.path, &saved).map_err(|e| format!("saving the PIN lock failed: {e}"))?;
+        Ok(Some(token))
+    }
+
+    /// The process the lock was handed to is gone: its token opens nothing any more.
+    pub fn end_hand_over(&self) {
+        if self.saved().hand_over.is_some() {
+            self.edit(|s| s.hand_over = None);
+        }
+    }
+
+    /// Whether `token`, read from this process's standard input, is a hand-over written on this
+    /// boot less than [`HAND_OVER_MS`] ago, by a Nightjar whose lock was open.
+    pub fn handed_over(&self, token: &str) -> bool {
+        let saved = self.saved();
+        let Some(entry) = saved.hand_over.filter(|_| saved.hash.is_some() && !token.is_empty()) else { return false };
+        entry.hash == token_hash(token) && self.clock.is_this_boot(entry.boot) && (0..HAND_OVER_MS).contains(&(self.clock.elapsed() - entry.at))
+    }
+
     pub fn elapsed(&self) -> i64 {
         self.clock.elapsed()
     }
@@ -715,6 +776,8 @@ pub struct PinGate {
     grant: Option<(String, i64)>,
     /// When the window went out of sight, None while it is in view.
     left_at: Option<i64>,
+    /// The second screen's process, handed the first's open lock ([`PinStore::handed_over`]).
+    handed_over: bool,
 }
 
 pub fn app_needed(pin_set: bool, mode: Mode, unlocked: bool) -> bool {
@@ -749,7 +812,7 @@ impl PinGate {
         let unlocked_app = saved.hash.is_some()
             && saved.mode == Mode::App
             && within_grace(store.clock.is_this_boot(saved.active_boot), saved.active_at, store.elapsed(), grace_of(saved.grace_min));
-        Self { unlocked_app, grant: None, left_at: None }
+        Self { unlocked_app, grant: None, left_at: None, handed_over: false }
     }
 
     /// The app is locked and nothing has unlocked it.
@@ -771,6 +834,9 @@ impl PinGate {
     /// The same answer without using up a grant: Continue here's press asks this, and the stream
     /// start that follows the press uses the grant.
     pub fn locks_stream(&self, store: &PinStore, key: &str) -> bool {
+        if self.handed_over {
+            return false;
+        }
         let view = store.view();
         stream_needed(view.has_pin, view.mode, &view.pcs, key, self.unlocked_app, self.granted(store, key))
     }
@@ -797,6 +863,13 @@ impl PinGate {
         self.left_at = None;
     }
 
+    /// This is the second screen's process, which the first's open lock was handed to: it streams
+    /// the first's game and ends with it, and asks for no PIN.
+    pub fn hand_over(&mut self) {
+        self.handed_over = true;
+        self.unlocked_app = true;
+    }
+
     /// The window went out of sight (minimized or hidden), or the app is closing.
     pub fn left(&mut self, store: &PinStore) {
         if self.left_at.is_some() {
@@ -804,7 +877,8 @@ impl PinGate {
         }
         let now = store.elapsed();
         self.left_at = Some(now);
-        if self.unlocked_app && store.has_pin() {
+        // The second screen's process writes nothing: its lock was the first's, which keeps the file.
+        if self.unlocked_app && !self.handed_over && store.has_pin() {
             store.set_active(now, store.boot());
         }
     }
@@ -812,7 +886,7 @@ impl PinGate {
     /// The window is in view again: the app locks when it was away longer than the grace time.
     pub fn returned(&mut self, store: &PinStore) {
         let Some(left_at) = self.left_at.take() else { return };
-        if self.unlocked_app && store.mode() == Mode::App && !within_grace(true, left_at, store.elapsed(), store.grace_minutes()) {
+        if self.unlocked_app && !self.handed_over && store.mode() == Mode::App && !within_grace(true, left_at, store.elapsed(), store.grace_minutes()) {
             self.unlocked_app = false;
         }
     }
@@ -1207,6 +1281,61 @@ mod tests {
         gate.left(&store);
         gate.returned(&store);
         assert!(gate.needs_pin_for_app(&store));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// The second screen's process, started by an unlocked first, asks for no PIN: the first hands
+    /// it a token over its input, which only the hash in the file vouches for, briefly.
+    #[test]
+    fn a_hand_over_opens_the_second_screens_lock_once_written_and_only_briefly() {
+        let (first, clock, dir) = store("hand-over");
+        assert_eq!(first.hand_over(), Ok(None), "no PIN, nothing to hand over");
+        first.set_pin_with(b"1234", 1_000).unwrap();
+        first.set_mode(Mode::Streams);
+        first.flush();
+        let token = first.hand_over().unwrap().expect("a token");
+        assert_eq!(token.len(), 64);
+        let file = std::fs::read_to_string(dir.join(FILE)).unwrap();
+        assert!(!file.contains(&token), "the file keeps the token's hash, never the token");
+        assert_ne!(first.hand_over().unwrap(), Some(token.clone()), "every hand-over has a fresh token");
+        let token = first.hand_over().unwrap().unwrap();
+
+        // The second process reads the file as it starts.
+        let second = PinStore::new(&dir, clock.clone());
+        for wrong in ["", "00", &token[1..], &token.to_uppercase()] {
+            assert!(!second.handed_over(wrong), "{wrong:?}");
+        }
+        assert!(second.handed_over(&token));
+        let mut gate = PinGate::new(&second);
+        assert!(gate.needs_pin_for_stream(&second, "UID"), "without it the stream asks");
+        gate.hand_over();
+        second.set_mode(Mode::App);
+        assert!(!gate.needs_pin_for_app(&second) && !gate.needs_pin_for_stream(&second, "UID") && !gate.needs_pin_for_stream(&second, "UID"));
+        second.flush();
+        let before = std::fs::read(dir.join(FILE)).unwrap();
+        gate.left(&second);
+        second.flush();
+        assert_eq!(std::fs::read(dir.join(FILE)).unwrap(), before, "leaving it writes nothing: the first keeps the file");
+        clock.now.fetch_add(60 * 60_000, Ordering::SeqCst);
+        gate.returned(&second);
+        assert!(!gate.needs_pin_for_app(&second), "it ends with the first's stream, never locks over it");
+        clock.now.fetch_sub(60 * 60_000, Ordering::SeqCst);
+
+        clock.now.fetch_add(HAND_OVER_MS, Ordering::SeqCst);
+        assert!(!PinStore::new(&dir, clock.clone()).handed_over(&token), "too late");
+        clock.now.fetch_sub(HAND_OVER_MS, Ordering::SeqCst);
+        clock.boot.store(8, Ordering::SeqCst);
+        assert!(!PinStore::new(&dir, clock.clone()).handed_over(&token), "another boot");
+        clock.boot.store(7, Ordering::SeqCst);
+        assert!(PinStore::new(&dir, clock.clone()).handed_over(&token));
+
+        first.end_hand_over();
+        first.flush();
+        assert!(!PinStore::new(&dir, clock.clone()).handed_over(&token), "the second screen is gone");
+        let token = first.hand_over().unwrap().unwrap();
+        first.remove_pin();
+        first.flush();
+        assert!(!PinStore::new(&dir, clock).handed_over(&token), "no PIN, no hand-over");
         std::fs::remove_dir_all(dir).ok();
     }
 }

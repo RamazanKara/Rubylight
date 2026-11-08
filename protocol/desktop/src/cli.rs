@@ -31,6 +31,10 @@ pub struct Launch {
     pub host: String,
     pub app: Option<String>,
     pub quit_on_exit: bool,
+    /// The game the PC runs for another device, joined by its id: the second screen of a first
+    /// screen that joined it (`--second-screen-join`). The PC reports no running game to this
+    /// device then, so `app` cannot find it.
+    pub join: Option<i32>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -110,6 +114,7 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Parsed, String
             host,
             app,
             quit_on_exit,
+            join: None,
         })),
         None if app.is_some() => Err("--app needs --host".into()),
         None if quit_on_exit => Err("--quit-on-exit needs --host".into()),
@@ -444,8 +449,11 @@ impl CliLaunch {
             }
             AppsSeen::Failed(e) => Step::Fail(format!("could not load the apps: {e}")),
             AppsSeen::Loaded(apps) => {
-                match find_app(apps, &wanted).and_then(|app| Ok((app.id, resume(host, apps, app)?)))
-                {
+                let found = match self.launch.join {
+                    Some(id) => Ok((id, true)),
+                    None => find_app(apps, &wanted).and_then(|app| Ok((app.id, resume(host, apps, app)?))),
+                };
+                match found {
                     Ok((id, resume)) => {
                         self.phase = Phase::Launched;
                         self.started = Instant::now();
@@ -538,6 +546,7 @@ mod tests {
             host: host.into(),
             app: app.map(Into::into),
             quit_on_exit,
+            join: None,
         })
     }
 
@@ -727,6 +736,7 @@ mod tests {
                 host: "pc".into(),
                 app: app.map(Into::into),
                 quit_on_exit,
+                join: None,
             },
             7,
         )
@@ -776,6 +786,16 @@ mod tests {
         assert_eq!(c.next(&seen(true, apps())), Step::Launch(7, 5, false));
         let busy = |s: Seen| Seen { busy: true, ..s };
         assert_eq!(c.next(&busy(seen(true, apps()))), Step::Wait);
+    }
+
+    /// The second screen of a first that joined another device's game joins it by its id: the PC
+    /// reports no running game to this device, and the name may name no listed app.
+    #[test]
+    fn a_join_resumes_the_game_by_its_id() {
+        let mut c = cli(Some("Running game"), true);
+        c.launch.join = Some(9);
+        let apps = || AppsSeen::Loaded(vec![app(1, "", "Steam"), app(5, "", "Desktop")]);
+        assert_eq!(c.next(&seen(true, apps())), Step::Launch(7, 9, true));
     }
 
     #[test]
@@ -907,6 +927,7 @@ mod tests {
             host: "pc".into(),
             app: None,
             quit_on_exit: true,
+            join: None,
         };
         assert!(!shows_error_box(Some(&launch)));
     }

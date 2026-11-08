@@ -1803,6 +1803,11 @@ impl Streaming {
         &self.plan.app
     }
 
+    /// Whether this stream joined the game the PC runs, another device's too (`LaunchPlan::join`).
+    pub fn joined(&self) -> bool {
+        self.plan.join
+    }
+
     /// Input-only through a small ordinary stream: video and audio arrive and are discarded.
     pub fn small_stream_input_only(&self) -> bool {
         self.plan.small_stream_input_only

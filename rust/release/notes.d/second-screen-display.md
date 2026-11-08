@@ -1,2 +1,0 @@
-# Second screen
-- **The second screen shows a second display, not a copy of the first.** Nightjar's Dual screen mode with a game running put the second screen on the game's own virtual display, so both screens showed the same picture. It now gets a virtual display of its own beside the game's. On a PC that streams its own monitors instead of a virtual display, the second screen streams the PC's other monitor; with a single monitor it shows the same one, and the stream's card says so.

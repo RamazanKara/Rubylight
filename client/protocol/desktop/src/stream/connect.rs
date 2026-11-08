@@ -438,7 +438,7 @@ pub(super) fn flag_value(text: &str) -> Option<bool> {
 
 /// The switch `name` names, if it is set. A value that is not a switch is said so on stderr and
 /// ignored, never taken as on or off.
-pub(super) fn env_flag(name: &str) -> Option<bool> {
+pub(crate) fn env_flag(name: &str) -> Option<bool> {
     let text = std::env::var(name).ok()?;
     let value = flag_value(&text);
     if value.is_none() {

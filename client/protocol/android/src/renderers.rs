@@ -119,7 +119,7 @@ impl ChunkBatch {
 /// it in native code, which saves both copies (Java's array and the renderer's own); it is on
 /// unless `debug.nightjar.pyro_direct` is 0. MediaCodec copies it straight into the codec's input
 /// buffer, one copy fewer; that follows the Debug setting "Video data straight to the decoder"
-/// (`setting`, off by default as it came out with the 3.2.3 decode reverts), which
+/// (`setting`, on by default since it measured slightly better on the Retroid), which
 /// `debug.nightjar.codec_direct` 1 or 0 overrides.
 fn direct_hand_off(format: u32, pyro_direct: &str, codec_direct: &str, setting: bool) -> bool {
     if format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {

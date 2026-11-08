@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_submit_hint">Szybsze przekazywanie klatek</string>
+    <string name="summary_submit_hint">Wskazówki wydajności obejmują też wątek, który przekazuje klatki do dekodera.</string>
+    <string name="title_covering_decoder_size">Dekoder gotowy na składanie</string>
+    <string name="summary_covering_decoder_size">Z góry ustawia rozmiar dekodera dla drugiego ekranu i obrotu, więc złożenie lub obrót nie wymaga restartu.</string>
+    <string name="title_pyrowave_preacquire">PyroWave: wcześniejszy obraz ekranu</string>
+    <string name="summary_pyrowave_preacquire">Pobiera następny obraz ekranu przed nadejściem każdej klatki PyroWave, gdy tempo klatek jest wyłączone.</string>
+    <string name="title_codec_direct">Dane wideo prosto do dekodera</string>
+    <string name="summary_codec_direct">Kopiuje każdą klatkę do dekodera tylko raz, bez kopii pośredniej. Tylko z nowym silnikiem strumieniowania.</string>
+    <string name="title_receive_decode_priority">Priorytet dekodera przy odbiorze</string>
+    <string name="summary_receive_decode_priority">Nowy silnik strumieniowania: wątek, który odbiera wideo i zasila dekoder, działa z priorytetem dekodera.</string>
+</resources>

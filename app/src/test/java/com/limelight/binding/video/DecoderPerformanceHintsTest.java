@@ -80,8 +80,8 @@ public class DecoderPerformanceHintsTest {
                 wrapper.indexOf("return queueDecodeUnit(", off) < firstClock);
         assertTrue(wrapper.contains("submitWork.add(Process.myTid(), Debug.threadCpuTimeNanos() - cpuStartNs);"));
         assertFalse(wrapper.contains("System.nanoTime()"));
-        assertTrue("off by default",
-                source.contains("MediaCodecHelper.debugSwitch(DecoderPerformanceHints.SUBMIT_SWITCH, false)"));
+        assertTrue("the setting (off by default, SettingsKeysTest), which the property overrides",
+                source.contains("MediaCodecHelper.debugSwitch(DecoderPerformanceHints.SUBMIT_SWITCH, prefs.submitHint)"));
         assertEquals("submit_adpf", DecoderPerformanceHints.SUBMIT_SWITCH);
     }
 }

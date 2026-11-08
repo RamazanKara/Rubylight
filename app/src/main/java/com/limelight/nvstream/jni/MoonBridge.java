@@ -561,6 +561,8 @@ public class MoonBridge {
     private static volatile int audioPassthroughRequested;
     private static volatile int videoFecRequested = -2;
     private static volatile boolean pyrowaveEarlyRequested;
+    private static volatile boolean codecDirectRequested;
+    private static volatile boolean receiveDecodePriorityRequested;
 
     /** Call before startConnection(): whether the next stream should use the Rust engine. */
     public static void requestRustEngine(boolean requested) {
@@ -590,6 +592,23 @@ public class MoonBridge {
      */
     public static void requestPyroWaveEarly(boolean requested) {
         pyrowaveEarlyRequested = requested;
+    }
+
+    /**
+     * Call before startConnection(): "Video data straight to the decoder" for the next stream, which
+     * debug.nightjar.codec_direct overrides. Only the Rust engine hands MediaCodec frames over in place.
+     */
+    public static void requestCodecDirect(boolean requested) {
+        codecDirectRequested = requested;
+    }
+
+    /**
+     * Call before startConnection(): "Decoder priority for receiving" for the next stream, which
+     * debug.nightjar.decode_priority overrides. Only the Rust engine's direct submission uses it;
+     * the classic engine always raises its decode thread.
+     */
+    public static void requestReceiveDecodePriority(boolean requested) {
+        receiveDecodePriorityRequested = requested;
     }
 
     /** Whether the running stream (or the last one) hands PyroWave frames over while they arrive. */
@@ -708,7 +727,8 @@ public class MoonBridge {
                     colorSpace, colorRange, hostFeatures, inputOnly, enableMic, hapticsPcm,
                     pyrowaveLinkMbps, pyrowavePaceMbps, clientWireless, networkGracePeriodMs, packed444Requested, packedModes,
                     remoteMonitor, unbatchedInput, networkPriority, roamingRequested, roamingMeteredRequested,
-                    audioPassthroughRequested, hdrFormatRequested, videoFecRequested, pyrowaveEarlyRequested);
+                    audioPassthroughRequested, hdrFormatRequested, videoFecRequested, pyrowaveEarlyRequested,
+                    codecDirectRequested, receiveDecodePriorityRequested);
         }
         return cStartConnection(address, appVersion, gfeVersion, rtspSessionUrl, serverCodecModeSupport,
                 width, height, fps, bitrate, packetSize, streamingRemotely, audioConfiguration,

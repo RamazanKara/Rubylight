@@ -10,7 +10,7 @@ import com.limelight.LimeLog;
 import java.util.concurrent.atomic.AtomicLong;
 
 final class DecoderPerformanceHints implements AutoCloseable {
-    /** debug.nightjar.submit_adpf: the submit thread joins the renderer's session (off by default). */
+    /** debug.nightjar.submit_adpf: the submit thread joins the renderer's session; overrides the Debug setting (off by default). */
     static final String SUBMIT_SWITCH = "submit_adpf";
     /** debug.nightjar.adpf_cpu_time: the renderer reports thread CPU time, not wall time (on by default). */
     static final String CPU_TIME_SWITCH = "adpf_cpu_time";

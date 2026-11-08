@@ -2120,6 +2120,8 @@ mod tests {
     fn the_input_and_priority_settings_reach_the_engine() {
         let on = session_config(&Settings::default(), AppRole::Stream, StreamConfig::default(), Location::Local, true);
         assert!(on.unbatched_input && on.network_priority);
+        // The desktop keeps the decode priority on (NIGHTJAR_DECODE_PRIORITY=0 for A/B runs).
+        assert!(on.receive_decode_priority);
         assert_eq!((on.location, on.network_grace), (Location::Local, Duration::from_millis(3000)));
         for (unbatched_input, network_priority) in [(false, true), (true, false), (false, false)] {
             let settings = Settings { unbatched_input, network_priority, network_grace_ms: 0, ..Default::default() };

@@ -135,9 +135,14 @@ Texture2D<float> planeCr : register(t3);
 #ifdef VULKAN
 static const float3x3 bt709to2020 = { 0.627404, 0.329283, 0.043313, 0.069097, 0.919541, 0.011362, 0.016391, 0.088013, 0.895595 };
 static const float3x3 bt2020to709 = { 1.660496, -0.587656, -0.072840, -0.124547, 1.132895, -0.008348, -0.018154, -0.100597, 1.118751 };
+// SDL's sRGBfromLinear (texture_advanced.frag.hlsl), for a target that is not linear.
+float3 srgbFromLinear(float3 v) {
+    return lerp(pow(abs(v), 1.0 / 2.4) * 1.055 - 0.055, v * 12.92, float3(v <= 0.0031308));
+}
 // Flag 512: the planes scaled straight into the target rectangle (bilinear, as SDL scales the
-// picture texture), then SDL's tone map (TONEMAP_CHROME of its texture_advanced shader) and
-// colour scale, so the result is what drawing the converted texture with SDL gives, in one pass.
+// picture texture), then SDL's tone map (TONEMAP_CHROME of its texture_advanced shader), colour
+// scale and, with flag 1024 (an sRGB target, not scRGB), its sRGB encoding and clamp, so the
+// result is what drawing the converted texture with SDL gives, in one pass.
 float4 planesDirect(float2 position) {
     float2 visible = picture.xy;
     float2 at = clamp((position - destination.xy) * visible / destination.zw, 0.5, visible - 0.5);
@@ -159,7 +164,9 @@ float4 planesDirect(float2 position) {
         if (vmax > 0) v *= (1 + tonemap1 * vmax) / (1 + tonemap2 * vmax);
         rgb = mul(bt2020to709, v);
     }
-    return float4(rgb * outputScale, 1);
+    rgb *= outputScale;
+    if ((flags & 1024) != 0) rgb = saturate(srgbFromLinear(rgb));
+    return float4(rgb, 1);
 }
 #endif
 float4 planes(float4 position : SV_Position) : SV_Target {

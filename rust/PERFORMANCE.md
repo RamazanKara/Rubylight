@@ -6,6 +6,8 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Sending a large frame block by block (`video_send_early_blocks`) on PyroWave, HEVC and AV1 at 1080p and 4K, AMF output prediction and output thread under GPU load (both kept off), fixed-rate pacing without a blocking output query, GFNI parity (`fec_gfni`) on the 8845HS against a no-GFNI control, and the whole build against 3.9.0 | [November 8, sending, FEC and AMF output after 3.9.0](#november-8-sending-fec-and-amf-output-after-390) |
+| Rumble forwarding on ViGEm and VHF pads at 500 changes a second, idle and under HIGHEST CPU load, fast feedback poll (kept off), touch pinch frames per pass, keyboard and mouse behind a controller state, the new input fields of the stream timings line, the VHF feedback stall under load (also in the old build) | [November 8, gamepad feedback, touch and input under load](#november-8-gamepad-feedback-touch-and-input-under-load) |
 | Fixed-rate pacing after review: frames noticed late, a stale phase, waits that bought nothing, frames just early of their phase; model against main and the final hardware A/B (other window, 1080p120, quiet desktop) | [November 1, fixed-rate pacing after review (final build)](#november-1-fixed-rate-pacing-after-review-final-build) |
 | Fixed-rate claims held 1 to 3 ms after publish on main (12 to 16 % of frames, 60.1 claims a second): an early claim off a 120 Hz game's phase spending the credit later claims waited for, why rc.2 looked clean (machine load), model and A/B (fixed) | [November 1, fixed-rate claims that waited 1 to 3 ms after publish](#november-1-fixed-rate-claims-that-waited-1-to-3-ms-after-publish) |
 | Another window's updates beside a 120 Hz game at 60 fps: claims in alternating 12.5 and 20.8 ms gaps, the phase of a source updating 2 to 4 times a period, replay of hardware captures, model and A/B on main (other window at 30 and 90 fps, CPU load, quiet desktop, VRR) (fixed) | [November 1, another window's updates beside a 120 Hz game at 60 fps](#november-1-another-windows-updates-beside-a-120-hz-game-at-60-fps) |
@@ -70,6 +72,113 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## November 8: sending, FEC and AMF output after 3.9.0
+
+What the new sending, error-correction and AMF output changes buy, and what their defaults should be. RX 7900 XT and Ryzen 7 5800X3D, B = release build of rlperf-int at bbf29cb7e, A = the Rubylight 3.9.0 package. Isolated test host on loopback, the independent receiver, `e2e.py --record --skip-first 5`, 45 s per run, ABBA; switches compared within B. Times in ms, median / p95 / p99: first packet (first sent after packetizing) and present to last packet from the timing record, end to end from the receiver (it ends when decoding ends). Host CPU is the test host's CPU time over 30 s of steady stream, in % of one core. No encoder hang and no AMF warning or error in any run.
+
+**Block by block (`video_send_early_blocks`, on).** It now also hands H.264, HEVC and AV1 frames on the dedicated sender to an idle sender one FEC block at a time, and PyroWave does it again. Four runs per fixture. HEVC and AV1 at 4K used `--noise-height 720` for frames of about 790 KB, the receiver's D3D11VA decoder (software decoding couldn't keep 4K at 60 fps) and `video_slice_delivery = off`, so whole frames went through the sender thread, as every run logged; PyroWave paced at 950 Mbps.
+
+| Fixture | Arm | First packet | Present to last packet | End to end | Host CPU |
+| --- | --- | --- | --- | --- | ---: |
+| PyroWave 1080p60, 400 Mbps | on | **0.135 / 0.167 / 0.203** | 3.69 / 4.24 / 4.64 | 7.19 / 7.89 / 8.35 | 16.2 |
+| | off | 0.178 / 0.237 / 0.296 | 3.64 / 4.34 / 4.72 | 7.16 / 7.98 / 9.11 | 15.0 |
+| PyroWave 4K60, 600 Mbps | on | **0.231 / 0.279 / 0.336** | 8.01 / 8.48 / 8.77 | 13.67 / 14.51 / 15.03 | 21.7 |
+| | off | 0.363 / 0.432 / 0.516 | 8.16 / 8.66 / 8.87 | 14.80 / 15.65 / 16.26 | 23.1 |
+| HEVC 4K60, 500 Mbps | on | **0.413 / 0.490 / 0.578** | **18.12 / 18.93 / 19.37** | **27.98 / 29.02 / 29.47** | 32.9 |
+| | off | 0.955 / 1.124 / 1.257 | 18.77 / 19.45 / 19.86 | 28.64 / 29.50 / 29.91 | 30.5 |
+| AV1 4K60, 500 Mbps | on | **0.458** / 4.613 / 5.354 | 18.52 / 26.92 / 27.94 | 33.10 / 41.07 / 42.21 | 35.0 |
+| | off | 1.036 / 4.792 / 5.552 | 18.32 / 26.98 / 28.16 | 32.96 / 40.81 / 42.00 | 33.8 |
+
+**Kept on.** The first packet leaves 0.04 ms sooner on PyroWave at 1080p, 0.13 ms at 4K and about 0.55 ms on HEVC and AV1 at 4K, and HEVC's end to end falls 0.5 ms at p50 and p95. The whole send doesn't get shorter: the pace sets it. AV1's p95 is bimodal in both arms (its encode at this size runs 8.6 ms mean, 13.6 ms p95). A frame of one FEC block gains nothing: a first HEVC 4K round on the plain strip, P-frames of 27 to 41 KB, read 0.18 ms either way. CPU was 1 to 2.4 % of a core higher on three fixtures and 1.4 lower on PyroWave 4K, inside the run-to-run spread of up to 3 %. Recovery keyframes (`--recovery 16`, HEVC 1440p120 at 80 Mbps) left 0.03 ms sooner (0.365 against 0.401 ms), and every request was answered and decoded in both arms; `bottleneck.py --idr-probe 3:100` got 4 of 4 keyframes with no stall in either arm.
+
+**AMF output prediction and output thread (both off).** HEVC at 80 Mbps beside `gpu_load` (60 fps, about half the 3D engine). O = both off, P = `amd_output_prediction`, T = `amd_output_thread`. 1080p240 six runs (OPTTPO), 1440p120 twelve runs in two orders (OPTTPO, then TPOOPT). The loaded host repeats pictures in every arm, so this compares arms, not absolute quality.
+
+| Fixture, metric | O | P | T |
+| --- | --- | --- | --- |
+| 1080p240, end to end | 7.60 / 12.26 / 16.79 | 7.74 / 12.56 / 16.76 | 7.76 / **10.81 / 14.13** |
+| 1080p240, encode (mean / p95 / p99) | 2.53 / 3.21 / 3.69 | 2.54 / 3.29 / 3.65 | 2.42 / **2.72 / 3.06** |
+| 1080p240, picture age (mean / p95 / p99) | 19.5 / 30.5 / 38.0 | 19.5 / 28.6 / 34.3 | **17.3 / 24.1 / 29.0** |
+| 1080p240, long intervals per run | 378 | 555 | 215 |
+| 1080p240, host CPU | 21.5 | 20.9 | 24.1 |
+| 1440p120, end to end p50, each order | **10.01, 9.88** | 10.86, 10.75 | 11.69, 10.72 |
+| 1440p120, end to end p95 | 15.02, 15.01 | 15.26, 14.14 | 13.80, 14.88 |
+| 1440p120, picture age p99 | 26.7, 26.4 | 27.0, 25.1 | 24.1, 23.8 |
+| 1440p120, long intervals per run | 6, 3 | 7.5, 14 | 0, 0 |
+| 1440p120, host CPU | 17.4, 15.8 | 16.7, 15.8 | 21.4, 17.5 |
+
+Prediction shows no consistent gain: claim p95 and long intervals were worse in 3 of 4 comparisons and the median end to end later at 1440p120. The thread shortens the tails (encode p95 0.2 to 0.5 ms, picture age p99 2.5 to 9 ms, no long intervals at 1440p120), but the median end to end is 0.8 to 1.7 ms later at 1440p120 in both orders and it costs 1.7 to 4 % of a core. With a metric worse, both stay options, default off. The thread's host processing figure (about 0.03 ms) isn't comparable: it collects output off the stream thread.
+
+**Fixed-rate pacing without a blocking output query near its tick** (`frame_pacing = grid`, A against B, HEVC 1440p120 at 80 Mbps, ABBA):
+
+| Metric | 3.9.0 | B |
+| --- | --- | --- |
+| Claim (mean / p95 / p99) | 2.05 / 3.83 / 4.23 | 2.20 / 3.65 / **3.78** |
+| Present to sent (mean / p95 / p99) | 5.85 / 7.31 / 7.80 | **5.65 / 7.07 / 7.41** |
+| End to end | 13.17 / 15.53 / 16.47 | **12.98 / 15.16 / 15.71** |
+| Picture age (mean / p95 / p99) | 18.3 / 20.4 / 21.0 | **17.7 / 19.1 / 19.5** |
+
+Better tails at a claim mean 0.15 ms later. CPU read 13.9 and 16.8 % in this pair; the rounds below show no such cost.
+
+**The whole build against 3.9.0, no settings.** HEVC 1440p120 at 80 Mbps, 8 runs (ABBA, BAAB); AV1 4K60 at 100 Mbps, 16 runs in three rounds; PyroWave 4K60 at 600 Mbps, 4 runs. All 28 passed every check, and no regression showed. PyroWave 4K, with pooled frame buffers: host CPU 27.4 to 24.0 % of a core, packetize stage 0.32 to 0.09 ms mean, first packet 0.496 to 0.229 ms median. AV1 4K's p99 looked worse for B in the first two rounds (picture age 1.7 to 2.1 ms higher) and reversed in the 8-run third (23.6 against 24.3); the per-run p99 picture ages overlap completely, 20.8 to 28.3 ms on 3.9.0 and 19.0 to 27.6 on B. HEVC 1440 p95 moved by ±0.4 ms with the order, and the other CPU differences ran both ways, -0.6 to +1.3 % of a core.
+
+**GFNI parity (`fec_gfni`, on).** `butterpollo-video-packet-performance`, packetize with 20 % FEC, 3.9.0 (AVX2 parity) against B, ABBA BAAB, 4 runs each, median of the per-run medians in µs. The first frame's bytes were identical in every case. The Ryzen 7 8845HS has GFNI; the 5800X3D, without it, is the control.
+
+| Shards | Encrypted | Reusable | 8845HS A | 8845HS B | B/A | 5800X3D A | 5800X3D B | B/A |
+| ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 192 | no | no | 174.7 | 167.5 | 0.958 | 154.3 | 153.7 | 0.996 |
+| 192 | no | yes | 159.3 | 156.3 | 0.981 | 139.1 | 141.0 | 1.014 |
+| 192 | yes | yes | 208.9 | 204.0 | 0.977 | 183.2 | 181.4 | 0.990 |
+| 576 | no | no | 534.8 | 513.7 | 0.961 | 471.2 | 468.5 | 0.994 |
+| 576 | no | yes | 485.9 | 465.5 | 0.958 | 419.6 | 415.6 | 0.990 |
+| 576 | yes | no | 680.5 | 662.6 | 0.974 | 603.1 | 597.8 | 0.991 |
+| 576 | yes | yes | 627.3 | 607.0 | 0.968 | 557.6 | 551.2 | 0.988 |
+
+**Kept on.** 2 to 4 % faster on large frames on the 8845HS, beyond the control's 0.988 to 1.017; at 32 shards both machines sit within ±3 %, which is noise. The GFNI parity test ran on the 8845HS (no "skipped" line) and passed.
+
+**Not measured.** `pacing_follow_client_link` stays off: it acts only on a wired route whose device reports `pyrowaveLinkMbps` above 1 Gb/s, the test receiver can't send that, loopback reports no link, and there is no 2.5 GbE client. No stream ran with `fec_gfni` on the laptop; the probe compares binaries, not the switch. Keyframe admission across a frame's parts wasn't measured on its own; no freeze or lost frame appeared in either arm. `nvenc_output_event`: no NVIDIA GPU here. The installed host held an app with no session all night, so the runs used a copy of the harness whose idle check accepts that, with nothing else changed.
+
+Raw runs: `C:\src\butterpollo-release\unified\rlperf` (`runs\`, every table in `tables.md`).
+
+## November 8: gamepad feedback, touch and input under load
+
+N = rlperf-int (bbf29cb7e plus the probe commits), O = the build before (7df088a66), on the RX 7900 XT PC. `input_path_probe` and `pad_feedback_probe` drive the host's own `Injector` and read what it would forward, so a stop or a run-on is judged on what the host forwards, not on motors. Load is one spinner per CPU at normal or HIGHEST priority. Single machine, and N always ran first in each pair, so any drift favours one side.
+
+**Rumble at 500 changes a second** (3000 writes over 6 s, then a stop), from `XInputSetState` to the report the host forwards, p50 / p99:
+
+| Pad, load | N | O |
+| --- | --- | --- |
+| ViGEm, idle | **0.065 / 0.114 ms**, 3001 reports, stop in 0.10 ms | 6.6 / 454 ms, 779 reports, stop never |
+| ViGEm, HIGHEST | **0.070 / 0.325 ms**, 2981 reports, stop in 0.08 ms | 15.2 / 465 ms, 756 reports, stop never |
+| VHF, idle (8 N, 5 O runs) | 4.49–4.73 / 9.0–9.6 ms, 547 reports | 4.43–4.68 / 9.0–9.5 ms, 547 reports |
+| VHF, HIGHEST (runs that kept working) | 4.80–5.65 / 10.2–23.2 ms | 4.57–5.79 / 10.1–15.6 ms |
+| VHF, idle, `gamepad_feedback_fast_poll` | 1.52–1.64 ms p50 | |
+| VHF, HIGHEST, `gamepad_feedback_fast_poll` | 2.43–2.57 ms p50 | |
+
+ViGEm: the old build forwarded about a quarter of the changes and in that run never the stop, which leaves the motors running; N forwards each notification as it completes. O was measured once. VHF: the driver coalesces to about 547 reports per 6 s in both builds. Two changes within 8 ms and then a stop, 40 bursts: the stop arrives in 0.10 ms against 16.4 on ViGEm, and in 9.9 against 10.7 ms on VHF (6.3 with fast poll). No burst in any arm ended with the motors running, and no report came after a seen stop. A DualSense lightbar or trigger report and a rumble-only report in one poll were both forwarded, 20 of 20, in both builds.
+
+Fast poll gains about 3 ms at p50, but the gamepad thread used about twice the CPU while rumble flowed (a mean of about 78 against 35 ms per 6 s run, about 0.7 % of one core; `GetThreadTimes` counts in 15.6 ms steps, but every run went the same way). It stays off. ViGEm wakes on its event, so fast poll changes nothing there.
+
+**Touch pinch**, `WM_POINTER` frames in a probe window, 200 passes, one run per build, apply p50:
+
+| Case | N | O |
+| --- | --- | --- |
+| Two fingers, one move each per pass, idle | **27.9 µs**, 0.97 frames a pass | 49.3 µs, 1.95 |
+| Two fingers, two moves each per pass, idle | **33.6 µs**, 0.97 | 144.5 µs, 3.85 |
+| Two fingers, one move each, HIGHEST | **33.1 µs**, 0.97 | 48.5 µs, 1.95 |
+| Two fingers, two moves each, HIGHEST | **33.6 µs**, 0.97 | 122.6 µs, 3.90 |
+| One finger, idle | 30.8 µs, 1.00 | 15.2 µs, 1.00 |
+| One finger, HIGHEST | 28.3 µs, 1.00 | 28.3 µs, 1.00 |
+
+A pinch is one injection per pass instead of 2 to 4, with the same final contact positions (window digest). One finger's output is identical in both builds (same digest, 200 frames for 200 passes); its idle p50 doubled in this single run and matched under load. Not repeated, so no "unchanged" claim for it.
+
+**Keyboard and mouse.** A mouse move behind a controller state (VHF, 3 pairs), whole pass p50: equal under normal and HIGHEST load (35 to 42 µs), but at idle N read 43.1 to 47.4 µs against 39.0 to 41.0, 4 to 8 µs slower in 3 of 3 pairs. The `SendInput` half, whose code didn't change, was also 2 to 7 µs higher in N, so part of it is likely drift from the fixed order; the cause isn't established. The 2 ms p99 under load is the 1 ms timer, in both builds. The receiver thread beside TIME_CRITICAL spinners stayed at 15 µs p50 with input priority against 10.5 ms without (O 22 µs; one run each). Over a loopback stream (nightjar-cli moving the mouse at 250 Hz, N only) the new `input_receive_to_injected_ms` read 0.14 to 0.15 ms p50 with p99 up to 0.39 ms idle and 0.47 ms under HIGHEST, about one pass per move. A USB/IP DualSense state reached its HID report in 63.5 against 67.6 µs p50 at idle, one run each, within noise. `absolute_left_release_delay`: at 0 the left release follows in 0.1 to 0.2 ms, at 10 in 10.3 ms, with the long-press right-click working; the default stays 10.
+
+**Known issue, also in the old build.** Under HIGHEST load the VHF pad's rumble can stop being forwarded until the pad is reconnected, while writes still succeed: 3 of 11 N runs, 1 of 7 O. The same load holds 81 of 1500 VHF controller states past 500 ms in both builds, as WUDFHost at normal priority is starved. One N run's stop came after 298 ms (fast poll) and one not within 500 ms; that fits the same starvation, but 7 O runs are too few to rule out a regression.
+
+**Not measured.** `gamepad_driver_host_priority`: raising WUDFHost needs SYSTEM, which this run didn't have, so its arms were off against off; it stays off. Browser (WebRTC) input, a client-drawn cursor through a display change, an O loopback stream, and repeats of touch, the receiver thread and USB/IP.
+
+Raw runs: `C:\src\butterpollo-release\unified\rlperf-input` (probe `rust/windows/examples/pad_feedback_probe.rs`).
 
 ## November 6: Nightjar desktop at the display's own rate
 

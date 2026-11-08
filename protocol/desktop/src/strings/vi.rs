@@ -1417,4 +1417,9 @@ sudo sysctl -w net.core.rmem_max={}", "Bộ đệm nhận: hệ thống chỉ c�
     ("This device doesn’t decode {}, so Nightjar uses {}.", "Thiết bị này không giải mã {0} nên Nightjar dùng {1}."),
     ("Full chroma can’t run {} with this PC and device, so Nightjar uses {}.", "Full chroma không thể dùng {0} với PC và thiết bị này nên Nightjar dùng {1}."),
     ("The second screen could not be opened.", "Không thể mở màn hình thứ hai."),
+    ("Dual screen mode", "Chế độ hai màn hình"),
+    ("With a second monitor, a second stream of the same game opens full screen on it. Sound, controllers and the microphone stay with the first screen. Works with PCs that support it.", "Khi có màn hình thứ hai, một luồng thứ hai của cùng trò chơi sẽ mở toàn màn hình trên đó. Âm thanh, tay cầm và micrô vẫn ở màn hình thứ nhất. Hoạt động với PC có hỗ trợ."),
+    ("Second screen resolution", "Độ phân giải màn hình thứ hai"),
+    ("The resolution of the second screen's stream, apart from the first screen's.", "Độ phân giải của luồng trên màn hình thứ hai, riêng với màn hình thứ nhất."),
+    ("Second screen's own size", "Kích thước gốc của màn hình thứ hai"),
 ];

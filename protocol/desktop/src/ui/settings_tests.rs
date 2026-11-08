@@ -593,6 +593,14 @@ fn settings_screenshots() {
                 f.scroll_to_end();
                 shoot(&mut f, &format!("settings-section-{at}-end"));
             }
+            // Dual screen mode on: Second screen resolution can be changed.
+            f.l.settings.dual_screen = true;
+            f.l.settings_view.section = "Streaming";
+            f.l.settings_view.to_top = true;
+            f.settle();
+            f.scroll_to_end();
+            shoot(&mut f, "settings-dual-screen");
+            f.l.settings.dual_screen = false;
             f.l.settings_view.query = "bitrate".into();
             shoot(&mut f, "settings-search");
             f.l.settings_view.query = "teleport".into();

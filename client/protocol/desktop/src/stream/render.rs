@@ -461,7 +461,9 @@ impl Streaming {
         {
             self.window_target.get_or_insert((crate::sdl::window_target_frames(renderer), 0)).1 += 1;
             // The host's mastering metadata for an HDR10 swapchain, again when it or the peak changes.
-            let metadata = self.texture.hdr_metadata().map(|m| crate::sdl::swapchain_hdr_metadata(&m, crate::sdl::output_peak_nits(renderer)));
+            // Once HDR stops, the swapchain gets unknown metadata instead of keeping the last stream's.
+            let metadata = self.texture.hdr_metadata().map(|m| crate::sdl::swapchain_hdr_metadata(&m, crate::sdl::output_peak_nits(renderer)))
+                .or_else(|| self.swapchain_hdr_metadata.map(|_| crate::sdl::swapchain_hdr_metadata(&Default::default(), None)));
             if let Some(metadata) = metadata.filter(|m| self.swapchain_hdr_metadata != Some(*m)) {
                 if crate::sdl::output_decision() == Some(Ok(crate::handheld::Output::Pq)) {
                     eprintln!("nightjar: HDR10 swapchain metadata: mastering {:.4}-{:.0} nits, MaxCLL {:.0}, MaxFALL {:.0}",

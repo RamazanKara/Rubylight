@@ -11,6 +11,7 @@ const BUCKETS: usize = 10_000;
 
 /// Frames a decoder or presenter part keeps its stages for before its summary goes to the log:
 /// two seconds at 60 fps, so a probe's single picture says nothing.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub const SUMMARY_FRAMES: usize = 120;
 
 pub struct Stages<const N: usize> {
@@ -36,6 +37,7 @@ impl<const N: usize> Stages<N> {
     }
 
     /// Adds the time from `from` to `to` to `stage` of the frame in progress.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn add_between(&mut self, stage: usize, from: Instant, to: Instant) {
         let micros = to.saturating_duration_since(from).as_micros().min(u128::from(u32::MAX)) as u32;
         self.frame[stage] = self.frame[stage].saturating_add(micros);

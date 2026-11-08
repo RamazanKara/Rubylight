@@ -391,8 +391,24 @@ pub(crate) mod tests {
         ("stream/pipeline.rs", include_str!("stream/pipeline.rs")),
     ];
 
+    /// The source before its test module: a `#[cfg(test)]` on a single item (a test-only helper)
+    /// does not end it, or the production code after the helper would go unscanned.
     fn production(source: &str) -> &str {
-        source.split("#[cfg(test)]").next().unwrap_or(source)
+        let mut from = 0;
+        while let Some(at) = source[from..].find("#[cfg(test)]") {
+            let start = from + at;
+            from = start + "#[cfg(test)]".len();
+            let mut rest = source[from..].trim_start();
+            // Attributes between it and the item (`#[path = ...]`, `#[allow(...)]`).
+            while rest.starts_with("#[") {
+                let Some(end) = rest.find(']') else { break };
+                rest = rest[end + 1..].trim_start();
+            }
+            if rest.starts_with("mod ") || rest.starts_with("pub mod ") || rest.starts_with("pub(crate) mod ") {
+                return &source[..start];
+            }
+        }
+        source
     }
 
     /// The string literal starting at `text[0] == '"'`: its value and the length it took.
@@ -697,6 +713,18 @@ pub(crate) mod tests {
             let untranslated: Vec<&str> = table.iter().filter(|(english, text)| english == text && !SAME_IN_ENGLISH.contains(english)).map(|e| e.0).collect();
             assert!(untranslated.is_empty(), "the {lang:?} table leaves these in English: {untranslated:?}");
         }
+    }
+
+    /// A test-only helper above `Decoder::replace_refused` hid its notices from the scan, so their
+    /// translations counted as unused.
+    #[test]
+    fn a_test_only_item_does_not_end_the_scanned_source() {
+        let source = "fn a() {}\n#[cfg(test)]\nfn helper() {}\nfn b() { tr(\"kept\"); }\n#[cfg(test)]\n#[path = \"x.rs\"]\nmod tests;\nfn c() {}";
+        let scanned = production(source);
+        assert!(scanned.contains("tr(\"kept\")") && scanned.contains("fn helper"), "{scanned}");
+        assert!(!scanned.contains("mod tests") && !scanned.contains("fn c"), "{scanned}");
+        assert_eq!(production("fn a() {}\n#[cfg(test)]\nmod tests {}"), "fn a() {}\n");
+        assert_eq!(production("fn a() {}"), "fn a() {}");
     }
 
     #[test]

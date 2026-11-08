@@ -223,6 +223,9 @@ pub fn render_dimensions(width: u32, height: u32, client_scale: i64, app_scale: 
 pub const DISPLAY_SCALE_PARAMETER: &str = "rlDisplayScale";
 /// The serverinfo element that says the host reads [`DISPLAY_SCALE_PARAMETER`].
 pub const DISPLAY_SCALE_SERVERINFO_FIELD: &str = "DisplayScaleVersion";
+/// The serverinfo element that says the host keeps a device's second screen beside its first
+/// stream: a launch with `rlSecondScreen=1`.
+pub const SECOND_SCREEN_SERVERINFO_FIELD: &str = "SecondScreenVersion";
 /// The display scales Windows offers, in percent.
 pub const DISPLAY_SCALES: [u32; 12] = [100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500];
 
@@ -466,6 +469,13 @@ impl Arrangement {
         let mut current = nodes.to_vec();
         self.preserve_primary(&mut current, before)?;
         self.compose_all(&current, targets, retained)
+    }
+    /// Whether the layout makes a stream's display the primary one.
+    pub const fn makes_stream_main(self) -> bool {
+        matches!(
+            self,
+            Self::Primary | Self::Exclusive | Self::PrimaryIsolated
+        )
     }
     /// Whether the primary stays the one from before the stream.
     pub const fn keeps_primary(self) -> bool {

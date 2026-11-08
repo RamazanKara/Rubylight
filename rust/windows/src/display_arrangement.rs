@@ -1,7 +1,9 @@
 //! Temporary exclusive/primary/isolated layouts with shared and crash restoration.
 use crate::display::{Snapshot, Topology};
+mod remembered;
 use anyhow::{Result, bail};
 use butterpollo_core::{display_policy::Arrangement, topology::Node};
+pub use remembered::initialize as initialize_remembered;
 use std::sync::{
     Arc, Condvar, Mutex, OnceLock,
     atomic::{AtomicU64, Ordering},
@@ -343,6 +345,10 @@ fn apply(state: &mut State, arrangement: Arrangement, leaving: Option<&str>) -> 
                 node.primary = false;
             }
         }
+    }
+    if leaving.is_none() && targets.len() == 2 {
+        // A device's two screens come back as the user left them.
+        desired = remembered::apply(desired, &targets, arrangement.makes_stream_main());
     }
     keep_switched_off(&mut desired, &state.applied);
     if let Some(before) = &state.before {
@@ -2192,6 +2198,14 @@ impl Drop for Lease {
         let mut state = state().lock().unwrap();
         let target = self.target.lock().unwrap().clone();
         state.users -= 1;
+        if state.owners.len() == 2
+            && state.owners.iter().any(|(t, n)| *t == target && *n == 1)
+            && let Ok(topology) = Topology::query().and_then(|t| t.nodes())
+        {
+            // One of a device's two screens ends: keep how they are arranged now.
+            let targets: Vec<_> = state.owners.iter().map(|(t, _)| t.clone()).collect();
+            remembered::remember(&topology, &targets);
+        }
         let Released { left, saved } = release_owner(&mut state, &target);
         if state.users != 0 {
             // Other streams continue: lay out their displays without this one.

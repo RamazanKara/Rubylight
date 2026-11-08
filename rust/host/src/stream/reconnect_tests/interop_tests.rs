@@ -871,6 +871,10 @@ const SERVERINFO_FIELDS: &[(&str, Reading)] = &[
     ("KeyboardLayoutVersion", Reading::Read),
     ("PenBarrelRollVersion", Reading::Read),
     (
+        "SecondScreenVersion",
+        Reading::Ignored("Nightjar on Android reads it; the desktop client has no second screen"),
+    ),
+    (
         "RustHostSessionCount",
         Reading::Ignored("diagnostics for scripts and the release harness"),
     ),

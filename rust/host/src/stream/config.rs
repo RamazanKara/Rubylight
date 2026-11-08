@@ -61,7 +61,12 @@ pub(crate) fn launch_app(h: &Shared, launch: &Launch) -> Option<butterpollo_core
         .unwrap()
         .iter()
         .find(|app| app.id() == launch.app_id || app.aliases.contains(&launch.app_id))
-        .map(|app| butterpollo_core::device_overrides::for_device(app, &launch.client.uuid))
+        .map(|app| {
+            butterpollo_core::device_overrides::for_device(
+                app,
+                butterpollo_core::state::device_uuid(&launch.client.uuid),
+            )
+        })
 }
 
 /// The stream's settings: host, then device, then app, then the app's block for the device.

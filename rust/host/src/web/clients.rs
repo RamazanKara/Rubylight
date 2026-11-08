@@ -17,7 +17,8 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 .active
                 .values()
                 .filter(|s| !s.stopping())
-                .map(|s| s.launch.client.uuid.clone())
+                // A device streaming only its second screen is connected too.
+                .map(|s| butterpollo_core::state::device_uuid(&s.launch.client.uuid).to_owned())
                 .collect::<std::collections::HashSet<_>>();
             let agents = h.client_agents.lock().unwrap().clone();
             let clients: Vec<_> = h
@@ -56,9 +57,7 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             })
         }
         ("POST", "/api/clients/unpair") => {
-            let canceled = h.sessions.lock().unwrap().request_stop(Some(text("uuid")));
-            drop(canceled);
-            crate::remote_display::disconnect(h, Some(text("uuid")));
+            crate::nvhttp::end_device(h, text("uuid"));
             h.unpair_with_network_history(Some(text("uuid")))?;
             h.webrtc.clients_changed();
             // The device is gone; its session may linger for the grace period, its Radeon
@@ -78,9 +77,7 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             json!({"status":true})
         }
         ("POST", "/api/clients/disconnect") => {
-            let canceled = h.sessions.lock().unwrap().request_stop(Some(text("uuid")));
-            drop(canceled);
-            crate::remote_display::disconnect(h, Some(text("uuid")));
+            crate::nvhttp::end_device(h, text("uuid"));
             json!({"status":true})
         }
         ("POST", "/api/clients/reset-network-history") => {
@@ -208,9 +205,7 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             // Other changes apply from the device's next stream; disabling
             // it or removing permissions ends what it is doing now.
             if revoked {
-                let canceled = h.sessions.lock().unwrap().request_stop(Some(text("uuid")));
-                drop(canceled);
-                crate::remote_display::disconnect(h, Some(text("uuid")));
+                crate::nvhttp::end_device(h, text("uuid"));
             }
             // Turning a device off ends its claim on the host's Radeon settings and game file
             // keys. Removing a permission does not: pending changes go back with the session.
@@ -498,6 +493,34 @@ mod tests {
         )
         .unwrap();
         assert!(!f.host.radeon.holds(&client.uuid));
+    }
+
+    #[test]
+    fn turning_off_disconnecting_or_unpairing_a_device_ends_its_second_screen_too() {
+        use butterpollo_core::session::Role;
+        for (path, data) in [
+            ("/api/clients/update", json!({"enabled": false})),
+            ("/api/clients/update", json!({"perm": 0})),
+            ("/api/clients/disconnect", json!({})),
+            ("/api/clients/unpair", json!({})),
+        ] {
+            let f = Fixture::new();
+            let client = f.client(PERM);
+            let first = f.session(client.clone(), Role::Stream);
+            let second = f.session(client.clone().second_screen(), Role::Stream);
+            let mut other = client.clone();
+            other.uuid = "other-device".into();
+            let theirs = f.session(other, Role::Stream);
+            // The device streams only its second screen: it is connected all the same.
+            first.stop();
+            let listed = handle(&f.host, "GET", "/api/clients/list", &json!({})).unwrap();
+            assert_eq!(listed["clients"][0]["connected"], true, "{path} {data}");
+            let mut data = data;
+            data["uuid"] = json!(client.uuid);
+            handle(&f.host, "POST", path, &data).unwrap();
+            assert!(second.stopping(), "{path} {data}");
+            assert!(!theirs.stopping(), "{path} {data}");
+        }
     }
 
     #[test]

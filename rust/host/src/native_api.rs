@@ -262,7 +262,8 @@ async fn unknown() -> Failure {
     )
 }
 
-/// The paired device behind this connection, as the console has it now.
+/// The paired device behind this connection, as the console has it now; its second screen for a
+/// request of that screen ([`crate::nvhttp::as_requested`]).
 fn caller(h: &Shared, connection: &Connection) -> Result<Client, Failure> {
     let not_paired = || {
         Failure::new(
@@ -280,6 +281,7 @@ fn caller(h: &Shared, connection: &Connection) -> Result<Client, Failure> {
         .unwrap_or_else(PoisonError::into_inner)
         .client_by_certificate(der)
         .cloned()
+        .map(|client| crate::nvhttp::as_requested(client, connection))
         .ok_or_else(not_paired)
 }
 fn permission_required(name: &str) -> Failure {

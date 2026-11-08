@@ -61,6 +61,7 @@ impl Fixture {
             local: "127.0.0.1:47984".parse().unwrap(),
             certificate: tls.then(|| self.host.identity.der.clone()),
             tls,
+            second_screen: false,
         }
     }
     pub fn launch(&self, client: Client, role: Role) -> Launch {

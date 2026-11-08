@@ -281,7 +281,7 @@ impl Host {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clients
             .iter()
-            .find(|client| client.uuid == uuid)
+            .find(|client| client.uuid == butterpollo_core::state::device_uuid(uuid))
             .map(|client| client.name.clone())
     }
     /// Where `device`'s stream went, for its own `/session`. Nothing else asks once the game has

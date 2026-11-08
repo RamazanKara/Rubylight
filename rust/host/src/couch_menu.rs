@@ -404,7 +404,10 @@ fn client(h: &Shared, s: &Session) -> Result<Client, Failure> {
         .unwrap()
         .clients
         .iter()
-        .find(|client| client.enabled && client.uuid == s.launch.client.uuid)
+        .find(|client| {
+            client.enabled
+                && client.uuid == butterpollo_core::state::device_uuid(&s.launch.client.uuid)
+        })
         .cloned()
         .ok_or_else(|| {
             Failure::new(

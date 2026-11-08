@@ -49,7 +49,7 @@ impl SessionThread<'_> {
     pub(super) fn record_last_seen(&self) {
         let SessionThread { h, s, .. } = *self;
         let paired_h = h.clone();
-        let client_uuid = s.launch.client.uuid.clone();
+        let client_uuid = butterpollo_core::state::device_uuid(&s.launch.client.uuid).to_owned();
         let last_seen = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()

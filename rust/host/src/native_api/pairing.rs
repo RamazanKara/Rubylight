@@ -211,7 +211,7 @@ pub(crate) fn capped(
     let approver = state
         .clients
         .iter()
-        .find(|c| c.uuid == uuid && c.may_approve_pairing())
+        .find(|c| c.uuid == butterpollo_core::state::device_uuid(uuid) && c.may_approve_pairing())
         .ok_or(ApproverRevoked {
             missing: "Approve new devices",
         })?;

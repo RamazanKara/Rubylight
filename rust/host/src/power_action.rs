@@ -232,13 +232,14 @@ pub(crate) fn busy_beside_gate(h: &Shared) -> Option<Busy> {
     }
     None
 }
-/// The devices that stream or start a stream, but `except`.
+/// The devices that stream or start a stream, but `except` (with both its screens).
 pub(crate) fn streaming(h: &Shared, except: Option<&str>) -> Option<Busy> {
+    use butterpollo_core::state::device_uuid;
     let sessions = h.sessions.lock().unwrap();
     let names = |clients: Vec<&butterpollo_core::state::Client>| {
         let mut names: Vec<String> = clients
             .into_iter()
-            .filter(|c| except != Some(c.uuid.as_str()))
+            .filter(|c| except.is_none_or(|except| device_uuid(except) != device_uuid(&c.uuid)))
             .map(|c| c.name.clone())
             .collect();
         names.sort();

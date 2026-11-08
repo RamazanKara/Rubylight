@@ -213,7 +213,48 @@ fn authenticated(h: &Shared, connection: &Connection, permission: u32) -> Result
         bail!("client permission denied: enable {permission} for this device in the host console");
     }
     crate::wake::note_client_request(h);
-    Ok(c.clone())
+    Ok(as_requested(c.clone(), connection))
+}
+/// The paired device as this request's sender: its second screen when the request says so
+/// ([`Connection::second_screen`]), so a request about a stream reaches that screen's stream.
+/// The device's own pairing, permissions and settings are the same either way.
+pub(crate) fn as_requested(client: Client, connection: &Connection) -> Client {
+    if connection.second_screen {
+        client.second_screen()
+    } else {
+        client
+    }
+}
+/// Request parameter of Nightjar's Dual screen mode: `1` on every HTTPS request of a device's
+/// second screen, its `/launch` and `/resume` included.
+const SECOND_SCREEN: &str = "rlSecondScreen";
+fn second_screen_query(query: Option<&str>) -> bool {
+    query.is_some_and(|query| {
+        url::form_urlencoded::parse(query.as_bytes())
+            .any(|(key, value)| key == SECOND_SCREEN && value == "1")
+    })
+}
+/// Marks the request of a device's second screen on its [`Connection`], before any handler
+/// resolves the sender.
+async fn mark_second_screen(mut request: axum::extract::Request) -> axum::extract::Request {
+    let second_screen = second_screen_query(request.uri().query());
+    if let Some(connection) = request.extensions_mut().get_mut::<Connection>() {
+        connection.second_screen = second_screen;
+    }
+    request
+}
+/// Ends every session of a paired device, its second screen's too: an unpaired or turned off
+/// device keeps neither streaming.
+pub(crate) fn end_device(h: &Shared, device: &str) {
+    let device = butterpollo_core::state::device_uuid(device);
+    for uuid in [
+        device.to_owned(),
+        butterpollo_core::state::second_screen_uuid(device),
+    ] {
+        let canceled = h.sessions.lock().unwrap().request_stop(Some(&uuid));
+        drop(canceled);
+        crate::remote_display::disconnect(h, Some(&uuid));
+    }
 }
 /// Watching a stream needs the view or the launch permission, as in
 /// Vibepollo: a device that may launch a game may also resume it.
@@ -278,7 +319,8 @@ pub fn router(h: Shared, https: bool) -> Router {
     } else {
         r
     };
-    r.layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
+    r.layer(axum::middleware::map_request(mark_second_screen))
+        .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
         .with_state(h)
 }
 async fn network_path(State(h): State<Shared>, Extension(c): Extension<Connection>) -> Response {
@@ -323,7 +365,11 @@ async fn serverinfo(
     let config = h.config.read().unwrap().clone();
     let client = authenticated(&h, &connection, 0).ok();
     if let Some(client) = &client {
-        note_client_agent(&h, &client.uuid, &headers);
+        note_client_agent(
+            &h,
+            butterpollo_core::state::device_uuid(&client.uuid),
+            &headers,
+        );
     }
     let paired = client.is_some();
     // The peer port does not affect the routed interface. Keep its IPv6 scope.
@@ -1407,23 +1453,6 @@ pub(crate) fn check_streaming_session(h: &Shared, phase: &'static str) -> Result
     );
     result
 }
-/// Launch parameter of Nightjar's Dual screen mode: `1` on the stream of a device's second screen.
-const SECOND_SCREEN: &str = "rlSecondScreen";
-/// What follows the device's UUID in the UUID of its second screen.
-const SECOND_SCREEN_SUFFIX: &str = "#screen2";
-/// A device streams its second screen under one pairing: the launch carries [`SECOND_SCREEN`] and
-/// the host keeps the stream as that of a device of its own (the device's UUID and a suffix), which
-/// every session rule then applies to, so it neither replaces the first screen's stream nor shares
-/// its display. Only a launch of a paired, authorized device gets there; it is never paired itself.
-fn second_screen(mut client: Client, args: &Args) -> Client {
-    if args.get(SECOND_SCREEN).is_some_and(|v| v == "1")
-        && !client.uuid.ends_with(SECOND_SCREEN_SUFFIX)
-    {
-        client.uuid.push_str(SECOND_SCREEN_SUFFIX);
-        client.name.push_str(" (second screen)");
-    }
-    client
-}
 fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Response {
     let requested = args
         .get("appid")
@@ -1437,9 +1466,13 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
                 .filter(|game| requested == remote::running_game_id(game.app.id))
                 .map(|_| Control::RunningGame)
         });
+    // A device streams its second screen under one pairing: the launch carries `rlSecondScreen=1`
+    // and the client is the device's second screen (`as_requested`), which every session rule
+    // treats as a device of its own, so it neither replaces the first screen's stream nor shares
+    // its display. Only a launch of a paired, authorized device gets there.
     let authorized = validate_launch_client(&h, &connection, control, resume);
     let client = match authorized {
-        Ok(c) => second_screen(c, &args),
+        Ok(c) => c,
         Err(error) => {
             tracing::warn!(%error, app_id = requested, resume, "Moonlight launch authorization failed");
             return xml(401, &[], Some(error.to_string()));
@@ -1575,8 +1608,12 @@ fn launch_back_half(
 ) -> Result<Launch> {
     // The app as this device streams it: the device's block in its `device-overrides` on top,
     // for its Radeon profile and its managed game files.
-    let app =
-        app.map(|app| butterpollo_core::device_overrides::for_device(&app, &launch.client.uuid));
+    let app = app.map(|app| {
+        butterpollo_core::device_overrides::for_device(
+            &app,
+            butterpollo_core::state::device_uuid(&launch.client.uuid),
+        )
+    });
     let role = launch.role;
     let app_id = launch.app_id;
     let id = launch.id.clone();
@@ -1969,7 +2006,10 @@ pub(crate) fn terminate_refused(h: &Shared, client: &str) -> bool {
             .active
             .values()
             .any(|s| !s.stopping() && s.launch.role != Role::Stream);
-    (remote_active && game.owner != client) || h.claimed_by_other(client)
+    (remote_active
+        && butterpollo_core::state::device_uuid(&game.owner)
+            != butterpollo_core::state::device_uuid(client))
+        || h.claimed_by_other(client)
 }
 /// Unplug the controllers that streams which ended still park and wait until XInput shows them
 /// gone, so a new Nucleus Co-op session's players take the first free slots (#56). A pending
@@ -2245,9 +2285,12 @@ pub(crate) const RESUME_GAME_CHANGED: &str = "The game running on this PC change
 pub(crate) const NOTHING_TO_RESUME: &str = "no application or remote monitor to resume";
 /// Whether `device` started or took over the running game, also a background one.
 fn plays_game(h: &Shared, device: &str) -> bool {
-    h.current_app.lock().unwrap().as_ref().is_some_and(|game| {
-        game.owner == device.strip_suffix(SECOND_SCREEN_SUFFIX).unwrap_or(device)
-    })
+    use butterpollo_core::state::device_uuid;
+    h.current_app
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|game| device_uuid(&game.owner) == device_uuid(device))
 }
 fn resolve_launch_app(
     h: &Shared,
@@ -2845,15 +2888,15 @@ async fn unpair(State(h): State<Shared>, Extension(connection): Extension<Connec
     let Ok(client) = authenticated(&h, &connection, 0) else {
         return xml(200, &[("unpaired", "0".into())], None);
     };
-    let removed = h.unpair_with_network_history(Some(&client.uuid));
+    // From either of its screens, the device goes, with both screens' streams.
+    let device = butterpollo_core::state::device_uuid(&client.uuid);
+    let removed = h.unpair_with_network_history(Some(device));
     if let Err(e) = removed {
         return xml(500, &[("unpaired", "0".into())], Some(e.to_string()));
     }
-    let canceled = h.sessions.lock().unwrap().request_stop(Some(&client.uuid));
-    drop(canceled);
-    crate::remote_display::disconnect(&h, Some(&client.uuid));
-    h.radeon.release_device(&client.uuid);
-    h.game_files.release_device(&h.directory, &client.uuid);
+    end_device(&h, device);
+    h.radeon.release_device(device);
+    h.game_files.release_device(&h.directory, device);
     xml(200, &[("unpaired", "1".into())], None)
 }
 async fn appasset(
@@ -3332,27 +3375,20 @@ async fn abr(State(h): State<Shared>, Extension(c): Extension<Connection>) -> Re
 mod tests {
     use super::stream_key_id;
     #[test]
-    fn a_second_screen_streams_as_a_device_of_its_own_under_one_pairing() {
-        let paired = || super::Client {
-            name: "Tab".into(),
-            cert: String::new(),
-            uuid: "abc".into(),
-            perm: 0,
-            enabled: true,
-            extra: Default::default(),
-        };
-        let mut args = super::Args::new();
-        assert_eq!(super::second_screen(paired(), &args).uuid, "abc");
-        args.insert("rlSecondScreen".into(), "0".into());
-        assert_eq!(super::second_screen(paired(), &args).uuid, "abc");
-        args.insert("rlSecondScreen".into(), "1".into());
-        let second = super::second_screen(paired(), &args);
-        assert_eq!(second.uuid, "abc#screen2");
-        assert_eq!(second.name, "Tab (second screen)");
-        assert_eq!(
-            super::second_screen(second.clone(), &args).uuid,
-            second.uuid
-        );
+    fn only_rl_second_screen_1_marks_a_request_of_the_second_screen() {
+        for (query, second) in [
+            (None, false),
+            (Some(""), false),
+            (Some("bitrate=1"), false),
+            (Some("rlSecondScreen=0"), false),
+            (Some("rlSecondScreen=true"), false),
+            (Some("xrlSecondScreen=1"), false),
+            (Some("rlSecondScreen=1"), true),
+            (Some("appid=1&rlSecondScreen=1&rikeyid=2"), true),
+            (Some("rlSecondScreen=%31"), true),
+        ] {
+            assert_eq!(super::second_screen_query(query), second, "{query:?}");
+        }
     }
     fn running_app(f: &crate::state::test_support::Fixture, owner: &str) {
         let app = f.host.apps.read().unwrap()[0].clone();

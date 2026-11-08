@@ -384,6 +384,7 @@ async fn serve(f: &Fixture, console: Console) -> SocketAddr {
                 local,
                 certificate: None,
                 tls: true,
+                second_screen: false,
             })));
             tokio::spawn(async move {
                 let _ = Builder::new(TokioExecutor::new())

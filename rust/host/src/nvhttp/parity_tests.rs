@@ -1110,6 +1110,7 @@ async fn pair_over_http(f: &Fixture, args: &Args) -> (StatusCode, String) {
         local: "127.0.0.1:47989".parse().unwrap(),
         certificate: None,
         tls: false,
+        second_screen: false,
     };
     let request = Request::builder()
         .uri(format!("/pair?{query}"))
@@ -1482,6 +1483,69 @@ async fn unpair_get_and_post_require_tls_and_stop_only_the_paired_device() {
             "0"
         );
     }
+}
+
+#[tokio::test]
+async fn unpairing_from_either_screen_ends_both_screens_and_the_pairing() {
+    for query in ["", "?rlSecondScreen=1"] {
+        let f = Fixture::new();
+        let client = f.client(u32::MAX);
+        let first = f.session(client.clone(), Role::Stream);
+        let second = f.session(client.clone().second_screen(), Role::Stream);
+        let mut other = client;
+        other.uuid = "another-device".into();
+        let theirs = f.session(other, Role::Stream);
+        let root = document(request(&f, true, "GET", &format!("/unpair{query}")).await).await;
+        assert_eq!(field(&root, "unpaired"), "1", "{query}");
+        assert!(first.stopping(), "{query}");
+        assert!(second.stopping(), "{query}");
+        assert!(!theirs.stopping(), "{query}");
+        assert!(f.host.paired.read().unwrap().clients.is_empty(), "{query}");
+    }
+}
+
+#[tokio::test]
+async fn requests_of_a_second_screen_reach_its_own_stream() {
+    let f = Fixture::new();
+    let client = f.client(1 << 25);
+    let first = f.session(client.clone(), Role::Stream);
+    let second = f.session(client.clone().second_screen(), Role::Stream);
+    let original = second.bitrate.load(Ordering::Acquire);
+    let root = document(request(&f, true, "GET", "/bitrate?bitrate=12345").await).await;
+    assert_eq!(field(&root, "updated"), "1");
+    assert_eq!(first.bitrate.load(Ordering::Acquire), 12345);
+    assert_eq!(second.bitrate.load(Ordering::Acquire), original);
+    let root =
+        document(request(&f, true, "GET", "/bitrate?bitrate=23456&rlSecondScreen=1").await).await;
+    assert_eq!(field(&root, "updated"), "1");
+    assert_eq!(first.bitrate.load(Ordering::Acquire), 12345);
+    assert_eq!(second.bitrate.load(Ordering::Acquire), 23456);
+    // The device's permissions decide for both screens.
+    f.host.paired.write().unwrap().clients[0].perm = 1 << 24;
+    let refused =
+        document(request(&f, true, "GET", "/bitrate?bitrate=1&rlSecondScreen=1").await).await;
+    assert_eq!(refused.attributes["status_code"], "403");
+    f.host.paired.write().unwrap().clients[0].enabled = false;
+    f.host.paired.write().unwrap().clients[0].perm = 1 << 25;
+    let refused =
+        document(request(&f, true, "GET", "/bitrate?bitrate=1&rlSecondScreen=1").await).await;
+    assert_eq!(refused.attributes["status_code"], "403");
+    assert_eq!(second.bitrate.load(Ordering::Acquire), 23456);
+}
+
+#[tokio::test]
+async fn a_second_screen_launch_is_its_own_device_and_needs_the_devices_permission() {
+    let f = Fixture::new();
+    f.client(1 << 26);
+    let mut connection = f.connection(true);
+    connection.second_screen = true;
+    let screen = validate_launch_client(&f.host, &connection, None, false).unwrap();
+    assert_eq!(
+        (screen.uuid.as_str(), screen.name.as_str()),
+        ("parity-device#screen2", "Parity device (second screen)")
+    );
+    f.host.paired.write().unwrap().clients[0].perm = 1 << 24;
+    assert!(validate_launch_client(&f.host, &connection, None, false).is_err());
 }
 
 #[tokio::test]
@@ -2281,6 +2345,7 @@ async fn an_unpaired_device_over_the_clipboard_limit_is_logged_once() {
         local: "127.0.0.1:47984".parse().unwrap(),
         certificate: None,
         tls: true,
+        second_screen: false,
     };
     let path = f.host.directory.join("unpaired-limit.log");
     let subscriber = tracing_subscriber::fmt()

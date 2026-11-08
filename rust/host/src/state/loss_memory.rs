@@ -190,7 +190,11 @@ impl Host {
         }
         let epochs = self.keyframe_loss_epochs.lock().unwrap();
         let mut state = self.paired.write().unwrap();
-        let client = &session.launch.client;
+        // The history is the paired device's: its second screen streams over the same path.
+        let client = &Client {
+            uuid: butterpollo_core::state::device_uuid(&session.launch.client.uuid).to_owned(),
+            ..session.launch.client.clone()
+        };
         // Use the TLS-authenticated launch identity, never a name or a UUID
         // supplied by a later packet. A removed/replaced certificate cannot
         // acquire or recreate another pairing's history.
@@ -443,6 +447,30 @@ mod tests {
         let next = session(&f, &c, "192.0.2.1", 0);
         let guard = reopened.configure_keyframe_loss(&next, true);
         assert!(!next.keyframe_loss_active());
+        assert!(guard.token.as_ref().unwrap().probe_revision.is_some());
+        drop(guard);
+    }
+
+    #[test]
+    fn a_second_screen_keeps_and_reads_its_devices_history() {
+        let f = Fixture::new();
+        let c = f.client(0x071f1f00);
+        let screen = c.clone().second_screen();
+        // Loss on the second screen is the device's.
+        seed(&f, &screen);
+        let saved = read(&PairedState::load(&f.host.paired_path).unwrap(), now());
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].client_id, c.uuid);
+        // And the second screen starts from it; the device's next session is the probe.
+        let s = session(&f, &screen, "192.0.2.1", 0);
+        let guard = f.host.configure_keyframe_loss(&s, true);
+        assert_eq!(
+            s.keyframe_loss_reason(),
+            Some("remembered from the previous session")
+        );
+        drop(guard);
+        let s = session(&f, &c, "192.0.2.1", 0);
+        let guard = f.host.configure_keyframe_loss(&s, true);
         assert!(guard.token.as_ref().unwrap().probe_revision.is_some());
         drop(guard);
     }

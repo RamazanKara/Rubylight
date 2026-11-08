@@ -39,6 +39,10 @@ pub struct Connection {
     pub local: SocketAddr,
     pub certificate: Option<Vec<u8>>,
     pub tls: bool,
+    /// The request comes from the device's second screen (`rlSecondScreen=1` in its query):
+    /// its client is [`butterpollo_core::state::Client::second_screen`]. Set per request by
+    /// `nvhttp::router`, never by a connection.
+    pub second_screen: bool,
 }
 /// How a connection ended, for a handler that may act only once its answer
 /// has left: `true` once hyper wrote every response and closed the
@@ -413,6 +417,7 @@ async fn serve_connection_with<S>(
                     local,
                     certificate,
                     tls: true,
+                    second_screen: false,
                 }))
                 .layer(Extension(end.clone())),
             bodies,
@@ -429,6 +434,7 @@ async fn serve_connection_with<S>(
                     local,
                     certificate: None,
                     tls: false,
+                    second_screen: false,
                 }))
                 .layer(Extension(end.clone())),
             bodies,

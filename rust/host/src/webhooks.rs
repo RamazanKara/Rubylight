@@ -515,7 +515,7 @@ impl Host {
             .unwrap()
             .clients
             .iter()
-            .find(|c| c.uuid == uuid)
+            .find(|c| c.uuid == butterpollo_core::state::device_uuid(uuid))
             .map(|c| c.name.clone())
             .unwrap_or_default();
         device(uuid, &name)

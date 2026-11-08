@@ -40,6 +40,7 @@ fn connection_to(peer: &str, local: &str) -> Connection {
         local: local.parse().unwrap(),
         certificate: None,
         tls: true,
+        second_screen: false,
     }
 }
 
@@ -634,6 +635,7 @@ async fn serve(f: &Fixture) -> SocketAddr {
                 local,
                 certificate: None,
                 tls: true,
+                second_screen: false,
             })));
             tokio::spawn(async move {
                 let _ = Builder::new(TokioExecutor::new())

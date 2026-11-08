@@ -39,7 +39,7 @@ fn nodes(h: &Shared) -> Result<Vec<Node>> {
         node.label = paired
             .clients
             .iter()
-            .find(|c| &c.uuid == id)
+            .find(|c| c.uuid == butterpollo_core::state::device_uuid(id))
             .map_or(id.clone(), |c| c.name.clone());
     }
     Ok(nodes)
@@ -133,7 +133,7 @@ pub fn activate(
         .unwrap()
         .clients
         .iter()
-        .find(|c| c.uuid == client)
+        .find(|c| c.uuid == butterpollo_core::state::device_uuid(client))
         .cloned();
     let options = display::VirtualOptions {
         peak_nits: identity

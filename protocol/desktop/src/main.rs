@@ -9,7 +9,6 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod a11y;
-#[cfg(any(target_os = "linux", test))]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod amd_decode;
 #[allow(dead_code, reason = "glass foundation: the pages start using it in the next change")]

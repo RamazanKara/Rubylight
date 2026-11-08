@@ -167,7 +167,7 @@ impl System {
         let written = std::fs::write(&script, SCRIPT).and_then(|()| std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)));
         let result = written.map_err(failed).and_then(|()| {
             let mut command = Command::new("pkexec");
-            command.arg("/bin/sh").arg(&script).arg("install");
+            crate::amd_decode::for_child(&mut command).arg("/bin/sh").arg(&script).arg("install");
             let output = run(command)?;
             if output.code == Some(0) && self.is_installed() { return Ok(()); }
             Err(match output.code {
@@ -196,7 +196,7 @@ impl System {
         let connection = Arc::new(TcpTunnel::new(ours).map_err(failed)?);
         let (program, args) = self.helper.split_first().expect("the helper command names a program");
         let mut command = Command::new(program);
-        command.args(args).arg("hold").arg(busid).arg(&identity);
+        crate::amd_decode::for_child(&mut command).args(args).arg("hold").arg(busid).arg(&identity);
         // The helper hands its end to usbip-host; Command closes this process's copy.
         command.stdin(Stdio::from(std::os::fd::OwnedFd::from(theirs))).stdout(Stdio::piped()).stderr(Stdio::piped());
         // Its own process group: a Ctrl-C in Nightjar's terminal doesn't reach it, and its

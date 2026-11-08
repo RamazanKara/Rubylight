@@ -1427,6 +1427,5 @@ sudo sysctl -w net.core.rmem_max={}", "Буфер приёма: система �
     ("This system's VA-API driver decodes neither H.264 nor HEVC. Install your distribution's full Mesa VA drivers, or use the Nightjar Flatpak.", "Драйвер VA-API этой системы не декодирует ни H.264, ни HEVC. Установите полные драйверы VA Mesa вашего дистрибутива или используйте Flatpak Nightjar."),
     ("This NVIDIA driver has no Vulkan video decoding, so each picture is copied through memory. A newer NVIDIA driver adds it.", "Этот драйвер NVIDIA не декодирует через Vulkan Video, поэтому каждый кадр копируется через память. В более новом драйвере NVIDIA это есть."),
     ("The Flatpak lacks {}, the NVIDIA driver it needs. Run flatpak update to install it.", "Во Flatpak нет {}, нужного ему драйвера NVIDIA. Выполните flatpak update, чтобы установить его."),
-    ("Intel's legacy VA-API driver (i965) is in use. Install intel-media-driver for HEVC Main10 and AV1.", "Используется старый драйвер VA-API от Intel (i965). Установите intel-media-driver для HEVC Main10 и AV1."),
     ("Full chroma needs a {0} picture, larger than this decoder's {1}, so the stream is 4:2:0. A lower resolution keeps full chroma.", "Полной цветности нужен кадр {0}, больше предела {1} этого декодера, поэтому поток идёт в 4:2:0. При меньшем разрешении полная цветность сохраняется."),
 ];

@@ -15,6 +15,7 @@ pub(crate) mod ffi {
 }
 use ffi::*;
 
+#[cfg(target_os = "linux")]
 use crate::stream::stage_times::Stages;
 
 #[derive(Clone, Copy)]
@@ -550,11 +551,13 @@ pub struct VideoDecoder {
     told: bool,
     /// A hardware decoder's time per picture in `send`, in FFmpeg's `receive` and in handing the
     /// picture on (DMA-BUF export, Vulkan map, copy to memory), summed up in the log when it
-    /// closes after a stream's worth of pictures.
+    /// closes after a stream's worth of pictures. Linux only.
+    #[cfg(target_os = "linux")]
     stages: Option<Box<Stages<3>>>,
 }
 
 /// The stages of `VideoDecoder::stages`.
+#[cfg(target_os = "linux")]
 const DECODE_STAGES: [&str; 3] = ["send", "receive", "hand-off"];
 
 /// The size of the pooled packet buffers for a packet of `needed` bytes with its padding: a
@@ -719,6 +722,7 @@ impl VideoDecoder {
                 spare: None,
                 refused: false,
                 told: false,
+                #[cfg(target_os = "linux")]
                 stages: (hardware != Hardware::None).then(|| Box::new(Stages::new(DECODE_STAGES))),
             };
             if video.context.is_null() || video.packet.is_null() {
@@ -965,8 +969,10 @@ impl VideoDecoder {
     }
 
     pub fn send(&mut self, data: &[u8], pts: i64) -> i32 {
+        #[cfg(target_os = "linux")]
         let started = std::time::Instant::now();
         let status = self.send_packet(data, pts);
+        #[cfg(target_os = "linux")]
         if let Some(stages) = self.stages.as_mut() {
             stages.add(0, started);
         }
@@ -1017,20 +1023,13 @@ impl VideoDecoder {
     }
 
     pub fn receive(&mut self) -> Received {
+        #[cfg(target_os = "linux")]
         let started = std::time::Instant::now();
         let mut decoded = None;
         let received = self.receive_picture(&mut decoded);
+        #[cfg(target_os = "linux")]
         if let Some(stages) = self.stages.as_mut() {
-            match decoded {
-                Some(at) => {
-                    stages.add_between(1, started, at);
-                    stages.add(2, at);
-                }
-                None => stages.add(1, started),
-            }
-            if matches!(received, Received::Frame(_)) {
-                stages.commit();
-            }
+            time_receive(stages, &received, started, decoded);
         }
         received
     }
@@ -1118,6 +1117,7 @@ impl VideoDecoder {
 
 impl Drop for VideoDecoder {
     fn drop(&mut self) {
+        #[cfg(target_os = "linux")]
         if let Some(summary) = self.stages.as_ref().and_then(|stages| stage_summary(stages)) {
             eprintln!("nightjar: {} decode stages {summary} (CPU time)", self.name);
         }
@@ -1129,7 +1129,24 @@ impl Drop for VideoDecoder {
     }
 }
 
+/// Times a `receive` that `started` and got `received`, FFmpeg handing over its picture at
+/// `decoded`: a picture adds FFmpeg's receive and the hand-off, a poll that finds none (EAGAIN)
+/// adds nothing to the next picture, and a failed receive or hand-off drops the picture's stages.
+#[cfg(target_os = "linux")]
+fn time_receive(stages: &mut Stages<3>, received: &Received, started: std::time::Instant, decoded: Option<std::time::Instant>) {
+    match (received, decoded) {
+        (Received::Frame(_), Some(at)) => {
+            stages.add_between(1, started, at);
+            stages.add(2, at);
+            stages.commit();
+        }
+        (Received::None, _) => {}
+        _ => stages.reset(),
+    }
+}
+
 /// The decode stages' summary once they cover a stream's worth of pictures, not a probe's.
+#[cfg(target_os = "linux")]
 fn stage_summary(stages: &Stages<3>) -> Option<String> {
     (stages.frames() >= crate::stream::stage_times::SUMMARY_FRAMES).then(|| stages.summary()).flatten()
 }
@@ -1915,6 +1932,25 @@ mod tests {
         assert_eq!(Hardware::Cuda.order(), [Hardware::Cuda]);
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn decode_stages_bill_no_poll_to_a_picture_and_drop_a_failed_one() {
+        let mut stages = Stages::new(DECODE_STAGES);
+        let long_ago = std::time::Instant::now().checked_sub(std::time::Duration::from_millis(50)).unwrap();
+        // Polls that find no picture (EAGAIN) and a failed hand-off add nothing to the next picture.
+        time_receive(&mut stages, &Received::None, long_ago, None);
+        stages.add(0, long_ago);
+        time_receive(&mut stages, &Received::Error, long_ago, Some(long_ago));
+        assert_eq!(stages.frames(), 0, "a failed picture is not kept");
+        let now = std::time::Instant::now();
+        let frame = Frame::new(NonNull::new(unsafe { av_frame_alloc() }).unwrap());
+        time_receive(&mut stages, &Received::Frame(frame), now, Some(now));
+        assert_eq!(stages.frames(), 1);
+        let summary = stages.summary().unwrap();
+        assert!(summary.contains("send 0.00/0.00, receive 0.00/0.00"), "{summary}");
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
     fn decode_stages_are_summed_up_for_a_stream_not_a_probe() {
         let mut stages = Stages::new(DECODE_STAGES);

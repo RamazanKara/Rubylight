@@ -1427,6 +1427,5 @@ sudo sysctl -w net.core.rmem_max={}", "接收緩衝區：系統只分配了所�
     ("This system's VA-API driver decodes neither H.264 nor HEVC. Install your distribution's full Mesa VA drivers, or use the Nightjar Flatpak.", "此系統的 VA-API 驅動程式無法解碼 H.264 和 HEVC。請安裝發行版完整的 Mesa VA 驅動程式，或使用 Nightjar 的 Flatpak。"),
     ("This NVIDIA driver has no Vulkan video decoding, so each picture is copied through memory. A newer NVIDIA driver adds it.", "此 NVIDIA 驅動程式不支援 Vulkan 視訊解碼，因此每一幀都要經過記憶體複製。較新的 NVIDIA 驅動程式支援它。"),
     ("The Flatpak lacks {}, the NVIDIA driver it needs. Run flatpak update to install it.", "Flatpak 缺少它需要的 NVIDIA 驅動程式 {}。請執行 flatpak update 安裝。"),
-    ("Intel's legacy VA-API driver (i965) is in use. Install intel-media-driver for HEVC Main10 and AV1.", "正在使用 Intel 的舊版 VA-API 驅動程式（i965）。請安裝 intel-media-driver 以支援 HEVC Main10 和 AV1。"),
     ("Full chroma needs a {0} picture, larger than this decoder's {1}, so the stream is 4:2:0. A lower resolution keeps full chroma.", "全色度需要 {0} 的畫面，超過此解碼器的 {1}，因此串流為 4:2:0。降低解析度可保留全色度。"),
 ];

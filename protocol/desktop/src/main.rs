@@ -2645,7 +2645,7 @@ impl App {
         } else {
             format!("{renderer} renderer, V-Sync {}", if vsync { "on" } else { "off" })
         };
-        linux_diagnosis::stream_start(self.hardware(settings), present)
+        linux_diagnosis::stream_start(self.hardware(settings), &present)
     }
 
     /// Dual screen mode: a stream of a game, with a second monitor and a PC that keeps a second

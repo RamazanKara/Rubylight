@@ -1427,6 +1427,5 @@ sudo sysctl -w net.core.rmem_max={}", "Bufor odbioru: system przydzielił {0} Ki
     ("This system's VA-API driver decodes neither H.264 nor HEVC. Install your distribution's full Mesa VA drivers, or use the Nightjar Flatpak.", "Sterownik VA-API tego systemu nie dekoduje ani H.264, ani HEVC. Zainstaluj pełne sterowniki VA Mesa ze swojej dystrybucji albo użyj Flatpaka Nightjar."),
     ("This NVIDIA driver has no Vulkan video decoding, so each picture is copied through memory. A newer NVIDIA driver adds it.", "Ten sterownik NVIDIA nie dekoduje przez Vulkan Video, więc każda klatka jest kopiowana przez pamięć. Nowszy sterownik NVIDIA to dodaje."),
     ("The Flatpak lacks {}, the NVIDIA driver it needs. Run flatpak update to install it.", "Flatpakowi brakuje {}, sterownika NVIDIA, którego potrzebuje. Uruchom flatpak update, aby go zainstalować."),
-    ("Intel's legacy VA-API driver (i965) is in use. Install intel-media-driver for HEVC Main10 and AV1.", "Używany jest stary sterownik VA-API Intela (i965). Zainstaluj intel-media-driver dla HEVC Main10 i AV1."),
     ("Full chroma needs a {0} picture, larger than this decoder's {1}, so the stream is 4:2:0. A lower resolution keeps full chroma.", "Pełna chrominancja wymaga obrazu {0}, większego niż {1} tego dekodera, więc strumień jest w 4:2:0. Niższa rozdzielczość zachowuje pełną chrominancję."),
 ];

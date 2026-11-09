@@ -47,6 +47,8 @@ pub struct GpuDecoder {
     shared: Option<Shared>,
     /// The last value a decode signalled on the decode timeline.
     decode_value: u64,
+    /// The queue the decodes run on (`queue.rs`).
+    queue: queue::DecodeQueue,
 }
 
 /// The renderer's device as the SDK shares it.
@@ -207,29 +209,40 @@ impl GpuDecoder {
     /// The decoder for the renderer whose SDL GPU device is `device`: on that device, decoding
     /// into images the presenter copies on the GPU (`share`), unless `NIGHTJAR_PYROWAVE_READBACK=1`
     /// or the device cannot be shared; then on a device of the SDK's choosing, reading the planes
-    /// back (`new`). Which way and why goes to the log once.
+    /// back (`new`). Which way and why goes to the log once; the queue the decodes run on
+    /// (`queue::async_compute`) and why goes to it at every stream.
     pub fn for_renderer(device: *mut c_void, config: GpuConfig) -> Result<Self, String> {
         let api = Api::shared()?;
+        let async_compute = queue::async_compute();
         let shared = if zero_copy::readback_forced(std::env::var_os(zero_copy::FORCE_READBACK).as_deref()) {
             Err(format!("{}=1", zero_copy::FORCE_READBACK))
         } else {
-            Self::share(api.clone(), device, config)
+            Self::share(api.clone(), device, config, async_compute)
         };
-        match shared {
+        let decoder = match shared {
             Ok(decoder) => {
                 zero_copy::note("PyroWave GPU decoding shares the renderer's Vulkan device, without a plane readback");
-                Ok(decoder)
+                decoder
             }
             Err(reason) => {
                 zero_copy::note(&format!("PyroWave GPU decoding reads its planes back through the CPU: {reason}"));
-                Self::with_api(api, config)
+                Self::with_queue(api, config, async_compute)?
             }
-        }
+        };
+        eprintln!("nightjar: {}", decoder.queue.line());
+        Ok(decoder)
+    }
+
+    /// The queue the decodes run on.
+    pub fn decode_queue(&self) -> &queue::DecodeQueue {
+        &self.queue
     }
 
     /// The decoder on the renderer's Vulkan device (`device`, its SDL GPU device), with
-    /// `config.slots` plane sets there. Errors say why the device cannot be shared.
-    pub fn share(api: Arc<Api>, device: *mut c_void, config: GpuConfig) -> Result<Self, String> {
+    /// `config.slots` plane sets there, the decodes on the compute queue SDL made beside its own
+    /// with `async_compute` (`queue::shared_device_queue`). Errors say why the device cannot be
+    /// shared.
+    pub fn share(api: Arc<Api>, device: *mut c_void, config: GpuConfig, async_compute: bool) -> Result<Self, String> {
         check_config(config)?;
         // SAFETY: `device` is the renderer's live GPU device, which outlives the stream; `s` owns
         // every handle made, so Drop releases them on any early return, the SDK device before the
@@ -238,15 +251,25 @@ impl GpuDecoder {
             let sdl = SdlVulkan::of_device(device.cast())?;
             sdl.require(zero_copy::Features::required())?;
             let get_instance_proc_addr = zero_copy::get_instance_proc_addr()?;
-            let images = SharedImages::new(&sdl, get_instance_proc_addr, config)?;
-            let info = ShareInfo::new(&sdl, get_instance_proc_addr);
+            let decode_queue = queue::shared_device_queue(async_compute, sdl.compute);
+            let compute = match (&decode_queue, sdl.compute) {
+                (queue::DecodeQueue::Compute(_), queue::RendererCompute::Queue(handle, slot)) => Some((handle, slot)),
+                _ => None,
+            };
+            // On another family the planes are shared by both (CONCURRENT), so the presenter's
+            // copy on SDL's queue reads what the decode wrote without an ownership transfer.
+            let images = SharedImages::new(&sdl, get_instance_proc_addr, config, compute.map(|(_, slot)| slot.family))?;
+            let info = ShareInfo::new(&sdl, get_instance_proc_addr, compute);
             let watchdog = Watchdog::new()?;
-            let mut s = Self { api, config, device: ptr::null_mut(), decoder: ptr::null_mut(), watchdog, timeout: crate::stream::pyrowave::GPU_DECODE_TIMEOUT, shared: None, decode_value: 0 };
+            let mut s = Self { api, config, device: ptr::null_mut(), decoder: ptr::null_mut(), watchdog, timeout: crate::stream::pyrowave::GPU_DECODE_TIMEOUT, shared: None, decode_value: 0, queue: queue::DecodeQueue::Graphics(queue::SETTING_OFF.into()) };
             let result = create_shared(s.api.create_device, &info.create, &mut s.device);
             s.shared = Some(Shared { images, info });
             if result != SUCCESS {
                 return Err(format!("the SDK cannot share the renderer's Vulkan device (PyroWave error {result}, {})", result_name(result)));
             }
+            // Before the decoder. The decode waits for the reuse timeline SDL's queue signals and
+            // signals the decode timeline, which the decoder waits for before the presenter copies.
+            s.queue = queue::apply(&s.api, s.device, decode_queue);
             let result = (s.api.decoder_create)(
                 &DecoderCreateInfo { device: s.device, width: config.width as i32, height: config.height as i32, chroma: i32::from(config.chroma444), fragment_path: false },
                 &mut s.decoder,
@@ -274,13 +297,19 @@ impl GpuDecoder {
         self.watchdog.stalled()
     }
 
-    /// Creates the SDK device (the Vulkan driver's default adapter) and the decoder (compute
-    /// path). `config.slots` is only the number of plane sets the stream keeps; the buffers are
-    /// the caller's. Errors name the step that failed.
+    /// `with_queue` on the graphics queue.
     pub fn with_api(api: Arc<Api>, config: GpuConfig) -> Result<Self, String> {
+        Self::with_queue(api, config, false)
+    }
+
+    /// Creates the SDK device (the Vulkan driver's default adapter) and the decoder (compute
+    /// path), the decodes on a separate compute queue with `async_compute` where the device has one
+    /// (`queue::own_device_queue`). `config.slots` is only the number of plane sets the stream
+    /// keeps; the buffers are the caller's. Errors name the step that failed.
+    pub fn with_queue(api: Arc<Api>, config: GpuConfig, async_compute: bool) -> Result<Self, String> {
         check_config(config)?;
         let watchdog = Watchdog::new()?;
-        let mut s = Self { api, config, device: ptr::null_mut(), decoder: ptr::null_mut(), watchdog, timeout: crate::stream::pyrowave::GPU_DECODE_TIMEOUT, shared: None, decode_value: 0 };
+        let mut s = Self { api, config, device: ptr::null_mut(), decoder: ptr::null_mut(), watchdog, timeout: crate::stream::pyrowave::GPU_DECODE_TIMEOUT, shared: None, decode_value: 0, queue: queue::DecodeQueue::Graphics(queue::SETTING_OFF.into()) };
         // SAFETY: The out-pointers outlive each call, and `s` owns every handle made so Drop
         // releases them on any early return.
         unsafe {
@@ -288,6 +317,9 @@ impl GpuDecoder {
             if result != SUCCESS {
                 return Err(format!("no PyroWave Vulkan device (PyroWave error {result}, {}): {}", result_name(result), diagnose_vulkan()));
             }
+            // Before the decoder; the SDK reads the planes back after its own fence, on either queue.
+            let (api, device) = (s.api.clone(), s.device);
+            s.queue = queue::apply(&api, device, queue::own_device_queue(async_compute, || queue::sdk_families(&api, device)));
             let result = (s.api.decoder_create)(
                 &DecoderCreateInfo { device: s.device, width: config.width as i32, height: config.height as i32, chroma: i32::from(config.chroma444), fragment_path: false },
                 &mut s.decoder,

@@ -16,7 +16,7 @@ pub(super) const SETTINGS_SECTIONS: [&str; 8] = [en("Video"), en("Display & imag
 pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
     &[&["width", "height"], &["fps"], &["bitrate_kbps"], &["adaptive_bitrate"], &["codec"], &["hdr"],
         &["adaptive_quality"], &["quality_min_short_edge"], &["quality_min_fps"], &["upscaling"], &["upscale_sharpness"],
-        &["prefer_yuv444"], &["sdr_10bit"], &["pyrowave_decoder"]],
+        &["prefer_yuv444"], &["sdr_10bit"], &["pyrowave_decoder"], &["pyrowave_async_compute"]],
     &[&["window_mode"], &["video_scaling"], &["vrr"],
         &["virtual_display"], &["host_display"], &["virtual_display_scale"], &["virtual_display_dpi"],
         &["align_video_top"], &["present_at_host_times"], &["frame_pacing"], &["vsync"]],
@@ -705,6 +705,9 @@ impl Launcher {
                         }
                     })
                     .response
+            });
+            setting_row(ui, s, &mut rows, &["pyrowave_async_compute"], "Decode PyroWave on a compute queue", "PyroWave decodes on a separate compute queue where the GPU has one; without one this changes nothing. Measured no clear gain, and it can delay presentation on Wayland.", |ui, s| {
+                toggle(ui, &mut s.pyrowave_async_compute)
             });
 
             rows.section(en("Display & image"));

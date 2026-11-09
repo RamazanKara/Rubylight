@@ -459,6 +459,7 @@ Defaults are those of a fresh installation. Rows below a group name are listed a
 | Sharper colored text (YUV 4:4:4) | Off | On, Off | When the PC and this device support it; HDR takes priority. Not used with PyroWave or Full chroma. |
 | Less color banding (10-bit SDR) | Off | On, Off | SDR in 10-bit HEVC or AV1. Needs a Main10 decoder; the PC's display must be in SDR. |
 | PyroWave decoder | GPU | CPU, GPU | GPU decodes with the PyroWave SDK and never falls back to the CPU; the row says why GPU decoding is unavailable. |
+| Decode PyroWave on a compute queue | Off | On, Off | Only for PyroWave's GPU decoder: it decodes on a separate compute queue where the GPU has one, so a decode can overlap the previous frame's drawing; on a GPU without one (the NUC's Iris Plus 655, for example) it changes nothing and the decodes stay on the graphics queue. Off: on the 780M laptop (Windows) an ABBA showed no clear gain, and the client it comes from removed it because it delayed presentation on Wayland. On Linux the GPU renderer's device gets the queue when it is made, so the change applies from the next start there. Each stream's log says which queue PyroWave decodes on and why. See [PyroWave decoding](pyrowave-decode.md#decoding-on-an-async-compute-queue-a-video-setting-off-by-default). |
 
 ### Display & image
 

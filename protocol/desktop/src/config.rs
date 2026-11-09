@@ -394,6 +394,12 @@ pub struct Settings {
     /// Debug, Linux: Vulkan video recovers lost frames with reference frame invalidation. Off by
     /// default, unmeasured (`NIGHTJAR_VULKAN_RFI` overrides it).
     pub vulkan_rfi: bool,
+    /// Video: PyroWave's GPU decoder decodes on a separate compute queue where the GPU has one
+    /// (`stream::pyrowave_sdk::queue`); without one it changes nothing. Off by default: the client
+    /// it is ported from reverted it for delaying Wayland presentation, and the ABBA on the 780M
+    /// laptop showed no clear gain (docs/pyrowave-decode.md). On Linux the GPU renderer's
+    /// device gets the queue when it is made, so the setting takes effect there from the next start.
+    pub pyrowave_async_compute: bool,
     /// "Recover interrupted streams". On by default, as on Android.
     pub auto_reconnect: bool,
     /// The once-only switch of `auto_reconnect` to on has run (Android's
@@ -844,6 +850,7 @@ impl Default for Settings {
             software_slices: false,
             vulkan_video_first: false,
             vulkan_rfi: false,
+            pyrowave_async_compute: false,
             auto_reconnect: true,
             auto_reconnect_default_on: true,
             kept_settings_checked: false,
@@ -2130,6 +2137,19 @@ mod tests {
         assert!(!old.early_decode, "a settings file from before early decode keeps it off");
         let on: Settings = serde_json::from_str("{\"early_decode\": true}").unwrap();
         assert!(on.early_decode);
+    }
+
+    #[test]
+    fn pyrowave_async_compute_is_off_unless_the_file_says_otherwise() {
+        assert!(!Settings::default().pyrowave_async_compute);
+        let old: Settings = serde_json::from_str("{}").unwrap();
+        assert!(!old.pyrowave_async_compute, "a settings file from before the setting keeps it off");
+        let on: Settings = serde_json::from_str("{\"pyrowave_async_compute\": true}").unwrap();
+        assert!(on.pyrowave_async_compute);
+        let saved = serde_json::to_value(&on).unwrap();
+        assert_eq!(saved["pyrowave_async_compute"], serde_json::Value::Bool(true), "saved under its key");
+        let back: Settings = serde_json::from_value(saved).unwrap();
+        assert!(back.pyrowave_async_compute);
     }
 
     #[test]

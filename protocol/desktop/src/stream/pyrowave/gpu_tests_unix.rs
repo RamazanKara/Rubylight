@@ -112,7 +112,7 @@ fn gpu_decoder(case: &Case, slots: usize) -> Pyrowave {
 /// The decoder on the renderer's own device, its planes images there.
 fn shared_decoder(rig: &Rig, case: &Case, slots: usize) -> Pyrowave {
     let config = GpuConfig { width: case.width as u32, height: case.height as u32, chroma444: case.full, ten_bit: case.ten, slots };
-    let decoder = GpuDecoder::share(sdk(), rig.device(), config).unwrap_or_else(|e| panic!("the decoder cannot share the renderer's device: {e}"));
+    let decoder = GpuDecoder::share(sdk(), rig.device(), config, false).unwrap_or_else(|e| panic!("the decoder cannot share the renderer's device: {e}"));
     assert!(decoder.images().is_some());
     Pyrowave::Gpu(Box::new(GpuStream::with_decoder(decoder)))
 }
@@ -269,6 +269,43 @@ fn a_sequence_of_zero_copy_pictures_reuses_the_plane_sets_after_their_copies() {
     assert!(after >= 5, "the set waits for the copy of the picture before last: {after}");
 }
 
+/// With the setting on, the decodes run on a separate compute queue where the GPU has one,
+/// on the renderer's device (the queue SDL made for them) and on the SDK's own, and every picture
+/// is the graphics queue's, over more pictures than plane sets.
+#[test]
+#[ignore = "needs the PyroWave SDK, a Vulkan device and SDL's offscreen driver"]
+fn the_compute_queue_decodes_the_pictures_of_the_graphics_queue() {
+    use crate::stream::pyrowave_sdk::queue;
+    let _lock = gpu_lock();
+    // The renderer's device gets the compute queue only with the setting on when it is made.
+    queue::use_async_compute(true);
+    let rig = Rig::new();
+    queue::use_async_compute(false);
+    for (n, case) in cases().iter().enumerate() {
+        let config = GpuConfig { width: case.width as u32, height: case.height as u32, chroma444: case.full, ten_bit: case.ten, slots: 2 };
+        let setup = setup(case.width, case.height, case.full, case.ten, 0);
+        let pictures = |decoder: GpuDecoder| {
+            let mut gpu = Pyrowave::Gpu(Box::new(GpuStream::with_decoder(decoder)));
+            (0..4).map(|_| gpu_picture(&rig, &mut gpu, case, setup, false)).collect::<Vec<_>>()
+        };
+        let graphics = GpuDecoder::share(sdk(), rig.device(), config, false).unwrap_or_else(|e| panic!("{e}"));
+        assert!(!graphics.decode_queue().is_compute(), "{}", graphics.decode_queue().line());
+        let reference = pictures(graphics);
+        let shared = GpuDecoder::share(sdk(), rig.device(), config, true).unwrap_or_else(|e| panic!("{e}"));
+        println!("fixture {n}: zero-copy {}", shared.decode_queue().line());
+        let shared = pictures(shared);
+        let own = GpuDecoder::with_queue(sdk(), config, true).unwrap_or_else(|e| panic!("{e}"));
+        println!("fixture {n}: readback {}", own.decode_queue().line());
+        let own = pictures(own);
+        for (kind, run) in [("zero-copy", &shared), ("readback", &own)] {
+            for (round, picture) in run.iter().enumerate() {
+                let (max, _, _) = compare(&reference[round], picture);
+                assert!(max <= SAME_LIMIT, "fixture {n} {kind} picture {round}: the compute queue's picture differs from the graphics queue's by {max}");
+            }
+        }
+    }
+}
+
 /// A renderer made without the decoder's features cannot be shared, and says so.
 #[test]
 #[ignore = "needs the PyroWave SDK, a Vulkan device and SDL's offscreen driver"]
@@ -276,7 +313,7 @@ fn a_renderer_made_without_the_features_is_not_shared() {
     let _lock = gpu_lock();
     let rig = Rig::with(false);
     let config = GpuConfig { width: 128, height: 128, chroma444: false, ten_bit: false, slots: 2 };
-    let error = GpuDecoder::share(sdk(), rig.device(), config).map(drop).unwrap_err();
+    let error = GpuDecoder::share(sdk(), rig.device(), config, false).map(drop).unwrap_err();
     assert!(error.contains("created without the decoders' features"), "{error}");
 }
 
@@ -319,7 +356,7 @@ fn zero_copy_against_readback_timing_at_1080p_and_4k() {
         let setup = setup(width, height, false, false, 0);
         for zero_copy in [false, true] {
             let config = GpuConfig { width: width as u32, height: height as u32, chroma444: false, ten_bit: false, slots: 3 };
-            let decoder = if zero_copy { GpuDecoder::share(sdk(), rig.device(), config) } else { GpuDecoder::with_api(sdk(), config) };
+            let decoder = if zero_copy { GpuDecoder::share(sdk(), rig.device(), config, false) } else { GpuDecoder::with_api(sdk(), config) };
             let mut gpu = Pyrowave::Gpu(Box::new(GpuStream::with_decoder(decoder.unwrap_or_else(|e| panic!("{e}")))));
             let mut texture = VideoTexture::default();
             texture.set_hdr_mode(false, None);

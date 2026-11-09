@@ -79,7 +79,9 @@ pub enum Diagnosis {
     MesaWithoutCodecs { fedora: bool },
     /// NVIDIA's VA-API wrapper is left out and Vulkan video does not decode either: NVDEC decodes,
     /// and CUDA copies its pictures into the renderer's Vulkan images (`vulkan_video::CudaMap`), or
-    /// they go through memory with the reason in the log. Logged only.
+    /// they go through memory with the reason in the log. Logged only here: when the copy cannot
+    /// be set up or fails, the stream's own toast says the pictures go through memory
+    /// (`stream::pipeline::say_cuda_fallback`), since only then is it known.
     NvidiaWithoutVulkanVideo,
     /// A Flatpak on NVIDIA's driver without the runtime's GL extension for that version.
     FlatpakWithoutNvidiaGl { extension: String },
@@ -442,8 +444,9 @@ mod tests {
         let i965 = vaapi("Intel i965 driver for Intel(R) Skylake - 2.4.1", &[7, 17]);
         assert_eq!(diagnose(&System::default(), Ok(&i965), None, false), [Diagnosis::IntelI965]);
         assert_eq!(Diagnosis::IntelI965.toast(), None);
-        // NVIDIA without Vulkan video: CUDA copies NVDEC's pictures into Vulkan images, and the
-        // log says when they go through memory instead, so no toast asks for a newer driver.
+        // NVIDIA without Vulkan video: CUDA copies NVDEC's pictures into Vulkan images, and when
+        // they go through memory instead the stream's toast says so (`say_cuda_fallback`), so the
+        // diagnosis adds none of its own.
         assert_eq!(Diagnosis::NvidiaWithoutVulkanVideo.toast(), None);
         let kaby_lake = vaapi("Intel i965 driver for Intel(R) Kaby Lake - 2.4.1", &[7, 17, 18]);
         assert!(diagnose(&System::default(), Ok(&kaby_lake), None, false).is_empty());

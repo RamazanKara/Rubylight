@@ -293,7 +293,12 @@ decode:
   `glslangValidator -V -D -e planes -S frag --auto-sampled-textures --target-env vulkan1.0
   protocol/desktop/src/pyrowave.hlsl -o protocol/desktop/src/pyrowave-planes.spv`. `-V` defines
   `VULKAN`, which selects the sampler slots t0 to t2 in `space2` that SDL's fragment shaders use.
-  Check the result with `spirv-val`. The committed `pyrowave.spv` is a different module and is not
+  Check the result with `spirv-val`. glslang 15.1.0 (Ubuntu's `glslang-tools`) reproduces the
+  committed module byte for byte. `pyrowave-planes.spv.sha256` beside it records the SHA-256 of
+  `pyrowave.hlsl` (with LF line endings) and of the module, and
+  `pyrowave_gpu::tests::the_planes_module_was_built_from_the_shader_as_it_is` fails when either
+  file changes without the other: after editing the shader, regenerate the module and update
+  both hashes (`sha256sum`). The committed `pyrowave.spv` is a different module and is not
   regenerated.
 - **Probe and the loud failure.** Without the library the client refuses the stream, it does not
   switch to the CPU decoder: `autostream failed: PyroWave GPU decoding unavailable:
@@ -439,15 +444,79 @@ not finish). GPU decode, ABBA, old (A) against trial (B), two legs each, pooled:
 p95 was worse in both, and the leg to leg spread (10.9 to 13.3 ms between legs of the same
 variant) is larger than any difference, so there is no gain to keep: reverted. The wait stays.
 
-## Decoding on an async compute queue: not ported
+## Decoding on an async compute queue: a Video setting, off by default
 
 Nonary's moonlight-qt fork added async compute for PyroWave (`pyrowave_device_set_queue_type` with the compute
 family, commit 5bb5902, "no measurable render-completion difference" on the Steam Deck) and reverted
 it two days later (e225f88): async decodes delayed Wayland presentation of frames that were already
 GPU-ready. Their client now passes the compute family to the SDK but decodes on the graphics queue.
-Nightjar keeps the graphics queue on Android and the desktop: the upstream it would come from no
-longer ships it, and its reason (delayed presentation) was seen on Wayland. It was not measured in
-Nightjar.
+
+The desktop client has it as the setting **Decode PyroWave on a compute queue** in the Video
+section, under PyroWave decoder (`pyrowave_async_compute` in the settings file, off by default;
+`stream/pyrowave_sdk/queue.rs`). On a GPU without a separate compute queue it changes nothing.
+Off, nothing changes: the SDK decodes on the graphics queue as before, and on Linux the renderer's
+device is made exactly as before. On, the decodes go to a separate compute queue where the GPU has
+one, so a decode can overlap the previous frame's drawing and present:
+
+- **The queue.** Granite's rule, which the SDK's own device follows (`queue::compute_queue`, unit
+  tested): the first queue family with compute but not graphics that has a queue left (AMD's and
+  NVIDIA's compute family), else a second queue of a compute family (a second queue beside the
+  graphics one). A GPU with neither keeps the graphics queue.
+- **Windows and the Linux readback** (the SDK's own Vulkan device): Granite makes that queue
+  itself, and `pyrowave_device_set_queue_type(VK_QUEUE_COMPUTE_BIT)` moves the decodes onto it before
+  the decoder is created. The planes are acquired from `QUEUE_FAMILY_IGNORED` and released to
+  `QUEUE_FAMILY_EXTERNAL` by the decode itself, and the decode fence (Windows: the shared
+  `ID3D11Fence` D3D11 waits on; Linux: the SDK's fence before the readback) orders the presenter after
+  it, as on the graphics queue.
+- **Linux, the renderer's shared device** (`zero_copy.rs`): the patched SDL makes one more queue by the
+  same rule when the renderer's device is created with the setting on
+  (`SDL_PROP_GPU_DEVICE_CREATE_VULKAN_COMPUTE_QUEUE_BOOLEAN`, `vulkan-interop.patch`), and the SDK is
+  handed it beside SDL's queue, under SDL's queue lock like every other submission. The plane images
+  are then shared by both families (`VK_SHARING_MODE_CONCURRENT`) when the queue is in another family.
+  The decode waits on the GPU for the reuse timeline SDL's queue signals after the copy that last read
+  its plane set, and signals the decode timeline, which the decoder waits for before the presenter's
+  copy is recorded. The renderer's device is made when Nightjar starts (or when it switches renderer
+  for a stream), so turning the setting on takes effect there with the next device; until then the log
+  says the device has no compute queue.
+- **The log.** Every stream start says where PyroWave decodes and why: `PyroWave decodes on a
+  separate compute queue: family 1, queue 0`, or `PyroWave decodes on the graphics queue:` followed
+  by the reason (the setting is off, the GPU has no compute queue apart from the graphics one, the
+  renderer's device was made while the setting was off, or the SDK refused the queue).
+- **Tests.** The queue choice, the setting's default and persistence, the shared device's queue list
+  and the plane images' sharing mode are unit tests. The ignored GPU test
+  `gpu_tests_unix::the_compute_queue_decodes_the_pictures_of_the_graphics_queue` decodes the fixtures
+  on the compute queue (shared device and readback) against the graphics queue's pictures.
+
+### Measured: no clear gain on the 780M laptop, so off by default
+
+2026-11-09, the laptop (Ryzen 7 8845HS, Radeon 780M, Windows 11, 2880x1800 at 120 Hz, the client
+windowed) over Wi-Fi from this PC's isolated test host (port 48463), 1080p60 PyroWave 4:2:0 asked at
+133 Mbps (the host sent 89.5 to 94 Mbps), GPU decode in both, the same release build, 60 s legs in
+ABBA order, A with the setting off, B on, the two legs of each pooled
+(`scripts/pyrowave-laptop.ps1 -DecoderA Gpu -DecoderB Gpu -ExtraB @{ pyrowave_async_compute = $true }`).
+The B legs' logs say `PyroWave decodes on a separate compute queue: family 1, queue 0`, the A legs'
+the graphics queue. Raw results: `C:\src\nj-pwd-out\laptop-async-compute-1`.
+
+| Variant | receive_to_present p50 / p95 / p99 | per leg p50 / p95 | shown fps (legs) | dropped | SDK gpu stage p50 / p95 |
+| --- | --- | --- | --- | --- | --- |
+| A, graphics queue | 10.51 / 11.95 / 13.21 | 10.53 / 11.93, 10.49 / 11.99 | 59.48 (60.04, 58.93) | 1, 0 | 0.57 / 0.73, 0.57 / 0.73 |
+| B, compute queue | 10.41 / 11.91 / 13.00 | 10.40 / 11.88, 10.42 / 11.91 | 58.19 (57.34, 59.04) | 0, 0 | 0.56 / 0.71, 0.56 / 0.72 |
+
+B is 0.1 ms lower at p50 and 0.04 ms at p95; the p95 difference is inside the leg to leg spread (0.06
+ms between A's legs), and the shown fps median is lower on B (one B leg at 57.34), so it fails the keep
+rule (`timing_summary.py --keep`: REVERT on shown fps). The SDK's GPU time per frame is the same on
+both queues (0.56 to 0.57 ms), as the decode is short beside a 16.7 ms frame. The setting stays off by
+default; it stays a setting, in Video next to PyroWave decoder, for comparing on other GPUs.
+
+Not measured: this PC (it served as the host), a Wayland compositor, NVIDIA and Intel with a compute
+queue. The NUC under Linux (Iris Plus 655, Mesa) has one queue family with one queue, graphics and
+compute, so the setting changes nothing there (its log says the GPU has no compute queue apart from
+the graphics one) and it was not run. The upstream caveat (delayed presentation on Wayland) stands.
+
+Android keeps the graphics queue and has no such setting: its renderer creates one graphics and
+compute family (decoding on its queue 0 and presenting on queue 1 where the family has two) and
+prefers the fragment path on mobile GPUs, which needs the graphics queue, so there is no separate
+compute queue to hand the SDK.
 
 ## Skipping to the newest frame (CPU decode): measured, not shipped
 

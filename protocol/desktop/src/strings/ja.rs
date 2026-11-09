@@ -1427,4 +1427,7 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("This system's VA-API driver decodes neither H.264 nor HEVC. Install your distribution's full Mesa VA drivers, or use the Nightjar Flatpak.", "このシステムのVA-APIドライバーはH.264もHEVCもデコードできません。ディストリビューションの完全なMesa VAドライバーをインストールするか、NightjarのFlatpakを使ってください。"),
     ("The Flatpak lacks {}, the NVIDIA driver it needs. Run flatpak update to install it.", "Flatpakに必要なNVIDIAドライバー{}がありません。flatpak updateを実行してインストールしてください。"),
     ("Full chroma needs a {0} picture, larger than this decoder's {1}, so the stream is 4:2:0. A lower resolution keeps full chroma.", "フルクロマには {0} の画像が必要ですが、このデコーダーの上限 {1} を超えるため、ストリームは 4:2:0 になります。解像度を下げるとフルクロマを使えます。"),
+    ("NVDEC pictures can't be copied into the renderer's images on the graphics card, so each one goes through memory, which takes longer. The log says why.", "NVDEC の画像をグラフィックカード上でレンダラーの画像にコピーできないため、各画像はメモリーを経由し、時間がかかります。理由はログに記録されます。"),
+    ("Decode PyroWave on a compute queue", "PyroWave をコンピュートキューでデコード"),
+    ("PyroWave decodes on a separate compute queue where the GPU has one; without one this changes nothing. Measured no clear gain, and it can delay presentation on Wayland.", "GPU に別のコンピュートキューがあれば、PyroWave をそこでデコードします。ない場合は何も変わりません。明確な改善は測定されておらず、Wayland では表示が遅れることがあります。"),
 ];

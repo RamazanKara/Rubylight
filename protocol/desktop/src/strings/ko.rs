@@ -1427,4 +1427,7 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("This system's VA-API driver decodes neither H.264 nor HEVC. Install your distribution's full Mesa VA drivers, or use the Nightjar Flatpak.", "이 시스템의 VA-API 드라이버는 H.264도 HEVC도 디코딩하지 못합니다. 배포판의 전체 Mesa VA 드라이버를 설치하거나 Nightjar Flatpak을 사용하세요."),
     ("The Flatpak lacks {}, the NVIDIA driver it needs. Run flatpak update to install it.", "Flatpak에 필요한 NVIDIA 드라이버 {}이(가) 없습니다. flatpak update를 실행해 설치하세요."),
     ("Full chroma needs a {0} picture, larger than this decoder's {1}, so the stream is 4:2:0. A lower resolution keeps full chroma.", "전체 크로마에는 {0} 화면이 필요하지만 이 디코더의 {1}보다 커서 스트림이 4:2:0으로 됩니다. 해상도를 낮추면 전체 크로마가 유지됩니다."),
+    ("NVDEC pictures can't be copied into the renderer's images on the graphics card, so each one goes through memory, which takes longer. The log says why.", "NVDEC 이미지를 그래픽 카드에서 렌더러의 이미지로 복사할 수 없어 각 이미지가 메모리를 거치므로 시간이 더 걸립니다. 이유는 로그에 있습니다."),
+    ("Decode PyroWave on a compute queue", "컴퓨트 큐에서 PyroWave 디코딩"),
+    ("PyroWave decodes on a separate compute queue where the GPU has one; without one this changes nothing. Measured no clear gain, and it can delay presentation on Wayland.", "GPU에 별도의 컴퓨트 큐가 있으면 PyroWave를 그 큐에서 디코딩합니다. 없으면 아무것도 바뀌지 않습니다. 뚜렷한 개선은 측정되지 않았고, Wayland에서는 표시가 늦어질 수 있습니다."),
 ];

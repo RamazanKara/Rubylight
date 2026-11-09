@@ -785,6 +785,17 @@ fn packed_map_dropped(setup: &VideoSetup, was_mapped: bool, still_mapped: bool) 
     if was_mapped && !still_mapped { packed_from_memory(setup, false) } else { None }
 }
 
+/// The toast for NVDEC pictures that go through memory to the GPU renderer because CUDA's copy into
+/// its Vulkan images could not be set up or failed; the reason, in English, is in the log.
+const CUDA_FALLBACK_TOAST: &str = crate::strings::en("NVDEC pictures can't be copied into the renderer's images on the graphics card, so each one goes through memory, which takes longer. The log says why.");
+
+/// Says once in a toast when `decoder`'s NVDEC pictures went through memory instead of CUDA's copy.
+fn say_cuda_fallback(shared: &Shared, decoder: &mut media::VideoDecoder) {
+    if decoder.take_cuda_fallback().is_some() {
+        shared.notify(Notice::DecoderFallback(crate::strings::tr(CUDA_FALLBACK_TOAST).to_owned()));
+    }
+}
+
 /// Maps `decoder`'s VAAPI pictures into the GPU renderer's Vulkan images when it draws with SDL's
 /// GPU API (`media::VideoDecoder::map_to_vulkan`); whether they are.
 pub(super) fn map_to_vulkan(hardware: Hardware, decoder: &mut media::VideoDecoder) -> bool {
@@ -959,6 +970,7 @@ impl Decoder {
         } else {
             map_to_vulkan(self.hardware, &mut decoder)
         };
+        say_cuda_fallback(&self.shared, &mut decoder);
         // The overlay's decoder name, in the log for runs nobody watches.
         eprintln!("nightjar: video decoder {}", decoder.name);
         #[cfg(target_os = "linux")]
@@ -1114,6 +1126,7 @@ impl Decoder {
                 };
                 if pooled { shared.queue_pooled(decoded, pool_waiting) } else { shared.queue(decoded) }
             });
+        say_cuda_fallback(&self.shared, decoder);
         if let Some((width, height)) = packed_map_dropped(&setup, self.packed_mapped, decoder.vulkan_mapped()) {
             eprintln!("nightjar: full chroma (packed 4:4:4): the Vulkan map failed, so each {width}x{height} picture is copied through memory from now on");
             *lock(&self.shared.packed_from_memory) = Some((width, height));
@@ -2076,6 +2089,23 @@ mod tests {
         // The overlay names the decoder that now decodes (the refused one was named on the
         // frame that showed it, before the replacement opened).
         assert_eq!(*lock(&shared.decoder_name), replaced.name);
+    }
+
+    /// NVDEC pictures that go through memory after all, because CUDA's copy into the renderer's
+    /// Vulkan images failed, are said in a toast once, on the frame that shows it.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_cuda_copy_is_said_once_in_a_toast() {
+        let (mut decoder, shared) = decoder();
+        let setup = VideoSetup { format: nightjar_core::sdp::VIDEO_FORMAT_H264, width: 128, height: 128, fps: 60, chroma_packing: 0, logical_width: 128, logical_height: 128, color_space: 1, color_range: 0 };
+        decoder.setup(&setup).unwrap();
+        assert!(notices(&shared).is_empty());
+        decoder.decoder.as_mut().expect("the software decoder").fail_cuda_copy("CUDA error 999");
+        decoder.decode_frame(&Frame::default());
+        let said = notices(&shared);
+        assert!(matches!(said.as_slice(), [Notice::DecoderFallback(text)] if text == crate::strings::tr(CUDA_FALLBACK_TOAST)), "{}", said.len());
+        decoder.decode_frame(&Frame::default());
+        assert!(notices(&shared).is_empty(), "said once");
     }
 
     /// A refused decoder replaced mid-stream by a backend that never asked for reference frame

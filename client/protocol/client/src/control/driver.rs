@@ -522,12 +522,73 @@ fn mark_for_connect<S: priority::PriorityTarget>(socket: &S, ipv6: bool, warn: &
     }
 }
 
+/// A poll timeout in whole milliseconds, rounded up so a sub-millisecond timer does not spin.
+fn poll_millis(timeout: Duration) -> i32 {
+    i32::try_from(timeout.as_nanos().div_ceil(1_000_000)).unwrap_or(i32::MAX)
+}
+
+/// Waits until `socket` is readable or `timeout` passes.
+#[cfg(windows)]
+fn poll_readable(socket: &UdpSocket, timeout: Duration) -> io::Result<()> {
+    use std::os::windows::io::AsRawSocket;
+    #[repr(C)]
+    struct WsaPollFd {
+        fd: usize,
+        events: i16,
+        revents: i16,
+    }
+    #[link(name = "ws2_32")]
+    extern "system" {
+        fn WSAPoll(fds: *mut WsaPollFd, count: u32, timeout: i32) -> i32;
+    }
+    const POLLRDNORM: i16 = 0x0100;
+    let mut fd = WsaPollFd {
+        fd: socket.as_raw_socket() as usize,
+        events: POLLRDNORM,
+        revents: 0,
+    };
+    // SAFETY: one valid WSAPOLLFD for a socket that outlives the call.
+    if unsafe { WSAPoll(&mut fd, 1, poll_millis(timeout)) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Waits until `socket` is readable or `timeout` passes.
+#[cfg(unix)]
+fn poll_readable(socket: &UdpSocket, timeout: Duration) -> io::Result<()> {
+    use std::os::unix::io::AsRawFd;
+    let mut fd = libc::pollfd {
+        fd: socket.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    // SAFETY: one valid pollfd for a socket that outlives the call.
+    if unsafe { libc::poll(&mut fd, 1, poll_millis(timeout)) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(not(any(windows, unix)))]
+fn poll_readable(_: &UdpSocket, _: Duration) -> io::Result<()> {
+    Err(io::ErrorKind::Unsupported.into())
+}
+
 impl ControlSocket {
-    /// Sleeps until a datagram arrives or `timeout` passes.
+    /// Sleeps until a datagram arrives or `timeout` passes. A readiness poll leaves the socket
+    /// non-blocking; if the poll fails, a blocking peek waits instead.
     fn wait(&self, timeout: Duration) {
         if self.reinject.is_some() || timeout.is_zero() {
             return;
         }
+        match poll_readable(&self.socket, timeout) {
+            Err(e) if e.kind() != io::ErrorKind::Interrupted => self.wait_blocking(timeout),
+            _ => {}
+        }
+    }
+
+    fn wait_blocking(&self, timeout: Duration) {
         let blocking = self.socket.set_nonblocking(false).is_ok();
         if blocking && self.socket.set_read_timeout(Some(timeout)).is_ok() {
             let _ = self.socket.peek_from(&mut [0; 1]);
@@ -1378,6 +1439,52 @@ mod tests {
         assert!(control.send(to, b"connect").unwrap() > 0);
         assert!(control.send_failures.any_sent);
         assert_eq!(control.send_failures.consecutive, 0);
+    }
+
+    /// A non-blocking control socket, as the driver keeps it.
+    fn nonblocking_control() -> ControlSocket {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket.set_nonblocking(true).unwrap();
+        control_socket(socket, None).0
+    }
+
+    fn assert_nonblocking(control: &ControlSocket) {
+        let error = control.socket.recv(&mut [0; 1]).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+    }
+
+    #[test]
+    fn a_queued_datagram_ends_the_wait_at_once() {
+        let control = nonblocking_control();
+        let sender = UdpSocket::bind("127.0.0.1:0").unwrap();
+        sender
+            .send_to(&[0], control.socket.local_addr().unwrap())
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        let start = Instant::now();
+        control.wait(Duration::from_secs(5));
+        assert!(start.elapsed() < Duration::from_secs(1));
+        control.socket.recv(&mut [0; 1]).unwrap();
+        assert_nonblocking(&control);
+    }
+
+    #[test]
+    fn an_idle_wait_lasts_its_timeout_and_leaves_the_socket_nonblocking() {
+        let control = nonblocking_control();
+        let start = Instant::now();
+        control.wait(Duration::from_millis(100));
+        let elapsed = start.elapsed();
+        assert!(elapsed >= Duration::from_millis(90), "{elapsed:?}");
+        assert!(elapsed < Duration::from_secs(2), "{elapsed:?}");
+        assert_nonblocking(&control);
+    }
+
+    #[test]
+    fn poll_timeouts_round_up_to_whole_milliseconds() {
+        assert_eq!(poll_millis(Duration::from_micros(300)), 1);
+        assert_eq!(poll_millis(Duration::from_millis(5)), 5);
+        assert_eq!(poll_millis(Duration::from_micros(5_001)), 6);
+        assert_eq!(poll_millis(Duration::from_secs(u64::MAX)), i32::MAX);
     }
 
     #[test]

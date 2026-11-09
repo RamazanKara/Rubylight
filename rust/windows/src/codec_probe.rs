@@ -358,17 +358,29 @@ struct Probe<'a> {
 }
 impl Sequence for Probe<'_> {
     fn submit(&mut self, idr: bool) -> Result<usize> {
-        Ok(self
-            .encoder
-            .encode(self.image, idr, self.bitrate_kbps)?
-            .len())
+        let encoded = self.encoder.encode(self.image, idr, self.bitrate_kbps)?;
+        Ok(frames(encoded.iter().map(|encoded| encoded.unit)))
     }
     fn pending(&self) -> bool {
         self.encoder.pending()
     }
     fn collect(&mut self) -> Result<usize> {
-        Ok(self.encoder.poll()?.len())
+        let encoded = self.encoder.poll()?;
+        Ok(frames(encoded.iter().map(|encoded| encoded.unit)))
     }
+}
+/// The frames that `units` finish. With slice delivery a P-frame comes back
+/// as its slices, ending with `Last`: one frame, not one per slice. `auto`
+/// slices a picture of [`AUTO_SLICE_PIXELS`] or more, and a packed stream's
+/// coded picture is twice the height (2560x1600 codes 2560x3200), so counting
+/// slices failed packed HEVC above 2560x1208 with "failed to return frame 2"
+/// (issue #76).
+///
+/// [`AUTO_SLICE_PIXELS`]: butterpollo_core::encoder_policy::AUTO_SLICE_PIXELS
+fn frames(units: impl Iterator<Item = crate::encoder::Unit>) -> usize {
+    units
+        .filter(|unit| !matches!(unit, crate::encoder::Unit::Slice { .. }))
+        .count()
 }
 /// Three frames, each returned before the next is submitted. Each frame's
 /// wait starts once it is submitted: the first upload and conversion after a
@@ -612,6 +624,51 @@ mod tests {
         let error =
             packed_sequence(&mut fake(&[], Some(60)), Duration::from_millis(20)).unwrap_err();
         assert!(error.to_string().contains("frame 1"), "{error:#}");
+    }
+    #[test]
+    fn a_sliced_packed_frame_counts_once() {
+        use crate::encoder::Unit;
+        // Issue #76: packed HEVC failed its probe above 2560x1208 and
+        // 1920x1616, where `auto` slices the doubled coded picture, because
+        // each slice of frame 2 was counted as a frame.
+        for (width, height, coded, sliced) in [
+            (2560, 1600, (2560, 3200), true),
+            (2560, 1208, (2560, 2416), false),
+            (2560, 1210, (2560, 2432), true),
+            (1920, 1616, (1920, 3232), false),
+            (1920, 1618, (1920, 3248), true),
+        ] {
+            let mode = Negotiated {
+                width,
+                height,
+                fps: 120,
+                bitrate_kbps: 48_588,
+                codec: 1,
+                chroma_packing: butterpollo_core::packed444::VERSION,
+                ..Default::default()
+            };
+            assert_eq!(mode.coded_size(), coded, "{width}x{height}");
+            // What the AMF and NVENC encoders open: the coded picture.
+            let mut coded_mode = mode.clone();
+            (coded_mode.width, coded_mode.height) = coded;
+            coded_mode.chroma_packing = 0;
+            let blocks =
+                butterpollo_core::encoder_policy::slice_delivery(&Config::default(), &coded_mode);
+            assert_eq!(blocks, if sliced { 4 } else { 0 }, "{width}x{height}");
+            let units: Vec<Unit> = if sliced {
+                (0..u32::from(blocks) - 1)
+                    .map(|index| Unit::Slice { index })
+                    .chain([Unit::Last {
+                        index: u32::from(blocks) - 1,
+                    }])
+                    .collect()
+            } else {
+                vec![Unit::Whole]
+            };
+            assert_eq!(frames(units.into_iter()), 1, "{width}x{height}");
+        }
+        assert_eq!(frames([Unit::Whole, Unit::Whole].into_iter()), 2);
+        assert_eq!(frames([Unit::Slice { index: 0 }].into_iter()), 0);
     }
     #[test]
     #[ignore = "requires an AMD GPU with AMF"]

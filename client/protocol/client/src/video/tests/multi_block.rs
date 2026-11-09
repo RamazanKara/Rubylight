@@ -188,6 +188,30 @@ fn a_finished_block_is_processed_before_the_frame_completes() {
     assert_eq!(frames(&events).len(), 1);
 }
 
+/// A repeated key-frame-only request, as the decoder thread makes after every frame, keeps
+/// the blocks already processed ahead; the first one, which changes recovery, takes them back.
+#[test]
+fn a_repeated_key_frame_only_request_keeps_the_blocks_processed_ahead() {
+    for rfi in [false, true] {
+        let mut host = Blocks::new();
+        let mut rx = VideoReceiver::new(VideoConfig { rfi, ..config(0x1) });
+        let mut events = Vec::new();
+        let blocks = host.frame(&idr(9000), 2, 3);
+        let first = blocks[0].len();
+        for packet in blocks.iter().flatten().take(first) {
+            rx.receive(packet, 1, &mut events);
+        }
+        assert_eq!(rx.depacketizer.ahead(), 3, "rfi {rfi}");
+        rx.recover_with_idr_only();
+        assert_eq!(rx.depacketizer.ahead(), if rfi { 0 } else { 3 }, "rfi {rfi}");
+        rx.recover_with_idr_only();
+        for packet in blocks.iter().flatten().skip(first) {
+            rx.receive(packet, 1, &mut events);
+        }
+        assert_eq!(frames(&events).len(), 1, "rfi {rfi}");
+    }
+}
+
 #[test]
 fn an_unrecoverable_later_block_loses_its_frame_and_the_next_arrives_intact() {
     for rfi in [false, true] {

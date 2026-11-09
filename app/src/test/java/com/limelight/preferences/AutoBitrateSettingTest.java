@@ -17,6 +17,7 @@ import org.robolectric.Robolectric;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
+import org.robolectric.shadows.ShadowLooper;
 
 import static com.limelight.preferences.SettingsStructureTest.open;
 import static org.junit.Assert.*;
@@ -87,6 +88,43 @@ public class AutoBitrateSettingTest {
             // sits between.
             assertSame(auto, group.getPreference(at + 1));
             assertFalse(PreferenceConfiguration.readPreferences(app()).autoBitrate);
+        }
+    }
+
+    @Test
+    public void automaticBitrateIsOnUntilTheSliderMovesAndTurnsBackToTheDefault() {
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings.SettingsFragment video = open(controller.get(), "video");
+            SwitchPreference toggle = (SwitchPreference) video.findPreference(StreamSettings.AUTOMATIC_BITRATE_KEY);
+            assertNotNull(toggle);
+            assertEquals(app().getString(R.string.title_automatic_bitrate), toggle.getTitle().toString());
+            assertTrue("On while the bitrate is not the user's", toggle.isChecked());
+
+            // Moving the slider makes the bitrate the user's: the switch goes off and the bitrate stays.
+            Preference slider = video.findPreference("seekbar_bitrate_kbps");
+            int automatic = PreferenceConfiguration.getShownDefaultBitrate(prefs(), null, null, null);
+            int chosenKbps = automatic + 7000;
+            assertTrue(slider.getOnPreferenceChangeListener().onPreferenceChange(slider, chosenKbps));
+            prefs().edit().putInt("seekbar_bitrate_kbps", chosenKbps).commit();
+            ShadowLooper.idleMainLooper();
+            assertFalse(toggle.isChecked());
+            PreferenceConfiguration chosen = PreferenceConfiguration.readPreferences(app());
+            assertFalse(chosen.automaticBitrate);
+            assertEquals(chosenKbps, chosen.bitrate);
+
+            // On again: back to the default for the mode, which it follows once more.
+            assertTrue(toggle.getOnPreferenceChangeListener().onPreferenceChange(toggle, true));
+            ShadowLooper.idleMainLooper();
+            assertTrue(toggle.isChecked());
+            assertEquals(automatic, prefs().getInt("seekbar_bitrate_kbps", 0));
+            assertTrue(PreferenceConfiguration.readPreferences(app()).automaticBitrate);
+
+            // Off without moving the slider keeps the bitrate shown, as the user's.
+            assertTrue(toggle.getOnPreferenceChangeListener().onPreferenceChange(toggle, false));
+            ShadowLooper.idleMainLooper();
+            assertFalse(toggle.isChecked());
+            assertFalse(PreferenceConfiguration.readPreferences(app()).automaticBitrate);
+            assertEquals(automatic, prefs().getInt("seekbar_bitrate_kbps", 0));
         }
     }
 

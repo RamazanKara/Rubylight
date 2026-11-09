@@ -13,4 +13,6 @@
     <string name="dialog_auto_bitrate">Abbassa il bitrate quando la connessione o il dispositivo non reggono e lo rialza quando la situazione migliora. Non supera mai il bitrate dello streaming. È il valore predefinito per tutti i PC; il menu dello streaming può cambiarlo per un solo PC.</string>
     <string name="title_thermal_protection">Protezione termica</string>
     <string name="dialog_thermal_protection">Riduce bitrate e risoluzione finché il dispositivo è caldo. Telefoni e chiavette TV si scaldano spesso durante lo streaming, quindi è disattivata per impostazione predefinita: un bitrate più basso rende l\'immagine meno nitida.</string>
+    <string name="title_automatic_bitrate">Bitrate automatico</string>
+    <string name="dialog_automatic_bitrate">Nightjar sceglie il bitrate in base a risoluzione, frequenza dei fotogrammi e codec, e lo cambia insieme a loro. Spostare il cursore del bitrate lo disattiva.</string>
 </resources>

@@ -32,6 +32,13 @@
             android:entries="@array/fps_names"
             android:entryValues="@array/fps_values"
             android:defaultValue="60" />
+        <!-- On while the bitrate follows the resolution, frame rate and codec (bitrate_user_set); moving
+             the slider turns it off. Stores nothing itself (StreamSettings). -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="automatic_bitrate"
+            android:title="@string/title_automatic_bitrate"
+            android:dialogMessage="@string/dialog_automatic_bitrate"
+            android:persistent="false" />
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_bitrate_kbps"
             android:dialogMessage="@string/dialog_seekbar_bitrate"

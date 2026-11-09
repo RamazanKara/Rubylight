@@ -16,7 +16,7 @@ use nightjar_core::http::native_api::session::{
     ActionId, CouchMenu, CouchMenuRequest, Owner, Session, SessionApp, State,
 };
 use nightjar_core::http::native_api::wake::{AdapterKind, TargetState, Wake};
-use nightjar_core::http::{ClientIdentity, Error, HostClient};
+use nightjar_core::http::{ClientIdentity, Error, HostClient, LaunchRequest, ServerInfo};
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use serde::de::DeserializeOwned;
@@ -704,6 +704,48 @@ fn every_request_is_a_full_handshake_with_the_client_certificate() {
         assert_eq!(request.handshake, Some(rustls::HandshakeKind::Full));
         assert!(request.client_certificate.is_some());
     }
+}
+
+#[test]
+fn a_resume_after_a_settings_change_asks_for_the_new_mode() {
+    // Nightjar issue #85: the game started at 1080p60 keeps running, the settings change to
+    // 1600p144, and the rejoin must ask a Sunshine-family host for the new mode as Moonlight's
+    // /resume does; the host applies it there.
+    let host = serve(|_, path, _| match path {
+        "/launch" => (200, "<root status_code=\"200\"><gamesession>1</gamesession><sessionUrl0>rtsp://127.0.0.1:48010</sessionUrl0></root>".into()),
+        "/resume" => (200, "<root status_code=\"200\"><resume>1</resume><sessionUrl0>rtsp://127.0.0.1:48010</sessionUrl0></root>".into()),
+        other => (404, other.to_owned()),
+    });
+    let client = paired_client(&host);
+    let info = ServerInfo::parse(
+        "<root status_code=\"200\"><hostname>PC</hostname><appversion>7.1.431.-1</appversion>\
+         <uniqueid>host</uniqueid><PairStatus>1</PairStatus><state>SUNSHINE_SERVER_BUSY</state>\
+         <currentgame>881448767</currentgame></root>",
+        47989,
+    )
+    .unwrap();
+    let first = LaunchRequest {
+        app_id: 881448767,
+        width: 1920,
+        height: 1080,
+        fps: 60,
+        ..LaunchRequest::default()
+    };
+    assert!(client.launch(&first, &info).unwrap().is_some());
+    let changed = LaunchRequest {
+        width: 2560,
+        height: 1600,
+        fps: 144,
+        ..first
+    };
+    assert!(client.resume(&changed, &info).unwrap().is_some());
+    let seen = host.seen.lock().unwrap();
+    assert_eq!(seen.len(), 2);
+    assert_eq!(seen[0].path, "/launch");
+    assert!(seen[0].query.contains("&mode=1920x1080x60&"), "{}", seen[0].query);
+    assert_eq!(seen[1].path, "/resume");
+    assert!(seen[1].query.contains("&mode=2560x1600x144&"), "{}", seen[1].query);
+    assert!(!seen[1].query.contains("1920x1080"), "{}", seen[1].query);
 }
 
 #[test]

@@ -13,4 +13,6 @@
     <string name="dialog_auto_bitrate">Bağlantı veya cihaz yetişemediğinde bit hızını düşürür, durum düzelince tekrar yükseltir. Yayının bit hızını asla aşmaz. Tüm bilgisayarlar için varsayılandır; yayın menüsünden tek bir bilgisayar için değiştirilebilir.</string>
     <string name="title_thermal_protection">Isı koruması</string>
     <string name="dialog_thermal_protection">Cihaz sıcakken bit hızını ve çözünürlüğü düşürür. Telefonlar ve TV çubukları yayın sırasında sık sık ısınır, bu yüzden varsayılan olarak kapalıdır: düşük bit hızı görüntüyü yumuşatır.</string>
+    <string name="title_automatic_bitrate">Otomatik bit hızı</string>
+    <string name="dialog_automatic_bitrate">Nightjar bit hızını çözünürlüğe, kare hızına ve codec\'e göre seçer ve bunlar değişince onu da değiştirir. Bit hızı kaydırıcısını oynatmak bunu kapatır.</string>
 </resources>

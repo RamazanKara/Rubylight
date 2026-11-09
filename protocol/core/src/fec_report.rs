@@ -227,8 +227,22 @@ impl FecTally {
     /// shards, which keeps the host's reports fresh and their sequence continuous; one past
     /// [`MAX_INTERVAL_MS`] (a stalled sender) is dropped: its counts can't be timed.
     pub fn take(&mut self, now_ms: u64) -> Option<FecReport> {
+        self.take_after(now_ms, NOMINAL_INTERVAL_MS)
+    }
+
+    /// The report early, once its interval is [`MIN_INTERVAL_MS`] old, if it counts a block
+    /// that could not be recovered: the host's FEC hears of the loss without waiting out the
+    /// second.
+    pub fn take_lost(&mut self, now_ms: u64) -> Option<FecReport> {
+        if self.report.unrecovered_blocks == 0 {
+            return None;
+        }
+        self.take_after(now_ms, MIN_INTERVAL_MS)
+    }
+
+    fn take_after(&mut self, now_ms: u64, interval_ms: u16) -> Option<FecReport> {
         let elapsed = now_ms.saturating_sub(self.since_ms?);
-        if elapsed < u64::from(NOMINAL_INTERVAL_MS) {
+        if elapsed < u64::from(interval_ms) {
             return None;
         }
         let mut report = core::mem::take(&mut self.report);
@@ -502,6 +516,25 @@ mod tests {
         let report = full.take(1_000).unwrap();
         assert_eq!(report.data_shards, u32::MAX);
         assert_eq!(report.unrecovered_blocks, 3);
+    }
+
+    #[test]
+    fn a_block_that_could_not_be_recovered_is_reported_after_a_quarter_second() {
+        let mut tally = FecTally::default();
+        tally.block(block(1, 10, 2, 12, 0, false), 1_000);
+        assert_eq!(tally.take_lost(1_900), None, "a clean link waits out the second");
+        assert_eq!(tally.take(1_999), None);
+        assert_eq!(tally.take(2_000).unwrap().interval_ms, 1_000);
+        tally.block(block(2, 10, 2, 0, 0, true), 2_100);
+        assert_eq!(tally.take_lost(2_249), None, "never within 250 ms of the last report");
+        let early = tally.take_lost(2_250).unwrap();
+        assert_eq!((early.seq, early.unrecovered_blocks, early.interval_ms), (1, 1, 250));
+        assert_eq!(FecReport::decode(&early.encode()), Some(early));
+        // The next interval starts at the early report.
+        tally.block(block(3, 10, 2, 12, 0, false), 2_300);
+        assert_eq!(tally.take_lost(2_600), None);
+        assert_eq!(tally.take(3_249), None);
+        assert_eq!(tally.take(3_250).unwrap().interval_ms, 1_000);
     }
     #[test]
     fn the_tally_counts_what_it_could_see_and_blocks_that_never_came() {

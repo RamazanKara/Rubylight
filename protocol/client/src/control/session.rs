@@ -404,13 +404,20 @@ impl ControlSession {
         self.fec_reports.tally.block(block, now_ms);
     }
 
-    /// Queues the FEC report once its interval is a second old (see [`FecTally::take`]).
-    fn flush_fec_report(&mut self, now: Instant) {
+    /// Queues the FEC report once its interval is a quarter second old if it counts a block
+    /// that could not be recovered (see [`FecTally::take_lost`]), otherwise on the ping's tick
+    /// (`nominal`) once it is a second old (see [`FecTally::take`]).
+    fn flush_fec_report(&mut self, now: Instant, nominal: bool) {
         if self.fec_reports.epoch.is_none() {
             return;
         }
         let now_ms = self.fec_reports.ms(now);
-        if let Some(report) = self.fec_reports.tally.take(now_ms) {
+        let tally = &mut self.fec_reports.tally;
+        let report = match tally.take_lost(now_ms) {
+            None if nominal => tally.take(now_ms),
+            report => report,
+        };
+        if let Some(report) = report {
             self.queue(&ClientMessage::FecReport(report));
         }
     }
@@ -489,8 +496,10 @@ impl ControlSession {
             while let Some(status) = self.fec_statuses.pop_front() {
                 self.queue(&ClientMessage::FrameFecStatus(status));
             }
-            self.flush_fec_report(now);
+            self.flush_fec_report(now, true);
             self.queue(&ClientMessage::PeriodicPing);
+        } else {
+            self.flush_fec_report(now, false);
         }
         self.next_ping
     }
@@ -757,29 +766,83 @@ mod tests {
         }
     }
 
-    #[test]
-    fn the_fec_report_goes_once_a_second_to_a_host_that_announced_it() {
-        let mut s = ControlSession::new(
+    fn fec_reporting() -> ControlSession {
+        ControlSession::new(
             HostCapabilities {
                 control_messages: vec![0x5539],
                 ..rubylight()
             },
             &KEY,
             SessionOptions::default(),
+        )
+    }
+
+    fn reports(s: &mut ControlSession) -> Vec<(Delivery, FecReport)> {
+        host_reads(s)
+            .into_iter()
+            .filter(|m| m.2 == 0x5539)
+            .map(|m| (m.1, FecReport::decode(&m.3).unwrap()))
+            .collect()
+    }
+
+    #[test]
+    fn a_block_that_could_not_be_recovered_is_reported_after_a_quarter_second() {
+        let mut s = fec_reporting();
+        let t0 = Instant::now();
+        s.start(t0);
+        host_reads(&mut s);
+        let ms = |ms: u64| t0 + Duration::from_millis(ms);
+        // A clean link reports once a second, on the ping's tick.
+        s.fec_block(block(1, false), t0);
+        for at in [100, 250, 500, 900] {
+            s.poll(ms(at));
+        }
+        assert!(reports(&mut s).is_empty());
+        s.poll(ms(1000));
+        let clean = reports(&mut s);
+        assert_eq!(clean.len(), 1);
+        assert_eq!(clean[0].1.interval_ms, 1000);
+
+        // A block lost 50 ms later goes at the first poll a quarter second after the last
+        // report, between the ping's ticks too.
+        s.fec_block(block(4, true), ms(1050));
+        s.poll(ms(1100));
+        s.poll(ms(1249));
+        assert!(reports(&mut s).is_empty(), "never two within 250 ms");
+        s.poll(ms(1255));
+        let early = reports(&mut s);
+        assert_eq!(early.len(), 1);
+        assert_eq!(
+            (early[0].1.seq, early[0].1.unrecovered_blocks, early[0].1.interval_ms),
+            (1, 1, 255)
         );
+
+        // Another loss right after waits out the quarter second again; then the cadence goes on
+        // a second after the last report.
+        s.fec_block(block(4, true), ms(1260));
+        s.poll(ms(1300));
+        s.poll(ms(1504));
+        assert!(reports(&mut s).is_empty());
+        s.poll(ms(1505));
+        assert_eq!(reports(&mut s)[0].1.interval_ms, 250);
+        s.fec_block(block(0, false), ms(1600));
+        for at in [1700, 1800, 2000, 2400] {
+            s.poll(ms(at));
+        }
+        assert!(reports(&mut s).is_empty());
+        s.poll(ms(2600));
+        assert_eq!(reports(&mut s)[0].1.interval_ms, 1095);
+    }
+
+    #[test]
+    fn the_fec_report_goes_once_a_second_to_a_host_that_announced_it() {
+        let mut s = fec_reporting();
         let t0 = Instant::now();
         s.fec_block(block(1, false), t0);
         s.start(t0);
         host_reads(&mut s);
         s.fec_block(block(1, false), t0);
-        s.fec_block(block(4, true), t0 + Duration::from_millis(10));
-        let reports = |s: &mut ControlSession| -> Vec<(Delivery, FecReport)> {
-            host_reads(s)
-                .into_iter()
-                .filter(|m| m.2 == 0x5539)
-                .map(|m| (m.1, FecReport::decode(&m.3).unwrap()))
-                .collect()
-        };
+        s.fec_block(block(4, false), t0 + Duration::from_millis(10));
         s.poll(t0 + Duration::from_millis(900));
         assert!(reports(&mut s).is_empty(), "not before a second");
         let first = t0 + Duration::from_millis(1000);
@@ -789,7 +852,7 @@ mod tests {
             data_shards: 20,
             parity_shards: 4,
             missing_shards: 5,
-            unrecovered_blocks: 1,
+            unrecovered_blocks: 0,
             interval_ms: 1000,
         };
         assert_eq!(

@@ -17,12 +17,23 @@
 + * - `SDL_PROP_GPU_DEVICE_VULKAN_VIDEO_DECODE_QUEUE_FAMILIES_NUMBER`: bit i
 + *   set when the device has one more queue (index 0) in family i, a video
 + *   decode family, that SDL itself never uses.
++ * - `SDL_PROP_GPU_DEVICE_VULKAN_COMPUTE_QUEUE_POINTER`,
++ *   `SDL_PROP_GPU_DEVICE_VULKAN_COMPUTE_QUEUE_FAMILY_INDEX_NUMBER` and
++ *   `SDL_PROP_GPU_DEVICE_VULKAN_COMPUTE_QUEUE_INDEX_NUMBER`: only when the
++ *   compute queue below was asked for; the queue (NULL and family -1 when
++ *   the device has none to spare), its family and its index there. SDL
++ *   itself never uses it.
 + *
 + * The device was created with the API version, features and extensions of
 + * the SDL_GPUVulkanOptions it was given. With
 + * `SDL_PROP_GPU_DEVICE_CREATE_VULKAN_VIDEO_DECODE_QUEUES_BOOLEAN` true at
 + * creation, it also gets those queues: one in each family other than SDL's
-+ * whose flags include VK_QUEUE_VIDEO_DECODE_BIT_KHR.
++ * whose flags include VK_QUEUE_VIDEO_DECODE_BIT_KHR. With
++ * `SDL_PROP_GPU_DEVICE_CREATE_VULKAN_COMPUTE_QUEUE_BOOLEAN` true, it also
++ * gets one compute queue: in the first family with compute but not graphics
++ * that has a queue left, else the next queue of the first compute family
++ * that has one left (a second queue of SDL's family), as Granite picks its
++ * async compute queue.
 + */
 +#define SDL_PROP_GPU_DEVICE_VULKAN_INSTANCE_POINTER            "SDL.gpu.device.vulkan.instance"
 +#define SDL_PROP_GPU_DEVICE_VULKAN_PHYSICAL_DEVICE_POINTER     "SDL.gpu.device.vulkan.physical_device"
@@ -32,6 +43,10 @@
 +#define SDL_PROP_GPU_DEVICE_VULKAN_QUEUE_LOCK_POINTER          "SDL.gpu.device.vulkan.queue_lock"
 +#define SDL_PROP_GPU_DEVICE_VULKAN_VIDEO_DECODE_QUEUE_FAMILIES_NUMBER "SDL.gpu.device.vulkan.video_decode_queue_families"
 +#define SDL_PROP_GPU_DEVICE_CREATE_VULKAN_VIDEO_DECODE_QUEUES_BOOLEAN "SDL.gpu.device.create.vulkan.video_decode_queues"
++#define SDL_PROP_GPU_DEVICE_VULKAN_COMPUTE_QUEUE_POINTER       "SDL.gpu.device.vulkan.compute_queue"
++#define SDL_PROP_GPU_DEVICE_VULKAN_COMPUTE_QUEUE_FAMILY_INDEX_NUMBER "SDL.gpu.device.vulkan.compute_queue_family_index"
++#define SDL_PROP_GPU_DEVICE_VULKAN_COMPUTE_QUEUE_INDEX_NUMBER  "SDL.gpu.device.vulkan.compute_queue_index"
++#define SDL_PROP_GPU_DEVICE_CREATE_VULKAN_COMPUTE_QUEUE_BOOLEAN "SDL.gpu.device.create.vulkan.compute_queue"
 +
  
  /* State Creation */
@@ -70,6 +85,7 @@
  
      bool usesCustomVulkanOptions;
 +    bool videoDecodeQueues; // Nightjar patch: SDL_PROP_GPU_DEVICE_CREATE_VULKAN_VIDEO_DECODE_QUEUES_BOOLEAN
++    bool computeQueue; // Nightjar patch: SDL_PROP_GPU_DEVICE_CREATE_VULKAN_COMPUTE_QUEUE_BOOLEAN
  
      Uint32 additionalDeviceExtensionCount;
      const char **additionalDeviceExtensionNames;
@@ -78,6 +94,10 @@
      Uint32 queueFamilyIndex;
      VkQueue unifiedQueue;
 +    Uint32 videoDecodeQueueFamilies; // Nightjar patch: families with one extra queue for the app
++    bool computeQueueAsked; // Nightjar patch: the app's compute queue (SDL_gpu.h)
++    Uint32 computeQueueFamily; // SDL_MAX_UINT32: none
++    Uint32 computeQueueIndex;
++    VkQueue computeQueue;
  
      VulkanCommandBuffer **submittedCommandBuffers;
      Uint32 submittedCommandBufferCount;
@@ -143,6 +163,7 @@
  static void VULKAN_INTERNAL_AddOptInVulkanOptions(SDL_PropertiesID props, VulkanRenderer *renderer, VulkanFeatures *features)
  {
 +    features->videoDecodeQueues = SDL_GetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_VULKAN_VIDEO_DECODE_QUEUES_BOOLEAN, false);
++    features->computeQueue = SDL_GetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_VULKAN_COMPUTE_QUEUE_BOOLEAN, false);
      if (SDL_HasProperty(props, SDL_PROP_GPU_DEVICE_CREATE_VULKAN_OPTIONS_POINTER)) {
          SDL_GPUVulkanOptions *options = (SDL_GPUVulkanOptions *)SDL_GetPointerProperty(props, SDL_PROP_GPU_DEVICE_CREATE_VULKAN_OPTIONS_POINTER, NULL);
          if (options) {
@@ -150,8 +171,9 @@
  
      VkDeviceQueueCreateInfo queueCreateInfo;
      float queuePriority = 1.0f;
-+    VkDeviceQueueCreateInfo queueCreateInfos[32]; // Nightjar patch: SDL's queue and the decode queues
++    VkDeviceQueueCreateInfo queueCreateInfos[33]; // Nightjar patch: SDL's queue, the decode queues and the compute one
 +    Uint32 queueCreateInfoCount = 1;
++    float queuePriorities[2] = { 1.0f, 1.0f }; // Nightjar patch: a family with SDL's queue and the compute one
  
      queueCreateInfo.sType =
          VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
@@ -161,21 +183,58 @@
      deviceCreateInfo.flags = 0;
 -    deviceCreateInfo.queueCreateInfoCount = 1;
 -    deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
-+    // Nightjar patch: one more queue in each video decode family for the app (SDL_gpu.h).
++    // Nightjar patch: one more queue in each video decode family for the app, and its compute
++    // queue (SDL_gpu.h).
 +    queueCreateInfos[0] = queueCreateInfo;
 +    renderer->videoDecodeQueueFamilies = 0;
-+    if (features->videoDecodeQueues) {
++    renderer->computeQueueAsked = features->computeQueue;
++    renderer->computeQueueFamily = SDL_MAX_UINT32;
++    renderer->computeQueueIndex = 0;
++    if (features->videoDecodeQueues || features->computeQueue) {
 +        Uint32 familyCount = 0;
++        Uint32 used[32];
 +        VkQueueFamilyProperties *families;
 +        renderer->vkGetPhysicalDeviceQueueFamilyProperties(renderer->physicalDevice, &familyCount, NULL);
 +        families = SDL_stack_alloc(VkQueueFamilyProperties, familyCount);
 +        renderer->vkGetPhysicalDeviceQueueFamilyProperties(renderer->physicalDevice, &familyCount, families);
-+        for (i = 0; i < familyCount && i < 32; i += 1) {
++        SDL_zeroa(used);
++        if (renderer->queueFamilyIndex < 32) {
++            used[renderer->queueFamilyIndex] = 1;
++        }
++        for (i = 0; features->videoDecodeQueues && i < familyCount && i < 32; i += 1) {
 +            if (i != renderer->queueFamilyIndex && (families[i].queueFlags & VK_QUEUE_VIDEO_DECODE_BIT_KHR)) {
 +                queueCreateInfos[queueCreateInfoCount] = queueCreateInfo;
 +                queueCreateInfos[queueCreateInfoCount].queueFamilyIndex = i;
 +                queueCreateInfoCount += 1;
 +                renderer->videoDecodeQueueFamilies |= 1u << i;
++                used[i] = 1;
++            }
++        }
++        // The compute queue as Nightjar's stream/pyrowave_sdk/queue.rs `compute_queue` picks it:
++        // a family with compute but not graphics first, then any compute family.
++        if (features->computeQueue) {
++            Uint32 pass, k;
++            for (pass = 0; pass < 2 && renderer->computeQueueFamily == SDL_MAX_UINT32; pass += 1) {
++                for (i = 0; i < familyCount && i < 32; i += 1) {
++                    if ((families[i].queueFlags & VK_QUEUE_COMPUTE_BIT) &&
++                        (pass == 1 || !(families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)) &&
++                        families[i].queueCount > used[i]) {
++                        renderer->computeQueueFamily = i;
++                        renderer->computeQueueIndex = used[i];
++                        break;
++                    }
++                }
++            }
++            if (renderer->computeQueueFamily != SDL_MAX_UINT32) {
++                for (k = 0; k < queueCreateInfoCount && queueCreateInfos[k].queueFamilyIndex != renderer->computeQueueFamily; k += 1) {
++                }
++                if (k == queueCreateInfoCount) {
++                    queueCreateInfos[k] = queueCreateInfo;
++                    queueCreateInfos[k].queueFamilyIndex = renderer->computeQueueFamily;
++                    queueCreateInfoCount += 1;
++                }
++                queueCreateInfos[k].queueCount = renderer->computeQueueIndex + 1;
++                queueCreateInfos[k].pQueuePriorities = queuePriorities;
 +            }
 +        }
 +        SDL_stack_free(families);
@@ -184,6 +243,22 @@
 +    deviceCreateInfo.pQueueCreateInfos = queueCreateInfos;
      deviceCreateInfo.enabledLayerCount = 0;
      deviceCreateInfo.ppEnabledLayerNames = NULL;
+ 
+@@ -12655,6 +12735,12 @@
+     renderer->vkGetDeviceQueue(
+         renderer->logicalDevice,
+         renderer->queueFamilyIndex,
+         0,
+         &renderer->unifiedQueue);
+ 
++    // Nightjar patch: the app's compute queue (SDL_gpu.h).
++    renderer->computeQueue = VK_NULL_HANDLE;
++    if (renderer->computeQueueFamily != SDL_MAX_UINT32) {
++        renderer->vkGetDeviceQueue(renderer->logicalDevice, renderer->computeQueueFamily, renderer->computeQueueIndex, &renderer->computeQueue);
++    }
++
+     return 1;
+ }
  
 @@ -12948,6 +12989,15 @@
      renderer->descriptorSetLayoutFetchLock = SDL_CreateMutex();
@@ -197,6 +272,11 @@
 +    SDL_SetNumberProperty(renderer->props, SDL_PROP_GPU_DEVICE_VULKAN_QUEUE_FAMILY_INDEX_NUMBER, renderer->queueFamilyIndex);
 +    SDL_SetPointerProperty(renderer->props, SDL_PROP_GPU_DEVICE_VULKAN_QUEUE_LOCK_POINTER, renderer->submitLock);
 +    SDL_SetNumberProperty(renderer->props, SDL_PROP_GPU_DEVICE_VULKAN_VIDEO_DECODE_QUEUE_FAMILIES_NUMBER, renderer->videoDecodeQueueFamilies);
++    if (renderer->computeQueueAsked) {
++        SDL_SetPointerProperty(renderer->props, SDL_PROP_GPU_DEVICE_VULKAN_COMPUTE_QUEUE_POINTER, (void *)renderer->computeQueue);
++        SDL_SetNumberProperty(renderer->props, SDL_PROP_GPU_DEVICE_VULKAN_COMPUTE_QUEUE_FAMILY_INDEX_NUMBER, renderer->computeQueue ? (Sint64)renderer->computeQueueFamily : -1);
++        SDL_SetNumberProperty(renderer->props, SDL_PROP_GPU_DEVICE_VULKAN_COMPUTE_QUEUE_INDEX_NUMBER, renderer->computeQueueIndex);
++    }
 +
      /*
       * Create submitted command buffer list

@@ -608,6 +608,8 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         .flat_map(|host| host.settings.iter().chain(host.app_settings.values()))
         .chain(profiles.entries.iter().map(|profile| &profile.settings)));
     sdl::set_hdr_asked(hdr_asked);
+    // Before the renderer: on Linux its device gets PyroWave's compute queue only with this on.
+    stream::pyrowave_sdk::queue::use_async_compute(settings.pyrowave_async_compute);
 
     // Steam's Game Mode: fullscreen without a border from the start (handheld.rs).
     let start = handheld::start_window(handheld::gamescope());
@@ -2397,6 +2399,8 @@ impl App {
             return;
         };
         self.gpu_failure = None;
+        // Before the renderer may be made again for this stream and before its decoder.
+        stream::pyrowave_sdk::queue::use_async_compute(settings.pyrowave_async_compute);
         #[cfg(unix)]
         {
             self.switch_for_stream(&settings);

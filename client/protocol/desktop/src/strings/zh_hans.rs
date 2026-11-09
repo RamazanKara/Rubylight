@@ -1427,4 +1427,7 @@ sudo sysctl -w net.core.rmem_max={}", "接收缓冲区：系统只分配了所�
     ("This system's VA-API driver decodes neither H.264 nor HEVC. Install your distribution's full Mesa VA drivers, or use the Nightjar Flatpak.", "此系统的 VA-API 驱动无法解码 H.264 和 HEVC。请安装发行版完整的 Mesa VA 驱动，或使用 Nightjar 的 Flatpak。"),
     ("The Flatpak lacks {}, the NVIDIA driver it needs. Run flatpak update to install it.", "Flatpak 缺少它需要的 NVIDIA 驱动 {}。请运行 flatpak update 安装。"),
     ("Full chroma needs a {0} picture, larger than this decoder's {1}, so the stream is 4:2:0. A lower resolution keeps full chroma.", "全色度需要 {0} 的画面，超过此解码器的 {1}，因此串流为 4:2:0。降低分辨率可保留全色度。"),
+    ("NVDEC pictures can't be copied into the renderer's images on the graphics card, so each one goes through memory, which takes longer. The log says why.", "无法在显卡上将 NVDEC 画面复制到渲染器的图像中，因此每帧都经过内存，耗时更长。日志中写明了原因。"),
+    ("Decode PyroWave on a compute queue", "在计算队列上解码 PyroWave"),
+    ("PyroWave decodes on a separate compute queue where the GPU has one; without one this changes nothing. Measured no clear gain, and it can delay presentation on Wayland.", "GPU 有独立的计算队列时，PyroWave 在其上解码；没有则不起作用。测量未见明显改善，且在 Wayland 上可能延迟显示。"),
 ];

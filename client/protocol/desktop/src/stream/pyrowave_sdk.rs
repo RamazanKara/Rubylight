@@ -54,6 +54,7 @@ mod watchdog;
 // Likewise, so the decisions about sharing the renderer's device are tested on every host.
 #[cfg(any(unix, test))]
 pub mod zero_copy;
+pub mod queue;
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -236,6 +237,8 @@ api! {
     device_confirm_interop_support: unsafe extern "C" fn(RawDevice) -> bool,
     device_get_vk_device_handles: unsafe extern "C" fn(RawDevice, *mut vk::Instance, *mut vk::PhysicalDevice, *mut vk::Device),
     device_report_performance_stats: unsafe extern "C" fn(RawDevice, MessageCallback, *mut c_void, bool),
+    // `VkQueueFlagBits`: `VK_QUEUE_GRAPHICS_BIT` or `VK_QUEUE_COMPUTE_BIT` (`queue.rs`).
+    device_set_queue_type: unsafe extern "C" fn(RawDevice, vk::QueueFlags) -> PyroResult,
     device_destroy: unsafe extern "C" fn(RawDevice),
     decoder_create: unsafe extern "C" fn(*const DecoderCreateInfo, *mut RawDecoder) -> PyroResult,
     decoder_destroy: unsafe extern "C" fn(RawDecoder),
@@ -394,6 +397,8 @@ pub struct GpuDecoder {
     reuse_fence: Option<ID3D11Fence>,
     slots: Vec<Slot>,
     counter: u64,
+    /// The queue the decodes run on (`queue.rs`).
+    queue: queue::DecodeQueue,
 }
 
 #[cfg(windows)]
@@ -414,14 +419,30 @@ fn luid_of(device: &ID3D11Device) -> Result<Luid, String> {
 
 #[cfg(windows)]
 impl GpuDecoder {
-    /// With the SDK next to the executable (loaded once per process, see `Api::shared`).
+    /// With the SDK next to the executable (loaded once per process, see `Api::shared`), decoding
+    /// on the queue the setting asks for (`queue::async_compute`); which one and why goes to
+    /// the log.
     pub fn new(d3d: &ID3D11Device, config: GpuConfig) -> Result<Self, String> {
-        Self::with_api(Api::shared()?, d3d, config)
+        let decoder = Self::with_queue(Api::shared()?, d3d, config, queue::async_compute())?;
+        eprintln!("nightjar: {}", decoder.queue.line());
+        Ok(decoder)
+    }
+
+    /// `with_queue` on the graphics queue.
+    pub fn with_api(api: Arc<Api>, d3d: &ID3D11Device, config: GpuConfig) -> Result<Self, String> {
+        Self::with_queue(api, d3d, config, false)
+    }
+
+    /// The queue the decodes run on.
+    pub fn decode_queue(&self) -> &queue::DecodeQueue {
+        &self.queue
     }
 
     /// Creates the SDK device on the D3D11 adapter's LUID, the decoder (compute path), `config.slots`
-    /// plane sets and the two shared fences. Errors name the step that failed.
-    pub fn with_api(api: Arc<Api>, d3d: &ID3D11Device, config: GpuConfig) -> Result<Self, String> {
+    /// plane sets and the two shared fences, the decodes on a separate compute queue with
+    /// `async_compute` where the device has one (`queue::own_device_queue`). Errors name the step
+    /// that failed.
+    pub fn with_queue(api: Arc<Api>, d3d: &ID3D11Device, config: GpuConfig, async_compute: bool) -> Result<Self, String> {
         if config.slots == 0 || config.width == 0 || config.height == 0 || (!config.chroma444 && (config.width % 2 != 0 || config.height % 2 != 0)) {
             return Err(format!("PyroWave GPU decoding: bad picture {}x{} with {} plane sets", config.width, config.height, config.slots));
         }
@@ -439,6 +460,7 @@ impl GpuDecoder {
             reuse_fence: None,
             slots: Vec::new(),
             counter: 0,
+            queue: queue::DecodeQueue::Graphics(queue::SETTING_OFF.into()),
         };
         // SAFETY: `luid` and the out-pointers outlive each call, and `s` owns every handle made so
         // Drop releases them on any early return.
@@ -451,6 +473,11 @@ impl GpuDecoder {
             if !(s.api.device_confirm_interop_support)(s.device) {
                 return Err("the Vulkan driver cannot share D3D11 textures and fences with the PyroWave device (external memory and semaphore interop are missing)".into());
             }
+            // Before the decoder, so nothing of it is made for the other queue. The planes are
+            // acquired from QUEUE_FAMILY_IGNORED and released to QUEUE_FAMILY_EXTERNAL by the decode
+            // itself, and the decode fence orders D3D11 after it, on either queue.
+            let (api, device) = (s.api.clone(), s.device);
+            s.queue = queue::apply(&api, device, queue::own_device_queue(async_compute, || queue::sdk_families(&api, device)));
             let result = (s.api.decoder_create)(
                 &DecoderCreateInfo { device: s.device, width: config.width as i32, height: config.height as i32, chroma: i32::from(config.chroma444), fragment_path: false },
                 &mut s.decoder,

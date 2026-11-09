@@ -776,6 +776,73 @@ pub fn cuda_plan(renderer: Result<Extensions, String>) -> Result<(), String> {
     }
 }
 
+/// A device UUID as CUDA and Vulkan print it (8-4-4-4-12 hex digits).
+fn uuid_text(uuid: [u8; 16]) -> String {
+    let hex: String = uuid.iter().map(|byte| format!("{byte:02x}")).collect();
+    format!("{}-{}-{}-{}-{}", &hex[..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..])
+}
+
+/// Whether CUDA's device (`cuda`, `cuDeviceGetUuid`) is the renderer's Vulkan device (`vulkan`,
+/// `VkPhysicalDeviceIDProperties::deviceUUID`); NVIDIA's drivers give one GPU the same UUID in both.
+pub fn same_gpu(vulkan: [u8; 16], cuda: [u8; 16]) -> Result<(), String> {
+    if vulkan == cuda {
+        Ok(())
+    } else {
+        Err(format!(
+            "NVDEC decodes on another GPU than the renderer's (CUDA device {}, the renderer's Vulkan device {}), so CUDA cannot copy its pictures into the renderer's images",
+            uuid_text(cuda),
+            uuid_text(vulkan)
+        ))
+    }
+}
+
+/// `AVCUDADeviceContext` (libavutil/hwcontext_cuda.h): the CUDA context NVDEC decodes in.
+#[repr(C)]
+struct CudaDeviceContext {
+    cuda_ctx: *mut c_void,
+    stream: *mut c_void,
+    internal: *mut c_void,
+}
+
+/// The UUID of the GPU the CUDA device context `cuda` runs on, asked of libcuda (which FFmpeg
+/// already loaded for it) inside that context.
+///
+/// # Safety
+/// `cuda` must be null or a live `AV_HWDEVICE_TYPE_CUDA` device context.
+unsafe fn cuda_uuid(cuda: *mut AVBufferRef) -> Result<[u8; 16], String> {
+    type Call1 = unsafe extern "C" fn(*mut c_void) -> c_int;
+    type PopCall = unsafe extern "C" fn(*mut *mut c_void) -> c_int;
+    type DeviceCall = unsafe extern "C" fn(*mut c_int) -> c_int;
+    type UuidCall = unsafe extern "C" fn(*mut [u8; 16], c_int) -> c_int;
+    if cuda.is_null() || (*cuda).data.is_null() {
+        return Err("the NVDEC decoder has no CUDA device context".into());
+    }
+    let context = &*(*(*cuda).data.cast::<AVHWDeviceContext>()).hwctx.cast::<CudaDeviceContext>();
+    let library = libloading::Library::new("libcuda.so.1").map_err(|e| format!("libcuda.so.1 cannot be loaded ({e})"))?;
+    let symbol = |name: &[u8]| {
+        library.get::<*mut c_void>(name).map(|symbol| *symbol).map_err(|e| format!("libcuda lacks {} ({e})", String::from_utf8_lossy(&name[..name.len() - 1])))
+    };
+    let push = std::mem::transmute::<*mut c_void, Call1>(symbol(b"cuCtxPushCurrent_v2\0")?);
+    let pop = std::mem::transmute::<*mut c_void, PopCall>(symbol(b"cuCtxPopCurrent_v2\0")?);
+    let device_of = std::mem::transmute::<*mut c_void, DeviceCall>(symbol(b"cuCtxGetDevice\0")?);
+    let uuid_of = std::mem::transmute::<*mut c_void, UuidCall>(symbol(b"cuDeviceGetUuid_v2\0").or_else(|_| symbol(b"cuDeviceGetUuid\0"))?);
+    let status = push(context.cuda_ctx);
+    if status != 0 {
+        return Err(format!("the NVDEC decoder's CUDA context cannot be made current (CUDA error {status})"));
+    }
+    let (mut device, mut uuid) = (0, [0u8; 16]);
+    let mut status = device_of(&mut device);
+    if status == 0 {
+        status = uuid_of(&mut uuid, device);
+    }
+    let mut popped = ptr::null_mut();
+    pop(&mut popped);
+    if status != 0 {
+        return Err(format!("CUDA does not name the GPU NVDEC decodes on (CUDA error {status})"));
+    }
+    Ok(uuid)
+}
+
 /// `AV_VK_FRAME_FLAG_DISABLE_MULTIPLANE`: one image per plane, as CUDA imports no multi-plane image.
 const DISABLE_MULTIPLANE: c_int = 1 << 2;
 
@@ -800,9 +867,13 @@ pub struct CudaMap {
 unsafe impl Send for CudaMap {}
 
 impl CudaMap {
+    /// For the NVDEC decoder whose CUDA device context is `cuda` (`AVCodecContext::hw_device_ctx`):
+    /// refused up front, with both GPUs named, when CUDA runs on another GPU than the renderer's,
+    /// where every copy would fail.
+    ///
     /// # Safety
-    /// As `device_context`.
-    pub unsafe fn new(gpu: *mut SDL_GPUDevice) -> Result<Self, String> {
+    /// As `device_context`, and `cuda` must be a live `AV_HWDEVICE_TYPE_CUDA` device context.
+    pub unsafe fn new(gpu: *mut SDL_GPUDevice, cuda: *mut AVBufferRef) -> Result<Self, String> {
         let renderer = made_with(gpu);
         cuda_plan(renderer.as_ref().map(|&(_, extensions)| extensions).map_err(Clone::clone))?;
         let (sdl, extensions) = renderer?;
@@ -812,6 +883,10 @@ impl CudaMap {
             },
             sdl.instance,
         );
+        let mut ids = vk::PhysicalDeviceIDProperties::default();
+        let mut properties = vk::PhysicalDeviceProperties2::default().push_next(&mut ids);
+        instance.get_physical_device_properties2(sdl.physical_device, &mut properties);
+        same_gpu(ids.device_uuid, cuda_uuid(cuda)?)?;
         let families = queue_families(&instance, sdl.physical_device);
         Ok(Self {
             device: share(&sdl, extensions, &listed_families(&families, sdl.family, 0))?,
@@ -2092,6 +2167,22 @@ mod tests {
         // Only the two-plane 4:2:0 pictures `Planes` copies: NVDEC's 4:4:4 ones are three planes.
         assert!(mappable(AV_PIX_FMT_NV12) && mappable(AV_PIX_FMT_P010LE));
         assert!(!mappable(crate::media::ffi::AV_PIX_FMT_YUV444P) && !mappable(crate::media::ffi::AV_PIX_FMT_YUV444P16LE));
+    }
+
+    /// NVDEC on another GPU than the renderer's is refused when the copy is set up, both GPUs named.
+    #[test]
+    fn cuda_must_run_on_the_renderers_gpu() {
+        let renderer = [0x5e, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e, 0x6f, 0x70, 0x81, 0x92, 0xa3, 0xb4, 0xc5, 0xd6, 0xe7, 0xf8];
+        assert_eq!(same_gpu(renderer, renderer), Ok(()));
+        let mut other = renderer;
+        other[15] = 0x09;
+        let why = same_gpu(renderer, other).unwrap_err();
+        assert!(why.contains("another GPU than the renderer's"), "{why}");
+        assert!(why.contains("CUDA device 5e1a2b3c-4d5e-6f70-8192-a3b4c5d6e709"), "{why}");
+        assert!(why.contains("Vulkan device 5e1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8"), "{why}");
+        // A decoder without a CUDA device context says so instead of crashing.
+        // SAFETY: A null context is the documented refusal.
+        assert!(unsafe { cuda_uuid(ptr::null_mut()) }.unwrap_err().contains("no CUDA device context"));
     }
 
     /// CUDA imports no multi-plane image, and the decoder's coded size is the copy's.

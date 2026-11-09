@@ -1,0 +1,6 @@
+# pyrowave-planes.spv is glslang 15.1.0's output for pyrowave.hlsl; the command is in
+# docs/pyrowave-decode.md ("Shader module"). Regenerate the module after any change to the
+# shader and put both SHA-256s here (the shader's with LF line endings): a unit test
+# (`pyrowave_gpu::tests::the_planes_module_was_built_from_the_shader_as_it_is`) compares them.
+pyrowave.hlsl 71f040e615a324276561167bf99dae8816aa67a32eda6149ebe67c1d5883ba1c
+pyrowave-planes.spv 52b0ca983d0dc19bf90dd1e267cf997f9be7e5a86e2e4f932452a6753badc694

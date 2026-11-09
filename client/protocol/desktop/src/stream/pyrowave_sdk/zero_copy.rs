@@ -55,6 +55,12 @@ const DEVICE: &CStr = c"SDL.gpu.device.vulkan.device";
 const QUEUE: &CStr = c"SDL.gpu.device.vulkan.queue";
 const QUEUE_FAMILY: &CStr = c"SDL.gpu.device.vulkan.queue_family_index";
 const QUEUE_LOCK: &CStr = c"SDL.gpu.device.vulkan.queue_lock";
+/// Asks SDL for one more queue for PyroWave's decodes at the device's creation (`queue.rs`).
+pub const COMPUTE_QUEUE_PROPERTY: &CStr = c"SDL.gpu.device.create.vulkan.compute_queue";
+/// That queue, its family (-1: asked for, but there is none) and its index in the family.
+const COMPUTE_QUEUE: &CStr = c"SDL.gpu.device.vulkan.compute_queue";
+const COMPUTE_FAMILY: &CStr = c"SDL.gpu.device.vulkan.compute_queue_family_index";
+const COMPUTE_INDEX: &CStr = c"SDL.gpu.device.vulkan.compute_queue_index";
 /// Ours: the `Features` the renderer's device was created with, set by `RendererRequest::mark`.
 pub const FEATURES_PROPERTY: &CStr = c"nightjar.pyrowave.vulkan_features";
 /// Wraps a VkImage as an SDL GPU texture (the same patch).
@@ -227,8 +233,9 @@ pub fn plan(devices: &[DeviceCaps]) -> Result<Features, String> {
 /// PyroWave's `plan`: every device SDL could pick needs Vulkan 1.3 and `Features::video`, and the
 /// extensions asked for are the ones they all have, so none is refused for them, if they decode a
 /// codec; the DMA-BUF import extensions VAAPI's pictures are mapped with, if they all have
-/// them (`crate::vulkan_video::VaapiMap`); and with either, the CUDA interop ones NVDEC's pictures
-/// are copied into Vulkan images with, if they all have them (`crate::vulkan_video::CudaMap`).
+/// them (`crate::vulkan_video::VaapiMap`); and the CUDA interop ones NVDEC's pictures are copied
+/// into Vulkan images with, if they all have them (`crate::vulkan_video::CudaMap`), with or
+/// without the others.
 pub fn plan_video(devices: &[DeviceCaps]) -> Result<crate::vulkan_video::Extensions, String> {
     plan_video_for(devices, crate::vulkan_video::Extensions::wanted(true, true))
 }
@@ -251,20 +258,33 @@ pub fn plan_video_for(devices: &[DeviceCaps], wanted: crate::vulkan_video::Exten
     }
     let video = video.and(wanted);
     let (usable, mapping, interop) = (video.usable(), video.mapping(), video.interop());
-    if usable.is_empty() && mapping.is_empty() {
+    // Interop alone is enough: NVDEC's pictures are copied into the device by CUDA (`CudaMap`),
+    // and with no video or import extensions neither Vulkan video (`device_context` checks
+    // `usable`) nor VAAPI's mapping (`map_plan` checks `mapping`) is tried on it.
+    if usable.is_empty() && mapping.is_empty() && interop.is_empty() {
         return Err(if wanted.mapping().is_empty() {
-            "the Vulkan devices SDL picks from lack the video decoding extensions".into()
+            "the Vulkan devices SDL picks from lack the video decoding extensions and the CUDA interop ones".into()
         } else {
-            "the Vulkan devices SDL picks from lack the video decoding extensions and the DMA-BUF import ones".into()
+            "the Vulkan devices SDL picks from lack the video decoding extensions, the DMA-BUF import ones and the CUDA interop ones".into()
         });
     }
     Ok(crate::vulkan_video::Extensions(usable.0 | mapping.0 | interop.0))
 }
 
 /// The video extensions the GPU renderer's request would ask for (`plan_video` of the devices the
-/// loader lists), or why Vulkan video cannot be used.
+/// loader lists), or why Vulkan video cannot be used: a plan without the video decoding extensions
+/// (the CUDA interop ones alone) is no Vulkan video.
 pub fn video_devices() -> Result<crate::vulkan_video::Extensions, String> {
-    plan_video_for(&query_devices()?, crate::vulkan_video::Extensions::wanted(true, false))
+    vulkan_video_of(plan_video_for(&query_devices()?, crate::vulkan_video::Extensions::wanted(true, false)))
+}
+
+/// `video_devices` of a plan: only one with the video decoding extensions decodes with Vulkan video.
+fn vulkan_video_of(planned: Result<crate::vulkan_video::Extensions, String>) -> Result<crate::vulkan_video::Extensions, String> {
+    let planned = planned?;
+    if planned.usable().is_empty() {
+        return Err("the Vulkan devices SDL picks from lack the video decoding extensions".into());
+    }
+    Ok(planned)
 }
 
 /// The Vulkan devices the loader lists, as `plan` reads them.
@@ -372,6 +392,12 @@ impl RendererRequest {
         self.features
     }
 
+    /// Whether the request has PyroWave's half (its required features), so the SDK may decode on
+    /// the device and a compute queue for it is worth asking SDL for.
+    pub fn pyrowave(&self) -> bool {
+        has_pyrowave(self.features)
+    }
+
     /// The Vulkan video and DMA-BUF import extensions asked for; with video ones, the renderer
     /// also asks SDL for its decode queues (`crate::vulkan_video::DECODE_QUEUES_PROPERTY`).
     pub fn video(&self) -> crate::vulkan_video::Extensions {
@@ -399,6 +425,11 @@ impl RendererRequest {
     }
 }
 
+/// Whether `features` hold PyroWave's required ones (`RendererRequest::pyrowave`).
+fn has_pyrowave(features: Features) -> bool {
+    Features::required().without(features).is_empty()
+}
+
 unsafe fn driver_of(device: *mut SDL_GPUDevice) -> String {
     let driver = SDL_GetGPUDeviceDriver(device);
     if driver.is_null() { String::new() } else { CStr::from_ptr(driver).to_string_lossy().into_owned() }
@@ -415,6 +446,8 @@ pub struct SdlVulkan {
     /// The SDL_Mutex SDL holds around every use of `queue`.
     pub lock: *mut SDL_Mutex,
     pub features: Features,
+    /// The queue SDL made for PyroWave's decodes beside its own (`COMPUTE_QUEUE_PROPERTY`).
+    pub compute: super::queue::RendererCompute,
 }
 
 impl SdlVulkan {
@@ -451,6 +484,7 @@ impl SdlVulkan {
             family: SDL_GetNumberProperty(props, QUEUE_FAMILY.as_ptr(), 0) as u32,
             lock: handles[4].cast(),
             features,
+            compute: compute_of(props),
         })
     }
 
@@ -459,6 +493,25 @@ impl SdlVulkan {
     pub fn require(&self, needed: Features) -> Result<(), String> {
         let missing = needed.without(self.features);
         if missing.is_empty() { Ok(()) } else { Err(format!("the renderer's Vulkan device was created without {}", missing.names().join(", "))) }
+    }
+}
+
+/// The compute queue the device of `props` was made with for PyroWave (`COMPUTE_QUEUE_PROPERTY`).
+///
+/// # Safety
+/// `props` must be a live properties group.
+unsafe fn compute_of(props: SDL_PropertiesID) -> super::queue::RendererCompute {
+    use super::queue::{QueueSlot, RendererCompute};
+    if !SDL_HasProperty(props, COMPUTE_FAMILY.as_ptr()) {
+        return RendererCompute::NotAsked;
+    }
+    let family = SDL_GetNumberProperty(props, COMPUTE_FAMILY.as_ptr(), -1);
+    let index = SDL_GetNumberProperty(props, COMPUTE_INDEX.as_ptr(), 0);
+    let queue = SDL_GetPointerProperty(props, COMPUTE_QUEUE.as_ptr(), ptr::null_mut());
+    // The patch takes the first free queue of a family, beside at most one of its own (index 1).
+    match (u32::try_from(family), queue.is_null(), index) {
+        (Ok(family), false, 0..=1) => RendererCompute::Queue(vk::Queue::from_raw(queue as u64), QueueSlot { family, index: index as u32 }),
+        _ => RendererCompute::None,
     }
 }
 
@@ -481,30 +534,34 @@ unsafe extern "C" fn unlock_queue(mutex: *mut std::ffi::c_void) {
 }
 
 /// What `pyrowave_create_device` is told about the renderer's device: Vulkan 1.3 without
-/// extensions of ours, its one queue, and exactly the features it was made with (Granite treats
-/// the chain as the features it may use). Boxed, as it points into itself; it must outlive the SDK
-/// device.
+/// extensions of ours, its queue (and the compute queue SDL made for the decodes, when they run
+/// there), and exactly the features it was made with (Granite treats the chain as the features it
+/// may use, and picks its queues from the queue create infos: with the compute queue listed, its
+/// compute and transfer queues are that one). Boxed, as it points into itself; it must outlive
+/// the SDK device.
 pub struct ShareInfo {
     app: vk::ApplicationInfo<'static>,
     instance: vk::InstanceCreateInfo<'static>,
-    priority: f32,
-    queue: vk::DeviceQueueCreateInfo<'static>,
+    priorities: [f32; 2],
+    queue_infos: [vk::DeviceQueueCreateInfo<'static>; 2],
     chain: Chain,
     device: vk::DeviceCreateInfo<'static>,
-    queues: DeviceQueueInfo,
+    queues: [DeviceQueueInfo; 2],
     pub create: SharedDeviceCreateInfo,
 }
 
 impl ShareInfo {
-    pub fn new(sdl: &SdlVulkan, get_instance_proc_addr: vk::PFN_vkGetInstanceProcAddr) -> Box<Self> {
+    /// With `compute`, the compute queue (and where it is) the decodes run on.
+    pub fn new(sdl: &SdlVulkan, get_instance_proc_addr: vk::PFN_vkGetInstanceProcAddr, compute: Option<(vk::Queue, super::queue::QueueSlot)>) -> Box<Self> {
+        let graphics = DeviceQueueInfo { queue: sdl.queue, family_index: sdl.family, index: 0 };
         let mut info = Box::new(Self {
             app: vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_3),
             instance: vk::InstanceCreateInfo::default(),
-            priority: 1.0,
-            queue: vk::DeviceQueueCreateInfo::default().queue_family_index(sdl.family),
+            priorities: [1.0; 2],
+            queue_infos: [vk::DeviceQueueCreateInfo { queue_family_index: sdl.family, queue_count: 1, ..Default::default() }; 2],
             chain: Chain::default(),
             device: vk::DeviceCreateInfo::default(),
-            queues: DeviceQueueInfo { queue: sdl.queue, family_index: sdl.family, index: 0 },
+            queues: [graphics; 2],
             create: SharedDeviceCreateInfo {
                 get_instance_proc_addr,
                 instance: sdl.instance,
@@ -519,18 +576,41 @@ impl ShareInfo {
                 userdata: sdl.lock.cast(),
             },
         });
+        let mut families = 1;
+        if let Some((queue, slot)) = compute {
+            info.queues[1] = DeviceQueueInfo { queue, family_index: slot.family, index: slot.index };
+            info.create.queue_info_count = 2;
+            if slot.family == sdl.family {
+                // A second queue of SDL's family: its create info has both.
+                info.queue_infos[0].queue_count = slot.index + 1;
+            } else {
+                info.queue_infos[1] = vk::DeviceQueueCreateInfo { queue_family_index: slot.family, queue_count: slot.index + 1, ..Default::default() };
+                families = 2;
+            }
+        }
         info.chain.link();
         info.chain.enable(sdl.features);
         info.instance.p_application_info = &raw const info.app;
-        info.queue.queue_count = 1;
-        info.queue.p_queue_priorities = &raw const info.priority;
-        info.device.queue_create_info_count = 1;
-        info.device.p_queue_create_infos = &raw const info.queue;
+        let priorities = (&raw const info.priorities).cast::<f32>();
+        for queue_info in &mut info.queue_infos {
+            queue_info.p_queue_priorities = priorities;
+        }
+        info.device.queue_create_info_count = families;
+        info.device.p_queue_create_infos = info.queue_infos.as_ptr();
         info.device.p_next = (&raw const info.chain.pdf2).cast();
         info.create.instance_create_info = &raw const info.instance;
         info.create.device_create_info = &raw const info.device;
-        info.create.queue_info = &raw mut info.queues;
+        info.create.queue_info = info.queues.as_mut_ptr();
         info
+    }
+}
+
+/// The queue families the plane images are shared by: none (EXCLUSIVE, SDL's family alone) unless
+/// the decodes run on a queue of another family, then SDL's and that one (CONCURRENT).
+fn sharing(sdl_family: u32, decode_family: Option<u32>) -> Vec<u32> {
+    match decode_family {
+        Some(family) if family != sdl_family => vec![sdl_family, family],
+        _ => Vec::new(),
     }
 }
 
@@ -562,11 +642,14 @@ unsafe impl Send for SharedImages {}
 unsafe impl Sync for SharedImages {}
 
 impl SharedImages {
-    /// Creates `config.slots` plane sets on `sdl`'s device and moves them to GENERAL layout.
+    /// Creates `config.slots` plane sets on `sdl`'s device and moves them to GENERAL layout. With
+    /// `decode_family` (the family of the compute queue the decodes run on) other than SDL's, the
+    /// images are shared by both families (`sharing`).
     ///
     /// # Safety
     /// `sdl` must describe a live device that outlives the images.
-    pub unsafe fn new(sdl: &SdlVulkan, get_instance_proc_addr: vk::PFN_vkGetInstanceProcAddr, config: GpuConfig) -> Result<Arc<Self>, String> {
+    pub unsafe fn new(sdl: &SdlVulkan, get_instance_proc_addr: vk::PFN_vkGetInstanceProcAddr, config: GpuConfig, decode_family: Option<u32>) -> Result<Arc<Self>, String> {
+        let families = sharing(sdl.family, decode_family);
         let instance = ash::Instance::load(&ash::StaticFn { get_instance_proc_addr }, sdl.instance);
         let memory = instance.get_physical_device_memory_properties(sdl.physical_device);
         let device = ash::Device::load(instance.fp_v1_0(), sdl.device);
@@ -586,7 +669,8 @@ impl SharedImages {
                     .image_type(vk::ImageType::TYPE_2D).format(images.format()).extent(vk::Extent3D { width, height, depth: 1 })
                     .mip_levels(1).array_layers(1).samples(vk::SampleCountFlags::TYPE_1).tiling(vk::ImageTiling::OPTIMAL)
                     .usage(vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::TRANSFER_DST)
-                    .sharing_mode(vk::SharingMode::EXCLUSIVE).initial_layout(vk::ImageLayout::UNDEFINED), None)
+                    .sharing_mode(if families.is_empty() { vk::SharingMode::EXCLUSIVE } else { vk::SharingMode::CONCURRENT })
+                    .queue_family_indices(&families).initial_layout(vk::ImageLayout::UNDEFINED), None)
                     .map_err(|e| format!("a {width}x{height} plane image cannot be created ({e})"))?;
                 images.planes.push((image, vk::DeviceMemory::null()));
                 let needs = images.device.get_image_memory_requirements(image);
@@ -782,7 +866,7 @@ mod tests {
         assert_eq!(plan_video(&[rtx.clone(), with_video("iGPU", vk::PhysicalDeviceType::INTEGRATED_GPU, 0)]), Ok(Extensions(0b11111)));
         // Neither the video nor the import extensions: nothing to ask for (the renderer is made
         // without them, for PyroWave alone or as before Vulkan video).
-        let none = Err("the Vulkan devices SDL picks from lack the video decoding extensions and the DMA-BUF import ones".to_string());
+        let none = Err("the Vulkan devices SDL picks from lack the video decoding extensions, the DMA-BUF import ones and the CUDA interop ones".to_string());
         assert_eq!(plan_video(&[with_video("queues only", discrete, 0b00011)]), none, "queues without a codec");
         assert_eq!(plan_video(&[with_video("a", discrete, 0b11111), with_video("b", discrete, 0b11100)]), none, "b has no queues");
         assert_eq!(plan_video(&[]), Err("Vulkan lists no devices".into()));
@@ -794,17 +878,31 @@ mod tests {
         assert_eq!(plan_video(&[with_video("a", discrete, 0b1111_1111), with_video("b", discrete, 0b0111_1111)]), Ok(Extensions(0b1_1111)), "b cannot import");
         assert_eq!(plan_video_for(&[with_video("RADV", discrete, 0b1111_1111)], Extensions::wanted(false, true)), Ok(import), "NIGHTJAR_VULKAN_VIDEO=0");
         // The CUDA interop extensions (external memory and semaphore FDs) are asked for when every
-        // candidate has both, whatever the switches say, with the video or the import ones.
+        // candidate has both, whatever the switches say, with or without the video or import ones.
         let interop = Extensions(1 << 5 | 1 << 8);
         assert_eq!(plan_video(&[with_video("NVIDIA", discrete, 0b1_1111_1111)]), Ok(Extensions(0b1_1111_1111)));
         assert_eq!(plan_video_for(&[with_video("NVIDIA", discrete, 0b1_0011_1111)], Extensions::wanted(true, false)), Ok(Extensions(0b1_0011_1111)));
-        assert_eq!(plan_video_for(&[with_video("NVIDIA", discrete, 0b1_1111_1111)], Extensions::wanted(false, false)), Err("the Vulkan devices SDL picks from lack the video decoding extensions".into()), "interop alone is no reason to share the device");
+        // Interop alone shares the device for NVDEC's copies (a driver without Vulkan video or
+        // DMA-BUF import, or both switched off), and the plan says neither Vulkan video nor the
+        // VAAPI mapping may use it.
+        let alone = plan_video_for(&[with_video("NVIDIA", discrete, 0b1_1111_1111)], Extensions::wanted(false, false));
+        assert_eq!(alone, Ok(interop), "interop alone is reason enough to share the device");
+        let alone = alone.unwrap();
+        assert!(alone.usable().is_empty() && alone.mapping().is_empty() && !alone.decodes(crate::media::Codec::Hevc));
+        assert!(crate::vulkan_video::map_plan(true, Ok(alone), Ok(())).is_err(), "no VAAPI mapping without the import extensions");
+        assert_eq!(crate::vulkan_video::cuda_plan(Ok(alone)), Ok(()));
+        assert_eq!(plan_video(&[with_video("no video", discrete, interop.0)]), Ok(interop), "a driver with only the interop ones");
+        // Vulkan video itself still needs the video ones: interop alone is not reason to pick the
+        // GPU renderer for Vulkan video decoding.
+        assert_eq!(vulkan_video_of(Ok(interop)), Err("the Vulkan devices SDL picks from lack the video decoding extensions".into()));
+        assert_eq!(vulkan_video_of(Ok(Extensions(0b1_1111_1111))), Ok(Extensions(0b1_1111_1111)));
+        assert_eq!(vulkan_video_of(Err("none".into())), Err("none".into()));
         assert_eq!(plan_video(&[with_video("a", discrete, 0b1_1111_1111), with_video("b", discrete, 0b0_1111_1111)]), Ok(Extensions(0b1111_1111)), "b cannot export semaphores");
         assert_eq!(plan_video(&[with_video("a", discrete, 0b1_0001_1111)]), Ok(Extensions(0b1_1111)), "a semaphore export without the memory one is no interop");
         assert_eq!(plan_video(&[with_video("NVIDIA", discrete, 0b1_1111_1111)]).map(|planned| planned.interop()), Ok(interop));
         assert_eq!(
             plan_video_for(&[with_video("RADV", discrete, import.0)], Extensions::wanted(true, false)),
-            Err("the Vulkan devices SDL picks from lack the video decoding extensions".into()),
+            Err("the Vulkan devices SDL picks from lack the video decoding extensions and the CUDA interop ones".into()),
             "Vulkan video alone needs the video ones"
         );
         // Apart from PyroWave: a device without its subgroup operations and features decodes video
@@ -926,6 +1024,7 @@ mod tests {
             let sdl = SdlVulkan::from_properties(props, "vulkan").unwrap();
             assert_eq!((sdl.family, sdl.features, sdl.device.as_raw()), (2, Features::all(), (&raw const fake[2]) as u64));
             assert_eq!(sdl.lock, (&raw mut fake[4]).cast());
+            assert_eq!(sdl.compute, super::super::queue::RendererCompute::NotAsked, "a device made with the setting off");
             SDL_DestroyProperties(props);
         }
     }
@@ -935,9 +1034,10 @@ mod tests {
         let sdl = SdlVulkan {
             instance: vk::Instance::from_raw(1), physical_device: vk::PhysicalDevice::from_raw(2), device: vk::Device::from_raw(3),
             queue: vk::Queue::from_raw(4), family: 5, lock: ptr::null_mut(), features: Features(Features::required().0 | with(&["shaderInt8"]).0),
+            compute: super::super::queue::RendererCompute::NotAsked,
         };
         unsafe extern "system" fn loader(_: vk::Instance, _: *const std::ffi::c_char) -> vk::PFN_vkVoidFunction { None }
-        let info = ShareInfo::new(&sdl, loader);
+        let info = ShareInfo::new(&sdl, loader, None);
         // SAFETY: Every pointer is into the box, alive here.
         unsafe {
             let device = &*info.create.device_create_info;
@@ -954,5 +1054,85 @@ mod tests {
             assert_eq!((info.create.queue_info_count, queues.queue.as_raw(), queues.family_index, queues.index), (1, 4, 5, 0));
             assert!(info.create.queue_lock_callback.is_some() && info.create.queue_unlock_callback.is_some());
         }
+    }
+
+    /// With the decodes on SDL's compute queue, Granite is told of it beside the graphics queue: in
+    /// a create info of its own family, or as a second queue of SDL's family.
+    #[test]
+    fn the_share_info_lists_the_compute_queue_the_decodes_run_on() {
+        use super::super::queue::{QueueSlot, RendererCompute};
+        let sdl = SdlVulkan {
+            instance: vk::Instance::from_raw(1), physical_device: vk::PhysicalDevice::from_raw(2), device: vk::Device::from_raw(3),
+            queue: vk::Queue::from_raw(4), family: 0, lock: ptr::null_mut(), features: Features::required(),
+            compute: RendererCompute::NotAsked,
+        };
+        unsafe extern "system" fn loader(_: vk::Instance, _: *const std::ffi::c_char) -> vk::PFN_vkVoidFunction { None }
+        // AMD: the compute family 1.
+        let info = ShareInfo::new(&sdl, loader, Some((vk::Queue::from_raw(9), QueueSlot { family: 1, index: 0 })));
+        // SAFETY: Every pointer is into the box, alive here.
+        unsafe {
+            let device = &*info.create.device_create_info;
+            let infos = std::slice::from_raw_parts(device.p_queue_create_infos, device.queue_create_info_count as usize);
+            let listed: Vec<_> = infos.iter().map(|info| (info.queue_family_index, info.queue_count, *info.p_queue_priorities)).collect();
+            assert_eq!(listed, [(0, 1, 1.0), (1, 1, 1.0)]);
+            let queues = std::slice::from_raw_parts(info.create.queue_info, info.create.queue_info_count as usize);
+            let listed: Vec<_> = queues.iter().map(|queue| (queue.queue.as_raw(), queue.family_index, queue.index)).collect();
+            assert_eq!(listed, [(4, 0, 0), (9, 1, 0)]);
+        }
+        // One family with two queues: the second is the decodes'.
+        let info = ShareInfo::new(&sdl, loader, Some((vk::Queue::from_raw(9), QueueSlot { family: 0, index: 1 })));
+        // SAFETY: As above.
+        unsafe {
+            let device = &*info.create.device_create_info;
+            let queue_info = &*device.p_queue_create_infos;
+            assert_eq!((device.queue_create_info_count, queue_info.queue_family_index, queue_info.queue_count), (1, 0, 2));
+            assert_eq!(std::slice::from_raw_parts(queue_info.p_queue_priorities, 2), [1.0, 1.0]);
+            let queues = std::slice::from_raw_parts(info.create.queue_info, info.create.queue_info_count as usize);
+            let listed: Vec<_> = queues.iter().map(|queue| (queue.queue.as_raw(), queue.family_index, queue.index)).collect();
+            assert_eq!(listed, [(4, 0, 0), (9, 0, 1)]);
+        }
+    }
+
+    /// The planes are shared by SDL's family and the decodes' only when those differ.
+    #[test]
+    fn the_planes_are_concurrent_only_across_two_families() {
+        assert!(sharing(0, None).is_empty());
+        assert!(sharing(0, Some(0)).is_empty(), "a second queue of SDL's family");
+        assert_eq!(sharing(0, Some(1)), [0, 1]);
+        assert_eq!(sharing(2, Some(0)), [2, 0]);
+    }
+
+    /// The compute queue as the patched SDL reports it: not asked for, asked for with none, or the queue.
+    #[test]
+    fn the_renderers_compute_queue_is_read_from_sdls_properties() {
+        use super::super::queue::{QueueSlot, RendererCompute};
+        // SAFETY: A properties group made and destroyed here.
+        unsafe {
+            let props = SDL_CreateProperties();
+            assert_eq!(compute_of(props), RendererCompute::NotAsked);
+            SDL_SetNumberProperty(props, COMPUTE_FAMILY.as_ptr(), -1);
+            SDL_SetPointerProperty(props, COMPUTE_QUEUE.as_ptr(), ptr::null_mut());
+            assert_eq!(compute_of(props), RendererCompute::None);
+            let mut fake = 0u8;
+            SDL_SetNumberProperty(props, COMPUTE_FAMILY.as_ptr(), 1);
+            SDL_SetNumberProperty(props, COMPUTE_INDEX.as_ptr(), 0);
+            SDL_SetPointerProperty(props, COMPUTE_QUEUE.as_ptr(), (&raw mut fake).cast());
+            assert_eq!(compute_of(props), RendererCompute::Queue(vk::Queue::from_raw((&raw mut fake) as u64), QueueSlot { family: 1, index: 0 }));
+            SDL_SetNumberProperty(props, COMPUTE_INDEX.as_ptr(), 2);
+            assert_eq!(compute_of(props), RendererCompute::None, "no index the patch hands out");
+            SDL_DestroyProperties(props);
+        }
+    }
+
+    #[test]
+    fn only_a_request_with_pyrowaves_half_asks_for_a_compute_queue() {
+        use crate::vulkan_video::Extensions;
+        let request = |pyrowave: Option<Result<Features, String>>, video: Option<Result<Extensions, String>>| {
+            let (features, _) = RendererRequest::halves(pyrowave, video).unwrap();
+            has_pyrowave(features)
+        };
+        assert!(request(Some(Ok(Features::required())), None));
+        assert!(!request(None, Some(Ok(Extensions(0b11111)))), "Vulkan video's features alone");
+        assert!(!request(Some(Err("no subgroups".into())), Some(Ok(Extensions(0b11111)))));
     }
 }

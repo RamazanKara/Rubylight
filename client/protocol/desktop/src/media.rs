@@ -561,6 +561,10 @@ pub struct VideoDecoder {
     /// NVDEC pictures go to the GPU renderer copied by CUDA into Vulkan images (`map_to_vulkan`).
     #[cfg(unix)]
     cuda_map: Option<crate::vulkan_video::CudaMap>,
+    /// Why NVDEC pictures go through memory to the GPU renderer after all (the CUDA copy could not
+    /// be set up, or a copy failed), until the stream takes it for its toast (`take_cuda_fallback`).
+    #[cfg(unix)]
+    cuda_fallback: Option<String>,
     /// The empty frame of the last `receive` that brought no picture, for the next one: each
     /// decoded frame ends with such a call, so this saves an allocation per frame. Pictures
     /// themselves go to the presenter and are freed there.
@@ -742,6 +746,8 @@ impl VideoDecoder {
                 vulkan_map: None,
                 #[cfg(unix)]
                 cuda_map: None,
+                #[cfg(unix)]
+                cuda_fallback: None,
                 spare: None,
                 refused: false,
                 told: false,
@@ -912,6 +918,13 @@ impl VideoDecoder {
         self.refused = true;
     }
 
+    /// Has the decoder act as one whose CUDA copy just failed, for the tests of what follows.
+    #[cfg(all(test, unix))]
+    pub fn fail_cuda_copy(&mut self, why: &str) {
+        let mut map = Some(());
+        copy_or_drop_map(&mut map, &mut self.cuda_fallback, |_| Err(why.to_owned()));
+    }
+
     /// Whether pictures come out of it on their own time, not the frame they were sent with: the
     /// V4L2 M2M decoders answer "no picture yet" while the driver still takes input.
     pub fn asynchronous(&self) -> bool {
@@ -941,6 +954,18 @@ impl VideoDecoder {
         false
     }
 
+    /// Why NVDEC pictures went through memory to the GPU renderer instead of CUDA's copy into its
+    /// Vulkan images, once: the stream says so in a toast.
+    #[cfg(unix)]
+    pub fn take_cuda_fallback(&mut self) -> Option<String> {
+        self.cuda_fallback.take()
+    }
+
+    #[cfg(not(unix))]
+    pub fn take_cuda_fallback(&mut self) -> Option<String> {
+        None
+    }
+
     /// Hands VAAPI pictures to the GPU renderer, the SDL GPU device `gpu`, mapped into Vulkan
     /// images on its device instead of through memory (nightjar#80: 2.5 GB/s read back and
     /// uploaded at 4K100 10-bit), unless `NIGHTJAR_VAAPI_VULKAN_MAP` is 0. Says which in the log,
@@ -952,8 +977,8 @@ impl VideoDecoder {
     #[cfg(unix)]
     pub fn map_to_vulkan(&mut self, gpu: *mut c_void) -> bool {
         if self.hardware == Hardware::Cuda {
-            // SAFETY: As below.
-            return match unsafe { crate::vulkan_video::CudaMap::new(gpu.cast()) } {
+            // SAFETY: As below; the codec context's device is the CUDA one this decoder opened.
+            return match unsafe { crate::vulkan_video::CudaMap::new(gpu.cast(), (*self.context).hw_device_ctx) } {
                 Ok(map) => {
                     eprintln!("nightjar: NVDEC pictures go to the GPU renderer as Vulkan images, copied by CUDA on the GPU");
                     self.cuda_map = Some(map);
@@ -961,6 +986,7 @@ impl VideoDecoder {
                 }
                 Err(why) => {
                     eprintln!("nightjar: NVDEC pictures go through memory to the GPU renderer: {why}");
+                    self.cuda_fallback = Some(why);
                     false
                 }
             };
@@ -1140,23 +1166,18 @@ impl VideoDecoder {
             }
             if format == AV_PIX_FMT_CUDA {
                 #[cfg(unix)]
-                if let Some(map) = self.cuda_map.as_mut() {
+                if self.cuda_map.is_some() {
                     let Some(target) = NonNull::new(av_frame_alloc()) else {
                         return Received::Error;
                     };
                     let copied = Frame::new(target);
-                    match map.copy(raw.as_ptr(), target.as_ptr()) {
-                        Ok(()) => {
-                            // The copy is queued on the decoder's CUDA stream, ahead of any later
-                            // use of the CUDA picture; the decoded frame is empty again.
-                            av_frame_unref(raw.as_ptr());
-                            self.spare = Some(frame);
-                            return Received::Frame(copied);
-                        }
-                        Err(why) => {
-                            eprintln!("nightjar: NVDEC pictures go through memory to the GPU renderer from now on: {why}");
-                            self.cuda_map = None;
-                        }
+                    let source = raw.as_ptr();
+                    if copy_or_drop_map(&mut self.cuda_map, &mut self.cuda_fallback, |map| map.copy(source, target.as_ptr())) {
+                        // The copy is queued on the decoder's CUDA stream, ahead of any later
+                        // use of the CUDA picture; the decoded frame is empty again.
+                        av_frame_unref(raw.as_ptr());
+                        self.spare = Some(frame);
+                        return Received::Frame(copied);
                     }
                 }
                 // NVDEC's pictures are in CUDA memory, which only CUDA itself can read: copied out.
@@ -1190,6 +1211,23 @@ impl Drop for VideoDecoder {
     }
 }
 
+/// A picture's copy with `map` (CUDA's into Vulkan images): true when it was copied. A failed copy
+/// drops the map for the rest of the stream, logs why and keeps it in `fallback` for the stream's
+/// toast, and the picture goes through memory; without a map nothing is copied.
+#[cfg(any(unix, test))]
+fn copy_or_drop_map<M>(map: &mut Option<M>, fallback: &mut Option<String>, copy: impl FnOnce(&mut M) -> Result<(), String>) -> bool {
+    let Some(mapper) = map.as_mut() else { return false };
+    match copy(mapper) {
+        Ok(()) => true,
+        Err(why) => {
+            eprintln!("nightjar: NVDEC pictures go through memory to the GPU renderer from now on: {why}");
+            *map = None;
+            *fallback = Some(why);
+            false
+        }
+    }
+}
+
 /// Times a `receive` that `started` and got `received`, FFmpeg handing over its picture at
 /// `decoded`: a picture adds FFmpeg's receive and the hand-off, a poll that finds none (EAGAIN)
 /// adds nothing to the next picture, and a failed receive or hand-off drops the picture's stages.
@@ -1210,6 +1248,45 @@ fn time_receive(stages: &mut Stages<3>, received: &Received, started: std::time:
 #[cfg(target_os = "linux")]
 fn stage_summary(stages: &Stages<3>) -> Option<String> {
     (stages.frames() >= crate::stream::stage_times::SUMMARY_FRAMES).then(|| stages.summary()).flatten()
+}
+
+/// The presenter's kind (`FRAME_*`) and 10-bit flag of a picture of `format`, whose hardware
+/// frames context holds `sw_format` pictures (None without one); `dmabuf`: a VAAPI picture
+/// exported as DMA-BUFs. Kind 4 is a picture nothing here shows.
+fn frame_kind(format: AVPixelFormat, sw_format: Option<AVPixelFormat>, dmabuf: bool) -> (c_int, c_int) {
+    match format {
+        AV_PIX_FMT_NV12 => (FRAME_NV12, 0),
+        AV_PIX_FMT_P010LE => (FRAME_P010, 1),
+        AV_PIX_FMT_YUV420P | AV_PIX_FMT_YUVJ420P => (FRAME_YUV420P, 0),
+        AV_PIX_FMT_YUV444P | AV_PIX_FMT_YUVJ444P => (FRAME_YUV444P, 0),
+        AV_PIX_FMT_YUV420P10LE => (FRAME_YUV420P10, 1),
+        AV_PIX_FMT_YUV444P10LE => (FRAME_YUV444P10, 1),
+        // Only NV12 and P010 surfaces copy into the presenter's textures; a 4:4:4 surface (AYUV,
+        // Y410) is a picture nothing here can show. Without a frames context, NV12.
+        AV_PIX_FMT_D3D11 => match sw_format.unwrap_or(AV_PIX_FMT_NV12) {
+            AV_PIX_FMT_NV12 => (FRAME_D3D11, 0),
+            AV_PIX_FMT_P010LE => (FRAME_D3D11, 1),
+            _ => (4, 0),
+        },
+        #[cfg(unix)]
+        AV_PIX_FMT_VULKAN => match sw_format.unwrap_or(AV_PIX_FMT_NONE) {
+            AV_PIX_FMT_NV12 => (FRAME_VULKAN, 0),
+            AV_PIX_FMT_P010LE => (FRAME_VULKAN, 1),
+            AV_PIX_FMT_NV24 => (FRAME_VULKAN444, 0),
+            AV_PIX_FMT_P410LE => (FRAME_VULKAN444, 1),
+            // A mapped 4:4:4 VAAPI picture (`vulkan_video::interleaved_444`).
+            AV_PIX_FMT_RGBA => (FRAME_VULKAN_INTERLEAVED444, 0),
+            AV_PIX_FMT_XV30LE => (FRAME_VULKAN_INTERLEAVED444, 1),
+            // Not two planes the presenter copies (`vulkan_video::Planes`).
+            _ => (4, 0),
+        },
+        #[cfg(unix)]
+        AV_PIX_FMT_VAAPI if dmabuf => (FRAME_DMABUF, i32::from(sw_format == Some(AV_PIX_FMT_P010LE))),
+        _ => {
+            let _ = dmabuf;
+            (4, 0)
+        }
+    }
 }
 
 pub struct Frame {
@@ -1286,50 +1363,16 @@ impl Frame {
     pub fn info(&self) -> FrameInfo {
         unsafe {
             let frame = self.raw.as_ref();
-            let (kind, ten_bit) = if self.wavelet { (FRAME_WAVELET, 0) } else { match frame.format as AVPixelFormat {
-                AV_PIX_FMT_NV12 => (FRAME_NV12, 0),
-                AV_PIX_FMT_P010LE => (FRAME_P010, 1),
-                AV_PIX_FMT_YUV420P | AV_PIX_FMT_YUVJ420P => (FRAME_YUV420P, 0),
-                AV_PIX_FMT_YUV444P | AV_PIX_FMT_YUVJ444P => (FRAME_YUV444P, 0),
-                AV_PIX_FMT_YUV420P10LE => (FRAME_YUV420P10, 1),
-                AV_PIX_FMT_YUV444P10LE => (FRAME_YUV444P10, 1),
-                AV_PIX_FMT_D3D11 => {
-                    let sw_format = if frame.hw_frames_ctx.is_null() {
-                        AV_PIX_FMT_NV12
-                    } else {
-                        (*((*frame.hw_frames_ctx).data.cast::<AVHWFramesContext>())).sw_format
-                    };
-                    // Only NV12 and P010 surfaces copy into the presenter's textures; a 4:4:4
-                    // surface (AYUV, Y410) is a picture nothing here can show.
-                    match sw_format {
-                        AV_PIX_FMT_NV12 => (FRAME_D3D11, 0),
-                        AV_PIX_FMT_P010LE => (FRAME_D3D11, 1),
-                        _ => (4, 0),
-                    }
-                }
+            let (kind, ten_bit) = if self.wavelet {
+                (FRAME_WAVELET, 0)
+            } else {
+                let sw_format = (!frame.hw_frames_ctx.is_null()).then(|| (*((*frame.hw_frames_ctx).data.cast::<AVHWFramesContext>())).sw_format);
                 #[cfg(unix)]
-                AV_PIX_FMT_VULKAN => match crate::vulkan_video::sw_format(frame) {
-                    AV_PIX_FMT_NV12 => (FRAME_VULKAN, 0),
-                    AV_PIX_FMT_P010LE => (FRAME_VULKAN, 1),
-                    AV_PIX_FMT_NV24 => (FRAME_VULKAN444, 0),
-                    AV_PIX_FMT_P410LE => (FRAME_VULKAN444, 1),
-                    // A mapped 4:4:4 VAAPI picture (`vulkan_video::interleaved_444`).
-                    AV_PIX_FMT_RGBA => (FRAME_VULKAN_INTERLEAVED444, 0),
-                    AV_PIX_FMT_XV30LE => (FRAME_VULKAN_INTERLEAVED444, 1),
-                    // Not two planes the presenter copies (`vulkan_video::Planes`).
-                    _ => (4, 0),
-                },
-                #[cfg(unix)]
-                AV_PIX_FMT_VAAPI if self.dmabuf.is_some() => {
-                    let sw_format = if frame.hw_frames_ctx.is_null() {
-                        AV_PIX_FMT_NONE
-                    } else {
-                        (*((*frame.hw_frames_ctx).data.cast::<AVHWFramesContext>())).sw_format
-                    };
-                    (FRAME_DMABUF, i32::from(sw_format == AV_PIX_FMT_P010LE))
-                }
-                _ => (4, 0),
-            } };
+                let dmabuf = self.dmabuf.is_some();
+                #[cfg(not(unix))]
+                let dmabuf = false;
+                frame_kind(frame.format as AVPixelFormat, sw_format, dmabuf)
+            };
             FrameInfo {
                 width: frame.width,
                 height: frame.height,
@@ -2128,5 +2171,53 @@ mod tests {
                 OpusDecoder::new(12, layout.streams, layout.coupled, &layout.mapping).unwrap();
             assert_eq!(decoder.channels, 12);
         }
+    }
+
+    /// Each picture format reaches the presenter as the kind it draws, hardware ones by the
+    /// format of their frames context, and anything else as the kind nothing shows.
+    #[test]
+    fn each_picture_format_has_the_kind_the_presenter_draws() {
+        assert_eq!(frame_kind(AV_PIX_FMT_NV12, None, false), (FRAME_NV12, 0));
+        assert_eq!(frame_kind(AV_PIX_FMT_P010LE, None, false), (FRAME_P010, 1));
+        assert_eq!(frame_kind(AV_PIX_FMT_YUVJ420P, None, false), (FRAME_YUV420P, 0));
+        assert_eq!(frame_kind(AV_PIX_FMT_YUV444P, None, false), (FRAME_YUV444P, 0));
+        assert_eq!(frame_kind(AV_PIX_FMT_YUV420P10LE, None, false), (FRAME_YUV420P10, 1));
+        assert_eq!(frame_kind(AV_PIX_FMT_YUV444P10LE, None, false), (FRAME_YUV444P10, 1));
+        // D3D11: NV12 without a frames context, 4:4:4 surfaces shown by nothing.
+        assert_eq!(frame_kind(AV_PIX_FMT_D3D11, None, false), (FRAME_D3D11, 0));
+        assert_eq!(frame_kind(AV_PIX_FMT_D3D11, Some(AV_PIX_FMT_P010LE), false), (FRAME_D3D11, 1));
+        assert_eq!(frame_kind(AV_PIX_FMT_D3D11, Some(AV_PIX_FMT_YUV444P), false), (4, 0));
+        assert_eq!(frame_kind(AV_PIX_FMT_RGBA, None, false), (4, 0));
+        #[cfg(unix)]
+        {
+            assert_eq!(frame_kind(AV_PIX_FMT_VULKAN, Some(AV_PIX_FMT_NV12), false), (FRAME_VULKAN, 0));
+            assert_eq!(frame_kind(AV_PIX_FMT_VULKAN, Some(AV_PIX_FMT_P010LE), false), (FRAME_VULKAN, 1));
+            assert_eq!(frame_kind(AV_PIX_FMT_VULKAN, Some(AV_PIX_FMT_NV24), false), (FRAME_VULKAN444, 0));
+            assert_eq!(frame_kind(AV_PIX_FMT_VULKAN, Some(AV_PIX_FMT_P410LE), false), (FRAME_VULKAN444, 1));
+            // Mapped 4:4:4 VAAPI pictures, one interleaved image.
+            assert_eq!(frame_kind(AV_PIX_FMT_VULKAN, Some(AV_PIX_FMT_RGBA), false), (FRAME_VULKAN_INTERLEAVED444, 0));
+            assert_eq!(frame_kind(AV_PIX_FMT_VULKAN, Some(AV_PIX_FMT_XV30LE), false), (FRAME_VULKAN_INTERLEAVED444, 1));
+            assert_eq!(frame_kind(AV_PIX_FMT_VULKAN, None, false), (4, 0), "no frames context");
+            assert_eq!(frame_kind(AV_PIX_FMT_VULKAN, Some(AV_PIX_FMT_YUV420P), false), (4, 0), "not planes Planes copies");
+            // VAAPI only as exported DMA-BUFs; otherwise it is mapped to memory before this.
+            assert_eq!(frame_kind(AV_PIX_FMT_VAAPI, Some(AV_PIX_FMT_P010LE), true), (FRAME_DMABUF, 1));
+            assert_eq!(frame_kind(AV_PIX_FMT_VAAPI, Some(AV_PIX_FMT_NV12), true), (FRAME_DMABUF, 0));
+            assert_eq!(frame_kind(AV_PIX_FMT_VAAPI, None, true), (FRAME_DMABUF, 0));
+            assert_eq!(frame_kind(AV_PIX_FMT_VAAPI, Some(AV_PIX_FMT_NV12), false), (4, 0));
+        }
+    }
+
+    /// A failed CUDA copy drops the map for good, keeps why for the toast and sends the picture
+    /// through memory; a good one keeps the map, and without one nothing is tried.
+    #[test]
+    fn a_failed_copy_drops_the_map_and_says_why_once() {
+        let (mut map, mut fallback) = (Some(0u32), None);
+        assert!(copy_or_drop_map(&mut map, &mut fallback, |copies| { *copies += 1; Ok(()) }));
+        assert_eq!((map, fallback.as_deref()), (Some(1), None));
+        assert!(!copy_or_drop_map(&mut map, &mut fallback, |_| Err("CUDA error 999".into())));
+        assert_eq!((map, fallback.as_deref()), (None, Some("CUDA error 999")));
+        let mut tried = false;
+        assert!(!copy_or_drop_map(&mut map, &mut fallback, |_: &mut u32| { tried = true; Ok(()) }));
+        assert!(!tried, "no map, no copy: the picture goes through memory");
     }
 }

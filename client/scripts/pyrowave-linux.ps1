@@ -4,6 +4,7 @@
 # in A B B A order per bitrate, one timing CSV per leg, summarised by timing_summary.py.
 #
 #   .\scripts\pyrowave-linux.ps1 -Remote nuc -RemoteDir '~/nj-g3-run' -DecoderA Cpu -DecoderB Gpu
+#   .\scripts\pyrowave-linux.ps1 -DecoderA Gpu -DecoderB Gpu -ExtraB @{ pyrowave_async_compute = $true }
 #
 # <RemoteDir> on the Linux machine holds <Bin>/ (nightjar and libpyrowave-shared.so), cfg/ and
 # pyrowave-linux-leg.sh (copied by this script). Takes C:\src\butterpollo-release\GPU-LOCK (waits
@@ -28,7 +29,9 @@ param(
     [string]$HostExe = 'C:\Program Files\Rubylight\butterpollo.exe',
     [string]$HostProfile = 'C:\tests\njg3',
     [string]$Agent = 'nightjar-g3-linux',
-    [string]$Metric = 'receive_to_present_ms'
+    [string]$Metric = 'receive_to_present_ms',
+    [hashtable]$ExtraA = @{},   # more settings.json keys for the A legs (for example @{ pyrowave_async_compute = $true })
+    [hashtable]$ExtraB = @{}    # and for the B legs
 )
 $ErrorActionPreference = 'Stop'
 $Lock = 'C:\src\butterpollo-release\GPU-LOCK'
@@ -101,9 +104,11 @@ try {
     ssh $Remote "mkdir -p $RemoteDir/cfg $RemoteDir/out-$OutName"
     scp -q "$PSScriptRoot\pyrowave-linux-leg.sh" "${Remote}:$RemoteDir/pyrowave-linux-leg.sh"
     if ($LASTEXITCODE) { throw 'scp failed' }
-    function Set-ClientSettings([int]$Kbps, [string]$Decoder) {
-        $json = (@{ width = $Width; height = $Height; fps = $Fps; bitrate_kbps = $Kbps; pyrowave_decoder = $Decoder; adaptive_bitrate = $false; codec = 'PyroWave';
-            window_mode = 'Windowed'; overlay = $true; console_home = $false; early_decode = $false } | ConvertTo-Json -Compress)
+    function Set-ClientSettings([int]$Kbps, [string]$Decoder, [hashtable]$Extra = @{}) {
+        $settings = @{ width = $Width; height = $Height; fps = $Fps; bitrate_kbps = $Kbps; pyrowave_decoder = $Decoder; adaptive_bitrate = $false; codec = 'PyroWave';
+            window_mode = 'Windowed'; overlay = $true; console_home = $false; early_decode = $false }
+        foreach ($key in $Extra.Keys) { $settings[$key] = $Extra[$key] }
+        $json = ($settings | ConvertTo-Json -Compress)
         $local = Join-Path $Out 'settings.json'
         [IO.File]::WriteAllText($local, $json)
         scp -q $local "${Remote}:$RemoteDir/cfg/settings.json"
@@ -152,7 +157,7 @@ try {
         $n++; $variant = [string]$leg[0]; $kbps = [int]$leg[1]; $group = [string][math]::Round($kbps / 1000)
         $name = '{0:00}-{1}-{2}' -f $n, $variant, $group
         $decoder = if ($variant -eq 'B') { $DecoderB } else { $DecoderA }
-        Set-ClientSettings $kbps $decoder
+        Set-ClientSettings $kbps $decoder $(if ($variant -eq 'B') { $ExtraB } else { $ExtraA })
         $hostLines = (Get-Content $hostLog -ErrorAction SilentlyContinue | Measure-Object -Line).Lines
         Write-Host "leg $name ($Seconds s at $kbps kbps, ${Width}x${Height}@$Fps, decoder $decoder)"
         $p = Start-Leg $name $Seconds

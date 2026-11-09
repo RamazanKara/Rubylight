@@ -747,7 +747,9 @@ pub fn create_renderer_for(window: *mut SDL_Window, gpu: bool, pyrowave: bool, v
             Ok(mut request) => {
                 let video = request.video();
                 // The request outlives the call, which copies what it needs of it.
-                let renderer = make_renderer(window, gpu, request.options(), !video.usable().is_empty());
+                // PyroWave's compute queue only with the setting on (`queue::async_compute`).
+                let compute_queue = request.pyrowave() && crate::stream::pyrowave_sdk::queue::async_compute();
+                let renderer = make_renderer(window, gpu, request.options(), !video.usable().is_empty(), compute_queue);
                 // SAFETY: A live renderer made with the request.
                 if !renderer.is_null() && unsafe { request.mark(renderer) } {
                     return renderer;
@@ -762,7 +764,7 @@ pub fn create_renderer_for(window: *mut SDL_Window, gpu: bool, pyrowave: bool, v
         }
     }
     let _ = (pyrowave, vulkan_video);
-    make_renderer(window, gpu, std::ptr::null_mut(), false)
+    make_renderer(window, gpu, std::ptr::null_mut(), false, false)
 }
 
 /// Why the last GPU renderer asked for could not be made, when [`create_renderer_for`] made
@@ -776,8 +778,9 @@ pub fn gpu_renderer_failure() -> Option<String> {
 
 /// `window` must be live and `vulkan` null or valid for the call. With `vulkan`, a GPU renderer
 /// that cannot be made is not replaced by another kind; `decode_queues` asks the patched SDL for
-/// its extra video decode queues (`vulkan_video::DECODE_QUEUES_PROPERTY`).
-fn make_renderer(window: *mut SDL_Window, gpu: bool, vulkan: *mut SDL_GPUVulkanOptions, decode_queues: bool) -> *mut SDL_Renderer {
+/// its extra video decode queues (`vulkan_video::DECODE_QUEUES_PROPERTY`), `compute_queue` for
+/// one more queue for PyroWave's decodes (`zero_copy::COMPUTE_QUEUE_PROPERTY`).
+fn make_renderer(window: *mut SDL_Window, gpu: bool, vulkan: *mut SDL_GPUVulkanOptions, decode_queues: bool, compute_queue: bool) -> *mut SDL_Renderer {
     // SAFETY: The window is live, `vulkan` null or valid, and all property strings are static.
     unsafe {
         let props = SDL_CreateProperties();
@@ -788,8 +791,12 @@ fn make_renderer(window: *mut SDL_Window, gpu: bool, vulkan: *mut SDL_GPUVulkanO
         if decode_queues {
             SDL_SetBooleanProperty(props, crate::vulkan_video::DECODE_QUEUES_PROPERTY.as_ptr(), true);
         }
+        #[cfg(unix)]
+        if compute_queue {
+            SDL_SetBooleanProperty(props, crate::stream::pyrowave_sdk::zero_copy::COMPUTE_QUEUE_PROPERTY.as_ptr(), true);
+        }
         #[cfg(not(unix))]
-        let _ = decode_queues;
+        let _ = (decode_queues, compute_queue);
         SDL_SetPointerProperty(
             props,
             SDL_PROP_RENDERER_CREATE_WINDOW_POINTER,

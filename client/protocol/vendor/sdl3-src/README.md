@@ -16,7 +16,10 @@ either (libsdl-org/SDL issue 10876; pull request 14157 adds no Vulkan path).
   `VkInstance`, `VkPhysicalDevice`, `VkDevice`, the queue, its family and the mutex SDL holds
   around it, `SDL_PROP_GPU_DEVICE_CREATE_VULKAN_VIDEO_DECODE_QUEUES_BOOLEAN`, which gives the
   device one extra queue in each video decode family for the app (SDL never uses them; a device
-  property names their families), and `SDL_PROP_GPU_TEXTURE_CREATE_VULKAN_IMAGE_NUMBER`, which
+  property names their families), `SDL_PROP_GPU_DEVICE_CREATE_VULKAN_COMPUTE_QUEUE_BOOLEAN`,
+  which gives it one compute queue for PyroWave's decodes (Granite's pick: a family with compute
+  but not graphics first, else a second queue of a compute family; device properties name it,
+  its family and index), and `SDL_PROP_GPU_TEXTURE_CREATE_VULKAN_IMAGE_NUMBER`, which
   wraps an image the app owns in an `SDL_GPUTexture` (never cycled, moved, transitioned or freed
   by SDL). The comments it adds to `SDL_gpu.h` are the contract.
 - `patches/pq-present.patch` (GPU renderer only) lets the app hand the renderer a SPIR-V

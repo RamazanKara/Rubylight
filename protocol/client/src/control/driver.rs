@@ -228,6 +228,9 @@ struct Shared {
     session: Mutex<ControlSession>,
     input: Mutex<InputQueue>,
     stop: AtomicBool,
+    /// A producer asked for a service after the last transmit: the control thread continues
+    /// instead of waiting, even when its wake datagram was drained with the session's.
+    wake_pending: AtomicBool,
     contact_lost: AtomicBool,
     rtt: Mutex<Option<(Duration, Duration)>>,
     /// The connection ended with the host's disconnect ([`ControlHandle::said_goodbye`]).
@@ -267,7 +270,9 @@ impl ControlHandle {
     /// control thread to send what it queued.
     pub fn with_session<R>(&self, f: impl FnOnce(&mut ControlSession) -> R) -> R {
         let result = f(&mut lock(&self.shared.session));
-        self.shared.waker.wake();
+        if !self.shared.wake_pending.swap(true, Ordering::AcqRel) {
+            self.shared.waker.wake();
+        }
         result
     }
 
@@ -280,7 +285,9 @@ impl ControlHandle {
     /// Runs `f` on the input queue and wakes the control thread.
     pub fn with_input<R>(&self, f: impl FnOnce(&mut InputQueue) -> R) -> R {
         let result = f(&mut lock(&self.shared.input));
-        self.shared.waker.wake();
+        if !self.shared.wake_pending.swap(true, Ordering::AcqRel) {
+            self.shared.waker.wake();
+        }
         result
     }
 
@@ -677,6 +684,10 @@ pub struct ControlClient {
     roaming: Option<Roaming>,
     roam_triggers: RoamTriggers,
     roam_events: Vec<RoamEvent>,
+    /// Taken input, kept so that each pass allocates nothing.
+    input: Vec<InputPacket>,
+    /// Queued control datagrams, kept for the same reason.
+    outgoing: Vec<super::session::Outgoing>,
 }
 
 /// When the driver starts, restarts and ends roaming attempts.
@@ -800,6 +811,7 @@ pub fn connect(
         input: Mutex::new(input),
         session: Mutex::new(ControlSession::new(caps, key, options)),
         stop: AtomicBool::new(false),
+        wake_pending: AtomicBool::new(false),
         contact_lost: AtomicBool::new(false),
         rtt: Mutex::new(None),
         goodbye: AtomicBool::new(false),
@@ -855,6 +867,8 @@ pub fn connect(
         disconnect_released_at: None,
         roam_triggers: RoamTriggers::default(),
         roam_events: Vec::new(),
+        input: Vec::new(),
+        outgoing: Vec::new(),
     };
     Ok((client, handle))
 }
@@ -892,34 +906,35 @@ impl ControlClient {
         self.shared
             .contact_lost
             .store(contact_lost, Ordering::Relaxed);
-        let mut input = Vec::new();
+        self.input.clear();
         let input_wake = {
             let mut queue = lock(&self.shared.input);
             if drain_input {
-                queue.drain(now, contact_lost, &mut input);
+                queue.drain(now, contact_lost, &mut self.input);
                 None
             } else {
-                queue.poll(now, contact_lost, &mut input)
+                queue.poll(now, contact_lost, &mut self.input)
             }
         };
-        let mut outgoing = Vec::new();
+        self.outgoing.clear();
         let session_wake = {
             let mut session = lock(&self.shared.session);
             for InputPacket {
                 data,
                 channel,
                 delivery,
-            } in input
+            } in self.input.drain(..)
             {
                 let _ = session.send_input(&data, channel, delivery);
             }
             let wake = session.poll(now);
-            outgoing.extend(std::iter::from_fn(|| session.poll_transmit()));
+            self.outgoing
+                .extend(std::iter::from_fn(|| session.poll_transmit()));
             wake
         };
         let peer = self.host.peer_mut(self.peer);
         let channels = peer.channel_count();
-        for out in outgoing {
+        for out in self.outgoing.drain(..) {
             let channel = if usize::from(out.channel) < channels {
                 out.channel
             } else {
@@ -1063,6 +1078,7 @@ impl ControlClient {
                 self.teardown(&mut on_event);
                 return Outcome::Stopped;
             }
+            self.shared.wake_pending.store(false, Ordering::Release);
             let timer = self.transmit(now, false);
             let received = match self.service() {
                 Ok(received) => received,
@@ -1083,6 +1099,9 @@ impl ControlClient {
             let now = Instant::now();
             self.handle_held_disconnect(now, received);
             if received {
+                continue;
+            }
+            if self.shared.wake_pending.swap(false, Ordering::AcqRel) {
                 continue;
             }
             let mut wait = MAX_SERVICE_INTERVAL;

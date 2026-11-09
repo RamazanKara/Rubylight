@@ -167,6 +167,8 @@ pub struct Opener {
     gcm: Gcm,
     v2: bool,
     replay: ReplayWindow,
+    /// Decryption target kept across messages ([`Opener::open_into`]).
+    pub(super) scratch: Vec<u8>,
 }
 
 impl Opener {
@@ -175,12 +177,20 @@ impl Opener {
             gcm: Gcm::new(key),
             v2,
             replay: ReplayWindow::default(),
+            scratch: Vec::new(),
         }
     }
 
     /// Returns the message type and payload. As in moonlight-common-c, bytes past the
     /// envelope's declared length are ignored, and so is the inner length field.
     pub fn open(&mut self, datagram: &[u8]) -> Result<(u16, Vec<u8>), OpenError> {
+        let (message_type, end) = self.open_into(datagram)?;
+        Ok((message_type, self.scratch[INNER_HEADER_BYTES..end].to_vec()))
+    }
+
+    /// As [`Opener::open`], decrypting into [`Opener::scratch`]: returns the message type and
+    /// the end of the payload in it, so that a frame needs no allocation.
+    pub fn open_into(&mut self, datagram: &[u8]) -> Result<(u16, usize), OpenError> {
         if datagram.len() < 2 {
             return Err(OpenError::Runt);
         }
@@ -199,15 +209,14 @@ impl Opener {
         let iv = control_iv(sequence, self.v2, Origin::Host);
         let tag = &datagram[ENCRYPTED_HEADER_BYTES..ENCRYPTED_HEADER_BYTES + TAG_BYTES];
         let ciphertext = &datagram[ENCRYPTED_HEADER_BYTES + TAG_BYTES..length + 4];
-        let plain = self
-            .gcm
-            .open(iv.as_slice(), tag, ciphertext)
+        self.gcm
+            .open_into(iv.as_slice(), tag, ciphertext, &mut self.scratch)
             .map_err(|_| OpenError::Authentication)?;
         if !self.replay.accept(sequence) {
             return Err(OpenError::Replay(sequence));
         }
-        let message_type = u16::from_le_bytes([plain[0], plain[1]]);
-        Ok((message_type, plain[INNER_HEADER_BYTES..].to_vec()))
+        let message_type = u16::from_le_bytes([self.scratch[0], self.scratch[1]]);
+        Ok((message_type, self.scratch.len()))
     }
 }
 

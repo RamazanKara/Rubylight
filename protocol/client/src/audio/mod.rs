@@ -10,7 +10,8 @@ pub mod passthrough;
 mod queue;
 
 use aes::cipher::block_padding::Pkcs7;
-use aes::cipher::{BlockDecryptMut, KeyIvInit};
+use aes::cipher::{BlockDecryptMut, KeyInit};
+use cbc::cipher::InnerIvInit;
 
 use queue::{AddResult, AudioQueue, Queued, RtpHeader, RTP_PAYLOAD_TYPE_AUDIO};
 
@@ -61,7 +62,7 @@ pub struct AudioStats {
 /// The audio receive path of one stream. No sockets or threads: feed it each datagram.
 pub struct AudioReceiver {
     queue: AudioQueue,
-    decryptor: Option<([u8; 16], u32)>,
+    decryptor: Option<(aes::Aes128, u32)>,
     packets_to_drop: u32,
     received_data: bool,
     packet: Vec<u8>,
@@ -76,7 +77,7 @@ impl AudioReceiver {
             queue: AudioQueue::new(config.packet_duration_ms, config.app_version),
             decryptor: config.encryption.map(|e| {
                 (
-                    e.key,
+                    aes::Aes128::new(&e.key.into()),
                     u32::from_be_bytes([e.iv[0], e.iv[1], e.iv[2], e.iv[3]]),
                 )
             }),
@@ -173,7 +174,7 @@ impl AudioReceiver {
 
     /// `decodeInputData`: decrypts if needed and hands the Opus payload on.
     fn play(
-        decryptor: &Option<([u8; 16], u32)>,
+        decryptor: &Option<(aes::Aes128, u32)>,
         plain: &mut Vec<u8>,
         stats: &mut AudioStats,
         seq: u16,
@@ -181,7 +182,7 @@ impl AudioReceiver {
         out: &mut impl FnMut(AudioOutput<'_>),
     ) {
         let payload = &packet[12..];
-        let Some((key, key_id)) = decryptor else {
+        let Some((cipher, key_id)) = decryptor else {
             out(AudioOutput::Packet(payload));
             return;
         };
@@ -190,7 +191,7 @@ impl AudioReceiver {
         iv[..4].copy_from_slice(&key_id.wrapping_add(u32::from(seq)).to_be_bytes());
         plain.clear();
         plain.extend_from_slice(payload);
-        let cipher = cbc::Decryptor::<aes::Aes128>::new(key.into(), &iv.into());
+        let cipher = cbc::Decryptor::<aes::Aes128>::inner_iv_init(cipher.clone(), &iv.into());
         match cipher.decrypt_padded_mut::<Pkcs7>(plain) {
             Ok(opus) => out(AudioOutput::Packet(opus)),
             Err(_) => stats.decrypt_failures += 1,

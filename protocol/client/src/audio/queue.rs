@@ -3,6 +3,8 @@
 //! given up. Port of `RtpAudioQueue.c` with Nightjar's patch (the out-of-sequence wait is in
 //! microseconds).
 
+use std::collections::VecDeque;
+
 use super::AudioStats;
 use crate::fec::{ReedSolomon, AUDIO_PARITY_MATRIX};
 
@@ -115,7 +117,7 @@ fn is_before16(x: u16, y: u16) -> bool {
 
 pub(super) struct AudioQueue {
     /// Blocks in sequence order.
-    blocks: Vec<FecBlock>,
+    blocks: VecDeque<FecBlock>,
     free_blocks: Vec<FecBlock>,
     rs: ReedSolomon,
     next_rtp_seq: u16,
@@ -136,7 +138,7 @@ impl AudioQueue {
         // GFE before 3.19 breaks invariants the FEC logic needs; pass its audio straight through.
         let modern = v[0] > 7 || (v[0] == 7 && (v[1] > 1 || (v[1] == 1 && v[2] >= 415)));
         Self {
-            blocks: Vec::new(),
+            blocks: VecDeque::new(),
             free_blocks: Vec::new(),
             rs: ReedSolomon::with_parity_matrix(DATA_SHARDS, FEC_SHARDS, &AUDIO_PARITY_MATRIX)
                 .expect("4+2 code"),
@@ -184,7 +186,7 @@ impl AudioQueue {
     }
 
     fn free_block_head(&mut self) {
-        let head = self.blocks.remove(0);
+        let head = self.blocks.pop_front().expect("the head exists");
         self.oldest_rtp_base_seq = head.base_seq.wrapping_add(DATA_SHARDS as u16);
         // Completing a block, recovered or not, means we are synchronized with the host.
         self.synchronizing = false;
@@ -345,7 +347,7 @@ impl AudioQueue {
     }
 
     fn has_packet_ready(&self) -> bool {
-        self.blocks.first().is_some_and(|head| {
+        self.blocks.front().is_some_and(|head| {
             let index = head.next_data_index as usize;
             (!head.marks[index] && head.base_seq.wrapping_add(index as u16) == self.next_rtp_seq)
                 || head.allow_discontinuity
@@ -353,7 +355,7 @@ impl AudioQueue {
     }
 
     fn handle_missing_packets(&mut self, now_us: u64) {
-        let Some(head) = self.blocks.first() else {
+        let Some(head) = self.blocks.front() else {
             return;
         };
         // A whole block before the oldest one we have was lost: resynchronize on it.
@@ -453,7 +455,7 @@ impl AudioQueue {
     pub(super) fn next_packet(&mut self, out: &mut Vec<u8>) -> Option<Queued> {
         if self
             .blocks
-            .first()
+            .front()
             .is_some_and(|head| head.allow_discontinuity)
         {
             let head = &mut self.blocks[0];

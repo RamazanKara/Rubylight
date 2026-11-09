@@ -191,6 +191,9 @@ pub struct VideoCounters {
 /// State the receive thread, the decoder thread and the control thread share.
 pub struct VideoShared {
     pub receiver: Mutex<VideoReceiver>,
+    /// The receiver's counters, published after each datagram and decode so that reading the
+    /// stream's statistics needs no receiver lock.
+    pub stats: Mutex<crate::video::VideoStats>,
     pub queue: FrameQueue,
     pub counters: VideoCounters,
     /// `receivedFullFrame`: a key frame was reassembled.
@@ -200,6 +203,7 @@ pub struct VideoShared {
 impl VideoShared {
     pub fn new(receiver: VideoReceiver) -> Self {
         Self {
+            stats: Mutex::new(receiver.stats()),
             receiver: Mutex::new(receiver),
             queue: FrameQueue::default(),
             counters: VideoCounters::default(),
@@ -569,6 +573,7 @@ fn receive_thread(
                         break;
                     }
                 }
+                *lock(&shared.stats) = receiver.stats();
             }
             // Outside the lock.
             route(&control, &mut signals);
@@ -631,6 +636,7 @@ fn decode_loop(
                 receiver.recover_with_idr_only();
             }
             receiver.recycle(frame);
+            *lock(&shared.stats) = receiver.stats();
         }
         route_signals(&mut signals);
     }

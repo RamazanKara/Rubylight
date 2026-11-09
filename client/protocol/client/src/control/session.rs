@@ -529,8 +529,10 @@ impl ControlSession {
         if self.terminated.is_some() {
             return Ok(());
         }
-        let (message_type, payload) = self.opener.open(datagram)?;
-        self.dispatch(now, message_type, &payload);
+        let (message_type, end) = self.opener.open_into(datagram)?;
+        let plain = std::mem::take(&mut self.opener.scratch);
+        self.dispatch(now, message_type, &plain[super::wire::INNER_HEADER_BYTES..end]);
+        self.opener.scratch = plain;
         Ok(())
     }
 

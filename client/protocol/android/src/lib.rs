@@ -583,7 +583,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_getPendingVide
     _: JNIEnv,
     _: JClass,
 ) -> jint {
-    engine::with_session(0, |s| s.stats().decode_queue_len as i32)
+    engine::with_session(0, |s| s.decode_queue_len() as i32)
 }
 
 /// Frames dropped over a full decode queue since the stream started (`VideoStats::decoder_drops`);
@@ -619,7 +619,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_getEstimatedRt
     _: JNIEnv,
     _: JClass,
 ) -> jlong {
-    engine::with_session(-1, |s| extras::rtt_info(s.stats().rtt))
+    engine::with_session(-1, |s| extras::rtt_info(s.rtt()))
 }
 
 #[no_mangle]

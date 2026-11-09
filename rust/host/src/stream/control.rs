@@ -118,6 +118,8 @@ pub(super) struct ControlSocket {
     /// that sendto delayed every input by its cost.
     holding: bool,
     held: Vec<(SocketAddr, Vec<u8>)>,
+    /// Buffers released from `held`, reused by the next pass instead of allocated.
+    spare: Vec<Vec<u8>>,
     /// When this pass read its first datagram for ENet, for the input latency in
     /// `stream timings`; cleared by hold().
     pub(super) first_received: Option<Instant>,
@@ -131,6 +133,7 @@ impl ControlSocket {
             socket,
             holding: false,
             held: Vec::new(),
+            spare: Vec::new(),
             first_received: None,
             roaming: Default::default(),
         }
@@ -145,13 +148,17 @@ impl ControlSocket {
     /// inside service().
     pub(super) fn release(&mut self) -> std::io::Result<()> {
         self.holding = false;
-        for (address, buffer) in self.held.drain(..) {
+        for (address, mut buffer) in self.held.drain(..) {
             let address = self.roaming.wire_of(address);
             if let Err(error) = self.socket.send_to(&buffer, address) {
                 if !butterpollo_windows::net::datagram_lost(&error) {
                     return Err(error);
                 }
                 tracing::debug!(%error, %address, "control datagram dropped");
+            }
+            if self.spare.len() < 64 {
+                buffer.clear();
+                self.spare.push(buffer);
             }
         }
         Ok(())
@@ -168,7 +175,10 @@ impl rusty_enet::Socket for ControlSocket {
     }
     fn send(&mut self, address: SocketAddr, buffer: &[u8]) -> std::io::Result<usize> {
         if self.holding {
-            self.held.push((address, buffer.to_vec()));
+            let mut held = self.spare.pop().unwrap_or_default();
+            held.clear();
+            held.extend_from_slice(buffer);
+            self.held.push((address, held));
             return Ok(buffer.len());
         }
         match self.socket.send_to(buffer, self.roaming.wire_of(address)) {
@@ -446,9 +456,17 @@ impl Media {
                         let Some(p) = peers.get_mut(&peer.id()) else {
                             continue;
                         };
-                        let s = h.sessions.lock().unwrap().active.get(&p.id).cloned();
-                        let Some(s) = s else { continue };
-                        p.session = Some(s.clone());
+                        let s = match p.session.clone().filter(|s| !s.stopping()) {
+                            Some(s) => s,
+                            None => {
+                                let Some(s) = h.sessions.lock().unwrap().active.get(&p.id).cloned()
+                                else {
+                                    continue;
+                                };
+                                p.session = Some(s.clone());
+                                s
+                            }
+                        };
                         let b = packet.data();
                         if b.len() < 2 || b.len() > 65536 {
                             continue;

@@ -146,6 +146,14 @@ impl Resampler {
         if frames == 0 {
             return Some(Vec::new());
         }
+        // 48 kHz with no fractional phase needs no interpolation.
+        if self.rate == 48_000 && self.phase == 0.0 {
+            let needed = frames * self.channels;
+            if self.queue.len() < needed {
+                return None;
+            }
+            return Some(self.queue.drain(..needed).collect());
+        }
         let ratio = f64::from(self.rate) / 48000.;
         let last = self.phase + (frames - 1) as f64 * ratio;
         let consumed = self.phase + frames as f64 * ratio;
@@ -589,6 +597,26 @@ mod tests {
         }
         assert!(Resampler::new(48000, 12).is_ok());
         assert!(Resampler::new(48000, 10).is_err());
+    }
+    #[test]
+    fn a_48_khz_resampler_at_phase_zero_returns_the_queued_prefix() {
+        let mut r = Resampler::new(48000, 2).unwrap();
+        for i in 0..100 {
+            r.push(&[i as f32 / 100., -(i as f32) / 100.]);
+        }
+        assert_eq!(r.read(0), Some(Vec::new()));
+        assert_eq!(r.read(101), None);
+        let out = r.read(10).unwrap();
+        assert_eq!(out.len(), 20);
+        for (i, frame) in out.chunks(2).enumerate() {
+            assert_eq!(frame, [i as f32 / 100., -(i as f32) / 100.]);
+        }
+        // The read consumed exactly its prefix; the next one starts at frame 10.
+        assert_eq!(r.queue.len(), 90 * 2);
+        let out = r.read(90).unwrap();
+        assert_eq!(out[0], 0.1);
+        assert_eq!(out[out.len() - 2], 0.99);
+        assert_eq!(r.read(1), None);
     }
     #[test]
     fn fractional_rates_do_not_overrun_and_remain_bounded() {

@@ -34,6 +34,9 @@ pub(super) struct RtpQueue {
     next_contiguous_seq: u16,
     missing_packets: u32,
     use_fast_queue_path: bool,
+    /// One bit per `data + parity` offset of the block, so that a duplicate costs no scan:
+    /// 57 words cover the 3,632 packets of the largest block.
+    seen: [u64; 57],
     reported_lost_frame: bool,
 
     current_frame: u32,
@@ -80,6 +83,7 @@ impl RtpQueue {
             next_contiguous_seq: 0,
             missing_packets: 0,
             use_fast_queue_path: false,
+            seen: [0; 57],
             reported_lost_frame: false,
             current_frame: 1,
             multi_fec_capable: config.at_least(7, 1, 431),
@@ -166,19 +170,22 @@ impl RtpQueue {
         is_parity: bool,
         is_fec_recovery: bool,
     ) -> Result<(), Packet> {
+        // The block's offsets are a contiguous run, so a bitmap covers them all.
+        let offset = usize::from(packet.seq.wrapping_sub(self.buffer_lowest_seq));
+        let word = offset / 64;
+        let bit = 1u64 << (offset % 64);
+        if self.seen.get(word).is_some_and(|w| w & bit != 0) {
+            return Err(packet);
+        }
+        if let Some(w) = self.seen.get_mut(word) {
+            *w |= bit;
+        }
         let mut out_of_sequence = false;
         if self.use_fast_queue_path && packet.seq == self.next_contiguous_seq {
             self.next_contiguous_seq = packet.seq.wrapping_add(1);
         } else {
-            for entry in &self.pending {
-                if packet.seq == entry.seq {
-                    return Err(packet);
-                } else if is_before16(packet.seq.into(), entry.seq.into()) {
-                    out_of_sequence = true;
-                }
-            }
-            // An out-of-order packet leaves next_contiguous_seq behind, so stay on the slow
-            // path for the rest of this block to catch duplicates.
+            out_of_sequence = !self.pending.is_empty()
+                && is_before16(packet.seq.into(), self.received_highest_seq.into());
             self.use_fast_queue_path = false;
         }
 
@@ -550,6 +557,7 @@ impl RtpQueue {
             self.received_highest_seq = 0;
             self.missing_packets = 0;
             self.use_fast_queue_path = true;
+            self.seen = [0; 57];
             self.reported_lost_frame = false;
             self.buffer_data_packets = (fec_info & 0xFFC0_0000) >> 22;
             self.fec_percentage = (fec_info & 0xFF0) >> 4;
@@ -617,5 +625,67 @@ impl RtpQueue {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::video::tests::config;
+
+    /// More packets than a test block uses, so one word covers it whichever way it wraps.
+    const BLOCK_PACKETS: u16 = 33;
+
+    fn packet(seq: u16) -> Packet {
+        Packet {
+            buf: vec![0u8; 64].into_boxed_slice(),
+            len: 32,
+            seq,
+            timestamp: 0,
+            receive_time_us: 0,
+            presentation_time_us: 0,
+            rtp_timestamp: 0,
+            is_parity: false,
+        }
+    }
+
+    /// A queue whose block already started at `lowest`.
+    fn queue_at(lowest: u16) -> RtpQueue {
+        let mut queue = RtpQueue::new(&config(0x1000));
+        queue.buffer_lowest_seq = lowest;
+        queue.buffer_highest_seq = lowest.wrapping_add(BLOCK_PACKETS - 1);
+        queue.next_contiguous_seq = lowest;
+        queue.received_highest_seq = 0;
+        queue.use_fast_queue_path = true;
+        queue.seen = [0; 57];
+        queue
+    }
+
+    /// A block past the signed-16 midpoint must not read its first packet as out of order.
+    #[test]
+    fn a_block_starting_at_or_above_0x8000_takes_its_first_packet_in_order() {
+        for lowest in [0x8000u16, 0x8001, 0xFFFF, 0x0000] {
+            let mut queue = queue_at(lowest);
+            assert!(
+                queue.queue_packet(packet(lowest), false, false).is_ok(),
+                "lowest {lowest:#06x}"
+            );
+            assert!(!queue.received_oos_data, "lowest {lowest:#06x}");
+            assert_eq!(queue.next_contiguous_seq, lowest.wrapping_add(1));
+        }
+    }
+
+    /// A duplicate after a reordered packet is rejected, inside the contiguous run or behind it.
+    #[test]
+    fn a_duplicate_is_rejected_under_reordering() {
+        let mut queue = queue_at(0x8000);
+        assert!(queue.queue_packet(packet(0x8002), false, false).is_ok());
+        assert!(!queue.use_fast_queue_path);
+        assert_eq!(queue.next_contiguous_seq, 0x8000);
+        assert!(queue.queue_packet(packet(0x8000), false, false).is_ok());
+        assert_eq!(queue.next_contiguous_seq, 0x8000);
+        assert!(queue.queue_packet(packet(0x8000), false, false).is_err());
+        assert!(queue.queue_packet(packet(0x8002), false, false).is_err());
+        assert_eq!(queue.pending.len(), 2);
     }
 }

@@ -656,6 +656,9 @@ struct Slot {
     /// (`compute_hdr_stats.rs`): 0 for none, [`hdr_stats::QUEUED`] until it is
     /// submitted, `u64::MAX` while it is.
     stats: u64,
+    /// The target whose luma and chroma UAVs are in the slot's `at(2..4)`, so
+    /// a repeated conversion into it does not recreate them.
+    target_view: Option<usize>,
 }
 impl Slot {
     /// When the slot's submitted lists stop reading its inputs and views.
@@ -848,6 +851,7 @@ impl Converter {
                     outputs: Vec::new(),
                     waits: Vec::new(),
                     stats: 0,
+                    target_view: None,
                 });
             }
             Ok(Self {
@@ -1211,18 +1215,21 @@ impl Converter {
             } else {
                 (DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8_UNORM)
             };
-            device.CreateUnorderedAccessView(
-                target.as_ref(),
-                None,
-                Some(&texture_uav(luma_format, 0)),
-                at(2),
-            );
-            device.CreateUnorderedAccessView(
-                target.as_ref(),
-                None,
-                Some(&texture_uav(chroma_format, 1)),
-                at(3),
-            );
+            if self.slots[slot].target_view != Some(index) {
+                device.CreateUnorderedAccessView(
+                    target.as_ref(),
+                    None,
+                    Some(&texture_uav(luma_format, 0)),
+                    at(2),
+                );
+                device.CreateUnorderedAccessView(
+                    target.as_ref(),
+                    None,
+                    Some(&texture_uav(chroma_format, 1)),
+                    at(3),
+                );
+                self.slots[slot].target_view = Some(index);
+            }
             let Slot {
                 allocator, list, ..
             } = &self.slots[slot];
@@ -1360,6 +1367,9 @@ impl Converter {
         self.compute.wait(self.slots[slot].last())?;
         self.slots[slot].capture = None;
         self.reset_hdr_stats(slot);
+        // `convert_planes` writes planar UAVs into `at(2..4)`; a later `convert`
+        // into this slot must make its own target views there.
+        self.slots[slot].target_view = None;
         let menu = self.menu_pass(slot, b"pyro_menu_cs\0", 2, 3, [2, 2])?;
         self.slots[slot].inputs = [
             Some(source.clone()),

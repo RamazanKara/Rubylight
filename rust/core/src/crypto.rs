@@ -71,17 +71,22 @@ pub fn ecb(key: &[u8; 16], data: &[u8], encrypt: bool) -> Result<Vec<u8>> {
 }
 pub fn gcm_seal(key: &[u8; 16], nonce: &[u8], data: &[u8]) -> Result<([u8; 16], Vec<u8>)> {
     let mut b = data.to_vec();
+    let tag = gcm_seal_in_place(key, nonce, &mut b)?;
+    Ok((tag, b))
+}
+/// [`gcm_seal`] without the plaintext copy: `data` is encrypted in place.
+pub(crate) fn gcm_seal_in_place(key: &[u8; 16], nonce: &[u8], data: &mut [u8]) -> Result<[u8; 16]> {
     let tag = match nonce.len() {
         12 => Aes128Gcm::new_from_slice(key)
             .unwrap()
-            .encrypt_in_place_detached(Nonce::from_slice(nonce), &[], &mut b),
+            .encrypt_in_place_detached(Nonce::from_slice(nonce), &[], data),
         16 => AesGcm::<Aes128, U16>::new_from_slice(key)
             .unwrap()
-            .encrypt_in_place_detached(Nonce::<U16>::from_slice(nonce), &[], &mut b),
+            .encrypt_in_place_detached(Nonce::<U16>::from_slice(nonce), &[], data),
         _ => bail!("unsupported AES-GCM nonce size"),
     }
     .map_err(|_| anyhow::anyhow!("AES-GCM encryption failed"))?;
-    Ok((tag.into(), b))
+    Ok(tag.into())
 }
 /// Video packets share a key but always have independent 96-bit nonces.
 pub(crate) struct PacketSealer(ring::aead::LessSafeKey);

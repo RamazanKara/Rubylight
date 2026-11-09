@@ -86,28 +86,37 @@ impl Gcm {
 
     /// Authenticates and decrypts; a wrong tag, key or IV is an error.
     pub fn open(&self, iv: &[u8], tag: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        let mut buffer = Vec::new();
+        self.open_into(iv, tag, ciphertext, &mut buffer)?;
+        Ok(buffer)
+    }
+
+    /// Authenticates and decrypts into `buffer`, replacing its contents, so that a caller can
+    /// keep one buffer rather than allocate per message.
+    pub fn open_into(
+        &self,
+        iv: &[u8],
+        tag: &[u8],
+        ciphertext: &[u8],
+        buffer: &mut Vec<u8>,
+    ) -> Result<(), CryptoError> {
         if tag.len() != TAG_BYTES {
             return Err(CryptoError);
         }
-        let mut buffer = ciphertext.to_vec();
+        buffer.clear();
+        buffer.extend_from_slice(ciphertext);
         let tag = GenericArray::from_slice(tag);
         match iv.len() {
-            12 => self.iv12.decrypt_in_place_detached(
-                GenericArray::from_slice(iv),
-                b"",
-                &mut buffer,
-                tag,
-            ),
-            16 => self.iv16.decrypt_in_place_detached(
-                GenericArray::from_slice(iv),
-                b"",
-                &mut buffer,
-                tag,
-            ),
+            12 => self
+                .iv12
+                .decrypt_in_place_detached(GenericArray::from_slice(iv), b"", buffer, tag),
+            16 => self
+                .iv16
+                .decrypt_in_place_detached(GenericArray::from_slice(iv), b"", buffer, tag),
             _ => return Err(CryptoError),
         }
         .map_err(|_| CryptoError)?;
-        Ok(buffer)
+        Ok(())
     }
 }
 

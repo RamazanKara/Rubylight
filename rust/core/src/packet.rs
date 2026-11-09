@@ -1052,16 +1052,17 @@ pub fn encrypted_control(
     if payload.len() > u16::MAX as usize - 24 {
         bail!("control packet too large");
     }
-    let mut plain = kind.to_le_bytes().to_vec();
-    plain.extend_from_slice(&(payload.len() as u16).to_le_bytes());
-    plain.extend_from_slice(payload);
     let (iv, iv_len) = control_iv(seq, v2, b'H');
-    let (tag, b) = crypto::gcm_seal(key, &iv[..iv_len], &plain)?;
-    let mut p = 1u16.to_le_bytes().to_vec();
-    p.extend_from_slice(&((4 + 16 + b.len()) as u16).to_le_bytes());
+    let mut p = Vec::with_capacity(28 + payload.len());
+    p.extend_from_slice(&1u16.to_le_bytes());
+    p.extend_from_slice(&((24 + payload.len()) as u16).to_le_bytes());
     p.extend_from_slice(&seq.to_le_bytes());
-    p.extend_from_slice(&tag);
-    p.extend_from_slice(&b);
+    p.extend_from_slice(&[0; 16]);
+    p.extend_from_slice(&kind.to_le_bytes());
+    p.extend_from_slice(&(payload.len() as u16).to_le_bytes());
+    p.extend_from_slice(payload);
+    let tag = crypto::gcm_seal_in_place(key, &iv[..iv_len], &mut p[24..])?;
+    p[8..24].copy_from_slice(&tag);
     Ok(p)
 }
 pub fn decrypt_control(key: &[u8; 16], packet: &[u8], v2: bool) -> Result<(u32, u16, Vec<u8>)> {
@@ -1474,7 +1475,8 @@ impl AudioPacketizer {
         } else {
             opus.to_vec()
         };
-        let mut p = vec![0; 12];
+        let mut p = Vec::with_capacity(12 + data.len());
+        p.resize(12, 0);
         p[0] = 0x80;
         p[1] = 97;
         p[2..4].copy_from_slice(&seq.to_be_bytes());

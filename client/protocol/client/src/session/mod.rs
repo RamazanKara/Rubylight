@@ -913,6 +913,11 @@ impl Session {
         self.parts.video_shared.as_ref().map_or(0, |video| video.queue.len())
     }
 
+    /// ENet's round-trip time and its variance, while connected.
+    pub fn rtt(&self) -> Option<(Duration, Duration)> {
+        self.control().round_trip_time()
+    }
+
     /// The video figures a decoder may read while it decodes, None without video. They never
     /// take the receiver's lock, which a direct-submit decoder holds while it submits.
     pub fn video_gauges(&self) -> Option<VideoGauges> {
@@ -942,11 +947,7 @@ impl Session {
             ..Default::default()
         };
         if let Some(video) = &self.parts.video_shared {
-            stats.video = video
-                .receiver
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .stats();
+            stats.video = *video.stats.lock().unwrap_or_else(|p| p.into_inner());
             stats.frames_submitted = video.counters.submitted.load(Ordering::Relaxed);
             stats.frames_need_idr = video.counters.need_idr.load(Ordering::Relaxed);
             stats.decode_queue_overflows = video.counters.queue_overflows.load(Ordering::Relaxed);

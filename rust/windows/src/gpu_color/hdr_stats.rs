@@ -44,6 +44,8 @@ struct Passes {
 /// The statistics pass on the D3D11 conversion's device.
 pub(crate) struct HdrStats {
     gpu: Device,
+    /// The device's multithread lock, once [`HdrStats::enable`] has it.
+    lock: Option<ID3D11Multithread>,
     passes: Option<Passes>,
     queued: Option<Queued>,
     /// The conversions numbered so far: [`HdrStatsReadout::conversion`] counts from 1.
@@ -55,6 +57,7 @@ impl HdrStats {
     pub(crate) fn new(gpu: &Device) -> Self {
         Self {
             gpu: gpu.clone(),
+            lock: None,
             passes: None,
             queued: None,
             conversions: 0,
@@ -70,6 +73,7 @@ impl HdrStats {
         if self.passes.is_some() {
             return Ok(());
         }
+        self.lock = Some(windows::core::Interface::cast(&self.gpu.context)?);
         let device = &self.gpu.device;
         // SAFETY: Calls on the live device; `compile` gets NUL-terminated names, and every
         // descriptor and initial value outlives the call that reads it.
@@ -204,7 +208,7 @@ impl HdrStats {
             )?;
         }
         let views = [source, queued.image.cursor.as_ref().map(|c| c.view.clone())];
-        let lock: ID3D11Multithread = windows::core::Interface::cast(&self.gpu.context)?;
+        let lock = self.lock.as_ref().context("no D3D11 multithread lock")?;
         let grid = queued.grid;
         // SAFETY: The context is held from Enter to Leave with no early return between, every
         // bound object is on this device, and the grid's 16 bytes outlive the update.
@@ -255,12 +259,11 @@ impl HdrStats {
             .filter(|&(_, (conversion, _))| conversion > newer_than)
             .collect();
         copies.sort_by_key(|&(_, (conversion, _))| std::cmp::Reverse(conversion));
-        let lock: ID3D11Multithread = windows::core::Interface::cast(&self.gpu.context)?;
+        let lock = self.lock.as_ref().context("no D3D11 multithread lock")?;
         for (copy, (conversion, samples)) in copies {
-            let mut words = vec![0u32; WORDS];
             // SAFETY: The context is held from Enter to Leave with no early return between; a
             // mapped staging buffer holds `BYTES`, read before it is unmapped.
-            let mapped = unsafe {
+            let result = unsafe {
                 lock.Enter();
                 let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
                 let result = self.gpu.context.Map(
@@ -271,22 +274,19 @@ impl HdrStats {
                     Some(&mut mapped),
                 );
                 if result.is_ok() {
-                    std::ptr::copy_nonoverlapping(
-                        mapped.pData.cast::<u32>(),
-                        words.as_mut_ptr(),
-                        WORDS,
-                    );
+                    let words = std::slice::from_raw_parts(mapped.pData.cast::<u32>(), WORDS);
+                    let parsed = HdrStatsReadout::parse(conversion, samples, words);
                     self.gpu.context.Unmap(&copy.staging, 0);
+                    lock.Leave();
+                    return parsed.map(Some);
                 }
                 lock.Leave();
                 result
             };
-            match mapped {
-                Ok(()) => return HdrStatsReadout::parse(conversion, samples, &words).map(Some),
-                Err(error)
-                    if error.code()
-                        == windows::Win32::Graphics::Dxgi::DXGI_ERROR_WAS_STILL_DRAWING => {}
-                Err(error) => return Err(error).context("HDR statistics readback"),
+            if let Err(error) = result
+                && error.code() != windows::Win32::Graphics::Dxgi::DXGI_ERROR_WAS_STILL_DRAWING
+            {
+                return Err(error).context("HDR statistics readback");
             }
         }
         Ok(None)

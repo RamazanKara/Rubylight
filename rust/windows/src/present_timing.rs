@@ -3,7 +3,7 @@
 use crate::capture::qpc_frequency;
 use butterpollo_core::present_timing::Refiner;
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::VecDeque,
     sync::{Arc, Mutex, OnceLock, Weak},
     thread,
     time::{Duration, Instant},
@@ -159,13 +159,21 @@ impl Tracker {
         }
         Some(Arc::new(s))
     }
-    fn presents(&self, pid: u32, composition: i64, preferred: u64, output: &mut Vec<i64>) -> u64 {
+    fn presents(
+        &self,
+        pid: u32,
+        composition: i64,
+        preferred: u64,
+        output: &mut Vec<i64>,
+        counts: &mut Vec<(u64, usize)>,
+    ) -> u64 {
         output.clear();
         let window = qpc_frequency();
         let values = self.events.values.lock().unwrap();
-        let matching = values
-            .iter()
-            .filter(|e| e.pid == pid && e.qpc <= composition && e.qpc > composition - window);
+        // `values` is kept sorted by `qpc`, so the window is one contiguous range.
+        let lo = values.partition_point(|e| e.qpc <= composition - window);
+        let hi = values.partition_point(|e| e.qpc <= composition);
+        let matching = values.range(lo..hi).filter(|e| e.pid == pid);
         let selected = if preferred != 0
             && matching
                 .clone()
@@ -173,21 +181,27 @@ impl Tracker {
         {
             preferred
         } else {
-            let mut counts = BTreeMap::<u64, usize>::new();
+            counts.clear();
             for event in matching.clone() {
-                *counts.entry(event.chain).or_default() += 1;
+                match counts.iter_mut().find(|(chain, _)| *chain == event.chain) {
+                    Some((_, count)) => *count += 1,
+                    None => counts.push((event.chain, 1)),
+                }
             }
-            counts
-                .into_iter()
-                .max_by_key(|(_, count)| *count)
-                .map_or(0, |(chain, _)| chain)
+            let mut best = (0, 0);
+            for &(chain, count) in counts.iter() {
+                if (count, chain) > best {
+                    best = (count, chain);
+                }
+            }
+            best.1
         };
+        // Sorted `values` keeps `output` in ascending `qpc` order.
         output.extend(
             matching
                 .filter(|e| e.chain == selected && e.qpc > composition - window / 10)
                 .map(|e| e.qpc),
         );
-        output.sort_unstable();
         selected
     }
 }
@@ -230,11 +244,18 @@ unsafe extern "system" fn on_event(record: *mut EVENT_RECORD) {
         return;
     };
     let qpc = header.TimeStamp;
-    values.push_back(Event {
+    let event = Event {
         qpc,
         pid: header.ProcessId,
         chain: u64::from_le_bytes(chain),
-    });
+    };
+    // Present callbacks can arrive out of order; `presents` reads one sorted range.
+    if values.back().is_none_or(|last| last.qpc <= qpc) {
+        values.push_back(event);
+    } else {
+        let at = values.partition_point(|e| e.qpc <= qpc);
+        values.insert(at, event);
+    }
     while values.len() > 16384
         || values
             .front()
@@ -309,6 +330,8 @@ pub struct Stamper {
     pid: u32,
     chain: u64,
     presents: Vec<i64>,
+    /// Chain counts for the current window, reused by every [`Tracker::presents`].
+    counts: Vec<(u64, usize)>,
     refiner: Refiner,
 }
 impl Default for Stamper {
@@ -322,6 +345,7 @@ impl Default for Stamper {
             pid: 0,
             chain: 0,
             presents: Vec::new(),
+            counts: Vec::new(),
             refiner: Refiner::default(),
         }
     }
@@ -375,6 +399,7 @@ impl Stamper {
             composition,
             self.chain,
             &mut self.presents,
+            &mut self.counts,
         );
         if source != self.chain {
             self.chain = source;
@@ -458,5 +483,85 @@ mod tests {
             }
             assert_eq!(events.values.lock().unwrap().len(), length);
         }
+    }
+    #[test]
+    fn out_of_order_presents_stay_sorted_and_the_window_keeps_ties_on_the_highest_chain() {
+        let tracker = Tracker {
+            session: CONTROLTRACE_HANDLE::default(),
+            consumer: PROCESSTRACE_HANDLE { Value: u64::MAX },
+            worker: None,
+            events: Box::new(Events {
+                values: Mutex::new(VecDeque::new()),
+                retention: i64::MAX / 2,
+            }),
+        };
+        let window = qpc_frequency();
+        let composition = window;
+        // Deliberately out of order, including both edges: a present at
+        // `composition - window` and one after `composition` are outside it.
+        let events = [
+            (composition - window / 40, 9u64),
+            (composition - window, 7),
+            (composition - window / 2, 7),
+            (composition + 1, 7),
+            (composition - window / 20, 9),
+            (composition - window / 5, 7),
+        ];
+        for &(qpc, chain) in &events {
+            let mut data = [0u8; 12];
+            data[..8].copy_from_slice(&chain.to_le_bytes());
+            let mut record = EVENT_RECORD {
+                UserContext: (&*tracker.events as *const Events).cast_mut().cast(),
+                UserData: data.as_mut_ptr().cast(),
+                UserDataLength: data.len() as u16,
+                ..Default::default()
+            };
+            record.EventHeader.ProviderId = DXGI;
+            record.EventHeader.EventDescriptor.Id = 42;
+            record.EventHeader.ProcessId = 17;
+            record.EventHeader.TimeStamp = qpc;
+            // SAFETY: `record` points at the live `tracker.events` and `data`, with
+            // UserDataLength within `data`.
+            unsafe {
+                on_event(&mut record);
+            }
+        }
+        assert!(
+            tracker
+                .events
+                .values
+                .lock()
+                .unwrap()
+                .iter()
+                .is_sorted_by_key(|e| e.qpc)
+        );
+        let mut output = Vec::new();
+        let mut counts = Vec::new();
+        // Chains 7 and 9 tie at two presents in the window: the higher chain wins.
+        assert_eq!(
+            tracker.presents(17, composition, 0, &mut output, &mut counts),
+            9
+        );
+        assert_eq!(
+            output,
+            [composition - window / 20, composition - window / 40]
+        );
+        // A reused count buffer must not keep the previous window's counts.
+        output.clear();
+        assert_eq!(
+            tracker.presents(17, composition, 0, &mut output, &mut counts),
+            9
+        );
+        assert_eq!(
+            output,
+            [composition - window / 20, composition - window / 40]
+        );
+        // Another process's presents are ignored.
+        output.clear();
+        assert_eq!(
+            tracker.presents(18, composition, 0, &mut output, &mut counts),
+            0
+        );
+        assert!(output.is_empty());
     }
 }

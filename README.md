@@ -25,46 +25,186 @@
 
 </div>
 
-## What players are saying
+<h2 align="center" id="what-players-are-saying">What players are saying</h2>
 
-> “This is the best Sunshine-like host app I've tried with my 6800XT”
->
-> — tonibofarull
-
-> “The host latency on my RX 6900 XT is outstanding”
->
-> — almosnagy
-
-> “My Xbox Series X streaming at 4K120 HEVC HDR has been extremely stable.”
->
-> — j-scrizz
+<table width="100%">
+  <tr>
+    <td colspan="2" align="center" valign="top">
+      <br>
+      <h3><em>“This is the best Sunshine-like host app I've tried with my 6800XT”</em></h3>
+      <p><sub><strong>— tonibofarull</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“The host latency on my RX 6900 XT is outstanding”</em></p>
+      <p><sub><strong>— almosnagy</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“My Xbox Series X streaming at 4K120 HEVC HDR has been extremely stable.”</em></p>
+      <p><sub><strong>— j-scrizz</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+</table>
 
 <details>
-<summary>More feedback from players</summary>
+<summary><strong>More feedback from players</strong></summary>
 
-| Comment | Username |
-| --- | --- |
-| “With Butterpollo I am able to push up to 200Mbps absolutely stable” | NanashiGIT |
-| “My latest session lasted nearly 2 hours at 4K120 HEVC HDR” | j-scrizz |
-| “Gameplay felt very smooth.” | j-scrizz |
-| “reWASD/joy.cpl are detecting the controller as an XBOX 360” | kagc |
-| “stream is running flawlessly.” | SirvanD |
-| “Really liking this setup, thanks for giving AMD some love!” | duwial |
-| “So far, I'm really enjoying my 9070 XT.” | RunAway189 |
-| “got my stream performance back same as 2.5.1” | FelixzP |
-| “Your fork totally kicks ass btw” | Maldark404 |
-| “You have been doing an awesome job putting time where it matters.” | mdahal |
-| “the overall smoothness feels noticeably better than with 3.10.0” | VirtualGIT20 |
-| “Runs amazing on my 6900XT. There is a noticable improvement in latency the host latency is now much better too.” | u/ChartFlashy6299 |
-| “Everything works flawlessly. No more virtual display issues, sound is crisp” | u/1SizeFitsHall |
-| “Fantastic job! Host processing latency has never been this low 🎉.” | u/Short_Dimension7967 |
-| “from 10ms encoding to 5ms in 4k 60 fps btw :)” | u/3stwie4 |
-| “It's the lowest latency I got after testing a ton of hosts.” | u/LukasSTM |
-| “Running pretty good so far on my 6900XT no framedrops, no stutter and a good migration from vibepollo” | u/almosgeci |
-| “The difference was especially noticeable when streaming from work over Tailscale.” | u/Amaanx6191 |
-| “I absolutely love what you have done here.” | u/AlphaLo |
-| “WTF. Runs like Butterchicken” | u/Closef35 |
-| “My encoding times are actually slashed in half which is incredible.” | u/astero-dax |
+<table width="100%">
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“With Butterpollo I am able to push up to 200Mbps absolutely stable”</em></p>
+      <p><sub><strong>— NanashiGIT</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“My latest session lasted nearly 2 hours at 4K120 HEVC HDR”</em></p>
+      <p><sub><strong>— j-scrizz</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“Gameplay felt very smooth.”</em></p>
+      <p><sub><strong>— j-scrizz</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“reWASD/joy.cpl are detecting the controller as an XBOX 360”</em></p>
+      <p><sub><strong>— kagc</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“stream is running flawlessly.”</em></p>
+      <p><sub><strong>— SirvanD</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“Really liking this setup, thanks for giving AMD some love!”</em></p>
+      <p><sub><strong>— duwial</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“So far, I'm really enjoying my 9070 XT.”</em></p>
+      <p><sub><strong>— RunAway189</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“got my stream performance back same as 2.5.1”</em></p>
+      <p><sub><strong>— FelixzP</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“Your fork totally kicks ass btw”</em></p>
+      <p><sub><strong>— Maldark404</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“You have been doing an awesome job putting time where it matters.”</em></p>
+      <p><sub><strong>— mdahal</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“the overall smoothness feels noticeably better than with 3.10.0”</em></p>
+      <p><sub><strong>— VirtualGIT20</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“Runs amazing on my 6900XT. There is a noticable improvement in latency the host latency is now much better too.”</em></p>
+      <p><sub><strong>— u/ChartFlashy6299</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“Everything works flawlessly. No more virtual display issues, sound is crisp”</em></p>
+      <p><sub><strong>— u/1SizeFitsHall</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“Fantastic job! Host processing latency has never been this low 🎉.”</em></p>
+      <p><sub><strong>— u/Short_Dimension7967</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“from 10ms encoding to 5ms in 4k 60 fps btw :)”</em></p>
+      <p><sub><strong>— u/3stwie4</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“It's the lowest latency I got after testing a ton of hosts.”</em></p>
+      <p><sub><strong>— u/LukasSTM</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“Running pretty good so far on my 6900XT no framedrops, no stutter and a good migration from vibepollo”</em></p>
+      <p><sub><strong>— u/almosgeci</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“The difference was especially noticeable when streaming from work over Tailscale.”</em></p>
+      <p><sub><strong>— u/Amaanx6191</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“I absolutely love what you have done here.”</em></p>
+      <p><sub><strong>— u/AlphaLo</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“WTF. Runs like Butterchicken”</em></p>
+      <p><sub><strong>— u/Closef35</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center" valign="top">
+      <br>
+      <p><em>“My encoding times are actually slashed in half which is incredible.”</em></p>
+      <p><sub><strong>— u/astero-dax</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+</table>
 
 </details>
 

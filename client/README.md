@@ -24,45 +24,178 @@
   <sub>Works with Sunshine, Apollo, Vibepollo, Rubylight, NVIDIA GameStream and every other Moonlight-compatible host.</sub>
 </p>
 
-## What players are saying
+<h2 align="center" id="what-players-are-saying">What players are saying</h2>
 
-> “I'm not a competitive gamer, so I usually don't feel the difference of higher performance hardware. But I can absolutely feel the difference between nightjar and moonlight-qt, the work you've done has been phenomenal!”
->
-> — /u/flyingk
-
-> “The inclusion of support for high polling mice and keyboard, the smoothness of the VRR, the reduced latency overall; I'm absolutely floored by how good it's turned out!”
->
-> — /u/flyingk
-
-> “Nightjar is currently my favourite Android client. I really love its modern, clean UI. It feels great to use!”
->
-> — daniel7277
+<table width="100%">
+  <tr>
+    <td colspan="2" align="center" valign="top">
+      <br>
+      <h3><em>“I'm not a competitive gamer, so I usually don't feel the difference of higher performance hardware. But I can absolutely feel the difference between nightjar and moonlight-qt, the work you've done has been phenomenal!”</em></h3>
+      <p><sub><strong>— /u/flyingk</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“The inclusion of support for high polling mice and keyboard, the smoothness of the VRR, the reduced latency overall; I'm absolutely floored by how good it's turned out!”</em></p>
+      <p><sub><strong>— /u/flyingk</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“Nightjar is currently my favourite Android client. I really love its modern, clean UI. It feels great to use!”</em></p>
+      <p><sub><strong>— daniel7277</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+</table>
 
 <details>
-<summary>More feedback from players</summary>
+<summary><strong>More feedback from players</strong></summary>
 
-| Comment | Username |
-| --- | --- |
-| “The integrated library, session controls, and host-aware options make it feel like a complete console experience.” | tylerlane |
-| “Played for about 30 minutes, worked great, no issues.” | elkinjosetm |
-| “thank you for creating such a beautiful, clean Android client.” | rishisinghawadhiya |
-| “I believe Nightjar is currently the superior client for Android.” | jun182 |
-| “It looks absolutely beautiful” | daniel7277 |
-| “feels absolutely amazing! It's so satisfying.” | daniel7277 |
-| “I really like your modern on-screen controller design.” | magicwand9099 |
-| “I love nightjar” | ASE236-lang |
-| “Now confidently can replace Moonlight on my 2 TVs with Nightjar.” | SirvanD |
-| “Also latest Nightjar client is performing great now without issues.” | SirvanD |
-| “the telemetry/export tools make this kind of investigation much easier.” | VirtualGIT20 |
-| “The new debt recovery is definitely working on the actual Shield!” | VirtualGIT20 |
-| “its working perfectly right now.” | leonardo7999-byte |
-| “lybxlpsv's overlay holds perfectly with the flag "Ignore Presentation Time" enabled” | umbertomarotta |
-| “I have been using nightjar and reporting issues to the developer! It has been great!” | u/ssjucrono |
-| “much more plug and play and easier to understand.” | u/wolf0x |
-| “Yo, this is great work. I just started using it and it is going to replace Artemide for me.” | u/Ayeeebroham |
-| “the vrr works wonders” | u/Potential_Sorbet1809 |
-| “Holy crap using this with butter pollo made sekiro feel like native on my phone, firestick and Google 4k streamer.” | u/hannahmanaman |
-| “Switched to the system driver and it works perfect! Thank you so much for making this!” | u/jdconoly |
+<table width="100%">
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“The integrated library, session controls, and host-aware options make it feel like a complete console experience.”</em></p>
+      <p><sub><strong>— tylerlane</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“Played for about 30 minutes, worked great, no issues.”</em></p>
+      <p><sub><strong>— elkinjosetm</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“thank you for creating such a beautiful, clean Android client.”</em></p>
+      <p><sub><strong>— rishisinghawadhiya</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“I believe Nightjar is currently the superior client for Android.”</em></p>
+      <p><sub><strong>— jun182</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“It looks absolutely beautiful”</em></p>
+      <p><sub><strong>— daniel7277</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“feels absolutely amazing! It's so satisfying.”</em></p>
+      <p><sub><strong>— daniel7277</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“I really like your modern on-screen controller design.”</em></p>
+      <p><sub><strong>— magicwand9099</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“I love nightjar”</em></p>
+      <p><sub><strong>— ASE236-lang</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“Now confidently can replace Moonlight on my 2 TVs with Nightjar.”</em></p>
+      <p><sub><strong>— SirvanD</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“Also latest Nightjar client is performing great now without issues.”</em></p>
+      <p><sub><strong>— SirvanD</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“the telemetry/export tools make this kind of investigation much easier.”</em></p>
+      <p><sub><strong>— VirtualGIT20</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“The new debt recovery is definitely working on the actual Shield!”</em></p>
+      <p><sub><strong>— VirtualGIT20</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“its working perfectly right now.”</em></p>
+      <p><sub><strong>— leonardo7999-byte</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“lybxlpsv's overlay holds perfectly with the flag "Ignore Presentation Time" enabled”</em></p>
+      <p><sub><strong>— umbertomarotta</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“I have been using nightjar and reporting issues to the developer! It has been great!”</em></p>
+      <p><sub><strong>— u/ssjucrono</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“much more plug and play and easier to understand.”</em></p>
+      <p><sub><strong>— u/wolf0x</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“Yo, this is great work. I just started using it and it is going to replace Artemide for me.”</em></p>
+      <p><sub><strong>— u/Ayeeebroham</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“the vrr works wonders”</em></p>
+      <p><sub><strong>— u/Potential_Sorbet1809</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“Holy crap using this with butter pollo made sekiro feel like native on my phone, firestick and Google 4k streamer.”</em></p>
+      <p><sub><strong>— u/hannahmanaman</strong></sub></p>
+      <br>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <br>
+      <p><em>“Switched to the system driver and it works perfect! Thank you so much for making this!”</em></p>
+      <p><sub><strong>— u/jdconoly</strong></sub></p>
+      <br>
+    </td>
+  </tr>
+</table>
 
 </details>
 

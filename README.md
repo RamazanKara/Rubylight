@@ -2,6 +2,12 @@
   <img src="docs/assets/banner.png" width="800" alt="Nightjar: low-latency game streaming from your PC">
 </p>
 
+
+
+`I'm not a competitive gamer, so I usually don't feel the difference of higher performance hardware. But I can absolutely feel the difference between nightjar and moonlight-qt, the work you've done has been phenomenal!`
+
+The inclusion of support for high polling mice and keyboard, the smoothness of the VRR, the reduced latency overall; I'm absolutely floored by how good it's turned out!
+
 <h3 align="center">Your PC games, on every screen you own.</h3>
 
 <p align="center">

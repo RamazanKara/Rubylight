@@ -271,7 +271,9 @@ public class NvConnectionRecoveryTest {
             start(new NvConnection(RuntimeEnvironment.getApplication(),
                     new ComputerDetails.AddressTuple("192.0.2.1", 47989), 47984, "device",
                     new StreamConfiguration.Builder().setApp(app)
+                            // As GameConnection builds it: the launch rate is the chosen frame rate too.
                             .setResolution(modes[i][0], modes[i][1]).setRefreshRate(modes[i][2])
+                            .setLaunchRefreshRate(modes[i][2])
                             .setSupportedVideoFormats(MoonBridge.VIDEO_FORMAT_H264).build(), crypto(), null));
             queries[i] = FakeHost.lastQuery;
         }

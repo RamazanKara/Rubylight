@@ -35,7 +35,7 @@ fn main() {
     names.sort();
     for patch in names {
         let text = fs::read_to_string(&patch).unwrap_or_else(|e| panic!("cannot read {}: {e}", patch.display()));
-        apply(&out, &text).unwrap_or_else(|e| panic!("{} does not apply to SDL 3.4.18: {e}", patch.display()));
+        apply(&out, &text).unwrap_or_else(|e| panic!("{} does not apply to SDL 3.4.20: {e}", patch.display()));
     }
 }
 

@@ -1,11 +1,11 @@
-# SDL 3.4.18 with Nightjar's Vulkan interop patch, in place of the crates.io sdl3-src that
+# SDL 3.4.20 with Nightjar's Vulkan interop patch, in place of the crates.io sdl3-src that
 # sdl3-sys builds from source on Linux ([patch.crates-io] in ../../Cargo.toml). The version must
-# stay the one sdl3-sys pins (=3.4.18). README.md says what the patch does and how to update it.
+# stay the one sdl3-sys pins (=3.4.20). README.md says what the patch does and how to update it.
 [package]
 name = "sdl3-src"
-version = "3.4.18"
+version = "3.4.20"
 edition = "2021"
-description = "Source code of SDL 3.4.18 with Nightjar's Vulkan interop patch"
+description = "Source code of SDL 3.4.20 with Nightjar's Vulkan interop patch"
 license = "Zlib"
 publish = false
 build = "build.rs"

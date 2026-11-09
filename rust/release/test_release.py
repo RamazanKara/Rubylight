@@ -713,7 +713,7 @@ class Signing(unittest.TestCase):
         build = (ROOT / 'rust/build.ps1').read_text(encoding='utf-8')
         pinned = re.search(r"\$ffmpegSha256 = '([0-9a-f]{64})'", build)
         self.assertIsNotNone(pinned)
-        self.assertIn("ffmpeg-8.1.2.tar.xz' $tarball $ffmpegSha256", build)
+        self.assertIn("ffmpeg-8.1.3.tar.xz' $tarball $ffmpegSha256", build)
         self.assertIn('$env:FFMPEG_SOURCE_SHA256 = $ffmpegSha256', build)
         script = (ROOT / 'rust/tools/build_ffmpeg.sh').read_text(encoding='utf-8')
         self.assertIn('SOURCE_SHA256=${FFMPEG_SOURCE_SHA256:-', script)

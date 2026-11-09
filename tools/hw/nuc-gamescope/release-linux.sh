@@ -41,15 +41,15 @@ if [ $what = package ] || [ $what = all ]; then
       as_me bash -euo pipefail -c "
         cd $rel && rm -rf ffbuild && mkdir ffbuild && cd ffbuild
         # The checked source stays in $rel for the next build (ffmpeg.org answered 504 for hours on 2026-11-08).
-        if ! echo \"464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c  $rel/ffmpeg-8.1.2.tar.xz\" | sha256sum -c - >/dev/null 2>&1; then
-          curl -sSLf --retry 5 --retry-all-errors -o $rel/ffmpeg-8.1.2.tar.xz.part https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz
-          mv $rel/ffmpeg-8.1.2.tar.xz.part $rel/ffmpeg-8.1.2.tar.xz
+        if ! echo \"7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3  $rel/ffmpeg-8.1.3.tar.xz\" | sha256sum -c - >/dev/null 2>&1; then
+          curl -sSLf --retry 5 --retry-all-errors -o $rel/ffmpeg-8.1.3.tar.xz.part https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz
+          mv $rel/ffmpeg-8.1.3.tar.xz.part $rel/ffmpeg-8.1.3.tar.xz
         fi
-        cp $rel/ffmpeg-8.1.2.tar.xz ffmpeg.tar.xz
-        echo \"464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c  ffmpeg.tar.xz\" | sha256sum -c -
+        cp $rel/ffmpeg-8.1.3.tar.xz ffmpeg.tar.xz
+        echo \"7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3  ffmpeg.tar.xz\" | sha256sum -c -
         tar -xf ffmpeg.tar.xz
         bash $PWD/protocol/desktop/ffmpeg-deps-linux.sh $rel/ffdeps
-        PKG_CONFIG_PATH=$rel/ffdeps/lib/pkgconfig bash $PWD/protocol/desktop/ffmpeg-decode-only.sh $rel/ffbuild/ffmpeg-8.1.2 $rel/ffprefix
+        PKG_CONFIG_PATH=$rel/ffdeps/lib/pkgconfig bash $PWD/protocol/desktop/ffmpeg-decode-only.sh $rel/ffbuild/ffmpeg-8.1.3 $rel/ffprefix
         echo $recipe >$rel/ffprefix/recipe.sha256
       " >$rel/ffmpeg.log 2>&1 || { tail -30 $rel/ffmpeg.log; echo "ffmpeg FAILED"; exit 1; }
       echo "ffmpeg built"

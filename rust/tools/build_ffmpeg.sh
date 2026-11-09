@@ -4,7 +4,7 @@
 #
 # Usage (MSYS2 UCRT64 shell):
 #   rust/tools/build_ffmpeg.sh tarball prefix
-#     tarball  the official ffmpeg-8.1.2.tar.xz from https://ffmpeg.org/releases/,
+#     tarball  the official ffmpeg-8.1.3.tar.xz from https://ffmpeg.org/releases/,
 #              already checked against its SHA-256 by build.ps1
 #     prefix   install prefix
 #
@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-VERSION=8.1.2
+VERSION=8.1.3
 TARBALL=${1:?usage: build_ffmpeg.sh tarball prefix}
 PREFIX=${2:?usage: build_ffmpeg.sh tarball prefix}
 WORKDIR=${FFMPEG_WORKDIR:-$PWD/ffmpeg-work}

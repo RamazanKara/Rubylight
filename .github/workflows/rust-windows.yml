@@ -130,7 +130,7 @@ jobs:
             ~/AppData/Local/ButterpolloRust/sdk
             ~/.cargo/registry
             ~/.cargo/git
-          key: rust-sdk-v5-pyro-502a3b52-patched-ffmpeg-8.1.2
+          key: rust-sdk-v5-pyro-502a3b52-patched-ffmpeg-8.1.3
       # Compiled dependencies, one cache per job (rust-cache keys on the job
       # id); only main saves.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
@@ -211,7 +211,7 @@ jobs:
             ~/AppData/Local/ButterpolloRust/sdk
             ~/.cargo/registry
             ~/.cargo/git
-          key: rust-sdk-v5-pyro-502a3b52-patched-ffmpeg-8.1.2
+          key: rust-sdk-v5-pyro-502a3b52-patched-ffmpeg-8.1.3
       # Compiled dependencies, one cache per job (rust-cache keys on the job
       # id); only main saves.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
@@ -293,7 +293,7 @@ jobs:
             ~/AppData/Local/ButterpolloRust/sdk
             ~/.cargo/registry
             ~/.cargo/git
-          key: rust-sdk-v5-pyro-502a3b52-patched-ffmpeg-8.1.2
+          key: rust-sdk-v5-pyro-502a3b52-patched-ffmpeg-8.1.3
       # Compiled dependencies (not the workspace crates), keyed on Cargo.lock
       # and the toolchain; only main saves. The target is $RUNNER_TEMP's.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0

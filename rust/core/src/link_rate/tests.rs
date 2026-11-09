@@ -1902,6 +1902,126 @@ fn a_pyrowave_stream_under_its_own_floor_stays_there_while_it_loses() {
     assert_eq!(rig.kinds(), [ChangeKind::Floor, ChangeKind::Full]);
 }
 
+fn pyrowave_after_host_send_loss() -> Rig {
+    // 1080p120 at 200 Mbps is under PyroWave's 373 Mbps floor, so client loss
+    // cuts nothing. A host socket that overflows is different: holding at 200
+    // Mbps keeps overflowing it, so the transport safety floor (half the
+    // ceiling) lets it step down.
+    let negotiated = Negotiated {
+        fps: 120,
+        ..pyrowave(200_000)
+    };
+    let lr = LinkRate::new(true, &negotiated, 0, 20);
+    assert!(lr.pyrowave_no_room());
+    let mut rig = Rig::with(lr, 200_000);
+    rig.clean(1_000);
+    let mut left = 3;
+    rig.run(200, |lr, frame, now| {
+        if left > 0 {
+            left -= 1;
+            lr.on_send_loss(frame, now);
+        }
+    });
+    rig.clean(300);
+    rig
+}
+
+#[test]
+fn a_pyrowave_stream_under_its_floor_still_cuts_on_host_send_loss() {
+    let rig = pyrowave_after_host_send_loss();
+    let change = rig
+        .changes
+        .iter()
+        .map(|(_, c)| c)
+        .find(|c| matches!(c.kind, ChangeKind::StepDown | ChangeKind::Floor))
+        .unwrap_or_else(|| panic!("no change: {:?}", rig.changes));
+    assert_eq!(change.reason, "send_losses");
+    assert!(change.from_kbps >= 200_000, "{change:?}");
+    assert!(change.to_kbps < 200_000, "{change:?}");
+    assert!(change.to_kbps >= 100_000, "{change:?}");
+    assert!(rig.lr.pyrowave_no_room(), "client loss still has no room");
+}
+
+#[test]
+fn pyrowave_host_send_loss_cuts_even_when_client_loss_takes_priority() {
+    let negotiated = Negotiated {
+        fps: 120,
+        ..pyrowave(200_000)
+    };
+    let mut rig = Rig::with(LinkRate::new(true, &negotiated, 0, 20), 200_000);
+    rig.clean(1_000);
+    let mut left = 3;
+    rig.run(200, |lr, frame, now| {
+        if left > 0 {
+            left -= 1;
+            lr.on_send_loss(frame, now);
+            unrecoverable(lr, frame, now);
+        }
+    });
+    let change = &rig.changes.first().expect("mixed losses must cut").1;
+    assert_eq!(change.reason, "unrecoverable_frames");
+    assert_eq!(change.evidence.send_losses, 3);
+    assert!(matches!(change.kind, ChangeKind::StepDown));
+    assert!((100_000..200_000).contains(&change.to_kbps), "{change:?}");
+}
+
+#[test]
+fn pyrowave_client_loss_cannot_lower_a_host_limited_rate_further() {
+    let mut rig = pyrowave_after_host_send_loss();
+    assert!(rig.kbps < 200_000);
+    // Wait past the evidence fence, but stay before the first recovery probe.
+    rig.clean(500);
+    let before = rig.kbps;
+    let cuts = rig.cuts();
+    rig.lose_three();
+    rig.clean(300);
+    assert_eq!(rig.kbps, before);
+    assert_eq!(rig.cuts(), cuts);
+}
+
+#[test]
+fn pyrowave_client_loss_cannot_roll_a_transport_probe_below_its_quality_floor() {
+    let mut rig = pyrowave_after_host_send_loss();
+    for _ in 0..100 {
+        if rig.lr.pending.iter().any(Option::is_some) {
+            break;
+        }
+        rig.clean(100);
+    }
+    assert!(rig.lr.pending.iter().any(Option::is_some));
+    let before = rig.kbps;
+    assert!(before < 200_000);
+    let changes = rig.changes.len();
+    rig.lose_three();
+    rig.clean(300);
+    let failure = rig.changes[changes..]
+        .iter()
+        .find(|(_, c)| c.kind == ChangeKind::ProbeFailed)
+        .expect("client loss must evaluate the pending probe");
+    assert_eq!(failure.1.to_kbps, before);
+    assert_eq!(rig.kbps, before);
+}
+
+#[test]
+fn pyrowave_client_loss_keeps_its_quality_floor_after_host_loss_recovery() {
+    let mut rig = pyrowave_after_host_send_loss();
+    assert!(rig.kbps < 200_000);
+    rig.clean(120_000);
+    assert_eq!(rig.lr.state(), State::Full);
+    assert_eq!(rig.kbps, 200_000);
+    let changes = rig.changes.len();
+    rig.lose_three();
+    rig.clean(300);
+    assert_eq!(rig.kbps, 200_000);
+    assert!(rig.lr.pyrowave_no_room());
+    assert!(rig.changes.len() > changes, "client evidence was evaluated");
+    assert!(
+        rig.changes[changes..]
+            .iter()
+            .all(|(_, c)| c.to_kbps == 200_000)
+    );
+}
+
 #[test]
 fn a_pyrowave_stream_on_a_link_under_its_floor_stops_there_and_says_so() {
     // The field case itself: 200 Mbps into a link that carries 90. PyroWave

@@ -133,7 +133,7 @@ pub struct Session<P = (), A = ()> {
     /// All bitrate writers take this lock, including client ownership handoff.
     pub adaptive_bitrate: std::sync::Mutex<crate::adaptive_bitrate::AdaptiveBitrate>,
     /// Lowers the encoder bitrate when the link cannot carry the stream; see
-    /// [`crate::link_rate`]. Off for PyroWave, a client that sets the bitrate
+    /// [`crate::link_rate`]. Off for a client that sets the bitrate
     /// and `host_adaptive_bitrate`.
     pub link_rate: std::sync::Mutex<crate::link_control::LinkControl>,
     /// What the video sender sent, for `link_rate`; one store per frame.

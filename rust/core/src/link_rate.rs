@@ -474,6 +474,9 @@ pub struct LinkRate {
     state: State,
     ceiling_kbps: u32,
     floor_kbps: u32,
+    /// Lower encoder clamp during a host-send-loss episode. Client loss and
+    /// standing queues still use `floor_kbps`; full recovery clears this.
+    transport_floor_kbps: Option<u32>,
     /// Total wire bits per second the encoder is held to.
     current: u64,
     /// The last rate that stayed clean.
@@ -592,6 +595,7 @@ impl LinkRate {
             state: State::Off,
             ceiling_kbps: 0,
             floor_kbps: 0,
+            transport_floor_kbps: None,
             current: 0,
             good: 0,
             bad: None,
@@ -663,7 +667,8 @@ impl LinkRate {
     }
 
     /// PyroWave's floor is at or above the stream's own bitrate (1080p120 at
-    /// 200 Mbps needs 373): a lost picture can lower nothing.
+    /// 200 Mbps needs 373): client loss can lower nothing. Host send loss can
+    /// still use a separate transport floor.
     pub fn pyrowave_no_room(&self) -> bool {
         self.pyrowave_no_room
     }
@@ -1243,7 +1248,7 @@ impl LinkRate {
         let mut kbps = self
             .budget()
             .encoder_kbps(self.current, self.ceiling_kbps, fec, period)
-            .clamp(self.floor_kbps, self.ceiling_kbps);
+            .clamp(self.encoder_floor_kbps(), self.ceiling_kbps);
         // Less FEC frees wire bits for video, but only a probe may spend them.
         if let Some(((current, was_fec, was_period), cached)) = self.cache
             && current == self.current
@@ -1259,7 +1264,11 @@ impl LinkRate {
     fn kbps_for(&self, total: u64, fec: usize, period: Duration) -> u32 {
         self.budget()
             .encoder_kbps(total, self.ceiling_kbps, fec, period)
-            .clamp(self.floor_kbps, self.ceiling_kbps)
+            .clamp(self.encoder_floor_kbps(), self.ceiling_kbps)
+    }
+
+    fn encoder_floor_kbps(&self) -> u32 {
+        self.transport_floor_kbps.unwrap_or(self.floor_kbps)
     }
 
     fn budget(&self) -> WireBudget {
@@ -1359,6 +1368,16 @@ impl LinkRate {
             .max(self.encoder_floor.unwrap_or(0))
     }
 
+    fn loss_floor(&self, why: &Trigger, fec: usize, period: Duration) -> u64 {
+        if why.evidence.send_losses >= SEND_LOSS_FRAMES {
+            self.budget()
+                .total_bps(self.encoder_floor_kbps(), fec, period)
+                .max(self.encoder_floor.unwrap_or(0))
+        } else {
+            self.cut_floor(fec, period)
+        }
+    }
+
     fn ceiling_total(&self, fec: usize, period: Duration) -> u64 {
         self.budget().total_bps(self.ceiling_kbps, fec, period)
     }
@@ -1381,6 +1400,19 @@ impl LinkRate {
         period: Duration,
         current_kbps: u32,
     ) {
+        // A PyroWave stream under its own floor has nothing to cut for client
+        // loss, but a host socket that overflows drops frames at a rate it
+        // cannot send: refusing to lower that rate overflows it forever. Give
+        // it a separate transport floor until recovery. Client evidence can
+        // take priority in `triggered`, so inspect the host evidence itself.
+        if self.pyrowave_no_room
+            && why.evidence.send_losses >= SEND_LOSS_FRAMES
+            && self.transport_floor_kbps.is_none()
+        {
+            self.transport_floor_kbps =
+                Some((self.ceiling_kbps / 2).max(1_000).min(self.ceiling_kbps));
+            self.cache = None;
+        }
         let from_kbps = if self.state == State::Full {
             current_kbps.min(self.ceiling_kbps)
         } else {
@@ -1420,6 +1452,14 @@ impl LinkRate {
                     .min((bad * KNEE_CAP_PERCENT).div_ceil(100))
                     .max(self.encoder_floor.unwrap_or(0)),
                 _ => back_to,
+            };
+            // Client-only loss cannot roll a transport episode's probe back
+            // below the quality floor, or below the current rate when it is
+            // already under that floor.
+            let back_to = if self.transport_floor_kbps.is_some() {
+                back_to.max(self.loss_floor(&why, fec, period).min(self.current))
+            } else {
+                back_to
             };
             self.good = back_to;
             self.current = back_to;
@@ -1506,7 +1546,7 @@ impl LinkRate {
         let cur = self.current;
         let budget = self.budget();
         let mut evidence = why.evidence;
-        let floor = self.cut_floor(fec, period).min(cur);
+        let floor = self.loss_floor(&why, fec, period).min(cur);
         if cur <= floor {
             // Nothing left to cut. At the encoder's own minimum the stream is
             // already as low as it goes and has said so. Loss at the floor
@@ -1856,6 +1896,8 @@ impl LinkRate {
 
     fn finish(&mut self, now: Instant, fec: usize, period: Duration) {
         let kbps = self.encoder_kbps(fec, period);
+        self.transport_floor_kbps = None;
+        self.cache = None;
         self.state = State::Full;
         self.reason = "healthy";
         self.bad = None;

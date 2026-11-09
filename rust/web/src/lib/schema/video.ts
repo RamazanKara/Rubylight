@@ -547,7 +547,7 @@ const video: Setting[] = [
     description:
       'Cuts the picture bitrate when the network loses more than error correction can repair, then probes back up. Does nothing on a healthy link.',
     details:
-      'Acts on three unrecoverable frames in two seconds, 5% of packets reported missing for two half-second windows, three frames lost on send, or three network keyframe requests from a client that sends no error-correction status. Each cut aims at 85% of what the link delivered, then the host probes back up in small steps and returns to the requested bitrate after ten clean seconds. Reports for frames sent before a cut took effect are ignored. Off for PyroWave. Adapt bitrate on the host wins when both are on, and a device that sets its own bitrate takes over bitrate control.',
+      'Acts on three unrecoverable frames in two seconds, 5% of packets reported missing for two half-second windows, three frames lost on send, or three network keyframe requests from a client that sends no error-correction status. Each cut aims at 85% of what the link delivered, then the host probes back up in small steps and returns to the requested bitrate after ten clean seconds. Reports for frames sent before a cut took effect are ignored. On PyroWave, client-loss cuts stop at its severe-loss floor. Host send losses can cut a stream below that floor, down to half its bitrate ceiling (at least 1 Mbps). Adapt bitrate on the host wins when both are on, and a device that sets its own bitrate takes over bitrate control.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'toggle' },

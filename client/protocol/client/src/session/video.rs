@@ -1137,6 +1137,7 @@ mod tests {
         let mut host = Blocks::new();
         let mut packets = flat(host.frame(&[8, 6], 1));
         packets.extend(flat(host.frame(&[8, 6], 2)));
+        packets.extend(flat(host.frame(&[8, 6], 3)));
         let mut signals = Vec::new();
         receive_batch(
             &shared,
@@ -1168,17 +1169,19 @@ mod tests {
         // The failed submission's key frame request comes before the next datagram.
         assert_eq!(log.get(first + 1), Some(&Step::RequestIdr), "{log:?}");
         assert!(direct.ready.is_empty() && direct.done.is_empty());
-        assert_eq!(shared.counters.submitted.load(Ordering::Relaxed), 2, "{log:?}");
+        assert_eq!(shared.counters.submitted.load(Ordering::Relaxed), 3, "{log:?}");
         assert_eq!(shared.counters.need_idr.load(Ordering::Relaxed), 1);
-        // The second frame reuses the first's recycled buffer.
-        let second = log[first + 1..]
+        // The first frame's recycled buffer becomes the depacketizer's at the second frame's
+        // reassembly, so the third frame carries it.
+        let later: Vec<(bool, usize)> = log[first + 1..]
             .iter()
-            .find_map(|s| match s {
+            .filter_map(|s| match s {
                 Step::Submit { unlocked, data } => Some((*unlocked, *data)),
                 _ => None,
             })
-            .expect("a second submission");
-        assert_eq!(second, (true, data), "{log:?}");
+            .collect();
+        assert_eq!(later.len(), 2, "{log:?}");
+        assert_eq!(later[1], (true, data), "{log:?}");
     }
 
     /// A decoder replaced mid-stream by one that never asked for reference frame invalidation

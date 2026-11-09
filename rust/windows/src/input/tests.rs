@@ -87,10 +87,11 @@ fn rumble_feedback_obeys_forward_rumble_and_client_haptics() {
         injector.policy.forward_rumble = forward;
         for haptics in [false, true] {
             injector.apply(&Event::Haptics(haptics)).unwrap();
-            for kind in [0x010b, 0x5500, 0x5503, 0x5601] {
+            for kind in [0x010b, 0x5500, 0x5503, 0x5504, 0x5601] {
                 assert_eq!(injector.feedback_allowed(kind), forward && haptics);
             }
             assert!(injector.feedback_allowed(0x5502));
+            assert!(injector.feedback_allowed(0x5505), "Steam settings");
         }
     }
 }

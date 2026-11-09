@@ -93,6 +93,7 @@ Columns: **RX 7900 XT** is Windows 11 26200 with the driver named in the evidenc
 | Keyboard and mouse | Tested | Supported | Supported | [Input on the control thread](../rust/PERFORMANCE.md#october-7-input-on-the-control-thread), Windows 11 26200 | rc era, 2026-10-07 |
 | Virtual DualShock 4 and DualSense pads | Tested | Supported | Supported | [Native controller checks](../rust/PERFORMANCE.md#native-controller-and-moonlight-62-command-checks), signed driver 0.1.0.39. No network client or live pad | rc era, 2026-10-06 |
 | Xbox and Switch Pro profiles, Steam Deck pads, DualSense USB haptics, back grips | Supported | Supported | Supported | None recorded | - |
+| Steam Controller (2026) profile (`gamepad = vhf_steam`), driver 0.1.0.92 | Experimental | Experimental | Experimental | Unit tests only (`steam_pad.rs`, gamepads touch and feedback tests). No driver install, Steam session or client with a real Steam Controller run | - |
 | Haptics from game audio (`audio_haptics`, off by default) | Supported | Supported | Supported | Unit tests only: sine, kick and impact fixtures, switch-over to game haptics, live settings. No client DualSense run | - |
 | **Sharing** | | | | | |
 | Clipboard sync, text and images | Tested | Supported | Supported | Retroid: text both ways and a PNG with alpha in both directions; a failure in steps 4 to 6 of the text case was fixed afterwards. Desktop client: no run recorded | `5502da2be`, 2026-10-28 |

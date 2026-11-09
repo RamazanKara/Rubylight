@@ -125,6 +125,16 @@ Composite descriptors use HIDMaestro's MIT profile, Copyright 2026 HIDMaestro
 Contributors. Original notices remain in rust/core/src/dualsense/descriptors.rs;
 the complete MIT terms are also included in rust/THIRD_PARTY.md.
 
+Steam Controller (2026)
+
+The virtual Steam Controller is jlobue10's profile in libvirtualgamepad v0.1.0-beta.10
+(https://github.com/Nonary/libvirtualgamepad, MIT), which Rubylight ships as signed in
+Vibepollo 2.0.6. How the host maps a client onto it (rust/core/src/steam_pad.rs and the
+Steam Controller paths in rust/windows/src/input/gamepads.rs: the explicit-click flag,
+split trackpads, haptic and settings forwarding, firmware attributes) follows
+Nonary/Vibepollo 2.0.6's docs/steam_controller.md (GPL-3.0). The wire format is the one
+rubylight_protocol::steam_controller already credits.
+
 usbip-win2
 
 Windows packages bundle the original usbip-win2 0.9.8.1 installer for optional

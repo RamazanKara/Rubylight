@@ -33,7 +33,8 @@ pub(super) fn unavailable(error: &anyhow::Error) -> String {
 
 pub(super) enum Backend {
     /// The VHF gamepad driver, which the installer brings: Xbox One, Xbox
-    /// Series, DualShock 4, DualSense and Switch Pro pads in 16 slots.
+    /// Series, DualShock 4, DualSense, Switch Pro and Steam Controller pads in
+    /// 16 slots.
     Vhf(Option<HANDLE>),
     /// ViGEmBus, only when `gamepad = vigem_x360` asks for it.
     Vigem(vigem::Client),
@@ -163,6 +164,18 @@ impl Backend {
         let mut b = request(16, Some(slot));
         b.extend_from_slice(&[percent, state, 0, 0]);
         self.ioctl(0x807, &b, 0)?;
+        Ok(())
+    }
+    /// The real Steam Controller's firmware attributes for a Steam Controller
+    /// slot. A driver that predates the request fails it with
+    /// ERROR_INVALID_FUNCTION.
+    pub(super) fn steam_attributes(
+        &mut self,
+        slot: u32,
+        attributes: &butterpollo_core::steam_pad::SteamAttributes,
+    ) -> Result<()> {
+        use butterpollo_core::steam_pad::{ATTRIBUTES_IOCTL, attributes_request};
+        self.ioctl(ATTRIBUTES_IOCTL, &attributes_request(slot, attributes), 0)?;
         Ok(())
     }
     pub(super) fn feedback(&mut self, slot: u32) -> Result<Option<(u16, Vec<u8>)>> {

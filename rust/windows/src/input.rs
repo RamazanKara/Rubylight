@@ -857,10 +857,9 @@ impl Injector {
                 self.haptics = *enabled;
                 self.gamepads.set_haptics(*enabled);
             }
-            // Only the VHF Steam Controller profile takes them, and no pinned
-            // driver has it yet.
-            SteamAttributes(_) => {}
+            // Only the VHF Steam Controller profile takes them.
             Controller { .. }
+            | SteamAttributes(_)
             | Arrival { .. }
             | ControllerTouch { .. }
             | Motion { .. }
@@ -885,7 +884,9 @@ impl Injector {
         self.gamepads.set_feedback_waker(waker);
     }
     pub fn feedback_allowed(&self, kind: u16) -> bool {
-        !matches!(kind, 0x010b | 0x5500 | 0x5503 | 0x5601)
+        // 0x5504: Steam Controller haptics, withheld like rumble; its
+        // settings (0x5505) are not feedback a player feels.
+        !matches!(kind, 0x010b | 0x5500 | 0x5503 | 0x5504 | 0x5601)
             || (self.policy.forward_rumble && self.haptics)
     }
     /// The driver worker keeps ownership of its slots until unplug completes.

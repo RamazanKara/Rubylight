@@ -192,6 +192,20 @@ fn composite_feedback_preserves_partial_trigger_flags_and_rumble_layout() {
     assert_eq!(&rumble.1, &[0xee, 0xff, 0xc0, 0, 2, 0, 0, 9, 0, 7]);
 }
 #[test]
+fn steam_controller_feedback_goes_out_as_it_came() {
+    let haptic = [vec![3, 0, 4, 0x82, 0, 2, 0xfa], vec![0; 8]].concat();
+    assert_eq!(
+        feedback_packets(3, 0x5504, &haptic),
+        [(0x5504, haptic.clone())]
+    );
+    let settings = [vec![3, 0, 0x87, 1, 0x30, 1, 0], vec![0; 24]].concat();
+    assert_eq!(
+        feedback_packets(3, 0x5505, &settings),
+        [(0x5505, settings.clone())]
+    );
+    assert!(feedback_packets(3, 0x5504, &haptic[..14]).is_empty());
+}
+#[test]
 fn control_backlog_is_serviced_without_the_feedback_delay() {
     for queued in [600, 1100] {
         let mut remaining = queued;

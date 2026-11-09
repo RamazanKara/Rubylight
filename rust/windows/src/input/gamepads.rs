@@ -1,6 +1,7 @@
 //! Virtual gamepad lifecycle, controller reports, and feedback.
 
 use super::*;
+use butterpollo_core::{input_policy::VHF_STEAM_CONTROLLER, steam_pad};
 
 mod driver_host;
 
@@ -81,6 +82,15 @@ pub struct Gamepads {
     pub(super) dualsenses: BTreeMap<u16, dualsense_pad::DualSensePad>,
     dualsense_failed: BTreeSet<u16>,
     warnings: std::sync::Arc<butterpollo_core::session::Warnings>,
+    /// Each Steam Controller client's real firmware attributes, applied
+    /// again whenever its pad is plugged anew.
+    steam_attributes: BTreeMap<u16, steam_pad::SteamAttributes>,
+    /// Haptic reports for Steam Controller pads whose client has no real pads:
+    /// the gamepad thread synthesizes rumble from them.
+    steam_haptics: Vec<steam_pad::SteamHaptic>,
+    /// Whether the installed driver answered the attributes request as one
+    /// that predates it; logged once.
+    steam_attributes_unsupported: bool,
 }
 #[derive(Default)]
 struct FeedbackFailure {
@@ -213,6 +223,9 @@ impl Gamepads {
             dualsenses: BTreeMap::new(),
             dualsense_failed: BTreeSet::new(),
             warnings,
+            steam_attributes: BTreeMap::new(),
+            steam_haptics: Vec::new(),
+            steam_attributes_unsupported: false,
         })
     }
     /// Attaches a real Steam Deck controller for a Steam Deck client when
@@ -227,10 +240,12 @@ impl Gamepads {
         if self.decks.contains_key(&id) {
             return Ok(true);
         }
-        let steam = self
-            .arrivals
-            .get(&id)
-            .is_some_and(|(kind, _)| *kind == CTYPE_STEAM);
+        let steam = self.arrivals.get(&id).is_some_and(|(kind, capabilities)| {
+            // A Steam Controller (2026) gets the virtual one when it is chosen.
+            *kind == CTYPE_STEAM
+                && !(self.profile == VHF_STEAM_CONTROLLER
+                    && capabilities & steam_pad::CAPABILITIES != 0)
+        });
         if !steam || self.deck_failed.contains(&id) {
             return Ok(false);
         }
@@ -338,7 +353,59 @@ impl Gamepads {
             profile = profile_name(profile),
             "virtual controller connected"
         );
+        if profile == VHF_STEAM_CONTROLLER {
+            tracing::warn!(
+                controller = id,
+                "virtual Steam Controller connected: never start a controller firmware update from Steam while streaming, it would target the virtual controller, not the real one"
+            );
+            self.send_steam_attributes(id);
+        }
         Ok(())
+    }
+    /// Hands the client's real firmware attributes to its virtual Steam
+    /// Controller, so Steam judges the real firmware, not the driver's
+    /// captured defaults. A driver that predates the request keeps them.
+    fn send_steam_attributes(&mut self, id: u16) {
+        let (Some(attributes), Some(global)) = (
+            self.steam_attributes.get(&id).copied(),
+            self.active.get(&id).copied(),
+        ) else {
+            return;
+        };
+        if self.profiles.get(&id) != Some(&VHF_STEAM_CONTROLLER) {
+            return;
+        }
+        match self
+            .backend
+            .steam_attributes(u32::from(global), &attributes)
+        {
+            Ok(()) => tracing::info!(
+                controller = id,
+                firmware_build_time = format!("{:#x}", attributes.firmware_build_time),
+                bootloader_build_time = format!("{:#x}", attributes.bootloader_build_time),
+                board_revision = attributes.board_revision,
+                fields = format!("{:#x}", attributes.valid_mask),
+                transport = attributes.transport,
+                "virtual Steam Controller reports the real controller's firmware"
+            ),
+            Err(error)
+                if error
+                    .downcast_ref::<windows::core::Error>()
+                    .is_some_and(|error| error.code() == ERROR_INVALID_FUNCTION.to_hresult()) =>
+            {
+                if !std::mem::replace(&mut self.steam_attributes_unsupported, true) {
+                    tracing::info!(
+                        controller = id,
+                        "the installed gamepad driver predates Steam Controller attributes; the virtual controller keeps its defaults"
+                    );
+                }
+            }
+            Err(error) => tracing::warn!(
+                controller = id,
+                error = format!("{error:#}"),
+                "the gamepad driver refused the Steam Controller's attributes"
+            ),
+        }
     }
     fn ensure_dualsense(&mut self, id: u16) -> Result<bool> {
         use butterpollo_core::{
@@ -411,6 +478,7 @@ impl Gamepads {
                 self.decks.retain(|i, _| active & (1 << *i) != 0);
                 self.dualsenses.retain(|i, _| active & (1 << *i) != 0);
                 self.arrivals.retain(|i, _| active & (1 << *i) != 0);
+                self.steam_attributes.retain(|i, _| active & (1 << *i) != 0);
                 self.dualsense_failed.retain(|i| active & (1 << *i) != 0);
                 self.states.retain(|i, _| active & (1 << *i) != 0);
                 // Every state passes here: find the pads that left without
@@ -447,10 +515,15 @@ impl Gamepads {
                     return Ok(());
                 }
                 self.ensure(*id)?;
-                // No virtual pad has back grips: press what each is mapped to.
+                // Only the Steam Controller has back grips: on any other pad,
+                // press what each is mapped to.
                 let (buttons, left_trigger, right_trigger) =
-                    self.policy
-                        .map_back_grips(*buttons, *left_trigger, *right_trigger);
+                    if self.profiles.get(id) == Some(&VHF_STEAM_CONTROLLER) {
+                        (*buttons, *left_trigger, *right_trigger)
+                    } else {
+                        self.policy
+                            .map_back_grips(*buttons, *left_trigger, *right_trigger)
+                    };
                 let mapped = Event::Controller {
                     id: *id,
                     active: *active,
@@ -487,6 +560,8 @@ impl Gamepads {
                     self.dualsenses.remove(&id);
                 }
                 self.arrivals.insert(id, (*kind, *capabilities));
+                // A Steam Controller sends its attributes after each arrival.
+                self.steam_attributes.remove(&id);
                 self.dualsense_failed.remove(&id);
                 if let Some(pad) = self.dualsenses.get(&id) {
                     pad.capabilities(*capabilities);
@@ -557,12 +632,29 @@ impl Gamepads {
                     pad.apply(event);
                     return Ok(());
                 }
-                // Only the PlayStation and Switch profiles have a battery.
-                if !matches!(self.profiles.get(&u16::from(*id)).copied(), Some(5..=7)) {
+                // Only the PlayStation, Switch and Steam Controller profiles
+                // have a battery.
+                if !matches!(
+                    self.profiles.get(&u16::from(*id)).copied(),
+                    Some(5..=7 | VHF_STEAM_CONTROLLER)
+                ) {
                     return Ok(());
                 }
                 self.backend
                     .battery(self.slot(u16::from(*id))?, *state, *percent)?;
+            }
+            Event::SteamAttributes(attributes) => {
+                use steam_pad::LI_CCAP_STEAM_ATTRIBUTES;
+                let id = u16::from(attributes.controller);
+                // Only from a Steam Controller that announced them.
+                if !self.arrivals.get(&id).is_some_and(|(kind, capabilities)| {
+                    *kind == butterpollo_core::input_policy::CTYPE_STEAM
+                        && capabilities & LI_CCAP_STEAM_ATTRIBUTES != 0
+                }) {
+                    return Ok(());
+                }
+                self.steam_attributes.insert(id, *attributes);
+                self.send_steam_attributes(id);
             }
             _ => {}
         }
@@ -654,6 +746,24 @@ impl Gamepads {
             },
         );
         self.feedback_drained += drained;
+        let arrivals = &self.arrivals;
+        let steam_haptics = &mut self.steam_haptics;
+        reports.retain_mut(|(id, kind, data)| {
+            let (_, capabilities) = arrivals.get(id).copied().unwrap_or_default();
+            match steam_pad::route(*id, *kind, data, capabilities) {
+                None => true,
+                Some(Some(steam_pad::Feedback::Forward(packet, payload))) => {
+                    *kind = packet;
+                    *data = payload;
+                    true
+                }
+                Some(Some(steam_pad::Feedback::Rumble(haptic))) => {
+                    steam_haptics.push(haptic);
+                    false
+                }
+                Some(None) => false,
+            }
+        });
         for (id, deck) in &mut self.decks {
             if let Some((kind, data)) = deck.feedback() {
                 reports.push((*id, kind, data));
@@ -700,6 +810,11 @@ impl Gamepads {
     pub(super) fn take_feedback_drained(&mut self) -> usize {
         std::mem::take(&mut self.feedback_drained)
     }
+    /// Haptic reports Steam wrote to a virtual Steam Controller whose client
+    /// has no real pads, since the last call.
+    pub(super) fn take_steam_haptics(&mut self) -> Vec<steam_pad::SteamHaptic> {
+        std::mem::take(&mut self.steam_haptics)
+    }
     pub(super) fn haptics(&self) -> Vec<butterpollo_core::haptics::Frame> {
         self.dualsenses
             .values()
@@ -737,6 +852,12 @@ impl Gamepads {
             });
             return Ok(());
         }
+        let buttons = if self.profiles.get(&id) == Some(&VHF_STEAM_CONTROLLER) {
+            let (_, capabilities) = self.arrivals.get(&id).copied().unwrap_or_default();
+            steam_pad::buttons(buttons, capabilities)
+        } else {
+            buttons
+        };
         self.backend
             .submit(self.slot(id)?, buttons, left, right, sticks)
     }
@@ -774,7 +895,10 @@ impl Gamepads {
     pub fn motion_supported(&self, id: u16) -> bool {
         self.decks.contains_key(&id)
             || self.dualsenses.contains_key(&id)
-            || matches!(self.profiles.get(&id).copied(), Some(5..=7))
+            || matches!(
+                self.profiles.get(&id).copied(),
+                Some(5..=7 | VHF_STEAM_CONTROLLER)
+            )
     }
 }
 /// Feedback reports read from one pad per poll at most. The VHF driver hands
@@ -791,6 +915,15 @@ fn feedback_parts(kind: u16, data: &[u8]) -> u8 {
         5 if data.len() >= 8 => 1 | (data[7] & 3) << 1,
         _ => 7,
     }
+}
+/// Steam Controller haptics and settings, which are never coalesced or
+/// deduplicated: Steam re-sends a click to keep a buzz going, and one chunk
+/// of a settings write cannot replace another.
+fn steam_report(kind: u16) -> bool {
+    matches!(
+        kind,
+        steam_pad::DRIVER_STEAM_HAPTIC | steam_pad::DRIVER_STEAM_SETTINGS
+    )
 }
 fn poll_feedback(
     active: &BTreeMap<u16, u16>,
@@ -817,10 +950,12 @@ fn poll_feedback(
         for _ in 0..FEEDBACK_DRAIN {
             match poll(u32::from(global)) {
                 Ok(Some(report)) => {
-                    let parts = feedback_parts(report.0, &report.1);
-                    pending.retain(|(kind, data)| {
-                        *kind != report.0 || feedback_parts(*kind, data) & !parts != 0
-                    });
+                    if !steam_report(report.0) {
+                        let parts = feedback_parts(report.0, &report.1);
+                        pending.retain(|(kind, data)| {
+                            *kind != report.0 || feedback_parts(*kind, data) & !parts != 0
+                        });
+                    }
                     pending.push(report);
                 }
                 Ok(None) => break,
@@ -861,7 +996,9 @@ fn poll_feedback(
         }
         // Reports read before a failing call still go out.
         for report in pending.drain(..) {
-            if last.get(&id) != Some(&report) {
+            if steam_report(report.0) {
+                output.push((id, report.0, report.1));
+            } else if last.get(&id) != Some(&report) {
                 last.insert(id, report.clone());
                 output.push((id, report.0, report.1));
             }
@@ -881,6 +1018,7 @@ fn profile_name(profile: u16) -> &'static str {
         5 => "vhf_ds4",
         6 => "vhf_ds5",
         7 => "vhf_switch",
+        VHF_STEAM_CONTROLLER => "vhf_steam",
         _ => "vhf",
     }
 }
@@ -933,6 +1071,8 @@ const CCAP_DUAL_TOUCHPAD: u16 = 0x100;
 /// Maps a controller touch onto the driver's single touch surface. With
 /// `dual`, touchpad 0 covers the left half of that surface and touchpad 1 the
 /// right half, and a finger is told apart by its touchpad as well as its id.
+/// The Steam Controller has a pad per contact instead: a client's two
+/// touchpads are its two pads, and one touchpad's halves are stretched onto them.
 fn gamepad_touch_request(
     pointers: &BTreeMap<(u8, u32), u8>,
     profile: u16,
@@ -952,7 +1092,8 @@ fn gamepad_touch_request(
     else {
         return None;
     };
-    if *touchpad > u8::from(dual) || !matches!(profile, 5 | 6) {
+    let steam = profile == VHF_STEAM_CONTROLLER;
+    if *touchpad > u8::from(dual) || !(matches!(profile, 5 | 6) || steam) {
         return None;
     }
     let event = match event {
@@ -969,17 +1110,24 @@ fn gamepad_touch_request(
     } else if let Some(slot) = pointers.get(&key) {
         *slot
     } else if matches!(event, 0 | 1) {
-        (0..2).find(|slot| {
-            !pointers
-                .iter()
-                .any(|((pad, _), used)| pad == id && used == slot)
-        })?
+        if steam {
+            // The Steam Controller's contact is its pad: 0 left, 1 right.
+            steam_pad::touch_pad(*x, *touchpad, dual)
+        } else {
+            (0..2).find(|slot| {
+                !pointers
+                    .iter()
+                    .any(|((pad, _), used)| pad == id && used == slot)
+            })?
+        }
     } else {
         return None;
     };
     let mut b = request(22, Some(u32::from(global)));
     b.extend_from_slice(&[slot, event]);
-    let x = if dual {
+    let x = if steam {
+        steam_pad::touch_x(*x, slot, dual)
+    } else if dual {
         x.clamp(0., 1.) / 2. + f32::from(*touchpad) / 2.
     } else {
         *x

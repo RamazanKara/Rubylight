@@ -28,7 +28,7 @@ Every signed executable and DLL carries the product name **Rubylight** and the r
 
 Files from other projects ship as their projects released them and are never signed with Rubylight's certificate:
 
-- the gamepad driver package and `nefconc.exe` from the Vibepollo 2.0.0 release, whose driver catalog and setup tool are signed by SignPath Foundation for that project, and the Playnite plugin from the same release;
+- the gamepad driver package (libvirtualgamepad 0.1.0-beta.10) from the Vibepollo 2.0.6 release, whose driver catalog and setup tool are signed by SignPath Foundation for that project, and `nefconc.exe` and the Playnite plugin from the Vibepollo 2.0.0 release;
 - the usbip-win2 installer and drivers, bundled unchanged.
 
 Libraries whose projects publish no signed builds ship unsigned: the Opus DLL and the GCC and winpthreads runtimes from MSYS2, and FFmpeg's `avcodec` and `avutil` and the PyroWave library, each built from pinned source. [Third-party components](../rust/THIRD_PARTY.md) lists them all with their licences.

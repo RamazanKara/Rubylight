@@ -908,7 +908,7 @@ const input: Setting[] = [
     description:
       "The virtual controller the host uses. Automatic matches each device's controller; choosing a type here uses it for all connected controllers.",
     details:
-      'A device can set its own type in Devices, which wins over this one. Automatic picks DualSense, with adaptive triggers, for PlayStation, Switch Pro for Nintendo, and Xbox Series otherwise, or DualSense when the motion or touchpad options below select it. Waveform-capable DualSense clients use native USB audio haptics when usbip-win2 is installed on the host. The USB/IP option requires that driver and exposes a DualSense audio device. Xbox 360 (ViGEmBus) needs ViGEmBus installed separately, for tools such as reWASD that may not see the other types; without it controllers stop working and the stream says why. Steam stable can list a virtual Xbox controller twice; the Steam beta lists it once.',
+      'A device can set its own type in Devices, which wins over this one. Automatic picks DualSense, with adaptive triggers, for PlayStation, Switch Pro for Nintendo, and Xbox Series otherwise, or DualSense when the motion or touchpad options below select it. Waveform-capable DualSense clients use native USB audio haptics when usbip-win2 is installed on the host. The USB/IP option requires that driver and exposes a DualSense audio device. Steam Controller presents a 2026 Steam Controller with both trackpads, grip and stick touch, motion and a battery; a client that has the real controller also gets Steam\'s pad haptics and settings, and others get rumble. Xbox 360 (ViGEmBus) needs ViGEmBus installed separately, for tools such as reWASD that may not see the other types; without it controllers stop working and the stream says why. Steam stable can list a virtual Xbox controller twice; the Steam beta lists it once.',
     category: 'input',
     group: 'Controllers',
     control: {
@@ -921,6 +921,7 @@ const input: Setting[] = [
         { value: 'vhf_ds5', label: 'DualSense' },
         { value: 'usbip_ds5', label: 'DualSense with waveform haptics (USB/IP)' },
         { value: 'vhf_switch', label: 'Switch Pro' },
+        { value: 'vhf_steam', label: 'Steam Controller' },
         { value: 'vigem_x360', label: 'Xbox 360 (ViGEmBus)' },
       ],
     },

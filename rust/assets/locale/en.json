@@ -656,6 +656,7 @@
     "gamepad_vhf_ds4": "Rubylight Virtual Gamepad (DualShock 4)",
     "gamepad_vhf_ds5": "Rubylight Virtual Gamepad (DualSense)",
     "gamepad_vhf_switch": "Rubylight Virtual Gamepad (Switch Pro)",
+    "gamepad_vhf_steam": "Rubylight Virtual Gamepad (Steam Controller)",
     "gamepad_xone": "XOne (Xbox One)",
     "crash_dump_title": "Recent crash detected",
     "crash_dump_desc": "Rubylight detected a crash dump within the last week. Please export a crash bundle and include it when opening an issue.",

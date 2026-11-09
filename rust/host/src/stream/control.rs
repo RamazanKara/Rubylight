@@ -1986,6 +1986,13 @@ pub(crate) const RUMBLE_TRIGGER_DATA: u16 = 0x5500;
 
 pub(crate) const RUMBLE_DATA: u16 = 0x010b;
 
+/// Steam Controller (2026) haptic reports, only for a controller whose
+/// client announced the real pads (`LI_CCAP_STEAM_HAPTIC`).
+pub(crate) const STEAM_HAPTIC_DATA: u16 = 0x5504;
+
+/// Steam Controller settings writes (`LI_CCAP_STEAM_SETTINGS`).
+pub(crate) const STEAM_SETTINGS_DATA: u16 = 0x5505;
+
 pub(super) const RUMBLE_MARKER: u32 = 0x00c0ffee;
 
 // Channel 0 is available even when an older Moonlight peer negotiates only
@@ -2178,6 +2185,13 @@ impl RumbleForwarded {
 
 pub(crate) fn feedback_packets(id: u16, kind: u16, data: &[u8]) -> Vec<(u16, Vec<u8>)> {
     if kind == controller_audio::CONTROL && data.len() == 12 {
+        return vec![(kind, data.to_vec())];
+    }
+    // Steam Controller haptics and settings, already the control packets'
+    // payloads with the controller in them.
+    if (kind == STEAM_HAPTIC_DATA && data.len() == 15)
+        || (kind == STEAM_SETTINGS_DATA && data.len() == 31)
+    {
         return vec![(kind, data.to_vec())];
     }
     if (kind == RUMBLE_DATA && data.len() == 4)

@@ -7,7 +7,9 @@ param(
     # FFmpeg's LGPL AC3 and E-AC3 codecs for audio passthrough (rust/tools/build_ffmpeg.sh).
     [string]$FfmpegRoot = $env:BUTTERPOLLO_FFMPEG_ROOT,
     # Signed virtual display and gamepad driver packages (a Vibepollo
-    # installation's drivers folder); fetched from Vibepollo 2.0.0 otherwise.
+    # installation's drivers folder, whose gamepad driver must be the pinned
+    # libvirtualgamepad 0.1.0-beta.10); fetched from Vibepollo 2.0.0 and,
+    # for the gamepad driver, 2.0.6 otherwise.
     [string]$DriverRoot = $env:BUTTERPOLLO_DRIVER_ROOT,
     [switch]$FetchDependencies,
     [switch]$DebugBuild,
@@ -87,26 +89,43 @@ $runLint = !$SkipTests -and $Stage -in 'All', 'Lint'
 $runBuild = $Stage -in 'All', 'Build'
 if ($Package -and !$runBuild) { throw "-Package needs the Build stage, not $Stage" }
 # Only the package carries the drivers.
-if ($FetchDependencies -and !$DriverRoot -and $runBuild) {
-    # The gamepad driver (libvirtualgamepad 0.1.0-beta.6, MIT), signed for
-    # Vibepollo 2.0.0 by the SignPath Foundation, and nefconc.exe. Upstream
-    # archives are unsigned, so take them from the release.
-    $setup = Join-Path $Dependencies 'VibepolloSetup-v2.0.0.exe'
-    Get-PinnedArchive 'https://github.com/Nonary/Vibepollo/releases/download/2.0.0/VibepolloSetup-v2.0.0.exe' $setup '7b3500ec0c774644ce5a435a48f61c046c48494d0f18b67afa0b3561931794b7'
-    $msi = Join-Path $Dependencies 'vibepollo-2.0.0-payload.msi'
+function Expand-VibepolloDrivers([string]$Version, [string]$Hash) {
+    $setup = Join-Path $Dependencies "VibepolloSetup-v$Version.exe"
+    Get-PinnedArchive "https://github.com/Nonary/Vibepollo/releases/download/$Version/VibepolloSetup-v$Version.exe" $setup $Hash
+    $msi = Join-Path $Dependencies "vibepollo-$Version-payload.msi"
     $resource = [Reflection.Assembly]::LoadFile($setup).GetManifestResourceStream('Payload.msi')
     $file = [IO.File]::Create($msi)
     try { $resource.CopyTo($file) } finally { $file.Dispose(); $resource.Dispose() }
-    $expanded = Join-Path $Dependencies 'vibepollo-2.0.0-msi'
+    $expanded = Join-Path $Dependencies "vibepollo-$Version-msi"
     if (Test-Path -LiteralPath $expanded) { Remove-Item -LiteralPath $expanded -Recurse -Force }
     $process = Start-Process msiexec.exe -ArgumentList "/a `"$msi`" /qn TARGETDIR=`"$expanded`"" -Wait -PassThru
-    if ($process.ExitCode -ne 0) { throw "Extracting the Vibepollo driver packages failed with $($process.ExitCode)" }
-    $DriverRoot = Join-Path $expanded 'Apollo\drivers'
+    if ($process.ExitCode -ne 0) { throw "Extracting the Vibepollo $Version driver packages failed with $($process.ExitCode)" }
+    Join-Path $expanded 'Apollo\drivers'
+}
+$gamepadRoot = $null
+if ($FetchDependencies -and !$DriverRoot -and $runBuild) {
+    # nefconc.exe and the Playnite plugin from Vibepollo 2.0.0, and the
+    # gamepad driver (libvirtualgamepad 0.1.0-beta.10, MIT) as signed for
+    # Vibepollo 2.0.6 by the SignPath Foundation. Upstream archives are
+    # unsigned, so take them from the releases.
+    $DriverRoot = Expand-VibepolloDrivers '2.0.0' '7b3500ec0c774644ce5a435a48f61c046c48494d0f18b67afa0b3561931794b7'
+    $gamepadRoot = Join-Path (Expand-VibepolloDrivers '2.0.6' 'c488977ac49e391dfd963d97439a01a9c56d4ff21a6061226adb6d69d0aae9e4') 'vhf-gamepad'
 }
 if ($DriverRoot) {
-    foreach ($catalog in @('vhf-gamepad\driver\VibeshineVhfGamepad.cat', 'vhf-gamepad\tools\VibeshineVhfGamepadDeviceSetup.exe')) {
-        $signature = Get-AuthenticodeSignature -LiteralPath (Join-Path $DriverRoot $catalog)
+    if (!$gamepadRoot) { $gamepadRoot = Join-Path $DriverRoot 'vhf-gamepad' }
+    foreach ($catalog in @('driver\VibeshineVhfGamepad.cat', 'tools\VibeshineVhfGamepadDeviceSetup.exe')) {
+        $signature = Get-AuthenticodeSignature -LiteralPath (Join-Path $gamepadRoot $catalog)
         if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch '^CN=SignPath Foundation') { throw "Driver file is not signed as expected: $catalog" }
+    }
+    # The files libvirtualgamepad v0.1.0-beta.10 released (its manifest.json),
+    # which the signed catalog covers.
+    foreach ($pinned in @(
+        @('driver\VibeshineVhfGamepad.dll', 'd5075fc7f74e9c7ebe6abc46b4db9a6ae690885315ea9538ec3610891dbc676b'),
+        @('driver\VibeshineVhfGamepad.inf', '01fe8a807b0f19c8b10854d24ccd0d46c5320a1705c16a3c44b0c304dbdcf48d')
+    )) {
+        if ((Get-FileHash -LiteralPath (Join-Path $gamepadRoot $pinned[0]) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pinned[1]) {
+            throw "The gamepad driver is not libvirtualgamepad 0.1.0-beta.10: $($pinned[0])"
+        }
     }
 }
 if (!$PyrowaveRoot) { throw 'Provide the PyroWave SDK path, or use -FetchDependencies' }
@@ -247,9 +266,11 @@ try {
             if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination "$distribution\licenses\$library" -Recurse -Force }
         }
         if ($DriverRoot) {
-            # Setup installs the gamepad driver with Vibepollo's own scripts.
+            # Setup installs the gamepad driver with Vibepollo's own scripts
+            # (2.0.6's take the same -InstallerBestEffort and
+            # -AllowLocalTestCertificate as 2.0.0's).
             New-Item -ItemType Directory -Path "$distribution\drivers" -Force | Out-Null
-            Copy-Item -LiteralPath (Join-Path $DriverRoot 'vhf-gamepad') -Destination "$distribution\drivers\gamepad" -Recurse -Force
+            Copy-Item -LiteralPath $gamepadRoot -Destination "$distribution\drivers\gamepad" -Recurse -Force
             # The Playnite plugin from the same release; the host installs it
             # into Playnite.
             $playnitePlugin = Join-Path (Split-Path -Parent $DriverRoot) 'plugins\playnite\SunshinePlaynite'
@@ -258,10 +279,10 @@ try {
                 Copy-Item -LiteralPath $playnitePlugin -Destination "$distribution\plugins\playnite\SunshinePlaynite" -Recurse -Force
             }
             @(
-                'Virtual gamepad driver: https://github.com/Nonary/libvirtualgamepad v0.1.0-beta.6 (MIT).',
-                'Driver catalog, tools and install scripts as released in Vibepollo 2.0.0 (GPL-3.0),',
+                'Virtual gamepad driver: https://github.com/Nonary/libvirtualgamepad v0.1.0-beta.10 (MIT).',
+                'Driver catalog, tools and install scripts as released in Vibepollo 2.0.6 (GPL-3.0),',
                 'https://github.com/Nonary/Vibepollo, signed by the SignPath Foundation.',
-                'Playnite plugin (plugins\playnite): Sunshine Playnite Connector from the same Vibepollo 2.0.0 release (GPL-3.0).',
+                'Playnite plugin (plugins\playnite): Sunshine Playnite Connector from the Vibepollo 2.0.0 release (GPL-3.0).',
                 'nefconc.exe: https://github.com/nefarius/nefcon by Nefarius Software Solutions.'
             ) | Set-Content -LiteralPath "$distribution\licenses\drivers.txt" -Encoding utf8
         }

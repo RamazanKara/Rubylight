@@ -4,7 +4,7 @@ use crate::{config::Config, input::Input};
 use anyhow::Result;
 use std::{collections::BTreeMap, time::Duration};
 
-// Host profile IDs; 3..=7 are the VHF driver's profile numbers.
+// Host profile IDs; 3..=7 and 9 are the VHF driver's profile numbers.
 pub const VHF_AUTO: u16 = 10;
 /// Composite HID + USB audio through usbip-win2.
 pub const USBIP_DUALSENSE: u16 = 11;
@@ -14,6 +14,9 @@ pub const VHF_DS4: u16 = 5;
 /// The VHF driver's DualSense, the only virtual pad with adaptive triggers.
 pub const VHF_DUALSENSE: u16 = 6;
 pub const VHF_SWITCH: u16 = 7;
+/// The VHF driver's Steam Controller (2026), only when `gamepad = vhf_steam`
+/// chooses it: libvirtualgamepad 0.1.0-beta.10 and later offer it.
+pub const VHF_STEAM_CONTROLLER: u16 = 9;
 /// An Xbox 360 pad on ViGEmBus, separately installed (`gamepad = vigem_x360`):
 /// an emulated USB device for tools that don't see a VHF pad (#74).
 pub const VIGEM_X360: u16 = 8;
@@ -130,6 +133,7 @@ pub fn gamepad_profile(value: &str) -> u16 {
         "vhf_ds5" | "ds5" => VHF_DUALSENSE,
         "usbip_ds5" => USBIP_DUALSENSE,
         "vhf_switch" => VHF_SWITCH,
+        "vhf_steam" => VHF_STEAM_CONTROLLER,
         "vhf" => VHF_AUTO,
         "vigem_x360" => VIGEM_X360,
         other => {

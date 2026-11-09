@@ -167,7 +167,7 @@ fn contacts(hid: &HidHandle, library: &libloading::Library, profile: u16) -> Res
     ensure!(report[0] == 1, "unexpected HID report ID");
     // Native USB layouts, including the report ID: DS4 first touch packet at
     // byte 34 (one timestamp then two contacts); DualSense contacts at byte 33.
-    // See libvirtualgamepad beta.6 driver/src/{dualshock4,dualsense}.h.
+    // See libvirtualgamepad driver/src/{dualshock4,dualsense}.h (beta.6 to beta.10).
     let offset = if profile == 5 { 35 } else { 33 };
     Ok(std::array::from_fn(|index| {
         let b = &report[offset + index * 4..][..4];

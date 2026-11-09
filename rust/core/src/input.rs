@@ -90,8 +90,7 @@ pub enum Input {
     },
     Haptics(bool),
     /// The real Steam Controller's firmware attributes (0x55000008), sent
-    /// after its arrival. Nothing consumes them until a driver with the
-    /// Steam Controller profile is pinned.
+    /// after its arrival, for the VHF Steam Controller profile.
     SteamAttributes(SteamAttributes),
 }
 /// A Steam Controller attributes packet (0x55000008) the host refused.

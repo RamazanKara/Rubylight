@@ -84,8 +84,8 @@ pub(super) trait Pads {
     fn speaker(&mut self) -> Vec<haptics::Frame> {
         vec![]
     }
-    /// Haptic reports Steam wrote to a virtual Steam Controller. No pinned
-    /// driver has that profile yet.
+    /// Haptic reports Steam wrote to a virtual Steam Controller whose client
+    /// has no real pads, for synthesized rumble.
     fn steam_haptics(&mut self) -> Vec<SteamHaptic> {
         vec![]
     }
@@ -129,6 +129,9 @@ impl Pads for Gamepads {
     }
     fn speaker(&mut self) -> Vec<haptics::Frame> {
         Gamepads::speaker(self)
+    }
+    fn steam_haptics(&mut self) -> Vec<SteamHaptic> {
+        self.take_steam_haptics()
     }
     fn audio(&mut self, id: u16, kind: u16, payload: &[u8]) {
         Gamepads::audio(self, id, kind, payload);
@@ -311,7 +314,12 @@ impl GamepadThread {
         policy: butterpollo_core::input_policy::Policy,
         warnings: Arc<butterpollo_core::session::Warnings>,
     ) -> std::io::Result<Self> {
-        let unmapped_grips = policy.unmapped_back_grips();
+        // The virtual Steam Controller has the grips itself.
+        let unmapped_grips = if profile == butterpollo_core::input_policy::VHF_STEAM_CONTROLLER {
+            0
+        } else {
+            policy.unmapped_back_grips()
+        };
         let pad_warnings = warnings.clone();
         let polling = Polling {
             every: POLL,

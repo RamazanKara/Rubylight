@@ -314,6 +314,72 @@ fn the_right_touchpad_stays_ignored_when_the_client_did_not_announce_two() {
         assert!(submit_touch_on(&mut pointers, profile, 2, &touch(2, 1, 1, 5), true).is_none());
     }
 }
+#[test]
+fn the_steam_controllers_contacts_are_its_two_pads() {
+    use butterpollo_core::input_policy::VHF_STEAM_CONTROLLER as STEAM;
+    let mut pointers = BTreeMap::new();
+    // Two touchpads: each is its own pad at its full width.
+    let left = submit_touch_on(&mut pointers, STEAM, 4, &touch(2, 0, 1, 0), true).unwrap();
+    let right = submit_touch_on(&mut pointers, STEAM, 4, &touch(2, 1, 1, 0), true).unwrap();
+    assert_eq!(&left[12..16], &[0, 1, 255, 63]);
+    assert_eq!(&right[12..16], &[1, 1, 255, 63]);
+    let up = submit_touch_on(&mut pointers, STEAM, 4, &touch(2, 1, 2, 0), true).unwrap();
+    assert_eq!(&up[12..14], &[1, 2]);
+    assert_eq!(pointers, BTreeMap::from([((2, 0), 0)]));
+    submit_touch_on(&mut pointers, STEAM, 4, &touch(2, 0, 7, 0), true).unwrap();
+    assert!(pointers.is_empty());
+    // One touchpad: its left half is the left pad, stretched to full width.
+    let half = submit_touch_on(&mut pointers, STEAM, 4, &touch(2, 0, 1, 9), false).unwrap();
+    assert_eq!(&half[12..16], &[0, 1, 255, 127]);
+    let mut right_half = touch(2, 0, 1, 10);
+    if let Event::ControllerTouch { x, .. } = &mut right_half {
+        *x = 0.75;
+    }
+    let right = submit_touch_on(&mut pointers, STEAM, 4, &right_half, false).unwrap();
+    assert_eq!(&right[12..16], &[1, 1, 255, 127]);
+    // A move keeps the pad the finger went down on.
+    let mut moved = touch(2, 0, 3, 10);
+    if let Event::ControllerTouch { x, .. } = &mut moved {
+        *x = 0.25;
+    }
+    let moved = submit_touch_on(&mut pointers, STEAM, 4, &moved, false).unwrap();
+    assert_eq!(&moved[12..16], &[1, 3, 0, 0]);
+    assert!(submit_touch_on(&mut pointers, STEAM, 4, &touch(2, 1, 1, 11), false).is_none());
+}
+#[test]
+fn steam_controller_feedback_is_never_coalesced_or_deduplicated() {
+    let click = (6u16, [vec![4, 0, 0, 0, 0x82, 0, 2, 0], vec![0; 8]].concat());
+    let settings = (7u16, vec![0x8e; 32]);
+    let mut queue = VecDeque::from([
+        click.clone(),
+        click.clone(),
+        settings.clone(),
+        settings.clone(),
+    ]);
+    let mut last = BTreeMap::new();
+    let output = poll_feedback(
+        &BTreeMap::from([(0, 2)]),
+        &mut last,
+        &mut BTreeMap::new(),
+        "fake",
+        Instant::now(),
+        |_| Ok(queue.pop_front()),
+    );
+    let with = |(kind, data): (u16, Vec<u8>)| (0, kind, data);
+    assert_eq!(
+        output,
+        vec![
+            with(click.clone()),
+            with(click),
+            with(settings.clone()),
+            with(settings)
+        ]
+    );
+    assert!(
+        last.is_empty(),
+        "a Steam report does not hide a later rumble"
+    );
+}
 fn touch(id: u8, touchpad: u8, event: u8, pointer: u32) -> Event {
     Event::ControllerTouch {
         id,

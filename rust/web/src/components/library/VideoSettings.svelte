@@ -25,6 +25,7 @@
     { value: 'vhf_ds5', label: 'DualSense' },
     { value: 'usbip_ds5', label: 'DualSense with waveform haptics (USB/IP)', hint: 'Requires usbip-win2 on the host and a waveform-capable client. Start the game after connecting the controller.' },
     { value: 'vhf_switch', label: 'Switch Pro' },
+    { value: 'vhf_steam', label: 'Steam Controller', hint: 'Requires the current virtual gamepad driver; run Rubylight setup again if the stream says the driver lacks it.' },
     { value: 'vigem_x360', label: 'Xbox 360 (ViGEmBus)', hint: 'Requires ViGEmBus on the host, for tools such as reWASD that may not see the other types.' },
   ];
 </script>

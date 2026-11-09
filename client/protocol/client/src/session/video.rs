@@ -183,8 +183,8 @@ pub struct VideoCounters {
     /// frame whole).
     pub chunks_dropped: AtomicU64,
     /// The receiver's `VideoStats::decoder_drops`, published after each datagram so it can be
-    /// read without the receiver's lock: a direct-submit decoder runs under that lock and asks
-    /// for it from inside its submit (nightjar#80).
+    /// read without the receiver's lock: a direct-submit decoder asks for it from inside its
+    /// submit (nightjar#80), on the thread that takes that lock for each batch.
     pub decoder_drops: AtomicU64,
 }
 
@@ -212,13 +212,72 @@ impl VideoShared {
     }
 }
 
-/// The decoder when it runs on the receive thread (`CAPABILITY_DIRECT_SUBMIT`), and the
-/// feedback that waits until the receiver is free again.
+/// The decoder when it runs on the receive thread (`CAPABILITY_DIRECT_SUBMIT`): the frames the
+/// receiver completed, submitted once its lock is released, and the feedback that waits for
+/// the next lock.
 struct Direct {
     decoder: Box<dyn VideoDecoder>,
+    ready: Vec<Frame>,
     decoded_key_frame: bool,
     need_refresh: bool,
     done: Vec<Frame>,
+}
+
+impl Direct {
+    fn new(decoder: Box<dyn VideoDecoder>) -> Self {
+        Self {
+            decoder,
+            ready: Vec::new(),
+            decoded_key_frame: false,
+            need_refresh: false,
+            done: Vec::new(),
+        }
+    }
+
+    /// Submits the ready frames; runs without the receiver's lock, since the decoder may wait
+    /// for an input buffer.
+    fn submit(&mut self, shared: &VideoShared) {
+        for frame in self.ready.drain(..) {
+            shared.counters.submitted.fetch_add(1, Ordering::Relaxed);
+            match self.decoder.submit(&frame) {
+                DecodeStatus::Ok => self.decoded_key_frame |= frame.frame_type == FrameType::Idr,
+                DecodeStatus::NeedIdr => {
+                    shared.counters.need_idr.fetch_add(1, Ordering::Relaxed);
+                    self.need_refresh = true;
+                }
+            }
+            self.done.push(frame);
+        }
+    }
+
+    /// Hands the submissions' feedback and frames back to the receiver.
+    fn settle(
+        &mut self,
+        receiver: &mut VideoReceiver,
+        shared: &VideoShared,
+        signals: &mut Vec<VideoSignal>,
+    ) {
+        if self.done.is_empty() {
+            return;
+        }
+        if std::mem::take(&mut self.decoded_key_frame) {
+            receiver.frame_decoded(FrameType::Idr);
+        }
+        if !self.decoder.recovers_with_rfi() {
+            receiver.recover_with_idr_only();
+        }
+        if std::mem::take(&mut self.need_refresh) {
+            let mut sink = Sink {
+                shared,
+                direct: None,
+                signals,
+            };
+            receiver.request_decoder_refresh(&mut sink);
+        }
+        for frame in self.done.drain(..) {
+            receiver.recycle(frame);
+        }
+    }
 }
 
 struct Sink<'a> {
@@ -233,32 +292,18 @@ impl VideoSink for Sink<'_> {
         if key_frame {
             self.shared.key_frame.store(true, Ordering::Relaxed);
         }
-        let Some(direct) = self.direct.as_deref_mut() else {
-            let result = self.shared.queue.offer(frame);
-            if result.is_err() {
-                self.shared
-                    .counters
-                    .queue_overflows
-                    .fetch_add(1, Ordering::Relaxed);
-            }
-            return result;
-        };
-        self.shared
-            .counters
-            .submitted
-            .fetch_add(1, Ordering::Relaxed);
-        match direct.decoder.submit(&frame) {
-            DecodeStatus::Ok => direct.decoded_key_frame |= key_frame,
-            DecodeStatus::NeedIdr => {
-                self.shared
-                    .counters
-                    .need_idr
-                    .fetch_add(1, Ordering::Relaxed);
-                direct.need_refresh = true;
-            }
+        if let Some(direct) = self.direct.as_deref_mut() {
+            direct.ready.push(frame);
+            return Ok(());
         }
-        direct.done.push(frame);
-        Ok(())
+        let result = self.shared.queue.offer(frame);
+        if result.is_err() {
+            self.shared
+                .counters
+                .queue_overflows
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        result
     }
 
     fn flush_frames(&mut self) -> usize {
@@ -360,15 +405,7 @@ impl VideoStream {
     ) -> std::io::Result<Self> {
         let stop = Arc::new(AtomicBool::new(false));
         let (direct, queued) = if start.direct_submit {
-            (
-                Some(Direct {
-                    decoder,
-                    decoded_key_frame: false,
-                    need_refresh: false,
-                    done: Vec::new(),
-                }),
-                None,
-            )
+            (Some(Direct::new(decoder)), None)
         } else {
             (None, Some(decoder))
         };
@@ -525,65 +562,83 @@ fn receive_thread(
             session.terminate(error::NO_VIDEO_FRAME);
             break;
         }
-        // The batch under one lock of the receiver, each datagram at once. Work a datagram
-        // raised that must not run under the lock (signals: the control thread takes the
-        // receiver's lock too) ends the lock section and runs right after it, ahead of the
-        // rest of the batch.
-        let mut next = 0;
-        while next < count {
-            {
-                let mut receiver = lock(&shared.receiver);
-                while next < count {
-                    let datagram = batch.datagram(next);
-                    next += 1;
-                    let now = now_us();
-                    if let Some(trace) = trace.as_mut() {
-                        trace.push(now, datagram);
-                    }
-                    let mut sink = Sink {
-                        shared: &shared,
-                        direct: direct.as_mut(),
-                        signals: &mut signals,
-                    };
-                    receiver.receive(datagram, now, &mut sink);
-                    shared
-                        .counters
-                        .decoder_drops
-                        .store(receiver.stats().decoder_drops, Ordering::Relaxed);
-                    if let Some(d) = direct.as_mut() {
-                        if std::mem::take(&mut d.decoded_key_frame) {
-                            receiver.frame_decoded(FrameType::Idr);
-                        }
-                        if !d.decoder.recovers_with_rfi() {
-                            receiver.recover_with_idr_only();
-                        }
-                        if std::mem::take(&mut d.need_refresh) {
-                            let mut sink = Sink {
-                                shared: &shared,
-                                direct: None,
-                                signals: &mut signals,
-                            };
-                            receiver.request_decoder_refresh(&mut sink);
-                        }
-                        for frame in d.done.drain(..) {
-                            receiver.recycle(frame);
-                        }
-                    }
-                    if !signals.is_empty() {
-                        break;
-                    }
-                }
-                *lock(&shared.stats) = receiver.stats();
-            }
-            // Outside the lock.
-            route(&control, &mut signals);
-        }
+        receive_batch(
+            &shared,
+            direct.as_mut(),
+            &mut signals,
+            count,
+            |i| batch.datagram(i),
+            &mut trace,
+            |signals| route(&control, signals),
+        );
     }
     if let Some(trace) = trace {
         let session = session.clone();
         trace.finish(move |line| session.log(line));
     }
     direct.map(|d| d.decoder)
+}
+
+/// The batch under one lock of the receiver, each datagram at once. Work a datagram raised
+/// that must not run under the lock ends the lock section and runs right after it, ahead of
+/// the rest of the batch: a direct decoder's submissions (they may wait for the decoder),
+/// then the signals (the control thread takes the receiver's lock too). The submissions'
+/// feedback reaches the receiver at the start of the next lock section, before the next
+/// datagram, and its signals are routed with the datagram's.
+fn receive_batch<'b>(
+    shared: &VideoShared,
+    mut direct: Option<&mut Direct>,
+    signals: &mut Vec<VideoSignal>,
+    count: usize,
+    datagram_at: impl Fn(usize) -> &'b [u8],
+    trace: &mut Option<PacketTrace>,
+    mut route_signals: impl FnMut(&mut Vec<VideoSignal>),
+) {
+    let mut next = 0;
+    loop {
+        {
+            let mut receiver = lock(&shared.receiver);
+            if let Some(d) = direct.as_deref_mut() {
+                d.settle(&mut receiver, shared, signals);
+            }
+            while signals.is_empty() && next < count {
+                let datagram = datagram_at(next);
+                next += 1;
+                let now = now_us();
+                if let Some(trace) = trace.as_mut() {
+                    trace.push(now, datagram);
+                }
+                let mut sink = Sink {
+                    shared,
+                    direct: direct.as_deref_mut(),
+                    signals: &mut *signals,
+                };
+                receiver.receive(datagram, now, &mut sink);
+                shared
+                    .counters
+                    .decoder_drops
+                    .store(receiver.stats().decoder_drops, Ordering::Relaxed);
+                if let Some(d) = direct.as_deref_mut() {
+                    if !d.decoder.recovers_with_rfi() {
+                        receiver.recover_with_idr_only();
+                    }
+                    if !d.ready.is_empty() {
+                        break;
+                    }
+                }
+            }
+            *lock(&shared.stats) = receiver.stats();
+        }
+        // Outside the lock.
+        if let Some(d) = direct.as_deref_mut().filter(|d| !d.ready.is_empty()) {
+            d.submit(shared);
+            continue;
+        }
+        route_signals(signals);
+        if next >= count {
+            break;
+        }
+    }
 }
 
 fn decoder_thread(
@@ -1038,6 +1093,92 @@ mod tests {
         let seen = running.finish();
         assert!(matches!(seen.last(), Some(Seen::Frame { whole: true, .. })), "{seen:?}");
         assert_eq!(shared.counters.need_idr.load(Ordering::Relaxed), 1);
+    }
+
+    #[derive(Debug, PartialEq)]
+    enum Step {
+        Datagram,
+        /// A submission: whether the receiver was free, and the frame's data buffer.
+        Submit { unlocked: bool, data: usize },
+        RequestIdr,
+    }
+
+    /// A direct decoder that logs its submissions and fails the first.
+    struct DirectFake {
+        shared: Arc<VideoShared>,
+        log: Arc<Mutex<Vec<Step>>>,
+        status: DecodeStatus,
+    }
+
+    impl VideoDecoder for DirectFake {
+        fn setup(&mut self, _: &crate::session::VideoSetup) -> Result<(), i32> {
+            Ok(())
+        }
+
+        fn submit(&mut self, frame: &Frame) -> DecodeStatus {
+            let unlocked = self.shared.receiver.try_lock().is_ok();
+            lock(&self.log).push(Step::Submit {
+                unlocked,
+                data: frame.data().as_ptr() as usize,
+            });
+            std::mem::replace(&mut self.status, DecodeStatus::Ok)
+        }
+    }
+
+    #[test]
+    fn a_direct_decoder_submits_outside_the_receivers_lock_and_its_feedback_comes_first() {
+        let shared = Arc::new(VideoShared::new(records(false)));
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut direct = Direct::new(Box::new(DirectFake {
+            shared: shared.clone(),
+            log: log.clone(),
+            status: DecodeStatus::NeedIdr,
+        }));
+        let mut host = Blocks::new();
+        let mut packets = flat(host.frame(&[8, 6], 1));
+        packets.extend(flat(host.frame(&[8, 6], 2)));
+        let mut signals = Vec::new();
+        receive_batch(
+            &shared,
+            Some(&mut direct),
+            &mut signals,
+            packets.len(),
+            |i| {
+                lock(&log).push(Step::Datagram);
+                packets[i].as_slice()
+            },
+            &mut None,
+            |signals| {
+                for signal in signals.drain(..) {
+                    if matches!(signal, VideoSignal::RequestIdr) {
+                        lock(&log).push(Step::RequestIdr);
+                    }
+                }
+            },
+        );
+        let log = std::mem::take(&mut *lock(&log));
+        let first = log
+            .iter()
+            .position(|s| matches!(s, Step::Submit { .. }))
+            .expect("a submission");
+        let Step::Submit { unlocked, data } = log[first] else {
+            unreachable!()
+        };
+        assert!(unlocked, "{log:?}");
+        // The failed submission's key frame request comes before the next datagram.
+        assert_eq!(log.get(first + 1), Some(&Step::RequestIdr), "{log:?}");
+        assert!(direct.ready.is_empty() && direct.done.is_empty());
+        assert_eq!(shared.counters.submitted.load(Ordering::Relaxed), 2, "{log:?}");
+        assert_eq!(shared.counters.need_idr.load(Ordering::Relaxed), 1);
+        // The second frame reuses the first's recycled buffer.
+        let second = log[first + 1..]
+            .iter()
+            .find_map(|s| match s {
+                Step::Submit { unlocked, data } => Some((*unlocked, *data)),
+                _ => None,
+            })
+            .expect("a second submission");
+        assert_eq!(second, (true, data), "{log:?}");
     }
 
     /// A decoder replaced mid-stream by one that never asked for reference frame invalidation

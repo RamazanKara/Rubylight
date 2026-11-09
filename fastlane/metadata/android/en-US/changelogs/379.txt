@@ -1,0 +1,4 @@
+• Home now appears once a paired PC has shown its app list, also with only classic PCs.
+• Settings has an Automatic bitrate switch: on, the bitrate follows resolution, frame rate and codec.
+• Frames split over several error-correction blocks are reassembled as blocks arrive, and lost blocks are reported sooner.
+• HDR metadata is read in place instead of copied every frame.

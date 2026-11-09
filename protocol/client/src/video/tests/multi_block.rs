@@ -16,7 +16,8 @@ struct Blocks {
 impl Blocks {
     fn new() -> Self {
         Self {
-            seq: 0xFFC0,
+            // Across the signed-16 midpoint; the queue rejects a first packet before 0.
+            seq: 0x7FF0,
             spi: 0,
             frame: 1,
             fec_percent: 20,
@@ -264,11 +265,11 @@ fn reordering_across_a_block_boundary_matches() {
     recovered[0].remove(1);
     recovered[0].reverse();
     steps.extend(packets(recovered));
-    // Block 0's last data packet after block 1 began: the frame is lost.
+    // Block 0's last data packet and its parity after block 1 began: the frame is lost.
     let mut late_data = host.frame(&h264_p(9000), 1, 2);
-    let n = late_data[0].len() - (late_data[0].len() * 20).div_ceil(120) - 1;
-    let packet = late_data[0].remove(n);
-    late_data[1].insert(1, packet);
+    let n = late_data[0].len() - 2;
+    let tail: Vec<_> = late_data[0].drain(n..).collect();
+    late_data[1].splice(1..1, tail);
     steps.extend(packets(late_data));
     let next = h264_p(9000);
     steps.extend(packets(host.frame(&next, 1, 3)));

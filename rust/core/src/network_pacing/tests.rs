@@ -61,6 +61,36 @@ fn unmeasured_and_wireless_pyrowave_routes_do_not_burst_at_the_host_link() {
 }
 
 #[test]
+fn an_unhinted_800_mbps_stream_stays_inside_a_one_gbe_client_ceiling() {
+    // An Xbox Series S on 1 GbE behind a 2.5 GbE host reports no link or
+    // pace hint. Wire demand already includes critical parity and headers,
+    // so the 1.25x headroom must not burst above 1 GbE.
+    assert_eq!(
+        pyrowave_route_rate_bps(
+            0,
+            800_000,
+            2_500_000_000,
+            false,
+            798_732_000,
+            ClientPath::default()
+        ),
+        950_000_000
+    );
+    // A stream that cannot fit under 1 GbE keeps its headroom.
+    assert_eq!(
+        pyrowave_route_rate_bps(
+            0,
+            800_000,
+            2_500_000_000,
+            false,
+            1_200_000_000,
+            ClientPath::default()
+        ),
+        1_200_000_000 * 5 / 4
+    );
+}
+
+#[test]
 fn pyrowave_batches_fit_wire_time_and_segment_limits_for_both_ip_families() {
     for ipv6 in [false, true] {
         for rate in [1, 10_000_000, 100_000_000, 1_000_000_000, 10_000_000_000] {
@@ -579,7 +609,9 @@ fn a_client_that_reports_wifi_gets_wifi_pacing_from_the_first_frame() {
         )
     };
     assert_eq!(pyrowave(false), 950 * M);
-    assert_eq!(pyrowave(true), 412_500_000);
+    // Demand now includes parity and headers already, so the wireless route
+    // starts 25% above it instead of above bitrate times 1.1.
+    assert_eq!(pyrowave(true), 125 * M);
 }
 
 #[test]
@@ -793,8 +825,11 @@ fn pyrowave_pacing_leaves_headroom_for_a_budget_sized_frame() {
         let demand = (packets * (packet_size + 16 + 32 + overhead(false))) as u64 * 60 * 8;
         let bps = pyrowave_rate_bps(0, kbps, 0, demand, ClientPath::default());
         let paced = bps as f64 * period.as_secs_f64() / 8.;
+        // An unhinted client is held to 1 GbE's 95% ceiling, so an 800 Mbps
+        // stream is paced at 950 Mbps rather than bursting above 1 GbE.
+        let capped = demand.saturating_mul(5) / 4 > 950_000_000;
         assert!(
-            paced >= 1.2 * wire as f64,
+            paced >= if capped { 1.15 } else { 1.2 } * wire as f64,
             "{width}x{height} at {kbps} Kbps: {packets} packets, {wire} wire bytes, {paced:.0} paced bytes per frame"
         );
     }

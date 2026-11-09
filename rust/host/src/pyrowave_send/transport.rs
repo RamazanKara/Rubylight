@@ -256,7 +256,8 @@ fn pace(current: &Session, config: &Config, kbps: u32, wire_frame: u32, route: L
             pace_bps: 0,
             ..client
         },
-    );
+    )
+    .min(needed.saturating_add(needed / 10).max(1_000_000));
     current.keyframe_loss_bps(paced, safe, wire_frame, true)
 }
 
@@ -328,6 +329,43 @@ mod tests {
             (0, 0)
         );
         assert_eq!(pace(&session, &config, 40_000, 2, route), unhinted);
+    }
+
+    /// A latched `KeyframeLoss` must slow an unhinted PyroWave stream: before
+    /// the fix, `safe` equalled `base` and a socket-refused keyframe changed
+    /// neither the rate nor the packet burst size.
+    #[test]
+    fn a_latched_keyframe_loss_paces_an_unhinted_pyrowave_stream_slower() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let session = Session::new(
+            fixture.launch(fixture.client(0), Role::Stream),
+            butterpollo_core::rtsp::Negotiated {
+                codec: 3,
+                bitrate_kbps: 40_000,
+                ..Default::default()
+            },
+        );
+        session.bitrate.store(40_000, Ordering::Release);
+        session.configure_keyframe_loss(true);
+        let config = Config::default();
+        let route = Link {
+            bps: 1_000_000_000,
+            ..Default::default()
+        };
+        let needed = network_pacing::pyrowave_wire_rate_bps(
+            40_000,
+            session.config.packet_size,
+            session.config.pyrowave_records,
+            session.stream_mode().period(),
+        );
+        // Frame 1 registers the keyframe, then the socket refuses it.
+        assert_eq!(pace(&session, &config, 40_000, 1, route), needed * 5 / 4);
+        session.keyframe_abandoned(1);
+        assert!(session.keyframe_loss_active());
+        assert_eq!(
+            pace(&session, &config, 40_000, 2, route),
+            needed + needed / 10
+        );
     }
 
     /// Review 2026-10-29: packets the socket refused were counted as the

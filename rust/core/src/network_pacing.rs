@@ -161,8 +161,19 @@ pub fn pyrowave_route_rate_bps(
     client: ClientPath,
 ) -> u64 {
     let demand = {
-        let needed = demand_bps.max(u64::from(stream_kbps) * 1100);
-        (needed.saturating_mul(5) / 4).max(1_000_000)
+        let needed = if demand_bps > 0 {
+            demand_bps
+        } else {
+            u64::from(stream_kbps) * 1100
+        };
+        let burst = (needed.saturating_mul(5) / 4).max(1_000_000);
+        // Without a client link or pace hint, hold the 1.25x headroom to a
+        // 1 GbE client's 95% ceiling while the stream itself fits inside it.
+        if client.pace_bps == 0 && (client.link_bps == 0 || wireless) && needed <= 950_000_000 {
+            burst.min(950_000_000)
+        } else {
+            burst
+        }
     };
     let requested = if configured_kbps > 0 {
         (configured_kbps as u64).saturating_mul(1000)

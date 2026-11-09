@@ -295,7 +295,16 @@ impl DualSense {
         if !(48..=64).contains(&bytes.len()) || bytes[0] != 2 {
             return false;
         }
-        if bytes[1] & 1 != 0 || bytes[39] & 4 != 0 {
+        // SDL and Steam Input stop emulated rumble with a report that sets no
+        // validity flag and zero motors; any other unflagged report may be a
+        // partial update. Follows Vibepollo 7a5bb9ca (GPL-3.0, Nonary/vibeshine).
+        let stop = bytes[1] == 0
+            && bytes[2] == 0
+            && bytes[39] == 0
+            && bytes[3] == 0
+            && bytes[4] == 0
+            && self.rumble.is_some_and(|motors| motors != [0; 4]);
+        if bytes[1] & 1 != 0 || bytes[39] & 4 != 0 || stop {
             let motors = [0, bytes[4], 0, bytes[3]];
             if self.rumble.replace(motors) != Some(motors) {
                 self.pending |= 1;

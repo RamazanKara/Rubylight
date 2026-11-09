@@ -260,3 +260,38 @@ fn partial_hid_output_retains_other_effects_and_explicit_off_is_forwarded() {
     pad.output(3, &report);
     assert!(pad.take_feedback().is_empty());
 }
+
+#[test]
+fn steam_identify_rumble_stops_with_an_unflagged_zero_motor_report() {
+    // Steam Input's Identify Controller, as SDL writes it: rumble with the
+    // compatible-vibration flag (flag2 0x04 on newer firmware, flag0 0x01
+    // otherwise) plus "disable audio haptics", then a report with no flags.
+    for (flag_at, flag) in [(39, 4), (1, 1)] {
+        let mut pad = DualSense::new(0, 0);
+        let mut report = [0; 48];
+        report[0] = 2;
+        report[1] = 2;
+        report[flag_at] |= flag;
+        report[3] = 0x40;
+        report[4] = 0x80;
+        assert!(pad.output(3, &report));
+        assert_eq!(pad.take_feedback(), [(0x010b, vec![0, 0x80, 0, 0x40])]);
+        // A lightbar update without rumble flags leaves the motors running.
+        let mut lights = [0; 48];
+        lights[0] = 2;
+        lights[2] = 4;
+        lights[45..].copy_from_slice(&[1, 2, 3]);
+        assert!(pad.output(3, &lights));
+        assert_eq!(pad.take_feedback(), [(0x5502, vec![1, 2, 3])]);
+        let mut stop = [0; 48];
+        stop[0] = 2;
+        assert!(pad.output(3, &stop));
+        assert_eq!(pad.take_feedback(), [(0x010b, vec![0; 4])]);
+        // Repeats, and unflagged reports before any rumble, send nothing.
+        assert!(pad.output(3, &stop));
+        assert!(pad.take_feedback().is_empty());
+        let mut idle = DualSense::new(1, 1);
+        assert!(idle.output(3, &stop));
+        assert!(idle.take_feedback().is_empty());
+    }
+}

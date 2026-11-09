@@ -24,7 +24,7 @@ The standalone C programs under `rust/tests` are independent interoperability fi
 
 ## Composite DualSense haptics
 
-The USB/IP audio and haptics implementation was adapted to Rust on 2026-10-13 from [Nonary/Vibepollo 8b3ea1c4](https://github.com/Nonary/Vibepollo/tree/8b3ea1c4a41c383752475ffa551168a16b024d48), under GPL-3.0-or-later (used here under GPLv3). USB descriptors, reports and calibration derive from [Nonary/libvirtualgamepad 9edbce11](https://github.com/Nonary/libvirtualgamepad/tree/9edbce11ad71e9455867c356c8368a6b39fa2242), by Chase Payne, and HIDMaestro’s composite profile under the MIT terms below. Windows packages bundle the optional usbip-win2 installer described above, shared by native Steam Deck controllers and composite DualSense haptics.
+The USB/IP audio and haptics implementation was adapted to Rust on 2026-10-13 from [Nonary/Vibepollo 8b3ea1c4](https://github.com/Nonary/Vibepollo/tree/8b3ea1c4a41c383752475ffa551168a16b024d48), under GPL-3.0-or-later (used here under GPLv3). USB descriptors, reports and calibration derive from [Nonary/libvirtualgamepad 9edbce11](https://github.com/Nonary/libvirtualgamepad/tree/9edbce11ad71e9455867c356c8368a6b39fa2242), by Chase Payne, and HIDMaestro's composite profile under the MIT terms below. Its rumble stop on an unflagged zero-motor output report follows [Vibepollo 7a5bb9ca](https://github.com/Nonary/vibeshine/commit/7a5bb9cabc02b8baf177ad135489b35a8da1ce7e) (GPL-3.0), ported on 2026-11-09. Windows packages bundle the optional usbip-win2 installer described above, shared by native Steam Deck controllers and composite DualSense haptics.
 
 MIT License
 

@@ -795,18 +795,36 @@ impl Default for Batch {
     }
 }
 impl Batch {
+    /// How many of the leading `packets` one segmented send carries: equal
+    /// sizes, then at most one shorter, at most 64 and 65507 bytes in all.
+    /// The shorter tail rides along, as it would otherwise take a paced
+    /// iteration and a syscall of its own. An empty datagram is never in a
+    /// batch: segmentation would not send it.
     pub fn count(packets: &[Vec<u8>], limit: usize) -> usize {
         let Some(first) = packets.first() else {
             return 0;
         };
-        let size = first.len().max(1);
+        let size = first.len();
+        if size == 0 {
+            return 1;
+        }
         let limit = limit.min(65507);
-        packets
-            .iter()
-            .take((limit / size).clamp(1, 64))
-            .take_while(|p| p.len() == first.len())
-            .count()
-            .max(1)
+        let max = (limit / size).clamp(1, 64);
+        let (mut count, mut total) = (0, 0);
+        for packet in packets.iter().take(max) {
+            if packet.len() != size {
+                break;
+            }
+            count += 1;
+            total += size;
+        }
+        if let Some(tail) = packets.get(count) {
+            let len = tail.len();
+            if count < max && len > 0 && len < size && total + len <= 65507 {
+                count += 1;
+            }
+        }
+        count.max(1)
     }
     /// Count dropped datagrams and report them at most every 5 seconds.
     fn dropped(&mut self, count: usize, error: WSA_ERROR) {
@@ -852,7 +870,11 @@ impl Batch {
         if self.offload
             && packets.len() > 1
             && packets.len() <= 64
-            && packets.iter().all(|p| p.len() == packets[0].len())
+            && !packets[0].is_empty()
+            && packets[..packets.len() - 1]
+                .iter()
+                .all(|p| p.len() == packets[0].len())
+            && (1..=packets[0].len()).contains(&packets.last().unwrap().len())
         {
             let result;
             (result, source) = socket.send_pinned(peer, source, |source| {

@@ -437,13 +437,14 @@ fn native_udp_batches_preserve_datagrams_destinations_and_short_tail() -> Result
         receiver.set_read_timeout(Some(std::time::Duration::from_secs(2)))?;
         let mut packets: Vec<_> = (0..7).map(|i| vec![i; 512]).collect();
         packets.push(vec![91; 13]);
-        assert_eq!(Batch::count(&packets, 16384), 7);
+        assert_eq!(Batch::count(&packets, 16384), 8);
         let mut batch = Batch::default();
+        // The block's short last datagram rides in the same segmented send.
         assert_eq!(
-            batch.send(&sender, &packets[..7], receiver.local_addr()?)?,
-            7 * 512
+            batch.send(&sender, &packets, receiver.local_addr()?)?,
+            7 * 512 + 13
         );
-        batch.send(&sender, &packets[7..], receiver.local_addr()?)?;
+        assert_eq!(batch.system_calls, 1, "{host}");
         for expected in &packets {
             let mut buffer = [0u8; 2048];
             let (size, peer) = receiver.recv_from(&mut buffer)?;
@@ -465,6 +466,29 @@ fn native_udp_batches_preserve_datagrams_destinations_and_short_tail() -> Result
         }
     }
     Ok(())
+}
+#[test]
+fn a_batch_counts_equal_sizes_then_at_most_one_shorter() {
+    let count = |sizes: &[usize], limit: usize| {
+        let packets: Vec<Vec<u8>> = sizes.iter().map(|&n| vec![0; n]).collect();
+        Batch::count(&packets, limit)
+    };
+    assert_eq!(count(&[], 16384), 0);
+    // Segmentation cannot send an empty datagram, so one stands alone.
+    assert_eq!(count(&[0, 0], 16384), 1);
+    assert_eq!(count(&[512, 512, 512], 16384), 3);
+    // The block's last datagram is shorter: it ends the batch, and stops it.
+    assert_eq!(count(&[512, 512, 13, 512], 16384), 3);
+    assert_eq!(count(&[512, 13], 16384), 2);
+    // An empty or longer datagram is never in the batch.
+    assert_eq!(count(&[512, 512, 0], 16384), 2);
+    assert_eq!(count(&[512, 512, 513], 16384), 2);
+    // At most 64 datagrams, and the limit leaves no slot for a tail.
+    assert_eq!(count(&[100; 70], 65507), 64);
+    assert_eq!(count(&[512, 512, 13], 1024), 2);
+    // At most 65507 bytes, tail included.
+    assert_eq!(count(&[1200; 64], 65507), 54);
+    assert_eq!(count(&[65507, 1], 65507), 1);
 }
 #[test]
 fn a_segment_run_is_equal_sizes_then_at_most_one_shorter() {

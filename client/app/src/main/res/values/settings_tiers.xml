@@ -9,6 +9,7 @@
     <string-array name="settings_tier_video" translatable="false">
         <item>list_resolution</item>
         <item>list_fps</item>
+        <item>automatic_bitrate</item>
         <item>seekbar_bitrate_kbps</item>
         <item>checkbox_auto_bitrate</item>
         <item>list_mobile_bitrate_kbps</item>

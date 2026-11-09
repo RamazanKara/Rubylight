@@ -102,6 +102,8 @@ public class StreamSettings extends NightjarActivity {
     /** The key of the setting to scroll to and select once the section shows; see {@link #open}. */
     public static final String EXTRA_FOCUS_KEY = "com.limelight.preferences.FOCUS_KEY";
     static final String LOW_LATENCY_DECODING_KEY = "low_latency_decoding";
+    /** The Automatic bitrate switch: stores nothing itself, it shows and sets whether the bitrate is the user's. */
+    static final String AUTOMATIC_BITRATE_KEY = "automatic_bitrate";
     /** The row that shows and hides the individual decoding switches under the Low-latency decoding master. */
     static final String LOW_LATENCY_CUSTOMIZE_KEY = "low_latency_customize";
     /** The individual decoding switches, behind Customize. Search still finds them. */
@@ -1664,6 +1666,10 @@ public class StreamSettings extends NightjarActivity {
                             prefs.getBoolean(PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING, false));
                     pref.setSummary(partial ? getString(R.string.settings_low_latency_partial) : null);
                     continue;
+                } else if (AUTOMATIC_BITRATE_KEY.equals(pref.getKey())) {
+                    // Off once the slider is moved; profiles and presets write the flag without this view.
+                    ((SwitchPreference) pref).setChecked(!PreferenceConfiguration.isBitrateUserSet(prefs));
+                    continue;
                 } else if (SettingRules.micEffect(pref.getKey()) != null && !(pref instanceof ListPreference)) {
                     // The switches have no value line; it says when the device lacks the effect.
                     pref.setSummary(SettingRules.micEffectMissing(pref.getKey(), prefs, micEffects()) ?
@@ -2067,6 +2073,20 @@ public class StreamSettings extends NightjarActivity {
             resetBitrateToDefault(prefs, res, fps, null);
         }
 
+        /**
+         * Automatic bitrate on: the bitrate goes back to the default for the resolution, frame rate and
+         * codec and follows them again. Off: the bitrate shown stays, as the user's.
+         */
+        static void setAutomaticBitrate(SharedPreferences prefs, boolean automatic) {
+            SharedPreferences.Editor edit = prefs.edit()
+                    .putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING, !automatic);
+            if (automatic || !prefs.contains(PreferenceConfiguration.BITRATE_PREF_STRING)) {
+                edit.putInt(PreferenceConfiguration.BITRATE_PREF_STRING,
+                        PreferenceConfiguration.getShownDefaultBitrate(prefs, null, null, null));
+            }
+            edit.apply();
+        }
+
         static void resetBitrateToDefault(SharedPreferences prefs, String res, String fps, String codec) {
             // A bitrate the user picked stays; a default one follows the new resolution, frame rate
             // and codec (PyroWave has its own).
@@ -2221,6 +2241,10 @@ public class StreamSettings extends NightjarActivity {
             }
             findPreference(PreferenceConfiguration.BITRATE_PREF_STRING).setOnPreferenceChangeListener((preference, value) -> {
                 settings.edit().putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING, true).apply();
+                return true;
+            });
+            findPreference(AUTOMATIC_BITRATE_KEY).setOnPreferenceChangeListener((preference, value) -> {
+                setAutomaticBitrate(settings, (Boolean) value);
                 return true;
             });
             findPreference("checkbox_codec_performance").setEnabled(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);

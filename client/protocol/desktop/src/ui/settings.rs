@@ -1482,7 +1482,7 @@ pub(super) fn value_text(key: &str, s: &Settings, display: &Display, style: crat
 /// that each section draws its main rows first, before its groups.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(super) const MAIN_KEYS: [(&str, &[&str]); 8] = [
-    ("video", &["list_resolution", "list_fps", "seekbar_bitrate_kbps", "checkbox_auto_bitrate", "list_mobile_bitrate_kbps", "video_format", "checkbox_enable_hdr"]),
+    ("video", &["list_resolution", "list_fps", "automatic_bitrate", "seekbar_bitrate_kbps", "checkbox_auto_bitrate", "list_mobile_bitrate_kbps", "video_format", "checkbox_enable_hdr"]),
     ("display", &["checkbox_stretch_video", "stream_orientation"]),
     ("input", &["checkbox_multi_controller", "controller_button_mapping", "controller_test", "checkbox_flip_face_buttons", "checkbox_touchscreen_trackpad", "checkbox_show_onscreen_controls", "checkbox_keyboard_follows_text_fields", "checkbox_clipboard_sync"]),
     ("audio", &["list_audio_config", "checkbox_host_audio", "checkbox_enable_mic", "checkbox_mic_button"]),

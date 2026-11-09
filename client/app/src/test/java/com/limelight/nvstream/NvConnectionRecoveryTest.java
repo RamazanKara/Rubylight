@@ -260,6 +260,26 @@ public class NvConnectionRecoveryTest {
         assertTrue(FakeHost.requests.isEmpty());
     }
 
+    @Test public void aRejoinAfterASettingsChangeAsksForTheNewMode() throws Exception {
+        // Nightjar issue #85: the game started at 1080p60 keeps running and the settings change to
+        // 1600p144; the rejoin asks for the new mode, as Moonlight's /resume does.
+        String[] queries = new String[2];
+        int[][] modes = {{1920, 1080, 60}, {2560, 1600, 144}};
+        for (int i = 0; i < modes.length; i++) {
+            NvApp app = new NvApp("Game", 73, false);
+            app.setAppUuid("game-a");
+            start(new NvConnection(RuntimeEnvironment.getApplication(),
+                    new ComputerDetails.AddressTuple("192.0.2.1", 47989), 47984, "device",
+                    new StreamConfiguration.Builder().setApp(app)
+                            .setResolution(modes[i][0], modes[i][1]).setRefreshRate(modes[i][2])
+                            .setSupportedVideoFormats(MoonBridge.VIDEO_FORMAT_H264).build(), crypto(), null));
+            queries[i] = FakeHost.lastQuery;
+        }
+        assertEquals(List.of("resume", "resume"), FakeHost.requests);
+        assertTrue(queries[0], queries[0].contains("&mode=1920x1080x60&"));
+        assertTrue(queries[1], queries[1].contains("&mode=2560x1600x144&"));
+    }
+
     @Test public void firstLaunchStillLaunchesAndIts503RemainsAnError() throws Exception {
         FakeHost.initial = FakeHost.probed;
         FakeHost.resumeFailure = new HostHttpResponseException(503, "Encoder failure");

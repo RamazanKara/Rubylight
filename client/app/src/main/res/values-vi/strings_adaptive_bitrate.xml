@@ -13,4 +13,6 @@
     <string name="dialog_auto_bitrate">Giảm tốc độ bit khi kết nối hoặc thiết bị không theo kịp, rồi tăng lại khi ổn định. Không bao giờ vượt quá tốc độ bit của stream. Đây là mặc định cho mọi PC; menu stream có thể đổi riêng cho một PC.</string>
     <string name="title_thermal_protection">Bảo vệ nhiệt</string>
     <string name="dialog_thermal_protection">Giảm bitrate và độ phân giải khi thiết bị nóng. Điện thoại và TV stick thường nóng khi stream, nên mặc định tắt: bitrate thấp hơn làm hình ảnh kém nét.</string>
+    <string name="title_automatic_bitrate">Tốc độ bit tự động</string>
+    <string name="dialog_automatic_bitrate">Nightjar chọn tốc độ bit theo độ phân giải, tốc độ khung hình và codec, và thay đổi theo chúng. Di chuyển thanh trượt tốc độ bit sẽ tắt tùy chọn này.</string>
 </resources>

@@ -13,4 +13,6 @@
     <string name="dialog_auto_bitrate">连接或设备跟不上时降低码率，恢复后再提高。不会超过串流码率。这是所有电脑的默认设置；可在串流菜单中为单台电脑更改。</string>
     <string name="title_thermal_protection">过热保护</string>
     <string name="dialog_thermal_protection">设备发热时降低码率和分辨率。手机和电视棒在串流时常会发热，因此默认关闭：码率降低会让画面变糊。</string>
+    <string name="title_automatic_bitrate">自动码率</string>
+    <string name="dialog_automatic_bitrate">Nightjar 会根据分辨率、帧率和编解码器选择码率，并随它们一起调整。拖动码率滑块会关闭此项。</string>
 </resources>

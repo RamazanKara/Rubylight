@@ -13,4 +13,6 @@
     <string name="dialog_auto_bitrate">回線や端末が追いつかないときはビットレートを下げ、安定したら元に戻します。ストリームのビットレートを超えることはありません。これはすべての PC の既定値で、ストリームメニューから PC ごとに変更できます。</string>
     <string name="title_thermal_protection">温度保護</string>
     <string name="dialog_thermal_protection">端末が熱いあいだ、ビットレートと解像度を下げます。スマホやTVスティックはストリーミング中に熱くなりやすいため、初期設定はオフです。ビットレートが下がると画質が甘くなります。</string>
+    <string name="title_automatic_bitrate">自動ビットレート</string>
+    <string name="dialog_automatic_bitrate">Nightjarが解像度、フレームレート、コーデックに合わせてビットレートを選び、それらが変わると合わせて変更します。ビットレートのスライダーを動かすとオフになります。</string>
 </resources>

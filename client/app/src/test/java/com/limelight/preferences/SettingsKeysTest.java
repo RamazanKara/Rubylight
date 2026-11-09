@@ -60,6 +60,7 @@ public class SettingsKeysTest {
             com.limelight.console.HomeSettings.PREF_KEY,
             // Added later; kept here so it is never renamed either.
             "list_virtual_display_dpi", "checkbox_mute_audio", "checkbox_dual_screen", "list_resolution_screen2",
+            "automatic_bitrate",
     };
     // Rows that open a screen or a dialog and store nothing under their key.
     private static final Set<String> ACTIONS = new HashSet<>(Arrays.asList(
@@ -68,6 +69,8 @@ public class SettingsKeysTest {
             "pin_lock", // opens its own screen; the PIN lives in the pin_lock prefs file
             // The merged switch writes the three decoder switches and stores nothing itself.
             StreamSettings.LOW_LATENCY_DECODING_KEY, StreamSettings.LOW_LATENCY_CUSTOMIZE_KEY,
+            // Automatic bitrate shows and sets bitrate_user_set and the bitrate; it stores nothing itself.
+            StreamSettings.AUTOMATIC_BITRATE_KEY,
             // Each section's More row shows and hides its other rows.
             "more_video", "more_display", "more_input", "more_audio", "more_streaming", "more_app", "more_advanced",
             "more_debug"));

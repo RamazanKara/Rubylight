@@ -1,2 +1,0 @@
-## desktop
-- New setting "Decode PyroWave on a compute queue" in Video, under PyroWave decoder, off by default: PyroWave's GPU decoder decodes on a separate compute queue where the graphics card has one; without one it changes nothing. Measured on a Radeon 780M laptop it brought no clear gain, and the client it comes from removed it because it delayed presentation on Wayland, so it stays off. On Linux it applies from the next start. Each stream's log says which queue PyroWave decodes on and why.

@@ -1,2 +1,0 @@
-## desktop
-- Linux with NVIDIA: where NVDEC decodes (no Vulkan video decoding for the stream), CUDA now copies each picture straight into the GPU renderer's Vulkan images instead of through system memory, also on drivers without Vulkan video decoding or DMA-BUF import. NVDEC on another GPU than the renderer's is refused up front, with both GPUs named. When the copy cannot be used, the log says why, a toast says the pictures go through memory, and they do as before. The toast asking for a newer NVIDIA driver is gone.

@@ -135,7 +135,7 @@ public class ShellNavigationTest {
 
     @Test
     public void aNativeApiPcStillNeedsItsLibraryForHome() throws Exception {
-        com.limelight.nvstream.http.HostCapabilities rubylight = com.limelight.nvstream.http.TestHosts.rubylight();
+        com.limelight.nvstream.http.HostCapabilities rubylight = com.limelight.nvstream.http.TestHosts.fixture("rubylight-native-serverinfo.xml");
         assertTrue(rubylight.has(com.limelight.nvstream.http.HostCapabilities.Feature.NATIVE_API));
         cacheAnAppList("tower", rubylight);
         assertFalse("its classic list does not count", ShellBar.homeAvailable(context));

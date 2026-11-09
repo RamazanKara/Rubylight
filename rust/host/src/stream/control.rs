@@ -235,6 +235,10 @@ impl Media {
             (self.bind, self.control_port).into(),
         )?)?);
         butterpollo_windows::net::configure_udp(&socket)?;
+        // Input from every client arrives here; the Windows default buffer is small.
+        if let Err(error) = socket2::SockRef::from(&*socket).set_recv_buffer_size(1 << 20) {
+            tracing::warn!(%error, "control socket receive buffer unchanged");
+        }
         let raw_socket = std::os::windows::io::AsRawSocket::as_raw_socket(&*socket);
         let raw_wake =
             std::os::windows::io::AsRawSocket::as_raw_socket(&self.control_wake_receiver);

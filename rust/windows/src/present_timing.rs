@@ -4,7 +4,10 @@ use crate::capture::qpc_frequency;
 use butterpollo_core::present_timing::Refiner;
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex, OnceLock, Weak},
+    sync::{
+        Arc, Mutex, OnceLock, Weak,
+        atomic::{AtomicI64, AtomicU32, Ordering},
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -47,9 +50,86 @@ struct Event {
     pid: u32,
     chain: u64,
 }
+/// A process some stream's `presents` asked about, and the QPC of its last query.
+#[derive(Default)]
+struct Watch {
+    pid: AtomicU32,
+    query: AtomicI64,
+}
 struct Events {
     values: Mutex<VecDeque<Event>>,
     retention: i64,
+    /// Watched processes; while any is fresh, the callback records only theirs.
+    watches: [Watch; 4],
+    /// How long after its last query a watch stays fresh (QPC ticks).
+    watch_for: i64,
+    /// Last query that found every slot taken; recording stays unfiltered while fresh.
+    unwatched: AtomicI64,
+}
+impl Events {
+    fn new(retention: i64, watch_for: i64) -> Self {
+        Self {
+            values: Mutex::new(VecDeque::new()),
+            retention,
+            watches: Default::default(),
+            watch_for,
+            unwatched: AtomicI64::new(i64::MIN),
+        }
+    }
+    fn fresh(&self, watch: &Watch, pid: u32, qpc: i64) -> bool {
+        pid != 0 && qpc.saturating_sub(watch.query.load(Ordering::Acquire)) <= self.watch_for
+    }
+    /// Keeps `pid` watched as of `qpc`, taking a free or expired slot if it has none.
+    fn watch(&self, pid: u32, qpc: i64) {
+        if pid == 0 {
+            return;
+        }
+        if let Some(watch) = self
+            .watches
+            .iter()
+            .find(|w| w.pid.load(Ordering::Acquire) == pid)
+        {
+            watch.query.fetch_max(qpc, Ordering::AcqRel);
+            return;
+        }
+        for watch in &self.watches {
+            let current = watch.pid.load(Ordering::Acquire);
+            if self.fresh(watch, current, qpc) {
+                continue;
+            }
+            // Fresh before the pid, so the callback never sees the new pid with an
+            // expired query; a stale pid briefly looking fresh only records extra events.
+            watch.query.store(qpc, Ordering::Release);
+            if watch
+                .pid
+                .compare_exchange(current, pid, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                return;
+            }
+        }
+        // Every slot is fresh for other streams: record unfiltered rather than
+        // drop this stream's presents.
+        self.unwatched.fetch_max(qpc, Ordering::AcqRel);
+    }
+    /// Whether the callback records an event of `pid` at `qpc`: everything while no
+    /// watch is fresh, otherwise only watched processes.
+    fn records(&self, pid: u32, qpc: i64) -> bool {
+        if qpc.saturating_sub(self.unwatched.load(Ordering::Acquire)) <= self.watch_for {
+            return true;
+        }
+        let mut watching = false;
+        for watch in &self.watches {
+            let watched = watch.pid.load(Ordering::Acquire);
+            if self.fresh(watch, watched, qpc) {
+                if watched == pid {
+                    return true;
+                }
+                watching = true;
+            }
+        }
+        !watching
+    }
 }
 struct Tracker {
     session: CONTROLTRACE_HANDLE,
@@ -64,10 +144,7 @@ impl Tracker {
             session: CONTROLTRACE_HANDLE::default(),
             consumer: PROCESSTRACE_HANDLE { Value: u64::MAX },
             worker: None,
-            events: Box::new(Events {
-                values: Mutex::new(VecDeque::new()),
-                retention: qpc_frequency() * 2,
-            }),
+            events: Box::new(Events::new(qpc_frequency() * 2, qpc_frequency() * 5)),
         };
         // Never stop or take over a trace belonging to another host instance.
         let name: Vec<u16> = format!("ButterpolloPresent-{}-{}", std::process::id(), hex_nonce())
@@ -168,6 +245,7 @@ impl Tracker {
         counts: &mut Vec<(u64, usize)>,
     ) -> u64 {
         output.clear();
+        self.events.watch(pid, composition);
         let window = qpc_frequency();
         let values = self.events.values.lock().unwrap();
         // `values` is kept sorted by `qpc`, so the window is one contiguous range.
@@ -240,10 +318,14 @@ unsafe extern "system" fn on_event(record: *mut EVENT_RECORD) {
     // SAFETY: UserContext is the non-null Context given to OpenTraceW, the boxed Events, which
     // outlives the consumer; the tests pass a live Events too.
     let events = unsafe { &*record.UserContext.cast::<Events>() };
+    let qpc = header.TimeStamp;
+    // Every process's presents arrive here; skip those no stream asks about before locking.
+    if !events.records(header.ProcessId, qpc) {
+        return;
+    }
     let Ok(mut values) = events.values.lock() else {
         return;
     };
-    let qpc = header.TimeStamp;
     let event = Event {
         qpc,
         pid: header.ProcessId,
@@ -435,10 +517,7 @@ mod tests {
     }
     #[test]
     fn dxgi_event_abi_rejects_test_truncated_and_unrelated_presents() {
-        let events = Events {
-            values: Mutex::new(VecDeque::new()),
-            retention: 1000,
-        };
+        let events = Events::new(1000, 1000);
         for pointer in [4, 8] {
             let mut data = vec![0; pointer + 8];
             data[..4].copy_from_slice(&0x1234u32.to_le_bytes());
@@ -490,10 +569,7 @@ mod tests {
             session: CONTROLTRACE_HANDLE::default(),
             consumer: PROCESSTRACE_HANDLE { Value: u64::MAX },
             worker: None,
-            events: Box::new(Events {
-                values: Mutex::new(VecDeque::new()),
-                retention: i64::MAX / 2,
-            }),
+            events: Box::new(Events::new(i64::MAX / 2, i64::MAX / 2)),
         };
         let window = qpc_frequency();
         let composition = window;
@@ -563,5 +639,71 @@ mod tests {
             0
         );
         assert!(output.is_empty());
+    }
+    fn present(events: &Events, pid: u32, qpc: i64) {
+        let mut data = [0u8; 12];
+        data[..8].copy_from_slice(&7u64.to_le_bytes());
+        let mut record = EVENT_RECORD {
+            UserContext: (events as *const Events).cast_mut().cast(),
+            UserData: data.as_mut_ptr().cast(),
+            UserDataLength: data.len() as u16,
+            ..Default::default()
+        };
+        record.EventHeader.ProviderId = DXGI;
+        record.EventHeader.EventDescriptor.Id = 42;
+        record.EventHeader.ProcessId = pid;
+        record.EventHeader.TimeStamp = qpc;
+        // SAFETY: `record` points at the live `events` and `data`, with UserDataLength within
+        // `data`.
+        unsafe {
+            on_event(&mut record);
+        }
+    }
+    fn recorded(events: &Events) -> Vec<(u32, i64)> {
+        let values = events.values.lock().unwrap();
+        values.iter().map(|e| (e.pid, e.qpc)).collect()
+    }
+    #[test]
+    fn presents_of_unwatched_processes_are_skipped_only_while_a_watch_is_fresh() {
+        let events = Events::new(i64::MAX / 2, 100);
+        // Nothing watched yet: every process is recorded, so a first query finds history.
+        present(&events, 17, 10);
+        present(&events, 18, 20);
+        assert_eq!(recorded(&events), [(17, 10), (18, 20)]);
+        events.watch(17, 50);
+        present(&events, 17, 60);
+        present(&events, 18, 70);
+        assert_eq!(recorded(&events), [(17, 10), (18, 20), (17, 60)]);
+        // A second stream's process is recorded next to the first.
+        events.watch(19, 80);
+        present(&events, 19, 90);
+        present(&events, 18, 100);
+        assert_eq!(recorded(&events), [(17, 10), (18, 20), (17, 60), (19, 90)]);
+        // Once every watch has expired, everything is recorded again.
+        present(&events, 18, 181);
+        assert_eq!(
+            recorded(&events),
+            [(17, 10), (18, 20), (17, 60), (19, 90), (18, 181)]
+        );
+        // An expired slot is reused, and the pid of no window is never watched.
+        events.watch(0, 300);
+        present(&events, 18, 310);
+        events.watch(20, 400);
+        present(&events, 18, 410);
+        present(&events, 20, 420);
+        let tail: Vec<_> = recorded(&events).into_iter().skip(5).collect();
+        assert_eq!(tail, [(18, 310), (20, 420)]);
+    }
+    #[test]
+    fn a_query_finding_every_slot_taken_records_unfiltered() {
+        let events = Events::new(i64::MAX / 2, 100);
+        for pid in 1..=4 {
+            events.watch(pid, 10);
+        }
+        present(&events, 9, 20);
+        assert!(recorded(&events).is_empty());
+        events.watch(5, 30);
+        present(&events, 9, 40);
+        assert_eq!(recorded(&events), [(9, 40)]);
     }
 }

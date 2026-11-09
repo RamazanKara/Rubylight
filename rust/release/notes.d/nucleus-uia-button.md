@@ -1,2 +1,0 @@
-# Nucleus Co-op button lookup
-- **Rubylight no longer reserves memory inside Nucleus Co-op.** To find Nucleus Co-op's Play button, Rubylight used to reserve a little memory inside Nucleus Co-op's process and read the button's name back from it. It now asks Windows' accessibility interface (UI Automation) for the name instead. Reserving memory in another program is something antivirus software looks for, so this removes one reason a scanner might flag Rubylight. Launching through Nucleus Co-op works as before.

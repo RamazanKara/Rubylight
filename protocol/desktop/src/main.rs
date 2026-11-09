@@ -243,7 +243,7 @@ struct App {
 }
 
 /// What Linux's renderer was made for, beyond what SDL says of it.
-#[cfg(unix)]
+#[cfg(any(unix, test))]
 #[derive(Clone, Debug)]
 struct RendererState {
     /// The Renderer setting last applied: a change is applied once, with nothing streaming.
@@ -256,6 +256,15 @@ struct RendererState {
     /// makes a working renderer again, and one that fails then ends Nightjar); a changed Renderer
     /// setting does.
     gpu_failed: Option<String>,
+}
+
+#[cfg(any(unix, test))]
+impl RendererState {
+    fn for_launcher(choice: config::Renderer, vulkan_video: bool, gpu_failed: Option<String>) -> Self {
+        // The launcher never asks for an HDR stream's PQ present, even with HDR enabled in settings.
+        // Its first HDR stream must still prepare that output (`switch_for_stream`).
+        Self { choice, made_for_hdr: false, vulkan_video, gpu_failed }
+    }
 }
 
 fn display_of(window: *mut SDL_Window) -> Display {
@@ -834,13 +843,12 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         color_probed: None,
         base_probed: None,
         #[cfg(unix)]
-        renderer_state: RendererState {
-            choice: settings.renderer,
-            made_for_hdr: gpu && hdr_asked && handheld::hdr_display(handheld::gamescope(), sdl::any_display_hdr()),
+        renderer_state: RendererState::for_launcher(
+            settings.renderer,
             vulkan_video,
-            gpu_failed: (gpu && sdl::renderer_name(renderer) != "gpu")
+            (gpu && sdl::renderer_name(renderer) != "gpu")
                 .then(|| sdl::gpu_renderer_failure().unwrap_or_else(|| format!("SDL made {:?} instead", sdl::renderer_name(renderer)))),
-        },
+        ),
         gpu_failure: None,
         pin_pending: None,
         select_read: false,
@@ -4078,6 +4086,29 @@ mod shot;
 #[cfg(test)]
 mod tests {
     use super::{first_frame_line, window_needs_a_frame};
+
+    #[test]
+    fn hdr_enabled_at_startup_still_prepares_hdr10_for_the_first_stream() {
+        use crate::handheld::{self, Output, RendererNow, RendererSwitch};
+        let settings = crate::config::Settings { hdr: true, ..Default::default() };
+        for choice in [crate::config::Renderer::Auto, crate::config::Renderer::Gpu] {
+            let state = super::RendererState::for_launcher(choice, true, None);
+            assert!(state.vulkan_video);
+            let now = RendererNow {
+                gpu: true, hdr_swapchain: true, made_for_hdr: state.made_for_hdr,
+                gpu_failed: state.gpu_failed.is_some(),
+                pq_unused: handheld::pq_unused(false, Some(Ok(Output::Scrgb)), true, false),
+                hdr_unreachable: false,
+            };
+            assert_eq!(handheld::renderer_switch(state.choice, now, settings.gpu_need(), settings.hdr, true, false),
+                Some(RendererSwitch::ForHdr), "the launcher's scRGB output has never tried PQ");
+            assert_eq!(handheld::renderer_switch(state.choice, now, None, false, true, false), None,
+                "SDR streams keep the launcher's renderer");
+            let prepared = RendererNow { made_for_hdr: true, ..now };
+            assert_eq!(handheld::renderer_switch(state.choice, prepared, settings.gpu_need(), settings.hdr, true, false), None,
+                "a prepared HDR stream does not rebuild again");
+        }
+    }
 
     /// A PC, game or profile that turns the compute queue on asks for it before the renderer, as HDR does.
     #[test]

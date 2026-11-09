@@ -12,9 +12,9 @@ import java.io.ByteArrayOutputStream;
  * hevc_t35_sei for sample().
  */
 public class Hdr10PlusSeiTest {
-    private static final String T35 = "b5 00 3c 00 01 04 01 40 00 00 00 75 30 3a 98 1d 4c 01 c2 24 08 00 14 28 00 00 " +
+    static final String T35 = "b5 00 3c 00 01 04 01 40 00 00 00 75 30 3a 98 1d 4c 01 c2 24 08 00 14 28 00 00 " +
             "50 03 fc c8 03 21 90 0c 82 58 1f 42 d0 5d c2 f8 8c a3 18 ea 60 00 00";
-    private static final String HEVC_SEI = "00 00 00 01 4e 01 04 31 b5 00 3c 00 01 04 01 40 00 00 03 00 75 30 3a 98 " +
+    static final String HEVC_SEI = "00 00 00 01 4e 01 04 31 b5 00 3c 00 01 04 01 40 00 00 03 00 75 30 3a 98 " +
             "1d 4c 01 c2 24 08 00 14 28 00 00 50 03 fc c8 03 21 90 0c 82 58 1f 42 d0 5d c2 f8 8c a3 18 ea 60 00 00 80";
     /** All-zero statistics: emulation prevention all through. */
     private static final String HEVC_SEI_ZEROS = "00 00 00 01 4e 01 04 31 b5 00 3c 00 01 04 01 40 00 00 03 00 00 03 " +
@@ -22,16 +22,16 @@ public class Hdr10PlusSeiTest {
             "18 00 00 03 00 00 80";
     private static final String AV1_OBU = "2a 33 04 b5 00 3c 00 01 04 01 40 00 00 00 75 30 3a 98 1d 4c 01 c2 24 08 00 " +
             "14 28 00 00 50 03 fc c8 03 21 90 0c 82 58 1f 42 d0 5d c2 f8 8c a3 18 ea 60 00 00 80";
-    private static final String HEVC_VIVID = "00 00 00 01 4e 01 04 0d 26 00 04 00 05 01 0b d7 52 72 ce 70 00 80";
+    static final String HEVC_VIVID = "00 00 00 01 4e 01 04 0d 26 00 04 00 05 01 0b d7 52 72 ce 70 00 80";
 
-    private static final String HEVC_AUD = "00 00 00 01 46 01 50";
+    static final String HEVC_AUD = "00 00 00 01 46 01 50";
     private static final String HEVC_IDR_SLICE = "00 00 01 26 01 af 08 42 23 10 5f";
-    private static final String HEVC_SLICE = "00 00 01 02 01 d0 09 7e 45";
+    static final String HEVC_SLICE = "00 00 01 02 01 d0 09 7e 45";
     private static final String AV1_TEMPORAL_DELIMITER = "12 00";
     private static final String AV1_SEQUENCE_HEADER = "0a 0b 00 00 00 24 c6 af 7f fc 10 34 08";
     private static final String AV1_FRAME = "32 05 10 00 b5 3a 20";
 
-    private static byte[] bytes(String... parts) {
+    static byte[] bytes(String... parts) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         for (String part : parts) {
             for (String hex : part.trim().split("\\s+")) {
@@ -46,12 +46,28 @@ public class Hdr10PlusSeiTest {
         // Decode units come in a larger buffer: only the length counts.
         byte[] buffer = new byte[frame.length + 16];
         System.arraycopy(frame, 0, buffer, 0, frame.length);
-        return Hdr10PlusSei.hevc(buffer, frame.length);
+        byte[] t35 = Hdr10PlusSei.hevc(buffer, frame.length);
+        // A frame handed over in place gives the same, and its position and limit stay.
+        java.nio.ByteBuffer direct = direct(buffer);
+        assertArrayEquals(t35, Hdr10PlusSei.hevc(direct, frame.length));
+        assertEquals(buffer.length, direct.position());
+        assertEquals(buffer.length, direct.limit());
+        return t35;
     }
 
     private static byte[] av1(String... parts) {
         byte[] frame = bytes(parts);
-        return Hdr10PlusSei.av1(frame, frame.length);
+        byte[] t35 = Hdr10PlusSei.av1(frame, frame.length);
+        java.nio.ByteBuffer direct = direct(frame);
+        assertArrayEquals(t35, Hdr10PlusSei.av1(direct, frame.length));
+        assertEquals(frame.length, direct.position());
+        return t35;
+    }
+
+    private static java.nio.ByteBuffer direct(byte[] data) {
+        java.nio.ByteBuffer direct = java.nio.ByteBuffer.allocateDirect(data.length);
+        direct.put(data);
+        return direct;
     }
 
     @Test

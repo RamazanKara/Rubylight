@@ -1,5 +1,6 @@
 package com.limelight.binding.video;
 
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 
 /**
@@ -34,13 +35,18 @@ public final class Hdr10PlusSei {
 
     /** The HDR10+ payload of an HEVC access unit in Annex B, or null when it has none before its first slice. */
     public static byte[] hevc(byte[] data, int length) {
-        int code = startCode(data, 0, length);
+        return hevc(ByteBuffer.wrap(data), length);
+    }
+
+    /** {@link #hevc(byte[], int)} for a frame handed over in place; its position and limit stay as they are. */
+    public static byte[] hevc(ByteBuffer data, int length) {
+        int code = HdrBitstream.startCode(data, 0, length);
         while (code >= 0) {
             int header = code + 3;
             if (header + 1 >= length) return null;
-            int type = (data[header] >> 1) & 0x3F;
+            int type = (data.get(header) >> 1) & 0x3F;
             if (type <= HEVC_LAST_VCL) return null;
-            int next = startCode(data, header, length);
+            int next = HdrBitstream.startCode(data, header, length);
             if (type == HEVC_PREFIX_SEI) {
                 byte[] t35 = seiT35(data, header + 2, next < 0 ? length : next);
                 if (t35 != null) return t35;
@@ -55,9 +61,14 @@ public final class Hdr10PlusSei {
      * or null when it has none before its first frame.
      */
     public static byte[] av1(byte[] data, int length) {
+        return av1(ByteBuffer.wrap(data), length);
+    }
+
+    /** {@link #av1(byte[], int)} for a frame handed over in place; its position and limit stay as they are. */
+    public static byte[] av1(ByteBuffer data, int length) {
         int[] at = {0};
         while (at[0] < length) {
-            int header = data[at[0]] & 0xFF;
+            int header = data.get(at[0]) & 0xFF;
             if ((header & 0x80) != 0) return null;
             int type = (header >> 3) & 0x0F;
             at[0] += (header & 0x04) != 0 ? 2 : 1;
@@ -75,9 +86,11 @@ public final class Hdr10PlusSei {
             if (type == OBU_METADATA && leb128(data, at, end) == METADATA_TYPE_ITUT_T35) {
                 // The payload ends with trailing_bits: a one bit, then zeros to the end of the OBU.
                 int last = end;
-                while (last > at[0] && data[last - 1] == 0) last--;
-                if (last > at[0] && data[last - 1] == (byte) 0x80 && isHdr10Plus(data, at[0], last - 1)) {
-                    return Arrays.copyOfRange(data, at[0], last - 1);
+                while (last > at[0] && data.get(last - 1) == 0) last--;
+                if (last > at[0] && data.get(last - 1) == (byte) 0x80 && isHdr10Plus(data, at[0], last - 1)) {
+                    byte[] t35 = new byte[last - 1 - at[0]];
+                    HdrBitstream.range(data, at[0], last - 1).get(t35);
+                    return t35;
                 }
             }
             at[0] = end;
@@ -86,7 +99,7 @@ public final class Hdr10PlusSei {
     }
 
     /** The HDR10+ payload among the SEI messages of the NAL unit body from {@code from} to {@code end}, or null. */
-    private static byte[] seiT35(byte[] data, int from, int end) {
+    private static byte[] seiT35(ByteBuffer data, int from, int end) {
         byte[] rbsp = unescape(data, from, end);
         int length = rbsp.length;
         int at = 0;
@@ -106,7 +119,7 @@ public final class Hdr10PlusSei {
             if (at >= length) return null;
             payloadSize += rbsp[at++] & 0xFF;
             if (payloadSize > length - at) return null;
-            if (payloadType == SEI_USER_DATA_REGISTERED_ITU_T_T35 && isHdr10Plus(rbsp, at, at + payloadSize)) {
+            if (payloadType == SEI_USER_DATA_REGISTERED_ITU_T_T35 && isHdr10Plus(ByteBuffer.wrap(rbsp), at, at + payloadSize)) {
                 return Arrays.copyOfRange(rbsp, at, at + payloadSize);
             }
             at += payloadSize;
@@ -114,21 +127,25 @@ public final class Hdr10PlusSei {
         return null;
     }
 
-    private static boolean isHdr10Plus(byte[] data, int from, int end) {
+    private static boolean isHdr10Plus(ByteBuffer data, int from, int end) {
         if (end - from < HEADER.length) return false;
         for (int i = 0; i < HEADER.length; i++) {
-            if (data[from + i] != HEADER[i]) return false;
+            if (data.get(from + i) != HEADER[i]) return false;
         }
         return true;
     }
 
     /** The bytes from {@code from} to {@code end} without the emulation prevention bytes (the 03 of 00 00 03). */
     static byte[] unescape(byte[] data, int from, int end) {
+        return unescape(ByteBuffer.wrap(data), from, end);
+    }
+
+    static byte[] unescape(ByteBuffer data, int from, int end) {
         byte[] out = new byte[end - from];
         int n = 0;
         int zeros = 0;
         for (int i = from; i < end; i++) {
-            byte b = data[i];
+            byte b = data.get(i);
             if (zeros >= 2 && b == 3) {
                 zeros = 0;
                 continue;
@@ -140,21 +157,13 @@ public final class Hdr10PlusSei {
     }
 
     /** A leb128 value at {@code at[0]}, which moves past it, or -1 when it runs past {@code end} or 8 bytes. */
-    private static long leb128(byte[] data, int[] at, int end) {
+    private static long leb128(ByteBuffer data, int[] at, int end) {
         long value = 0;
         for (int i = 0; i < 8; i++) {
             if (at[0] >= end) return -1;
-            int b = data[at[0]++] & 0xFF;
+            int b = data.get(at[0]++) & 0xFF;
             value |= (long) (b & 0x7F) << (7 * i);
             if ((b & 0x80) == 0) return value;
-        }
-        return -1;
-    }
-
-    /** The offset of the next 00 00 01 at or after {@code from}, or -1. */
-    private static int startCode(byte[] data, int from, int length) {
-        for (int i = from; i + 2 < length; i++) {
-            if (data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1) return i;
         }
         return -1;
     }

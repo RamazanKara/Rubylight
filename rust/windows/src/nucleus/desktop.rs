@@ -210,67 +210,58 @@ const DIALOG_CLASS: &str = "#32770";
 /// How the class of a WinForms window starts (`WindowsForms10.Window.8.app...`).
 const FORM_CLASS: &str = "WindowsForms10.";
 
-/// What a WinForms window of another process is called in its program
-/// (`WM_GETCONTROLNAME`). The answer is written at the pointer sent, so it
-/// takes memory in that process.
-fn control_name(window: HWND) -> Option<String> {
-    use std::os::windows::io::{AsRawHandle, FromRawHandle};
-    use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
-    use windows::Win32::System::Memory::{
-        MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE, VirtualAllocEx, VirtualFreeEx,
-    };
-    const CHARS: usize = 64;
-    let mut pid = 0;
-    // SAFETY: `pid` is a live u32 and the name a static string; a closed window fails the calls,
-    // the handle opened has one owner, and the memory read is the buffer allocated here, as long
-    // as it is, into a local of that size.
-    unsafe {
-        let message = RegisterWindowMessageW(windows::core::w!("WM_GETCONTROLNAME"));
-        GetWindowThreadProcessId(window, Some(&mut pid));
-        let process = OwnedHandle::from_raw_handle(
-            OpenProcess(
-                PROCESS_VM_OPERATION | PROCESS_VM_READ | PROCESS_VM_WRITE,
-                false,
-                pid,
-            )
-            .ok()?
-            .0,
-        );
-        let process = HANDLE(process.as_raw_handle());
-        let remote = VirtualAllocEx(
-            process,
-            None,
-            CHARS * 2,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_READWRITE,
-        );
-        if remote.is_null() {
-            return None;
+/// UI Automation on this thread, for reading WinForms control names.
+struct Automation {
+    automation: windows::Win32::UI::Accessibility::IUIAutomation,
+    // Declared after `automation`, so the object is released before COM is.
+    _com: Com,
+}
+
+/// This thread's COM, uninitialised on drop when it was ours to start.
+struct Com(bool);
+
+impl Drop for Com {
+    fn drop(&mut self) {
+        if self.0 {
+            // SAFETY: only a successful CoInitializeEx on this thread sets the flag.
+            unsafe { windows::Win32::System::Com::CoUninitialize() }
         }
-        let mut written = 0usize;
-        let sent = SendMessageTimeoutW(
-            window,
-            message,
-            WPARAM(CHARS),
-            LPARAM(remote as isize),
-            SMTO_ABORTIFHUNG | SMTO_NORMAL,
-            200,
-            Some(&mut written),
-        );
-        // A window that didn't answer in time still will, into this buffer:
-        // it stays allocated then, for the life of a process that small.
-        if sent.0 == 0 {
-            return None;
-        }
-        let mut name = [0u16; CHARS];
-        let read = ReadProcessMemory(process, remote, name.as_mut_ptr().cast(), CHARS * 2, None);
-        let _ = VirtualFreeEx(process, remote, 0, MEM_RELEASE);
-        read.ok()?;
-        // Its length with the terminator; none or more than fits on failure.
-        (1..=CHARS)
-            .contains(&written)
-            .then(|| String::from_utf16_lossy(&name[..written - 1]))
     }
+}
+
+impl Automation {
+    fn new() -> Option<Self> {
+        use windows::Win32::System::Com::{
+            CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
+        };
+        use windows::Win32::UI::Accessibility::CUIAutomation;
+        // SAFETY: CoInitializeEx takes no pointers here. A thread already in an apartment
+        // (RPC_E_CHANGED_MODE) keeps it and the guard leaves it alone; a successful call is
+        // balanced once by the guard.
+        unsafe {
+            let com = Com(CoInitializeEx(None, COINIT_MULTITHREADED).is_ok());
+            let automation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
+            Some(Self {
+                automation,
+                _com: com,
+            })
+        }
+    }
+}
+
+/// What a WinForms window of another process is called in its program: its
+/// UI Automation id, which Windows reads from the control's `Name`.
+fn control_name(automation: &Automation, window: HWND) -> Option<String> {
+    // SAFETY: a closed window fails the call, and the id is an owned BSTR.
+    let id = unsafe {
+        automation
+            .automation
+            .ElementFromHandle(window)
+            .and_then(|element| element.CurrentAutomationId())
+            .ok()?
+    };
+    let id = id.to_string();
+    (!id.is_empty()).then_some(id)
 }
 
 /// The visible descendants of `parent`.
@@ -561,6 +552,9 @@ impl Desktop for Win32 {
             return Ok(None);
         }
         crate::input::follow_input_desktop();
+        let Some(automation) = Automation::new() else {
+            bail!("UI Automation is unavailable, so Nucleus Co-op's buttons can't be found");
+        };
         for window in top_level(Some(processes))? {
             if !window.visible {
                 continue;
@@ -569,7 +563,10 @@ impl Desktop for Win32 {
                 let button = class_of(child).is_some_and(|class| {
                     class.starts_with(FORM_CLASS) && class.contains(".BUTTON.")
                 });
-                if button && pressable(child) && control_name(child).as_deref() == Some(name) {
+                if button
+                    && pressable(child)
+                    && control_name(&automation, child).as_deref() == Some(name)
+                {
                     return Ok(Some(child.0 as usize as u64));
                 }
             }
@@ -819,6 +816,52 @@ mod tests {
         // SAFETY: as above.
         unsafe { DestroyWindow(window).unwrap() };
         assert!(!pressable(window), "closed");
+    }
+
+    /// Nucleus Co-op's Play is found by the name its program gives it, read
+    /// through UI Automation from a WinForms button of another process.
+    #[test]
+    fn a_winforms_buttons_name_is_read_from_another_process() {
+        struct Kill(std::process::Child);
+        impl Drop for Kill {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let script = "Add-Type -AssemblyName System.Windows.Forms; \
+            $f = New-Object System.Windows.Forms.Form; \
+            $f.StartPosition = 'Manual'; $f.Location = New-Object System.Drawing.Point(-30000, -30000); \
+            $f.ShowInTaskbar = $false; \
+            $b = New-Object System.Windows.Forms.Button; $b.Name = 'rubylightProbe'; $b.Text = 'Go'; \
+            $f.Controls.Add($b); [System.Windows.Forms.Application]::Run($f)";
+        let child = Kill(
+            std::process::Command::new("powershell.exe")
+                .args(["-NoProfile", "-NonInteractive", "-Command", script])
+                .spawn()
+                .unwrap(),
+        );
+        let processes = BTreeSet::from([child.0.id()]);
+        let automation = Automation::new().unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        let names = loop {
+            let names: Vec<String> = top_level(Some(&processes))
+                .unwrap()
+                .iter()
+                .flat_map(|window| children(hwnd(window.id)))
+                .filter(|child| {
+                    class_of(*child).is_some_and(|class| {
+                        class.starts_with(FORM_CLASS) && class.contains(".BUTTON.")
+                    })
+                })
+                .filter_map(|child| control_name(&automation, child))
+                .collect();
+            if !names.is_empty() || std::time::Instant::now() > deadline {
+                break names;
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        };
+        assert_eq!(names, ["rubylightProbe"]);
     }
 
     #[test]

@@ -362,7 +362,7 @@ public class AppViewLifecycleTest {
         }
     }
 
-    @Test public void aControllersXOpensTheSelectedGamesMenuLikeALongPress() {
+    @Test public void theHintedMoreKeysOpenTheSelectedGamesMenuWithoutLaunchingIt() {
         Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
                 .putExtra(AppView.UUID_EXTRA, "running-host").putExtra(AppView.NAME_EXTRA, "PC");
         ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
@@ -370,17 +370,22 @@ public class AppViewLifecycleTest {
             Library screen = controller.get();
             android.widget.GridView grid = libraryWithRunningGame(screen, "sunshine-serverinfo.xml");
             com.limelight.ui.UiNavigation.bindGrid(grid);
-            grid.requestFocus();
-            grid.setSelection(position(grid, "Desktop"));
-            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
             long now = android.os.SystemClock.uptimeMillis();
-            for (int action : new int[] {android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.ACTION_UP}) {
-                grid.dispatchKeyEvent(new android.view.KeyEvent(now, now, action, android.view.KeyEvent.KEYCODE_BUTTON_X, 0));
+            for (int key : new int[] {android.view.KeyEvent.KEYCODE_BUTTON_X,
+                    android.view.KeyEvent.KEYCODE_BUTTON_Y, android.view.KeyEvent.KEYCODE_F,
+                    android.view.KeyEvent.KEYCODE_MENU}) {
+                grid.requestFocus();
+                grid.setSelection(position(grid, "Desktop"));
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+                for (int action : new int[] {android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.ACTION_UP}) {
+                    assertTrue(grid.dispatchKeyEvent(new android.view.KeyEvent(now, now, action, key, 0)));
+                }
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+                android.app.Dialog dialog = org.robolectric.shadows.ShadowDialog.getLatestDialog();
+                assertTrue("options for key " + key, dialog instanceof com.limelight.ui.ActionSheet && dialog.isShowing());
+                assertNull("More must not launch a stream", org.robolectric.Shadows.shadowOf(screen).getNextStartedActivity());
+                dialog.dismiss();
             }
-            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
-            android.app.Dialog dialog = org.robolectric.shadows.ShadowDialog.getLatestDialog();
-            assertTrue(dialog instanceof com.limelight.ui.ActionSheet && dialog.isShowing());
-            dialog.dismiss();
         } finally {
             controller.pause().stop().destroy();
         }

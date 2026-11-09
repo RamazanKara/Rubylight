@@ -49,8 +49,9 @@ public final class UiNavigation {
 
     public static void bindGrid(GridView grid) {
         grid.setOnKeyListener((view, key, event) -> {
-            // Menu, Shift+F10 and a controller's X open the selected card's options, like a long press.
+            // Match the card hints: Y and F open More, as do Menu, Shift+F10 and X.
             if (key != KeyEvent.KEYCODE_MENU && key != KeyEvent.KEYCODE_BUTTON_X
+                    && !InputSource.isMoreKey(event)
                     && !(key == KeyEvent.KEYCODE_F10 && event.hasModifiers(KeyEvent.META_SHIFT_ON))) {
                 return false;
             }

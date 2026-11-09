@@ -93,6 +93,28 @@ pub(crate) struct Converter {
     targets: Vec<Target>,
     /// The couch menu's pass, while an overlay is set.
     menu: menu::Menu,
+    sources: SourceViews,
+}
+/// Capture textures' views, by texture and the source's size and format.
+type SourceViews = view_cache::ViewCache<ID3D11ShaderResourceView, (u32, u32, Pixel)>;
+/// `image.texture`'s view from `cache`, made on `gpu` the first time.
+fn source_view(
+    cache: &mut SourceViews,
+    gpu: &Device,
+    image: &GpuImage,
+) -> Result<ID3D11ShaderResourceView> {
+    let texture = image.texture.as_ref();
+    let key = windows::core::Interface::as_raw(texture) as usize;
+    cache.view(key, (image.width, image.height, image.pixel), || {
+        let mut view = None;
+        // SAFETY: `texture` is live and on this device, which callers check
+        // with `accepts_gpu_device`.
+        unsafe {
+            gpu.device
+                .CreateShaderResourceView(texture, None, Some(&mut view))?;
+        }
+        view.context("no capture texture view")
+    })
 }
 /// `cbuffer Config` in color.hlsl, for a `source` (width, height, pixel)
 /// converted to the stream, as both converters fill it.
@@ -252,6 +274,7 @@ impl Converter {
                 layout,
                 targets: vec![],
                 menu: Default::default(),
+                sources: Default::default(),
             })
         }
     }
@@ -400,17 +423,8 @@ impl Converter {
             self.values[12..].copy_from_slice(&values);
             self.dirty = true;
         }
-        let mut source = None;
-        // SAFETY: `image.texture` is live and on this device, which callers check with
-        // `accepts_gpu_device`.
-        unsafe {
-            self.gpu.device.CreateShaderResourceView(
-                image.texture.as_ref(),
-                None,
-                Some(&mut source),
-            )?;
-        }
-        Ok([source, pointer.map(|c| c.view.clone())])
+        let source = source_view(&mut self.sources, &self.gpu, image)?;
+        Ok([Some(source), pointer.map(|c| c.view.clone())])
     }
     pub fn convert(&mut self, image: &GpuImage) -> Result<Arc<ID3D11Texture2D>> {
         let index = self.target()?;
@@ -751,6 +765,7 @@ impl PlanarConverter {
 }
 mod hdr_stats;
 mod menu;
+mod view_cache;
 pub(crate) use hdr_stats::HdrStats;
 #[cfg(test)]
 mod tests;

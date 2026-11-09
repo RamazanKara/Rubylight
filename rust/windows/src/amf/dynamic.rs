@@ -507,7 +507,7 @@ impl Dynamic {
             self.report.no_insertion += 1;
             return None;
         };
-        let mut spliced = Vec::with_capacity(bytes.len() + t35.len() + rpu.len());
+        let mut spliced = crate::frame_pool::take(bytes.len() + t35.len() + rpu.len());
         spliced.extend_from_slice(&bytes[..at]);
         spliced.extend_from_slice(t35);
         spliced.extend_from_slice(&rpu);
@@ -540,7 +540,7 @@ impl Dynamic {
             return out;
         }
         let mut out = out.unwrap_or_else(|| {
-            let mut copy = Vec::with_capacity(bytes.len() + self.rpu.len());
+            let mut copy = crate::frame_pool::take(bytes.len() + self.rpu.len());
             copy.extend_from_slice(bytes);
             copy
         });

@@ -122,7 +122,11 @@ impl SessionThread<'_> {
         // has taken, and the 5 s timing log's own window.
         let mut pipeline_follow = butterpollo_core::pipeline_rates::Follow::default();
         let mut pipeline_log = butterpollo_core::pipeline_rates::Sampler::default();
-        let mut last_image: Option<Arc<GpuImage>> = None;
+        // Identity only: a weak reference releases the previous capture's
+        // texture and ring slot once it is encoded, while the live `Weak`
+        // still pins the allocation so its address can't be reused by a new
+        // `GpuImage` and compare equal.
+        let mut last_image: Option<std::sync::Weak<GpuImage>> = None;
         // The couch menu's panel; one atomic load a frame while closed.
         let mut menu = crate::couch_menu::VideoOverlay::default();
         // The device draws the pointer (0x5540): it is left out of the video.
@@ -1008,7 +1012,7 @@ impl SessionThread<'_> {
                     pacer.observe_picture(start, late);
                     pacer.observe_extension(extends);
                 }
-                let fresh = last_image.as_ref().is_none_or(|previous| !Arc::ptr_eq(previous, &image));
+                let fresh = last_image.as_ref().is_none_or(|previous| !std::ptr::eq(previous.as_ptr(), Arc::as_ptr(&image)));
                 if arrival_pacing
                     && fresh
                     && !rebuild_encoder
@@ -1071,7 +1075,7 @@ impl SessionThread<'_> {
                     && (s.config.vrr_low_latency || rates.limit_static_rate || arrival_pacing)
                     && last_image
                         .as_ref()
-                        .is_some_and(|previous| Arc::ptr_eq(previous, &image))
+                        .is_some_and(|previous| std::ptr::eq(previous.as_ptr(), Arc::as_ptr(&image)))
                     && Instant::now() < reencode_at
                 {
                     AdmissionTrace::measure(&mut admission_trace, AdmissionWait::Repeat, || -> Result<()> {
@@ -1250,7 +1254,7 @@ impl SessionThread<'_> {
                     });
                 }
                 let begin = Instant::now();
-                let fresh = last_image.as_ref().is_none_or(|previous| !Arc::ptr_eq(previous, &image));
+                let fresh = last_image.as_ref().is_none_or(|previous| !std::ptr::eq(previous.as_ptr(), Arc::as_ptr(&image)));
                 if let Some(admission) = admission_trace.as_mut() {
                     trace_attempt = trace_attempt.wrapping_add(1);
                     let us = |at: Instant| at.saturating_duration_since(start).as_micros() as u64;
@@ -1578,7 +1582,7 @@ impl SessionThread<'_> {
                         }
                     }
                 }
-                last_image = Some(image);
+                last_image = Some(Arc::downgrade(&image));
                 // An allocation can later reuse this image's address;
                 // its trace observation belongs only to this submission.
                 first_seen = None;

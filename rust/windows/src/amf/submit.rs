@@ -438,6 +438,7 @@ impl Encoder {
                 // This input's references are planned: a re-encode now would
                 // drop the ones it may name.
                 self.preparing = true;
+                let queried = Instant::now();
                 let polled = self.poll_now();
                 self.preparing = false;
                 let polled = polled?;
@@ -449,6 +450,16 @@ impl Encoder {
                 match &self.output_thread {
                     // A query that blocked used to pace this loop.
                     Some(thread) if nothing => thread.wait(QUERY_TIMEOUT),
+                    // As in `wait_capacity`: a driver that ignores QueryTimeout
+                    // would otherwise spin a core while the GPU is saturated.
+                    None if nothing => {
+                        let pause = QUERY_TIMEOUT
+                            .saturating_sub(queried.elapsed())
+                            .min(deadline.saturating_duration_since(Instant::now()));
+                        if !pause.is_zero() {
+                            std::thread::sleep(pause);
+                        }
+                    }
                     _ => std::thread::yield_now(),
                 }
             }

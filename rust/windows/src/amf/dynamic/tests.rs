@@ -153,6 +153,27 @@ fn a_sample_is_spliced_into_every_frame_until_the_next() {
 }
 
 #[test]
+fn a_large_frame_is_spliced_into_a_pooled_buffer_unchanged() {
+    let mut dynamic = Dynamic::new(Codec::Hevc);
+    dynamic.take(Ok(Some(readout(7, 200, 600))), Instant::now());
+    let mut frame = keyframe();
+    let body: Vec<u8> = (0..crate::frame_pool::POOLED * 2)
+        .map(|i| (i % 251) as u8 | 1)
+        .collect();
+    frame.extend(nal(1, &body));
+    let at = insert_offset(Codec::Hevc, &frame).unwrap();
+    let units = frame_units(Codec::Hevc, &readout(7, 200, 600).frame_stats().unwrap()).unwrap();
+    let expected = [&frame[..at], &units, &frame[at..]].concat();
+    // A reused buffer is emptied before it is filled again.
+    crate::frame_pool::give(vec![0xEE; frame.len() + units.len()]);
+    for _ in 0..2 {
+        let spliced = dynamic.first_unit(&frame).unwrap();
+        assert_eq!(spliced, expected);
+        crate::frame_pool::give(spliced);
+    }
+}
+
+#[test]
 fn a_failed_readout_keeps_the_previous_units() {
     let mut dynamic = Dynamic::new(Codec::Av1);
     dynamic.take(Ok(Some(readout(3, 100, 900))), Instant::now());

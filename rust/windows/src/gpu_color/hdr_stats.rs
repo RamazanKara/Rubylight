@@ -52,6 +52,7 @@ pub(crate) struct HdrStats {
     conversions: u64,
     /// [`HdrStats::stop`]: no more passes are queued.
     stopped: bool,
+    sources: SourceViews,
 }
 impl HdrStats {
     pub(crate) fn new(gpu: &Device) -> Self {
@@ -62,6 +63,7 @@ impl HdrStats {
             queued: None,
             conversions: 0,
             stopped: false,
+            sources: Default::default(),
         }
     }
     /// Measure every HDR conversion from now on, for [`HdrStats::latest`].
@@ -165,6 +167,7 @@ impl HdrStats {
     pub(crate) fn stop(&mut self) {
         self.stopped = true;
         self.queued = None;
+        self.sources = Default::default();
     }
     /// After `converter` converted `image`: leave the pass over its source for
     /// [`HdrStats::submit`], when enabled and the stream is HDR. A pass still
@@ -198,16 +201,12 @@ impl HdrStats {
                     .map_or(0, |(conversion, _)| conversion)
             })
             .unwrap_or(0);
-        let mut source = None;
-        // SAFETY: `image.texture` is live and on this device, as the conversion that read it was.
-        unsafe {
-            self.gpu.device.CreateShaderResourceView(
-                queued.image.texture.as_ref(),
-                None,
-                Some(&mut source),
-            )?;
-        }
-        let views = [source, queued.image.cursor.as_ref().map(|c| c.view.clone())];
+        // On this device, as the conversion that read it was.
+        let source = source_view(&mut self.sources, &self.gpu, &queued.image)?;
+        let views = [
+            Some(source),
+            queued.image.cursor.as_ref().map(|c| c.view.clone()),
+        ];
         let lock = self.lock.as_ref().context("no D3D11 multithread lock")?;
         let grid = queued.grid;
         // SAFETY: The context is held from Enter to Leave with no early return between, every

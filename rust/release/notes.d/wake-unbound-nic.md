@@ -1,1 +1,0 @@
-- **Wake-on-LAN with Hyper-V external switches.** The host now includes physical network adapters whose IP bindings belong to a virtual switch when choosing the MAC address sent to Moonlight and Nightjar. Previously these adapters could be missing, leaving clients with a zero or unrelated wake address.

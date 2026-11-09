@@ -24,6 +24,64 @@
   <sub>Works with Sunshine, Apollo, Vibepollo, Rubylight, NVIDIA GameStream and every other Moonlight-compatible host.</sub>
 </p>
 
+## What players are saying
+
+> “Nightjar is currently my favourite Android client. I really love its modern, clean UI. It feels great to use!”
+>
+> — daniel7277, Android
+
+> “The integrated library, session controls, and host-aware options make it feel like a complete console experience.”
+>
+> — tylerlane, Steam Deck and laptop with Rubylight
+
+> “Played for about 30 minutes, worked great, no issues.”
+>
+> — elkinjosetm, Automatic bitrate with default limits
+
+<details>
+<summary>More feedback from players</summary>
+
+| Player | Feedback | Setup or feature |
+| --- | --- | --- |
+| rishisinghawadhiya | “thank you for creating such a beautiful, clean Android client.” | Android |
+| jun182 | “I believe Nightjar is currently the superior client for Android.” | Android; alongside a touch-control feature request |
+| daniel7277 | “It looks absolutely beautiful” | New interface |
+| daniel7277 | “feels absolutely amazing! It's so satisfying.” | WASD stick haptic feedback |
+| magicwand9099 | “I really like your modern on-screen controller design.” | On-screen controls |
+| ASE236-lang | “I love nightjar” | Android stream-menu feedback |
+| SirvanD | “Now confidently can replace Moonlight on my 2 TVs with Nightjar.” | Nightjar 3.0.1 |
+| SirvanD | “Also latest Nightjar client is performing great now without issues.” | Fire TV Cube Gen 3 |
+| VirtualGIT20 | “the telemetry/export tools make this kind of investigation much easier.” | Shield TV Pro; investigating decoder timing |
+| VirtualGIT20 | “The new debt recovery is definitely working on the actual Shield!” | Shield TV Pro, Nightjar 4.7.0 with Vibepollo |
+| leonardo7999-byte | “its working perfectly right now.” | After the connection fix |
+| umbertomarotta | “lybxlpsv's overlay holds perfectly with the flag "Ignore Presentation Time" enabled” | External frame-generation overlay |
+
+### From Reddit
+
+| Player | Feedback | Setup or feature |
+| --- | --- | --- |
+| u/ssjucrono | “I have been using nightjar and reporting issues to the developer! It has been great!” | Vibepollo host and DualSense haptics |
+| u/wolf0x | “much more plug and play and easier to understand.” | Android setup and settings |
+| u/Ayeeebroham | “Yo, this is great work. I just started using it and it is going to replace Artemide for me.” | Android with PyroWave |
+| u/Potential_Sorbet1809 | “the vrr works wonders” | Galaxy S25 Ultra, adaptive refresh |
+| u/hannahmanaman | “Holy crap using this with butter pollo made sekiro feel like native on my phone, firestick and Google 4k streamer.” | Nightjar with Rubylight (then Butterpollo) |
+| u/jdconoly | “Switched to the system driver and it works perfect! Thank you so much for making this!” | PyroWave after changing from a custom Turnip driver |
+
+</details>
+
+Public feedback collected in November 2026. These are excerpts from individual experiences on the versions and setups named; the full reports also include follow-up questions and issues. Our own measurements are under [Measured performance](#measured-performance).
+
+## Recently added
+
+- **Moonlit glass on every screen.** Home, PCs, game pages, Settings and the stream menu share the new look on Android, Windows and Linux, with System, Dark and OLED themes on Android and a plain high-contrast look. [Interface tour](docs/console.md)
+- **Home for more hosts on Android.** Home appears once a paired PC has supplied its app list, including Sunshine, Apollo and other hosts without a native library API. Rubylight adds store shelves, collections and the richer game pages.
+- **Dual screens and foldables.** Stream to a device's second screen at its own resolution, with sound and controls staying on the first; this needs a Rubylight host with dual-screen support (3.11.0 or newer; 3.11.1 gives the second screen a separate display). Android also offers **Ready the decoder for folding** under Streaming. [Settings](docs/settings.md)
+- **A bitrate that follows your chosen format.** Android's **Automatic bitrate** switch chooses the default for the resolution, frame rate and codec. **Device controls bitrate** separately adapts to the connection during play. [Settings](docs/settings.md#streaming) · [Automatic quality](docs/recovery-and-quality.md)
+- **Linux HDR and more GPU decoding paths.** HDR10 output on compatible desktop compositors, GPU-resident NVIDIA NVDEC and Intel VA-API full-chroma pictures where supported, and packages for ARM64 handhelds and boards as well as x86-64. [Desktop client](protocol/desktop/README.md) · [4.12.0 details and validation limits](https://github.com/RamazanKara/nightjar/releases/tag/v4.12.0)
+- **More ways to play and control the PC.** An on-screen pad that can be its own player on Android, reorderable keyboard shortcuts, and configurable stream-menu controller shortcuts. With a capable Rubylight host: **Continue here**, **Stream here too**, Steam collections and Playnite categories, pairing approval, and PC power and update controls. [Controls](docs/controls.md) · [Home and sessions](docs/console.md)
+- **Faster frame handling and clearer diagnostics.** Completed error-correction blocks are processed as they arrive, lost blocks are reported sooner, and decoder drops have their own counter. Android's **Adaptive refresh** is offered only on Android 16 screens that support ARR. [Video and latency](docs/video-and-latency.md)
+- **Open straight into a game.** Choose the last game or a specific game at startup, with a countdown you can cancel. Windows and Linux can start Nightjar at sign-in; AppImage updates can be installed from the app. [Feature overview](docs/features.md#interface)
+
 <p align="center">
   <a href="https://ramazankara.github.io/nightjar/assets/trailer-16x9.mp4"><img src="docs/assets/nightjar-trailer.webp" width="880" alt="Nightjar trailer: Home on a TV, its glass tinted by each focused cover, a game's page, a handheld stream with the performance overlay, the stream menu, Radeon settings and the PC keyboard, picture-in-picture on a phone, the feature list and the supported platforms (offline demo library)"></a><br>
   <sub><a href="https://ramazankara.github.io/nightjar/assets/trailer-16x9.mp4"><b>▶ Watch the full trailer</b></a></sub>
@@ -119,7 +177,7 @@ No accounts, advertising or analytics, and nothing sent to its developers. Video
 </tr>
 </table>
 
-<sub>Screenshots and the trailer use Nightjar's offline demo with a sample library and an original test animation; the performance numbers shown in them are illustrations. Measured results are [below](#measured-performance). Home, store shelves and game pages need a host with the native library API (Rubylight 3.0).</sub>
+<sub>Screenshots and the trailer use Nightjar's offline demo with a sample library and an original test animation; the performance numbers shown in them are illustrations. Measured results are [below](#measured-performance). Store shelves and the richer game pages need a host with the native library API (Rubylight 3.0); Android's Home also shows app lists from other paired hosts.</sub>
 
 ## Everything in the box
 
@@ -127,12 +185,12 @@ No accounts, advertising or analytics, and nothing sent to its developers. Video
 - **Timing.** Follows the display's refresh rate, including Android's adaptive refresh and VRR on the desktop. Hosts that support it receive phase-lock reports, so frames arrive just before the display needs them. The desktop client can also [beam race](docs/beam-racing.md).
 - **Network.** **Device controls bitrate** adapts to loss, round-trip variation and decode headroom. Bitrate and frame rate can change during a stream, and error correction can follow measured loss, with hosts that accept it. **Recover interrupted streams**, on by default, returns to the running game after a transient failure, and **Ride out network drops** holds a stream through up to 60 seconds of silence.
 - **Sound.** Stereo, 5.1, 7.1 and 7.1.4. Passthrough of PCM, Dolby Digital or Dolby Digital Plus to a receiver, soundbar or TV. A microphone with echo cancellation on every platform, plus noise suppression, gain and one-tap mute on Android.
-- **Controls.** Up to 16 controllers with mapping per model. Direct USB drivers for DualSense (adaptive triggers, lightbar and haptics), Xbox and Switch Pro controllers. Trackpad, direct, multi-touch and local-cursor touch modes, native pen input, on-screen controls on Android, and a soft keyboard that opens when a text field on the PC takes focus.
-- **Library.** With a Rubylight 3.0 PC, Home merges every paired PC's games, with a shelf per store on a TV, a page per game and Wake-on-LAN. Games from any host launch from Android TV's home screen, Beacon, ES-DE, Daijisho, Pegasus and the desktop command line.
+- **Controls.** Up to 16 controllers with mapping per model. Direct USB drivers for DualSense (adaptive triggers, lightbar and haptics), Xbox and Switch Pro controllers. Trackpad, direct, multi-touch and local-cursor touch modes, native pen input, an on-screen pad on Android that can be its own player, and a soft keyboard that opens when a text field on the PC takes focus.
+- **Library.** With a Rubylight 3.0 PC, Home merges every paired PC's games, with a shelf per store on a TV, Steam collections and Playnite categories, a page per game and Wake-on-LAN. On Android, Home also shows app lists from other paired hosts. Games from any host launch from Android TV's home screen, Beacon, ES-DE, Daijisho, Pegasus and the desktop command line.
 - **Sharing.** With a Rubylight 3.0 PC: clipboard sync in both directions, clipboard images, file transfer, the PC's shared folders, and USB devices forwarded to the PC.
 - **Co-op.** Take a free player slot in a Rubylight 3.0 PC's split-screen co-op session, or go back to your own seat.
 - **Diagnostics.** A performance overlay in three levels of detail, a [stream health](docs/stream-health.md) report that explains stutter, an input latency test, a decoder benchmark that runs without a PC, frame timings as CSV, a connection test and redacted problem reports.
-- **Comfort.** Every screen works with a controller or a TV remote as well as touch, mouse and keyboard. Layered settings with search and presets, high contrast, reduced motion, screen reader support, and 15 languages on Android.
+- **Comfort.** Every screen works with a controller or a TV remote as well as touch, mouse and keyboard. Layered settings with search and presets, high contrast, reduced motion, screen reader support, and the same 15 languages on Android, Windows and Linux.
 
 The [feature overview](docs/features.md) lists everything, with a link to each guide.
 

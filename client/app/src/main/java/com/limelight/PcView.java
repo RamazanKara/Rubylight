@@ -1061,6 +1061,9 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
             com.limelight.update.HostUpdateChecker.check(this, details.caps, pcGridAdapter::notifyDataSetChanged);
         }
         findRunningGame(existingEntry);
+        // The first saved app list of a PC without the native API makes Home available.
+        View home = details.rawAppList != null ? findViewById(R.id.shell_home) : null;
+        if (home != null && home.getVisibility() != View.VISIBLE) ShellBar.refresh(this);
 
         // Notify the view that the data has changed
         pcGridAdapter.notifyDataSetChanged();

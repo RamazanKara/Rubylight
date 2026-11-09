@@ -62,6 +62,15 @@ public class ShellNavigationTest {
         assertTrue(new File(directory, "tower.json").createNewFile());
     }
 
+    /** What the app list poller leaves behind for a paired PC, with the capabilities it last reported. */
+    private void cacheAnAppList(String uuid, com.limelight.nvstream.http.HostCapabilities caps) throws Exception {
+        com.limelight.computers.HostCapabilityCache.save(context, uuid, caps);
+        File directory = new File(context.getCacheDir(), "applist");
+        assertTrue(directory.isDirectory() || directory.mkdirs());
+        java.nio.file.Files.write(new File(directory, uuid).toPath(),
+                "<root status_code=\"200\"><App><AppTitle>Steam</AppTitle><ID>1</ID></App></root>".getBytes());
+    }
+
     private void turnHomeOff() {
         PreferenceManager.getDefaultSharedPreferences(context).edit().putBoolean(HomeSettings.PREF_KEY, false).commit();
     }
@@ -113,6 +122,47 @@ public class ShellNavigationTest {
         turnHomeOff();
         assertEquals("the setting turns Home off as the launch screen", Destination.PCS, ShellBar.root(context));
         assertTrue("but its games are still one tap away", ShellBar.homeAvailable(context));
+    }
+
+    @Test
+    public void aPairedPcWithoutTheNativeApiShowsHomeOnceItsAppListIsSavedButKeepsThePcsRoot() throws Exception {
+        assertFalse("no PC, no app list", ShellBar.homeAvailable(context));
+        cacheAnAppList("vibepollo", com.limelight.nvstream.http.TestHosts.fixture("vibepollo-serverinfo.xml"));
+        assertTrue(ShellBar.homeAvailable(context));
+        assertEquals("the app still opens on the list of PCs", Destination.PCS, ShellBar.root(context));
+        assertEquals(Destination.HOME, ShellBar.next(Destination.PCS, false, ShellBar.homeAvailable(context)));
+    }
+
+    @Test
+    public void aNativeApiPcStillNeedsItsLibraryForHome() throws Exception {
+        com.limelight.nvstream.http.HostCapabilities rubylight = com.limelight.nvstream.http.TestHosts.rubylight();
+        assertTrue(rubylight.has(com.limelight.nvstream.http.HostCapabilities.Feature.NATIVE_API));
+        cacheAnAppList("tower", rubylight);
+        assertFalse("its classic list does not count", ShellBar.homeAvailable(context));
+        cacheALibrary();
+        assertTrue(ShellBar.homeAvailable(context));
+    }
+
+    @Test
+    public void anEmptyAppListFileDoesNotShowHome() throws Exception {
+        File directory = new File(context.getCacheDir(), "applist");
+        assertTrue(directory.isDirectory() || directory.mkdirs());
+        assertTrue(new File(directory, "vibepollo").createNewFile());
+        assertFalse(ShellBar.homeAvailable(context));
+    }
+
+    @Test
+    public void thePcsScreenShowsHomeForAPcWithoutTheNativeApi() throws Exception {
+        cacheAnAppList("vibepollo", com.limelight.nvstream.http.TestHosts.fixture("vibepollo-serverinfo.xml"));
+        ActivityController<PcViewLifecycleTest.Library> controller = pcs();
+        try {
+            ViewGroup bar = controller.get().findViewById(R.id.shell_bar);
+            assertEquals(java.util.Arrays.asList(R.id.shell_home, R.id.shell_pcs, R.id.shell_settings),
+                    visibleButtons(controller.get(), bar));
+            assertEquals(java.util.Collections.singletonList(R.id.shell_pcs), selectedButtons(bar));
+        } finally {
+            controller.pause().stop().destroy();
+        }
     }
 
     @Test

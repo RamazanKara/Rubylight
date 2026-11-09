@@ -4,6 +4,7 @@ import android.content.Context;
 
 import com.limelight.LimeLog;
 import com.limelight.binding.PlatformBinding;
+import com.limelight.computers.HostCapabilityCache;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
@@ -111,6 +112,21 @@ public final class ConsoleRepository {
     public static boolean hasAnyLibrary(Context context) {
         String[] files = libraryDirectory(context.getApplicationContext()).list((dir, name) -> name.endsWith(".json"));
         return files != null && files.length > 0;
+    }
+
+    /**
+     * True when some PC without the native API has an app list saved, which Home shows as that PC's games. The poller
+     * saves one only for a paired PC, and removing the PC deletes it. A PC with the native API counts by its library
+     * alone ({@link #hasAnyLibrary}), as before.
+     */
+    public static boolean hasClassicAppList(Context context) {
+        Context app = context.getApplicationContext();
+        File[] lists = new File(app.getCacheDir(), "applist").listFiles(file -> file.isFile() && file.length() > 0);
+        if (lists == null) return false;
+        for (File list : lists) {
+            if (!HostCapabilityCache.load(app, list.getName()).has(HostCapabilities.Feature.NATIVE_API)) return true;
+        }
+        return false;
     }
 
     /** True when the app holds the last library of this host. */

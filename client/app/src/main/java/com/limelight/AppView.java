@@ -1257,6 +1257,8 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
                     return;
                 }
                 lastAppListEmpty = appList.isEmpty();
+                // The first saved list of a PC without the native API makes Home available.
+                ShellBar.refresh(AppView.this);
                 showAppListStatus(!computer.hasPermission(ComputerDetails.PERMISSION_LIST) ?
                         R.string.applist_permission_required : appList.isEmpty() ? R.string.library_no_apps : 0);
                 boolean updated = false;

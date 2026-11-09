@@ -69,9 +69,21 @@ public class DirectDecodeUnitSubmitTest {
         }
     }
 
-    // An HEVC picture whose FEC padding (the zeros) Dolby Vision's trim drops.
-    private static final byte[] PICTURE = {0, 0, 0, 1, 0x02, 0x01, (byte) 0xd0, 0x11, 0x22, 0x33, 0x44, 0, 0, 0};
-    private static final int TRIMMED = 11;
+    private static final byte[] AUD = Hdr10PlusSeiTest.bytes(Hdr10PlusSeiTest.HEVC_AUD);
+    private static final byte[] HDR10_PLUS = Hdr10PlusSeiTest.bytes(Hdr10PlusSeiTest.HEVC_SEI);
+    private static final byte[] VIVID = Hdr10PlusSeiTest.bytes(Hdr10PlusSeiTest.HEVC_VIVID);
+    private static final byte[] SLICE = Hdr10PlusSeiTest.bytes(Hdr10PlusSeiTest.HEVC_SLICE);
+    private static final byte[] PADDING = new byte[37];
+    // An HEVC picture as the host sends HDR: both dynamic metadata SEIs, the slice, then FEC padding
+    // (the zeros) that Dolby Vision's trim drops.
+    private static final byte[] PICTURE = concat(AUD, HDR10_PLUS, VIVID, SLICE, PADDING);
+    private static final int TRIMMED = PICTURE.length - PADDING.length;
+
+    private static byte[] concat(byte[]... parts) {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        for (byte[] part : parts) out.write(part, 0, part.length);
+        return out.toByteArray();
+    }
 
     private ActivityController<Activity> activity;
     private SurfaceTexture texture;
@@ -120,10 +132,29 @@ public class DirectDecodeUnitSubmitTest {
     }
 
     private int submitDirect() {
+        return submitDirect(direct());
+    }
+
+    private int submitDirect(ByteBuffer direct) {
         frame++;
-        return renderer.submitDirectDecodeUnit(direct(), PICTURE.length, MoonBridge.BUFFER_TYPE_PICDATA, frame,
+        return renderer.submitDirectDecodeUnit(direct, PICTURE.length, MoonBridge.BUFFER_TYPE_PICDATA, frame,
                 frame == 1 ? MoonBridge.FRAME_TYPE_IDR : MoonBridge.FRAME_TYPE_PFRAME, (char) 0,
                 frame * 16_000L, frame * 16_000L, frame * 16_000_000L, frame * 16_000L);
+    }
+
+    private int submitArray() {
+        frame++;
+        // In a larger reused buffer, as the bridge passes it: only the length counts.
+        byte[] array = Arrays.copyOf(PICTURE, PICTURE.length + 16);
+        Arrays.fill(array, PICTURE.length, array.length, (byte) 0x55);
+        return renderer.submitDecodeUnit(array, PICTURE.length, MoonBridge.BUFFER_TYPE_PICDATA, frame,
+                frame == 1 ? MoonBridge.FRAME_TYPE_IDR : MoonBridge.FRAME_TYPE_PFRAME, (char) 0,
+                frame * 16_000L, frame * 16_000L, frame * 16_000_000L, frame * 16_000L);
+    }
+
+    // The base class's array copy of a frame handed over in place: never made for picture data.
+    private Object directCopy() {
+        return ReflectionHelpers.getField(renderer, "directCopy");
     }
 
     // The state submitDirectDecodeUnit leaves when a switch turned on after its check: the frame in place
@@ -148,7 +179,7 @@ public class DirectDecodeUnitSubmitTest {
     public void withNothingReadingTheBytesTheWholeFrameGoesInPlace() {
         assertEquals(MoonBridge.DR_OK, submitDirect());
         assertQueued(PICTURE.length);
-        assertNull(ReflectionHelpers.getField(renderer, "directArray"));
+        assertNull(directCopy());
     }
 
     @Test
@@ -156,6 +187,7 @@ public class DirectDecodeUnitSubmitTest {
         ReflectionHelpers.setField(renderer, "dolbyVisionActive", true);
         assertEquals(MoonBridge.DR_OK, submitDirect());
         assertQueued(TRIMMED);
+        assertNull(directCopy());
     }
 
     @Test
@@ -169,19 +201,64 @@ public class DirectDecodeUnitSubmitTest {
     @Test
     public void theVividDropReadsADirectFrame() {
         ReflectionHelpers.setField(renderer, "vividSeiDropDecoder", "c2.mtk.hevc.decoder");
+        byte[] withoutVivid = concat(AUD, HDR10_PLUS, SLICE, PADDING);
         assertEquals(MoonBridge.DR_OK, submitDirect());
-        assertQueued(PICTURE.length);
+        assertArrayEquals(withoutVivid, CapturingCodec.queuedBytes);
         assertEquals(MoonBridge.DR_OK, submitAfterTheCheck());
-        assertQueued(PICTURE.length);
+        assertArrayEquals(withoutVivid, CapturingCodec.queuedBytes);
+        assertNull(directCopy());
     }
 
     @Test
     public void theVulkanHdr10PlusParseReadsADirectFrame() {
+        useVulkan();
         ReflectionHelpers.setField(renderer, "vulkanHdr10Plus", true);
-        ReflectionHelpers.setField(renderer, "currentHdrMode", Boolean.TRUE);
         assertEquals(MoonBridge.DR_OK, submitDirect());
         assertQueued(PICTURE.length);
+        assertArrayEquals(Hdr10PlusSeiTest.bytes(Hdr10PlusSeiTest.T35),
+                (byte[]) ReflectionHelpers.getField(renderer, "vulkanHdr10PlusNoted"));
         assertEquals(MoonBridge.DR_OK, submitAfterTheCheck());
         assertQueued(PICTURE.length);
+        assertNull(directCopy());
+    }
+
+    // A renderer without a native one behind it: what the frame notes reach is dropped.
+    private void useVulkan() {
+        ReflectionHelpers.setField(renderer, "vulkanRenderer", ReflectionHelpers.callConstructor(
+                VulkanRendererBridge.class, ClassParameter.from(long.class, 0L)));
+        ReflectionHelpers.setField(renderer, "currentHdrMode", Boolean.TRUE);
+    }
+
+    @Test
+    public void everyCombinationQueuesFromPlaceWhatTheArrayQueues() {
+        useVulkan();
+        for (int combination = 0; combination < 8; combination++) {
+            boolean dolbyVision = (combination & 1) != 0;
+            boolean vivid = (combination & 2) != 0;
+            boolean hdr10Plus = (combination & 4) != 0;
+            String name = "Dolby Vision " + dolbyVision + ", Vivid drop " + vivid + ", HDR10+ parse " + hdr10Plus;
+            ReflectionHelpers.setField(renderer, "dolbyVisionActive", dolbyVision);
+            ReflectionHelpers.setField(renderer, "vividSeiDropDecoder", vivid ? "c2.mtk.hevc.decoder" : null);
+            ReflectionHelpers.setField(renderer, "vulkanHdr10Plus", hdr10Plus);
+            byte[] expected = concat(AUD, HDR10_PLUS, vivid ? new byte[0] : VIVID, SLICE,
+                    dolbyVision ? new byte[0] : PADDING);
+            byte[] t35 = hdr10Plus ? Hdr10PlusSeiTest.bytes(Hdr10PlusSeiTest.T35) : null;
+
+            ReflectionHelpers.setField(renderer, "vulkanHdr10PlusNoted", null);
+            assertEquals(name, MoonBridge.DR_OK, submitArray());
+            byte[] fromArray = CapturingCodec.queuedBytes;
+            assertArrayEquals(name, expected, fromArray);
+            assertArrayEquals(name, t35, (byte[]) ReflectionHelpers.getField(renderer, "vulkanHdr10PlusNoted"));
+
+            ReflectionHelpers.setField(renderer, "vulkanHdr10PlusNoted", null);
+            ByteBuffer direct = direct();
+            assertEquals(name, MoonBridge.DR_OK, submitDirect(direct));
+            assertArrayEquals(name, fromArray, CapturingCodec.queuedBytes);
+            assertArrayEquals(name, t35, (byte[]) ReflectionHelpers.getField(renderer, "vulkanHdr10PlusNoted"));
+            // Read where it is: no array copy, and the engine's buffer as it was handed over.
+            assertNull(name, directCopy());
+            assertEquals(name, PICTURE.length, direct.position());
+            assertEquals(name, PICTURE.length, direct.limit());
+        }
     }
 }

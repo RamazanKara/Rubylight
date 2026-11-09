@@ -228,6 +228,58 @@ public class HdrBitstreamTest {
         assertArrayEquals(concat(CSD, au), java.util.Arrays.copyOf(buffer.array(), buffer.position()));
     }
 
+    private static java.nio.ByteBuffer direct(byte[] data, int extra) {
+        java.nio.ByteBuffer direct = java.nio.ByteBuffer.allocateDirect(data.length + extra);
+        direct.put(data);
+        // Bytes past the decode unit's length are an older frame's.
+        for (int i = 0; i < extra; i++) direct.put((byte) 0x55);
+        return direct;
+    }
+
+    @Test
+    public void aFrameHandedOverInPlaceQueuesTheSameBytesAsItsArray() {
+        byte[] hdr10Plus = t35Sei(HDR10_PLUS, 20);
+        byte[] vivid = t35Sei(VIVID, 300);
+        byte[][] frames = {
+                concat(AUD, slice()),
+                accessUnit(1391),
+                concat(AUD, hdr10Plus, vivid, slice()),
+                concat(AUD, hdr10Plus, vivid, slice(), rpu(), new byte[1391]),
+                concat(vivid, slice(), rpu()),
+                concat(AUD, t35Sei(VIVID, 10)),
+        };
+        for (byte[] frame : frames) {
+            for (boolean dolbyVision : new boolean[] {false, true}) {
+                for (boolean dropVivid : new boolean[] {false, true}) {
+                    java.nio.ByteBuffer direct = direct(frame, 50);
+                    int position = direct.position();
+                    int limit = direct.limit();
+
+                    int length = HdrBitstream.queuedLength(dolbyVision, frame, frame.length);
+                    assertEquals(length, HdrBitstream.queuedLength(dolbyVision, direct, frame.length));
+                    assertEquals(HdrBitstream.tail(frame, length, 8), HdrBitstream.tail(direct, length, 8));
+                    int[] arrayRange = new int[2];
+                    int[] directRange = new int[2];
+                    int[] drop = dropVivid && HdrBitstream.findVividSei(frame, length, arrayRange) ? arrayRange : null;
+                    assertEquals(drop != null, dropVivid && HdrBitstream.findVividSei(direct, length, directRange));
+                    if (drop != null) assertArrayEquals(arrayRange, directRange);
+
+                    java.nio.ByteBuffer fromArray = java.nio.ByteBuffer.allocate(8192);
+                    java.nio.ByteBuffer fromDirect = java.nio.ByteBuffer.allocate(8192);
+                    fromArray.put(CSD);
+                    fromDirect.put(CSD);
+                    HdrBitstream.put(fromArray, frame, length, drop);
+                    HdrBitstream.put(fromDirect, direct, length, drop);
+                    assertEquals(CSD.length + HdrBitstream.putLength(length, drop), fromDirect.position());
+                    assertArrayEquals(java.util.Arrays.copyOf(fromArray.array(), fromArray.position()),
+                            java.util.Arrays.copyOf(fromDirect.array(), fromDirect.position()));
+                    assertEquals(position, direct.position());
+                    assertEquals(limit, direct.limit());
+                }
+            }
+        }
+    }
+
     @Test
     public void theLoggedTailEndsAtTheRpuStopByte() {
         byte[] au = accessUnit(5);

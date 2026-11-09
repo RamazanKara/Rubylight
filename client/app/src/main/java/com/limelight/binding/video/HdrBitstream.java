@@ -2,6 +2,9 @@ package com.limelight.binding.video;
 
 import com.limelight.nvstream.jni.MoonBridge;
 
+import java.nio.Buffer;
+import java.nio.ByteBuffer;
+
 /**
  * HDR fixes to an HEVC access unit on its way to the decoder, apart from MediaCodec so they can be
  * tested with made-up bytes.
@@ -22,9 +25,17 @@ public final class HdrBitstream {
      * the picture or the RPU is lost.
      */
     public static int queuedLength(boolean dolbyVision, byte[] data, int length) {
+        return queuedLength(dolbyVision, ByteBuffer.wrap(data), length);
+    }
+
+    /**
+     * {@link #queuedLength(boolean, byte[], int)} for a frame handed over in place: offsets count from
+     * the buffer's start, and its position and limit stay as they are (as in every method here).
+     */
+    public static int queuedLength(boolean dolbyVision, ByteBuffer data, int length) {
         if (!dolbyVision) return length;
         int end = length;
-        while (end > 0 && data[end - 1] == 0) {
+        while (end > 0 && data.get(end - 1) == 0) {
             end--;
         }
         return end;
@@ -71,11 +82,15 @@ public final class HdrBitstream {
      * prefix SEI NAL unit (hdr_dynamic::hevc_t35_sei), before the first slice.
      */
     public static boolean findVividSei(byte[] data, int length, int[] range) {
+        return findVividSei(ByteBuffer.wrap(data), length, range);
+    }
+
+    public static boolean findVividSei(ByteBuffer data, int length, int[] range) {
         int code = startCode(data, 0, length);
         while (code >= 0) {
             int header = code + 3;
             if (header + 1 >= length) return false;
-            int type = (data[header] >> 1) & 0x3F;
+            int type = (data.get(header) >> 1) & 0x3F;
             if (type <= HEVC_LAST_VCL) return false;
             int next = startCode(data, header, length);
             int end = next < 0 ? length : unitStart(data, next);
@@ -99,7 +114,7 @@ public final class HdrBitstream {
      * already holds (the parameter sets of a fused IDR frame), without the bytes from
      * {@code drop[0]} to {@code drop[1]} unless {@code drop} is null.
      */
-    public static void put(java.nio.ByteBuffer buffer, byte[] data, int length, int[] drop) {
+    public static void put(ByteBuffer buffer, byte[] data, int length, int[] drop) {
         if (drop == null) {
             buffer.put(data, 0, length);
         } else {
@@ -108,43 +123,66 @@ public final class HdrBitstream {
         }
     }
 
+    /** {@link #put(ByteBuffer, byte[], int, int[])} from a frame handed over in place, in bulk. */
+    public static void put(ByteBuffer buffer, ByteBuffer data, int length, int[] drop) {
+        if (drop == null) {
+            buffer.put(range(data, 0, length));
+        } else {
+            buffer.put(range(data, 0, drop[0]));
+            buffer.put(range(data, drop[1], length));
+        }
+    }
+
+    /** The bytes of {@code data} from {@code from} to {@code end}, in a view that leaves its position and limit alone. */
+    static ByteBuffer range(ByteBuffer data, int from, int end) {
+        ByteBuffer view = data.duplicate();
+        // Buffer's own position and limit: old Android lacks ByteBuffer's covariant ones.
+        ((Buffer) view).limit(end);
+        ((Buffer) view).position(from);
+        return view;
+    }
+
     /** Whether the SEI payload at {@code at} is a T.35 message with the HDR Vivid header. */
-    private static boolean isVivid(byte[] data, int at, int end) {
+    private static boolean isVivid(ByteBuffer data, int at, int end) {
         int payloadType = 0;
-        while (at < end && data[at] == (byte) 0xFF) {
+        while (at < end && data.get(at) == (byte) 0xFF) {
             payloadType += 255;
             at++;
         }
-        if (at >= end || payloadType + (data[at++] & 0xFF) != SEI_USER_DATA_REGISTERED_ITU_T_T35) return false;
+        if (at >= end || payloadType + (data.get(at++) & 0xFF) != SEI_USER_DATA_REGISTERED_ITU_T_T35) return false;
         // The size, whose value does not matter here.
-        while (at < end && data[at] == (byte) 0xFF) at++;
+        while (at < end && data.get(at) == (byte) 0xFF) at++;
         at++;
         if (at + VIVID_T35.length > end) return false;
         for (int i = 0; i < VIVID_T35.length; i++) {
-            if (data[at + i] != VIVID_T35[i]) return false;
+            if (data.get(at + i) != VIVID_T35[i]) return false;
         }
         return true;
     }
 
     /** The offset of the next 00 00 01 at or after {@code from}, or -1. */
-    private static int startCode(byte[] data, int from, int length) {
+    static int startCode(ByteBuffer data, int from, int length) {
         for (int i = from; i + 2 < length; i++) {
-            if (data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1) return i;
+            if (data.get(i) == 0 && data.get(i + 1) == 0 && data.get(i + 2) == 1) return i;
         }
         return -1;
     }
 
     /** A start code's offset, with the zero_byte of a four-byte start code. */
-    private static int unitStart(byte[] data, int code) {
-        return code > 0 && data[code - 1] == 0 ? code - 1 : code;
+    private static int unitStart(ByteBuffer data, int code) {
+        return code > 0 && data.get(code - 1) == 0 ? code - 1 : code;
     }
 
     /** The bytes before {@code end}, at most {@code count}, as hex for a log line. */
     static String tail(byte[] data, int end, int count) {
+        return tail(ByteBuffer.wrap(data), end, count);
+    }
+
+    static String tail(ByteBuffer data, int end, int count) {
         StringBuilder hex = new StringBuilder();
         for (int i = Math.max(0, end - count); i < end; i++) {
             if (hex.length() != 0) hex.append(' ');
-            hex.append(String.format("%02x", data[i] & 0xff));
+            hex.append(String.format("%02x", data.get(i) & 0xff));
         }
         return hex.toString();
     }

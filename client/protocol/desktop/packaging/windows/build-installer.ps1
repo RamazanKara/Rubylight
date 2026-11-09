@@ -195,6 +195,28 @@ function New-TestFile([string]$path) {
     New-Item -ItemType Directory -Force (Split-Path $path) | Out-Null
     Set-Content -NoNewline -Path $path -Value "nightjar smoke: $([IO.Path]::GetFileName($path))"
 }
+
+# The uninstaller's temporary copy can still be removing settings after the install folder goes.
+# Wait for the full expected set; a directory disappearing during enumeration is transient too.
+function Wait-SettingsFiles([string]$path, [string[]]$expected, [int]$TimeoutSeconds = 30) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $wanted = ($expected | Sort-Object) -join ', '
+    do {
+        try {
+            $left = @(Get-ChildItem -LiteralPath $path -Recurse -File -ErrorAction Stop |
+                ForEach-Object { $_.FullName.Substring($path.Length + 1) } | Sort-Object)
+        } catch {
+            $missing = $_.CategoryInfo.Category -eq [Management.Automation.ErrorCategory]::ObjectNotFound -or
+                $_.Exception -is [IO.DirectoryNotFoundException]
+            if (-not $missing) { throw }
+            $left = @('<settings cleanup is still running>')
+        }
+        if (($left -join ', ') -eq $wanted) { return }
+        if ((Get-Date) -ge $deadline) { break }
+        Start-Sleep -Milliseconds 250
+    } while ($true)
+    throw "/REMOVESETTINGS left $path with: $($left -join ', '); expected: $wanted"
+}
 # Every file of the zip is installed, byte for byte.
 function Assert-MatchesZip {
     $unpacked = "$dir.zip"
@@ -359,8 +381,7 @@ try {
     # /REMOVESETTINGS (the box in the dialog) removes the client's files and keeps the user's own.
     Invoke-Silent $dataSetup @("/DIR=`"$dir`"")
     Remove-Install @('/REMOVESETTINGS')
-    $left = @(Get-ChildItem $config -Recurse -File | ForEach-Object { $_.FullName.Substring($config.Length + 1) } | Sort-Object)
-    if (($left -join ', ') -ne (($userFiles | Sort-Object) -join ', ')) { throw "/REMOVESETTINGS left $config with: $($left -join ', ')" }
+    Wait-SettingsFiles $config $userFiles
     # Without files of the user's own, the folder goes as a whole.
     Remove-Item -Recurse -Force (Join-Path $config 'screenshots'), (Join-Path $config 'statistics')
     New-TestFile $settings

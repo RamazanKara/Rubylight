@@ -1,4 +1,88 @@
 use super::*;
+use crate::capture::{Device, GpuImage, Image, Pixel};
+
+#[test]
+#[ignore = "requires native D3D11/D3D12 planar conversion"]
+fn completed_planar_slots_retain_resources_until_their_views_are_replaced() -> Result<()> {
+    let _com = crate::capture::ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let compute = Compute::for_device(&gpu.device)?;
+    let config = butterpollo_core::rtsp::Negotiated {
+        width: 64,
+        height: 64,
+        codec: 3,
+        yuv444: true,
+        ..Default::default()
+    };
+    let image = GpuImage::upload(
+        &gpu,
+        &Image {
+            width: 64,
+            height: 64,
+            stride: 256,
+            bytes: [32, 64, 128, 255].repeat(64 * 64),
+            pixel: Pixel::Bgra8,
+            captured: std::time::Instant::now(),
+        },
+    )?;
+    let outputs = crate::gpu_color::PlanarConverter::new(&gpu, &config, (64, 64, Pixel::Bgra8))?;
+    let mut target = Planes {
+        planes: [
+            compute.open(&outputs.textures[0])?,
+            compute.open(&outputs.textures[1])?,
+            compute.open(&outputs.textures[2])?,
+        ],
+        format: DXGI_FORMAT_R8_UNORM,
+        // SAFETY: The test owns this fence on its compute device.
+        fence: unsafe { compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? },
+        after: 0,
+        done: 1,
+    };
+    let key = (
+        target.planes.each_ref().map(|p| p.as_raw() as usize),
+        target.format.0,
+    );
+    let source = compute.open(&image.texture)?;
+    let mut converter = Converter::new(compute.clone(), 64, 64, false)?;
+    converter.values =
+        crate::gpu_color::constants(&config, (64, 64, Pixel::Bgra8), [100., 1.], None);
+    converter.values[11] = 1;
+    for frame in 0..(SLOTS * 2) as u64 {
+        let slot = converter.slot;
+        target.after = frame;
+        target.done = frame + 1;
+        converter.convert_planes(
+            &source,
+            format(Pixel::Bgra8),
+            None,
+            None,
+            &target,
+            Some(&image),
+        )?;
+        compute.wait(converter.slots[slot].last())?;
+        converter.release_completed();
+        let completed = &converter.slots[slot];
+        assert!(completed.capture.is_none());
+        assert!(completed.inputs.iter().all(Option::is_none));
+        assert_eq!(completed.planar_view, Some(key));
+        assert_eq!(
+            completed.outputs.len(),
+            3,
+            "cached views must retain their planes"
+        );
+    }
+    // A normal conversion into the same slot replaces the planar descriptors
+    // and releases the retained plane references after its work completes.
+    let slot = converter.slot;
+    converter.values[11] = 0;
+    converter
+        .convert(&source, format(Pixel::Bgra8), None, &image)?
+        .wait()?;
+    converter.release_completed();
+    assert!(converter.slots[slot].planar_view.is_none());
+    assert!(converter.slots[slot].outputs.is_empty());
+    Ok(())
+}
 
 #[test]
 fn pq_input_is_rejected_only_for_sdr_output() {

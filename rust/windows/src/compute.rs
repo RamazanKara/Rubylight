@@ -659,6 +659,10 @@ struct Slot {
     /// The target whose luma and chroma UAVs are in the slot's `at(2..4)`, so
     /// a repeated conversion into it does not recreate them.
     target_view: Option<usize>,
+    /// The PyroWave planes whose three UAVs are in the slot's `at(2..=4)`, with
+    /// their format, so a repeated conversion of the encoder's planes does not
+    /// recreate them. The slot's `outputs` keep the planes alive while cached.
+    planar_view: Option<([usize; 3], i32)>,
 }
 impl Slot {
     /// When the slot's submitted lists stop reading its inputs and views.
@@ -852,6 +856,7 @@ impl Converter {
                     waits: Vec::new(),
                     stats: 0,
                     target_view: None,
+                    planar_view: None,
                 });
             }
             Ok(Self {
@@ -1031,7 +1036,12 @@ impl Converter {
             if slot.stats != hdr_stats::QUEUED && self.compute.completed(slot.last()) {
                 slot.capture = None;
                 slot.inputs = [None, None, None];
-                slot.outputs.clear();
+                // Cached planar descriptors use resource addresses as their key.
+                // Keep their resources alive until those descriptors are replaced,
+                // so a new allocation cannot reuse an address still in the cache.
+                if slot.planar_view.is_none() {
+                    slot.outputs.clear();
+                }
                 slot.waits.clear();
             }
         }
@@ -1229,6 +1239,8 @@ impl Converter {
                     at(3),
                 );
                 self.slots[slot].target_view = Some(index);
+                // `convert` overwrites `at(2..4)` with its own two UAVs.
+                self.slots[slot].planar_view = None;
             }
             let Slot {
                 allocator, list, ..
@@ -1367,7 +1379,7 @@ impl Converter {
         self.compute.wait(self.slots[slot].last())?;
         self.slots[slot].capture = None;
         self.reset_hdr_stats(slot);
-        // `convert_planes` writes planar UAVs into `at(2..4)`; a later `convert`
+        // `convert_planes` writes planar UAVs into `at(2..=4)`; a later `convert`
         // into this slot must make its own target views there.
         self.slots[slot].target_view = None;
         let menu = self.menu_pass(slot, b"pyro_menu_cs\0", 2, 3, [2, 2])?;
@@ -1388,6 +1400,16 @@ impl Converter {
         if let Some(focus) = self.focus.as_deref_mut() {
             focus.written[slot] = false;
         }
+        // `ComputePlanes` passes the encoder's same three planes every frame, so
+        // their UAVs are only remade when the planes or their format change. The
+        // slot's `outputs` keep them alive while their views are cached.
+        let planar_key = (
+            target
+                .planes
+                .each_ref()
+                .map(|plane| plane.as_raw() as usize),
+            target.format.0,
+        );
         // SAFETY: As in `convert`, the slot is idle; `target`'s planes are on `compute.device`.
         unsafe {
             self.write_values(slot);
@@ -1403,13 +1425,16 @@ impl Converter {
                 Some(&texture_srv(DXGI_FORMAT_R8G8B8A8_UNORM)),
                 at(1),
             );
-            for (index, plane) in target.planes.iter().enumerate() {
-                device.CreateUnorderedAccessView(
-                    plane,
-                    None,
-                    Some(&texture_uav(target.format, 0)),
-                    at(2 + index),
-                );
+            if self.slots[slot].planar_view != Some(planar_key) {
+                for (index, plane) in target.planes.iter().enumerate() {
+                    device.CreateUnorderedAccessView(
+                        plane,
+                        None,
+                        Some(&texture_uav(target.format, 0)),
+                        at(2 + index),
+                    );
+                }
+                self.slots[slot].planar_view = Some(planar_key);
             }
             let Slot {
                 allocator, list, ..

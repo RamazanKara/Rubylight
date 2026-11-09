@@ -908,10 +908,11 @@ fn compute_planes_match_the_pyrowave_graphics_planes() -> Result<()> {
     let mut value = 0;
     for (width, height) in [(96, 40), (48, 20), (64, 64)] {
         for yuv444 in [true, false] {
-            for (hdr, base, csc_mode) in [
-                (true, &hdr_image, 2),
-                (false, &sdr_image, 2),
-                (false, &sdr_image, 4),
+            for (hdr, sdr_10bit, base, csc_mode) in [
+                (true, false, &hdr_image, 2),
+                (false, false, &sdr_image, 2),
+                (false, true, &sdr_image, 2),
+                (false, true, &sdr_image, 4),
             ] {
                 for cursor in [None, Some(&pointer)] {
                     let mut image = base.clone();
@@ -922,7 +923,7 @@ fn compute_planes_match_the_pyrowave_graphics_planes() -> Result<()> {
                         codec: 3,
                         hdr,
                         yuv444,
-                        sdr_10bit: !hdr,
+                        sdr_10bit,
                         csc_mode,
                         ..Default::default()
                     };
@@ -935,6 +936,18 @@ fn compute_planes_match_the_pyrowave_graphics_planes() -> Result<()> {
                         .iter()
                         .map(|plane| plane_bytes(&gpu, plane))
                         .collect::<Result<Vec<_>>>()?;
+                    let mut single_pass = PlanarConverter::new(&gpu, &config, source)?;
+                    assert!(single_pass.compute.is_some(), "no D3D11 planar shader");
+                    single_pass.convert(&image, [100., 1.])?;
+                    for (texture, expected) in single_pass.textures.iter().zip(&expected) {
+                        assert_eq!(
+                            &plane_bytes(&gpu, texture)?,
+                            expected,
+                            "D3D11 compute and graphics differ: {width}x{height} 4:4:4 {yuv444} hdr {hdr} ten_bit {} cursor {}",
+                            config.ten_bit(),
+                            cursor.is_some(),
+                        );
+                    }
                     if yuv444 {
                         graphics.combined = None;
                         graphics.convert(&image, [100., 1.])?;

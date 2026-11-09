@@ -607,30 +607,28 @@ impl PlanarConverter {
                 textures.push(Arc::new(texture));
                 views.push(view.unwrap());
             }
-            let compute = if config.yuv444 {
-                None
-            } else {
-                (|| -> Result<_> {
-                    let mut shader = None;
-                    gpu.device.CreateComputeShader(
-                        &compile(b"pyro_cs\0", b"cs_5_0\0")?,
+            // `pyro_cs` covers 4:4:4 too: with `padding` set it writes full-size
+            // chroma (`color.hlsl`), so only a failure falls back to the pixel shaders.
+            let compute = (|| -> Result<_> {
+                let mut shader = None;
+                gpu.device.CreateComputeShader(
+                    &compile(b"pyro_cs\0", b"cs_5_0\0")?,
+                    None,
+                    Some(&mut shader),
+                )?;
+                let mut unordered = Vec::new();
+                for texture in &textures {
+                    let mut view = None;
+                    gpu.device.CreateUnorderedAccessView(
+                        texture.as_ref(),
                         None,
-                        Some(&mut shader),
+                        Some(&mut view),
                     )?;
-                    let mut unordered = Vec::new();
-                    for texture in &textures {
-                        let mut view = None;
-                        gpu.device.CreateUnorderedAccessView(
-                            texture.as_ref(),
-                            None,
-                            Some(&mut view),
-                        )?;
-                        unordered.push(view.unwrap());
-                    }
-                    Ok((shader.unwrap(), unordered.try_into().ok().unwrap()))
-                })()
-                .ok()
-            };
+                    unordered.push(view.unwrap());
+                }
+                Ok((shader.unwrap(), unordered.try_into().ok().unwrap()))
+            })()
+            .ok();
             Ok(Self {
                 base,
                 shaders: shaders.try_into().ok().unwrap(),
@@ -694,8 +692,8 @@ impl PlanarConverter {
                     None,
                 );
                 context.Dispatch(
-                    self.base.width.div_ceil(16),
-                    self.base.height.div_ceil(16),
+                    (self.base.width / 2).div_ceil(8),
+                    (self.base.height / 2).div_ceil(8),
                     1,
                 );
                 if let Some(menu) = &menu {

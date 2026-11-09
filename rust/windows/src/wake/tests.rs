@@ -30,6 +30,48 @@ fn this_pcs_adapters_are_read() -> Result<()> {
 }
 
 #[test]
+fn physical_nics_without_ip_bindings_are_not_lost() -> Result<()> {
+    use windows::Win32::NetworkManagement::IpHelper::{
+        FreeMibTable, GetIfTable2, MIB_IF_ROW2, MIB_IF_TABLE2,
+    };
+
+    // Unlike GetAdaptersAddresses' default listing, the interface table includes
+    // physical NICs whose TCP/IP bindings belong to a Hyper-V external switch.
+    // Read-only: on hosts with such a switch this catches the missing NIC.
+    let mut table: *mut MIB_IF_TABLE2 = std::ptr::null_mut();
+    // SAFETY: `table` is an out pointer; a successful call allocates its records.
+    unsafe { GetIfTable2(&mut table) }.ok()?;
+    // SAFETY: The successful call supplied NumEntries readable rows. Copy the
+    // facts before freeing the table; no pointer into it escapes this block.
+    let physical: Vec<_> = unsafe {
+        let rows = std::slice::from_raw_parts(
+            (&raw const (*table).Table).cast::<MIB_IF_ROW2>(),
+            (*table).NumEntries as usize,
+        );
+        let physical = rows
+            .iter()
+            .filter(|row| {
+                row.InterfaceAndOperStatusFlags._bitfield & 5 == 5
+                    && medium(row.Type, row.PhysicalMediumType.0) != Medium::Other
+                    && six(&row.PhysicalAddress, row.PhysicalAddressLength)
+                        .is_some_and(butterpollo_core::wake::unicast_mac)
+            })
+            .map(|row| (format!("{{{:?}}}", row.InterfaceGuid), row.InterfaceIndex))
+            .collect();
+        FreeMibTable(table.cast());
+        physical
+    };
+    let listed = adapters()?;
+    for (guid, index) in physical {
+        assert!(
+            listed.iter().any(|adapter| adapter.guid == guid),
+            "physical NIC {guid} (index {index}) is missing from the wake inventory"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn the_default_route_leaves_from_an_adapters_own_address() -> Result<()> {
     // Without a default route (an offline runner) there is nothing to check;
     // IPv6 may be off or unrouted.

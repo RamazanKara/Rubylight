@@ -28,7 +28,12 @@ pub fn adapters() -> Result<Vec<Adapter>> {
         let status = unsafe {
             GetAdaptersAddresses(
                 AF_UNSPEC.0 as u32,
-                GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
+                // A Hyper-V external switch owns the IP bindings; the physical NIC
+                // beneath it still supplies the MAC that can wake the PC.
+                GAA_FLAG_INCLUDE_ALL_INTERFACES
+                    | GAA_FLAG_SKIP_ANYCAST
+                    | GAA_FLAG_SKIP_MULTICAST
+                    | GAA_FLAG_SKIP_DNS_SERVER,
                 None,
                 Some(first),
                 &mut size,

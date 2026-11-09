@@ -110,9 +110,11 @@ pub fn driver_settings(controller: u16, payload: &[u8]) -> Option<SteamSettings>
     }
     let count = usize::from(payload[1]);
     let triples: Vec<[u8; 3]> = payload[5..]
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .take(count)
-        .map(|triple| [triple[0], triple[1], triple[2]])
+        .copied()
         .collect();
     if triples.len() != count {
         return None;

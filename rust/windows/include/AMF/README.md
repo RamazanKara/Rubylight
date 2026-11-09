@@ -6,7 +6,7 @@ HEVC and AV1 encoder components, and the headers those pull in.
 
 - Source: [GPUOpen-LibrariesAndSDKs/AMF](https://github.com/GPUOpen-LibrariesAndSDKs/AMF),
   `amf/public/include`
-- Version: 1.5.2.0 (`AMF_VERSION_*` in `core/Version.h`)
+- Version: 1.5.3.0 (`AMF_VERSION_*` in `core/Version.h`)
 - License: MIT, Copyright (c) Advanced Micro Devices, Inc. Each file keeps
   AMD's license header.
 

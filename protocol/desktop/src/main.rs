@@ -536,6 +536,12 @@ fn any_hdr_asked<'a>(settings: &config::Settings, overrides: impl IntoIterator<I
     settings.hdr || overrides.into_iter().any(|own| own.apply(settings).hdr)
 }
 
+/// Whether any layer (the global settings, a PC, a game or a profile) turns on PyroWave's compute
+/// queue: on Linux the renderer's shared device gets the queue only when it is made.
+fn any_async_compute_asked<'a>(settings: &config::Settings, overrides: impl IntoIterator<Item = &'a config::Overrides>) -> bool {
+    settings.pyrowave_async_compute || overrides.into_iter().any(|own| own.apply(settings).pyrowave_async_compute)
+}
+
 fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<String>) -> Result<(), String> {
     sdl::set_hint(SDL_HINT_APP_NAME, c"Nightjar");
     sdl::set_hint(SDL_HINT_APP_ID, c"io.github.ramazankara.nightjar");
@@ -609,7 +615,9 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         .chain(profiles.entries.iter().map(|profile| &profile.settings)));
     sdl::set_hdr_asked(hdr_asked);
     // Before the renderer: on Linux its device gets PyroWave's compute queue only with this on.
-    stream::pyrowave_sdk::queue::use_async_compute(settings.pyrowave_async_compute);
+    stream::pyrowave_sdk::queue::use_async_compute(any_async_compute_asked(&settings, hosts.iter()
+        .flat_map(|host| host.settings.iter().chain(host.app_settings.values()))
+        .chain(profiles.entries.iter().map(|profile| &profile.settings))));
 
     // Steam's Game Mode: fullscreen without a border from the start (handheld.rs).
     let start = handheld::start_window(handheld::gamescope());
@@ -1958,6 +1966,7 @@ impl App {
             made_for_hdr: state.made_for_hdr,
             gpu_failed: state.gpu_failed.is_some(),
             pq_unused: gpu && handheld::pq_unused(handheld::gamescope(), sdl::output_decision(), sdl::hdr10_offered(self.renderer), sdl::pq_failed()),
+            hdr_unreachable: gpu && sdl::pq_failed() && !sdl::scrgb_offered(self.renderer),
         };
         let vulkan_choice = vulkan_video::Choice::from_environment();
         let vulkan_video = state.vulkan_video || vulkan_video_possible(settings.decoder != DecoderPreference::Software, vulkan_choice, vaapi_map_switched_on());
@@ -4069,6 +4078,18 @@ mod shot;
 #[cfg(test)]
 mod tests {
     use super::{first_frame_line, window_needs_a_frame};
+
+    /// A PC, game or profile that turns the compute queue on asks for it before the renderer, as HDR does.
+    #[test]
+    fn any_layer_turning_on_the_compute_queue_asks_for_it() {
+        let settings = crate::config::Settings::default();
+        let none: Vec<crate::config::Overrides> = vec![crate::config::Overrides::default()];
+        assert!(!super::any_async_compute_asked(&settings, &none));
+        let own: crate::config::Overrides = serde_json::from_str("{\"pyrowave_async_compute\": true}").unwrap();
+        assert!(super::any_async_compute_asked(&settings, &[own]));
+        let global = crate::config::Settings { pyrowave_async_compute: true, ..Default::default() };
+        assert!(super::any_async_compute_asked(&global, &none));
+    }
 
     /// A launcher at rest presents nothing, but what the window itself lost has to come back.
     #[test]

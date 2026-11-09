@@ -345,6 +345,9 @@ pub struct RendererNow {
     pub gpu_failed: bool,
     /// Its HDR is not the HDR10 PQ a desktop HDR stream would get ([`pq_unused`]).
     pub pq_unused: bool,
+    /// PQ failed this run and the swapchain offers no scRGB: making it again for HDR would land on
+    /// SDR again, so an HDR stream keeps it.
+    pub hdr_unreachable: bool,
 }
 
 /// Why a stream's start makes Linux's renderer again on the same window, before its checks.
@@ -381,6 +384,9 @@ impl RendererSwitch {
 #[cfg_attr(windows, allow(dead_code))]
 pub fn renderer_switch(choice: Renderer, now: RendererNow, need: Option<&'static str>, hdr: bool, display_hdr: bool, busy: bool) -> Option<RendererSwitch> {
     if busy || choice == Renderer::OpenGl || now.gpu_failed {
+        return None;
+    }
+    if now.gpu && now.hdr_unreachable {
         return None;
     }
     if !now.gpu {
@@ -524,11 +530,14 @@ mod tests {
         assert!(!pq_unused(false, Some(Ok(Output::Pq)), true, false));
         assert!(!pq_unused(false, Some(Ok(Output::Scrgb)), false, false), "no HDR10 offered");
         assert!(!pq_unused(true, Some(Ok(Output::Scrgb)), true, false), "gamescope keeps scRGB first");
-        let scrgb = RendererNow { gpu: true, hdr_swapchain: true, made_for_hdr: false, gpu_failed: false, pq_unused: true };
+        let scrgb = RendererNow { gpu: true, hdr_swapchain: true, made_for_hdr: false, gpu_failed: false, pq_unused: true, hdr_unreachable: false };
         assert_eq!(renderer_switch(Renderer::Auto, scrgb, Some("HDR"), true, true, false), Some(RendererSwitch::ForHdr));
         assert_eq!(renderer_switch(Renderer::Auto, scrgb, None, false, true, false), None, "an SDR stream keeps scRGB");
         let tried = RendererNow { made_for_hdr: true, ..scrgb };
         assert_eq!(renderer_switch(Renderer::Auto, tried, Some("HDR"), true, true, false), None, "PQ fell back to scRGB once: no second try");
+        let sdr_after_pq = RendererNow { hdr_swapchain: false, pq_unused: false, hdr_unreachable: true, ..scrgb };
+        assert_eq!(renderer_switch(Renderer::Auto, sdr_after_pq, Some("HDR"), true, true, false), None,
+            "PQ failed and no scRGB: making the renderer again would land on SDR again");
     }
 
     /// A PQ renderer that could not be made fell back to scRGB; a renderer made again later this
@@ -537,7 +546,7 @@ mod tests {
     fn pq_that_failed_once_is_not_tried_again_this_run() {
         assert!(!pq_unused(false, Some(Ok(Output::Scrgb)), true, true), "the fallback stays");
         assert!(!pq_unused(false, Some(Err(SdrReason::PqFailed)), true, true));
-        let fallback = RendererNow { gpu: true, hdr_swapchain: true, made_for_hdr: false, gpu_failed: false, pq_unused: pq_unused(false, Some(Ok(Output::Scrgb)), true, true) };
+        let fallback = RendererNow { gpu: true, hdr_swapchain: true, made_for_hdr: false, gpu_failed: false, pq_unused: pq_unused(false, Some(Ok(Output::Scrgb)), true, true), hdr_unreachable: false };
         assert_eq!(renderer_switch(Renderer::Auto, fallback, Some("HDR"), true, true, false), None, "made again later, scRGB still serves HDR");
         let sdr = RendererNow { hdr_swapchain: false, ..fallback };
         assert_eq!(renderer_switch(Renderer::Auto, sdr, Some("HDR"), true, true, false), Some(RendererSwitch::ForHdr), "an SDR swapchain still needs HDR");
@@ -631,7 +640,7 @@ mod tests {
     /// the GPU renderer at the stream's start.
     #[test]
     fn a_stream_that_needs_the_gpu_renderer_switches_to_it_at_its_start() {
-        let opengl = RendererNow { gpu: false, hdr_swapchain: false, made_for_hdr: false, gpu_failed: false, pq_unused: false };
+        let opengl = RendererNow { gpu: false, hdr_swapchain: false, made_for_hdr: false, gpu_failed: false, pq_unused: false, hdr_unreachable: false };
         assert_eq!(renderer_switch(Renderer::Auto, opengl, Some("HDR"), true, true, false), Some(RendererSwitch::ToGpu("HDR")));
         assert_eq!(renderer_switch(Renderer::Auto, opengl, Some("upscaling"), false, false, false), Some(RendererSwitch::ToGpu("upscaling")), "SDR needs it too");
         assert_eq!(renderer_switch(Renderer::Auto, opengl, Some("PyroWave"), true, false, false), Some(RendererSwitch::ToGpu("PyroWave")));
@@ -647,7 +656,7 @@ mod tests {
         assert!(hdr_display(true, false));
         assert!(hdr_display(false, true));
         assert!(!hdr_display(false, false));
-        let opengl = RendererNow { gpu: false, hdr_swapchain: false, made_for_hdr: false, gpu_failed: false, pq_unused: false };
+        let opengl = RendererNow { gpu: false, hdr_swapchain: false, made_for_hdr: false, gpu_failed: false, pq_unused: false, hdr_unreachable: false };
         assert_eq!(renderer_switch(Renderer::Auto, opengl, Some("HDR"), true, hdr_display(true, false), false), Some(RendererSwitch::ToGpu("HDR")));
         let sdr = RendererNow { gpu: true, ..opengl };
         assert_eq!(renderer_switch(Renderer::Auto, sdr, Some("HDR"), true, hdr_display(true, false), false), Some(RendererSwitch::ForHdr));
@@ -655,12 +664,12 @@ mod tests {
 
     #[test]
     fn the_gpu_renderer_is_made_again_for_hdr_once_and_never_left() {
-        let sdr = RendererNow { gpu: true, hdr_swapchain: false, made_for_hdr: false, gpu_failed: false, pq_unused: false };
+        let sdr = RendererNow { gpu: true, hdr_swapchain: false, made_for_hdr: false, gpu_failed: false, pq_unused: false, hdr_unreachable: false };
         assert_eq!(renderer_switch(Renderer::Auto, sdr, Some("HDR"), true, true, false), Some(RendererSwitch::ForHdr), "made for SDR at start");
         assert_eq!(RendererSwitch::ForHdr.reason(), "HDR");
         let tried = RendererNow { made_for_hdr: true, ..sdr };
         assert_eq!(renderer_switch(Renderer::Auto, tried, Some("HDR"), true, true, false), None, "made for HDR already: the refusal says why");
-        let hdr = RendererNow { gpu: true, hdr_swapchain: true, made_for_hdr: false, gpu_failed: false, pq_unused: false };
+        let hdr = RendererNow { gpu: true, hdr_swapchain: true, made_for_hdr: false, gpu_failed: false, pq_unused: false, hdr_unreachable: false };
         assert_eq!(renderer_switch(Renderer::Auto, hdr, Some("HDR"), true, true, false), None);
         assert_eq!(renderer_switch(Renderer::Auto, sdr, Some("HDR"), true, false, false), None, "no display has HDR on");
         assert_eq!(renderer_switch(Renderer::Auto, sdr, None, false, true, false), None, "an SDR stream never goes back to OpenGL");
@@ -668,7 +677,7 @@ mod tests {
 
     #[test]
     fn the_renderer_setting_decides_the_start_the_switch_and_a_change() {
-        let opengl = RendererNow { gpu: false, hdr_swapchain: false, made_for_hdr: false, gpu_failed: false, pq_unused: false };
+        let opengl = RendererNow { gpu: false, hdr_swapchain: false, made_for_hdr: false, gpu_failed: false, pq_unused: false, hdr_unreachable: false };
         let gpu = RendererNow { gpu: true, ..opengl };
         assert!(!starts_on_gpu(Renderer::Auto, false), "OpenGL's zero-copy path for SDR");
         assert!(starts_on_gpu(Renderer::Auto, true));

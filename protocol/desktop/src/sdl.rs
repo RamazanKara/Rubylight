@@ -403,6 +403,12 @@ pub fn hdr10_offered(renderer: *mut SDL_Renderer) -> bool {
     offered(renderer).hdr10
 }
 
+/// Whether the renderer's swapchain offers scRGB, HDR's fallback once PQ failed.
+#[cfg_attr(windows, allow(dead_code))]
+pub fn scrgb_offered(renderer: *mut SDL_Renderer) -> bool {
+    offered(renderer).scrgb
+}
+
 /// A display of the compositor has HDR on, by what has arrived so far: a Wayland compositor answers
 /// SDL about its outputs in its own time, so this takes what is waiting first. A compositor with
 /// only frog colour management tells a window, never SDL about a display: this stays false there.
@@ -548,6 +554,10 @@ unsafe fn hdr_output(window: *mut SDL_Window, props: SDL_PropertiesID, renderer:
     let pq_failed_before = hdr_stream && !gamescope && offered.hdr10 && pq_failed();
     let plan = handheld::plan(gamescope, window_hdr, display_hdr, hdr_asked, hdr_stream && !pq_failed_before, offered);
     let mut decision = plan.decision;
+    // The stream asked for HDR and PQ failed before: say that, not that PQ is for HDR streams only.
+    if pq_failed_before && decision == Err(handheld::SdrReason::PqWithoutHdrStream) {
+        decision = Err(handheld::SdrReason::PqFailed);
+    }
     let mut renderer = renderer;
     let mut pq_error = None;
     let mut pq_failed = false;

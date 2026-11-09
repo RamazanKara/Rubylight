@@ -58,6 +58,9 @@ pub(super) struct RtpQueue {
     /// Data packets of the pending block already given to the depacketizer: the run from the
     /// block's first packet with no hole. They stay pending for FEC recovery.
     forwarded: u32,
+    /// Blocks of a conventional frame go to the depacketizer as they complete instead of all
+    /// at its last block ([`Self::queue_completed_ahead`]).
+    process_ahead: bool,
 
     /// FEC recovery's code and scratch, kept so that recovering a block allocates nothing.
     fec: Option<ReedSolomon>,
@@ -97,6 +100,7 @@ impl RtpQueue {
             records: config.pyrowave_records,
             early: config.pyrowave_records && config.early_chunks,
             forwarded: 0,
+            process_ahead: !config.pyrowave_records,
             fec: None,
             fec_missing: Vec::new(),
             fec_shards: Vec::new(),
@@ -107,13 +111,24 @@ impl RtpQueue {
         self.current_frame
     }
 
+    /// The previous behaviour, every block of a frame processed at its last, for comparison.
+    #[cfg(test)]
+    pub(super) fn set_process_ahead(&mut self, on: bool) {
+        self.process_ahead = on && !self.records;
+    }
+
     fn purge_pending<S: VideoSink>(&mut self, io: &mut Io<S>) {
         for packet in self.pending.drain(..) {
             io.pools.recycle_packet(packet.buf);
         }
     }
 
-    fn purge_completed<S: VideoSink>(&mut self, io: &mut Io<S>) {
+    fn purge_completed<S: VideoSink>(
+        &mut self,
+        depacketizer: &mut Depacketizer,
+        io: &mut Io<S>,
+    ) {
+        depacketizer.rewind();
         for packet in self.completed.drain(..) {
             io.pools.recycle_packet(packet.buf);
         }
@@ -413,10 +428,41 @@ impl RtpQueue {
         depacketizer: &mut Depacketizer,
         io: &mut Io<S>,
     ) {
-        // Room for the whole frame up front (records add 8 bytes per packet).
-        depacketizer.reserve(self.completed.len() * (self.packet_size + 8) + 4);
-        for packet in self.completed.drain(..) {
-            depacketizer.queue_rtp_packet(packet, io);
+        let ahead = depacketizer.take_ahead();
+        // Room for the rest of the frame up front (records add 8 bytes per packet).
+        depacketizer.reserve((self.completed.len() - ahead) * (self.packet_size + 8) + 4);
+        for (index, packet) in self.completed.drain(..).enumerate() {
+            if index < ahead {
+                io.pools.recycle_packet(packet.buf);
+            } else {
+                depacketizer.queue_rtp_packet(packet, io);
+            }
+        }
+    }
+
+    /// Processes the completed blocks of a frame whose last block is still to come, so that
+    /// the last block's packets are all that remain when it completes. They stay in the
+    /// completed list until then: a lost frame or a recovery change rewinds the depacketizer
+    /// ([`Depacketizer::rewind`]) and the frame is processed again or dropped as before.
+    fn queue_completed_ahead<S: VideoSink>(
+        &mut self,
+        depacketizer: &mut Depacketizer,
+        io: &mut Io<S>,
+    ) {
+        if !self.process_ahead {
+            return;
+        }
+        let start = depacketizer.ahead();
+        if start == 0 {
+            // Room for the whole frame, guessed from the blocks so far.
+            let blocks = usize::from(self.last_block) + 1;
+            let done = usize::from(self.current_block);
+            depacketizer.reserve(self.completed.len() * blocks / done * self.packet_size + 4);
+        }
+        for packet in &self.completed[start..] {
+            if !depacketizer.queue_ahead(packet, io) {
+                break;
+            }
         }
     }
 
@@ -505,7 +551,7 @@ impl RtpQueue {
                 // Losing one block loses the rest of its frame.
                 if self.last_block != 0 && self.current_frame == frame {
                     self.purge_pending(io);
-                    self.purge_completed(io);
+                    self.purge_completed(depacketizer, io);
                     if !self.reported_lost_frame {
                         self.notify_frame_lost(depacketizer, io, self.current_frame, false);
                     }
@@ -525,7 +571,7 @@ impl RtpQueue {
             if block != expected {
                 self.report_fec_status(io);
                 self.purge_pending(io);
-                self.purge_completed(io);
+                self.purge_completed(depacketizer, io);
                 if !self.reported_lost_frame {
                     self.notify_frame_lost(depacketizer, io, frame, false);
                 }
@@ -537,7 +583,7 @@ impl RtpQueue {
 
             self.purge_pending(io);
             if self.current_frame != frame {
-                self.purge_completed(io);
+                self.purge_completed(depacketizer, io);
                 // A whole frame went missing. The frame before this one may already have been
                 // reported by the speculative RFI logic.
                 if self.current_frame.wrapping_add(1) != frame || !self.reported_lost_frame {
@@ -618,6 +664,7 @@ impl RtpQueue {
             self.stage_complete_fec_block(depacketizer, io);
             if self.current_block < self.last_block {
                 self.current_block += 1;
+                self.queue_completed_ahead(depacketizer, io);
             } else {
                 self.submit_completed_frame(depacketizer, io);
                 self.current_frame = self.current_frame.wrapping_add(1);

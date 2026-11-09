@@ -1,0 +1,2 @@
+• High-rate mice, controllers and touch input now wake the control thread once per pass instead of once per event.
+• Faster reordered video packets, pre-expanded audio decryption keys and published video statistics that avoid locking the video receiver while decoding.

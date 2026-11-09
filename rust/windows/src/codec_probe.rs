@@ -705,6 +705,39 @@ mod tests {
     }
     #[test]
     #[ignore = "requires an AMD GPU with AMF"]
+    fn packed_probe_accepts_sliced_hevc_at_2560x1600() {
+        // #76: coded at 2560x3200, above the automatic slice threshold, so
+        // each frame comes back as four slices.
+        for sdr_10bit in [false, true] {
+            let mode = Negotiated {
+                width: 2560,
+                height: 1600,
+                fps: 60,
+                bitrate_kbps: 40_000,
+                codec: 1,
+                sdr_10bit,
+                chroma_packing: butterpollo_core::packed444::VERSION,
+                ..Default::default()
+            };
+            let reply = probe(&Request {
+                output: String::new(),
+                adapter_name: String::new(),
+                adapter_pnp_id: String::new(),
+                packed: Some(mode),
+                encoder_options: BTreeMap::new(),
+            });
+            match reply {
+                Ok(Reply::Done { flags, .. }) => assert_eq!(
+                    flags,
+                    u32::from(butterpollo_core::packed444::mode_bit(1, sdr_10bit))
+                ),
+                Ok(Reply::Error { message }) => panic!("10-bit {sdr_10bit}: {message}"),
+                Err(error) => panic!("10-bit {sdr_10bit}: {error:#}"),
+            }
+        }
+    }
+    #[test]
+    #[ignore = "requires an AMD GPU with AMF"]
     fn packed_probe_holds_a_bitrate_above_the_driver_ceiling() {
         // #80: AMF refused Av1TargetBitrate above its ceiling with
         // AMF_OUT_OF_RANGE. The RX 7900 XT's ceiling is 1 Gbps on every codec;

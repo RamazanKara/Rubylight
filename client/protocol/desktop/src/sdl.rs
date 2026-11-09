@@ -330,12 +330,13 @@ const HDR_METADATA_EXT: u32 = 1_000_105_000;
 /// The host's mastering metadata for the swapchain, its light levels capped at `output_peak` (nits):
 /// SDL's renderer tone maps the picture to the window's headroom first, so the compositor must not
 /// map what is left down a second time. None leaves them as the host sent them. Zero (unknown)
-/// light levels stay zero.
+/// light levels stay zero. None when the mastering range is empty (a peak at or below the minimum,
+/// as zeroed metadata from the host has): compositors end a client sending that.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-pub fn swapchain_hdr_metadata(metadata: &nightjar_core::control::HdrMetadata, output_peak: Option<f32>) -> SwapchainHdrMetadata {
+pub fn swapchain_hdr_metadata(metadata: &nightjar_core::control::HdrMetadata, output_peak: Option<f32>) -> Option<SwapchainHdrMetadata> {
     let xy = |(x, y): (u16, u16)| [f32::from(x) / 50_000.0, f32::from(y) / 50_000.0];
     let cap = |nits: u16| output_peak.map_or(f32::from(nits), |peak| f32::from(nits).min(peak));
-    SwapchainHdrMetadata {
+    let metadata = SwapchainHdrMetadata {
         s_type: HDR_METADATA_EXT,
         p_next: std::ptr::null(),
         primaries: metadata.display_primaries.map(xy),
@@ -344,7 +345,8 @@ pub fn swapchain_hdr_metadata(metadata: &nightjar_core::control::HdrMetadata, ou
         min_luminance: f32::from(metadata.min_display_luminance) / 10_000.0,
         max_content_light_level: cap(metadata.max_content_light_level),
         max_frame_average_light_level: cap(metadata.max_frame_average_light_level),
-    }
+    };
+    (metadata.max_luminance > metadata.min_luminance).then_some(metadata)
 }
 
 /// The peak the GPU renderer draws HDR up to, in nits, once the window's HDR is on: its SDR white
@@ -365,23 +367,31 @@ pub fn output_peak_nits(renderer: *mut SDL_Renderer) -> Option<f32> {
 
 /// Hands `metadata` to the patched SDL for the window's HDR10 swapchain, which passes it to
 /// `vkSetHdrMetadataEXT` on its next frame and on each new swapchain (with VK_EXT_hdr_metadata;
-/// other swapchains ignore it).
+/// other swapchains ignore it). None is unknown metadata: nothing is passed on from then, and a
+/// swapchain that had some keeps it until it is made again (Vulkan cannot take it back).
 #[cfg(target_os = "linux")]
-pub fn set_swapchain_hdr_metadata(window: *mut SDL_Window, metadata: SwapchainHdrMetadata) {
+pub fn set_swapchain_hdr_metadata(window: *mut SDL_Window, metadata: Option<SwapchainHdrMetadata>) {
     unsafe extern "C" fn free(_: *mut std::ffi::c_void, value: *mut std::ffi::c_void) {
         // SAFETY: allocated with SDL_malloc below; SDL calls this once, when the value goes.
         unsafe { SDL_free(value) };
     }
     // SAFETY: a live window; the copy is SDL's to free with the property.
     unsafe {
-        let copy = SDL_malloc(std::mem::size_of::<SwapchainHdrMetadata>()).cast::<SwapchainHdrMetadata>();
-        if copy.is_null() {
-            eprintln!("nightjar: the HDR10 swapchain metadata could not be stored: {}", error());
-            return;
-        }
-        copy.write(metadata);
         let props = SDL_GetWindowProperties(window);
-        SDL_SetPointerPropertyWithCleanup(props, c"SDL.window.gpu.hdr_metadata_pointer".as_ptr(), copy.cast(), Some(free), std::ptr::null_mut());
+        match metadata {
+            Some(metadata) => {
+                let copy = SDL_malloc(std::mem::size_of::<SwapchainHdrMetadata>()).cast::<SwapchainHdrMetadata>();
+                if copy.is_null() {
+                    eprintln!("nightjar: the HDR10 swapchain metadata could not be stored: {}", error());
+                    return;
+                }
+                copy.write(metadata);
+                SDL_SetPointerPropertyWithCleanup(props, c"SDL.window.gpu.hdr_metadata_pointer".as_ptr(), copy.cast(), Some(free), std::ptr::null_mut());
+            }
+            None => {
+                SDL_ClearProperty(props, c"SDL.window.gpu.hdr_metadata_pointer".as_ptr());
+            }
+        }
         let serial = SDL_GetNumberProperty(props, c"SDL.window.gpu.hdr_metadata_serial".as_ptr(), 0) + 1;
         SDL_SetNumberProperty(props, c"SDL.window.gpu.hdr_metadata_serial".as_ptr(), serial);
     }
@@ -454,6 +464,24 @@ pub fn output_decision() -> Option<Result<crate::handheld::Output, crate::handhe
     *OUTPUT.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// A PQ renderer could not be made this run: its fallback stays, and no later renderer tries PQ
+/// again (`handheld::pq_unused`).
+static PQ_FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg_attr(windows, allow(dead_code))]
+pub fn pq_failed() -> bool {
+    PQ_FAILED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The renderers made from here on are for an HDR stream's start (`handheld::choose`): only they
+/// may present as HDR10 PQ.
+static HDR_STREAM: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg_attr(windows, allow(dead_code))]
+pub fn set_hdr_stream(hdr_stream: bool) {
+    HDR_STREAM.store(hdr_stream, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// The PQ present pass's shaders (`pq_present.hlsl`), handed to the patched SDL.
 const PQ_VERTEX_SPIRV: &[u8] = include_bytes!("pq_present_vertex.spv");
 const PQ_FRAGMENT_SPIRV: &[u8] = include_bytes!("pq_present_fragment.spv");
@@ -497,8 +525,9 @@ unsafe fn set_window_hdr(window: *mut SDL_Window, hdr: Option<(f32, f32)>) {
 /// Linux's GPU renderer `renderer`, made from `props` with linear output: the HDR output for its
 /// window (`handheld::plan`) or null for SDR. scRGB keeps it, on a desktop with [`hdr_available`]
 /// following the window's state once the compositor reports it (made again under gamescope, after
-/// the window's HDR state is set); PQ makes it again with the PQ present, and once more as scRGB
-/// when that fails where scRGB is offered (`handheld::fallback`). Logs the renderer, the
+/// the window's HDR state is set); PQ (for an HDR stream's renderer, [`set_hdr_stream`]) makes it
+/// again with the PQ present, and once more as scRGB when that fails where scRGB is offered
+/// (`handheld::fallback`), which then stays for the run ([`pq_failed`]). Logs the renderer, the
 /// colour spaces offered and the decision, which [`output_decision`] keeps.
 ///
 /// # Safety
@@ -514,7 +543,10 @@ unsafe fn hdr_output(window: *mut SDL_Window, props: SDL_PropertiesID, renderer:
     let name = renderer_name(renderer);
     let display_hdr = any_display_hdr();
     let hdr_asked = HDR_ASKED.load(std::sync::atomic::Ordering::Relaxed);
-    let plan = handheld::plan(gamescope, window_hdr, display_hdr, hdr_asked, offered);
+    let hdr_stream = HDR_STREAM.load(std::sync::atomic::Ordering::Relaxed);
+    // PQ that failed once this run is not tried again: its fallback serves HDR streams.
+    let pq_failed_before = hdr_stream && !gamescope && offered.hdr10 && pq_failed();
+    let plan = handheld::plan(gamescope, window_hdr, display_hdr, hdr_asked, hdr_stream && !pq_failed_before, offered);
     let mut decision = plan.decision;
     let mut renderer = renderer;
     let mut pq_error = None;
@@ -534,6 +566,9 @@ unsafe fn hdr_output(window: *mut SDL_Window, props: SDL_PropertiesID, renderer:
             }
         }
         decision = handheld::settle(output, !renderer.is_null(), !renderer.is_null() && swapchain_takes_hdr(renderer));
+        if output == Output::Pq && decision.is_err() {
+            PQ_FAILED.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
         // A desktop's PQ that could not be made: scRGB where it is offered, not SDR.
         if let (Err(_), Some(next)) = (decision, handheld::fallback(output, offered)) {
             if !renderer.is_null() { SDL_DestroyRenderer(renderer); }
@@ -547,7 +582,7 @@ unsafe fn hdr_output(window: *mut SDL_Window, props: SDL_PropertiesID, renderer:
         renderer = std::ptr::null_mut();
         if WINDOW_HDR_SET.load(std::sync::atomic::Ordering::Relaxed) { set_window_hdr(window, None); }
     }
-    let line = handheld::describe(&name, gamescope, window_hdr, display_hdr, hdr_asked, offered, decision, pq_failed);
+    let line = handheld::describe(&name, gamescope, window_hdr, display_hdr, hdr_asked, hdr_stream, offered, decision, pq_failed || pq_failed_before);
     match pq_error {
         Some(why) => eprintln!("nightjar: {line} ({why})"),
         None => eprintln!("nightjar: {line}"),
@@ -874,16 +909,22 @@ mod tests {
             max_frame_average_light_level: 400,
             max_full_frame_luminance: 0,
         };
-        let metadata = swapchain_hdr_metadata(&host, Some(600.0));
+        let metadata = swapchain_hdr_metadata(&host, Some(600.0)).unwrap();
         assert_eq!(metadata.primaries, [[0.708, 0.292], [0.17, 0.797], [0.131, 0.046]]);
         assert_eq!(metadata.white_point, [0.3127, 0.329]);
         assert_eq!((metadata.max_luminance, metadata.max_content_light_level, metadata.max_frame_average_light_level), (600.0, 600.0, 400.0),
             "SDL tone maps to the window's 600 nits first: the compositor must not map again");
         assert_eq!(metadata.min_luminance, 0.005);
-        let uncapped = swapchain_hdr_metadata(&host, None);
+        let uncapped = swapchain_hdr_metadata(&host, None).unwrap();
         assert_eq!((uncapped.max_luminance, uncapped.max_content_light_level), (1000.0, 1200.0), "no window peak yet: as sent");
-        let unknown = swapchain_hdr_metadata(&nightjar_core::control::HdrMetadata::default(), Some(600.0));
-        assert_eq!((unknown.max_content_light_level, unknown.max_frame_average_light_level), (0.0, 0.0), "unknown stays unknown");
+        let unknown_cll = nightjar_core::control::HdrMetadata { max_content_light_level: 0, max_frame_average_light_level: 0, ..host };
+        let unknown_cll = swapchain_hdr_metadata(&unknown_cll, Some(600.0)).unwrap();
+        assert_eq!((unknown_cll.max_content_light_level, unknown_cll.max_frame_average_light_level), (0.0, 0.0), "unknown light levels stay unknown");
+        // KWin and wlroots end a client whose mastering minimum is not below its maximum.
+        assert_eq!(swapchain_hdr_metadata(&nightjar_core::control::HdrMetadata::default(), Some(600.0)), None, "zeroed metadata is none");
+        let inverted = nightjar_core::control::HdrMetadata { max_display_luminance: 1, min_display_luminance: 10_000, ..host };
+        assert_eq!(swapchain_hdr_metadata(&inverted, None), None, "1 nit over 1 nit");
+        assert_eq!(swapchain_hdr_metadata(&host, Some(0.004)), None, "a peak capped below the minimum");
         // VkHdrMetadataEXT: sType, pNext, then 12 floats.
         assert_eq!(std::mem::size_of::<SwapchainHdrMetadata>(), 16 + 12 * 4);
         assert_eq!(metadata.s_type, 1_000_105_000);

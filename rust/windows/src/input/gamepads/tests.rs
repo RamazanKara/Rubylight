@@ -345,6 +345,13 @@ fn the_steam_controllers_contacts_are_its_two_pads() {
     let moved = submit_touch_on(&mut pointers, STEAM, 4, &moved, false).unwrap();
     assert_eq!(&moved[12..16], &[1, 3, 0, 0]);
     assert!(submit_touch_on(&mut pointers, STEAM, 4, &touch(2, 1, 1, 11), false).is_none());
+    // A second finger on the held left pad is ignored, and the first one's
+    // lift frees the pad.
+    assert!(submit_touch_on(&mut pointers, STEAM, 4, &touch(2, 0, 1, 12), false).is_none());
+    assert!(submit_touch_on(&mut pointers, STEAM, 4, &touch(2, 0, 2, 12), false).is_none());
+    assert_eq!(pointers, BTreeMap::from([((2, 9), 0), ((2, 10), 1)]));
+    submit_touch_on(&mut pointers, STEAM, 4, &touch(2, 0, 2, 9), false).unwrap();
+    assert_eq!(pointers, BTreeMap::from([((2, 10), 1)]));
 }
 #[test]
 fn steam_controller_feedback_is_never_coalesced_or_deduplicated() {
@@ -573,6 +580,19 @@ fn a_chosen_vigem_pad_is_never_replaced_by_a_steam_deck_pad() {
     let mut pads = broken_pads();
     pads.profile = VIGEM_X360;
     pads.available = VIGEM_PROFILES;
+    pads.policy.steam_deck = DeckPad::SteamDeck;
+    pads.arrivals.insert(0, (CTYPE_STEAM, 0));
+    assert!(!pads.ensure_deck(0).unwrap());
+    assert!(pads.deck_failed.is_empty(), "it never tried");
+    assert!(pads.warnings.snapshot().is_empty());
+}
+/// The Steam Controller chosen by name is every client's pad, a Deck
+/// without a Steam Controller's capabilities included.
+#[test]
+fn a_chosen_steam_controller_is_never_replaced_by_a_steam_deck_pad() {
+    use butterpollo_core::input_policy::{CTYPE_STEAM, DeckPad, VHF_STEAM_CONTROLLER};
+    let mut pads = broken_pads();
+    pads.profile = VHF_STEAM_CONTROLLER;
     pads.policy.steam_deck = DeckPad::SteamDeck;
     pads.arrivals.insert(0, (CTYPE_STEAM, 0));
     assert!(!pads.ensure_deck(0).unwrap());

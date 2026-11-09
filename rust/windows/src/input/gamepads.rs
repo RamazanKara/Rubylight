@@ -234,18 +234,19 @@ impl Gamepads {
     fn ensure_deck(&mut self, id: u16) -> Result<bool> {
         use butterpollo_core::input_policy::{CTYPE_STEAM, DeckPad, USBIP_DUALSENSE, VIGEM_X360};
         // A pad chosen by name is the one every client gets.
-        if matches!(self.profile, USBIP_DUALSENSE | VIGEM_X360) {
+        if matches!(
+            self.profile,
+            USBIP_DUALSENSE | VIGEM_X360 | VHF_STEAM_CONTROLLER
+        ) {
             return Ok(false);
         }
         if self.decks.contains_key(&id) {
             return Ok(true);
         }
-        let steam = self.arrivals.get(&id).is_some_and(|(kind, capabilities)| {
-            // A Steam Controller (2026) gets the virtual one when it is chosen.
-            *kind == CTYPE_STEAM
-                && !(self.profile == VHF_STEAM_CONTROLLER
-                    && capabilities & steam_pad::CAPABILITIES != 0)
-        });
+        let steam = self
+            .arrivals
+            .get(&id)
+            .is_some_and(|(kind, _)| *kind == CTYPE_STEAM);
         if !steam || self.deck_failed.contains(&id) {
             return Ok(false);
         }
@@ -1111,8 +1112,16 @@ fn gamepad_touch_request(
         *slot
     } else if matches!(event, 0 | 1) {
         if steam {
-            // The Steam Controller's contact is its pad: 0 left, 1 right.
-            steam_pad::touch_pad(*x, *touchpad, dual)
+            // The Steam Controller's contact is its pad: 0 left, 1 right,
+            // one finger each; a second finger on a held pad is ignored.
+            let pad = steam_pad::touch_pad(*x, *touchpad, dual);
+            if pointers
+                .iter()
+                .any(|((owner, _), used)| owner == id && *used == pad)
+            {
+                return None;
+            }
+            pad
         } else {
             (0..2).find(|slot| {
                 !pointers

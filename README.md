@@ -25,6 +25,65 @@
 
 </div>
 
+## What players are saying
+
+> “This is the best Sunshine-like host app I've tried with my 6800XT”
+>
+> — tonibofarull, Radeon RX 6800 XT
+
+> “The host latency on my RX 6900 XT is outstanding”
+>
+> — almosnagy, Radeon RX 6900 XT
+
+> “My Xbox Series X streaming at 4K120 HEVC HDR has been extremely stable.”
+>
+> — j-scrizz, Xbox Series X, Rubylight 2.6.0
+
+<details>
+<summary>More feedback from players</summary>
+
+| Player | Feedback | Setup or feature |
+| --- | --- | --- |
+| NanashiGIT | “With Butterpollo I am able to push up to 200Mbps absolutely stable” | RX 9070 XT, 4K60 HDR; before the Rubylight rename |
+| j-scrizz | “My latest session lasted nearly 2 hours at 4K120 HEVC HDR” | RX 9070 XT → Xbox Series X, 2.5.7 |
+| j-scrizz | “Gameplay felt very smooth.” | Xbox Series X, first PyroWave 4K120 HDR 4:4:4 test before 3.11.6; some packet loss reported |
+| kagc | “reWASD/joy.cpl are detecting the controller as an XBOX 360” | Xbox 360 (ViGEmBus) compatibility |
+| SirvanD | “stream is running flawlessly.” | Fire TV Cube Gen 3, HEVC with the long-term reference override |
+| duwial | “Really liking this setup, thanks for giving AMD some love!” | Steam Deck and Nightjar desktop after the stream fix |
+| RunAway189 | “So far, I'm really enjoying my 9070 XT.” | Radeon streaming |
+| FelixzP | “got my stream performance back same as 2.5.1” | PyroWave retest on 2.5.11 and 2.6.0 |
+| Maldark404 | “Your fork totally kicks ass btw” | AMD streaming |
+| mdahal | “You have been doing an awesome job putting time where it matters.” | Headless reconnect fix; a second connection attempt still needed |
+| VirtualGIT20 | “the overall smoothness feels noticeably better than with 3.10.0” | RTX 5070 → Shield TV Pro, Rubylight 3.11.2; no end-to-end latency advantage claimed |
+
+### From Reddit
+
+| Player | Feedback | Setup or feature |
+| --- | --- | --- |
+| u/ChartFlashy6299 | “Runs amazing on my 6900XT. There is a noticable improvement in latency the host latency is now much better too.” | RX 6900 XT, early release |
+| u/1SizeFitsHall | “Everything works flawlessly. No more virtual display issues, sound is crisp” | RX 9070 XT → Retroid Pocket 6 over Tailscale |
+| u/Short_Dimension7967 | “Fantastic job! Host processing latency has never been this low 🎉.” | RX 9070 XT |
+| u/3stwie4 | “from 10ms encoding to 5ms in 4k 60 fps btw :)” | 4K60, early release; player-reported host timing |
+| u/LukasSTM | “It's the lowest latency I got after testing a ton of hosts.” | Early release; also reported audio crackling |
+| u/almosgeci | “Running pretty good so far on my 6900XT no framedrops, no stutter and a good migration from vibepollo” | RX 6900 XT |
+| u/Amaanx6191 | “The difference was especially noticeable when streaming from work over Tailscale.” | 12 hours of local and remote testing |
+| u/AlphaLo | “I absolutely love what you have done here.” | RX 7900 XT → LG C6 with Moonlight |
+| u/Closef35 | “WTF. Runs like Butterchicken” | Early tester, quoted in the launch post; origin of the Butterpollo name |
+| u/astero-dax | “My encoding times are actually slashed in half which is incredible.” | Early feedback quoted in the launch post; player-reported host timing |
+
+</details>
+
+Public feedback collected in November 2026, including reports from when Rubylight was called Butterpollo. These are excerpts from individual experiences on the versions and setups named; the full reports also include follow-up questions and issues. Our own measurements are under [Measured performance](#measured-performance).
+
+## Recently added
+
+- **More controller choices.** A [Steam Controller (2026) profile](docs/configuration.md#controllers) with trackpads, back grips, motion and haptics, plus **Xbox 360 (ViGEmBus)** for tools such as reWASD that need a USB controller. Steam Controller needs the updated gamepad driver; ViGEmBus is installed separately.
+- **Move a game between devices, or use two screens.** **Continue here** moves the stream while the game keeps running; **Stream here too** joins it. Nightjar's **Dual screen mode** gets a second virtual display, or the PC's other physical monitor. [Release notes](rust/RELEASE_NOTES.md#new-in-3111)
+- **Play in a browser and invite friends.** A PIN-paired play page for browsers, TVs and consoles, plus guest links with access controls; H.264, HEVC and AV1, with HDR where supported. [Browser streaming](docs/webrtc.md)
+- **Manage the PC from the couch.** Authorised Nightjar devices can approve another device's pairing, restart or shut down an idle PC, and install a pending host update. Permissions control each action. [Release notes](rust/RELEASE_NOTES.md#new-in-370)
+- **Settings that follow each game and device.** App × device overrides, [managed game files](docs/configuration.md#managed-game-files) that restore after play, and an opt-in [Neural Rendering](docs/configuration.md#neural-rendering) mod installer for supported Radeon PCs and games.
+- **Steadier PyroWave delivery.** Bitrate backs off when the host loses packets while sending, bursts are bounded on routes without client bandwidth hints, and recovery is paced after congestion. Full-chroma HEVC also works at larger coded sizes, and Wake-on-LAN includes physical adapters behind Hyper-V switches. [3.11.6](rust/RELEASE_NOTES.md#new-in-3116) · [3.11.5](rust/RELEASE_NOTES.md#new-in-3115)
+
 <p align="center">
   <a href="https://ramazankara.github.io/Rubylight/#film"><img src="docs/media/demo.gif" width="800" alt="A tour of Rubylight: the console's Home and game library, pairing, per-game Radeon settings, a virtual display for each device, HDR and full colour, co-op, Nightjar and the measured results."></a><br>
   <sub><a href="https://ramazankara.github.io/Rubylight/#film">Watch the full film with sound</a></sub>
@@ -125,10 +184,10 @@ A game that Nucleus Co-op supports gets a "(Co-op)" entry. Each device that star
 ### And everything around the game
 
 - **Sound:** surround up to 7.1.4, uncompressed PCM or Dolby Digital and Dolby Digital Plus for an AV receiver, night mode and headphone surround, game-only audio, and the client's microphone on the PC.
-- **Controllers:** a matching virtual pad for each player (DualSense with adaptive triggers, Switch Pro or Xbox), DualSense haptics and audio over USB, Steam Deck trackpads, gyro and back grips, touch and pen; Nightjar opens its keyboard when a text field on the PC takes focus.
+- **Controllers:** a matching virtual pad for each player (DualSense with adaptive triggers, Switch Pro, Xbox or Steam Controller), an optional Xbox 360 (ViGEmBus) profile, DualSense haptics and audio over USB, Steam Deck trackpads, gyro and back grips, touch and pen; Nightjar opens its keyboard when a text field on the PC takes focus.
 - **Your devices, connected:** clipboard in both directions, shared folders, file transfer and USB forwarding, each enabled per device.
 - **Browsers and Samsung TVs:** a WebRTC server streams H.264, HEVC and AV1 with HDR, surround and gamepads to a browser or a Tizen TV, paired with a PIN.
-- **Hands-off:** the lock screen and the sign-in prompt stream too, devices you authorise can put the PC to sleep, and the service restarts the host after a crash.
+- **Hands-off:** the lock screen and the sign-in prompt stream too; devices you authorise can approve pairing, put the PC to sleep, restart or shut down an idle PC, and install a host update. The service restarts the host after a crash.
 - **For tinkerers:** an [HTTP API](docs/api.md), a [native API](docs/native-api.md) for clients, signed [webhooks](docs/webhooks.md), separate instances, and a per-frame [timing record](docs/timing-record.md).
 
 The [feature reference](docs/features.md) lists everything the host does.

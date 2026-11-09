@@ -81,6 +81,30 @@ pub(super) struct Depacketizer {
 
     /// The SEI ranges a key frame's first packet holds back, kept for its capacity.
     held: Vec<Range<usize>>,
+
+    /// Packets of the frame in progress processed ahead of its last block
+    /// ([`Self::queue_ahead`]), and the state from before the first of them.
+    ahead: usize,
+    rewind_to: Rewind,
+}
+
+/// The state a packet that only builds the frame can change ([`Depacketizer::is_quiet`]).
+#[derive(Clone, Copy, Default)]
+struct Rewind {
+    data_len: usize,
+    buffers_len: usize,
+    waiting_for_next_successful_frame: bool,
+    waiting_for_idr_frame: bool,
+    waiting_for_ref_inval_frame: bool,
+    last_packet_in_stream: u32,
+    decoding_frame: bool,
+    frame_type: FrameType,
+    last_packet_payload_length: u16,
+    synthetic_pts_base_us: u64,
+    frame_host_processing_latency: u16,
+    first_packet_receive_time_us: u64,
+    first_packet_presentation_time: u64,
+    first_packet_rtp_timestamp: u32,
 }
 
 /// Frame header length by host version and the header's first byte.
@@ -137,6 +161,8 @@ impl Depacketizer {
             pyro_last_block: 0,
             pyro_last_block_ended: false,
             held: Vec::new(),
+            ahead: 0,
+            rewind_to: Rewind::default(),
         }
     }
 
@@ -147,6 +173,7 @@ impl Depacketizer {
     /// Strict key-frame recovery from now on (`VideoReceiver::recover_with_idr_only`); a wait
     /// for an invalidation becomes a wait for a key frame.
     pub(super) fn require_idr(&mut self) {
+        self.rewind();
         self.strict_idr_frame_wait = true;
         if std::mem::take(&mut self.waiting_for_ref_inval_frame) {
             self.waiting_for_idr_frame = true;
@@ -200,6 +227,7 @@ impl Depacketizer {
     }
 
     pub(super) fn request_decoder_refresh<S: VideoSink>(&mut self, sink: &mut S) {
+        self.rewind();
         self.waiting_for_idr_frame = true;
         sink.flush_frames();
         // Dropped at the next frame boundary, where it cannot corrupt a frame in progress.
@@ -641,6 +669,7 @@ impl Depacketizer {
         _speculative: bool,
         io: &mut Io<S>,
     ) {
+        self.rewind();
         self.drop_frame_state(io);
         if !self.waiting_for_idr_frame {
             self.next_frame_number = frame_number.wrapping_add(1);
@@ -663,6 +692,111 @@ impl Depacketizer {
             );
         }
         io.pools.recycle_packet(packet.buf);
+    }
+
+    /// Whether [`Self::process_rtp_payload`] would only build the frame from `video`: no
+    /// signal, no statistic, no drop and not the frame's end. Such a packet can be processed
+    /// before the rest of its frame arrived and taken back with [`Self::rewind`].
+    fn is_quiet(&self, video: &[u8]) -> bool {
+        let stream_packet_index = (le32(video, 0) >> 8) & 0xFF_FFFF;
+        let frame_index = le32(video, 4);
+        let flags = video[8];
+        let block = (video[11] >> 4) & 0x3;
+        let last_block = (video[11] >> 6) & 0x3;
+        if is_before32(frame_index, self.next_frame_number) {
+            return true;
+        }
+        let expected_index = self.last_packet_in_stream.wrapping_add(1) & 0xFF_FFFF;
+        if is_before24(stream_packet_index, expected_index)
+            || (flags & FLAG_SOF == 0 && stream_packet_index != expected_index)
+            || (flags & FLAG_EOF != 0 && block == last_block)
+        {
+            return false;
+        }
+        let marker = flags & !FLAG_CONTAINS_PIC_DATA;
+        let first_packet = (marker == (FLAG_SOF | FLAG_EOF) || marker == FLAG_SOF) && block == 0;
+        if first_packet {
+            let length = video.len() - NV_VIDEO_PACKET_SIZE;
+            if is_before32(self.next_frame_number, frame_index)
+                || (length > 0
+                    && !(self.frame_type_header && length >= 4)
+                    && self.waiting_for_ref_inval_frame)
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Processes a data packet of a block that completed before its frame's last block, if
+    /// that only builds the frame ([`Self::is_quiet`]); the RTP queue keeps the packet so that
+    /// [`Self::rewind`] can take it back. Returns whether it was processed.
+    pub(super) fn queue_ahead<S: VideoSink>(&mut self, packet: &Packet, io: &mut Io<S>) -> bool {
+        let offset = packet.data_offset();
+        let video = &packet.buf[offset..packet.len];
+        if !self.is_quiet(video) {
+            return false;
+        }
+        if self.ahead == 0 {
+            self.rewind_to = Rewind {
+                data_len: self.data.len(),
+                buffers_len: self.buffers.len(),
+                waiting_for_next_successful_frame: self.waiting_for_next_successful_frame,
+                waiting_for_idr_frame: self.waiting_for_idr_frame,
+                waiting_for_ref_inval_frame: self.waiting_for_ref_inval_frame,
+                last_packet_in_stream: self.last_packet_in_stream,
+                decoding_frame: self.decoding_frame,
+                frame_type: self.frame_type,
+                last_packet_payload_length: self.last_packet_payload_length,
+                synthetic_pts_base_us: self.synthetic_pts_base_us,
+                frame_host_processing_latency: self.frame_host_processing_latency,
+                first_packet_receive_time_us: self.first_packet_receive_time_us,
+                first_packet_presentation_time: self.first_packet_presentation_time,
+                first_packet_rtp_timestamp: self.first_packet_rtp_timestamp,
+            };
+        }
+        self.process_rtp_payload(
+            video,
+            packet.receive_time_us,
+            packet.presentation_time_us,
+            packet.rtp_timestamp,
+            io,
+        );
+        self.ahead += 1;
+        true
+    }
+
+    /// The packets processed ahead of the frame's last block.
+    pub(super) fn ahead(&self) -> usize {
+        self.ahead
+    }
+
+    /// The frame's last block is here: the packets processed ahead stay processed.
+    pub(super) fn take_ahead(&mut self) -> usize {
+        std::mem::take(&mut self.ahead)
+    }
+
+    /// Takes back the packets processed ahead, leaving the state as if they never came: the
+    /// frame was lost, or recovery changed before its last block.
+    pub(super) fn rewind(&mut self) {
+        if std::mem::take(&mut self.ahead) == 0 {
+            return;
+        }
+        let r = self.rewind_to;
+        self.data.truncate(r.data_len);
+        self.buffers.truncate(r.buffers_len);
+        self.waiting_for_next_successful_frame = r.waiting_for_next_successful_frame;
+        self.waiting_for_idr_frame = r.waiting_for_idr_frame;
+        self.waiting_for_ref_inval_frame = r.waiting_for_ref_inval_frame;
+        self.last_packet_in_stream = r.last_packet_in_stream;
+        self.decoding_frame = r.decoding_frame;
+        self.frame_type = r.frame_type;
+        self.last_packet_payload_length = r.last_packet_payload_length;
+        self.synthetic_pts_base_us = r.synthetic_pts_base_us;
+        self.frame_host_processing_latency = r.frame_host_processing_latency;
+        self.first_packet_receive_time_us = r.first_packet_receive_time_us;
+        self.first_packet_presentation_time = r.first_packet_presentation_time;
+        self.first_packet_rtp_timestamp = r.first_packet_rtp_timestamp;
     }
 
     /// Appends one packet to the records envelope: a zero container count once, then each

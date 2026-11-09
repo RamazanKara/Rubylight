@@ -545,5 +545,6 @@ fn a_frame_lost_after_a_decode_queue_overflow_is_network_loss() {
 
 mod dolby_vision;
 pub(crate) mod early_chunks;
+mod multi_block;
 mod sei;
 mod slice_delivery;

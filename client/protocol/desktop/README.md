@@ -146,7 +146,7 @@ git submodule update --init --depth 1 vendor/sdl3-src/SDL   # in protocol/, once
 cargo run --release -p nightjar-desktop      # in protocol/
 ```
 
-`sdl3-sys` builds SDL 3.4.18 from source and links it statically; the X11, Wayland, PulseAudio, PipeWire, ALSA and udev headers above decide which SDL backends are compiled in. The source is the `vendor/sdl3-src/SDL` submodule with a small patch that lets the PyroWave GPU decoder share the renderer's Vulkan device ([vendor/sdl3-src/README.md](../vendor/sdl3-src/README.md)).
+`sdl3-sys` builds SDL 3.4.20 from source and links it statically; the X11, Wayland, PulseAudio, PipeWire, ALSA and udev headers above decide which SDL backends are compiled in. The source is the `vendor/sdl3-src/SDL` submodule with a small patch that lets the PyroWave GPU decoder share the renderer's Vulkan device ([vendor/sdl3-src/README.md](../vendor/sdl3-src/README.md)).
 
 ### PyroWave
 

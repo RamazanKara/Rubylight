@@ -5,7 +5,7 @@ default-members = ["core", "client", "ffi", "difftest", "cli", "android", "polic
 exclude = ["vendor/sdl3-src"]
 resolver = "2"
 
-# SDL 3.4.18 with the Vulkan interop patch PyroWave GPU decoding shares the renderer's device
+# SDL 3.4.20 with the Vulkan interop patch PyroWave GPU decoding shares the renderer's device
 # through (vendor/sdl3-src/README.md). Only the Linux desktop client builds SDL from source.
 [patch.crates-io]
 sdl3-src = { path = "vendor/sdl3-src" }

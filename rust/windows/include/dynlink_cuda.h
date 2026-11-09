@@ -65,6 +65,7 @@ typedef struct CUlinkState_st *CUlinkState;
 
 typedef enum cudaError_enum {
     CUDA_SUCCESS = 0,
+    CUDA_ERROR_INVALID_VALUE = 1,
     CUDA_ERROR_NOT_READY = 600,
     CUDA_ERROR_LAUNCH_TIMEOUT = 702,
     CUDA_ERROR_UNKNOWN = 999
@@ -105,7 +106,19 @@ typedef enum CUarray_format_enum {
     CU_AD_FORMAT_SIGNED_INT16   = 0x09,
     CU_AD_FORMAT_SIGNED_INT32   = 0x0a,
     CU_AD_FORMAT_HALF           = 0x10,
-    CU_AD_FORMAT_FLOAT          = 0x20
+    CU_AD_FORMAT_FLOAT          = 0x20,
+    CU_AD_FORMAT_NV12           = 0xb0,
+    CU_AD_FORMAT_P016           = 0xa1,
+    CU_AD_FORMAT_NV16           = 0xa2,
+    CU_AD_FORMAT_P216           = 0xa4,
+    CU_AD_FORMAT_YUV444_8BIT_SEMIPLANAR  = 0xb4,
+    CU_AD_FORMAT_YUV444_16BIT_SEMIPLANAR = 0xb5,
+    CU_AD_FORMAT_UINT8_PLANAR_420        = 0x59,
+    CU_AD_FORMAT_UINT16_PLANAR_420       = 0x5a,
+    CU_AD_FORMAT_UINT8_PLANAR_422        = 0x5b,
+    CU_AD_FORMAT_UINT16_PLANAR_422       = 0x5c,
+    CU_AD_FORMAT_UINT8_PLANAR_444        = 0x5d,
+    CU_AD_FORMAT_UINT16_PLANAR_444       = 0x5e,
 } CUarray_format;
 
 typedef enum CUmemorytype_enum {
@@ -367,6 +380,9 @@ typedef struct CUDA_ARRAY_DESCRIPTOR_st {
     unsigned int NumChannels;
 } CUDA_ARRAY_DESCRIPTOR;
 
+#define CUDA_ARRAY3D_SURFACE_LDST 0x02
+#define CUDA_ARRAY3D_VIDEO_ENCODE_DECODE 0x100
+
 typedef struct CUDA_ARRAY3D_DESCRIPTOR_st {
     size_t Width;
     size_t Height;
@@ -520,6 +536,8 @@ typedef CUresult CUDAAPI tcuWaitExternalSemaphoresAsync(const CUexternalSemaphor
 typedef CUresult CUDAAPI tcuArrayCreate(CUarray *pHandle, const CUDA_ARRAY_DESCRIPTOR* pAllocateArray);
 typedef CUresult CUDAAPI tcuArray3DCreate(CUarray *pHandle, const CUDA_ARRAY3D_DESCRIPTOR* pAllocateArray);
 typedef CUresult CUDAAPI tcuArrayDestroy(CUarray hArray);
+typedef CUresult CUDAAPI tcuArray3DGetDescriptor(CUDA_ARRAY3D_DESCRIPTOR *pArrayDescriptor, CUarray hArray);
+typedef CUresult CUDAAPI tcuArrayGetPlane(CUarray *pPlaneArray, CUarray hArray, unsigned int planeIdx);
 
 typedef CUresult CUDAAPI tcuEGLStreamProducerConnect(CUeglStreamConnection* conn, ffnv_EGLStreamKHR stream, ffnv_EGLint width, ffnv_EGLint height);
 typedef CUresult CUDAAPI tcuEGLStreamProducerDisconnect(CUeglStreamConnection* conn);

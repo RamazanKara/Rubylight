@@ -2,13 +2,6 @@
   <img src="docs/assets/banner.png" width="800" alt="Nightjar: low-latency game streaming from your PC">
 </p>
 
-
-The user feedback is what matters most. So I will collect these ones on top. :) 
-
-`I'm not a competitive gamer, so I usually don't feel the difference of higher performance hardware. But I can absolutely feel the difference between nightjar and moonlight-qt, the work you've done has been phenomenal!`
-
-`The inclusion of support for high polling mice and keyboard, the smoothness of the VRR, the reduced latency overall; I'm absolutely floored by how good it's turned out!`
-
 <h3 align="center">Your PC games, on every screen you own.</h3>
 
 <p align="center">
@@ -33,50 +26,45 @@ The user feedback is what matters most. So I will collect these ones on top. :)
 
 ## What players are saying
 
+> “I'm not a competitive gamer, so I usually don't feel the difference of higher performance hardware. But I can absolutely feel the difference between nightjar and moonlight-qt, the work you've done has been phenomenal!”
+>
+> — /u/flyingk
+
+> “The inclusion of support for high polling mice and keyboard, the smoothness of the VRR, the reduced latency overall; I'm absolutely floored by how good it's turned out!”
+>
+> — /u/flyingk
+
 > “Nightjar is currently my favourite Android client. I really love its modern, clean UI. It feels great to use!”
 >
-> — daniel7277, Android
-
-> “The integrated library, session controls, and host-aware options make it feel like a complete console experience.”
->
-> — tylerlane, Steam Deck and laptop with Rubylight
-
-> “Played for about 30 minutes, worked great, no issues.”
->
-> — elkinjosetm, Automatic bitrate with default limits
+> — daniel7277
 
 <details>
 <summary>More feedback from players</summary>
 
-| Player | Feedback | Setup or feature |
-| --- | --- | --- |
-| rishisinghawadhiya | “thank you for creating such a beautiful, clean Android client.” | Android |
-| jun182 | “I believe Nightjar is currently the superior client for Android.” | Android; alongside a touch-control feature request |
-| daniel7277 | “It looks absolutely beautiful” | New interface |
-| daniel7277 | “feels absolutely amazing! It's so satisfying.” | WASD stick haptic feedback |
-| magicwand9099 | “I really like your modern on-screen controller design.” | On-screen controls |
-| ASE236-lang | “I love nightjar” | Android stream-menu feedback |
-| SirvanD | “Now confidently can replace Moonlight on my 2 TVs with Nightjar.” | Nightjar 3.0.1 |
-| SirvanD | “Also latest Nightjar client is performing great now without issues.” | Fire TV Cube Gen 3 |
-| VirtualGIT20 | “the telemetry/export tools make this kind of investigation much easier.” | Shield TV Pro; investigating decoder timing |
-| VirtualGIT20 | “The new debt recovery is definitely working on the actual Shield!” | Shield TV Pro, Nightjar 4.7.0 with Vibepollo |
-| leonardo7999-byte | “its working perfectly right now.” | After the connection fix |
-| umbertomarotta | “lybxlpsv's overlay holds perfectly with the flag "Ignore Presentation Time" enabled” | External frame-generation overlay |
-
-### From Reddit
-
-| Player | Feedback | Setup or feature |
-| --- | --- | --- |
-| u/ssjucrono | “I have been using nightjar and reporting issues to the developer! It has been great!” | Vibepollo host and DualSense haptics |
-| u/wolf0x | “much more plug and play and easier to understand.” | Android setup and settings |
-| u/Ayeeebroham | “Yo, this is great work. I just started using it and it is going to replace Artemide for me.” | Android with PyroWave |
-| u/Potential_Sorbet1809 | “the vrr works wonders” | Galaxy S25 Ultra, adaptive refresh |
-| u/hannahmanaman | “Holy crap using this with butter pollo made sekiro feel like native on my phone, firestick and Google 4k streamer.” | Nightjar with Rubylight (then Butterpollo) |
-| u/jdconoly | “Switched to the system driver and it works perfect! Thank you so much for making this!” | PyroWave after changing from a custom Turnip driver |
+| Comment | Username |
+| --- | --- |
+| “The integrated library, session controls, and host-aware options make it feel like a complete console experience.” | tylerlane |
+| “Played for about 30 minutes, worked great, no issues.” | elkinjosetm |
+| “thank you for creating such a beautiful, clean Android client.” | rishisinghawadhiya |
+| “I believe Nightjar is currently the superior client for Android.” | jun182 |
+| “It looks absolutely beautiful” | daniel7277 |
+| “feels absolutely amazing! It's so satisfying.” | daniel7277 |
+| “I really like your modern on-screen controller design.” | magicwand9099 |
+| “I love nightjar” | ASE236-lang |
+| “Now confidently can replace Moonlight on my 2 TVs with Nightjar.” | SirvanD |
+| “Also latest Nightjar client is performing great now without issues.” | SirvanD |
+| “the telemetry/export tools make this kind of investigation much easier.” | VirtualGIT20 |
+| “The new debt recovery is definitely working on the actual Shield!” | VirtualGIT20 |
+| “its working perfectly right now.” | leonardo7999-byte |
+| “lybxlpsv's overlay holds perfectly with the flag "Ignore Presentation Time" enabled” | umbertomarotta |
+| “I have been using nightjar and reporting issues to the developer! It has been great!” | u/ssjucrono |
+| “much more plug and play and easier to understand.” | u/wolf0x |
+| “Yo, this is great work. I just started using it and it is going to replace Artemide for me.” | u/Ayeeebroham |
+| “the vrr works wonders” | u/Potential_Sorbet1809 |
+| “Holy crap using this with butter pollo made sekiro feel like native on my phone, firestick and Google 4k streamer.” | u/hannahmanaman |
+| “Switched to the system driver and it works perfect! Thank you so much for making this!” | u/jdconoly |
 
 </details>
-
-Public feedback collected in November 2026. These are excerpts from individual experiences on the versions and setups named; the full reports also include follow-up questions and issues. Our own measurements are under [Measured performance](#measured-performance).
 
 ## Recently added
 

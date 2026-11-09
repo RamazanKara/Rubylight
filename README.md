@@ -29,51 +29,44 @@
 
 > “This is the best Sunshine-like host app I've tried with my 6800XT”
 >
-> — tonibofarull, Radeon RX 6800 XT
+> — tonibofarull
 
 > “The host latency on my RX 6900 XT is outstanding”
 >
-> — almosnagy, Radeon RX 6900 XT
+> — almosnagy
 
 > “My Xbox Series X streaming at 4K120 HEVC HDR has been extremely stable.”
 >
-> — j-scrizz, Xbox Series X, Rubylight 2.6.0
+> — j-scrizz
 
 <details>
 <summary>More feedback from players</summary>
 
-| Player | Feedback | Setup or feature |
-| --- | --- | --- |
-| NanashiGIT | “With Butterpollo I am able to push up to 200Mbps absolutely stable” | RX 9070 XT, 4K60 HDR; before the Rubylight rename |
-| j-scrizz | “My latest session lasted nearly 2 hours at 4K120 HEVC HDR” | RX 9070 XT → Xbox Series X, 2.5.7 |
-| j-scrizz | “Gameplay felt very smooth.” | Xbox Series X, first PyroWave 4K120 HDR 4:4:4 test before 3.11.6; some packet loss reported |
-| kagc | “reWASD/joy.cpl are detecting the controller as an XBOX 360” | Xbox 360 (ViGEmBus) compatibility |
-| SirvanD | “stream is running flawlessly.” | Fire TV Cube Gen 3, HEVC with the long-term reference override |
-| duwial | “Really liking this setup, thanks for giving AMD some love!” | Steam Deck and Nightjar desktop after the stream fix |
-| RunAway189 | “So far, I'm really enjoying my 9070 XT.” | Radeon streaming |
-| FelixzP | “got my stream performance back same as 2.5.1” | PyroWave retest on 2.5.11 and 2.6.0 |
-| Maldark404 | “Your fork totally kicks ass btw” | AMD streaming |
-| mdahal | “You have been doing an awesome job putting time where it matters.” | Headless reconnect fix; a second connection attempt still needed |
-| VirtualGIT20 | “the overall smoothness feels noticeably better than with 3.10.0” | RTX 5070 → Shield TV Pro, Rubylight 3.11.2; no end-to-end latency advantage claimed |
-
-### From Reddit
-
-| Player | Feedback | Setup or feature |
-| --- | --- | --- |
-| u/ChartFlashy6299 | “Runs amazing on my 6900XT. There is a noticable improvement in latency the host latency is now much better too.” | RX 6900 XT, early release |
-| u/1SizeFitsHall | “Everything works flawlessly. No more virtual display issues, sound is crisp” | RX 9070 XT → Retroid Pocket 6 over Tailscale |
-| u/Short_Dimension7967 | “Fantastic job! Host processing latency has never been this low 🎉.” | RX 9070 XT |
-| u/3stwie4 | “from 10ms encoding to 5ms in 4k 60 fps btw :)” | 4K60, early release; player-reported host timing |
-| u/LukasSTM | “It's the lowest latency I got after testing a ton of hosts.” | Early release; also reported audio crackling |
-| u/almosgeci | “Running pretty good so far on my 6900XT no framedrops, no stutter and a good migration from vibepollo” | RX 6900 XT |
-| u/Amaanx6191 | “The difference was especially noticeable when streaming from work over Tailscale.” | 12 hours of local and remote testing |
-| u/AlphaLo | “I absolutely love what you have done here.” | RX 7900 XT → LG C6 with Moonlight |
-| u/Closef35 | “WTF. Runs like Butterchicken” | Early tester, quoted in the launch post; origin of the Butterpollo name |
-| u/astero-dax | “My encoding times are actually slashed in half which is incredible.” | Early feedback quoted in the launch post; player-reported host timing |
+| Comment | Username |
+| --- | --- |
+| “With Butterpollo I am able to push up to 200Mbps absolutely stable” | NanashiGIT |
+| “My latest session lasted nearly 2 hours at 4K120 HEVC HDR” | j-scrizz |
+| “Gameplay felt very smooth.” | j-scrizz |
+| “reWASD/joy.cpl are detecting the controller as an XBOX 360” | kagc |
+| “stream is running flawlessly.” | SirvanD |
+| “Really liking this setup, thanks for giving AMD some love!” | duwial |
+| “So far, I'm really enjoying my 9070 XT.” | RunAway189 |
+| “got my stream performance back same as 2.5.1” | FelixzP |
+| “Your fork totally kicks ass btw” | Maldark404 |
+| “You have been doing an awesome job putting time where it matters.” | mdahal |
+| “the overall smoothness feels noticeably better than with 3.10.0” | VirtualGIT20 |
+| “Runs amazing on my 6900XT. There is a noticable improvement in latency the host latency is now much better too.” | u/ChartFlashy6299 |
+| “Everything works flawlessly. No more virtual display issues, sound is crisp” | u/1SizeFitsHall |
+| “Fantastic job! Host processing latency has never been this low 🎉.” | u/Short_Dimension7967 |
+| “from 10ms encoding to 5ms in 4k 60 fps btw :)” | u/3stwie4 |
+| “It's the lowest latency I got after testing a ton of hosts.” | u/LukasSTM |
+| “Running pretty good so far on my 6900XT no framedrops, no stutter and a good migration from vibepollo” | u/almosgeci |
+| “The difference was especially noticeable when streaming from work over Tailscale.” | u/Amaanx6191 |
+| “I absolutely love what you have done here.” | u/AlphaLo |
+| “WTF. Runs like Butterchicken” | u/Closef35 |
+| “My encoding times are actually slashed in half which is incredible.” | u/astero-dax |
 
 </details>
-
-Public feedback collected in November 2026, including reports from when Rubylight was called Butterpollo. These are excerpts from individual experiences on the versions and setups named; the full reports also include follow-up questions and issues. Our own measurements are under [Measured performance](#measured-performance).
 
 ## Recently added
 

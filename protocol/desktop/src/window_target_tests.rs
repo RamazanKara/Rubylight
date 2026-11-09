@@ -77,3 +77,149 @@ fn a_frame_draws_into_the_swapchain_unless_a_read_back_keeps_the_back_buffer() {
         SDL_Quit();
     }
 }
+
+/// SDL on the offscreen video driver, and a shown 64x32 window with the GPU renderer.
+///
+/// # Safety
+/// The caller holds `TEST_LOCK` and ends with [`offscreen_end`].
+unsafe fn offscreen_gpu() -> (*mut SDL_Window, *mut SDL_Renderer) {
+    // SAFETY: as the function says.
+    unsafe {
+        SDL_SetHint(SDL_HINT_VIDEO_DRIVER, c"offscreen".as_ptr());
+        assert!(SDL_Init(SDL_INIT_VIDEO), "{}", error());
+        let window = SDL_CreateWindow(c"Window target".as_ptr(), 64, 32, SDL_WindowFlags(0));
+        assert!(!window.is_null(), "{}", error());
+        let renderer = create_renderer(window, true);
+        assert!(!renderer.is_null(), "{}", error());
+        assert_eq!(renderer_name(renderer), "gpu");
+        (window, renderer)
+    }
+}
+
+/// # Safety
+/// What [`offscreen_gpu`] made, with nothing else left on it.
+unsafe fn offscreen_end(window: *mut SDL_Window, renderer: *mut SDL_Renderer) {
+    // SAFETY: as the function says.
+    unsafe {
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+    }
+}
+
+/// A frame that clears and draws a square on the window's target, presented.
+///
+/// # Safety
+/// A live renderer.
+unsafe fn frame(renderer: *mut SDL_Renderer) {
+    let square = SDL_FRect { x: 0.0, y: 0.0, w: 8.0, h: 8.0 };
+    // SAFETY: as the function says.
+    unsafe {
+        assert!(SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255) && SDL_RenderClear(renderer));
+        assert!(SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255) && SDL_RenderFillRect(renderer, &square));
+        assert!(SDL_RenderPresent(renderer), "{}", error());
+    }
+}
+
+#[test]
+#[ignore = "needs a Vulkan device and SDL's offscreen video driver"]
+fn a_resize_between_frames_goes_through_the_back_buffer_once() {
+    let _sdl = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // SAFETY: Plain SDL calls on objects made here, on one thread.
+    unsafe {
+        let (window, renderer) = offscreen_gpu();
+        frame(renderer);
+        assert_eq!(window_target_frames(renderer), 1);
+        assert!(SDL_SetWindowSize(window, 96, 48), "{}", error());
+        SDL_PumpEvents();
+        // The new swapchain image is larger than the back buffer: drawn there and copied, which
+        // makes the back buffer the new size.
+        frame(renderer);
+        assert_eq!(window_target_frames(renderer), 1, "the frame after a resize went through the back buffer");
+        frame(renderer);
+        assert_eq!(window_target_frames(renderer), 2, "and the next straight into the swapchain again");
+        offscreen_end(window, renderer);
+    }
+}
+
+#[test]
+#[ignore = "needs a Vulkan device and SDL's offscreen video driver"]
+fn a_hidden_window_takes_no_image_and_says_no_error() {
+    let _sdl = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // SAFETY: Plain SDL calls on objects made here, on one thread.
+    unsafe {
+        let (window, renderer) = offscreen_gpu();
+        frame(renderer);
+        assert_eq!(window_target_frames(renderer), 1);
+        assert!(SDL_HideWindow(window), "{}", error());
+        SDL_ClearError();
+        frame(renderer);
+        assert_eq!(error(), "", "SDL has no image for a hidden window, which is no failure");
+        assert_eq!(window_target_frames(renderer), 1, "nothing went into a swapchain");
+        assert!(SDL_ShowWindow(window), "{}", error());
+        frame(renderer);
+        assert_eq!(window_target_frames(renderer), 2, "shown again: straight into the swapchain");
+        offscreen_end(window, renderer);
+    }
+}
+
+#[test]
+#[ignore = "needs a Vulkan device and SDL's offscreen video driver"]
+fn v_sync_set_while_the_frame_holds_its_image_is_refused() {
+    let _sdl = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // SAFETY: Plain SDL calls on objects made here, on one thread.
+    unsafe {
+        let (window, renderer) = offscreen_gpu();
+        assert!(SDL_SetRenderVSync(renderer, 1), "{}", error());
+        let before = present_mode(renderer);
+        assert_eq!(before, Some(0), "FIFO");
+        assert!(SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255) && SDL_RenderClear(renderer));
+        let square = SDL_FRect { x: 0.0, y: 0.0, w: 8.0, h: 8.0 };
+        assert!(SDL_RenderFillRect(renderer, &square) && SDL_FlushRenderer(renderer), "{}", error());
+        // SDL_SetRenderVSync turns the renderer's refusal into no V-Sync; the error stays.
+        SDL_ClearError();
+        SDL_SetRenderVSync(renderer, 0);
+        assert!(error().contains("set V-Sync between frames"), "{}", error());
+        assert_eq!(present_mode(renderer), before, "the swapchain was not made again under the frame");
+        assert!(SDL_RenderPresent(renderer), "{}", error());
+        assert_eq!(window_target_frames(renderer), 1, "the frame reached its image");
+        assert!(SDL_SetRenderVSync(renderer, 1), "{}", error());
+        assert_eq!(present_mode(renderer), Some(0), "between frames it is taken");
+        offscreen_end(window, renderer);
+    }
+}
+
+#[test]
+#[ignore = "needs a Vulkan device and SDL's offscreen video driver"]
+fn the_pq_renderer_never_draws_into_the_swapchain() {
+    let _sdl = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // SAFETY: Plain SDL calls on objects made here, on one thread; the properties are freed here.
+    unsafe {
+        let (window, renderer) = offscreen_gpu();
+        let hdr10 = hdr10_offered(renderer);
+        SDL_DestroyRenderer(renderer);
+        if !hdr10 {
+            eprintln!("this Vulkan device offers the window no HDR10 swapchain: the PQ renderer is not tested");
+            SDL_DestroyWindow(window);
+            SDL_Quit();
+            return;
+        }
+        // As `hdr_output` makes it for an HDR stream.
+        let props = SDL_CreateProperties();
+        SDL_SetPointerProperty(props, SDL_PROP_RENDERER_CREATE_WINDOW_POINTER, window.cast());
+        SDL_SetStringProperty(props, SDL_PROP_RENDERER_CREATE_NAME_STRING, c"gpu".as_ptr());
+        SDL_SetBooleanProperty(props, SDL_PROP_RENDERER_CREATE_GPU_SHADERS_SPIRV_BOOLEAN, true);
+        SDL_SetNumberProperty(props, SDL_PROP_RENDERER_CREATE_OUTPUT_COLORSPACE_NUMBER, i64::from(SDL_COLORSPACE_SRGB_LINEAR.0));
+        set_pq_present(props, true);
+        let renderer = SDL_CreateRendererWithProperties(props);
+        set_pq_present(props, false);
+        SDL_DestroyProperties(props);
+        assert!(!renderer.is_null(), "{}", error());
+        for _ in 0..3 {
+            frame(renderer);
+        }
+        assert!(SDL_RenderClear(renderer) && SDL_RenderPresent(renderer), "{}", error());
+        assert_eq!(window_target_frames(renderer), 0, "PQ's present pass reads the back buffer");
+        offscreen_end(window, renderer);
+    }
+}

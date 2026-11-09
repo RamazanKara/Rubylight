@@ -26,7 +26,7 @@
  } GPU_RenderData;
  
  typedef struct GPU_PaletteData
-@@ -731,12 +750,46 @@
+@@ -731,12 +750,52 @@
      data->state.scissor_enabled = false;
  }
  
@@ -47,6 +47,8 @@
 + * it draws into the back buffer and the present blits as before. */
 +static SDL_GPUTexture *GPU_AcquireFrameTarget(GPU_RenderData *data)
 +{
++    /* Latency: V-Sync's (FIFO's) wait moves from the present to this acquire, so no flush of the
++     * window's target may come before a frame's late CPU work (its newest picture or input). */
 +    data->frame.tried = true;
 +    if (!SDL_WaitAndAcquireGPUSwapchainTexture(data->state.command_buffer, data->window, &data->frame.texture, &data->frame.width, &data->frame.height)) {
 +        SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Failed to acquire swapchain texture: %s", SDL_GetError());
@@ -67,13 +69,17 @@
 +    // Nightjar patch (window target): the frame's first pass on the window's target takes its image.
 +    if (!data->state.color_attachment.texture) {
 +        data->state.color_attachment.texture = GPU_AcquireFrameTarget(data);
++        if (!data->frame.direct && data->state.color_attachment.load_op == SDL_GPU_LOADOP_DONT_CARE) {
++            // The back buffer instead keeps what it had, as without the window target.
++            data->state.color_attachment.load_op = SDL_GPU_LOADOP_LOAD;
++        }
 +        data->frame.clear = false;
 +    }
 +
      data->state.render_pass = SDL_BeginGPURenderPass(
          data->state.command_buffer, &data->state.color_attachment, 1, NULL);
  
-@@ -1177,6 +1230,7 @@
+@@ -1177,6 +1236,7 @@
  static bool GPU_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd, void *vertices, size_t vertsize)
  {
      GPU_RenderData *data = (GPU_RenderData *)renderer->internal;
@@ -81,17 +87,22 @@
  
      if (!UploadVertices(data, vertices, vertsize)) {
          return false;
-@@ -1187,11 +1241,21 @@
+@@ -1187,11 +1247,26 @@
      if (renderer->target) {
          GPU_TextureData *tdata = renderer->target->internal;
          data->state.color_attachment.texture = tdata->texture;
 +    } else if (GPU_FrameEligible(renderer, data) && !data->frame.tried) {
-+        // Nightjar patch (window target): NULL until the first pass acquires the swapchain image.
++        /* Nightjar patch (window target): NULL until the first pass acquires the swapchain image.
++         * A freshly acquired image is UNDEFINED, so the frame's first pass on it clears or loads
++         * nothing: a frame drawing on the window's target without a clear leaves what it does not
++         * draw undefined, as SDL already says of the window's contents after a present. */
 +        pending = true;
 +        data->state.color_attachment.texture = NULL;
 +        if (data->frame.clear) {
 +            data->state.color_attachment.load_op = SDL_GPU_LOADOP_CLEAR;
 +            data->state.color_attachment.clear_color = data->frame.clear_color;
++        } else {
++            data->state.color_attachment.load_op = SDL_GPU_LOADOP_DONT_CARE;
 +        }
 +    } else if (data->frame.direct) {
 +        data->state.color_attachment.texture = data->frame.texture;
@@ -104,7 +115,7 @@
          return SDL_SetError("Render target texture is NULL");
      }
  
-@@ -1348,7 +1412,11 @@
+@@ -1348,7 +1423,11 @@
          cmd = cmd->next;
      }
  
@@ -117,7 +128,7 @@
          RestartRenderPass(data);
      }
  
-@@ -1366,6 +1434,13 @@
+@@ -1366,6 +1445,13 @@
      SDL_GPUTexture *gpu_tex;
      SDL_PixelFormat pixfmt;
  
@@ -131,7 +142,7 @@
      if (data->state.render_target) {
          SDL_Texture *texture = data->state.render_target;
          GPU_TextureData *texdata = texture->internal;
-@@ -1541,13 +1616,40 @@
+@@ -1541,13 +1627,40 @@
      if (renderer->window) {
          SDL_GPUTexture *swapchain;
          Uint32 swapchain_texture_width, swapchain_texture_height;
@@ -174,7 +185,7 @@
              // Nightjar patch (PQ present): the back buffer through the PQ pass, scaled as the blit would.
              SDL_GPUColorTargetInfo target;
              SDL_GPUTextureSamplerBinding binding;
-@@ -1666,7 +1768,11 @@
+@@ -1666,7 +1779,11 @@
          return;
      }
  
@@ -187,7 +198,21 @@
          SDL_CancelGPUCommandBuffer(data->state.command_buffer);
          data->state.command_buffer = NULL;
      }
-@@ -1896,6 +2002,7 @@
+@@ -1758,5 +1875,13 @@
+         }
+     }
+ 
++    /* Nightjar patch (window target): a new swapchain would take the image the frame draws into.
++     * Logged too: SDL_SetRenderVSync turns this failure into simulated V-Sync, or none. */
++    if (data->frame.texture) {
++        SDL_SetError("The frame took its swapchain image already: set V-Sync between frames");
++        SDL_LogError(SDL_LOG_CATEGORY_RENDER, "%s", SDL_GetError());
++        return false;
++    }
++
+     /* Nightjar patch (tearing present): the app asks for IMMEDIATE first with this renderer
+      * property, and reads the present mode in use back from the other one. */
+@@ -1896,6 +2021,7 @@
          if (!SDL_ClaimWindowForGPUDevice(data->device, window)) {
              return false;
          }

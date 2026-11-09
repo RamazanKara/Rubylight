@@ -1096,7 +1096,7 @@ class PortedCredits(unittest.TestCase):
 
     def test_notice_and_agents_name_every_ported_hdr_file(self):
         notice = ' '.join((ROOT / 'NOTICE').read_text(encoding='utf-8').split())
-        agents = (ROOT / 'AGENTS.md').read_text(encoding='utf-8').splitlines()[2]
+        agents = (ROOT / 'AGENTS.md').read_text(encoding='utf-8').split('\n## ')[0]
         for path in self.PORTED:
             self.assertIn('Foundation Sunshine', (ROOT / path).read_text(encoding='utf-8'), path)
             self.assertIn(path, notice)

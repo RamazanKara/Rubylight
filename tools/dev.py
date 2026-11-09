@@ -350,15 +350,21 @@ def web_dependencies(web, log, refresh=False):
 
 
 def read_quick(path):
-    """rl-quick's log as text, and whether it ended with EXIT 0.
+    """rl-quick's log as text, and whether it passed: EXIT 0, tests that ran and none failed.
 
     Windows PowerShell appends cargo's output (`*>>`) as UTF-16LE between its own UTF-8
     lines, so the file mixes both: drop the NULs and byte order marks, keep the ASCII.
+    A command PowerShell can't find (cargo off PATH, a missing rl-env.ps1) leaves
+    $LASTEXITCODE alone, so rl-quick can end with EXIT 0 having run nothing: that fails too.
     """
     data = path.read_bytes() if path.exists() else b''
     text = data.replace(b'\x00', b'').decode('utf-8', errors='replace')
     text = text.replace('﻿', '').replace('��', '').replace('\r\n', '\n')
-    return text, re.search(r'(?m)^EXIT 0\s*$', text) is not None
+    passed = (re.search(r'(?m)^EXIT 0\s*$', text) is not None
+              and re.search(r'(?m)^test result: ok\.', text) is not None
+              and re.search(r'(?m)^test result: FAILED', text) is None
+              and 'CommandNotFoundException' not in text)
+    return text, passed
 
 
 def execute(check, root, log, target, fresh_dependencies=False):

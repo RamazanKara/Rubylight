@@ -148,13 +148,12 @@ class Plan(unittest.TestCase):
 
 
 class QuickLog(unittest.TestCase):
-    def quick(self, exit_line):
+    def quick(self, exit_line, cargo=('test result: ok. 3 passed; 0 failed', 'Grüße')):
         # As rl-quick writes it under Windows PowerShell: Out-File -Encoding utf8 for its own
         # lines (a BOM each time), `*>>` appends cargo's output as UTF-16LE with CRLF.
         utf8 = lambda s: '\ufeff'.encode('utf-8') + (s + '\r\n').encode('utf-8')
         utf16 = lambda s: '\ufeff'.encode('utf-16-le') + (s + '\r\n').encode('utf-16-le')
-        data = (utf8('== test') + utf16('test result: ok. 3 passed; 0 failed') + utf16('Grüße')
-                + utf8(exit_line))
+        data = utf8('== test') + b''.join(utf16(line) for line in cargo) + utf8(exit_line)
         with tempfile.TemporaryDirectory() as directory:
             path = pathlib.Path(directory, 'host.log.quick')
             path.write_bytes(data)
@@ -180,6 +179,15 @@ class QuickLog(unittest.TestCase):
     def test_a_failure_or_a_missing_log_fails(self):
         self.assertFalse(self.quick('EXIT 1')[1])
         self.assertEqual(dev.read_quick(pathlib.Path('missing.quick')), ('', False))
+
+    def test_exit_0_with_nothing_run_or_a_failed_test_fails(self):
+        # cargo off PATH: PowerShell leaves $LASTEXITCODE at 0 and rl-quick says EXIT 0.
+        missing = ("cargo : The term 'cargo' is not recognized as a name of a cmdlet",
+                   '    + FullyQualifiedErrorId : CommandNotFoundException')
+        self.assertFalse(self.quick('EXIT 0', missing)[1])
+        self.assertFalse(self.quick('EXIT 0', ())[1])
+        failed = ('test result: ok. 3 passed; 0 failed', 'test result: FAILED. 1 passed; 1 failed')
+        self.assertFalse(self.quick('EXIT 0', failed)[1])
 
 
 class Execution(unittest.TestCase):

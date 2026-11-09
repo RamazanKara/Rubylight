@@ -31,7 +31,8 @@ import com.limelight.preferences.StreamSettings;
  * <li>Back from a destination that is not the root goes to the root; Back on the root leaves the app.
  * <li>Switching destinations replaces the current one instead of stacking: the root is brought back with
  *     CLEAR_TOP and SINGLE_TOP, and a screen that is not the root finishes when it opens a sibling.
- * <li>Home is hidden while no host has a library to show, except on Home's own screens.
+ * <li>Home is hidden while no host has games to show ({@link #homeAvailable}), except on Home's own screens. A host
+ *     without the native API shows its games there but does not make Home the root.
  * </ul>
  */
 public final class ShellBar {
@@ -59,9 +60,12 @@ public final class ShellBar {
         return HomeSettings.opensOnHome(context) ? Destination.HOME : Destination.PCS;
     }
 
-    /** Home appears in the bar once some host has a library; until then it would be an empty screen. */
+    /**
+     * Home appears in the bar once some host has games to show there: the library of a host with the native API, or
+     * the saved app list of a paired host without it. Until then it would be an empty screen.
+     */
     public static boolean homeAvailable(Context context) {
-        return ConsoleRepository.hasAnyLibrary(context);
+        return ConsoleRepository.hasAnyLibrary(context) || ConsoleRepository.hasClassicAppList(context);
     }
 
     /** The intent that opens a destination, without the task flags {@link #open} adds. */

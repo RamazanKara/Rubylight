@@ -1,11 +1,15 @@
 # Nightjar
 
-Host-neutral Android Moonlight-protocol client (repo RamazanKara/nightjar).
+Host-neutral Moonlight-protocol client for Android and desktop (public repo RamazanKara/nightjar, mirrored from this folder).
 
 - Gate host-specific extras by the `HostCapabilities` model, never by brand checks. User-facing text says Nightjar and stays host-neutral.
+- Android and desktop stay at parity: a feature or setting lands on both in one change, with shared logic in the `client/protocol` Rust crate. On-screen touch controls are Android-only.
+- A behaviour whose default is in question becomes a setting in its fitting section (Debug is for diagnostic switches only); measurements decide the default. Never delete a setting.
+- The overlay's "Host processing" is the video header's per-frame value, as stock Moonlight shows it; other overlay timings cover only Nightjar's own interval.
 - Never change applicationId `com.butterpollo.client` or the signing key: in-place updates depend on them.
 - Never rename existing preference keys (`SettingsKeysTest` enforces this).
 - Native moonlight-common-c fixes live in `moonlight-core/patches/*.patch`; Gradle and `test-native.sh` reapply the set when its stamp changes.
 
 ## Release signing
-Keystore and `keystore.properties` live in `C:\Users\ramaz\git\signing\nightjar\`. For a release build, copy `keystore.properties` to the Gradle root (`client/` in this checkout) (gitignored), build, delete it again. Verify with `apksigner verify --print-certs`: SHA-256 must be `312ed322c7c29d1aec4fae4a3979ebcb557af44d821d7f4746c0968548eb630b`. Never print or commit the properties file.
+
+Keystore and `keystore.properties` live in `C:\Users\ramaz\git\signing\nightjar\`. For a release build, copy `keystore.properties` to the Gradle root (`client/`, gitignored), build, then delete it. Verify with `apksigner verify --print-certs`: SHA-256 must be `312ed322c7c29d1aec4fae4a3979ebcb557af44d821d7f4746c0968548eb630b`. Never print or commit the properties file.

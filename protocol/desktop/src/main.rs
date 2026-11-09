@@ -1531,11 +1531,12 @@ impl App {
         }
         let renderer = self.renderer;
         let must_draw = std::mem::take(&mut self.window_changed) || self.screenshot_requested;
-        // A screenshot or capture reads the frame back, so it stays in the GPU renderer's back buffer.
+        // A screenshot or capture reads the frame back, and so does live glass's timed chain: the
+        // frame stays in the GPU renderer's back buffer.
         #[cfg(feature = "demo-library")]
-        let read_back = self.screenshot_requested || self.demo_capture_pending();
+        let read_back = self.screenshot_requested || self.demo_capture_pending() || self.gui.glass_timing();
         #[cfg(not(feature = "demo-library"))]
-        let read_back = self.screenshot_requested;
+        let read_back = self.screenshot_requested || self.gui.glass_timing();
         sdl::read_back_frames(renderer, read_back);
         // SAFETY: drawing on the live renderer.
         let drew = self.gui.paint_if_changed(renderer, output, must_draw, || unsafe {
@@ -1954,7 +1955,7 @@ impl App {
             hdr_swapchain: sdl::swapchain_takes_hdr(self.renderer),
             made_for_hdr: state.made_for_hdr,
             gpu_failed: state.gpu_failed.is_some(),
-            pq_unused: gpu && handheld::pq_unused(handheld::gamescope(), sdl::output_decision(), sdl::hdr10_offered(self.renderer)),
+            pq_unused: gpu && handheld::pq_unused(handheld::gamescope(), sdl::output_decision(), sdl::hdr10_offered(self.renderer), sdl::pq_failed()),
         };
         let vulkan_choice = vulkan_video::Choice::from_environment();
         let vulkan_video = state.vulkan_video || vulkan_video_possible(settings.decoder != DecoderPreference::Software, vulkan_choice, vaapi_map_switched_on());
@@ -2013,6 +2014,9 @@ impl App {
         if hdr {
             sdl::set_hdr_asked(true);
         }
+        // Only an HDR stream's renderer may present as HDR10 PQ; the launcher and SDR streams keep
+        // the window target.
+        sdl::set_hdr_stream(hdr && display_hdr);
         let mut made = sdl::create_renderer_with(self.window, gpu, vulkan_video);
         let mut vulkan_video = vulkan_video;
         let mut failure = if made.is_null() {
@@ -2040,6 +2044,7 @@ impl App {
         if made.is_null() && from == "gpu" {
             made = sdl::create_renderer_with(self.window, false, false);
         }
+        sdl::set_hdr_stream(false);
         if made.is_null() {
             let why = format!("Nightjar has no renderer any more: the {wanted:?} renderer for {reason} and the {from:?} one before it could not be made ({})", sdl::error());
             eprintln!("nightjar: {why}");

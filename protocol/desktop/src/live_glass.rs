@@ -345,6 +345,13 @@ impl Glass {
         *self = Self { over_video: self.over_video, budget_ms: self.budget_ms, changed: true, ..Self::new(self.forced) };
     }
 
+    /// Whether the chain's next run may be timed: live, and its probe has no verdict yet. A timed
+    /// run reads a pixel back, which the GPU renderer allows only for a frame kept in its back
+    /// buffer (`sdl::read_back_frames`), so the frame asks for that before it draws.
+    pub fn timing(&self) -> bool {
+        self.pass_tier() == Tier::Live && self.probe.as_ref().is_none_or(Probe::running)
+    }
+
     /// Whether the tier changed since last asked.
     pub fn take_changed(&mut self) -> bool {
         std::mem::take(&mut self.changed)
@@ -612,13 +619,8 @@ impl Chain {
         // SAFETY: targets we created on this renderer; the null rects mean the whole texture.
         unsafe {
             SDL_SetRenderClipRect(renderer, std::ptr::null());
-            let started = if timed {
-                // Waits for what was queued, so the time below is the chain's own.
-                sync(renderer);
-                Some(std::time::Instant::now())
-            } else {
-                None
-            };
+            // Waits for what was queued, so the time below is the chain's own.
+            let mut timing = if timed { sync(renderer).map(|()| Some(std::time::Instant::now())) } else { Ok(None) };
             let mut from = self.scene;
             let mut ok = true;
             for &level in &self.levels {
@@ -626,26 +628,30 @@ impl Chain {
                 ok &= SDL_RenderTexture(renderer, from, std::ptr::null(), std::ptr::null());
                 from = level;
             }
-            let ms = started.map(|started| {
-                sync(renderer);
-                started.elapsed().as_secs_f32() * 1000.0
-            });
+            if let Ok(Some(_)) = timing {
+                timing = sync(renderer).and(timing);
+            }
+            let ms = timing.map(|started| started.map(|started| started.elapsed().as_secs_f32() * 1000.0));
+            // The scene reaches the screen whether or not the chain could be timed.
             ok &= SDL_SetRenderTarget(renderer, std::ptr::null_mut());
             ok &= SDL_RenderTexture(renderer, self.scene, std::ptr::null(), std::ptr::null());
             if !ok {
                 return Err(format!("a chain pass failed: {}", crate::sdl::error()));
             }
+            let ms = ms?;
             self.ran = true;
             Ok(ms)
         }
     }
 }
 
-/// Blocks until the GPU finished the current target: reading one pixel back waits for it.
+/// Blocks until the GPU finished the current target: reading one pixel back waits for it. A
+/// read-back that fails waited for nothing, so the chain's time would be wrong: an error, which
+/// steps the glass down saying why.
 ///
 /// # Safety
 /// Needs a live renderer.
-unsafe fn sync(renderer: *mut SDL_Renderer) {
+unsafe fn sync(renderer: *mut SDL_Renderer) -> Result<(), String> {
     let one = SDL_Rect {
         x: 0,
         y: 0,
@@ -656,10 +662,14 @@ unsafe fn sync(renderer: *mut SDL_Renderer) {
     unsafe {
         SDL_FlushRenderer(renderer);
         let surface = SDL_RenderReadPixels(renderer, &one);
-        if !surface.is_null() {
-            SDL_DestroySurface(surface);
+        if surface.is_null() {
+            let why = crate::sdl::error();
+            eprintln!("nightjar: live glass: the chain could not be timed, its read-back failed: {why}");
+            return Err(format!("the chain could not be timed: {why}"));
         }
+        SDL_DestroySurface(surface);
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -992,12 +1002,36 @@ mod tests {
         let mut glass = Glass::live();
         let mut stage = stage();
         for n in 0..t::TIER_PROBE_FRAMES {
+            // Asked before the frame draws, so the GPU renderer keeps it readable.
+            assert!(glass.timing(), "run {n}");
+            stage.calls.clear();
             glass.paint(&mut stage, &chrome_frame(Color32::from_gray(n as u8)), false);
+            assert_eq!(stage.calls[2], Call::End { timed: true });
         }
         assert_eq!(glass.pass_tier(), Tier::Live);
+        assert!(!glass.timing(), "the frames go straight into the swapchain again");
         stage.calls.clear();
         glass.paint(&mut stage, &chrome_frame(Color32::GREEN), false);
         assert_eq!(stage.calls[2], Call::End { timed: false }, "no more waits");
+    }
+
+    #[test]
+    fn only_a_live_chain_still_measured_times_its_frames() {
+        assert!(!Glass::new(None).timing(), "untried: baked until the targets are tried");
+        assert!(!Glass::new(Some(Tier::Baked)).timing());
+        let mut glass = Glass::live();
+        assert!(glass.timing());
+        assert!(!glass.set_over_video(true));
+        assert!(!glass.timing(), "no chain over a stream's video");
+    }
+
+    #[test]
+    fn a_chain_that_cannot_be_timed_steps_down_saying_why() {
+        let mut glass = Glass::live();
+        let mut stage = Recorder { end_fails: true, ..stage() };
+        glass.paint(&mut stage, &chrome_frame(Color32::RED), false);
+        assert_eq!(glass.pass_tier(), Tier::Baked, "a time that waited for nothing is no verdict");
+        assert!(!glass.timing());
     }
 
     #[test]

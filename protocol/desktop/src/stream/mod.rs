@@ -598,13 +598,13 @@ pub struct Streaming {
     /// What reached the glass: wp_presentation feedback of each picture (Wayland).
     #[cfg(target_os = "linux")]
     glass: wl_presentation::Glass,
-    /// The GPU renderer's count of frames drawn straight into the swapchain at the stream's first
-    /// present, and the stream's presents since.
+    /// The stream's presents, and how many the GPU renderer drew straight into the swapchain.
     #[cfg(target_os = "linux")]
-    window_target: Option<(i64, u64)>,
-    /// The HDR mastering metadata last handed to the HDR10 swapchain (`sdl::set_swapchain_hdr_metadata`).
+    window_target: WindowTargetCount,
+    /// The HDR mastering metadata last handed to the HDR10 swapchain (`sdl::set_swapchain_hdr_metadata`):
+    /// None before any, `Some(None)` for unknown.
     #[cfg(target_os = "linux")]
-    swapchain_hdr_metadata: Option<crate::sdl::SwapchainHdrMetadata>,
+    swapchain_hdr_metadata: Option<Option<crate::sdl::SwapchainHdrMetadata>>,
     rtp_clock: RtpClock,
     last_probe: Instant,
     window: Window,
@@ -659,6 +659,54 @@ fn hdr_output_change(was: bool, now: bool) -> Option<bool> {
 fn window_target_line(direct: i64, presents: u64) -> String {
     let direct = u64::try_from(direct).unwrap_or(0).min(presents);
     format!("window target: {direct} of {presents} presents drawn straight into the swapchain, {} through the back buffer", presents - direct)
+}
+
+/// The stream's presents and how many of them the GPU renderer drew straight into the swapchain,
+/// from its count (`sdl::window_target_frames`) read around each present. A renderer made again
+/// mid-stream (a PQ or scRGB switch) counts from zero: its count starts afresh, the old one's kept.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct WindowTargetCount {
+    renderer: usize,
+    start: i64,
+    last: i64,
+    carried: i64,
+    presents: u64,
+}
+
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+impl WindowTargetCount {
+    /// Before a present on `renderer`, whose count is `frames`. A count below the last one is
+    /// another renderer at the old one's address.
+    fn before_present(&mut self, renderer: usize, frames: i64) {
+        if self.presents == 0 || renderer != self.renderer || frames < self.last {
+            if self.presents > 0 {
+                self.carried += self.last - self.start;
+            }
+            self.renderer = renderer;
+            self.start = frames;
+        }
+        self.last = frames;
+        self.presents += 1;
+    }
+
+    /// After that present: its count now.
+    fn after_present(&mut self, frames: i64) {
+        self.last = frames.max(self.last);
+    }
+
+    fn direct(&self) -> i64 {
+        self.carried + self.last - self.start
+    }
+}
+
+/// What the HDR10 swapchain's metadata changes to at a present, if anything. `stream`: the
+/// stream's own while it is HDR (`Some(None)` when what the host sent is no usable metadata);
+/// `sent`: what was handed last (`None` before anything). Once HDR stops the swapchain gets
+/// unknown metadata (`Some(None)`) instead of keeping the last stream's.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn swapchain_metadata_change<M: Copy + PartialEq>(stream: Option<Option<M>>, sent: Option<Option<M>>) -> Option<Option<M>> {
+    stream.or(sent.map(|_| None)).filter(|wanted| sent != Some(*wanted))
 }
 
 impl Streaming {
@@ -864,7 +912,7 @@ impl Streaming {
             #[cfg(target_os = "linux")]
             glass: wl_presentation::Glass::default(),
             #[cfg(target_os = "linux")]
-            window_target: None,
+            window_target: WindowTargetCount::default(),
             #[cfg(target_os = "linux")]
             swapchain_hdr_metadata: None,
             rtp_clock: RtpClock::default(),
@@ -1930,13 +1978,13 @@ impl Streaming {
             if let Some(line) = self.glass.line() { eprintln!("nightjar: {line}"); }
             // SAFETY: a live window; its renderer, if any, too.
             let renderer = unsafe { SDL_GetRenderer(window) };
-            if let (Some((start, presents)), false) = (self.window_target, renderer.is_null()) {
-                eprintln!("nightjar: {}", window_target_line(crate::sdl::window_target_frames(renderer) - start, presents));
+            if self.window_target.presents > 0 && !renderer.is_null() {
+                eprintln!("nightjar: {}", window_target_line(self.window_target.direct(), self.window_target.presents));
             }
             // The window outlives the stream: the next one (or the launcher) must not inherit this
             // stream's mastering metadata.
-            if self.swapchain_hdr_metadata.is_some() {
-                crate::sdl::set_swapchain_hdr_metadata(window, crate::sdl::swapchain_hdr_metadata(&Default::default(), None));
+            if matches!(self.swapchain_hdr_metadata, Some(Some(_))) {
+                crate::sdl::set_swapchain_hdr_metadata(window, None);
             }
         }
         let stats = self.session.stats();
@@ -2021,6 +2069,45 @@ mod tests {
         assert_eq!(window_target_line(0, 5), "window target: 0 of 5 presents drawn straight into the swapchain, 5 through the back buffer", "PQ output");
         assert_eq!(window_target_line(-3, 5), "window target: 0 of 5 presents drawn straight into the swapchain, 5 through the back buffer", "another renderer");
         assert_eq!(window_target_line(9, 5), "window target: 5 of 5 presents drawn straight into the swapchain, 0 through the back buffer", "launcher frames between the counts");
+    }
+
+    #[test]
+    fn the_window_target_count_survives_a_renderer_made_again_mid_stream() {
+        let mut count = WindowTargetCount::default();
+        // The launcher drew 40 frames on the first renderer before the stream.
+        for frames in 40..43 {
+            count.before_present(0x1000, frames);
+            count.after_present(frames + 1);
+        }
+        assert_eq!((count.direct(), count.presents), (3, 3));
+        // Made again for PQ: its count starts at zero, and PQ frames go through the back buffer.
+        for _ in 0..2 {
+            count.before_present(0x2000, 0);
+            count.after_present(0);
+        }
+        assert_eq!((count.direct(), count.presents), (3, 5));
+        // scRGB: straight into the swapchain again.
+        for frames in 0..2 {
+            count.before_present(0x3000, frames);
+            count.after_present(frames + 1);
+        }
+        assert_eq!((count.direct(), count.presents), (5, 7));
+        // Made again at the old address: a count below the last one is another renderer.
+        count.before_present(0x3000, 0);
+        count.after_present(1);
+        assert_eq!((count.direct(), count.presents), (6, 8));
+        assert_eq!(window_target_line(count.direct(), count.presents), "window target: 6 of 8 presents drawn straight into the swapchain, 2 through the back buffer");
+    }
+
+    #[test]
+    fn the_swapchain_metadata_changes_only_when_it_differs_and_goes_unknown_after_hdr() {
+        assert_eq!(swapchain_metadata_change::<u8>(None, None), None, "an SDR stream sends nothing");
+        assert_eq!(swapchain_metadata_change(Some(Some(1)), None), Some(Some(1)));
+        assert_eq!(swapchain_metadata_change(Some(Some(1)), Some(Some(1))), None, "once");
+        assert_eq!(swapchain_metadata_change(Some(Some(2)), Some(Some(1))), Some(Some(2)), "a new peak");
+        assert_eq!(swapchain_metadata_change(None, Some(Some(2))), Some(None), "HDR stopped: unknown");
+        assert_eq!(swapchain_metadata_change::<u8>(None, Some(None)), None, "unknown once");
+        assert_eq!(swapchain_metadata_change(Some(None), Some(Some(2))), Some(None), "zeroed metadata from the host is unknown");
     }
     use super::input::*;
 

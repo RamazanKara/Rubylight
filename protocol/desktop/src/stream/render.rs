@@ -459,15 +459,17 @@ impl Streaming {
         }
         #[cfg(target_os = "linux")]
         {
-            self.window_target.get_or_insert((crate::sdl::window_target_frames(renderer), 0)).1 += 1;
+            self.window_target.before_present(renderer as usize, crate::sdl::window_target_frames(renderer));
             // The host's mastering metadata for an HDR10 swapchain, again when it or the peak changes.
             // Once HDR stops, the swapchain gets unknown metadata instead of keeping the last stream's.
-            let metadata = self.texture.hdr_metadata().map(|m| crate::sdl::swapchain_hdr_metadata(&m, crate::sdl::output_peak_nits(renderer)))
-                .or_else(|| self.swapchain_hdr_metadata.map(|_| crate::sdl::swapchain_hdr_metadata(&Default::default(), None)));
-            if let Some(metadata) = metadata.filter(|m| self.swapchain_hdr_metadata != Some(*m)) {
+            let stream = self.texture.hdr_metadata().map(|m| crate::sdl::swapchain_hdr_metadata(&m, crate::sdl::output_peak_nits(renderer)));
+            if let Some(metadata) = swapchain_metadata_change(stream, self.swapchain_hdr_metadata) {
                 if crate::sdl::output_decision() == Some(Ok(crate::handheld::Output::Pq)) {
-                    eprintln!("nightjar: HDR10 swapchain metadata: mastering {:.4}-{:.0} nits, MaxCLL {:.0}, MaxFALL {:.0}",
-                        metadata.min_luminance, metadata.max_luminance, metadata.max_content_light_level, metadata.max_frame_average_light_level);
+                    match metadata {
+                        Some(m) => eprintln!("nightjar: HDR10 swapchain metadata: mastering {:.4}-{:.0} nits, MaxCLL {:.0}, MaxFALL {:.0}",
+                            m.min_luminance, m.max_luminance, m.max_content_light_level, m.max_frame_average_light_level),
+                        None => eprintln!("nightjar: HDR10 swapchain metadata: unknown (none passed on)"),
+                    }
                 }
                 // SAFETY: a live renderer.
                 crate::sdl::set_swapchain_hdr_metadata(unsafe { SDL_GetRenderWindow(renderer) }, metadata);
@@ -483,6 +485,8 @@ impl Streaming {
             done == present::NoWait::Refused
         };
         let returned_us = session::now_us();
+        #[cfg(target_os = "linux")]
+        self.window_target.after_present(crate::sdl::window_target_frames(renderer));
         if !mode_tears {
             self.direct_motion.presenting(None);
         }

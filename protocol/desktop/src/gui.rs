@@ -252,6 +252,12 @@ impl Gui {
         self.repaint_delay = Duration::ZERO;
     }
 
+    /// Whether the next frame may time live glass's chain, which reads back from the GPU renderer
+    /// (`live_glass::Glass::timing`): that frame stays in the back buffer (`sdl::read_back_frames`).
+    pub fn glass_timing(&self) -> bool {
+        self.glass.timing()
+    }
+
     /// The display's refresh rate: live glass has to fit its frame.
     pub fn set_refresh(&mut self, hz: f32) {
         self.glass.set_refresh(hz);

@@ -121,7 +121,8 @@ struct PanelLine {
     app: u32,
     title: String,
     line: String,
-    cover_version: Option<String>,
+    /// Its game has a cover to ask the PC for.
+    has_cover: bool,
 }
 
 /// What a page about game `app` wants behind it.
@@ -202,12 +203,11 @@ impl Launcher {
         let rows = console::home_rows(&entries, group);
         let loading = library_loading(view);
         // The rest of the running games and recents: the panel first, a shelf for what it cannot hold.
-        let cover_version = |host: u64, app: u32| {
+        let has_cover = |host: u64, app: u32| {
             entries
                 .iter()
                 .find(|e| e.copies.iter().any(|c| c.host == host && c.app_id == app))
-                .and_then(|e| e.cover())
-                .map(|c| c.cover_version.clone())
+                .is_some_and(|e| e.cover().is_some())
         };
         let is_hero = |host: u64, app: u32| {
             hero.as_ref()
@@ -226,7 +226,7 @@ impl Launcher {
                 app: item.app_id,
                 title: item.title.clone(),
                 line,
-                cover_version: cover_version(item.host, item.app_id),
+                has_cover: has_cover(item.host, item.app_id),
             });
         }
         for item in recent.iter().filter(|r| !is_hero(r.host, r.app_id)) {
@@ -240,7 +240,7 @@ impl Launcher {
                 app: item.app_id,
                 title: item.title.clone(),
                 line,
-                cover_version: cover_version(item.host, item.app_id),
+                has_cover: has_cover(item.host, item.app_id),
             });
         }
         let spill = lines.split_off(lines.len().min(PANEL_LINES));
@@ -273,8 +273,8 @@ impl Launcher {
                             for (index, item) in starred.iter().enumerate() {
                                 let art = shown_art(view, item.host, item.app_id);
                                 let response = poster(ui, &item.title, art, Badge::None, cover_w);
-                                if let Some(version) = cover_version(item.host, item.app_id) {
-                                    request_cover(ui, view, item.host, item.app_id, &version, &response, commands);
+                                if has_cover(item.host, item.app_id) {
+                                    request_cover(ui, view, item.host, item.app_id, &response, commands);
                                 }
                                 let key = favourite_key(item);
                                 let game = console::entry_key_of(&entries, item.host, item.app_id).unwrap_or(&key);
@@ -304,8 +304,8 @@ impl Launcher {
                             for item in &spill {
                                 let art = shown_art(view, item.host, item.app);
                                 let response = poster(ui, &item.title, art, Badge::None, cover_w);
-                                if let Some(version) = &item.cover_version {
-                                    request_cover(ui, view, item.host, item.app, version, &response, commands);
+                                if item.has_cover {
+                                    request_cover(ui, view, item.host, item.app, &response, commands);
                                 }
                                 match &item.game {
                                     Some(game) => this.focus_card(&response, &item.key, game, std::mem::take(&mut first)),
@@ -541,16 +541,8 @@ impl Launcher {
         let game = source
             .and_then(|s| s.library)
             .and_then(|l| l.games.iter().find(|g| g.app_id == hero.app));
-        if let Some(c) = game {
-            request_cover(
-                ui,
-                view,
-                hero.host,
-                hero.app,
-                &c.artwork.version,
-                &cover,
-                commands,
-            );
+        if game.is_some() {
+            request_cover(ui, view, hero.host, hero.app, &cover, commands);
         }
         // The words and buttons sit on the cover's foot, between it and the panel.
         let right = if beside {
@@ -856,8 +848,8 @@ impl Launcher {
                 1.0,
             );
             ui.painter().extend(out);
-            if let Some(version) = &item.cover_version {
-                request_cover(ui, view, item.host, item.app, version, &response, commands);
+            if item.has_cover {
+                request_cover(ui, view, item.host, item.app, &response, commands);
             }
             let words = row.width() - 16.0 - 38.0 - 12.0 - 12.0;
             let at = pos2(cover.right() + 12.0, row.center().y);

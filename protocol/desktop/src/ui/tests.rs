@@ -3779,6 +3779,70 @@ fn app_grid(count: i32, running: i32) -> Frames {
     f
 }
 
+/// A PC's page asked for every cover of its list each pass, on screen or not and without a
+/// version, while Home and All games asked for the same covers at the library's: each page had the
+/// other's cover fetched again.
+#[test]
+fn a_pcs_page_asks_for_the_covers_on_screen_at_the_version_every_page_asks_with() {
+    use nightjar_core::http::native_api::library::{Artwork, Game, Library};
+    let apps: Vec<_> = (1..=150).map(|id| nightjar_core::http::App { name: format!("App {id}"), art_version: id.to_string(), ..game(id) }).collect();
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 0)), apps);
+    f.size = vec2(1280.0, 800.0);
+    let id = f.hosts.list[0].id;
+    let games = (1..=3u32)
+        .map(|n| Game {
+            install_id: format!("install-{n}"),
+            app_id: n,
+            title: format!("App {n}"),
+            game_id: Some(format!("steam:{n}")),
+            store: None,
+            installed: Some(true),
+            running: false,
+            artwork: Artwork { cover: Some(format!("/cover/{n}")), version: format!("cover-{n}") },
+        })
+        .collect();
+    f.hosts.list[0].native.library = Some(Library { revision: "r1".into(), games });
+    let covers = |commands: Vec<Command>| -> std::collections::BTreeMap<i32, String> {
+        let asked = commands.into_iter().filter_map(|c| match c {
+            Command::RequestArt { host, app, version } if host == id => Some((app, version)),
+            _ => None,
+        });
+        asked.collect()
+    };
+    let asked = |f: &mut Frames, screen: Screen| {
+        f.l.go(screen);
+        f.settle();
+        covers(f.frame(Vec::new()))
+    };
+
+    let mut page = asked(&mut f, Screen::Apps(id));
+    assert_eq!(page[&1], "cover-1", "the library's version of a game it lists");
+    assert_eq!(page[&4], "4", "the app list's of an app it leaves out");
+    assert!(page.len() < 100 && !page.contains_key(&150), "only the covers on screen: {:?}", page.keys());
+    // The running game lights the page from its cover, wherever its card is: the last one here,
+    // with its neighbour in that row still off screen.
+    f.hosts.list[0].info = Some(answer(true, 150));
+    let lit = covers(f.frame(Vec::new()));
+    assert!(lit.get(&150).is_some_and(|v| v == "150") && !lit.contains_key(&149), "{:?}", lit.keys());
+    page.extend(lit);
+
+    let elsewhere = [asked(&mut f, Screen::AllGames), asked(&mut f, Screen::Home), asked(&mut f, Screen::Hosts)];
+    assert!(elsewhere[0].contains_key(&1) && elsewhere[2].contains_key(&150), "{elsewhere:?}");
+    for (app, version) in elsewhere.iter().flatten() {
+        assert_eq!(page.get(app), Some(version), "app {app}");
+    }
+
+    // The covers the PC's page loaded are asked for again by no page.
+    let pc = &mut f.hosts.list[0];
+    for (app, version) in &page {
+        assert_eq!(pc.begin_art(*app, version).as_ref(), Some(version));
+    }
+    for screen in [Screen::Apps(id), Screen::AllGames, Screen::Home, Screen::Hosts] {
+        let again = asked(&mut f, screen);
+        assert!(again.keys().all(|app| !page.contains_key(app)), "{again:?}");
+    }
+}
+
 /// Nothing of Back is clipped to its own square: that once showed as a dark box around the disc.
 #[test]
 fn backs_shadow_and_halo_leave_its_square() {

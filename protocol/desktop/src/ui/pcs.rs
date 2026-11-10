@@ -586,15 +586,7 @@ impl Launcher {
         // A running PC's art comes as any cover does; its list comes first when nothing asked yet.
         if host.reach == Reach::Online && host.paired() && host.running_app().is_some() {
             match running_entry(host) {
-                Some(app) => request_cover(
-                    ui,
-                    view,
-                    host.id,
-                    app.id as u32,
-                    &app.art_version,
-                    &card,
-                    commands,
-                ),
+                Some(app) => request_cover(ui, view, host.id, app.id as u32, &card, commands),
                 None if matches!(host.apps, Apps::NotLoaded) => {
                     commands.push(Command::LoadApps(host.id))
                 }

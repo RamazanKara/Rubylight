@@ -654,3 +654,52 @@ gains little. The wired NUC legs (3, 4 and 7), where the idea is meant to pay, a
 are, the setting stays off by default and nothing recommends it. To try it, set `beam_race` in the
 settings file or run with `NIGHTJAR_BEAM_RACE=1`; `NIGHTJAR_BEAM_RACE_PRESENT=0` keeps the probe and the
 slices but presents whole pictures (the measurement's "whole" side).
+
+## 4:4:4 at 4K on a 780M: what the decode costs, and the Linux report it does not explain
+
+A Linux report (Flatpak, KDE Plasma Wayland, Radeon 780M with RADV, 3840x2160 at 112 fps, PyroWave
+10-bit HDR10 at 1.4 Gbps, GPU decode on the graphics queue) logged a `gpu` stage of 9.1 to 9.4 ms
+(p50) and a `push` of 1.4 to 2.0 ms, against an 8.9 ms frame interval; the user said it is slow with
+4:4:4 and fine with 4:2:0. The same GPU here, on Windows, 4K at 120 fps, 1.4 Gbps configured, 8-bit
+SDR, an unchanged desktop scaled to the stream, 40 s legs, the released 4.12.3 build, isolated host:
+
+| Chroma | Queue | `input_to_output_ms` p50 / p95 | push p50 | submit p50 | gpu p50 / p95 |
+| --- | --- | --- | --- | --- | --- |
+| 4:2:0 | graphics | 2.69 / 2.84, 2.68 / 2.83 | 0.34 | 0.26 | 2.07 / 2.14, 2.06 / 2.15 |
+| 4:4:4 | graphics | 4.10 / 4.48, 4.03 / 4.31 | 0.38 to 0.39 | 0.27 | 3.41 / 3.50, 3.36 / 3.44 |
+| 4:4:4 | compute | 4.02 / 4.41 | 0.37 | 0.27 | 3.36 / 3.45 |
+
+4:4:4 decodes 1.65 times as long as 4:2:0, not twice: the entropy work follows the bitrate, only the
+wavelets follow the samples. Nothing in the client's 4:4:4 path differs beyond the plane sizes (full
+size chroma planes, the SDK decoder made with `chroma = 1`); there is no extra pass or fallback.
+10-bit could not be streamed here (PyroWave has no 10-bit SDR mode, and the laptop's panel is not in
+HDR), so the SDK alone measured it (`pyrowave_sdk::tests::decode_timing_at_1080p_1440p_and_4k`,
+synthetic records, its own GPU timestamps on the 780M): 4K 4:2:0 2.18 ms, 10-bit 2.26 ms; 4:4:4 4.07
+ms, 10-bit 4.25 ms. 10-bit adds about 4 %. (The synthetic 4:4:4 frames carry twice the bytes of the
+4:2:0 ones, so that ratio overstates what a stream at a fixed bitrate sees.)
+
+So the reported 4:4:4 10-bit decode would take about 3.6 ms on this laptop under Windows; the report's
+9.2 ms is about 2.6 times that, and its CPU-only `push` is 4 to 5 times ours. If 4:2:0 is slower on
+that machine by the same factor (about 5.5 ms), it stays under the frame interval and looks fine, while
+4:4:4 crosses it and the decoder queue fills: that fits what the user saw, but the factor itself is
+not measured here. Candidates, none proven: the GPU and its shared memory saturated by the Linux HDR
+path (the plane copy out of the decoder's images, three full-size planes in 4:4:4, the RGBA16F picture,
+the back buffer and the PQ pass on the same graphics queue as the decode, plus the compositor's HDR
+composition; a `gpu` stage close to the frame interval and a slow CPU `push` both fit memory
+contention), the GPU held at low clocks (power profile or TDP limit), or the driver's code for the
+SDK's shaders. On Linux the `gpu` stage is wall time on the wait thread and so includes waiting for the
+queue.
+
+What the log now says, to tell these apart (each at the stream's end):
+
+- The streamed codec names its chroma: `PyroWave 4:4:4`, `PyroWave 10-bit 4:4:4`. Before, the log and
+  the overlay said `PyroWave 10-bit` for both chromas.
+- On Linux the decode's `submit` stage is the time until the SDK's submit returned (which includes the
+  wait for the renderer's queue lock) and `gpu` the rest; before, `submit` read 0 and `gpu` held both.
+- `PyroWave GPU passes (SDK GPU timestamps, ms per frame): ...`: the SDK's own GPU time for the
+  stream. Far below the `gpu` stage means the decode waited on a busy queue; close to it means the
+  GPU itself is slow.
+- `GPU during the stream: amdgpu cardN over N samples a second apart: shader clock p50 ... MHz
+  (lowest ...) of ..., memory clock ..., busy p50 ... %, performance level ..., platform profile ...`
+  (Linux, amdgpu, `stream/gpu_clocks.rs`): low clocks with a busy GPU point at power limits; high
+  clocks with a busy GPU at saturation.

@@ -56,6 +56,7 @@ pub(crate) mod pyrowave;
 pub mod pyrowave_gpu;
 pub mod pyrowave_mode;
 pub(crate) mod stage_times;
+pub(crate) mod gpu_clocks;
 #[cfg(windows)]
 mod d3d11;
 #[cfg(windows)]
@@ -2653,6 +2654,15 @@ mod tests {
         assert_eq!(video_formats(CodecPreference::PyroWave, false, SCM_H264 | SCM_PYROWAVE), VIDEO_FORMAT_H264 | VIDEO_FORMAT_PYROWAVE);
         assert_eq!(video_formats(CodecPreference::PyroWave444, true, SCM_H264 | SCM_PYROWAVE_MAIN10_444), VIDEO_FORMAT_H264 | VIDEO_FORMAT_PYROWAVE_MAIN10_444);
         assert_eq!(video_formats(CodecPreference::PyroWave444, false, SCM_H264), VIDEO_FORMAT_H264);
+    }
+
+    #[test]
+    fn the_streamed_pyrowave_names_its_chroma_and_depth() {
+        assert_eq!(codec_name(VIDEO_FORMAT_PYROWAVE), "PyroWave");
+        assert_eq!(codec_name(VIDEO_FORMAT_PYROWAVE_444), "PyroWave 4:4:4");
+        assert_eq!(codec_name(VIDEO_FORMAT_PYROWAVE_MAIN10), "PyroWave 10-bit");
+        assert_eq!(codec_name(VIDEO_FORMAT_PYROWAVE_MAIN10_444), "PyroWave 10-bit 4:4:4");
+        assert_eq!(codec_name(VIDEO_FORMAT_H265_REXT8_444), "HEVC", "other codecs keep their names");
     }
 
     const COLOR_SCM: u32 = SCM_H264 | SCM_HEVC | SCM_AV1_MAIN8 | SCM_HEVC_MAIN10 | SCM_AV1_MAIN10

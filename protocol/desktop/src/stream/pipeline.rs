@@ -965,6 +965,9 @@ impl VideoDecoder for Decoder {
         if let Some(summary) = self.pyrowave.as_ref().and_then(|decoder| decoder.stage_summary()) {
             eprintln!("nightjar: PyroWave decode stages {summary}");
         }
+        for line in self.pyrowave.as_ref().map(super::pyrowave::Pyrowave::gpu_report).unwrap_or_default() {
+            eprintln!("nightjar: {line}");
+        }
         self.pyrowave = None;
     }
 }

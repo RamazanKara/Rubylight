@@ -23,8 +23,8 @@
 
 use std::ffi::{c_char, c_void, CStr};
 use std::ptr;
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use ash::vk;
 
@@ -49,6 +49,8 @@ pub struct GpuDecoder {
     decode_value: u64,
     /// The queue the decodes run on (`queue.rs`).
     queue: queue::DecodeQueue,
+    /// When the last decode's submit returned (`submitted_at`), set on the wait thread.
+    submitted: Arc<Mutex<Option<Instant>>>,
 }
 
 /// The renderer's device as the SDK shares it.
@@ -127,6 +129,7 @@ struct SharedDecode {
     after: u64,
     value: u64,
     wait: Duration,
+    submitted: Arc<Mutex<Option<Instant>>>,
 }
 
 // SAFETY: As `Pending`: the decoder outlives the call (a stalled one is leaked).
@@ -143,9 +146,15 @@ impl SharedDecode {
         // call the SDK while it waits on this job.
         let result = unsafe { (self.api.decoder_decode_gpu_buffer)(self.decoder, if self.after > 0 { &acquire } else { ptr::null() }, &release, &self.buffers) };
         check(result, "decoding PyroWave into the renderer's planes")?;
+        mark_submitted(&self.submitted);
         self.images.decode_queued(self.value);
         self.images.wait_decode(self.value, self.wait)
     }
+}
+
+/// Notes on the wait thread that a decode's submit has returned (`GpuDecoder::submitted_at`).
+fn mark_submitted(submitted: &Mutex<Option<Instant>>) {
+    *submitted.lock().unwrap_or_else(PoisonError::into_inner) = Some(Instant::now());
 }
 
 /// What the wait thread needs of a decode: the decoder and the buffer description. The planes
@@ -154,6 +163,7 @@ struct Pending {
     api: Arc<Api>,
     decoder: RawDecoder,
     buffer: CpuBuffer,
+    submitted: Arc<Mutex<Option<Instant>>>,
 }
 
 // SAFETY: Raw pointers into a decoder and buffers that outlive the call, see `Pending`; the SDK's
@@ -169,6 +179,7 @@ impl Pending {
         // does not call the SDK while it waits on this job.
         unsafe {
             check((self.api.decoder_decode_cpu_buffer_async)(self.decoder, &self.buffer, 0), "submitting the PyroWave decode")?;
+            mark_submitted(&self.submitted);
             check((self.api.decoder_decode_cpu_buffer_complete)(self.decoder, &self.buffer, 0), "completing the PyroWave decode")
         }
     }
@@ -261,7 +272,7 @@ impl GpuDecoder {
             let images = SharedImages::new(&sdl, get_instance_proc_addr, config, compute.map(|(_, slot)| slot.family))?;
             let info = ShareInfo::new(&sdl, get_instance_proc_addr, compute);
             let watchdog = Watchdog::new()?;
-            let mut s = Self { api, config, device: ptr::null_mut(), decoder: ptr::null_mut(), watchdog, timeout: crate::stream::pyrowave::GPU_DECODE_TIMEOUT, shared: None, decode_value: 0, queue: queue::DecodeQueue::Graphics(queue::SETTING_OFF.into()) };
+            let mut s = Self { api, config, device: ptr::null_mut(), decoder: ptr::null_mut(), watchdog, timeout: crate::stream::pyrowave::GPU_DECODE_TIMEOUT, shared: None, decode_value: 0, queue: queue::DecodeQueue::Graphics(queue::SETTING_OFF.into()), submitted: Arc::default() };
             let result = create_shared(s.api.create_device, &info.create, &mut s.device);
             s.shared = Some(Shared { images, info });
             if result != SUCCESS {
@@ -309,7 +320,7 @@ impl GpuDecoder {
     pub fn with_queue(api: Arc<Api>, config: GpuConfig, async_compute: bool) -> Result<Self, String> {
         check_config(config)?;
         let watchdog = Watchdog::new()?;
-        let mut s = Self { api, config, device: ptr::null_mut(), decoder: ptr::null_mut(), watchdog, timeout: crate::stream::pyrowave::GPU_DECODE_TIMEOUT, shared: None, decode_value: 0, queue: queue::DecodeQueue::Graphics(queue::SETTING_OFF.into()) };
+        let mut s = Self { api, config, device: ptr::null_mut(), decoder: ptr::null_mut(), watchdog, timeout: crate::stream::pyrowave::GPU_DECODE_TIMEOUT, shared: None, decode_value: 0, queue: queue::DecodeQueue::Graphics(queue::SETTING_OFF.into()), submitted: Arc::default() };
         // SAFETY: The out-pointers outlive each call, and `s` owns every handle made so Drop
         // releases them on any early return.
         unsafe {
@@ -386,7 +397,7 @@ impl GpuDecoder {
         }
         // `buffer` points into the three live slices, which stay borrowed until the decode ends
         // (or are leaked by the caller when `stalled`).
-        let pending = Pending { api: self.api.clone(), decoder: self.decoder, buffer };
+        let pending = Pending { api: self.api.clone(), decoder: self.decoder, buffer, submitted: self.unmarked() };
         self.watchdog.run(self.timeout, move || pending.run())
     }
 
@@ -401,9 +412,21 @@ impl GpuDecoder {
         // The wait outlasts the watchdog, which gives up first and marks the decoder stalled.
         let job = SharedDecode {
             api: self.api.clone(), decoder: self.decoder, images: shared.images.clone(), buffers: shared.images.views(set),
-            after, value: self.decode_value, wait: self.timeout * 2,
+            after, value: self.decode_value, wait: self.timeout * 2, submitted: self.unmarked(),
         };
         self.watchdog.run(self.timeout, move || job.run())
+    }
+
+    /// When the submit of the last decode returned (in `decode` and `decode_into`, which also wait
+    /// for the GPU), None if it failed: the rest of the call is the wait for the GPU.
+    pub fn submitted_at(&self) -> Option<Instant> {
+        *self.submitted.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The submit time of the next decode, cleared, for its job to set.
+    fn unmarked(&self) -> Arc<Mutex<Option<Instant>>> {
+        *self.submitted.lock().unwrap_or_else(PoisonError::into_inner) = None;
+        self.submitted.clone()
     }
 
     /// The SDK's GPU timestamps since the last reset, as the lines it reports.

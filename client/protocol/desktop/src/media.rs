@@ -986,8 +986,8 @@ impl VideoDecoder {
     /// (`vulkan_mapped` after a failed import says they no longer are).
     /// An NVDEC decoder's pictures are copied by CUDA into Vulkan images of that device instead
     /// (`vulkan_video::CudaMap`), where its device was made with the interop extensions.
-    /// Only a VAAPI or NVDEC decoder on Linux.
-    #[cfg(any(target_os = "linux", test))]
+    /// Only a VAAPI or NVDEC decoder on Linux (and macOS's Unix tests, which build the Vulkan rig).
+    #[cfg(all(unix, any(target_os = "linux", test)))]
     pub fn map_to_vulkan(&mut self, gpu: *mut c_void) -> bool {
         if self.hardware == Hardware::Cuda {
             // SAFETY: As below; the codec context's device is the CUDA one this decoder opened.

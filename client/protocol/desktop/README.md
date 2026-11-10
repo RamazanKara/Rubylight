@@ -1,8 +1,98 @@
-# Nightjar for Windows and Linux
+# Nightjar for macOS, Windows and Linux
 
-Nightjar for Windows and Linux is the desktop edition of Nightjar: a Moonlight-protocol game-streaming client built on the same Rust engine (`nightjar-core`) as the Android app. It works with Sunshine, Apollo, Vibepollo, Rubylight and other Moonlight-compatible hosts; features beyond the standard protocol follow the capabilities each host reports.
+Nightjar for macOS, Windows and Linux is the desktop edition of Nightjar: a Moonlight-protocol game-streaming client built on the same Rust engine (`nightjar-core`) as the Android app. It works with Sunshine, Apollo, Vibepollo, Rubylight and other Moonlight-compatible hosts; features beyond the standard protocol follow the capabilities each host reports.
 
 The first half of this page covers installing and using the client; the second half covers building, packaging and the design. [Android and desktop](../../docs/CLIENT-PARITY.md) compares the two clients feature by feature.
+
+## macOS
+
+The Mac port shares the Rust launcher, pairing, library, audio and input code with the other desktop clients. FFmpeg
+VideoToolbox decodes standard video. SDL Metal imports NV12 and P010 Core Video surfaces, with a
+mapped-plane fallback. The client probes HEVC and AV1 with fixtures before offering those formats.
+
+![Nightjar's offline demo library rendered on macOS with Metal](../../docs/assets/shots/macos-home.webp)
+
+### Build and run
+
+Install the Xcode Command Line Tools, Rust 1.95 or newer and Python 3.9 or newer. To run against Homebrew libraries,
+start from the repository root.
+
+```sh
+brew install pkg-config sdl3 ffmpeg opus
+cd protocol
+cargo run --locked -p nightjar-desktop
+```
+
+To build a Finder application, start from the repository root.
+
+```sh
+brew install cmake meson ninja pkg-config nasm
+python3 protocol/desktop/package-macos.py
+open protocol/target/release/Nightjar.app
+```
+
+The packager builds checksum-pinned SDL, Opus, dav1d and a decode-only FFmpeg, embeds their dylibs and
+licenses, and verifies an ad-hoc signature. The first build downloads the sources. Later builds reuse
+the Cargo target directory. The default deployment target is macOS 13.0 on the architecture of the
+build Mac. Set `MACOSX_DEPLOYMENT_TARGET` to choose a newer minimum. The bundle can be moved to
+Applications and carries its own media libraries. This is a local source build with an ad-hoc
+signature. The published release downloads cover Android, Windows and Linux.
+
+### Build for an Intel Mac
+
+An Intel Mac running macOS Ventura 13 or later uses the `x86_64` build. On an Apple Silicon build
+Mac with Rust installed through rustup, add the Intel target first. NASM enables the optimized
+Intel code in FFmpeg and dav1d.
+
+```sh
+rustup target add x86_64-apple-darwin
+python3 protocol/desktop/package-macos.py --arch x86_64 --zip
+```
+
+The packager writes `Nightjar-<version>-macos-x86_64.zip` under
+`protocol/target/x86_64-apple-darwin/release/`. It checks the executable and every bundled dylib
+for the requested architecture and minimum OS. Copy the ZIP to the Intel Mac, double-click it and
+move `Nightjar.app` to Applications. The receiving Mac needs only the app. Pair it as a new device
+on the streaming host.
+
+### Connect to a PC
+
+Allow Local Network access when macOS asks. Select a discovered PC or use **Add PC** with its LAN
+address. Enter the displayed PIN on the host. If the library loads but launching returns HTTP 401,
+open the host's device permissions and enable **Launch applications** for the paired Mac. Nightjar stores the pairing identity and settings in
+`~/Library/Application Support/Nightjar/`. Microphone forwarding requires microphone access.
+**Control + Option + Shift + Tab** opens the stream controls. **Control + Option + Shift + Q** leaves it.
+
+FSR1, SGSR1, planar conversion, packed full chroma and PyroWave's Rust decoder use Metal fragment
+shaders. PyroWave defaults to the CPU decoder on macOS. Its upstream Vulkan SDK backend is available
+on Windows and Linux. HDR requires an HDR display and a compatible host. The Metal and VideoToolbox
+checks passed on Apple Silicon and on an Intel MacBook Pro with a Radeon Pro 560 running Ventura
+13.7.8. The Intel Mac decoded HEVC Main and Main10. Its hardware probe declined AV1. Live HDR and
+physical controllers still need hardware verification.
+The launcher opens Core Audio when a stream starts, so pairing and browsing work while an audio device is unavailable.
+
+### Verify on a Mac
+
+Run these checks from `protocol/` with the development libraries installed. The macOS CI builds on
+Apple Silicon and Intel, runs the headless suites and checks the relocated bundle's signature,
+version and dylib references. The opt-in hardware check needs a Metal-capable display and a
+VideoToolbox HEVC Main10 decoder. It compares pixels from native NV12 and P010 imports with their
+mapped planes, then exercises FSR1, SGSR1, PyroWave and packed chroma.
+
+```sh
+cargo test --locked -p nightjar-desktop -p nightjar-core -p nightjar-policy
+cargo test --locked --manifest-path core/Cargo.toml
+cargo test --locked -p nightjar-desktop --features demo-library --test macos_video -- --ignored --nocapture
+python3 desktop/tests/verify_macos_bundle.py target/release/Nightjar.app
+```
+
+The last command uses a previously packaged release app. When checking an Intel cross-build on
+Apple Silicon, add `--arch x86_64 --inspect-only` and supply the Intel app path. Run the same
+check on the Intel Mac without `--inspect-only` to exercise native launch.
+
+To update the Metal shaders after changing their SPIR-V inputs, run `python3 desktop/src/metal/generate.py /path/to/spirv-cross` from
+`protocol/` with SPIRV-Cross tag `vulkan-sdk-1.4.321.0`. Commit the regenerated `.metal` files
+alongside their inputs and run the hardware check.
 
 ## Installing
 
@@ -219,7 +309,7 @@ The launcher and the stream share one SDL3 window and one `SDL_Renderer`. egui i
 | `NIGHTJAR_CONFIG_DIR`, `NIGHTJAR_SCREENSHOT_DIR` | Override the settings folder and the screenshot folder. |
 | `NIGHTJAR_TIMING_CSV=<file or folder>` | Writes one row per displayed picture in the format of the Android app's `nightjar-latency.csv`: times in nanoseconds on the session clock, with the host's stamps from the extended 0x5536 report and the 0x5537 clock offset in the last nine columns. Rubylight's `rust/release/timing_report.py` joins it with the host's record (`BUTTERPOLLO_TIMING_RECORD`). A writer thread does the file work. |
 | `NIGHTJAR_PACKET_TRACE=<prefix>` | Records each video and audio datagram's receive time, the receive thread's wait for it, its length, RTP sequence and timestamp (0 for encrypted video) in memory, and writes `<prefix>-video.csv`, `<prefix>-audio.csv` and `<prefix>-canary.csv` (a 1 ms sleeper's late wake-ups) when the stream ends. It distinguishes a network that delivers packets in bursts from a receive thread that woke late (`nightjar-core`'s `session/trace.rs`). |
-| `NIGHTJAR_AUTOSTREAM=address[:port]` | Measurement only: starts one stream without the launcher and ends it after `NIGHTJAR_AUTOSTREAM_SECONDS` (default 60), with `NIGHTJAR_AUTOSTREAM_APP` (default "Desktop") and, for an unpaired PC, `NIGHTJAR_AUTOSTREAM_PIN` (default 1234, entered on the PC). Exits with 0 after a full run and 2 otherwise. |
+| `NIGHTJAR_AUTOSTREAM=address[:port]` | Measurement only: starts one stream without the launcher and ends it after `NIGHTJAR_AUTOSTREAM_SECONDS` (default 60), with `NIGHTJAR_AUTOSTREAM_APP` (default "Desktop") and, for an unpaired PC, `NIGHTJAR_AUTOSTREAM_PIN` (default 1234, entered on the PC). `NIGHTJAR_AUTOSTREAM_START_SECONDS` sets the setup timeout including PIN entry (default 90). Exits with 0 after a full run and 2 otherwise. |
 | `NIGHTJAR_BEAM_RACE`, `NIGHTJAR_EARLY_DECODE` | Turn on [beam racing](../../docs/beam-racing.md) and [early decode](../../docs/early-decode.md) for PyroWave, as the `beam_race` and `early_decode` settings keys do. |
 | `NIGHTJAR_D3D11_PASS`, `NIGHTJAR_D3D11_BIND`, `NIGHTJAR_DMABUF`, `NIGHTJAR_VRR_CHECK`, `NIGHTJAR_VRR_SYNC` | A/B switches for the presentation paths described above. |
 | `NIGHTJAR_VULKAN_VIDEO` | Linux: `1` tries Vulkan video first and picks the GPU renderer for it, `0` leaves Vulkan video out, and the GPU renderer's device is made without its video extensions. |

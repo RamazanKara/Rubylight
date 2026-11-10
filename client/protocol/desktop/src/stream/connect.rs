@@ -94,6 +94,14 @@ impl Connecting {
     }
 
     pub fn start(mut plan: LaunchPlan, waker: Waker) -> Self {
+        // All connection attempts enter here on the main thread, before the audio
+        // worker starts. A missing output already allows streaming without sound.
+        #[cfg(target_os = "macos")]
+        unsafe {
+            if SDL_WasInit(SDL_INIT_AUDIO).0 == 0 && !SDL_InitSubSystem(SDL_INIT_AUDIO) {
+                eprintln!("nightjar: stream audio could not start: {}", crate::sdl::error());
+            }
+        }
         if let Some(recovery) = &mut plan.recovery { recovery.begin(recovery::now_ms()); }
         // Host-time pacing schedules every picture; the other modes keep only the newest.
         let limit = if plan.pacing == PacingMode::HostTimes { 8 } else { 2 };

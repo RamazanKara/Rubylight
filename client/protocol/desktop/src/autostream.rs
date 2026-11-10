@@ -23,6 +23,7 @@ pub struct Autostream {
     launched: bool,
     streaming: bool,
     started: Instant,
+    start_limit: Duration,
     /// When the first stream began; a reconnect does not start the time again.
     began: Option<Instant>,
     pub failed: bool,
@@ -74,14 +75,24 @@ impl Autostream {
             launched: false,
             streaming: false,
             started: Instant::now(),
+            start_limit: std::env::var("NIGHTJAR_AUTOSTREAM_START_SECONDS").ok()
+                .and_then(|s| s.parse().ok()).filter(|&seconds| seconds > 0)
+                .map_or(START_LIMIT, Duration::from_secs),
             began: None,
             failed: false,
         })
     }
 
-    pub fn host_seen(&self, hosts: &crate::hosts::Hosts) -> Option<HostSeen> {
+    pub fn host_seen(&mut self, hosts: &crate::hosts::Hosts) -> Option<HostSeen> {
         use crate::hosts::Apps;
-        let host = hosts.get(self.host?)?;
+        // Discovery may merge the manual address into an existing PC after serverinfo
+        // supplies its UUID. Follow that same address to the surviving record.
+        let host = hosts.get(self.host?).or_else(|| hosts.list.iter().find(|h| {
+            self.port.is_none_or(|p| h.record.http_port == p)
+                && std::iter::once(&h.record.address).chain(&h.record.other_addresses)
+                    .any(|a| a.eq_ignore_ascii_case(&self.address))
+        }))?;
+        self.host = Some(host.id);
         Some(HostSeen {
             id: host.id,
             answered: host.info.is_some(),
@@ -132,7 +143,7 @@ impl Autostream {
         if self.streaming {
             return Step::Wait;
         }
-        if self.started.elapsed() > START_LIMIT {
+        if self.started.elapsed() > self.start_limit {
             return Step::Fail(if self.launched { "the stream did not start in time" } else { "no paired PC with the app in time" }.into());
         }
         if self.launched {
@@ -196,7 +207,7 @@ mod tests {
         Autostream {
             address: "127.0.0.1".into(), port: Some(48123), app: "Desktop".into(), seconds: 60, pin: "1234".into(),
             host: None, paired_asked: false, apps_asked: false, launched: false, streaming: false,
-            started: Instant::now(), began: None, failed: false,
+            started: Instant::now(), start_limit: START_LIMIT, began: None, failed: false,
         }
     }
 
@@ -209,6 +220,32 @@ mod tests {
         assert_eq!(split_address("127.0.0.1:48123"), ("127.0.0.1".into(), Some(48123)));
         assert_eq!(split_address("pc.local"), ("pc.local".into(), None));
         assert_eq!(split_address("::1"), ("::1".into(), None));
+    }
+
+    #[test]
+    fn discovery_merge_keeps_the_requested_endpoint() {
+        use crate::config::HostRecord;
+        use crate::hosts::Hosts;
+
+        let mut auto = auto();
+        auto.address = "test-pc.local".into();
+        let record = |port| HostRecord {
+            address: "192.0.2.10".into(),
+            http_port: port,
+            other_addresses: vec!["TEST-PC.local".into()],
+            ..Default::default()
+        };
+        let hosts = Hosts::without_discovery(
+            vec![record(47989), record(48123)],
+            std::sync::Arc::new(|| {}),
+        );
+        let survivor = hosts.list[1].id;
+        auto.host_added(99); // The manual entry was merged into the saved PC.
+        assert_eq!(auto.host_seen(&hosts).unwrap().id, survivor);
+        assert_eq!(auto.host, Some(survivor));
+        auto.host_added(99);
+        auto.port = Some(48124);
+        assert!(auto.host_seen(&hosts).is_none());
     }
 
     #[test]

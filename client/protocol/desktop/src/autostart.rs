@@ -73,6 +73,7 @@ fn within<T: Send + 'static>(limit: Duration, work: impl FnOnce() -> T + Send + 
 
 /// What the saved entry is to this copy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 enum Saved {
     Off,
     Current,
@@ -83,6 +84,7 @@ enum Saved {
     Others,
 }
 
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 fn compare(saved: Option<&str>, command: &str, program_of: fn(&str) -> Option<String>) -> Saved {
     let Some(saved) = saved else { return Saved::Off };
     if saved == command {
@@ -96,6 +98,7 @@ fn compare(saved: Option<&str>, command: &str, program_of: fn(&str) -> Option<St
 }
 
 /// `is_on`'s answer. A failed refresh leaves the entry on as it was, which the log says.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 fn settle(saved: Saved, refresh: impl FnOnce() -> Result<(), String>) -> bool {
     match saved {
         Saved::Off | Saved::Others => false,

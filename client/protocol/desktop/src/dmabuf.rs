@@ -5,7 +5,7 @@
 //! (`EglImageFactory::exportVAImages`, `VAAPIRenderer::exportEGLImages`); SDL's testffmpeg binds the
 //! images to SDL's own textures the same way. Either side failing falls back, logged once, to the
 //! CPU mapping (`media::Frame::map_to_memory`).
-#![cfg_attr(not(unix), allow(dead_code))]
+#![cfg_attr(not(target_os = "linux"), allow(dead_code, reason = "DMA-BUF presentation is Linux-specific"))]
 
 /// `VADRMPRIMESurfaceDescriptor` (va/va_drmcommon.h).
 #[repr(C)]

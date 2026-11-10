@@ -14,7 +14,7 @@ pub static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[cfg(test)]
 pub fn skip_without_display() -> bool {
     let unset = |name: &str| std::env::var_os(name).is_none_or(|v| v.is_empty());
-    let none = cfg!(unix) && unset("XDG_RUNTIME_DIR") && unset("DISPLAY") && unset("SDL_VIDEO_DRIVER");
+    let none = cfg!(target_os = "linux") && unset("XDG_RUNTIME_DIR") && unset("DISPLAY") && unset("SDL_VIDEO_DRIVER");
     if none {
         eprintln!("skipped: no display here (XDG_RUNTIME_DIR, DISPLAY and SDL_VIDEO_DRIVER are all unset); run it in a desktop session");
     }
@@ -269,6 +269,11 @@ pub fn swapchain_takes_hdr(renderer: *mut SDL_Renderer) -> bool {
     // SAFETY: The renderer and its associated window/device are live.
     unsafe {
         let props = SDL_GetRendererProperties(renderer);
+        #[cfg(target_os = "macos")]
+        if renderer_name(renderer) == "metal" {
+            return SDL_GetNumberProperty(props, SDL_PROP_RENDERER_OUTPUT_COLORSPACE_NUMBER, 0)
+                == i64::from(SDL_COLORSPACE_SRGB_LINEAR.0);
+        }
         let device: *mut SDL_GPUDevice = SDL_GetPointerProperty(
             props,
             SDL_PROP_RENDERER_GPU_DEVICE_POINTER,
@@ -291,6 +296,7 @@ pub fn swapchain_takes_hdr(renderer: *mut SDL_Renderer) -> bool {
 
 /// The swapchain colour spaces the window of a GPU renderer is offered (under gamescope, by its
 /// WSI layer). None for other renderers.
+#[cfg(any(not(target_os = "macos"), test))]
 fn offered(renderer: *mut SDL_Renderer) -> crate::handheld::Offered {
     // SAFETY: a live renderer; its device and window outlive the call.
     unsafe {
@@ -399,12 +405,14 @@ pub fn set_swapchain_hdr_metadata(window: *mut SDL_Window, metadata: Option<Swap
 
 /// The window of a GPU renderer is offered an HDR10 (ST 2084) swapchain.
 #[cfg_attr(windows, allow(dead_code))]
+#[cfg(not(target_os = "macos"))]
 pub fn hdr10_offered(renderer: *mut SDL_Renderer) -> bool {
     offered(renderer).hdr10
 }
 
 /// Whether the renderer's swapchain offers scRGB, HDR's fallback once PQ failed.
 #[cfg_attr(windows, allow(dead_code))]
+#[cfg(not(target_os = "macos"))]
 pub fn scrgb_offered(renderer: *mut SDL_Renderer) -> bool {
     offered(renderer).scrgb
 }
@@ -472,9 +480,11 @@ pub fn output_decision() -> Option<Result<crate::handheld::Output, crate::handhe
 
 /// A PQ renderer could not be made this run: its fallback stays, and no later renderer tries PQ
 /// again (`handheld::pq_unused`).
+#[cfg(any(not(target_os = "macos"), test))]
 static PQ_FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[cfg_attr(windows, allow(dead_code))]
+#[cfg(any(not(target_os = "macos"), test))]
 pub fn pq_failed() -> bool {
     PQ_FAILED.load(std::sync::atomic::Ordering::Relaxed)
 }
@@ -489,13 +499,16 @@ pub fn set_hdr_stream(hdr_stream: bool) {
 }
 
 /// The PQ present pass's shaders (`pq_present.hlsl`), handed to the patched SDL.
+#[cfg(any(not(target_os = "macos"), test))]
 const PQ_VERTEX_SPIRV: &[u8] = include_bytes!("pq_present_vertex.spv");
+#[cfg(any(not(target_os = "macos"), test))]
 const PQ_FRAGMENT_SPIRV: &[u8] = include_bytes!("pq_present_fragment.spv");
 
 /// Sets (or with `on` false clears) the PQ present's create properties of the patched SDL.
 ///
 /// # Safety
 /// `props` is a live property set.
+#[cfg(any(not(target_os = "macos"), test))]
 unsafe fn set_pq_present(props: SDL_PropertiesID, on: bool) {
     let shaders = [(c"SDL.renderer.create.gpu.pq_vertex_spirv", c"SDL.renderer.create.gpu.pq_vertex_spirv_size", PQ_VERTEX_SPIRV),
         (c"SDL.renderer.create.gpu.pq_fragment_spirv", c"SDL.renderer.create.gpu.pq_fragment_spirv_size", PQ_FRAGMENT_SPIRV)];
@@ -512,6 +525,7 @@ unsafe fn set_pq_present(props: SDL_PropertiesID, on: bool) {
 
 /// Nightjar set the window's HDR state itself ([`set_window_hdr`]): a later renderer for the
 /// window must not take it for the compositor's, and an SDR fallback puts it back.
+#[cfg(any(not(target_os = "macos"), test))]
 static WINDOW_HDR_SET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Sets the window's HDR state SDL's renderer draws for: under gamescope SDL has none to read
@@ -519,6 +533,7 @@ static WINDOW_HDR_SET: std::sync::atomic::AtomicBool = std::sync::atomic::Atomic
 ///
 /// # Safety
 /// `window` is live.
+#[cfg(any(not(target_os = "macos"), test))]
 unsafe fn set_window_hdr(window: *mut SDL_Window, hdr: Option<(f32, f32)>) {
     let props = SDL_GetWindowProperties(window);
     let (white, headroom) = hdr.unwrap_or((1.0, 1.0));
@@ -538,6 +553,7 @@ unsafe fn set_window_hdr(window: *mut SDL_Window, hdr: Option<(f32, f32)>) {
 ///
 /// # Safety
 /// `window` and `renderer` are live, `props` is the renderer's create properties.
+#[cfg(any(not(target_os = "macos"), test))]
 unsafe fn hdr_output(window: *mut SDL_Window, props: SDL_PropertiesID, renderer: *mut SDL_Renderer) -> *mut SDL_Renderer {
     use crate::handheld::{self, Output};
     let gamescope = handheld::gamescope();
@@ -735,6 +751,35 @@ pub fn create_renderer(window: *mut SDL_Window, gpu: bool) -> *mut SDL_Renderer 
 /// `create_renderer`, with the GPU renderer's device on Linux shared with PyroWave's GPU decoder
 /// when its library is there, and with FFmpeg's Vulkan video when `vulkan_video` (a stream can
 /// decode with it).
+#[cfg(target_os = "macos")]
+pub fn create_renderer_with(window: *mut SDL_Window, shaders: bool, _: bool) -> *mut SDL_Renderer {
+    // The normal Metal renderer imports the decoder's IOSurface. Custom passes
+    // use SDL's GPU renderer on Metal, which accepts our MSL fragment shaders.
+    unsafe {
+        let props = SDL_CreateProperties();
+        SDL_SetPointerProperty(props, SDL_PROP_RENDERER_CREATE_WINDOW_POINTER, window.cast());
+        SDL_SetStringProperty(props, SDL_PROP_RENDERER_CREATE_NAME_STRING,
+            if shaders { c"gpu".as_ptr() } else { c"metal".as_ptr() });
+        if shaders {
+            SDL_SetStringProperty(props, SDL_PROP_GPU_DEVICE_CREATE_NAME_STRING, c"metal".as_ptr());
+            SDL_SetBooleanProperty(props, SDL_PROP_RENDERER_CREATE_GPU_SHADERS_MSL_BOOLEAN, true);
+        }
+        if HDR_STREAM.load(std::sync::atomic::Ordering::Relaxed) {
+            SDL_SetNumberProperty(props, SDL_PROP_RENDERER_CREATE_OUTPUT_COLORSPACE_NUMBER, SDL_COLORSPACE_SRGB_LINEAR.0.into());
+        }
+        let mut renderer = SDL_CreateRendererWithProperties(props);
+        if renderer.is_null() && !shaders {
+            eprintln!("nightjar: Metal renderer unavailable ({}); trying SDL's default SDR renderer", error());
+            SDL_ClearProperty(props, SDL_PROP_RENDERER_CREATE_OUTPUT_COLORSPACE_NUMBER);
+            SDL_ClearProperty(props, SDL_PROP_RENDERER_CREATE_NAME_STRING);
+            renderer = SDL_CreateRendererWithProperties(props);
+        }
+        SDL_DestroyProperties(props);
+        renderer
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
 pub fn create_renderer_with(window: *mut SDL_Window, gpu: bool, vulkan_video: bool) -> *mut SDL_Renderer {
     #[cfg(unix)]
     let pyrowave = gpu && crate::stream::pyrowave_sdk::dll_path().is_some_and(|path| path.exists());
@@ -748,6 +793,7 @@ pub fn create_renderer_with(window: *mut SDL_Window, gpu: bool, vulkan_video: bo
 /// Vulkan video needs, to decode on the renderer's own device (`zero_copy.rs`, `vulkan_video.rs`).
 /// When the devices lack what is asked for, or the renderer cannot be made with it, it is made as
 /// without either, and the reason is logged.
+#[cfg(any(not(target_os = "macos"), test))]
 pub fn create_renderer_for(window: *mut SDL_Window, gpu: bool, pyrowave: bool, vulkan_video: bool) -> *mut SDL_Renderer {
     *GPU_FAILURE.lock().unwrap_or_else(|e| e.into_inner()) = None;
     #[cfg(unix)]
@@ -790,6 +836,7 @@ pub fn gpu_renderer_failure() -> Option<String> {
 /// that cannot be made is not replaced by another kind; `decode_queues` asks the patched SDL for
 /// its extra video decode queues (`vulkan_video::DECODE_QUEUES_PROPERTY`), `compute_queue` for
 /// one more queue for PyroWave's decodes (`zero_copy::COMPUTE_QUEUE_PROPERTY`).
+#[cfg(any(not(target_os = "macos"), test))]
 fn make_renderer(window: *mut SDL_Window, gpu: bool, vulkan: *mut SDL_GPUVulkanOptions, decode_queues: bool, compute_queue: bool) -> *mut SDL_Renderer {
     // SAFETY: The window is live, `vulkan` null or valid, and all property strings are static.
     unsafe {

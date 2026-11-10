@@ -1213,7 +1213,7 @@ impl Launcher {
                 toggle(ui, &mut s.software_slices)
             });
             // Vulkan video is Linux's.
-            if cfg!(unix) {
+            if cfg!(target_os = "linux") {
                 setting_row(ui, s, &mut rows, &["vulkan_video_first"], "Vulkan video first", "On the GPU renderer, decodes with Vulkan video before VAAPI.", |ui, s| {
                     toggle(ui, &mut s.vulkan_video_first)
                 });
@@ -1223,7 +1223,7 @@ impl Launcher {
             }
             rows.always();
             // Linux only (Windows draws with Direct3D 11), and for the whole app, not a PC or a profile.
-            if cfg!(unix) && !layered {
+            if cfg!(target_os = "linux") && !layered {
                 setting_row(ui, s, &mut rows, &["renderer"], "Renderer", "What draws this window. Automatic starts on OpenGL and moves to the GPU renderer when a stream needs it.", |ui, s| {
                     Combo::from_id_salt("renderer")
                         .selected_text(tr(s.renderer.label()))

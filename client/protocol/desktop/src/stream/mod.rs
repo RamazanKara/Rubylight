@@ -31,6 +31,10 @@ mod touch;
 /// Precision touchpad passthrough is Windows only; its frame logic is tested everywhere.
 #[cfg(any(windows, test))]
 mod touchpad;
+#[cfg(all(target_os = "macos", feature = "demo-library"))]
+pub(crate) use present::macos_video_check::run as check_metal;
+
+mod shader;
 mod upscale;
 pub mod enhance;
 #[cfg(windows)]

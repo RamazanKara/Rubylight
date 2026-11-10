@@ -4,6 +4,9 @@
 
 ## Install a published or development build
 
+On a Mac, build the native Rust client or package a relocatable, ad-hoc-signed `Nightjar.app`.
+The desktop guide lists the toolchain, test commands and display requirements. [Mac build and verification](../protocol/desktop/README.md#macos)
+
 Get published APKs from [Nightjar releases](https://github.com/RamazanKara/nightjar/releases), or build one yourself as described below. Open the APK on Android 5.0 or newer and allow installation from the app opening it; no root is needed. With USB debugging enabled, `adb install -r app-nonRoot-debug.apk` also installs it.
 
 Updates require the same signing key. Debug APKs built on different machines use different keys; changing keys requires uninstalling the old app, which removes settings and pairing identity. The normal package ID remains `com.butterpollo.client`; debug builds use `com.butterpollo.client.debug` and a `(Debug)` label.

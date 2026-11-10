@@ -49,12 +49,12 @@ impl ActionHandler for Actions {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 struct Deactivation {
     shared: Arc<Shared>,
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 impl egui::accesskit::DeactivationHandler for Deactivation {
     fn deactivate_accessibility(&mut self) {
         self.shared.deactivated.store(true, Ordering::SeqCst);
@@ -86,7 +86,7 @@ impl Switch {
     }
 
     /// The adapter had no reader to send the last tree to (Windows; AT-SPI does not say).
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, target_os = "macos", test))]
     fn no_reader(&mut self) {
         self.reader = false;
     }
@@ -97,7 +97,9 @@ pub struct Accessibility {
     switch: Switch,
     #[cfg(windows)]
     adapter: accesskit_windows::SubclassingAdapter,
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    adapter: accesskit_macos::SubclassingAdapter,
+    #[cfg(target_os = "linux")]
     adapter: accesskit_unix::Adapter,
 }
 
@@ -124,7 +126,19 @@ impl Accessibility {
             let adapter = accesskit_windows::SubclassingAdapter::new(windows::Win32::Foundation::HWND(hwnd), activation, actions);
             Ok(Self { shared, switch: Switch::default(), adapter })
         }
-        #[cfg(not(windows))]
+        #[cfg(target_os = "macos")]
+        {
+            // SDL owns this NSWindow and its content view. The adapter retains the view.
+            let cocoa = unsafe {
+                SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, std::ptr::null_mut())
+            };
+            if cocoa.is_null() {
+                return Err("SDL has no Cocoa window for VoiceOver".into());
+            }
+            let adapter = unsafe { accesskit_macos::SubclassingAdapter::for_window(cocoa, activation, actions) };
+            Ok(Self { shared, switch: Switch::default(), adapter })
+        }
+        #[cfg(target_os = "linux")]
         {
             let _ = window;
             let deactivation = Deactivation { shared: shared.clone() };
@@ -150,7 +164,7 @@ impl Accessibility {
 
     /// After an egui pass: the tree it built goes to the screen reader.
     pub fn update(&mut self, window: *mut SDL_Window, update: &TreeUpdate) {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         {
             let _ = window;
             match self.adapter.update_if_active(|| update.clone()) {
@@ -159,7 +173,7 @@ impl Accessibility {
                 None => self.switch.no_reader(),
             }
         }
-        #[cfg(not(windows))]
+        #[cfg(target_os = "linux")]
         {
             // AT-SPI places the nodes on screen from the window's bounds (X11; Wayland keeps
             // window positions to itself).
@@ -181,8 +195,12 @@ impl Accessibility {
 
     /// The window gained or lost focus. On Windows the subclassing adapter sees that itself.
     pub fn focus(&mut self, focused: bool) {
-        #[cfg(not(windows))]
+        #[cfg(target_os = "linux")]
         self.adapter.update_window_focus_state(focused);
+        #[cfg(target_os = "macos")]
+        if let Some(events) = self.adapter.update_view_focus_state(focused) {
+            events.raise();
+        }
         #[cfg(windows)]
         let _ = focused;
     }

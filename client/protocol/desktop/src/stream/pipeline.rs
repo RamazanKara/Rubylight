@@ -799,7 +799,7 @@ fn say_cuda_fallback(shared: &Shared, decoder: &mut media::VideoDecoder) {
 /// Maps `decoder`'s VAAPI pictures into the GPU renderer's Vulkan images when it draws with SDL's
 /// GPU API (`media::VideoDecoder::map_to_vulkan`); whether they are.
 pub(super) fn map_to_vulkan(hardware: Hardware, decoder: &mut media::VideoDecoder) -> bool {
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     if let Hardware::Auto(gpu, _) = hardware {
         return !gpu.is_null() && decoder.map_to_vulkan(gpu);
     }
@@ -835,7 +835,12 @@ fn gpu_pyrowave(device: GpuDevice, setup: &VideoSetup, slots: usize) -> Result<s
         super::pyrowave::GpuStream::new(device, setup.width as usize, setup.height as usize, chroma444, ten_bit, slots)
             .map(|stream| super::pyrowave::Pyrowave::Gpu(Box::new(stream)))
     }
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (device, setup, slots);
+        Err("The PyroWave GPU SDK has no macOS backend.".into())
+    }
+    #[cfg(target_os = "linux")]
     {
         // The SDK decodes on the renderer's Vulkan device where it can share it, else on its own
         // with the planes crossing through CPU memory (`GpuDecoder::for_renderer`).
@@ -1880,7 +1885,9 @@ mod tests {
         assert!(decoder.pyrowave.is_none());
         let notices = notices(&shared);
         assert!(matches!(notices.as_slice(), [Notice::DecoderFailed(text)] if text.contains("PyroWave GPU decoding is unavailable")));
-        #[cfg(unix)]
+        #[cfg(target_os = "macos")]
+        assert!(matches!(notices.as_slice(), [Notice::DecoderFailed(text)] if text.contains("no macOS backend")));
+        #[cfg(target_os = "linux")]
         assert!(matches!(notices.as_slice(), [Notice::DecoderFailed(text)] if text.contains("libpyrowave-shared.so not found")), "the reason is the missing library");
     }
 

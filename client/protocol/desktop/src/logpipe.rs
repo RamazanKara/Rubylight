@@ -214,6 +214,18 @@ mod sys {
         let mut fds = [0 as libc::c_int; 2];
         // SAFETY: plain syscalls on descriptors made here.
         unsafe {
+            #[cfg(target_os = "macos")]
+            {
+                if libc::pipe(fds.as_mut_ptr()) != 0 { return Err(io::Error::last_os_error()); }
+                for fd in fds {
+                    if libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) < 0 {
+                        let error = io::Error::last_os_error();
+                        for fd in fds { libc::close(fd); }
+                        return Err(error);
+                    }
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
             if libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) != 0 {
                 return Err(io::Error::last_os_error());
             }

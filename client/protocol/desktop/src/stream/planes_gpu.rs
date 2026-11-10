@@ -20,8 +20,6 @@ use super::pyrowave_sdk::zero_copy::{SharedImages, TEXTURE_IMAGE_PROPERTY};
 use super::pyrowave_sdk::GpuConfig;
 use super::stage_times::Stages;
 
-const PLANES_SPIRV: &[u8] = include_bytes!("../pyrowave-planes.spv");
-
 fn device_of(renderer: *mut SDL_Renderer) -> *mut SDL_GPUDevice {
     crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_GPU_DEVICE_POINTER).cast()
 }
@@ -33,10 +31,7 @@ fn plane_format(ten_bit: bool) -> SDL_GPUTextureFormat {
 /// # Safety
 /// `device` must be a live GPU device of the calling thread's renderer.
 unsafe fn create_shader(device: *mut SDL_GPUDevice) -> *mut SDL_GPUShader {
-    SDL_CreateGPUShader(device, &SDL_GPUShaderCreateInfo {
-        code: PLANES_SPIRV.as_ptr(), code_size: PLANES_SPIRV.len(), entrypoint: c"planes".as_ptr(),
-        format: SDL_GPU_SHADERFORMAT_SPIRV, stage: SDL_GPU_SHADERSTAGE_FRAGMENT,
-        num_samplers: 3, num_uniform_buffers: 1, ..Default::default() })
+    SDL_CreateGPUShader(device, &super::shader::Shader::Planes.info())
 }
 
 pub struct PlanesPass {

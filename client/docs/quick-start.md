@@ -7,13 +7,13 @@ This page takes you from installation to a running stream. The defaults are chos
 You need:
 
 - A PC running a Moonlight-compatible host, such as [Sunshine](https://github.com/LizardByte/Sunshine), [Apollo](https://github.com/ClassicOldSong/Apollo), [Vibepollo](https://github.com/Nonary/Vibepollo) or [Rubylight](https://github.com/RamazanKara/Rubylight).
-- A device for Nightjar: Android 5.0 or newer (phone, tablet, handheld, Android TV or Fire TV), Windows 10 or 11, or x86-64 Linux with glibc 2.35 or newer.
+- A device for Nightjar: Android 5.0 or newer (phone, tablet, handheld, Android TV or Fire TV), macOS 13 or newer, Windows 10 or 11, or x86-64 Linux with glibc 2.35 or newer.
 - A network between them. Start on the same local network, with the PC on Ethernet where possible. To play elsewhere, see [Play away from home](remote-setup.md).
 
 ## Five steps to your first stream
 
 1. **Prepare the PC.** Start the host, open its web UI and check that the game is in its app list.
-2. **Install Nightjar.** Download it from the [latest release](../README.md#download). On Android, open the APK and allow installation from the app that opened it. On Windows, run the setup. On Linux, install the `.deb` or `.rpm`, or run the `.AppImage`.
+2. **Install Nightjar.** On macOS, [build and open Nightjar.app](../protocol/desktop/README.md#macos). An [Intel Mac](../protocol/desktop/README.md#build-for-an-intel-mac) can also use the `macos-x86_64.zip` built on Apple Silicon. For the published platforms, download it from the [latest release](../README.md#download). On Android, open the APK and allow installation from the app that opened it. On Windows, run the setup. On Linux, install the `.deb` or `.rpm`, or run the `.AppImage`.
 3. **Find the PC.** Open Nightjar and select the PC it found. If the PC is not listed, choose **Add PC** and enter its local IP address or host name. Use the PC's own address; `127.0.0.1` refers to this device.
 4. **Pair.** Enter the PIN that Nightjar shows in the host's web UI. On a Rubylight PC you can instead choose **Add PC → Scan QR code** on Android, or **Paste link** on the desktop, with the code on the host's **Devices** page. If the host grants permissions per device, allow this device to list, view and launch apps, and the input types you use. [Pairing and permissions](pairing.md) covers each method.
 5. **Play.** Open the PC's library and select a game. Use a controller, a mouse and keyboard, or on Android turn on **Settings → Controls → Show on-screen controls**.
@@ -36,6 +36,7 @@ Open the stream menu with:
 | --- | --- | --- |
 | Android | **Back** (or the back gesture), or **Ctrl+Alt+Shift+Tab** | **Start+Back+LB+RB** |
 | Windows and Linux | **Ctrl+Alt+Shift+Tab** | **Start+Back** |
+| macOS | **Control+Option+Shift+Tab** | **Start+Back** |
 
 The top row toggles **Keyboard**, **Overlay** and, when the PC offers it, **Microphone**. The **Input**, **Display**, **Quality** and **Host** sections hold the rest; [the stream menu](controls.md#the-stream-menu) describes every item. Which items appear depends on the host and the device's permissions.
 

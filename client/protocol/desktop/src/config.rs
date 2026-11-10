@@ -111,8 +111,9 @@ pub enum DecoderPreference {
 /// (switch to `Cpu`); every other codec works.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PyroWaveDecoder {
+    #[cfg_attr(target_os = "macos", default)]
     Cpu,
-    #[default]
+    #[cfg_attr(not(target_os = "macos"), default)]
     Gpu,
 }
 
@@ -883,6 +884,7 @@ impl Settings {
     /// Whether these settings draw through the GPU renderer, which Linux picks at start: SDL's
     /// "gpu" renderer runs the shader passes (packed full chroma, HDR, PyroWave, upscaling, and
     /// the plane pass that 4:4:4 and 10-bit pictures need).
+    #[cfg(any(not(target_os = "macos"), test))]
     pub fn needs_gpu(&self) -> bool {
         self.gpu_need().is_some()
     }
@@ -1118,6 +1120,7 @@ impl Overrides {
         serde_json::from_value(values).expect("validated settings overrides")
     }
 
+    #[cfg(any(not(target_os = "macos"), test))]
     pub fn needs_gpu(&self) -> bool {
         self.apply(&Settings::default()).needs_gpu()
     }
@@ -2376,8 +2379,8 @@ mod tests {
     }
 
     #[test]
-    fn pyrowave_decoder_defaults_to_the_gpu_and_reads_from_the_file() {
-        let default = PyroWaveDecoder::Gpu;
+    fn pyrowave_decoder_uses_the_platform_default_and_reads_from_the_file() {
+        let default = if cfg!(target_os = "macos") { PyroWaveDecoder::Cpu } else { PyroWaveDecoder::Gpu };
         assert_eq!(Settings::default().pyrowave_decoder, default);
         let old: Settings = serde_json::from_str("{\"fps\": 90}").unwrap();
         assert_eq!(old.pyrowave_decoder, default, "an older file gets the default");

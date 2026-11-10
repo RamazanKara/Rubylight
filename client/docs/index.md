@@ -25,7 +25,7 @@ New to Nightjar? Read the [quick start](quick-start.md), then return here when y
 | [Recovery and automatic quality](recovery-and-quality.md) | Recovering interrupted streams, riding out network drops, automatic resolution and frame rate |
 | [Clipboard, files, folders and USB devices](sharing.md) | Sharing with a PC whose host supports it |
 | [Launcher integrations](FRONTENDS.md) | Starting games from Beacon, ES-DE, Daijisho, Pegasus and Android TV's home screen |
-| [Nightjar for Windows and Linux](../protocol/desktop/README.md) | Installing, running and building the desktop client |
+| [Nightjar for macOS, Windows and Linux](../protocol/desktop/README.md) | Installing, running and building the desktop client |
 | [Features](features.md) | Every feature, with a link to its guide |
 
 ## Reference

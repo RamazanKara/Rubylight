@@ -37,9 +37,9 @@ fn package_check_at(dir: &std::path::Path, report: &std::path::Path) -> i32 {
         Ok(()) => {
             #[cfg(windows)]
             let result = super::pyrowave_sdk::probe(None, false);
-            #[cfg(unix)]
+            #[cfg(target_os = "linux")]
             let result = super::pyrowave_sdk::probe(false);
-            #[cfg(not(any(windows, unix)))]
+            #[cfg(not(any(windows, target_os = "linux")))]
             let result: Result<(), String> = Err("PyroWave GPU decoding needs Windows or Linux".to_owned());
             result
         }
@@ -72,7 +72,7 @@ pub fn gpu_probe(device: *mut std::ffi::c_void, ten_bit: bool) -> Result<(), Str
 
 /// The `gpu` mode's requirements on the renderer's `SDL_GPUDevice`: the SDK's own Vulkan device
 /// and decoder (`pyrowave_sdk::probe`) and the plane shader the presenter draws with.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub fn gpu_probe(device: *mut std::ffi::c_void, ten_bit: bool) -> Result<(), String> {
     if device.is_null() {
         return Err("PyroWave GPU decoding needs the SDL GPU renderer".to_owned());
@@ -82,7 +82,7 @@ pub fn gpu_probe(device: *mut std::ffi::c_void, ten_bit: bool) -> Result<(), Str
     unsafe { super::planes_gpu::PlanesPass::compiles(device.cast(), ten_bit) }
 }
 
-#[cfg(not(any(windows, unix)))]
+#[cfg(not(any(windows, target_os = "linux")))]
 pub fn gpu_probe(_device: *mut std::ffi::c_void, _ten_bit: bool) -> Result<(), String> {
     Err("PyroWave GPU decoding needs Windows or Linux".to_owned())
 }
@@ -233,7 +233,7 @@ mod tests {
         assert!(done.clone().is_err());
         if cfg!(windows) {
             assert!(done.clone().unwrap_err().contains("Direct3D 11 renderer"));
-        } else if cfg!(unix) {
+        } else if cfg!(target_os = "linux") {
             assert!(done.clone().unwrap_err().contains("SDL GPU renderer"));
         }
         assert!(settings_probe_started(false));
@@ -248,7 +248,7 @@ mod tests {
         assert_eq!(super::super::pyrowave_sdk::Api::shared_loads(), loads);
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn cpu_mode_never_loads_the_sdk_library() {
         let loads = super::super::pyrowave_sdk::Api::shared_loads();
@@ -256,7 +256,7 @@ mod tests {
         assert_eq!(super::super::pyrowave_sdk::Api::shared_loads(), loads);
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_gpu_probe_without_a_renderer_device_says_so_before_loading_the_sdk() {
         let loads = super::super::pyrowave_sdk::Api::shared_loads();

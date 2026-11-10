@@ -82,7 +82,9 @@ fn main() {
                 pkg_config::Config::new()
                     .probe("opus")
                     .unwrap_or_else(|e| panic!("opus not found: {e}"));
-                println!("cargo:rustc-link-arg-bins=-Wl,-rpath,$ORIGIN/lib");
+                if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+                    println!("cargo:rustc-link-arg-bins=-Wl,-rpath,$ORIGIN/lib");
+                }
             }
         }
         None => {

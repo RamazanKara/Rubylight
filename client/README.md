@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <b>Android</b> · <b>Android TV</b> · <b>Fire TV</b> · <b>Windows</b> · <b>Linux</b><br>
+  <b>Android</b> · <b>Android TV</b> · <b>Fire TV</b> · <b>Windows</b> · <b>Linux</b> · <a href="protocol/desktop/README.md#macos"><b>macOS (build locally)</b></a><br>
   <sub>Works with Sunshine, Apollo, Vibepollo, Rubylight, NVIDIA GameStream and every other Moonlight-compatible host.</sub>
 </p>
 
@@ -217,7 +217,7 @@
 
 # Nightjar
 
-Nightjar streams games from your PC to Android phones, tablets and handhelds, Android TV and Fire TV, Windows and Linux. It speaks the Moonlight protocol, so it works with the host you already run, and it is built to make the stream feel local: hardware decoding tuned for each chip, frame pacing that follows your display, and recovery that keeps you in the game when the network hiccups.
+Nightjar streams games from your PC to Android phones, tablets and handhelds, Android TV and Fire TV, Windows, Linux and macOS. It speaks the Moonlight protocol, so it works with the host you already run, and it is built to make the stream feel local: hardware decoding tuned for each chip, frame pacing that follows your display, and recovery that keeps you in the game when the network hiccups.
 
 <table>
 <tr>
@@ -345,13 +345,14 @@ Download from the [latest release](https://github.com/RamazanKara/nightjar/relea
 | --- | --- | --- |
 | Android phones, tablets and handhelds | [`nightjar.apk`](https://github.com/RamazanKara/nightjar/releases/latest/download/nightjar.apk) | Open the APK and allow installation from the app that opened it. To receive updates through [Obtainium](https://github.com/ImranR98/Obtainium), add `https://github.com/RamazanKara/nightjar`. |
 | Android TV and Fire TV | The same APK | Install AFTVnews' [Downloader](https://www.aftvnews.com/downloader/) from the TV's app store, enter the code **`3815143`** and install the APK it downloads. The code always points to the latest release. |
+| macOS | `Nightjar.app` (local build) | [Build the application on a Mac](protocol/desktop/README.md#macos) and move it to Applications. |
 | Windows 10 and 11 | `nightjar-desktop-<version>-windows-x86_64-setup.exe` | Run the installer. It installs for the current user without administrator rights and updates in place, keeping settings and paired PCs. The `.zip` contains the same files and runs without installation. |
 | Debian, Ubuntu | `nightjar-desktop-<version>-linux-x86_64.deb` | `sudo apt install ./nightjar-desktop-<version>-linux-x86_64.deb` |
 | Fedora | `nightjar-desktop-<version>-linux-x86_64.rpm` | `sudo dnf install ./nightjar-desktop-<version>-linux-x86_64.rpm` |
 | Other Linux distributions | `.AppImage` or `.tar.gz` | Make the AppImage executable and run it, or unpack the archive and run `./nightjar`. |
 | Linux on ARM handhelds and boards | The same packages and a Flatpak, with `aarch64` in the name | As above. |
 
-Release APKs are signed with the Nightjar release key (certificate SHA-256 `312ed322c7c29d1aec4fae4a3979ebcb557af44d821d7f4746c0968548eb630b`), so every later release installs over the previous one. Outside Google Play, the Android app checks GitHub for new releases and asks before installing one; the Windows app reports a new release once per launch. The desktop packages are not code-signed.
+Release APKs are signed with the Nightjar release key (certificate SHA-256 `312ed322c7c29d1aec4fae4a3979ebcb557af44d821d7f4746c0968548eb630b`), so every later release installs over the previous one. Outside Google Play, the Android app checks GitHub for new releases and asks before installing one; the Windows app reports a new release once per launch. The Windows and Linux release packages are unsigned.
 
 Nightjar has its own application ID and pairs separately, so it installs beside Moonlight and other clients without affecting them. [Installing the desktop client](protocol/desktop/README.md#installing) covers removal and the location of settings.
 
@@ -382,6 +383,7 @@ The **Error correction** setting and host-side automatic bitrate also work with 
 | Platform | Requirement |
 | --- | --- |
 | Android, Android TV, Fire TV | Android 5.0 or newer. PyroWave needs 64-bit Android 10 or newer with Vulkan 1.1. Audio passthrough needs Android 10 or newer; 7.1.4 needs Android 12L or newer and a 12-channel output. |
+| macOS | The app bundle targets macOS 13 or later. Live streaming has been verified on Apple Silicon. |
 | Windows | Windows 10 or 11, x86-64. HDR needs an HDR display with HDR turned on in Windows. PyroWave GPU decoding needs Vulkan 1.3. |
 | Linux | x86-64 with glibc 2.35 or newer: Ubuntu 22.04, Debian 12, Fedora 36 or later. Hardware decoding through VA-API, Vulkan video, V4L2 M2M or NVDEC. |
 | PC | A Moonlight-compatible host. The host's own requirements apply. |
@@ -396,9 +398,11 @@ The [documentation index](docs/index.md) lists every page. The most used:
 | Daily use | [Home and the session menu](docs/console.md), [controls](docs/controls.md), [clipboard, files and USB devices](docs/sharing.md) |
 | Tuning | [Video and latency](docs/video-and-latency.md), [recovery and automatic quality](docs/recovery-and-quality.md), [settings reference](docs/settings.md) |
 | Problems | [Troubleshooting](docs/TROUBLESHOOTING.md), [stream health](docs/stream-health.md), [FAQ](docs/faq.md) |
-| Desktop | [Nightjar for Windows and Linux](protocol/desktop/README.md), [Android and desktop compared](docs/CLIENT-PARITY.md) |
+| Desktop | [Nightjar for macOS, Windows and Linux](protocol/desktop/README.md), [Android and desktop compared](docs/CLIENT-PARITY.md) |
 
 ## Building from source
+
+The [macOS build instructions](protocol/desktop/README.md#macos) cover running the Rust client and packaging a standalone Nightjar.app.
 
 The Android app builds with Gradle and JDK 21; its native code needs the Android NDK and Rust. The streaming engine and the desktop client are a Cargo workspace under [`protocol/`](protocol), shared by both apps.
 

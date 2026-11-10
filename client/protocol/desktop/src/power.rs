@@ -47,7 +47,7 @@ impl PowerAction {
     }
 
     /// logind's Manager method for it.
-    #[cfg_attr(windows, allow(dead_code))]
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn login1_method(self) -> &'static str {
         match self {
             Self::ShutDown => "PowerOff",
@@ -69,7 +69,7 @@ impl PowerAction {
     }
 
     /// logind's Manager method that says whether it may be done.
-    #[cfg_attr(windows, allow(dead_code))]
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn login1_can(self) -> &'static str {
         match self {
             Self::ShutDown => "CanPowerOff",
@@ -101,7 +101,7 @@ pub fn windows_offers(sleep_state: bool) -> Vec<Offer> {
 
 /// logind's answer to `Can…` for `action`: "yes" offers it, "challenge" offers it behind a
 /// password prompt, "no", "na" or no answer leave it out.
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn logind_offer(action: PowerAction, answer: Option<&str>) -> Option<Offer> {
     match answer? {
         "yes" => Some(Offer { action, interactive: false }),
@@ -145,7 +145,7 @@ fn offers() -> Vec<Offer> {
     windows_offers(caps.SystemS1 || caps.SystemS2 || caps.SystemS3)
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 fn offers() -> Vec<Offer> {
     use zbus::blocking::{connection::Builder, Proxy};
     let manager = (|| -> zbus::Result<Proxy<'static>> {
@@ -232,7 +232,7 @@ fn enable_shutdown_privilege() -> Result<(), String> {
 
 /// Asks logind. A password prompt only where logind said it needs one ("challenge"), and then
 /// with time to type it; otherwise none, so a refusal comes back as the reason.
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 fn perform(offer: Offer) -> Result<(), String> {
     use zbus::blocking::{connection::Builder, Proxy};
     let wait = std::time::Duration::from_secs(if offer.interactive { 120 } else { 5 });
@@ -243,6 +243,21 @@ fn perform(offer: Offer) -> Result<(), String> {
         manager.call::<_, _, ()>(offer.action.login1_method(), &(offer.interactive,))
     };
     call().map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn offers() -> Vec<Offer> {
+    vec![Offer { action: PowerAction::Sleep, interactive: false }]
+}
+
+#[cfg(target_os = "macos")]
+fn perform(offer: Offer) -> Result<(), String> {
+    if offer.action != PowerAction::Sleep {
+        return Err("This Mac only offers sleep from Nightjar.".into());
+    }
+    let output = std::process::Command::new("/usr/bin/pmset")
+        .arg("sleepnow").output().map_err(|e| e.to_string())?;
+    if output.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&output.stderr).trim().to_owned()) }
 }
 
 #[cfg(test)]

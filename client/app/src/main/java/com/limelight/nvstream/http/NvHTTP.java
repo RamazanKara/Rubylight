@@ -133,6 +133,14 @@ public class NvHTTP {
         this.serverCert = serverCert;
     }
 
+    /**
+     * For an instance kept between polls (PollConnections): the HTTPS port a new instance would be
+     * given, 0 to ask the host for it again. Only whoever has the instance to itself calls this.
+     */
+    public void setHttpsPort(int httpsPort) {
+        this.httpsPort = httpsPort;
+    }
+
     private static X509TrustManager getDefaultTrustManager() {
         try {
             TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());

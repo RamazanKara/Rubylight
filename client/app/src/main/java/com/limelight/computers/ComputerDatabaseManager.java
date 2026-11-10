@@ -109,6 +109,19 @@ public class ComputerDatabaseManager {
                 address.getString(AddressFields.ADDRESS), address.getInt(AddressFields.PORT));
     }
 
+    /**
+     * What {@link #updateComputer} saves of a PC, to tell whether a poll found anything to save.
+     * Every column is here: a PC whose columns equal those of the row read is saved as it is.
+     * Addresses and certificates are replaced and never changed in place, so the array stays as taken.
+     */
+    static Object[] columns(ComputerDetails details) {
+        return new Object[] {
+                details.uuid, details.name,
+                details.localAddress, details.remoteAddress, details.manualAddress, details.ipv6Address,
+                details.macAddress, details.serverCert,
+        };
+    }
+
     public boolean updateComputer(ComputerDetails details) {
         RedactedLog.addComputerSecrets(details);
         ContentValues values = new ContentValues();

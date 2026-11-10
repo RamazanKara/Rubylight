@@ -1,5 +1,16 @@
 use super::*;
 #[test]
+fn a_stream_above_250_fps_is_noticed_within_its_quarter_period() {
+    // A quarter period is under `PREDICTED_NOTICE` there: the shorter bound wins.
+    let start = Instant::now();
+    for (fps, notice) in [(60, 1000), (250, 1000), (300, 833), (4000, 62)] {
+        let mut pacer = Pacer::new(start, Duration::from_secs(1) / fps);
+        assert_eq!(pacer.notice().as_micros(), notice, "{fps} fps");
+        pacer.notices[0] = Duration::from_millis(50);
+        assert_eq!(pacer.notice(), Duration::from_secs(1) / fps / 4);
+    }
+}
+#[test]
 fn repeated_encoder_stalls_back_off_within_the_recovery_budget() {
     let limits: Vec<u64> = (0..6)
         .map(|n| encoder_stall_limit(n).as_millis() as u64)

@@ -150,3 +150,17 @@ test('the grid and the launcher panel use the selection and restore logic', () =
   assert.match(sources, /const synced = await syncAll\(false\);\s*[\s\S]*?if \(!synced\) onsynced\?\.\(\);/);
   assert.doesNotMatch(sources + grid, /Experimental/);
 });
+
+test('of two apps with one name, only the one that runs shows as running', async () => {
+  const { isRunningApp } = await server.ssrLoadModule('/src/components/library/app.ts');
+  const status = app => ({ status: true, activeSessions: 1, appRunning: true, appName: 'Hades', paused: false, running: true, app });
+  const steam = { name: 'Hades', uuid: 's' };
+  const playnite = { name: 'Hades', uuid: 'p' };
+  assert.ok(isRunningApp(status({ name: 'Hades', id: 7, uuid: 's' }), steam));
+  assert.ok(!isRunningApp(status({ name: 'Hades', id: 7, uuid: 's' }), playnite));
+  // An older host, or an app that left the library, names no uuid: the name decides as before.
+  assert.ok(isRunningApp(status({ name: 'Hades', id: 7, uuid: null }), playnite));
+  assert.ok(isRunningApp(status({ name: 'Hades', id: 7 }), steam));
+  assert.ok(!isRunningApp({ ...status(null), appRunning: false, appName: '' }, steam));
+  assert.ok(!isRunningApp(null, steam));
+});

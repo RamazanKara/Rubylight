@@ -104,8 +104,18 @@ fn service_steps(program: Option<&Path>, install: &Path) -> (bool, bool) {
     let ours = program.filter(|program| detect::our_service(program));
     (
         ours.is_some(),
-        ours.is_some_and(|program| program.starts_with(install)),
+        ours.is_some_and(|program| inside(program, install)),
     )
+}
+/// Whether `path` is in `folder`, as Windows compares names: the service and
+/// the Apps entry may spell the same folder in different case, and a service
+/// that is ours but left registered keeps the next installation from starting.
+fn inside(path: &Path, folder: &Path) -> bool {
+    let name = |part: std::path::Component| part.as_os_str().to_string_lossy().to_lowercase();
+    let mut path = path.components();
+    folder
+        .components()
+        .all(|part| path.next().is_some_and(|own| name(own) == name(part)))
 }
 /// Remove Rubylight; the notes are problems the user must see, though the
 /// removal itself went through.
@@ -990,6 +1000,15 @@ mod tests {
         let install = Path::new(r"C:\Program Files\Rubylight");
         let ours = install.join("butterpollo-service.exe");
         assert_eq!(service_steps(Some(&ours), install), (true, true));
+        // The same folder as the service or the Apps entry spells it.
+        let spelled = Path::new(r"c:\PROGRAM FILES\rubylight\butterpollo-service.exe");
+        assert_eq!(service_steps(Some(spelled), install), (true, true));
+        assert_eq!(
+            service_steps(Some(&ours), Path::new(r"C:\Program Files\Rubylight\")),
+            (true, true)
+        );
+        let beside = Path::new(r"C:\Program Files\Rubylight 2\butterpollo-service.exe");
+        assert_eq!(service_steps(Some(beside), install), (true, false));
         // Rubylight's program in another folder is stopped, as before, and
         // stays registered.
         let elsewhere = Path::new(r"D:\Other\butterpollo-service.exe");

@@ -578,6 +578,9 @@ struct Session {
     vbv_ceiling: u32,
     /// The last frame cap the VBV was set for, against small changes.
     cap_requested: Option<u64>,
+    /// The driver refused the VBV of `cap_requested`, which is not asked for again: frames
+    /// are not held to it.
+    cap_refused: bool,
     /// The host's last pace-based frame cap ([`Session::set_frame_cap`]).
     frame_cap_target: Option<u64>,
     /// The largest inter frame sent as encoded ([`Session::reencodes`]).
@@ -731,6 +734,7 @@ impl Session {
             budget: None,
             vbv_ceiling: 0,
             cap_requested: None,
+            cap_refused: false,
             frame_cap_target: None,
             cut_limit: None,
             reencoded_cuts: 0,
@@ -1759,19 +1763,23 @@ impl Session {
             u64::from(self.vbv_ceiling.max(MIN_VBV_BITS as u32)),
         ) as u32;
         let small = u64::from(wanted.abs_diff(current)) * 10 <= u64::from(current);
-        if wanted == current
-            || (small && wanted != self.vbv_ceiling)
-            || self.cap_requested == Some(bytes)
-        {
+        if wanted == current || (small && wanted != self.vbv_ceiling) {
+            self.cap_refused = false;
+            return Ok(self.frame_cap());
+        }
+        // A cap the driver refused is not asked for again each frame, and stays refused.
+        if self.cap_requested == Some(bytes) {
             return Ok(self.frame_cap());
         }
         self.cap_requested = Some(bytes);
-        self.reconfigure(
+        let reconfigured = self.reconfigure(
             self.config.rcParams.averageBitRate,
             wanted,
             false,
             "frame cap",
-        )?;
+        );
+        self.cap_refused = reconfigured.is_err();
+        reconfigured?;
         Ok(self.frame_cap())
     }
     /// Whether `encoded`, `pending`'s output, goes back to NVENC as a keyframe
@@ -2746,7 +2754,8 @@ impl Encoder {
     pub fn set_frame_cap(&mut self, bytes: u64) -> Option<u64> {
         match self.session.set_frame_cap(bytes) {
             Ok(cap) => {
-                if std::mem::take(&mut self.cap_warned) {
+                // The warning stays while the cap it names is still refused.
+                if !self.session.cap_refused && std::mem::take(&mut self.cap_warned) {
                     self.warnings.clear("encoder_frame_size");
                 }
                 cap

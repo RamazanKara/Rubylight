@@ -38,12 +38,14 @@ export const FLAGS = {
   'gen1-framegen-fix': false,
   'frame-gen-limiter-fix': false,
   'lossless-scaling-enabled': false,
-  'lossless-scaling-legacy-auto-detect': false,
   'background-stream': false,
   /** The game's "<name> (Co-op)" entry lists in the library. */
   'coop-entry': true,
 } as const;
 export type FlagKey = keyof typeof FLAGS;
+
+/** Switches whose missing key means the host setting, so on and off are both stored. */
+export type TristateKey = 'prefer-10bit-sdr' | 'terminate-on-pause' | 'lossless-scaling-legacy-auto-detect';
 
 /** Whole numbers and the range the host accepts. A missing key uses the host's value. */
 export const NUMBERS: Record<string, { min: number; max?: number }> = {
@@ -356,8 +358,18 @@ export class AppDraft {
   }
 
   /** '' when the host setting applies. */
-  tristate(key: 'prefer-10bit-sdr' | 'terminate-on-pause'): '' | 'on' | 'off' {
+  tristate(key: TristateKey): '' | 'on' | 'off' {
     const value = this.app[key];
+    if (key === 'lossless-scaling-legacy-auto-detect') {
+      // As lossless.rs reads it: a number counts, yes and no too; anything else is the host setting.
+      if (typeof value === 'number') return value !== 0 ? 'on' : 'off';
+      if (typeof value === 'string') {
+        const word = value.trim().toLowerCase();
+        if (['true', '1', 'yes', 'on'].includes(word)) return 'on';
+        return ['false', '0', 'no', 'off', ''].includes(word) ? 'off' : '';
+      }
+      return typeof value === 'boolean' ? (value ? 'on' : 'off') : '';
+    }
     if (key === 'terminate-on-pause' && typeof value === 'string') {
       return flagValue(value, false) ? 'on' : 'off';
     }
@@ -365,7 +377,7 @@ export class AppDraft {
     if (value === false || value === 'false' || value === '0' || value === 'off') return 'off';
     return '';
   }
-  setTristate(key: 'prefer-10bit-sdr' | 'terminate-on-pause', value: '' | 'on' | 'off') {
+  setTristate(key: TristateKey, value: '' | 'on' | 'off') {
     if (value === '') delete this.app[key];
     else this.app[key] = value === 'on';
   }

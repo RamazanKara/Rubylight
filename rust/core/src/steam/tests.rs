@@ -91,6 +91,26 @@ fn binary_entry(appid: u32, kv: &[u8]) -> Vec<u8> {
     entry
 }
 #[test]
+fn objects_nested_without_end_stop_the_parsers_rather_than_the_host() {
+    // Both parsers recurse once per object.
+    let deep = "a{".repeat(200_000);
+    let parsed = Vdf::parse(&format!("\"first\" \"kept\" {deep}"));
+    assert_eq!(parsed.at(&["first"]).and_then(Vdf::text), Some("kept"));
+    let (mut at, mut depth) = (&parsed, 0);
+    while let Some(inner) = at.get("a") {
+        at = inner;
+        depth += 1;
+    }
+    assert_eq!(depth, 64);
+    // The older format: a string after each kind byte names the key.
+    let kv = [0x00, b'a', 0x00].repeat(200_000);
+    let mut data = 0x0756_4428u32.to_le_bytes().to_vec();
+    data.extend(1u32.to_le_bytes());
+    data.extend(binary_entry(70, &kv));
+    data.extend(0u32.to_le_bytes());
+    assert!(appinfo(&data, &BTreeSet::from([70])).is_empty());
+}
+#[test]
 fn binary_appinfo_gives_names_and_types() {
     // Format 29: keys are indices into a string table.
     let keys = ["appinfo", "common", "name", "type"];

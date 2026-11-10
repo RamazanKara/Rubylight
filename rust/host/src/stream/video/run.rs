@@ -893,15 +893,7 @@ impl SessionThread<'_> {
                             tracing::info!(client = %s.launch.client.name, from = %from, to = %to, "reconfigure requested");
                             to.apply_to(&mut stream);
                             if (to.width, to.height) != (from.width, from.height) {
-                                match s.launch.nucleus {
-                                    // A co-op player's window follows the stream's size.
-                                    Some(seat) => {
-                                        if let Err(error) = crate::nucleus::resize(&h, seat, (stream.width, stream.height)) {
-                                            tracing::warn!(client = %s.launch.client.name, error = %format!("{error:#}"), "co-op window resize refused");
-                                        }
-                                    }
-                                    None => prepared.follow_shape((stream.width, stream.height)),
-                                }
+                                self.follow_size(&prepared, (stream.width, stream.height));
                             }
                             s.rebuild_link_rate(&stream, c.link_rate_adaptation(), max_bitrate_kbps(&s, &c));
                             switching.get_or_insert((from, Instant::now()));
@@ -1209,6 +1201,12 @@ impl SessionThread<'_> {
                             if let Some((from, _)) = switching.take() {
                                 let to = butterpollo_core::reconfigure::Mode::of(&stream);
                                 from.apply_to(&mut stream);
+                                // The link rate, and the display or co-op window, were
+                                // already set for the refused mode.
+                                s.rebuild_link_rate(&stream, c.link_rate_adaptation(), max_bitrate_kbps(&s, &c));
+                                if (to.width, to.height) != (from.width, from.height) {
+                                    self.follow_size(&prepared, (stream.width, stream.height));
+                                }
                                 refuse_switch(&s, from, butterpollo_core::rate_change::Reason::EncoderFailed);
                                 tracing::info!(client = %s.launch.client.name, from = %from, to = %to, error = %format!("{error:#}"), "reconfigure refused: the encoder cannot make this mode; keeping the previous one");
                                 continue;
@@ -1482,6 +1480,9 @@ impl SessionThread<'_> {
                             let to = butterpollo_core::reconfigure::Mode::of(&stream);
                             from.apply_to(&mut stream);
                             s.rebuild_link_rate(&stream, c.link_rate_adaptation(), max_bitrate_kbps(&s, &c));
+                            if (to.width, to.height) != (from.width, from.height) {
+                                self.follow_size(&prepared, (stream.width, stream.height));
+                            }
                             refuse_switch(&s, from, butterpollo_core::rate_change::Reason::EncoderFailed);
                             tracing::info!(client = %s.launch.client.name, from = %from, to = %to, error = %format!("{error:#}"), "reconfigure refused: the encoder failed at this mode; keeping the previous one");
                             rebuild_encoder = true;

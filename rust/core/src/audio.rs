@@ -414,6 +414,12 @@ pub fn mix_matrix(
             // A client without heights hears them from the speaker below
             // each at -3 dB, as stereo does, rather than not at all.
             for (height, below) in [(0x1000, 0), (0x4000, 1), (0x8000, 4), (0x20000, 5)] {
+                // Stereo has no back pair: its left and right take the back heights.
+                let below = if below < output_channels {
+                    below
+                } else {
+                    below - 4
+                };
                 if let Some(i) = index(height) {
                     matrix[below][i] += 0.70710677;
                 }
@@ -554,6 +560,11 @@ mod tests {
             }
         }
         assert!(matrix[8..].iter().flatten().all(|v| *v == 0.));
+        // A two-channel endpoint of back heights has no back pair to fold them into
+        // in a stereo client: its left and right take them.
+        let matrix = mix_matrix(2, 0x8000 | 0x20000, 2).unwrap();
+        assert!(matrix[0][0] > 0. && matrix[1][1] > 0.);
+        assert_eq!((matrix[0][1], matrix[1][0]), (0., 0.));
         // Stereo goes to the fronts only.
         let matrix = mix_matrix(2, 3, 12).unwrap();
         assert_eq!((matrix[0][0], matrix[1][1]), (1., 1.));

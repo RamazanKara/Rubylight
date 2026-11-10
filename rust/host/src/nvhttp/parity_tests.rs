@@ -2494,6 +2494,61 @@ fn a_device_that_may_only_view_streams_cannot_start_microphone_only() {
 }
 
 #[test]
+fn a_device_that_may_only_view_streams_starts_no_remote_monitor_or_input_by_query() {
+    let f = Fixture::new();
+    f.host
+        .config
+        .write()
+        .unwrap()
+        .values
+        .insert("enable_input_only_mode".into(), "true".into());
+    let viewer = f.client(butterpollo_core::state::LATER_DEVICE_PERMISSION);
+    let player = f.client(u32::MAX);
+    let app_id = f.host.apps.read().unwrap()[0].id();
+    for (option, role) in [
+        ("remote_monitor", Role::RemoteMonitor),
+        ("input_only", Role::InputOnly),
+    ] {
+        let mut args = Args::new();
+        args.insert(option.into(), "1".into());
+        // /resume, and /launch naming the Resume tile or the running game: all a viewer may call.
+        for (control, resume) in [
+            (None, true),
+            (Some(Control::Resume), true),
+            (Some(Control::RunningGame), true),
+        ] {
+            let refused = resolve_launch_app(
+                &f.host,
+                &args,
+                &viewer,
+                app_id,
+                control,
+                remote::Owner::None,
+                resume,
+            )
+            .err()
+            .map(|error| error.to_string());
+            assert_eq!(
+                refused.as_deref(),
+                Some("a remote monitor or remote input session needs the launch permission"),
+                "{option} {control:?}"
+            );
+        }
+        let (resolved, ..) = resolve_launch_app(
+            &f.host,
+            &args,
+            &player,
+            app_id,
+            None,
+            remote::Owner::None,
+            false,
+        )
+        .unwrap();
+        assert_eq!(resolved, role, "{option}");
+    }
+}
+
+#[test]
 fn a_microphone_only_launch_needs_no_input_only_mode_and_keeps_no_input() {
     let f = Fixture::new();
     let client = f.client(u32::MAX);

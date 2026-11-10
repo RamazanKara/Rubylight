@@ -1439,28 +1439,27 @@ pub fn now() -> u64 {
 }
 /// A process's creation time (100 ns since 1601), 0 when it cannot be read.
 pub fn creation_time(pid: u32) -> u64 {
-    // SAFETY: the process handle is owned and open for the call, and each out-pointer is a local
-    // FILETIME.
+    // SAFETY: the process handle is owned and open for the call.
     unsafe {
         let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
             return 0;
         };
         let process = owned(process);
-        let mut created = FILETIME::default();
-        let (mut exited, mut kernel, mut user) = (created, created, created);
-        if GetProcessTimes(
-            raw(&process),
-            &mut created,
-            &mut exited,
-            &mut kernel,
-            &mut user,
-        )
-        .is_err()
-        {
-            return 0;
-        }
-        u64::from(created.dwHighDateTime) << 32 | u64::from(created.dwLowDateTime)
+        created_at(raw(&process))
     }
+}
+/// The creation time (100 ns since 1601) of the process behind `process`, a handle opened with
+/// `PROCESS_QUERY_LIMITED_INFORMATION`; 0 when it cannot be read.
+fn created_at(process: windows::Win32::Foundation::HANDLE) -> u64 {
+    let mut created = FILETIME::default();
+    let (mut exited, mut kernel, mut user) = (created, created, created);
+    // SAFETY: the caller's handle is open for the call, and each out-pointer is a local FILETIME.
+    let read =
+        unsafe { GetProcessTimes(process, &mut created, &mut exited, &mut kernel, &mut user) };
+    if read.is_err() {
+        return 0;
+    }
+    u64::from(created.dwHighDateTime) << 32 | u64::from(created.dwLowDateTime)
 }
 /// A process's sampled CPU and resident memory usage.
 pub struct Usage {
@@ -1600,12 +1599,17 @@ pub fn stop_processes(processes: &BTreeMap<u32, u64>, timeout: Duration) {
     while !alive(processes).is_empty() && std::time::Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
     }
-    for pid in alive(processes) {
+    for (&pid, &started) in processes.iter().filter(|(_, started)| **started != 0) {
+        // The id may have gone to another process since the last look: the handle that ends
+        // the process is the one its creation time is read through.
         // SAFETY: the handle OpenProcess returns is owned and closed once on drop.
         unsafe {
-            if let Ok(process) = OpenProcess(PROCESS_TERMINATE, false, pid) {
+            let access = PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION;
+            if let Ok(process) = OpenProcess(access, false, pid) {
                 let process = owned(process);
-                let _ = TerminateProcess(raw(&process), 1);
+                if created_at(raw(&process)) == started {
+                    let _ = TerminateProcess(raw(&process), 1);
+                }
             }
         }
     }

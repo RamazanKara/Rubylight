@@ -285,9 +285,11 @@ impl Gamepads {
             port = deck.port(),
             "Steam Deck controller attached through usbip-win2"
         );
-        // A VHF pad plugged before the arrival made way for it.
-        if let Some(global) = self.active.remove(&id) {
+        // A VHF pad plugged before the arrival made way for it. A pad the driver refuses to
+        // unplug stays in `active`, so its slot is still tracked and released with the session.
+        if let Some(global) = self.active.get(&id).copied() {
             self.backend.unplug(u32::from(global))?;
+            self.active.remove(&id);
             self.profiles.remove(&id);
             self.states.remove(&id);
             self.last_feedback.remove(&id);

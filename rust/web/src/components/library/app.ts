@@ -52,6 +52,14 @@ export function runningName(status: SessionStatus | null): string {
   return status.app?.name || status.appName || '';
 }
 
+/** Whether `app` is the one that runs: by uuid when the host names it, since two apps may share a name. */
+export function isRunningApp(status: SessionStatus | null, app: { uuid?: string; name: string }): boolean {
+  if (!status?.appRunning) return false;
+  const uuid = status.app?.uuid;
+  if (uuid && app.uuid) return uuid === app.uuid;
+  return app.name === runningName(status);
+}
+
 export async function launchApp(app: App): Promise<boolean> {
   if (!app.uuid) return false;
   try {

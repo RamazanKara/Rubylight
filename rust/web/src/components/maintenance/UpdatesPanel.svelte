@@ -99,7 +99,9 @@
       </dl>
       {#if updates.check_failed}<p class="notice warn" role="alert">The last check failed. {updates.check_error || 'Check that this PC can reach GitHub.'}{updates.next_check_at != null ? ' Rubylight tries again automatically.' : ''}</p>{/if}
       {#if loadError}<p class="notice warn" role="alert">Could not refresh update status: {loadError}</p>{/if}
-      {#if (updates.phase === 'waiting' || updates.phase === 'ready') && updates.now}
+      {#if (updates.phase === 'waiting' || updates.phase === 'ready') && updates.now && updates.waiting_for}
+        <p class="notice" role="status">{updates.queued_version} installs when that stream ends: {updates.waiting_for} Install now doesn’t wait and ends it.</p>
+      {:else if (updates.phase === 'waiting' || updates.phase === 'ready') && updates.now}
         <p class="notice" role="status">Installing {updates.queued_version} now…</p>
       {:else if updates.phase === 'waiting' || updates.phase === 'ready'}
         <p class="notice" role="status">{updates.queued_version} is queued. Waiting for the host to be idle. Disconnect devices and close the running app to continue, or choose Install now.</p>
@@ -121,7 +123,7 @@
       <div class="row">
         <Button icon="refresh" busy={acting === 'check' || updates.checking} disabled={queued || acting !== null} onclick={() => act('check')}>Check now</Button>
         {#if queued && updates.phase !== 'installing'}
-          {#if !updates.now}<Button variant="danger" busy={acting === 'installNow'} disabled={acting !== null} onclick={() => act('installNow')}>Install now</Button>{/if}
+          {#if !updates.now || updates.waiting_for}<Button variant="danger" busy={acting === 'installNow'} disabled={acting !== null} onclick={() => act('installNow')}>Install now</Button>{/if}
           <Button busy={acting === 'cancel'} disabled={acting !== null} onclick={() => act('cancel')}>Cancel update</Button>
         {:else if available && updates.install_supported && !queued}
           <Button variant="primary" busy={acting === 'install'} disabled={acting !== null} onclick={() => act('install')}>Install when idle</Button>

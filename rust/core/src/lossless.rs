@@ -25,6 +25,9 @@ pub struct Profile {
     /// Let Lossless Scaling start scaling by itself instead of the hotkey.
     pub auto_scale: bool,
 }
+/// The longest launch delay, in seconds: the console's limit. An app file written by
+/// hand can hold any number, and the wait is added to an instant.
+const MAX_LAUNCH_DELAY: f64 = 600.;
 /// Lossless Scaling for one app launch.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Options {
@@ -179,7 +182,8 @@ pub fn options(app: &Value, config: &Config, client_fps: f64) -> Option<Options>
         },
         frame_generation,
         frame_limit,
-        launch_delay: number(app, "lossless-scaling-launch-delay").map_or(8, |v| v.max(0.) as u64),
+        launch_delay: number(app, "lossless-scaling-launch-delay")
+            .map_or(8, |v| v.clamp(0., MAX_LAUNCH_DELAY) as u64),
         legacy_auto_detect,
     })
 }
@@ -275,6 +279,15 @@ mod tests {
         assert_eq!(scaled.profile.sharpness, Some(10));
         assert_eq!(scaled.profile.capture_api, None);
         assert_eq!(scaled.launch_delay, 3);
+        // A delay only a hand-written file holds stays one the host can wait for.
+        for (written, kept) in [("1e30", 600), ("inf", 600), ("-4", 0), ("NaN", 0)] {
+            let app = json!({"lossless-scaling-enabled": "true", "lossless-scaling-launch-delay": written});
+            assert_eq!(
+                options(&app, &config, 60.).unwrap().launch_delay,
+                kept,
+                "{written}"
+            );
+        }
         let off = options(
             &json!({"lossless-scaling-framegen": true, "frame-generation-mode": "off"}),
             &config,

@@ -25,7 +25,7 @@
   import { confirm, failed, notify } from '../../lib/feedback.svelte';
   import { guardNavigation, link, navigate } from '../../lib/router.svelte';
   import { commandFor, coverKey } from '../../lib/paths';
-  import { closeApp, confirmClose, coverPath, launchApp, runningName } from './app';
+  import { closeApp, confirmClose, coverPath, isRunningApp, launchApp, runningName } from './app';
   import { AppDraft, type FlagKey } from './draft.svelte';
   import { deleteMessage } from './selection.svelte';
 
@@ -62,7 +62,7 @@
   const isNew = $derived(!draft.saved.uuid);
   const savedName = $derived(draft.saved.name.trim());
   const running = $derived(runningName(status));
-  const isRunning = $derived(!isNew && running !== '' && running === draft.saved.name);
+  const isRunning = $derived(!isNew && isRunningApp(status, draft.saved));
   /** The sync that added this app and still owns it: saving makes the app the user's. */
   const syncNames: Record<string, string> = { steam: 'Steam', launcher: 'launcher', playnite: 'Playnite' };
   const syncName = $derived(syncNames[String(app?.['synced-by'] ?? '')] ?? '');

@@ -1,0 +1,14 @@
+# Fixes
+- A Moonlight stream that joins another device's game from the Resume or Running Game tile no longer ends that game.
+- A device that may only view streams can no longer start a Remote Monitor or Remote Input session.
+- A resolution switch the encoder refuses puts the display, the co-op window and the bitrate back to the mode the stream keeps.
+- Ending a game's leftover processes can no longer end an unrelated program that took over one of their process ids.
+- A stream above 250 fps, a sound device with only rear height speakers, a Playnite date with unusual characters, a deeply nested Steam file or a hand-written Lossless Scaling start delay could stop the host. They no longer do.
+- A second stream that joins a device's display leaves that display with the device it belongs to.
+- The text a host text field sends to the client's keyboard keeps its last character whole.
+- A virtual controller the driver refuses to unplug keeps its slot until the session ends.
+- Console: a game's "Let Lossless Scaling start by itself" can follow the host setting, and an untouched game no longer turns it off.
+- Console: Updates says whose stream an Install now waits for and still offers to install without waiting.
+- Console: the library marks the game that runs, not every game with its name.
+- Console: Neural Rendering names what failed (install, removal or the check at launch) and keeps refreshing after it is switched.
+- Setup: elevating with a folder that ends in a backslash keeps the arguments after it, and removal deletes Rubylight's service when the registered path differs only in case.

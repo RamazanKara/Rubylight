@@ -572,7 +572,8 @@ export interface SessionStatus {
   appName: string;
   paused: boolean;
   running: boolean;
-  app: { name: string; id: number } | null;
+  /** `uuid` is the library app that runs; null for one that is no longer in the library. */
+  app: { name: string; id: number; uuid?: string | null } | null;
 }
 export interface DisplayDevice {
   device_id: string;
@@ -671,7 +672,8 @@ export interface CoopGame {
 }
 /** What the Neural Rendering switch is doing for one app, or how it ended. */
 export interface NeuralJob {
-  action: 'install' | 'remove';
+  /** `update` is the check a launch runs on a game that has it on. */
+  action: 'install' | 'remove' | 'update';
   phase: 'download' | 'place' | 'remove' | 'done' | 'failed';
   /** Bytes so far and in all: the download, then the copy into the game's folder. */
   done: number;
@@ -850,6 +852,8 @@ export interface UpdatesState {
   queued_version?: string | null;
   /** Install now: does not wait for an idle host and ends a running stream. */
   now?: boolean;
+  /** A device's Install now waits for another device's stream, which it never ends: who streams. */
+  waiting_for?: string | null;
   downloaded_bytes?: number;
   download_size?: number;
   error?: string | null;

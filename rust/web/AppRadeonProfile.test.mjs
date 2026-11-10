@@ -105,3 +105,22 @@ test('an unknown stored profile is kept as written', () => {
   assert.equal(draft.record()['radeon-profile'], 'fastest');
   assert.equal(radeon.profiles.some(profile => profile.id === radeon.profileOf('fastest')), false);
 });
+
+test('an app can turn Lossless Scaling’s own start off while the host setting is on', () => {
+  const key = 'lossless-scaling-legacy-auto-detect';
+  const draft = new AppDraft(app({}));
+  // No key is the host setting, not off.
+  assert.equal(draft.tristate(key), '');
+  draft.setTristate(key, 'off');
+  assert.equal(draft.record()[key], false);
+  assert.equal(draft.changed, true);
+  draft.setTristate(key, 'on');
+  assert.equal(draft.record()[key], true);
+  draft.setTristate(key, '');
+  assert.ok(!(key in draft.record()));
+  assert.equal(draft.changed, false);
+  // Stored values read as lossless.rs reads them.
+  for (const [stored, shown] of [[true, 'on'], ['yes', 'on'], [1, 'on'], [false, 'off'], ['No', 'off'], [0, 'off'], ['maybe', '']]) {
+    assert.equal(new AppDraft(app({ [key]: stored })).tristate(key), shown, String(stored));
+  }
+});

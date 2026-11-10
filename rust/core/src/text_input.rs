@@ -211,13 +211,26 @@ pub fn bound(surrounding: &Surrounding, max_bytes: usize) -> (String, u16, u16) 
         let wanted_from = match selection {
             // Centre the selection; one longer than the window starts the window.
             Some((start, end)) if end - start < max_bytes => {
-                start.saturating_sub((max_bytes - (end - start)) / 2)
+                Some(start.saturating_sub((max_bytes - (end - start)) / 2))
             }
-            Some((start, _)) => start,
-            None => text.len() - max_bytes,
+            Some((start, _)) => Some(start),
+            None => None,
         };
-        let from = floor_boundary(text, wanted_from.min(text.len() - max_bytes));
-        (from, floor_boundary(text, from + max_bytes))
+        match wanted_from {
+            Some(wanted) => {
+                let from = floor_boundary(text, wanted.min(text.len() - max_bytes));
+                (from, floor_boundary(text, from + max_bytes))
+            }
+            // The end is kept whole: the window starts at the next character rather than
+            // losing the last one to a start that fell inside a character.
+            None => {
+                let mut from = text.len() - max_bytes;
+                while !text.is_char_boundary(from) {
+                    from += 1;
+                }
+                (from, text.len())
+            }
+        }
     };
     let window = &text[from..to];
     let units = |bytes: usize| -> u16 {
@@ -613,6 +626,12 @@ mod tests {
             (cut.as_str(), start, end),
             ("6789", SELECTION_UNKNOWN, SELECTION_UNKNOWN)
         );
+        // The end is kept whole when the window would start inside a character.
+        assert_eq!(
+            bound(&around("\u{e9}\u{e9}\u{e9}", None), 5).0,
+            "\u{e9}\u{e9}"
+        );
+        assert_eq!(bound(&around("a\u{1f600}b", None), 3).0, "b");
         // A selection past the end of the text is clamped.
         assert_eq!(
             bound(&around("abc", Some((9, 2))), 10),

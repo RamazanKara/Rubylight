@@ -703,10 +703,11 @@ impl Pacer {
     }
     /// How long after its present a capture reaches the claim: the longest
     /// of the latest 16 captures' first decisions, at least
-    /// `PREDICTED_NOTICE` and at most a quarter period.
+    /// `PREDICTED_NOTICE` and at most a quarter period. The quarter period wins where
+    /// it is the shorter, above 250 fps: `clamp` would panic there.
     fn notice(&self) -> Duration {
         let longest = self.notices.iter().copied().max().unwrap_or_default();
-        longest.clamp(Self::PREDICTED_NOTICE, self.period / 4)
+        longest.max(Self::PREDICTED_NOTICE).min(self.period / 4)
     }
     /// Decide for the newest unclaimed frame, presented at `presented`, given
     /// the source's recent frame interval as seen by the capture worker.

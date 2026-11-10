@@ -146,18 +146,28 @@
         placeholder="8"
         unit="s"
       />
+      <Field
+        label="Let Lossless Scaling start by itself"
+        id="{uid}-auto-detect"
+        hint="Uses Lossless Scaling's auto scale instead of pressing its hotkey. The host setting is in Settings → Games & automation."
+      >
+        <select
+          id="{uid}-auto-detect"
+          class="select"
+          bind:value={() => draft.tristate('lossless-scaling-legacy-auto-detect'),
+          (value) => draft.setTristate('lossless-scaling-legacy-auto-detect', value)}
+        >
+          <option value="">Use the host setting</option>
+          <option value="on">On</option>
+          <option value="off">Off</option>
+        </select>
+      </Field>
     </div>
     <div class="toggles">
       <Toggle
         label="Performance mode"
         hint="Reduces the graphics card load during frame generation."
         bind:checked={performance, (value) => draft.setLossless('performance-mode', value)}
-      />
-      <Toggle
-        label="Let Lossless Scaling start by itself"
-        hint="Uses Lossless Scaling's auto scale instead of pressing its hotkey. Overrides the host setting."
-        bind:checked={() => draft.flag('lossless-scaling-legacy-auto-detect'),
-        (value) => draft.setFlag('lossless-scaling-legacy-auto-detect', value)}
       />
     </div>
   {/if}

@@ -1,6 +1,9 @@
 //! Valve's KeyValues documents: text VDF and the binary `appinfo.vdf`.
 use std::collections::{BTreeMap, BTreeSet};
 
+/// How deep objects may nest. Both parsers recurse once per object, so a file nested
+/// without limit would overflow the stack; Steam's own files stay under ten.
+const MAX_DEPTH: usize = 64;
 /// A KeyValues document (Valve's text or binary VDF).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Vdf {
@@ -15,7 +18,7 @@ impl Vdf {
             text: text.as_bytes(),
             at: 0,
         };
-        Self::Object(lexer.body(false))
+        Self::Object(lexer.body(0))
     }
     /// A child by key, ignoring case.
     pub fn get(&self, key: &str) -> Option<&Vdf> {
@@ -100,7 +103,9 @@ impl Lexer<'_> {
             }
         }
     }
-    fn body(&mut self, nested: bool) -> Vec<(String, Vdf)> {
+    /// `depth`: how many objects this one is inside.
+    fn body(&mut self, depth: usize) -> Vec<(String, Vdf)> {
+        let nested = depth != 0;
         let mut entries = vec![];
         loop {
             self.space();
@@ -118,8 +123,13 @@ impl Lexer<'_> {
             };
             self.space();
             if self.text.get(self.at) == Some(&b'{') {
+                if depth == MAX_DEPTH {
+                    // No file of Steam's nests this deep: what was read is kept.
+                    self.at = self.text.len();
+                    return entries;
+                }
                 self.at += 1;
-                entries.push((key, Vdf::Object(self.body(true))));
+                entries.push((key, Vdf::Object(self.body(depth + 1))));
             } else if let Some(value) = self.token() {
                 entries.push((key, Vdf::Text(value)));
             } else {
@@ -191,7 +201,8 @@ pub(super) fn appinfo_entries(data: &[u8], wanted: &BTreeSet<u32>) -> BTreeMap<u
         }
         if wanted.contains(&app) {
             let mut cursor = at + 68;
-            if let Some(mut root) = binary_object(data, &mut cursor, entry_end, keys.as_deref()) {
+            if let Some(mut root) = binary_object(data, &mut cursor, entry_end, keys.as_deref(), 0)
+            {
                 if let Vdf::Object(entries) = &mut root
                     && let Some(at) = entries.iter().position(|(key, _)| key == "appinfo")
                 {
@@ -204,7 +215,16 @@ pub(super) fn appinfo_entries(data: &[u8], wanted: &BTreeSet<u32>) -> BTreeMap<u
     }
     found
 }
-fn binary_object(data: &[u8], at: &mut usize, end: usize, keys: Option<&[String]>) -> Option<Vdf> {
+fn binary_object(
+    data: &[u8],
+    at: &mut usize,
+    end: usize,
+    keys: Option<&[String]>,
+    depth: usize,
+) -> Option<Vdf> {
+    if depth > MAX_DEPTH {
+        return None;
+    }
     let mut entries = vec![];
     let cstring = |at: &mut usize| -> Option<String> {
         let length = data.get(*at..end)?.iter().position(|b| *b == 0)?;
@@ -236,7 +256,7 @@ fn binary_object(data: &[u8], at: &mut usize, end: usize, keys: Option<&[String]
             None => cstring(at)?,
         };
         let value = match kind {
-            0x00 => binary_object(data, at, end, keys)?,
+            0x00 => binary_object(data, at, end, keys, depth + 1)?,
             0x01 => Vdf::Text(cstring(at)?),
             0x02..=0x04 | 0x06 => Vdf::Text(fixed(at, 4)?.to_string()),
             0x07 | 0x0a => Vdf::Text(fixed(at, 8)?.to_string()),

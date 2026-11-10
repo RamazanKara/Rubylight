@@ -6,7 +6,7 @@
   import { api, type App, type SessionStatus } from '../../lib/api';
   import { confirm, failed, notify } from '../../lib/feedback.svelte';
   import { link } from '../../lib/router.svelte';
-  import { closeApp, confirmClose, coverPath, launchApp, runningName } from './app';
+  import { closeApp, confirmClose, coverPath, isRunningApp, launchApp, runningName } from './app';
   import { AppSelection, counted, launcherCounts, type Launcher } from './selection.svelte';
 
   let {
@@ -260,7 +260,7 @@
   {:else}
     <ul class="grid" aria-label="Apps" {@attach sortable}>
       {#each shown as app (app)}
-        {@const isRunning = running !== '' && app.name === running}
+        {@const isRunning = isRunningApp(status, app)}
         <li
           class="card"
           class:dragging={dragging !== null && app.uuid === dragging}

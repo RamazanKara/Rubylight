@@ -204,6 +204,10 @@ pub fn parse_time_with(value: &str, local: &dyn Fn(i64) -> Option<i64>) -> Optio
         Some(b'Z' | b'z') if rest.len() == 1 => Some(0),
         Some(sign @ (b'+' | b'-')) => {
             let zone = &rest[1..];
+            // Only digits and a colon are a zone, and `split_at` needs a character boundary.
+            if !zone.is_ascii() {
+                return None;
+            }
             // `+02:00`, `+0200` or `+02`.
             let (h, m) = match zone.split_once(':') {
                 Some(parts) => parts,
@@ -871,6 +875,9 @@ mod tests {
         assert_eq!(parse_time("2026-08-29T19:49:56+02"), Some(1788025796));
         assert_eq!(parse_time("2026-08-29T15:49:56.5-02:00"), Some(1788025796));
         assert_eq!(parse_time("2026-08-29T17:49:56+2"), None);
+        // Four bytes that are not four characters.
+        assert_eq!(parse_time("2026-08-29T17:49:56+1\u{e9}2"), None);
+        assert_eq!(parse_time("2026-08-29T17:49:56+\u{e9}\u{e9}"), None);
         assert_eq!(parse_time("2026-08-29T17:49:56Zulu"), None);
         // Without an offset: the PC's wall clock, through `local`.
         assert_eq!(parse_time("2026-08-29T17:49:56"), Some(1788025796));

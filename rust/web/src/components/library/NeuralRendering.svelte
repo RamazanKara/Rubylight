@@ -33,6 +33,8 @@
   let exe = $state('');
   /** Where the switch was put while its request runs; a cancelled notice puts it back. */
   let wanted = $state<boolean | null>(null);
+  /** The host took a request whose first status has not arrived: keep asking until one does. */
+  let pending = $state(false);
 
   const view = $derived(status ? neuralView(status) : null);
 
@@ -41,6 +43,7 @@
     (value) => {
       status = value;
       loadError = '';
+      pending = false;
     },
     (error) => {
       loadError = reason(error);
@@ -61,6 +64,7 @@
     busy = true;
     try {
       await api.neural.enable(uuid, program);
+      pending = true;
     } catch (error) {
       failed('Turning on Neural Rendering failed', error);
     } finally {
@@ -73,6 +77,7 @@
     busy = true;
     try {
       await api.neural.disable(uuid);
+      pending = true;
     } catch (error) {
       failed('Turning off Neural Rendering failed', error);
     } finally {
@@ -94,7 +99,7 @@
     if (!status) load();
     // Marked as a poll and paused while the tab is hidden, so a page left open lets the PC sleep.
     return poll(() => {
-      if (view && pollsNeural(view) && !busy) return loader.tick();
+      if (((view && pollsNeural(view)) || pending) && !busy) return loader.tick();
     }, 1500);
   });
 </script>
@@ -135,7 +140,7 @@
             Left in the game’s folder because they changed since they were installed: {view.kept.join(', ')}.
           </p>
         {:else if view.kind === 'failed'}
-          <Banner tone="danger" title={on ? 'Neural Rendering couldn’t be removed' : 'Neural Rendering couldn’t be installed'} live>
+          <Banner tone="danger" title={view.title} live>
             {view.error}
           </Banner>
         {:else if view.kind === 'choose'}
@@ -156,6 +161,7 @@
           </div>
         {/if}
       {/if}
+      {#if loadError}<p class="muted note" role="alert">Could not refresh Neural Rendering: {loadError}</p>{/if}
     </div>
   </Panel>
 {/if}

@@ -265,20 +265,40 @@ pub fn elevated() -> bool {
     // SAFETY: IsUserAnAdmin takes no arguments and only reads the process token.
     unsafe { IsUserAnAdmin().as_bool() }
 }
+/// One argument as the started program reads it back: quoted when it is
+/// empty or has a space, tab or quote, with the backslashes before a quote,
+/// and before the closing one, doubled (a folder that ends in a backslash
+/// would otherwise take the rest of the line with it).
+fn argument(argument: &str) -> String {
+    if !argument.is_empty() && !argument.contains([' ', '\t', '"']) {
+        return argument.to_owned();
+    }
+    let mut quoted = String::from('"');
+    let mut slashes = 0;
+    for character in argument.chars() {
+        match character {
+            '\\' => slashes += 1,
+            '"' => {
+                quoted.extend(std::iter::repeat_n('\\', slashes * 2 + 1));
+                quoted.push('"');
+                slashes = 0;
+            }
+            other => {
+                quoted.extend(std::iter::repeat_n('\\', slashes));
+                quoted.push(other);
+                slashes = 0;
+            }
+        }
+    }
+    quoted.extend(std::iter::repeat_n('\\', slashes * 2));
+    quoted.push('"');
+    quoted
+}
 /// Start this program again elevated with the same arguments and return its
 /// exit code (1223 when the user declines the UAC prompt).
 pub fn relaunch_elevated() -> Result<i32> {
     let exe = std::env::current_exe()?;
-    let arguments: Vec<String> = std::env::args()
-        .skip(1)
-        .map(|a| {
-            if a.contains([' ', '\t', '"']) || a.is_empty() {
-                format!("\"{}\"", a.replace('"', "\\\""))
-            } else {
-                a
-            }
-        })
-        .collect();
+    let arguments: Vec<String> = std::env::args().skip(1).map(|a| argument(&a)).collect();
     let file = HSTRING::from(exe.as_os_str());
     let parameters = HSTRING::from(arguments.join(" "));
     let mut info = SHELLEXECUTEINFOW {
@@ -1735,6 +1755,48 @@ mod tests {
         )?;
         assert_eq!(code, 0, "{output}");
         Ok(())
+    }
+    #[test]
+    fn elevated_arguments_read_back_as_they_were_given() {
+        use windows::Win32::UI::Shell::CommandLineToArgvW;
+        let given = [
+            "--quiet",
+            r"D:\My Games\Rubylight\",
+            r"D:\Games\Rubylight\",
+            r#"a "b" c"#,
+            r#"ends in \" "#,
+            r"two\\ slashes\\",
+            "",
+            "tab\there",
+        ];
+        assert_eq!(argument("--quiet"), "--quiet");
+        assert_eq!(argument(r"D:\Games\Rubylight\"), r"D:\Games\Rubylight\");
+        assert_eq!(
+            argument(r"D:\My Games\Rubylight\"),
+            r#""D:\My Games\Rubylight\\""#
+        );
+        assert_eq!(argument("").len(), 2);
+        let line = std::iter::once("setup.exe".to_owned())
+            .chain(given.iter().map(|a| argument(a)))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut count = 0;
+        // SAFETY: the line is a terminated string that outlives the call, and
+        // the returned array of `count` terminated strings is read before it
+        // is freed.
+        let read: Vec<String> = unsafe {
+            let parts = CommandLineToArgvW(&HSTRING::from(line), &mut count);
+            assert!(!parts.is_null());
+            let read = std::slice::from_raw_parts(parts, count as usize)
+                .iter()
+                .map(|part| part.to_string().unwrap())
+                .collect();
+            let _ = windows::Win32::Foundation::LocalFree(Some(
+                windows::Win32::Foundation::HLOCAL(parts.cast()),
+            ));
+            read
+        };
+        assert_eq!(read[1..], given);
     }
     #[test]
     fn an_entry_removed_during_the_tree_check_is_told_from_other_errors() -> Result<()> {

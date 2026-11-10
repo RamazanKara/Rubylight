@@ -4012,6 +4012,20 @@ async fn a_join_never_ends_the_owners_webrtc_stream_and_runs_beside_its_moonligh
         owner
     );
 
+    // The same join as stock Moonlight makes it: a `/launch` of the Running Game tile.
+    let game = h.h.current_app.lock().unwrap().as_ref().unwrap().id;
+    let tile = butterpollo_core::remote::running_game_id(game).to_string();
+    let refused = h
+        .launch_response_with(1, false, None, &[("appid", &tile)])
+        .await?;
+    assert!(refused.contains("status_code=\"409\""), "{refused}");
+    assert!(
+        refused.contains(crate::nvhttp::WEBRTC_HELD_BY_OTHER),
+        "{refused}"
+    );
+    assert!(!webrtc.stopping(), "the owner's stream goes on");
+    assert!(pending_of(&h, 1).is_none());
+
     // The same refusal for a launch of the owner's on its way.
     forget_stream(&h, webrtc);
     let mut launch = h.launch(0, true).await?;

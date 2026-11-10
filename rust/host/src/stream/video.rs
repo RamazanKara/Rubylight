@@ -437,6 +437,22 @@ struct SessionThread<'a> {
     s: &'a Arc<Session>,
 }
 
+impl SessionThread<'_> {
+    /// The stream's picture takes `size`: a co-op player's window follows it, and any
+    /// other stream's display does. A switch calls this, and so does a refused switch
+    /// going back to the size the stream had.
+    fn follow_size(&self, prepared: &crate::display_session::Ready, size: (u32, u32)) {
+        match self.s.launch.nucleus {
+            Some(seat) => {
+                if let Err(error) = crate::nucleus::resize(self.h, seat, size) {
+                    tracing::warn!(client = %self.s.launch.client.name, error = %format!("{error:#}"), "co-op window resize refused");
+                }
+            }
+            None => prepared.follow_shape(size),
+        }
+    }
+}
+
 /// The capture, display and encoder leases and COM, held by the session thread until its
 /// teardown releases them in order. Fields are declared in the reverse of the order the
 /// thread created them: a struct drops its fields in declaration order, so an unwind drops

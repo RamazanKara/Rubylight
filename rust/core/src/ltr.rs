@@ -165,6 +165,22 @@ impl References {
     /// Commit only once the codec has accepted the input, including when it
     /// applied back pressure before accepting the same frame.
     pub fn accepted(&mut self, frame: u64, plan: &Plan) {
+        // Disabled since this was planned (output polled while the input waited showed
+        // headers the repair cannot rewrite): no slot or repair the plan names is left.
+        let disabled;
+        let plan = if self.enabled() {
+            plan
+        } else {
+            disabled = Plan {
+                mark: None,
+                reference: None,
+                after_invalidation: false,
+                reset: plan.reset && !plan.after_invalidation,
+                next: 0,
+                ..*plan
+            };
+            &disabled
+        };
         if plan.reset {
             self.recovered = frame;
             self.recovered_from = if plan.after_invalidation {
@@ -303,6 +319,32 @@ mod tests {
         assert!(!references.enabled());
         let next = references.plan(24, false);
         assert_eq!((next.mark, next.reference), (None, None));
+    }
+    #[test]
+    fn a_plan_made_before_the_references_were_disabled_is_accepted_without_them() {
+        // AMF's input queue is full, the output polled meanwhile has headers the repair
+        // cannot rewrite, and the references are disabled before the input is accepted.
+        for repair in [false, true] {
+            let mut references = References::new(4, Counter::Explicit);
+            for frame in 1..=23 {
+                let plan = references.plan(frame, frame == 1);
+                references.accepted(frame, &plan);
+            }
+            if repair {
+                assert!(references.invalidate(22, 23));
+            }
+            let plan = references.plan(24, false);
+            assert_eq!(plan.after_invalidation, repair);
+            assert_eq!(plan.mark.is_some(), !repair);
+            references.disable();
+            references.accepted(24, &plan);
+            assert!(!references.enabled());
+            let keyframe = references.plan(25, true);
+            assert_eq!(keyframe, References::disabled_keyframe_plan());
+            references.accepted(25, &keyframe);
+            assert!(references.invalidate(23, 24));
+            assert!(!references.invalidate(25, 25));
+        }
     }
     #[test]
     fn feedback_for_frames_before_an_idr_does_not_request_another_idr() {

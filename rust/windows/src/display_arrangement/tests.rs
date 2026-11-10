@@ -1659,6 +1659,26 @@ fn a_layout_that_saves_nothing_does_not_start_to_for_a_later_virtual_display() {
     assert!(!release_owner(&mut state, "c").saved);
 }
 #[test]
+fn a_device_joining_a_display_leaves_it_the_device_whose_screen_it_is() {
+    let mut state = State::default();
+    // A host that streams nothing notes whoever starts, over what an ended stream left.
+    state.owners.push(("a".to_owned(), 1));
+    state.devices.insert("a".to_owned(), "old".to_owned());
+    note_device(&mut state, "a", "fold");
+    state.owners.clear();
+    add_owner(&mut state, "a", true);
+    state.users = 1;
+    note_device(&mut state, "b", "fold");
+    add_owner(&mut state, "b", true);
+    state.users = 2;
+    let targets = ["a", "b"].map(String::from);
+    assert!(remembered::kept_for(&targets, &state.devices, &[]));
+    // Another device watches the first screen: both are still the first device's.
+    note_device(&mut state, "a", "tv");
+    assert_eq!(state.devices["a"], "fold");
+    assert!(remembered::kept_for(&targets, &state.devices, &[]));
+}
+#[test]
 fn a_display_that_could_not_be_laid_out_is_no_owner_and_saves_nothing() {
     let mut state = saving_state("a");
     add_owner(&mut state, "b", true);

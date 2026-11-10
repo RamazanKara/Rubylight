@@ -61,7 +61,19 @@ test('the switch shows where it is, what stayed and why it failed', () => {
     kept: ['LmxxfNrRuntime.dll'],
   });
   const refused = neuralView(status({ job: job({ phase: 'failed', error: 'the game uses Easy Anti-Cheat (C:\\Games\\EasyAntiCheat)' }) }));
-  assert.deepEqual(refused, { kind: 'failed', error: 'the game uses Easy Anti-Cheat (C:\\Games\\EasyAntiCheat).', on: false });
+  assert.deepEqual(refused, {
+    kind: 'failed',
+    title: 'Neural Rendering couldn’t be installed',
+    error: 'the game uses Easy Anti-Cheat (C:\\Games\\EasyAntiCheat).',
+    on: false,
+  });
+  // A launch's check that failed removed nothing, and a removal that failed leaves the switch on.
+  const checked = neuralView(status({ enabled: true, job: job({ action: 'update', phase: 'failed', error: 'a file changed' }) }));
+  assert.deepEqual(checked, { kind: 'failed', title: 'Neural Rendering couldn’t be checked for the launch', error: 'a file changed.', on: true });
+  assert.equal(
+    neuralView(status({ enabled: true, job: job({ action: 'remove', phase: 'failed', error: 'in use' }) })).title,
+    'Neural Rendering couldn’t be removed',
+  );
   const choose = neuralView(status({ job: job({ phase: 'failed', choose_exe: true, error: 'Rubylight can\'t tell which program in C:\\Games\\X is the game' }) }));
   assert.equal(choose.kind, 'choose');
   const html = render(NeuralRendering, { props: { uuid: 'game', initial: status({ job: job({ phase: 'failed', choose_exe: true, error: 'which' }) }) } }).body;

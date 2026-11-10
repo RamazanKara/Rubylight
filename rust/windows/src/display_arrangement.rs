@@ -472,6 +472,14 @@ fn add_owner(state: &mut State, target: &str, virtual_target: bool) {
         state.persists_for.push(target.to_owned());
     }
 }
+/// Notes the device a stream's display streams to. A stream that joins a display a
+/// running one owns leaves it that stream's device: the display is still one of that
+/// device's two screens, whoever else watches it.
+fn note_device(state: &mut State, target: &str, device: &str) {
+    if state.users == 0 || !state.owners.iter().any(|(t, _)| t == target) {
+        state.devices.insert(target.to_owned(), device.to_owned());
+    }
+}
 /// Undo [`add_owner`]: the layout with that display could not be applied.
 fn remove_added_owner(state: &mut State, target: &str) {
     state.owners.retain(|(t, _)| t != target);
@@ -1860,7 +1868,7 @@ impl Lease {
             .find(|m| m.matches(output))
             .ok_or_else(|| anyhow::anyhow!("display arrangement target unavailable"))?;
         let target_id = target.device_id.clone();
-        state.devices.insert(target_id.clone(), device.to_owned());
+        note_device(&mut state, &target_id, device);
         let retained: Vec<_> = monitors
             .iter()
             .filter(|m| retained.contains(&m.display_name) || retained.contains(&m.device_id))

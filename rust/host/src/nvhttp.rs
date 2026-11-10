@@ -1522,7 +1522,6 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         ControlFlow::Continue(owner) => owner,
         ControlFlow::Break(response) => return response,
     };
-    let requested_resume = resume;
     let resume = resume
         || matches!(control, Some(Control::Resume | Control::RunningGame))
         || (control == Some(Control::Monitor) && owner == remote::Owner::Monitor);
@@ -1553,8 +1552,9 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         // A co-op launch is no background stream; a background stream runs
         // in a Nucleus Co-op session of its own ([`launch_back_half`]).
         launch.background = Some(coop.is_none() && validate_background_launch(&h, &launch)?);
-        // Beside another device's game a Moonlight stream never ends what that device streams.
-        if requested_resume
+        // Beside another device's game a Moonlight stream never ends what that device streams,
+        // whether it joins by `/resume` or by a `/launch` of the Resume or Running Game tile.
+        if resume
             && launch.plain_stream()
             && !plays_game(&h, &launch.client.uuid)
             && h.sessions
@@ -2352,6 +2352,13 @@ fn resolve_launch_app(
         );
         return Ok((role, None, requested, None));
     }
+    // A Remote Monitor adds a display and Remote Input takes the PC's input: each is a session
+    // of its own, whichever endpoint or tile carries the request, so a device that may only
+    // view streams starts neither. A resume of the monitor a device has is decided below.
+    ensure!(
+        role == Role::Stream || client.allows(butterpollo_core::state::LAUNCH_APPS),
+        "a remote monitor or remote input session needs the launch permission"
+    );
     let app_id = if resume {
         let game = h.current_app.lock().unwrap().as_ref().map(|a| a.id);
         if owner == remote::Owner::Monitor {

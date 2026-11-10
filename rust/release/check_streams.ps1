@@ -23,10 +23,11 @@ function Initialize-CheckLocks([string] $Directory, [switch] $GpuLockHeld) {
     $script:CheckRunLock = Join-Path $Directory 'RELEASE-LOCK'
     $script:CheckGpuHeld = [bool] $GpuLockHeld
     $script:CheckAncestors = $null
-    # Waiters poll BUILD-LOCK every 15 s (build-lock.ps1) and GPU-LOCK every
-    # 3 s (takelocks.sh): a lock released and taken again at once would never
-    # give them a turn.
-    $script:CheckLockPause = 16
+    # No pause between the check's own steps: its PRIORITY ticket already keeps
+    # other sessions from taking BUILD-LOCK until it ends, and a 16 s pause after
+    # each of the nine streams (2.4 minutes) only let a GPU-LOCK waiter's stream
+    # in between them. GPU waiters get their turn once the streams are done.
+    $script:CheckLockPause = 0
     $script:CheckLockBackoff = 20
     $script:CheckLockPoll = 3
     # One quiet-CPU budget for the whole check: once it is spent, each stream
@@ -273,7 +274,7 @@ function Exit-CheckLocks([hashtable] $Held, [switch] $NoPause) {
             Write-Host "LOCK LEFT BEHIND: $(Split-Path -Leaf $lock[0]) could not be removed: $_. Remove it by hand." -ForegroundColor Red
         }
     }
-    if (($Held.build -or $Held.gpu) -and -not $NoPause) { Start-Sleep -Seconds $script:CheckLockPause }
+    if (($Held.build -or $Held.gpu) -and -not $NoPause -and $script:CheckLockPause) { Start-Sleep -Seconds $script:CheckLockPause }
 }
 
 # The case's result.json says which of its locks another session took.

@@ -60,3 +60,11 @@ lto = "thin"
 codegen-units = 1
 panic = "abort"
 strip = "debuginfo"
+
+# The release check's probes (rust/release/check.ps1): optimized like release, but without its
+# whole-crate thin LTO in one codegen unit, which took 3.3 minutes per version bump for them.
+[profile.fixture]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true

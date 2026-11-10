@@ -54,11 +54,11 @@ public class UpdateNoticesTest {
         Context context = RuntimeEnvironment.getApplication();
         context.getSharedPreferences("host_update_state", Context.MODE_PRIVATE).edit()
                 .putString("latest_version", "2.5.11").apply();
-        assertEquals("2.5.11", HostUpdateChecker.availableVersion(context, host("2.5.10")));
-        assertNull(HostUpdateChecker.availableVersion(context, host("2.5.11")));
-        assertNull(HostUpdateChecker.availableVersion(context, host("2.6.0-rc.1")));
-        assertNull(HostUpdateChecker.availableVersion(context, host("unknown")));
-        assertNull(HostUpdateChecker.availableVersion(context, HostCapabilities.UNKNOWN));
+        assertEquals("2.5.11", HostUpdateChecker.availableVersion(context, null, host("2.5.10")));
+        assertNull(HostUpdateChecker.availableVersion(context, null, host("2.5.11")));
+        assertNull(HostUpdateChecker.availableVersion(context, null, host("2.6.0-rc.1")));
+        assertNull(HostUpdateChecker.availableVersion(context, null, host("unknown")));
+        assertNull(HostUpdateChecker.availableVersion(context, null, HostCapabilities.UNKNOWN));
     }
 
     @Test public void directLaunchShowsBothCachedUpdatesWithoutAnotherNetworkCheck() throws Exception {

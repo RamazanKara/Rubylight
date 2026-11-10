@@ -10,10 +10,12 @@ and the live questionnaire before submission.
 The current build cannot support an unconditional “no data leaves the device
 except to your PC” answer. `ComputerManagerService.populateExternalAddress()`
 uses public STUN. `Game` and `AddComputerManually` call the public connectivity
-test server. Android backup is enabled. With a Rubylight PC, `HostUpdateChecker`
-asks GitHub's API for the latest Rubylight release at most every 12 hours; store builds
-(`-PgithubUpdates=false`) hide the update switch but keep this check. Builds from
-GitHub also ask GitHub for the latest Nightjar release; store builds do not. The
+test server. Android backup is enabled. Builds from GitHub ask GitHub's API for
+the latest Nightjar release and, for a Rubylight PC that does not report its own
+updates (`HostUpdateChecker`), the latest Rubylight release, at most every 12
+hours and only while **Check for updates automatically** is on. Store builds
+(`-PgithubUpdates=false`, or installed by Google Play) make neither request: they
+show a host update only from the PC's own answer over the paired connection. The
 server operators' logging and retention policies are not known from this code.
 
 Google distinguishes local processing, off-device collection and sharing.

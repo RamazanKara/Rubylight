@@ -155,7 +155,7 @@ public final class UpdateFlow {
                 if (canShow.getAsBoolean() && !activity.isFinishing() && !activity.isDestroyed()) {
                     String message = streamUpdateMessage(activity, isAvailable(app) ?
                             prefs.availableVersion(BuildConfig.VERSION_NAME) : null,
-                            HostUpdateChecker.availableVersion(app, host.caps));
+                            HostUpdateChecker.availableVersion(app, host.uuid, host.caps));
                     if (!message.isEmpty()) notice.accept(message);
                 }
             });

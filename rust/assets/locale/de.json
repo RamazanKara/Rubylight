@@ -751,8 +751,6 @@
     "dd_mode_remapping_desc_5_sops_mixed_only": "Die Option \"Optimize Game Settings\" muss im Moonlight-Client aktiviert sein, sonst werden Einträge mit angegebenem Auflösungsfeld übersprungen.",
     "dd_mode_remapping_desc_5_sops_resolution_only": "Die Option \"Optimize Game Settings\" muss im Moonlight-Client aktiviert sein, sonst wird die Zuordnung übersprungen.",
     "dd_resolution_option_ogs_desc": "Damit dies funktioniert, muss die Option \"Optimize Game Settings\" im Moonlight-Client aktiviert sein.",
-    "dd_virtual_display_permanent_count": "Dauerhafte virtuelle Anzeigen",
-    "dd_virtual_display_permanent_count_desc": "Anzahl der immer vorhandenen virtuellen Rubylight-Anzeigen, die außerhalb von Streaming-Sitzungen beibehalten werden. 0 lässt Rubylight temporäre Anzeigen nur während des Streamings erstellen.",
     "log_level": "Log-Level",
     "log_level_0": "Ausführlich",
     "log_level_1": "Debug",

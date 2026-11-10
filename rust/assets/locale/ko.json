@@ -748,8 +748,6 @@
     "dd_mode_remapping_desc_5_sops_mixed_only": "Moonlight 클라이언트에서 \"게임 설정 최적화\" 옵션을 활성화해야 합니다. 그렇지 않으면 지정된 해상도 필드가 있는 항목을 건너뜁니다.",
     "dd_mode_remapping_desc_5_sops_resolution_only": "Moonlight 클라이언트에서 \"게임 설정 최적화\" 옵션을 활성화해야 합니다. 그렇지 않으면 재매핑을 건너뜁니다.",
     "dd_resolution_option_ogs_desc": "이 기능이 작동하려면 Moonlight 클라이언트에서 \"게임 설정 최적화\" 옵션을 활성화해야 합니다.",
-    "dd_virtual_display_permanent_count": "영구 가상 디스플레이",
-    "dd_virtual_display_permanent_count_desc": "스트리밍 세션 외부에 유지하기 위해 항상 존재하는 Rubylight 가상 디스플레이 수입니다. 0을 사용하면 Rubylight이 스트리밍하는 동안에만 임시 디스플레이를 생성할 수 있습니다.",
     "log_level": "로그 레벨",
     "log_level_0": "상세",
     "log_level_1": "디버그",

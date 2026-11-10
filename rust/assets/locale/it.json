@@ -748,8 +748,6 @@
     "dd_mode_remapping_desc_5_sops_mixed_only": "L'opzione \"Ottimizza impostazioni di gioco\" deve essere abilitata in client Moonlight, altrimenti le voci con un campo di risoluzione specificato verranno saltate.",
     "dd_mode_remapping_desc_5_sops_resolution_only": "L'opzione \"Ottimizza impostazioni di gioco\" deve essere abilitata in client Moonlight, altrimenti la rimappatura verrà saltata.",
     "dd_resolution_option_ogs_desc": "Affinché funzioni, l'opzione \"Ottimizza impostazioni di gioco\" deve essere abilitata in client Moonlight.",
-    "dd_virtual_display_permanent_count": "Display virtuali permanenti",
-    "dd_virtual_display_permanent_count_desc": "Numero di display virtuali Rubylight sempre presenti da tenere fuori dalle sessioni di streaming. 0 consente a Rubylight di creare visualizzazioni temporanee solo durante lo streaming.",
     "log_level": "Livello di Log",
     "log_level_0": "Dettagliato",
     "log_level_1": "Debug",

@@ -748,8 +748,6 @@
     "dd_mode_remapping_desc_5_sops_mixed_only": "Tùy chọn \"Tối ưu hóa cài đặt trò chơi\" phải được bật trong ứng dụng Moonlight, nếu không các mục có trường độ phân giải được chỉ định sẽ bị bỏ qua.",
     "dd_mode_remapping_desc_5_sops_resolution_only": "Tùy chọn \"Tối ưu hóa cài đặt trò chơi\" phải được bật trong ứng dụng Moonlight, nếu không quá trình ánh xạ sẽ bị bỏ qua.",
     "dd_resolution_option_ogs_desc": "Tùy chọn \"Tối ưu hóa cài đặt trò chơi\" phải được bật trên ứng dụng Moonlight để tính năng này hoạt động.",
-    "dd_virtual_display_permanent_count": "Màn hình ảo vĩnh viễn",
-    "dd_virtual_display_permanent_count_desc": "Số lượng màn hình ảo Rubylight luôn hiện diện để duy trì các phiên phát trực tuyến bên ngoài. 0 cho phép Rubylight chỉ tạo màn hình tạm thời trong khi phát trực tuyến.",
     "log_level": "Cấp độ nhật ký",
     "log_level_0": "dài dòng",
     "log_level_1": "Gỡ lỗi",

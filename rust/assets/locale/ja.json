@@ -748,8 +748,6 @@
     "dd_mode_remapping_desc_5_sops_mixed_only": "Moonlight クライアントで \"Optimize Game Settings\" オプションが有効でない場合、解像度フィールドを指定したエントリはスキップされます。",
     "dd_mode_remapping_desc_5_sops_resolution_only": "Moonlight クライアントで \"Optimize Game Settings\" オプションが有効でない場合、再マッピングはスキップされます。",
     "dd_resolution_option_ogs_desc": "これを動作させるには、Moonlight クライアントで \"Optimize Game Settings\" オプションを有効にする必要があります。",
-    "dd_virtual_display_permanent_count": "常設仮想ディスプレイ",
-    "dd_virtual_display_permanent_count_desc": "ストリームセッション外でも常に存在させる Rubylight 仮想ディスプレイの数です。0 にすると、Rubylight はストリーミング中だけ一時ディスプレイを作成します。",
     "log_level": "ログレベル",
     "log_level_0": "詳細",
     "log_level_1": "デバッグ",

@@ -486,7 +486,7 @@ mod tests {
         let fixture = Fixture::new();
         std::fs::write(
             &fixture.host.config_path,
-            "rtss_path = D:\\RTSS\ndd_vdd_static_monitor_count = 2\nrtx_hdr_peak_brightness = 1200\nfuture_setting_extra = kept\n",
+            "rtss_path = D:\\RTSS\nnvenc_force_split_encode = forced\nrtx_hdr_peak_brightness = 1200\nfuture_setting_extra = kept\n",
         )
         .unwrap();
         let host = Host::load(
@@ -498,48 +498,82 @@ mod tests {
         let shown = handle(&host, "GET", "/api/config", &Value::Null).unwrap();
         assert_eq!(shown["hdr_peak_brightness"], 1200);
         assert_eq!(shown["rtss_install_path"], "D:\\RTSS");
-        assert_eq!(shown["dd_virtual_display_permanent_count"], 2);
+        assert_eq!(shown["nvenc_split_encode"], "forced");
         assert_eq!(shown["future_setting_extra"], "kept");
         for old in [
             "rtx_hdr_peak_brightness",
             "rtss_path",
-            "dd_vdd_static_monitor_count",
+            "nvenc_force_split_encode",
         ] {
             assert!(shown.get(old).is_none(), "{old}");
         }
         // Loading leaves the file alone; the console's first save writes the
-        // current names, so turning the setting off in the console turns it
-        // off, and a later reset cannot bring back the earlier value.
+        // current names, so changing the setting in the console changes it,
+        // and a later reset cannot bring back the earlier value.
         let saved = std::fs::read_to_string(&host.config_path).unwrap();
-        assert!(saved.contains("dd_vdd_static_monitor_count"), "{saved}");
+        assert!(saved.contains("nvenc_force_split_encode"), "{saved}");
         handle(
             &host,
             "PATCH",
             "/api/config",
-            &json!({"dd_virtual_display_permanent_count": 0}),
+            &json!({"nvenc_split_encode": "disabled"}),
         )
         .unwrap();
         let saved = std::fs::read_to_string(&host.config_path).unwrap();
-        assert!(!saved.contains("dd_vdd_static_monitor_count"), "{saved}");
+        assert!(!saved.contains("nvenc_force_split_encode"), "{saved}");
         let reloaded = Config::load(&host.config_path).unwrap();
-        assert_eq!(
-            reloaded.integer("dd_virtual_display_permanent_count", -1),
-            0
-        );
+        assert_eq!(reloaded.get("nvenc_split_encode", ""), "disabled");
         assert_eq!(reloaded.integer("hdr_peak_brightness", 0), 1200);
         handle(
             &host,
             "PATCH",
             "/api/config",
-            &json!({"dd_virtual_display_permanent_count": null}),
+            &json!({"nvenc_split_encode": null}),
         )
         .unwrap();
         let reset = Config::load(&host.config_path).unwrap();
-        assert!(
-            !reset
-                .values
-                .contains_key("dd_virtual_display_permanent_count")
-        );
+        assert!(!reset.values.contains_key("nvenc_split_encode"));
+    }
+
+    #[test]
+    fn the_permanent_virtual_display_settings_are_dropped_without_a_warning() {
+        let fixture = Fixture::new();
+        std::fs::write(
+            &fixture.host.config_path,
+            "dd_vdd_static_monitor_count = 2\ndd_virtual_display_permanent_count = 1\nfuture_setting_extra = kept\n",
+        )
+        .unwrap();
+        let host = Host::load(
+            fixture.host.directory.clone(),
+            fixture.host.assets.clone(),
+            None,
+        )
+        .unwrap();
+        let names = [
+            "dd_vdd_static_monitor_count",
+            "dd_virtual_display_permanent_count",
+        ];
+        let shown = handle(&host, "GET", "/api/config", &Value::Null).unwrap();
+        for key in names {
+            assert!(shown.get(key).is_none(), "{key}");
+        }
+        assert_eq!(shown["future_setting_extra"], "kept");
+        let warnings = host.warnings.snapshot();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        // The next save leaves them out, also when the console still sends one.
+        handle(
+            &host,
+            "PATCH",
+            "/api/config",
+            &json!({"dd_virtual_display_permanent_count": 3, "nvenc_split_encode": "disabled"}),
+        )
+        .unwrap();
+        let saved = std::fs::read_to_string(&host.config_path).unwrap();
+        for key in names {
+            assert!(!saved.contains(key), "{saved}");
+        }
+        assert!(saved.contains("future_setting_extra = kept"), "{saved}");
+        assert!(saved.contains("nvenc_split_encode = disabled"), "{saved}");
     }
 
     #[test]

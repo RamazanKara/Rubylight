@@ -65,7 +65,6 @@ pub fn override_allowed(key: &str) -> bool {
         "dd_snapshot_restore_hotkey_modifiers",
         "dd_activate_virtual_display",
         "dd_virtual_display_scale",
-        "dd_virtual_display_permanent_count",
         "dd_mode_remapping",
         "max_bitrate",
         "minimum_fps_target",

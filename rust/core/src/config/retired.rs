@@ -86,10 +86,6 @@ pub fn retired_warning(retired: &[Retired]) -> Option<String> {
 pub const RENAMED_KEYS: &[(&str, &str)] = &[
     ("rtss_path", "rtss_install_path"),
     ("nvenc_force_split_encode", "nvenc_split_encode"),
-    (
-        "dd_vdd_static_monitor_count",
-        "dd_virtual_display_permanent_count",
-    ),
     // Also what a virtual display reports, the one part of NVIDIA RTX HDR
     // that stays.
     ("rtx_hdr_peak_brightness", "hdr_peak_brightness"),
@@ -116,6 +112,9 @@ pub const REMOVED_KEYS: &[&str] = &[
     "child_session_scale",
     "child_session_port",
     "child_session_host",
+    // The removed permanent virtual displays, under both of their names.
+    "dd_vdd_static_monitor_count",
+    "dd_virtual_display_permanent_count",
 ];
 /// The settings of the removed Quick Sync and software encoders.
 pub const REMOVED_PREFIXES: &[&str] = &["qsv_", "sw_"];

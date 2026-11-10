@@ -748,8 +748,6 @@
     "dd_mode_remapping_desc_5_sops_mixed_only": "L’option « Optimiser les paramètres de jeu » doit être activée dans le client Moonlight, sinon les entrées avec un champ de résolution spécifié seront ignorées.",
     "dd_mode_remapping_desc_5_sops_resolution_only": "L’option « Optimiser les paramètres de jeu » doit être activée dans le client Moonlight, sinon le remappage sera ignoré.",
     "dd_resolution_option_ogs_desc": "L’option « Optimiser les paramètres de jeu » doit être activée dans le client Moonlight pour que cela fonctionne.",
-    "dd_virtual_display_permanent_count": "Affichages virtuels permanents",
-    "dd_virtual_display_permanent_count_desc": "Nombre d’écrans virtuels Rubylight toujours présents à conserver en dehors des sessions de streaming. 0 permet à Rubylight de créer des affichages temporaires uniquement pendant la diffusion.",
     "log_level": "Niveau de journalisation",
     "log_level_0": "Verbeux",
     "log_level_1": "Débug",

@@ -748,8 +748,6 @@
     "dd_mode_remapping_desc_5_sops_mixed_only": "Alternativet \"Optimize Game Settings\" måste vara aktiverat i Moonlight-klienten, annars ignoreras poster med angivet upplösningsfält.",
     "dd_mode_remapping_desc_5_sops_resolution_only": "Alternativet \"Optimize Game Settings\" måste vara aktiverat i Moonlight-klienten, annars ignoreras ommappningen.",
     "dd_resolution_option_ogs_desc": "Alternativet \"Optimize Game Settings\" måste vara aktiverat i Moonlight-klienten för att detta ska fungera.",
-    "dd_virtual_display_permanent_count": "Permanenta virtuella skärmar",
-    "dd_virtual_display_permanent_count_desc": "Antal alltid närvarande virtuella Rubylight-skärmar att behålla utanför strömningssessioner. 0 låter Rubylight bara skapa tillfälliga skärmar under strömning.",
     "log_level": "Loggnivå",
     "log_level_0": "Utförlig",
     "log_level_1": "Felsökning",

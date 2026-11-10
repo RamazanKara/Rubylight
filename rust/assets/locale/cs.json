@@ -748,8 +748,6 @@
     "dd_mode_remapping_desc_5_sops_mixed_only": "V klientovi Moonlight musí být povolena volba „Optimize Game Settings“, jinak budou položky se zadaným polem rozlišení přeskočeny.",
     "dd_mode_remapping_desc_5_sops_resolution_only": "V klientovi Moonlight musí být povolena volba „Optimize Game Settings“, jinak se přemapování přeskočí.",
     "dd_resolution_option_ogs_desc": "Aby to fungovalo, musí být v klientovi Moonlight povolena volba „Optimize Game Settings“.",
-    "dd_virtual_display_permanent_count": "Trvalé virtuální displeje",
-    "dd_virtual_display_permanent_count_desc": "Počet stále přítomných virtuálních displejů Rubylight, které se mají ponechat mimo streamovací relace. Hodnota 0 umožní Rubylight vytvářet dočasné displeje jen při streamování.",
     "log_level": "Úroveň logu",
     "log_level_0": "Podrobné",
     "log_level_1": "Ladění",

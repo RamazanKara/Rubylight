@@ -748,8 +748,6 @@
     "dd_mode_remapping_desc_5_sops_mixed_only": "Опцію \"Optimize Game Settings\" потрібно ввімкнути в клієнті Moonlight, інакше записи з указаним полем роздільної здатності буде пропущено.",
     "dd_mode_remapping_desc_5_sops_resolution_only": "Опцію \"Optimize Game Settings\" потрібно ввімкнути в клієнті Moonlight, інакше перепризначення буде пропущено.",
     "dd_resolution_option_ogs_desc": "Щоб це працювало, опцію \"Optimize Game Settings\" потрібно ввімкнути в клієнті Moonlight.",
-    "dd_virtual_display_permanent_count": "Постійні віртуальні дисплеї",
-    "dd_virtual_display_permanent_count_desc": "Кількість постійно наявних віртуальних дисплеїв Rubylight поза сеансами трансляції. 0 дозволяє Rubylight створювати тимчасові дисплеї лише під час трансляції.",
     "log_level": "Рівень Логування",
     "log_level_0": "Детально (Verbose)",
     "log_level_1": "Режим налагодження (Debug)",

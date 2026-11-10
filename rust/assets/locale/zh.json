@@ -748,8 +748,6 @@
     "dd_mode_remapping_desc_5_sops_mixed_only": "Moonlight 客户端中必须启用“优化游戏设置”选项，否则包含指定分辨率字段的规则会被跳过。",
     "dd_mode_remapping_desc_5_sops_resolution_only": "Moonlight 客户端中必须启用“优化游戏设置”选项，否则会跳过重映射。",
     "dd_resolution_option_ogs_desc": "Moonlight 客户端中必须启用“优化游戏设置”选项，此功能才能生效。",
-    "dd_virtual_display_permanent_count": "常驻虚拟显示器",
-    "dd_virtual_display_permanent_count_desc": "在串流会话之外始终保留的 Rubylight 虚拟显示器数量。设为 0 时，Rubylight 只会在串流期间创建临时显示器。",
     "log_level": "日志级别",
     "log_level_0": "详细 (Verbose)",
     "log_level_1": "调试 (Debug)",

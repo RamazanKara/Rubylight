@@ -748,8 +748,6 @@
     "dd_mode_remapping_desc_5_sops_mixed_only": "Moonlight istemcisinde \"Oyun Ayarlarını Optimize Et\" seçeneği etkin olmalıdır; aksi halde çözünürlük alanı belirtilmiş girdiler atlanır.",
     "dd_mode_remapping_desc_5_sops_resolution_only": "Bunun çalışması için Moonlight istemcisinde \"Oyun Ayarlarını Optimize Et\" seçeneği etkin olmalıdır; aksi halde yeniden eşleme atlanır.",
     "dd_resolution_option_ogs_desc": "Bunun çalışması için Moonlight istemcisinde \"Oyun Ayarlarını Optimize Et\" seçeneği etkin olmalıdır.",
-    "dd_virtual_display_permanent_count": "Kalıcı sanal ekranlar",
-    "dd_virtual_display_permanent_count_desc": "Akış oturumları dışında her zaman hazır tutulacak Rubylight sanal ekranlarının sayısı. 0, Rubylight'nun yalnızca akış sırasında geçici ekranlar oluşturmasını sağlar.",
     "log_level": "Günlük Seviyesi",
     "log_level_0": "Ayrıntılı",
     "log_level_1": "Hata Ayıklama",

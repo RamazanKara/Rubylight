@@ -748,8 +748,6 @@
     "dd_mode_remapping_desc_5_sops_mixed_only": "Moonlight 用戶端中必須啟用「最佳化遊戲設定」選項，否則包含指定解析度欄位的規則會被略過。",
     "dd_mode_remapping_desc_5_sops_resolution_only": "Moonlight 用戶端中必須啟用「最佳化遊戲設定」選項，否則會略過重新對應。",
     "dd_resolution_option_ogs_desc": "必須在 Moonlight 用戶端啟用「最佳化遊戲設定」選項，才能讓這個功能正常運作。",
-    "dd_virtual_display_permanent_count": "常駐虛擬顯示器",
-    "dd_virtual_display_permanent_count_desc": "在串流工作階段之外一律保留的 Rubylight 虛擬顯示器數量。設為 0 時，Rubylight 只會在串流期間建立暫時顯示器。",
     "log_level": "日誌層級",
     "log_level_0": "詳細",
     "log_level_1": "除錯",

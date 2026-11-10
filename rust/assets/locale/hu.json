@@ -748,8 +748,6 @@
     "dd_mode_remapping_desc_5_sops_mixed_only": "A \"Játékbeállítások optimalizálása\" opciónak engedélyezve kell lennie a Moonlight-kliensben, különben a felbontási mezőkkel rendelkező bejegyzések kihagyásra kerülnek.",
     "dd_mode_remapping_desc_5_sops_resolution_only": "A \"Játékbeállítások optimalizálása\" opciónak engedélyezve kell lennie a Moonlight-kliensben, különben a hozzárendelés kihagyásra kerül.",
     "dd_resolution_option_ogs_desc": "A \"Játékbeállítások optimalizálása\" opciónak engedélyezve kell lennie a Moonlight-kliensben, hogy ez működjön.",
-    "dd_virtual_display_permanent_count": "Állandó virtuális kijelzők",
-    "dd_virtual_display_permanent_count_desc": "Mindig jelen lévő Rubylight virtuális kijelzők száma streamelési munkameneteken kívül. A 0 azt jelenti, hogy a Rubylight csak streamelés közben hoz létre ideiglenes kijelzőket.",
     "log_level": "Naplózási szint",
     "log_level_0": "Részletes",
     "log_level_1": "Hibakeresés",

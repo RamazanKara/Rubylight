@@ -745,8 +745,6 @@
     "dd_mode_remapping_desc_5_sops_mixed_only": "The \"Optimize Game Settings\" option must be enabled in the Moonlight client, otherwise entries with a specified resolution field will be skipped.",
     "dd_mode_remapping_desc_5_sops_resolution_only": "The \"Optimize Game Settings\" option must be enabled in the Moonlight client, otherwise remapping will be skipped.",
     "dd_resolution_option_ogs_desc": "The \"Optimize Game Settings\" option must be enabled in the Moonlight client for this to work.",
-    "dd_virtual_display_permanent_count": "Permanent virtual displays",
-    "dd_virtual_display_permanent_count_desc": "Number of always-present Rubylight virtual displays to keep outside streaming sessions. 0 lets Rubylight create temporary displays only while streaming.",
     "server_cmd": "Server Commands",
     "server_cmd_desc": "Commands that authorized clients can run on the host.",
     "virtual_display_status_hint": "Use the Rubylight virtual display driver to automatically create a high-refresh virtual monitor. If the driver reports an error, reinstall Rubylight or repair the driver before streaming.",

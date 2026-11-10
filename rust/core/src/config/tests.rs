@@ -770,6 +770,36 @@ fn the_child_session_settings_go_without_a_report() {
     assert_eq!(config.port().unwrap(), 48123);
 }
 #[test]
+fn the_permanent_virtual_display_settings_go_without_a_report() {
+    // Both names the removed permanent virtual displays were saved under.
+    let names = [
+        "dd_vdd_static_monitor_count",
+        "dd_virtual_display_permanent_count",
+    ];
+    let (mut config, retired) = Config::parse_retiring(
+        "dd_vdd_static_monitor_count = \"2\"\ndd_virtual_display_permanent_count = 1\nport = 48123\n",
+    )
+    .unwrap();
+    assert!(retired.is_empty());
+    for key in names {
+        assert!(super::removed(key), "{key}");
+        assert!(!super::override_allowed(key), "{key}");
+        assert_eq!(super::current_name(key), key);
+        assert!(!config.values.contains_key(key), "{key}");
+    }
+    // A console or API save still sending them.
+    let saved = serde_json::json!({
+        "dd_virtual_display_permanent_count": 3,
+        "dd_vdd_static_monitor_count": 2
+    });
+    config.update(saved.as_object().unwrap()).unwrap();
+    let text = config.text();
+    for key in names {
+        assert!(!text.contains(key), "{text}");
+    }
+    assert_eq!(config.port().unwrap(), 48123);
+}
+#[test]
 fn hardware_metrics_saves_validate_interval_and_selection() {
     let mut config = super::Config::default();
     for value in ["500", "1000", "10000"] {
@@ -1340,7 +1370,7 @@ fn nvenc_settings_are_kept_and_overridable() {
 }
 /// A Vibepollo or Rubylight 2.0 file with every setting under its
 /// earlier name, a setting this host does not know, and a comment.
-const EARLIER_NAMES: &str = "# Vibepollo\nrtss_path = D:\\Tools\\RTSS\nnvenc_force_split_encode = driver_decides\ndd_vdd_static_monitor_count = \"2\"\nrtx_hdr_peak_brightness = 1400\nport = 48123\nfuture_setting = kept\n";
+const EARLIER_NAMES: &str = "# Vibepollo\nrtss_path = D:\\Tools\\RTSS\nnvenc_force_split_encode = driver_decides\nrtx_hdr_peak_brightness = \"1400\"\nport = 48123\nfuture_setting = kept\n";
 #[test]
 fn settings_under_an_earlier_name_are_read_under_the_current_one() {
     let c = Config::parse(EARLIER_NAMES).unwrap();
@@ -1348,7 +1378,6 @@ fn settings_under_an_earlier_name_are_read_under_the_current_one() {
     // names the console shows.
     assert_eq!(c.get("rtss_install_path", ""), "D:\\Tools\\RTSS");
     assert_eq!(c.get("nvenc_split_encode", "auto"), "driver_decides");
-    assert_eq!(c.integer("dd_virtual_display_permanent_count", -1), 2);
     assert_eq!(c.integer("hdr_peak_brightness", 0), 1400);
     for (old, _) in RENAMED_KEYS {
         assert!(!c.values.contains_key(*old), "{old}");
@@ -1357,12 +1386,12 @@ fn settings_under_an_earlier_name_are_read_under_the_current_one() {
     assert_eq!(c.port().unwrap(), 48123);
     // With both names set the host read the current one; it stays.
     let both = Config::parse(
-            "rtss_install_path = C:\\RTSS\nrtss_path = D:\\RTSS\nnvenc_split_encode = disabled\nnvenc_force_split_encode = forced\ndd_virtual_display_permanent_count = 0\ndd_vdd_static_monitor_count = 3\n",
+            "rtss_install_path = C:\\RTSS\nrtss_path = D:\\RTSS\nnvenc_split_encode = disabled\nnvenc_force_split_encode = forced\nhdr_peak_brightness = 1000\nrtx_hdr_peak_brightness = 1400\n",
         )
         .unwrap();
     assert_eq!(both.get("rtss_install_path", ""), "C:\\RTSS");
     assert_eq!(both.get("nvenc_split_encode", ""), "disabled");
-    assert_eq!(both.integer("dd_virtual_display_permanent_count", -1), 0);
+    assert_eq!(both.integer("hdr_peak_brightness", 0), 1000);
     assert_eq!(both.values.len(), 3);
     assert_eq!(current_name("rtss_path"), "rtss_install_path");
     assert_eq!(current_name("rtss_install_path"), "rtss_install_path");
@@ -1383,10 +1412,10 @@ fn a_saved_configuration_holds_settings_under_their_current_names() {
 }
 #[test]
 fn a_setting_sent_under_an_earlier_name_is_saved_under_the_current_one() {
-    let mut config = Config::parse("dd_virtual_display_permanent_count = 1\n").unwrap();
-    change(&mut config, "dd_vdd_static_monitor_count", "3").unwrap();
-    assert_eq!(config.integer("dd_virtual_display_permanent_count", 0), 3);
-    assert!(!config.values.contains_key("dd_vdd_static_monitor_count"));
+    let mut config = Config::parse("nvenc_split_encode = disabled\n").unwrap();
+    change(&mut config, "nvenc_force_split_encode", "forced").unwrap();
+    assert_eq!(config.get("nvenc_split_encode", ""), "forced");
+    assert!(!config.values.contains_key("nvenc_force_split_encode"));
     // Sent together, the current name wins, as in the file.
     let mut object = serde_json::Map::new();
     object.insert("rtss_path".into(), "D:\\Old".into());

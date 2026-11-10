@@ -1108,7 +1108,14 @@ impl SessionThread<'_> {
                         // Network occupancy must not start encoder stall recovery.
                         recovery.backlog_since = None;
                         if encoder.as_ref().is_some_and(|e| recovery.pending(e)) {
-                            send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, capture_tick)?;
+                            let output = recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?;
+                            let idle = output.is_empty();
+                            send_frames(output, peer, Duration::ZERO, latest, capture_tick)?;
+                            // A poll that returned nothing at once would spin here until the
+                            // frame is done; one that waits in the driver has already waited.
+                            if idle && encoder.as_ref().is_some_and(|e| !e.poll_blocks()) {
+                                timer.until(Instant::now() + OUTPUT_POLL);
+                            }
                         } else {
                             video_sender.get().unwrap().wait_for_capacity(encoder_backlog::total_limit(encoding_limit), period, recovery_lead)?;
                         }

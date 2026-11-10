@@ -665,11 +665,18 @@ fn an_idle_full_encoder_sleeps_on_its_event_or_prediction_but_not_after_a_device
     let started = Instant::now();
     wait_for_output(&timer, &recovery, Some(&encoder))?;
     assert!(started.elapsed() < Duration::from_millis(50));
-    // Without an event or prediction the next poll comes at once.
+    // Without an event or prediction the next poll comes at once when it waits in the driver.
     encoder.event = None;
     let started = Instant::now();
     wait_for_output(&timer, &recovery, Some(&encoder))?;
     assert!(started.elapsed() < Duration::from_millis(50));
+    // A poll that returns at once sleeps one output poll first, never spinning on a full encoder.
+    encoder.immediate = true;
+    let started = Instant::now();
+    wait_for_output(&timer, &recovery, Some(&encoder))?;
+    assert!(started.elapsed() >= OUTPUT_POLL);
+    assert!(started.elapsed() < Duration::from_millis(50));
+    encoder.immediate = false;
     // A prediction holds the poll until the frame can be done.
     let due = Instant::now() + Duration::from_millis(3);
     encoder.due = Some(due);

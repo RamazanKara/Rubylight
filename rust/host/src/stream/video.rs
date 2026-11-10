@@ -67,9 +67,12 @@ pub(super) fn poll_fits(
 
 /// After a poll that returned nothing while the encoder is full: an encoder
 /// that predicts its output sleeps until then, one with an output event
-/// (NVENC's D3D12 fence) until it, at most one output poll; others poll
-/// again at once as before. Nothing waits once no frame is pending, such as
-/// after a device loss.
+/// (NVENC's D3D12 fence) until it, at most one output poll. One whose poll
+/// waits in the driver (AMF's QueryOutput) polls again at once; one whose
+/// poll returns at once (NVENC without the fence) sleeps one output poll, as
+/// the waits with room in the encoder do, where polling again at once spun a
+/// core at the stream thread's priority for as long as the encoder stayed
+/// full. Nothing waits once no frame is pending, such as after a device loss.
 pub(super) fn wait_for_output(
     timer: &butterpollo_windows::timing::Timer,
     recovery: &EncoderRecovery,
@@ -82,6 +85,8 @@ pub(super) fn wait_for_output(
         timer.until(due);
     } else if let Some(event) = encoder.output_event() {
         timer.until_or_event(Instant::now() + OUTPUT_POLL, Some(event))?;
+    } else if !encoder.poll_blocks() {
+        timer.until(Instant::now() + OUTPUT_POLL);
     }
     Ok(())
 }

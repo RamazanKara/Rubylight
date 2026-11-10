@@ -1114,7 +1114,7 @@ pub(crate) async fn api(
     if method == Method::GET
         && let Some(id) = icon_id(path)
     {
-        return apps::icon(&h, id).await;
+        return apps::icon(&h, id, &headers).await;
     }
     if method == Method::POST && path == "/api/apps/purge_autosync" {
         return apps::purge_autosync(&h).await;
@@ -1135,7 +1135,7 @@ pub(crate) async fn api(
         && ((path.starts_with("/api/apps/") && path.ends_with("/cover"))
             || path.starts_with("/api/covers/"))
     {
-        return apps::cover(&h, path).await;
+        return apps::cover(&h, path, &headers).await;
     }
     if path == "/api/auth/status" {
         let configured = h.credentials.read().unwrap().is_some();

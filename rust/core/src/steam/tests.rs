@@ -143,6 +143,37 @@ fn binary_appinfo_gives_names_and_types() {
     assert_eq!(found[&70], ("Half-Life".into(), "Game".into()));
     assert!(appinfo(&data[..40], &BTreeSet::from([70])).is_empty());
 }
+#[test]
+fn the_app_cache_is_read_again_only_when_it_changed() {
+    let steam = steam_with_appinfo(&[], &[text("name", "Black Flag"), text("type", "Game")]);
+    let path = steam.path().join("appcache").join("appinfo.vdf");
+    let wanted = BTreeSet::from([242050]);
+    let name = |found: Option<AppNames>| found.map(|found| found[&242050].0.clone());
+    assert_eq!(name(app_names(&path, &wanted)), Some("Black Flag".into()));
+    // Same size and time: the answer is the remembered one, whatever the bytes say now.
+    let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+    let data = std::fs::read(&path).unwrap();
+    let at = data.windows(5).position(|w| w == b"Black").unwrap();
+    let mut renamed = data.clone();
+    renamed[at..at + 5].copy_from_slice(b"White");
+    std::fs::write(&path, &renamed).unwrap();
+    let file = std::fs::File::options().write(true).open(&path).unwrap();
+    file.set_modified(modified).unwrap();
+    drop(file);
+    assert_eq!(name(app_names(&path, &wanted)), Some("Black Flag".into()));
+    // A new time reads the file again, as do other apps asked for.
+    let file = std::fs::File::options().write(true).open(&path).unwrap();
+    file.set_modified(modified + std::time::Duration::from_secs(2))
+        .unwrap();
+    drop(file);
+    assert_eq!(name(app_names(&path, &wanted)), Some("White Flag".into()));
+    assert_eq!(
+        app_names(&path, &BTreeSet::from([70])),
+        Some(AppNames::new())
+    );
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(app_names(&path, &wanted), None);
+}
 /// Binary VDF in format 28: an object with its children, a text.
 fn object(key: &str, children: &[Vec<u8>]) -> Vec<u8> {
     let mut out = vec![0x00];

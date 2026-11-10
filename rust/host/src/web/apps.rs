@@ -4,7 +4,7 @@ use super::{cover_id, error};
 use crate::state::Shared;
 use axum::{
     Json,
-    http::{Method, StatusCode, header},
+    http::{HeaderMap, Method, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use base64::Engine;
@@ -379,7 +379,68 @@ pub(super) async fn browse(uri: &axum::http::Uri) -> Response {
     }
 }
 
-pub(super) async fn icon(h: &Shared, id: &str) -> Response {
+/// What names this state of an image file to a browser: its size and time.
+fn image_tag(metadata: &std::fs::Metadata) -> Option<String> {
+    let modified = metadata
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?;
+    Some(format!(
+        "\"{:x}-{:x}\"",
+        metadata.len(),
+        modified.as_nanos()
+    ))
+}
+/// Whether the browser's `If-None-Match` names `tag`, so it holds the file as it is.
+fn has_image(headers: &HeaderMap, tag: &str) -> bool {
+    headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|sent| {
+            sent.split(',')
+                .any(|one| one.trim().trim_start_matches("W/") == tag)
+        })
+}
+/// A PNG of at most `most` bytes for the console, which the browser keeps and asks about on
+/// each use: it is sent again only when its size or time changed. Without this every visit to
+/// the library read and sent every cover in full (the console's default is `no-store`). `None`
+/// when there is no such file.
+async fn image(path: &std::path::Path, most: u64, headers: &HeaderMap) -> Option<Response> {
+    let metadata = tokio::fs::metadata(path).await.ok()?;
+    if metadata.len() > most {
+        return None;
+    }
+    // The signed-in browser alone may keep it, and must ask before showing it again.
+    let kept = "private, no-cache";
+    let Some(tag) = image_tag(&metadata) else {
+        let bytes = tokio::fs::read(path).await.ok()?;
+        return Some(([(header::CONTENT_TYPE, "image/png")], bytes).into_response());
+    };
+    if has_image(headers, &tag) {
+        return Some(
+            (
+                StatusCode::NOT_MODIFIED,
+                [(header::CACHE_CONTROL, kept), (header::ETAG, tag.as_str())],
+            )
+                .into_response(),
+        );
+    }
+    let bytes = tokio::fs::read(path).await.ok()?;
+    Some(
+        (
+            [
+                (header::CONTENT_TYPE, "image/png"),
+                (header::CACHE_CONTROL, kept),
+                (header::ETAG, tag.as_str()),
+            ],
+            bytes,
+        )
+            .into_response(),
+    )
+}
+
+pub(super) async fn icon(h: &Shared, id: &str, headers: &HeaderMap) -> Response {
     let icon = h
         .apps
         .read()
@@ -388,9 +449,9 @@ pub(super) async fn icon(h: &Shared, id: &str) -> Response {
         .find(|a| a.extra.get("uuid").and_then(Value::as_str) == Some(id))
         .and_then(butterpollo_core::catalog::icon);
     if let Some(icon) = icon
-        && let Ok(bytes) = tokio::fs::read(icon).await
+        && let Some(response) = image(&icon, u64::MAX, headers).await
     {
-        return ([(header::CONTENT_TYPE, "image/png")], bytes).into_response();
+        return response;
     }
     StatusCode::NOT_FOUND.into_response()
 }
@@ -415,7 +476,7 @@ pub(super) async fn purge_autosync(h: &Shared) -> Response {
     }
 }
 
-pub(super) async fn cover(h: &Shared, path: &str) -> Response {
+pub(super) async fn cover(h: &Shared, path: &str, headers: &HeaderMap) -> Response {
     let Some(id) = cover_id(path) else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -432,14 +493,10 @@ pub(super) async fn cover(h: &Shared, path: &str) -> Response {
         return StatusCode::NOT_FOUND.into_response();
     };
     let path = butterpollo_core::catalog::artwork(&app, h.assets.parent().unwrap_or(&h.assets));
-    if tokio::fs::metadata(&path)
-        .await
-        .is_ok_and(|m| m.len() <= 16 * 1024 * 1024)
-        && let Ok(bytes) = tokio::fs::read(path).await
-    {
-        return ([(header::CONTENT_TYPE, "image/png")], bytes).into_response();
+    match image(&path, 16 * 1024 * 1024, headers).await {
+        Some(response) => response,
+        None => StatusCode::NOT_FOUND.into_response(),
     }
-    StatusCode::NOT_FOUND.into_response()
 }
 
 /// The most apps one delete takes.
@@ -628,6 +685,45 @@ mod tests {
     use super::handle;
     use crate::state::test_support::Fixture;
     use serde_json::json;
+
+    #[test]
+    fn a_cover_the_browser_holds_is_not_sent_again_until_the_file_changes() {
+        use axum::http::{HeaderMap, StatusCode, header};
+        let folder =
+            std::env::temp_dir().join(format!("rubylight-cover-tag-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let path = folder.join("cover.png");
+        std::fs::write(&path, b"first").unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let ask =
+            |headers: &HeaderMap, most: u64| runtime.block_on(super::image(&path, most, headers));
+        let sent = ask(&HeaderMap::new(), 16).unwrap();
+        assert_eq!(sent.status(), StatusCode::OK);
+        assert_eq!(sent.headers()[header::CONTENT_TYPE], "image/png");
+        assert_eq!(sent.headers()[header::CACHE_CONTROL], "private, no-cache");
+        let tag = sent.headers()[header::ETAG].clone();
+        // The same file again: no body, also when the browser lists several or a weak one.
+        let mut held = HeaderMap::new();
+        held.insert(header::IF_NONE_MATCH, tag.clone());
+        let kept = ask(&held, 16).unwrap();
+        assert_eq!(kept.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(kept.headers()[header::ETAG], tag);
+        let several = format!("\"other\", W/{}", tag.to_str().unwrap());
+        held.insert(header::IF_NONE_MATCH, several.parse().unwrap());
+        assert_eq!(ask(&held, 16).unwrap().status(), StatusCode::NOT_MODIFIED);
+        // A changed file is sent in full under a new name.
+        std::fs::write(&path, b"second cover").unwrap();
+        held.insert(header::IF_NONE_MATCH, tag.clone());
+        let changed = ask(&held, 16).unwrap();
+        assert_eq!(changed.status(), StatusCode::OK);
+        assert_ne!(changed.headers()[header::ETAG], tag);
+        // One over the limit, or none, is no image.
+        assert!(ask(&held, 4).is_none());
+        std::fs::remove_dir_all(&folder).unwrap();
+        assert!(ask(&HeaderMap::new(), 16).is_none());
+    }
 
     #[test]
     fn apps_list_marks_only_known_uninstalled_launcher_games_and_never_stores_it() {

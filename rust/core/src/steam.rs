@@ -98,8 +98,8 @@ pub fn discover(roots: &[PathBuf]) -> Vec<Game> {
     }
     let wanted: BTreeSet<u32> = games.keys().copied().collect();
     for root in &steam_roots {
-        if let Ok(data) = std::fs::read(root.join("appcache").join("appinfo.vdf")) {
-            for (appid, (name, kind)) in appinfo(&data, &wanted) {
+        if let Some(found) = app_names(&root.join("appcache").join("appinfo.vdf"), &wanted) {
+            for (appid, (name, kind)) in found {
                 let game = games.get_mut(&appid).unwrap();
                 if !name.is_empty() {
                     game.name = name;
@@ -118,6 +118,32 @@ pub fn discover(roots: &[PathBuf]) -> Vec<Game> {
         game.icon_path = icon;
     }
     games.into_values().filter(|g| !g.name.is_empty()).collect()
+}
+/// The names and types [`appinfo`] reads for `wanted`, by app.
+type AppNames = BTreeMap<u32, (String, String)>;
+/// The app cache file the last [`app_names`] read: its path, size and time, and the apps asked for.
+type AppNamesKey = (PathBuf, u64, std::time::SystemTime, BTreeSet<u32>);
+/// The last app cache read. The file runs to tens of megabytes and the library checks read it
+/// every few minutes, mostly unchanged.
+static APP_NAMES: std::sync::Mutex<Option<(AppNamesKey, AppNames)>> = std::sync::Mutex::new(None);
+/// The names and types of `wanted` in the app cache at `path`, `None` when it cannot be read. The
+/// file is read again only when its size, its time or `wanted` changed since the last read.
+fn app_names(path: &Path, wanted: &BTreeSet<u32>) -> Option<AppNames> {
+    let stamp = std::fs::metadata(path)
+        .ok()
+        .and_then(|m| Some((m.len(), m.modified().ok()?)));
+    let key = stamp.map(|(size, modified)| (path.to_owned(), size, modified, wanted.clone()));
+    if let Some(key) = &key
+        && let Some((last, found)) = &*APP_NAMES.lock().unwrap_or_else(|e| e.into_inner())
+        && last == key
+    {
+        return Some(found.clone());
+    }
+    let found = appinfo(&std::fs::read(path).ok()?, wanted);
+    if let Some(key) = key {
+        *APP_NAMES.lock().unwrap_or_else(|e| e.into_inner()) = Some((key, found.clone()));
+    }
+    Some(found)
 }
 /// What Steam's collections said: their names by app, and what got in the way of reading them.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

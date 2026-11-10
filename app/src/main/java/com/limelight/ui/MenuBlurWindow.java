@@ -44,6 +44,18 @@ final class MenuBlurWindow {
         return new MenuBlurWindow(owner, radius, onSwitch);
     }
 
+    /**
+     * Opens the window at its first size, one pixel in the corner, and removes it after {@code durationMs}: while it stands, the
+     * system composes the stream under it on the GPU, as it does the moment the stream menu opens. Any tier: one blurred pixel
+     * costs nothing. Null when this Android has no blur or the system's switch is off now.
+     */
+    static MenuBlurWindow flash(Activity owner, long durationMs) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !systemSwitch(owner)) return null;
+        MenuBlurWindow blur = new MenuBlurWindow(owner, 1, null);
+        owner.getWindow().getDecorView().postDelayed(blur::close, durationMs);
+        return blur;
+    }
+
     private MenuBlurWindow(Activity owner, int radius, Consumer<Boolean> onSwitch) {
         manager = owner.getWindowManager();
         window = new Dialog(owner, R.style.StreamMenuBlurWindow);

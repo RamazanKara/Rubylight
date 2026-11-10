@@ -5,6 +5,7 @@ import com.limelight.binding.video.DisplayCapsReporter;
 import com.limelight.binding.video.DisplayRefreshDiagnostics;
 import com.limelight.binding.video.HdrFormatPolicy;
 import com.limelight.binding.video.HdrPolicy;
+import com.limelight.binding.video.HdrRecomposition;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.PerformanceOverlay;
 import com.limelight.binding.video.Sdr10Policy;
@@ -17,6 +18,7 @@ import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.HostDisplayChoice;
 import com.limelight.preferences.PreferenceConfiguration;
+import com.limelight.ui.StreamGlass;
 import com.limelight.ui.StreamOrientation;
 import com.limelight.ui.VideoScaling;
 import com.limelight.utils.HdrBrightness;
@@ -158,6 +160,7 @@ final class GameVideoOutput {
             checkRefreshSwitch();
             checkArrRate();
             checkHdrStatus();
+            checkHdrRecomposition();
             checkVulkanPace();
             game.bitrateHandler.postDelayed(this, 1000);
         }
@@ -1204,6 +1207,29 @@ final class GameVideoOutput {
     private void checkVulkanPace() {
         if (game.decoderRenderer != null && game.decoderRenderer.takeVulkanBehind()) {
             game.overlays.hostNotice(HostNotices.Notice.VULKAN_BEHIND, R.string.stream_vulkan_behind);
+        }
+    }
+
+    // One GPU composition of the Vulkan renderer's HDR picture each time it starts or the stream comes back to the front,
+    // as opening the stream menu gives it: some screens show it as SDR until then (HdrRecomposition).
+    private final HdrRecomposition hdrRecomposition = new HdrRecomposition();
+    private boolean hdrRecompositionUnavailableLogged;
+
+    /** The stream window is in front again (onResume). */
+    void armHdrRecomposition() {
+        hdrRecomposition.arm();
+    }
+
+    private void checkHdrRecomposition() {
+        if (game.decoderRenderer == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
+        boolean inFront = game.foreground && game.hasWindowFocus() && game.streamMenu == null &&
+                game.externalPresentation == null && !game.isInPictureInPictureMode();
+        if (!hdrRecomposition.take(game.decoderRenderer.isVulkanHdrOutput(), inFront)) return;
+        if (StreamGlass.recompose(game, HdrRecomposition.DURATION_MS)) {
+            LimeLog.info("Vulkan HDR output: one GPU composition asked of the system");
+        } else if (!hdrRecompositionUnavailableLogged) {
+            hdrRecompositionUnavailableLogged = true;
+            LimeLog.info("Vulkan HDR output: no GPU composition asked, the system's window blur is off");
         }
     }
 

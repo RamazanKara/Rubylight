@@ -275,6 +275,7 @@
     <string name="title_yuv444">Preferir YUV 4:4:4</string>
     <string name="summary_yuv444">Texto colorido mais nítido quando o PC e este dispositivo suportam. O HDR tem prioridade.</string>
     <string name="yuv444_fallback">YUV 4:4:4 indisponível; usando 4:2:0.</string>
+    <string name="yuv444_fallback_hdr">YUV 4:4:4 indisponível; usando 4:2:0. O HDR tem prioridade.</string>
     <string name="title_virtual_display">Tela virtual do host</string>
     <string name="summary_virtual_display">Pede ao PC uma tela que corresponda à transmissão. Desativado: as configurações de tela do próprio PC decidem.</string>
     <string name="title_vrr">Atualização adaptável (ARR / VRR)</string>

@@ -334,13 +334,17 @@ final class GameRecovery {
     }
 
     /**
-     * Full chroma was ruled out before anything was launched on the PC: this same start is made
-     * again without it, once per session. Unlike {@link #reconnectWithoutPackedChroma} it is no
-     * recovery: no game was started that would have to be found and resumed, so the new start
-     * launches (or resumes, or joins) exactly as this one would have. False when this session
-     * already runs without full chroma or cannot start again now; the caller then shows the failure.
+     * Full chroma was ruled out before anything was launched on the PC, or the PC refused it in the
+     * handshake right after this start's launch: this same start is made again without it, once per
+     * session. Unlike {@link #reconnectWithoutPackedChroma} it is no recovery: the new start
+     * launches (or resumes, or joins) exactly as this one would have, and finds a game this one
+     * launched running, so it resumes it. False when this session already runs without full chroma
+     * or cannot start again now; the caller then shows the failure.
+     *
+     * @param afterLaunch the PC refused it after the launch: said every time, as the restart is
+     *                    slower then; a decision before the launch is said once per PC
      */
-    boolean restartWithoutPackedChroma(String logLine, String toast) {
+    boolean restartWithoutPackedChroma(String logLine, String toast, boolean afterLaunch) {
         boolean unpacked = game.getIntent().getBooleanExtra(Game.EXTRA_PACKED_OFF, false);
         boolean canRestart = game.foreground && !game.isFinishing() && !game.isDestroyed() &&
                 !game.displayedFailureDialog && !game.recoveryHandoffInProgress && game.pendingRecovery == null;
@@ -353,7 +357,7 @@ final class GameRecovery {
         if (joinedRunning) again.putExtra(EXTRA_JOIN_RUNNING, true);
         startReconnect(false, again, false, game.getString(R.string.conn_establishing_msg));
         // Said once per PC: afterwards this happens before every start until the PC or the setting changes.
-        if (HostNotices.claim(game.getApplicationContext(), game.getIntent().getStringExtra(Game.EXTRA_PC_UUID),
+        if (afterLaunch || HostNotices.claim(game.getApplicationContext(), game.getIntent().getStringExtra(Game.EXTRA_PC_UUID),
                 HostNotices.Notice.PACKED_UNAVAILABLE)) {
             Toast.makeText(game.getApplicationContext(), toast, Toast.LENGTH_LONG).show();
         }

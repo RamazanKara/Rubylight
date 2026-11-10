@@ -1617,10 +1617,49 @@ public class NvHTTP {
             (context.rateChange ? "&" + RATE_CHANGE_LAUNCH_PARAMETER + "=1" : "");
     }
 
+    /**
+     * The longest a PC may take to answer a launch or resume: it prepares the session first (its
+     * preparation commands, a display, the game), which can take a while, but a PC that never
+     * answers must not hold the start for good. Desktop's {@code LAUNCH_READ_TIMEOUT}.
+     */
+    public static final int LAUNCH_READ_TIMEOUT_SECONDS = 120;
+
+    /** The PC took a launch or resume and gave no answer within {@link #LAUNCH_READ_TIMEOUT_SECONDS}. */
+    public static final class LaunchTimeoutException extends IOException {
+        public final int seconds;
+
+        public LaunchTimeoutException(int seconds) {
+            super("No answer to the launch within " + seconds + " s");
+            this.seconds = seconds;
+        }
+    }
+
     public boolean launchApp(ConnectionContext context, String verb, int appId, boolean enableHdr) throws IOException, XmlPullParserException {
-        String xmlStr = openHttpConnectionToString(httpClientLongConnectNoReadTimeout, getHttpsUrl(true), verb,
-                getLaunchQuery(context, appId, enableHdr) + MoonBridge.getLaunchUrlQueryParameters());
+        return launchApp(context, verb, appId, enableHdr, LAUNCH_READ_TIMEOUT_SECONDS * 1000L);
+    }
+
+    boolean launchApp(ConnectionContext context, String verb, int appId, boolean enableHdr, long readTimeoutMs)
+            throws IOException, XmlPullParserException {
+        OkHttpClient client = httpClientLongConnectTimeout.newBuilder()
+                .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS).build();
+        String xmlStr;
+        try {
+            xmlStr = openHttpConnectionToString(client, getHttpsUrl(true), verb,
+                    getLaunchQuery(context, appId, enableHdr) + MoonBridge.getLaunchUrlQueryParameters());
+        } catch (java.net.SocketTimeoutException e) {
+            throw launchReadFailure(e, readTimeoutMs);
+        }
         return readLaunchResponse(context, verb, xmlStr);
+    }
+
+    /**
+     * A launch's timeout: the PC's missing answer ({@link LaunchTimeoutException}), unless the
+     * connect itself timed out, which stays the usual connection failure.
+     */
+    static java.io.IOException launchReadFailure(java.net.SocketTimeoutException e, long readTimeoutMs) {
+        String message = e.getMessage();
+        if (message != null && message.toLowerCase(java.util.Locale.ROOT).contains("connect")) return e;
+        return new LaunchTimeoutException((int) Math.max(1, readTimeoutMs / 1000));
     }
 
     static boolean readLaunchResponse(ConnectionContext context, String verb, String xmlStr) throws IOException, XmlPullParserException {

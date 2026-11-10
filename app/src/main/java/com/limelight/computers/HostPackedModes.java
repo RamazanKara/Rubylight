@@ -68,11 +68,35 @@ public final class HostPackedModes {
 
     /**
      * Whether this PC's last answer to a full chroma stream was a refusal. A stream that starts with
-     * full chroma ({@link #store}) and {@link #clearRefusals} end it; serverinfo that names modes
-     * outranks it at the launch.
+     * full chroma ({@link #store}), {@link #clearRefusals} and an update on either side
+     * ({@link #renew}) end it; serverinfo that names modes outranks it at the launch.
      */
     public static boolean refused(Context context, String hostUuid) {
         return context != null && hostUuid != null && preferences(context).getBoolean(refusedKey(hostUuid), false);
+    }
+
+    private static final String UNDER_PREFIX = "under:";
+
+    /**
+     * What a PC's answer is given under: this app's version and the PC's own ({@code RustHostVersion};
+     * null for a PC that does not say it). An update on either side may change the answer. Desktop's
+     * {@code full_chroma::stamp}.
+     */
+    public static String stamp(String appVersion, String hostVersion) {
+        return appVersion + "/" + (hostVersion != null ? hostVersion : "");
+    }
+
+    /**
+     * A launch that asks about full chroma under {@code stamp} ({@link #stamp}): a refusal given
+     * under other versions ends, so a PC that refused is asked again after this app or the PC was
+     * updated. The known modes stay; serverinfo or the next DESCRIBE corrects them. A refusal saved
+     * before versions were kept is asked again too.
+     */
+    public static void renew(Context context, String hostUuid, String stamp) {
+        if (context == null || hostUuid == null || stamp == null) return;
+        SharedPreferences preferences = preferences(context);
+        if (stamp.equals(preferences.getString(UNDER_PREFIX + hostUuid, null))) return;
+        preferences.edit().putString(UNDER_PREFIX + hostUuid, stamp).remove(refusedKey(hostUuid)).apply();
     }
 
     /** Every PC is asked again: the user switched the setting, which is how to retry after changing a PC. */

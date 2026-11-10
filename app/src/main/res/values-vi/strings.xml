@@ -275,6 +275,7 @@
     <string name="title_yuv444">Ưu tiên YUV 4:4:4</string>
     <string name="summary_yuv444">Chữ màu sắc nét hơn khi cả PC và thiết bị này hỗ trợ. HDR được ưu tiên.</string>
     <string name="yuv444_fallback">Không có YUV 4:4:4; đang dùng 4:2:0.</string>
+    <string name="yuv444_fallback_hdr">Không có YUV 4:4:4; đang dùng 4:2:0. HDR được ưu tiên.</string>
     <string name="title_virtual_display">Màn hình ảo trên máy chủ</string>
     <string name="summary_virtual_display">Yêu cầu PC tạo màn hình khớp với stream. Tắt: cài đặt hiển thị riêng của PC sẽ quyết định.</string>
     <string name="title_vrr">Tần số quét thích ứng (ARR / VRR)</string>

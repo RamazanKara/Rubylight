@@ -209,6 +209,76 @@ static void copyStats(JNIEnv* env, jintArray array, jsize start, jsize length, c
     memcpy((jint*)array + start, values, length * sizeof(jint));
 }
 
+// A Java short[] stand-in: its length, then its samples.
+typedef struct {
+    jsize length;
+    jshort* data;
+} FakeShorts;
+
+static int regionCalls;
+
+static jsize arrayLength(JNIEnv* env, jarray array) {
+    (void)env;
+    return ((FakeShorts*)array)->length;
+}
+
+static void shortRegion(JNIEnv* env, jshortArray array, jsize start, jsize length, jshort* out) {
+    (void)env;
+    FakeShorts* shorts = (FakeShorts*)array;
+    assert(start >= 0 && length >= 0 && start + length <= shorts->length);
+    memcpy(out, shorts->data + start, length * sizeof(jshort));
+    regionCalls++;
+}
+
+// nativeWriteAudio takes the samples in stack-sized pieces, in order, without the whole-array copy
+// GetShortArrayElements made; a full ring still waits, then fails.
+static void writesComeOverInPieces(void) {
+    static AudioOutput output;
+    static int16_t ring[8192 * 2], input[3000 * 2];
+    memset(&output, 0, sizeof(output));
+    audioQueueInit(&output.queue, ring, 8192, 8192);
+    for (int i = 0; i < 3000 * 2; i++) input[i] = (int16_t)(i % 30000 - 15000);
+    FakeShorts packet = {3000 * 2, input};
+    const struct JNINativeInterface functions = {
+        .GetArrayLength = arrayLength,
+        .GetShortArrayRegion = shortRegion,
+    };
+    JNIEnv env = &functions;
+    jlong handle = (jlong)(intptr_t)&output;
+
+    regionCalls = 0;
+    assert(Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeWriteAudio(&env, NULL, handle, (jshortArray)&packet, 3000 * 2));
+    assert(regionCalls == (3000 + AUDIO_WRITE_CHUNK_FRAMES - 1) / AUDIO_WRITE_CHUNK_FRAMES);
+    assert(atomic_load(&output.queue.writtenFrames) == 3000);
+    // The ring holds what was sent, in order, across the pieces' seams.
+    assert(memcmp(ring, input, sizeof(input)) == 0);
+
+    // A short packet is one piece; a length past the array or an odd one is refused.
+    regionCalls = 0;
+    FakeShorts small = {480 * 2, input};
+    assert(Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeWriteAudio(&env, NULL, handle, (jshortArray)&small, 240 * 2));
+    assert(regionCalls == 1);
+    assert(!Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeWriteAudio(&env, NULL, handle, (jshortArray)&small, 481 * 2));
+    assert(!Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeWriteAudio(&env, NULL, handle, (jshortArray)&small, 3));
+    assert(regionCalls == 1);
+
+    // A ring with room for 100 frames takes them, waits out its 100 ms for the rest, and fails.
+    static AudioOutput full;
+    static int16_t smallRing[256 * 2];
+    memset(&full, 0, sizeof(full));
+    audioQueueInit(&full.queue, smallRing, 256, 100);
+    jlong fullHandle = (jlong)(intptr_t)&full;
+    assert(!Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeWriteAudio(&env, NULL, fullHandle, (jshortArray)&small, 240 * 2));
+    assert(atomic_load(&full.queue.writtenFrames) == 100);
+    assert(memcmp(smallRing, input, 100 * 2 * sizeof(int16_t)) == 0);
+
+    // A stopped output takes nothing.
+    atomic_store(&full.stopped, true);
+    audioQueueInit(&full.queue, smallRing, 256, 256);
+    assert(!Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeWriteAudio(&env, NULL, fullHandle, (jshortArray)&small, 240 * 2));
+    assert(atomic_load(&full.queue.writtenFrames) == 0);
+}
+
 int main(void) {
     AudioOutput output = {0};
     int16_t ring[4096 * 2], input[48000 * 2], pcm[192 * 2];
@@ -276,6 +346,7 @@ int main(void) {
     assert(atomic_load(&output.queue.underruns) == 0);
     stallsAreConcealedAndTheirPacketsSkipped();
     gapsAreJitterOrStalls();
+    writesComeOverInPieces();
     puts("AAudio output tests passed");
     return 0;
 }

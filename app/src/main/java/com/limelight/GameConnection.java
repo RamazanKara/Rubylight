@@ -959,9 +959,16 @@ final class GameConnection {
                 // Once per session: the replacement starts without full chroma. A refusal in a session
                 // already without it (never expected: it does not ask) shows the error as usual.
                 // Ruled out before the launch: nothing runs on the PC yet, so the same start is simply made again.
-                if (packedRefused && game.conn != null && game.conn.packedRefusedBeforeLaunch()) {
-                    if (game.streamRecovery.restartWithoutPackedChroma("Full chroma unavailable before the launch (" + stage + ")",
-                            PackedFallback.refusedToast(stage))) return;
+                // Refused in the handshake after the launch: the same start made again finds the game it just
+                // launched running and resumes it, without the recovery's delay and resume-only rules.
+                if (packedRefused && game.conn != null && PackedFallback.restartsAsTheSameStart(
+                        game.conn.packedRefusedBeforeLaunch(), game.app == null ||
+                                game.app.getControl() != NvApp.Control.NONE || game.app.isMicOnly())) {
+                    boolean afterLaunch = !game.conn.packedRefusedBeforeLaunch();
+                    String why = !afterLaunch ? "Full chroma unavailable before the launch (" + stage + ")" :
+                            "Full chroma refused at stream start (" + Game.terminationDescription(errorCode) +
+                                    (game.connectionErrorMessage != null ? "): " + game.connectionErrorMessage : ")");
+                    if (game.streamRecovery.restartWithoutPackedChroma(why, PackedFallback.refusedToast(stage), afterLaunch)) return;
                 } else if (packedRefused && game.streamRecovery.reconnectWithoutPackedChroma("Full chroma refused at stream start (" +
                         Game.terminationDescription(errorCode) + (game.connectionErrorMessage != null ?
                         "): " + game.connectionErrorMessage : ")"), PackedFallback.refusedToast(stage))) return;

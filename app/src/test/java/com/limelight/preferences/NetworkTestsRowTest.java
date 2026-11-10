@@ -59,7 +59,7 @@ public class NetworkTestsRowTest {
         }
     }
 
-    /** The row in the Streaming section, with the network rows behind its More row. */
+    /** The row in the Streaming section, with the network rows behind its More row open. */
     private static Preference row(StreamSettings screen) {
         SettingsStructureTest.settle(screen);
         return SettingsStructureTest.open(screen, "streaming").findPreference(StreamSettings.NETWORK_TESTS_KEY);
@@ -81,6 +81,23 @@ public class NetworkTestsRowTest {
             String summary = row.getSummary().toString();
             assertTrue(summary, summary.contains(app.getString(R.string.connection_test_title)));
             assertTrue(summary, summary.contains(app.getString(R.string.pace_calibration_title)));
+        }
+    }
+
+    @Test
+    public void itIsAMainRowThatShowsWithStreamingFolded() {
+        save("one-pc", "Den PC");
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings screen = controller.get();
+            assertFalse(StreamSettings.foldsInSection(screen, "streaming", StreamSettings.NETWORK_TESTS_KEY));
+            SettingsStructureTest.settle(screen);
+            screen.moreOpen.remove("streaming");
+            screen.showSection("streaming");
+            SettingsStructureTest.settle(screen);
+            StreamSettings.SettingsFragment folded = (StreamSettings.SettingsFragment) SettingsStructureTest.shown(screen);
+            Preference row = folded.findPreference(StreamSettings.NETWORK_TESTS_KEY);
+            // A folded row is left off the screen until More opens.
+            assertNotNull("shows before More Streaming settings opens", row);
         }
     }
 

@@ -16,7 +16,10 @@ pub const SUMMARY_FRAMES: usize = 120;
 
 pub struct Stages<const N: usize> {
     names: [&'static str; N],
-    frame: [u32; N],
+    /// The frame's totals in nanoseconds. A stage that adds many short spans (the PyroWave push,
+    /// once per network packet) must not lose each span's fraction of a microsecond: rounding every
+    /// span down made a 0.9 us span count 0 and a 1.1 us one count 1.
+    frame: [u64; N],
     counts: [Vec<u32>; N],
     frames: usize,
 }
@@ -33,20 +36,19 @@ impl<const N: usize> Stages<N> {
 
     /// Adds the time since `since` to `stage` of the frame in progress.
     pub fn add(&mut self, stage: usize, since: Instant) {
-        self.frame[stage] = self.frame[stage].saturating_add(since.elapsed().as_micros().min(u128::from(u32::MAX)) as u32);
+        self.frame[stage] = self.frame[stage].saturating_add(nanos(since.elapsed()));
     }
 
     /// Adds the time from `from` to `to` to `stage` of the frame in progress.
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn add_between(&mut self, stage: usize, from: Instant, to: Instant) {
-        let micros = to.saturating_duration_since(from).as_micros().min(u128::from(u32::MAX)) as u32;
-        self.frame[stage] = self.frame[stage].saturating_add(micros);
+        self.frame[stage] = self.frame[stage].saturating_add(nanos(to.saturating_duration_since(from)));
     }
 
     /// Keeps the frame's totals.
     pub fn commit(&mut self) {
         for (counts, total) in self.counts.iter_mut().zip(self.frame) {
-            counts[((total / BUCKET_US) as usize).min(BUCKETS - 1)] += 1;
+            counts[(total / 1000 / u64::from(BUCKET_US)).min(BUCKETS as u64 - 1) as usize] += 1;
         }
         self.frames += 1;
         self.frame = [0; N];
@@ -70,6 +72,10 @@ impl<const N: usize> Stages<N> {
         }).collect();
         Some(format!("(ms p50/p95 over {} frames): {}", self.frames(), parts.join(", ")))
     }
+}
+
+fn nanos(span: std::time::Duration) -> u64 {
+    span.as_nanos().min(u128::from(u64::MAX)) as u64
 }
 
 /// Nearest rank over `n` samples in a histogram: element `min(n - 1, round(p / 100 * (n - 1)))`
@@ -102,7 +108,7 @@ mod tests {
     #[test]
     fn a_summary_can_leave_out_the_last_stages() {
         let mut stages = Stages::new(["a", "b", "c"]);
-        stages.frame = [1500, 0, 0];
+        stages.frame = [1_500_000, 0, 0];
         stages.commit();
         assert_eq!(stages.summary_of(2).unwrap(), "(ms p50/p95 over 1 frames): a 1.50/1.50, b 0.00/0.00");
         assert!(stages.summary().unwrap().ends_with("c 0.00/0.00"));
@@ -112,14 +118,14 @@ mod tests {
     fn frames_add_up_and_the_summary_reports_each_stage() {
         let mut stages = Stages::new(["a", "b"]);
         assert!(stages.summary().is_none());
-        stages.frame = [1500, 0];
+        stages.frame = [1_500_000, 0];
         stages.commit();
-        stages.frame = [2500, 40];
+        stages.frame = [2_500_000, 40_000];
         stages.commit();
         assert_eq!(stages.frames(), 2);
         assert_eq!(stages.summary().unwrap(), "(ms p50/p95 over 2 frames): a 2.50/2.50, b 0.04/0.04");
         // A frame longer than the range counts in the last bucket; memory does not grow.
-        stages.frame = [u32::MAX, 0];
+        stages.frame = [u64::MAX, 0];
         stages.commit();
         assert_eq!(stages.counts[0].len(), BUCKETS);
         assert_eq!(stages.frames(), 3);
@@ -127,8 +133,22 @@ mod tests {
         let start = Instant::now();
         stages.add_between(1, start, start + std::time::Duration::from_micros(250));
         stages.add_between(1, start + std::time::Duration::from_micros(5), start);
-        assert_eq!(stages.frame[1], 250, "a span adds its length; a backwards one adds nothing");
+        assert_eq!(stages.frame[1], 250_000, "a span adds its length; a backwards one adds nothing");
         stages.reset();
         assert_eq!(stages.frame, [0, 0]);
+    }
+
+    #[test]
+    fn many_spans_shorter_than_a_microsecond_add_up() {
+        // The PyroWave push adds one span per network packet, about a thousand a 4K frame, each
+        // well under a microsecond on a fast CPU. Rounded down one by one they counted as nothing.
+        let mut stages = Stages::new(["push"]);
+        let start = Instant::now();
+        for _ in 0..1000 {
+            stages.add_between(0, start, start + std::time::Duration::from_nanos(900));
+        }
+        assert_eq!(stages.frame[0], 900_000);
+        stages.commit();
+        assert_eq!(stages.summary().unwrap(), "(ms p50/p95 over 1 frames): push 0.90/0.90");
     }
 }

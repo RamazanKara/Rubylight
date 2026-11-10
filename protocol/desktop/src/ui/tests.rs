@@ -765,7 +765,7 @@ fn settings_main_rows_are_androids_tiers() {
         assert!(preferences.contains(&format!("android:key=\"{android}\"")), "{desktop} matches Android's {android}, which exists");
         assert!(!DESKTOP_MAIN.contains(&desktop), "{desktop}: Android decides its tier");
     }
-    assert!(main_row("adaptive_bitrate") && main_row("auto_reconnect") && main_row("window_mode"));
+    assert!(main_row("adaptive_bitrate") && main_row("auto_reconnect") && main_row("window_mode") && main_row("network_tests"));
     assert!(!main_row("ui_zoom") && !main_row("usb_forwarding"));
 }
 
@@ -805,6 +805,30 @@ fn settings_show_a_sections_every_row_with_the_rarer_ones_in_groups_after() {
     f.l.edit_overrides.capture(&Settings { client_roaming: false, ..Settings::default() }, &["client_roaming"]);
     f.settle();
     assert!(shows(&f, "Keep streaming when the network changes") && shows(&f, "USB forwarding"), "{:?}", f.drawn);
+}
+
+/// Network tests is one of Streaming's main rows: its group comes right after them, before the
+/// rarer groups, so the frame pace calibration is found without scrolling past Connection.
+#[test]
+fn network_tests_follow_streamings_main_rows() {
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    f.size = vec2(1280.0, 12000.0);
+    f.l.go(Screen::Settings);
+    f.l.settings_view.section = "Streaming";
+    f.settle();
+    for text in ["Network tests", "Network speed test", "PyroWave frame pace"] {
+        assert!(shows(&f, text), "{text}: {:?}", f.drawn);
+    }
+    let y = |text: &str| f.placed.iter().find(|(t, ..)| t == text).unwrap_or_else(|| panic!("{text} placed")).1.top();
+    assert!(y("Recover interrupted streams") < y("Network tests"), "after the main rows");
+    assert!(y("PyroWave frame pace") < y("Connection"), "before the Connection group");
+    // A PC's own page puts them in the same place.
+    let id = f.hosts.list[0].id;
+    f.l.go(Screen::HostSettings(id));
+    f.l.settings_view.section = "Streaming";
+    f.settle();
+    let y = |text: &str| f.placed.iter().find(|(t, ..)| t == text).unwrap_or_else(|| panic!("{text} placed")).1.top();
+    assert!(y("PyroWave frame pace") < y("Connection"));
 }
 
 #[test]
@@ -4445,6 +4469,14 @@ fn glass_page_screenshots() {
         at_rest(&mut f);
         f.shoot(&dir, name);
     }
+    // A dialog over Home: the page blurred under the dim on the live tier, the dim alone on baked.
+    for (name, tier) in [("dialog-live", Tier::Live), ("dialog-baked", Tier::Baked)] {
+        let mut f = library(tier, 1.0, 1, &[]);
+        at_rest(&mut f);
+        f.l.add_host_dialog();
+        at_rest(&mut f);
+        f.shoot(&dir, name);
+    }
     // A running game with no art, one on a shelf too: each game's own tile.
     let mut f = library(Tier::Live, 1.0, 18, &[18, 11, 13]);
     at_rest(&mut f);
@@ -6776,6 +6808,57 @@ fn a_panel_blurs_the_whole_screen_from_the_pass_after_it_opens() {
     f.waking = None;
     f.frame(vec![]);
     assert!(blurred_share(&f) < 0.5, "and the bar alone once it is gone");
+}
+
+/// A dialog over the launcher blurs the page under its dim on the live tier, as Android's
+/// `PageBlur` does: the live chain's own output in one quad over the screen, past the chain's
+/// boundary (so the chain never blurs it again) and under the bar, which stays itself, both under
+/// the dim. The baked tier, which every stream's frames use, keeps the dim alone.
+#[test]
+fn a_dialog_blurs_the_page_under_the_bar_and_its_dim_on_the_live_tier_only() {
+    use crate::live_glass::{Boundary, Tier, LIVE_BACKDROP};
+    #[derive(Debug)]
+    enum Painted { Boundary, Blur(Rect), Fill(Color32, Rect), Text(String) }
+    fn walk(shape: &egui::Shape, out: &mut Vec<Painted>) {
+        match shape {
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, out)),
+            egui::Shape::Mesh(mesh) if mesh.texture_id == LIVE_BACKDROP => out.push(Painted::Blur(mesh.calc_bounds())),
+            egui::Shape::Rect(rect) => out.push(Painted::Fill(rect.fill, rect.rect)),
+            egui::Shape::Text(text) => out.push(Painted::Text(text.galley.text().to_owned())),
+            egui::Shape::Callback(call) if (call.callback.as_ref() as &dyn std::any::Any).is::<Boundary>() => out.push(Painted::Boundary),
+            _ => {}
+        }
+    }
+    for tier in [Tier::Live, Tier::Baked] {
+        let mut f = Frames::new(record("PC", true, false), Reach::Online);
+        crate::live_glass::set_tier(&f.ctx, tier);
+        f.settle();
+        let screen = Rect::from_min_size(Pos2::ZERO, f.size).shrink(1.0);
+        let painted = |f: &Frames| {
+            let mut out = Vec::new();
+            f.shapes.iter().for_each(|clipped| walk(&clipped.shape, &mut out));
+            out
+        };
+        let page = |p: &[Painted]| p.iter().position(|p| matches!(p, Painted::Blur(rect) if rect.contains_rect(screen)));
+        let dim = |p: &[Painted]| p.iter().position(|p| matches!(p, Painted::Fill(fill, rect) if *fill == super::widgets::DIALOG_SCRIM && rect.contains_rect(screen)));
+        assert_eq!(page(&painted(&f)), None, "{tier:?}: no dialog, no blur");
+        f.l.add_host_dialog();
+        // The dim fades in over a few frames; read it once it has.
+        f.settle();
+        f.settle();
+        let p = painted(&f);
+        let dim = dim(&p).unwrap_or_else(|| panic!("{tier:?}: the dim stays: {p:?}"));
+        match tier {
+            Tier::Live => {
+                let page = page(&p).expect("the page is blurred");
+                let boundary = p.iter().position(|p| matches!(p, Painted::Boundary)).expect("the chain's boundary");
+                assert!(boundary < page && page < dim, "past the boundary, under the dim: {p:?}");
+                // The bar's own text is painted over the blur, and dimmed with it.
+                assert!(p[page..dim].iter().any(|p| matches!(p, Painted::Text(text) if !text.is_empty())), "the bar over the blur: {p:?}");
+            }
+            _ => assert_eq!(page(&p), None, "{tier:?}: the dim alone"),
+        }
+    }
 }
 
 #[test]

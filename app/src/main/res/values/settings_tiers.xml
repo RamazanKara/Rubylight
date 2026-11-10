@@ -39,6 +39,7 @@
     <string-array name="settings_tier_streaming" translatable="false">
         <item>checkbox_enable_perf_overlay</item>
         <item>checkbox_auto_reconnect</item>
+        <item>network_tests</item>
     </string-array>
     <string-array name="settings_tier_app" translatable="false">
         <item>checkbox_always_dark</item>

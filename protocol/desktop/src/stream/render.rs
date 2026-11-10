@@ -20,6 +20,17 @@ fn setup_size(setup: &session::VideoSetup) -> (i32, i32) {
 /// stream both 1920 wide, and the PC's old pictures are on their way for a while.
 const SWITCH_GRACE: Duration = Duration::from_secs(1);
 
+/// The patched SDL GPU renderer's properties for video-only frames and read-backs
+/// (`vendor/sdl3-src/patches/window-target.patch`, `GPU_FrameEligible`).
+#[cfg(target_os = "linux")]
+const VIDEO_ONLY_PROPERTY: &std::ffi::CStr = c"SDL.renderer.gpu.video_only";
+#[cfg(target_os = "linux")]
+const VIDEO_ONLY_FRAME_PROPERTY: &std::ffi::CStr = c"SDL.renderer.gpu.video_only_frame";
+#[cfg(target_os = "linux")]
+const VIDEO_ONLY_DROPPED_PROPERTY: &std::ffi::CStr = c"SDL.renderer.gpu.video_only_dropped_draws";
+#[cfg(target_os = "linux")]
+const READ_BACK_PROPERTY: &std::ffi::CStr = c"SDL.renderer.gpu.read_back";
+
 /// The sizes a decoded picture may be of, to show it without an encoder's alignment padding
 /// (`crop::visible_size`): the size last asked of the PC, the one the stream is at, and for
 /// `SWITCH_GRACE` after a change the one before it.
@@ -390,22 +401,81 @@ impl Streaming {
         false
     }
 
+    /// Clears the window's target for a frame, black. On a PQ output, a frame that will draw only
+    /// the picture with the plane pass (`unscaled`, nothing of the overlay's) asks the patched SDL
+    /// for a video-only frame (`present::VideoOnly`): SDL settles it on the frame's first run of
+    /// commands on the window's target, which the flush of the clear is (a clear takes no swapchain
+    /// image, so V-Sync's wait stays at the frame's first draw). The property is true only around
+    /// that flush, so nothing else (the launcher, a later frame) inherits it; the plane pass writes
+    /// PQ only when SDL reports the frame video only, and scRGB otherwise.
+    ///
+    /// # Safety
+    /// `renderer` is the live renderer of the presenting thread.
+    #[cfg(target_os = "linux")]
+    unsafe fn clear_window(&mut self, renderer: *mut SDL_Renderer, unscaled: bool) {
+        let props = SDL_GetRendererProperties(renderer);
+        let frame = present::VideoOnlyFrame {
+            pq_output: crate::sdl::output_decision() == Some(Ok(crate::handheld::Output::Pq)),
+            planes_direct: unscaled && self.texture.draws_planes_direct(),
+            // What `draw_overlay` in main.rs draws nothing for.
+            nothing_else: !self.overlay_visible && self.toast.is_none() && !self.menu_visible
+                && self.facts.role != nightjar_core::http::AppRole::InputOnly,
+            read_back: SDL_GetBooleanProperty(props, READ_BACK_PROPERTY.as_ptr(), false),
+        };
+        let (asked, line) = self.texture.video_only().wanted(frame, session::now_us());
+        if let Some(line) = line { eprintln!("{line}"); }
+        if asked {
+            SDL_SetBooleanProperty(props, VIDEO_ONLY_FRAME_PROPERTY.as_ptr(), false);
+            SDL_SetBooleanProperty(props, VIDEO_ONLY_PROPERTY.as_ptr(), true);
+        }
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+        SDL_RenderClear(renderer);
+        let mut pq_target = false;
+        if asked {
+            // SDL_FlushRenderer's failure leaves the frame undecided, which the reset below settles
+            // as not video only; the settled value says which it was either way.
+            SDL_FlushRenderer(renderer);
+            SDL_SetBooleanProperty(props, VIDEO_ONLY_PROPERTY.as_ptr(), false);
+            pq_target = SDL_GetBooleanProperty(props, VIDEO_ONLY_FRAME_PROPERTY.as_ptr(), false);
+            if let Some(line) = self.texture.video_only().settled(pq_target) { eprintln!("{line}"); }
+        }
+        self.texture.set_pq_target(pq_target);
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    unsafe fn clear_window(&mut self, renderer: *mut SDL_Renderer, _unscaled: bool) {
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+        SDL_RenderClear(renderer);
+    }
+
+    /// After a present: a video-only frame in which SDL dropped draws of its own holds video-only
+    /// frames off (`present::VideoOnly::presented`).
+    #[cfg(target_os = "linux")]
+    fn video_only_presented(&mut self, renderer: *mut SDL_Renderer) {
+        self.texture.set_pq_target(false);
+        // SAFETY: a live renderer and a property name constant.
+        let dropped = unsafe { SDL_GetNumberProperty(SDL_GetRendererProperties(renderer), VIDEO_ONLY_DROPPED_PROPERTY.as_ptr(), 0) };
+        if let Some(line) = self.texture.video_only().presented(dropped, session::now_us()) { eprintln!("{line}"); }
+    }
+
     /// Draws the texture and the overlay and presents. `probe` reads the beam around the present.
     fn render_flip(&mut self, renderer: *mut SDL_Renderer, draw_overlay: &mut impl FnMut(&mut Self, *mut SDL_Renderer), probe: bool) -> Flipped {
         // SAFETY: drawing on a live renderer.
         unsafe {
-            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-            SDL_RenderClear(renderer);
             let (mut w, mut h) = (0, 0);
             SDL_GetCurrentRenderOutputSize(renderer, &mut w, &mut h);
             let dst = viewport(self.texture.size(), (w, h), self.settings.video_scaling, self.settings.align_video_top);
+            let output = (dst.w as i32, dst.h as i32);
+            let input = self.texture.size();
+            let use_upscaler = self.settings.upscaling.is_shader() && !self.upscale_failed
+                && !self.texture.is_hdr() && output.0 >= input.0 && output.1 >= input.1 && output != input
+                && output.0 <= 16384 && output.1 <= 16384;
+            // The video texture's picture goes into the window's target as it is, by the plane
+            // pass or SDL, not through an upscaler or AI enhancement.
+            let unscaled = !self.texture.texture.is_null() && !use_upscaler && self.settings.upscaling != config::Upscaling::Ai;
+            self.clear_window(renderer, unscaled);
             if !self.texture.texture.is_null() {
                 let mut texture = self.texture.texture;
-                let output = (dst.w as i32, dst.h as i32);
-                let input = self.texture.size();
-                let use_upscaler = self.settings.upscaling.is_shader() && !self.upscale_failed
-                    && !self.texture.is_hdr() && output.0 >= input.0 && output.1 >= input.1 && output != input
-                    && output.0 <= 16384 && output.1 <= 16384;
                 if self.settings.upscaling == config::Upscaling::Ai {
                     // AI enhancement reads the YUV picture in the video texture.
                     self.texture.copy_held();
@@ -486,7 +556,10 @@ impl Streaming {
         };
         let returned_us = session::now_us();
         #[cfg(target_os = "linux")]
-        self.window_target.after_present(crate::sdl::window_target_frames(renderer));
+        {
+            self.window_target.after_present(crate::sdl::window_target_frames(renderer));
+            self.video_only_presented(renderer);
+        }
         if !mode_tears {
             self.direct_motion.presenting(None);
         }

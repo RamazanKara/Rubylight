@@ -275,6 +275,7 @@
     <string name="title_yuv444">Preferuj YUV 4:4:4</string>
     <string name="summary_yuv444">Ostrzejszy kolorowy tekst, gdy komputer i to urządzenie to obsługują. HDR ma pierwszeństwo.</string>
     <string name="yuv444_fallback">YUV 4:4:4 niedostępne; używane jest 4:2:0.</string>
+    <string name="yuv444_fallback_hdr">YUV 4:4:4 niedostępne; używane jest 4:2:0. HDR ma pierwszeństwo.</string>
     <string name="title_virtual_display">Wirtualny ekran hosta</string>
     <string name="summary_virtual_display">Poproś komputer o ekran dopasowany do strumienia. Wył.: decydują ustawienia ekranu komputera.</string>
     <string name="title_vrr">Adaptacyjne odświeżanie (ARR / VRR)</string>

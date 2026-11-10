@@ -265,8 +265,14 @@ pub struct Settings {
     pub quality_min_fps: u32,
     pub codec: CodecPreference,
     pub hdr: bool,
+    /// "HDR brightness follows the desktop" (Linux): an HDR stream on a Wayland desktop scales
+    /// with the desktop's brightness instead of showing at the brightness the PC sends
+    /// (`stream::wl_scanout::Brightness`). Off: the PC's absolute brightness, which HDR10 means
+    /// and direct scanout needs.
+    pub hdr_desktop_brightness: bool,
     pub experimental_packed_444: bool,
-    /// "Prefer YUV 4:4:4" (Experimental): offers the 8-bit 4:4:4 formats (`color::offer`).
+    /// "Prefer YUV 4:4:4" (Experimental): offers the 8-bit 4:4:4 formats, and with `sdr_10bit`
+    /// HEVC 4:4:4 10-bit (`color::offer`).
     pub prefer_yuv444: bool,
     /// "10-bit color (SDR)" (Experimental): offers Main10 without asking for HDR.
     pub sdr_10bit: bool,
@@ -792,6 +798,7 @@ impl Default for Settings {
             quality_min_fps: 30,
             codec: CodecPreference::Auto,
             hdr: false,
+            hdr_desktop_brightness: false,
             experimental_packed_444: false,
             prefer_yuv444: false,
             sdr_10bit: false,
@@ -955,6 +962,9 @@ pub struct HostRecord {
     pub http_port: u16,
     pub https_port: u16,
     pub other_addresses: Vec<String>,
+    /// Other HTTP ports at its addresses that answered with this PC's unique ID, from a listing
+    /// of it there that was merged into this one: a sighting at one of them is this PC.
+    pub other_http_ports: Vec<u16>,
     /// The known address the user chose to always connect through, or None for the automatic
     /// pick (`address` first, then `other_addresses`), as Moonlight V+ PC's `pinnedAddress`.
     pub pinned_address: Option<String>,
@@ -978,10 +988,15 @@ pub struct HostRecord {
     pub quit_on_leave: BTreeSet<String>,
     /// The once-per-PC notices already shown for this PC, by Android's `HostNotices` names.
     pub notices: BTreeSet<String>,
+    /// What this PC's answers to full chroma left: its last offered modes and whether it refused
+    /// the last stream that asked (Android's `HostPackedModes`).
+    pub full_chroma: nightjar_core::full_chroma::Memory,
 }
 
 /// PyroWave was chosen and a stream from this PC ran another codec.
 pub const NOTICE_PYROWAVE_FALLBACK: &str = "PYROWAVE_FALLBACK";
+/// Full chroma is on and a stream from this PC starts without it: the PC or this device cannot do it.
+pub const NOTICE_PACKED_UNAVAILABLE: &str = "PACKED_UNAVAILABLE";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaceCalibration {
@@ -2411,6 +2426,21 @@ mod tests {
         assert!(!overrides.needs_gpu());
         overrides.0.insert("sdr_10bit".into(), serde_json::json!(true));
         assert!(overrides.needs_gpu());
+    }
+
+    #[test]
+    fn hdr_brightness_is_the_pcs_by_default_and_a_pc_can_follow_the_desktop() {
+        assert!(!Settings::default().hdr_desktop_brightness, "absolute: what HDR10 means and direct scanout needs");
+        let old: Settings = serde_json::from_str("{\"hdr\": true}").unwrap();
+        assert!(!old.hdr_desktop_brightness, "an older file gets the default");
+        let on: Settings = serde_json::from_str("{\"hdr_desktop_brightness\": true}").unwrap();
+        assert!(on.hdr_desktop_brightness);
+        let saved = serde_json::to_value(&on).unwrap();
+        assert_eq!(saved["hdr_desktop_brightness"], serde_json::json!(true), "saved under its own key");
+        let mut overrides = Overrides::default();
+        overrides.0.insert("hdr_desktop_brightness".into(), serde_json::json!(true));
+        assert!(overrides.apply(&Settings::default()).hdr_desktop_brightness, "a PC's own setting");
+        assert!(!overrides.needs_gpu(), "the renderer HDR takes is enough");
     }
 
     #[test]

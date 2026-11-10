@@ -39,6 +39,11 @@ libc = "0.2"
 
 # priority.rs: the desktop portal's and RealtimeKit's thread raise when setpriority is refused;
 # the features the desktop's zbus already has.
+# UDP receive coalescing on the video socket (session/net.rs): WSARecvMsg and its options. The
+# windows-sys the workspace already locks.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock", "Win32_System_IO"] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "5.19", default-features = false, features = ["tokio", "blocking-api"] }
 

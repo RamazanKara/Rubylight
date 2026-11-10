@@ -2175,30 +2175,45 @@ public class GameRecoveryTest {
                 MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED);
     }
 
+    // Nightjar #88: a refusal in the handshake after the launch went through the delayed, resume-only recovery.
     @Test
     @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
-    public void aFullChromaRefusalAtStartReconnectsOnceWithoutItInsteadOfAnError() throws Exception {
+    public void aFullChromaRefusalAfterTheLaunchStartsTheSameStreamAgainWithoutIt() throws Exception {
         // Also on a startup retry, where a transient-looking failure would otherwise retry as it was.
         for (int attempts : new int[] {0, 1}) {
             Game game = recoveryGame();
             long started = SystemClock.elapsedRealtime();
-            game.setIntent(new Intent().putExtra("RecoveryAttempts", attempts).putExtra("RecoveryStarted", started));
+            game.setIntent(new Intent().putExtra("RecoveryAttempts", attempts).putExtra("RecoveryStarted", started)
+                    .putExtra(Game.EXTRA_APP_ID, 73).putExtra(Game.EXTRA_PC_UUID, "pc-88"));
             ReflectionHelpers.setField(game, "recoveryPolicy", new StreamRecoveryPolicy(attempts, started));
             PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
             config.autoReconnect = false;
             RecoveryBridge.connectivityTests = 0;
+            org.robolectric.shadows.ShadowToast.reset();
             try {
                 refuseFullChromaAtStart(game);
                 assertNull("no error dialog", ReflectionHelpers.getField(game, "streamMenu"));
+                assertNull("no delayed recovery", ReflectionHelpers.getField(game, "pendingRecovery"));
                 assertEquals("not a network failure", 0, RecoveryBridge.connectivityTests);
-                // The usual backoff: 1 s, then 2 s.
-                Intent retry = awaitRecoveryLaunch(game, attempts + 1);
-                assertTrue(retry.getBooleanExtra("PackedChromaOff", false));
-                assertEquals(attempts + 1, retry.getIntExtra("RecoveryAttempts", 0));
+                // The same start again: it finds the game it launched running and resumes it.
+                Intent again = awaitStartedActivity(game);
+                assertTrue(again.getBooleanExtra("PackedChromaOff", false));
+                assertEquals(73, again.getIntExtra(Game.EXTRA_APP_ID, 0));
+                assertEquals("not counted as a recovery", attempts, again.getIntExtra("RecoveryAttempts", 0));
+                // Said every time: this restart is slower than one decided before the launch.
+                assertEquals(1, org.robolectric.shadows.ShadowToast.shownToastCount());
             } finally {
                 cleanupRecovery(game);
             }
         }
+    }
+
+    @Test
+    public void onlyAStartThatLaunchedBesideTheGameReconnectsAfterAFullChromaRefusal() {
+        assertTrue(com.limelight.binding.video.PackedFallback.restartsAsTheSameStart(true, true));
+        assertTrue(com.limelight.binding.video.PackedFallback.restartsAsTheSameStart(true, false));
+        assertTrue(com.limelight.binding.video.PackedFallback.restartsAsTheSameStart(false, false));
+        assertFalse(com.limelight.binding.video.PackedFallback.restartsAsTheSameStart(false, true));
     }
 
     @Test

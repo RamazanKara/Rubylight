@@ -30,6 +30,17 @@ public final class PackedFallback {
         return setting && !sessionUnpacked;
     }
 
+    /**
+     * Whether a start refused full chroma is made again as it was, without it: always when it was
+     * ruled out before the launch, since nothing runs on the PC yet; after the launch (refused in
+     * the handshake) when repeating the launch resumes the game it started. A start that launches
+     * beside the PC's game (a control action, Microphone only) would run again, so it reconnects to
+     * the running game instead.
+     */
+    public static boolean restartsAsTheSameStart(boolean refusedBeforeLaunch, boolean launchesBesideRunningGame) {
+        return refusedBeforeLaunch || !launchesBesideRunningGame;
+    }
+
     /** Short on purpose: the reason goes to the log, a long toast is cut off. */
     public static String toast() {
         return "Full chroma stopped. Reconnecting without it.";

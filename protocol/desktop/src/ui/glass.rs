@@ -234,6 +234,54 @@ pub fn boundary(painter: &Painter, regions: Vec<Rect>) {
     }
 }
 
+fn page_slot_id() -> Id {
+    Id::unique("nightjar-glass-page-slot")
+}
+
+/// The place [`keep_page_slot`] kept: the pass it is for, its layer and its index there.
+type PageSlot = Option<(u64, egui::LayerId, egui::layers::ShapeIdx)>;
+
+/// Keeps a place right after the boundary, under the chrome `painter` paints after it, for the
+/// blurred page a dialog asks for ([`page_behind`]). Only on the live tier; for this pass only.
+pub fn keep_page_slot(painter: &Painter) {
+    let ctx = painter.ctx();
+    let slot: PageSlot = (tier(ctx) == Tier::Live)
+        .then(|| (ctx.cumulative_pass_nr(), painter.layer_id(), painter.add(Shape::Noop)));
+    ctx.data_mut(|d| d.insert_temp(page_slot_id(), slot));
+}
+
+/// The page behind a dialog, blurred as the panel's glass sees it (Android's `PageBlur`): the
+/// live chain's output over the whole screen, which the chain already blurs whole while a dialog
+/// is up (`Launcher::panel_is_up`), so this costs one textured quad and no pass of its own. It
+/// goes into the place the chrome kept under itself ([`keep_page_slot`]): past the boundary, so
+/// the chain never blurs it again, and under the bar, which stays itself above it, both under the
+/// dialog's dim. `opacity`: the dialog's own fade. Only on the live tier, which is never over a
+/// stream's video, and only in a pass that kept the place. True when it drew.
+pub fn page_behind(ctx: &Context, opacity: f32) -> bool {
+    if tier(ctx) != Tier::Live {
+        return false;
+    }
+    let slot = ctx
+        .data(|d| d.get_temp::<PageSlot>(page_slot_id()))
+        .flatten();
+    let Some((_, layer, idx)) = slot.filter(|(pass, ..)| *pass == ctx.cumulative_pass_nr()) else {
+        return false;
+    };
+    let screen = ctx.content_rect();
+    let mut out = Vec::new();
+    image(
+        &mut out,
+        ctx,
+        screen,
+        0.0,
+        LIVE_BACKDROP,
+        uv_in(screen, screen),
+        Color32::WHITE.gamma_multiply(opacity),
+    );
+    ctx.layer_painter(layer).set(idx, Shape::Vec(out));
+    true
+}
+
 fn ppp(ctx: &Context) -> f32 {
     ctx.pixels_per_point().max(0.25)
 }

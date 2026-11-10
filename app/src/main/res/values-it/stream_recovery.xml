@@ -8,4 +8,5 @@
     <string name="stream_recovery_exhausted">Il recupero automatico non è riuscito a riconnettersi entro un minuto. Il gioco non è stato chiuso. Controlla la connessione, poi scegli Riconnetti per riprovare.</string>
     <string name="stream_recovery_paused">Il recupero automatico si è fermato quando hai lasciato lo stream. Scegli Riconnetti per continuare.</string>
     <string name="stream_stop_timeout">La connessione precedente non è ancora chiusa. Riprova tra un momento.</string>
+    <string name="startup_launch_timeout">Il PC non ha risposto all’avvio entro %1$d secondi. Riprova o controlla cosa sta facendo il PC.</string>
 </resources>

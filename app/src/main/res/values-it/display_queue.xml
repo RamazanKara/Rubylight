@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_display_queue_recovery">Recupera il ritardo della coda di visualizzazione</string>
+    <string name="summary_display_queue_recovery">Con il ritmo dei fotogrammi Latenza minima o Bilanciato: quando lo schermo trattiene un fotogramma un intero aggiornamento più del necessario per questo stream, un fotogramma viene saltato per eliminare quel ritardo. Ogni salto viene verificato e si ferma per lo stream se non cambia nulla. Solo sui dispositivi che segnalano quando i fotogrammi vengono mostrati.</string>
+</resources>

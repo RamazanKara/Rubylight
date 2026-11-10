@@ -274,20 +274,22 @@ public final class ActionSheet extends BottomSheetDialog {
             setContentView(body);
         }
         setOnKeyListener((dialog, key, event) -> {
-            if (!event.hasNoModifiers()) return false;
             if (key != android.view.KeyEvent.KEYCODE_ESCAPE && key != android.view.KeyEvent.KEYCODE_BUTTON_B) {
-                if (keyHandler == null) return false;
-                // The release of a key the handler took goes with it, so nothing below sees half a press.
-                if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
-                    if (event.getRepeatCount() > 0) return handledKeys.contains(key);
-                    if (keyHandler.test(key)) {
-                        handledKeys.add(key);
+                if (keyHandler != null && event.hasNoModifiers()) {
+                    // The release of a key the handler took goes with it, so nothing below sees half a press.
+                    if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+                        if (event.getRepeatCount() > 0 ? handledKeys.contains(key) : keyHandler.test(key)) {
+                            handledKeys.add(key);
+                            return true;
+                        }
+                    } else if (event.getAction() == android.view.KeyEvent.ACTION_UP && handledKeys.remove(key)) {
                         return true;
                     }
-                    return false;
                 }
-                return event.getAction() == android.view.KeyEvent.ACTION_UP && handledKeys.remove(key);
+                // A Y the sheet has no tile for would come back as Space and press the focused action (Nightjar #81).
+                return UiNavigation.swallowsPadY(key, getCurrentFocus());
             }
+            if (!event.hasNoModifiers()) return false;
             if (event.getAction() == android.view.KeyEvent.ACTION_UP && !event.isCanceled()) {
                 if (pageBack.isEnabled()) pageBack.handleOnBackPressed();
                 else dismiss();

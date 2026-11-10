@@ -8,4 +8,5 @@
     <string name="stream_recovery_exhausted">自動恢復無法在一分鐘內重新連線。你的遊戲並未結束。請檢查連線，然後選擇「重新連線」再試一次。</string>
     <string name="stream_recovery_paused">你離開串流後，自動恢復已停止。選擇「重新連線」即可繼續。</string>
     <string name="stream_stop_timeout">上一個連線尚未關閉。請稍後再試。</string>
+    <string name="startup_launch_timeout">電腦在 %1$d 秒內沒有回應啟動。請重試，或檢查電腦的狀態。</string>
 </resources>

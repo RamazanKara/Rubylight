@@ -625,9 +625,6 @@ pub struct Hosts {
     pairing_generation: u64,
     /// The certificate a pairing link named, for each record it was opened on.
     link_claims: HashMap<u64, [u8; 32]>,
-    /// Addresses and ports that answered as a PC listed under another port, with that PC's ID:
-    /// a sighting there is that PC, not a new one every time. Until Nightjar closes.
-    same_pc: HashMap<(String, u16), u64>,
     /// Hosts whose live library changed since the last `take_library_saves`.
     library_saves: Vec<u64>,
     /// The threads covers load on.
@@ -1080,7 +1077,6 @@ impl Hosts {
             pairing: None,
             pairing_generation: 0,
             link_claims: HashMap::new(),
-            same_pc: HashMap::new(),
             library_saves: Vec::new(),
             art_pool: ArtPool::default(),
             art_files: Arc::default(),
@@ -1251,12 +1247,17 @@ impl Hosts {
         Some(daemon)
     }
 
-    /// Adds a host by address and checks it at once. Returns its ID.
+    /// Adds a host by address and checks it at once. Returns its ID. No port is the default one,
+    /// as a PC is an address and a port: a PC listed there under another port is another PC.
     pub fn add_manual(&mut self, address: &str, port: Option<u16>) -> u64 {
-        if let Some(host) = self.list.iter_mut().find(|h| {
-            h.record.address.eq_ignore_ascii_case(address)
-                && port.is_none_or(|p| http_port(p) == http_port(h.record.http_port))
-        }) {
+        let wanted = http_port(port.unwrap_or(DEFAULT_HTTP_PORT));
+        let here = |h: &Host| h.record.address.eq_ignore_ascii_case(address);
+        let listed = self
+            .list
+            .iter()
+            .position(|h| here(h) && http_port(h.record.http_port) == wanted)
+            .or_else(|| self.list.iter().position(|h| here(h) && h.record.other_http_ports.contains(&wanted)));
+        if let Some(host) = listed.map(|at| &mut self.list[at]) {
             host.record.manual = true;
             let id = host.id;
             self.poll_one(id);
@@ -1332,7 +1333,6 @@ impl Hosts {
     pub fn remove(&mut self, id: u64) {
         self.list.retain(|h| h.id != id);
         self.link_claims.remove(&id);
-        self.same_pc.retain(|_, pc| *pc != id);
     }
 
     /// Checks every host that is due.
@@ -2454,14 +2454,15 @@ impl Hosts {
                 };
                 let dropped = self.list[drop].record.clone();
                 let keep_id = self.list[keep].id;
-                // The PC keeps the port it is listed under. It answered on this one too, so a
-                // sighting here is that PC from now on.
-                if http_port(dropped.http_port) != http_port(self.list[keep].record.http_port) {
-                    for a in std::iter::once(&dropped.address).chain(&dropped.other_addresses) {
-                        self.same_pc.insert((a.clone(), http_port(dropped.http_port)), keep_id);
+                let kept = &mut self.list[keep].record;
+                // The PC keeps the port it is listed under. It answered on the dropped one's too,
+                // so a sighting there is that PC from now on, also after Nightjar restarts.
+                let own = http_port(kept.http_port);
+                for port in std::iter::once(dropped.http_port).chain(dropped.other_http_ports.iter().copied()).map(http_port) {
+                    if port != own && !kept.other_http_ports.contains(&port) {
+                        kept.other_http_ports.push(port);
                     }
                 }
-                let kept = &mut self.list[keep].record;
                 kept.manual |= dropped.manual;
                 if kept.alias.is_none() {
                     kept.alias = dropped.alias;
@@ -2525,6 +2526,8 @@ impl Hosts {
                     // Another PC answers at this address: what the old one said and allowed is not its.
                     if !host.record.unique_id.is_empty() {
                         host.record.notices.clear();
+                        host.record.other_http_ports.clear();
+                        host.record.full_chroma = Default::default();
                     }
                     host.native = Native::default();
                     host.native_epoch += 1;
@@ -2583,17 +2586,12 @@ impl Hosts {
         // second host on that machine, or one added by hand with its own port), until it
         // answers with a listed PC's unique ID.
         let port = http_port(port);
+        let at_address = |h: &Host| texts.contains(&h.record.address) || h.record.other_addresses.iter().any(|a| texts.contains(a));
         let listed = self
             .list
             .iter()
-            .position(|h| {
-                http_port(h.record.http_port) == port
-                    && (texts.contains(&h.record.address) || h.record.other_addresses.iter().any(|a| texts.contains(a)))
-            })
-            .or_else(|| {
-                let id = texts.iter().find_map(|a| self.same_pc.get(&(a.clone(), port)))?;
-                self.list.iter().position(|h| h.id == *id)
-            });
+            .position(|h| http_port(h.record.http_port) == port && at_address(h))
+            .or_else(|| self.list.iter().position(|h| h.record.other_http_ports.contains(&port) && at_address(h)));
         if let Some(host) = listed.map(|at| &mut self.list[at]) {
             if host.record.name.is_empty() {
                 host.record.name = name;
@@ -3112,6 +3110,79 @@ pub(crate) mod tests {
         assert_eq!((hosts.list.len(), hosts.list[0].record.name.as_str(), hosts.list[0].record.manual), (1, "Desk", true));
     }
 
+    // A PC that answered on a second port with its unique ID stays that PC there after Nightjar
+    // restarts: the port is saved with it, so the next run lists no passing duplicate.
+    #[test]
+    fn a_port_that_answered_as_a_listed_pc_is_saved_with_it() {
+        let mut record = paired_record("uid");
+        record.http_port = 48989;
+        let mut hosts = Hosts::without_discovery(vec![record], Arc::new(|| {}));
+        let known = hosts.list[0].id;
+        sight(&mut hosts, "Desk", "192.0.2.1", 0);
+        let seen = hosts.list[1].id;
+        info_lands(&mut hosts, seen, native_info_of("uid", true));
+        assert_eq!(hosts.list.len(), 1);
+        assert_eq!((hosts.list[0].id, hosts.list[0].record.http_port), (known, 48989));
+        assert_eq!(hosts.list[0].record.other_http_ports, [DEFAULT_HTTP_PORT]);
+        // Seen and merged there again, the port is listed once.
+        sight(&mut hosts, "Desk", "192.0.2.1", 0);
+        assert_eq!((hosts.list.len(), hosts.list[0].record.other_http_ports.len()), (1, 1));
+
+        let saved = serde_json::to_string(&hosts.records()).unwrap();
+        let records: Vec<HostRecord> = serde_json::from_str(&saved).unwrap();
+        let mut hosts = Hosts::without_discovery(records, Arc::new(|| {}));
+        for port in [0, DEFAULT_HTTP_PORT] {
+            sight(&mut hosts, "Desk", "192.0.2.1", port);
+        }
+        assert_eq!(hosts.list.len(), 1, "the next run knows the port too");
+        assert_eq!(hosts.add_manual("192.0.2.1", None), hosts.list[0].id, "added by hand there, it is that PC too");
+        assert_eq!(hosts.list.len(), 1);
+        // Another port there is still another PC.
+        sight(&mut hosts, "Den", "192.0.2.1", 50000);
+        assert_eq!(hosts.list.len(), 2);
+
+        // A hosts file from before the field loads with none.
+        let old: Vec<HostRecord> = serde_json::from_str(r#"[{"address":"192.0.2.1","http_port":48989,"manual":true}]"#).unwrap();
+        assert!(old[0].other_http_ports.is_empty());
+    }
+
+    // The ports go with the PC that answered there: another PC answering at its address has none.
+    #[test]
+    fn another_pc_at_the_address_drops_the_saved_ports() {
+        let mut record = paired_record("uid");
+        record.other_http_ports = vec![DEFAULT_HTTP_PORT];
+        record.http_port = 48989;
+        let mut hosts = Hosts::without_discovery(vec![record], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        info_lands(&mut hosts, id, native_info_of("another", false));
+        assert!(hosts.list[0].record.other_http_ports.is_empty());
+        sight(&mut hosts, "Desk", "192.0.2.1", DEFAULT_HTTP_PORT);
+        assert_eq!(hosts.list.len(), 2);
+    }
+
+    // Added by hand without a port is the PC at the default port, never one listed at that
+    // address under another port.
+    #[test]
+    fn a_pc_added_by_hand_without_a_port_is_the_one_at_the_default_port() {
+        let mut hosts = Hosts::without_discovery(Vec::new(), Arc::new(|| {}));
+        let other = hosts.add_manual("192.0.2.1", Some(48989));
+        let plain = hosts.add_manual("192.0.2.1", None);
+        assert_ne!(plain, other);
+        assert_eq!(hosts.get(plain).unwrap().record.http_port, DEFAULT_HTTP_PORT);
+        assert_eq!(hosts.add_manual("192.0.2.1", None), plain);
+        assert_eq!(hosts.add_manual("192.0.2.1", Some(DEFAULT_HTTP_PORT)), plain);
+        assert_eq!(hosts.add_manual("192.0.2.1", Some(48989)), other);
+        assert_eq!(hosts.list.len(), 2);
+        // Discovery at the default port finds the one added without a port.
+        sight(&mut hosts, "Desk", "192.0.2.1", 0);
+        assert_eq!((hosts.list.len(), hosts.get(plain).unwrap().record.name.as_str()), (2, "Desk"));
+
+        // Saved as 0 by an older build, a PC added without a port is still that one.
+        let mut hosts = Hosts::without_discovery(vec![HostRecord { address: "192.0.2.1".into(), manual: true, ..Default::default() }], Arc::new(|| {}));
+        assert_eq!(hosts.add_manual("192.0.2.1", None), hosts.list[0].id);
+        assert_eq!(hosts.list.len(), 1);
+    }
+
     // Test speed goes to a Sunshine-family PC only once it said it has Foundation's test; stock
     // Sunshine, Apollo and Vibepollo do not. Rubylight keeps its own test without asking.
     #[test]
@@ -3152,6 +3223,7 @@ pub(crate) mod tests {
             http_port: 0,
             https_port: 0,
             other_addresses: Vec::new(),
+            other_http_ports: Vec::new(),
             pinned_address: None,
             remote_address: None,
             server_certificate: Some("pem".into()),
@@ -3163,6 +3235,7 @@ pub(crate) mod tests {
             app_settings: Default::default(),
             quit_on_leave: Default::default(),
             notices: Default::default(),
+            full_chroma: Default::default(),
         }
     }
 

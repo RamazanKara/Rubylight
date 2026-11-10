@@ -1620,6 +1620,7 @@ dependencies = [
  "serde",
  "serde_json",
  "socket2 0.5.10",
+ "windows-sys 0.61.2",
  "zbus",
 ]
 

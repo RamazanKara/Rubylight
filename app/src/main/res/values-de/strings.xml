@@ -275,6 +275,7 @@
     <string name="title_yuv444">YUV 4:4:4 bevorzugen</string>
     <string name="summary_yuv444">Schärferer farbiger Text, wenn PC und Gerät es unterstützen. HDR hat Vorrang.</string>
     <string name="yuv444_fallback">YUV 4:4:4 nicht verfügbar; nutze 4:2:0.</string>
+    <string name="yuv444_fallback_hdr">YUV 4:4:4 nicht verfügbar; nutze 4:2:0. HDR hat Vorrang.</string>
     <string name="title_virtual_display">Virtuelles Host-Display</string>
     <string name="summary_virtual_display">Fordert am PC ein Display passend zum Stream an. Aus: Die Display-Einstellungen des PCs entscheiden.</string>
     <string name="title_vrr">Adaptive Bildwiederholrate (ARR / VRR)</string>

@@ -64,6 +64,9 @@ public final class NavigationDialogBuilder extends MaterialAlertDialogBuilder {
         dialog.setOnKeyListener((target, key, event) -> {
             if (dpadEchoes.drop(event)) return true;
             if (custom != null && custom.onKey(target, key, event)) return true;
+            // A dialog has its own window, out of the page's reach: Y would come back as Space and press its button.
+            // This listener runs before the dialog's views, so a focused text field is asked for here.
+            if (UiNavigation.swallowsPadY(key, dialog.getCurrentFocus())) return true;
             if (!event.hasNoModifiers() || (key != KeyEvent.KEYCODE_BUTTON_B && key != KeyEvent.KEYCODE_ESCAPE)) return false;
             // Use the normal Back path: cancel callbacks and non-cancelable dialogs retain their rules.
             if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) dialog.onBackPressed();

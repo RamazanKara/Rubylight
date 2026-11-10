@@ -59,9 +59,10 @@ impl Video {
         let (chunks, buffer, capacity) = (&self.chunks, &mut self.buffer, &mut self.capacity);
         b.with_env(|env| {
             if needed > *capacity || buffer.is_none() {
-                let array = env.new_byte_array(needed as i32)?;
+                let size = grown_capacity(needed, *capacity);
+                let array = env.new_byte_array(size as i32)?;
                 *buffer = Some(env.new_global_ref(array)?);
-                *capacity = needed;
+                *capacity = size;
             }
             let buffer = buffer.as_ref().expect("allocated above");
             env.set_byte_array_region(byte_array(buffer), 0, bridge::jbytes(&chunks.bytes))?;
@@ -75,6 +76,14 @@ impl Video {
         });
         self.chunks.clear();
     }
+}
+
+/// The size of a new frame array for `needed` bytes when the `capacity` one is too small: half as
+/// large again, so frames that creep up in size (as a stream's do after its start) make a new
+/// ~1 MB Java array, and garbage of the old one, a few times rather than at every new largest
+/// frame. Java reads only the length each call passes.
+fn grown_capacity(needed: usize, capacity: usize) -> usize {
+    needed.max(capacity.saturating_add(capacity / 2)).min(i32::MAX as usize)
 }
 
 /// Early chunks collected before one call into Java: about two dozen packets, so a frame of
@@ -238,9 +247,10 @@ impl VideoDecoder for Video {
         let needed = array_bytes(frame.buffers(), frame.data().len(), picture.is_some());
         let status = b.with_env(|env| {
             if needed > self.capacity || self.buffer.is_none() {
-                let array = env.new_byte_array(needed as i32)?;
+                let size = grown_capacity(needed, self.capacity);
+                let array = env.new_byte_array(size as i32)?;
                 self.buffer = Some(env.new_global_ref(array)?);
-                self.capacity = needed;
+                self.capacity = size;
             }
             let buffer = self.buffer.as_ref().expect("allocated above");
             let array = byte_array(buffer);
@@ -686,6 +696,28 @@ mod tests {
         assert!(direct_hand_off(VIDEO_FORMAT_H265, "", "1", false));
         // PyroWave has its own switch; the MediaCodec setting does not reach it.
         assert!(!direct_hand_off(VIDEO_FORMAT_PYROWAVE, "0", "", true));
+    }
+
+    #[test]
+    fn the_frame_array_grows_by_half_so_creeping_frames_rarely_make_a_new_one() {
+        assert_eq!(grown_capacity(1000, 0), 1000, "the first array is the frame's size");
+        assert_eq!(grown_capacity(1001, 1000), 1500, "a slightly larger frame gets room to grow");
+        assert_eq!(grown_capacity(4000, 1000), 4000, "a much larger one its own size");
+        assert_eq!(
+            grown_capacity(usize::MAX, 1000),
+            i32::MAX as usize,
+            "never past a Java array's size"
+        );
+        // Frames creeping up by 1 % from 100 KB to 1 MB: an array each time before, a few now.
+        let (mut capacity, mut made, mut needed) = (0usize, 0, 100_000f64);
+        while needed < 1_000_000.0 {
+            if needed as usize > capacity {
+                capacity = grown_capacity(needed as usize, capacity);
+                made += 1;
+            }
+            needed *= 1.01;
+        }
+        assert!(made <= 8, "{made} arrays");
     }
 
     #[test]

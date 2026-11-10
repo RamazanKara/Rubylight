@@ -124,16 +124,25 @@ impl VideoDecoder for Gated {
     }
 }
 
-/// Feeds one frame's datagrams the way the receive thread does.
-fn feed(shared: &VideoShared, frame: &[Vec<u8>], signals: &mut Vec<VideoSignal>) {
-    for datagram in frame {
-        let mut sink = Sink {
+/// Feeds one frame's datagrams the way the receive thread does, in receive calls of up to a
+/// batch.
+fn feed(
+    shared: &VideoShared,
+    frame: &[Vec<u8>],
+    signals: &mut Vec<VideoSignal>,
+    staged: &mut StagedChunks,
+) {
+    for call in frame.chunks(net::RECEIVE_BATCH) {
+        receive_batch(
             shared,
-            direct: None,
-            signals: &mut *signals,
-        };
-        lock(&shared.receiver).receive(datagram, 7, &mut sink);
-        signals.clear();
+            None,
+            signals,
+            call.len(),
+            |i| call[i].as_slice(),
+            &mut None,
+            staged,
+            |signals| signals.clear(),
+        );
     }
 }
 
@@ -158,10 +167,11 @@ fn allocations_in_steady_streaming(
     };
     count_into(Some(counter));
     let mut signals = Vec::new();
+    let mut staged = StagedChunks::default();
     let mut before = 0;
     for (index, round) in rounds.iter().enumerate() {
         let (first, rest) = round.split_first().expect("a frame");
-        feed(&shared, first, &mut signals);
+        feed(&shared, first, &mut signals, &mut staged);
         // The decoder holds this frame, done with every earlier one: both threads are idle.
         gate.wait_started(index * ROUND + 1);
         if index == WARM_UP {
@@ -171,7 +181,7 @@ fn allocations_in_steady_streaming(
             break;
         }
         for frame in rest {
-            feed(&shared, frame, &mut signals);
+            feed(&shared, frame, &mut signals, &mut staged);
         }
         assert_eq!(shared.queue.len(), DECODE_UNIT_QUEUE_BOUND, "round {index}");
         gate.allow(ROUND);

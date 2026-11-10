@@ -112,6 +112,9 @@ pub enum Command {
     NetworkTest { host: u64, calibrate: bool },
     CancelNetworkTest,
     ClearPace(u64),
+    /// Full chroma was switched on a settings page: every PC that refused it is asked again, and
+    /// a start without it says so again (Android's `HostPackedModes.clearRefusals`).
+    AskFullChromaAgain,
     ControllerSettings,
     EditController { key: String, name: String },
     SaveControllerMapping,

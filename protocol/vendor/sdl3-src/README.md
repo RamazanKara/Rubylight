@@ -31,6 +31,11 @@ either (libsdl-org/SDL issue 10876; pull request 14157 adds no Vulkan path).
   of its own; it is for gamescope swapchains that offer HDR10 and not scRGB, and for HDR streams
   on desktop compositors that offer HDR10 (`handheld::choose`). The overlay and menus are drawn
   in linear light by SDL's own shaders, so this output keeps the backbuffer and its pass.
+  With `SDL.renderer.create.gpu.pq_fragment_uniform_buffers` 1 the fragment shader takes one
+  constant buffer, pushed on each present from the renderer properties
+  `SDL.renderer.gpu.present_encoding` (0 PQ, 1 gamma 2.2), `present_min_nits` and
+  `present_max_nits`: Nightjar's scanout present (`desktop/src/scanout_present.hlsl`) on a
+  pass-through swapchain then draws in the compositor's gamma 2.2 blending space.
 - `patches/window-hdr-metadata.patch` (Vulkan backend only) enables `VK_EXT_hdr_metadata` where
   the device has it and calls `vkSetHdrMetadataEXT` for an `HDR10_ST2084` swapchain with the
   `VkHdrMetadataEXT` the app keeps in the window property `SDL.window.gpu.hdr_metadata_pointer`,
@@ -45,6 +50,17 @@ either (libsdl-org/SDL issue 10876; pull request 14157 adds no Vulkan path).
   target, which the swapchain image cannot serve), and for a frame whose image differs from it in
   size or format (a resize). A read-back after the frame took its image fails instead of
   presenting it early. `SDL.renderer.gpu.window_target_frames` counts the frames drawn straight in.
+  With the PQ present, a frame drawn while the renderer property `SDL.renderer.gpu.video_only` is
+  true (set before the frame's first clear or draw on the window's target; read once a frame, on
+  its first run of commands there) takes its HDR10 swapchain image the same way and skips the
+  backbuffer and the PQ pass. The app promises that its only draws there are its own render states
+  writing PQ as `desktop/src/pq_present.hlsl` encodes (the planes shader's flag 4096); SDL encodes
+  a clear the same way and drops its own draws there (they write linear light), with an error and
+  a count in `SDL.renderer.gpu.video_only_dropped_draws`. Such a frame that cannot take its image
+  (a resize, read-back) leaves PQ in the backbuffer, which the present blits as it is.
+  `SDL.renderer.gpu.video_only_frame` holds the value SDL settled for the latest frame. The output
+  colorspace, HDR headroom and SDR white point properties do not change. The comment above
+  `GPU_FrameEligible` is the contract.
 - `patches/display-hdr-state.patch` keeps `SDL_PROP_DISPLAY_HDR_ENABLED_BOOLEAN` true to the
   display's HDR state. SDL 3.4.20 sets it once, when the display is added, and a Wayland
   compositor's answer about an output can come later. Drop it once upstream SDL updates it.
@@ -56,6 +72,15 @@ either (libsdl-org/SDL issue 10876; pull request 14157 adds no Vulkan path).
   there) and about 2.5 times too bright on Mesa's scRGB swapchain, where 1.0 already is the
   reference white. `handheld::renderer_sdr_white` says which output gets which. Check it again
   when upstream SDL changes what the Wayland backend reports (its `main` sets 1.0 there).
+- `patches/wayland-scanout.patch` (Vulkan backend only) adds two window properties for Wayland.
+  `SDL.window.gpu.vulkan.hdr10_pass_through` makes an HDR10 swapchain of Mesa's driver take
+  `VK_COLOR_SPACE_PASS_THROUGH_EXT`, so Mesa's WSI attaches no colour description and the app
+  attaches its own (`stream::wl_scanout`); where that is not offered the swapchain is not made,
+  and `SDL.window.gpu.vulkan.hdr10_pass_through_active` says what the last one took.
+  `SDL.window.gpu.vulkan.recreate_on_suboptimal` makes the swapchain again after an acquire returns
+  `VK_SUBOPTIMAL_KHR` (Mesa's answer to dmabuf feedback asking for other modifiers, such as a
+  scanout tranche), which SDL 3.4.20 ignores: at most every 2 s, and while
+  `SDL.window.gpu.vulkan.suboptimal_recreates`, which the app resets, is under 10.
 - `build.rs` copies the submodule into the build directory and applies the patches there; a hunk
   that does not match fails the build, and so does a patch that would change nothing (no
   `+++ b/` file, a file without hunks). Its tests: see the top of `build.rs`.

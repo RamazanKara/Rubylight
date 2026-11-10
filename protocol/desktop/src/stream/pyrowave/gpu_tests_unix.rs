@@ -19,6 +19,7 @@ use super::*;
 use crate::stream::pipeline::Decoded;
 use crate::stream::present::VideoTexture;
 use crate::stream::pyrowave_sdk::{Api, DLL_NAME};
+use crate::stream::pyrowave_sdk::zero_copy::PlaneHandoff;
 
 static GPU: Mutex<()> = Mutex::new(());
 
@@ -109,17 +110,27 @@ fn gpu_decoder(case: &Case, slots: usize) -> Pyrowave {
     Pyrowave::Gpu(Box::new(GpuStream::with_decoder(decoder)))
 }
 
-/// The decoder on the renderer's own device, its planes images there.
+/// The decoder on the renderer's own device, its planes images there, sampled in place by the
+/// presenter (the default).
 fn shared_decoder(rig: &Rig, case: &Case, slots: usize) -> Pyrowave {
+    shared_decoder_with(rig, case, slots, PlaneHandoff::Sample)
+}
+
+/// `shared_decoder` with the planes read as `handoff` says.
+fn shared_decoder_with(rig: &Rig, case: &Case, slots: usize, handoff: PlaneHandoff) -> Pyrowave {
     let config = GpuConfig { width: case.width as u32, height: case.height as u32, chroma444: case.full, ten_bit: case.ten, slots };
-    let decoder = GpuDecoder::share(sdk(), rig.device(), config, false).unwrap_or_else(|e| panic!("the decoder cannot share the renderer's device: {e}"));
-    assert!(decoder.images().is_some());
+    let decoder = GpuDecoder::share_with(sdk(), rig.device(), config, false, handoff).unwrap_or_else(|e| panic!("the decoder cannot share the renderer's device: {e}"));
+    assert_eq!(decoder.images().map(|images| images.handoff()), Some(handoff));
+    assert_eq!(decoder.slot_count(), handoff.sets(slots), "sampling in place makes a set more");
     Pyrowave::Gpu(Box::new(GpuStream::with_decoder(decoder)))
 }
 
 /// Uploads `decoded` the way the presenter does and reads the texture back as RGBA32F.
 fn present(rig: &Rig, texture: &mut VideoTexture, decoded: &Decoded) -> Vec<f32> {
     assert!(texture.upload(rig.renderer, decoded, None), "upload failed: {:?} {}", texture.failure, crate::sdl::error());
+    // Planes left for the back buffer (`draw_direct`) are drawn into the texture, as for SDL.
+    let drawn = texture.sdl_texture(rig.renderer);
+    assert_eq!(drawn, texture.texture, "{:?}", texture.failure);
     // SAFETY: The texture belongs to the live renderer; the surfaces are destroyed here.
     unsafe {
         assert!(SDL_SetRenderTarget(rig.renderer, texture.texture), "{}", crate::sdl::error());
@@ -265,8 +276,86 @@ fn a_sequence_of_zero_copy_pictures_reuses_the_plane_sets_after_their_copies() {
         assert!(max < limit && rms < rms_limit && mean.abs() < MEAN_LIMIT, "picture {round}: max {max}, rms {rms}, mean {mean:+.2e}");
     }
     let Pyrowave::Gpu(stream) = &gpu else { unreachable!() };
+    // Each picture's presenter gave its set back when it went (value n for picture n); the set
+    // handed out first is the one given back longest ago, that of picture 6 - sets + 1.
+    let sets = stream.planes().config().slots as u64;
     let (_, after) = stream.planes().acquire().unwrap();
-    assert!(after >= 5, "the set waits for the copy of the picture before last: {after}");
+    assert!(after > 6 - sets, "the set waits for the last read of the picture that held it before: {after} with {sets} sets");
+}
+
+/// A stream through one presenter, as the client runs it, sampling the decoder's images in place:
+/// the shown picture's set stays out of the decoder's pool until the next picture replaces it,
+/// every picture is the CPU picture although the ring is reused several times, and the end of
+/// the stream gives every set back.
+#[test]
+#[ignore = "needs the PyroWave SDK, a Vulkan device and SDL's offscreen driver"]
+fn sampled_in_place_pictures_hold_their_set_until_the_next_one_replaces_it() {
+    let _lock = gpu_lock();
+    let rig = Rig::new();
+    for case in &cases() {
+        let mut gpu = shared_decoder(&rig, case, 2);
+        let setup = setup(case.width, case.height, case.full, case.ten, 0);
+        let cpu = cpu_picture(&rig, case, setup, false);
+        let mut texture = VideoTexture::default();
+        texture.set_hdr_mode(false, None);
+        let sets = { let Pyrowave::Gpu(stream) = &gpu else { unreachable!() }; stream.planes().config().slots };
+        for round in 0..3 * sets {
+            let output = gpu.frame(case.bin, &mut || false).unwrap_or_else(|e| panic!("GPU decode: {e:?}"));
+            let picture = present(&rig, &mut texture, &decoded(output, setup));
+            let (max, rms, mean) = compare(&cpu, &picture);
+            let (limit, rms_limit) = bounds(case.ten);
+            assert!(max < limit && rms < rms_limit && mean.abs() < MEAN_LIMIT, "{}x{} picture {round}: max {max}, rms {rms}, mean {mean:+.2e}", case.width, case.height);
+            let Pyrowave::Gpu(stream) = &gpu else { unreachable!() };
+            assert_eq!(stream.planes().free_count(), sets - 1, "picture {round}: only the shown picture's set is held (its decoded picture is gone)");
+        }
+        texture.destroy();
+        let Pyrowave::Gpu(stream) = &gpu else { unreachable!() };
+        assert_eq!(stream.planes().free_count(), sets, "the end of the stream gives the shown set back");
+    }
+}
+
+/// Sampling in place draws what the copy drew, on every fixture.
+#[test]
+#[ignore = "needs the PyroWave SDK, a Vulkan device and SDL's offscreen driver"]
+fn the_sampled_picture_is_the_copied_picture_on_the_fixtures() {
+    let _lock = gpu_lock();
+    let rig = Rig::new();
+    for (n, case) in cases().iter().enumerate() {
+        let mut copied = shared_decoder_with(&rig, case, 2, PlaneHandoff::Copy);
+        let mut sampled = shared_decoder_with(&rig, case, 2, PlaneHandoff::Sample);
+        for range in [0, 1] {
+            let setup = setup(case.width, case.height, case.full, case.ten, range);
+            let (max, rms, mean) = compare(&gpu_picture(&rig, &mut copied, case, setup, false), &gpu_picture(&rig, &mut sampled, case, setup, false));
+            println!("fixture {n} range {range}: sampled against copied max {max:.6}, rms {rms:.7}, mean {mean:+.2e}");
+            assert!(max <= SAME_LIMIT, "fixture {n} range {range}: the sampled picture differs from the copied one by {max}");
+        }
+    }
+}
+
+/// The presenter's pass changes with the way the next decoder's planes are read, and gives the
+/// set it held back to the decoder it came from.
+#[test]
+#[ignore = "needs the PyroWave SDK, a Vulkan device and SDL's offscreen driver"]
+fn a_new_decoder_takes_the_pass_over_and_the_old_one_gets_its_set_back() {
+    let _lock = gpu_lock();
+    let rig = Rig::new();
+    let case = &cases()[0];
+    let setup = setup(case.width, case.height, case.full, case.ten, 0);
+    let cpu = cpu_picture(&rig, case, setup, false);
+    let mut texture = VideoTexture::default();
+    texture.set_hdr_mode(false, None);
+    let mut first = shared_decoder_with(&rig, case, 2, PlaneHandoff::Sample);
+    let output = first.frame(case.bin, &mut || false).unwrap();
+    present(&rig, &mut texture, &decoded(output, setup));
+    for handoff in [PlaneHandoff::Copy, PlaneHandoff::Sample] {
+        let mut next = shared_decoder_with(&rig, case, 2, handoff);
+        let output = next.frame(case.bin, &mut || false).unwrap();
+        let (max, ..) = compare(&cpu, &present(&rig, &mut texture, &decoded(output, setup)));
+        assert!(max < bounds(case.ten).0, "{handoff:?}: {max}");
+        let Pyrowave::Gpu(stream) = &first else { unreachable!() };
+        assert_eq!(stream.planes().free_count(), stream.planes().config().slots, "the first decoder has all its sets back");
+        first = next;
+    }
 }
 
 /// With the setting on, the decodes run on a separate compute queue where the GPU has one,

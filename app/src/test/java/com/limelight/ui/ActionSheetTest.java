@@ -290,6 +290,42 @@ public class ActionSheetTest {
         }
     }
 
+    /** Nightjar #81: a Y the sheet has no tile for must not come back as Space and press the focused action. */
+    @Test public void aPadsYRunsOnlyTheTileThatShowsIt() {
+        try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup()) {
+            ActionSheet sheet = new ActionSheet(controller.get(), "Stream");
+            boolean[] activated = {false};
+            sheet.addAction(R.drawable.ic_settings, "Action").setOnClickListener(v -> activated[0] = true);
+            sheet.show();
+            int y = android.view.KeyEvent.KEYCODE_BUTTON_Y;
+            for (int action : new int[] {android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.ACTION_UP}) {
+                assertTrue(sheet.dispatchKeyEvent(new android.view.KeyEvent(action, y)));
+            }
+            assertTrue(sheet.isShowing());
+            assertFalse(activated[0]);
+
+            // A handler that has nothing on Y leaves it swallowed; one with a Y tile runs it once per press.
+            int[] ran = {0};
+            boolean[] hasTile = {false};
+            sheet.setKeyHandler(key -> {
+                if (key != y || !hasTile[0]) return false;
+                ran[0]++;
+                return true;
+            });
+            for (int action : new int[] {android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.ACTION_UP}) {
+                assertTrue(sheet.dispatchKeyEvent(new android.view.KeyEvent(action, y)));
+            }
+            assertEquals(0, ran[0]);
+            hasTile[0] = true;
+            for (int action : new int[] {android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.ACTION_UP}) {
+                assertTrue(sheet.dispatchKeyEvent(new android.view.KeyEvent(action, y)));
+            }
+            assertEquals(1, ran[0]);
+            assertFalse(activated[0]);
+            sheet.dismiss();
+        }
+    }
+
     /** A pad's Disconnect in the stream menu must leave PCs knowing a pad chose it; a tap on the next sheet says touch again. */
     @Test public void aSheetRemembersTheInputThatDroveIt() {
         try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup()) {

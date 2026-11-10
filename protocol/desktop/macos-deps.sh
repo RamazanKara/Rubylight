@@ -34,7 +34,8 @@ fetch() {
   local name=$1 url=$2 sha=$3 file
   file="$cache/downloads/${url##*/}"
   if ! echo "$sha  $file" | shasum -a 256 --check --status 2>/dev/null; then
-    curl -fLsS --retry 2 "$url" -o "$file.part.$$"
+    # A reset connection is retried too (plain --retry only retries timeouts and 5xx answers).
+    curl -fLsS --retry 4 --retry-all-errors --retry-delay 3 "$url" -o "$file.part.$$"
     echo "$sha  $file.part.$$" | shasum -a 256 --check --status
     mv "$file.part.$$" "$file"
   fi

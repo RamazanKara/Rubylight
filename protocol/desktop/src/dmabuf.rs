@@ -5,7 +5,7 @@
 //! (`EglImageFactory::exportVAImages`, `VAAPIRenderer::exportEGLImages`); SDL's testffmpeg binds the
 //! images to SDL's own textures the same way. Either side failing falls back, logged once, to the
 //! CPU mapping (`media::Frame::map_to_memory`).
-#![cfg_attr(not(unix), allow(dead_code))]
+#![cfg_attr(not(target_os = "linux"), allow(dead_code, reason = "DMA-BUF presentation is Linux-specific"))]
 
 /// `VADRMPRIMESurfaceDescriptor` (va/va_drmcommon.h).
 #[repr(C)]
@@ -129,6 +129,91 @@ pub fn enabled_by_environment(value: Option<&std::ffi::OsStr>) -> bool {
     value.is_none_or(|value| value != "0")
 }
 
+/// Set to 0, every VAAPI picture is exported (`vaExportSurfaceHandle`) and imported anew, as
+/// before, instead of once per decoder surface: the way out should a driver mishandle imports
+/// that outlive a picture. It covers the OpenGL import (`Importer`) and Vulkan's
+/// (`vulkan_video::VaapiMap`).
+pub const CACHE_ENVIRONMENT: &str = "NIGHTJAR_DMABUF_CACHE";
+
+/// What `CACHE_ENVIRONMENT` asks for: imports kept per surface, unless 0.
+pub fn cache_switched_on(value: Option<&std::ffi::OsStr>) -> bool {
+    value.is_none_or(|value| value != "0")
+}
+
+/// `cache_switched_on` of the environment, read once.
+pub fn caching() -> bool {
+    static CACHING: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CACHING.get_or_init(|| cache_switched_on(std::env::var_os(CACHE_ENVIRONMENT).as_deref()))
+}
+
+/// Which pool's surfaces a cache holds imports of: the frames context (its address, kept alive by
+/// a reference the cache holds, so no other context can take it) and the picture size the
+/// imports were made for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Generation {
+    pub frames: usize,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Imports of a decoder's surfaces (`T`: EGL images, or Vulkan images and their memory), one per
+/// surface id, for the surfaces of one frames context. They stay as long as the pool does, so a
+/// surface the decoder hands out again is not exported or imported again; a new pool (a decoder
+/// reset, another size) drops them all.
+pub struct SurfaceCache<T> {
+    generation: Option<Generation>,
+    entries: Vec<(u32, T)>,
+    limit: usize,
+}
+
+/// More entries than a pool has surfaces (FFmpeg's VAAPI pools are a few tens): the oldest go.
+pub const CACHE_LIMIT: usize = 64;
+
+impl<T> SurfaceCache<T> {
+    pub fn new(limit: usize) -> Self {
+        Self { generation: None, entries: Vec::new(), limit: limit.max(1) }
+    }
+
+    /// Makes the cache one of `generation`'s surfaces; the entries of another one come back, for
+    /// the caller to destroy, with whether the generation changed (the caller swaps its frames
+    /// context reference then).
+    pub fn retarget(&mut self, generation: Generation) -> (bool, Vec<T>) {
+        if self.generation == Some(generation) {
+            return (false, Vec::new());
+        }
+        self.generation = Some(generation);
+        (true, self.drain())
+    }
+
+    pub fn get(&self, surface: u32) -> Option<&T> {
+        self.entries.iter().find(|(id, _)| *id == surface).map(|(_, entry)| entry)
+    }
+
+    /// Keeps `entry` for `surface`; what that surface held before and, over the limit, the oldest
+    /// entries come back, for the caller to destroy.
+    pub fn insert(&mut self, surface: u32, entry: T) -> Vec<T> {
+        let mut gone: Vec<T> = Vec::new();
+        if let Some(at) = self.entries.iter().position(|(id, _)| *id == surface) {
+            gone.push(self.entries.remove(at).1);
+        }
+        while self.entries.len() >= self.limit {
+            gone.push(self.entries.remove(0).1);
+        }
+        self.entries.push((surface, entry));
+        gone
+    }
+
+    /// Everything, for the caller to destroy; the generation stays.
+    pub fn drain(&mut self) -> Vec<T> {
+        self.entries.drain(..).map(|(_, entry)| entry).collect()
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+}
+
 /// The minor of DRM render node `name`, a device path or a sysfs entry (`/dev/dri/renderD129`,
 /// `renderD129`); none for any other node.
 pub fn render_node_minor(name: &str) -> Option<u32> {
@@ -170,7 +255,7 @@ pub use linux::*;
 #[cfg(unix)]
 mod linux {
     use super::*;
-    use crate::media::ffi::{AVFrame, AVHWDeviceContext, AVHWFramesContext};
+    use crate::media::ffi::{av_buffer_unref, AVBufferRef, AVFrame, AVHWDeviceContext, AVHWFramesContext};
     use sdl3_sys::everything::*;
     use std::ffi::{c_char, c_int, c_uint, c_void, CStr};
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -208,10 +293,17 @@ mod linux {
             .map_err(Clone::clone)
     }
 
-    /// A decoded surface's DMA-BUFs. The file descriptors are closed when it drops; the surface
-    /// itself stays the decoder's frame's.
+    /// A decoded surface, and its DMA-BUFs once exported. The decoder thread syncs the surface
+    /// (`export`); the DMA-BUFs are exported there too when imports are not cached, else only when
+    /// the presenter has no import of the surface yet (`descriptor`). The file descriptors are
+    /// closed when it drops; the surface itself stays the decoder's frame's.
     pub struct Export {
-        pub descriptor: Descriptor,
+        display: *mut c_void,
+        surface: c_uint,
+        /// The picture's frames context, borrowed from the frame this export belongs to.
+        frames: *mut AVBufferRef,
+        generation: Generation,
+        exported: std::cell::OnceCell<Result<Descriptor, String>>,
         /// Set when the presenter cannot import: the decoder maps its pictures to memory from then on.
         decline: Arc<AtomicBool>,
     }
@@ -220,21 +312,63 @@ mod linux {
         pub fn decline(&self) {
             self.decline.store(true, Ordering::Relaxed);
         }
+
+        /// The surface's id in its pool.
+        pub fn surface(&self) -> u32 {
+            self.surface
+        }
+
+        /// Its pool and the picture size (`SurfaceCache`'s key).
+        pub fn generation(&self) -> Generation {
+            self.generation
+        }
+
+        /// The picture's frames context, valid while the picture is.
+        pub fn frames(&self) -> *mut AVBufferRef {
+            self.frames
+        }
+
+        /// The surface's DMA-BUFs, exported on first use (on the caller's thread: libva's
+        /// drivers lock their own state, and moonlight-qt exports on its render thread too).
+        pub fn descriptor(&self) -> Result<&Descriptor, String> {
+            // SAFETY: the display and surface of the live picture this export belongs to.
+            self.exported.get_or_init(|| unsafe { export_surface(self.display, self.surface) }).as_ref().map_err(Clone::clone)
+        }
     }
 
     impl Drop for Export {
         fn drop(&mut self) {
-            for object in &self.descriptor.objects[..(self.descriptor.num_objects as usize).min(4)] {
+            let Some(Ok(descriptor)) = self.exported.get() else { return };
+            for object in &descriptor.objects[..(descriptor.num_objects as usize).min(4)] {
                 // SAFETY: descriptors vaExportSurfaceHandle opened for this export alone.
                 unsafe { libc::close(object.fd) };
             }
         }
     }
 
-    /// Exports a VAAPI frame's surface once its decoding is done (moonlight-qt syncs first too).
+    unsafe fn export_surface(display: *mut c_void, surface: c_uint) -> Result<Descriptor, String> {
+        let va = libva()?;
+        let mut descriptor = Descriptor::default();
+        let status = (va.export)(
+            display,
+            surface,
+            VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2,
+            VA_EXPORT_SURFACE_READ_ONLY | VA_EXPORT_SURFACE_SEPARATE_LAYERS,
+            (&mut descriptor as *mut Descriptor).cast(),
+        );
+        if status != 0 {
+            return Err(format!("vaExportSurfaceHandle failed ({status:#x})"));
+        }
+        Ok(descriptor)
+    }
+
+    /// Syncs a VAAPI frame's surface once its decoding is done (moonlight-qt syncs first too),
+    /// and exports it unless imports are cached (`caching`): then the presenter exports it only
+    /// when it has no import of the surface yet.
     ///
     /// # Safety
-    /// `frame` is a live `AV_PIX_FMT_VAAPI` frame with its frames context.
+    /// `frame` is a live `AV_PIX_FMT_VAAPI` frame with its frames context, which outlives the
+    /// export (the export goes with the frame).
     pub unsafe fn export(frame: *const AVFrame, decline: &Arc<AtomicBool>) -> Result<Export, String> {
         let va = libva()?;
         let frame = &*frame;
@@ -250,18 +384,39 @@ mod linux {
         if status != 0 {
             return Err(format!("vaSyncSurface failed ({status:#x})"));
         }
-        let mut descriptor = Descriptor::default();
-        let status = (va.export)(
-            display,
-            surface,
-            VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2,
-            VA_EXPORT_SURFACE_READ_ONLY | VA_EXPORT_SURFACE_SEPARATE_LAYERS,
-            (&mut descriptor as *mut Descriptor).cast(),
-        );
-        if status != 0 {
-            return Err(format!("vaExportSurfaceHandle failed ({status:#x})"));
+        let generation = Generation { frames: (*frame.hw_frames_ctx).data as usize, width: frame.width.max(0) as u32, height: frame.height.max(0) as u32 };
+        let export = Export { display, surface, frames: frame.hw_frames_ctx, generation, exported: std::cell::OnceCell::new(), decline: decline.clone() };
+        if !caching() {
+            export.descriptor()?;
         }
-        Ok(Export { descriptor, decline: decline.clone() })
+        Ok(export)
+    }
+
+    unsafe extern "C" {
+        fn av_buffer_ref(reference: *const AVBufferRef) -> *mut AVBufferRef;
+    }
+
+    /// A reference to a frames context, which keeps it (and its address) alive while a cache
+    /// holds imports of its surfaces.
+    pub struct FramesRef(*mut AVBufferRef);
+
+    impl FramesRef {
+        pub const fn none() -> Self {
+            Self(std::ptr::null_mut())
+        }
+
+        /// # Safety
+        /// `frames` is a live frames context reference.
+        pub unsafe fn of(frames: *mut AVBufferRef) -> Self {
+            Self(if frames.is_null() { frames } else { av_buffer_ref(frames) })
+        }
+    }
+
+    impl Drop for FramesRef {
+        fn drop(&mut self) {
+            // SAFETY: our own reference, or null.
+            unsafe { av_buffer_unref(&mut self.0) };
+        }
     }
 
     /// Whether pictures can be imported into `renderer`'s textures: SDL's OpenGL renderer on an
@@ -367,7 +522,8 @@ mod linux {
     type GetIntegerv = unsafe extern "C" fn(c_uint, *mut c_int);
     type GetError = unsafe extern "C" fn() -> c_uint;
 
-    /// The EGL and GL entry points the import needs, and the images bound to the texture now.
+    /// The EGL and GL entry points the import needs, and the images bound to the texture now:
+    /// cached per decoder surface (`SurfaceCache`), or without the cache only the last picture's.
     pub struct Importer {
         display: *mut c_void,
         create: CreateImage,
@@ -378,6 +534,12 @@ mod linux {
         get_error: GetError,
         modifiers: bool,
         images: Vec<*mut c_void>,
+        caching: bool,
+        cache: SurfaceCache<[*mut c_void; 2]>,
+        /// The frames context whose surfaces the cache holds images of, kept alive with it.
+        frames: FramesRef,
+        /// Pictures imported, and of them the ones whose images were cached, for the stream's log.
+        imports: (u64, u64),
     }
 
     unsafe fn function<T>(pointer: SDL_FunctionPointer, name: &str) -> Result<T, String> {
@@ -415,7 +577,58 @@ mod linux {
                     get_error: function(SDL_GL_GetProcAddress(c"glGetError".as_ptr()), "glGetError")?,
                     modifiers: has("EGL_EXT_image_dma_buf_import_modifiers"),
                     images: Vec::new(),
+                    caching: caching(),
+                    cache: SurfaceCache::new(CACHE_LIMIT),
+                    frames: FramesRef::none(),
+                    imports: (0, 0),
                 })
+            }
+        }
+
+        /// The EGL images of `export`'s two planes: the surface's cached ones (made and cached on
+        /// its first picture, the pool's earlier ones dropped when the pool changed), or without
+        /// the cache new ones. True when they came from the cache.
+        unsafe fn images_of(&mut self, export: &Export, width: u32, height: u32) -> Result<([*mut c_void; 2], bool), String> {
+            if !self.caching {
+                return Ok((self.create_images(export.descriptor()?, width, height)?, false));
+            }
+            let (changed, gone) = self.cache.retarget(export.generation());
+            // Destroyed EGL images stay in a texture they were bound to until it takes others.
+            for images in gone {
+                self.destroy_images(images);
+            }
+            if changed {
+                self.frames = FramesRef::of(export.frames());
+            }
+            if let Some(&images) = self.cache.get(export.surface()) {
+                return Ok((images, true));
+            }
+            let images = self.create_images(export.descriptor()?, width, height)?;
+            for gone in self.cache.insert(export.surface(), images) {
+                self.destroy_images(gone);
+            }
+            Ok((images, false))
+        }
+
+        unsafe fn create_images(&self, descriptor: &Descriptor, width: u32, height: u32) -> Result<[*mut c_void; 2], String> {
+            check_nv12_layers(descriptor)?;
+            let mut images = [std::ptr::null_mut(); 2];
+            for index in 0..2 {
+                let attributes = layer_attributes(descriptor, index, width, height, self.modifiers);
+                images[index] = (self.create)(self.display, std::ptr::null_mut(), EGL_LINUX_DMA_BUF_EXT, std::ptr::null_mut(), attributes.as_ptr());
+                if images[index].is_null() {
+                    self.destroy_images(images);
+                    let layer = &descriptor.layers[index];
+                    let modifier = descriptor.objects[layer.object_index[0] as usize].drm_format_modifier;
+                    return Err(format!("eglCreateImageKHR refused layer {index} ({}, modifier {modifier:#x})", fourcc_name(layer.drm_format)));
+                }
+            }
+            Ok(images)
+        }
+
+        unsafe fn destroy_images(&self, images: [*mut c_void; 2]) {
+            for image in images.into_iter().filter(|image| !image.is_null()) {
+                (self.destroy)(self.display, image);
             }
         }
 
@@ -425,7 +638,6 @@ mod linux {
         /// # Safety
         /// On the renderer's thread, with its context current; `texture` is live.
         pub unsafe fn import(&mut self, renderer: *mut SDL_Renderer, texture: *mut SDL_Texture, export: &Export, width: u32, height: u32) -> Result<(), String> {
-            check_nv12_layers(&export.descriptor)?;
             let properties = SDL_GetTextureProperties(texture);
             let mut names = [
                 SDL_GetNumberProperty(properties, SDL_PROP_TEXTURE_OPENGL_TEXTURE_NUMBER, 0),
@@ -445,22 +657,10 @@ mod linux {
             if names.contains(&0) {
                 return Err("the video texture has no GL textures for its planes".into());
             }
-            let mut images = Vec::with_capacity(2);
-            for index in 0..2 {
-                let attributes = layer_attributes(&export.descriptor, index, width, height, self.modifiers);
-                let image = (self.create)(self.display, std::ptr::null_mut(), EGL_LINUX_DMA_BUF_EXT, std::ptr::null_mut(), attributes.as_ptr());
-                if image.is_null() {
-                    for image in images {
-                        (self.destroy)(self.display, image);
-                    }
-                    let layer = &export.descriptor.layers[index];
-                    let modifier = export.descriptor.objects[layer.object_index[0] as usize].drm_format_modifier;
-                    return Err(format!("eglCreateImageKHR refused layer {index} ({}, modifier {modifier:#x})", fourcc_name(layer.drm_format)));
-                }
-                images.push(image);
-            }
-            // SDL's queued drawing still samples the planes as they are; it goes to GL first.
+            // SDL's queued drawing still samples the planes as they are; it goes to GL first,
+            // before a pool change destroys the images it may sample.
             SDL_FlushRenderer(renderer);
+            let (images, cached) = self.images_of(export, width, height)?;
             let mut bound = 0;
             (self.get_integer)(GL_TEXTURE_BINDING_2D, &mut bound);
             while (self.get_error)() != 0 {}
@@ -470,22 +670,38 @@ mod linux {
             }
             let error = (self.get_error)();
             (self.bind)(GL_TEXTURE_2D, bound as c_uint);
-            // The textures hold the new images now; the previous ones can go.
-            for image in std::mem::replace(&mut self.images, images) {
-                (self.destroy)(self.display, image);
+            if !self.caching {
+                // The textures hold the new images now; the previous ones can go.
+                for image in std::mem::replace(&mut self.images, images.to_vec()) {
+                    (self.destroy)(self.display, image);
+                }
             }
             if error != 0 {
                 return Err(format!("glEGLImageTargetTexture2DOES failed ({error:#x})"));
             }
+            self.imports.0 += 1;
+            self.imports.1 += u64::from(cached);
             Ok(())
         }
     }
 
     impl Drop for Importer {
         fn drop(&mut self) {
-            for image in self.images.drain(..) {
-                // SAFETY: images this importer made on its display.
-                unsafe { (self.destroy)(self.display, image) };
+            if self.caching && self.imports.0 > 0 {
+                eprintln!(
+                    "nightjar: VAAPI pictures imported into OpenGL: {} of {} from the per-surface cache",
+                    self.imports.1, self.imports.0
+                );
+            }
+            let cached = self.cache.drain();
+            // SAFETY: images this importer made on its display.
+            unsafe {
+                for images in cached {
+                    self.destroy_images(images);
+                }
+                for image in self.images.drain(..) {
+                    (self.destroy)(self.display, image);
+                }
             }
         }
     }
@@ -600,6 +816,65 @@ mod tests {
         assert_eq!(node, None);
         assert!(line.contains("/dev/dri/renderD130, is not among the render nodes here (/dev/dri/renderD128, /dev/dri/renderD129)"), "{line}");
         assert_eq!(display_vaapi_node(Ok(128), &[]).0, None, "no render node listed (a sandbox without /dev/dri)");
+    }
+
+    #[test]
+    fn imports_are_cached_unless_the_environment_says_0() {
+        assert!(cache_switched_on(None));
+        assert!(cache_switched_on(Some("1".as_ref())));
+        assert!(!cache_switched_on(Some("0".as_ref())));
+    }
+
+    const POOL: Generation = Generation { frames: 0x1000, width: 1920, height: 1080 };
+
+    /// A surface the decoder hands out again finds its import; the pool's other surfaces get
+    /// their own, and nothing is given back while the pool stays.
+    #[test]
+    fn a_surface_seen_again_finds_its_import() {
+        let mut cache = SurfaceCache::new(CACHE_LIMIT);
+        assert_eq!(cache.retarget(POOL), (true, vec![]), "the first pool is a change, with nothing to drop");
+        assert_eq!(cache.get(7), None);
+        assert!(cache.insert(7, "seven").is_empty());
+        assert!(cache.insert(8, "eight").is_empty());
+        assert_eq!(cache.retarget(POOL), (false, vec![]), "the same pool keeps its imports");
+        assert_eq!(cache.get(7), Some(&"seven"));
+        assert_eq!(cache.get(8), Some(&"eight"));
+        assert_eq!(cache.insert(7, "seven again"), ["seven"], "a surface imported anew gives its old import back");
+        assert_eq!(cache.len(), 2);
+    }
+
+    /// A new frames context (a decoder reset) or another picture size drops every import, as
+    /// its surfaces are other buffers even where their ids repeat.
+    #[test]
+    fn another_pool_or_size_drops_every_import() {
+        let mut cache = SurfaceCache::new(CACHE_LIMIT);
+        cache.retarget(POOL);
+        cache.insert(1, 'a');
+        cache.insert(2, 'b');
+        let (changed, mut gone) = cache.retarget(Generation { frames: 0x2000, ..POOL });
+        gone.sort_unstable();
+        assert!(changed);
+        assert_eq!(gone, ['a', 'b']);
+        assert_eq!(cache.get(1), None, "surface 1 of the new pool is another buffer");
+        cache.insert(1, 'c');
+        let (changed, gone) = cache.retarget(Generation { width: 1280, height: 720, frames: 0x2000 });
+        assert!(changed && gone == ['c'], "another size: the imports were made for the old one");
+        assert!(cache.drain().is_empty());
+    }
+
+    /// More surfaces than the limit: the oldest import goes, never the one just made.
+    #[test]
+    fn the_cache_keeps_at_most_its_limit_oldest_out_first() {
+        let mut cache = SurfaceCache::new(2);
+        cache.retarget(POOL);
+        assert!(cache.insert(1, 1).is_empty());
+        assert!(cache.insert(2, 2).is_empty());
+        assert_eq!(cache.insert(3, 3), [1]);
+        assert_eq!((cache.get(1), cache.get(2), cache.get(3)), (None, Some(&2), Some(&3)));
+        let mut rest = cache.drain();
+        rest.sort_unstable();
+        assert_eq!(rest, [2, 3]);
+        assert_eq!(cache.retarget(POOL), (false, vec![]), "draining keeps the pool");
     }
 
     #[test]

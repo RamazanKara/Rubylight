@@ -35,6 +35,7 @@ struct JNINativeInterface {
     void (*ReleaseShortArrayElements)(JNIEnv* env, jshortArray array, jshort* elements, jint mode);
     jintArray (*NewIntArray)(JNIEnv* env, jsize length);
     void (*SetIntArrayRegion)(JNIEnv* env, jintArray array, jsize start, jsize length, const jint* buffer);
+    void (*GetShortArrayRegion)(JNIEnv* env, jshortArray array, jsize start, jsize length, jshort* buffer);
 };
 
 typedef struct {

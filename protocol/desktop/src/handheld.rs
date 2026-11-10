@@ -105,6 +105,7 @@ impl Pointer {
 
 /// The swapchain colour spaces the window's Vulkan surface offers (with gamescope, its WSI layer).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg(any(not(target_os = "macos"), test))]
 pub struct Offered {
     /// Extended sRGB linear on RGBA16F.
     pub scrgb: bool,
@@ -114,6 +115,7 @@ pub struct Offered {
 
 /// What the renderer presents.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(target_os = "macos", allow(dead_code, reason = "Linux output negotiation diagnostics"))]
 pub enum Output {
     /// Linear light on an fp16 swapchain, SDL's own HDR path.
     Scrgb,
@@ -123,6 +125,7 @@ pub enum Output {
 
 /// Why the output is SDR, for the log and, under gamescope, the stream's note.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(target_os = "macos", allow(dead_code, reason = "Linux output negotiation diagnostics"))]
 pub enum SdrReason {
     /// The software renderer was asked for: no swapchain to ask.
     NoGpuRenderer,
@@ -161,6 +164,7 @@ impl SdrReason {
 /// compositor gets BT.2020 PQ, which it can scan out, instead of fp16 it has to convert. Otherwise
 /// scRGB, as before: the launcher and SDR streams keep drawing straight into the swapchain, which
 /// PQ's present pass rules out. A desktop offering HDR10 alone stays SDR without an HDR stream.
+#[cfg(any(not(target_os = "macos"), test))]
 pub fn choose(gpu: bool, gamescope: bool, window_hdr: bool, hdr_stream: bool, offered: Offered) -> Result<Output, SdrReason> {
     if !gpu {
         return Err(SdrReason::NoGpuRenderer);
@@ -190,6 +194,7 @@ pub fn choose(gpu: bool, gamescope: bool, window_hdr: bool, hdr_stream: bool, of
 
 /// The output to try when `failed` could not be made: a desktop's PQ falls back to scRGB where it
 /// is offered (KDE's scRGB is known to work), never straight to SDR.
+#[cfg(any(not(target_os = "macos"), test))]
 pub fn fallback(failed: Output, offered: Offered) -> Option<Output> {
     (failed == Output::Pq && offered.scrgb).then_some(Output::Scrgb)
 }
@@ -198,19 +203,22 @@ pub fn fallback(failed: Output, offered: Offered) -> Option<Output> {
 /// ([`choose`]): no gamescope, HDR10 offered, the last decision was not PQ, and PQ has not failed
 /// this run (`pq_failed`: its fallback stays). A stream asking for HDR makes it again for PQ once
 /// ([`renderer_switch`]).
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg(any(not(target_os = "macos"), test))]
 pub fn pq_unused(gamescope: bool, decision: Option<Result<Output, SdrReason>>, hdr10_offered: bool, pq_failed: bool) -> bool {
     !gamescope && hdr10_offered && !pq_failed && decision != Some(Ok(Output::Pq))
 }
 
 /// The compositor's window HDR state: SDL's flag, unless Nightjar set it itself for an earlier
 /// renderer of the same window (a second attempt after a zero-copy renderer failed).
+#[cfg(any(not(target_os = "macos"), test))]
 pub fn window_hdr_reported(flag: bool, set_by_nightjar: bool) -> bool {
     flag && !set_by_nightjar
 }
 
 /// What `sdl::hdr_output` does with the first renderer it was handed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(any(not(target_os = "macos"), test))]
 pub struct Plan {
     pub decision: Result<Output, SdrReason>,
     /// Set the window's HDR state to [`gamescope_hdr_properties`] (the compositor reports none).
@@ -226,6 +234,7 @@ pub struct Plan {
 /// display. Without an HDR setting the SDR swapchain stays: fp16 would serve no stream. A desktop's
 /// PQ, only for an HDR stream's renderer (`hdr_stream`, [`choose`]), is made again with the PQ
 /// present, the window's HDR state still the compositor's to report.
+#[cfg(any(not(target_os = "macos"), test))]
 pub fn plan(gamescope: bool, window_hdr: bool, display_hdr: bool, hdr_asked: bool, hdr_stream: bool, offered: Offered) -> Plan {
     let decision = choose(true, gamescope, window_hdr || (display_hdr && (hdr_asked || hdr_stream)), hdr_stream, offered);
     match decision {
@@ -237,6 +246,7 @@ pub fn plan(gamescope: bool, window_hdr: bool, display_hdr: bool, hdr_asked: boo
 
 /// The output once the renderer is (re)made: SDR when it could not be made or its swapchain did
 /// not take HDR.
+#[cfg(any(not(target_os = "macos"), test))]
 pub fn settle(output: Output, made: bool, hdr_taken: bool) -> Result<Output, SdrReason> {
     match (made && hdr_taken, output) {
         (true, output) => Ok(output),
@@ -249,6 +259,7 @@ pub fn settle(output: Output, made: bool, hdr_taken: bool) -> Result<Output, Sdr
 /// what was chosen or why it is SDR. `hdr_stream`: made for an HDR stream ([`choose`]).
 /// `pq_failed`: PQ was tried first and could not be made, so the output is its [`fallback`].
 #[allow(clippy::too_many_arguments)]
+#[cfg(any(not(target_os = "macos"), test))]
 pub fn describe(renderer: &str, gamescope: bool, window_hdr: bool, display_hdr: bool, hdr_asked: bool, hdr_stream: bool, offered: Offered, decision: Result<Output, SdrReason>, pq_failed: bool) -> String {
     let yes = |b: bool| if b { "yes" } else { "no" };
     let pending = if !gamescope && !window_hdr { ", pending the window's report" } else { "" };
@@ -267,13 +278,43 @@ pub fn describe(renderer: &str, gamescope: bool, window_hdr: bool, display_hdr: 
 /// SDR white and the peak gamescope's HDR output is drawn for, in nits, when SDL has no window
 /// HDR state to take them from: BT.2408's reference white, and the 1000-nit peak HDR10 masters
 /// and the Steam Deck OLED's panel share. Gamescope maps what is above its display's peak.
+#[cfg(any(not(target_os = "macos"), test))]
 pub const GAMESCOPE_SDR_WHITE_NITS: f32 = 203.0;
+#[cfg(any(not(target_os = "macos"), test))]
 pub const GAMESCOPE_PEAK_NITS: f32 = 1000.0;
 
 /// SDL's window HDR properties for those: SDR white in scRGB units (80 nits each) and the
 /// headroom over it.
+#[cfg(any(not(target_os = "macos"), test))]
 pub fn gamescope_hdr_properties() -> (f32, f32) {
     (GAMESCOPE_SDR_WHITE_NITS / 80.0, GAMESCOPE_PEAK_NITS / GAMESCOPE_SDR_WHITE_NITS)
+}
+
+/// The window property the patched SDL's renderer takes its SDR white from, in place of the
+/// window's own level (`vendor/sdl3-src/patches/renderer-sdr-white.patch`): a float, in scRGB units.
+#[cfg(any(not(target_os = "macos"), test))]
+pub const RENDERER_SDR_WHITE_PROPERTY: &std::ffi::CStr = c"SDL.window.renderer.sdr_white_level";
+
+/// The SDR white SDL's renderer draws its linear output with, in scRGB units (80 nits each),
+/// where Nightjar sets it ([`RENDERER_SDR_WHITE_PROPERTY`]); None leaves the window's own level.
+/// A desktop's scRGB: 1.0. Mesa describes an scRGB swapchain to a Wayland compositor with the
+/// colour management protocol's default luminances, where 1.0 is the reference white, which the
+/// compositor shows as its SDR white. SDL 3.4.20 reports the window's SDR white as the
+/// compositor's reference luminance over 80 nits (2.5 at 203 nits) and its renderer multiplies
+/// all it draws by that: the launcher and SDR streams came out that many times too bright.
+/// PQ's present encodes 1.0 as 80 nits, absolute, so the window's own level is right there, and
+/// with its headroom gives an HDR stream the display's peak. Under gamescope Nightjar sets the
+/// window's HDR state itself ([`gamescope_hdr_properties`]).
+#[cfg(any(not(target_os = "macos"), test))]
+pub fn renderer_sdr_white(gamescope: bool, output_pq: bool) -> Option<f32> {
+    (!gamescope && !output_pq).then_some(1.0)
+}
+
+/// What the log adds to a window's HDR report: the SDR white and headroom the compositor gave SDL
+/// for the window (`white` in scRGB units), and the SDR white its renderer draws with (`drawn`).
+pub fn describe_levels(white: f32, headroom: f32, drawn: Option<f32>) -> String {
+    let drawn = drawn.map(|drawn| format!(", drawn with SDR white {drawn:.2}")).unwrap_or_default();
+    format!("SDR white {:.0} nits, headroom {headroom:.2}{drawn}", white * 80.0)
 }
 
 /// An HDR stream asked for where the output is SDR: outside gamescope the launcher refuses it as
@@ -331,7 +372,7 @@ pub fn hdr_refusal(swapchain_hdr: bool, display_hdr: bool) -> HdrRefusal {
 }
 
 /// The Linux renderer as a stream's start finds it.
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RendererNow {
     /// SDL's "gpu" renderer (else OpenGL, or software).
@@ -351,7 +392,7 @@ pub struct RendererNow {
 }
 
 /// Why a stream's start makes Linux's renderer again on the same window, before its checks.
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RendererSwitch {
     /// From OpenGL to the GPU renderer, which the stream needs for this (`Settings::gpu_need`, or
@@ -363,7 +404,7 @@ pub enum RendererSwitch {
     ForHdr,
 }
 
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 impl RendererSwitch {
     pub fn reason(self) -> &'static str {
         match self {
@@ -381,7 +422,7 @@ impl RendererSwitch {
 /// an SDR stream after it keeps it. HDR alone with no display's HDR on keeps OpenGL: the stream is
 /// refused either way, and the zero-copy path stays for the next SDR stream. The Renderer setting
 /// at OpenGL (`choice`) never switches: the stream's check refuses it, naming the setting.
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn renderer_switch(choice: Renderer, now: RendererNow, need: Option<&'static str>, hdr: bool, display_hdr: bool, busy: bool) -> Option<RendererSwitch> {
     if busy || choice == Renderer::OpenGl || now.gpu_failed {
         return None;
@@ -397,14 +438,14 @@ pub fn renderer_switch(choice: Renderer, now: RendererNow, need: Option<&'static
 
 /// Whether HDR can reach a display, for the renderer switch: gamescope presents HDR whatever the
 /// displays report, as in [`plan`]; elsewhere a display has HDR on.
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn hdr_display(gamescope: bool, any_display_hdr: bool) -> bool {
     gamescope || any_display_hdr
 }
 
 /// Whether Linux starts on the GPU renderer: the Renderer setting, or at Auto whether a saved
 /// setting or Vulkan video needs it (`needed`).
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn starts_on_gpu(choice: Renderer, needed: bool) -> bool {
     match choice {
         Renderer::Auto => needed,
@@ -416,7 +457,7 @@ pub fn starts_on_gpu(choice: Renderer, needed: bool) -> bool {
 /// The renderer a changed Renderer setting makes at once, with nothing streaming: Some(true) for the
 /// GPU renderer, Some(false) for OpenGL, None to keep the one there (`gpu`). Auto keeps either: it
 /// moves up when a stream needs it ([`renderer_switch`]), never down.
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn renderer_for_choice(choice: Renderer, gpu: bool) -> Option<bool> {
     match choice {
         Renderer::Auto => None,
@@ -428,7 +469,7 @@ pub fn renderer_for_choice(choice: Renderer, gpu: bool) -> Option<bool> {
 /// Whether a stream whose `need` (`Settings::gpu_need`) finds no GPU renderer is refused before
 /// its checks. HDR (SDR may do on an SDR display) and PyroWave (its probe says more) refuse in
 /// their own checks.
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn refused_without_gpu(need: &str) -> bool {
     !matches!(need, "HDR" | "PyroWave")
 }
@@ -741,6 +782,28 @@ mod tests {
         assert!((white - 2.5375).abs() < 1e-4, "{white}");
         assert!((headroom * GAMESCOPE_SDR_WHITE_NITS - 1000.0).abs() < 1e-2, "{headroom}");
         assert!(headroom > 1.0, "SDL's HDR is on only above 1");
+    }
+
+    #[test]
+    fn a_desktops_scrgb_is_drawn_with_sdr_white_at_one_whatever_the_compositor_reports() {
+        // SDL 3.4.20 reports reference luminance / 80 for a Wayland window (2.5 at 203 nits): on
+        // scRGB, where 1.0 already is the compositor's SDR white, the launcher came out that much too bright.
+        assert_eq!(renderer_sdr_white(false, false), Some(1.0), "the launcher and SDR streams on a desktop's scRGB");
+        assert_eq!(renderer_sdr_white(false, true), None, "PQ's present keeps the window's level: an HDR stream's peak comes from it");
+        assert_eq!(renderer_sdr_white(true, false), None, "gamescope's scRGB keeps the HDR state Nightjar sets on the window");
+        assert_eq!(renderer_sdr_white(true, true), None);
+        // The property SDL's renderer reads is the one the patch adds.
+        let patch = include_str!("../../vendor/sdl3-src/patches/renderer-sdr-white.patch");
+        let name = RENDERER_SDR_WHITE_PROPERTY.to_str().unwrap();
+        assert!(patch.contains(&format!("SDL_GetFloatProperty(window_props, \"{name}\", 0.0f)")), "{name} is not what the patch reads");
+        assert!(patch.contains("+++ b/src/render/SDL_render.c"));
+    }
+
+    #[test]
+    fn a_window_hdr_report_says_the_compositors_levels_and_what_is_drawn() {
+        assert_eq!(describe_levels(2.5375, 4.926, Some(1.0)), "SDR white 203 nits, headroom 4.93, drawn with SDR white 1.00");
+        assert_eq!(describe_levels(2.5375, 4.926, Some(2.5375)), "SDR white 203 nits, headroom 4.93, drawn with SDR white 2.54");
+        assert_eq!(describe_levels(1.0, 1.0, None), "SDR white 80 nits, headroom 1.00");
     }
 
     #[test]

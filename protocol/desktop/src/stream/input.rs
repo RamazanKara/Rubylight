@@ -98,7 +98,7 @@ impl Streaming {
         let ours = self.captured && self.focused && !self.menu_visible && !self.plan.mic_only;
         direct_motion::Rules {
             keys: ours.then_some(direct_motion::KeyRules {
-                system_keys: self.settings.capture_system_keys,
+                system_keys: self.system_keys(),
                 right_alt_as_meta: self.settings.right_alt_as_meta,
             }),
             clicks: (ours && !self.absolute).then_some(direct_motion::ClickRules { nav_buttons: self.settings.mouse_nav_buttons }),
@@ -306,7 +306,7 @@ impl Streaming {
     pub(super) fn key(&mut self, k: &SDL_KeyboardEvent, sent: bool, window: *mut SDL_Window, pads: &mut Gamepads) {
         if k.repeat {
             // The PC repeats a held key itself; SDL's repeated text is that key's too.
-            let held = key_input(k.scancode, k.r#mod, self.settings.capture_system_keys, self.settings.right_alt_as_meta)
+            let held = key_input(k.scancode, k.r#mod, self.system_keys(), self.settings.right_alt_as_meta)
                 .is_some_and(|key| self.keys_down.contains(&key.code));
             if k.down && held {
                 self.text_field.key_down(text_field::types(k.key, k.r#mod));
@@ -394,7 +394,7 @@ impl Streaming {
             return;
         }
         let Some(KeyInput { code, modifiers, flags }) =
-            key_input(k.scancode, k.r#mod, self.settings.capture_system_keys, self.settings.right_alt_as_meta)
+            key_input(k.scancode, k.r#mod, self.system_keys(), self.settings.right_alt_as_meta)
         else {
             return;
         };

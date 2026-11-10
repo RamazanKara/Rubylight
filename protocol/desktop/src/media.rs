@@ -3,6 +3,8 @@
 use std::ffi::{c_char, c_int, c_uchar, c_void, CStr};
 use std::ptr::{self, NonNull};
 
+use nightjar_core::video::{FrameBytes, FRAME_PADDING};
+
 #[allow(
     non_upper_case_globals,
     non_camel_case_types,
@@ -35,6 +37,8 @@ pub struct FrameInfo {
 pub const FRAME_NV12: c_int = 0;
 pub const FRAME_P010: c_int = 1;
 pub const FRAME_YUV420P: c_int = 2;
+/// A VideoToolbox CVPixelBuffer whose NV12 or P010 planes SDL Metal can import.
+pub const FRAME_VIDEOTOOLBOX: c_int = 13;
 pub const FRAME_D3D11: c_int = 3;
 pub const FRAME_WAVELET: c_int = 5;
 /// Software-decoded planar pictures: 8-bit 4:4:4, and 10-bit 4:2:0 and 4:4:4 with the samples in
@@ -57,6 +61,14 @@ pub const FRAME_VULKAN444: c_int = 11;
 /// shader reads all three from it.
 #[cfg(unix)]
 pub const FRAME_VULKAN_INTERLEAVED444: c_int = 12;
+/// A D3D11VA 4:4:4 picture: an AYUV (8-bit), Y410 or Y416 (10-bit, `ten_bit`) surface, which NVIDIA
+/// and Intel decoders make for H.264 High 4:4:4 and HEVC RExt 4:4:4. The presenter copies it and
+/// draws it with the plane shader's surface entry (`stream::d3d11::PlanesPass::draw_surface`).
+pub const FRAME_D3D11_444: c_int = 13;
+/// 10-bit 4:4:4 in three 16-bit planes with the samples in the high bits of each word, as P010's:
+/// NVDEC's 10-bit 4:4:4 (`YUV444P16`) copied to memory. The plane upload moves them to the low
+/// bits (`stream::planes_gpu`), so it draws as `FRAME_YUV444P10`. Linux only.
+pub const FRAME_YUV444P16: c_int = 14;
 
 /// Whether `info` is a `FRAME_VULKAN_INTERLEAVED444` picture.
 pub fn interleaved_444(info: &FrameInfo) -> bool {
@@ -80,15 +92,25 @@ pub struct PlanarLayout {
 }
 
 impl PlanarLayout {
-    /// The layout of a `FRAME_YUV444P`, `FRAME_YUV420P10` or `FRAME_YUV444P10` picture.
+    /// The layout of a `FRAME_YUV444P`, `FRAME_YUV420P10` or `FRAME_YUV444P10` picture, and on
+    /// Linux of a `FRAME_YUV444P16` one (its high-bit samples moved to the low bits on upload).
     pub fn of(info: &FrameInfo) -> Option<Self> {
         let (chroma444, ten_bit) = match info.kind {
             FRAME_YUV444P => (true, false),
             FRAME_YUV420P10 => (false, true),
             FRAME_YUV444P10 => (true, true),
+            #[cfg(unix)]
+            FRAME_YUV444P16 => (true, true),
             _ => return None,
         };
         (info.width > 0 && info.height > 0).then_some(Self { width: info.width as u32, height: info.height as u32, chroma444, ten_bit })
+    }
+
+    /// The layout of a `FRAME_D3D11_444` picture as the plane shader's surface entry reads its
+    /// copy: one texel holding Y, Cb and Cr, 8-bit (AYUV) or 10-bit (Y410, Y416).
+    pub fn of_d3d11(info: &FrameInfo) -> Option<Self> {
+        (info.kind == FRAME_D3D11_444 && info.width > 0 && info.height > 0)
+            .then_some(Self { width: info.width as u32, height: info.height as u32, chroma444: true, ten_bit: info.ten_bit != 0 })
     }
 
     /// The 4:2:0 layout an NV12 or P010 picture in memory is drawn in by the plane shader: the
@@ -170,7 +192,7 @@ pub struct Pictures {
 
 /// The device VAAPI opens on (`Pictures::vaapi_node`, [`vaapi_node`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub enum VaapiNode {
     /// FFmpeg's default device, the first render node.
     #[default]
@@ -187,7 +209,7 @@ pub enum VaapiNode {
 
 impl VaapiNode {
     /// The render node's minor; none for the default device.
-    #[cfg_attr(not(unix), allow(dead_code))] // VAAPI is Unix's; Windows reads it in tests only.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))] // VAAPI is Unix's; Windows reads it in tests only.
     pub fn minor(self) -> Option<u32> {
         match self {
             Self::Default => None,
@@ -206,12 +228,15 @@ pub enum Hardware {
     /// device), and on Windows without a Direct3D 11 renderer.
     Auto(*mut c_void, Option<u32>),
     Vaapi,
+    #[cfg(target_os = "macos")]
+    VideoToolbox,
     /// FFmpeg's Vulkan video on the GPU renderer's own Vulkan device, this SDL GPU device (or
     /// null, which does not open), its pictures drawn without a copy to memory. Linux only.
-    #[cfg_attr(not(unix), allow(dead_code))]
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     Vulkan(*mut c_void),
     /// NVDEC, with CUDA frames copied into the GPU renderer's Vulkan images (`map_to_vulkan`), else
     /// to memory for the presenter.
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     Cuda,
     /// The V4L2 memory-to-memory decoders of ARM handhelds and boards (H.264 and HEVC).
     V4l2m2m,
@@ -233,7 +258,7 @@ pub fn use_vulkan_video_settings(first: bool, rfi: bool) {
     VULKAN_RFI.store(rfi, std::sync::atomic::Ordering::Relaxed);
 }
 
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn vulkan_video_first_setting() -> bool {
     VULKAN_VIDEO_FIRST.load(std::sync::atomic::Ordering::Relaxed)
 }
@@ -288,7 +313,9 @@ impl Hardware {
                 order
             }
             // Vulkan video is Linux's; the rest of the order is tried as before it.
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(target_os = "macos")]
+            Self::Auto(..) => vec![Self::VideoToolbox],
+            #[cfg(not(any(target_os = "linux", target_os = "macos")))]
             Self::Auto(..) => vec![Self::Vaapi, Self::V4l2m2m, Self::Cuda],
             other => vec![other],
         }
@@ -332,6 +359,8 @@ impl Hardware {
             Self::D3d11(_) => "D3D11VA",
             Self::Auto(..) => "hardware",
             Self::Vaapi => "VAAPI",
+            #[cfg(target_os = "macos")]
+            Self::VideoToolbox => "VideoToolbox",
             Self::Vulkan(_) => "Vulkan",
             Self::Cuda => "NVDEC",
             Self::V4l2m2m => "V4L2 M2M",
@@ -417,7 +446,7 @@ pub fn pool_extra(waiting: usize) -> i32 {
 /// device. The probes and the stream ask the same, so they decode on one GPU; why not the
 /// renderer's goes to the log.
 pub fn vaapi_node(hardware: Hardware) -> VaapiNode {
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     if let Hardware::Auto(gpu, display) = hardware {
         if !gpu.is_null() {
             let switched_on = crate::vulkan_video::map_switched_on(std::env::var_os(crate::vulkan_video::MAP_ENVIRONMENT).as_deref());
@@ -541,10 +570,16 @@ pub struct VideoDecoder {
     /// Windows' heap maps a fresh block for each), measured at 0.14 ms per MiB on Windows 11.
     pool: *mut AVBufferPool,
     pool_size: usize,
+    /// The bytes of the frame being sent (`lend`): a packet whose data lies in them goes to FFmpeg
+    /// by reference instead of through a copy into `pool`.
+    lent: Option<FrameBytes>,
+    /// Packets that went to FFmpeg by reference rather than copied, for the tests.
+    #[cfg_attr(not(test), allow(dead_code))]
+    lent_packets: u64,
     _format: Box<Format>,
     pub name: String,
     /// The backend this decoder opened with.
-    #[cfg_attr(not(unix), allow(dead_code))]
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub hardware: Hardware,
     /// HEVC access units go to FFmpeg without the last shard's zero padding (`access_unit`).
     trims_padding: bool,
@@ -590,6 +625,61 @@ const DECODE_STAGES: [&str; 3] = ["send", "receive", "hand-off"];
 /// for each one.
 fn packet_buffer_size(needed: usize) -> usize {
     (needed + needed / 4).next_multiple_of(64 * 1024)
+}
+
+unsafe extern "C" {
+    /// libavutil/buffer.h (FFmpeg 5 and newer take the size as `size_t`); not in the bindings.
+    fn av_buffer_create(
+        data: *mut u8,
+        size: usize,
+        free: Option<unsafe extern "C" fn(*mut c_void, *mut u8)>,
+        opaque: *mut c_void,
+        flags: c_int,
+    ) -> *mut AVBufferRef;
+}
+
+/// `AV_BUFFER_FLAG_READONLY`: FFmpeg copies a packet of such a buffer before it would write to it.
+const BUFFER_READ_ONLY: c_int = 1;
+
+// A frame's own padding covers what FFmpeg may read past a packet.
+const _: () = assert!(FRAME_PADDING >= AV_INPUT_BUFFER_PADDING_SIZE as usize);
+
+/// The free callback of a buffer `lend_packet` made: lets go of its reference to the frame's
+/// bytes, on whichever thread FFmpeg releases the last packet holding it (possibly after the
+/// decoder and the stream are gone; the reference owns the bytes).
+unsafe extern "C" fn release_lent(opaque: *mut c_void, _data: *mut u8) {
+    // SAFETY: the reference `lend_packet` turned into this opaque pointer, released once.
+    drop(unsafe { FrameBytes::from_raw(opaque.cast_const()) });
+}
+
+/// An FFmpeg buffer over a frame's `bytes` that holds a reference to them, for a packet of `data`:
+/// when `data` is a non-empty part of those bytes followed there by at least `padding` zero bytes
+/// (the frame's padding, after any zeros `access_unit` trimmed). None otherwise, and the packet
+/// is copied instead.
+fn lend_packet(bytes: &FrameBytes, data: &[u8], padding: usize) -> Option<*mut AVBufferRef> {
+    let padded = bytes.padded();
+    if data.is_empty() {
+        return None;
+    }
+    let start = (data.as_ptr() as usize).checked_sub(padded.as_ptr() as usize)?;
+    let end = start.checked_add(data.len())?;
+    let zeros = padded.get(end..end.checked_add(padding)?)?;
+    if zeros.iter().any(|&byte| byte != 0) {
+        return None;
+    }
+    let raw = bytes.clone().into_raw();
+    // SAFETY: the buffer spans the frame's bytes and padding, which the reference given as its
+    // opaque pointer keeps alive and unwritten until `release_lent` lets it go. FFmpeg calls that
+    // only for a buffer it made; on failure the reference is taken back here.
+    let buffer = unsafe {
+        av_buffer_create(padded.as_ptr().cast_mut(), padded.len(), Some(release_lent), raw.cast_mut(), BUFFER_READ_ONLY)
+    };
+    if buffer.is_null() {
+        // SAFETY: from into_raw above; FFmpeg did not take it.
+        drop(unsafe { FrameBytes::from_raw(raw) });
+        return None;
+    }
+    Some(buffer)
 }
 
 /// An Annex B access unit without the zero bytes after its last NAL unit (trailing_zero_8bits,
@@ -649,7 +739,19 @@ pub fn v4l2_pts_round_trip(pts: i64, timebase: Option<(i32, i32)>) -> i64 {
 
 /// `avcodec_send_packet` and `avcodec_receive_frame`'s AVERROR(EAGAIN): output must be read
 /// before more input goes in, or no output is there yet.
+#[cfg(unix)]
+pub const AGAIN: i32 = -libc::EAGAIN;
+#[cfg(windows)]
 pub const AGAIN: i32 = -11;
+
+/// Let FFmpeg select the device when this backend does not share one with the renderer.
+fn open_default_device(context: &mut AVCodecContext, kind: AVHWDeviceType) -> Result<(), String> {
+    // FFmpeg owns the returned reference through the codec context.
+    let status = unsafe {
+        av_hwdevice_ctx_create(&mut context.hw_device_ctx, kind, ptr::null(), ptr::null_mut(), 0)
+    };
+    if status < 0 { Err(format!("no device: {}", error(status))) } else { Ok(()) }
+}
 
 impl VideoDecoder {
     /// Opens the first backend of `hardware.order()` that opens, logging each that does not
@@ -726,6 +828,8 @@ impl VideoDecoder {
                 packet: av_packet_alloc(),
                 pool: ptr::null_mut(),
                 pool_size: 0,
+                lent: None,
+                lent_packets: 0,
                 _format: Box::new(Format {
                     hardware: AV_PIX_FMT_NONE,
                     required: require_hardware,
@@ -762,6 +866,8 @@ impl VideoDecoder {
             let device_type = match hardware {
                 Hardware::D3d11(_) => Some(AV_HWDEVICE_TYPE_D3D11VA),
                 Hardware::Vaapi => Some(AV_HWDEVICE_TYPE_VAAPI),
+                #[cfg(target_os = "macos")]
+                Hardware::VideoToolbox => Some(AV_HWDEVICE_TYPE_VIDEOTOOLBOX),
                 Hardware::Vulkan(_) => Some(AV_HWDEVICE_TYPE_VULKAN),
                 Hardware::Cuda => Some(AV_HWDEVICE_TYPE_CUDA),
                 Hardware::Auto(..) => return Err("the hardware order is not a backend of its own".into()),
@@ -827,26 +933,14 @@ impl VideoDecoder {
                             let renderer = if matches!(pictures.vaapi_node, VaapiNode::Mapped(_)) { "GPU" } else { "OpenGL" };
                             eprintln!("nightjar: {why}; it opens on the default device, and its pictures may go through memory to the {renderer} renderer");
                             video.vaapi_on_renderer = Err(why);
-                            let status = av_hwdevice_ctx_create(&mut context.hw_device_ctx, kind, ptr::null(), ptr::null_mut(), 0);
-                            if status < 0 {
-                                return Err(format!("no device: {}", error(status)));
-                            }
+                            open_default_device(context, kind)?;
                         } else {
                             video.vaapi_on_renderer = Ok(());
                         }
                     }
-                    Hardware::Vaapi | Hardware::Cuda => {
-                        let status = av_hwdevice_ctx_create(
-                            &mut context.hw_device_ctx,
-                            kind,
-                            ptr::null(),
-                            ptr::null_mut(),
-                            0,
-                        );
-                        if status < 0 {
-                            return Err(format!("no device: {}", error(status)));
-                        }
-                    }
+                    Hardware::Vaapi | Hardware::Cuda => open_default_device(context, kind)?,
+                    #[cfg(target_os = "macos")]
+                    Hardware::VideoToolbox => open_default_device(context, kind)?,
                     Hardware::Vulkan(gpu) => {
                         #[cfg(unix)]
                         {
@@ -886,6 +980,8 @@ impl VideoDecoder {
             video.name.push_str(match hardware {
                 Hardware::D3d11(_) => " d3d11va",
                 Hardware::Vaapi => " vaapi",
+                #[cfg(target_os = "macos")]
+                Hardware::VideoToolbox => " videotoolbox",
                 Hardware::Vulkan(_) => " vulkan",
                 Hardware::Cuda => " nvdec",
                 Hardware::None | Hardware::V4l2m2m | Hardware::Auto(..) => "",
@@ -973,8 +1069,8 @@ impl VideoDecoder {
     /// (`vulkan_mapped` after a failed import says they no longer are).
     /// An NVDEC decoder's pictures are copied by CUDA into Vulkan images of that device instead
     /// (`vulkan_video::CudaMap`), where its device was made with the interop extensions.
-    /// Only a VAAPI or NVDEC decoder on Linux.
-    #[cfg(unix)]
+    /// Only a VAAPI or NVDEC decoder on Linux (and macOS's Unix tests, which build the Vulkan rig).
+    #[cfg(all(unix, any(target_os = "linux", test)))]
     pub fn map_to_vulkan(&mut self, gpu: *mut c_void) -> bool {
         if self.hardware == Hardware::Cuda {
             // SAFETY: As below; the codec context's device is the CUDA one this decoder opened.
@@ -1046,12 +1142,41 @@ impl VideoDecoder {
         status
     }
 
+    /// Lends the decoder the bytes of the frame about to be sent, or takes them back (`None`, after
+    /// the frame): a `send` whose data lies in them hands FFmpeg a reference to them instead of a
+    /// copy. FFmpeg may keep that reference past the call; the bytes stay valid until it lets go.
+    pub fn lend(&mut self, bytes: Option<FrameBytes>) {
+        self.lent = bytes;
+    }
+
+    /// Packets that went to FFmpeg by reference (`lend`) rather than copied.
+    #[cfg(test)]
+    pub fn lent_packets(&self) -> u64 {
+        self.lent_packets
+    }
+
     fn send_packet(&mut self, data: &[u8], pts: i64) -> i32 {
         let data = if self.trims_padding { access_unit(data) } else { data };
         let Ok(length) = i32::try_from(data.len()) else {
             return -1;
         };
         let padding = AV_INPUT_BUFFER_PADDING_SIZE as usize;
+        if let Some(buffer) = self.lent.as_ref().and_then(|bytes| lend_packet(bytes, data, padding)) {
+            unsafe {
+                av_packet_unref(self.packet);
+                let packet = &mut *self.packet;
+                packet.buf = buffer;
+                packet.data = data.as_ptr().cast_mut();
+                packet.size = length;
+                packet.pts = pts;
+                let status = avcodec_send_packet(self.context, self.packet);
+                // FFmpeg took its own reference if it kept the packet: ours goes now, so the
+                // frame's bytes return to the pool when FFmpeg is done with them.
+                av_packet_unref(self.packet);
+                self.lent_packets += 1;
+                return status;
+            }
+        }
         unsafe {
             av_packet_unref(self.packet);
             let needed = data.len() + padding;
@@ -1261,11 +1386,26 @@ fn frame_kind(format: AVPixelFormat, sw_format: Option<AVPixelFormat>, dmabuf: b
         AV_PIX_FMT_YUV444P | AV_PIX_FMT_YUVJ444P => (FRAME_YUV444P, 0),
         AV_PIX_FMT_YUV420P10LE => (FRAME_YUV420P10, 1),
         AV_PIX_FMT_YUV444P10LE => (FRAME_YUV444P10, 1),
-        // Only NV12 and P010 surfaces copy into the presenter's textures; a 4:4:4 surface (AYUV,
-        // Y410) is a picture nothing here can show. Without a frames context, NV12.
+        // NVDEC's 10-bit 4:4:4 copied to memory: its samples are in the high bits.
+        AV_PIX_FMT_YUV444P16LE => (FRAME_YUV444P16, 1),
+        // VideoToolbox: only NV12 and P010 surfaces copy into the presenter's textures; a 4:4:4
+        // surface is a picture nothing here can show.
+        AV_PIX_FMT_VIDEOTOOLBOX => match sw_format {
+            Some(AV_PIX_FMT_NV12) => (FRAME_VIDEOTOOLBOX, 0),
+            Some(AV_PIX_FMT_P010LE) => (FRAME_VIDEOTOOLBOX, 1),
+            _ => (4, 0),
+        },
+        // NV12 and P010 surfaces copy into the presenter's textures. FFmpeg names the 4:4:4 ones
+        // by their packing: AYUV is VUYX, Y410 XV30 and Y416 XV36 (XV48 for 16-bit samples).
+        // Without a frames context, NV12.
         AV_PIX_FMT_D3D11 => match sw_format.unwrap_or(AV_PIX_FMT_NV12) {
             AV_PIX_FMT_NV12 => (FRAME_D3D11, 0),
             AV_PIX_FMT_P010LE => (FRAME_D3D11, 1),
+            AV_PIX_FMT_VUYX | AV_PIX_FMT_VUYA => (FRAME_D3D11_444, 0),
+            AV_PIX_FMT_XV30LE | AV_PIX_FMT_XV36LE => (FRAME_D3D11_444, 1),
+            // Only FFmpeg builds as new as Windows' name XV48; D3D11 is Windows' alone.
+            #[cfg(windows)]
+            AV_PIX_FMT_XV48LE => (FRAME_D3D11_444, 1),
             _ => (4, 0),
         },
         #[cfg(unix)]
@@ -1707,9 +1847,39 @@ mod pcm_tests {
     }
 }
 
+/// The codes of `tests/fixtures/hevc-444-10.bin`, a 256x256 HEVC RExt 4:4:4 10-bit picture
+/// (limited range, no colour description) of 4x4 flat 64x64 blocks: block i (row * 4 + column)
+/// has Y 65 + 53i, Cb 66 + 57 (5i mod 16) and Cr 67 + 59 (11i mod 16). libx265 (main444-10,
+/// lossless, bframes=0) encoded it from exactly these codes.
+#[cfg(test)]
+pub(crate) fn hevc_444_10_fixture_code(plane: usize, x: usize, y: usize) -> u16 {
+    let i = (y / 64 * 4 + x / 64) as u16;
+    [65 + 53 * i, 66 + 57 * ((5 * i) % 16), 67 + 59 * ((11 * i) % 16)][plane]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A D3D11VA 4:4:4 surface is drawn as one 4:4:4 picture of its depth; nothing else is.
+    #[test]
+    fn a_d3d11_444_surface_has_a_full_chroma_layout_of_its_depth() {
+        let info = |kind, ten_bit| FrameInfo { width: 64, height: 32, kind, ten_bit, pts: 0, data: [std::ptr::null_mut(); 3],
+            linesize: [0; 3], color_space: 1, color_range: 1, color_trc: 1 };
+        for ten_bit in [0, 1] {
+            assert_eq!(PlanarLayout::of_d3d11(&info(FRAME_D3D11_444, ten_bit)),
+                Some(PlanarLayout { width: 64, height: 32, chroma444: true, ten_bit: ten_bit != 0 }));
+            assert_eq!(PlanarLayout::of(&info(FRAME_D3D11_444, ten_bit)), None, "no planes in memory");
+        }
+        assert_eq!(PlanarLayout::of_d3d11(&info(FRAME_D3D11, 1)), None);
+        assert_eq!(PlanarLayout::of_d3d11(&FrameInfo { width: 0, ..info(FRAME_D3D11_444, 0) }), None);
+        // NVDEC's high-bit 10-bit 4:4:4 is a planar 10-bit 4:4:4 picture on Linux.
+        #[cfg(unix)]
+        assert_eq!(PlanarLayout::of(&info(FRAME_YUV444P16, 1)),
+            Some(PlanarLayout { width: 64, height: 32, chroma444: true, ten_bit: true }));
+        #[cfg(not(unix))]
+        assert_eq!(PlanarLayout::of(&info(FRAME_YUV444P16, 1)), None);
+    }
 
     /// Opened without a packet timebase, V4L2 M2M rescaled each pts through the unset 0/1
     /// `time_base`, so no picture kept its frame's number.
@@ -1813,9 +1983,9 @@ mod tests {
     /// for the probes and the stream alike; without one it opens on the default device, as before.
     #[test]
     fn vaapi_opens_on_the_opengl_renderers_node_when_it_names_one() {
-        let expected = if cfg!(unix) { VaapiNode::Display(129) } else { VaapiNode::Default };
+        let expected = if cfg!(target_os = "linux") { VaapiNode::Display(129) } else { VaapiNode::Default };
         assert_eq!(vaapi_node(Hardware::Auto(ptr::null_mut(), Some(129))), expected);
-        assert_eq!(expected.minor(), cfg!(unix).then_some(129));
+        assert_eq!(expected.minor(), cfg!(target_os = "linux").then_some(129));
         assert_eq!(vaapi_node(Hardware::Auto(ptr::null_mut(), None)), VaapiNode::Default);
         assert_eq!(vaapi_node(Hardware::Vaapi), VaapiNode::Default);
         assert_eq!(VaapiNode::Default.minor(), None);
@@ -1845,6 +2015,20 @@ mod tests {
                     let expected: Vec<u8> = (0..256).map(|x| source[(plane * 64 + y / 4) * 64 + x / 4]).collect();
                     assert_eq!(row, &expected[..], "{codec:?} plane {plane} row {y}");
                 }
+            }
+        }
+        // 10-bit 4:4:4: every sample is the fixture's code, in the low bits of its word.
+        let mut decoder = VideoDecoder::open(Codec::Hevc, Hardware::None, 1, false).unwrap();
+        assert_eq!(decoder.send(include_bytes!("../tests/fixtures/hevc-444-10.bin"), 7), 0);
+        let Received::Frame(frame) = decoder.receive() else { panic!("HEVC 4:4:4 10-bit: no decoded frame") };
+        let info = frame.info();
+        assert_eq!((info.kind, info.ten_bit, info.width, info.height), (FRAME_YUV444P10, 1, 256, 256));
+        for plane in 0..3 {
+            for y in 0..256 {
+                // SAFETY: a 256x256 10-bit 4:4:4 picture's planes hold 256 words per row.
+                let row = unsafe { std::slice::from_raw_parts(info.data[plane].add(y * info.linesize[plane] as usize).cast::<u16>(), 256) };
+                let expected: Vec<u16> = (0..256).map(|x| hevc_444_10_fixture_code(plane, x, y)).collect();
+                assert_eq!(row, &expected[..], "10-bit plane {plane} row {y}");
             }
         }
         for (codec, bytes) in [
@@ -1905,6 +2089,78 @@ mod tests {
             };
             assert_eq!(frame.info().pts, pts);
         }
+    }
+
+    /// A packet goes to FFmpeg by reference only when it lies in the lent frame's bytes with zero
+    /// padding after it; the buffer's free callback gives the reference back.
+    #[test]
+    fn a_packet_is_lent_only_from_the_frames_bytes_with_padding_after_it() {
+        let padding = AV_INPUT_BUFFER_PADDING_SIZE as usize;
+        let mut frame = vec![7u8; 100];
+        frame.extend_from_slice(&[0; 20]);
+        let bytes = FrameBytes::from(frame);
+        let data = bytes.as_slice();
+        // The whole frame, and the frame without its trailing zeros (`access_unit`).
+        for packet in [data, &data[..100]] {
+            let mut buffer = lend_packet(&bytes, packet, padding).expect("lent");
+            assert!(!bytes.unshared(), "the buffer holds a reference");
+            unsafe {
+                assert_eq!((*buffer).data.cast_const(), data.as_ptr());
+                assert_eq!((*buffer).size as usize, data.len() + FRAME_PADDING);
+                av_buffer_unref(&mut buffer);
+            }
+            assert!(bytes.unshared(), "freeing the buffer gave the reference back");
+        }
+        // Bytes elsewhere, a part with picture data after it, and an empty packet are copied.
+        let elsewhere = data.to_vec();
+        assert!(lend_packet(&bytes, &elsewhere, padding).is_none());
+        assert!(lend_packet(&bytes, &data[..50], padding).is_none());
+        assert!(lend_packet(&bytes, &data[..0], padding).is_none());
+        // More padding than the frame carries is not claimed.
+        assert!(lend_packet(&bytes, data, FRAME_PADDING + 1).is_none());
+        assert!(bytes.unshared());
+    }
+
+    /// A lent frame decodes as a copied one does, FFmpeg lets go of its bytes by the time the frame
+    /// is done, and a packet that is not the lent frame's (a probe, a stale lend) is copied.
+    #[test]
+    fn a_lent_frame_decodes_without_a_copy_and_comes_back() {
+        let fixture =
+            include_bytes!("../../../app/src/main/assets/packed444/hevc-8.bin").as_slice();
+        let mut padded = fixture.to_vec();
+        // The last shard's zero padding, which `access_unit` trims off.
+        padded.extend_from_slice(&[0; 300]);
+        let mut decoder = VideoDecoder::open(Codec::Hevc, Hardware::None, 1, false).unwrap();
+        for pts in 20..23 {
+            let bytes = FrameBytes::from(padded.clone());
+            decoder.lend(Some(bytes.clone()));
+            assert_eq!(decoder.send(bytes.as_slice(), pts), 0);
+            let Received::Frame(frame) = decoder.receive() else {
+                panic!("no decoded frame")
+            };
+            assert_eq!(frame.info().pts, pts);
+            assert!(matches!(decoder.receive(), Received::None));
+            decoder.lend(None);
+            assert!(bytes.unshared(), "FFmpeg let go of the frame's bytes after frame {pts}");
+        }
+        assert_eq!(decoder.lent_packets(), 3);
+        assert!(decoder.pool.is_null(), "no packet was copied");
+        // Not the lent bytes: copied into the pool.
+        decoder.lend(Some(FrameBytes::from(padded.clone())));
+        assert_eq!(decoder.send(fixture, 30), 0);
+        assert_eq!(decoder.lent_packets(), 3);
+        assert!(!decoder.pool.is_null());
+        let Received::Frame(frame) = decoder.receive() else {
+            panic!("no decoded frame")
+        };
+        assert_eq!(frame.info().pts, 30);
+        // Bytes FFmpeg still holds when the decoder closes go with it.
+        let bytes = FrameBytes::from(padded);
+        decoder.lend(Some(bytes.clone()));
+        decoder.send(bytes.as_slice(), 31);
+        drop(frame);
+        drop(decoder);
+        assert!(bytes.unshared(), "closing the decoder released every reference");
     }
 
     #[test]
@@ -2102,7 +2358,7 @@ mod tests {
     #[test]
     fn vulkan_video_without_the_renderers_device_names_the_reason_and_packed_chroma_is_none() {
         let error = VideoDecoder::open_for(Codec::Hevc, Pictures::default(), Hardware::Vulkan(ptr::null_mut()), 1, false).err().unwrap();
-        if cfg!(unix) {
+        if cfg!(target_os = "linux") {
             assert!(error.contains("does not draw with SDL's GPU API") || error.contains("libavutil"), "{error}");
             let packed = Pictures { packed: true, ..Pictures::default() };
             let error = VideoDecoder::open_for(Codec::Hevc, packed, Hardware::Vulkan(ptr::null_mut()), 1, false).err().unwrap();
@@ -2183,10 +2439,20 @@ mod tests {
         assert_eq!(frame_kind(AV_PIX_FMT_YUV444P, None, false), (FRAME_YUV444P, 0));
         assert_eq!(frame_kind(AV_PIX_FMT_YUV420P10LE, None, false), (FRAME_YUV420P10, 1));
         assert_eq!(frame_kind(AV_PIX_FMT_YUV444P10LE, None, false), (FRAME_YUV444P10, 1));
-        // D3D11: NV12 without a frames context, 4:4:4 surfaces shown by nothing.
+        // NVDEC's 10-bit 4:4:4 in memory, high-bit samples.
+        assert_eq!(frame_kind(AV_PIX_FMT_YUV444P16LE, None, false), (FRAME_YUV444P16, 1));
+        // D3D11: NV12 without a frames context; the 4:4:4 surfaces AYUV (VUYX), Y410 (XV30) and
+        // Y416 (XV36, XV48) are drawn from a copy; other formats by nothing.
         assert_eq!(frame_kind(AV_PIX_FMT_D3D11, None, false), (FRAME_D3D11, 0));
         assert_eq!(frame_kind(AV_PIX_FMT_D3D11, Some(AV_PIX_FMT_P010LE), false), (FRAME_D3D11, 1));
+        assert_eq!(frame_kind(AV_PIX_FMT_D3D11, Some(AV_PIX_FMT_VUYX), false), (FRAME_D3D11_444, 0));
+        assert_eq!(frame_kind(AV_PIX_FMT_D3D11, Some(AV_PIX_FMT_VUYA), false), (FRAME_D3D11_444, 0));
+        assert_eq!(frame_kind(AV_PIX_FMT_D3D11, Some(AV_PIX_FMT_XV30LE), false), (FRAME_D3D11_444, 1));
+        assert_eq!(frame_kind(AV_PIX_FMT_D3D11, Some(AV_PIX_FMT_XV36LE), false), (FRAME_D3D11_444, 1));
+        #[cfg(windows)]
+        assert_eq!(frame_kind(AV_PIX_FMT_D3D11, Some(AV_PIX_FMT_XV48LE), false), (FRAME_D3D11_444, 1));
         assert_eq!(frame_kind(AV_PIX_FMT_D3D11, Some(AV_PIX_FMT_YUV444P), false), (4, 0));
+        assert_eq!(frame_kind(AV_PIX_FMT_D3D11, Some(AV_PIX_FMT_Y210LE), false), (4, 0), "4:2:2 is not streamed");
         assert_eq!(frame_kind(AV_PIX_FMT_RGBA, None, false), (4, 0));
         #[cfg(unix)]
         {

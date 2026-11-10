@@ -1,4 +1,4 @@
-//! Nightjar for Windows and Linux: a Moonlight-protocol game-streaming client on
+//! Nightjar desktop: a Moonlight-protocol game-streaming client on
 //! nightjar-core. Copyright (C) 2026 RamazanKara, GPL-3.0-only.
 //!
 //! One SDL3 window and renderer serve the launcher (egui) and the stream (the decoded
@@ -25,6 +25,7 @@ mod demo_driver;
 mod console;
 mod coop_page;
 mod folders_page;
+mod full_chroma;
 mod controller_audio;
 mod controller_mouse;
 mod dmabuf;
@@ -80,7 +81,7 @@ mod update_check;
 mod update_net;
 // Linux only, and in tests everywhere with zero_copy, which plans its extensions.
 #[cfg(any(unix, test))]
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod vulkan_video;
 mod window_place;
 mod wol;
@@ -185,7 +186,10 @@ struct App {
     shortcut_file: Option<(bool, sdl::FileChoice)>,
     /// A folder to download into, or a file to upload, being chosen for the shared folder browser.
     folder_pick: Option<(FolderPick, sdl::FileChoice)>,
+    /// The network read for a start, which waits for it.
     network_query: Option<Receiver<network::Network>>,
+    /// The network as the launcher shows and uses it between starts.
+    network_watch: network::Watch,
     /// What this PC's power allows, being asked once at start.
     power_probe: Option<Receiver<Vec<power::Offer>>>,
     /// A shut down, restart or sleep under way, and the system's answer to it.
@@ -193,7 +197,6 @@ struct App {
     network_test: Option<network_test::Test>,
     /// Host, app, resume, and Input-only through a small stream.
     network_launch: Option<(u64, i32, bool, LaunchKind)>,
-    next_network_check: Instant,
     /// A pairing link from the system, until the launcher can ask about it.
     links: Arc<link_channel::Inbox>,
     #[cfg(feature = "demo-library")]
@@ -208,8 +211,11 @@ struct App {
     pointer: handheld::Pointer,
     /// The stream being started plays in SDR although HDR was asked for (gamescope without HDR): its start says so.
     hdr_note: bool,
-    /// Full chroma was asked for but its packed picture is too large for the decoder: its start says so.
+    /// Full chroma was asked for and the stream being started runs without it: its start says so.
     packed_note: Option<String>,
+    /// The PC (by id) refused full chroma after this start's launch: the start made again for it
+    /// runs without it (`full_chroma::decide`).
+    full_chroma_off: Option<u64>,
     running: bool,
     autostream: Option<autostream::Autostream>,
     cli: Option<cli::CliLaunch>,
@@ -223,7 +229,7 @@ struct App {
     /// the decoder and the formats it checked.
     base_probed: Option<(ProbeKey, stream::color_probe::Base)>,
     /// Linux's renderer as it was made ([`RendererState`]).
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     renderer_state: RendererState,
     /// Why this stream's switch to the GPU renderer failed, for the check that refuses it.
     gpu_failure: Option<String>,
@@ -243,7 +249,7 @@ struct App {
 }
 
 /// What Linux's renderer was made for, beyond what SDL says of it.
-#[cfg(any(unix, test))]
+#[cfg(any(target_os = "linux", test))]
 #[derive(Clone, Debug)]
 struct RendererState {
     /// The Renderer setting last applied: a change is applied once, with nothing streaming.
@@ -258,7 +264,7 @@ struct RendererState {
     gpu_failed: Option<String>,
 }
 
-#[cfg(any(unix, test))]
+#[cfg(any(target_os = "linux", test))]
 impl RendererState {
     fn for_launcher(choice: config::Renderer, vulkan_video: bool, gpu_failed: Option<String>) -> Self {
         // The launcher never asks for an HDR stream's PQ present, even with HDR enabled in settings.
@@ -365,6 +371,11 @@ fn first_frame_line(already: &std::sync::atomic::AtomicBool, since: Option<std::
 }
 
 fn main() {
+    #[cfg(all(target_os = "macos", feature = "demo-library"))]
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--check-metal")) {
+        stream::check_metal();
+        return;
+    }
     LAUNCH.get_or_init(std::time::Instant::now);
     // Every request to a host says which Nightjar asks: `User-Agent: Nightjar/<version>`.
     nightjar_core::http::set_app_version(VERSION);
@@ -487,7 +498,7 @@ fn renderer_gpu_device(renderer: *mut SDL_Renderer) -> Option<stream::pipeline::
 /// (`vulkan_video_possible`) or `NIGHTJAR_VULKAN_VIDEO=0`. A machine with VAAPI keeps its
 /// renderer, unless its VA driver wraps another API (`linux_video::vaapi_plan`). The reason goes
 /// to the log.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn gpu_for_vulkan_video(possible: bool, choice: vulkan_video::Choice) -> bool {
     use vulkan_video::Choice;
     if !possible || choice == Choice::Off {
@@ -519,13 +530,13 @@ fn gpu_for_vulkan_video(possible: bool, choice: vulkan_video::Choice) -> bool {
 /// GPU renderer's device is made with the extensions for them (video ones and decode queues unless
 /// `NIGHTJAR_VULKAN_VIDEO` is 0, `choice`; DMA-BUF import ones unless `NIGHTJAR_VAAPI_VULKAN_MAP`
 /// is 0, `map`): on Linux, when a stream may decode in hardware (`any_hardware_decoding`).
-#[cfg(any(unix, test))]
+#[cfg(any(target_os = "linux", test))]
 fn vulkan_video_possible(hardware_decoding: bool, choice: vulkan_video::Choice, map: bool) -> bool {
-    cfg!(unix) && hardware_decoding && (choice != vulkan_video::Choice::Off || map)
+    cfg!(target_os = "linux") && hardware_decoding && (choice != vulkan_video::Choice::Off || map)
 }
 
 /// `NIGHTJAR_VAAPI_VULKAN_MAP` from the environment (`vulkan_video::map_switched_on`).
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn vaapi_map_switched_on() -> bool {
     vulkan_video::map_switched_on(std::env::var_os(vulkan_video::MAP_ENVIRONMENT).as_deref())
 }
@@ -534,7 +545,7 @@ fn vaapi_map_switched_on() -> bool {
 /// or an app's override of it, applied over the global settings as a stream applies it. The
 /// renderer is chosen once for every stream, so only when all of them say Software is it chosen
 /// as for software decoding.
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg(any(target_os = "linux", test))]
 fn any_hardware_decoding<'a>(settings: &config::Settings, overrides: impl IntoIterator<Item = &'a config::Overrides>) -> bool {
     settings.decoder != DecoderPreference::Software
         || overrides.into_iter().any(|own| own.apply(settings).decoder != DecoderPreference::Software)
@@ -562,7 +573,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     }
     // VAAPI pictures reach the OpenGL renderer as EGL images (`dmabuf`), which needs an EGL
     // context on X11 as well (Wayland's always is), as moonlight-qt forces it.
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     sdl::set_hint(SDL_HINT_VIDEO_FORCE_EGL, c"1");
     // Keep Alt+Tab and the Windows key for the host while the keyboard is grabbed.
     sdl::set_hint(SDL_HINT_ALLOW_ALT_TAB_WHILE_GRABBED, c"0");
@@ -589,9 +600,14 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
 
     // The second screen's stream takes no controllers: they stay with the first.
     let gamepads = if second_screen::this_process() { SDL_InitFlags::default() } else { SDL_INIT_GAMEPAD };
+    let subsystems = SDL_INIT_VIDEO | gamepads | SDL_INIT_EVENTS;
+    // On macOS the first stream opens Core Audio. Enumerating a cold audio driver
+    // can otherwise hold the Cocoa thread before the launcher has drawn a window.
+    #[cfg(not(target_os = "macos"))]
+    let subsystems = subsystems | SDL_INIT_AUDIO;
     // SAFETY: SDL initialisation on the main thread.
     unsafe {
-        if !SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | gamepads | SDL_INIT_EVENTS) {
+        if !SDL_Init(subsystems) {
             return Err(format!("SDL could not start: {}", sdl::error()));
         }
     }
@@ -604,19 +620,22 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     let profiles = store.profiles();
     let mappings = store.controller_mappings();
     let hosts = store.hosts();
+    #[cfg(target_os = "macos")]
+    let gpu = false; // Start the launcher in SDR. Its stream chooses its own Metal path.
+    #[cfg(not(target_os = "macos"))]
     let gpu = settings.needs_gpu() || hosts.iter()
         .any(|host| host.settings.as_ref().is_some_and(config::Overrides::needs_gpu) || host.app_settings.values().any(config::Overrides::needs_gpu))
         || profiles.entries.iter().any(|profile| profile.settings.needs_gpu());
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     let vulkan_choice = vulkan_video::Choice::from_environment();
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     let vulkan_video = vulkan_video_possible(any_hardware_decoding(&settings, hosts.iter()
         .flat_map(|host| host.settings.iter().chain(host.app_settings.values()))
         .chain(profiles.entries.iter().map(|profile| &profile.settings))), vulkan_choice, vaapi_map_switched_on());
     // The Renderer setting decides, and at Auto what needs the GPU renderer.
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     let gpu = handheld::starts_on_gpu(settings.renderer, settings.renderer == config::Renderer::Auto && (gpu || gpu_for_vulkan_video(vulkan_video, vulkan_choice)));
-    #[cfg(not(unix))]
+    #[cfg(not(target_os = "linux"))]
     let vulkan_video = false;
 
     let hdr_asked = any_hdr_asked(&settings, hosts.iter()
@@ -711,7 +730,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         launcher.tearing_supported =
             media::swapchain_allows_tearing(sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_SWAPCHAIN_POINTER));
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
     {
         launcher.tearing_supported = true;
     }
@@ -816,12 +835,12 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         identity: None,
         shortcut_file: None,
         folder_pick: None,
-        network_query: Some(network::query(waker.clone())),
+        network_query: None,
+        network_watch: network::Watch::start(waker.clone()),
         power_probe: Some(power::probe(waker.clone())),
         power_request: None,
         network_test: None,
         network_launch: None,
-        next_network_check: Instant::now(),
         links,
         #[cfg(feature = "demo-library")]
         demo: demo_driver::start(waker.clone()),
@@ -834,6 +853,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         pointer: handheld::Pointer::new(handheld::gamescope()),
         hdr_note: false,
         packed_note: None,
+        full_chroma_off: None,
         running: true,
         autostream: autostream::Autostream::from_env(),
         updates,
@@ -842,7 +862,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         second_screen: None,
         color_probed: None,
         base_probed: None,
-        #[cfg(unix)]
+        #[cfg(target_os = "linux")]
         renderer_state: RendererState::for_launcher(
             settings.renderer,
             vulkan_video,
@@ -877,6 +897,9 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     while app.running {
         app.updates.hold(app.streaming.is_some() || app.connecting.is_some() || app.network_launch.is_some());
         if app.streaming.is_some() {
+            // The stream watches the network itself (`RoamWatch`), and the launcher's pages are
+            // not on screen to show it.
+            app.network_watch.pace(network::Pace::Paused);
             app.stream_frame();
         } else {
             app.launcher_frame();
@@ -1126,7 +1149,27 @@ impl App {
         }
     }
 
+    /// Cocoa delivers a URL opened by Launch Services as an SDL drop event.
+    /// Queue it for the same confirmation and certificate checks as a command-line link.
+    #[cfg(target_os = "macos")]
+    fn take_pairing_url(&self, event: &SDL_Event) -> bool {
+        unsafe {
+            if SDL_EventType(event.r#type) != SDL_EVENT_DROP_FILE || event.drop.data.is_null() {
+                return false;
+            }
+            if let Ok(url) = std::ffi::CStr::from_ptr(event.drop.data).to_str() {
+                if cli::is_link(url) {
+                    self.links.put(url.to_owned());
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     fn handle_launcher_event(&mut self, event: &SDL_Event) {
+        #[cfg(target_os = "macos")]
+        if self.take_pairing_url(event) { return; }
         log_window_hdr(event);
         self.track_visibility(event);
         // SAFETY: reading the event type.
@@ -1186,7 +1229,7 @@ impl App {
     }
 
     fn launcher_frame(&mut self) {
-        #[cfg(unix)]
+        #[cfg(target_os = "linux")]
         self.apply_renderer_choice();
         // Wait for input or a worker; animate the spinner while something runs.
         let busy = self.connecting.is_some() || self.waking.host().is_some() || self.network_launch.is_some() || self.network_test.is_some()
@@ -1238,15 +1281,17 @@ impl App {
                 }
             }
         }
+        // Before a start's own read, which is the newer of the two when both are in.
+        self.network_watch.pace(self.launcher.screen.network_pace());
+        if let Some(network) = self.network_watch.latest() {
+            self.launcher.network = network;
+        }
         if let Some(receiver) = &self.network_query {
             if let Ok(network) = receiver.try_recv() {
                 self.launcher.network = network;
                 self.network_query = None;
-                self.next_network_check = Instant::now() + Duration::from_secs(5);
                 if let Some((host, app, resume, kind)) = self.network_launch.take() { self.launch_ready(host, app, resume, kind); }
             }
-        } else if Instant::now() >= self.next_network_check {
-            self.network_query = Some(network::query(self.waker.clone()));
         }
         if let Some((export, receiver)) = &self.shortcut_file {
             if let Ok(result) = receiver.try_recv() {
@@ -1472,6 +1517,7 @@ impl App {
                                 }
                             }
                             ConnectFailed::Moved { host, app, device } => self.show_moved(host, app, device),
+                            ConnectFailed::PackedRefused(plan) => self.restart_without_full_chroma(&plan),
                         }
                     }
                 }
@@ -1532,13 +1578,20 @@ impl App {
                 },
             );
         });
+        // Before the frame's commands, so a cover it asks for is sized for this window.
+        self.hosts.covers_shown(&self.gui.ctx, &self.store);
         self.gui.platform(self.window, &output.platform_output);
         if self.title_bar != *theme::NIGHT {
             self.title_bar = *theme::NIGHT;
             sdl::blend_title_bar(self.window, self.title_bar, *theme::ON_SURFACE);
         }
         let renderer = self.renderer;
-        let must_draw = std::mem::take(&mut self.window_changed) || self.screenshot_requested;
+        // On a PQ renderer the launcher draws its white at the compositor's SDR white.
+        #[cfg(target_os = "linux")]
+        let rescaled = sdl::launcher_white(renderer, self.streaming.is_none());
+        #[cfg(not(target_os = "linux"))]
+        let rescaled = false;
+        let must_draw = std::mem::take(&mut self.window_changed) || self.screenshot_requested || rescaled;
         // A screenshot or capture reads the frame back, and so does live glass's timed chain: the
         // frame stays in the GPU renderer's back buffer.
         #[cfg(feature = "demo-library")]
@@ -1775,6 +1828,13 @@ impl App {
             Command::ClearPace(id) => {
                 if let Some(host) = self.hosts.get_mut(id) { host.record.pace = None; self.save_hosts(); }
             }
+            Command::AskFullChromaAgain => {
+                let mut changed = false;
+                for host in &mut self.hosts.list {
+                    changed |= full_chroma::ask_again(&mut host.record);
+                }
+                if changed { self.save_hosts(); }
+            }
             Command::ControllerSettings => {
                 self.command(Command::SaveSettings);
                 self.launcher.open(Screen::Controllers);
@@ -1944,15 +2004,18 @@ impl App {
         if let Some(why) = &self.gpu_failure {
             return Some(trf("The GPU renderer could not be made: {}.", &[why]));
         }
-        (cfg!(unix) && self.launcher.settings.renderer == config::Renderer::OpenGl && sdl::renderer_name(self.renderer) != "gpu")
+        (cfg!(target_os = "linux") && self.launcher.settings.renderer == config::Renderer::OpenGl && sdl::renderer_name(self.renderer) != "gpu")
             .then(|| trf("{} needs the GPU renderer. Set Renderer to Automatic or GPU (Vulkan).", &[&tr(config::gpu_need_label(need))]))
     }
 
     /// Before a stream's checks on Linux: switches to the GPU renderer when the stream needs it
     /// (`handheld::renderer_switch`). A failure keeps a renderer of the old kind and leaves why in
     /// `gpu_failure`, which the check that refuses the stream then says.
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     fn switch_for_stream(&mut self, settings: &config::Settings) {
+        // Before a renderer made for the stream: its HDR description is made for this brightness.
+        #[cfg(target_os = "linux")]
+        stream::wl_scanout::set_brightness(stream::wl_scanout::Brightness::of_setting(settings.hdr_desktop_brightness));
         self.apply_renderer_choice();
         let gpu = sdl::renderer_name(self.renderer) == "gpu";
         let state = self.renderer_state.clone();
@@ -1984,8 +2047,23 @@ impl App {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    fn switch_for_stream(&mut self, settings: &config::Settings) {
+        if self.streaming.is_some() || self.connecting.is_some() || self.pending_replace.is_some() {
+            return;
+        }
+        let shaders = settings.codec.is_pyrowave() || settings.experimental_packed_444
+            || settings.prefer_yuv444 || settings.upscaling != config::Upscaling::Bilinear
+            || (settings.decoder == DecoderPreference::Software && (settings.hdr || settings.sdr_10bit));
+        if (sdl::renderer_name(self.renderer) == "gpu") != shaders
+            || sdl::swapchain_takes_hdr(self.renderer) != settings.hdr
+        {
+            self.gpu_failure = self.rebuild_renderer(shaders, settings.hdr, true, false, "the stream format").err();
+        }
+    }
+
     /// A changed Renderer setting, applied once with nothing streaming (`handheld::renderer_for_choice`).
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     fn apply_renderer_choice(&mut self) {
         let choice = self.launcher.settings.renderer;
         if choice == self.renderer_state.choice || self.streaming.is_some() || self.connecting.is_some() || self.pending_replace.is_some() {
@@ -2014,7 +2092,7 @@ impl App {
     #[cfg(unix)]
     fn rebuild_renderer(&mut self, gpu: bool, hdr: bool, display_hdr: bool, vulkan_video: bool, reason: &str) -> Result<(), String> {
         let from = sdl::renderer_name(self.renderer);
-        let wanted = if gpu { "gpu" } else { "opengl" };
+        let wanted = if gpu { "gpu" } else if cfg!(target_os = "macos") { "metal" } else { "opengl" };
         // Waits for a settings probe still on the old device, and forgets what it found.
         stream::pyrowave_mode::settings_probe_reset();
         self.gui.release_renderer();
@@ -2027,7 +2105,9 @@ impl App {
         // the window target.
         sdl::set_hdr_stream(hdr && display_hdr);
         let mut made = sdl::create_renderer_with(self.window, gpu, vulkan_video);
+        #[cfg(target_os = "linux")]
         let mut vulkan_video = vulkan_video;
+        #[allow(unused_mut)] // Linux can retry with fewer Vulkan extensions.
         let mut failure = if made.is_null() {
             Some(sdl::error())
         } else if gpu && sdl::renderer_name(made) != "gpu" {
@@ -2035,6 +2115,7 @@ impl App {
         } else {
             None
         };
+        #[cfg(target_os = "linux")]
         if failure.is_some() && gpu && from == "gpu" {
             // SDL's own fallback is OpenGL: from the GPU renderer, the GPU renderer once more, plainly.
             if !made.is_null() {
@@ -2048,7 +2129,11 @@ impl App {
             }
         }
         if made.is_null() {
-            made = sdl::create_renderer_with(self.window, from == "gpu", self.renderer_state.vulkan_video);
+            #[cfg(target_os = "linux")]
+            let previous_vulkan = self.renderer_state.vulkan_video;
+            #[cfg(target_os = "macos")]
+            let previous_vulkan = false;
+            made = sdl::create_renderer_with(self.window, from == "gpu", previous_vulkan);
         }
         if made.is_null() && from == "gpu" {
             made = sdl::create_renderer_with(self.window, false, false);
@@ -2074,9 +2159,10 @@ impl App {
         self.base_probed = None;
         self.window_changed = true;
         let to = sdl::renderer_name(made);
-        self.renderer_state.made_for_hdr = to == "gpu" && hdr && display_hdr;
-        if failure.is_none() {
-            self.renderer_state.vulkan_video = vulkan_video;
+        #[cfg(target_os = "linux")]
+        {
+            self.renderer_state.made_for_hdr = to == "gpu" && hdr && display_hdr;
+            if failure.is_none() { self.renderer_state.vulkan_video = vulkan_video; }
         }
         match failure {
             None => {
@@ -2116,22 +2202,22 @@ impl App {
     /// The render node VAAPI opens on for the OpenGL renderer: the GPU its EGL display runs on,
     /// when that is not the default device (`dmabuf::renderer_vaapi_node`).
     fn display_vaapi_node(&self) -> Option<u32> {
-        #[cfg(unix)]
+        #[cfg(target_os = "linux")]
         {
             dmabuf::renderer_vaapi_node(self.renderer)
         }
-        #[cfg(not(unix))]
+        #[cfg(not(target_os = "linux"))]
         None
     }
 
     /// Whether VAAPI pictures go to the renderer as DMA-BUFs (`dmabuf`): its OpenGL renderer on
     /// EGL, unless `NIGHTJAR_DMABUF=0`.
     fn dmabuf_import(&self) -> bool {
-        #[cfg(unix)]
+        #[cfg(target_os = "linux")]
         {
             dmabuf::enabled_by_environment(std::env::var_os("NIGHTJAR_DMABUF").as_deref()) && dmabuf::renderer_imports(self.renderer)
         }
-        #[cfg(not(unix))]
+        #[cfg(not(target_os = "linux"))]
         false
     }
 
@@ -2282,6 +2368,8 @@ impl App {
 
     fn launch(&mut self, host_id: u64, app_id: i32, resume: bool, kind: LaunchKind, from: LaunchFrom) {
         let busy = self.connecting.is_some() || self.network_launch.is_some();
+        // A new start asks for full chroma as its settings say.
+        if !busy { self.full_chroma_off = None; }
         eprintln!("nightjar: {}{}", launch_line(from, app_id, resume, busy), kind.log_suffix());
         if busy {
             // A grant left for this start is not used by it.
@@ -2294,6 +2382,20 @@ impl App {
         }
         self.network_launch = Some((host_id, app_id, resume, kind));
         self.network_query = Some(network::query(self.waker.clone()));
+    }
+
+    /// The PC refused full chroma after `plan`'s launch, so its app runs there: the PC is
+    /// remembered as refusing it, and the same start is made once more without it, resuming that
+    /// app. That start does not ask for it, so it cannot be refused again.
+    fn restart_without_full_chroma(&mut self, plan: &LaunchPlan) {
+        if let Some(host) = self.hosts.get_mut(plan.host_id) {
+            if full_chroma::refused(&mut host.record) { self.save_hosts(); }
+        }
+        let kind = LaunchKind::of_plan(plan.join, plan.small_stream_input_only, plan.mic_only);
+        eprintln!("nightjar: the PC refused full chroma after the launch; starting again without it{}", kind.log_suffix());
+        self.full_chroma_off = Some(plan.host_id);
+        // A microphone-only start launches nothing to resume.
+        self.launch_ready(plan.host_id, plan.app.id, kind != LaunchKind::MicOnly, kind);
     }
 
     fn forget_pin_grant(&mut self) {
@@ -2408,15 +2510,22 @@ impl App {
         self.gpu_failure = None;
         // Before the renderer may be made again for this stream and before its decoder.
         stream::pyrowave_sdk::queue::use_async_compute(settings.pyrowave_async_compute);
+        // Full chroma without the GPU renderer starts without it (`full_chroma::decide`), as on a
+        // decoder without it; anything else that needs the renderer refuses the stream.
         #[cfg(unix)]
-        {
+        let packed_without_gpu = {
             self.switch_for_stream(&settings);
             // HDR and PyroWave say it in their own checks below, with what they found.
-            if let Some(advice) = settings.gpu_need().filter(|&need| handheld::refused_without_gpu(need)).and_then(|need| self.gpu_missing(need)) {
-                self.launcher.message(tr("The stream could not start"), advice);
-                return;
+            match full_chroma::gpu_check(&settings, |need| self.gpu_missing(need)) {
+                Ok(left_out) => left_out,
+                Err(advice) => {
+                    self.launcher.message(tr("The stream could not start"), advice);
+                    return;
+                }
             }
-        }
+        };
+        #[cfg(not(unix))]
+        let packed_without_gpu = false;
         self.hdr_note = false;
         let hdr_output = sdl::hdr_available(self.renderer)
             || (settings.hdr && !handheld::gamescope() && sdl::await_window_hdr(self.renderer));
@@ -2473,24 +2582,30 @@ impl App {
         }
         // Before any decoder probe: the Vulkan video Debug settings change the backend order.
         media::use_vulkan_video_settings(settings.vulkan_video_first, settings.vulkan_rfi);
-        let packed_modes = if settings.experimental_packed_444 {
-            match stream::packed444::probe(self.renderer, self.hardware(&settings)) {
-                Ok(modes) => modes,
-                Err(reason) => {
-                    self.launcher.message(tr("Full chroma unavailable"), reason);
-                    return;
-                }
+        // Before the launch: a stream that cannot have full chroma starts without it, instead of
+        // launching the game and being refused in the handshake.
+        let refused_now = self.full_chroma_off.take() == Some(host_id);
+        let (hardware, renderer, size) = (self.hardware(&settings), self.renderer, (settings.width, settings.height));
+        let Some(host) = self.hosts.get_mut(host_id) else { return };
+        // An update on either side since the PC refused full chroma: it is asked again.
+        let renewed = settings.experimental_packed_444
+            && full_chroma::renew(&mut host.record, VERSION, info.capabilities.host_version());
+        let chroma = full_chroma::decide(&mut settings, &mut host.record, info.packed444_modes, refused_now, || {
+            if packed_without_gpu {
+                eprintln!("nightjar: full chroma: no GPU renderer for its shader pass");
+                return (0, None);
             }
-        } else {
-            0
-        };
-        // The packed picture is twice the stream's height: past the decoder's largest, that mode goes.
-        #[cfg(target_os = "linux")]
-        let packed_modes = {
-            let (modes, note) = linux_diagnosis::packed_offer(self.hardware(&settings), packed_modes, settings.width, settings.height);
-            self.packed_note = note;
-            modes
-        };
+            let modes = stream::packed444::probe(renderer, hardware).unwrap_or_else(|reason| {
+                eprintln!("nightjar: full chroma: no decoder passed the check: {reason}");
+                0
+            });
+            packed_modes_that_fit(hardware, modes, size)
+        });
+        if chroma.record_changed || renewed {
+            self.save_hosts();
+        }
+        self.packed_note = chroma.note;
+        let packed_modes = chroma.modes;
         let color_decodable = if stream::probes_color(&settings) {
             let (hardware, renderer) = (self.hardware(&settings), self.renderer);
             let wanted = stream::color_probe_formats(&settings);
@@ -2572,6 +2687,15 @@ impl App {
         );
         // Without V-Sync the GPU renderer tears where it can (`prefers_immediate`); the property
         // holds for the stream, so the VRR pacing's later interval changes follow it too.
+        // V-Sync off accepts tearing, under VRR too (`wl_scanout::vrr_tearing`).
+        #[cfg(target_os = "linux")]
+        sdl::set_vrr_tearing(stream::wl_scanout::vrr_tearing(settings.vsync, stream::wl_scanout::env_on(stream::wl_scanout::VRR_TEARING_ENV)));
+        // "HDR brightness follows the desktop": an installed description follows it in place.
+        #[cfg(target_os = "linux")]
+        stream::wl_scanout::set_brightness(stream::wl_scanout::Brightness::of_setting(settings.hdr_desktop_brightness));
+        // The stream draws at 1.0: the launcher's white scale is the launcher's alone.
+        #[cfg(target_os = "linux")]
+        sdl::launcher_white(self.renderer, false);
         #[cfg(target_os = "linux")]
         sdl::prefer_immediate(self.renderer, stream::present::prefers_immediate(connecting.vrr(), sdl::video_driver() == "wayland", handheld::gamescope()));
         // SAFETY: window and renderer calls on the main thread.
@@ -2607,6 +2731,12 @@ impl App {
             SDL_SyncWindow(self.window);
         }
         self.remember_recent(&connecting);
+        // A stream with full chroma: what its PC offered is kept for the next launch there.
+        let outcome = session.outcome();
+        let (packed, describe_modes) = (outcome.config.experimental_packed_444, outcome.host_packed444_modes);
+        if let Some(host) = self.hosts.get_mut(connecting.host_id) {
+            if full_chroma::started(&mut host.record, packed, describe_modes) { self.save_hosts(); }
+        }
         let mut streaming = Streaming::new(connecting, session, facts, display);
         streaming.watch_microphone_busy(self.waker.clone());
         self.pads.prepare_audio(settings.controllers && settings.controller_audio && streaming.facts.role != nightjar_core::http::AppRole::RemoteMonitor);
@@ -2900,6 +3030,7 @@ impl App {
         streaming.drain_notices(&mut self.pads, away);
         streaming.open_guide_menu(window, &mut self.pads);
         streaming.follow_text_field(window);
+        streaming.follow_fullscreen(window);
         #[cfg(windows)]
         streaming.follow_tab_chord(window);
         streaming.pump();
@@ -3032,6 +3163,8 @@ impl App {
     }
 
     fn dispatch_stream_event(&mut self, event: &SDL_Event) {
+        #[cfg(target_os = "macos")]
+        if self.take_pairing_url(event) { return; }
         self.dispatch_stream_event_inner(event);
         // A click or wheel turn has gone out (or the menu took it): later motion may pass it.
         if let Some((s, _)) = self.streaming.as_ref() {
@@ -3729,10 +3862,12 @@ fn probed_once<K: PartialEq, T: Clone>(cache: &mut Option<(K, T)>, hardware: K, 
 
 /// A Wayland window learns its HDR state after it is mapped: the log says when, launcher or stream.
 fn log_window_hdr(event: &SDL_Event) {
+    static LAST: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
     // SAFETY: union members read by event type.
     unsafe {
-        if SDL_EventType(event.r#type) == SDL_EVENT_WINDOW_HDR_STATE_CHANGED {
-            eprintln!("nightjar: the compositor reports window HDR {}", if event.window.data1 != 0 { "on" } else { "off" });
+        if SDL_EventType(event.r#type) == SDL_EVENT_WINDOW_HDR_STATE_CHANGED
+            && LAST.swap(event.window.data1, std::sync::atomic::Ordering::Relaxed) != event.window.data1 {
+            eprintln!("nightjar: the compositor reports window HDR {} ({})", if event.window.data1 != 0 { "on" } else { "off" }, sdl::window_hdr_levels(event.window.windowID));
         }
     }
 }
@@ -3874,6 +4009,18 @@ impl LaunchFrom {
     }
 }
 
+/// The packed picture is twice the stream's height: past the decoder's largest, that mode goes,
+/// and the start says why when none is left (`linux_diagnosis::packed_offer`).
+#[cfg(target_os = "linux")]
+fn packed_modes_that_fit(hardware: Hardware, modes: u8, (width, height): (u32, u32)) -> (u8, Option<String>) {
+    linux_diagnosis::packed_offer(hardware, modes, width, height)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn packed_modes_that_fit(_hardware: Hardware, modes: u8, _size: (u32, u32)) -> (u8, Option<String>) {
+    (modes, None)
+}
+
 /// What a launch starts besides an ordinary stream.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LaunchKind {
@@ -3887,6 +4034,12 @@ enum LaunchKind {
 }
 
 impl LaunchKind {
+    /// The kind of a start a plan made: a join, input only through a small stream, microphone
+    /// only, else an ordinary stream.
+    fn of_plan(join: bool, small_stream_input_only: bool, mic_only: bool) -> Self {
+        if mic_only { LaunchKind::MicOnly } else if small_stream_input_only { LaunchKind::SmallInputOnly } else if join { LaunchKind::JoinRunning } else { LaunchKind::Stream }
+    }
+
     fn log_suffix(self) -> &'static str {
         match self {
             LaunchKind::Stream => "",
@@ -4185,12 +4338,12 @@ mod tests {
         use super::{vulkan_video::Choice, vulkan_video_possible};
         for choice in [Choice::Default, Choice::First] {
             for map in [false, true] {
-                assert_eq!(vulkan_video_possible(true, choice, map), cfg!(unix), "{choice:?}");
+                assert_eq!(vulkan_video_possible(true, choice, map), cfg!(target_os = "linux"), "{choice:?}");
                 assert!(!vulkan_video_possible(false, choice, map), "{choice:?} with Software everywhere");
             }
         }
         assert!(!vulkan_video_possible(true, Choice::Off, false), "both switched off");
-        assert_eq!(vulkan_video_possible(true, Choice::Off, true), cfg!(unix), "NIGHTJAR_VULKAN_VIDEO=0 still maps VAAPI's pictures");
+        assert_eq!(vulkan_video_possible(true, Choice::Off, true), cfg!(target_os = "linux"), "NIGHTJAR_VULKAN_VIDEO=0 still maps VAAPI's pictures");
     }
 
     #[test]
@@ -4232,6 +4385,11 @@ mod tests {
         assert!(!app.is_control_action());
         assert_eq!(super::LaunchKind::MicOnly.log_suffix(), ", microphone only");
         assert_eq!(super::LaunchKind::JoinRunning.log_suffix(), ", joining the running game");
+        // A start made again (full chroma refused after its launch) keeps its kind.
+        assert_eq!(super::LaunchKind::of_plan(false, false, false), super::LaunchKind::Stream);
+        assert_eq!(super::LaunchKind::of_plan(true, false, false), super::LaunchKind::JoinRunning);
+        assert_eq!(super::LaunchKind::of_plan(false, true, false), super::LaunchKind::SmallInputOnly);
+        assert_eq!(super::LaunchKind::of_plan(false, false, true), super::LaunchKind::MicOnly);
         assert_eq!(super::mic_only_title(false, false, false), "Microphone on");
         assert_eq!(super::mic_only_title(true, false, false), "Microphone muted");
         // A failed microphone is not called muted, also once it was muted for the failure.

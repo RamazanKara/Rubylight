@@ -99,6 +99,10 @@ pub const DEFAULT_HTTPS_PORT: u16 = 47984;
 const SHORT_CONNECT_TIMEOUT: Duration = Duration::from_millis(3000);
 const LONG_CONNECT_TIMEOUT: Duration = Duration::from_millis(5000);
 const READ_TIMEOUT: Duration = Duration::from_millis(7000);
+/// The longest a PC may take to answer a launch or resume: it prepares the session first (its
+/// preparation commands, a display, the game), which can take a while, but a PC that never
+/// answers must not hold the start for good. Android's `NvHTTP.LAUNCH_READ_TIMEOUT_SECONDS`.
+pub const LAUNCH_READ_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_XML_RESPONSE_BYTES: usize = 256 * 1024;
 const MAX_APP_LIST_BYTES: usize = 4 * 1024 * 1024;
 const MAX_BOX_ART_BYTES: usize = 16 * 1024 * 1024;
@@ -182,6 +186,51 @@ impl std::fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+/// The PC took a launch or resume and gave no answer within its limit
+/// ([`LAUNCH_READ_TIMEOUT`]); carried in an [`Error::Io`] of kind `Other`, so it is not
+/// mistaken for a dropped connection that a retry would cure.
+#[derive(Debug)]
+pub struct LaunchUnanswered {
+    pub seconds: u64,
+}
+
+impl std::fmt::Display for LaunchUnanswered {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "The PC didn't answer the start within {} seconds. Try again, or check what the PC is doing.",
+            self.seconds
+        )
+    }
+}
+
+impl std::error::Error for LaunchUnanswered {}
+
+impl Error {
+    /// Whether this is a launch or resume the PC never answered ([`LaunchUnanswered`]).
+    pub fn is_launch_unanswered(&self) -> bool {
+        matches!(self, Error::Io(e) if e.get_ref().is_some_and(|inner| inner.is::<LaunchUnanswered>()))
+    }
+}
+
+/// A launch's failure after `waited`: a timeout that took the whole `limit` is the PC's missing
+/// answer; a connect that timed out early stays the usual connection failure.
+fn launch_failure(error: Error, waited: Duration, limit: Duration) -> Error {
+    match error {
+        Error::Io(e)
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+            ) && waited >= limit =>
+        {
+            Error::Io(std::io::Error::other(LaunchUnanswered {
+                seconds: limit.as_secs().max(1),
+            }))
+        }
+        other => other,
+    }
+}
 
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
@@ -668,8 +717,8 @@ impl HostClient {
         ))
     }
 
-    /// Starts an app. Waits without a read timeout while the host prepares the session.
-    /// None when the host declined without an error status.
+    /// Starts an app. Waits up to [`LAUNCH_READ_TIMEOUT`] while the host prepares the session,
+    /// then fails with [`LaunchUnanswered`]. None when the host declined without an error status.
     pub fn launch(
         &self,
         request: &LaunchRequest,
@@ -694,13 +743,16 @@ impl HostClient {
         server_info: &ServerInfo,
     ) -> Result<Option<Launched>, Error> {
         let query = request.query(&server_info.capabilities, server_info.nvidia_server());
-        let raw = self.request_text(
-            Scheme::Https,
-            verb,
-            Some(&query),
-            LONG_CONNECT_TIMEOUT,
-            None,
-        )?;
+        let started = std::time::Instant::now();
+        let raw = self
+            .request_text(
+                Scheme::Https,
+                verb,
+                Some(&query),
+                LONG_CONNECT_TIMEOUT,
+                Some(LAUNCH_READ_TIMEOUT),
+            )
+            .map_err(|e| launch_failure(e, started.elapsed(), LAUNCH_READ_TIMEOUT))?;
         parse_launch_reply(&raw, verb == "resume")
     }
 
@@ -830,6 +882,36 @@ impl pairing::PairingTransport for PairingClient<'_> {
 mod tests {
     use super::*;
     use std::io::{Read, Write};
+
+    // Nightjar #88: a launch waited for the PC's answer without any limit.
+    #[test]
+    fn a_launch_the_pc_never_answers_fails_with_its_own_words() {
+        assert!(LAUNCH_READ_TIMEOUT > READ_TIMEOUT);
+        let timed_out = || Error::Io(std::io::ErrorKind::TimedOut.into());
+        let unanswered = launch_failure(timed_out(), LAUNCH_READ_TIMEOUT, LAUNCH_READ_TIMEOUT);
+        assert!(unanswered.is_launch_unanswered());
+        assert!(
+            unanswered.to_string().contains("within 120 seconds"),
+            "{unanswered}"
+        );
+        assert!(
+            matches!(&unanswered, Error::Io(e) if e.kind() == std::io::ErrorKind::Other),
+            "not a dropped connection a retry would cure"
+        );
+        let would_block = Error::Io(std::io::ErrorKind::WouldBlock.into());
+        assert!(launch_failure(would_block, LAUNCH_READ_TIMEOUT, LAUNCH_READ_TIMEOUT)
+            .is_launch_unanswered());
+        // A connect that timed out early stays the usual failure.
+        let early = launch_failure(timed_out(), Duration::from_secs(5), LAUNCH_READ_TIMEOUT);
+        assert!(!early.is_launch_unanswered());
+        assert!(matches!(&early, Error::Io(e) if e.kind() == std::io::ErrorKind::TimedOut));
+        // Anything else is passed on.
+        assert!(matches!(
+            launch_failure(Error::Cancelled, LAUNCH_READ_TIMEOUT, LAUNCH_READ_TIMEOUT),
+            Error::Cancelled
+        ));
+        assert!(!Error::Cancelled.is_launch_unanswered());
+    }
 
     #[test]
     fn a_detached_client_still_reaches_the_host_after_a_cancel() {

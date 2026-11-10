@@ -60,13 +60,14 @@ public class SettingsKeysTest {
             com.limelight.console.HomeSettings.PREF_KEY,
             // Added later; kept here so it is never renamed either.
             "list_virtual_display_dpi", "checkbox_mute_audio", "checkbox_dual_screen", "list_resolution_screen2",
-            "automatic_bitrate",
+            "automatic_bitrate", "checkbox_system_keys_fullscreen_only", "checkbox_display_queue_recovery",
     };
     // Rows that open a screen or a dialog and store nothing under their key.
     private static final Set<String> ACTIONS = new HashSet<>(Arrays.asList(
             "gpu_driver", "host_display_location", "keyboard_shortcuts_editor", "stream_hotkeys", "controller_button_mapping",
             "controller_test", "stream_profiles", "reset_osc", "check_updates_now", "help", "latency_benchmark", "report_problem", "about_app", "reset_all", "export_latency_csv",
             "pin_lock", // opens its own screen; the PIN lives in the pin_lock prefs file
+            "network_tests", // opens a saved PC's connection tests
             // The merged switch writes the three decoder switches and stores nothing itself.
             StreamSettings.LOW_LATENCY_DECODING_KEY, StreamSettings.LOW_LATENCY_CUSTOMIZE_KEY,
             // Automatic bitrate shows and sets bitrate_user_set and the bitrate; it stores nothing itself.
@@ -302,6 +303,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_back_as_guide", new Read(false, true, c -> c.backAsGuide));
         reads.put("list_guide_menu_hold", new Read("0", "1500", c -> c.guideMenuHoldMs));
         reads.put("checkbox_capture_system_keys", new Read(true, false, c -> c.captureSystemKeys));
+        reads.put("checkbox_system_keys_fullscreen_only", new Read(false, true, c -> c.systemKeysFullscreenOnly));
         reads.put("checkbox_right_alt_as_meta", new Read(false, true, c -> c.rightAltAsMeta));
         reads.put("checkbox_keyboard_follows_text_fields", new Read(true, false, c -> c.keyboardFollowsTextFields));
         reads.put("checkbox_clipboard_sync", new Read(false, true, c -> c.clipboardSync));
@@ -384,6 +386,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_codec_performance", new Read(true, false, c -> c.codecPerformance));
         reads.put("checkbox_gpu_max_clocks", new Read(false, true, c -> c.gpuMaxClocks));
         reads.put("checkbox_drop_late_frames", new Read(true, false, c -> c.dropLateFrames));
+        reads.put("checkbox_display_queue_recovery", new Read(true, false, c -> c.displayQueueRecovery));
         reads.put("checkbox_texture_view", new Read(false, true, c -> c.useTextureView));
         reads.put("checkbox_vulkan_render", new Read(false, true, c -> c.vulkanRender));
         reads.put("checkbox_unlock_fps", new Read(false, true, c -> c.unlockFps));

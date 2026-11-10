@@ -2,6 +2,7 @@ package com.limelight.nvstream;
 
 import android.app.Application;
 
+import com.limelight.R;
 import com.limelight.nvstream.av.video.VideoDecoderRenderer;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostHttpResponseException;
@@ -290,6 +291,39 @@ public class NvConnectionRecoveryTest {
         assertEquals(List.of(503), result.failures);
         assertTrue(result.terminations.isEmpty());
         assertEquals(0, FakeHost.probes);
+    }
+
+    // Nightjar #88: a PC that took the launch and never answered held the start for good.
+    @Test public void aLaunchThePcNeverAnswersEndsWithItsOwnMessageAndNoPortTest() throws Exception {
+        FakeHost.initial = FakeHost.probed;
+        FakeHost.resumeFailure = new NvHTTP.LaunchTimeoutException(NvHTTP.LAUNCH_READ_TIMEOUT_SECONDS);
+        Result result = start(false);
+        assertEquals(List.of("launch"), FakeHost.requests);
+        assertEquals(List.of(0), result.failures);
+        assertEquals("not a blocked port", List.of(0), result.failurePorts);
+        assertEquals(List.of(RuntimeEnvironment.getApplication().getString(R.string.startup_launch_timeout,
+                NvHTTP.LAUNCH_READ_TIMEOUT_SECONDS)), result.messages);
+    }
+
+    // Nightjar #88: a start behind a previous connection whose stop never ends waited for it without a limit.
+    @Test public void aStartBehindAConnectionThatNeverEndsSaysSoInsteadOfWaiting() throws Exception {
+        java.lang.reflect.Field field = NvConnection.class.getDeclaredField("connectionAllowed");
+        field.setAccessible(true);
+        java.util.concurrent.Semaphore semaphore = (java.util.concurrent.Semaphore) field.get(null);
+        long wait = NvConnection.connectionWaitMs;
+        assertTrue(semaphore.tryAcquire());
+        NvConnection.connectionWaitMs = 50;
+        try {
+            Result result = start(false);
+            assertTrue("nothing reached the PC", FakeHost.requests.isEmpty());
+            assertEquals(List.of(0), result.failures);
+            assertEquals(List.of(RuntimeEnvironment.getApplication().getString(R.string.stream_stop_timeout)),
+                    result.messages);
+            assertEquals("the permit is not this start's to release", 0, semaphore.availablePermits());
+        } finally {
+            NvConnection.connectionWaitMs = wait;
+            semaphore.release();
+        }
     }
 
     @Test public void aRecoveryProbeCancelledDuringTeardownCannotFinishTheSession() throws Exception {

@@ -346,6 +346,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // behind it (DecoderQueuePolicy.Debt). Renderer thread only, reset where codec recovery has
     // quiesced it.
     private final DecoderQueuePolicy.Debt debt = new DecoderQueuePolicy.Debt();
+    // Lowest latency and Balanced: a buffer too many in the display's queue (nightjar#7).
+    private final DisplayQueueWatch displayQueue = new DisplayQueueWatch();
     private volatile boolean frameRenderedListenerSet;
     // Why the catch-up loop wants to drop the output it holds; see wantsCatchUp.
     private String catchUpReason;
@@ -1428,6 +1430,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         this.outputVsyncAvailable = outputDisplay.getDisplayId() == Display.DEFAULT_DISPLAY;
         this.prefs = prefs;
         this.frameLatencyStats = new FrameLatencyStats(prefs.vrr);
+        frameLatencyStats.setDisplayQueueWatch(displayQueue);
         this.outputHasArrSupport = Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA &&
                 outputDisplay.hasArrSupport();
         this.crashListener = crashListener;
@@ -1617,6 +1620,19 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     @Override
     public void setHostCodecModeSupport(int serverCodecModeSupport) {
         hostCodecModeSupport = serverCodecModeSupport;
+    }
+
+    /**
+     * The toast when "Prefer YUV 4:4:4" is on and the stream is 4:2:0. A 10-bit stream that is not
+     * 10-bit SDR is HDR, which takes priority over 4:4:4 (the handshake ranks Main10 above 4:4:4),
+     * and the toast says so; otherwise the PC or this device had no 4:4:4 for the stream.
+     *
+     * @param format the negotiated video format
+     * @param sdr10 the 10-bit formats were offered for 10-bit SDR, not HDR
+     */
+    static int yuv444FallbackMessage(int format, boolean sdr10) {
+        boolean hdr = (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0 && !sdr10;
+        return hdr ? R.string.yuv444_fallback_hdr : R.string.yuv444_fallback;
     }
 
     // deviceReason: why this device cannot run PyroWave, or 0. hostCodecs: the PC's
@@ -1860,7 +1876,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             continue;
                         }
                     }
-                    if (Packed444.verifySampling(context, decoder.getName(), codecs[codec], depth == 1)) modes |= 1 << bit;
+                    // Under a watchdog: this runs while the connecting screen waits, and a decoder
+                    // or GPU driver that never returns must not hold the start.
+                    final String decoderName = decoder.getName();
+                    final String codecName = codecs[codec];
+                    final boolean tenBit = depth == 1;
+                    if (PackedFallback.within(() -> Packed444.verifySampling(context, decoderName, codecName, tenBit),
+                            PackedFallback.CHECK_TIMEOUT_MS, decoderName + (tenBit ? " 10-bit" : " 8-bit"))) modes |= 1 << bit;
                     else if (depth == 1) packedTenBitIssue = ISSUE_TEN_BIT_SAMPLING;
                 }
             } catch (IllegalArgumentException e) {
@@ -2827,7 +2849,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
         if (result == 0) {
             if (packing == null && prefs.enableYuv444 && (format & MoonBridge.VIDEO_FORMAT_MASK_YUV444) == 0) {
-                activity.runOnUiThread(() -> Toast.makeText(context, R.string.yuv444_fallback, Toast.LENGTH_LONG).show());
+                int fallback = yuv444FallbackMessage(format, sdr10);
+                activity.runOnUiThread(() -> Toast.makeText(context, fallback, Toast.LENGTH_LONG).show());
             }
             // Default, not background: the decode thread shares the timing lock with this one.
             latencyThread = new HandlerThread("Video - Latency", Process.THREAD_PRIORITY_DEFAULT);
@@ -3395,12 +3418,17 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (nextOutputBuffer != null) {
                 long releaseNs = System.nanoTime();
                 try {
-                    countRenderRelease(nextOutputBuffer, releaseNs, releaseNs);
-                    releaseOutputFrame(nextOutputBuffer, System.nanoTime());
+                    if (displayQueueDropDue(releaseNs)) {
+                        // The cadence goes on as if it was shown: the screen keeps the previous frame.
+                        dropForDisplayQueue(nextOutputBuffer, releaseNs);
+                    } else {
+                        countRenderRelease(nextOutputBuffer, releaseNs, releaseNs);
+                        releaseOutputFrame(nextOutputBuffer, System.nanoTime());
+                        activeWindowVideoStats.totalFramesRendered++;
+                    }
 
                     nextFrameTimeNanos = FramePacingPolicy.nextFrameTimeNsMilliHz(
                             nextFrameTimeNanos, frameTimeNanos, fpsMilliHz);
-                    activeWindowVideoStats.totalFramesRendered++;
                 } catch (IllegalStateException ignored) {
                     // The frame was counted as submitted before the release threw.
                     frameLatencyStats.onReleaseFailed(releaseNs);
@@ -3738,6 +3766,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         // resume normal order.
         // All frames have already been decoded, preserving codec references.
         int drained = 0;
+        boolean shown = true;
         boolean scheduled = FramePacingPolicy.schedulesFrames(
                 hostFrameTimes, prefs.framePacing);
         boolean smooth = FramePacingPolicy.recoversDecoderDebt(hostFrameTimes, prefs.framePacing);
@@ -3838,8 +3867,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 // drifting phase estimate) holds frames back a whole refresh.
                 displayAtNs = releaseNs;
             }
-            countRenderRelease(lastIndex, releaseNs, displayAtNs);
-            releaseOutputFrame(lastIndex, displayAtNs);
+            if (displayQueueDropDue(releaseNs)) {
+                dropForDisplayQueue(lastIndex, releaseNs);
+                shown = false;
+            } else {
+                countRenderRelease(lastIndex, releaseNs, displayAtNs);
+                releaseOutputFrame(lastIndex, displayAtNs);
+            }
         }
         // Artemis counts the frame it presents. Its decode time ended when the
         // decoder returned it; release and pacing waits are not decode time.
@@ -3848,8 +3882,42 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         // now is when it was ready in either mode, not when it is shown.
         reportPhaseSlack(System.nanoTime());
 
-        activeWindowVideoStats.totalFramesRendered++;
+        if (shown) activeWindowVideoStats.totalFramesRendered++;
         return outIndex;
+    }
+
+    /**
+     * Whether the frame about to be shown is dropped so the display's queue gives back a buffer it
+     * kept too many (DisplayQueueWatch): with its setting on, Lowest latency and Balanced on a fixed
+     * refresh, frames straight to the display with render callbacks. The watch follows this state
+     * frame by frame; with the setting off it never starts.
+     */
+    private boolean displayQueueDropDue(long nowNs) {
+        if (!prefs.displayQueueRecovery) return false;
+        long refreshNs;
+        boolean arr;
+        synchronized (vsyncMonitor) {
+            refreshNs = vsyncIntervalNs;
+            arr = outputHasArrSupport;
+        }
+        boolean watched = DisplayQueueWatch.applies(prefs.displayQueueRecovery,
+                prefs.framePacing == PreferenceConfiguration.FRAME_PACING_MIN_LATENCY ||
+                        prefs.framePacing == PreferenceConfiguration.FRAME_PACING_BALANCED,
+                hostFrameTimes || FramePacingPolicy.schedulesFrames(hostFrameTimes, prefs.framePacing),
+                frameRenderedListenerSet && upscaler == null && vulkanRenderer == null,
+                prefs.vrr || arr, streamFrameRateMilliHz, refreshNs);
+        displayQueue.configure(watched, refreshNs);
+        boolean drop = watched && displayQueue.takeDrop(nowNs);
+        String event = displayQueue.takeEvent();
+        if (event != null) LimeLog.info(event);
+        return drop;
+    }
+
+    /** Releases the output without showing it: the screen keeps the previous frame one refresh longer. */
+    private void dropForDisplayQueue(int index, long nowNs) {
+        frameLatencyStats.onDropReason(index, "display_queue");
+        frameLatencyStats.onOutputReleased(index, nowNs, false, reportsRenderTimes());
+        videoDecoder.releaseOutputBuffer(index, false);
     }
 
     /** Balanced, see FramePacingPolicy.balancedPacesOnVsync. Host frame times keep the vsync callback. */
@@ -3912,6 +3980,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     private boolean fetchNextInputBuffer() {
+        return fetchNextInputBuffer(false);
+    }
+
+    // With prefetch (right after a frame was queued) the decoder is only asked for a free buffer,
+    // never waited for: see InputBufferWait. A prefetch that finds none succeeds, and the next
+    // frame's own fetch waits, with the stall count and the hang detection.
+    private boolean fetchNextInputBuffer(boolean prefetch) {
         long startTime;
         boolean codecRecovered;
 
@@ -3924,11 +3999,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         try {
             // If we don't have an input buffer index yet, fetch one now
+            int attempts = 0;
             while (nextInputBufferIndex < 0 && !stopping &&
-                    codecRecoveryType.get() == CR_RECOVERY_TYPE_NONE) {
+                    codecRecoveryType.get() == CR_RECOVERY_TYPE_NONE &&
+                    InputBufferWait.askAgain(prefetch, attempts, SystemClock.uptimeMillis() - startTime)) {
                 // Under input pressure, recheck recovery and shutdown without a 10 ms wait.
-                nextInputBufferIndex = videoDecoder.dequeueInputBuffer(1000);
-                if (SystemClock.uptimeMillis() - startTime >= 5000) break;
+                nextInputBufferIndex = videoDecoder.dequeueInputBuffer(InputBufferWait.timeoutUs(prefetch));
+                attempts++;
             }
 
             // Get the backing ByteBuffer for the input buffer index
@@ -3954,6 +4031,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         // an IDR frame to complete the codec recovery.
         if (codecRecovered) {
             return false;
+        }
+
+        if (nextInputBuffer == null && !InputBufferWait.missingBufferFails(prefetch)) {
+            // No frame is waiting for the buffer yet: nothing stalled, nothing hangs.
+            return true;
         }
 
         int deltaMs = (int)(SystemClock.uptimeMillis() - startTime);
@@ -4519,13 +4601,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             return false;
         }
 
-        // Fetch a new input buffer now while we have some time between frames
-        // to have it ready immediately when the next frame arrives.
+        // Take a free input buffer now, if there is one, to have it ready when the next frame
+        // arrives. Without waiting: this runs on the thread that receives the next frame's
+        // packets (direct submit), and the next frame's submit waits if it has to.
         //
         // We must propagate the return value here in order to properly handle
         // codec recovery happening in fetchNextInputBuffer(). If we don't, we'll
         // never get an IDR frame to complete the recovery process.
-        return fetchNextInputBuffer();
+        return fetchNextInputBuffer(true);
     }
 
     private void doProfileSpecificSpsPatching(SeqParameterSet sps) {

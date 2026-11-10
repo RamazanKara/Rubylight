@@ -43,6 +43,9 @@ public class NvConnectionHostNoticeTest {
     private static final List<Integer> capabilityFormats = Collections.synchronizedList(new ArrayList<>());
     private static final List<Integer> capabilityHdrFormats = Collections.synchronizedList(new ArrayList<>());
     private static final int RFI_FROM_THE_FAKE = MoonBridge.CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC;
+    // The packed modes the fake device verified, and each failed stage with its error code.
+    private static int devicePackedModes = 0b1111;
+    private static final List<String> failedStages = Collections.synchronizedList(new ArrayList<>());
 
     private static int negotiatedFormats() {
         ConnectionContext context = ReflectionHelpers.getField(lastConnection, "context");
@@ -76,14 +79,19 @@ public class NvConnectionHostNoticeTest {
                 NvConnectionListener.class.getClassLoader(), new Class<?>[] {NvConnectionListener.class},
                 (proxy, method, args) -> {
                     if (method.getName().equals("displayTransientMessage")) messages.add((String) args[0]);
+                    if (method.getName().equals("stageFailed")) failedStages.add(args[0] + ":" + args[2]);
                     return null;
                 });
+        failedStages.clear();
         lastConnection = connection;
         hostPackedModesSeen = null;
         capabilityFormats.clear();
         capabilityHdrFormats.clear();
         connection.start(null, new VideoDecoderRenderer() {
             @Override public void setHostPacked444Modes(int modes) { hostPackedModesSeen = modes; }
+            @Override public int preparePacked444Modes(int formats, int width, int height, int fps) {
+                return devicePackedModes;
+            }
             @Override public int pickHdrFormat(int hostHdrFormats, int videoFormats, boolean packed444) {
                 return pickedHdrFormat;
             }
@@ -397,6 +405,7 @@ public class NvConnectionHostNoticeTest {
             NvConnectionHapticsFlagTest.CapturingBridge.startResult = -1;
             NvConnectionHapticsFlagTest.CapturingBridge.hostPacked444Modes = -1;
             com.limelight.computers.HostPackedModes.store(app, uuid, 0);
+            com.limelight.computers.HostPackedModes.clearRefusals(app);
         }
 
         // A started stream without a DESCRIBE mask (the C engine says -1) keeps what was known.
@@ -406,6 +415,81 @@ public class NvConnectionHostNoticeTest {
         assertEquals(0b1000, com.limelight.computers.HostPackedModes.cached(app, "remember-host"));
         NvConnection.rememberPackedModes(app, "remember-host", MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED, 0b1000);
         assertEquals(-1, com.limelight.computers.HostPackedModes.cached(app, "remember-host"));
+    }
+
+    private static boolean launchedOrResumed() {
+        List<String> requests = NvConnectionRecoveryTest.FakeHost.requests;
+        return requests.contains("launch") || requests.contains("resume");
+    }
+
+    // Nightjar #88: full chroma that cannot run was found out only after the game was launched.
+    @Test
+    public void fullChromaThatCannotRunEndsTheStartBeforeAnythingIsLaunched() throws Exception {
+        Application app = RuntimeEnvironment.getApplication();
+        String uuid = "3c0e9b6e-6d8b-4a43-9c2e-5f1d1a2b3c4d";
+        String refused = "full chroma offer:" + MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED;
+        String none = SUNSHINE.replace("</root>", "<Packed444Modes>0</Packed444Modes></root>");
+        int offered = MoonBridge.VIDEO_FORMAT_H264 | MoonBridge.VIDEO_FORMAT_H265;
+        try {
+            sessionPacked = true;
+            // A PC that says it has no packed mode is not launched on.
+            stream(none, false, offered, false);
+            assertFalse(launchedOrResumed());
+            assertEquals(Collections.singletonList(refused), failedStages);
+            assertTrue(lastConnection.packedRefusedBeforeLaunch());
+
+            // A PC that does not say is asked, and its refusal in the handshake is remembered...
+            NvConnectionHapticsFlagTest.CapturingBridge.startResult = MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED;
+            stream(SUNSHINE, false, offered, false);
+            assertTrue(launchedOrResumed());
+            assertFalse(lastConnection.packedRefusedBeforeLaunch());
+            assertTrue(com.limelight.computers.HostPackedModes.refused(app, uuid));
+            // ...so the next start does not launch a game only to be refused again.
+            stream(SUNSHINE, false, offered, false);
+            assertFalse(launchedOrResumed());
+            assertEquals(Collections.singletonList(refused), failedStages);
+
+            // Switching the setting asks the PC again, and a stream that starts with it ends the memory.
+            com.limelight.computers.HostPackedModes.clearRefusals(app);
+            NvConnectionHapticsFlagTest.CapturingBridge.startResult = 0;
+            NvConnectionHapticsFlagTest.CapturingBridge.hostPacked444Modes = 0b0011;
+            stream(SUNSHINE, false, offered, false);
+            lastConnection.stop();
+            assertTrue(launchedOrResumed());
+            assertTrue(failedStages.isEmpty());
+            assertFalse(com.limelight.computers.HostPackedModes.refused(app, uuid));
+
+            // A device that verified no mode: the same, whatever the PC offers, with the check's own stage.
+            devicePackedModes = 0;
+            stream(SUNSHINE, false, offered, false);
+            assertFalse(launchedOrResumed());
+            assertEquals(Collections.singletonList(com.limelight.binding.video.PackedFallback.CHECK_STAGE + ":" +
+                    MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED), failedStages);
+            assertTrue(lastConnection.packedRefusedBeforeLaunch());
+
+            // The session started again without it launches as usual.
+            sessionPacked = false;
+            NvConnectionHapticsFlagTest.CapturingBridge.startResult = -1;
+            stream(none, false, offered, false);
+            assertTrue(launchedOrResumed());
+            assertFalse(lastConnection.packedRefusedBeforeLaunch());
+        } finally {
+            sessionPacked = false;
+            devicePackedModes = 0b1111;
+            NvConnectionHapticsFlagTest.CapturingBridge.startResult = -1;
+            NvConnectionHapticsFlagTest.CapturingBridge.hostPacked444Modes = -1;
+            com.limelight.computers.HostPackedModes.store(app, uuid, 0);
+            com.limelight.computers.HostPackedModes.clearRefusals(app);
+        }
+    }
+
+    // A start that fails without naming a failed stage left the connecting screen up for good.
+    @Test
+    public void aStartThatFailsWithoutAFailedStageStillTellsTheListener() throws Exception {
+        NvConnectionHapticsFlagTest.CapturingBridge.startResult = -1;
+        stream(SUNSHINE, false);
+        assertTrue(launchedOrResumed());
+        assertEquals(Collections.singletonList("Game:-1"), failedStages);
     }
 
     @Test

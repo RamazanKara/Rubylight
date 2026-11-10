@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_packed_444">全色度</string>
-    <string name="summary_packed_444">需要啟用 Rubylight 的全色度選項和新串流引擎，並使用相容的 HEVC/AV1 硬體解碼器。不支援的模式會中止連線。HDR 還需要相容的 10 位元 HDR 顯示表面。</string>
+    <string name="summary_packed_444">需要啟用 Rubylight 的全色度選項和新串流引擎，並使用相容的 HEVC/AV1 硬體解碼器。如果電腦或此裝置不支援，串流將以一般色度開始。HDR 還需要相容的 10 位元 HDR 顯示表面。</string>
     <string name="title_experimental_chipset_tuning">晶片組調校</string>
     <string name="summary_experimental_chipset_tuning">為聯發科天璣和三星 Exynos 解碼器提供額外的低延遲設定。如果影片停住或卡頓，請關閉此選項。</string>
     <string name="scut_deleted_pc">已刪除電腦</string>
@@ -283,6 +283,7 @@
     <string name="title_yuv444">優先使用 YUV 4:4:4</string>
     <string name="summary_yuv444">在電腦和這部裝置都支援時，彩色文字會更清晰。HDR 優先。</string>
     <string name="yuv444_fallback">無法使用 YUV 4:4:4；改用 4:2:0。</string>
+    <string name="yuv444_fallback_hdr">無法使用 YUV 4:4:4；改用 4:2:0。HDR 優先。</string>
     <string name="title_virtual_display">主機虛擬顯示器</string>
     <string name="summary_virtual_display">要求電腦提供與串流相符的顯示器。關閉：由電腦本身的顯示設定決定。</string>
     <string name="title_vrr">自動調整更新率 (ARR / VRR)</string>

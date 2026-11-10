@@ -56,6 +56,47 @@ pub enum Art {
     Loading,
     Ready(egui::TextureHandle),
     Missing,
+    /// It was loaded and its texture given up for room ([`Hosts::covers_shown`]). Its file is on
+    /// disk, so it loads again when it is next on screen, whether its PC is up or not.
+    Dropped,
+}
+
+/// The largest a cover is drawn, in points: the game page's. Every card, Home's hero and a PC's
+/// screen are smaller.
+pub const COVER_POINTS: [f32; 2] = [420.0, 630.0];
+
+/// The pixels of a cover kept for each pixel of the largest place it is drawn in. Kept at
+/// exactly that place's size, a cover shows soft wherever it is drawn a little smaller, as the
+/// game page does in a narrow window: the renderer then reads between its pixels. With half as
+/// many again it shows as sharp there as a store's 600 by 900 cover always has, which stays as
+/// it is on a plain screen.
+const COVER_DETAIL: f32 = 1.5;
+
+/// A cover is made smaller only when that takes it under this share of its side: one already
+/// near what is kept would lose a little sharpness for a little memory.
+const COVER_SHRINK_BELOW: f32 = 0.9;
+
+/// How much the cover textures may hold, in bytes of pixels. Past it the ones longest off screen
+/// are given up and load again from their files when they come back; the ones on screen stay
+/// whatever they add up to. A few hundred covers fit, so a long list scrolls back and forth
+/// without reloading, and a library of thousands no longer keeps every cover it ever showed.
+const COVER_BUDGET: usize = 256 << 20;
+
+/// The covers drawn or asked for since [`Hosts::covers_shown`] last took them, by texture. A set,
+/// so it holds no more than there are covers however many frames pass before it is taken.
+#[derive(Clone, Default)]
+struct CoversUsed(std::collections::HashSet<egui::TextureId>);
+
+/// Notes that the cover `texture` is on screen (or needed off it) in this frame, so it is not one
+/// given up for room.
+pub fn cover_used(ctx: &egui::Context, texture: &egui::TextureHandle) {
+    ctx.data_mut(|d| d.get_temp_mut_or_default::<CoversUsed>(egui::Id::NULL).0.insert(texture.id()));
+}
+
+/// The covers noted as in use since they were last taken, for a test of the pages that note them.
+#[cfg(test)]
+pub(crate) fn covers_noted(ctx: &egui::Context) -> std::collections::HashSet<egui::TextureId> {
+    ctx.data_mut(|d| std::mem::take(&mut d.get_temp_mut_or_default::<CoversUsed>(egui::Id::NULL).0))
 }
 
 /// What the Rubylight native API told us about a PC, cached per PC. The library of a PC that
@@ -137,6 +178,9 @@ pub struct Host {
     pub ambient_glow: HashMap<i32, egui::Color32>,
     /// The cover version each `art` entry was asked for (empty for classic box art).
     art_versions: HashMap<i32, String>,
+    /// The pixels per point each cover that was made smaller was sized for; a cover kept at its
+    /// own size is not in it.
+    art_sized: HashMap<i32, f32>,
     pub native: Native,
     /// Bumped when the PC is unpaired, so a native read that started before is dropped.
     native_epoch: u64,
@@ -227,7 +271,17 @@ impl Host {
 
     /// Whether the cover of `app` at `version` has not been asked for yet.
     pub fn art_wanted(&self, app: i32, version: &str) -> bool {
-        !self.art.contains_key(&app) || self.art_versions.get(&app).is_none_or(|known| replaces(known, version))
+        !self.has_art(app) || self.art_versions.get(&app).is_none_or(|known| replaces(known, version))
+    }
+
+    /// Whether the cover of `app` is here or on its way. One given up for room is neither.
+    fn has_art(&self, app: i32) -> bool {
+        matches!(self.art.get(&app), Some(Art::Loading | Art::Ready(_) | Art::Missing))
+    }
+
+    /// Whether the cover of `app` was given up for room and loads again from its file.
+    pub fn art_dropped(&self, app: i32) -> bool {
+        matches!(self.art.get(&app), Some(Art::Dropped))
     }
 
     /// Takes a cover asked for at `version` as loading and gives the version it loads at, or
@@ -238,12 +292,13 @@ impl Host {
             self.art.remove(&app);
             self.ambient.remove(&app);
             self.ambient_glow.remove(&app);
+            self.art_sized.remove(&app);
         }
-        if self.art.contains_key(&app) {
+        if self.has_art(app) {
             return None;
         }
-        // Asked for without a version, a cover that was dropped (a new renderer) loads as the
-        // one it was, from its file.
+        // Asked for without a version, a cover that was dropped (a new renderer, or for room)
+        // loads as the one it was, from its file.
         let version = match known {
             Some(known) if version.is_empty() => known.clone(),
             _ => version.to_owned(),
@@ -449,6 +504,23 @@ pub enum Event {
         version: String,
         image: Option<egui::ColorImage>,
         ambient: Option<egui::ColorImage>,
+        /// The pixels per point `image` was made smaller for, None when it is at its own size.
+        sized: Option<f32>,
+    },
+    /// A cover that was given up for room has no file to come back from, and its PC is away: it
+    /// is asked for again when the PC is back.
+    ArtAway {
+        id: u64,
+        app: i32,
+        version: String,
+    },
+    /// A cover that was made smaller, loaded again for a screen that shows more of it.
+    ArtSharper {
+        id: u64,
+        app: i32,
+        version: String,
+        image: egui::ColorImage,
+        sized: Option<f32>,
     },
     Native {
         id: u64,
@@ -559,6 +631,13 @@ pub struct Hosts {
     art_pool: ArtPool,
     /// The cover files on disk, for the workers that save one.
     art_files: Arc<Mutex<crate::config::ArtFiles>>,
+    /// The pixels per point covers are sized for: the window's, as of the last frame.
+    art_scale: f32,
+    /// The frame each cover texture was last drawn or asked for in, counted in `art_frame`.
+    art_used: HashMap<egui::TextureId, u64>,
+    art_frame: u64,
+    /// A cover landed since the textures were last added up.
+    art_landed: bool,
     /// STUN for the remote address of PCs found on the LAN; off in tests, which stay offline.
     stun: bool,
     _mdns: Option<mdns_sd::ServiceDaemon>,
@@ -569,12 +648,17 @@ pub struct Hosts {
     pub(crate) demo_shelf: Vec<Host>,
 }
 
-pub fn client_for(identity: &Arc<ClientIdentity>, record: &HostRecord, address: &str) -> Result<HostClient, String> {
-    let port = if record.http_port == 0 {
+/// The HTTP port a saved or sighted `port` means: 0 is the default one.
+fn http_port(port: u16) -> u16 {
+    if port == 0 {
         DEFAULT_HTTP_PORT
     } else {
-        record.http_port
-    };
+        port
+    }
+}
+
+pub fn client_for(identity: &Arc<ClientIdentity>, record: &HostRecord, address: &str) -> Result<HostClient, String> {
+    let port = http_port(record.http_port);
     let mut client = HostClient::new(address, port, identity.clone())
         .map_err(|e| e.to_string())?
         .with_device_name(device_name());
@@ -996,6 +1080,10 @@ impl Hosts {
             library_saves: Vec::new(),
             art_pool: ArtPool::default(),
             art_files: Arc::default(),
+            art_scale: 1.0,
+            art_used: HashMap::new(),
+            art_frame: 0,
+            art_landed: false,
             stun: false,
             _mdns: None,
             discovering: false,
@@ -1030,6 +1118,7 @@ impl Hosts {
             ambient: HashMap::new(),
             ambient_glow: HashMap::new(),
             art_versions: HashMap::new(),
+            art_sized: HashMap::new(),
             native: Native::default(),
             native_epoch: 0,
             native_seq: 0,
@@ -1158,12 +1247,17 @@ impl Hosts {
         Some(daemon)
     }
 
-    /// Adds a host by address and checks it at once. Returns its ID.
+    /// Adds a host by address and checks it at once. Returns its ID. No port is the default one,
+    /// as a PC is an address and a port: a PC listed there under another port is another PC.
     pub fn add_manual(&mut self, address: &str, port: Option<u16>) -> u64 {
-        if let Some(host) = self.list.iter_mut().find(|h| {
-            h.record.address.eq_ignore_ascii_case(address)
-                && port.is_none_or(|p| p == h.record.http_port)
-        }) {
+        let wanted = http_port(port.unwrap_or(DEFAULT_HTTP_PORT));
+        let here = |h: &Host| h.record.address.eq_ignore_ascii_case(address);
+        let listed = self
+            .list
+            .iter()
+            .position(|h| here(h) && http_port(h.record.http_port) == wanted)
+            .or_else(|| self.list.iter().position(|h| here(h) && h.record.other_http_ports.contains(&wanted)));
+        if let Some(host) = listed.map(|at| &mut self.list[at]) {
             host.record.manual = true;
             let id = host.id;
             self.poll_one(id);
@@ -1570,6 +1664,7 @@ impl Hosts {
         host.ambient.clear();
         host.ambient_glow.clear();
         host.art_versions.clear();
+        host.art_sized.clear();
         host.native = Native::default();
         host.native_epoch += 1;
     }
@@ -1581,7 +1676,9 @@ impl Hosts {
         for host in &mut self.list {
             host.art.retain(|_, art| !matches!(art, Art::Ready(_)));
             host.ambient.clear();
+            host.art_sized.clear();
         }
+        self.art_used.clear();
     }
 
     pub fn load_apps(&mut self, id: u64) {
@@ -1832,11 +1929,18 @@ impl Hosts {
         let Some(version) = host.begin_art(app, version) else {
             return;
         };
+        // Only a cover that was given up for room is asked for while its PC is away, for its file.
+        let away = host.reach != Reach::Online;
         let record = host.connect_record();
         let cache = store.art_path(&record.unique_id, app, &version);
         let files = self.art_files.clone();
+        let scale = self.art_scale;
         self.load_art(move || {
-            let bytes = std::fs::read(&cache).ok().or_else(|| {
+            let file = std::fs::read(&cache).ok();
+            if file.is_none() && away {
+                return Some(Event::ArtAway { id, app, version });
+            }
+            let bytes = file.or_else(|| {
                 let bytes = match client_for(&identity, &record, &record.address).and_then(|c| {
                     c.box_art(app).map_err(|e| e.to_string())
                 }) {
@@ -1857,9 +1961,96 @@ impl Hosts {
                 }
                 Some(bytes)
             });
-            let (image, ambient) = art_and_ambient(bytes);
-            Some(Event::Art { id, app, version, image, ambient })
+            let (image, ambient, sized) = art_and_ambient(bytes, scale);
+            Some(Event::Art { id, app, version, image, ambient, sized })
         });
+    }
+
+    /// What the frame just drawn means for the covers. Call it after each launcher frame.
+    ///
+    /// The window's pixels per point are what covers are sized for from here on, and when they
+    /// grew (a larger text size, a window moved to a denser screen) the covers made smaller for
+    /// fewer are loaded again, each showing as it is until the sharper one lands. Then, when
+    /// the cover textures hold more than their budget, the ones longest off screen are given up.
+    pub fn covers_shown(&mut self, ctx: &egui::Context, store: &Store) {
+        self.art_frame += 1;
+        let used = ctx.data_mut(|d| std::mem::take(&mut d.get_temp_mut_or_default::<CoversUsed>(egui::Id::NULL).0));
+        for texture in used {
+            self.art_used.insert(texture, self.art_frame);
+        }
+        let scale = ctx.pixels_per_point();
+        let grew = scale > self.art_scale;
+        self.art_scale = scale;
+        if grew || self.art_landed {
+            self.sharpen_covers(store);
+        }
+        if std::mem::take(&mut self.art_landed) {
+            self.drop_covers(COVER_BUDGET);
+        }
+    }
+
+    /// Loads again, from their files, the covers that were made smaller for fewer pixels per
+    /// point than the window has now.
+    fn sharpen_covers(&mut self, store: &Store) {
+        let scale = self.art_scale;
+        let mut jobs = Vec::new();
+        for host in &mut self.list {
+            for (&app, sized) in &mut host.art_sized {
+                if *sized >= scale || !matches!(host.art.get(&app), Some(Art::Ready(_))) {
+                    continue;
+                }
+                let Some(version) = host.art_versions.get(&app) else { continue };
+                // Taken as sized for the new scale from here, so it is asked for once.
+                *sized = scale;
+                jobs.push((host.id, app, version.clone(), store.art_path(&host.record.unique_id, app, version)));
+            }
+        }
+        for (id, app, version, cache) in jobs {
+            self.load_art(move || {
+                // Only from its file: the cover that shows is good enough to keep if that is gone.
+                let image = art_image(std::fs::read(&cache).ok())?;
+                let (image, sized) = cover_sized(image, scale);
+                Some(Event::ArtSharper { id, app, version, image, sized })
+            });
+        }
+    }
+
+    /// Gives up cover textures until they hold no more than `budget` bytes: the ones longest off
+    /// screen first, and never one that was drawn or asked for in the frame just shown, so a
+    /// cover on screen cannot be dropped and loaded in turns. The ambient stays, so a page's
+    /// backdrop does not change with it.
+    fn drop_covers(&mut self, budget: usize) {
+        // The demo's covers are drawn into textures and have no file to come back from.
+        if cfg!(feature = "demo-library") {
+            return;
+        }
+        let mut covers = Vec::new();
+        let mut held = 0;
+        for (at, host) in self.list.iter().enumerate() {
+            for (&app, art) in &host.art {
+                if let Art::Ready(texture) = art {
+                    held += texture.byte_size();
+                    covers.push((self.art_used.get(&texture.id()).copied().unwrap_or(0), at, app, texture.id(), texture.byte_size()));
+                }
+            }
+        }
+        // The textures that are gone (dropped here, replaced, their PC removed) need no stamp.
+        let live: std::collections::HashSet<egui::TextureId> = covers.iter().map(|cover| cover.3).collect();
+        self.art_used.retain(|texture, _| live.contains(texture));
+        if held <= budget {
+            return;
+        }
+        covers.sort_unstable_by_key(|&(used, at, app, ..)| (used, at, app));
+        for (used, at, app, texture, bytes) in covers {
+            if held <= budget || used >= self.art_frame {
+                break;
+            }
+            let host = &mut self.list[at];
+            host.art.insert(app, Art::Dropped);
+            host.art_sized.remove(&app);
+            self.art_used.remove(&texture);
+            held -= bytes;
+        }
     }
 
     pub fn quit_app(&mut self, id: u64) {
@@ -1987,7 +2178,36 @@ impl Hosts {
                         };
                     }
                 }
-                Event::Art { id, app, version, image, ambient } => {
+                Event::ArtAway { id, app, version } => {
+                    if let Some(host) = self.get_mut(id).filter(|h| h.art_versions.get(&app) == Some(&version)) {
+                        // As a cover that was never asked for: the pages ask when the PC is up.
+                        if matches!(host.art.get(&app), Some(Art::Loading)) {
+                            host.art.remove(&app);
+                        }
+                    }
+                }
+                Event::ArtSharper { id, app, version, image, sized } => {
+                    let frame = self.art_frame;
+                    let Some(host) = self.list.iter_mut().find(|h| h.id == id).filter(|h| h.art_versions.get(&app) == Some(&version)) else { continue };
+                    // Still the cover it was loaded again for: one given up or replaced since is not.
+                    let Some(Art::Ready(texture)) = host.art.get_mut(&app) else { continue };
+                    *texture = ctx.load_texture(format!("art-{id}-{app}"), image, egui::TextureOptions::LINEAR);
+                    // A newer scale's may be on its way already; it is the one `art_sized` names.
+                    match sized {
+                        Some(sized) => {
+                            let asked = host.art_sized.entry(app).or_insert(sized);
+                            *asked = asked.max(sized);
+                        }
+                        None => {
+                            host.art_sized.remove(&app);
+                        }
+                    }
+                    self.art_used.insert(texture.id(), frame);
+                    self.art_landed = true;
+                }
+                Event::Art { id, app, version, image, ambient, sized } => {
+                    let frame = self.art_frame;
+                    let mut landed = None;
                     if let Some(host) = self.get_mut(id).filter(|h| h.art_versions.get(&app) == Some(&version)) {
                         match ambient {
                             Some(ambient) => {
@@ -2000,14 +2220,23 @@ impl Hosts {
                             }
                         }
                         let art = match image {
-                            Some(image) => Art::Ready(ctx.load_texture(
-                                format!("art-{id}-{app}"),
-                                image,
-                                egui::TextureOptions::LINEAR,
-                            )),
+                            Some(image) => {
+                                let texture = ctx.load_texture(format!("art-{id}-{app}"), image, egui::TextureOptions::LINEAR);
+                                landed = Some(texture.id());
+                                Art::Ready(texture)
+                            }
                             None => Art::Missing,
                         };
                         host.art.insert(app, art);
+                        host.art_sized.remove(&app);
+                        if let Some(sized) = sized.filter(|_| landed.is_some()) {
+                            host.art_sized.insert(app, sized);
+                        }
+                    }
+                    // It was asked for because it is on screen: not the first to go for room.
+                    if let Some(texture) = landed {
+                        self.art_used.insert(texture, frame);
+                        self.art_landed = true;
                     }
                 }
                 Event::Native { id, epoch, seq, result } => {
@@ -2224,7 +2453,16 @@ impl Hosts {
                     (index, other)
                 };
                 let dropped = self.list[drop].record.clone();
+                let keep_id = self.list[keep].id;
                 let kept = &mut self.list[keep].record;
+                // The PC keeps the port it is listed under. It answered on the dropped one's too,
+                // so a sighting there is that PC from now on, also after Nightjar restarts.
+                let own = http_port(kept.http_port);
+                for port in std::iter::once(dropped.http_port).chain(dropped.other_http_ports.iter().copied()).map(http_port) {
+                    if port != own && !kept.other_http_ports.contains(&port) {
+                        kept.other_http_ports.push(port);
+                    }
+                }
                 kept.manual |= dropped.manual;
                 if kept.alias.is_none() {
                     kept.alias = dropped.alias;
@@ -2249,7 +2487,6 @@ impl Hosts {
                 if kept.remote_address.is_none() {
                     kept.remote_address = dropped.remote_address;
                 }
-                let keep_id = self.list[keep].id;
                 self.list.remove(drop);
                 changed = true;
                 let index = self.list.iter().position(|h| h.id == keep_id).unwrap_or(0);
@@ -2289,6 +2526,8 @@ impl Hosts {
                     // Another PC answers at this address: what the old one said and allowed is not its.
                     if !host.record.unique_id.is_empty() {
                         host.record.notices.clear();
+                        host.record.other_http_ports.clear();
+                        host.record.full_chroma = Default::default();
                     }
                     host.native = Native::default();
                     host.native_epoch += 1;
@@ -2343,9 +2582,17 @@ impl Hosts {
             return false;
         };
         let texts: Vec<String> = addresses.iter().map(IpAddr::to_string).collect();
-        if let Some(host) = self.list.iter_mut().find(|h| {
-            texts.contains(&h.record.address) || h.record.other_addresses.iter().any(|a| texts.contains(a))
-        }) {
+        // A PC is an address and a port: another port on the same address is another PC (a
+        // second host on that machine, or one added by hand with its own port), until it
+        // answers with a listed PC's unique ID.
+        let port = http_port(port);
+        let at_address = |h: &Host| texts.contains(&h.record.address) || h.record.other_addresses.iter().any(|a| texts.contains(a));
+        let listed = self
+            .list
+            .iter()
+            .position(|h| http_port(h.record.http_port) == port && at_address(h))
+            .or_else(|| self.list.iter().position(|h| h.record.other_http_ports.contains(&port) && at_address(h)));
+        if let Some(host) = listed.map(|at| &mut self.list[at]) {
             if host.record.name.is_empty() {
                 host.record.name = name;
                 crate::logfile::add_secrets(&host.record);
@@ -2365,7 +2612,7 @@ impl Hosts {
             name,
             address: first.to_string(),
             other_addresses: texts[1..].to_vec(),
-            http_port: if port == 0 { DEFAULT_HTTP_PORT } else { port },
+            http_port: port,
             ..Default::default()
         });
         if first.is_ipv4() {
@@ -2502,10 +2749,43 @@ fn art_image(bytes: Option<Vec<u8>>) -> Option<egui::ColorImage> {
 }
 
 /// A cover and its ambient, both off the UI thread: the first draw only uploads two finished images.
-fn art_and_ambient(bytes: Option<Vec<u8>>) -> (Option<egui::ColorImage>, Option<egui::ColorImage>) {
-    let image = art_image(bytes);
-    let ambient = image.as_ref().map(crate::ambient::bake);
-    (image, ambient)
+/// The ambient is baked from the cover as its file has it; the cover is then made no larger than a
+/// window of `scale` pixels per point needs ([`cover_sized`]), and the last value says for which.
+fn art_and_ambient(bytes: Option<Vec<u8>>, scale: f32) -> (Option<egui::ColorImage>, Option<egui::ColorImage>, Option<f32>) {
+    let Some(image) = art_image(bytes) else { return (None, None, None) };
+    let ambient = crate::ambient::bake(&image);
+    let (image, sized) = cover_sized(image, scale);
+    (Some(image), Some(ambient), sized)
+}
+
+/// The size a cover of `size` pixels is kept at for a window of `scale` pixels per point, or None
+/// to keep it as it is. A cover fills its place and is cut to it (`cards::cover_uv`), so it is
+/// the side that needs the most that decides, and what shows keeps [`COVER_DETAIL`] of its
+/// pixels for each of the screen's.
+fn cover_size(size: [usize; 2], scale: f32) -> Option<[usize; 2]> {
+    let [w, h] = size;
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let detail = scale * COVER_DETAIL;
+    let share = (COVER_POINTS[0] * detail / w as f32).max(COVER_POINTS[1] * detail / h as f32);
+    // Up to the next pixel, less what the arithmetic is off by (900 by 0.7 is not to become 631).
+    let side = |from: usize| ((from as f32 * share - 0.01).ceil() as usize).clamp(1, from);
+    (share < COVER_SHRINK_BELOW).then(|| [side(w), side(h)])
+}
+
+/// A cover no larger than a window of `scale` pixels per point needs, and that scale when it
+/// was made smaller. Its pixels are already multiplied by their alpha, which is what resampling
+/// wants: a clear pixel's colour does not bleed into the ones beside it.
+fn cover_sized(image: egui::ColorImage, scale: f32) -> (egui::ColorImage, Option<f32>) {
+    let Some([w, h]) = cover_size(image.size, scale) else { return (image, None) };
+    let [from_w, from_h] = image.size;
+    let bytes: Vec<u8> = image.pixels.iter().flat_map(|pixel| pixel.to_array()).collect();
+    let Some(full) = image::RgbaImage::from_raw(from_w as u32, from_h as u32, bytes) else {
+        return (image, None);
+    };
+    let small = image::imageops::resize(&full, w as u32, h as u32, image::imageops::FilterType::Lanczos3);
+    (egui::ColorImage::from_rgba_premultiplied([w, h], small.as_raw()), Some(scale))
 }
 
 fn decode_image(bytes: &[u8]) -> Option<egui::ColorImage> {
@@ -2730,6 +3010,179 @@ pub(crate) mod tests {
         assert_eq!(hosts.list[0].connect_address(), "192.0.2.1");
     }
 
+    fn sight(hosts: &mut Hosts, name: &str, address: &str, port: u16) -> bool {
+        hosts.apply_discovery(name.into(), vec![address.parse().unwrap()], port)
+    }
+
+    // Nightjar #7: two hosts on one machine share an address, so a sighting is a listed PC only
+    // at its port too. Either side may write the default port as 0.
+    #[test]
+    fn a_sighting_is_a_listed_pc_at_its_address_and_port() {
+        let listed = |port, other: &str| {
+            let record = HostRecord { address: "192.0.2.1".into(), other_addresses: vec![other.into()], http_port: port, ..Default::default() };
+            Hosts::without_discovery(vec![record], Arc::new(|| {}))
+        };
+        for (saved, sighted) in [(0, 0), (0, DEFAULT_HTTP_PORT), (DEFAULT_HTTP_PORT, 0), (48989, 48989)] {
+            for address in ["192.0.2.1", "192.0.2.2"] {
+                let mut hosts = listed(saved, "192.0.2.2");
+                sight(&mut hosts, "Desk", address, sighted);
+                assert_eq!(hosts.list.len(), 1, "{address}, saved {saved}, seen {sighted}");
+                assert_eq!((hosts.list[0].record.name.as_str(), hosts.list[0].record.http_port), ("Desk", saved), "its name, and its port as saved");
+            }
+        }
+        // Another port is another PC, listed once however often it is seen.
+        for (saved, sighted) in [(48989, 0), (48989, DEFAULT_HTTP_PORT), (0, 48989), (DEFAULT_HTTP_PORT, 48989)] {
+            for address in ["192.0.2.1", "192.0.2.2"] {
+                let mut hosts = listed(saved, "192.0.2.2");
+                for _ in 0..3 {
+                    sight(&mut hosts, "Desk", address, sighted);
+                }
+                let pcs: Vec<(&str, &str, u16)> = hosts.list.iter().map(|h| (h.record.name.as_str(), h.record.address.as_str(), h.record.http_port)).collect();
+                assert_eq!(pcs, [("", "192.0.2.1", saved), ("Desk", address, http_port(sighted))], "saved {saved}, seen {sighted}");
+            }
+        }
+    }
+
+    // The unique ID is the PC: a sighting that answers with a listed PC's is that PC, at
+    // whatever address and port, and stays it when seen again.
+    #[test]
+    fn a_sighting_that_answers_with_a_listed_pcs_unique_id_is_that_pc() {
+        for address in ["192.0.2.1", "192.0.2.7"] {
+            let mut record = paired_record("uid");
+            (record.http_port, record.manual) = (48989, true);
+            let mut hosts = Hosts::without_discovery(vec![record], Arc::new(|| {}));
+            let known = hosts.list[0].id;
+            sight(&mut hosts, "Desk", address, 0);
+            assert_eq!(hosts.list.len(), 2, "{address}: another port, so another PC until it answers");
+            let seen = hosts.list[1].id;
+            info_lands(&mut hosts, seen, native_info_of("uid", true));
+            assert_eq!(hosts.list.len(), 1, "{address}");
+            let host = &hosts.list[0];
+            assert_eq!((host.id, host.record.http_port, host.record.manual), (known, 48989, true), "{address}: the PC as it was listed");
+            assert!(host.record.server_certificate.is_some(), "{address}: still paired");
+            assert!(host.record.address == address || host.record.other_addresses.iter().any(|a| a == address), "{address}: {:?}", host.record);
+            for _ in 0..2 {
+                sight(&mut hosts, "Desk", address, DEFAULT_HTTP_PORT);
+            }
+            assert_eq!(hosts.list.len(), 1, "{address}: seen again, it is that PC");
+
+            // Another PC on a third port there is its own, also once it has answered.
+            sight(&mut hosts, "Den", address, 50000);
+            let den = hosts.list[1].id;
+            info_lands(&mut hosts, den, native_info_of("den", false));
+            sight(&mut hosts, "Den", address, 50000);
+            assert_eq!(hosts.list.iter().map(|h| (h.id, h.record.http_port)).collect::<Vec<_>>(), [(known, 48989), (den, 50000)], "{address}");
+
+            // Forgotten, the PC is found again like any other.
+            hosts.remove(known);
+            sight(&mut hosts, "Desk", address, 0);
+            assert_eq!(hosts.list.iter().map(|h| h.record.http_port).collect::<Vec<_>>(), [50000, DEFAULT_HTTP_PORT], "{address}");
+        }
+    }
+
+    // A PC added by hand with its own port and the one discovery finds at the default port of
+    // the same address are two PCs: neither takes the other's place, neither is listed twice.
+    #[test]
+    fn a_pc_added_by_hand_with_a_port_stays_beside_the_one_found_at_the_default_port() {
+        let mut hosts = Hosts::without_discovery(Vec::new(), Arc::new(|| {}));
+        let own = hosts.add_manual("192.0.2.1", Some(48989));
+        for port in [0, DEFAULT_HTTP_PORT, 0] {
+            sight(&mut hosts, "Desk", "192.0.2.1", port);
+        }
+        assert_eq!(hosts.list.len(), 2, "the one at the default port, once");
+        let by_hand = &hosts.get(own).unwrap().record;
+        assert_eq!((by_hand.name.as_str(), by_hand.http_port, by_hand.manual), ("", 48989, true), "not the found PC's name or port");
+        let found = hosts.list[1].id;
+        let record = &hosts.list[1].record;
+        assert_eq!((record.name.as_str(), record.http_port, record.manual), ("Desk", DEFAULT_HTTP_PORT, false));
+
+        // Each is seen and added again as itself.
+        sight(&mut hosts, "Den", "192.0.2.1", 48989);
+        assert_eq!(hosts.get(own).unwrap().record.name, "Den");
+        assert_eq!(hosts.add_manual("192.0.2.1", Some(48989)), own);
+        assert_eq!(hosts.add_manual("192.0.2.1", Some(DEFAULT_HTTP_PORT)), found);
+        assert_eq!(hosts.list.len(), 2);
+
+        // By hand at the default port, saved as 0 by an older build: discovery's is that PC.
+        let mut hosts = Hosts::without_discovery(vec![HostRecord { address: "192.0.2.1".into(), manual: true, ..Default::default() }], Arc::new(|| {}));
+        sight(&mut hosts, "Desk", "192.0.2.1", DEFAULT_HTTP_PORT);
+        assert_eq!(hosts.add_manual("192.0.2.1", Some(DEFAULT_HTTP_PORT)), hosts.list[0].id);
+        assert_eq!((hosts.list.len(), hosts.list[0].record.name.as_str(), hosts.list[0].record.manual), (1, "Desk", true));
+    }
+
+    // A PC that answered on a second port with its unique ID stays that PC there after Nightjar
+    // restarts: the port is saved with it, so the next run lists no passing duplicate.
+    #[test]
+    fn a_port_that_answered_as_a_listed_pc_is_saved_with_it() {
+        let mut record = paired_record("uid");
+        record.http_port = 48989;
+        let mut hosts = Hosts::without_discovery(vec![record], Arc::new(|| {}));
+        let known = hosts.list[0].id;
+        sight(&mut hosts, "Desk", "192.0.2.1", 0);
+        let seen = hosts.list[1].id;
+        info_lands(&mut hosts, seen, native_info_of("uid", true));
+        assert_eq!(hosts.list.len(), 1);
+        assert_eq!((hosts.list[0].id, hosts.list[0].record.http_port), (known, 48989));
+        assert_eq!(hosts.list[0].record.other_http_ports, [DEFAULT_HTTP_PORT]);
+        // Seen and merged there again, the port is listed once.
+        sight(&mut hosts, "Desk", "192.0.2.1", 0);
+        assert_eq!((hosts.list.len(), hosts.list[0].record.other_http_ports.len()), (1, 1));
+
+        let saved = serde_json::to_string(&hosts.records()).unwrap();
+        let records: Vec<HostRecord> = serde_json::from_str(&saved).unwrap();
+        let mut hosts = Hosts::without_discovery(records, Arc::new(|| {}));
+        for port in [0, DEFAULT_HTTP_PORT] {
+            sight(&mut hosts, "Desk", "192.0.2.1", port);
+        }
+        assert_eq!(hosts.list.len(), 1, "the next run knows the port too");
+        assert_eq!(hosts.add_manual("192.0.2.1", None), hosts.list[0].id, "added by hand there, it is that PC too");
+        assert_eq!(hosts.list.len(), 1);
+        // Another port there is still another PC.
+        sight(&mut hosts, "Den", "192.0.2.1", 50000);
+        assert_eq!(hosts.list.len(), 2);
+
+        // A hosts file from before the field loads with none.
+        let old: Vec<HostRecord> = serde_json::from_str(r#"[{"address":"192.0.2.1","http_port":48989,"manual":true}]"#).unwrap();
+        assert!(old[0].other_http_ports.is_empty());
+    }
+
+    // The ports go with the PC that answered there: another PC answering at its address has none.
+    #[test]
+    fn another_pc_at_the_address_drops_the_saved_ports() {
+        let mut record = paired_record("uid");
+        record.other_http_ports = vec![DEFAULT_HTTP_PORT];
+        record.http_port = 48989;
+        let mut hosts = Hosts::without_discovery(vec![record], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        info_lands(&mut hosts, id, native_info_of("another", false));
+        assert!(hosts.list[0].record.other_http_ports.is_empty());
+        sight(&mut hosts, "Desk", "192.0.2.1", DEFAULT_HTTP_PORT);
+        assert_eq!(hosts.list.len(), 2);
+    }
+
+    // Added by hand without a port is the PC at the default port, never one listed at that
+    // address under another port.
+    #[test]
+    fn a_pc_added_by_hand_without_a_port_is_the_one_at_the_default_port() {
+        let mut hosts = Hosts::without_discovery(Vec::new(), Arc::new(|| {}));
+        let other = hosts.add_manual("192.0.2.1", Some(48989));
+        let plain = hosts.add_manual("192.0.2.1", None);
+        assert_ne!(plain, other);
+        assert_eq!(hosts.get(plain).unwrap().record.http_port, DEFAULT_HTTP_PORT);
+        assert_eq!(hosts.add_manual("192.0.2.1", None), plain);
+        assert_eq!(hosts.add_manual("192.0.2.1", Some(DEFAULT_HTTP_PORT)), plain);
+        assert_eq!(hosts.add_manual("192.0.2.1", Some(48989)), other);
+        assert_eq!(hosts.list.len(), 2);
+        // Discovery at the default port finds the one added without a port.
+        sight(&mut hosts, "Desk", "192.0.2.1", 0);
+        assert_eq!((hosts.list.len(), hosts.get(plain).unwrap().record.name.as_str()), (2, "Desk"));
+
+        // Saved as 0 by an older build, a PC added without a port is still that one.
+        let mut hosts = Hosts::without_discovery(vec![HostRecord { address: "192.0.2.1".into(), manual: true, ..Default::default() }], Arc::new(|| {}));
+        assert_eq!(hosts.add_manual("192.0.2.1", None), hosts.list[0].id);
+        assert_eq!(hosts.list.len(), 1);
+    }
+
     // Test speed goes to a Sunshine-family PC only once it said it has Foundation's test; stock
     // Sunshine, Apollo and Vibepollo do not. Rubylight keeps its own test without asking.
     #[test]
@@ -2770,6 +3223,7 @@ pub(crate) mod tests {
             http_port: 0,
             https_port: 0,
             other_addresses: Vec::new(),
+            other_http_ports: Vec::new(),
             pinned_address: None,
             remote_address: None,
             server_certificate: Some("pem".into()),
@@ -2781,6 +3235,7 @@ pub(crate) mod tests {
             app_settings: Default::default(),
             quit_on_leave: Default::default(),
             notices: Default::default(),
+            full_chroma: Default::default(),
         }
     }
 
@@ -2959,20 +3414,117 @@ pub(crate) mod tests {
 
     /// A small PNG of one colour, as a host's box art arrives.
     fn png(color: [u8; 3]) -> Vec<u8> {
-        let image = image::RgbImage::from_pixel(30, 40, image::Rgb(color));
+        png_of([30, 40], color)
+    }
+
+    /// A PNG of one colour and `size` pixels: 600 by 900 is the cover a store hands out.
+    fn png_of(size: [u32; 2], color: [u8; 3]) -> Vec<u8> {
+        let image = image::RgbImage::from_pixel(size[0], size[1], image::Rgb(color));
         let mut bytes = std::io::Cursor::new(Vec::new());
         image.write_to(&mut bytes, image::ImageFormat::Png).expect("a PNG");
         bytes.into_inner()
     }
 
+    /// A waker that tells the test of each wake, to wait for a cover loaded on the art threads.
+    fn telling_waker() -> (Waker, Receiver<()>) {
+        let (tx, rx) = channel();
+        let tx = Mutex::new(tx);
+        let waker: Waker = Arc::new(move || {
+            let _ = tx.lock().unwrap().send(());
+        });
+        (waker, rx)
+    }
+
+    /// An empty settings folder of this test's own.
+    fn art_store(name: &str) -> (Store, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("nightjar-covers-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        (Store::at(dir.clone()).expect("a settings folder"), dir)
+    }
+
+    fn cover_file(store: &Store, app: i32, bytes: &[u8]) -> std::path::PathBuf {
+        let path = store.art_path("uid", app, "v1");
+        std::fs::create_dir_all(path.parent().expect("the PC's folder")).expect("the art cache");
+        std::fs::write(&path, bytes).expect("the cover's file");
+        path
+    }
+
+    fn cover_pixels(pc: &Host, app: i32) -> Option<[usize; 2]> {
+        match pc.art.get(&app) {
+            Some(Art::Ready(texture)) => Some(texture.size()),
+            _ => None,
+        }
+    }
+
+    /// Frees the textures a test loaded, as the renderer would.
+    fn end_pass(ctx: &egui::Context) {
+        let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
+        output.textures_delta.clear();
+    }
+
     #[test]
     fn a_cover_arrives_with_its_ambient_already_baked() {
-        let (image, ambient) = art_and_ambient(Some(png([200, 20, 20])));
+        let (image, ambient, sized) = art_and_ambient(Some(png([200, 20, 20])), 1.0);
         assert_eq!(image.expect("the cover").size, [30, 40]);
+        assert_eq!(sized, None, "a small cover is never made larger");
         let ambient = ambient.expect("baked with the cover, off the UI thread");
         assert_eq!(ambient, crate::ambient::bake(&decode_image(&png([200, 20, 20])).expect("the cover")));
-        assert_eq!(art_and_ambient(None), (None, None), "no cover, no ambient");
-        assert_eq!(art_and_ambient(Some(b"not an image".to_vec())), (None, None));
+        assert_eq!(art_and_ambient(None, 1.0), (None, None, None), "no cover, no ambient");
+        assert_eq!(art_and_ambient(Some(b"not an image".to_vec()), 1.0), (None, None, None));
+    }
+
+    /// The game page draws a cover 420 by 630 points and nothing draws one larger, so that many
+    /// points at the window's pixels per point, and half as many again to stay sharp where it
+    /// is drawn smaller, is all of a cover that is kept.
+    #[test]
+    fn a_cover_is_kept_no_larger_than_the_window_needs() {
+        assert_eq!(cover_size([1000, 1500], 1.0), Some([630, 945]), "a large cover on a plain screen");
+        assert_eq!(cover_size([900, 1350], 1.0), Some([630, 945]));
+        assert_eq!(cover_size([900, 1350], 1.25), Some([788, 1182]));
+        assert_eq!(cover_size([2000, 3000], 2.0), Some([1260, 1890]), "twice the pixels on a dense screen");
+        assert_eq!(cover_size([4000, 6000], 4.5), Some([2835, 4253]), "150 % text on a 300 % screen");
+        // Nothing to win, or too little to pay for another resampling of the picture.
+        assert_eq!(cover_size([600, 900], 1.0), None, "a store's cover stays as its file has it");
+        assert_eq!(cover_size([900, 1350], 1.5), None, "every pixel of it is kept");
+        assert_eq!(cover_size([680, 1020], 1.0), None, "nine tenths of its side and more are kept whole");
+        assert_eq!(cover_size([30, 40], 1.0), None, "never made larger");
+        // A cover fills its place and is cut to it: the side that needs the most decides.
+        assert_eq!(cover_size([920, 430], 1.0), None, "a wide banner is short of the place's height as it is");
+        assert_eq!(cover_size([3840, 2160], 1.0), Some([1680, 945]), "a screenshot keeps the full height");
+        assert_eq!(cover_size([1000, 6000], 1.0), Some([630, 3780]), "and a strip the full width");
+        assert_eq!(cover_size([0, 900], 1.0), None);
+        assert_eq!(cover_size([600, 0], 1.0), None);
+        // The sizes the pages draw: the cards and the PC tile are all below the game page's.
+        assert_eq!(COVER_POINTS, [420.0, 630.0]);
+    }
+
+    #[test]
+    fn a_cover_made_smaller_keeps_its_picture_and_its_ambient() {
+        let bytes = png_of([900, 1350], [200, 20, 20]);
+        let full = decode_image(&bytes).expect("the cover");
+        let (image, ambient, sized) = art_and_ambient(Some(bytes), 1.0);
+        let image = image.expect("the cover");
+        assert_eq!(image.size, [630, 945]);
+        assert_eq!(sized, Some(1.0), "the pixels per point it is good for");
+        assert!(image.pixels.iter().all(|&pixel| pixel == egui::Color32::from_rgb(200, 20, 20)), "one colour stays that colour");
+        assert_eq!(ambient.expect("the ambient"), crate::ambient::bake(&full), "baked from the cover as its file has it");
+        // On a screen that shows every pixel it is handed over as decoded.
+        let (same, sized) = cover_sized(full.clone(), 2.0);
+        assert_eq!((same, sized), (full, None));
+    }
+
+    /// The pixels are multiplied by their alpha before they are resampled, so the colour a clear
+    /// pixel happens to have does not show as a fringe around the picture.
+    #[test]
+    fn a_clear_part_of_a_cover_does_not_bleed_into_the_picture_when_it_is_made_smaller() {
+        let picture = image::RgbaImage::from_fn(900, 1350, |x, _| {
+            if x < 450 { image::Rgba([200, 0, 0, 255]) } else { image::Rgba([0, 255, 0, 0]) }
+        });
+        let (small, sized) = cover_sized(egui::ColorImage::from_rgba_unmultiplied([900, 1350], picture.as_raw()), 1.0);
+        assert_eq!((small.size, sized), ([630, 945], Some(1.0)));
+        assert!(small.pixels.iter().all(|pixel| pixel.g() == 0), "no green from the clear half");
+        assert_eq!(small.pixels[0], egui::Color32::from_rgb(200, 0, 0));
+        assert_eq!(small.pixels[629], egui::Color32::TRANSPARENT);
     }
 
     #[test]
@@ -2982,8 +3534,8 @@ pub(crate) mod tests {
         let id = hosts.list[0].id;
         hosts.list[0].art_versions.insert(7, "v1".into());
         let art = |version: &str, color: Option<[u8; 3]>| {
-            let (image, ambient) = art_and_ambient(color.map(png));
-            Event::Art { id, app: 7, version: version.into(), image, ambient }
+            let (image, ambient, sized) = art_and_ambient(color.map(png), 1.0);
+            Event::Art { id, app: 7, version: version.into(), image, ambient, sized }
         };
         hosts.sender.send(art("v1", Some([20, 200, 20]))).expect("the channel");
         hosts.drain(&ctx);
@@ -3011,19 +3563,253 @@ pub(crate) mod tests {
         let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
         let id = hosts.list[0].id;
         hosts.list[0].art_versions.insert(7, "v1".into());
-        let (image, ambient) = art_and_ambient(Some(png([20, 200, 20])));
-        hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient }).expect("the channel");
+        let (image, ambient, sized) = art_and_ambient(Some(png([20, 200, 20])), 1.0);
+        hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient, sized }).expect("the channel");
         hosts.drain(&ctx);
         hosts.list[0].art.insert(8, Art::Missing);
         hosts.list[0].art.insert(9, Art::Loading);
+        hosts.list[0].art.insert(10, Art::Dropped);
         hosts.renderer_changed();
         let pc = &hosts.list[0];
         assert!(!pc.art.contains_key(&7) && !pc.ambient.contains_key(&7), "asked for again, from the cache");
         assert!(pc.ambient_glow.contains_key(&7) && pc.art_versions.contains_key(&7), "no texture: kept");
         assert!(matches!(pc.art.get(&8), Some(Art::Missing)), "no cover is still no cover");
         assert!(matches!(pc.art.get(&9), Some(Art::Loading)), "one on its way lands as it is");
-        let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
-        output.textures_delta.clear();
+        assert!(pc.art_wanted(10, ""), "one given up for room is asked for again as before");
+        assert!(hosts.art_used.is_empty(), "the old renderer's textures are gone");
+        end_pass(&ctx);
+    }
+
+    /// Four covers of 30 by 40 pixels on one PC, landed and then shown for as many frames as
+    /// `shown` lists, each frame drawing the apps it names.
+    fn covers_shown_in(name: &str, shown: &[&[i32]]) -> (Hosts, egui::Context, Store, std::path::PathBuf) {
+        let ctx = egui::Context::default();
+        let (store, dir) = art_store(name);
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        for app in 1..=4 {
+            hosts.list[0].art_versions.insert(app, "v1".into());
+            let (image, ambient, sized) = art_and_ambient(Some(png([20, 200, 20])), 1.0);
+            hosts.sender.send(Event::Art { id, app, version: "v1".into(), image, ambient, sized }).expect("the channel");
+        }
+        hosts.drain(&ctx);
+        for frame in shown {
+            for app in *frame {
+                let Some(Art::Ready(texture)) = hosts.list[0].art.get(app) else { panic!("cover {app} is not there to draw") };
+                cover_used(&ctx, texture);
+            }
+            hosts.covers_shown(&ctx, &store);
+        }
+        (hosts, ctx, store, dir)
+    }
+
+    const COVER_BYTES: usize = 30 * 40 * 4;
+
+    #[test]
+    fn covers_past_their_budget_are_given_up_longest_off_screen_first() {
+        let (mut hosts, ctx, _store, dir) = covers_shown_in("budget", &[&[1, 2, 3, 4], &[2, 3, 4], &[3, 4]]);
+        assert!((1..=4).all(|app| cover_pixels(&hosts.list[0], app).is_some()), "all within the real budget");
+
+        // Room for two and a bit: the two longest off screen go, and no more than needed.
+        hosts.drop_covers(2 * COVER_BYTES + 100);
+        let pc = &hosts.list[0];
+        assert!(pc.art_dropped(1) && pc.art_dropped(2), "last shown two frames and one frame ago");
+        assert!(cover_pixels(pc, 3).is_some() && cover_pixels(pc, 4).is_some());
+        assert_eq!(hosts.art_used.len(), 2, "what is gone is no longer kept count of");
+        // What it leaves: the page's backdrop, and the version its file is found by.
+        assert!(pc.ambient.contains_key(&1) && pc.ambient_glow.contains_key(&1));
+        assert_eq!(pc.art_versions[&1], "v1");
+
+        // A cover that is given up is asked for again where it is drawn, as it was.
+        let pc = &mut hosts.list[0];
+        assert!(pc.art_wanted(1, "") && pc.art_wanted(1, "v1"));
+        assert!(!pc.art_wanted(3, "") && !pc.art_wanted(3, "v1"));
+        assert_eq!(pc.begin_art(1, "").as_deref(), Some("v1"));
+        assert!(matches!(pc.art.get(&1), Some(Art::Loading)) && !pc.art_wanted(1, "v1"), "asked for once");
+        end_pass(&ctx);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Dropping what is on screen would have it loaded again at once and something else dropped
+    /// for it: a page with more covers than the budget holds would load and drop in turns.
+    #[test]
+    fn a_cover_on_screen_is_never_given_up() {
+        let (mut hosts, ctx, store, dir) = covers_shown_in("on-screen", &[&[1, 2, 3, 4], &[3, 4]]);
+        hosts.drop_covers(0);
+        let pc = &hosts.list[0];
+        assert!(pc.art_dropped(1) && pc.art_dropped(2));
+        assert!(cover_pixels(pc, 3).is_some() && cover_pixels(pc, 4).is_some(), "drawn in the frame just shown");
+        // A frame that draws neither: no cover landed, so nothing is given up, and the textures
+        // stay for the page that is gone back to. The next cover to land makes room with them.
+        hosts.covers_shown(&ctx, &store);
+        assert!(cover_pixels(&hosts.list[0], 3).is_some() && cover_pixels(&hosts.list[0], 4).is_some());
+        hosts.drop_covers(0);
+        assert!(hosts.list[0].art_dropped(3) && hosts.list[0].art_dropped(4));
+        end_pass(&ctx);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A cover lands before the frame it was asked for, and by then its card may have scrolled
+    /// away. It counts as shown when it lands: without that it would be the first to go, and be
+    /// asked for and dropped in turns by a page that asks for a cover it does not draw.
+    #[test]
+    fn a_cover_that_just_landed_is_not_the_first_to_go() {
+        let (mut hosts, ctx, store, dir) = covers_shown_in("landed", &[&[1, 2, 3, 4], &[3, 4]]);
+        let id = hosts.list[0].id;
+        hosts.list[0].art_versions.insert(5, "v1".into());
+        let (image, ambient, sized) = art_and_ambient(Some(png([20, 20, 200])), 1.0);
+        hosts.sender.send(Event::Art { id, app: 5, version: "v1".into(), image, ambient, sized }).expect("the channel");
+        hosts.drain(&ctx);
+        // The frame after draws nothing at all.
+        hosts.covers_shown(&ctx, &store);
+        hosts.drop_covers(3 * COVER_BYTES);
+        let pc = &hosts.list[0];
+        assert!(pc.art_dropped(1) && pc.art_dropped(2), "the two that were off screen before it came");
+        assert!((3..=5).all(|app| cover_pixels(pc, app).is_some()));
+        end_pass(&ctx);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Its PC may be off by the time a cover scrolls back in. The file it was saved to is all
+    /// that is read: this PC's address answers nobody.
+    #[test]
+    fn a_cover_given_up_comes_back_from_its_file_without_its_pc() {
+        let ctx = egui::Context::default();
+        let (store, dir) = art_store("back");
+        let (waker, woken) = telling_waker();
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], waker);
+        hosts.set_identity(Arc::new(ClientIdentity::generate().expect("a key")));
+        let id = hosts.list[0].id;
+        cover_file(&store, 7, &png_of([900, 1350], [20, 200, 20]));
+        hosts.list[0].art_versions.insert(7, "v1".into());
+        hosts.list[0].art.insert(7, Art::Dropped);
+        assert!(hosts.list[0].reach != Reach::Online, "away");
+
+        hosts.request_art(id, 7, "", &store);
+        assert!(matches!(hosts.list[0].art.get(&7), Some(Art::Loading)));
+        hosts.request_art(id, 7, "", &store);
+        woken.recv_timeout(Duration::from_secs(20)).expect("the cover is read from its file");
+        hosts.drain(&ctx);
+        assert_eq!(cover_pixels(&hosts.list[0], 7), Some([630, 945]), "and sized for the window as before");
+        assert_eq!(hosts.list[0].art_sized.get(&7), Some(&1.0));
+        assert!(woken.try_recv().is_err(), "asked for twice, loaded once");
+        end_pass(&ctx);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The file can be gone (the art folder cleared, or a disk too full to save it). An away PC
+    /// is not asked, which would hold an art thread until the connection gives up, and the cover
+    /// is not taken as one the PC has none of: it is asked for again once the PC is up.
+    #[test]
+    fn a_cover_given_up_whose_file_is_gone_waits_for_its_pc() {
+        let ctx = egui::Context::default();
+        let (store, dir) = art_store("gone");
+        let (waker, woken) = telling_waker();
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], waker);
+        hosts.set_identity(Arc::new(ClientIdentity::generate().expect("a key")));
+        let id = hosts.list[0].id;
+        hosts.list[0].art_versions.insert(7, "v1".into());
+        hosts.list[0].art.insert(7, Art::Dropped);
+        hosts.list[0].ambient_glow.insert(7, egui::Color32::RED);
+        hosts.request_art(id, 7, "", &store);
+        woken.recv_timeout(Duration::from_secs(20)).expect("its file is looked for");
+        hosts.drain(&ctx);
+        let pc = &hosts.list[0];
+        assert!(!pc.art.contains_key(&7), "neither a cover nor known to have none");
+        assert!(!pc.art_dropped(7), "so the pages do not ask for it while the PC is away");
+        assert!(pc.art_wanted(7, "v1") && pc.ambient_glow.contains_key(&7), "and do when it is back");
+        end_pass(&ctx);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A larger text size, or the window moved to a denser screen: the covers made smaller for
+    /// the old one are read again from their files and swapped in where they are, with no tile
+    /// in between.
+    #[test]
+    fn a_cover_made_smaller_is_loaded_sharper_when_the_window_shows_more_pixels() {
+        let ctx = egui::Context::default();
+        let (store, dir) = art_store("sharper");
+        let (waker, woken) = telling_waker();
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], waker);
+        let id = hosts.list[0].id;
+        let bytes = png_of([900, 1350], [20, 200, 20]);
+        let file = cover_file(&store, 7, &bytes);
+        hosts.list[0].art_versions.insert(7, "v1".into());
+        hosts.covers_shown(&ctx, &store);
+        assert_eq!(hosts.art_scale, 1.0);
+        let (image, ambient, sized) = art_and_ambient(Some(bytes), hosts.art_scale);
+        hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient, sized }).expect("the channel");
+        hosts.drain(&ctx);
+        hosts.covers_shown(&ctx, &store);
+        assert_eq!(cover_pixels(&hosts.list[0], 7), Some([630, 945]));
+        assert_eq!(hosts.list[0].art_sized.get(&7), Some(&1.0));
+
+        // 125 %: still smaller than its file, and sharper than it was.
+        ctx.set_pixels_per_point(1.25);
+        end_pass(&ctx);
+        assert_eq!(ctx.pixels_per_point(), 1.25);
+        hosts.covers_shown(&ctx, &store);
+        assert_eq!(cover_pixels(&hosts.list[0], 7), Some([630, 945]), "it shows as it is until the sharper one lands");
+        hosts.covers_shown(&ctx, &store);
+        woken.recv_timeout(Duration::from_secs(20)).expect("the cover is read again from its file");
+        hosts.drain(&ctx);
+        assert_eq!(cover_pixels(&hosts.list[0], 7), Some([788, 1182]));
+        assert_eq!(hosts.list[0].art_sized.get(&7), Some(&1.25));
+        assert!(woken.try_recv().is_err(), "asked for once, though two frames passed before it landed");
+
+        // 200 %: all of the file is kept, and there is nothing left to load after it.
+        ctx.set_pixels_per_point(2.0);
+        end_pass(&ctx);
+        hosts.covers_shown(&ctx, &store);
+        woken.recv_timeout(Duration::from_secs(20)).expect("read again");
+        hosts.drain(&ctx);
+        assert_eq!(cover_pixels(&hosts.list[0], 7), Some([900, 1350]));
+        assert!(!hosts.list[0].art_sized.contains_key(&7));
+
+        // Back to 100 % it stays: sharper than needed, and the budget is what bounds it.
+        ctx.set_pixels_per_point(1.0);
+        end_pass(&ctx);
+        hosts.covers_shown(&ctx, &store);
+        assert_eq!(cover_pixels(&hosts.list[0], 7), Some([900, 1350]));
+        let _ = std::fs::remove_file(file);
+        end_pass(&ctx);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The sharper cover was read for the cover that was there when it was asked for.
+    #[test]
+    fn a_sharper_cover_lands_only_on_the_cover_it_was_read_for() {
+        let ctx = egui::Context::default();
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        hosts.list[0].art_versions.insert(7, "v1".into());
+        let sharper = |version: &str| {
+            let image = decode_image(&png_of([60, 80], [20, 20, 200])).expect("the cover");
+            Event::ArtSharper { id, app: 7, version: version.into(), image, sized: None }
+        };
+        let (image, ambient, _) = art_and_ambient(Some(png([20, 200, 20])), 1.0);
+        hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient, sized: Some(1.0) }).expect("the channel");
+        hosts.sender.send(sharper("v0")).expect("the channel");
+        hosts.drain(&ctx);
+        assert_eq!(cover_pixels(&hosts.list[0], 7), Some([30, 40]), "the PC has another cover by now");
+        assert_eq!(hosts.list[0].art_sized.get(&7), Some(&1.0));
+
+        hosts.sender.send(sharper("v1")).expect("the channel");
+        hosts.drain(&ctx);
+        assert_eq!(cover_pixels(&hosts.list[0], 7), Some([60, 80]));
+        assert!(!hosts.list[0].art_sized.contains_key(&7), "all of its file now");
+        assert!(hosts.list[0].ambient.contains_key(&7), "the ambient is the cover's own and stays");
+
+        // Given up for room in between, it is not brought back by a read that is late.
+        hosts.list[0].art.insert(7, Art::Dropped);
+        hosts.sender.send(sharper("v1")).expect("the channel");
+        hosts.drain(&ctx);
+        assert!(hosts.list[0].art_dropped(7));
+        hosts.list[0].art.insert(7, Art::Missing);
+        hosts.sender.send(sharper("v1")).expect("the channel");
+        hosts.drain(&ctx);
+        assert!(matches!(hosts.list[0].art.get(&7), Some(Art::Missing)));
+        end_pass(&ctx);
     }
 
     /// The Apps page asked for every cover without a version each pass, and the pages that knew

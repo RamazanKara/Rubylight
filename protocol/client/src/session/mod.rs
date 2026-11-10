@@ -201,6 +201,20 @@ pub trait VideoDecoder: Send {
     /// [`crate::video::VideoSink::chunk`]. Chunks the decoder never sees (a full queue) are
     /// caught by the frame itself, which carries them all.
     fn chunk(&mut self, _first: bool, _flags: u32, _payload: &[u8]) {}
+    /// Every frame decodes without the one before it (PyroWave), so a frame the decoder is
+    /// behind on may give way to a newer one already queued: it then goes to
+    /// [`VideoDecoder::skip`] instead of [`VideoDecoder::submit`], and early chunks of a frame
+    /// that is certain to be skipped are dropped. Asked on the decoder thread, and only for a
+    /// frame with a newer one queued behind it; never true for a decoder that predicts from
+    /// earlier frames.
+    fn intra_only(&self) -> bool {
+        false
+    }
+    /// A frame of an [`VideoDecoder::intra_only`] decoder that a newer queued frame replaces.
+    /// It must leave the decoder where decoding the frame would have (the state a later frame
+    /// recovers its lost parts from) without producing a picture. Any early chunks taken for
+    /// it are void.
+    fn skip(&mut self, _frame: &Frame) {}
     /// Whether the decoder now decoding recovers with reference frame invalidation. Asked
     /// after each frame: a decoder replaced mid-stream by one that never asked for it answers
     /// false, and the rest of the stream recovers from losses with key frames only
@@ -358,6 +372,10 @@ pub struct SessionStats {
     pub decode_queue_overflows: u64,
     /// Early chunks dropped because the decoder fell behind (their frames decode whole).
     pub early_chunks_dropped: u64,
+    /// Frames an intra-only decoder that had fallen behind passed over for a newer queued one
+    /// (not in `frames_submitted`), and the early chunks dropped with them.
+    pub frames_skipped: u64,
+    pub chunks_skipped: u64,
     pub decode_queue_len: usize,
     /// Opus packets and loss markers delivered, and the pending queue.
     pub audio_packets: u64,
@@ -952,6 +970,8 @@ impl Session {
             stats.frames_need_idr = video.counters.need_idr.load(Ordering::Relaxed);
             stats.decode_queue_overflows = video.counters.queue_overflows.load(Ordering::Relaxed);
             stats.early_chunks_dropped = video.counters.chunks_dropped.load(Ordering::Relaxed);
+            stats.frames_skipped = video.counters.frames_skipped.load(Ordering::Relaxed);
+            stats.chunks_skipped = video.counters.chunks_skipped.load(Ordering::Relaxed);
             stats.decode_queue_len = video.queue.len();
         }
         stats
@@ -1458,7 +1478,7 @@ fn start(
         );
         let _ = roamed_by.set(roamer.clone());
         parts.roamer = Some(roamer);
-        listener.log("Roaming: on (Experimental)");
+        listener.log("Roaming: on");
     } else if outcome.host_roaming && !config.roaming.enabled {
         listener.log("Roaming: off in the client's settings");
     }

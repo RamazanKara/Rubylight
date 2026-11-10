@@ -36,6 +36,48 @@ pub fn readback_forced(value: Option<&OsStr>) -> bool {
     value.is_some_and(|value| value == "1")
 }
 
+/// Set to 0, the presenter copies each plane set out of the decoder's images, as before, instead
+/// of sampling them in place: the way out should a driver mishandle the in-place layouts.
+pub const SAMPLE_PLANES: &str = "NIGHTJAR_PYROWAVE_SAMPLE_PLANES";
+
+/// How the presenter reads a plane set on the renderer's device.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlaneHandoff {
+    /// It samples the decoder's images in place, holding the set while the picture is shown
+    /// (`gpu_planes::Handover`), so the ring has a set more.
+    Sample,
+    /// It copies them into textures of its own and gives the set back behind the copy.
+    Copy,
+}
+
+impl PlaneHandoff {
+    /// What `SAMPLE_PLANES`'s value asks for: sampling in place, unless it is 0.
+    pub fn of(value: Option<&OsStr>) -> Self {
+        if value.is_some_and(|value| value == "0") { Self::Copy } else { Self::Sample }
+    }
+
+    pub fn from_environment() -> Self {
+        Self::of(std::env::var_os(SAMPLE_PLANES).as_deref())
+    }
+
+    /// The plane sets the decoder makes for `slots` pictures in flight: one more while the
+    /// presenter holds the shown picture's set, so the decoder never waits for it.
+    pub fn sets(self, slots: usize) -> usize {
+        match self {
+            Self::Sample => slots + 1,
+            Self::Copy => slots,
+        }
+    }
+
+    /// How the log says it.
+    pub fn line(self) -> String {
+        match self {
+            Self::Sample => "the presenter samples the decoder's plane images in place".into(),
+            Self::Copy => format!("the presenter copies the decoder's plane images ({SAMPLE_PLANES}=0)"),
+        }
+    }
+}
+
 /// The last line `note` wrote.
 static NOTED: Mutex<Option<String>> = Mutex::new(None);
 
@@ -618,23 +660,32 @@ fn sharing(sdl_family: u32, decode_family: Option<u32>) -> Vec<u32> {
 const RELEASE_WAIT: Duration = Duration::from_secs(2);
 
 /// The plane sets on the renderer's device: three device-local R8 or R16 images per set, in
-/// GENERAL layout from creation on (the decoder writes them there, and the presenter's SDL
-/// textures expect it of a compute-storage texture), and the two timelines that order them.
+/// GENERAL layout from creation on (the decoder writes them there, and the presenter's copy reads
+/// them as compute-storage textures there), and the two timelines that order them. A presenter
+/// that samples a set in place (`PlaneHandoff::Sample`) moves it to SHADER_READ_ONLY_OPTIMAL, the
+/// layout SDL expects of a sampler texture, while it holds it (`sampled`), and back to GENERAL
+/// before it gives it back (`returned`).
 pub struct SharedImages {
     device: ash::Device,
     queue: vk::Queue,
     lock: *mut SDL_Mutex,
     family: u32,
     config: GpuConfig,
+    handoff: PlaneHandoff,
     /// (image, memory) per plane, set by set.
     planes: Vec<(vk::Image, vk::DeviceMemory)>,
     /// Signalled by each decode once its planes are written.
     decode: vk::Semaphore,
-    /// Signalled by the presenter once its copy out of a set is done.
+    /// Signalled by the presenter once its last read of a set (its copy, or the last draw that
+    /// sampled it) is done.
     reuse: vk::Semaphore,
     /// The last value a decode queued a signal of, and the last reuse value signalled.
     decoded: AtomicU64,
     reused: AtomicU64,
+    /// With `PlaneHandoff::Sample`: the pool of the layout changes, and per set the change to
+    /// SHADER_READ_ONLY_OPTIMAL and the one back to GENERAL, recorded once (simultaneous use).
+    transitions_pool: vk::CommandPool,
+    transitions: Vec<[vk::CommandBuffer; 2]>,
 }
 
 // SAFETY: Vulkan handles may be used from any thread; the queue only under SDL's lock.
@@ -649,13 +700,23 @@ impl SharedImages {
     /// # Safety
     /// `sdl` must describe a live device that outlives the images.
     pub unsafe fn new(sdl: &SdlVulkan, get_instance_proc_addr: vk::PFN_vkGetInstanceProcAddr, config: GpuConfig, decode_family: Option<u32>) -> Result<Arc<Self>, String> {
+        Self::with_handoff(sdl, get_instance_proc_addr, config, decode_family, PlaneHandoff::Copy)
+    }
+
+    /// `new` for a presenter that reads the sets as `handoff` says. Sampling in place falls back
+    /// to the copy, said in the log, when its layout changes cannot be recorded.
+    ///
+    /// # Safety
+    /// As `new`.
+    pub unsafe fn with_handoff(sdl: &SdlVulkan, get_instance_proc_addr: vk::PFN_vkGetInstanceProcAddr, config: GpuConfig, decode_family: Option<u32>, handoff: PlaneHandoff) -> Result<Arc<Self>, String> {
         let families = sharing(sdl.family, decode_family);
         let instance = ash::Instance::load(&ash::StaticFn { get_instance_proc_addr }, sdl.instance);
         let memory = instance.get_physical_device_memory_properties(sdl.physical_device);
         let device = ash::Device::load(instance.fp_v1_0(), sdl.device);
         let mut images = Self {
-            device, queue: sdl.queue, lock: sdl.lock, family: sdl.family, config, planes: Vec::new(),
+            device, queue: sdl.queue, lock: sdl.lock, family: sdl.family, config, handoff: PlaneHandoff::Copy, planes: Vec::new(),
             decode: vk::Semaphore::null(), reuse: vk::Semaphore::null(), decoded: AtomicU64::new(0), reused: AtomicU64::new(0),
+            transitions_pool: vk::CommandPool::null(), transitions: Vec::new(),
         };
         for semaphore in [&mut images.decode, &mut images.reuse] {
             let mut timeline = vk::SemaphoreTypeCreateInfo::default().semaphore_type(vk::SemaphoreType::TIMELINE);
@@ -690,7 +751,117 @@ impl SharedImages {
             std::mem::forget(images);
             return Err(e);
         }
+        if handoff == PlaneHandoff::Sample {
+            match images.record_transitions() {
+                Ok(()) => images.handoff = PlaneHandoff::Sample,
+                Err(e) => note(&format!("the presenter copies the PyroWave planes: their layout changes for sampling in place cannot be recorded ({e})")),
+            }
+        }
         Ok(Arc::new(images))
+    }
+
+    /// How the presenter reads the sets.
+    pub fn handoff(&self) -> PlaneHandoff {
+        self.handoff
+    }
+
+    /// Records each set's two layout changes for sampling in place. Nothing is submitted, so on
+    /// an error the pool (and the buffers in it) can go at once.
+    unsafe fn record_transitions(&mut self) -> Result<(), vk::Result> {
+        let device = &self.device;
+        self.transitions_pool = device.create_command_pool(&vk::CommandPoolCreateInfo::default().queue_family_index(self.family), None)?;
+        let sets = self.config.slots;
+        let buffers = match device.allocate_command_buffers(&vk::CommandBufferAllocateInfo::default()
+            .command_pool(self.transitions_pool).level(vk::CommandBufferLevel::PRIMARY).command_buffer_count(2 * sets as u32))
+        {
+            Ok(buffers) => buffers,
+            Err(e) => { self.drop_transitions(); return Err(e); }
+        };
+        let range = vk::ImageSubresourceRange { aspect_mask: vk::ImageAspectFlags::COLOR, base_mip_level: 0, level_count: 1, base_array_layer: 0, layer_count: 1 };
+        let decode_stages = vk::PipelineStageFlags::COMPUTE_SHADER | vk::PipelineStageFlags::TRANSFER;
+        let decode_writes = vk::AccessFlags::SHADER_WRITE | vk::AccessFlags::TRANSFER_WRITE;
+        for set in 0..sets {
+            let commands = [buffers[2 * set], buffers[2 * set + 1]];
+            for (index, &buffer) in commands.iter().enumerate() {
+                let to_sampled = index == 0;
+                let barriers: Vec<_> = (0..3).map(|plane| {
+                    let barrier = vk::ImageMemoryBarrier::default()
+                        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED).dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                        .image(self.image(set, plane)).subresource_range(range);
+                    if to_sampled {
+                        // After the decode's writes (on any queue: `sampled` waits for its
+                        // timeline), before the draws' reads.
+                        barrier.src_access_mask(decode_writes).dst_access_mask(vk::AccessFlags::SHADER_READ)
+                            .old_layout(vk::ImageLayout::GENERAL).new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                    } else {
+                        // After the draws' reads (an execution dependency suffices), before the
+                        // next decode's reads and writes, which wait for the reuse signal behind it.
+                        barrier.src_access_mask(vk::AccessFlags::empty()).dst_access_mask(vk::AccessFlags::SHADER_READ | decode_writes)
+                            .old_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL).new_layout(vk::ImageLayout::GENERAL)
+                    }
+                }).collect();
+                let (from, to) = if to_sampled {
+                    (decode_stages, vk::PipelineStageFlags::FRAGMENT_SHADER | vk::PipelineStageFlags::COMPUTE_SHADER)
+                } else {
+                    (vk::PipelineStageFlags::FRAGMENT_SHADER | vk::PipelineStageFlags::COMPUTE_SHADER, decode_stages)
+                };
+                let recorded = device.begin_command_buffer(buffer, &vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE))
+                    .and_then(|()| {
+                        device.cmd_pipeline_barrier(buffer, from, to, vk::DependencyFlags::empty(), &[], &[], &barriers);
+                        device.end_command_buffer(buffer)
+                    });
+                if let Err(e) = recorded {
+                    self.drop_transitions();
+                    return Err(e);
+                }
+            }
+            self.transitions.push(commands);
+        }
+        Ok(())
+    }
+
+    /// Frees the recorded layout changes (never submitted, or done).
+    unsafe fn drop_transitions(&mut self) {
+        if self.transitions_pool != vk::CommandPool::null() {
+            self.device.destroy_command_pool(self.transitions_pool, None);
+        }
+        self.transitions_pool = vk::CommandPool::null();
+        self.transitions.clear();
+    }
+
+    /// Makes `set` readable by the draws SDL submits after this: moves its images to
+    /// SHADER_READ_ONLY_OPTIMAL on SDL's queue, after the decodes so far (the picture's decoder
+    /// waited for its decode on the CPU before handing it on, so the timeline's current value
+    /// covers it and the wait is met at once; on a compute queue of its own it orders the change
+    /// and makes the decode's writes visible).
+    pub fn sampled(&self, set: usize) -> Result<(), String> {
+        let commands = self.transitions.get(set).ok_or_else(|| format!("plane set {set} has no layout change for sampling in place"))?[0];
+        // SAFETY: The semaphore lives as long as self.
+        let decoded = unsafe { self.device.get_semaphore_counter_value(self.decode) }.map_err(|e| format!("the decode timeline cannot be read ({e})"))?;
+        let semaphores = [self.decode];
+        let values = [decoded];
+        let stages = [vk::PipelineStageFlags::ALL_COMMANDS];
+        let buffers = [commands];
+        let mut timeline = vk::TimelineSemaphoreSubmitInfo::default().wait_semaphore_values(&values);
+        let mut submit = vk::SubmitInfo::default().command_buffers(&buffers);
+        if decoded > 0 {
+            submit = submit.wait_semaphores(&semaphores).wait_dst_stage_mask(&stages).push_next(&mut timeline);
+        }
+        // SAFETY: The queue is used under SDL's lock; the structs outlive the call.
+        unsafe {
+            SDL_LockMutex(self.lock);
+            let result = self.device.queue_submit(self.queue, &[submit], vk::Fence::null());
+            SDL_UnlockMutex(self.lock);
+            result.map_err(|e| format!("the plane set's change for sampling cannot be submitted ({e})"))
+        }
+    }
+
+    /// Moves `set` back to GENERAL behind everything SDL submitted so far (the last draw that
+    /// sampled it among it), and signals the next reuse value behind that; returns the value, which
+    /// the next decode into the set waits for.
+    pub fn returned(&self, set: usize) -> Result<u64, String> {
+        let commands = self.transitions.get(set).ok_or_else(|| format!("plane set {set} has no layout change back for the decoder"))?[1];
+        self.signal_reuse_after(&[commands])
     }
 
     fn format(&self) -> vk::Format {
@@ -745,6 +916,11 @@ impl SharedImages {
     /// presenter's copy out of a set among it, and returns the value. Under SDL's queue lock, so
     /// it follows SDL's last submission and the values reach the queue in order.
     pub fn signal_reuse(&self) -> Result<u64, String> {
+        self.signal_reuse_after(&[])
+    }
+
+    /// `signal_reuse` behind `commands`, submitted in the same batch.
+    fn signal_reuse_after(&self, commands: &[vk::CommandBuffer]) -> Result<u64, String> {
         // SAFETY: The queue is used under SDL's lock; the structs outlive the call.
         unsafe {
             SDL_LockMutex(self.lock);
@@ -752,7 +928,7 @@ impl SharedImages {
             let semaphores = [self.reuse];
             let values = [value];
             let mut timeline = vk::TimelineSemaphoreSubmitInfo::default().signal_semaphore_values(&values);
-            let submit = vk::SubmitInfo::default().signal_semaphores(&semaphores).push_next(&mut timeline);
+            let submit = vk::SubmitInfo::default().command_buffers(commands).signal_semaphores(&semaphores).push_next(&mut timeline);
             let result = self.device.queue_submit(self.queue, &[submit], vk::Fence::null());
             if result.is_ok() { self.reused.store(value, Ordering::Release); }
             SDL_UnlockMutex(self.lock);
@@ -813,6 +989,8 @@ impl Drop for SharedImages {
                     return;
                 }
             }
+            // Every layout change was submitted before a reuse value that was waited for above.
+            self.drop_transitions();
             for &(image, memory) in &self.planes {
                 self.device.destroy_image(image, None);
                 if memory != vk::DeviceMemory::null() { self.device.free_memory(memory, None); }
@@ -840,6 +1018,20 @@ mod tests {
     fn only_four_features_are_required() {
         assert_eq!(Features::required().names(), ["subgroupSizeControl", "computeFullSubgroups", "synchronization2", "timelineSemaphore"]);
         assert_eq!(Features::all().names().len(), FEATURES.len());
+    }
+
+    /// The presenter samples the planes in place unless NIGHTJAR_PYROWAVE_SAMPLE_PLANES is 0, the
+    /// way back to the copy; sampling holds the shown set, so the ring gets one more.
+    #[test]
+    fn planes_are_sampled_in_place_unless_the_environment_says_0() {
+        assert_eq!(PlaneHandoff::of(None), PlaneHandoff::Sample);
+        assert_eq!(PlaneHandoff::of(Some("1".as_ref())), PlaneHandoff::Sample);
+        assert_eq!(PlaneHandoff::of(Some("".as_ref())), PlaneHandoff::Sample);
+        assert_eq!(PlaneHandoff::of(Some("0".as_ref())), PlaneHandoff::Copy);
+        // queue_limit + 2 pictures in flight (the decoder's, the queue's, one spare), plus the shown one.
+        assert_eq!(PlaneHandoff::Sample.sets(5), 6);
+        assert_eq!(PlaneHandoff::Copy.sets(5), 5);
+        assert!(PlaneHandoff::Copy.line().contains("NIGHTJAR_PYROWAVE_SAMPLE_PLANES=0"));
     }
 
     #[test]

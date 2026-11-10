@@ -31,6 +31,10 @@ mod touch;
 /// Precision touchpad passthrough is Windows only; its frame logic is tested everywhere.
 #[cfg(any(windows, test))]
 mod touchpad;
+#[cfg(all(target_os = "macos", feature = "demo-library"))]
+pub(crate) use present::macos_video_check::run as check_metal;
+
+mod shader;
 mod upscale;
 pub mod enhance;
 #[cfg(windows)]
@@ -48,10 +52,17 @@ pub mod drm_vrr;
 // The timing CSV names its flags everywhere; the feedback itself is Wayland's.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub mod wl_presentation;
+// Direct scanout on Wayland; its decisions and log text are tested everywhere.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub mod wl_scanout;
 pub(crate) mod pyrowave;
 pub mod pyrowave_gpu;
 pub mod pyrowave_mode;
 pub(crate) mod stage_times;
+// amdgpu's sysfs files are Linux's; the parsing is tested everywhere.
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) mod gpu_clocks;
 #[cfg(windows)]
 mod d3d11;
 #[cfg(windows)]
@@ -586,6 +597,8 @@ pub struct Streaming {
     #[cfg(windows)]
     touchpad: touchpad::Touchpad,
     captured: bool,
+    /// Whether the window was full screen at the last pass (`follow_fullscreen`).
+    fullscreen: bool,
     absolute: bool,
     /// Captured motion sent from the thread that reads the mouse.
     pub direct_motion: direct_motion::DirectMotion,
@@ -659,6 +672,18 @@ fn hdr_output_change(was: bool, now: bool) -> Option<bool> {
 fn window_target_line(direct: i64, presents: u64) -> String {
     let direct = u64::try_from(direct).unwrap_or(0).min(presents);
     format!("window target: {direct} of {presents} presents drawn straight into the swapchain, {} through the back buffer", presents - direct)
+}
+
+/// [`window_target_line`] for the stream's last renderer, `renderer` (SDL's name). Only the GPU
+/// renderer counts its frames; any other one (OpenGL, Linux's default) has no such path, and its
+/// "0 of N" would read as a copy that never happened.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn window_target_report(renderer: &str, direct: i64, presents: u64) -> String {
+    if renderer == "gpu" {
+        window_target_line(direct, presents)
+    } else {
+        format!("window target: not counted on the {renderer} renderer, which draws through its own back buffer ({presents} presents)")
+    }
 }
 
 /// The stream's presents and how many of them the GPU renderer drew straight into the swapchain,
@@ -907,6 +932,7 @@ impl Streaming {
             #[cfg(windows)]
             touchpad: touchpad::Touchpad::default(),
             captured: false,
+            fullscreen: false,
             offset: ClockOffset::default(),
             timing_csv: open_timing_csv(),
             #[cfg(target_os = "linux")]
@@ -1275,9 +1301,29 @@ impl Streaming {
     pub fn follow_tab_chord(&mut self, window: *mut SDL_Window) {
         // SAFETY: a live window.
         let focused = unsafe { SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS != 0 };
-        let grab = system_keys::keyboard_grab(self.captured, self.settings.capture_system_keys);
+        let grab = system_keys::keyboard_grab(self.captured, self.system_keys());
         let on = system_keys::tab_guard(system_keys::tab_chord_action(), focused, grab, self.menu_visible, self.plan.mic_only);
         self.direct_motion.tab_guard(window, on);
+    }
+
+    /// "Send system keys" as it holds now: with "System keys only in full screen", only while
+    /// the window is full screen, which the Fullscreen and the Borderless window mode both are.
+    fn system_keys(&self) -> bool {
+        system_keys::sent(self.settings.capture_system_keys, self.settings.system_keys_fullscreen_only, self.fullscreen)
+    }
+
+    /// Once per pass: with "System keys only in full screen", the window going full screen or
+    /// back to a window takes the system keys with it.
+    pub fn follow_fullscreen(&mut self, window: *mut SDL_Window) {
+        // SAFETY: a live window.
+        let fullscreen = unsafe { SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN != 0 };
+        let before = self.system_keys();
+        self.fullscreen = fullscreen;
+        if self.system_keys() != before {
+            // A key held across the change would stay down on the PC.
+            self.raise_all_keys();
+            self.set_capture(window, self.captured);
+        }
     }
 
     /// Whether this stream captures the mouse and keyboard: not a view-only remote monitor, and
@@ -1309,7 +1355,7 @@ impl Streaming {
             } else {
                 SDL_SetWindowRelativeMouseMode(window, on);
             }
-            let grab = system_keys::keyboard_grab(on, self.settings.capture_system_keys);
+            let grab = system_keys::keyboard_grab(on, self.system_keys());
             let sdl_grab = self.direct_motion.keyboard_grab(window, grab);
             SDL_SetWindowKeyboardGrab(window, sdl_grab);
         }
@@ -1978,11 +2024,11 @@ impl Streaming {
         #[cfg(target_os = "linux")]
         {
             self.glass.poll(session::now_us());
-            if let Some(line) = self.glass.line() { eprintln!("nightjar: {line}"); }
+            for line in self.glass.lines() { eprintln!("nightjar: {line}"); }
             // SAFETY: a live window; its renderer, if any, too.
             let renderer = unsafe { SDL_GetRenderer(window) };
             if self.window_target.presents > 0 && !renderer.is_null() {
-                eprintln!("nightjar: {}", window_target_line(self.window_target.direct(), self.window_target.presents));
+                eprintln!("nightjar: {}", window_target_report(&crate::sdl::renderer_name(renderer), self.window_target.direct(), self.window_target.presents));
             }
             // The window outlives the stream: the next one (or the launcher) must not inherit this
             // stream's mastering metadata.
@@ -1991,7 +2037,7 @@ impl Streaming {
             }
         }
         let stats = self.session.stats();
-        eprintln!("{}", video_summary(stats.frames_submitted, stats.decode_queue_overflows,
+        eprintln!("{}", video_summary(stats.frames_submitted, stats.frames_skipped, stats.decode_queue_overflows,
             self.shared.counters.replaced.load(Ordering::Relaxed)));
         if self.facts.early_decode {
             let c = &self.shared.counters;
@@ -2092,6 +2138,14 @@ mod tests {
         assert_eq!(window_target_line(0, 5), "window target: 0 of 5 presents drawn straight into the swapchain, 5 through the back buffer", "PQ output");
         assert_eq!(window_target_line(-3, 5), "window target: 0 of 5 presents drawn straight into the swapchain, 5 through the back buffer", "another renderer");
         assert_eq!(window_target_line(9, 5), "window target: 5 of 5 presents drawn straight into the swapchain, 0 through the back buffer", "launcher frames between the counts");
+    }
+
+    #[test]
+    fn the_window_target_line_counts_only_on_the_gpu_renderer() {
+        assert_eq!(window_target_report("gpu", 98, 100), window_target_line(98, 100));
+        assert_eq!(window_target_report("gpu", 0, 5), window_target_line(0, 5), "PQ output on the GPU renderer is a real back-buffer pass");
+        assert_eq!(window_target_report("opengl", 0, 5), "window target: not counted on the opengl renderer, which draws through its own back buffer (5 presents)",
+            "OpenGL has no swapchain image to draw into: no 0 of 5");
     }
 
     #[test]
@@ -2628,11 +2682,35 @@ mod tests {
         assert_eq!(video_formats(CodecPreference::PyroWave444, false, SCM_H264), VIDEO_FORMAT_H264);
     }
 
+    #[test]
+    fn the_streamed_pyrowave_names_its_chroma_and_depth() {
+        assert_eq!(codec_name(VIDEO_FORMAT_PYROWAVE), "PyroWave");
+        assert_eq!(codec_name(VIDEO_FORMAT_PYROWAVE_444), "PyroWave 4:4:4");
+        assert_eq!(codec_name(VIDEO_FORMAT_PYROWAVE_MAIN10), "PyroWave 10-bit");
+        assert_eq!(codec_name(VIDEO_FORMAT_PYROWAVE_MAIN10_444), "PyroWave 10-bit 4:4:4");
+        assert_eq!(codec_name(VIDEO_FORMAT_H265_REXT8_444), "HEVC", "other codecs keep their names");
+    }
+
     const COLOR_SCM: u32 = SCM_H264 | SCM_HEVC | SCM_AV1_MAIN8 | SCM_HEVC_MAIN10 | SCM_AV1_MAIN10
         | SCM_H264_HIGH8_444 | SCM_HEVC_REXT8_444 | SCM_AV1_HIGH8_444;
 
     fn decodes_all() -> (u32, String) {
-        (color::YUV444_FORMATS | color::SDR10_FORMATS, String::new())
+        (color::YUV444_FORMATS | color::SDR10_FORMATS | color::YUV444_10_FORMATS, String::new())
+    }
+
+    /// A PC that encodes HEVC RExt 4:4:4 10-bit (NVENC) streams both settings at once to a device
+    /// that decodes and draws it, and says both; without it 4:4:4 wins as before.
+    #[test]
+    fn both_settings_stream_10_bit_4_4_4_where_the_pc_and_the_device_have_it() {
+        let both = Settings { codec: CodecPreference::Hevc, prefer_yuv444: true, sdr_10bit: true, ..Default::default() };
+        let scm = COLOR_SCM | SCM_HEVC_REXT10_444;
+        let offer = offered_formats(&both, scm, &decodes_all());
+        assert_eq!(offer.formats, VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_REXT10_444);
+        assert!(launches_ten_bit_sdr(&both, &offer), "an SDR launch of a 10-bit format says hdrMode=0");
+        assert_eq!(color_notice(&offer, VIDEO_FORMAT_H265_REXT10_444).as_deref(), Some("Streaming in YUV 4:4:4.\nStreaming 10-bit color (SDR)."));
+        let without = (color::YUV444_FORMATS | color::SDR10_FORMATS, String::new());
+        let offer = offered_formats(&both, scm, &without);
+        assert_eq!(offer.formats, VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_REXT8_444);
     }
 
     #[test]
@@ -2829,7 +2907,10 @@ mod tests {
         assert_eq!(with(CodecPreference::Hevc, false, false), 0);
         assert_eq!(with(CodecPreference::Hevc, false, true), VIDEO_FORMAT_H265_MAIN10);
         assert_eq!(with(CodecPreference::Hevc, true, false), VIDEO_FORMAT_H264_HIGH8_444 | VIDEO_FORMAT_H265_REXT8_444);
-        assert_eq!(with(CodecPreference::Av1, true, true), color::YUV444_FORMATS | color::SDR10_FORMATS);
+        assert_eq!(with(CodecPreference::Av1, true, true), color::YUV444_FORMATS | color::SDR10_FORMATS | color::YUV444_10_FORMATS);
+        assert_eq!(with(CodecPreference::Hevc, true, true) & color::YUV444_10_FORMATS, VIDEO_FORMAT_H265_REXT10_444, "both on ask for 10-bit 4:4:4");
+        assert_eq!(with(CodecPreference::Hevc, true, false) & color::YUV444_10_FORMATS, 0);
+        assert_eq!(with(CodecPreference::Hevc, false, true) & color::YUV444_10_FORMATS, 0);
         assert_eq!(with(CodecPreference::H264, true, true), VIDEO_FORMAT_H264_HIGH8_444);
         assert_eq!(color_probe_formats(&Settings { hdr: true, sdr_10bit: true, ..Default::default() }), 0, "HDR takes the stream");
         // Whatever the settings, the offer adds no 4:4:4 or 10-bit format the probe skipped.

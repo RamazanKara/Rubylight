@@ -315,7 +315,8 @@ fn the_section_key_table_is_what_the_page_draws() {
         "native_touchpad" => cfg!(windows),
         "check_updates" => crate::self_update::current().checks(),
         "network_priority" => cfg!(any(target_os = "linux", windows)),
-        "renderer" | "vulkan_video_first" | "vulkan_rfi" => cfg!(unix),
+        "hdr_desktop_brightness" => cfg!(target_os = "linux"),
+        "renderer" | "vulkan_video_first" | "vulkan_rfi" => cfg!(target_os = "linux"),
         _ => true,
     };
     for (at, section) in SETTINGS_SECTIONS.iter().enumerate() {
@@ -343,8 +344,8 @@ fn the_rarely_needed_settings_are_in_the_debug_section_only() {
     let wanted = |screen: Screen| -> Vec<&str> {
         DEBUG.into_iter()
             .filter(|k| *k != "network_priority" || cfg!(any(target_os = "linux", windows)))
-            .filter(|k| !matches!(*k, "vulkan_video_first" | "vulkan_rfi") || cfg!(unix))
-            .filter(|k| *k != "renderer" || (cfg!(unix) && screen == Screen::Settings))
+            .filter(|k| !matches!(*k, "vulkan_video_first" | "vulkan_rfi") || cfg!(target_os = "linux"))
+            .filter(|k| *k != "renderer" || (cfg!(target_os = "linux") && screen == Screen::Settings))
             .collect()
     };
     let mut f = settings_with(Settings::default());
@@ -614,6 +615,20 @@ fn settings_screenshots() {
             shoot(&mut f, "settings-reset-all");
             f.l.settings_view.confirm_reset = false;
             f.l.settings_view.section = "Video";
+            // Network tests in the main settings: no paired PC, one, and two with the row that chooses.
+            for count in 0..3 {
+                let mut f = fresh();
+                f.hosts = network_test_pcs(&[("Desk", true, Reach::Online), ("Den", true, Reach::Offline)][..count]);
+                if count == 2 {
+                    f.hosts.list[0].record.pace = Some(crate::config::PaceCalibration { pace_mbps: 180, client_link_mbps: 1000, host_link_mbps: 2500, wifi: false, ssid: None, qualified: true });
+                }
+                f.l.go(Screen::Settings);
+                f.l.settings_view.section = "Streaming";
+                f.l.settings_view.to_top = true;
+                shoot(&mut f, &format!("settings-network-tests-{count}"));
+                f.scroll_to_end();
+                shoot(&mut f, &format!("settings-network-tests-{count}-end"));
+            }
             // A PC's settings with two of its own values, over a profile.
             let mut f = fresh();
             let pc = f.hosts.list[0].id;
@@ -636,6 +651,166 @@ fn settings_screenshots() {
             f.l.go(Screen::Settings);
             shoot(&mut f, "settings-profile-in-use");
         }
+    }
+}
+
+/// These PCs, each paired or not and answering or not, every one with both network tests.
+fn network_test_pcs(pcs: &[(&str, bool, Reach)]) -> Hosts {
+    let answer = nightjar_core::http::ServerInfo::parse("<root status_code=\"200\"><uniqueid>uid</uniqueid><state>SUNSHINE_SERVER_FREE</state>\
+        <PairStatus>1</PairStatus><RustHostVersion>3.0.0</RustHostVersion><PyroWaveBandwidthProbeBytes>33554432</PyroWaveBandwidthProbeBytes>\
+        <PyroWaveUdpProbeVersion>1</PyroWaveUdpProbeVersion><PyroWaveUdpHandshakeVersion>1</PyroWaveUdpHandshakeVersion>\
+        <PyroWaveUdpProbeBurstVersion>1</PyroWaveUdpProbeBurstVersion><PyroWaveWireBudgetVersion>1</PyroWaveWireBudgetVersion></root>", 47989).expect("the answer parses");
+    let mut hosts = Hosts::without_discovery(pcs.iter().map(|(name, paired, _)| record(name, *paired, false)).collect(), Arc::new(|| {}));
+    for (host, (.., reach)) in hosts.list.iter_mut().zip(pcs) {
+        (host.reach, host.info) = (*reach, Some(answer.clone()));
+    }
+    hosts
+}
+
+/// The main settings' Streaming section with `pcs` (see `network_test_pcs`), on a tall window.
+fn streaming_with_pcs(pcs: &[(&str, bool, Reach)]) -> Frames {
+    let mut f = settings_read_with(Settings::default());
+    f.hosts = network_test_pcs(pcs);
+    f.l.settings_view.section = "Streaming";
+    f.settle();
+    f
+}
+
+/// What the PC row of the main settings' Network tests shows as chosen: the text beside it.
+/// The window's top bar names a PC too.
+fn chosen_pc(f: &Frames) -> Vec<&str> {
+    let row = f.placed.iter().find(|(t, ..)| t == "The paired PC these tests use.").expect("the PC row").1;
+    let label = f.placed.iter().find(|(t, r, _)| t == "PC" && r.bottom() <= row.top() + 1.0 && (r.left() - row.left()).abs() < 1.0).expect("its label").1;
+    f.placed.iter().filter(|(_, r, _)| r.left() > row.right() && (label.top()..=row.bottom()).contains(&r.center().y)).map(|(t, ..)| t.as_str()).collect()
+}
+
+const SPEED_TEST: &str = "Downloads 32 MiB from this PC";
+const FRAME_PACE: &str = "Finds a frame pace for PyroWave";
+
+/// A customer looked for the PyroWave calibration in Settings: Network tests is there as on a
+/// PC's own settings, the same rows, and the search finds them.
+#[test]
+fn the_network_tests_are_in_the_main_settings_and_a_pcs_own() {
+    let mut f = streaming_with_pcs(&[("Desk", true, Reach::Online)]);
+    let id = f.hosts.list[0].id;
+    let rows = ["Network tests", "Network speed test", "PyroWave frame pace", "Test speed", "Calibrate"];
+    for page in [Screen::Settings, Screen::HostSettings(id)] {
+        if page != Screen::Settings {
+            f.l.open_host_settings(id, &f.hosts.list[0]);
+            f.l.settings_view.section = "Streaming";
+            f.settle();
+        }
+        assert!(rows.iter().all(|row| shows(&f, row)), "{page:?}: {:?}", f.drawn);
+        // One PC is the PC: nothing to choose, and nothing to clear before a calibration.
+        assert!(!shows(&f, "PC") && !shows(&f, "Clear"), "{page:?}: {:?}", f.drawn);
+        assert_eq!((control_disabled(&f, SPEED_TEST), control_disabled(&f, FRAME_PACE)), (Some(false), Some(false)), "{page:?}");
+        // They are actions, not settings: no box of a PC's own and no Reset. Every "For this PC"
+        // belongs to a setting row.
+        let settings = f.l.settings_view.drawn.len();
+        let boxes = f.drawn.iter().filter(|t| *t == "For this PC").count();
+        assert_eq!(boxes, if page == Screen::Settings { 0 } else { settings }, "{page:?}: {:?}", f.drawn);
+        assert!(!shows(&f, "Reset"), "{page:?}: {:?}", f.drawn);
+        let commands = click_text(&mut f, "Test speed");
+        assert!(matches!(commands[..], [Command::NetworkTest { host, calibrate: false }] if host == id), "{page:?}: {} commands", commands.len());
+        let commands = click_text(&mut f, "Calibrate");
+        assert!(matches!(commands[..], [Command::NetworkTest { host, calibrate: true }] if host == id), "{page:?}: {} commands", commands.len());
+    }
+    // A saved pace says so and can be cleared, from the main settings too.
+    f.hosts.list[0].record.pace = Some(crate::config::PaceCalibration { pace_mbps: 180, client_link_mbps: 1000, host_link_mbps: 2500, wifi: false, ssid: None, qualified: true });
+    f.l.go(Screen::Settings);
+    f.l.settings_view.section = "Streaming";
+    f.settle();
+    assert!(f.drawn.iter().any(|t| t.starts_with("Saved 180 Mbps · confirmed.")), "{:?}", f.drawn);
+    let commands = click_text(&mut f, "Clear");
+    assert!(matches!(commands[..], [Command::ClearPace(host)] if host == id), "{} commands", commands.len());
+
+    let streaming = SETTINGS_SECTIONS.iter().position(|s| *s == "Streaming").unwrap();
+    for query in ["pyrowave frame pace", "calibrate again", "network tests", "speed test"] {
+        f.l.settings_view.query = query.into();
+        f.settle();
+        assert!(shows(&f, "Network tests") && f.l.settings_view.found[streaming] > 0, "{query}: {:?} {:?}", f.l.settings_view.found, f.drawn);
+    }
+    f.l.settings_view.query = "pyrowave frame pace".into();
+    f.settle();
+    assert!(shows(&f, "PyroWave frame pace") && !shows(&f, "Network speed test"), "{:?}", f.drawn);
+}
+
+/// With several paired PCs a row chooses the one tested: the first that is online until the
+/// user picks another, never one that is not paired.
+#[test]
+fn the_main_settings_network_tests_choose_among_several_paired_pcs() {
+    let mut f = streaming_with_pcs(&[("Loft", false, Reach::Online), ("Desk", true, Reach::Offline), ("Den", true, Reach::Online)]);
+    let (loft, desk, den) = (f.hosts.list[0].id, f.hosts.list[1].id, f.hosts.list[2].id);
+    assert!(shows(&f, "PC") && shows(&f, "The paired PC these tests use."), "{:?}", f.drawn);
+    assert_eq!(chosen_pc(&f), ["Den"], "the paired PC that is online");
+    assert_eq!(f.l.settings_view.test_pc, None, "nothing is chosen until the user does");
+    let commands = click_text(&mut f, "Test speed");
+    assert!(matches!(commands[..], [Command::NetworkTest { host, calibrate: false }] if host == den), "{} commands", commands.len());
+
+    // The list has the paired PCs only; choosing one moves both rows to it.
+    click_text(&mut f, "Den");
+    assert!(shows(&f, "Desk") && !shows(&f, "Loft"), "{:?}", f.drawn);
+    click_text(&mut f, "Desk");
+    assert_eq!(f.l.settings_view.test_pc, Some(desk));
+    assert_eq!(chosen_pc(&f), ["Desk"]);
+    // It is off the network: both tests wait for it.
+    assert_eq!((control_disabled(&f, SPEED_TEST), control_disabled(&f, FRAME_PACE)), (Some(true), Some(true)));
+    assert!(click_text(&mut f, "Test speed").is_empty() && click_text(&mut f, "Calibrate").is_empty());
+    f.hosts.list[1].reach = Reach::Online;
+    f.settle();
+    let commands = click_text(&mut f, "Calibrate");
+    assert!(matches!(commands[..], [Command::NetworkTest { host, calibrate: true }] if host == desk), "{} commands", commands.len());
+
+    // The choice is the launcher's, not a setting, and holds only while that PC is paired.
+    assert_eq!(f.l.settings, Settings::default());
+    let pc = |hosts: &Hosts, chosen| network_test_pc(hosts, chosen).map(|h| h.id);
+    assert_eq!(pc(&f.hosts, Some(den)), Some(den));
+    assert_eq!(pc(&f.hosts, Some(loft)), Some(desk), "not paired: the first paired PC that is online");
+    assert_eq!(pc(&f.hosts, Some(u64::MAX)), Some(desk), "forgotten");
+    f.hosts.list[1].reach = Reach::Offline;
+    f.hosts.list[2].reach = Reach::Unknown;
+    assert_eq!(pc(&f.hosts, None), Some(desk), "none online: the first paired one");
+
+    // One paired PC beside one that is not: nothing to choose.
+    let f = streaming_with_pcs(&[("Loft", false, Reach::Online), ("Desk", true, Reach::Online)]);
+    assert!(!shows(&f, "PC") && shows(&f, "Network speed test"), "{:?}", f.drawn);
+    assert_eq!(network_test_pc(&f.hosts, None).map(|h| h.id), Some(f.hosts.list[1].id));
+}
+
+/// Without a paired PC the rows stay where people look for them, turned off.
+#[test]
+fn the_main_settings_network_tests_are_off_without_a_paired_pc() {
+    for pcs in [&[][..], &[("Loft", false, Reach::Online)][..]] {
+        let mut f = streaming_with_pcs(pcs);
+        assert!(shows(&f, "Network tests") && shows(&f, "Network speed test") && shows(&f, "PyroWave frame pace") && !shows(&f, "PC"), "{:?}", f.drawn);
+        assert_eq!((control_disabled(&f, SPEED_TEST), control_disabled(&f, FRAME_PACE)), (Some(true), Some(true)), "{} PCs", pcs.len());
+        assert!(click_text(&mut f, "Test speed").is_empty() && click_text(&mut f, "Calibrate").is_empty());
+        assert!(network_test_pc(&f.hosts, None).is_none());
+        // The rows after them are not turned off with them.
+        assert_eq!(control_disabled(&f, "With a second monitor"), Some(false));
+    }
+}
+
+/// Nightjar #87: system keys can go to the PC only while the stream is full screen. Off as
+/// before, a setting of its own right after Send system keys, and nothing to set with that off.
+#[test]
+fn system_keys_only_in_full_screen_sits_with_send_system_keys() {
+    let defaults = Settings::default();
+    assert!(defaults.capture_system_keys && !defaults.system_keys_fullscreen_only, "as before: in a window too");
+    let old: Settings = serde_json::from_str(r#"{"capture_system_keys":false}"#).unwrap();
+    assert!(!old.capture_system_keys && !old.system_keys_fullscreen_only, "a settings file from before");
+    let saved = serde_json::to_value(Settings { system_keys_fullscreen_only: true, ..Settings::default() }).unwrap();
+    assert_eq!((saved["capture_system_keys"].as_bool(), saved["system_keys_fullscreen_only"].as_bool()), (Some(true), Some(true)));
+    for send in [true, false] {
+        let mut f = settings_read_with(Settings { capture_system_keys: send, ..Settings::default() });
+        f.l.settings_view.section = "Controls";
+        f.settle();
+        assert!(shows(&f, "Send system keys") && shows(&f, "System keys only in full screen"), "{:?}", f.drawn);
+        assert_eq!(control_disabled(&f, "In a window, Alt+Tab"), Some(!send), "Send system keys {send}");
+        assert_eq!(control_disabled(&f, "How fast the captured pointer moves."), Some(false), "the next row is its own");
+        let rows: Vec<&str> = f.l.settings_view.drawn.iter().map(|(key, _)| *key).collect();
+        let at = rows.iter().position(|key| *key == "capture_system_keys").unwrap();
+        assert_eq!(rows[at + 1], "system_keys_fullscreen_only", "right after Send system keys");
     }
 }
 

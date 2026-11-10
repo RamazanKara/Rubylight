@@ -1,0 +1,6 @@
+# scanout_present_fragment.spv is glslang 16.3.0's output for scanout_present.hlsl, with the command
+# in its header. Regenerate the module after any change to the shader and put both SHA-256s here
+# (the shader's with LF line endings): a unit test
+# (`sdl::pq_present_tests::the_scanout_module_was_built_from_the_shader_as_it_is`) compares them.
+scanout_present.hlsl 2f424bf671c128e8bad3d39842b452f5baeac77f001790a57dfa4933e9625f80
+scanout_present_fragment.spv 9bd2a1cedd07c87ac41a967f53649952a271c5eb5dbd23815d3e24eb5d9fdad4

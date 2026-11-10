@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_display_queue_recovery">Récupérer le retard de la file d’affichage</string>
+    <string name="summary_display_queue_recovery">Avec le rythme d’images Latence minimale ou Équilibré : quand l’écran garde une image en attente un rafraîchissement entier de plus que ce flux n’en a besoin, une image est sautée pour supprimer ce retard. Chaque saut est vérifié, et cela s’arrête pour le flux si les sauts ne changent rien. Uniquement sur les appareils qui indiquent quand les images sont affichées.</string>
+</resources>

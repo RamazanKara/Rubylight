@@ -2,6 +2,7 @@ package com.limelight;
 
 import com.limelight.binding.video.PackedFallback;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
+import com.limelight.computers.HostNotices;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
@@ -142,8 +143,12 @@ final class GameRecovery {
     boolean isJoinRunningStream() {
         boolean join = game.getIntent().getBooleanExtra(EXTRA_JOIN_RUNNING, false);
         game.getIntent().removeExtra(EXTRA_JOIN_RUNNING);
+        joinedRunning = join;
         return join;
     }
+
+    // What isJoinRunningStream found for this start, for a restart of the same start.
+    private boolean joinedRunning;
 
     /** The user left while a press waited for the PC: the Reconnect prompt on the way back stands in for it, and like it never starts a game. */
     void leftDuringPress() {
@@ -159,7 +164,14 @@ final class GameRecovery {
         }
     }
 
+    /** How long a new start waits for the old connection to end before it says so instead of waiting on. */
+    long stopWaitMs = 10_000;
+
     private void startReconnect(boolean behindPin, final Intent retry, boolean resumeOnly) {
+        startReconnect(behindPin, retry, resumeOnly, game.getString(R.string.stream_reconnecting));
+    }
+
+    private void startReconnect(boolean behindPin, final Intent retry, boolean resumeOnly, String connectingText) {
         game.stoppedStreamResumeIntent = null;
         if (retry == null) {
             // A press names a game that is gone; an output change ends as quietly as it did.
@@ -177,12 +189,14 @@ final class GameRecovery {
         final Thread stopping = game.connectionStopThread;
         final int generation = game.foregroundGeneration;
         final int recovery = recoveryGeneration;
-        game.spinner = game.streamConnection.showConnecting(game.getString(R.string.stream_reconnecting));
+        game.spinner = game.streamConnection.showConnecting(connectingText);
         game.recoveryHandoffInProgress = true;
+        final long stopWait = stopWaitMs;
         new Thread(() -> {
             if (stopping != null) {
                 try {
-                    stopping.join();
+                    // Bounded: an old connection that never ends must not keep this screen up for good.
+                    stopping.join(stopWait);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     return;
@@ -192,6 +206,13 @@ final class GameRecovery {
                 if (game.foreground && generation == game.foregroundGeneration && recovery == recoveryGeneration &&
                         !game.isFinishing() && !game.isDestroyed()) {
                     game.recoveryHandoffInProgress = false;
+                    if (stopping != null && stopping.isAlive()) {
+                        // Never overlap the native global connection with a previous stop.
+                        LimeLog.warning("The previous connection did not end within " + stopWait + " ms; not starting over it");
+                        if (game.spinner != null) { game.spinner.dismiss(); game.spinner = null; }
+                        showReconnectDialog(R.string.conn_error_title, game.getString(R.string.stream_stop_timeout));
+                        return;
+                    }
                     game.finishNow();
                     game.startActivity(behindPin ? com.limelight.pin.PinLockActivity.forResume(game, retry, game.pcName) : retry);
                 }
@@ -309,6 +330,37 @@ final class GameRecovery {
         LimeLog.warning(logLine);
         if (!tryAutomaticRecovery(true)) return false;
         Toast.makeText(game.getApplicationContext(), toast, Toast.LENGTH_LONG).show();
+        return true;
+    }
+
+    /**
+     * Full chroma was ruled out before anything was launched on the PC, or the PC refused it in the
+     * handshake right after this start's launch: this same start is made again without it, once per
+     * session. Unlike {@link #reconnectWithoutPackedChroma} it is no recovery: the new start
+     * launches (or resumes, or joins) exactly as this one would have, and finds a game this one
+     * launched running, so it resumes it. False when this session already runs without full chroma
+     * or cannot start again now; the caller then shows the failure.
+     *
+     * @param afterLaunch the PC refused it after the launch: said every time, as the restart is
+     *                    slower then; a decision before the launch is said once per PC
+     */
+    boolean restartWithoutPackedChroma(String logLine, String toast, boolean afterLaunch) {
+        boolean unpacked = game.getIntent().getBooleanExtra(Game.EXTRA_PACKED_OFF, false);
+        boolean canRestart = game.foreground && !game.isFinishing() && !game.isDestroyed() &&
+                !game.displayedFailureDialog && !game.recoveryHandoffInProgress && game.pendingRecovery == null;
+        if (PackedFallback.onFailure(unpacked, canRestart) != PackedFallback.Action.RECONNECT_WITHOUT_PACKED) return false;
+        LimeLog.warning(logLine);
+        rememberMicrophoneMute();
+        Intent again = LaunchSource.put(new Intent(game.getIntent()), LaunchSource.again(LaunchSource.RECONNECT, game.getIntent()))
+                .putExtra(Game.EXTRA_PACKED_OFF, true);
+        // Read and cleared when this start was configured; the same press still stands.
+        if (joinedRunning) again.putExtra(EXTRA_JOIN_RUNNING, true);
+        startReconnect(false, again, false, game.getString(R.string.conn_establishing_msg));
+        // Said once per PC: afterwards this happens before every start until the PC or the setting changes.
+        if (afterLaunch || HostNotices.claim(game.getApplicationContext(), game.getIntent().getStringExtra(Game.EXTRA_PC_UUID),
+                HostNotices.Notice.PACKED_UNAVAILABLE)) {
+            Toast.makeText(game.getApplicationContext(), toast, Toast.LENGTH_LONG).show();
+        }
         return true;
     }
 

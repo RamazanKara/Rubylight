@@ -10,7 +10,9 @@ use rubylight_protocol::pyrowave::{push_container, Records};
 
 use crate::media::Picture;
 use super::stage_times::Stages;
-use super::pyrowave_sdk::{GpuConfig, GpuDecoder};
+use super::pyrowave_sdk::GpuDecoder;
+#[cfg(not(target_os = "macos"))]
+use super::pyrowave_sdk::GpuConfig;
 
 struct Band {
     component: usize,
@@ -180,6 +182,18 @@ impl Decoder {
         });
         if failed { self.early = Early::Failed; }
         if self.early_done > 0 && self.first_block_us == 0 { self.first_block_us = nightjar_core::session::now_us(); }
+    }
+
+    /// Passes over a frame that a newer one replaces: nothing is decoded, and the records cache
+    /// takes the frame as `coefficients` would have. What its chunks placed in the planes goes
+    /// with the next frame, which clears them either way.
+    pub fn skip(&mut self, data: &[u8]) {
+        let early = std::mem::replace(&mut self.early, Early::Off);
+        self.missed_start = false;
+        self.source = Source::Frame;
+        self.early_blocks = 0;
+        self.first_block_us = 0;
+        pass_records(&mut self.records, early == Early::Active && self.early_bytes == data.len(), data);
     }
 
     pub fn coefficients(&mut self, data: &[u8]) -> Result<(), &'static str> {
@@ -585,9 +599,22 @@ pub enum Failure {
     Device(String),
 }
 
+/// Brings the records cache up to date with a frame that is not decoded, so the frames after it
+/// recover what they lose from it and not from an older frame. `early`: every chunk since
+/// `begin_frame` was fed and they are as long as `data`, which then only needs finishing if it
+/// is the records envelope they belong to.
+fn pass_records(records: &mut Records, early: bool, data: &[u8]) {
+    let whole_early = early && data.starts_with(&[0, 0, 0, 0]);
+    if !(whole_early && records.finish_frame(|_| true)) {
+        // Begins the frame anew, and refuses what is not a records envelope.
+        records.push_frame(data, |_| true);
+    }
+}
+
 /// The PyroWave decoder of a stream, on the CPU or on the GPU (`Settings::pyrowave_decoder`).
 pub enum Pyrowave {
     Cpu(Box<Decoder>),
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     Gpu(Box<GpuStream>),
 }
 
@@ -648,12 +675,51 @@ impl Pyrowave {
         }
     }
 
+    /// Whether a frame may be passed over for a newer one ([`Pyrowave::skip`]): every frame
+    /// decodes on its own, but the slices of a beam-raced frame are with the presenter before
+    /// the frame is complete.
+    pub fn skips_frames(&self) -> bool {
+        match self {
+            Self::Cpu(_) => true,
+            Self::Gpu(stream) => stream.race.is_none(),
+        }
+    }
+
+    /// Passes over the frame `frame` would have decoded: no picture, and no decode time spent.
+    /// The records cache takes the frame all the same, for the frames after it.
+    pub fn skip(&mut self, data: &[u8]) {
+        match self {
+            Self::Cpu(decoder) => decoder.skip(data),
+            Self::Gpu(stream) => stream.skip(data),
+        }
+    }
+
     pub fn stage_summary(&self) -> Option<String> {
         match self {
             Self::Cpu(decoder) => decoder.stage_summary(),
             Self::Gpu(stream) => stream.stage_summary(),
         }
     }
+
+    /// The log lines a GPU decoder adds at the stream's end: the SDK's GPU time per frame and the
+    /// GPU's clocks, each where available.
+    pub fn gpu_report(&self) -> Vec<String> {
+        match self {
+            Self::Cpu(_) => Vec::new(),
+            Self::Gpu(stream) => [
+                stream.pass_summary().map(|passes| format!("PyroWave GPU passes {passes}")),
+                stream.clock_summary().map(|clocks| format!("GPU during the stream: {clocks}")),
+            ].into_iter().flatten().collect(),
+        }
+    }
+}
+
+/// Where a Linux decode call that began at `start` splits into its submit and its wait for the
+/// GPU: when the SDK's submit returned, or `start` when that is unknown (the whole call is then
+/// the wait, as before the split) or earlier than `start`.
+#[cfg_attr(not(unix), allow(dead_code))]
+fn submit_split(start: Instant, submitted: Option<Instant>) -> Instant {
+    submitted.filter(|&at| at >= start).unwrap_or(start)
 }
 
 /// The most a frame may have lost (the SDK gate's 90% packet ratio) once its slices were decoded.
@@ -683,7 +749,6 @@ pub(crate) const GPU_DECODE_TIMEOUT: std::time::Duration = std::time::Duration::
 const GPU_STAGE_NAMES: [&str; 5] = ["clear", "push", "submit", "gpu", "slices"];
 const GPU_CLEAR: usize = 0;
 const GPU_PUSH: usize = 1;
-#[cfg(windows)]
 const GPU_SUBMIT: usize = 2;
 const GPU_WAIT: usize = 3;
 /// The slice decodes made while the frame arrives (beam race), submit and wait together.
@@ -705,6 +770,46 @@ fn push_checked(gpu: &mut GpuDecoder, packet: &[u8]) -> bool {
     gpu.push_packet(packet).is_ok()
 }
 
+/// The block indices of the records a frame gave the SDK early, as a bitmap. A 4K 4:4:4 frame
+/// has about 24,000 records, each inserted as it arrives and looked up again when the frame
+/// completes; a `HashSet` hashed each of them (SipHash) on the decoder thread, inside the push.
+/// Indices are 24 bits (`word >> 8`), so the map is at most 2 MiB; `clear` zeroes only the words
+/// the frame touched.
+#[derive(Default)]
+struct BlockSet {
+    words: Vec<u64>,
+    /// One past the highest word set since `clear`.
+    used: usize,
+    len: usize,
+}
+
+impl BlockSet {
+    fn clear(&mut self) {
+        self.words[..self.used].fill(0);
+        self.used = 0;
+        self.len = 0;
+    }
+
+    /// Adds `index`; false if it was there already.
+    fn insert(&mut self, index: u32) -> bool {
+        let (word, bit) = (index as usize / 64, 1u64 << (index % 64));
+        if word >= self.words.len() { self.words.resize(word + 1, 0); }
+        self.used = self.used.max(word + 1);
+        let added = self.words[word] & bit == 0;
+        self.words[word] |= bit;
+        self.len += usize::from(added);
+        added
+    }
+
+    fn contains(&self, index: u32) -> bool {
+        self.words.get(index as usize / 64).is_some_and(|word| word & (1u64 << (index % 64)) != 0)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
 /// PyroWave frames decoded by the SDK on the GPU into shared D3D11 planes. The records go to
 /// the SDK as they complete (early decode) or when the frame does; the SDK runs the entropy
 /// decoding and the inverse wavelets, and the presenter converts the planes to RGB.
@@ -717,12 +822,15 @@ pub struct GpuStream {
     early_bytes: usize,
     first_block_us: u64,
     /// The records already given to the SDK for the frame in flight, by block index.
-    pushed: std::collections::HashSet<u32>,
+    pushed: BlockSet,
     /// Where the last frame's records came from (`Pyrowave::source`).
     source: Source,
     stages: Stages<5>,
     /// The beam race (`set_slices`); None decodes each frame once, as before.
     race: Option<Race>,
+    /// The AMD GPU's clocks while the stream runs (None without amdgpu).
+    #[cfg(target_os = "linux")]
+    clocks: Option<super::gpu_clocks::Sampler>,
 }
 
 /// The beam race state of the frame in flight.
@@ -797,12 +905,13 @@ impl GpuStream {
     /// Creates the SDK decoder with `slots` plane sets, on the Vulkan device of the renderer whose
     /// SDL GPU device is `device` where it can be shared, else on the driver's default device
     /// (`GpuDecoder::for_renderer`).
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     pub fn new(device: *mut std::ffi::c_void, width: usize, height: usize, chroma444: bool, ten_bit: bool, slots: usize) -> Result<Self, String> {
         let config = GpuConfig { width: width as u32, height: height as u32, chroma444, ten_bit, slots };
         GpuDecoder::for_renderer(device, config).map(Self::with_decoder)
     }
 
+    #[cfg(not(target_os = "macos"))]
     pub fn with_decoder(gpu: GpuDecoder) -> Self {
         let config = gpu.config();
         Self {
@@ -813,11 +922,33 @@ impl GpuStream {
             missed_start: false,
             early_bytes: 0,
             first_block_us: 0,
-            pushed: std::collections::HashSet::new(),
+            pushed: BlockSet::default(),
             source: Source::Frame,
             stages: Stages::new(GPU_STAGE_NAMES),
             race: None,
+            #[cfg(target_os = "linux")]
+            clocks: super::gpu_clocks::Sampler::start(),
         }
+    }
+
+    /// The SDK's own GPU time per frame over the stream (`pyrowave_sdk::pass_summary`), for the
+    /// log beside the stages, whose "gpu" stage also holds the time the decode waited for the queue.
+    pub fn pass_summary(&self) -> Option<String> {
+        // A stalled decoder is never called again.
+        #[cfg(unix)]
+        if self.gpu.stalled() { return None; }
+        super::pyrowave_sdk::pass_summary(&self.gpu.performance_stats(false))
+    }
+
+    /// What the AMD GPU's clocks did during the stream (`gpu_clocks`), where they can be read:
+    /// on Linux.
+    pub fn clock_summary(&self) -> Option<String> {
+        #[cfg(target_os = "linux")]
+        {
+            self.clocks.as_ref().and_then(super::gpu_clocks::Sampler::summary)
+        }
+        #[cfg(not(target_os = "linux"))]
+        None
     }
 
     /// Decodes the picture in `slices` slices while a row-ordered frame arrives (0 turns it off).
@@ -839,7 +970,7 @@ impl GpuStream {
         });
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_os = "macos")))]
     pub fn planes(&self) -> &std::sync::Arc<super::gpu_planes::Planes> {
         &self.planes
     }
@@ -943,6 +1074,17 @@ impl GpuStream {
     #[cfg(not(windows))]
     fn decode_due_slice(&mut self) {}
 
+    /// Passes over a frame that a newer one replaces: nothing is decoded and no plane set is
+    /// taken, and the records cache takes the frame as `frame` would have. The records its
+    /// chunks pushed to the SDK go with the next frame, which clears them either way.
+    pub fn skip(&mut self, data: &[u8]) {
+        let early = std::mem::replace(&mut self.early, Early::Off);
+        self.missed_start = false;
+        self.source = Source::Frame;
+        self.first_block_us = 0;
+        pass_records(&mut self.records, early == Early::Active && self.early_bytes == data.len(), data);
+    }
+
     pub fn frame(&mut self, data: &[u8], evict: &mut dyn FnMut() -> bool) -> Result<Output, Failure> {
         let early = std::mem::replace(&mut self.early, Early::Off);
         let missed_start = std::mem::take(&mut self.missed_start);
@@ -975,7 +1117,7 @@ impl GpuStream {
                 let step = Instant::now();
                 let Self { records, gpu, pushed, .. } = self;
                 finished = records.finish_frame(|packet| {
-                    if word(packet, 0) & HEADER_BIT != 0 || !pushed.contains(&(word(packet, 4) >> 8)) { push_checked(gpu, packet) } else { true }
+                    if word(packet, 0) & HEADER_BIT != 0 || !pushed.contains(word(packet, 4) >> 8) { push_checked(gpu, packet) } else { true }
                 });
                 self.stages.add(GPU_PUSH, step);
             }
@@ -1015,8 +1157,9 @@ impl GpuStream {
             fence_value
         };
         // The decode blocks until the GPU is done and the planes are final (in the set's images on
-        // the renderer's device, or read back into its CPU buffers), so the whole of it is the
-        // "gpu" stage.
+        // the renderer's device, or read back into its CPU buffers). Up to the submit's return
+        // (on the wait thread) it is the "submit" stage, as on Windows, which holds the wait for
+        // the renderer's queue lock; the rest is the "gpu" stage.
         #[cfg(unix)]
         {
             let decoded = if self.gpu.images().is_some() {
@@ -1031,7 +1174,9 @@ impl GpuStream {
                 if self.gpu.stalled() { std::mem::forget(lease); }
                 return Err(Failure::Device(format!("PyroWave GPU decode failed: {e}")));
             }
-            self.stages.add(GPU_WAIT, step);
+            let submitted = submit_split(step, self.gpu.submitted_at());
+            self.stages.add_between(GPU_SUBMIT, step, submitted);
+            self.stages.add(GPU_WAIT, submitted);
         }
         self.stages.commit();
         let first_block_us = if source == Source::Early { self.first_block_us } else { 0 };
@@ -1066,12 +1211,71 @@ impl GpuStream {
 #[cfg(all(test, windows))]
 mod gpu_tests;
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, target_os = "linux"))]
 mod gpu_tests_unix;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_block_set_holds_what_a_frame_pushed_and_forgets_it_with_the_next() {
+        let mut set = BlockSet::default();
+        assert!(set.is_empty() && !set.contains(0) && !set.contains(5));
+        assert!(set.insert(5) && set.insert(0) && set.insert(64) && set.insert(130));
+        assert!(!set.insert(64), "a record already pushed");
+        assert!(!set.is_empty());
+        assert!([0, 5, 64, 130].iter().all(|&i| set.contains(i)));
+        assert!([1, 63, 65, 129, 131, 1 << 20].iter().all(|&i| !set.contains(i)));
+        // The highest index a record can name (24 bits) fits.
+        let top = (1u32 << 24) - 1;
+        assert!(set.insert(top) && set.contains(top));
+        set.clear();
+        assert!(set.is_empty());
+        assert!([0, 5, 64, 130, top].iter().all(|&i| !set.contains(i)), "the next frame starts empty");
+        assert!(set.insert(64), "and takes the same records again");
+        let words = set.words.len();
+        set.clear();
+        assert_eq!(set.words.len(), words, "the map keeps its size across frames");
+    }
+
+    /// `cargo test -p nightjar-desktop --release -- --ignored --nocapture block_set_against_a_hash_set`:
+    /// the push's record bookkeeping for one 4K 4:4:4 frame (about 24,300 records of 32x32
+    /// coefficients), as the bitmap and as the `HashSet` it replaced.
+    #[test]
+    #[ignore = "manual CPU timing"]
+    fn block_set_against_a_hash_set() {
+        const RECORDS: u32 = 24_300;
+        let median = |mut v: Vec<f64>| { v.sort_by(f64::total_cmp); v[v.len() / 2] };
+        let mut set = BlockSet::default();
+        let bitmap: Vec<f64> = (0..500).map(|_| {
+            let start = Instant::now();
+            set.clear();
+            for i in 0..RECORDS { set.insert(i); }
+            let found = (0..RECORDS).filter(|&i| set.contains(i)).count();
+            assert_eq!(found, RECORDS as usize);
+            start.elapsed().as_secs_f64() * 1e3
+        }).collect();
+        let mut hashed = std::collections::HashSet::new();
+        let hash: Vec<f64> = (0..500).map(|_| {
+            let start = Instant::now();
+            hashed.clear();
+            for i in 0..RECORDS { hashed.insert(i); }
+            let found = (0..RECORDS).filter(|i| hashed.contains(i)).count();
+            assert_eq!(found, RECORDS as usize);
+            start.elapsed().as_secs_f64() * 1e3
+        }).collect();
+        println!("{RECORDS} records, insert and look up, ms per frame (median of 500): bitmap {:.4}, HashSet {:.4}", median(bitmap), median(hash));
+    }
+
+    #[test]
+    fn a_linux_decode_splits_at_the_submit_when_it_is_known() {
+        let start = Instant::now();
+        let later = start + std::time::Duration::from_millis(3);
+        assert_eq!(submit_split(start, Some(later)), later, "submit up to there, the GPU after");
+        assert_eq!(submit_split(start, None), start, "unknown: the whole call is the GPU wait");
+        assert_eq!(submit_split(later, Some(start)), later, "a mark from an earlier decode is not this one's");
+    }
 
     #[test]
     fn half_storage_rounds_ties_to_even() {
@@ -1717,6 +1921,62 @@ mod tests {
         early.coefficients(&data).unwrap();
         assert_eq!(early.source, Source::Early);
         assert!(early.planes == whole.planes);
+    }
+
+    #[test]
+    fn a_skipped_frame_leaves_the_records_cache_where_decoding_it_would_have() {
+        let (first, width, height, full) = fixture(0);
+        let (second, ..) = fixture(1);
+        let before = envelope(&arrived(&host_packets(&bitstream(first)), &[]));
+        let skipped = arrived(&host_packets(&bitstream(second)), &[]);
+        let skipped_data = envelope(&skipped);
+        // The frame after the skipped one lost a packet, whose records come from the cache.
+        let after = arrived(&host_packets(&bitstream(first)), &[1]);
+        let after_data = envelope(&after);
+        let started = || {
+            let mut decoder = Decoder::new(width, height, full).unwrap();
+            decoder.coefficients(&before).unwrap();
+            decoder
+        };
+        let mut decoded = started();
+        decoded.coefficients(&skipped_data).unwrap();
+        decoded.coefficients(&after_data).unwrap();
+        assert!(decoded.loss_percent > 0.0, "the loss was seen");
+        // A cache that never took the skipped frame fills the loss from the frame before it.
+        let mut stale = started();
+        stale.coefficients(&after_data).unwrap();
+        assert!(stale.planes != decoded.planes, "the fixtures tell the two caches apart");
+
+        // What the decoder had of the skipped frame's chunks: none, all, all but one the queue
+        // dropped, all but the first, and only the first two.
+        let count = skipped.len();
+        let had: [Vec<usize>; 5] = [Vec::new(), (0..count).collect(), (0..count).filter(|i| *i != 1).collect(),
+            (1..count).collect(), (0..2).collect()];
+        for chunks in &had {
+            for early_after in [false, true] {
+                let mut decoder = started();
+                for &i in chunks { decoder.chunk(i == 0, skipped[i].0, &skipped[i].1); }
+                decoder.skip(&skipped_data);
+                assert_eq!((decoder.source, decoder.early_blocks, decoder.first_block_us), (Source::Frame, 0, 0));
+                if early_after {
+                    for (i, (flags, payload)) in after.iter().enumerate() { decoder.chunk(i == 0, *flags, payload); }
+                }
+                decoder.coefficients(&after_data).unwrap();
+                let source = if early_after { Source::Early } else { Source::Frame };
+                assert_eq!(decoder.source, source, "chunks {chunks:?}");
+                assert!(decoder.planes == decoded.planes, "chunks {chunks:?}, early {early_after}");
+                assert_eq!(decoder.loss_percent, decoded.loss_percent);
+            }
+        }
+
+        // A frame that is no records envelope leaves the cache alone, and its chunks behind.
+        let mut decoder = started();
+        decoder.coefficients(&skipped_data).unwrap();
+        for (i, (flags, payload)) in skipped.iter().enumerate() { decoder.chunk(i == 0, *flags, payload); }
+        decoder.skip(&vec![0u8; rubylight_protocol::pyrowave::MAX_FRAME_BYTES + 1]);
+        decoder.coefficients(&after_data).unwrap();
+        assert_eq!(decoder.source, Source::Frame);
+        assert!(decoder.planes == decoded.planes);
     }
 
     /// `cargo test -p nightjar-desktop --release --bin nightjar -- --ignored --nocapture

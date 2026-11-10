@@ -1,8 +1,116 @@
-# Nightjar for Windows and Linux
+# Nightjar for macOS, Windows and Linux
 
-Nightjar for Windows and Linux is the desktop edition of Nightjar: a Moonlight-protocol game-streaming client built on the same Rust engine (`nightjar-core`) as the Android app. It works with Sunshine, Apollo, Vibepollo, Rubylight and other Moonlight-compatible hosts; features beyond the standard protocol follow the capabilities each host reports.
+Nightjar for macOS, Windows and Linux is the desktop edition of Nightjar: a Moonlight-protocol game-streaming client built on the same Rust engine (`nightjar-core`) as the Android app. It works with Sunshine, Apollo, Vibepollo, Rubylight and other Moonlight-compatible hosts; features beyond the standard protocol follow the capabilities each host reports.
 
 The first half of this page covers installing and using the client; the second half covers building, packaging and the design. [Android and desktop](../../docs/CLIENT-PARITY.md) compares the two clients feature by feature.
+
+## macOS
+
+The Mac port shares the Rust launcher, pairing, library, audio and input code with the other desktop clients. FFmpeg
+VideoToolbox decodes standard video. SDL Metal imports NV12 and P010 Core Video surfaces, with a
+mapped-plane fallback. The client probes HEVC and AV1 with fixtures before offering those formats.
+
+![Nightjar's offline demo library rendered on macOS with Metal](../../docs/assets/shots/macos-home.webp)
+
+### Install
+
+Each release has `nightjar-desktop-<version>-macos-arm64.zip` for Apple Silicon and
+`nightjar-desktop-<version>-macos-x86_64.zip` for Intel Macs, both for macOS 13 or later. Unpack the
+ZIP and move `Nightjar.app` to Applications.
+
+The app has an ad-hoc signature and is not notarized by Apple, so macOS asks once before the first
+start. On macOS 15 or later, open Nightjar, close the warning with **Done**, then choose **Open Anyway**
+under **System Settings → Privacy & Security** and confirm. On macOS 13 and 14, Control-click the app,
+choose **Open** and confirm. Alternatively, clear the download's quarantine flag in Terminal:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Nightjar.app
+```
+
+A newer version installs the same way: replace the app in Applications. Settings and paired PCs stay
+in `~/Library/Application Support/Nightjar/`.
+
+### Build and run
+
+Install the Xcode Command Line Tools, Rust 1.95 or newer and Python 3.9 or newer. To run against Homebrew libraries,
+start from the repository root.
+
+```sh
+brew install pkg-config sdl3 ffmpeg opus
+cd protocol
+cargo run --locked -p nightjar-desktop
+```
+
+To build a Finder application, start from the repository root.
+
+```sh
+brew install cmake meson ninja pkg-config nasm
+python3 protocol/desktop/package-macos.py
+open protocol/target/release/Nightjar.app
+```
+
+The packager builds checksum-pinned SDL, Opus, dav1d and a decode-only FFmpeg, embeds their dylibs and
+licenses, and verifies an ad-hoc signature. The first build downloads the sources. Later builds reuse
+the Cargo target directory. The default deployment target is macOS 13.0 on the architecture of the
+build Mac. Set `MACOSX_DEPLOYMENT_TARGET` to choose a newer minimum. The bundle can be moved to
+Applications and carries its own media libraries. The release downloads are built the same way by
+the release workflow, on an Apple Silicon and an Intel runner.
+
+### Build for an Intel Mac
+
+An Intel Mac running macOS Ventura 13 or later uses the `x86_64` build. On an Apple Silicon build
+Mac with Rust installed through rustup, add the Intel target first. NASM enables the optimized
+Intel code in FFmpeg and dav1d.
+
+```sh
+rustup target add x86_64-apple-darwin
+python3 protocol/desktop/package-macos.py --arch x86_64 --zip
+```
+
+The packager writes `Nightjar-<version>-macos-x86_64.zip` under
+`protocol/target/x86_64-apple-darwin/release/`. It checks the executable and every bundled dylib
+for the requested architecture and minimum OS. Copy the ZIP to the Intel Mac, double-click it and
+move `Nightjar.app` to Applications. The receiving Mac needs only the app. Pair it as a new device
+on the streaming host.
+
+### Connect to a PC
+
+Allow Local Network access when macOS asks. Select a discovered PC or use **Add PC** with its LAN
+address. Enter the displayed PIN on the host. If the library loads but launching returns HTTP 401,
+open the host's device permissions and enable **Launch applications** for the paired Mac. Nightjar stores the pairing identity and settings in
+`~/Library/Application Support/Nightjar/`. Microphone forwarding requires microphone access.
+**Control + Option + Shift + Tab** opens the stream controls. **Control + Option + Shift + Q** leaves it.
+
+FSR1, SGSR1, planar conversion, packed full chroma and PyroWave's Rust decoder use Metal fragment
+shaders. PyroWave defaults to the CPU decoder on macOS. Its upstream Vulkan SDK backend is available
+on Windows and Linux. HDR requires an HDR display and a compatible host. The Metal and VideoToolbox
+checks passed on Apple Silicon and on an Intel MacBook Pro with a Radeon Pro 560 running Ventura
+13.7.8. The Intel Mac decoded HEVC Main and Main10. Its hardware probe declined AV1. Live HDR and
+physical controllers still need hardware verification.
+The launcher opens Core Audio when a stream starts, so pairing and browsing work while an audio device is unavailable.
+
+### Verify on a Mac
+
+Run these checks from `protocol/` with the development libraries installed. The macOS CI builds on
+Apple Silicon and Intel, runs the headless suites and checks the relocated bundle's signature,
+version and dylib references. The opt-in hardware check needs a Metal-capable display and a
+VideoToolbox HEVC Main10 decoder. It compares pixels from native NV12 and P010 imports with their
+mapped planes, then exercises FSR1, SGSR1, PyroWave and packed chroma.
+
+```sh
+cargo test --locked -p nightjar-desktop -p nightjar-core -p nightjar-policy
+cargo test --locked --manifest-path core/Cargo.toml
+cargo test --locked -p nightjar-desktop --features demo-library --test macos_video -- --ignored --nocapture
+python3 desktop/tests/verify_macos_bundle.py target/release/Nightjar.app
+```
+
+The last command uses a previously packaged release app. When checking an Intel cross-build on
+Apple Silicon, add `--arch x86_64 --inspect-only` and supply the Intel app path. Run the same
+check on the Intel Mac without `--inspect-only` to exercise native launch.
+
+To update the Metal shaders after changing their SPIR-V inputs, run `python3 desktop/src/metal/generate.py /path/to/spirv-cross` from
+`protocol/` with SPIRV-Cross tag `vulkan-sdk-1.4.321.0`. Commit the regenerated `.metal` files
+alongside their inputs and run the hardware check.
 
 ## Installing
 
@@ -17,12 +125,13 @@ Every release carries these files. The installer and the packages contain the sa
 | `nightjar-desktop-<version>-x86_64.flatpak` | `flatpak install --user nightjar-desktop-<version>-x86_64.flatpak` (the runtime comes from Flathub); to update, the same with `--reinstall`. For the Steam Deck, see [Steam Deck and Linux handhelds](../../docs/steam-deck.md). | `flatpak uninstall io.github.ramazankara.nightjar` |
 | `nightjar-desktop-<version>-x86_64.AppImage` | Make it executable (`chmod +x`) and run it; nothing is installed. Without FUSE, run it with `--appimage-extract-and-run`. | Delete the file. |
 | `nightjar-desktop-<version>-linux-x86_64.tar.gz` | Unpack it and run `./nightjar`. `share/` holds the desktop entry and icons, laid out as under `/usr/share`. | Delete the folder. |
+| `nightjar-desktop-<version>-macos-arm64.zip`, `…-macos-x86_64.zip` | Unpack it and move `Nightjar.app` to Applications; `arm64` is for Apple Silicon, `x86_64` for Intel Macs (macOS 13 and later). The app is not notarized: [allow it once](#install) on first start. | Move `Nightjar.app` to the Trash. |
 
 The `.deb` and `.rpm` install the program in `/opt/nightjar`, `nightjar` in `/usr/bin`, and the desktop entry `io.github.ramazankara.nightjar.desktop`, the hicolor icons and the AppStream metadata in `/usr/share`. They require glibc 2.35 or newer, libopus, libva, libudev, and the ALSA, libX11 and libXext libraries without which SDL3 cannot start, and recommend the libraries SDL3 and PyroWave load at run time (Wayland, PulseAudio, PipeWire, Vulkan, a VA-API driver). The AppImage also carries libopus, plus libva, libva-drm and libdrm as fallbacks: its `AppRun` uses them only where the system has none, so an installed libva still finds the system's VA-API drivers (without one, decoding falls back to software, with a notice). ALSA and X11 come from the system.
 
 Every Linux package also comes for ARM handhelds and boards, with `aarch64` in place of `x86_64` in its name.
 
-Settings, paired PCs, controller layouts, app lists, cover art, logs, screenshots and exported statistics are stored in `%APPDATA%\Nightjar\config` on Windows or `~/.config/nightjar` on Linux, outside every install folder. Updates never touch them, and uninstalling keeps them, except that the Windows uninstaller offers **Remove them too** (off unless ticked; `unins000.exe /VERYSILENT /REMOVESETTINGS` does the same silently). That option removes everything except the `screenshots` and `statistics` folders. On Linux, delete `~/.config/nightjar` by hand.
+Settings, paired PCs, controller layouts, app lists, cover art, logs, screenshots and exported statistics are stored in `%APPDATA%\Nightjar\config` on Windows, `~/.config/nightjar` on Linux or `~/Library/Application Support/Nightjar` on macOS, outside every install folder. Updates never touch them, and uninstalling keeps them, except that the Windows uninstaller offers **Remove them too** (off unless ticked; `unins000.exe /VERYSILENT /REMOVESETTINGS` does the same silently). That option removes everything except the `screenshots` and `statistics` folders. On Linux, delete `~/.config/nightjar` by hand.
 
 `nightjar --version` prints the version and exits without opening a window; on Windows it prints into the Command Prompt or PowerShell window it was started from.
 
@@ -116,7 +225,7 @@ Platform limits:
 
 - On Linux, 7.1.4 is unavailable (SDL opens at most eight channels) and Dolby Vision is not shown. Phase-lock frame timing needs X11 with the OpenGL renderer.
 - On Linux, 8-bit 4:2:0 VA-API pictures reach the OpenGL renderer without copies, and 8- and 10-bit 4:2:0 VA-API and Vulkan video pictures reach the GPU renderer (HDR, upscaling, 4:4:4) without crossing memory; packed 4:4:4 pictures, 10-bit ones on the OpenGL renderer and NVDEC's are copied through memory.
-- A hardware decoder that returns 4:4:4 as packed surfaces (AYUV, Y410) streams in 4:2:0; the software decoder draws 4:4:4.
+- On Windows, D3D11VA's 4:4:4 surfaces (AYUV, Y410, Y416), which NVIDIA and Intel decoders make for HEVC 4:4:4, are copied on the GPU and drawn by the plane shader. AMD's decoders have no 4:4:4: the decoder check says so and the stream uses 4:2:0, while the software decoder draws 4:4:4. D3D11VA has no H.264 4:4:4. With **Prefer YUV 4:4:4** and 10-bit SDR both on, HEVC 4:4:4 10-bit is asked for where the decoder check passes it and the PC encodes it. On Linux, NVDEC's 10-bit 4:4:4 (its samples in the high bits) is drawn by the plane shader too.
 
 ## Building
 
@@ -219,13 +328,22 @@ The launcher and the stream share one SDL3 window and one `SDL_Renderer`. egui i
 | `NIGHTJAR_CONFIG_DIR`, `NIGHTJAR_SCREENSHOT_DIR` | Override the settings folder and the screenshot folder. |
 | `NIGHTJAR_TIMING_CSV=<file or folder>` | Writes one row per displayed picture in the format of the Android app's `nightjar-latency.csv`: times in nanoseconds on the session clock, with the host's stamps from the extended 0x5536 report and the 0x5537 clock offset in the last nine columns. Rubylight's `rust/release/timing_report.py` joins it with the host's record (`BUTTERPOLLO_TIMING_RECORD`). A writer thread does the file work. |
 | `NIGHTJAR_PACKET_TRACE=<prefix>` | Records each video and audio datagram's receive time, the receive thread's wait for it, its length, RTP sequence and timestamp (0 for encrypted video) in memory, and writes `<prefix>-video.csv`, `<prefix>-audio.csv` and `<prefix>-canary.csv` (a 1 ms sleeper's late wake-ups) when the stream ends. It distinguishes a network that delivers packets in bursts from a receive thread that woke late (`nightjar-core`'s `session/trace.rs`). |
-| `NIGHTJAR_AUTOSTREAM=address[:port]` | Measurement only: starts one stream without the launcher and ends it after `NIGHTJAR_AUTOSTREAM_SECONDS` (default 60), with `NIGHTJAR_AUTOSTREAM_APP` (default "Desktop") and, for an unpaired PC, `NIGHTJAR_AUTOSTREAM_PIN` (default 1234, entered on the PC). Exits with 0 after a full run and 2 otherwise. |
+| `NIGHTJAR_AUTOSTREAM=address[:port]` | Measurement only: starts one stream without the launcher and ends it after `NIGHTJAR_AUTOSTREAM_SECONDS` (default 60), with `NIGHTJAR_AUTOSTREAM_APP` (default "Desktop") and, for an unpaired PC, `NIGHTJAR_AUTOSTREAM_PIN` (default 1234, entered on the PC). `NIGHTJAR_AUTOSTREAM_START_SECONDS` sets the setup timeout including PIN entry (default 90). Exits with 0 after a full run and 2 otherwise. |
 | `NIGHTJAR_BEAM_RACE`, `NIGHTJAR_EARLY_DECODE` | Turn on [beam racing](../../docs/beam-racing.md) and [early decode](../../docs/early-decode.md) for PyroWave, as the `beam_race` and `early_decode` settings keys do. |
 | `NIGHTJAR_D3D11_PASS`, `NIGHTJAR_D3D11_BIND`, `NIGHTJAR_DMABUF`, `NIGHTJAR_VRR_CHECK`, `NIGHTJAR_VRR_SYNC` | A/B switches for the presentation paths described above. |
 | `NIGHTJAR_VULKAN_VIDEO` | Linux: `1` tries Vulkan video first and picks the GPU renderer for it, `0` leaves Vulkan video out, and the GPU renderer's device is made without its video extensions. |
 | `NIGHTJAR_DESKTOP_RFI` | A/B switch, on unless `0`: reference frame invalidation. |
 | `NIGHTJAR_VULKAN_VIDEO_GPU_FIRST`, `NIGHTJAR_DESKTOP_SLICES`, `NIGHTJAR_VULKAN_RFI` | A/B switches for the Debug settings Vulkan video first, Slices for software decoding and Vulkan video recovery (all off by default): `1` or `0` wins over the setting. |
 | `NIGHTJAR_VAAPI_VULKAN_MAP` | Linux A/B switch, on unless `0`: on the GPU renderer, VA-API opens on the renderer's GPU (its DRM render node) and its pictures are mapped into Vulkan images on the renderer's device (DMA-BUF import, `VK_EXT_image_drm_format_modifier`) for the presenter's GPU copy, instead of being mapped to memory and uploaded. Why the mapping is not used is logged once. |
+| `NIGHTJAR_PYROWAVE_SAMPLE_PLANES` | Linux A/B switch, on unless `0`: where PyroWave decodes on the renderer's Vulkan device, the presenter samples the decoder's planes in place, holding each plane set until the GPU finished the draws that read it, instead of copying them into its own textures first. Which path is used is logged once. |
+| `NIGHTJAR_DMABUF_CACHE` | Linux A/B switch, on unless `0`: VA-API pictures are imported once per decoder surface and the import is reused when the decoder hands the surface out again, without exporting it again: the OpenGL renderer's EGL images, and on the GPU renderer the Vulkan images of `NIGHTJAR_VAAPI_VULKAN_MAP` (4:2:0). A new surface pool drops them. Which path is used, and how many pictures came from the cache, is logged. |
+| `NIGHTJAR_PQ_VIDEO_ONLY` | Linux A/B switch, on unless `0`: on an HDR10 (PQ) output, a frame that shows only the picture (no overlay, toast or menu) has the plane pass write PQ straight into the swapchain image, without SDL's RGBA16F back buffer and its PQ pass. Which path is used is logged once, and so is a frame that was not only the picture. |
+| `NIGHTJAR_WAYLAND_HDR_DESCRIPTION` | Linux A/B switch, on unless `0`: on a Wayland desktop (not gamescope, no `ENABLE_HDR_WSI` layer), the PQ renderer's HDR10 swapchain is made pass-through on Mesa's Vulkan driver and Nightjar describes the surface itself (color-management-v1): the compositor's preferred description where that is PQ BT.2020 or its gamma 2.2 BT.2020 blending space (see `NIGHTJAR_WAYLAND_GAMMA22_PRESENT`), else PQ BT.2020 at the output's reference white and peak, followed when the output changes. With the setting HDR brightness follows the desktop, PQ BT.2020 at the default 203-nit reference with the content's MaxCLL instead, changed in place. Off, or where the compositor or driver cannot, Mesa's description stays (PQ at the default 203-nit reference). The end-of-stream `scanout:` line says which. |
+| `NIGHTJAR_WAYLAND_DMABUF_REALLOC` | Linux A/B switch, on unless `0`: on a Wayland desktop, the GPU renderer's swapchain is made again when an acquire returns `VK_SUBOPTIMAL_KHR` (Mesa's answer to dmabuf feedback asking for other modifiers, such as a scanout tranche): at most every 2 s and 10 times per renderer. The count is in the `scanout:` line. |
+| `NIGHTJAR_WAYLAND_SCANOUT_PROBE` | Linux A/B switch, on unless `0`: a stream on Wayland reads the compositor's globals, its preferred colour description and the surface's dmabuf feedback, and logs at its end a `scanout:` line with them, the swapchain's format, tearing and what stood against direct scanout. |
+| `NIGHTJAR_PQ_LAUNCHER_WHITE` | Linux A/B switch, on unless `0`: on a PQ renderer, the launcher draws its white at the reference white the surface's description declares (Mesa's 203 nits, or Nightjar's), which the compositor shows at its own SDR white; streams draw as before. |
+| `NIGHTJAR_WAYLAND_VRR_TEARING` | Linux A/B switch, on unless `0`: with V-Sync off, a VRR stream on a Wayland desktop presents Immediate (the driver marks the surface's tearing hint async) instead of Mailbox, so a picture that comes during a scan out shows at once. V-Sync on keeps Mailbox. |
+| `NIGHTJAR_WAYLAND_GAMMA22_PRESENT` | Linux A/B switch, on unless `0`: where the compositor's preferred description is its gamma 2.2 BT.2020 blending space (KWin 6.5 and later on an HDR output) and the HDR brightness is the PC's, Nightjar describes the surface with that description and the present pass draws in it (gamma 2.2 from the range's minimum to the output's peak, with half a 10-bit step of ordered dither), so the compositor has nothing to convert and can scan the surface out without plane colour pipelines. Off: PQ at the output's reference white and peak, which KWin converts each frame. The `scanout:` line names the description. |
 
 All are off unless set, but for the A/B switches that say otherwise.
 

@@ -111,8 +111,9 @@ pub enum DecoderPreference {
 /// (switch to `Cpu`); every other codec works.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PyroWaveDecoder {
+    #[cfg_attr(target_os = "macos", default)]
     Cpu,
-    #[default]
+    #[cfg_attr(not(target_os = "macos"), default)]
     Gpu,
 }
 
@@ -264,8 +265,14 @@ pub struct Settings {
     pub quality_min_fps: u32,
     pub codec: CodecPreference,
     pub hdr: bool,
+    /// "HDR brightness follows the desktop" (Linux): an HDR stream on a Wayland desktop scales
+    /// with the desktop's brightness instead of showing at the brightness the PC sends
+    /// (`stream::wl_scanout::Brightness`). Off: the PC's absolute brightness, which HDR10 means
+    /// and direct scanout needs.
+    pub hdr_desktop_brightness: bool,
     pub experimental_packed_444: bool,
-    /// "Prefer YUV 4:4:4" (Experimental): offers the 8-bit 4:4:4 formats (`color::offer`).
+    /// "Prefer YUV 4:4:4" (Experimental): offers the 8-bit 4:4:4 formats, and with `sdr_10bit`
+    /// HEVC 4:4:4 10-bit (`color::offer`).
     pub prefer_yuv444: bool,
     /// "10-bit color (SDR)" (Experimental): offers Main10 without asking for HDR.
     pub sdr_10bit: bool,
@@ -305,6 +312,9 @@ pub struct Settings {
     pub right_alt_as_meta: bool,
     /// Send Alt+Tab, the Windows key and similar to the host while the stream has focus.
     pub capture_system_keys: bool,
+    /// With `capture_system_keys`: only while the stream's window is full screen (the Fullscreen
+    /// and Borderless window modes); in a window those keys stay with this computer.
+    pub system_keys_fullscreen_only: bool,
     pub controllers: bool,
     /// Nintendo layout: swap A/B and X/Y.
     pub swap_face_buttons: bool,
@@ -788,6 +798,7 @@ impl Default for Settings {
             quality_min_fps: 30,
             codec: CodecPreference::Auto,
             hdr: false,
+            hdr_desktop_brightness: false,
             experimental_packed_444: false,
             prefer_yuv444: false,
             sdr_10bit: false,
@@ -811,6 +822,7 @@ impl Default for Settings {
             native_touchpad: false,
             right_alt_as_meta: false,
             capture_system_keys: true,
+            system_keys_fullscreen_only: false,
             controllers: true,
             swap_face_buttons: false,
             controller_motion: true,
@@ -883,6 +895,7 @@ impl Settings {
     /// Whether these settings draw through the GPU renderer, which Linux picks at start: SDL's
     /// "gpu" renderer runs the shader passes (packed full chroma, HDR, PyroWave, upscaling, and
     /// the plane pass that 4:4:4 and 10-bit pictures need).
+    #[cfg(any(not(target_os = "macos"), test))]
     pub fn needs_gpu(&self) -> bool {
         self.gpu_need().is_some()
     }
@@ -949,6 +962,9 @@ pub struct HostRecord {
     pub http_port: u16,
     pub https_port: u16,
     pub other_addresses: Vec<String>,
+    /// Other HTTP ports at its addresses that answered with this PC's unique ID, from a listing
+    /// of it there that was merged into this one: a sighting at one of them is this PC.
+    pub other_http_ports: Vec<u16>,
     /// The known address the user chose to always connect through, or None for the automatic
     /// pick (`address` first, then `other_addresses`), as Moonlight V+ PC's `pinnedAddress`.
     pub pinned_address: Option<String>,
@@ -972,10 +988,15 @@ pub struct HostRecord {
     pub quit_on_leave: BTreeSet<String>,
     /// The once-per-PC notices already shown for this PC, by Android's `HostNotices` names.
     pub notices: BTreeSet<String>,
+    /// What this PC's answers to full chroma left: its last offered modes and whether it refused
+    /// the last stream that asked (Android's `HostPackedModes`).
+    pub full_chroma: nightjar_core::full_chroma::Memory,
 }
 
 /// PyroWave was chosen and a stream from this PC ran another codec.
 pub const NOTICE_PYROWAVE_FALLBACK: &str = "PYROWAVE_FALLBACK";
+/// Full chroma is on and a stream from this PC starts without it: the PC or this device cannot do it.
+pub const NOTICE_PACKED_UNAVAILABLE: &str = "PACKED_UNAVAILABLE";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaceCalibration {
@@ -1118,6 +1139,7 @@ impl Overrides {
         serde_json::from_value(values).expect("validated settings overrides")
     }
 
+    #[cfg(any(not(target_os = "macos"), test))]
     pub fn needs_gpu(&self) -> bool {
         self.apply(&Settings::default()).needs_gpu()
     }
@@ -2376,8 +2398,8 @@ mod tests {
     }
 
     #[test]
-    fn pyrowave_decoder_defaults_to_the_gpu_and_reads_from_the_file() {
-        let default = PyroWaveDecoder::Gpu;
+    fn pyrowave_decoder_uses_the_platform_default_and_reads_from_the_file() {
+        let default = if cfg!(target_os = "macos") { PyroWaveDecoder::Cpu } else { PyroWaveDecoder::Gpu };
         assert_eq!(Settings::default().pyrowave_decoder, default);
         let old: Settings = serde_json::from_str("{\"fps\": 90}").unwrap();
         assert_eq!(old.pyrowave_decoder, default, "an older file gets the default");
@@ -2404,6 +2426,21 @@ mod tests {
         assert!(!overrides.needs_gpu());
         overrides.0.insert("sdr_10bit".into(), serde_json::json!(true));
         assert!(overrides.needs_gpu());
+    }
+
+    #[test]
+    fn hdr_brightness_is_the_pcs_by_default_and_a_pc_can_follow_the_desktop() {
+        assert!(!Settings::default().hdr_desktop_brightness, "absolute: what HDR10 means and direct scanout needs");
+        let old: Settings = serde_json::from_str("{\"hdr\": true}").unwrap();
+        assert!(!old.hdr_desktop_brightness, "an older file gets the default");
+        let on: Settings = serde_json::from_str("{\"hdr_desktop_brightness\": true}").unwrap();
+        assert!(on.hdr_desktop_brightness);
+        let saved = serde_json::to_value(&on).unwrap();
+        assert_eq!(saved["hdr_desktop_brightness"], serde_json::json!(true), "saved under its own key");
+        let mut overrides = Overrides::default();
+        overrides.0.insert("hdr_desktop_brightness".into(), serde_json::json!(true));
+        assert!(overrides.apply(&Settings::default()).hdr_desktop_brightness, "a PC's own setting");
+        assert!(!overrides.needs_gpu(), "the renderer HDR takes is enough");
     }
 
     #[test]

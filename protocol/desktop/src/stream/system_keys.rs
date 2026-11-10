@@ -391,6 +391,13 @@ pub fn keyboard_grab(captured: bool, system_keys: bool) -> bool {
     captured && system_keys
 }
 
+/// "Send system keys" as it holds now: with "System keys only in full screen", only while the
+/// stream's window is full screen. In a window those keys then stay with this computer, as
+/// they do with Send system keys off.
+pub fn sent(system_keys: bool, fullscreen_only: bool, fullscreen: bool) -> bool {
+    system_keys && (!fullscreen_only || fullscreen)
+}
+
 #[cfg(windows)]
 static GRAB: AtomicBool = AtomicBool::new(false);
 /// The hook keeps the chord's Tab without the grab ([`tab_guard`]).
@@ -1476,5 +1483,13 @@ mod tests {
         assert!(keyboard_grab(true, true));
         assert!(!keyboard_grab(true, false), "Send system keys off");
         assert!(!keyboard_grab(false, true), "released, the stream menu open or the window out of focus");
+    }
+
+    // Nightjar #87.
+    #[test]
+    fn system_keys_can_wait_for_full_screen() {
+        assert!(sent(true, false, false) && sent(true, false, true), "as before: in a window too");
+        assert!(sent(true, true, true) && !sent(true, true, false), "only in full screen");
+        assert!(!sent(false, true, true) && !sent(false, false, true), "Send system keys off");
     }
 }

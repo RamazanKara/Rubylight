@@ -11,8 +11,9 @@ use sdl3_sys::everything::*;
 use crate::media;
 
 /// The fixtures: 256x256 lossless 4:4:4 pictures (at least NVDEC's minimum size, so NVIDIA is
-/// offered 4:4:4) and 256x256 Main10 ones.
-const FIXTURES: [(u32, media::Codec, &str, &[u8]); 5] = [
+/// offered 4:4:4) and 256x256 Main10 ones. The 10-bit 4:4:4 one is 16 flat blocks of known codes
+/// (`media`'s software test lists them): lossless 10-bit noise would be over 140 KiB.
+const FIXTURES: [(u32, media::Codec, &str, &[u8]); 6] = [
     (
         VIDEO_FORMAT_H264_HIGH8_444,
         media::Codec::H264,
@@ -42,6 +43,12 @@ const FIXTURES: [(u32, media::Codec, &str, &[u8]); 5] = [
         media::Codec::Av1,
         "AV1 Main10",
         include_bytes!("../../tests/fixtures/av1-420-10.bin"),
+    ),
+    (
+        VIDEO_FORMAT_H265_REXT10_444,
+        media::Codec::Hevc,
+        "HEVC 4:4:4 10-bit",
+        include_bytes!("../../tests/fixtures/hevc-444-10.bin"),
     ),
 ];
 
@@ -147,10 +154,10 @@ pub fn probe_base(hardware: media::Hardware, wanted: u32) -> Base {
     base
 }
 
-/// The formats of `color::YUV444_FORMATS` and `color::SDR10_FORMATS` that `hardware` decodes into
-/// pictures the presenter draws, and why the others are not ("" when all are). `planes` says
-/// whether planar pictures (R16 planes when its argument is true) can be drawn. Only the formats
-/// of `wanted` are decoded (`negotiate::color_probe_formats`): the others are not offered anyway.
+/// The formats of `color::YUV444_FORMATS`, `color::SDR10_FORMATS` and `color::YUV444_10_FORMATS`
+/// that `hardware` decodes into pictures the presenter draws, and why the others are not ("" when
+/// all are). `planes` says whether planar pictures (R16 planes when its argument is true) can be
+/// drawn. Only the formats of `wanted` are decoded (`negotiate::color_probe_formats`): the others are not offered anyway.
 pub fn probe(
     hardware: media::Hardware,
     wanted: u32,
@@ -173,7 +180,11 @@ pub fn probe(
             vaapi_node,
         };
         match decode(hardware, pictures, codec, data)
-            .and_then(|(info, backend)| drawable(&info, yuv444, &planes).map(|()| backend))
+            .and_then(|(info, backend)| {
+                drawable(&info, yuv444, &planes)?;
+                keeps_depth(&info, pictures.ten_bit)?;
+                Ok(backend)
+            })
         {
             Ok(backend) => {
                 eprintln!("nightjar: decoder probe: {name} {} ok", backend.label());
@@ -280,9 +291,10 @@ fn drawable(
     yuv444: bool,
     planes: &impl Fn(bool) -> Result<(), String>,
 ) -> Result<(), String> {
-    // A Vulkan video picture is drawn with the plane shader too, from its copied planes.
+    // A Vulkan video picture is drawn with the plane shader too, from its copied planes, and a
+    // D3D11VA 4:4:4 surface (AYUV, Y410, Y416) from its copy.
     let vulkan = media::PlanarLayout::of_vulkan(info);
-    let planar = media::PlanarLayout::of(info).or(vulkan);
+    let planar = media::PlanarLayout::of(info).or(vulkan).or_else(|| media::PlanarLayout::of_d3d11(info));
     if yuv444 && !planar.is_some_and(|layout| layout.chroma444) {
         return Err(format!(
             "the decoder's pictures (kind {}) are not 4:4:4 pictures this app draws",
@@ -295,6 +307,7 @@ fn drawable(
                 || matches!(
                     info.kind,
                     media::FRAME_P010
+                        | media::FRAME_VIDEOTOOLBOX
                         | media::FRAME_D3D11
                         | media::FRAME_YUV420P10
                         | media::FRAME_YUV444P10
@@ -309,6 +322,15 @@ fn drawable(
         Some(layout) => planes(layout.ten_bit),
         None => Ok(()),
     }
+}
+
+/// Whether a decoded fixture picture kept the depth asked for: a 10-bit 4:4:4 format decoded into
+/// 8-bit pictures would be drawn without its two low bits.
+fn keeps_depth(info: &media::FrameInfo, ten_bit: bool) -> Result<(), String> {
+    if ten_bit && info.ten_bit == 0 {
+        return Err(format!("the decoder's pictures (kind {}) are 8-bit, not the 10-bit pictures asked for", info.kind));
+    }
+    Ok(())
 }
 
 /// Whether `renderer` draws planar pictures: the plane shader pass of its renderer.
@@ -439,11 +461,19 @@ mod tests {
             color_trc: 1,
         };
         let planes = |_| Ok(());
-        // A hardware decoder's 4:4:4 surface (AYUV, Y410) is kind 4, which nothing draws.
+        // Kind 4 is a picture nothing draws.
         assert!(drawable(&info(4, 0), true, &planes)
             .unwrap_err()
             .contains("not 4:4:4"));
         assert!(drawable(&info(media::FRAME_D3D11, 0), true, &planes).is_err());
+        // A D3D11VA 4:4:4 surface (AYUV, Y410, Y416) is drawn from its copy by the plane pass.
+        for ten_bit in [0, 1] {
+            assert!(drawable(&info(media::FRAME_D3D11_444, ten_bit), true, &planes).is_ok());
+            assert!(drawable(&info(media::FRAME_D3D11_444, ten_bit), true, &|_| Err("no pass".into())).is_err());
+        }
+        // NVDEC's 10-bit 4:4:4 in memory, its samples in the high bits, goes through the planes.
+        #[cfg(unix)]
+        assert!(drawable(&info(media::FRAME_YUV444P16, 1), true, &planes).is_ok());
         assert!(drawable(&info(media::FRAME_YUV420P10, 1), true, &planes).is_err());
         assert!(drawable(&info(media::FRAME_YUV444P, 0), true, &planes).is_ok());
         assert!(drawable(&info(media::FRAME_YUV444P10, 1), true, &planes).is_ok());
@@ -464,5 +494,24 @@ mod tests {
             "no planes".into()
         ))
         .is_err());
+        // 10-bit 4:4:4 decoded into 8-bit pictures lost its depth.
+        assert!(keeps_depth(&info(media::FRAME_D3D11_444, 0), true).unwrap_err().contains("8-bit"));
+        assert!(keeps_depth(&info(media::FRAME_YUV444P, 0), true).is_err());
+        assert!(keeps_depth(&info(media::FRAME_D3D11_444, 1), true).is_ok());
+        assert!(keeps_depth(&info(media::FRAME_D3D11_444, 0), false).is_ok());
+    }
+
+    /// Both settings on ask for HEVC RExt 4:4:4 10-bit: the software decoder makes 10-bit 4:4:4
+    /// planar pictures of the fixture, offered where the R16 planes draw.
+    #[test]
+    fn ten_bit_4_4_4_is_offered_where_its_pictures_draw() {
+        use nightjar_core::color::YUV444_10_FORMATS;
+        let (decodable, reason) = probe(media::Hardware::None, YUV444_10_FORMATS, |_| Ok(()));
+        assert_eq!((decodable, reason.as_str()), (VIDEO_FORMAT_H265_REXT10_444, ""));
+        let (decodable, reason) = probe(media::Hardware::None, YUV444_10_FORMATS, |ten| {
+            if ten { Err("no R16 planes".into()) } else { Ok(()) }
+        });
+        assert_eq!(decodable, 0);
+        assert!(reason.contains("HEVC 4:4:4 10-bit: no R16 planes"), "{reason}");
     }
 }

@@ -199,9 +199,13 @@ pub fn state_fill(base: Role, hovered: bool, pressed: bool) -> Role {
 }
 
 /// Whether the operating system asks for less motion. Windows: "Show animations in Windows" is
-/// off (`SPI_GETCLIENTAREAANIMATION`). Other systems expose no setting we read, so motion stays.
-/// Asked again at most every two seconds; the answer is cheap but frames are many.
+/// off (`SPI_GETCLIENTAREAANIMATION`); macOS: Reduce motion is on. Linux exposes no setting we
+/// read, so motion stays. Asked again at most every two seconds; the answer is cheap but frames
+/// are many. Tests draw the same frames whatever the machine's setting (macOS runners reduce motion).
 pub fn system_reduces_motion() -> bool {
+    if cfg!(test) {
+        return false;
+    }
     static CHECKED: OnceLock<Instant> = OnceLock::new();
     static LAST_MS: AtomicU64 = AtomicU64::new(u64::MAX);
     static ANSWER: AtomicBool = AtomicBool::new(false);
@@ -232,7 +236,13 @@ fn os_reduces_motion() -> bool {
     read.is_ok() && animations == 0
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+fn os_reduces_motion() -> bool {
+    // AppKit exposes this display preference without asking for accessibility control.
+    unsafe { objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion() }
+}
+
+#[cfg(target_os = "linux")]
 fn os_reduces_motion() -> bool {
     false
 }
@@ -437,7 +447,7 @@ type Face = (&'static str, &'static str, &'static str);
 
 /// A fontconfig pattern and the family the match must have: fc-match answers every pattern with
 /// some font.
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 type Face = (&'static str, &'static str);
 
 /// Windows 10 and 11 ship Segoe UI, Yu Gothic, Malgun Gothic, YaHei and JhengHei; Meiryo
@@ -459,8 +469,40 @@ mod faces {
     pub const INSTALL: [&str; 2] = ["Segoe UI (Windows' own font).", "the language's supplemental fonts (Settings > Apps > Optional features)."];
 }
 
+#[cfg(target_os = "macos")]
+type Face = &'static str;
+
+#[cfg(target_os = "macos")]
+mod faces {
+    use super::Face;
+    pub const SANS: &[Face] = &["HelveticaNeue", "ArialMT"];
+    pub const SANS_SEMIBOLD: &[Face] = &["HelveticaNeue-Medium", "Arial-BoldMT"];
+    pub const JA: &[Face] = &["HiraginoSans-W3"];
+    pub const JA_SEMIBOLD: &[Face] = &["HiraginoSans-W6"];
+    pub const KO: &[Face] = &["AppleSDGothicNeo-Regular"];
+    pub const KO_SEMIBOLD: &[Face] = &["AppleSDGothicNeo-SemiBold"];
+    pub const ZH_HANS: &[Face] = &["PingFangSC-Regular", "STHeitiSC-Light"];
+    pub const ZH_HANS_SEMIBOLD: &[Face] = &["PingFangSC-Semibold", "STHeitiSC-Medium"];
+    pub const ZH_HANT: &[Face] = &["PingFangTC-Regular", "STHeitiTC-Light"];
+    pub const ZH_HANT_SEMIBOLD: &[Face] = &["PingFangTC-Semibold", "STHeitiTC-Medium"];
+    pub const INSTALL: [&str; 2] = ["the system fonts in Font Book.", "the language's fonts in Font Book."];
+}
+
+#[cfg(target_os = "macos")]
+fn load(&name: &Face) -> Option<FontData> {
+    use skrifa::{MetadataProvider, string::StringId};
+    let font = core_text::font::new_from_name(name, 14.0).ok()?;
+    if font.postscript_name() != name { return None; }
+    let bytes = std::fs::read(font.url()?.to_path()?).ok()?;
+    let index = skrifa::raw::FileRef::new(&bytes).ok()?.fonts().position(|face| {
+        face.is_ok_and(|face| face.localized_strings(StringId::POSTSCRIPT_NAME)
+            .any(|s| s.to_string() == name))
+    })?;
+    face_data(bytes, index.try_into().ok()?)
+}
+
 /// Noto ships in most distributions (fonts-noto-core, fonts-noto-cjk); DejaVu is the older default.
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 mod faces {
     use super::Face;
     pub const SANS: &[Face] = &[("Noto Sans:style=Regular", "Noto Sans"), ("DejaVu Sans:style=Book", "DejaVu Sans")];
@@ -494,7 +536,7 @@ fn load(&(file, family, style): &Face) -> Option<FontData> {
     face_data(bytes, u32::try_from(index).ok()?)
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 fn load(&(pattern, family): &Face) -> Option<FontData> {
     let out = fc_match(pattern)?;
     let mut lines = out.lines();
@@ -507,7 +549,7 @@ fn load(&(pattern, family): &Face) -> Option<FontData> {
 
 /// fc-match's answer for `pattern`, or None when it fails or takes over two seconds (a cold
 /// font cache on a slow disk): the language then shows without its face rather than waiting.
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 fn fc_match(pattern: &str) -> Option<String> {
     use std::io::Read;
     let mut child = crate::amd_decode::for_child(&mut std::process::Command::new("fc-match"))

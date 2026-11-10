@@ -9,6 +9,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.BaseAdapter;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.GridView;
 import android.widget.ListView;
@@ -155,6 +156,151 @@ public class UiNavigationTest {
             layout(screen);
             View back = screen.findViewById(R.id.library_back);
             assertSame(grid, back.focusSearch(View.FOCUS_DOWN));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    // Nightjar #81: a pad's Y the grid leaves alone reaches it again as Space, which presses a card.
+    @Test
+    public void aGridWithNothingToOpenStillTakesThePadsY() {
+        ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup().visible();
+        try {
+            Screen screen = controller.get();
+            GridView grid = new GridView(screen);
+            grid.setAdapter(new ArrayAdapter<>(screen, android.R.layout.simple_list_item_1, new String[] {"One", "Two"}));
+            AtomicInteger clicked = new AtomicInteger();
+            grid.setOnItemClickListener((parent, view, position, id) -> clicked.incrementAndGet());
+            // No options to open on this grid: the branch that used to hand Y back to Android.
+            UiNavigation.bindGrid(grid);
+            screen.setContentView(grid);
+            grid.requestFocus();
+            layout(screen);
+            assertTrue(grid.isFocused());
+            for (int action : new int[] {KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP}) {
+                assertTrue(grid.dispatchKeyEvent(new KeyEvent(action, KeyEvent.KEYCODE_BUTTON_Y)));
+                // Menu has its own meaning on a screen without options, and stays the screen's.
+                assertFalse(grid.dispatchKeyEvent(new KeyEvent(action, KeyEvent.KEYCODE_MENU)));
+            }
+            assertEquals("Y never presses a card", 0, clicked.get());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    // Nightjar #81: an "All" tile or a Settings row has no Y hint. A Y the page leaves alone must count as taken, or
+    // Android sends it again as Space and presses the focused item.
+    @Test
+    public void aPadsYThatNothingOnThePageTakesIsSwallowed() {
+        ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup().visible();
+        try {
+            Screen screen = controller.get();
+            for (int action : new int[] {KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP}) {
+                assertTrue(UiNavigation.handleKey(screen, new KeyEvent(action, KeyEvent.KEYCODE_BUTTON_Y)));
+                // Y has no shortcut of its own: nothing opens.
+                assertNull(Shadows.shadowOf(screen).getNextStartedActivity());
+                // The keys the pad's Y must not stand in for stay with the page.
+                assertFalse(UiNavigation.handleKey(screen, new KeyEvent(action, KeyEvent.KEYCODE_SPACE)));
+                assertFalse(UiNavigation.handleKey(screen, new KeyEvent(action, KeyEvent.KEYCODE_BUTTON_A)));
+                assertFalse(UiNavigation.handleKey(screen, new KeyEvent(action, KeyEvent.KEYCODE_BUTTON_X)));
+            }
+            assertFalse(screen.isFinishing());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    // In a text field the Space Android makes of Y types a space and presses nothing: it is left alone there.
+    @Test
+    public void aPadsYInATextFieldStillTypesASpace() {
+        ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup().visible();
+        try {
+            Screen screen = controller.get();
+            FrameLayout root = new FrameLayout(screen);
+            EditText field = new EditText(screen);
+            root.addView(field, new FrameLayout.LayoutParams(400, 100));
+            View tile = new View(screen);
+            tile.setFocusable(true);
+            FrameLayout.LayoutParams second = new FrameLayout.LayoutParams(200, 200);
+            second.topMargin = 300;
+            root.addView(tile, second);
+            screen.setContentView(root);
+            UiNavigation.install(screen, root);
+            layout(screen);
+            Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            // Robolectric's activity reports no focus for a view set this way; the page's own focus is what a device's
+            // getCurrentFocus() returns.
+            assertTrue(field.requestFocus());
+            assertSame(field, root.findFocus());
+            assertFalse("Y left unhandled, so Android sends its Space to the field",
+                    UiNavigation.swallowsPadY(KeyEvent.KEYCODE_BUTTON_Y, root.findFocus()));
+            // Focus on an item again: Y is taken, as it would press it.
+            assertTrue(tile.requestFocus());
+            assertSame(tile, root.findFocus());
+            assertTrue(UiNavigation.swallowsPadY(KeyEvent.KEYCODE_BUTTON_Y, root.findFocus()));
+            for (int action : new int[] {KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP}) {
+                assertTrue(UiNavigation.handleKey(screen, new KeyEvent(action, KeyEvent.KEYCODE_BUTTON_Y)));
+            }
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void anyViewThatTakesTextInputCountsAsATextField() {
+        Application app = org.robolectric.RuntimeEnvironment.getApplication();
+        View editor = new View(app) {
+            @Override public boolean onCheckIsTextEditor() {
+                return true;
+            }
+        };
+        assertFalse(UiNavigation.swallowsPadY(KeyEvent.KEYCODE_BUTTON_Y, editor));
+        assertFalse(UiNavigation.swallowsPadY(KeyEvent.KEYCODE_BUTTON_Y, new EditText(app)));
+        assertTrue(UiNavigation.swallowsPadY(KeyEvent.KEYCODE_BUTTON_Y, new View(app)));
+        assertTrue(UiNavigation.swallowsPadY(KeyEvent.KEYCODE_BUTTON_Y, null));
+        assertFalse(UiNavigation.swallowsPadY(KeyEvent.KEYCODE_SPACE, new View(app)));
+    }
+
+    @Test
+    public void aFocusedTileWithoutOptionsKeepsYFromBecomingAPress() {
+        ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup().visible();
+        try {
+            Screen screen = controller.get();
+            FrameLayout root = new FrameLayout(screen);
+            View tile = new View(screen);
+            tile.setFocusable(true);
+            AtomicInteger clicked = new AtomicInteger();
+            tile.setOnClickListener(v -> clicked.incrementAndGet());
+            root.addView(tile, new FrameLayout.LayoutParams(200, 200));
+            View taker = new View(screen);
+            taker.setFocusable(true);
+            AtomicInteger taken = new AtomicInteger();
+            // A card with an options hint takes Y itself, before the page's fallback sees it.
+            taker.setOnKeyListener((v, key, event) -> {
+                if (key != KeyEvent.KEYCODE_BUTTON_Y) return false;
+                if (event.getAction() == KeyEvent.ACTION_UP) taken.incrementAndGet();
+                return true;
+            });
+            FrameLayout.LayoutParams second = new FrameLayout.LayoutParams(200, 200);
+            second.leftMargin = 300;
+            root.addView(taker, second);
+            screen.setContentView(root);
+            UiNavigation.install(screen, root);
+            layout(screen);
+            tile.requestFocus();
+            assertTrue(tile.isFocused());
+            for (int action : new int[] {KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP}) {
+                // No view takes it, so the unhandled-key listener does (Robolectric skips ViewRootImpl, which calls it).
+                assertFalse(screen.dispatchKeyEvent(new KeyEvent(action, KeyEvent.KEYCODE_BUTTON_Y)));
+                assertTrue("Y reported as handled, so Android sends no Space",
+                        UiNavigation.handleKey(screen, new KeyEvent(action, KeyEvent.KEYCODE_BUTTON_Y)));
+            }
+            assertEquals(0, clicked.get());
+            taker.requestFocus();
+            for (int action : new int[] {KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP}) {
+                assertTrue(screen.dispatchKeyEvent(new KeyEvent(action, KeyEvent.KEYCODE_BUTTON_Y)));
+            }
+            assertEquals("A card's own Y still runs", 1, taken.get());
         } finally {
             controller.pause().stop().destroy();
         }

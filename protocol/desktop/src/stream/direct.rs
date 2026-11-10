@@ -353,7 +353,9 @@ impl Direct {
             let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
             match self.context.Map(&self.staging[slot], 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32, Some(&mut mapped)) {
                 Ok(()) => {
-                    let counts = std::slice::from_raw_parts(mapped.pData.cast::<u32>(), BINS).to_vec();
+                    // Read once, into the stack: no allocation per picture.
+                    let mut counts = [0u32; BINS];
+                    counts.copy_from_slice(std::slice::from_raw_parts(mapped.pData.cast::<u32>(), BINS));
                     self.context.Unmap(&self.staging[slot], 0);
                     self.pending.pop_front();
                     if let Some(peak) = histogram_peak(&counts) { self.tracker.update(peak); }

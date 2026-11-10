@@ -1,13 +1,17 @@
 //! Draws the GPU decoder's planes through SDL's GPU renderer (brief G3, Linux).
 //!
 //! The planes the SDK decoded sit in images on the renderer's own device (`zero_copy.rs`) or in
-//! CPU buffers (`gpu_planes::Lease`). This pass copies them into three persistent R8 or R16 UNORM
-//! textures of the renderer's device, on the GPU from the images (wrapped as SDL textures once per
-//! plane set) or as an upload from the buffers, and draws a full-target rectangle with
+//! CPU buffers (`gpu_planes::Lease`). This pass draws a full-target rectangle with
 //! `pyrowave-planes.spv`, the `planes` entry of pyrowave.hlsl, which converts the planes to the
-//! same linear RGB as the CPU path. Nothing here waits for the GPU: the copies and the draw are
-//! ordered by the renderer's own queue, and a plane set copied on the GPU goes back to the decoder
-//! with the reuse value signalled behind the copy.
+//! same linear RGB as the CPU path. Images are sampled in place: each plane set is wrapped as
+//! three SDL sampler textures with a render state of its own, the presenter holds the shown
+//! picture's set (`gpu_planes::Handover`) in SHADER_READ_ONLY_OPTIMAL and gives it back, in
+//! GENERAL with the reuse value signalled behind the last draw that read it, when the next picture
+//! replaces it. With `NIGHTJAR_PYROWAVE_SAMPLE_PLANES=0` (`PlaneHandoff::Copy`) the images are
+//! copied on the GPU into three persistent R8 or R16 UNORM textures of the pass instead and the
+//! set goes back behind the copy, as before; CPU buffers are always uploaded into those textures.
+//! Nothing here waits for the GPU: the layout changes, copies and draws are ordered by the
+//! renderer's own queue.
 
 use std::ptr;
 use std::sync::Arc;
@@ -15,12 +19,10 @@ use std::time::Instant;
 
 use sdl3_sys::everything::*;
 
-use super::gpu_planes::{Lease, Planes};
-use super::pyrowave_sdk::zero_copy::{SharedImages, TEXTURE_IMAGE_PROPERTY};
+use super::gpu_planes::{Handover, Lease, Planes, SetGpu};
+use super::pyrowave_sdk::zero_copy::{PlaneHandoff, SharedImages, TEXTURE_IMAGE_PROPERTY};
 use super::pyrowave_sdk::GpuConfig;
 use super::stage_times::Stages;
-
-const PLANES_SPIRV: &[u8] = include_bytes!("../pyrowave-planes.spv");
 
 fn device_of(renderer: *mut SDL_Renderer) -> *mut SDL_GPUDevice {
     crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_GPU_DEVICE_POINTER).cast()
@@ -33,25 +35,56 @@ fn plane_format(ten_bit: bool) -> SDL_GPUTextureFormat {
 /// # Safety
 /// `device` must be a live GPU device of the calling thread's renderer.
 unsafe fn create_shader(device: *mut SDL_GPUDevice) -> *mut SDL_GPUShader {
-    SDL_CreateGPUShader(device, &SDL_GPUShaderCreateInfo {
-        code: PLANES_SPIRV.as_ptr(), code_size: PLANES_SPIRV.len(), entrypoint: c"planes".as_ptr(),
-        format: SDL_GPU_SHADERFORMAT_SPIRV, stage: SDL_GPU_SHADERSTAGE_FRAGMENT,
-        num_samplers: 3, num_uniform_buffers: 1, ..Default::default() })
+    SDL_CreateGPUShader(device, &super::shader::Shader::Planes.info())
 }
 
 pub struct PlanesPass {
+    renderer: *mut SDL_Renderer,
     device: *mut SDL_GPUDevice,
     shader: *mut SDL_GPUShader,
     sampler: *mut SDL_GPUSampler,
     textures: [*mut SDL_GPUTexture; 3],
     transfer: *mut SDL_GPUTransferBuffer,
+    /// The render state drawing `textures` (null when the pass samples the decoder's images).
     state: *mut SDL_GPURenderState,
     /// The width and height of each plane texture.
     sizes: [(u32, u32); 3],
     sample_bytes: usize,
     /// The decoder's images wrapped as textures of this device, per plane set, for the planes
     /// they belong to.
-    wrapped: Option<(Arc<Planes>, Vec<[*mut SDL_GPUTexture; 3]>)>,
+    wrapped: Option<Wrapped>,
+    /// The set the shown picture is sampled from, in place (`PlaneHandoff::Sample`).
+    handover: Handover<Lease>,
+}
+
+/// The decoder's plane images as SDL textures of the pass's device.
+struct Wrapped {
+    planes: Arc<Planes>,
+    /// Per set, its three planes.
+    sets: Vec<[*mut SDL_GPUTexture; 3]>,
+    /// Sampling in place: per set, the render state drawing it (empty when the pass copies).
+    states: Vec<*mut SDL_GPURenderState>,
+}
+
+/// The renderer's queue as `Handover` uses it, for the sets of `images`.
+struct Sets<'a> {
+    renderer: *mut SDL_Renderer,
+    images: &'a SharedImages,
+}
+
+impl SetGpu for Sets<'_> {
+    fn flush(&mut self) -> Result<(), String> {
+        // SAFETY: The pass's live renderer, on its thread.
+        if unsafe { SDL_FlushRenderer(self.renderer) } { Ok(()) } else { Err(format!("the renderer cannot flush: {}", crate::sdl::error())) }
+    }
+
+    fn sampled(&mut self, set: usize) -> Result<(), String> {
+        self.images.sampled(set)
+    }
+
+    fn returned(&mut self, set: usize) -> Result<u64, String> {
+        self.images.returned(set)
+    }
 }
 
 impl PlanesPass {
@@ -80,6 +113,25 @@ impl PlanesPass {
     /// `renderer` must be the live SDL GPU renderer of the calling thread.
     pub unsafe fn new(renderer: *mut SDL_Renderer, config: GpuConfig) -> Result<Self, String> {
         Self::with_planes(renderer, [0, 1, 2].map(|plane| config.plane_size(plane)), config.ten_bit)
+    }
+
+    /// The pass for the decoder's `planes`: one without plane textures of its own when it samples
+    /// the decoder's images in place, else `new`.
+    ///
+    /// # Safety
+    /// As `new`.
+    pub unsafe fn for_planes(renderer: *mut SDL_Renderer, planes: &Planes) -> Result<Self, String> {
+        let config = planes.config();
+        if !samples_in_place(planes) {
+            return Self::new(renderer, config);
+        }
+        Self::shader_only(renderer, [0, 1, 2].map(|plane| config.plane_size(plane)), if config.ten_bit { 2 } else { 1 })
+    }
+
+    /// Whether the pass reads `planes` the way it was made for (`for_planes`): in place, or from
+    /// its own textures.
+    pub fn suits(&self, planes: &Planes) -> bool {
+        samples_in_place(planes) == self.textures[0].is_null()
     }
 
     /// The pass for software-decoded planar pictures shaped like `layout`.
@@ -141,8 +193,8 @@ impl PlanesPass {
             return Err("it needs the SDL GPU renderer".into());
         }
         let mut pass = Self {
-            device, shader: ptr::null_mut(), sampler: ptr::null_mut(), textures: [ptr::null_mut(); 3],
-            transfer: ptr::null_mut(), state: ptr::null_mut(), sizes, sample_bytes, wrapped: None,
+            renderer, device, shader: ptr::null_mut(), sampler: ptr::null_mut(), textures: [ptr::null_mut(); 3],
+            transfer: ptr::null_mut(), state: ptr::null_mut(), sizes, sample_bytes, wrapped: None, handover: Handover::default(),
         };
         pass.shader = create_shader(device);
         if pass.shader.is_null() {
@@ -160,26 +212,50 @@ impl PlanesPass {
 
     /// The render state drawing `textures` in the shader's three plane slots.
     unsafe fn bind(&mut self, renderer: *mut SDL_Renderer, textures: [*mut SDL_GPUTexture; 3]) -> Result<(), String> {
-        let bindings = textures.map(|texture| SDL_GPUTextureSamplerBinding { texture, sampler: self.sampler });
-        self.state = SDL_CreateGPURenderState(renderer, &SDL_GPURenderStateCreateInfo {
-            fragment_shader: self.shader, num_sampler_bindings: 3, sampler_bindings: bindings.as_ptr(), ..Default::default() });
-        if self.state.is_null() {
-            return Err(format!("the plane render state cannot be created: {}", crate::sdl::error()));
-        }
+        self.state = self.make_state(renderer, textures)?;
         Ok(())
     }
 
-    /// Copies the planes of `lease` (on the GPU, or as an upload) and draws them, converted, over
-    /// all of `target` (the renderer's RGBA64F picture texture). `parameters` are the shader's
-    /// constants. The CPU time of filling and submitting the copy goes to `stages`' upload, that
-    /// of the conversion to its passes (the GPU runs on after the submit returns).
+    unsafe fn make_state(&self, renderer: *mut SDL_Renderer, textures: [*mut SDL_GPUTexture; 3]) -> Result<*mut SDL_GPURenderState, String> {
+        let bindings = textures.map(|texture| SDL_GPUTextureSamplerBinding { texture, sampler: self.sampler });
+        let state = SDL_CreateGPURenderState(renderer, &SDL_GPURenderStateCreateInfo {
+            fragment_shader: self.shader, num_sampler_bindings: 3, sampler_bindings: bindings.as_ptr(), ..Default::default() });
+        if state.is_null() {
+            return Err(format!("the plane render state cannot be created: {}", crate::sdl::error()));
+        }
+        Ok(state)
+    }
+
+    /// The render state the next draw uses: the held set's when the pass samples the decoder's
+    /// images in place, else the one of its own textures (null before the first picture).
+    fn active_state(&self) -> *mut SDL_GPURenderState {
+        match (&self.wrapped, self.handover.held()) {
+            (Some(wrapped), Some(set)) if set < wrapped.states.len() => wrapped.states[set],
+            _ => self.state,
+        }
+    }
+
+    /// Copies or samples the planes of `lease` (on the GPU, or as an upload) and draws them,
+    /// converted, over all of `target` (the renderer's RGBA64F picture texture; null: at present
+    /// time, `draw_direct`). `parameters` are the shader's constants. The CPU time of filling and
+    /// submitting the copy (or the layout change) goes to `stages`' upload, that of the conversion
+    /// to its passes (the GPU runs on after the submit returns).
     ///
     /// # Safety
     /// `renderer` and `target` must be live and the pass the one made on this renderer.
     pub unsafe fn draw(&mut self, renderer: *mut SDL_Renderer, target: *mut SDL_Texture, lease: &Lease, parameters: &[u32; 8], stages: &mut Stages<2>) -> Result<(), String> {
         if let Some(images) = lease.planes().images() {
             let images = images.clone();
+            if !self.suits(lease.planes()) {
+                return Err("the plane pass was made for the other way of reading the decoder's images".into());
+            }
+            if images.handoff() == PlaneHandoff::Sample {
+                return self.draw_sampled(renderer, target, lease, &images, parameters, stages);
+            }
             return self.draw_shared(renderer, target, lease, &images, parameters, stages);
+        }
+        if self.textures[0].is_null() {
+            return Err("the plane pass was made for the decoder's images, not CPU planes".into());
         }
         let bytes = [0, 1, 2].map(|plane| self.plane_bytes(plane));
         self.draw_with(renderer, target, parameters, Some(stages), |mapped, offsets| {
@@ -199,7 +275,7 @@ impl PlanesPass {
         if !SDL_FlushRenderer(renderer) {
             return Err(format!("the renderer cannot flush: {}", crate::sdl::error()));
         }
-        let sources = self.wrap(lease.planes(), images)?[lease.set()];
+        let sources = self.wrap(lease.planes(), images)?.sets[lease.set()];
         let commands = SDL_AcquireGPUCommandBuffer(self.device);
         if commands.is_null() {
             return Err(format!("no GPU command buffer for the plane copy: {}", crate::sdl::error()));
@@ -221,50 +297,88 @@ impl PlanesPass {
         self.convert(renderer, target, parameters, Some(stages))
     }
 
-    /// The textures wrapping each plane set of `planes`' images, made on first use. Those of
-    /// earlier planes (an earlier decoder's) are released first.
-    unsafe fn wrap(&mut self, planes: &Arc<Planes>, images: &SharedImages) -> Result<&[[*mut SDL_GPUTexture; 3]], String> {
-        if self.wrapped.as_ref().is_some_and(|(wrapped, _)| !Arc::ptr_eq(wrapped, planes)) {
+    /// `draw` for a set sampled in place: takes the picture's lease over, makes the set readable
+    /// and gives the set it replaces back behind the draws recorded so far (`Handover::show`),
+    /// then draws from it (now, into `target`, or at present time).
+    unsafe fn draw_sampled(&mut self, renderer: *mut SDL_Renderer, target: *mut SDL_Texture, lease: &Lease, images: &Arc<SharedImages>, parameters: &[u32; 8], stages: &mut Stages<2>) -> Result<(), String> {
+        let step = Instant::now();
+        self.wrap(lease.planes(), images)?;
+        let next = lease.hand_over().ok_or("the picture's plane set was given back already")?;
+        self.handover.show(&mut Sets { renderer, images: images.as_ref() }, next)?;
+        stages.add(super::pyrowave_gpu::UPLOAD, step);
+        self.convert(renderer, target, parameters, Some(stages))
+    }
+
+    /// The textures wrapping each plane set of `planes`' images (and, sampled in place, a render
+    /// state per set), made on first use. Those of earlier planes (an earlier decoder's) are
+    /// released first, the set held from them given back.
+    unsafe fn wrap(&mut self, planes: &Arc<Planes>, images: &SharedImages) -> Result<&Wrapped, String> {
+        if self.wrapped.as_ref().is_some_and(|wrapped| !Arc::ptr_eq(&wrapped.planes, planes)) {
             self.unwrap();
         }
         if self.wrapped.is_none() {
             let config = images.config();
-            let mut sets: Vec<[*mut SDL_GPUTexture; 3]> = Vec::new();
+            let sampled = images.handoff() == PlaneHandoff::Sample;
+            // Sampled, SDL expects the image in SHADER_READ_ONLY_OPTIMAL whenever it draws it (the
+            // held set is, `SharedImages::sampled`); as compute storage, in GENERAL, where the
+            // decoder leaves it, for the copy.
+            let usage = if sampled { SDL_GPU_TEXTUREUSAGE_SAMPLER } else { SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE };
+            // Kept as it is made, so `unwrap` releases what was made on a failure.
+            self.wrapped = Some(Wrapped { planes: planes.clone(), sets: Vec::new(), states: Vec::new() });
             for set in 0..config.slots {
                 let mut textures = [ptr::null_mut(); 3];
                 for (plane, texture) in textures.iter_mut().enumerate() {
                     let (width, height) = config.plane_size(plane);
                     let props = SDL_CreateProperties();
                     SDL_SetNumberProperty(props, TEXTURE_IMAGE_PROPERTY.as_ptr(), ash::vk::Handle::as_raw(images.image(set, plane)) as i64);
-                    // Compute storage, so SDL expects the image in GENERAL, where the decoder leaves it.
                     *texture = SDL_CreateGPUTexture(self.device, &SDL_GPUTextureCreateInfo {
-                        r#type: SDL_GPU_TEXTURETYPE_2D, format: plane_format(config.ten_bit), usage: SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE,
+                        r#type: SDL_GPU_TEXTURETYPE_2D, format: plane_format(config.ten_bit), usage,
                         width, height, layer_count_or_depth: 1, num_levels: 1, sample_count: SDL_GPU_SAMPLECOUNT_1, props });
                     SDL_DestroyProperties(props);
                 }
-                // Kept before the check, so `unwrap` releases what was made.
                 let failed = textures.iter().any(|texture| texture.is_null());
-                sets.push(textures);
-                if failed {
-                    self.wrapped = Some((planes.clone(), sets));
-                    let error = crate::sdl::error();
-                    self.unwrap();
-                    return Err(format!("the decoder's plane images cannot be wrapped as textures: {error}"));
+                if let Some(wrapped) = self.wrapped.as_mut() { wrapped.sets.push(textures); }
+                let state = if failed || !sampled {
+                    Ok(ptr::null_mut())
+                } else {
+                    self.make_state(self.renderer, textures)
+                };
+                match state {
+                    Ok(state) if !failed => {
+                        if sampled { if let Some(wrapped) = self.wrapped.as_mut() { wrapped.states.push(state); } }
+                    }
+                    outcome => {
+                        let error = outcome.err().unwrap_or_else(crate::sdl::error);
+                        self.unwrap();
+                        return Err(format!("the decoder's plane images cannot be wrapped as textures: {error}"));
+                    }
                 }
             }
-            self.wrapped = Some((planes.clone(), sets));
         }
-        Ok(self.wrapped.as_ref().map_or(&[], |(_, sets)| sets.as_slice()))
+        self.wrapped.as_ref().ok_or_else(|| "the decoder's plane images are not wrapped".into())
     }
 
-    /// Releases the wrapped textures and lets their images go. SDL destroys a texture's views only
-    /// once its last command is done, and the images must outlive them, so this waits for that.
+    /// Gives the set the shown picture is sampled from back to the decoder, behind the draws
+    /// recorded so far (flushed first).
+    unsafe fn give_back_held(&mut self) {
+        let Some(images) = self.wrapped.as_ref().and_then(|wrapped| wrapped.planes.images().cloned()) else { return };
+        self.handover.finish(&mut Sets { renderer: self.renderer, images: images.as_ref() });
+    }
+
+    /// Gives the held set back, releases the wrapped textures and their render states and lets
+    /// the images go. SDL destroys a texture's views only once its last command is done, and the
+    /// images must outlive them, so this waits for that.
     unsafe fn unwrap(&mut self) {
-        let Some((planes, sets)) = self.wrapped.take() else { return };
+        self.give_back_held();
+        let Some(Wrapped { planes, sets, states }) = self.wrapped.take() else { return };
         for texture in sets.into_iter().flatten().filter(|texture| !texture.is_null()) {
             SDL_ReleaseGPUTexture(self.device, texture);
         }
-        if !SDL_WaitForGPUIdle(self.device) {
+        let idle = SDL_WaitForGPUIdle(self.device);
+        for state in states.into_iter().filter(|state| !state.is_null()) {
+            SDL_DestroyGPURenderState(state);
+        }
+        if !idle {
             // The views may still be in use: keep the images rather than free them under the GPU.
             eprintln!("nightjar: the GPU did not go idle after the PyroWave planes ({}), so their images stay allocated", crate::sdl::error());
             std::mem::forget(planes);
@@ -342,7 +456,7 @@ impl PlanesPass {
         if !SDL_SetRenderTarget(renderer, target) {
             return Err(format!("the picture texture cannot be the render target: {}", crate::sdl::error()));
         }
-        let drawn = SDL_SetGPURenderState(renderer, self.state) && SDL_RenderFillRect(renderer, ptr::null()) && SDL_FlushRenderer(renderer);
+        let drawn = SDL_SetGPURenderState(renderer, self.active_state()) && SDL_RenderFillRect(renderer, ptr::null()) && SDL_FlushRenderer(renderer);
         let error = if drawn { String::new() } else { crate::sdl::error() };
         SDL_SetGPURenderState(renderer, ptr::null_mut());
         SDL_SetRenderTarget(renderer, previous);
@@ -353,7 +467,11 @@ impl PlanesPass {
 
 impl PlanesPass {
     unsafe fn set_uniforms(&mut self, uniforms: &Uniforms) -> Result<(), String> {
-        if !SDL_SetGPURenderStateFragmentUniforms(self.state, 0, (uniforms as *const Uniforms).cast(), std::mem::size_of::<Uniforms>() as u32) {
+        let state = self.active_state();
+        if state.is_null() {
+            return Err("no picture's planes to draw".into());
+        }
+        if !SDL_SetGPURenderStateFragmentUniforms(state, 0, (uniforms as *const Uniforms).cast(), std::mem::size_of::<Uniforms>() as u32) {
             return Err(format!("the plane constants cannot be set: {}", crate::sdl::error()));
         }
         Ok(())
@@ -371,7 +489,7 @@ impl PlanesPass {
         let mut viewport = SDL_Rect::default();
         SDL_GetRenderViewport(renderer, &mut viewport);
         self.set_uniforms(&direct_uniforms(parameters, destination, (viewport.x, viewport.y), visible, look))?;
-        let drawn = SDL_SetGPURenderState(renderer, self.state) && SDL_RenderFillRect(renderer, destination);
+        let drawn = SDL_SetGPURenderState(renderer, self.active_state()) && SDL_RenderFillRect(renderer, destination);
         let error = if drawn { String::new() } else { crate::sdl::error() };
         SDL_SetGPURenderState(renderer, ptr::null_mut());
         if drawn { Ok(()) } else { Err(format!("the planes cannot be drawn into the back buffer: {error}")) }
@@ -389,12 +507,21 @@ pub struct Uniforms {
     pub output_scale: f32,
     pub tonemap: [f32; 2],
     pub unused: f32,
+    /// What flag 8192 reads: the gamma 2.2 range's minimum and 1 / (peak - minimum), in nits.
+    pub encoding: [f32; 4],
 }
 
 /// The shader's flag for a draw straight into the target rectangle.
 pub const DIRECT_FLAG: u32 = 512;
 /// With `DIRECT_FLAG`: the target is sRGB, not scRGB, so the shader encodes and clamps as SDL does.
 pub const SRGB_TARGET_FLAG: u32 = 1024;
+/// With `DIRECT_FLAG`: the target is the HDR10 swapchain image of a video-only frame (the patched
+/// SDL's `SDL.renderer.gpu.video_only`), so the shader finishes with the PQ present pass's encode
+/// (`pq_present.hlsl`: BT.709 to BT.2020, 1.0 = 80 nits, ST 2084) of the scRGB it would write.
+pub const PQ_TARGET_FLAG: u32 = 4096;
+/// With `PQ_TARGET_FLAG`: the swapchain is drawn in the compositor's gamma 2.2 blending space, as
+/// the scanout present pass would (`scanout_present.hlsl`, `wl_scanout::Encoding::Gamma22`).
+pub const GAMMA22_TARGET_FLAG: u32 = 8192;
 
 /// What SDL's draw of the RGBA64F linear picture texture into the back buffer does to it
 /// (`texture_advanced.frag.hlsl`): its tone map, when the texture's HDR headroom is above the
@@ -408,6 +535,11 @@ pub struct SdlLook {
     pub color_scale: f32,
     /// The output is scRGB (`SDL_RenderingLinearSpace`), not sRGB.
     pub linear_output: bool,
+    /// The frame is video only on a PQ output: the draw writes PQ, not scRGB (`PQ_TARGET_FLAG`).
+    pub pq_target: bool,
+    /// The encoding the renderer's present writes into its swapchain (`sdl::present_encoding`):
+    /// mode 1 makes a `pq_target` draw gamma 2.2 instead (`GAMMA22_TARGET_FLAG`).
+    pub target_encoding: [f32; 4],
 }
 
 impl SdlLook {
@@ -437,6 +569,8 @@ impl SdlLook {
             sdr_white: SDL_GetFloatProperty(output, sdr_white, 1.0),
             color_scale,
             linear_output: colorspace == i64::from(SDL_COLORSPACE_SRGB_LINEAR.0),
+            pq_target: false,
+            target_encoding: crate::sdl::present_encoding(renderer),
         }
     }
 
@@ -450,7 +584,14 @@ impl SdlLook {
 /// The constants of a `draw_direct` into `destination` (render coordinates) of a viewport at `origin`.
 pub fn direct_uniforms(parameters: &[u32; 8], destination: &SDL_FRect, origin: (i32, i32), visible: (i32, i32), look: SdlLook) -> Uniforms {
     let mut parameters = *parameters;
-    parameters[6] |= DIRECT_FLAG | if look.linear_output { 0 } else { SRGB_TARGET_FLAG };
+    // A PQ target takes the scRGB a linear one would, encoded: the output colorspace stays scRGB.
+    parameters[6] |= DIRECT_FLAG | if look.pq_target { PQ_TARGET_FLAG } else if look.linear_output { 0 } else { SRGB_TARGET_FLAG };
+    // The swapchain the present would draw in gamma 2.2 gets the same encode from this draw.
+    let [mode, min_nits, inv_range, _] = look.target_encoding;
+    let gamma22 = look.pq_target && mode == 1.0 && inv_range > 0.0;
+    if gamma22 {
+        parameters[6] |= GAMMA22_TARGET_FLAG;
+    }
     let (tonemap1, tonemap2) = look.tonemap().unwrap_or((0.0, 0.0));
     Uniforms {
         parameters,
@@ -459,7 +600,13 @@ pub fn direct_uniforms(parameters: &[u32; 8], destination: &SDL_FRect, origin: (
         output_scale: look.sdr_white * look.color_scale,
         tonemap: [tonemap1, tonemap2],
         unused: 0.0,
+        encoding: if gamma22 { [min_nits, inv_range, 0.0, 0.0] } else { [0.0; 4] },
     }
+}
+
+/// Whether the presenter samples `planes` in place (images on the renderer's device, not copied).
+fn samples_in_place(planes: &Planes) -> bool {
+    planes.images().is_some_and(|images| images.handoff() == PlaneHandoff::Sample)
 }
 
 /// Whether a picture's chroma is one interleaved plane (NV12, P010).
@@ -467,20 +614,38 @@ fn semi_planar(info: &crate::media::FrameInfo) -> bool {
     matches!(info.kind, crate::media::FRAME_NV12 | crate::media::FRAME_P010)
 }
 
+/// Whether a planar picture's 16-bit samples hold its 10-bit codes in their high bits, as P010's
+/// do: NVDEC's 10-bit 4:4:4 copied to memory (`media::FRAME_YUV444P16`).
+fn high_bit_planes(info: &crate::media::FrameInfo) -> bool {
+    info.kind == crate::media::FRAME_YUV444P16
+}
+
 /// Copies a picture's planes into the transfer buffer as the tightly packed planes `sizes` gives.
 /// A planar picture's rows go as they are. An NV12 or P010 picture's interleaved chroma is split
 /// into its Cb and Cr planes, and P010's samples, in the high 10 bits of each word, move to the low
-/// bits, where the shader reads FFmpeg's 10-bit planes (flag 64).
+/// bits, where the shader reads FFmpeg's 10-bit planes (flag 64); so do the samples of a planar
+/// picture with high-bit planes (`high_bit_planes`).
 ///
 /// # Safety
 /// `info` describes a live frame with at least `sizes` samples in each plane, and `mapped` has
 /// room for the planes at `offsets`.
 unsafe fn fill_planes(info: &crate::media::FrameInfo, sizes: [(u32, u32); 3], sample_bytes: usize, mapped: *mut u8, offsets: [usize; 3]) {
     if !semi_planar(info) {
+        let high_bits = sample_bytes == 2 && high_bit_planes(info);
         for (plane, &(width, height)) in sizes.iter().enumerate() {
             let row = width as usize * sample_bytes;
             for y in 0..height as usize {
-                ptr::copy_nonoverlapping(info.data[plane].add(y * info.linesize[plane] as usize), mapped.add(offsets[plane] + y * row), row);
+                let source = info.data[plane].add(y * info.linesize[plane] as usize);
+                let target = mapped.add(offsets[plane] + y * row);
+                if high_bits {
+                    let source = std::slice::from_raw_parts(source, row);
+                    let target = std::slice::from_raw_parts_mut(target, row);
+                    for (target, source) in target.chunks_exact_mut(2).zip(source.chunks_exact(2)) {
+                        target.copy_from_slice(&(u16::from_le_bytes([source[0], source[1]]) >> 6).to_le_bytes());
+                    }
+                } else {
+                    ptr::copy_nonoverlapping(source, target, row);
+                }
             }
         }
         return;
@@ -519,7 +684,8 @@ unsafe fn fill_planes(info: &crate::media::FrameInfo, sizes: [(u32, u32); 3], sa
 
 impl Drop for PlanesPass {
     fn drop(&mut self) {
-        // SAFETY: These objects belong to the renderer's device, which outlives the pass.
+        // SAFETY: These objects belong to the renderer's device, which outlives the pass; the
+        // renderer outlives it too, so the held set is given back behind its last draw.
         unsafe {
             self.unwrap();
             if !self.state.is_null() { SDL_DestroyGPURenderState(self.state); }
@@ -536,7 +702,7 @@ mod tests {
     use super::*;
     use crate::media::{FrameInfo, PlanarLayout, FRAME_NV12, FRAME_P010};
 
-    const SDR: SdlLook = SdlLook { texture_headroom: 0.0, output_headroom: 1.0, sdr_white: 1.0, color_scale: 1.0, linear_output: true };
+    const SDR: SdlLook = SdlLook { texture_headroom: 0.0, output_headroom: 1.0, sdr_white: 1.0, color_scale: 1.0, linear_output: true, pq_target: false, target_encoding: [0.0; 4] };
 
     /// planesDirect after the conversion, in the shader's order, for checking its numbers.
     fn shader_output(rgb: [f32; 3], uniforms: &Uniforms) -> [f32; 3] {
@@ -552,6 +718,12 @@ mod tests {
             rgb = mul(to709, v);
         }
         rgb = rgb.map(|c| c * uniforms.output_scale);
+        if uniforms.parameters[6] & GAMMA22_TARGET_FLAG != 0 {
+            return gamma22_of_scrgb(rgb, uniforms.encoding);
+        }
+        if uniforms.parameters[6] & PQ_TARGET_FLAG != 0 {
+            return pq_of_scrgb(rgb);
+        }
         if uniforms.parameters[6] & SRGB_TARGET_FLAG != 0 {
             rgb = rgb.map(|c| if c <= 0.0031308 { c * 12.92 } else { c.abs().powf(1.0 / 2.4) * 1.055 - 0.055 }.clamp(0.0, 1.0));
         }
@@ -580,14 +752,93 @@ mod tests {
         assert!(mapped.iter().all(|c| (c - 0.7556).abs() < 0.002), "white is tone mapped below the clip, then encoded: {mapped:?}");
     }
 
-    /// The constants are the shader's 80-byte `Picture` block, in its order.
+    /// BT.709 to BT.2020 primaries, as the present shaders write it, digit for digit.
+    #[allow(clippy::excessive_precision)]
+    const TO_2020: [[f32; 3]; 3] = [[0.6274040, 0.3292820, 0.0433136], [0.0690970, 0.9195400, 0.0113612], [0.0163916, 0.0880132, 0.8955950]];
+
+    /// The PQ present pass's encode of scRGB (`pq_present.hlsl`), written apart from the shader's.
+    fn pq_of_scrgb(rgb: [f32; 3]) -> [f32; 3] {
+        let to2020 = TO_2020;
+        let pq = |nits: f32| {
+            // SMPTE ST 2084's constants, as it defines them.
+            let (m1, m2) = (2610.0f32 / 16384.0, 2523.0f32 / 4096.0 * 128.0);
+            let (c1, c2, c3) = (3424.0f32 / 4096.0, 2413.0f32 / 4096.0 * 32.0, 2392.0f32 / 4096.0 * 32.0);
+            let y = (nits / 10000.0).clamp(0.0, 1.0).powf(m1);
+            ((c1 + c2 * y) / (1.0 + c3 * y)).powf(m2)
+        };
+        to2020.map(|row| pq((row[0] * rgb[0] + row[1] * rgb[1] + row[2] * rgb[2]).max(0.0) * 80.0))
+    }
+
+    /// The scanout present's gamma 2.2 encode of scRGB (`scanout_present.hlsl`) before its dither,
+    /// written apart from the shader's: BT.2020 nits over the range `[min, 1 / (peak - min)]`.
+    fn gamma22_of_scrgb(rgb: [f32; 3], encoding: [f32; 4]) -> [f32; 3] {
+        let to2020 = TO_2020;
+        let [min_nits, inv_range, _, _] = encoding;
+        let peak = min_nits + 1.0 / inv_range;
+        to2020.map(|row| crate::stream::wl_scanout::Encoding::gamma22_code((row[0] * rgb[0] + row[1] * rgb[1] + row[2] * rgb[2]) * 80.0, min_nits, peak))
+    }
+
+    /// A video-only frame on a swapchain the present draws in the compositor's gamma 2.2 blending
+    /// space (KWin 6.5 to 6.8): the draw encodes as that present would, never PQ.
+    #[test]
+    fn a_gamma22_target_gets_the_scrgb_picture_in_the_blending_space() {
+        let rect = SDL_FRect { x: 0.0, y: 0.0, w: 4.0, h: 4.0 };
+        // KWin's blending space on a 700-nit output with reference white 250 (3.125 in scRGB).
+        let encoding = crate::stream::wl_scanout::Encoding::constants(1, 0.005, 700.0);
+        let look = SdlLook { texture_headroom: 0.0, output_headroom: 2.8, sdr_white: 3.125, color_scale: 1.0, linear_output: true, pq_target: true, target_encoding: encoding };
+        let uniforms = direct_uniforms(&[0; 8], &rect, (0, 0), (4, 4), look);
+        assert_eq!(uniforms.parameters[6], DIRECT_FLAG | PQ_TARGET_FLAG | GAMMA22_TARGET_FLAG);
+        assert_eq!(uniforms.encoding, [0.005, encoding[2], 0.0, 0.0], "the range, as the present gets it");
+        let white = shader_output([1.0; 3], &uniforms);
+        let expected = (249.995f32 / 699.995).powf(1.0 / 2.2);
+        assert!(white.iter().all(|c| (c - expected).abs() < 0.0005), "reference white at the output's reference: {white:?}");
+        assert_eq!(shader_output([0.0; 3], &uniforms), [0.0; 3], "black is the range's minimum");
+        assert_eq!(shader_output([10.0; 3], &uniforms), [1.0; 3], "above the peak clips");
+        // The PQ encoding, an empty range and a draw that is not video only stay as they were.
+        let pq = direct_uniforms(&[0; 8], &rect, (0, 0), (4, 4), SdlLook { target_encoding: [0.0; 4], ..look });
+        assert_eq!((pq.parameters[6], pq.encoding), (DIRECT_FLAG | PQ_TARGET_FLAG, [0.0; 4]));
+        let empty = SdlLook { target_encoding: crate::stream::wl_scanout::Encoding::constants(1, 700.0, 700.0), ..look };
+        assert_eq!(direct_uniforms(&[0; 8], &rect, (0, 0), (4, 4), empty).parameters[6], DIRECT_FLAG | PQ_TARGET_FLAG);
+        let scrgb = direct_uniforms(&[0; 8], &rect, (0, 0), (4, 4), SdlLook { pq_target: false, ..look });
+        assert_eq!((scrgb.parameters[6], scrgb.encoding), (DIRECT_FLAG, [0.0; 4]), "the back buffer is scRGB; the present encodes it");
+    }
+
+    /// A video-only frame on a PQ output: the draw keeps every step of the scRGB one (scale, tone
+    /// map) and finishes with the PQ pass's encode, and never takes the sRGB encoding.
+    #[test]
+    fn a_pq_target_gets_the_scrgb_picture_pq_encoded() {
+        let rect = SDL_FRect { x: 0.0, y: 0.0, w: 4.0, h: 4.0 };
+        // An HDR output: 203-nit SDR white (2.5375 in scRGB), 1000-nit peak.
+        let hdr = SdlLook { texture_headroom: 0.0, output_headroom: 12.5, sdr_white: 2.5375, color_scale: 1.0, linear_output: true, pq_target: true, target_encoding: [0.0; 4] };
+        let uniforms = direct_uniforms(&[0; 8], &rect, (0, 0), (4, 4), hdr);
+        assert_eq!(uniforms.parameters[6], DIRECT_FLAG | PQ_TARGET_FLAG);
+        assert_eq!(uniforms.output_scale, 2.5375, "the scale is the scRGB draw's");
+        let white = shader_output([1.0; 3], &uniforms);
+        // 203 nits is ST 2084 code 0.5807 (BT.2408's reference white).
+        assert!(white.iter().all(|c| (c - 0.5807).abs() < 0.0005), "SDR white: {white:?}");
+        assert_eq!(shader_output([0.0; 3], &uniforms), [pq_of_scrgb([0.0; 3])[0]; 3], "black is PQ's black, not 0 after a clamp of its own");
+        let red = shader_output([1.0, 0.0, 0.0], &uniforms);
+        assert!(red[0] > red[1] && red[1] > 0.0 && red[2] > 0.0, "BT.709 red lies inside BT.2020: {red:?}");
+        // Without a PQ target, an sRGB output still takes the sRGB flag.
+        let srgb = direct_uniforms(&[0; 8], &rect, (0, 0), (4, 4), SdlLook { linear_output: false, pq_target: false, ..hdr });
+        assert_eq!(srgb.parameters[6], DIRECT_FLAG | SRGB_TARGET_FLAG);
+        assert_eq!(direct_uniforms(&[0; 8], &rect, (0, 0), (4, 4), SdlLook { pq_target: false, ..hdr }).parameters[6], DIRECT_FLAG);
+    }
+
+    /// The constants are the shader's 96-byte `Picture` block, in its order.
     #[test]
     fn the_direct_constants_match_the_shader_block() {
-        assert_eq!(std::mem::size_of::<Uniforms>(), 80);
+        assert_eq!(std::mem::size_of::<Uniforms>(), 96);
         assert_eq!(std::mem::offset_of!(Uniforms, destination), 32);
         assert_eq!(std::mem::offset_of!(Uniforms, picture), 48);
         assert_eq!(std::mem::offset_of!(Uniforms, output_scale), 64);
         assert_eq!(std::mem::offset_of!(Uniforms, tonemap), 68);
+        assert_eq!(std::mem::offset_of!(Uniforms, encoding), 80);
+        let shader = include_str!("../pyrowave.hlsl");
+        let rows = shader.lines().map(str::trim).collect::<Vec<_>>();
+        let at = |row: &str| rows.iter().position(|line| *line == row).unwrap_or_else(|| panic!("no {row}"));
+        assert_eq!(at("float minNits; float invRange; float2 unusedEncoding;"), at("float outputScale; float tonemap1; float tonemap2; float unused;") + 2,
+            "the encoding's row follows the row at 64 (after its comment)");
     }
 
     /// The draw into the back buffer flags itself, places the picture in the viewport and keeps
@@ -610,7 +861,7 @@ mod tests {
     /// it (TONEMAP_CHROME) only when the texture carries more headroom than an HDR output has.
     #[test]
     fn a_direct_draw_scales_and_tone_maps_as_sdl_does() {
-        let hdr = SdlLook { texture_headroom: 12.0, output_headroom: 4.0, sdr_white: 2.5, color_scale: 0.5, linear_output: true };
+        let hdr = SdlLook { texture_headroom: 12.0, output_headroom: 4.0, sdr_white: 2.5, color_scale: 0.5, linear_output: true, pq_target: false, target_encoding: [0.0; 4] };
         let uniforms = direct_uniforms(&[0; 8], &SDL_FRect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 }, (0, 0), (2, 2), hdr);
         assert_eq!(uniforms.output_scale, 1.25);
         assert_eq!(uniforms.tonemap, [4.0 / 144.0, 0.25]);
@@ -646,6 +897,37 @@ mod tests {
         unsafe { fill_planes(&info, sizes, 2, buffer.as_mut_ptr(), [0, 12, 16]) };
         let samples: Vec<u16> = buffer.chunks_exact(2).map(|s| u16::from_le_bytes([s[0], s[1]])).collect();
         assert_eq!(samples, [64, 512, 940, 1, 2, 1023, 100, 512, 900, 513]);
+    }
+
+    /// NVDEC's 10-bit 4:4:4 in memory (YUV444P16) holds its codes in the high bits, as P010 does:
+    /// the upload moves them to the low bits the shader reads (flag 64), so a code comes out as
+    /// itself, not 64 times too bright. FFmpeg's own 10-bit planes go as they are.
+    #[test]
+    fn high_bit_planes_are_uploaded_with_their_codes_in_the_low_bits() {
+        use crate::media::{FRAME_YUV444P10, FRAME_YUV444P16};
+        let words = |w: [u16; 4]| w.iter().flat_map(|w| w.to_le_bytes()).collect::<Vec<u8>>();
+        // 3x1 planes in rows of 4 words, the last padding.
+        let mut planes = [words([64 << 6, 940 << 6, 1023 << 6, 0xffff]), words([512 << 6, 1 << 6, 0, 0xffff]), words([960 << 6, 513 << 6, 2 << 6, 0xffff])];
+        let mut info = FrameInfo {
+            width: 3, height: 1, kind: FRAME_YUV444P16, ten_bit: 1, pts: 0,
+            data: [planes[0].as_mut_ptr(), planes[1].as_mut_ptr(), planes[2].as_mut_ptr()],
+            linesize: [8; 3], color_space: 1, color_range: 1, color_trc: 1,
+        };
+        let layout = PlanarLayout::of(&info).unwrap();
+        assert_eq!(layout, PlanarLayout { width: 3, height: 1, chroma444: true, ten_bit: true });
+        assert!(high_bit_planes(&info));
+        let sizes = [0, 1, 2].map(|plane| layout.plane_size(plane));
+        let fill = |info: &FrameInfo| {
+            let mut buffer = vec![0xaau8; 9 * 2];
+            // SAFETY: the planes above hold `sizes` samples; the buffer holds the three planes.
+            unsafe { fill_planes(info, sizes, 2, buffer.as_mut_ptr(), [0, 6, 12]) };
+            buffer.chunks_exact(2).map(|s| u16::from_le_bytes([s[0], s[1]])).collect::<Vec<u16>>()
+        };
+        assert_eq!(fill(&info), [64, 940, 1023, 512, 1, 0, 960, 513, 2]);
+        // FFmpeg's software 10-bit 4:4:4 is already in the low bits: copied as it is.
+        info.kind = FRAME_YUV444P10;
+        assert!(!high_bit_planes(&info));
+        assert_eq!(fill(&info), [64 << 6, 940 << 6, 1023 << 6, 512 << 6, 1 << 6, 0, 960 << 6, 513 << 6, 2 << 6]);
     }
 
     #[test]
@@ -786,6 +1068,114 @@ mod tests {
                 drop(pass);
                 for texture in [pictured, through_texture, direct] { SDL_DestroyTexture(texture); }
             }
+            SDL_DestroyRenderer(renderer);
+            SDL_DestroyWindow(window);
+            SDL_Quit();
+        }
+    }
+
+    /// A video-only frame's draw (`PQ_TARGET_FLAG`) into an RGB10A2 target, the HDR10 swapchain
+    /// image's format, is the PQ pass's encode of the scRGB direct draw, within a 10-bit code and a
+    /// half: `cargo test -p nightjar-desktop -- --ignored stream::planes_gpu`.
+    #[test]
+    #[ignore = "needs a Vulkan device and SDL's offscreen video driver"]
+    fn the_pq_draw_is_the_pq_pass_of_the_scrgb_draw() {
+        let (width, height) = (16usize, 8usize);
+        let mut luma = (0..width * height).map(|i| (16 + (i * 219) / (width * height)) as u8).collect::<Vec<u8>>();
+        let mut chroma = (0..width * height / 2).map(|i| if i % 2 == 0 { (64 + i * 2) as u8 } else { (192 - i * 2) as u8 }).collect::<Vec<u8>>();
+        // SAFETY: Plain SDL calls on objects made here, on one thread.
+        unsafe {
+            SDL_SetHint(SDL_HINT_VIDEO_DRIVER, c"offscreen".as_ptr());
+            assert!(SDL_Init(SDL_INIT_VIDEO), "{}", crate::sdl::error());
+            let window = SDL_CreateWindow(c"PQ planes".as_ptr(), 64, 64, SDL_WINDOW_HIDDEN);
+            let renderer = crate::sdl::create_renderer(window, true);
+            assert!(!renderer.is_null(), "{}", crate::sdl::error());
+            assert_eq!(crate::sdl::renderer_name(renderer), "gpu");
+            let mut info = picture(FRAME_NV12, &mut luma, &mut chroma, width as i32);
+            (info.width, info.height) = (width as i32, height as i32);
+            let layout = PlanarLayout::of_semi_planar(&info).unwrap();
+            let parameters = super::super::present::planar_parameters(&info, layout, false, 1.0, 1.0);
+            let texture = |format: SDL_PixelFormat, space: SDL_Colorspace| {
+                let props = SDL_CreateProperties();
+                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_FORMAT_NUMBER, i64::from(format.0));
+                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_ACCESS_NUMBER, i64::from(SDL_TEXTUREACCESS_TARGET.0));
+                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_WIDTH_NUMBER, width as i64);
+                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_HEIGHT_NUMBER, height as i64);
+                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_COLORSPACE_NUMBER, i64::from(space.0));
+                let texture = SDL_CreateTextureWithProperties(renderer, props);
+                SDL_DestroyProperties(props);
+                assert!(!texture.is_null(), "{}", crate::sdl::error());
+                texture
+            };
+            let scrgb = texture(SDL_PIXELFORMAT_RGBA64_FLOAT, SDL_COLORSPACE_SRGB_LINEAR);
+            let pq = texture(SDL_PIXELFORMAT_ABGR2101010, SDL_COLORSPACE_HDR10);
+            let dst = SDL_FRect { x: 0.0, y: 0.0, w: width as f32, h: height as f32 };
+            // An HDR output's look: 203-nit SDR white over 1.0 = 80 nits, so the ramp spans most codes.
+            let look = SdlLook { texture_headroom: 0.0, output_headroom: 12.5, sdr_white: 2.5375, color_scale: 1.0, linear_output: true, pq_target: false, target_encoding: [0.0; 4] };
+            let mut pass = PlanesPass::for_frames(renderer, layout).unwrap();
+            pass.draw_frame(renderer, ptr::null_mut(), &info, &parameters).unwrap();
+            assert!(SDL_SetRenderTarget(renderer, scrgb), "{}", crate::sdl::error());
+            pass.draw_direct(renderer, &parameters, &dst, (width as i32, height as i32), look).unwrap();
+            let readback = SDL_RenderReadPixels(renderer, ptr::null());
+            assert!(!readback.is_null(), "{}", crate::sdl::error());
+            // RGBA64F to floats, both scRGB.
+            let floats = SDL_ConvertSurface(readback, SDL_PIXELFORMAT_RGBA128_FLOAT);
+            SDL_DestroySurface(readback);
+            assert!(!floats.is_null(), "{}", crate::sdl::error());
+            let linear = std::slice::from_raw_parts((*floats).pixels.cast::<f32>(), width * height * 4).to_vec();
+            SDL_DestroySurface(floats);
+            assert!(SDL_SetRenderTarget(renderer, pq), "{}", crate::sdl::error());
+            pass.draw_direct(renderer, &parameters, &dst, (width as i32, height as i32), SdlLook { pq_target: true, ..look }).unwrap();
+            let readback = SDL_RenderReadPixels(renderer, ptr::null());
+            assert!(!readback.is_null(), "{}", crate::sdl::error());
+            assert_eq!((*readback).format.0, SDL_PIXELFORMAT_ABGR2101010.0, "read back as drawn, without a conversion");
+            let pitch = (*readback).pitch as usize;
+            // ABGR2101010 is one 32-bit word: red in its low 10 bits, then green, then blue.
+            let codes = (0..height).flat_map(|y| (0..width).map(move |x| (y, x)))
+                .map(|(y, x)| {
+                    let word = (*readback).pixels.cast::<u8>().add(y * pitch + x * 4).cast::<u32>().read_unaligned();
+                    [word & 0x3ff, (word >> 10) & 0x3ff, (word >> 20) & 0x3ff]
+                })
+                .collect::<Vec<[u32; 3]>>();
+            SDL_DestroySurface(readback);
+            SDL_SetRenderTarget(renderer, ptr::null_mut());
+            let mut worst = 0.0f32;
+            for (pixel, drawn) in linear.chunks_exact(4).zip(&codes) {
+                let expected = pq_of_scrgb([pixel[0], pixel[1], pixel[2]]);
+                for (want, got) in expected.iter().zip(drawn) {
+                    worst = worst.max((want * 1023.0 - *got as f32).abs());
+                }
+            }
+            eprintln!("PQ draw against the PQ pass of the scRGB draw: largest difference {worst} codes");
+            assert!(worst <= 1.5, "the PQ draw differs from the PQ pass of the scRGB draw by {worst} 10-bit codes");
+            assert!(codes.iter().flatten().any(|&code| code > 500), "the ramp reaches up to about 203-nit white's code 594");
+            // The same draw in the compositor's gamma 2.2 blending space (flag 8192), 0.005 to 700
+            // nits: the scanout present's encode, within its half code of dither and a code.
+            let encoding = crate::stream::wl_scanout::Encoding::constants(1, 0.005, 700.0);
+            assert!(SDL_SetRenderTarget(renderer, pq), "{}", crate::sdl::error());
+            pass.draw_direct(renderer, &parameters, &dst, (width as i32, height as i32), SdlLook { pq_target: true, target_encoding: encoding, ..look }).unwrap();
+            let readback = SDL_RenderReadPixels(renderer, ptr::null());
+            assert!(!readback.is_null(), "{}", crate::sdl::error());
+            let pitch = (*readback).pitch as usize;
+            let codes = (0..height).flat_map(|y| (0..width).map(move |x| (y, x)))
+                .map(|(y, x)| {
+                    let word = (*readback).pixels.cast::<u8>().add(y * pitch + x * 4).cast::<u32>().read_unaligned();
+                    [word & 0x3ff, (word >> 10) & 0x3ff, (word >> 20) & 0x3ff]
+                })
+                .collect::<Vec<[u32; 3]>>();
+            SDL_DestroySurface(readback);
+            SDL_SetRenderTarget(renderer, ptr::null_mut());
+            let mut worst = 0.0f32;
+            for (pixel, drawn) in linear.chunks_exact(4).zip(&codes) {
+                let expected = gamma22_of_scrgb([pixel[0], pixel[1], pixel[2]], [encoding[1], encoding[2], 0.0, 0.0]);
+                for (want, got) in expected.iter().zip(drawn) {
+                    worst = worst.max((want * 1023.0 - *got as f32).abs());
+                }
+            }
+            eprintln!("gamma 2.2 draw against the scanout pass's encode of the scRGB draw: largest difference {worst} codes");
+            assert!(worst <= 1.5, "the gamma 2.2 draw differs from the scanout pass's encode by {worst} 10-bit codes");
+            drop(pass);
+            for texture in [scrgb, pq] { SDL_DestroyTexture(texture); }
             SDL_DestroyRenderer(renderer);
             SDL_DestroyWindow(window);
             SDL_Quit();

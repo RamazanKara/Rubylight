@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_packed_444">전체 크로마</string>
-    <string name="summary_packed_444">Rubylight의 전체 크로마 옵션, 새 스트리밍 엔진, 호환되는 HEVC/AV1 하드웨어 디코더가 필요합니다. 지원하지 않는 모드는 연결을 중단합니다. HDR에는 호환되는 10비트 HDR 디스플레이 서피스도 필요합니다.</string>
+    <string name="summary_packed_444">Rubylight의 전체 크로마 옵션, 새 스트리밍 엔진, 호환되는 HEVC/AV1 하드웨어 디코더가 필요합니다. PC 또는 이 기기가 지원하지 않으면 스트림은 전체 크로마 없이 시작합니다. HDR에는 호환되는 10비트 HDR 디스플레이 서피스도 필요합니다.</string>
     <string name="title_experimental_chipset_tuning">칩셋 튜닝</string>
     <string name="summary_experimental_chipset_tuning">MediaTek Dimensity 및 Samsung Exynos 디코더용 추가 저지연 설정입니다. 영상이 멈추거나 끊기면 끄세요.</string>
     <string name="scut_deleted_pc">PC 삭제됨</string>
@@ -283,6 +283,7 @@
     <string name="title_yuv444">YUV 4:4:4 우선</string>
     <string name="summary_yuv444">PC와 이 기기가 지원하면 컬러 텍스트가 더 선명해집니다. HDR이 우선합니다.</string>
     <string name="yuv444_fallback">YUV 4:4:4를 사용할 수 없어 4:2:0을 사용합니다.</string>
+    <string name="yuv444_fallback_hdr">YUV 4:4:4를 사용할 수 없어 4:2:0을 사용합니다. HDR이 우선합니다.</string>
     <string name="title_virtual_display">호스트 가상 디스플레이</string>
     <string name="summary_virtual_display">PC에 스트림과 일치하는 디스플레이를 요청합니다. 끄면 PC 자체 디스플레이 설정에 따라 결정됩니다.</string>
     <string name="title_vrr">적응형 주사율(ARR / VRR)</string>

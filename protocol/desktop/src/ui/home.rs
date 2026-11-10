@@ -39,7 +39,8 @@ pub(super) struct Hero {
 /// What Home shows, gathered once a frame: the chrome and the ambient need the hero before the page
 /// is drawn.
 pub(super) struct HomeData {
-    pub entries: Vec<console::Entry>,
+    /// The merged library: Home shows what of it is not hidden.
+    pub library: std::rc::Rc<console::Merged>,
     pub playing: Vec<console::Continue>,
     pub recent: Vec<console::Recently>,
     pub starred: Vec<console::Starred>,
@@ -48,11 +49,8 @@ pub(super) struct HomeData {
 
 impl HomeData {
     pub(super) fn gather(launcher: &Launcher, sources: &[Source<'_>]) -> Self {
-        let (entries, _) = console::split_hidden(
-            console::merge_library(sources),
-            sources,
-            &launcher.hidden_games,
-        );
+        let library = launcher.library.get(sources, &launcher.hidden_games);
+        let entries = library.shown();
         let playing = console::continue_playing(sources);
         // A running game stays under Continue: hiding must not lose the way back to it.
         let recent = console::recently_shown(
@@ -95,7 +93,7 @@ impl HomeData {
                     })
             });
         Self {
-            entries,
+            library,
             playing,
             recent,
             starred,
@@ -133,7 +131,8 @@ pub(super) fn ambient_for(view: &View<'_>, host: u64, app: u32, title: &str) -> 
     match pc.art.get(&(app as i32)) {
         // A cover comes with its ambient, baked off this thread and handed over together; until
         // then, and while it is on its way, what shows stays.
-        Some(Art::Ready(_)) => match pc.ambient.get(&(app as i32)) {
+        // One whose cover was given up for room kept its ambient.
+        Some(Art::Ready(_) | Art::Dropped) => match pc.ambient.get(&(app as i32)) {
             Some(texture) => Want::Art {
                 key: format!("{host}:{app}"),
                 texture: texture.clone(),
@@ -193,14 +192,15 @@ impl Launcher {
         commands: &mut Vec<Command>,
     ) {
         let HomeData {
-            entries,
+            library,
             playing,
             recent,
             starred,
             hero,
         } = data;
-        let group = console::shown_group(self.settings.home_group, &entries);
-        let rows = console::home_rows(&entries, group);
+        let entries = library.shown();
+        let group = console::shown_group(self.settings.home_group, entries);
+        let rows = console::home_rows(entries, group);
         let loading = library_loading(view);
         // The rest of the running games and recents: the panel first, a shelf for what it cannot hold.
         let has_cover = |host: u64, app: u32| {
@@ -230,9 +230,9 @@ impl Launcher {
             });
         }
         for item in recent.iter().filter(|r| !is_hero(r.host, r.app_id)) {
-            let line = recent_line(&entries, sources, &self.recents, item);
+            let line = recent_line(entries, sources, &self.recents, item);
             let key = format!("recent:{}:{}", item.host, item.app_id);
-            let game = console::entry_key_of(&entries, item.host, item.app_id).cloned();
+            let game = console::entry_key_of(entries, item.host, item.app_id).cloned();
             lines.push(PanelLine {
                 key,
                 game,
@@ -277,7 +277,7 @@ impl Launcher {
                                     request_cover(ui, view, item.host, item.app_id, &response, commands);
                                 }
                                 let key = favourite_key(item);
-                                let game = console::entry_key_of(&entries, item.host, item.app_id).unwrap_or(&key);
+                                let game = console::entry_key_of(entries, item.host, item.app_id).unwrap_or(&key);
                                 this.focus_card(&response, &key, game, std::mem::take(&mut first));
                                 if response.clicked() {
                                     this.open(Screen::Game { host: item.host, app: item.app_id });

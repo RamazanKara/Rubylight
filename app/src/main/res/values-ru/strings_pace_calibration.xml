@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pace_calibration_title">Калибровка темпа кадров</string>
+    <string name="network_tests_title">Проверки сети</string>
     <string name="pace_calibration_summary">PyroWave: найти наибольшую скорость, с которой хост передаёт кадры этому устройству целиком</string>
     <string name="pace_calibration_saved">Темп кадров PyroWave: %1$d Мбит/с. Нажмите, чтобы откалибровать снова.</string>
     <string name="pace_calibration_intro">Хост отправляет тестовые кадры с разной скоростью, а Nightjar запоминает самую высокую, при которой кадры приходят целиком. Затем её используют трансляции PyroWave. Сначала остановите трансляцию на этом ПК. Это займёт от одной до трёх минут.</string>

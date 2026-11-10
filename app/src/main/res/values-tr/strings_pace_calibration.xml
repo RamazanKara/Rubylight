@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pace_calibration_title">Kare hızını kalibre et</string>
+    <string name="network_tests_title">Ağ testleri</string>
     <string name="pace_calibration_summary">PyroWave: ana bilgisayarın bu cihaza kareleri eksiksiz gönderebildiği en yüksek hızı bul</string>
     <string name="pace_calibration_saved">PyroWave kare temposu: %1$d Mbps. Yeniden kalibre etmek için dokunun.</string>
     <string name="pace_calibration_intro">Ana bilgisayar farklı hızlarda test kareleri gönderir ve Nightjar karelerin eksiksiz ulaştığı en yüksek hızı saklar. PyroWave yayınları bundan sonra bu hızı kullanır. Önce bu PC’deki yayınları durdurun. Bir ila üç dakika sürer.</string>

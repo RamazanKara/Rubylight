@@ -8,6 +8,8 @@
     <string name="stream_mouse_step">Pas de la souris : %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Envoyer les touches système</string>
     <string name="summary_checkbox_capture_system_keys">Échap, Alt+Tab, la touche Windows et les touches similaires vont au PC tant que l’entrée est capturée, de même que la touche Retour que beaucoup de claviers pour Android ont à la place d’Échap. Android ne cède Alt+Tab et la touche Windows qu’à partir d’Android 16 QPR2 (décembre 2025) et sur de nombreux appareils Samsung ; ailleurs, il les garde. Accueil, marche/arrêt et volume restent toujours à Android. Ouvrez le menu du flux avec son raccourci ou le geste ou le bouton Retour d’Android. Au prochain flux.</string>
+    <string name="title_checkbox_system_keys_fullscreen_only">Touches système seulement en plein écran</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">En fenêtre, Alt+Tab, la touche Windows et autres restent sur cet appareil.</string>
     <string name="title_checkbox_back_as_meta">Retour du clavier en touche Windows</string>
     <string name="summary_checkbox_back_as_meta">La touche Retour d’un clavier physique envoie la touche Windows (Commande sur Mac). Ouvrez le menu du stream avec son raccourci, le geste ou le bouton Retour d’Android, ou la combinaison de boutons de la manette.</string>
     <string name="title_checkbox_right_alt_as_meta">Alt droite comme Commande</string>

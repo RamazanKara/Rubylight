@@ -12,7 +12,8 @@ use egui::Shape;
 /// The cover's share of the page, its limits, and what it leaves under it in a short window.
 const COVER_SHARE: f32 = 0.2835;
 const COVER_MIN_W: f32 = 160.0;
-const COVER_MAX_W: f32 = 420.0;
+/// The widest any cover is drawn: covers are kept no larger than this page shows them.
+pub(super) const COVER_MAX_W: f32 = crate::hosts::COVER_POINTS[0];
 const COVER_FOOT: f32 = 48.0;
 /// The glow of the cover's colour and the dark shadow under it.
 const GLOW_BLUR: f32 = 110.0;
@@ -648,8 +649,10 @@ impl Launcher {
                 });
             }
         }
-        let merged = console::merge_library(sources);
+        // Hidden or not: the other PCs' copies are named either way.
+        let merged = self.library.get(sources, &self.hidden_games);
         let others = merged
+            .all()
             .iter()
             .find(|e| {
                 e.copies

@@ -189,6 +189,8 @@ impl Launcher {
                     regions = vec![screen];
                 }
                 glass::boundary(ui.painter(), regions);
+                // Under the bar, over the page: where a dialog lays the blurred page.
+                glass::keep_page_slot(ui.painter());
                 let sense = if blocked {
                     Sense::hover()
                 } else {

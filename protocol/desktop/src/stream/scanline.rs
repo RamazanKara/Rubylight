@@ -393,6 +393,7 @@ pub enum Reason {
     RowsDiffer,
     /// No scan line to race on, but the display runs VRR: Linux reads it from DRM (`drm_vrr`).
     #[cfg_attr(windows, allow(dead_code))]
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     VrrNoScanline,
 }
 

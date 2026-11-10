@@ -733,6 +733,11 @@ pub struct VideoTexture {
     /// of the stream.
     #[cfg(unix)]
     direct_planes_failed: bool,
+    /// This frame is video only (`VideoOnly`): the plane pass writes PQ into the window's target.
+    #[cfg(target_os = "linux")]
+    pq_target: bool,
+    #[cfg(target_os = "linux")]
+    video_only: VideoOnly,
     /// Why the last `upload` failed, when it knows more than the caller can say.
     pub failure: Option<String>,
     /// The last failure written to the log, so a failing picture stream logs each reason once.
@@ -826,6 +831,10 @@ impl Default for VideoTexture {
             pyrowave_stages_open: false,
             #[cfg(unix)]
             direct_planes_failed: false,
+            #[cfg(target_os = "linux")]
+            pq_target: false,
+            #[cfg(target_os = "linux")]
+            video_only: VideoOnly::from_environment(),
             failure: None,
             logged_failure: None,
             hdr_frame: false,
@@ -1163,7 +1172,7 @@ impl VideoTexture {
         space: SDL_Colorspace,
         white_level: f32,
     ) -> bool {
-        self.ensure_with(renderer, format, width, height, space, white_level, None)
+        self.ensure_with(renderer, format, width, height, space, white_level, None, std::ptr::null_mut())
     }
 
     /// `ensure` for a texture with an HDR headroom of its own (an HLG picture's), which SDL tone
@@ -1178,8 +1187,15 @@ impl VideoTexture {
         space: SDL_Colorspace,
         white_level: f32,
         texture_headroom: Option<f32>,
+        pixel_buffer: *mut c_void,
     ) -> bool {
-        if !self.texture.is_null()
+        // Each VideoToolbox picture has its own backing. A later CPU upload must also
+        // replace an imported texture before writing to it.
+        #[cfg(target_os = "macos")]
+        let reusable = pixel_buffer.is_null() && self.held.is_none();
+        #[cfg(not(target_os = "macos"))]
+        let reusable = pixel_buffer.is_null();
+        if reusable && !self.texture.is_null()
             && self.format == format
             && self.width == width
             && self.height == height
@@ -1230,6 +1246,9 @@ impl VideoTexture {
             }
             if let Some(headroom) = texture_headroom.or(hdr.headroom) {
                 SDL_SetFloatProperty(props, SDL_PROP_TEXTURE_CREATE_HDR_HEADROOM_FLOAT, headroom);
+            }
+            if !pixel_buffer.is_null() {
+                SDL_SetPointerProperty(props, SDL_PROP_TEXTURE_CREATE_METAL_PIXELBUFFER_POINTER, pixel_buffer);
             }
             self.texture = SDL_CreateTextureWithProperties(renderer, props);
             SDL_DestroyProperties(props);
@@ -1468,6 +1487,9 @@ impl VideoTexture {
         // SAFETY: plane pointers and pitches come from the live AVFrame.
         unsafe {
             match info.kind {
+                // AYUV, Y410 or Y416: no SDL texture format, so the plane pass draws its copy.
+                #[cfg(windows)]
+                media::FRAME_D3D11_444 => self.upload_d3d11_444(renderer, frame, &info, white_level),
                 #[cfg(windows)]
                 media::FRAME_D3D11 => {
                     let format = if info.ten_bit != 0 {
@@ -1521,6 +1543,25 @@ impl VideoTexture {
                         );
                     }
                     copied
+                }
+                #[cfg(target_os = "macos")]
+                media::FRAME_VIDEOTOOLBOX => {
+                    if crate::sdl::renderer_name(renderer) == "metal" {
+                        let format = if info.ten_bit == 0 { SDL_PIXELFORMAT_NV12 } else { SDL_PIXELFORMAT_P010 };
+                        // FFmpeg keeps the CVPixelBufferRef in AVFrame.data[3]. Keep the
+                        // frame (and thus its pool slot) alive for the displayed texture.
+                        let buffer: *mut c_void = frame.raw.as_ref().data[3].cast();
+                        if !buffer.is_null() {
+                            if let Some(held) = frame.reference() {
+                                if self.ensure_with(renderer, format, w, h, space, white_level, None, buffer) {
+                                    self.held = Some(held);
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    // An SDL renderer without IOSurface import can still display the frame.
+                    frame.map_to_memory().is_some_and(|mapped| self.upload_nv(renderer, &mapped.info(), space, white_level))
                 }
                 media::FRAME_NV12 | media::FRAME_P010 => self.upload_nv(renderer, &info, space, white_level),
                 #[cfg(unix)]
@@ -1728,6 +1769,24 @@ impl VideoTexture {
         }
     }
 
+    /// Whether `draw_direct` will draw the current picture with the plane pass (unless the pass
+    /// fails then): its planes are pending, the pass is there and has not failed.
+    #[cfg(target_os = "linux")]
+    pub fn draws_planes_direct(&self) -> bool {
+        self.planes_pending.is_some() && self.planes.is_some() && !self.texture.is_null() && !self.direct_planes_failed
+    }
+
+    /// Whether SDL settled this frame as video only: `draw_direct` then writes PQ (`VideoOnly`).
+    #[cfg(target_os = "linux")]
+    pub fn set_pq_target(&mut self, pq_target: bool) {
+        self.pq_target = pq_target;
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn video_only(&mut self) -> &mut VideoOnly {
+        &mut self.video_only
+    }
+
     /// Draws the current picture's copied planes straight into `destination` of the back buffer,
     /// converted and scaled in one pass, and returns true; false for SDL to draw `texture` (an
     /// upscaler's output, a picture that is not planes, or after a failure, which is logged once).
@@ -1738,6 +1797,8 @@ impl VideoTexture {
         let step = std::time::Instant::now();
         // SAFETY: The live renderer and texture of the presenting thread.
         let look = unsafe { super::planes_gpu::SdlLook::of(renderer, texture) };
+        #[cfg(target_os = "linux")]
+        let look = super::planes_gpu::SdlLook { pq_target: self.pq_target, ..look };
         let visible = self.size();
         let Some(pass) = self.planes.as_mut() else { return false };
         // SAFETY: The pass copied the current picture's planes on this renderer, for `parameters`.
@@ -1964,8 +2025,10 @@ impl VideoTexture {
         drawn
     }
 
-    /// Draws a picture the GPU decoder left in CPU plane buffers: uploads the planes to the
-    /// renderer's GPU, converts them into the texture and gives the plane set back.
+    /// Draws a GPU-decoded picture: from the decoder's images on the renderer's device, sampled in
+    /// place (the pass holds the set until the next picture replaces it) or copied, or from CPU
+    /// plane buffers, uploaded; converted into the texture, or at present time into the back
+    /// buffer (`draw_direct`).
     #[cfg(unix)]
     fn upload_planes(&mut self, renderer: *mut SDL_Renderer, decoded: &Decoded, lease: &super::gpu_planes::Lease) -> bool {
         let setup = decoded.setup;
@@ -1979,9 +2042,12 @@ impl VideoTexture {
         let parameters = [setup.width as u32, setup.height as u32, setup.width as u32, setup.height as u32, 0, 3, flags, white_level.to_bits()];
         if self.pyrowave_format.is_some_and(|previous| previous != parameters) { self.destroy(); }
         if !self.ensure(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, setup.width, setup.height, SDL_COLORSPACE_SRGB_LINEAR, white_level) { return false; }
+        // A pass made for the other way of reading the planes (another decoder's) goes; its held
+        // set goes back to that decoder's pool.
+        if self.planes.as_ref().is_some_and(|pass| !pass.suits(lease.planes())) { self.planes = None; }
         if self.planes.is_none() {
             // SAFETY: The live renderer belongs to the presenting thread.
-            match unsafe { super::planes_gpu::PlanesPass::new(renderer, lease.planes().config()) } {
+            match unsafe { super::planes_gpu::PlanesPass::for_planes(renderer, lease.planes()) } {
                 Ok(pass) => { self.planes = Some(pass); self.pyrowave_format = Some(parameters); }
                 Err(error) => { self.failure = Some(format!("PyroWave GPU decoding cannot draw its planes: {error}")); return false; }
             }
@@ -2003,6 +2069,33 @@ impl VideoTexture {
         }
         if drawn { self.planes_drawn(texture, parameters); }
         drawn
+    }
+
+    /// Draws a D3D11VA 4:4:4 picture (`media::FRAME_D3D11_444`) into the RGBA64F texture as a
+    /// software-decoded 4:4:4 one is drawn (same constants: range, matrix, 10-bit SDR, HDR10, HLG):
+    /// the plane pass copies the decoder's surface and its surface entry converts it.
+    #[cfg(windows)]
+    fn upload_d3d11_444(&mut self, renderer: *mut SDL_Renderer, frame: &media::Frame, info: &FrameInfo, white_level: f32) -> bool {
+        let Some(layout) = media::PlanarLayout::of_d3d11(info) else {
+            self.fail(format!("a {}x{} 4:4:4 decoder picture has no size", info.width, info.height), "the 4:4:4 picture cannot be drawn".into());
+            return false;
+        };
+        let Some(parameters) = self.planar_target(renderer, info, layout, white_level, false) else { return false };
+        if self.planes.is_none() {
+            if self.d3d11.is_null() {
+                self.fail(format!("the RGBA64F video texture has no Direct3D 11 texture (renderer {})", crate::sdl::renderer_name(renderer)), "it needs the Direct3D 11 renderer".into());
+                return false;
+            }
+            // SAFETY: `d3d11` is the live texture of the renderer's device.
+            match unsafe { super::d3d11::PlanesPass::new(self.d3d11) } {
+                Ok(pass) => { self.planes = Some(pass); self.pyrowave_format = Some(parameters); }
+                Err(error) => { self.fail(format!("the plane shader pass cannot be made: {error}"), format!("the plane shader pass cannot be made: {error}")); return false; }
+            }
+        }
+        match self.planes.as_mut().unwrap().draw_surface(frame, info, &parameters) {
+            Ok(()) => true,
+            Err(error) => { self.fail(format!("drawing a {}x{} 4:4:4 decoder picture failed: {error}", layout.width, layout.height), error); false }
+        }
     }
 
     /// Draws a software-decoded planar picture (4:4:4, or 10-bit) with the plane shader into an
@@ -2068,7 +2161,7 @@ impl VideoTexture {
         if self.pyrowave_format.is_some_and(|previous| previous != parameters) { self.destroy(); }
         // The HLG picture's own peak over its white, which SDL tone maps down to an output with less.
         let texture_headroom = hlg.map(|display| display.peak / display.white);
-        self.ensure_with(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, info.width, info.height, SDL_COLORSPACE_SRGB_LINEAR, white_level, texture_headroom).then_some(parameters)
+        self.ensure_with(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, info.width, info.height, SDL_COLORSPACE_SRGB_LINEAR, white_level, texture_headroom, std::ptr::null_mut()).then_some(parameters)
     }
 
     /// Draws a Vulkan video picture (`crate::vulkan_video`) as a planar picture of its depth and
@@ -2193,6 +2286,8 @@ impl VideoTexture {
             dmabuf_declined: self.dmabuf_declined,
             #[cfg(unix)]
             direct_planes_failed: self.direct_planes_failed,
+            #[cfg(target_os = "linux")]
+            video_only: std::mem::replace(&mut self.video_only, VideoOnly::of(None)),
             // The pass outlives the texture; the next pictures are a new scene to it.
             #[cfg(windows)]
             direct: self.direct.take().map(|(device, mut pass)| { pass.reset(); (device, pass) }),
@@ -2211,6 +2306,98 @@ impl VideoTexture {
 #[cfg_attr(not(unix), allow(dead_code))]
 fn planes_after_upload(uploaded: bool, new: Option<[u32; 8]>, last: Option<[u32; 8]>, held: bool, pass_format: Option<[u32; 8]>) -> Option<[u32; 8]> {
     if uploaded || new.is_some() || !held || pass_format != last { new } else { last }
+}
+
+/// `0` keeps every HDR frame on the PQ pass through the back buffer, as before video-only frames.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub const VIDEO_ONLY_ENVIRONMENT: &str = "NIGHTJAR_PQ_VIDEO_ONLY";
+
+/// How long the first frame that lost draws holds video-only frames off; each further one doubles it.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const VIDEO_ONLY_HOLD_US: u64 = 2_000_000;
+
+/// After this many frames that lost draws, a stream draws no more video-only frames.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const VIDEO_ONLY_MISSES: u32 = 4;
+
+/// What a frame on the window's target will draw, for whether it can be video only.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct VideoOnlyFrame {
+    /// The renderer presents through the patched SDL's PQ pass (`handheld::Output::Pq`).
+    pub pq_output: bool,
+    /// The plane pass draws the picture straight into the window's target (`draws_planes_direct`),
+    /// with no upscaler or AI enhancement drawing it instead.
+    pub planes_direct: bool,
+    /// Nothing else draws there: no overlay, toast, stream menu or Remote Input screen.
+    pub nothing_else: bool,
+    /// A read-back of the frame is asked for (a screenshot), which reads the back buffer as scRGB.
+    pub read_back: bool,
+}
+
+/// HDR frames that draw only the picture, through the patched SDL's `SDL.renderer.gpu.video_only`
+/// (`vendor/sdl3-src/README.md`): the plane pass writes PQ into the HDR10 swapchain image itself,
+/// and SDL skips the RGBA16F back buffer and its full-screen PQ pass. SDL drops its own draws in
+/// such a frame and counts them; a frame that lost any (something drew that `VideoOnlyFrame` did
+/// not foresee) holds video-only frames off for a while, longer each time, and after
+/// `VIDEO_ONLY_MISSES` for the rest of the stream.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[derive(Debug)]
+pub struct VideoOnly {
+    switched_on: bool,
+    /// The path was logged.
+    said: bool,
+    /// SDL's count of the draws it dropped, as last read.
+    dropped_seen: i64,
+    misses: u32,
+    held_until_us: u64,
+}
+
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+impl VideoOnly {
+    pub fn of(value: Option<&std::ffi::OsStr>) -> Self {
+        Self { switched_on: !value.is_some_and(|value| value == "0"), said: false, dropped_seen: 0, misses: 0, held_until_us: 0 }
+    }
+
+    pub fn from_environment() -> Self {
+        Self::of(std::env::var_os(VIDEO_ONLY_ENVIRONMENT).as_deref())
+    }
+
+    /// Whether to ask SDL for a video-only frame, and a line to log the first time one could be
+    /// asked for while the environment switches them off.
+    pub fn wanted(&mut self, frame: VideoOnlyFrame, now_us: u64) -> (bool, Option<&'static str>) {
+        let could = frame.pq_output && frame.planes_direct && frame.nothing_else && !frame.read_back;
+        let line = (could && !self.switched_on && !std::mem::replace(&mut self.said, true))
+            .then_some("nightjar: HDR frames go through the back buffer and its PQ pass (NIGHTJAR_PQ_VIDEO_ONLY=0)");
+        (could && self.switched_on && self.misses < VIDEO_ONLY_MISSES && now_us >= self.held_until_us, line)
+    }
+
+    /// What SDL settled for a frame asked to be video only; a line to log the first time.
+    pub fn settled(&mut self, video_only: bool) -> Option<&'static str> {
+        (!std::mem::replace(&mut self.said, true)).then_some(if video_only {
+            "nightjar: HDR frames with only the picture take PQ straight from the plane pass, without the back buffer and its PQ pass"
+        } else {
+            "nightjar: SDL did not take a video-only frame; HDR frames go through the back buffer and its PQ pass"
+        })
+    }
+
+    /// SDL's count of the draws it dropped in video-only frames, after a present; a line to log
+    /// when this frame lost any.
+    pub fn presented(&mut self, dropped: i64, now_us: u64) -> Option<String> {
+        // A renderer made again counts from 0.
+        let lost = if dropped < self.dropped_seen { 0 } else { dropped - self.dropped_seen };
+        self.dropped_seen = dropped;
+        if lost == 0 {
+            return None;
+        }
+        self.misses += 1;
+        if self.misses >= VIDEO_ONLY_MISSES {
+            return Some(format!("nightjar: SDL dropped {lost} draws of a video-only HDR frame; HDR frames go through the PQ pass for the rest of the stream"));
+        }
+        let hold_us = VIDEO_ONLY_HOLD_US << (self.misses - 1);
+        self.held_until_us = now_us + hold_us;
+        Some(format!("nightjar: SDL dropped {lost} draws of a video-only HDR frame; HDR frames go through the PQ pass for {} s", hold_us / 1_000_000))
+    }
 }
 
 /// A decoded H.264, HEVC or AV1 picture, which may carry an encoder's alignment padding; not a
@@ -2255,6 +2442,10 @@ pub fn viewport(picture: (i32, i32), area: (i32, i32), scaling: crate::config::V
     }
 }
 
+#[cfg(all(target_os = "macos", feature = "demo-library"))]
+#[path = "macos_video_check.rs"]
+pub(super) mod macos_video_check;
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -2266,6 +2457,55 @@ pub(crate) mod tests {
         assert!(!packed_path_changed(true, false, false), "memory for a picture in memory");
         assert!(packed_path_changed(true, false, true), "the map failed: memory now");
         assert!(packed_path_changed(true, true, false), "a new decoder maps: planes now");
+    }
+
+    const VIDEO_ALONE: VideoOnlyFrame = VideoOnlyFrame { pq_output: true, planes_direct: true, nothing_else: true, read_back: false };
+
+    #[test]
+    fn a_frame_is_video_only_when_it_draws_only_the_planes_on_a_pq_output_unless_the_environment_says_0() {
+        let mut video_only = VideoOnly::of(None);
+        assert_eq!(video_only.wanted(VIDEO_ALONE, 0), (true, None));
+        for frame in [
+            VideoOnlyFrame { pq_output: false, ..VIDEO_ALONE },
+            VideoOnlyFrame { planes_direct: false, ..VIDEO_ALONE },
+            VideoOnlyFrame { nothing_else: false, ..VIDEO_ALONE },
+            VideoOnlyFrame { read_back: true, ..VIDEO_ALONE },
+        ] {
+            assert_eq!(video_only.wanted(frame, 0), (false, None), "{frame:?}");
+        }
+        assert!(VideoOnly::of(Some(std::ffi::OsStr::new("1"))).wanted(VIDEO_ALONE, 0).0);
+        let mut off = VideoOnly::of(Some(std::ffi::OsStr::new("0")));
+        assert_eq!(off.wanted(VideoOnlyFrame { pq_output: false, ..VIDEO_ALONE }, 0), (false, None), "nothing to say off PQ");
+        let (wanted, line) = off.wanted(VIDEO_ALONE, 0);
+        assert!(!wanted && line.is_some_and(|line| line.contains(VIDEO_ONLY_ENVIRONMENT)), "said once");
+        assert_eq!(off.wanted(VIDEO_ALONE, 0), (false, None));
+    }
+
+    #[test]
+    fn what_sdl_settled_is_said_once() {
+        let mut video_only = VideoOnly::of(None);
+        assert!(video_only.settled(true).is_some_and(|line| line.contains("straight")));
+        assert_eq!(video_only.settled(true), None);
+        assert_eq!(video_only.settled(false), None);
+        assert!(VideoOnly::of(None).settled(false).is_some_and(|line| line.contains("did not")));
+    }
+
+    #[test]
+    fn dropped_draws_hold_video_only_frames_off_longer_each_time_then_for_the_stream() {
+        let mut video_only = VideoOnly::of(None);
+        assert_eq!(video_only.presented(0, 0), None);
+        assert!(video_only.presented(3, 1_000).is_some_and(|line| line.contains("dropped 3") && line.contains("for 2 s")));
+        assert!(!video_only.wanted(VIDEO_ALONE, 2_000_999).0, "held for 2 s");
+        assert!(video_only.wanted(VIDEO_ALONE, 2_001_000).0);
+        assert_eq!(video_only.presented(3, 2_001_000), None, "the count did not grow");
+        assert!(video_only.presented(4, 3_000_000).is_some_and(|line| line.contains("dropped 1") && line.contains("for 4 s")));
+        assert!(!video_only.wanted(VIDEO_ALONE, 6_999_999).0);
+        assert!(video_only.wanted(VIDEO_ALONE, 7_000_000).0);
+        // A renderer made again starts its count at 0: nothing was lost.
+        assert_eq!(video_only.presented(0, 7_000_000), None);
+        assert!(video_only.presented(1, 8_000_000).is_some_and(|line| line.contains("for 8 s")));
+        assert!(video_only.presented(2, 20_000_000).is_some_and(|line| line.contains("rest of the stream")));
+        assert!(!video_only.wanted(VIDEO_ALONE, u64::MAX).0, "off for the stream");
     }
 
     fn frame(trc: i32, space: i32, range: i32) -> FrameInfo {

@@ -7,4 +7,6 @@
     <string name="continue_here_browser_stream">Outro dispositivo está jogando este jogo em um navegador, e esta transmissão não pode rodar ao mesmo tempo. Encerre aquela transmissão primeiro.</string>
     <string name="stream_recovery_exhausted">A recuperação automática não conseguiu reconectar em um minuto. Seu jogo não foi encerrado. Verifique a conexão e escolha Reconectar para tentar novamente.</string>
     <string name="stream_recovery_paused">A recuperação automática foi interrompida quando você saiu da transmissão. Escolha Reconectar para continuar.</string>
+    <string name="stream_stop_timeout">A conexão anterior ainda não foi encerrada. Tente novamente em instantes.</string>
+    <string name="startup_launch_timeout">O PC não respondeu ao início em %1$d segundos. Tente novamente ou verifique o que o PC está fazendo.</string>
 </resources>

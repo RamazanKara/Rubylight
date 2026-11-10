@@ -52,7 +52,7 @@ pub enum Parsed {
 
 /// Whether an argument is meant as a link. A browser or a QR reader may write the scheme in any
 /// case, and any part after it may be wrong: that is for the window to refuse, with its own words.
-fn is_link(arg: &str) -> bool {
+pub(crate) fn is_link(arg: &str) -> bool {
     arg.get(.."rubylight:".len()).is_some_and(|scheme| scheme.eq_ignore_ascii_case("rubylight:"))
 }
 

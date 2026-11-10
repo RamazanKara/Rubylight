@@ -4,6 +4,9 @@
 
 ## Install a published or development build
 
+On a Mac, build the native Rust client or package a relocatable, ad-hoc-signed `Nightjar.app`.
+The desktop guide lists the toolchain, test commands and display requirements. [Mac build and verification](../protocol/desktop/README.md#macos)
+
 Get published APKs from [Nightjar releases](https://github.com/RamazanKara/nightjar/releases), or build one yourself as described below. Open the APK on Android 5.0 or newer and allow installation from the app opening it; no root is needed. With USB debugging enabled, `adb install -r app-nonRoot-debug.apk` also installs it.
 
 Updates require the same signing key. Debug APKs built on different machines use different keys; changing keys requires uninstalling the old app, which removes settings and pairing identity. The normal package ID remains `com.butterpollo.client`; debug builds use `com.butterpollo.client.debug` and a `(Debug)` label.
@@ -43,7 +46,7 @@ On Linux/macOS:
 bash gradlew --no-daemon --max-workers=2 :app:assembleNonRootDebug :app:lintNonRootDebug :app:testNonRootDebugUnitTest
 ```
 
-`--no-daemon` avoids retaining a build daemon and `--max-workers=2` limits Gradle workers. Native make and unit-test forks are also capped at two in the app build. Add `--offline` only when the wrapper distribution and dependencies are cached; it does not supply missing artifacts. For a smaller arm64-only APK, add `-PabiFilters=arm64-v8a`; comma-separated ABI values are also accepted.
+`--no-daemon` avoids retaining a build daemon and `--max-workers=2` limits Gradle workers. Native make and unit-test forks are also capped at two in the app build (`-PunitTestForks=N` changes the forks; each takes up to 2 GB, and on CI's four cores four forks were slower than two). The root flavor adds only its evdev classes, so `testRootDebugUnitTest` runs only `src/testRoot`'s tests; the shared suite runs in `testNonRootDebugUnitTest`. Add `--offline` only when the wrapper distribution and dependencies are cached; it does not supply missing artifacts. For a smaller arm64-only APK, add `-PabiFilters=arm64-v8a`; comma-separated ABI values are also accepted.
 
 With the local build cache on (`org.gradle.caching=true` in `~/.gradle/gradle.properties`), another checkout or a clean build takes compiled classes and the Rust engine from the cache. A cold arm64 debug build and unit-test run in a second checkout dropped from 139 to 58 s.
 
@@ -142,10 +145,12 @@ Releases are built and signed by [`release.yml`](../.github/workflows/release.ym
 
 ### Releasing from CI
 
-Pushing a tag such as `v4.0.1` first checks that the tag equals `v` plus `versionName` in `app/build.gradle`, then runs three jobs:
+Pushing a tag such as `v4.0.1` first checks that the tag equals `v` plus `versionName` in `app/build.gradle`, then runs five jobs:
 
 - **`desktop-windows` and `desktop-linux`** build the desktop client with `protocol/desktop/package-windows.ps1` and `package-linux.sh`, including the PyroWave SDK (`scripts/build-pyrowave-sdk.*`, pinned by `protocol/desktop/pyrowave-sdk.pin`; patch 0002 and the Windows build script come from the public Rubylight repository at the `RUBYLIGHT_SHA` in `release.yml`), and check that each unpacked package loads it. The Linux job installs and starts the `.deb`, `.rpm` and AppImage in clean distributions.
-- **`release`** waits for both desktop jobs, so a failed desktop build publishes nothing. It builds the non-root APK, the root APK and the non-root bundle with the release key, and checks that all three are signed with the Nightjar certificate (SHA-256 `312ed322c7c29d1aec4fae4a3979ebcb557af44d821d7f4746c0968548eb630b`) and that the APKs' IDs are `com.butterpollo.client` and `com.butterpollo.client.root`.
+- **`desktop-macos`** builds the release `Nightjar.app` with `protocol/desktop/package-macos.py --zip` on an Apple Silicon and an Intel runner, and checks and launches the unpacked zip on each. The app carries an ad-hoc signature and is not notarized. A failed Mac leg, like a failed Linux aarch64 leg, leaves a warning and the release ships without it.
+- **`android`**, beside the desktop jobs, builds the non-root APK, the root APK and the non-root bundle with the release key, and checks that all three are signed with the Nightjar certificate (SHA-256 `312ed322c7c29d1aec4fae4a3979ebcb557af44d821d7f4746c0968548eb630b`) and that the APKs' IDs are `com.butterpollo.client` and `com.butterpollo.client.root`. It hands them to `release` as an artifact kept for one day.
+- **`release`** waits for the other four, so a failed build publishes nothing, and publishes their files.
 
 The release then receives these assets:
 
@@ -156,6 +161,7 @@ The release then receives these assets:
 | `nightjar-<version>-mapping.txt`, `nightjar-<version>-native-debug-symbols.zip` | R8 mapping and native symbols of the non-root build, for reading crash traces |
 | `nightjar-desktop-<version>-windows-x86_64-setup.exe`, `…-windows-x86_64.zip` | The Windows installer and portable archive |
 | `nightjar-desktop-<version>-linux-<x86_64 or aarch64>.deb`, `.rpm`, `.tar.gz`, `nightjar-desktop-<version>-<x86_64 or aarch64>.AppImage`, `.flatpak` | The Linux packages |
+| `nightjar-desktop-<version>-macos-arm64.zip`, `…-macos-x86_64.zip` | `Nightjar.app` for Apple Silicon and Intel Macs |
 | `SHA256SUMS-<version>.txt` | SHA-256 of every file above |
 
 A tag with a `-` suffix publishes a prerelease that is not marked Latest. CI replaces assets only on a draft release; on a published release it refuses to overwrite an existing asset. If the release does not exist, the workflow creates it with placeholder text; replace that with `gh release edit <tag> --notes-file <file>`. The release job does not run tests, so tag a commit whose `android.yml` run on main is green. Running the workflow by hand with `dry_run` (the default) builds and verifies everything without publishing; do that before the first real tag of a release.

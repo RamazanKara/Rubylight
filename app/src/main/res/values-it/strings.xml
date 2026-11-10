@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_packed_444">Crominanza completa</string>
-    <string name="summary_packed_444">Richiede l’opzione di crominanza completa di Rubylight, il nuovo motore di streaming e un decoder hardware HEVC/AV1 compatibile. Le modalità non supportate interrompono la connessione. HDR richiede anche una superficie di visualizzazione HDR a 10 bit compatibile.</string>
+    <string name="summary_packed_444">Richiede l’opzione di crominanza completa di Rubylight, il nuovo motore di streaming e un decoder hardware HEVC/AV1 compatibile. Se il PC o questo dispositivo non la supporta, lo streaming parte senza. HDR richiede anche una superficie di visualizzazione HDR a 10 bit compatibile.</string>
     <string name="title_experimental_chipset_tuning">Ottimizzazione del chipset</string>
     <string name="summary_experimental_chipset_tuning">Impostazioni aggiuntive a bassa latenza per i decoder MediaTek Dimensity e Samsung Exynos. Se il video si blocca o scatta, disattivala.</string>
     <string name="scut_deleted_pc">PC eliminato</string>
@@ -283,6 +283,7 @@
     <string name="title_yuv444">Preferisci YUV 4:4:4</string>
     <string name="summary_yuv444">Testo colorato più nitido quando il PC e questo dispositivo lo supportano. L’HDR ha la priorità.</string>
     <string name="yuv444_fallback">YUV 4:4:4 non disponibile; uso di 4:2:0.</string>
+    <string name="yuv444_fallback_hdr">YUV 4:4:4 non disponibile; uso di 4:2:0. L’HDR ha la priorità.</string>
     <string name="title_virtual_display">Display virtuale dell’host</string>
     <string name="summary_virtual_display">Chiede al PC un display corrispondente allo stream. Disattivato: decidono le impostazioni dello schermo del PC.</string>
     <string name="title_vrr">Aggiornamento adattivo (ARR / VRR)</string>

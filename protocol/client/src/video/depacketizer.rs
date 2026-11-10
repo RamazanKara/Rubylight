@@ -188,6 +188,11 @@ impl Depacketizer {
         self.idr_frame_processed = true;
     }
 
+    #[cfg(test)]
+    pub(super) fn idr_decoded(&self) -> bool {
+        self.idr_frame_processed
+    }
+
     fn cleanup_frame_state(&mut self) {
         self.data.clear();
         self.buffers.clear();
@@ -406,8 +411,15 @@ impl Depacketizer {
         if self.buffers.is_empty() {
             return;
         }
-        let (data, buffers) = io.pools.frame_storage();
-        let data = std::mem::replace(&mut self.data, data);
+        let (mut storage, buffers) = io.pools.frame_storage();
+        // The frame's bytes move into the pooled storage and its empty vector comes here, so
+        // neither side allocates. Pooled storage is unshared; anything else is copied by `seal`.
+        if let Some(bytes) = std::sync::Arc::get_mut(&mut storage) {
+            std::mem::swap(bytes, &mut self.data);
+        } else {
+            storage = std::sync::Arc::new(std::mem::take(&mut self.data));
+        }
+        let data = super::FrameBytes::seal(storage);
         let buffers = std::mem::replace(&mut self.buffers, buffers);
         let frame_type =
             if buffers[0].kind != BufferType::PicData || self.frame_type == FrameType::Idr {

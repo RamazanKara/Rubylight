@@ -1,0 +1,6 @@
+- New: Take back display queue delay (Display & image), on by default: drops one frame when the display holds frames longer than needed.
+- A controller's Y no longer presses tiles, rows or dialog buttons.
+- Full chroma is asked again after updates and a refused start restarts without it.
+- A start that never gets an answer now ends with an error.
+- Less audio and video buffer churn while streaming.
+- Network tests in Settings, Streaming at every level.

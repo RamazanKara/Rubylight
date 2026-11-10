@@ -95,6 +95,10 @@ public class HostStreamSettings extends NightjarActivity {
     static final String EXTRA_APP_UUID = "app_uuid";
     static final String EXTRA_APP_ID = "app_id";
     static final String EXTRA_APP_NAME = "app_name";
+    /** The row the list starts at. */
+    static final String EXTRA_FOCUS_KEY = "focus_key";
+    /** The first of the network tests, as Settings' Network tests row opens them. */
+    static final String NETWORK_TESTS_ROW = "connection_test";
 
     /** Whose values this screen edits. */
     enum Mode { PC, PROFILE, GAME }
@@ -173,6 +177,13 @@ public class HostStreamSettings extends NightjarActivity {
     public static void show(Activity activity, String hostUuid, String hostName) {
         activity.startActivity(new Intent(activity, HostStreamSettings.class)
                 .putExtra("host_uuid", hostUuid).putExtra("host_name", hostName));
+    }
+
+    /** A PC's settings, opened at its network tests: the connection test and the frame pace calibration. */
+    public static void showTests(Activity activity, String hostUuid, String hostName) {
+        activity.startActivity(new Intent(activity, HostStreamSettings.class)
+                .putExtra("host_uuid", hostUuid).putExtra("host_name", hostName)
+                .putExtra(EXTRA_FOCUS_KEY, NETWORK_TESTS_ROW));
     }
 
     /** A named profile's values. */
@@ -864,7 +875,12 @@ public class HostStreamSettings extends NightjarActivity {
             // With a remote or a controller, the first row takes focus, not the help button in the bar above it.
             View root = getView();
             View list = root == null ? null : root.findViewById(android.R.id.list);
+            // Opened for its network tests, the list starts at them; once, not again after a rotation.
+            String focus = state == null ? activity.getIntent().getStringExtra(EXTRA_FOCUS_KEY) : null;
             if (list != null) list.post(() -> {
+                int position = focus != null && list instanceof ListView ?
+                        StreamSettings.RootFragment.positionOf((ListView) list, focus) : -1;
+                if (position >= 0) ((ListView) list).setSelection(position);
                 if (!list.isInTouchMode() && !list.hasFocus()) list.requestFocus();
             });
         }

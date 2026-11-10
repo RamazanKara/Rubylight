@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_packed_444">Croma completo</string>
-    <string name="summary_packed_444">Requer a opção de croma completo do Rubylight, o novo mecanismo de transmissão e um decodificador HEVC/AV1 por hardware compatível. Modos não compatíveis encerram a conexão. HDR também requer uma superfície de exibição HDR de 10 bits compatível.</string>
+    <string name="summary_packed_444">Requer a opção de croma completo do Rubylight, o novo mecanismo de transmissão e um decodificador HEVC/AV1 por hardware compatível. Se o PC ou este dispositivo não for compatível, a transmissão começa sem ele. HDR também requer uma superfície de exibição HDR de 10 bits compatível.</string>
     <string name="title_experimental_chipset_tuning">Ajuste do chipset</string>
     <string name="summary_experimental_chipset_tuning">Configurações extras de baixa latência para decodificadores MediaTek Dimensity e Samsung Exynos. Se o vídeo parar ou travar, desative esta opção.</string>
     <string name="scut_deleted_pc">PC excluído</string>
@@ -283,6 +283,7 @@
     <string name="title_yuv444">Preferir YUV 4:4:4</string>
     <string name="summary_yuv444">Texto colorido mais nítido quando o PC e este dispositivo suportam. O HDR tem prioridade.</string>
     <string name="yuv444_fallback">YUV 4:4:4 indisponível; usando 4:2:0.</string>
+    <string name="yuv444_fallback_hdr">YUV 4:4:4 indisponível; usando 4:2:0. O HDR tem prioridade.</string>
     <string name="title_virtual_display">Tela virtual do host</string>
     <string name="summary_virtual_display">Pede ao PC uma tela que corresponda à transmissão. Desativado: as configurações de tela do próprio PC decidem.</string>
     <string name="title_vrr">Atualização adaptável (ARR / VRR)</string>

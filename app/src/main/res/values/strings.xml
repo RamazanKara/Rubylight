@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_packed_444">Full chroma</string>
-    <string name="summary_packed_444">Requires Rubylight’s full chroma option, the New streaming engine, and a compatible hardware HEVC/AV1 decoder. Unsupported modes stop the connection. HDR also requires a compatible 10-bit HDR display surface.</string>
+    <string name="summary_packed_444">Requires Rubylight’s full chroma option, the New streaming engine, and a compatible hardware HEVC/AV1 decoder. If the PC or this device can\'t do it, the stream starts without it. HDR also requires a compatible 10-bit HDR display surface.</string>
     <!-- Shortcut strings -->
     <string name="scut_deleted_pc">PC deleted</string>
     <string name="scut_not_paired">PC not paired</string>
@@ -327,6 +327,7 @@
     <string name="title_yuv444">Prefer YUV 4:4:4</string>
     <string name="summary_yuv444">Sharper colored text when the PC and this device support it. HDR takes priority.</string>
     <string name="yuv444_fallback">YUV 4:4:4 unavailable; using 4:2:0.</string>
+    <string name="yuv444_fallback_hdr">YUV 4:4:4 unavailable; using 4:2:0. HDR takes priority.</string>
     <string name="title_virtual_display">Host virtual display</string>
     <string name="summary_virtual_display">Ask the PC for a display that matches the stream. Off: the PC’s own display settings decide.</string>
     <string name="title_vrr">Adaptive refresh (ARR / VRR)</string>

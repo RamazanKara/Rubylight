@@ -27,10 +27,24 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 /// A packet in the stream's codec, or `None` for one lost (packet loss concealment).
 type Item = Option<Vec<u8>>;
 
+/// Packet buffers the decode thread has played, kept for the next packets: every packet the queue
+/// can hold, and the one being played.
+const SPARE_BOUND: usize = AUDIO_QUEUE_BOUND + 1;
+
 #[derive(Default)]
 struct QueueState {
     items: VecDeque<Item>,
+    /// Played packets' buffers, which `offer_copy` fills again instead of allocating.
+    spare: Vec<Vec<u8>>,
     shutdown: bool,
+}
+
+impl QueueState {
+    fn keep_spare(&mut self, buffer: Vec<u8>) {
+        if self.spare.len() < SPARE_BOUND {
+            self.spare.push(buffer);
+        }
+    }
 }
 
 #[derive(Default)]
@@ -42,6 +56,7 @@ pub struct PacketQueue {
 
 impl PacketQueue {
     /// Queues an item; a full queue is flushed first, as the C does.
+    #[cfg(test)]
     pub fn offer(&self, item: Item) -> bool {
         let mut state = lock(&self.state);
         if state.shutdown {
@@ -56,8 +71,44 @@ impl PacketQueue {
         true
     }
 
-    fn wait(&self) -> Option<Item> {
+    /// [`PacketQueue::offer`] of a copy of `packet` (`None`: a lost one), in a buffer an earlier
+    /// packet was played from, so steady streaming allocates nothing per packet. A full queue's
+    /// flushed packets become spares too.
+    pub fn offer_copy(&self, packet: Option<&[u8]>) -> bool {
         let mut state = lock(&self.state);
+        if state.shutdown {
+            return false;
+        }
+        if state.items.len() >= AUDIO_QUEUE_BOUND {
+            while let Some(flushed) = state.items.pop_front() {
+                if let Some(buffer) = flushed {
+                    state.keep_spare(buffer);
+                }
+            }
+            self.overflows.fetch_add(1, Ordering::Relaxed);
+        }
+        let item = packet.map(|bytes| {
+            let mut buffer = state.spare.pop().unwrap_or_default();
+            buffer.clear();
+            buffer.extend_from_slice(bytes);
+            buffer
+        });
+        state.items.push_back(item);
+        self.ready.notify_one();
+        true
+    }
+
+    #[cfg(test)]
+    fn wait(&self) -> Option<Item> {
+        self.wait_returning(None)
+    }
+
+    /// The next item, after taking back `played`, the buffer of the last one played.
+    fn wait_returning(&self, played: Option<Vec<u8>>) -> Option<Item> {
+        let mut state = lock(&self.state);
+        if let Some(buffer) = played {
+            state.keep_spare(buffer);
+        }
         loop {
             if state.shutdown {
                 return None;
@@ -301,8 +352,10 @@ impl AudioStream {
             stream.decode = Some(std::thread::Builder::new().name("AudioDec".into()).spawn(
                 move || {
                     decode_session.prioritize_thread();
-                    while let Some(item) = shared.queue.wait() {
+                    let mut played = None;
+                    while let Some(item) = shared.queue.wait_returning(played.take()) {
                         renderer.play(item.as_deref());
+                        played = item;
                     }
                     renderer
                 },
@@ -393,7 +446,7 @@ fn receive_thread(
             match direct.as_mut() {
                 Some(renderer) => renderer.play(item),
                 None => {
-                    shared.queue.offer(item.map(<[u8]>::to_vec));
+                    shared.queue.offer_copy(item);
                 }
             }
         });
@@ -423,6 +476,42 @@ mod tests {
         assert_eq!(queue.wait(), Some(None));
         queue.shutdown();
         assert_eq!(queue.wait(), None);
+    }
+
+    /// Copied packets reuse the buffers of played ones, flushed ones included, and a lost packet
+    /// stays a lost one.
+    #[test]
+    fn copied_packets_reuse_the_buffers_of_played_ones() {
+        let queue = PacketQueue::default();
+        assert!(queue.offer_copy(Some(&[1u8, 2, 3][..])));
+        let first = queue.wait_returning(None).expect("an item").expect("a packet");
+        assert_eq!(first, [1, 2, 3]);
+        let address = first.as_ptr();
+        let capacity = first.capacity();
+        // Played (given back with the next wait): the next copy fills the same buffer.
+        assert!(queue.offer_copy(None));
+        assert_eq!(queue.wait_returning(Some(first)), Some(None), "the lost packet");
+        assert!(queue.offer_copy(Some(&[4u8, 5][..])));
+        let second = queue.wait_returning(None).expect("an item").expect("a packet");
+        assert_eq!(second, [4, 5]);
+        assert_eq!(
+            (second.as_ptr(), second.capacity()),
+            (address, capacity),
+            "reused, not allocated"
+        );
+        // A full queue's flushed buffers are spares too.
+        for i in 0..AUDIO_QUEUE_BOUND {
+            assert!(queue.offer_copy(Some(&[i as u8; 8][..])));
+        }
+        assert!(queue.offer_copy(Some(&[9u8; 8][..])));
+        assert_eq!(queue.overflows.load(Ordering::Relaxed), 1);
+        assert_eq!(queue.len(), 1);
+        assert!(lock(&queue.state).spare.len() <= SPARE_BOUND);
+        assert!(!lock(&queue.state).spare.is_empty(), "flushed buffers kept");
+        assert_eq!(queue.wait_returning(None), Some(Some(vec![9; 8])));
+        queue.shutdown();
+        assert!(!queue.offer_copy(Some(&[1u8][..])));
+        assert_eq!(queue.wait_returning(None), None);
     }
 
     /// Pairs of 5 ms packets every 10 ms read as 5 ms late, a 30 ms stall as up to 30 ms, and

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_packed_444">Tam kroma</string>
-    <string name="summary_packed_444">Rubylight’ın tam kroma seçeneği, yeni akış motoru ve uyumlu bir HEVC/AV1 donanım çözücüsü gerekir. Desteklenmeyen modlar bağlantıyı durdurur. HDR ayrıca uyumlu bir 10 bit HDR görüntüleme yüzeyi gerektirir.</string>
+    <string name="summary_packed_444">Rubylight’ın tam kroma seçeneği, yeni akış motoru ve uyumlu bir HEVC/AV1 donanım çözücüsü gerekir. Bilgisayar veya bu cihaz desteklemiyorsa akış onsuz başlar. HDR ayrıca uyumlu bir 10 bit HDR görüntüleme yüzeyi gerektirir.</string>
     <string name="title_experimental_chipset_tuning">Yonga seti ayarı</string>
     <string name="summary_experimental_chipset_tuning">MediaTek Dimensity ve Samsung Exynos kod çözücüleri için ek düşük gecikme ayarları. Görüntü durursa veya takılırsa bunu kapatın.</string>
     <string name="scut_deleted_pc">Bilgisayar silindi</string>
@@ -283,6 +283,7 @@
     <string name="title_yuv444">YUV 4:4:4 tercih et</string>
     <string name="summary_yuv444">Bilgisayar ve bu cihaz destekliyorsa renkli metin daha keskin olur. HDR önceliklidir.</string>
     <string name="yuv444_fallback">YUV 4:4:4 kullanılamıyor; 4:2:0 kullanılıyor.</string>
+    <string name="yuv444_fallback_hdr">YUV 4:4:4 kullanılamıyor; 4:2:0 kullanılıyor. HDR önceliklidir.</string>
     <string name="title_virtual_display">Ana bilgisayar sanal ekranı</string>
     <string name="summary_virtual_display">Bilgisayardan yayınla eşleşen bir ekran ister. Kapalı: bilgisayarın kendi ekran ayarları belirler.</string>
     <string name="title_vrr">Uyarlanabilir yenileme (ARR / VRR)</string>

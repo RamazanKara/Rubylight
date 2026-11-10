@@ -7,4 +7,6 @@
     <string name="continue_here_browser_stream">Inne urządzenie gra w tę grę w przeglądarce i ten strumień nie może działać równolegle. Najpierw zakończ tamten strumień.</string>
     <string name="stream_recovery_exhausted">Automatyczne przywracanie nie zdołało połączyć się ponownie w ciągu jednej minuty. Gra nie została zamknięta. Sprawdź połączenie, a następnie wybierz Połącz ponownie, aby spróbować jeszcze raz.</string>
     <string name="stream_recovery_paused">Automatyczne przywracanie zostało zatrzymane po opuszczeniu strumienia. Wybierz Połącz ponownie, aby kontynuować.</string>
+    <string name="stream_stop_timeout">Poprzednie połączenie jeszcze się nie zakończyło. Spróbuj ponownie za chwilę.</string>
+    <string name="startup_launch_timeout">Komputer nie odpowiedział na start w ciągu %1$d s. Spróbuj ponownie lub sprawdź, co robi komputer.</string>
 </resources>

@@ -75,8 +75,8 @@ android {
         minSdk 21
         targetSdk 36
 
-        versionName "4.12.3"
-        versionCode = 380
+        versionName "4.12.4"
+        versionCode = 381
 
         resValue "string", "app_name", brandName
         buildConfigField "String", "BRAND_NAME", "\"${brandName}\""
@@ -154,7 +154,20 @@ android {
     testOptions {
         unitTests.includeAndroidResources = true
         unitTests.all {
-            maxParallelForks = 2
+            // -PunitTestForks=N for more 2 GB test JVMs; on CI's four cores four took 490 s, two 376 s.
+            maxParallelForks = (project.findProperty('unitTestForks') ?: '2') as int
+            // The root flavor adds only src/root's evdev classes to the shared code, so its unit
+            // test tasks run src/testRoot's tests; the shared suite (about 6 minutes) runs once, in
+            // the nonRoot flavor. The root variant still compiles the whole suite.
+            def testTask = it
+            if (testTask.name ==~ /testRoot\w*UnitTest/) {
+                def rootTests = fileTree('src/testRoot/java') { include '**/*Test.java', '**/*Test.kt' }
+                rootTests.visit { d ->
+                    if (!d.directory) {
+                        testTask.filter.includeTestsMatching(d.relativePath.pathString.replaceAll(/\.(java|kt)$/, '').replace('/', '.'))
+                    }
+                }
+            }
             // Robolectric keeps every locale's resource table in memory.
             maxHeapSize = '2g'
             // The suite takes about 5 minutes; a test that hangs fails the task here instead of

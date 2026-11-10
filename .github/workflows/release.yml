@@ -1,10 +1,12 @@
 name: Release
 
 # A pushed v* tag builds the signed release APKs and bundle and the desktop client
-# (Windows zip and installer; Linux tar.gz, .deb, .rpm, AppImage and Flatpak for x86_64 and aarch64) and attaches them to the
+# (Windows zip and installer; Linux tar.gz, .deb, .rpm, AppImage and Flatpak for x86_64 and aarch64;
+# macOS zip for Apple Silicon and Intel) and attaches them to the
 # GitHub release for that tag
-# (created here when it does not exist yet). The desktop jobs run first and the
-# release job needs them, so a tag publishes everything or nothing.
+# (created here when it does not exist yet). The desktop jobs and the signed Android build run
+# side by side, and the release job publishes only once all of them passed, so a tag publishes
+# everything or nothing.
 # Main's own CI (android.yml) already tested the commit: tag a commit whose
 # main run is green. The signing key and passwords are repository secrets,
 # see "Releasing from CI" in docs/building.md.
@@ -526,19 +528,78 @@ jobs:
             dist/*-setup.exe
           if-no-files-found: error
 
-  release:
-    needs: [desktop-linux, desktop-windows]
+  desktop-macos:
+    # The Mac desktop client: protocol/desktop/package-macos.py builds the release Nightjar.app
+    # with its own SDL, Opus, dav1d and decode-only FFmpeg (macos-deps.sh) and zips it. Each
+    # architecture builds on its own runner, so the unpacked zip is verified and launched there.
+    # The app carries an ad-hoc signature only (no Developer ID, not notarized): Gatekeeper asks
+    # once on first start, as protocol/desktop/README.md#macos describes.
+    needs: preflight
+    # A Mac failure shows as a failed leg and a warning at the release; the rest still ships.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x86_64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.preflight.outputs.version }}
+      NJ_ARCH: ${{ matrix.arch }}
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+      RUSTUP_TOOLCHAIN: stable
+    defaults:
+      run:
+        working-directory: protocol
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install build tools
+        run: |
+          brew install cmake meson ninja pkg-config nasm
+          rustup toolchain install stable --profile minimal --no-self-update
+      # The media libraries macos.yml caches on main; restored only, so a release never writes it.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: protocol/target/macos-native/*/prefix
+          key: macos-media-${{ runner.arch }}-${{ hashFiles('protocol/desktop/macos-deps.sh') }}
+      - name: Build and zip the application
+        run: python3 desktop/package-macos.py --arch "$NJ_ARCH" --zip
+      - name: Verify and launch the unpacked zip
+        run: |
+          triple=$( [ "$NJ_ARCH" = arm64 ] && echo aarch64-apple-darwin || echo x86_64-apple-darwin )
+          zip="target/$triple/release/Nightjar-$VERSION-macos-$NJ_ARCH.zip"
+          test -s "$zip" || { echo "::error::$zip was not built (the app version must match $VERSION)"; exit 1; }
+          ditto -x -k "$zip" "$RUNNER_TEMP/unpacked"
+          python3 desktop/tests/verify_macos_bundle.py --arch "$NJ_ARCH" "$RUNNER_TEMP/unpacked/Nightjar.app"
+          mkdir -p ../dist
+          cp "$zip" "../dist/nightjar-desktop-$VERSION-macos-$NJ_ARCH.zip"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: desktop-macos-${{ matrix.arch }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  android:
+    # The signed APKs and bundle, built beside the desktop jobs instead of after them (the
+    # release took 37 minutes with this job waiting 25 of them).
+    needs: preflight
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
-      contents: write # uploads to the release for this tag
+      contents: read
     env:
       # The SHA-256 of the Nightjar release certificate (public). Updates only
       # work with this signing identity, so a build signed by anything else
       # must never be published.
       EXPECTED_CERT_SHA256: 312ed322c7c29d1aec4fae4a3979ebcb557af44d821d7f4746c0968548eb630b
-      # Only a tag push (or a manual run on a tag with dry_run off) publishes.
-      PUBLISH: ${{ github.ref_type == 'tag' && !inputs.dry_run }}
     steps:
       - name: Check the signing secrets
         env:
@@ -592,7 +653,7 @@ jobs:
           BP_KEYSTORE_PASSWORD: ${{ secrets.NIGHTJAR_KEYSTORE_PASSWORD }}
           BP_KEY_ALIAS: ${{ secrets.NIGHTJAR_KEY_ALIAS }}
           BP_KEY_PASSWORD: ${{ secrets.NIGHTJAR_KEY_PASSWORD }}
-        run: bash gradlew --no-daemon --max-workers=2 :app:assembleNonRootRelease :app:assembleRootRelease :app:bundleNonRootRelease
+        run: bash gradlew --no-daemon --max-workers=4 :app:assembleNonRootRelease :app:assembleRootRelease :app:bundleNonRootRelease
       - name: Verify the signature and the app IDs
         run: |
           apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)
@@ -631,21 +692,65 @@ jobs:
       # Nothing after the build needs the key.
       - name: Remove the keystore
         run: rm -f "$RUNNER_TEMP/nightjar-release.keystore"
+      - name: Collect the release files
+        run: |
+          mkdir android
+          cp app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk "android/nightjar-$VERSION.apk"
+          # Same APK under a fixed name, so .../releases/latest/download/nightjar.apk always serves
+          # the newest release (the TV install link in the README and the Downloader code use it).
+          cp app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk android/nightjar.apk
+          cp app/build/outputs/apk/root/release/app-root-release.apk "android/nightjar-$VERSION-root.apk"
+          cp app/build/outputs/bundle/nonRootRelease/app-nonRoot-release.aab "android/nightjar-$VERSION.aab"
+          # R8 map and native symbols of the non-root build, for reading this release's crash traces.
+          cp app/build/outputs/mapping/nonRootRelease/mapping.txt "android/nightjar-$VERSION-mapping.txt"
+          cp app/build/outputs/native-debug-symbols/nonRootRelease/native-debug-symbols.zip "android/nightjar-$VERSION-native-debug-symbols.zip"
+      # For the release job only: the shortest retention, so a dry run's signed build does not linger.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: android-release
+          path: android/
+          retention-days: 1
+          if-no-files-found: error
+      # Fallback: the keystore is already gone after the build unless a step failed.
+      - name: Remove the keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/nightjar-release.keystore"
+
+  release:
+    needs: [preflight, desktop-linux, desktop-windows, desktop-macos, android]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # uploads to the release for this tag
+    env:
+      VERSION: ${{ needs.preflight.outputs.version }}
+      # Only a tag push (or a manual run on a tag with dry_run off) publishes.
+      PUBLISH: ${{ github.ref_type == 'tag' && !inputs.dry_run }}
+    steps:
       - name: Fetch the desktop packages
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
+          pattern: desktop-*
           path: desktop
           merge-multiple: true
+      - name: Fetch the signed Android build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: android-release
+          path: android
       - name: Check the desktop packages
         run: |
           for file in "desktop/nightjar-desktop-$VERSION-linux-aarch64."{tar.gz,deb,rpm} "desktop/nightjar-desktop-$VERSION-aarch64."{AppImage,flatpak}; do
             test -s "$file" || echo "::warning::$file is missing: the aarch64 leg failed, this release goes out without it"
           done
-          for file in "desktop/nightjar-desktop-$VERSION-linux-x86_64."{tar.gz,deb,rpm} "desktop/nightjar-desktop-$VERSION-x86_64."{AppImage,flatpak} \
-              "desktop/nightjar-desktop-$VERSION-windows-x86_64.zip" "desktop/nightjar-desktop-$VERSION-windows-x86_64-setup.exe"; do
+          for arch in arm64 x86_64; do
+            file="desktop/nightjar-desktop-$VERSION-macos-$arch.zip"
+            test -s "$file" || echo "::warning::$file is missing: the macOS $arch leg failed, this release goes out without it"
+          done
+          for file in "desktop/nightjar-desktop-$VERSION-linux-x86_64."{tar.gz,deb,rpm} "desktop/nightjar-desktop-$VERSION-x86_64."{AppImage,flatpak}               "desktop/nightjar-desktop-$VERSION-windows-x86_64.zip" "desktop/nightjar-desktop-$VERSION-windows-x86_64-setup.exe"; do
             test -s "$file" || { echo "::error::$file is missing from the desktop artifacts"; exit 1; }
           done
-          ls -l desktop
+          ls -l desktop android
       - name: Publish to the release
         if: ${{ env.PUBLISH == 'true' }}
         env:
@@ -654,16 +759,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir out
-          cp desktop/nightjar-desktop-* out/
-          cp app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk "out/nightjar-$VERSION.apk"
-          # Same APK under a fixed name, so .../releases/latest/download/nightjar.apk always serves
-          # the newest release (the TV install link in the README and the Downloader code use it).
-          cp app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk out/nightjar.apk
-          cp app/build/outputs/apk/root/release/app-root-release.apk "out/nightjar-$VERSION-root.apk"
-          cp app/build/outputs/bundle/nonRootRelease/app-nonRoot-release.aab "out/nightjar-$VERSION.aab"
-          # R8 map and native symbols of the non-root build, for reading this release's crash traces.
-          cp app/build/outputs/mapping/nonRootRelease/mapping.txt "out/nightjar-$VERSION-mapping.txt"
-          cp app/build/outputs/native-debug-symbols/nonRootRelease/native-debug-symbols.zip "out/nightjar-$VERSION-native-debug-symbols.zip"
+          cp desktop/nightjar-desktop-* android/* out/
           (cd out && sha256sum nightjar-* nightjar.apk >"SHA256SUMS-$VERSION.txt")
           flags=()
           if [[ $VERSION == *-* ]]; then flags+=(--prerelease --latest=false); fi
@@ -685,13 +781,9 @@ jobs:
             if [ "${#flags[@]}" != 0 ]; then gh release edit "$GITHUB_REF_NAME" "${flags[@]}"; fi
           else
             gh release create "$GITHUB_REF_NAME" out/* --verify-tag --title "Nightjar $VERSION" \
-              --notes "The APKs are signed by CI with the Nightjar release key; the desktop packages (Windows installer and zip; Linux .deb, .rpm, AppImage, Flatpak and tar.gz) are not signed. SHA-256 hashes of everything are in SHA256SUMS-$VERSION.txt." "${flags[@]}"
+              --notes "The APKs are signed by CI with the Nightjar release key; the desktop packages (Windows installer and zip; Linux .deb, .rpm, AppImage, Flatpak and tar.gz; macOS zip with an ad-hoc signature, not notarized) are not signed. SHA-256 hashes of everything are in SHA256SUMS-$VERSION.txt." "${flags[@]}"
           fi
           echo "::notice::published $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"
       - name: Dry run result
         if: ${{ env.PUBLISH != 'true' }}
         run: echo "::notice::dry run of $VERSION built and verified (APKs, bundle, desktop client); nothing was published"
-      # Fallback: the keystore is already gone after the build unless a step failed.
-      - name: Remove the keystore
-        if: always()
-        run: rm -f "$RUNNER_TEMP/nightjar-release.keystore"

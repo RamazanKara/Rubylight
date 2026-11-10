@@ -8,6 +8,7 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -82,6 +83,10 @@ public class ComputerManagerService extends Service {
     private final LinkedList<PollingTuple> pollingTuples = new LinkedList<>();
     // Orders a poll's save of a PC against removeComputer's delete (see runPoll).
     private final Object removalLock = new Object();
+    // The HTTP clients of the serverinfo polls, kept from one poll to the next while the polls run.
+    private final PollConnections pollConnections = new PollConnections((address, httpsPort, serverCert) ->
+            new NvHTTP(address, httpsPort, idManager.getUniqueId(), serverCert,
+                    PlatformBinding.getCryptoProvider(ComputerManagerService.this)));
     private volatile ComputerManagerListener listener;
     private final AtomicInteger activePolls = new AtomicInteger(0);
     private volatile boolean pollingActive;
@@ -148,8 +153,13 @@ public class ComputerManagerService extends Service {
 
             // If it's online, update our persistent state
             ComputerDetails existingComputer = null;
+            // The saved row as this poll read it, before the poll's answer is merged into it.
+            Object[] savedColumns = null;
             if (details.state == ComputerDetails.State.ONLINE) {
                 existingComputer = dbManager.getComputerByUUID(details.uuid);
+                if (existingComputer != null) {
+                    savedColumns = ComputerDatabaseManager.columns(existingComputer);
+                }
 
                 // Check if it's in the database because it could have been
                 // removed after this was issued
@@ -195,7 +205,12 @@ public class ComputerManagerService extends Service {
                     HostCapabilityCache.save(this, details.uuid, details.caps);
                     if (existingComputer != null) {
                         existingComputer.update(details);
-                        dbManager.updateComputer(existingComputer);
+                        // A PC is polled every second or two and nearly always answers what is saved
+                        // already. The row is written when any of its columns differs from the one read,
+                        // which a new name, address, MAC or certificate and a forgotten pairing all do.
+                        if (!Arrays.deepEquals(savedColumns, ComputerDatabaseManager.columns(existingComputer))) {
+                            dbManager.updateComputer(existingComputer);
+                        }
                     }
                     else {
                         dbManager.updateComputer(details);
@@ -421,6 +436,8 @@ public class ComputerManagerService extends Service {
                 }
             }
         }
+        // The polls' clients go with the polls; one still out on a request is dropped when it returns.
+        pollConnections.clear();
 
         // Remove the listener
         listener = null;
@@ -794,13 +811,19 @@ public class ComputerManagerService extends Service {
             boolean portMatchesActiveAddress = details.state == ComputerDetails.State.ONLINE &&
                     details.activeAddress != null && address.port == details.activeAddress.port;
 
-            NvHTTP http = new NvHTTP(address, portMatchesActiveAddress ? details.httpsPort : 0, idManager.getUniqueId(), details.serverCert,
-                    PlatformBinding.getCryptoProvider(ComputerManagerService.this));
+            // The client the last poll of this address and certificate used, or a new one.
+            PollConnections.Lease lease = pollConnections.take(address,
+                    portMatchesActiveAddress ? details.httpsPort : 0, details.serverCert);
 
             // If this PC is currently online at this address, extend the timeouts to allow more time for the PC to respond.
             boolean isLikelyOnline = details.state == ComputerDetails.State.ONLINE && address.equals(details.activeAddress);
 
-            ComputerDetails newDetails = http.getComputerDetails(isLikelyOnline);
+            ComputerDetails newDetails;
+            try {
+                newDetails = lease.http.getComputerDetails(isLikelyOnline);
+            } finally {
+                pollConnections.giveBack(lease, SystemClock.elapsedRealtime());
+            }
 
             // Check if this is the PC we expected
             if (newDetails.uuid == null) {

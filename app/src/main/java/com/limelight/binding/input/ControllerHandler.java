@@ -155,6 +155,13 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     private final Handler mainThreadHandler;
     private final HandlerThread backgroundHandlerThread;
     private final Handler backgroundThreadHandler;
+    // Motion sensors report a few hundred times a second, so their events arrive on a thread of
+    // their own instead of the main thread, where they would compete with input and drawing.
+    private final MotionSensorThread motionSensorThread = new MotionSensorThread();
+    // A sensor event sends its report under this lock, and so does the stationary gyroscope report
+    // that ends a pad's motion. That report is sent after whatever ended the motion was set, so no
+    // sample already on the sensor thread can reach the host behind it and leave the camera turning.
+    private final Object motionSendLock = new Object();
     private boolean hasGameController;
     private boolean connectionStarted;
     private volatile boolean stopped = false;
@@ -379,6 +386,24 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         backgroundThreadHandler.removeCallbacksAndMessages(null);
         sceManager.stop();
         backgroundHandlerThread.quit();
+        // stop() unregistered every motion listener, and an event the thread is still handing to one
+        // finds the stream stopped. The thread drops what it had queued and ends.
+        motionSensorThread.quit();
+    }
+
+    /** Stops a pad's rotation on the host, ordered after any sensor sample being sent (see {@link #motionSendLock}). */
+    private void sendGyroAtRest(short controllerNumber) {
+        synchronized (motionSendLock) {
+            conn.sendControllerMotionEvent((byte) controllerNumber, MoonBridge.LI_MOTION_TYPE_GYRO, 0, 0, 0);
+        }
+    }
+
+    /** Unregisters a motion listener so that no sample of it reaches the host from here on. */
+    private void closeMotionListener(SensorManager sensors, MotionListener listener) {
+        // Closed first: a sample already on the sensor thread finds the listener closed, since
+        // unregistering alone does not hold back one that was delivered just before.
+        listener.closed = true;
+        sensors.unregisterListener(listener);
     }
 
     /** A controller the USB driver owns: Android lists no input device for it. */
@@ -439,7 +464,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             releaseInput(context);
             if (context.assignedControllerNumber && context.gyroListener != null) {
                 // Motion stops with the rest of the input; a held angular velocity keeps turning the camera.
-                conn.sendControllerMotionEvent((byte) context.controllerNumber, MoonBridge.LI_MOTION_TYPE_GYRO, 0, 0, 0);
+                sendGyroAtRest(context.controllerNumber);
             }
         }
         if (includeUsbPads) {
@@ -465,7 +490,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                     0, 0, 0, 0);
         }
         if (prefConfig.gamepadMotionSensors && (context.capabilities() & MoonBridge.LI_CCAP_GYRO) != 0) {
-            conn.sendControllerMotionEvent((byte) context.controllerNumber, MoonBridge.LI_MOTION_TYPE_GYRO, 0, 0, 0);
+            sendGyroAtRest(context.controllerNumber);
         }
     }
 
@@ -516,7 +541,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         for (UsbDeviceContext context : usbDeviceContexts.values()) {
             context.unregisterDeviceMotion();
             if (context.assignedControllerNumber && (context.capabilities() & MoonBridge.LI_CCAP_GYRO) != 0) {
-                conn.sendControllerMotionEvent((byte)context.controllerNumber, MoonBridge.LI_MOTION_TYPE_GYRO, 0, 0, 0);
+                sendGyroAtRest(context.controllerNumber);
             }
         }
     }
@@ -3225,78 +3250,108 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         context.enableSensorRunnable.run();
     }
 
-    private SensorEventListener createSensorListener(final short controllerNumber, final byte motionType,
-                                                     final boolean needsDeviceOrientationCorrection,
-                                                     final InputDeviceContext livenessContext) {
-        return new SensorEventListener() {
-            private float[] lastValues = new float[3];
-            private final GyroLivenessTracker liveness = livenessContext != null ? new GyroLivenessTracker() : null;
+    private MotionListener createSensorListener(final short controllerNumber, final byte motionType,
+                                                final boolean needsDeviceOrientationCorrection,
+                                                final InputDeviceContext livenessContext) {
+        return new MotionListener(controllerNumber, motionType, needsDeviceOrientationCorrection, livenessContext);
+    }
 
-            @Override
-            public void onSensorChanged(SensorEvent sensorEvent) {
-                if (stopped || !sensorsEnabled || !inputEnabled) {
+    /**
+     * One motion sensor of one pad. Its events arrive on {@link #motionSensorThread}, in the order
+     * the sensor produced them, so everything here that the main thread also touches is either
+     * volatile or under {@link #motionSendLock}.
+     */
+    final class MotionListener implements SensorEventListener {
+        private final short controllerNumber;
+        private final byte motionType;
+        private final boolean needsDeviceOrientationCorrection;
+        private final InputDeviceContext livenessContext;
+        // Only the thread delivering the events reads and writes these.
+        private final float[] lastValues = new float[3];
+        private final GyroLivenessTracker liveness;
+        // Set by closeMotionListener() on the thread that unregisters this listener.
+        volatile boolean closed;
+
+        MotionListener(short controllerNumber, byte motionType, boolean needsDeviceOrientationCorrection,
+                       InputDeviceContext livenessContext) {
+            this.controllerNumber = controllerNumber;
+            this.motionType = motionType;
+            this.needsDeviceOrientationCorrection = needsDeviceOrientationCorrection;
+            this.livenessContext = livenessContext;
+            this.liveness = livenessContext != null ? new GyroLivenessTracker() : null;
+        }
+
+        @Override
+        public void onSensorChanged(SensorEvent sensorEvent) {
+            if (closed || stopped || !sensorsEnabled || !inputEnabled) {
+                return;
+            }
+            // Before the duplicate check, which drops the repeated zeros this looks for.
+            if (liveness != null && liveness.onSample(sensorEvent.values[0], sensorEvent.values[1],
+                    sensorEvent.values[2], sensorEvent.timestamp)) {
+                mainThreadHandler.post(() -> fallBackToDeviceSensors(livenessContext));
+            }
+            // Android will invoke our callback any time we get a new reading,
+            // even if the values are the same as last time. Don't report a
+            // duplicate set of values to save bandwidth.
+            if (sensorEvent.values[0] == lastValues[0] &&
+                    sensorEvent.values[1] == lastValues[1] &&
+                    sensorEvent.values[2] == lastValues[2]) {
+                return;
+            }
+            else {
+                lastValues[0] = sensorEvent.values[0];
+                lastValues[1] = sensorEvent.values[1];
+                lastValues[2] = sensorEvent.values[2];
+            }
+
+            int x = 0;
+            int y = 1;
+            int z = 2;
+            int xFactor = 1;
+            int yFactor = 1;
+            int zFactor = 1;
+
+            if (needsDeviceOrientationCorrection) {
+                int deviceRotation = activityContext.getWindowManager().getDefaultDisplay().getRotation();
+                switch (deviceRotation) {
+                    case Surface.ROTATION_0:
+                    case Surface.ROTATION_180:
+                        x = 0;
+                        y = 2;
+                        z = 1;
+                        break;
+
+                    case Surface.ROTATION_90:
+                    case Surface.ROTATION_270:
+                        x = 1;
+                        y = 2;
+                        z = 0;
+                        break;
+                }
+
+                switch (deviceRotation) {
+                    case Surface.ROTATION_0:
+                        zFactor = -1;
+                        break;
+                    case Surface.ROTATION_90:
+                        xFactor = -1;
+                        zFactor = -1;
+                        break;
+                    case Surface.ROTATION_180:
+                        xFactor = -1;
+                        break;
+                    case Surface.ROTATION_270:
+                        break;
+                }
+            }
+
+            synchronized (motionSendLock) {
+                // Asked again under the lock: the main thread may have ended this pad's motion and
+                // sent its stationary report since the check above, and this sample must not follow it.
+                if (closed || stopped || !sensorsEnabled || !inputEnabled) {
                     return;
                 }
-                // Before the duplicate check, which drops the repeated zeros this looks for.
-                if (liveness != null && liveness.onSample(sensorEvent.values[0], sensorEvent.values[1],
-                        sensorEvent.values[2], sensorEvent.timestamp)) {
-                    mainThreadHandler.post(() -> fallBackToDeviceSensors(livenessContext));
-                }
-                // Android will invoke our callback any time we get a new reading,
-                // even if the values are the same as last time. Don't report a
-                // duplicate set of values to save bandwidth.
-                if (sensorEvent.values[0] == lastValues[0] &&
-                        sensorEvent.values[1] == lastValues[1] &&
-                        sensorEvent.values[2] == lastValues[2]) {
-                    return;
-                }
-                else {
-                    lastValues[0] = sensorEvent.values[0];
-                    lastValues[1] = sensorEvent.values[1];
-                    lastValues[2] = sensorEvent.values[2];
-                }
-
-                int x = 0;
-                int y = 1;
-                int z = 2;
-                int xFactor = 1;
-                int yFactor = 1;
-                int zFactor = 1;
-
-                if (needsDeviceOrientationCorrection) {
-                    int deviceRotation = activityContext.getWindowManager().getDefaultDisplay().getRotation();
-                    switch (deviceRotation) {
-                        case Surface.ROTATION_0:
-                        case Surface.ROTATION_180:
-                            x = 0;
-                            y = 2;
-                            z = 1;
-                            break;
-
-                        case Surface.ROTATION_90:
-                        case Surface.ROTATION_270:
-                            x = 1;
-                            y = 2;
-                            z = 0;
-                            break;
-                    }
-
-                    switch (deviceRotation) {
-                        case Surface.ROTATION_0:
-                            zFactor = -1;
-                            break;
-                        case Surface.ROTATION_90:
-                            xFactor = -1;
-                            zFactor = -1;
-                            break;
-                        case Surface.ROTATION_180:
-                            xFactor = -1;
-                            break;
-                        case Surface.ROTATION_270:
-                            break;
-                    }
-                }
-
                 if (motionType == MoonBridge.LI_MOTION_TYPE_GYRO) {
                     // Convert from rad/s to deg/s
                     conn.sendControllerMotionEvent((byte) controllerNumber,
@@ -3314,10 +3369,10 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                             sensorEvent.values[z] * zFactor);
                 }
             }
+        }
 
-            @Override
-            public void onAccuracyChanged(Sensor sensor, int accuracy) {}
-        };
+        @Override
+        public void onAccuracyChanged(Sensor sensor, int accuracy) {}
     }
 
     public void handleSetMotionEventState(final short controllerNumber, final byte motionType, short reportRateHz) {
@@ -3372,7 +3427,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 switch (motionType) {
                     case MoonBridge.LI_MOTION_TYPE_ACCEL:
                         if (deviceContext.accelListener != null) {
-                            sm.unregisterListener(deviceContext.accelListener);
+                            closeMotionListener(sm, deviceContext.accelListener);
                             deviceContext.accelListener = null;
                         }
 
@@ -3380,12 +3435,12 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                         Sensor accelSensor = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
                         if (sensorsEnabled && reportRateHz != 0 && accelSensor != null) {
                             deviceContext.accelListener = createSensorListener(controllerNumber, motionType, sm == deviceSensorManager, null);
-                            sm.registerListener(deviceContext.accelListener, accelSensor, 1000000 / reportRateHz);
+                            motionSensorThread.register(sm, accelSensor, deviceContext.accelListener, 1000000 / reportRateHz);
                         }
                         break;
                     case MoonBridge.LI_MOTION_TYPE_GYRO:
                         if (deviceContext.gyroListener != null) {
-                            sm.unregisterListener(deviceContext.gyroListener);
+                            closeMotionListener(sm, deviceContext.gyroListener);
                             deviceContext.gyroListener = null;
                         }
 
@@ -3394,7 +3449,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                         if (sensorsEnabled && reportRateHz != 0 && gyroSensor != null) {
                             deviceContext.gyroListener = createSensorListener(controllerNumber, motionType, sm == deviceSensorManager,
                                     checksGyroLiveness(controllerNumber, sm) ? deviceContext : null);
-                            sm.registerListener(deviceContext.gyroListener, gyroSensor, 1000000 / reportRateHz);
+                            motionSensorThread.register(sm, gyroSensor, deviceContext.gyroListener, 1000000 / reportRateHz);
                         }
                         break;
                 }
@@ -4625,9 +4680,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         public short leftTriggerMotor, rightTriggerMotor;
 
         public SensorManager sensorManager;
-        public SensorEventListener gyroListener;
+        public MotionListener gyroListener;
         public short gyroReportRateHz;
-        public SensorEventListener accelListener;
+        public MotionListener accelListener;
         public short accelReportRateHz;
 
         public InputDevice inputDevice;
@@ -4801,10 +4856,10 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             backgroundThreadHandler.removeCallbacks(setLedStateRunnable);
 
             if (gyroListener != null) {
-                sensorManager.unregisterListener(gyroListener);
+                closeMotionListener(sensorManager, gyroListener);
             }
             if (accelListener != null) {
-                sensorManager.unregisterListener(accelListener);
+                closeMotionListener(sensorManager, accelListener);
             }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -5041,14 +5096,14 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
             // Unregister all sensor listeners
             if (gyroListener != null) {
-                sensorManager.unregisterListener(gyroListener);
+                closeMotionListener(sensorManager, gyroListener);
                 gyroListener = null;
 
                 // Send a gyro event to ensure the virtual controller is stationary
-                conn.sendControllerMotionEvent((byte) controllerNumber, MoonBridge.LI_MOTION_TYPE_GYRO, 0.f, 0.f, 0.f);
+                sendGyroAtRest(controllerNumber);
             }
             if (accelListener != null) {
-                sensorManager.unregisterListener(accelListener);
+                closeMotionListener(sensorManager, accelListener);
                 accelListener = null;
 
                 // We leave the acceleration as-is to preserve the attitude of the controller
@@ -5084,7 +5139,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         // This device's motion sensors, standing in for a pad that has none as player 1
         SensorManager deviceSensors;
-        SensorEventListener gyroListener, accelListener;
+        MotionListener gyroListener, accelListener;
         short gyroReportRateHz, accelReportRateHz;
 
         void setDeviceMotion(byte motionType, short reportRateHz) {
@@ -5098,14 +5153,14 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         void registerDeviceMotion(byte motionType) {
             if (deviceSensors == null) return;
             boolean gyro = motionType == MoonBridge.LI_MOTION_TYPE_GYRO;
-            SensorEventListener old = gyro ? gyroListener : accelListener;
-            if (old != null) deviceSensors.unregisterListener(old);
-            SensorEventListener listener = null;
+            MotionListener old = gyro ? gyroListener : accelListener;
+            if (old != null) closeMotionListener(deviceSensors, old);
+            MotionListener listener = null;
             short rate = gyro ? gyroReportRateHz : accelReportRateHz;
             Sensor sensor = deviceSensors.getDefaultSensor(gyro ? Sensor.TYPE_GYROSCOPE : Sensor.TYPE_ACCELEROMETER);
             if (!stopped && sensorsEnabled && rate != 0 && sensor != null) {
                 listener = createSensorListener(controllerNumber, motionType, true, null);
-                deviceSensors.registerListener(listener, sensor, 1000000 / rate);
+                motionSensorThread.register(deviceSensors, sensor, listener, 1000000 / rate);
             }
             if (gyro) gyroListener = listener;
             else accelListener = listener;
@@ -5113,8 +5168,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         void unregisterDeviceMotion() {
             if (deviceSensors == null) return;
-            if (gyroListener != null) deviceSensors.unregisterListener(gyroListener);
-            if (accelListener != null) deviceSensors.unregisterListener(accelListener);
+            if (gyroListener != null) closeMotionListener(deviceSensors, gyroListener);
+            if (accelListener != null) closeMotionListener(deviceSensors, accelListener);
             gyroListener = null;
             accelListener = null;
         }

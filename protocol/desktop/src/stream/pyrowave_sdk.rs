@@ -61,7 +61,9 @@ pub(crate) mod tests;
 
 #[cfg(windows)]
 pub const DLL_NAME: &str = "libpyrowave-shared-1.dll";
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
+pub const DLL_NAME: &str = "libpyrowave-shared.dylib";
+#[cfg(target_os = "linux")]
 pub const DLL_NAME: &str = "libpyrowave-shared.so";
 /// The SDK's API major version this client is written against.
 pub const ABI_MAJOR: u32 = 1;
@@ -345,6 +347,27 @@ impl Api {
         check_abi(major, minor, patch)?;
         Self::bind(dll, path).map(Arc::new)
     }
+}
+
+/// A pass and its GPU milliseconds per frame from one line of the SDK's performance report
+/// (`performance_stats`), which reads "iDWT: 0.051 ms per frame" for a pass and has memory heap
+/// lines besides.
+pub fn pass_ms(line: &str) -> Option<(&str, f64)> {
+    let (name, rest) = line.split_once(": ")?;
+    Some((name.trim(), rest.strip_suffix(" ms per frame")?.trim().parse().ok()?))
+}
+
+/// The SDK's GPU time per frame, from its timestamps around each pass: the passes' milliseconds
+/// and their sum, or None when the report has no pass line. Unlike the stream's "gpu" stage, which
+/// is the wall time from the submit to the signal, this leaves out the time the decode waited for
+/// the queue (other work on it, or the presenter's copy the decode waits for), so the two apart
+/// tell a slow GPU from a busy queue.
+pub fn pass_summary(lines: &[String]) -> Option<String> {
+    let passes: Vec<(&str, f64)> = lines.iter().filter_map(|line| pass_ms(line)).collect();
+    if passes.is_empty() { return None; }
+    let sum: f64 = passes.iter().map(|(_, ms)| ms).sum();
+    let each: Vec<String> = passes.iter().map(|(name, ms)| format!("{name} {ms:.3}")).collect();
+    Some(format!("(SDK GPU timestamps, ms per frame): {sum:.2} in all; {}", each.join(", ")))
 }
 
 /// What the stream needs of the decoder, fixed at setup.

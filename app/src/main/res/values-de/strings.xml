@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_packed_444">Volle Farbauflösung</string>
-    <string name="summary_packed_444">Benötigt Rubylights Option für volle Farbauflösung, die neue Streaming-Engine und einen kompatiblen HEVC/AV1-Hardwaredecoder. Nicht unterstützte Modi beenden die Verbindung. HDR benötigt zusätzlich eine kompatible 10-Bit-HDR-Anzeigefläche.</string>
+    <string name="summary_packed_444">Benötigt Rubylights Option für volle Farbauflösung, die neue Streaming-Engine und einen kompatiblen HEVC/AV1-Hardwaredecoder. Kann der PC oder dieses Gerät das nicht, startet der Stream ohne sie. HDR benötigt zusätzlich eine kompatible 10-Bit-HDR-Anzeigefläche.</string>
     <string name="title_experimental_chipset_tuning">Chipsatz-Optimierung</string>
     <string name="summary_experimental_chipset_tuning">Zusätzliche Low-Latency-Einstellungen für MediaTek-Dimensity- und Samsung-Exynos-Decoder. Wenn das Video stockt oder ruckelt, schalte dies aus.</string>
     <string name="scut_deleted_pc">PC gelöscht</string>
@@ -283,6 +283,7 @@
     <string name="title_yuv444">YUV 4:4:4 bevorzugen</string>
     <string name="summary_yuv444">Schärferer farbiger Text, wenn PC und Gerät es unterstützen. HDR hat Vorrang.</string>
     <string name="yuv444_fallback">YUV 4:4:4 nicht verfügbar; nutze 4:2:0.</string>
+    <string name="yuv444_fallback_hdr">YUV 4:4:4 nicht verfügbar; nutze 4:2:0. HDR hat Vorrang.</string>
     <string name="title_virtual_display">Virtuelles Host-Display</string>
     <string name="summary_virtual_display">Fordert am PC ein Display passend zum Stream an. Aus: Die Display-Einstellungen des PCs entscheiden.</string>
     <string name="title_vrr">Adaptive Bildwiederholrate (ARR / VRR)</string>

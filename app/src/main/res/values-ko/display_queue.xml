@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_display_queue_recovery">디스플레이 대기열 지연 되찾기</string>
+    <string name="summary_display_queue_recovery">프레임 페이싱이 최저 지연 시간 또는 균형일 때, 화면이 이 스트림에 필요한 것보다 한 번의 새로 고침만큼 더 오래 프레임을 대기시키면 프레임 하나를 건너뛰어 그 지연을 없앱니다. 건너뛸 때마다 효과를 확인하고, 변화가 없으면 해당 스트림에서는 멈춥니다. 프레임 표시 시점을 보고하는 기기에서만 작동합니다.</string>
+</resources>

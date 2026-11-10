@@ -215,7 +215,18 @@ impl Clock for SystemClock {
 fn system_boot() -> (i64, bool) {
     static BOOT: std::sync::OnceLock<(i64, bool)> = std::sync::OnceLock::new();
     *BOOT.get_or_init(|| {
-        #[cfg(not(windows))]
+        #[cfg(target_os = "macos")]
+        {
+            let mut uuid = [0u8; 37];
+            let mut len = uuid.len();
+            // kern.bootsessionuuid is a NUL-terminated UUID that changes at boot.
+            if unsafe { libc::sysctlbyname(c"kern.bootsessionuuid".as_ptr(), uuid.as_mut_ptr().cast(), &mut len, std::ptr::null_mut(), 0) } == 0 {
+                if let Some(id) = std::ffi::CStr::from_bytes_until_nul(&uuid).ok().and_then(|s| s.to_str().ok()).filter(|s| !s.is_empty()) {
+                    return (boot_id_number(id), true);
+                }
+            }
+        }
+        #[cfg(target_os = "linux")]
         match std::fs::read_to_string("/proc/sys/kernel/random/boot_id") {
             Ok(id) if !id.trim().is_empty() => return (boot_id_number(id.trim()), true),
             Ok(_) => eprintln!("nightjar: the kernel's boot id is empty; the PIN lock estimates the boot time instead"),
@@ -252,8 +263,12 @@ fn uptime_ms() -> i64 {
 fn uptime_ms() -> i64 {
     let mut t = libc::timespec { tv_sec: 0, tv_nsec: 0 };
     // SAFETY: a valid timespec. CLOCK_BOOTTIME counts suspend too, like Android's elapsedRealtime.
-    if unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut t) } != 0 {
-        panic!("CLOCK_BOOTTIME unavailable: {}", std::io::Error::last_os_error());
+    #[cfg(target_os = "macos")]
+    let clock = libc::CLOCK_MONOTONIC_RAW; // Darwin includes sleep in this clock.
+    #[cfg(target_os = "linux")]
+    let clock = libc::CLOCK_BOOTTIME;
+    if unsafe { libc::clock_gettime(clock, &mut t) } != 0 {
+        panic!("boot clock unavailable: {}", std::io::Error::last_os_error());
     }
     t.tv_sec as i64 * 1000 + t.tv_nsec as i64 / 1_000_000
 }

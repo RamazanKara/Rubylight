@@ -3,9 +3,16 @@
 
 use super::*;
 
+/// The codec a format streams, for the log and the overlay. PyroWave names its chroma too: its
+/// 4:4:4 is a codec choice of its own and decodes about one and a half times as long.
 pub fn codec_name(format: u32) -> &'static str {
     if format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
-        if format & VIDEO_FORMAT_MASK_10BIT != 0 { "PyroWave 10-bit" } else { "PyroWave" }
+        match (format & VIDEO_FORMAT_MASK_10BIT != 0, format & VIDEO_FORMAT_MASK_YUV444 != 0) {
+            (false, false) => "PyroWave",
+            (false, true) => "PyroWave 4:4:4",
+            (true, false) => "PyroWave 10-bit",
+            (true, true) => "PyroWave 10-bit 4:4:4",
+        }
     } else if format & VIDEO_FORMAT_MASK_AV1 != 0 {
         if format & VIDEO_FORMAT_MASK_10BIT != 0 {
             "AV1 10-bit"
@@ -152,9 +159,10 @@ pub fn probes_color(settings: &Settings) -> bool {
     (wants.yuv444 || wants.sdr10) && !wants.hdr && !wants.packed444 && !wants.pyrowave
 }
 
-/// The formats of `color::YUV444_FORMATS` and `color::SDR10_FORMATS` a launch with these settings
-/// can offer, which `color_probe::probe` checks: 4:4:4 only with "Prefer YUV 4:4:4", 10-bit only
-/// with "10-bit color (SDR)", each of the codecs the codec choice offers. None without the probe.
+/// The formats of `color::YUV444_FORMATS`, `color::SDR10_FORMATS` and `color::YUV444_10_FORMATS`
+/// a launch with these settings can offer, which `color_probe::probe` checks: 4:4:4 only with
+/// "Prefer YUV 4:4:4", 10-bit only with "10-bit color (SDR)", 10-bit 4:4:4 only with both, each of
+/// the codecs the codec choice offers. None without the probe.
 pub fn color_probe_formats(settings: &Settings) -> u32 {
     if !probes_color(settings) {
         return 0;
@@ -173,6 +181,9 @@ pub fn color_probe_formats(settings: &Settings) -> u32 {
     }
     if settings.sdr_10bit {
         wanted |= color::SDR10_FORMATS;
+    }
+    if settings.prefer_yuv444 && settings.sdr_10bit {
+        wanted |= color::YUV444_10_FORMATS;
     }
     wanted & families
 }
@@ -265,7 +276,8 @@ pub(super) fn codec_fallback(settings: &Settings, scm: u32, hardware_decodable: 
     if decodes || negotiated & asked != 0 || !encoded {
         return None;
     }
-    let name = |format| if format & VIDEO_FORMAT_MASK_YUV444 != 0 { format!("{} 4:4:4", codec_name(format)) } else { codec_name(format).to_owned() };
+    // PyroWave's name has its chroma already.
+    let name = |format| if format & VIDEO_FORMAT_MASK_YUV444 != 0 && format & VIDEO_FORMAT_MASK_PYROWAVE == 0 { format!("{} 4:4:4", codec_name(format)) } else { codec_name(format).to_owned() };
     let (asked, streamed) = (name(asked), name(negotiated));
     Some((
         format!("nightjar: {asked} was chosen, but no hardware decoder here decodes it; streaming {streamed}"),

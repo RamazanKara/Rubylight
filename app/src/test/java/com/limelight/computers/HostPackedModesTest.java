@@ -61,6 +61,62 @@ public class HostPackedModesTest {
     }
 
     @Test
+    public void aRefusalIsKeptPerPcUntilAStreamStartsWithItOrTheSettingIsSwitched() {
+        assertFalse(HostPackedModes.refused(context, "pc"));
+        HostPackedModes.markRefused(context, "pc");
+        HostPackedModes.markRefused(context, "other");
+        assertTrue(HostPackedModes.refused(context, "pc"));
+        // A refusal is not a mode mask: the PC's modes stay unknown.
+        assertEquals(-1, HostPackedModes.cached(context, "pc"));
+        // Forgetting the modes (a DESCRIBE without any) keeps the refusal.
+        HostPackedModes.store(context, "pc", 0);
+        assertTrue(HostPackedModes.refused(context, "pc"));
+        // A stream that started with full chroma ends it, for that PC.
+        HostPackedModes.store(context, "pc", 0b0011);
+        assertFalse(HostPackedModes.refused(context, "pc"));
+        assertTrue(HostPackedModes.refused(context, "other"));
+        // Switching the setting asks every PC again and leaves the known modes alone.
+        HostPackedModes.clearRefusals(context);
+        assertFalse(HostPackedModes.refused(context, "other"));
+        assertEquals(0b0011, HostPackedModes.cached(context, "pc"));
+        assertFalse(HostPackedModes.refused(context, null));
+        assertFalse(HostPackedModes.refused(null, "pc"));
+    }
+
+    // Nightjar #88: a PC that refused was never asked again until the setting was switched.
+    @Test
+    public void aRefusalIsAskedAgainAfterAnUpdateOnEitherSide() {
+        String first = HostPackedModes.stamp("0.9.0", "3.11.2");
+        HostPackedModes.renew(context, "pc", first);
+        HostPackedModes.store(context, "pc", 0b0011);
+        HostPackedModes.markRefused(context, "pc");
+        // The same versions: not asked again.
+        HostPackedModes.renew(context, "pc", first);
+        assertTrue(HostPackedModes.refused(context, "pc"));
+        // The PC was updated: asked again.
+        HostPackedModes.renew(context, "pc", HostPackedModes.stamp("0.9.0", "3.12.0"));
+        assertFalse(HostPackedModes.refused(context, "pc"));
+        // This app was updated, on a PC that does not say its version: asked again.
+        HostPackedModes.renew(context, "pc", HostPackedModes.stamp("0.9.0", null));
+        HostPackedModes.markRefused(context, "pc");
+        HostPackedModes.renew(context, "pc", HostPackedModes.stamp("0.9.1", null));
+        assertFalse(HostPackedModes.refused(context, "pc"));
+        // Each PC on its own.
+        HostPackedModes.markRefused(context, "other");
+        HostPackedModes.renew(context, "pc", first);
+        assertTrue(HostPackedModes.refused(context, "other"));
+        // A refusal saved before versions were kept is asked again at the next launch.
+        HostPackedModes.renew(context, "old", first);
+        HostPackedModes.markRefused(context, "never-stamped");
+        HostPackedModes.renew(context, "never-stamped", first);
+        assertFalse(HostPackedModes.refused(context, "never-stamped"));
+        assertEquals("0.9.0/", HostPackedModes.stamp("0.9.0", null));
+        HostPackedModes.renew(context, null, first);
+        HostPackedModes.renew(null, "pc", first);
+        HostPackedModes.clearRefusals(context);
+    }
+
+    @Test
     public void noPcOrContextIsUnknown() {
         HostPackedModes.store(context, null, 0b0011);
         HostPackedModes.store(null, "pc", 0b0011);

@@ -1,6 +1,6 @@
 [package]
 name = "nightjar-desktop"
-description = "Nightjar for Windows and Linux: a Moonlight-protocol game-streaming client on nightjar-core"
+description = "Nightjar desktop Moonlight-protocol game-streaming client for Windows, Linux and macOS"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -54,12 +54,21 @@ windows-core = "0.62"
 # Screen readers (a11y.rs): egui's AccessKit tree through UI Automation on the SDL window.
 accesskit_windows = "0.35"
 
-[target.'cfg(not(windows))'.dependencies]
+[target.'cfg(target_os = "macos")'.dependencies]
+sdl3-sys = { version = "0.7", default-features = false, features = ["use-pkg-config"] }
+accesskit_macos = "0.27"
+system-configuration = "0.8"
+core-text = "22"
+objc2-app-kit = { version = "0.2", default-features = false, features = ["NSWorkspace", "NSAccessibility"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
 sdl3-sys = { version = "0.7", default-features = false, features = ["build-from-source-static"] }
-libc = "0.2"
 zbus = { version = "5.19", default-features = false, features = ["tokio", "blocking-api"] }
 # Screen readers (a11y.rs): egui's AccessKit tree over AT-SPI, on the tokio zbus above.
 accesskit_unix = { version = "0.24", default-features = false, features = ["tokio"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 # The AppImage's update check and download (update_net.rs); Windows has WinHTTP.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 

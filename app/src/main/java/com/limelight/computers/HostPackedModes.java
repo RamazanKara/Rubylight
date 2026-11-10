@@ -39,12 +39,78 @@ public final class HostPackedModes {
         describeModes &= ALL_MODES;
         SharedPreferences preferences = preferences(context);
         if (describeModes > 0) {
-            if (preferences.getInt(hostUuid, -1) != describeModes) {
-                preferences.edit().putInt(hostUuid, describeModes).apply();
+            if (preferences.getInt(hostUuid, -1) != describeModes || preferences.contains(refusedKey(hostUuid))) {
+                preferences.edit().putInt(hostUuid, describeModes).remove(refusedKey(hostUuid)).apply();
             }
         } else if (preferences.contains(hostUuid)) {
             preferences.edit().remove(hostUuid).apply();
         }
+    }
+
+    private static final String REFUSED_PREFIX = "refused:";
+
+    private static String refusedKey(String hostUuid) {
+        return REFUSED_PREFIX + hostUuid;
+    }
+
+    /**
+     * This PC refused a stream that asked for full chroma. A PC that does not say its modes in
+     * serverinfo is then not asked again at every launch, which would launch the game, be refused
+     * in the handshake and reconnect each time.
+     */
+    public static void markRefused(Context context, String hostUuid) {
+        if (context == null || hostUuid == null) return;
+        SharedPreferences preferences = preferences(context);
+        if (!preferences.getBoolean(refusedKey(hostUuid), false)) {
+            preferences.edit().putBoolean(refusedKey(hostUuid), true).apply();
+        }
+    }
+
+    /**
+     * Whether this PC's last answer to a full chroma stream was a refusal. A stream that starts with
+     * full chroma ({@link #store}), {@link #clearRefusals} and an update on either side
+     * ({@link #renew}) end it; serverinfo that names modes outranks it at the launch.
+     */
+    public static boolean refused(Context context, String hostUuid) {
+        return context != null && hostUuid != null && preferences(context).getBoolean(refusedKey(hostUuid), false);
+    }
+
+    private static final String UNDER_PREFIX = "under:";
+
+    /**
+     * What a PC's answer is given under: this app's version and the PC's own ({@code RustHostVersion};
+     * null for a PC that does not say it). An update on either side may change the answer. Desktop's
+     * {@code full_chroma::stamp}.
+     */
+    public static String stamp(String appVersion, String hostVersion) {
+        return appVersion + "/" + (hostVersion != null ? hostVersion : "");
+    }
+
+    /**
+     * A launch that asks about full chroma under {@code stamp} ({@link #stamp}): a refusal given
+     * under other versions ends, so a PC that refused is asked again after this app or the PC was
+     * updated. The known modes stay; serverinfo or the next DESCRIBE corrects them. A refusal saved
+     * before versions were kept is asked again too.
+     */
+    public static void renew(Context context, String hostUuid, String stamp) {
+        if (context == null || hostUuid == null || stamp == null) return;
+        SharedPreferences preferences = preferences(context);
+        if (stamp.equals(preferences.getString(UNDER_PREFIX + hostUuid, null))) return;
+        preferences.edit().putString(UNDER_PREFIX + hostUuid, stamp).remove(refusedKey(hostUuid)).apply();
+    }
+
+    /** Every PC is asked again: the user switched the setting, which is how to retry after changing a PC. */
+    public static void clearRefusals(Context context) {
+        if (context == null) return;
+        SharedPreferences preferences = preferences(context);
+        SharedPreferences.Editor editor = null;
+        for (String key : preferences.getAll().keySet()) {
+            if (key.startsWith(REFUSED_PREFIX)) {
+                if (editor == null) editor = preferences.edit();
+                editor.remove(key);
+            }
+        }
+        if (editor != null) editor.apply();
     }
 
     /** What the next launch takes the PC to offer: its serverinfo when it says, else the cache, else -1. */

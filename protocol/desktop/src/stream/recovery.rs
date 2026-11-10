@@ -58,7 +58,7 @@ mod tests {
         #[cfg(windows)]
         let (unreachable, timed_out) = ([10051, 10065, 10049], 10060);
         #[cfg(not(windows))]
-        let (unreachable, timed_out) = ([101, 113, 99], 110);
+        let (unreachable, timed_out) = ([libc::ENETUNREACH, libc::EHOSTUNREACH, libc::EADDRNOTAVAIL], libc::ETIMEDOUT);
         for code in unreachable {
             assert!(route_missing(&Error::from_raw_os_error(code)), "{code}");
         }

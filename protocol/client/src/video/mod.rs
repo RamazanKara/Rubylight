@@ -15,6 +15,7 @@ mod depacketizer;
 mod queue;
 
 use std::ops::Range;
+use std::sync::Arc;
 
 use depacketizer::Depacketizer;
 use queue::RtpQueue;
@@ -140,14 +141,22 @@ pub struct Frame {
     pub rtp_timestamp: u32,
     pub hdr_active: bool,
     pub colorspace: u8,
-    data: Vec<u8>,
+    data: FrameBytes,
     buffers: Vec<FrameBuffer>,
 }
 
 impl Frame {
     /// All buffers back to back.
     pub fn data(&self) -> &[u8] {
-        &self.data
+        self.data.as_slice()
+    }
+
+    /// The frame's bytes as a reference a decoder can keep past the call that submits the frame
+    /// (FFmpeg's reference-counted packets), with [`FRAME_PADDING`] zero bytes after them. Bytes
+    /// still held when the frame is recycled are not reused: they are freed when the last holder
+    /// lets go, and the pool makes up for them.
+    pub fn shared_data(&self) -> FrameBytes {
+        self.data.clone()
     }
 
     pub fn buffers(&self) -> &[FrameBuffer] {
@@ -156,9 +165,86 @@ impl Frame {
 
     /// Each buffer's type and bytes, in order.
     pub fn buffer_slices(&self) -> impl Iterator<Item = (BufferType, &[u8])> {
-        self.buffers
-            .iter()
-            .map(|b| (b.kind, &self.data[b.range.clone()]))
+        let data = self.data.as_slice();
+        self.buffers.iter().map(move |b| (b.kind, &data[b.range.clone()]))
+    }
+}
+
+/// Zero bytes after every completed frame's data, inside its allocation: FFmpeg's
+/// `AV_INPUT_BUFFER_PADDING_SIZE`, the most its bitstream readers read past a packet's end. With
+/// them a decoder can take the frame's bytes as they are instead of copying them into a padded
+/// packet.
+pub const FRAME_PADDING: usize = 64;
+
+/// A completed frame's bytes, shared by reference count, followed by [`FRAME_PADDING`] zero bytes.
+/// The bytes are written only while unshared (before the frame is handed out, and again once it
+/// is recycled with no other holder), so the bytes and the padding stay as they are while any
+/// reference lives.
+#[derive(Clone, Debug)]
+pub struct FrameBytes(Arc<Vec<u8>>);
+
+impl Default for FrameBytes {
+    fn default() -> Self {
+        Self::seal(Arc::default())
+    }
+}
+
+impl From<Vec<u8>> for FrameBytes {
+    /// `bytes` with the padding after them, as a completed frame carries them.
+    fn from(bytes: Vec<u8>) -> Self {
+        Self::seal(Arc::new(bytes))
+    }
+}
+
+impl FrameBytes {
+    /// The unshared `storage`, with the padding written after its bytes. Storage that is shared
+    /// after all (never the pool's) is copied rather than written.
+    fn seal(mut storage: Arc<Vec<u8>>) -> Self {
+        if Arc::get_mut(&mut storage).is_none() {
+            storage = Arc::new(storage.as_ref().clone());
+        }
+        let bytes = Arc::get_mut(&mut storage).expect("unshared above");
+        bytes.reserve(FRAME_PADDING);
+        bytes.spare_capacity_mut()[..FRAME_PADDING].fill(std::mem::MaybeUninit::new(0));
+        Self(storage)
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.0
+    }
+
+    /// The bytes and the [`FRAME_PADDING`] zero bytes after them.
+    pub fn padded(&self) -> &[u8] {
+        // SAFETY: `seal` reserved the padding past the length and initialised it, and the
+        // vector is not written while this reference shares it.
+        unsafe { std::slice::from_raw_parts(self.0.as_ptr(), self.0.len() + FRAME_PADDING) }
+    }
+
+    /// Whether this is the only reference to the bytes.
+    pub fn unshared(&self) -> bool {
+        Arc::strong_count(&self.0) == 1
+    }
+
+    /// A raw reference for C code to hold (a free callback's opaque pointer), given back with
+    /// [`FrameBytes::from_raw`].
+    pub fn into_raw(self) -> *const std::ffi::c_void {
+        Arc::into_raw(self.0).cast()
+    }
+
+    /// The reference [`FrameBytes::into_raw`] made.
+    ///
+    /// # Safety
+    /// `raw` came from `into_raw` and is given back once.
+    pub unsafe fn from_raw(raw: *const std::ffi::c_void) -> Self {
+        Self(Arc::from_raw(raw.cast()))
+    }
+
+    /// The storage, emptied, for the next frame; None while another holder still has the bytes
+    /// (they are freed when it lets go).
+    fn reclaim(self) -> Option<Arc<Vec<u8>>> {
+        let mut storage = self.0;
+        Arc::get_mut(&mut storage)?.clear();
+        Some(storage)
     }
 }
 
@@ -361,7 +447,8 @@ fn is_before32(x: u32, y: u32) -> bool {
 struct Pools {
     packet_size: usize,
     packets: Vec<Box<[u8]>>,
-    frames: Vec<(Vec<u8>, Vec<FrameBuffer>)>,
+    /// Unshared, empty frame storage: an `Arc` that is reused too, so a frame allocates nothing.
+    frames: Vec<(Arc<Vec<u8>>, Vec<FrameBuffer>)>,
 }
 
 const PACKET_POOL_LIMIT: usize = 4096;
@@ -382,15 +469,18 @@ impl Pools {
         }
     }
 
-    fn frame_storage(&mut self) -> (Vec<u8>, Vec<FrameBuffer>) {
+    /// Empty, unshared storage for a frame's bytes and buffers.
+    fn frame_storage(&mut self) -> (Arc<Vec<u8>>, Vec<FrameBuffer>) {
         self.frames.pop().unwrap_or_default()
     }
 
-    fn recycle_frame(&mut self, mut data: Vec<u8>, mut buffers: Vec<FrameBuffer>) {
+    /// Takes a frame's storage back. Bytes a decoder still holds (FFmpeg keeping a packet past
+    /// its call) stay its own until it lets go, and are freed then; their buffers list is kept.
+    fn recycle_frame(&mut self, data: FrameBytes, mut buffers: Vec<FrameBuffer>) {
         if self.frames.len() < FRAME_POOL_LIMIT {
-            data.clear();
             buffers.clear();
-            self.frames.push((data, buffers));
+            let storage = data.reclaim().unwrap_or_default();
+            self.frames.push((storage, buffers));
         }
     }
 }
@@ -506,6 +596,12 @@ impl VideoReceiver {
         if frame_type == FrameType::Idr {
             self.depacketizer.idr_frame_processed();
         }
+    }
+
+    /// Whether [`frame_decoded`](Self::frame_decoded) has been told of a key frame.
+    #[cfg(test)]
+    pub(crate) fn idr_decoded(&self) -> bool {
+        self.depacketizer.idr_decoded()
     }
 
     /// The decoder needs a key frame (`DR_NEED_IDR`, `requestDecoderRefresh`): flushes the

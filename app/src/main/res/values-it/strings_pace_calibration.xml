@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pace_calibration_title">Calibra il ritmo dei fotogrammi</string>
+    <string name="network_tests_title">Test di rete</string>
     <string name="pace_calibration_summary">PyroWave: trova la velocità più alta con cui l’host invia fotogrammi interi a questo dispositivo</string>
     <string name="pace_calibration_saved">Ritmo fotogrammi PyroWave: %1$d Mbps. Tocca per ricalibrare.</string>
     <string name="pace_calibration_intro">L’host invia fotogrammi di prova a velocità diverse e Nightjar tiene la più alta a cui arrivano interi. Gli stream PyroWave la useranno. Prima interrompi ogni stream su questo PC. Richiede da uno a tre minuti.</string>

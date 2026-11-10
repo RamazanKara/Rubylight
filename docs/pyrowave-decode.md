@@ -293,8 +293,9 @@ decode:
   `glslangValidator -V -D -e planes -S frag --auto-sampled-textures --target-env vulkan1.0
   protocol/desktop/src/pyrowave.hlsl -o protocol/desktop/src/pyrowave-planes.spv`. `-V` defines
   `VULKAN`, which selects the sampler slots t0 to t2 in `space2` that SDL's fragment shaders use.
-  Check the result with `spirv-val`. glslang 15.1.0 (Ubuntu's `glslang-tools`) reproduces the
-  committed module byte for byte. `pyrowave-planes.spv.sha256` beside it records the SHA-256 of
+  Check the result with `spirv-val`. glslang 16.3.0 (MSYS2's; Ubuntu's `glslang-tools` 15.1.0 gave the
+  same module before flag 4096) reproduces the committed module byte for byte; flag 8192 (the
+  gamma 2.2 encode for a compositor's blending space, `stream/wl_scanout.rs`) was built with it. `pyrowave-planes.spv.sha256` beside it records the SHA-256 of
   `pyrowave.hlsl` (with LF line endings) and of the module, and
   `pyrowave_gpu::tests::the_planes_module_was_built_from_the_shader_as_it_is` fails when either
   file changes without the other: after editing the shader, regenerate the module and update
@@ -544,6 +545,45 @@ Verdict: the keep rule fails (the p99 gain is not separable from noise, one B le
 
 Not measured: 1440p and 4K, the early-decode leg, and a forced backlog (for example a throttled decoder) that would exercise the skip on purpose. The Nightjar timing CSV leaves its fps columns blank, so shown fps above is the rendered frames over their span.
 
+## Skipping to the newest frame when a backlog forms (desktop, CPU and GPU decode): shipped, measured on the 780M laptop (GPU decode)
+
+A decoder whose decode takes longer than the frame interval never catches up: the 15-frame decode queue fills, every frame waits behind the ones before it, and the full queue is flushed with a key-frame request, after which it fills again. A reported 4K 112 fps session on an integrated GPU showed that (GPU decode about 11 ms a frame against an 8.9 ms interval, a queue overflow about once a second). That configuration (10-bit HDR, Linux) was not reproduced here; the same ratio of decode time to frame interval was, with a larger picture (below).
+
+The decode loop (`session/video.rs` in `client/protocol/client`) now skips for a decoder that reports `intra_only()`:
+
+- A frame is skipped when two or more newer frames are queued behind it (`SKIP_BACKLOG`). Within one second of the last skip (`SKIP_HOLD_US`) one newer frame is enough, so a decoder that is steadily too slow stays at the newest frame instead of oscillating between a backlog of zero and two.
+- With nothing queued behind the frame the rule is one integer comparison and nothing changes; a pair of frames that arrive together is not a backlog and both are decoded. That is the case the candidate above made 0.2 to 0.3 ms slower.
+- Early chunks of a frame that is certain to be skipped are dropped. A skipped frame goes to `VideoDecoder::skip`, which on desktop passes it through the records cache (`Records::push_frame`, or `finish_frame` when the early chunks already held the whole frame) so recovery of a later lossy frame reads the same cache a decode would have left. A skipped key frame is reported decoded with the next frame that is decoded.
+- Desktop reports `intra_only()` for PyroWave on the CPU and on the GPU, except while beam racing is active. Other codecs and Android are unchanged (Android's decoder keeps its own records cache behind JNI and has no skip entry yet).
+
+Skipped frames are counted with the overlay's "Decoder drops" line and in the session-end log line ("skipped for a newer frame").
+
+The unit tests drive a gated decoder that is slower than its stream and check that the queue never holds more than three frames, that the newest frame is always decoded and that no key frame is requested.
+
+Measured on the 780M laptop (Windows 11, 2880x1800 at 120 Hz, Wi-Fi 6E at 160 MHz) from an isolated Rubylight host on the RX 7900 XT PC: PyroWave 4:2:0 8-bit SDR at 120 fps, 1.4 Gbps configured (about 1.24 Gbps sent), GPU decode through the SDK, pacing Immediate, overlay off. The host captured an unchanged 2560x1440 desktop, scaled it to the stream size and resent the still picture at 120 fps, so a frame left every frame period (the host sent 116 to 120 fps in every leg). A is the released 4.12.3 Windows build, B a release build of this change run beside the same DLLs. Percentiles come from the timing CSV (one row per picture shown) after the first 5 s; frame counts are the session-end line's and cover the whole leg; key-frame requests are the host's `idr_requests`, which counts the one that starts a stream. "End to end" is the overlay's figure computed per row: the present call's return minus the frame's host timestamp moved onto the client's clock.
+
+| Stream | Leg | `input_to_output_ms` p50 / p95 | `queue_wait_ms` p50 / p95 | `receive_to_present_ms` p50 / p95 | End to end p50 / p95 | Decoded | Skipped | Queue overflows | Key-frame requests | Shown fps |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 7168x4032, 45 s, order ABBA | A | 10.60 / 10.96, 11.08 / 11.43 | 57.0 / 120.3, 58.2 / 118.2 | 80.3 / 143.3, 82.8 / 142.4 | 87.9 / 149.6, 89.5 / 150.3 | 4398, 4171 | | 63, 78 | 64, 79 | 22.8, 21.5 |
+| 7168x4032, 45 s, order ABBA | B | 10.62 / 11.13, 10.73 / 11.02 | 4.2 / 8.9, 4.2 / 8.8 | 27.1 / 33.4, 27.4 / 33.4 | 33.9 / 40.4, 33.6 / 40.2 | 4252, 4238 | 1164, 1091 | 0, 0 | 1, 1 | 21.9, 21.7 |
+| 7680x4320, 30 s | A | 12.35 / 12.54 | 40.6 / 118.8 | 69.5 / 145.7 | 78.5 / 153.2 | 2728 | | 56 | 56 | 22.8 |
+| 7680x4320, 30 s | B | 12.11 / 12.43 | 4.0 / 9.4 | 32.0 / 37.2 | 38.5 / 45.5 | 2550 | 1062 | 0 | 1 | 19.8 |
+| 6400x3600, 45 s | A | 5.15 / 5.62 | 0.45 / 0.59 | 24.7 / 30.6 | 31.1 / 38.1 | 5409 | | 0 | 1 | 100.8 |
+| 6400x3600, 45 s | B | 5.08 / 5.43 | 0.40 / 0.53 | 23.7 / 26.8 | 29.4 / 32.6 | 5236 | 4 | 0 | 1 | 112.6 |
+| 3840x2160, 30 s | A | 2.55 / 2.71 | 0.15 / 0.24 | 9.8 / 11.6 | 13.7 / 18.2 | 3652 | | 0 | 1 | 120.1 |
+| 3840x2160, 30 s | B | 2.64 / 2.77 | 0.14 / 0.18 | 9.7 / 11.2 | 13.1 / 17.1 | 3508 | 0 | 0 | 1 | 116.8 |
+
+What it shows:
+
+- 4K at 120 fps does not make this laptop's decoder slower than the stream: a frame decodes in about 2.6 ms and the stream shows 117 to 120 fps at 13 to 14 ms end to end with either build. The reported 11 ms at 4K is therefore not what a 780M needs for the decode as such; which of 10-bit HDR, Linux and its compositor makes the difference is not measured. A decode slower than the 8.33 ms interval needed a picture of 7168x4032 here.
+- With the decoder slower than the stream (7168x4032 and 8K), A waits in the queue for 41 to 58 ms at the median and about 120 ms at p95, overflows the queue 1.4 to 1.9 times a second and asks for a key frame each time. B waits 4 ms at the median and 9 ms at p95 (the longest wait was 11 ms, one decode), never overflows and asks for no key frame after the first. End to end falls from 88 to 90 ms to 34 ms at the median and from 150 ms to 40 ms at p95 (7168x4032, both orders).
+- B skips 20 to 22 % of the frames at 7168x4032, which is what a 10.7 ms decode against an 8.33 ms interval leaves no time for (22 %), so two frames and one second do not skip more than the decoder's rate requires. Decode time is the same in A and B.
+- With the decoder faster than the stream the rule stays out of the way: 0 skips in the 4K leg and 4 of 5240 frames at 6400x3600, with the queue wait unchanged.
+- Shown fps at 7168x4032 and 8K is about 22 in both builds: the presenter replaced about three of four decoded pictures before showing them. That is a limit of presenting pictures this large on this laptop, not of the decode queue (the reported 4K session replaced 0 to 2 pictures), and it is not explained here. The shown fps difference at 6400x3600 is one leg each.
+- The host logged transient UDP send failures in three A legs (46, 46 and 310 packets) and in no B leg; the client's health line reported 0.0 % worst loss in every leg.
+
+Not measured: 10-bit HDR, Linux, the CPU decoder's skip path on hardware, and the time from the present call to the screen.
+
 ## Beam racing: measured, opt-in (helps the median at low pace, not p95, worse `receive_to_present` at high pace)
 
 The idea: with the host sending each row of blocks with the data it depends on (`pyrowaveRowOrder`),
@@ -615,3 +655,231 @@ gains little. The wired NUC legs (3, 4 and 7), where the idea is meant to pay, a
 are, the setting stays off by default and nothing recommends it. To try it, set `beam_race` in the
 settings file or run with `NIGHTJAR_BEAM_RACE=1`; `NIGHTJAR_BEAM_RACE_PRESENT=0` keeps the probe and the
 slices but presents whole pictures (the measurement's "whole" side).
+
+## 4:4:4 at 4K on a 780M: what the decode costs, and the Linux report it does not explain
+
+A Linux report (Flatpak, KDE Plasma Wayland, Radeon 780M with RADV, 3840x2160 at 112 fps, PyroWave
+10-bit HDR10 at 1.4 Gbps, GPU decode on the graphics queue) logged a `gpu` stage of 9.1 to 9.4 ms
+(p50) and a `push` of 1.4 to 2.0 ms, against an 8.9 ms frame interval; the user said it is slow with
+4:4:4 and fine with 4:2:0. The same GPU here, on Windows, 4K at 120 fps, 1.4 Gbps configured, 8-bit
+SDR, an unchanged desktop scaled to the stream, 40 s legs, the released 4.12.3 build, isolated host:
+
+| Chroma | Queue | `input_to_output_ms` p50 / p95 | push p50 | submit p50 | gpu p50 / p95 |
+| --- | --- | --- | --- | --- | --- |
+| 4:2:0 | graphics | 2.69 / 2.84, 2.68 / 2.83 | 0.34 | 0.26 | 2.07 / 2.14, 2.06 / 2.15 |
+| 4:4:4 | graphics | 4.10 / 4.48, 4.03 / 4.31 | 0.38 to 0.39 | 0.27 | 3.41 / 3.50, 3.36 / 3.44 |
+| 4:4:4 | compute | 4.02 / 4.41 | 0.37 | 0.27 | 3.36 / 3.45 |
+
+4:4:4 decodes 1.65 times as long as 4:2:0, not twice: the entropy work follows the bitrate, only the
+wavelets follow the samples. Nothing in the client's 4:4:4 path differs beyond the plane sizes (full
+size chroma planes, the SDK decoder made with `chroma = 1`); there is no extra pass or fallback.
+10-bit could not be streamed here (PyroWave has no 10-bit SDR mode, and the laptop's panel is not in
+HDR), so the SDK alone measured it (`pyrowave_sdk::tests::decode_timing_at_1080p_1440p_and_4k`,
+synthetic records, its own GPU timestamps on the 780M): 4K 4:2:0 2.18 ms, 10-bit 2.26 ms; 4:4:4 4.07
+ms, 10-bit 4.25 ms. 10-bit adds about 4 %. (The synthetic 4:4:4 frames carry twice the bytes of the
+4:2:0 ones, so that ratio overstates what a stream at a fixed bitrate sees.)
+
+So the reported 4:4:4 10-bit decode would take about 3.6 ms on this laptop under Windows; the report's
+9.2 ms is about 2.6 times that, and its CPU-only `push` is 4 to 5 times ours. If 4:2:0 is slower on
+that machine by the same factor (about 5.5 ms), it stays under the frame interval and looks fine, while
+4:4:4 crosses it and the decoder queue fills: that fits what the user saw, but the factor itself is
+not measured here. Candidates, none proven: the GPU and its shared memory saturated by the Linux HDR
+path (the plane copy out of the decoder's images, three full-size planes in 4:4:4, the RGBA16F picture,
+the back buffer and the PQ pass on the same graphics queue as the decode, plus the compositor's HDR
+composition; a `gpu` stage close to the frame interval and a slow CPU `push` both fit memory
+contention), the GPU held at low clocks (power profile or TDP limit), or the driver's code for the
+SDK's shaders. On Linux the `gpu` stage is wall time on the wait thread and so includes waiting for the
+queue.
+
+What the log now says, to tell these apart (each at the stream's end):
+
+- The streamed codec names its chroma: `PyroWave 4:4:4`, `PyroWave 10-bit 4:4:4`. Before, the log and
+  the overlay said `PyroWave 10-bit` for both chromas.
+- On Linux the decode's `submit` stage is the time until the SDK's submit returned (which includes the
+  wait for the renderer's queue lock) and `gpu` the rest; before, `submit` read 0 and `gpu` held both.
+- `PyroWave GPU passes (SDK GPU timestamps, ms per frame): ...`: the SDK's own GPU time for the
+  stream. Far below the `gpu` stage means the decode waited on a busy queue; close to it means the
+  GPU itself is slow.
+- `GPU during the stream: amdgpu cardN over N samples a second apart: shader clock p50 ... MHz
+  (lowest ...) of ..., memory clock ..., busy p50 ... %, performance level ..., platform profile ...`
+  (Linux, amdgpu, `stream/gpu_clocks.rs`): low clocks with a busy GPU point at power limits; high
+  clocks with a busy GPU at saturation.
+
+## Receive, decode and present at 4K 4:4:4 on Linux: where the time and the bytes go
+
+A review of the path the Linux report above takes (shared Vulkan device, decode on the graphics
+queue, HDR10 PQ output through the back buffer), done from the code. No Linux machine with a
+Radeon was available, so nothing in this section is measured on that path.
+
+**The push stage was mis-timed on every platform.** The push is timed once per network packet
+(`GpuStream::chunk`; a PyroWave packet carries at most 1400 bytes, so a 1.56 MB frame at 1.4 Gbps
+and 112 fps is about 1,100 of them), and `Stages::add` rounded each span down to a whole
+microsecond. A packet that took 0.9 us counted 0 and one that took 1.1 us counted 1, so the push
+read low everywhere, by an amount that depended on how close each packet's work was to a
+microsecond. The 0.38 ms (Windows) and 1.4 to 2.0 ms (Linux) above are both lower bounds, and their
+ratio says little. `Stages` now adds nanoseconds and rounds once per frame
+(`stage_times::tests::many_spans_shorter_than_a_microsecond_add_up`). Every stage summary, the
+video decoder's included, is exact from now on, and push numbers from before the change cannot be
+compared with later ones.
+
+**The push's bookkeeping hashed every record.** The records pushed early were kept in a
+`HashSet<u32>` (SipHash): about 24,300 inserts as the packets arrive and as many lookups when the
+frame completes, at 4K 4:4:4 (one record per 32x32 block of coefficients, three full-size planes).
+It is now a bitmap over the 24-bit block index (`BlockSet` in `stream/pyrowave.rs`; at most 2 MiB,
+and `clear` zeroes only the words the frame touched). This changes Windows and Linux alike. The
+ignored test `pyrowave::tests::block_set_against_a_hash_set` times both for one frame.
+
+Nothing in the push reads mapped GPU memory: the records go from the packet into the records cache
+(`Records`, a `Vec`) and into the SDK's own `std::vector` (`decoder_push_packet` appends the payload
+words). The SDK copies the payload into GPU memory in its decode call, with one sequential
+`memcpy` into a staging allocation, which is the `submit` stage, not the push.
+
+What else costs per packet, outside the files this review changed: the receive thread copies each
+packet into a chunk buffer and wakes the decoder thread whenever its queue was empty
+(`session/video.rs`, `offer_chunk`), so a decoder that keeps up is woken about 125,000 times a
+second at this stream, and each chunk reads the clock four times (two `now_us` in
+`pipeline.rs::chunk`, two `Instant::now` in `GpuStream::chunk`). In a Flatpak the decoder thread
+also runs at normal priority when the portal refuses a raise (the report's log says so). A thread
+woken that often for about a microsecond of work each time runs with cold caches and, under a
+power-saving CPU governor, at a low clock, which would fit a push several times slower than on
+Windows with the same CPU. The fix is to offer the chunks of one receive call (up to 32 datagrams)
+together and wake the decoder once per call. That is session code and is left as a proposal.
+
+**The GPU work per frame on the reported path.** Per frame at 3840x2160, 10-bit 4:4:4 (each plane
+3840x2160 R16, 16.6 MB, so 49.8 MB a set):
+
+| Pass | Reads | Writes | Total |
+| --- | --- | --- | --- |
+| SDK decode: final planes only (its own intermediate buffers not counted) | | 49.8 MB | 49.8 MB |
+| Plane copy out of the decoder's set (`planes_gpu.rs`, `draw_shared`) | 49.8 MB | 49.8 MB | 99.5 MB |
+| Planes converted and scaled into the RGBA16F back buffer (`draw_direct`) | 49.8 MB | 66.4 MB | 116.1 MB |
+| PQ present: back buffer into the HDR10 (A2B10G10R10) swapchain image | 66.4 MB | 33.2 MB | 99.5 MB |
+
+The presenter's three passes move 315 MB a frame, 35 GB/s at 112 fps, on an integrated GPU whose
+LPDDR5 the CPU and the compositor share (the 780M's peak is about 100 to 120 GB/s). They and the
+decode run on the one graphics queue, so on Linux the decode's `gpu` stage includes waiting for the
+previous picture's passes. If the passes run at about 60 GB/s they take about 5 ms a frame, and
+with the decode's 3.6 ms the queue is busy for most of the 8.9 ms frame interval. That would fit a
+`gpu` stage of 9.2 ms, and a 4:2:0 stream that is fine (half the plane bytes in the copy and the
+draw), but it is an estimate, not a measurement. The compositor's HDR composition comes on top.
+Windows has none of the copy (D3D11 samples the shared planes), and its SDR output draws straight
+into the swapchain. The RGBA16F picture texture is not on this path: the report's `passes 0.00` and
+"0 of N presents drawn straight into the swapchain" show the planes drawn straight into the back
+buffer.
+
+To separate the causes on that machine: the `submit` and `gpu` stages and the SDK's own GPU time
+(`PyroWave GPU passes`), which the log now has (the section above), and a stream with the setting "Decode
+PyroWave on a compute queue" on, which takes the decode off the queue the presenter's passes run on.
+On Windows that setting measured no gain because D3D11 presents on its own device; on Linux with a
+shared device it is the switch that already exists for this contention.
+
+**The queue lock.** Our code holds SDL's queue lock only around a `vkQueueSubmit`: `signal_reuse`
+(`zero_copy.rs`) submits one empty batch with a timeline signal and waits for nothing, and
+`to_general` releases the lock before it waits for its fence. The SDK takes the same lock around
+its own submits through the share callbacks. Whether it waits for anything under it is inside the
+SDK, and the `submit` stage measures it.
+
+### Built: the presenter samples the decoder's planes in place (no plane copy on Linux)
+
+The copy existed because of layouts and ownership, not formats. The SDK writes the planes in GENERAL
+and never transitions them (`pyrowave_image_view.layout`), while a wrapped sampler texture must be in
+SHADER_READ_ONLY_OPTIMAL whenever SDL uses it (the contract of
+`SDL_PROP_GPU_TEXTURE_CREATE_VULKAN_IMAGE_NUMBER` in `vulkan-interop.patch`), and the presenter gave
+the set back to the decoder right after the copy. It now keeps the set instead, with no SDL change:
+
+- **Transitions.** `SharedImages::with_handoff` (`pyrowave_sdk/zero_copy.rs`) records, once per set,
+  two `SIMULTANEOUS_USE` command buffers on SDL's queue family: GENERAL to SHADER_READ_ONLY_OPTIMAL
+  (after the decode's compute and transfer writes, before fragment and compute reads) and back
+  (after those reads, before the next decode's writes). Both keep the queue families ignored: the
+  images are EXCLUSIVE when the decode shares SDL's family and CONCURRENT when it runs on the
+  compute family, the rule `share` already follows. `sampled(set)` submits the first under SDL's
+  queue lock, waiting on the decode timeline at its current value. That value is at least the
+  picture's, because the decoder waited for the picture on the CPU before handing it on, so the
+  wait is only the cross-queue memory dependency when the decode runs on the compute queue; on the
+  graphics queue, submission order already covers it.
+- **Ownership.** `Handover` (`gpu_planes.rs`) holds the lease of the picture on screen; the pass
+  takes it over with `Lease::hand_over`, so the decoder's `Pool` no longer frees the set when the
+  picture is dropped. When the next picture replaces it (a new one, one dropped by the pacer or
+  skipped by the backlog rule: whatever reaches `upload_planes` next), the pass flushes SDL's queued
+  draws (`SDL_FlushRenderer`), so every draw that sampled the old set is submitted, then
+  `returned(set)` submits the second transition with a signal of the reuse timeline, and the set
+  goes back to the pool behind that value (`release_after`). The decoder's existing reuse wait
+  covers the rest. A set whose return fails (device loss) is abandoned, never reused. At stream end
+  `VideoTexture::destroy` drops the pass first, which gives the held set back the same way and then
+  waits for the GPU (`SDL_WaitForGPUIdle`) before releasing the wrapped textures and render states.
+- **Ring.** The decoder's ring gets one more set (`PlaneHandoff::sets`: `queue_limit + 3`), for the
+  one on screen, so the decoder never waits on the presenter.
+- **Fallback.** `NIGHTJAR_PYROWAVE_SAMPLE_PLANES=0` keeps the copy (`PlaneHandoff::Copy`), and a
+  failure to record the transitions falls back to it. The log line `PyroWave GPU decoding shares
+  the renderer's Vulkan device, without a plane readback; ...` names the path. A pass made for one
+  path is made again when a decoder of the other arrives (`PlanesPass::suits`).
+- **Tests.** Unit tests in `gpu_planes` (held until replaced, given back behind the draws that read
+  it, the last set given back at the end, a failed return abandons the set) and
+  `pyrowave_sdk::zero_copy` (the switch); ignored GPU tests in `pyrowave::gpu_tests_unix` (the
+  fixtures sampled in place against the copied pictures, a set held until the next picture, a new
+  decoder taking the pass over).
+
+It saves the copy's 99.5 MB a frame (11 GB/s at 112 fps) at 4K 10-bit 4:4:4, 50 MB at 4:2:0. The
+risk is the transitions themselves: on RADV they should not decompress anything on GFX10 and later,
+where storage images keep DCC; on older GPUs a transition may cost part of what the copy did. Not
+measured yet on a Radeon under Linux.
+
+### Built: PQ output without the back buffer when only the video is drawn
+
+The PQ present keeps the RGBA16F back buffer because SDL's shaders draw the overlay and menus in
+linear light (`pq-present.patch`). A frame that draws only the video now skips it:
+
+- `window-target.patch` adds the renderer property `SDL.renderer.gpu.video_only` (contract above
+  `GPU_FrameEligible`, summary in `vendor/sdl3-src/README.md`). SDL reads it once a frame, on its
+  first run of commands on the window's target; a video-only frame takes its HDR10 swapchain image
+  as the window target, PQ-encodes a clear, drops and counts its own draws
+  (`video_only_dropped_draws`), and skips the PQ pass. `video_only_frame` reports what it settled.
+- The planes shader's flag 4096 (`PQ_TARGET_FLAG`) finishes the scRGB direct draw with the PQ
+  pass's encode (`pqFromScrgb` in `pyrowave.hlsl`, the same BT.2020 matrix and ST 2084 constants
+  as `pq_present.hlsl`). The module was regenerated with glslang 16.3.0, which reproduced the old
+  module byte for byte before the change.
+- `Streaming::clear_window` (`stream/render.rs`) asks for a video-only frame when the output is
+  PQ, the plane pass draws the picture straight into the window's target (no upscaler, no AI
+  enhancement), nothing else draws (no overlay, toast, stream menu or Remote Input screen) and no
+  read-back is asked for (a screenshot). It sets the property, queues the clear, flushes it (a
+  clear takes no swapchain image, so V-Sync's wait stays at the frame's first draw), resets the
+  property and reads the settled value, which `draw_direct` uses for the flag. The property is
+  true only around that flush, so the launcher and later frames never inherit it.
+- A frame in which SDL still dropped draws (something drew that the check did not foresee) holds
+  video-only frames off for 2 s, doubling each time, and after four for the rest of the stream,
+  each logged (`present::VideoOnly`). `NIGHTJAR_PQ_VIDEO_ONLY=0` keeps every frame on the PQ pass.
+- Tests: `planes_gpu::tests::a_pq_target_gets_the_scrgb_picture_pq_encoded` and the `VideoOnly`
+  tests in `present`; ignored GPU tests
+  `planes_gpu::tests::the_pq_draw_is_the_pq_pass_of_the_scrgb_draw` (within 1.5 10-bit codes) and
+  `sdl::window_target_tests::a_video_only_frame_on_the_pq_renderer_skips_the_pq_pass_and_drops_sdls_draws`.
+
+It saves 133 MB a frame (15 GB/s at 112 fps); the draw that remains reads 49.8 MB and writes
+33.2 MB. With both changes the presenter moves about 83 MB a frame instead of 315 MB. A frame that
+turns video only shows a newly opened overlay or menu in the same frame, since input is handled
+before the frame starts; anything drawn from inside the overlay closure that its check does not
+know of is lost for one frame and then held off as above. Not measured yet on a Radeon under Linux.
+
+### Built: per-surface import caches for VA-API pictures
+
+The OpenGL renderer's DMA-BUF path (`dmabuf.rs`) exported every picture's surface
+(`vaExportSurfaceHandle`) and made two EGL images for it, for every frame, although VA-API decodes
+into a small pool of surfaces. `Importer` now keeps the images per surface (`SurfaceCache`, at most
+64), keyed by the surface id within one generation (the frames context and the picture size); a
+new pool or size drops them all. A cache hit skips the export: `Export` exports lazily, only when
+the importer asks for a descriptor. The images stay valid while the pool lives because the
+importer holds a reference to the frames context (`av_buffer_ref`) until the generation changes,
+and VA-API's `vaSyncSurface` before each import orders the decoder's writes as before.
+`NIGHTJAR_DMABUF_CACHE=0` exports and imports every picture as before. The importer logs at its
+end how many pictures came from the cache.
+
+The GPU renderer's VA-API mapping (`vulkan_video.rs`, `VaapiMap`) did the same per picture through
+`av_hwframe_map`: export, a new `VkImage`, memory import and semaphore, then the GPU copy into the
+presenter's planes. `SurfaceImports` now keeps one import per surface for NV12 and P010 (same key,
+same switch); a mapped frame holds a reference to its VA-API picture, so the decoder cannot hand
+the surface out again, and so cannot reuse its import, before the frame is freed, which `Planes`
+does only after the copy's fence. Each copy acquires the images from `VK_QUEUE_FAMILY_EXTERNAL` and
+now releases them back after it, and the timeline values carry from picture to picture. The copy
+stays: sampling the imported images directly would need every SDL draw that reads them bracketed by
+those external acquires and releases, which SDL records at present time, and would hold the surface
+for a display interval instead of one copy. A failure on the cached path logs once and maps through
+`av_hwframe_map` from then on. 4:4:4 pictures keep the old path.

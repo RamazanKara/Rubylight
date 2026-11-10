@@ -765,7 +765,7 @@ fn settings_main_rows_are_androids_tiers() {
         assert!(preferences.contains(&format!("android:key=\"{android}\"")), "{desktop} matches Android's {android}, which exists");
         assert!(!DESKTOP_MAIN.contains(&desktop), "{desktop}: Android decides its tier");
     }
-    assert!(main_row("adaptive_bitrate") && main_row("auto_reconnect") && main_row("window_mode"));
+    assert!(main_row("adaptive_bitrate") && main_row("auto_reconnect") && main_row("window_mode") && main_row("network_tests"));
     assert!(!main_row("ui_zoom") && !main_row("usb_forwarding"));
 }
 
@@ -805,6 +805,30 @@ fn settings_show_a_sections_every_row_with_the_rarer_ones_in_groups_after() {
     f.l.edit_overrides.capture(&Settings { client_roaming: false, ..Settings::default() }, &["client_roaming"]);
     f.settle();
     assert!(shows(&f, "Keep streaming when the network changes") && shows(&f, "USB forwarding"), "{:?}", f.drawn);
+}
+
+/// Network tests is one of Streaming's main rows: its group comes right after them, before the
+/// rarer groups, so the frame pace calibration is found without scrolling past Connection.
+#[test]
+fn network_tests_follow_streamings_main_rows() {
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    f.size = vec2(1280.0, 12000.0);
+    f.l.go(Screen::Settings);
+    f.l.settings_view.section = "Streaming";
+    f.settle();
+    for text in ["Network tests", "Network speed test", "PyroWave frame pace"] {
+        assert!(shows(&f, text), "{text}: {:?}", f.drawn);
+    }
+    let y = |text: &str| f.placed.iter().find(|(t, ..)| t == text).unwrap_or_else(|| panic!("{text} placed")).1.top();
+    assert!(y("Recover interrupted streams") < y("Network tests"), "after the main rows");
+    assert!(y("PyroWave frame pace") < y("Connection"), "before the Connection group");
+    // A PC's own page puts them in the same place.
+    let id = f.hosts.list[0].id;
+    f.l.go(Screen::HostSettings(id));
+    f.l.settings_view.section = "Streaming";
+    f.settle();
+    let y = |text: &str| f.placed.iter().find(|(t, ..)| t == text).unwrap_or_else(|| panic!("{text} placed")).1.top();
+    assert!(y("PyroWave frame pace") < y("Connection"));
 }
 
 #[test]
@@ -1313,7 +1337,8 @@ fn reduced_motion_turns_off_animated_transitions_and_full_motion_keeps_them() {
     f.l.settings.reduce_motion = ReduceMotion::Full;
     f.settle();
     assert!(f.ctx.global_style().animation_time > 0.0);
-    // The system setting decides only on Follow system; the tests' machine may say either.
+    // The system setting decides only on Follow system; tests answer it with full motion, whatever
+    // the machine's own setting (`theme::system_reduces_motion`).
     f.l.settings.reduce_motion = ReduceMotion::System;
     f.settle();
     assert_eq!(f.ctx.global_style().animation_time == 0.0, crate::theme::system_reduces_motion());
@@ -4444,6 +4469,14 @@ fn glass_page_screenshots() {
         at_rest(&mut f);
         f.shoot(&dir, name);
     }
+    // A dialog over Home: the page blurred under the dim on the live tier, the dim alone on baked.
+    for (name, tier) in [("dialog-live", Tier::Live), ("dialog-baked", Tier::Baked)] {
+        let mut f = library(tier, 1.0, 1, &[]);
+        at_rest(&mut f);
+        f.l.add_host_dialog();
+        at_rest(&mut f);
+        f.shoot(&dir, name);
+    }
     // A running game with no art, one on a shelf too: each game's own tile.
     let mut f = library(Tier::Live, 1.0, 18, &[18, 11, 13]);
     at_rest(&mut f);
@@ -6777,6 +6810,57 @@ fn a_panel_blurs_the_whole_screen_from_the_pass_after_it_opens() {
     assert!(blurred_share(&f) < 0.5, "and the bar alone once it is gone");
 }
 
+/// A dialog over the launcher blurs the page under its dim on the live tier, as Android's
+/// `PageBlur` does: the live chain's own output in one quad over the screen, past the chain's
+/// boundary (so the chain never blurs it again) and under the bar, which stays itself, both under
+/// the dim. The baked tier, which every stream's frames use, keeps the dim alone.
+#[test]
+fn a_dialog_blurs_the_page_under_the_bar_and_its_dim_on_the_live_tier_only() {
+    use crate::live_glass::{Boundary, Tier, LIVE_BACKDROP};
+    #[derive(Debug)]
+    enum Painted { Boundary, Blur(Rect), Fill(Color32, Rect), Text(String) }
+    fn walk(shape: &egui::Shape, out: &mut Vec<Painted>) {
+        match shape {
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, out)),
+            egui::Shape::Mesh(mesh) if mesh.texture_id == LIVE_BACKDROP => out.push(Painted::Blur(mesh.calc_bounds())),
+            egui::Shape::Rect(rect) => out.push(Painted::Fill(rect.fill, rect.rect)),
+            egui::Shape::Text(text) => out.push(Painted::Text(text.galley.text().to_owned())),
+            egui::Shape::Callback(call) if (call.callback.as_ref() as &dyn std::any::Any).is::<Boundary>() => out.push(Painted::Boundary),
+            _ => {}
+        }
+    }
+    for tier in [Tier::Live, Tier::Baked] {
+        let mut f = Frames::new(record("PC", true, false), Reach::Online);
+        crate::live_glass::set_tier(&f.ctx, tier);
+        f.settle();
+        let screen = Rect::from_min_size(Pos2::ZERO, f.size).shrink(1.0);
+        let painted = |f: &Frames| {
+            let mut out = Vec::new();
+            f.shapes.iter().for_each(|clipped| walk(&clipped.shape, &mut out));
+            out
+        };
+        let page = |p: &[Painted]| p.iter().position(|p| matches!(p, Painted::Blur(rect) if rect.contains_rect(screen)));
+        let dim = |p: &[Painted]| p.iter().position(|p| matches!(p, Painted::Fill(fill, rect) if *fill == super::widgets::DIALOG_SCRIM && rect.contains_rect(screen)));
+        assert_eq!(page(&painted(&f)), None, "{tier:?}: no dialog, no blur");
+        f.l.add_host_dialog();
+        // The dim fades in over a few frames; read it once it has.
+        f.settle();
+        f.settle();
+        let p = painted(&f);
+        let dim = dim(&p).unwrap_or_else(|| panic!("{tier:?}: the dim stays: {p:?}"));
+        match tier {
+            Tier::Live => {
+                let page = page(&p).expect("the page is blurred");
+                let boundary = p.iter().position(|p| matches!(p, Painted::Boundary)).expect("the chain's boundary");
+                assert!(boundary < page && page < dim, "past the boundary, under the dim: {p:?}");
+                // The bar's own text is painted over the blur, and dimmed with it.
+                assert!(p[page..dim].iter().any(|p| matches!(p, Painted::Text(text) if !text.is_empty())), "the bar over the blur: {p:?}");
+            }
+            _ => assert_eq!(page(&p), None, "{tier:?}: the dim alone"),
+        }
+    }
+}
+
 #[test]
 fn add_and_rename_say_what_a_field_takes_in_its_placeholder() {
     let mut f = Frames::new(record("Desk", true, false), Reach::Online);
@@ -7715,5 +7799,136 @@ fn pcs_more(more: usize) -> Frames {
     Frames::over(ctx, l, hosts)
 }
 
+/// Home, All games, the game page and the Hide dialog each put the merged library together on
+/// every pass they drew. It is kept for as long as what it is made from stays the same.
+#[test]
+fn the_pages_merge_the_library_once_and_again_when_it_changes() {
+    let mut f = home_with_games(3);
+    let merges = f.l.library.merges();
+    assert!(merges > 0, "Home drew it");
+    f.settle();
+    f.l.go(Screen::AllGames);
+    f.settle();
+    f.l.go(Screen::Home);
+    f.settle();
+    assert_eq!(f.l.library.merges(), merges, "the same library on every one of these frames");
 
+    // What a PC says next shows on the next frame.
+    f.hosts.list[0].native.library.as_mut().expect("a library").games[1].title = "Renamed".into();
+    f.frame(Vec::new());
+    assert_eq!(f.l.library.merges(), merges + 1);
+    assert!(shows(&f, "Renamed") && !shows(&f, "Game 01"), "{:?}", f.drawn);
+    f.frame(Vec::new());
+    assert_eq!(f.l.library.merges(), merges + 1, "and is kept again");
+    // So does a PC that went away, whose games can no longer be started.
+    f.hosts.list[0].reach = Reach::Offline;
+    f.frame(Vec::new());
+    assert_eq!(f.l.library.merges(), merges + 2);
+}
 
+/// A small cover texture of this test's own.
+fn cover_texture(f: &Frames, name: &str) -> egui::TextureHandle {
+    f.ctx.load_texture(name, egui::ColorImage::new([3, 4], vec![Color32::GRAY; 12]), egui::TextureOptions::LINEAR)
+}
+
+/// Only the covers a frame notes are safe from being given up for room: the ones it draws, and
+/// the one a page lights itself from wherever that game's card is.
+#[test]
+fn a_frame_notes_the_covers_it_draws_or_needs_as_in_use() {
+    let apps: Vec<_> = (1..=150).map(|id| nightjar_core::http::App { name: format!("App {id}"), ..game(id) }).collect();
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 0)), apps);
+    f.size = vec2(1280.0, 800.0);
+    let id = f.hosts.list[0].id;
+    let (first, last) = (cover_texture(&f, "first"), cover_texture(&f, "last"));
+    f.hosts.list[0].art.insert(1, Art::Ready(first.clone()));
+    f.hosts.list[0].art.insert(150, Art::Ready(last.clone()));
+    f.l.go(Screen::Apps(id));
+    f.settle();
+    crate::hosts::covers_noted(&f.ctx);
+    f.frame(Vec::new());
+    let noted = crate::hosts::covers_noted(&f.ctx);
+    assert!(noted.contains(&first.id()), "the card on screen");
+    assert!(!noted.contains(&last.id()), "not the one far below it");
+
+    // The running game lights the page from its cover, with its card still off screen.
+    f.hosts.list[0].info = Some(answer(true, 150));
+    f.frame(Vec::new());
+    assert!(crate::hosts::covers_noted(&f.ctx).contains(&last.id()));
+
+    // The PCs page draws it on the PC's tile, and no card of the list.
+    f.l.go(Screen::Hosts);
+    f.settle();
+    crate::hosts::covers_noted(&f.ctx);
+    f.frame(Vec::new());
+    let noted = crate::hosts::covers_noted(&f.ctx);
+    assert!(noted.contains(&last.id()) && !noted.contains(&first.id()));
+}
+
+/// A cover that was given up for room loads from its file, so it is asked for whether its PC is
+/// up or away. One that was never loaded waits for its PC, as it always did.
+#[test]
+fn a_cover_given_up_for_room_is_asked_for_again_whether_its_pc_is_up_or_away() {
+    let mut f = app_grid(3, 0);
+    let id = f.hosts.list[0].id;
+    let here = cover_texture(&f, "here");
+    // Both were loaded, at the version their PC lists them with.
+    assert!(f.hosts.list[0].begin_art(1, "").is_some() && f.hosts.list[0].begin_art(2, "").is_some());
+    f.hosts.list[0].art.insert(1, Art::Ready(here.clone()));
+    f.hosts.list[0].art.insert(2, Art::Dropped);
+    let asked = |f: &Frames| -> Vec<i32> {
+        let view = View { hosts: &f.hosts, pads: &f.pads, connecting: None, waking: None };
+        let mut commands = Vec::new();
+        let mut output = f.ctx.run_ui(egui::RawInput::default(), |ui| {
+            for app in 1..=3 {
+                super::cards::request_cover_unseen(ui, &view, id, app, &mut commands);
+            }
+        });
+        output.textures_delta.clear();
+        let apps = commands.into_iter().filter_map(|c| match c {
+            Command::RequestArt { app, .. } => Some(app),
+            _ => None,
+        });
+        apps.collect()
+    };
+    crate::hosts::covers_noted(&f.ctx);
+    assert_eq!(asked(&f), [2, 3], "up: the one given up, and the one never loaded");
+    assert!(crate::hosts::covers_noted(&f.ctx).contains(&here.id()));
+    f.hosts.list[0].reach = Reach::Offline;
+    assert_eq!(asked(&f), [2], "away: the one its file brings back");
+    assert!(crate::hosts::covers_noted(&f.ctx).contains(&here.id()), "a cover that is here is in use all the same");
+    // On its way, it is not asked for again.
+    assert!(f.hosts.list[0].begin_art(2, "").is_some());
+    assert_eq!(asked(&f), [0i32; 0]);
+}
+
+/// Giving a cover up changes nothing on a page that only stands on it: the backdrop was baked
+/// from it and is kept, and its card waits as one whose cover is on its way.
+#[test]
+fn a_page_keeps_its_backdrop_when_its_cover_is_given_up_for_room() {
+    let mut f = app_grid(1, 0);
+    let id = f.hosts.list[0].id;
+    let ambient = cover_texture(&f, "ambient");
+    let pc = &mut f.hosts.list[0];
+    pc.art.insert(1, Art::Dropped);
+    pc.ambient.insert(1, ambient.clone());
+    pc.ambient_glow.insert(1, Color32::RED);
+    let view = View { hosts: &f.hosts, pads: &f.pads, connecting: None, waking: None };
+    match super::home::ambient_for(&view, id, 1, "App 1") {
+        super::backdrop::Want::Art { texture, glow, .. } => assert_eq!((texture.id(), glow), (ambient.id(), Color32::RED)),
+        _ => panic!("the ambient of the cover that was given up"),
+    }
+    assert!(super::cards::poster_caption(Some(&Art::Dropped)), "named underneath, as a cover on its way is");
+    assert_eq!(super::cards::poster_caption(Some(&Art::Dropped)), super::cards::poster_caption(Some(&Art::Loading)));
+}
+
+/// Nothing draws a cover larger than the game page does, which is the size covers are kept for
+/// (`hosts::COVER_POINTS`): a larger place would show one soft.
+#[test]
+fn no_page_draws_a_cover_larger_than_covers_are_kept_for() {
+    let [w, h] = crate::hosts::COVER_POINTS;
+    assert_eq!(super::game::COVER_MAX_W, w, "the game page's cover, the largest there is");
+    assert_eq!(h, w * 1.5, "two by three, as that cover is");
+    // The largest card, at the largest size the settings have and grown under the focus.
+    let card = super::cards::POSTER_MAX_W * crate::config::CardSize::Large.scale() * design_tokens::FOCUS_SCALE_COVER_TV.max(design_tokens::FOCUS_SCALE_COVER);
+    assert!(card <= w, "{card}");
+}

@@ -51,6 +51,11 @@ final class GameTouchInput {
     // Finger touches of a physical touchpad: tap-to-click, scroll and drag, with the Trackpad Sensitivity settings.
     private final TrackpadContext[] touchpadContextMap = new TrackpadContext[2];
     private int touchpadResolutionDevice = -2;
+
+    // Undoes the desktop zoom for an event. Set again for every event while the desktop is zoomed and
+    // done with before the event is handled; input arrives on the main thread only, so one serves all.
+    private final android.graphics.Matrix zoomInverse = new android.graphics.Matrix();
+    private final float[] zoomInverseValues = new float[9];
     private final FingerTapGesture fingerTap = new FingerTapGesture();
     private final TwoFingerTapGesture twoFingerTap = new TwoFingerTapGesture();
 
@@ -462,7 +467,7 @@ final class GameTouchInput {
         }
 
         // Grab/ungrab system keyboard shortcuts, unless the user leaves them to Android
-        game.setMetaKeyCaptureState(grab && game.prefConfig.captureSystemKeys);
+        game.setMetaKeyCaptureState(grab && game.prefConfig.sendsSystemKeys(game.inWindow()));
 
         game.grabbedInput = grab;
         if (game.controllerHandler != null) {
@@ -586,20 +591,20 @@ final class GameTouchInput {
         }
     }
 
-    private float[] getStreamViewRelativeNormalizedXY(View view, MotionEvent event, int pointerIndex) {
+    // Where a pointer is in the stream view, as a share of its width. This and the methods below run
+    // for every pointer of every touch and pen event, so each returns one value and none an array.
+    private float getStreamViewRelativeNormalizedX(View view, MotionEvent event, int pointerIndex) {
         float normalizedX = event.getX(pointerIndex) + getStreamViewOffsetX(view);
-        float normalizedY = event.getY(pointerIndex) + getStreamViewOffsetY(view);
-
         normalizedX = Math.max(normalizedX, 0.0f);
-        normalizedY = Math.max(normalizedY, 0.0f);
-
         normalizedX = Math.min(normalizedX, game.streamView.getWidth());
+        return normalizedX / game.streamView.getWidth();
+    }
+
+    private float getStreamViewRelativeNormalizedY(View view, MotionEvent event, int pointerIndex) {
+        float normalizedY = event.getY(pointerIndex) + getStreamViewOffsetY(view);
+        normalizedY = Math.max(normalizedY, 0.0f);
         normalizedY = Math.min(normalizedY, game.streamView.getHeight());
-
-        normalizedX /= game.streamView.getWidth();
-        normalizedY /= game.streamView.getHeight();
-
-        return new float[] { normalizedX, normalizedY };
+        return normalizedY / game.streamView.getHeight();
     }
 
     private float getStreamViewOffsetX(View view) {
@@ -650,59 +655,54 @@ final class GameTouchInput {
         return MoonBridge.LI_ROT_UNKNOWN;
     }
 
-    private static float[] polarToCartesian(float r, float theta) {
-        return new float[] { (float)(r * Math.cos(theta)), (float)(r * Math.sin(theta)) };
-    }
-
-    private static float cartesianToR(float[] point) {
-        return (float)Math.sqrt(Math.pow(point[0], 2) + Math.pow(point[1], 2));
-    }
-
-    private float[] getStreamViewNormalizedContactArea(MotionEvent event, int pointerIndex) {
-        float orientation;
-
+    private static float getContactAreaOrientation(MotionEvent event, int pointerIndex) {
         // If the orientation is unknown, we'll just assume it's at a 45 degree angle and scale it by
         // X and Y scaling factors evenly.
         if (event.getDevice() == null || event.getDevice().getMotionRange(MotionEvent.AXIS_ORIENTATION, event.getSource()) == null) {
-            orientation = (float)(Math.PI / 4);
+            return (float)(Math.PI / 4);
         }
         else {
-            orientation = event.getOrientation(pointerIndex);
+            return event.getOrientation(pointerIndex);
         }
+    }
 
-        float contactAreaMajor, contactAreaMinor;
+    // Hover events report the tool size, other events the contact area.
+    private static boolean reportsToolSize(MotionEvent event) {
         switch (event.getActionMasked()) {
-            // Hover events report the tool size
             case MotionEvent.ACTION_HOVER_ENTER:
             case MotionEvent.ACTION_HOVER_MOVE:
             case MotionEvent.ACTION_HOVER_EXIT:
-                contactAreaMajor = event.getToolMajor(pointerIndex);
-                contactAreaMinor = event.getToolMinor(pointerIndex);
-                break;
+                return true;
 
-            // Other events report contact area
             default:
-                contactAreaMajor = event.getTouchMajor(pointerIndex);
-                contactAreaMinor = event.getTouchMinor(pointerIndex);
-                break;
+                return false;
         }
+    }
 
-        // The contact area major axis is parallel to the orientation, so we simply convert
-        // polar to cartesian coordinates using the orientation as theta.
-        float[] contactAreaMajorCartesian = polarToCartesian(contactAreaMajor, orientation);
-
-        // The contact area minor axis is perpendicular to the contact area major axis (and thus
-        // the orientation), so rotate the orientation angle by 90 degrees.
-        float[] contactAreaMinorCartesian = polarToCartesian(contactAreaMinor, (float)(orientation + (Math.PI / 2)));
-
-        // Normalize the contact area to the stream view size
-        contactAreaMajorCartesian[0] = Math.min(Math.abs(contactAreaMajorCartesian[0]), game.streamView.getWidth()) / game.streamView.getWidth();
-        contactAreaMinorCartesian[0] = Math.min(Math.abs(contactAreaMinorCartesian[0]), game.streamView.getWidth()) / game.streamView.getWidth();
-        contactAreaMajorCartesian[1] = Math.min(Math.abs(contactAreaMajorCartesian[1]), game.streamView.getHeight()) / game.streamView.getHeight();
-        contactAreaMinorCartesian[1] = Math.min(Math.abs(contactAreaMinorCartesian[1]), game.streamView.getHeight()) / game.streamView.getHeight();
+    // One axis of a contact area, r pixels long at the angle theta, as a share of the stream view.
+    private float getStreamViewNormalizedContactAxis(float r, float theta) {
+        // Convert polar to cartesian coordinates, and normalize each to the stream view size
+        float x = Math.min(Math.abs((float)(r * Math.cos(theta))), game.streamView.getWidth()) / game.streamView.getWidth();
+        float y = Math.min(Math.abs((float)(r * Math.sin(theta))), game.streamView.getHeight()) / game.streamView.getHeight();
 
         // Convert the normalized values back into polar coordinates
-        return new float[] { cartesianToR(contactAreaMajorCartesian), cartesianToR(contactAreaMinorCartesian) };
+        return (float)Math.sqrt(Math.pow(x, 2) + Math.pow(y, 2));
+    }
+
+    private float getStreamViewNormalizedContactAreaMajor(MotionEvent event, int pointerIndex, float orientation) {
+        // The contact area major axis is parallel to the orientation, so we simply convert
+        // polar to cartesian coordinates using the orientation as theta.
+        return getStreamViewNormalizedContactAxis(
+                reportsToolSize(event) ? event.getToolMajor(pointerIndex) : event.getTouchMajor(pointerIndex),
+                orientation);
+    }
+
+    private float getStreamViewNormalizedContactAreaMinor(MotionEvent event, int pointerIndex, float orientation) {
+        // The contact area minor axis is perpendicular to the contact area major axis (and thus
+        // the orientation), so rotate the orientation angle by 90 degrees.
+        return getStreamViewNormalizedContactAxis(
+                reportsToolSize(event) ? event.getToolMinor(pointerIndex) : event.getTouchMinor(pointerIndex),
+                (float)(orientation + (Math.PI / 2)));
     }
 
     private boolean sendPenEventForPointer(View view, MotionEvent event, byte eventType, byte toolType, int pointerIndex) {
@@ -722,12 +722,13 @@ final class GameTouchInput {
             }
         }
 
-        float[] normalizedCoords = getStreamViewRelativeNormalizedXY(view, event, pointerIndex);
-        float[] normalizedContactArea = getStreamViewNormalizedContactArea(event, pointerIndex);
+        float orientation = getContactAreaOrientation(event, pointerIndex);
         return game.conn.sendPenEvent(eventType, toolType, penButtons,
-                normalizedCoords[0], normalizedCoords[1],
+                getStreamViewRelativeNormalizedX(view, event, pointerIndex),
+                getStreamViewRelativeNormalizedY(view, event, pointerIndex),
                 getPressureOrDistance(event, pointerIndex),
-                normalizedContactArea[0], normalizedContactArea[1],
+                getStreamViewNormalizedContactAreaMajor(event, pointerIndex, orientation),
+                getStreamViewNormalizedContactAreaMinor(event, pointerIndex, orientation),
                 getRotationDegrees(event, pointerIndex), tiltDegrees) != MoonBridge.LI_ERR_UNSUPPORTED;
     }
 
@@ -787,12 +788,13 @@ final class GameTouchInput {
     }
 
     private boolean sendTouchEventForPointer(View view, MotionEvent event, byte eventType, int pointerIndex) {
-        float[] normalizedCoords = getStreamViewRelativeNormalizedXY(view, event, pointerIndex);
-        float[] normalizedContactArea = getStreamViewNormalizedContactArea(event, pointerIndex);
+        float orientation = getContactAreaOrientation(event, pointerIndex);
         return game.conn.sendTouchEvent(eventType, event.getPointerId(pointerIndex),
-                normalizedCoords[0], normalizedCoords[1],
+                getStreamViewRelativeNormalizedX(view, event, pointerIndex),
+                getStreamViewRelativeNormalizedY(view, event, pointerIndex),
                 getPressureOrDistance(event, pointerIndex),
-                normalizedContactArea[0], normalizedContactArea[1],
+                getStreamViewNormalizedContactAreaMajor(event, pointerIndex, orientation),
+                getStreamViewNormalizedContactAreaMinor(event, pointerIndex, orientation),
                 getRotationDegrees(event, pointerIndex)) != MoonBridge.LI_ERR_UNSUPPORTED;
     }
 
@@ -836,10 +838,12 @@ final class GameTouchInput {
             MotionEvent translated = MotionEvent.obtain(event);
             translated.offsetLocation(getStreamViewOffsetX(view), getStreamViewOffsetY(view));
             com.limelight.ui.DesktopViewport viewport = game.desktopGestures.viewport();
-            android.graphics.Matrix inverse = new android.graphics.Matrix();
-            inverse.setValues(new float[] {1 / viewport.scale(), 0, -viewport.x() / viewport.scale(),
-                    0, 1 / viewport.scale(), -viewport.y() / viewport.scale(), 0, 0, 1});
-            translated.transform(inverse);
+            float[] values = zoomInverseValues;
+            values[0] = 1 / viewport.scale(); values[1] = 0; values[2] = -viewport.x() / viewport.scale();
+            values[3] = 0; values[4] = 1 / viewport.scale(); values[5] = -viewport.y() / viewport.scale();
+            values[6] = 0; values[7] = 0; values[8] = 1;
+            zoomInverse.setValues(values);
+            translated.transform(zoomInverse);
             try { return handleMotionEventUntransformed(game.streamView, translated); }
             finally { translated.recycle(); }
         }

@@ -38,6 +38,9 @@ public final class ActionSheet extends BottomSheetDialog {
     private android.widget.ImageView cover;
     private GlassPanelDrawable menuGlass;
     private MenuBlurWindow blur;
+    // The page blurred behind a sheet, or behind a panel that stands on a page; never over a stream.
+    private PageBlur pageBlur;
+    private boolean pageBlurAsked;
     private MaterialButton panelClose;
     // The control a panel hangs under, as Home's PC sheet hangs under its capsule; null for a panel docked by the window.
     private android.view.View anchor;
@@ -271,20 +274,22 @@ public final class ActionSheet extends BottomSheetDialog {
             setContentView(body);
         }
         setOnKeyListener((dialog, key, event) -> {
-            if (!event.hasNoModifiers()) return false;
             if (key != android.view.KeyEvent.KEYCODE_ESCAPE && key != android.view.KeyEvent.KEYCODE_BUTTON_B) {
-                if (keyHandler == null) return false;
-                // The release of a key the handler took goes with it, so nothing below sees half a press.
-                if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
-                    if (event.getRepeatCount() > 0) return handledKeys.contains(key);
-                    if (keyHandler.test(key)) {
-                        handledKeys.add(key);
+                if (keyHandler != null && event.hasNoModifiers()) {
+                    // The release of a key the handler took goes with it, so nothing below sees half a press.
+                    if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+                        if (event.getRepeatCount() > 0 ? handledKeys.contains(key) : keyHandler.test(key)) {
+                            handledKeys.add(key);
+                            return true;
+                        }
+                    } else if (event.getAction() == android.view.KeyEvent.ACTION_UP && handledKeys.remove(key)) {
                         return true;
                     }
-                    return false;
                 }
-                return event.getAction() == android.view.KeyEvent.ACTION_UP && handledKeys.remove(key);
+                // A Y the sheet has no tile for would come back as Space and press the focused action (Nightjar #81).
+                return UiNavigation.swallowsPadY(key, getCurrentFocus());
             }
+            if (!event.hasNoModifiers()) return false;
             if (event.getAction() == android.view.KeyEvent.ACTION_UP && !event.isCanceled()) {
                 if (pageBack.isEnabled()) pageBack.handleOnBackPressed();
                 else dismiss();
@@ -344,6 +349,21 @@ public final class ActionSheet extends BottomSheetDialog {
             }
         }
         super.show();
+    }
+
+    private void blurPage() {
+        if (pageBlurAsked) {
+            // Shown again: battery saver or the system's switch may have changed since.
+            if (pageBlur != null) pageBlur.refresh();
+            return;
+        }
+        pageBlurAsked = true;
+        pageBlur = PageBlur.behind(this);
+    }
+
+    /** The blur of the page behind this sheet, where one may ever stand; null over a stream. */
+    PageBlur pageBlur() {
+        return pageBlur;
     }
 
     private void placeBlur() {
@@ -1177,6 +1197,8 @@ public final class ActionSheet extends BottomSheetDialog {
     @Override
     protected void onStart() {
         super.onStart();
+        // The stream menu's panel keeps the picture sharp around it; everything on a page blurs the page where it may.
+        if (!(panel && anchor == null)) blurPage();
         if (panel) {
             startPanel();
             return;

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pace_calibration_title">校準影格節奏</string>
+    <string name="network_tests_title">網路測試</string>
     <string name="pace_calibration_summary">PyroWave：找出主機向此裝置完整傳送影格的最高速度</string>
     <string name="pace_calibration_saved">PyroWave 影格節奏：%1$d Mbps。輕觸即可重新校準。</string>
     <string name="pace_calibration_intro">主機會以不同速度傳送測試影格，Nightjar 會儲存影格能完整抵達的最快速度。之後的 PyroWave 串流會使用它。請先停止這台電腦上的串流。需要一到三分鐘。</string>

@@ -1,14 +1,16 @@
 --- a/src/render/gpu/SDL_render_gpu.c
 +++ b/src/render/gpu/SDL_render_gpu.c
-@@ -123,6 +123,15 @@
+@@ -123,6 +123,17 @@
      } state;
- 
+
      SDL_GPUSampler *samplers[RENDER_SAMPLER_COUNT];
 +
 +    /* Nightjar patch (PQ present): with the app's shaders, the frame is drawn in linear light
-+     * into an RGBA16F back buffer and this pipeline writes it to an HDR10 swapchain as PQ. */
++     * into an RGBA16F back buffer and this pipeline writes it to an HDR10 swapchain as PQ. A
++     * fragment shader with constants gets the encoding pushed on each present. */
 +    struct
 +    {
++        Uint32 num_fragment_uniforms;
 +        SDL_GPUShader *vertex;
 +        SDL_GPUShader *fragment;
 +        SDL_GPUGraphicsPipeline *pipeline;
@@ -16,19 +18,41 @@
  } GPU_RenderData;
  
  typedef struct GPU_PaletteData
-@@ -1470,6 +1479,61 @@
+@@ -1470,6 +1481,85 @@
      return true;
  }
- 
+
 +// Nightjar patch (PQ present): the PQ pass reads an RGBA16F back buffer.
 +static SDL_GPUTextureFormat GPU_BackbufferFormat(GPU_RenderData *data, SDL_Window *window)
 +{
 +    return data->pq.pipeline ? SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT : SDL_GetGPUSwapchainTextureFormat(data->device, window);
 +}
 +
++/* Nightjar patch (PQ present): the constants of a fragment shader that takes them (the app's
++ * scanout_present.hlsl): the encoding (renderer property SDL.renderer.gpu.present_encoding, 0 PQ,
++ * 1 gamma 2.2), the range's minimum and 1 / (peak - minimum) in nits (present_min_nits and
++ * present_max_nits). A range that is empty is PQ. Read on each present, so the app can change them. */
++static void GPU_PushPresentEncoding(SDL_Renderer *renderer, GPU_RenderData *data)
++{
++    SDL_PropertiesID props = SDL_GetRendererProperties(renderer);
++    const float min_nits = SDL_GetFloatProperty(props, "SDL.renderer.gpu.present_min_nits", 0.0f);
++    const float max_nits = SDL_GetFloatProperty(props, "SDL.renderer.gpu.present_max_nits", 0.0f);
++    float constants[4];
++
++    constants[0] = (float)SDL_GetNumberProperty(props, "SDL.renderer.gpu.present_encoding", 0);
++    constants[1] = min_nits;
++    constants[2] = max_nits > min_nits ? 1.0f / (max_nits - min_nits) : 0.0f;
++    constants[3] = 0.0f;
++    if (constants[2] == 0.0f) {
++        constants[0] = 0.0f;
++    }
++    SDL_PushGPUFragmentUniformData(data->state.command_buffer, 0, constants, sizeof(constants));
++}
++
 +// Nightjar patch (PQ present): the app's SPIR-V vertex and fragment shaders (entry points
-+// "vertex" and "fragment", one sampler) and their pipeline for the HDR10 swapchain.
-+static bool GPU_CreatePQPresent(GPU_RenderData *data, SDL_Window *window, const void *vertex, size_t vertex_size, const void *fragment, size_t fragment_size)
++// "vertex" and "fragment", one sampler, `fragment_uniforms` constant buffers) and their pipeline
++// for the HDR10 swapchain.
++static bool GPU_CreatePQPresent(GPU_RenderData *data, SDL_Window *window, const void *vertex, size_t vertex_size, const void *fragment, size_t fragment_size, Uint32 fragment_uniforms)
 +{
 +    SDL_GPUShaderCreateInfo sci;
 +    SDL_GPUColorTargetDescription target;
@@ -56,6 +80,8 @@
 +    sci.entrypoint = "fragment";
 +    sci.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
 +    sci.num_samplers = 1;
++    sci.num_uniform_buffers = fragment_uniforms;
++    data->pq.num_fragment_uniforms = fragment_uniforms;
 +    data->pq.fragment = SDL_CreateGPUShader(data->device, &sci);
 +    if (!data->pq.fragment) {
 +        return false;
@@ -78,10 +104,10 @@
  static bool GPU_RenderPresent(SDL_Renderer *renderer)
  {
      GPU_RenderData *data = (GPU_RenderData *)renderer->internal;
-@@ -1483,7 +1547,37 @@
+@@ -1483,7 +1573,40 @@
              SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Failed to acquire swapchain texture: %s", SDL_GetError());
          }
- 
+
 -        if (swapchain != NULL) {
 +        if (swapchain != NULL && data->pq.pipeline) {
 +            // Nightjar patch (PQ present): the back buffer through the PQ pass, scaled as the blit would.
@@ -90,6 +116,9 @@
 +            SDL_GPURenderPass *pass;
 +
 +            SDL_zero(target);
++            if (data->pq.num_fragment_uniforms) {
++                GPU_PushPresentEncoding(renderer, data);
++            }
 +            target.texture = swapchain;
 +            target.load_op = SDL_GPU_LOADOP_DONT_CARE;
 +            target.store_op = SDL_GPU_STOREOP_STORE;
@@ -117,7 +146,7 @@
              SDL_GPUBlitInfo blit_info;
              SDL_zero(blit_info);
  
-@@ -1587,6 +1681,17 @@
+@@ -1587,6 +1710,17 @@
          SDL_ReleaseGPUTexture(data->device, data->backbuffer.texture);
      }
  
@@ -135,7 +164,7 @@
      if (renderer->window && data->device) {
          SDL_ReleaseWindowFromGPUDevice(data->device, renderer->window);
      }
-@@ -1801,17 +1906,36 @@
+@@ -1801,17 +1935,37 @@
          }
          data->swapchain.present_mode = SDL_GPU_PRESENTMODE_VSYNC;
  
@@ -160,7 +189,8 @@
 +        }
 +        if (pq && !GPU_CreatePQPresent(data, window,
 +                                       pq_vertex, (size_t)SDL_GetNumberProperty(create_props, "SDL.renderer.create.gpu.pq_vertex_spirv_size", 0),
-+                                       pq_fragment, (size_t)SDL_GetNumberProperty(create_props, "SDL.renderer.create.gpu.pq_fragment_spirv_size", 0))) {
++                                       pq_fragment, (size_t)SDL_GetNumberProperty(create_props, "SDL.renderer.create.gpu.pq_fragment_spirv_size", 0),
++                                       (Uint32)SDL_GetNumberProperty(create_props, "SDL.renderer.create.gpu.pq_fragment_uniform_buffers", 0))) {
 +            return false;
 +        }
  

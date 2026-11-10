@@ -799,7 +799,7 @@ fn say_cuda_fallback(shared: &Shared, decoder: &mut media::VideoDecoder) {
 /// Maps `decoder`'s VAAPI pictures into the GPU renderer's Vulkan images when it draws with SDL's
 /// GPU API (`media::VideoDecoder::map_to_vulkan`); whether they are.
 pub(super) fn map_to_vulkan(hardware: Hardware, decoder: &mut media::VideoDecoder) -> bool {
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     if let Hardware::Auto(gpu, _) = hardware {
         return !gpu.is_null() && decoder.map_to_vulkan(gpu);
     }
@@ -835,7 +835,12 @@ fn gpu_pyrowave(device: GpuDevice, setup: &VideoSetup, slots: usize) -> Result<s
         super::pyrowave::GpuStream::new(device, setup.width as usize, setup.height as usize, chroma444, ten_bit, slots)
             .map(|stream| super::pyrowave::Pyrowave::Gpu(Box::new(stream)))
     }
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (device, setup, slots);
+        Err("The PyroWave GPU SDK has no macOS backend.".into())
+    }
+    #[cfg(target_os = "linux")]
     {
         // The SDK decodes on the renderer's Vulkan device where it can share it, else on its own
         // with the planes crossing through CPU memory (`GpuDecoder::for_renderer`).
@@ -930,6 +935,20 @@ impl VideoDecoder for Decoder {
         }
     }
 
+    /// PyroWave frames decode on their own, so one that a newer frame is already queued behind
+    /// can go undecoded: a decoder slower than the stream then shows fewer frames, each of them
+    /// fresh, where it would show every frame late.
+    fn intra_only(&self) -> bool {
+        self.pyrowave.as_ref().is_some_and(|decoder| decoder.skips_frames())
+    }
+
+    fn skip(&mut self, frame: &Frame) {
+        // The frame arrived: the host's timing and the bitrate count it as they count a decoded one.
+        self.shared.counters.count_host_latency(frame.host_processing_latency);
+        self.shared.counters.video_bytes.fetch_add(frame.data().len() as u64, Ordering::Relaxed);
+        if let Some(decoder) = &mut self.pyrowave { decoder.skip(frame.data()); }
+    }
+
     fn submit(&mut self, frame: &Frame) -> DecodeStatus {
         let pictures = self.shared.counters.decoded.load(Ordering::Relaxed);
         self.lost = false;
@@ -945,6 +964,9 @@ impl VideoDecoder for Decoder {
         self.in_flight.clear();
         if let Some(summary) = self.pyrowave.as_ref().and_then(|decoder| decoder.stage_summary()) {
             eprintln!("nightjar: PyroWave decode stages {summary}");
+        }
+        for line in self.pyrowave.as_ref().map(super::pyrowave::Pyrowave::gpu_report).unwrap_or_default() {
+            eprintln!("nightjar: {line}");
         }
         self.pyrowave = None;
     }
@@ -1088,6 +1110,9 @@ impl Decoder {
         let fps_millihz = self.shared.fps_millihz.load(Ordering::Relaxed).max(1);
         let (shared, in_flight, pool_waiting) = (&self.shared, &mut self.in_flight, self.pool_waiting);
         let sent_at = std::time::Instant::now();
+        // FFmpeg takes the frame's bytes by reference, not copied; ours goes back after the frame,
+        // so they return to the receiver's pool once FFmpeg lets go too.
+        decoder.lend(Some(frame.shared_data()));
         let fed = feed(decoder, frame.data(), pts, async_wait_us(fps_millihz),
             || sent_at.elapsed().as_micros() as u64,
             || std::thread::sleep(std::time::Duration::from_micros(ASYNC_POLL_US)),
@@ -1126,6 +1151,7 @@ impl Decoder {
                 };
                 if pooled { shared.queue_pooled(decoded, pool_waiting) } else { shared.queue(decoded) }
             });
+        decoder.lend(None);
         say_cuda_fallback(&self.shared, decoder);
         if let Some((width, height)) = packed_map_dropped(&setup, self.packed_mapped, decoder.vulkan_mapped()) {
             eprintln!("nightjar: full chroma (packed 4:4:4): the Vulkan map failed, so each {width}x{height} picture is copied through memory from now on");
@@ -1880,7 +1906,9 @@ mod tests {
         assert!(decoder.pyrowave.is_none());
         let notices = notices(&shared);
         assert!(matches!(notices.as_slice(), [Notice::DecoderFailed(text)] if text.contains("PyroWave GPU decoding is unavailable")));
-        #[cfg(unix)]
+        #[cfg(target_os = "macos")]
+        assert!(matches!(notices.as_slice(), [Notice::DecoderFailed(text)] if text.contains("no macOS backend")));
+        #[cfg(target_os = "linux")]
         assert!(matches!(notices.as_slice(), [Notice::DecoderFailed(text)] if text.contains("libpyrowave-shared.so not found")), "the reason is the missing library");
     }
 

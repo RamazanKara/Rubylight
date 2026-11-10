@@ -678,6 +678,134 @@ pub fn split_hidden(entries: Vec<Entry>, sources: &[Source<'_>], hidden: &[Favou
     (shown, away)
 }
 
+/// Every PC's games merged ([`merge_library`]), and the same apart by what this device hides
+/// ([`split_hidden`]).
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Merged {
+    all: Vec<Entry>,
+    /// What shows and what is hidden, only when something is: with nothing hidden all of it shows.
+    split: Option<(Vec<Entry>, Vec<Entry>)>,
+}
+
+impl Merged {
+    fn of(sources: &[Source<'_>], hidden: &[Favourite]) -> Self {
+        let all = merge_library(sources);
+        let split = (!hidden.is_empty()).then(|| split_hidden(all.clone(), sources, hidden));
+        Self { all, split }
+    }
+
+    /// Every game, the hidden ones too.
+    pub fn all(&self) -> &[Entry] {
+        &self.all
+    }
+
+    /// What Home and All games show.
+    pub fn shown(&self) -> &[Entry] {
+        self.split.as_ref().map_or(self.all.as_slice(), |(shown, _)| shown.as_slice())
+    }
+
+    /// What this device hides.
+    pub fn hidden(&self) -> &[Entry] {
+        self.split.as_ref().map_or(&[][..], |(_, hidden)| hidden.as_slice())
+    }
+}
+
+/// One PC as the last merge saw it: a [`Source`] that owns what it showed.
+#[derive(PartialEq)]
+struct Seen {
+    id: u64,
+    unique_id: String,
+    name: String,
+    online: bool,
+    paired: bool,
+    library: Option<Library>,
+    last_played: Option<std::collections::BTreeMap<String, u64>>,
+    collections: Option<std::collections::BTreeMap<String, Vec<String>>>,
+    session: Option<Session>,
+    host_control: bool,
+}
+
+impl Seen {
+    // Both ways take a `Source` apart by name, with no `..`: a field added to it does not build
+    // until it is kept and compared here, so the merge cannot come to read something this misses.
+    fn of(source: &Source<'_>) -> Self {
+        let Source { id, unique_id, name, online, paired, library, last_played, collections, session, host_control } = *source;
+        Self {
+            id,
+            unique_id: unique_id.to_owned(),
+            name: name.to_owned(),
+            online,
+            paired,
+            library: library.cloned(),
+            last_played: last_played.cloned(),
+            collections: collections.cloned(),
+            session: session.cloned(),
+            host_control,
+        }
+    }
+
+    fn is(&self, source: &Source<'_>) -> bool {
+        let Source { id, unique_id, name, online, paired, library, last_played, collections, session, host_control } = *source;
+        self.id == id
+            && self.unique_id == unique_id
+            && self.name == name
+            && self.online == online
+            && self.paired == paired
+            && self.host_control == host_control
+            && self.session.as_ref() == session
+            && self.last_played.as_ref() == last_played
+            && self.collections.as_ref() == collections
+            && self.library.as_ref() == library
+    }
+}
+
+/// The merged library, kept between frames. Merging allocates for every game of every PC and
+/// sorts them, and Home, All games, a game's page and Home's View menu each asked for it on every
+/// frame they drew.
+///
+/// The merge and the split read nothing but their `Source`s and the hidden list, so the kept one
+/// holds for exactly as long as those compare equal to the ones it was made from: all of them,
+/// whether the merge reads a field today or not. Comparing costs no allocation and is a small
+/// part of a merge; a PC's answer that changes anything, wherever it was written, shows on the
+/// next frame.
+#[derive(Default)]
+pub struct LibraryMemo {
+    kept: std::cell::RefCell<Kept>,
+}
+
+#[derive(Default)]
+struct Kept {
+    seen: Vec<Seen>,
+    hidden: Vec<Favourite>,
+    merged: std::rc::Rc<Merged>,
+    /// How often the library was merged, for the tests.
+    merges: u64,
+}
+
+impl LibraryMemo {
+    /// The library of `sources` with `hidden` taken out: the kept one when both are what it was
+    /// made from, else merged now.
+    pub fn get(&self, sources: &[Source<'_>], hidden: &[Favourite]) -> std::rc::Rc<Merged> {
+        let mut kept = self.kept.borrow_mut();
+        let same = kept.merges > 0
+            && kept.hidden == hidden
+            && kept.seen.len() == sources.len()
+            && kept.seen.iter().zip(sources).all(|(seen, source)| seen.is(source));
+        if !same {
+            kept.merged = std::rc::Rc::new(Merged::of(sources, hidden));
+            kept.seen = sources.iter().map(Seen::of).collect();
+            kept.hidden = hidden.to_vec();
+            kept.merges += 1;
+        }
+        kept.merged.clone()
+    }
+
+    #[cfg(test)]
+    pub fn merges(&self) -> u64 {
+        self.kept.borrow().merges
+    }
+}
+
 /// What hiding the game `app_id` of PC `host` stores: every copy of its title, so the card it is
 /// on goes from Home whichever PCs have it. Empty when the game is not listed.
 pub fn hide_keys(sources: &[Source<'_>], host: u64, app_id: u32) -> Vec<Favourite> {
@@ -1682,5 +1810,172 @@ mod tests {
         assert_eq!(neighbour(3, 2), Some(1));
         assert_eq!(neighbour(1, 0), None);
         assert_eq!(neighbour(0, 0), None);
+    }
+
+    /// Everything a [`Source`] shows of one PC, owned, so a test can change any of it.
+    #[derive(Clone)]
+    struct Pc {
+        id: u64,
+        unique_id: String,
+        name: String,
+        online: bool,
+        paired: bool,
+        library: Option<Library>,
+        last_played: Option<std::collections::BTreeMap<String, u64>>,
+        collections: Option<std::collections::BTreeMap<String, Vec<String>>>,
+        session: Option<Session>,
+        host_control: bool,
+    }
+
+    fn sources_of(pcs: &[Pc]) -> Vec<Source<'_>> {
+        pcs.iter()
+            .map(|pc| Source {
+                id: pc.id,
+                unique_id: &pc.unique_id,
+                name: &pc.name,
+                online: pc.online,
+                paired: pc.paired,
+                library: pc.library.as_ref(),
+                last_played: pc.last_played.as_ref(),
+                collections: pc.collections.as_ref(),
+                session: pc.session.as_ref(),
+                host_control: pc.host_control,
+            })
+            .collect()
+    }
+
+    /// Two PCs with the fixture's library, the second one's Desktop hidden on this device.
+    fn two_pcs() -> (Vec<Pc>, Vec<Favourite>) {
+        let lib = library();
+        let pc = |id: u64, unique_id: &str, name: &str| Pc {
+            id,
+            unique_id: unique_id.into(),
+            name: name.into(),
+            online: true,
+            paired: true,
+            library: Some(lib.clone()),
+            last_played: Some([(lib.games[0].install_id.clone(), 100)].into()),
+            collections: Some(in_collections(&lib)),
+            session: Some(idle()),
+            host_control: false,
+        };
+        let hidden = vec![star("two", &lib.games[1].install_id, DESKTOP, "")];
+        (vec![pc(1, "one", "Den"), pc(2, "two", "Loft")], hidden)
+    }
+
+    type Change = fn(&mut Vec<Pc>, &mut Vec<Favourite>);
+
+    /// Each thing the library is made from, changed on its own. `true` where the change shows in
+    /// the merged library; the others are in a `Source` without the merge reading them today.
+    const CHANGES: &[(&str, bool, Change)] = &[
+        ("a game's title", true, |pcs, _| pcs[0].library.as_mut().unwrap().games[0].title = "Dota 3".into()),
+        ("a game starts", true, |pcs, _| pcs[0].library.as_mut().unwrap().games[0].running = true),
+        ("a game is uninstalled", true, |pcs, _| pcs[0].library.as_mut().unwrap().games[0].installed = Some(false)),
+        ("a game's store", true, |pcs, _| pcs[0].library.as_mut().unwrap().games[0].store.as_mut().unwrap().source = "epic".into()),
+        ("a store's name", true, |pcs, _| pcs[0].library.as_mut().unwrap().games[0].store.as_mut().unwrap().name = "Valve".into()),
+        ("a game leaves its store", true, |pcs, _| pcs[0].library.as_mut().unwrap().games[0].store = None),
+        ("a cover goes", true, |pcs, _| pcs[0].library.as_mut().unwrap().games[0].artwork.cover = None),
+        ("a cover is replaced", false, |pcs, _| pcs[0].library.as_mut().unwrap().games[0].artwork.version = "new".into()),
+        ("a game's id", true, |pcs, _| pcs[0].library.as_mut().unwrap().games[0].game_id = Some("steam:571".into())),
+        ("a game's install id", true, |pcs, _| pcs[0].library.as_mut().unwrap().games[0].install_id = "another".into()),
+        ("a game's app id", true, |pcs, _| pcs[0].library.as_mut().unwrap().games[0].app_id = 7),
+        ("a game is removed", true, |pcs, _| drop(pcs[0].library.as_mut().unwrap().games.remove(0))),
+        ("a game is added", true, |pcs, _| {
+            let games = &mut pcs[1].library.as_mut().unwrap().games;
+            let mut game = games[0].clone();
+            (game.title, game.game_id, game.app_id, game.install_id) = ("Another".into(), Some("steam:1".into()), 1, "new".into());
+            games.push(game);
+        }),
+        ("the games change places", false, |pcs, _| pcs[0].library.as_mut().unwrap().games.swap(0, 1)),
+        ("a library's revision", false, |pcs, _| pcs[0].library.as_mut().unwrap().revision = "next".into()),
+        ("a library goes", true, |pcs, _| pcs[1].library = None),
+        ("a game was played", true, |pcs, _| *pcs[0].last_played.as_mut().unwrap().values_mut().next().unwrap() = 200),
+        ("the last played times go", true, |pcs, _| pcs[0].last_played = None),
+        ("a game leaves a collection", true, |pcs, _| drop(pcs[0].collections.as_mut().unwrap().values_mut().next().unwrap().pop())),
+        ("the collections go", true, |pcs, _| pcs[0].collections = None),
+        ("a session starts", true, |pcs, _| pcs[1].session = Some(session())),
+        ("a session's revision", false, |pcs, _| pcs[1].session.as_mut().unwrap().revision += 1),
+        ("a session goes", false, |pcs, _| pcs[1].session = None),
+        ("a pc goes away", true, |pcs, _| pcs[0].online = false),
+        ("a pc is renamed", true, |pcs, _| pcs[0].name = "Study".into()),
+        ("a pc's id", true, |pcs, _| pcs[0].id = 9),
+        ("a pc tells another unique id", true, |pcs, _| pcs[1].unique_id = "zwei".into()),
+        ("a pc is unpaired", false, |pcs, _| pcs[0].paired = false),
+        ("a pc gives host control", false, |pcs, _| pcs[0].host_control = true),
+        ("a pc is removed", true, |pcs, _| drop(pcs.remove(1))),
+        ("a pc is added", true, |pcs, _| {
+            let mut pc = pcs[0].clone();
+            (pc.id, pc.unique_id, pc.name) = (3, "three".into(), "Attic".into());
+            pcs.push(pc);
+        }),
+        ("the pcs change places", true, |pcs, _| pcs.swap(0, 1)),
+        ("a game is hidden", true, |pcs, hidden| {
+            let game = &pcs[0].library.as_ref().unwrap().games[0];
+            hidden.push(star("one", &game.install_id, game.app_id, ""));
+        }),
+        ("a game is shown again", true, |_, hidden| hidden.clear()),
+        ("a hidden game's saved title", false, |_, hidden| hidden[0].title = "Desktop".into()),
+    ];
+
+    #[test]
+    fn the_kept_library_is_merged_again_when_anything_it_was_made_from_changes() {
+        for (what, shows, change) in CHANGES {
+            let (before, hidden_before) = two_pcs();
+            let memo = LibraryMemo::default();
+            let first = memo.get(&sources_of(&before), &hidden_before);
+            assert_eq!(*first, Merged::of(&sources_of(&before), &hidden_before), "{what}");
+
+            let (mut after, mut hidden_after) = (before.clone(), hidden_before.clone());
+            change(&mut after, &mut hidden_after);
+            let changed = memo.get(&sources_of(&after), &hidden_after);
+            assert_eq!(memo.merges(), 2, "{what}: merged again");
+            assert_eq!(*changed, Merged::of(&sources_of(&after), &hidden_after), "{what}: what a merge now gives");
+            assert_eq!(*changed != *first, *shows, "{what}: whether it shows");
+
+            // And back: the kept one is never one of an earlier state.
+            let back = memo.get(&sources_of(&before), &hidden_before);
+            assert_eq!(memo.merges(), 3, "{what}: merged again on the way back");
+            assert_eq!(*back, *first, "{what}");
+        }
+    }
+
+    #[test]
+    fn the_library_is_merged_once_while_nothing_changes() {
+        let (pcs, hidden) = two_pcs();
+        let memo = LibraryMemo::default();
+        let first = memo.get(&sources_of(&pcs), &hidden);
+        // The same values from other places in memory, as each frame's `Source`s are.
+        let (copies, hidden_copy) = (pcs.clone(), hidden.clone());
+        for _ in 0..3 {
+            let again = memo.get(&sources_of(&copies), &hidden_copy);
+            assert!(std::rc::Rc::ptr_eq(&first, &again));
+        }
+        assert_eq!(memo.merges(), 1);
+
+        // No PC at all is a library too (the empty one), and is not merged over and over either.
+        let empty = LibraryMemo::default();
+        assert!(empty.get(&[], &[]).all().is_empty());
+        assert!(empty.get(&[], &[]).shown().is_empty());
+        assert_eq!(empty.merges(), 1);
+    }
+
+    #[test]
+    fn the_kept_library_is_the_merge_and_its_split() {
+        let (pcs, hidden) = two_pcs();
+        let sources = sources_of(&pcs);
+        let memo = LibraryMemo::default();
+
+        let merged = memo.get(&sources, &hidden);
+        let (shown, away) = split_hidden(merge_library(&sources), &sources, &hidden);
+        assert_eq!(merged.all(), merge_library(&sources));
+        assert_eq!(merged.shown(), shown);
+        assert_eq!(merged.hidden(), away);
+        assert_eq!(away.len(), 1, "the second PC's Desktop");
+        assert_eq!(shown.iter().map(|e| e.copies.len()).sum::<usize>(), 3);
+
+        // With nothing hidden all of it shows.
+        let merged = memo.get(&sources, &[]);
+        assert_eq!(merged.shown(), merge_library(&sources));
+        assert!(merged.hidden().is_empty());
     }
 }

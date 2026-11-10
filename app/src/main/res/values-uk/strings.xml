@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_packed_444">Повна кольоровість</string>
-    <string name="summary_packed_444">Потрібні опція повної кольоровості в Rubylight, новий рушій стримінгу та сумісний апаратний декодер HEVC/AV1. Непідтримувані режими переривають з’єднання. Для HDR також потрібна сумісна 10-бітна поверхня виведення HDR.</string>
+    <string name="summary_packed_444">Потрібні опція повної кольоровості в Rubylight, новий рушій стримінгу та сумісний апаратний декодер HEVC/AV1. Якщо ПК або цей пристрій її не підтримує, трансляція запускається без неї. Для HDR також потрібна сумісна 10-бітна поверхня виведення HDR.</string>
     <string name="title_experimental_chipset_tuning">Налаштування чипсета</string>
     <string name="summary_experimental_chipset_tuning">Додаткові налаштування низької затримки для декодерів MediaTek Dimensity і Samsung Exynos. Якщо відео зупиняється або смикається, вимкніть цю функцію.</string>
     <string name="scut_deleted_pc">ПК видалено</string>
@@ -283,6 +283,7 @@
     <string name="title_yuv444">Віддавати перевагу YUV 4:4:4</string>
     <string name="summary_yuv444">Чіткіший кольоровий текст, якщо ПК і цей пристрій це підтримують. HDR має пріоритет.</string>
     <string name="yuv444_fallback">YUV 4:4:4 недоступний; використовується 4:2:0.</string>
+    <string name="yuv444_fallback_hdr">YUV 4:4:4 недоступний; використовується 4:2:0. HDR має пріоритет.</string>
     <string name="title_virtual_display">Віртуальний дисплей хоста</string>
     <string name="summary_virtual_display">Запитувати в ПК дисплей, що відповідає трансляції. Вимкнено: вирішують власні налаштування дисплея ПК.</string>
     <string name="title_vrr">Адаптивна частота (ARR / VRR)</string>

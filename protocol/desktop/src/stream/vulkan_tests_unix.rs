@@ -567,6 +567,103 @@ fn a_sequence_of_vulkan_pictures_reuses_the_copy_slots_and_stays_the_software_pi
     }
 }
 
+/// A VAAPI decoder of `case` whose pictures are mapped into the renderer's Vulkan device
+/// (`vulkan_video::VaapiMap`), and its first picture, tagged with `look`.
+#[cfg(target_os = "linux")]
+fn mapped_vaapi(rig: &Rig, case: &Case, look: Look) -> Result<(VideoDecoder, media::Frame), String> {
+    let vaapi_node = media::vaapi_node(Hardware::Auto(rig.device(), None));
+    let pictures = Pictures { ten_bit: case.ten, chroma444: false, packed: false, waiting: 0, vaapi_node };
+    let mut decoder = VideoDecoder::open_for(case.codec, pictures, Hardware::Vaapi, 1, true)?;
+    if !decoder.map_to_vulkan(rig.device()) {
+        return Err("VAAPI pictures are not mapped into Vulkan on this device".into());
+    }
+    let status = decoder.send(case.bin, 0);
+    if status < 0 {
+        return Err(format!("the decoder rejected the fixture ({status})"));
+    }
+    let Received::Frame(frame) = decoder.receive() else {
+        return Err("the decoder made no picture of the fixture".into());
+    };
+    tag(&frame, look);
+    Ok((decoder, frame))
+}
+
+/// More mapped VAAPI pictures than the decoder's pool has surfaces, from one decoder through one
+/// texture as in a stream: each surface's DMA-BUFs are imported into Vulkan once and kept, its
+/// later pictures copied from the kept images (acquired from VA-API and released back to it each
+/// time), and every picture stays the software one. Needs a VAAPI GPU that is the renderer's
+/// Vulkan device (the NUC's Intel iHD, an AMD GPU with radeonsi) and SDL's offscreen driver, and
+/// the cache on (no `NIGHTJAR_DMABUF_CACHE=0`):
+/// `cargo test -p nightjar-desktop -- --ignored --test-threads=1 mapped_vaapi_pictures`.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "needs a VAAPI GPU that is the renderer's Vulkan device, and SDL's offscreen driver"]
+fn a_sequence_of_mapped_vaapi_pictures_reuses_each_surfaces_import_and_stays_the_software_picture() {
+    const PICTURES: usize = 64;
+    assert!(crate::dmabuf::caching(), "{}=0 switches the per-surface imports off", crate::dmabuf::CACHE_ENVIRONMENT);
+    let _lock = gpu_lock();
+    let rig = Rig::new();
+    for case in &cases()[..2] {
+        let look = looks(case.ten)[0];
+        let software =
+            picture(&rig, case, Hardware::None, look).unwrap_or_else(|e| panic!("software: {e}"));
+        let (mapped_before, cached_before) = crate::vulkan_video::mapped_pictures();
+        let (mut decoder, first) =
+            mapped_vaapi(&rig, case, look).unwrap_or_else(|e| panic!("{}: mapped VAAPI: {e}", case.name));
+        let mut texture = VideoTexture::default();
+        texture.set_hdr_mode(look.hdr, None);
+        let mut frame = Some(first);
+        for round in 0..PICTURES {
+            let frame = match frame.take() {
+                Some(frame) => frame,
+                None => {
+                    assert!(
+                        decoder.send(case.bin, round as _) >= 0,
+                        "{} picture {round}: the decoder rejected the fixture",
+                        case.name
+                    );
+                    let Received::Frame(frame) = decoder.receive() else {
+                        panic!("{} picture {round}: no picture", case.name)
+                    };
+                    tag(&frame, look);
+                    frame
+                }
+            };
+            assert_eq!(
+                frame.info().kind,
+                media::FRAME_VULKAN,
+                "{} picture {round}: not a mapped Vulkan picture (the map failed and went through memory)",
+                case.name
+            );
+            let (max, rms, mean) = compare(
+                &software,
+                &present(&rig, &mut texture, &decoded(frame, case)),
+                false,
+            );
+            let (limit, rms_limit) = bounds(case.ten);
+            assert!(
+                max < limit && rms < rms_limit && mean.abs() < MEAN_LIMIT,
+                "{} picture {round}: max {max}, rms {rms}, mean {mean:+.2e}",
+                case.name
+            );
+        }
+        assert!(decoder.vulkan_mapped(), "{}: the decoder stopped mapping its pictures", case.name);
+        let (mapped_after, cached_after) = crate::vulkan_video::mapped_pictures();
+        let (mapped, cached) = (mapped_after - mapped_before, cached_after - cached_before);
+        println!(
+            "{}: {PICTURES} mapped pictures match the software picture, {cached} of {mapped} from the per-surface cache",
+            case.name
+        );
+        assert_eq!(mapped, PICTURES as u64, "{}: every picture was mapped", case.name);
+        assert!(cached < mapped, "{}: the first picture of a surface is imported", case.name);
+        assert!(
+            cached * 2 > mapped,
+            "{}: only {cached} of {mapped} pictures came from the per-surface cache (a fallback to FFmpeg's mapping is in the log)",
+            case.name
+        );
+    }
+}
+
 /// Decoding on its own thread while the presenter's thread waits for the whole device over and over,
 /// as `SDL_WaitForGPUIdle` and swapchain rebuilds do, and rebuilds the presenter now and then (a
 /// resize or display change; dropping `Planes` waits for the device too): `vkDeviceWaitIdle`

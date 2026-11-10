@@ -53,7 +53,7 @@ impl Reconstruction {
                 SDL_SetTextureScaleMode(*texture, SDL_SCALEMODE_LINEAR);
             }
             for (input, output) in [(result.textures[0], result.textures[1]), (result.textures[1], result.textures[0]), (result.textures[0], target)] {
-                result.passes.push(Pass::new(renderer, input, output, include_bytes!("../pyrowave.hlsl"), include_bytes!("../pyrowave.spv"))?);
+                result.passes.push(Pass::new(renderer, input, output, super::shader::Shader::Wavelet)?);
             }
         }
         Some(result)

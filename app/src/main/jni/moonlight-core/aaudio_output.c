@@ -15,6 +15,9 @@
 // One concealment call at most: 120 ms at 48 kHz, the longest an Opus decode may be.
 #define CONCEAL_MAX_FRAMES 5760
 #define FADE_MAX_FRAMES 480
+// Stereo frames nativeWriteAudio copies out of the Java array at a time (4 KiB of stack): a
+// 10 ms packet at 48 kHz in one piece.
+#define AUDIO_WRITE_CHUNK_FRAMES 1024
 
 #define AUDIO_FUNCTIONS(X) \
     X(AAudio_createStreamBuilder) \
@@ -287,24 +290,31 @@ Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeWriteAudio(JNIEnv* e
         jlong handle, jshortArray samples, jint length) {
     AudioOutput* output = (AudioOutput*)(intptr_t)handle;
     if (length < 0 || length > (*env)->GetArrayLength(env, samples) || length % 2) return JNI_FALSE;
-    jshort* pcm = (*env)->GetShortArrayElements(env, samples, NULL);
-    if (!pcm) return JNI_FALSE;
-    uint32_t remaining = (uint32_t)length / 2;
+    // The samples come over in stack-sized pieces (GetShortArrayRegion): GetShortArrayElements on
+    // a movable array has ART allocate a copy and free it again for every packet.
+    jshort chunk[AUDIO_WRITE_CHUNK_FRAMES * 2];
+    uint32_t frames = (uint32_t)length / 2;
     uint32_t position = 0;
     int waits = 0;
-    while (remaining && !atomic_load(&output->stopped)) {
-        uint32_t count = audioQueueWrite(&output->queue, pcm + position * 2, remaining);
-        if (!count) {
-            if (++waits >= 100) break;
-            struct timespec pause = {0, 1000000};
-            nanosleep(&pause, NULL);
-            continue;
+    while (position < frames && !atomic_load(&output->stopped)) {
+        uint32_t pieceFrames = frames - position;
+        if (pieceFrames > AUDIO_WRITE_CHUNK_FRAMES) pieceFrames = AUDIO_WRITE_CHUNK_FRAMES;
+        (*env)->GetShortArrayRegion(env, samples, (jsize)(position * 2), (jsize)(pieceFrames * 2), chunk);
+        uint32_t done = 0;
+        while (done < pieceFrames && !atomic_load(&output->stopped)) {
+            uint32_t count = audioQueueWrite(&output->queue, chunk + done * 2, pieceFrames - done);
+            if (!count) {
+                if (++waits >= 100) break;
+                struct timespec pause = {0, 1000000};
+                nanosleep(&pause, NULL);
+                continue;
+            }
+            done += count;
         }
-        remaining -= count;
-        position += count;
+        position += done;
+        if (done < pieceFrames) break;
     }
-    (*env)->ReleaseShortArrayElements(env, samples, pcm, JNI_ABORT);
-    return remaining == 0 && !atomic_load(&output->stopped);
+    return position == frames && !atomic_load(&output->stopped);
 }
 
 JNIEXPORT jintArray JNICALL

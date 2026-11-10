@@ -357,9 +357,10 @@ impl Launcher {
                 // the menu stays open to try the next.
                 let s = &self.settings;
                 let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
-                let (entries, _) = console::split_hidden(console::merge_library(&sources), &sources, &self.hidden_games);
-                let groups = console::offered_groups(&entries);
-                let group = console::shown_group(s.home_group, &entries);
+                let library = self.library.get(&sources, &self.hidden_games);
+                let entries = library.shown();
+                let groups = console::offered_groups(entries);
+                let group = console::shown_group(s.home_group, entries);
                 let mut rows = vec![
                     MenuRow { icon: Icon::Grid, label: en("Layout"), hint: Some(s.home_layout.label()), destructive: false, blocked: None },
                     MenuRow { icon: Icon::Folder, label: en("Group by"), hint: Some(group.label()), destructive: false, blocked: None },
@@ -2072,6 +2073,8 @@ fn menu_shell(ctx: &egui::Context, name: &str, anchor: Anchor, add: impl FnOnce(
         .fixed_pos(screen.min)
         .show(ctx, |ui| {
             if anchor == Anchor::Center {
+                // A sheet in the middle blurs the page as a dialog does.
+                glass::page_behind(ui.ctx(), ui.opacity());
                 ui.painter().rect_filled(screen, 0.0, Color32::from_black_alpha(150));
             }
             let catch = ui.allocate_rect(screen, Sense::click());

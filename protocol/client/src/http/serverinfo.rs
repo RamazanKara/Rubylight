@@ -48,6 +48,9 @@ pub struct ServerInfo {
     pub pyrowave_burst_probe: bool,
     pub pyrowave_critical_fec_percentage: u32,
     pub pyrowave_min_parity_shards: u32,
+    /// The packed full chroma modes the host offers (Rubylight's `Packed444Modes`,
+    /// [`crate::full_chroma`]); None when it does not say.
+    pub packed444_modes: Option<u8>,
     pub capabilities: HostCapabilities,
     /// Why this device's latest stream on the host failed, in the host's words (Rubylight's
     /// `RustHostLastFailure`); `None` when it does not say.
@@ -140,6 +143,9 @@ impl ServerInfo {
             ) as u32,
             pyrowave_min_parity_shards: unsigned(text("PyroWaveMinParityShards").as_deref(), 255)
                 as u32,
+            packed444_modes: crate::full_chroma::read_serverinfo_modes(
+                text("Packed444Modes").as_deref(),
+            ),
             capabilities,
             last_failure: text("RustHostLastFailure")
                 .map(|reason| reason.trim().to_owned())
@@ -285,6 +291,15 @@ pub(crate) mod tests {
         assert!(info.frame_limiter_enabled && !info.virtual_display_frame_limiter_enabled);
         assert_eq!(info.frame_limiter_fps_limit_millihz, 119_880);
         assert_eq!(info.pyrowave_host_link_mbps, 2500);
+        assert_eq!(info.packed444_modes, None, "a host that does not say");
+        let packed = RUBYLIGHT.replace(
+            "<RustHostSessionCount>",
+            "<Packed444Modes>3</Packed444Modes><RustHostSessionCount>",
+        );
+        assert_eq!(
+            ServerInfo::parse(&packed, 47989).unwrap().packed444_modes,
+            Some(3)
+        );
         assert!(info.pyrowave_burst_probe);
         assert_eq!(
             (

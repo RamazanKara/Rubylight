@@ -111,7 +111,7 @@ const general: Setting[] = [
     description:
       'How often the host looks for a new Rubylight release. Set it to 0 to turn off automatic checks.',
     details:
-      'The minimum is 3600 seconds (one hour). 0 also turns off automatic installation; you can still check and install from Maintenance.',
+      'The minimum is 3600 seconds (one hour). 0 also turns off automatic installation; you can still check and install from Updates on the Settings page.',
     category: 'general',
     group: 'Updates',
     control: { kind: 'number', min: 0, step: 1, unit: 's' },
@@ -123,7 +123,7 @@ const general: Setting[] = [
     description:
       "Look for a new Rubylight release once a day at this time on this PC's clock, in place of the interval. Leave it empty to use the interval.",
     details:
-      "With Install updates automatically on, a new release installs after that check, once nothing is streaming. If this PC is off, asleep or streaming at that time, the check runs as soon as it can afterwards. The time follows this PC's time zone and daylight saving time. An Update check interval of 0 still turns off automatic checks; otherwise the interval is not used while a time is set. Check now on Maintenance works at any time.",
+      "With Install updates automatically on, a new release installs after that check, once nothing is streaming. If this PC is off, asleep or streaming at that time, the check runs as soon as it can afterwards. The time follows this PC's time zone and daylight saving time. An Update check interval of 0 still turns off automatic checks; otherwise the interval is not used while a time is set. Check now under Updates on the Settings page works at any time.",
     category: 'general',
     group: 'Updates',
     control: { kind: 'text', time: true },

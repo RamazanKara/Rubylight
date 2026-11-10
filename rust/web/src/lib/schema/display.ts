@@ -71,7 +71,7 @@ export const settings: Setting[] = [
     description:
       'How the virtual display fits with your other monitors while streaming. Exclusive turns the other monitors off.',
     details:
-      'Extended keeps your PC display primary. Making the virtual display primary moves the main desktop and taskbar to the stream. Isolated places the virtual display far from the other monitors so the mouse cannot wander onto it. A Remote Monitor follows exclusive and primary; choose Extended to keep its saved placement.',
+      'Extend keeps your PC display active beside the virtual display. Making the virtual display primary moves the main desktop and taskbar to the stream. Isolate also places the virtual display far from the other monitors so the mouse cannot wander onto it. A Remote Monitor follows exclusive and primary; choose Extend — keep PC display primary to keep its saved placement.',
     category: 'display',
     group: 'Streamed display',
     control: {
@@ -272,7 +272,7 @@ export const settings: Setting[] = [
     key: 'dd_always_restore_from_golden',
     label: 'Restore the saved layout',
     description:
-      'After a stream, return the displays to the layout saved under Maintenance instead of the layout from before the stream.',
+      'After a stream, return the displays to the layout saved under Help → Displays instead of the layout from before the stream.',
     details: 'The saved layout is used only while every display it names is connected.',
     category: 'display',
     group: 'After a stream',

@@ -414,8 +414,12 @@ pub struct Launcher {
     restore_key: Option<String>,
     /// The cards a menu's Hide can take off this frame's screen, in the order drawn, with their game.
     cards: Vec<(String, String)>,
-    /// Some PC has a library to show, so Home has something on it.
+    /// Some PC has games to show, so Home has something on it and is offered: a native library,
+    /// or the app list of a PC without one.
     home_ready: bool,
+    /// Some PC has a native library: Home is where Back ends. App lists alone leave that to the
+    /// list of PCs, as on Android.
+    home_root: bool,
     /// The width the header's actions took last frame, to keep them at the right edge.
     header_width: f32,
     /// The game Home is about; the chrome's PC capsule speaks of its PC.
@@ -537,6 +541,7 @@ impl Launcher {
             restore_key: None,
             cards: Vec::new(),
             home_ready: false,
+            home_root: false,
             header_width: 0.0,
             hero: None,
             ambient: Default::default(),
@@ -716,9 +721,9 @@ impl Launcher {
         }
     }
 
-    /// Where the app starts and where Back ends: Home when it is on and has games.
+    /// Where the app starts and where Back ends: Home when it is on and has a native library's games.
     pub fn root(&self) -> Screen {
-        if self.settings.console_home && self.home_ready {
+        if self.settings.console_home && self.home_ready && self.home_root {
             Screen::Home
         } else {
             Screen::Hosts
@@ -1044,6 +1049,7 @@ impl Launcher {
         }
         let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
         self.home_ready = console::has_library(&sources);
+        self.home_root = console::has_native_library(&sources);
         // With a menu open, Escape (B) only closes it: the menu closes itself as it is drawn.
         let menu_open = egui::Popup::is_any_open(&ctx);
         let escape = ctx.input(|i| i.key_pressed(Key::Escape)) && !menu_open;

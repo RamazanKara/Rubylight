@@ -19,6 +19,9 @@ pub struct Source<'a> {
     pub online: bool,
     pub paired: bool,
     pub library: Option<&'a Library>,
+    /// The library is the PC's classic app list ([`classic_library`]): a PC without the native
+    /// library shows its games on Home, but does not make Home the start page.
+    pub classic: bool,
     /// When the library's games were last played, by install id (`Native::last_played`).
     pub last_played: Option<&'a std::collections::BTreeMap<String, u64>>,
     /// The collections the library's games are in, by install id (`Native::collections`).
@@ -38,7 +41,8 @@ impl<'a> Source<'a> {
             name: host.display_name(),
             online,
             paired: host.paired(),
-            library: host.native.library.as_ref().filter(|_| host.paired()),
+            library: host.library().filter(|_| host.paired()),
+            classic: host.native.library.is_none() && host.classic.is_some(),
             last_played: host.paired().then_some(&host.native.last_played),
             collections: host.paired().then_some(&host.native.collections),
             session: host.native.session.as_ref().filter(|_| online),
@@ -47,14 +51,56 @@ impl<'a> Source<'a> {
     }
 }
 
-/// Whether the app starts on Home: the setting is on and some PC has a library to show, live or
-/// saved from an earlier run.
+/// Whether the app starts on Home: the setting is on and some PC has a native library to show,
+/// live or saved from an earlier run. App lists alone leave the list of PCs the start page, as on
+/// Android.
 pub fn opens_on_home(enabled: bool, sources: &[Source<'_>]) -> bool {
-    enabled && has_library(sources)
+    enabled && has_native_library(sources)
 }
 
+/// Whether Home has games to show and is offered: some PC's native library, or the app list of a
+/// paired PC without one (Android's `ShellBar.homeAvailable`).
 pub fn has_library(sources: &[Source<'_>]) -> bool {
     sources.iter().any(|s| s.library.is_some_and(|l| !l.games.is_empty()))
+}
+
+/// [`has_library`] counting only native libraries: what makes Home the start page.
+pub fn has_native_library(sources: &[Source<'_>]) -> bool {
+    sources.iter().any(|s| !s.classic && s.library.is_some_and(|l| !l.games.is_empty()))
+}
+
+/// The revision of a library made from an app list; a native library's comes from its host.
+pub const CLASSIC_REVISION: &str = "classic";
+
+/// A PC's app list as a library, so Home, All games, the game pages and their menus show a PC
+/// without the native library as Android's console does (`ConsoleRepository`, Status.CLASSIC).
+/// Each app is its own entry (no store, no game id to merge by), keyed by its UUID and app id as
+/// the PC's own app list keys stars and hidden games; a start goes through that list. `running`
+/// is the app the PC reports (`currentgame`, its UUID deciding when both have one).
+pub fn classic_library(apps: &crate::config::ClassicApps, running: Option<(i32, Option<&str>)>) -> Library {
+    let games = apps
+        .apps
+        .iter()
+        .map(|app| Game {
+            install_id: app.uuid.clone(),
+            app_id: app.id as u32,
+            title: app.name.clone(),
+            game_id: None,
+            store: None,
+            installed: None,
+            running: running.is_some_and(|(id, uuid)| classic_running(app, id, uuid)),
+            artwork: nightjar_core::http::native_api::library::Artwork { cover: Some(String::new()), version: app.art_version.clone() },
+        })
+        .collect();
+    Library { revision: CLASSIC_REVISION.into(), games }
+}
+
+/// `App::matches_running_app` for a saved app.
+fn classic_running(app: &crate::config::ClassicApp, running_id: i32, running_uuid: Option<&str>) -> bool {
+    match running_uuid {
+        Some(uuid) if !app.uuid.is_empty() && !uuid.is_empty() => app.uuid == uuid,
+        _ => running_id != 0 && app.id == running_id,
+    }
 }
 
 /// A game on one PC.
@@ -719,6 +765,7 @@ struct Seen {
     online: bool,
     paired: bool,
     library: Option<Library>,
+    classic: bool,
     last_played: Option<std::collections::BTreeMap<String, u64>>,
     collections: Option<std::collections::BTreeMap<String, Vec<String>>>,
     session: Option<Session>,
@@ -729,7 +776,7 @@ impl Seen {
     // Both ways take a `Source` apart by name, with no `..`: a field added to it does not build
     // until it is kept and compared here, so the merge cannot come to read something this misses.
     fn of(source: &Source<'_>) -> Self {
-        let Source { id, unique_id, name, online, paired, library, last_played, collections, session, host_control } = *source;
+        let Source { id, unique_id, name, online, paired, library, classic, last_played, collections, session, host_control } = *source;
         Self {
             id,
             unique_id: unique_id.to_owned(),
@@ -737,6 +784,7 @@ impl Seen {
             online,
             paired,
             library: library.cloned(),
+            classic,
             last_played: last_played.cloned(),
             collections: collections.cloned(),
             session: session.cloned(),
@@ -745,13 +793,14 @@ impl Seen {
     }
 
     fn is(&self, source: &Source<'_>) -> bool {
-        let Source { id, unique_id, name, online, paired, library, last_played, collections, session, host_control } = *source;
+        let Source { id, unique_id, name, online, paired, library, classic, last_played, collections, session, host_control } = *source;
         self.id == id
             && self.unique_id == unique_id
             && self.name == name
             && self.online == online
             && self.paired == paired
             && self.host_control == host_control
+            && self.classic == classic
             && self.session.as_ref() == session
             && self.last_played.as_ref() == last_played
             && self.collections.as_ref() == collections
@@ -1086,7 +1135,7 @@ mod tests {
     }
 
     fn source<'a>(id: u64, name: &'a str, online: bool, library: Option<&'a Library>, session: Option<&'a Session>) -> Source<'a> {
-        Source { id, unique_id: "", name, online, paired: true, library, last_played: None, collections: None, session, host_control: false }
+        Source { id, unique_id: "", name, online, paired: true, library, classic: false, last_played: None, collections: None, session, host_control: false }
     }
 
     const DOTA: u32 = 1093052211;
@@ -1193,6 +1242,92 @@ mod tests {
         assert!(!opens_on_home(true, &without), "no library, no Home");
         // A saved library counts for a PC that is away.
         assert!(opens_on_home(true, &[source(1, "A", false, Some(&lib), None)]));
+    }
+
+    fn classic_apps(apps: &[(i32, &str, &str)]) -> crate::config::ClassicApps {
+        crate::config::ClassicApps {
+            version: crate::config::CLASSIC_APPS_VERSION,
+            apps: apps
+                .iter()
+                .map(|(id, name, uuid)| crate::config::ClassicApp { id: *id, name: (*name).into(), uuid: (*uuid).into(), art_version: format!("art{id}") })
+                .collect(),
+        }
+    }
+
+    fn classic_source<'a>(id: u64, unique_id: &'a str, online: bool, library: &'a Library) -> Source<'a> {
+        Source { unique_id, classic: true, ..source(id, "Vibe", online, Some(library), None) }
+    }
+
+    #[test]
+    fn an_app_list_offers_home_but_only_a_native_library_opens_on_it() {
+        let lib = library();
+        let apps = classic_library(&classic_apps(&[(1, "Desktop", "D-1"), (2, "Hades", "")]), None);
+        let empty = classic_library(&classic_apps(&[]), None);
+        let classic = [classic_source(1, "pc", false, &apps)];
+        // Android: Home appears once a PC's app list is saved, but the list of PCs stays the start.
+        assert!(has_library(&classic), "an app list, saved while the PC sleeps, offers Home");
+        assert!(!has_native_library(&classic));
+        assert!(!opens_on_home(true, &classic), "app lists alone start on the list of PCs");
+        assert!(!has_library(&[classic_source(1, "pc", true, &empty)]), "an empty list offers nothing");
+        let both = [classic_source(1, "pc", true, &apps), source(2, "Rubylight", true, Some(&lib), None)];
+        assert!(opens_on_home(true, &both), "a native library beside it still opens on Home");
+    }
+
+    #[test]
+    fn an_app_list_is_a_library_of_its_own_entries_with_the_running_app_marked() {
+        let apps = classic_apps(&[(1, "Desktop", "D-1"), (2, "Hades", ""), (3, "Celeste", "C-3")]);
+        let lib = classic_library(&apps, None);
+        assert_eq!(lib.revision, CLASSIC_REVISION);
+        let game = &lib.games[1];
+        assert_eq!((game.app_id, game.title.as_str(), game.install_id.as_str(), game.installed, game.running), (2, "Hades", "", None, false));
+        assert!(game.game_id.is_none() && game.store.is_none(), "nothing to merge by or shelve under");
+        assert_eq!((game.artwork.cover.is_some(), game.artwork.version.as_str()), (true, "art2"), "the box art, at the list's version");
+        // currentgame names the app; a UUID decides where both have one.
+        let by_id = classic_library(&apps, Some((2, None)));
+        assert_eq!(by_id.games.iter().map(|g| g.running).collect::<Vec<_>>(), [false, true, false]);
+        let by_uuid = classic_library(&apps, Some((1, Some("C-3"))));
+        assert_eq!(by_uuid.games.iter().map(|g| g.running).collect::<Vec<_>>(), [false, false, true]);
+        assert!(classic_library(&apps, Some((0, None))).games.iter().all(|g| !g.running), "0 is no game");
+
+        // Home: one entry per app (none merge with a native copy), Play or Resume and a classic quit.
+        let running = classic_library(&apps, Some((2, None)));
+        let sources = [classic_source(1, "pc", true, &running), classic_source(2, "pc2", true, &running)];
+        let merged = merge_library(&sources);
+        assert_eq!(merged.len(), 6, "each PC's apps are their own");
+        assert_eq!(merged.iter().map(|e| e.title.as_str()).collect::<Vec<_>>(), ["Celeste", "Celeste", "Desktop", "Desktop", "Hades", "Hades"]);
+        let hades = merged.iter().find(|e| e.title == "Hades").unwrap();
+        assert!(hades.running() && hades.installed() && hades.cover().is_some() && hades.store().is_none());
+        let playing = continue_playing(&sources);
+        assert_eq!(playing.iter().map(|c| (c.host, c.app_id, c.playing)).collect::<Vec<_>>(), [(1, 2, Playing::Running), (2, 2, Playing::Running)]);
+        let d = detail(&sources[0], 2, false);
+        assert_eq!((d.state, d.end, d.can_start), (GameState::Running, EndAction::Quit, true));
+        let other = detail(&sources[0], 3, false);
+        assert_eq!((other.state, other.other_running.as_deref()), (GameState::Idle, Some("Hades")));
+        // Away: the saved list shows, nothing runs and nothing starts.
+        let away = [classic_source(1, "pc", false, &running)];
+        assert!(continue_playing(&away).is_empty());
+        let d = detail(&away[0], 2, false);
+        assert_eq!((d.state, d.can_start), (GameState::Idle, false));
+        assert_eq!(host_line(&away[0]), HostLine::SavedGames(3));
+    }
+
+    #[test]
+    fn hiding_and_starring_an_app_list_entry_use_the_pcs_app_keys() {
+        let lib = classic_library(&classic_apps(&[(1, "Desktop", "D-1"), (2, "Hades", "")]), None);
+        let sources = [classic_source(1, "pc", true, &lib)];
+        // The same key the PC's own app list hides by: its unique id, the app's UUID and id.
+        let keys = hide_keys(&sources, 1, 1);
+        assert_eq!(keys, [Favourite { host: "pc".into(), install_id: "D-1".into(), app_id: 1, title: "Desktop".into() }]);
+        let (shown, hidden) = split_hidden(merge_library(&sources), &sources, &keys);
+        assert_eq!((shown.len(), hidden[0].title.as_str()), (1, "Desktop"));
+        let star = favourite_for(&sources, 1, 2).unwrap();
+        assert_eq!((star.host.as_str(), star.install_id.as_str(), star.app_id), ("pc", "", 2));
+        let stars = favourite_games(&sources, &[star]);
+        assert_eq!(stars.iter().map(|s| (s.host, s.app_id, s.title.as_str())).collect::<Vec<_>>(), [(1, 2, "Hades")]);
+        // A recent stream of it shows under Recently played.
+        let recent = Recent { host: "pc".into(), install_id: "D-1".into(), app_id: 1, title: "Old".into(), at: 5 };
+        let recents = recently_played(&sources, &[recent], &[], 5);
+        assert_eq!(recents.iter().map(|r| (r.app_id, r.title.as_str())).collect::<Vec<_>>(), [(1, "Desktop")]);
     }
 
     #[test]
@@ -1821,6 +1956,7 @@ mod tests {
         online: bool,
         paired: bool,
         library: Option<Library>,
+        classic: bool,
         last_played: Option<std::collections::BTreeMap<String, u64>>,
         collections: Option<std::collections::BTreeMap<String, Vec<String>>>,
         session: Option<Session>,
@@ -1836,6 +1972,7 @@ mod tests {
                 online: pc.online,
                 paired: pc.paired,
                 library: pc.library.as_ref(),
+                classic: pc.classic,
                 last_played: pc.last_played.as_ref(),
                 collections: pc.collections.as_ref(),
                 session: pc.session.as_ref(),
@@ -1854,6 +1991,7 @@ mod tests {
             online: true,
             paired: true,
             library: Some(lib.clone()),
+            classic: false,
             last_played: Some([(lib.games[0].install_id.clone(), 100)].into()),
             collections: Some(in_collections(&lib)),
             session: Some(idle()),
@@ -1902,6 +2040,7 @@ mod tests {
         ("a pc tells another unique id", true, |pcs, _| pcs[1].unique_id = "zwei".into()),
         ("a pc is unpaired", false, |pcs, _| pcs[0].paired = false),
         ("a pc gives host control", false, |pcs, _| pcs[0].host_control = true),
+        ("a library turns out to be an app list", false, |pcs, _| pcs[0].classic = true),
         ("a pc is removed", true, |pcs, _| drop(pcs.remove(1))),
         ("a pc is added", true, |pcs, _| {
             let mut pc = pcs[0].clone();

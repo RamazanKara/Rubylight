@@ -18,6 +18,7 @@ fn launcher(console_home: bool, home_ready: bool) -> Launcher {
     let display = Display { width: 1920, height: 1080, refresh_hz: 60.0, refresh_reported: true };
     let mut launcher = Launcher::new(settings, Profiles::default(), crate::shortcuts::Shortcuts::default(), display);
     launcher.home_ready = home_ready;
+    launcher.home_root = home_ready;
     launcher
 }
 

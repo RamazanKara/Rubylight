@@ -1362,6 +1362,16 @@ impl App {
                 eprintln!("nightjar: saving the library failed: {e}");
             }
         }
+        for (unique_id, apps) in self.hosts.take_classic_saves() {
+            match apps {
+                Some(apps) => {
+                    if let Err(e) = self.store.save_classic_apps(&unique_id, &apps) {
+                        eprintln!("nightjar: saving the app list failed: {e}");
+                    }
+                }
+                None => self.store.forget_classic_apps(&unique_id),
+            }
+        }
         for event in events {
             match event {
                 HostEvent::Paired { id, result, .. } => {

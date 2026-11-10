@@ -182,6 +182,10 @@ pub struct Host {
     /// own size is not in it.
     art_sized: HashMap<i32, f32>,
     pub native: Native,
+    /// The last app list of a PC without the native library, as saved for Home (live or from an
+    /// earlier run), and the same as a library with the running app marked ([`Host::library`]).
+    pub classic_apps: Option<crate::config::ClassicApps>,
+    pub classic: Option<Library>,
     /// Bumped when the PC is unpaired, so a native read that started before is dropped.
     native_epoch: u64,
     /// Counts native reads and actions, in the order they started or landed.
@@ -265,6 +269,32 @@ impl Host {
             || (self.info.is_none() && self.native.library.is_some())
     }
 
+    /// The games Home shows for the PC: its native library, else its app list as a library
+    /// ([`crate::console::classic_library`]).
+    pub fn library(&self) -> Option<&Library> {
+        self.native.library.as_ref().or(self.classic.as_ref())
+    }
+
+    /// Takes in the PC's app list as Home keeps it: None drops it. True when it changed and is to
+    /// be saved (or forgotten).
+    fn set_classic_apps(&mut self, apps: Option<crate::config::ClassicApps>) -> bool {
+        let changed = self.classic_apps != apps;
+        self.classic_apps = apps;
+        self.sync_classic();
+        changed
+    }
+
+    /// Makes the app list's library again, with the app the PC reports running now (none while
+    /// it is away).
+    fn sync_classic(&mut self) {
+        let running = self
+            .info
+            .as_ref()
+            .filter(|_| self.reach == Reach::Online)
+            .map(|i| (i.current_game, i.current_game_uuid.as_deref()));
+        self.classic = self.classic_apps.as_ref().map(|apps| crate::console::classic_library(apps, running));
+    }
+
     pub fn session_reads(&self) -> crate::open_play::SessionReads {
         crate::open_play::SessionReads { asked: self.native_seq, answered: self.session_seq }
     }
@@ -312,7 +342,7 @@ impl Host {
     /// library's where it lists the app, else the app list's `ArtVersion`, else none. Pages that
     /// asked with versions of their own had each other's covers fetched again.
     pub fn cover_version(&self, app: i32) -> &str {
-        let listed = self.native.library.as_ref().and_then(|l| l.games.iter().find(|g| g.app_id == app as u32));
+        let listed = self.library().and_then(|l| l.games.iter().find(|g| g.app_id == app as u32));
         match (listed, &self.apps) {
             (Some(game), _) => &game.artwork.version,
             (None, Apps::Loaded(apps)) => apps.iter().find(|a| a.id == app).map_or("", |a| &a.art_version),
@@ -627,6 +657,8 @@ pub struct Hosts {
     link_claims: HashMap<u64, [u8; 32]>,
     /// Hosts whose live library changed since the last `take_library_saves`.
     library_saves: Vec<u64>,
+    /// Hosts whose app list as Home keeps it changed since the last `take_classic_saves`.
+    classic_saves: Vec<u64>,
     /// The threads covers load on.
     art_pool: ArtPool,
     /// The cover files on disk, for the workers that save one.
@@ -1078,6 +1110,7 @@ impl Hosts {
             pairing_generation: 0,
             link_claims: HashMap::new(),
             library_saves: Vec::new(),
+            classic_saves: Vec::new(),
             art_pool: ArtPool::default(),
             art_files: Arc::default(),
             art_scale: 1.0,
@@ -1120,6 +1153,8 @@ impl Hosts {
             art_versions: HashMap::new(),
             art_sized: HashMap::new(),
             native: Native::default(),
+            classic_apps: None,
+            classic: None,
             native_epoch: 0,
             native_seq: 0,
             action_seq: 0,
@@ -1666,6 +1701,7 @@ impl Hosts {
         host.art_versions.clear();
         host.art_sized.clear();
         host.native = Native::default();
+        host.set_classic_apps(None);
         host.native_epoch += 1;
     }
 
@@ -1896,9 +1932,27 @@ impl Hosts {
                 let saved = store.library(&host.record.unique_id);
                 host.native.last_played = saved.as_ref().map(|l| l.last_played.clone()).unwrap_or_default();
                 host.native.collections = saved.as_ref().map(|l| l.collections.clone()).unwrap_or_default();
+                // A PC without the native library: the app list it sent last.
+                let classic = saved.is_none().then(|| store.classic_apps(&host.record.unique_id)).flatten();
                 host.native.library = saved.map(|l| l.library);
+                host.set_classic_apps(classic);
             }
         }
+    }
+
+    /// The app lists read since the last call, by the PC's `uniqueid`: Some to save, None to
+    /// forget (the PC turned out to have the native library).
+    pub fn take_classic_saves(&mut self) -> Vec<(String, Option<crate::config::ClassicApps>)> {
+        std::mem::take(&mut self.classic_saves)
+            .into_iter()
+            .filter_map(|id| {
+                let host = self.get(id)?;
+                // A PC unpaired while its list was in flight must not get it back.
+                host.record.server_certificate.as_ref()?;
+                Some((host.record.unique_id.clone(), host.classic_apps.clone()))
+            })
+            .filter(|(unique_id, _)| !unique_id.is_empty())
+            .collect()
     }
 
     /// The libraries read since the last call, by the PC's `uniqueid`, to be saved.
@@ -2133,6 +2187,7 @@ impl Hosts {
                     }
                     changed |= self.apply_info(id, address, result);
                     self.follow_native(id);
+                    self.follow_classic(id);
                     self.check_foundation_probe(id);
                 }
                 Event::FoundationProbe { id, unique_id, found } => {
@@ -2168,14 +2223,25 @@ impl Hosts {
                     out.push(Event::Paired { id, request, result });
                 }
                 Event::Apps { id, result } => {
+                    let mut save = false;
                     if let Some(host) = self.get_mut(id) {
                         host.apps = match result {
                             Ok(mut apps) => {
                                 apps.sort_by_key(|a| a.host_index.unwrap_or(u32::MAX));
+                                // Home shows a paired PC's app list where it has no native library,
+                                // and keeps it for when the PC is away.
+                                if host.record.server_certificate.is_some() && !host.native_api() {
+                                    save = host.set_classic_apps(Some(crate::config::ClassicApps::of(&apps)));
+                                } else if host.native_api() {
+                                    save = host.set_classic_apps(None);
+                                }
                                 Apps::Loaded(apps)
                             }
                             Err(e) => Apps::Failed(e),
                         };
+                    }
+                    if save && !self.classic_saves.contains(&id) {
+                        self.classic_saves.push(id);
                     }
                 }
                 Event::ArtAway { id, app, version } => {
@@ -2383,6 +2449,15 @@ impl Hosts {
         }
     }
 
+    /// A paired PC that was just checked and has no native API: read its app list once per run,
+    /// so Home shows its games and a start from Home has the list it goes through.
+    fn follow_classic(&mut self, id: u64) {
+        let Some(host) = self.get(id) else { return };
+        if host.reach == Reach::Online && host.paired() && host.info.is_some() && !host.native_api() && matches!(host.apps, Apps::NotLoaded) {
+            self.load_apps(id);
+        }
+    }
+
     /// Asks a paired Sunshine-family PC once whether it has Foundation Sunshine's bandwidth test,
     /// so Test speed is offered only where it runs. A request that did not get through is asked
     /// again after the next poll.
@@ -2530,6 +2605,7 @@ impl Hosts {
                         host.record.full_chroma = Default::default();
                     }
                     host.native = Native::default();
+                    host.set_classic_apps(None);
                     host.native_epoch += 1;
                     host.foundation_probe = None;
                 }
@@ -2559,6 +2635,7 @@ impl Hosts {
                     host.apps = Apps::NotLoaded;
                     // Its grants (folders, files, USB, co-op) went with the pairing; a read in flight is dropped.
                     host.native = Native::default();
+                    host.set_classic_apps(None);
                     host.native_epoch += 1;
                     changed = true;
                 }
@@ -2573,6 +2650,7 @@ impl Hosts {
                 host.error = Some(e);
             }
         }
+        host.sync_classic();
         changed
     }
 
@@ -3306,6 +3384,80 @@ pub(crate) mod tests {
         let automatic = &hosts.list[0].record;
         assert_eq!(automatic.pinned_address, None);
         assert_eq!(poll_addresses(automatic), ["fd00::5", "10.0.0.5", "192.0.2.1"], "back to the automatic pick");
+    }
+
+    fn classic_app(id: i32, name: &str, uuid: &str, control: AppControl) -> App {
+        App { name: name.into(), id, hdr_supported: false, uuid: uuid.into(), host_index: None, art_version: format!("v{id}"), control, monitor_resume: false }
+    }
+
+    #[test]
+    fn a_classic_pcs_app_list_becomes_its_home_library_and_is_saved() {
+        let apps = vec![
+            classic_app(1, "Desktop", "D-1", AppControl::None),
+            classic_app(2, "Hades", "", AppControl::None),
+            classic_app(3, "Terminate", "E16CBE1B-295D-4632-9A76-EC4180C857D3", AppControl::Terminate),
+        ];
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        info_lands(&mut hosts, id, stock_info());
+        assert!(hosts.list[0].library().is_none(), "nothing before the list is read");
+        send(&mut hosts, Event::Apps { id, result: Ok(apps.clone()) });
+        let pc = &hosts.list[0];
+        let games: Vec<_> = pc.library().unwrap().games.iter().map(|g| (g.app_id, g.title.as_str(), g.running)).collect();
+        assert_eq!(games, [(1, "Desktop", false), (2, "Hades", false)], "the games, not the control tiles");
+        assert_eq!(pc.cover_version(2), "v2", "covers at the list's box art version");
+        let source = crate::console::Source::of(pc);
+        assert!(source.classic && source.library.is_some());
+        let saves = hosts.take_classic_saves();
+        assert_eq!(saves.len(), 1);
+        assert_eq!((saves[0].0.as_str(), saves[0].1.as_ref().map(|a| a.apps.len())), ("uid", Some(2)));
+        send(&mut hosts, Event::Apps { id, result: Ok(apps.clone()) });
+        assert!(hosts.take_classic_saves().is_empty(), "the same list is not saved again");
+
+        // currentgame marks the running app while the PC answers; away, nothing runs.
+        let mut playing = stock_info();
+        playing.current_game = 2;
+        info_lands(&mut hosts, id, playing);
+        assert!(hosts.list[0].library().unwrap().games[1].running);
+        let seq = hosts.list[0].info_seq + 1;
+        send(&mut hosts, Event::Info { id, seq, address: "192.0.2.1".into(), result: Err("timed out".into()) });
+        assert!(hosts.list[0].library().unwrap().games.iter().all(|g| !g.running));
+        assert!(hosts.list[0].library().is_some(), "the list stays for Home while the PC is away");
+
+        // Unpaired, the list goes with the pairing.
+        send(&mut hosts, Event::Unpaired { id, result: Ok(()) });
+        assert!(hosts.list[0].library().is_none() && hosts.list[0].classic_apps.is_none());
+
+        // A PC with the native library keeps no app list for Home, and one kept is forgotten.
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        hosts.list[0].classic_apps = Some(crate::config::ClassicApps::of(&apps));
+        let id = hosts.list[0].id;
+        info_lands(&mut hosts, id, native_info());
+        send(&mut hosts, Event::Apps { id, result: Ok(apps) });
+        assert!(hosts.list[0].classic.is_none() && !crate::console::Source::of(&hosts.list[0]).classic);
+        let saves = hosts.take_classic_saves();
+        assert_eq!((saves.len(), saves[0].1.is_none()), (1, true), "the saved list is forgotten");
+    }
+
+    #[test]
+    fn a_saved_app_list_shows_while_the_pc_is_away_unless_a_native_library_is_saved() {
+        let (store, dir) = art_store("classic-saved");
+        let apps = crate::config::ClassicApps::of(&[classic_app(4, "Celeste", "C-4", AppControl::None)]);
+        store.save_classic_apps("uid", &apps).unwrap();
+        store.save_classic_apps("native", &apps).unwrap();
+        store.save_library("native", &library().into()).unwrap();
+        let mut unpaired = paired_record("gone");
+        unpaired.server_certificate = None;
+        store.save_classic_apps("gone", &apps).unwrap();
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid"), paired_record("native"), unpaired], Arc::new(|| {}));
+        hosts.load_cached_libraries(&store);
+        let titles = |pc: &Host| pc.library().map(|l| l.games.iter().map(|g| g.title.clone()).collect::<Vec<_>>());
+        assert_eq!(titles(&hosts.list[0]), Some(vec!["Celeste".to_owned()]));
+        assert!(crate::console::Source::of(&hosts.list[0]).classic);
+        assert_ne!(titles(&hosts.list[1]), Some(vec!["Celeste".to_owned()]), "the native library wins");
+        assert!(!crate::console::Source::of(&hosts.list[1]).classic);
+        assert!(hosts.list[2].library().is_none(), "nothing for a PC not paired");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

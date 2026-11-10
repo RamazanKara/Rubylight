@@ -7,4 +7,6 @@
     <dimen name="settings_value_max_width">180dp</dimen>
     <dimen name="settings_rail_width">260dp</dimen>
     <dimen name="settings_rail_row">44dp</dimen>
+    <!-- Scrolled, the rows fade out under the title over this much, as they fade into the foot at the bottom (Nightjar #61). -->
+    <dimen name="settings_top_fade">56dp</dimen>
 </resources>
